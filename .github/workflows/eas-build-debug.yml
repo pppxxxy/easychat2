@@ -20,6 +20,12 @@ jobs:
         with:
           node-version: 20
 
+      - name: Initialize EAS project
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli@latest init --non-interactive --force
+
       - name: Show EAS build metadata
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
