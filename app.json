@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "EasyChat2",
+    "slug": "easychat2",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#1a1a2e"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.pppxxxy.easychat2"
+    }
+  }
+}
