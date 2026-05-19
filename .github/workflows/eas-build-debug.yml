@@ -1,0 +1,33 @@
+name: EAS Build Debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'EAS build id'
+        required: true
+        default: 'cc92cd4b-073b-4683-b1c8-02e6101c005f'
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Show EAS build metadata
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli@latest build:view "${{ github.event.inputs.build_id }}" --json | tee eas-build-metadata.json
+
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eas-build-metadata
+          path: eas-build-metadata.json
