@@ -13,6 +13,11 @@
     ],
     "android": {
       "package": "com.pppxxxy.easychat2"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fee286ec-f845-4436-a5a2-3b9ade3a5d4c"
+      }
     }
   }
 }
