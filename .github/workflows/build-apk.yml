@@ -1,9 +1,11 @@
 name: Build APK
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
