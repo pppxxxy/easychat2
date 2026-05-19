@@ -32,8 +32,58 @@ jobs:
         run: |
           npx eas-cli@latest build:view "${{ github.event.inputs.build_id }}" --json | tee eas-build-metadata.json
 
-      - name: Upload metadata artifact
+      - name: Download and inspect EAS logs
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const cp = require('child_process');
+          const raw = fs.readFileSync('eas-build-metadata.json', 'utf8');
+          const jsonStart = raw.indexOf('{');
+          const data = JSON.parse(raw.slice(jsonStart));
+          console.log('Build status:', data.status);
+          console.log('Build error:', JSON.stringify(data.error || {}, null, 2));
+          const urls = data.logFiles || [];
+          console.log('Log files:', urls.length);
+          for (let i = 0; i < urls.length; i++) {
+            const out = `eas-log-${i}.txt`;
+            console.log(`Downloading log ${i + 1}/${urls.length}...`);
+            cp.execFileSync('curl', ['-L', '--fail', '--silent', '--show-error', urls[i], '-o', out], { stdio: 'inherit' });
+            let text = fs.readFileSync(out, 'utf8');
+            text = text.replace(/\x1b\[[0-9;]*m/g, '');
+            fs.writeFileSync(out, text);
+            const lines = text.split(/\r?\n/);
+            const needles = [
+              'Run gradlew',
+              'FAILURE: Build failed',
+              'What went wrong',
+              '* What went wrong',
+              'Execution failed',
+              'BUILD FAILED',
+              'error:',
+              'Exception'
+            ];
+            const hits = [];
+            for (let idx = 0; idx < lines.length; idx++) {
+              if (needles.some(n => lines[idx].includes(n))) hits.push(idx);
+            }
+            const selected = new Set();
+            for (const idx of hits) {
+              for (let j = Math.max(0, idx - 25); j <= Math.min(lines.length - 1, idx + 80); j++) selected.add(j);
+            }
+            console.log(`\n===== EXTRACTED IMPORTANT LOG CONTEXT ${i} =====`);
+            if (!selected.size) {
+              console.log(lines.slice(Math.max(0, lines.length - 250)).join('\n'));
+            } else {
+              [...selected].sort((a,b)=>a-b).forEach(n => console.log(`${String(n+1).padStart(5)} | ${lines[n]}`));
+            }
+            console.log(`===== END IMPORTANT LOG CONTEXT ${i} =====\n`);
+          }
+          NODE
+
+      - name: Upload metadata and logs artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eas-build-metadata
-          path: eas-build-metadata.json
+          name: eas-build-debug-output
+          path: |
+            eas-build-metadata.json
+            eas-log-*.txt
