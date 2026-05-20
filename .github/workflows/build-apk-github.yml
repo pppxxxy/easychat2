@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Android APK without EAS
+    name: Build Android APK without EAS,
     runs-on: ubuntu-latest
 
     steps:
@@ -38,6 +38,15 @@ jobs:
 
       - name: Make Gradle executable
         run: chmod +x android/gradlew
+
+      - name: Embed JS bundle into debug APK
+        run: |
+          mkdir -p android/app/src/main/assets
+          npx expo export:embed --platform android \
+            --entry-file node_modules/expo/AppEntry.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res \
+            --dev false
 
       - name: Build debug APK
         working-directory: android
