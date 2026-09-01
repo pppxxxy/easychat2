@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,8 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { sendChatMessage } from './api';
+import { getCharacter, getMessages, saveMessages } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -32,11 +34,45 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [character, setCharacter] = useState({
+    name: 'EasyChat2 助手',
+    systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。'
+  });
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd?.({ animated: true });
     });
+  }, []);
+
+  useEffect(() => {
+    getMessages().then(list => {
+      setMessages(list);
+      setReady(true);
+    });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      getCharacter().then(setCharacter);
+    }, [])
+  );
+
+  useEffect(() => {
+    if (!ready) return;
+    saveMessages(messages);
+  }, [messages, ready]);
+
+  const onClear = useCallback(() => {
+    Alert.alert('清空聊天', '确定删除当前会话记录吗？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '清空',
+        style: 'destructive',
+        onPress: () => setMessages([])
+      }
+    ]);
   }, []);
 
   const onSend = useCallback(async () => {
@@ -67,8 +103,15 @@ export default function ChatScreen() {
         content: item.text,
       }));
 
+      const systemPrompt = (character.systemPrompt || '').trim()
+        || '你是 EasyChat2 的智能助手，回答简洁清晰。';
+      const characterName = (character.name || '').trim();
+      const systemContent = characterName
+        ? `你的名字是${characterName}。${systemPrompt}`
+        : systemPrompt;
+
       const reply = await sendChatMessage([
-        { role: 'system', content: '你是 EasyChat2 的智能助手，回答简洁清晰。' },
+        { role: 'system', content: systemContent },
         ...history,
         { role: 'user', content: text },
       ]);
@@ -87,7 +130,7 @@ export default function ChatScreen() {
       setIsSending(false);
       scrollToBottom();
     }
-  }, [input, isSending, messages, scrollToBottom]);
+  }, [character.name, character.systemPrompt, input, isSending, messages, scrollToBottom]);
 
   return (
     <KeyboardAvoidingView
@@ -105,7 +148,10 @@ export default function ChatScreen() {
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>开始聊天</Text>
-            <Text style={styles.emptyText}>请先在“设置”里填写 API Key，然后输入消息。</Text>
+            <Text style={styles.emptyText}>
+              当前角色：{character.name || 'EasyChat2 助手'}{'\n'}
+              请先在“设置”里填写 API Key，然后输入消息。
+            </Text>
           </View>
         ) : (
           messages.map(message => <MessageBubble key={message.id} message={message} />)
@@ -113,6 +159,11 @@ export default function ChatScreen() {
       </ScrollView>
 
       <View style={styles.inputBar}>
+        {messages.length > 0 ? (
+          <TouchableOpacity style={styles.clearButton} onPress={onClear} disabled={isSending}>
+            <Text style={styles.clearText}>清空</Text>
+          </TouchableOpacity>
+        ) : null}
         <TextInput
           style={styles.input}
           value={input}
@@ -230,5 +281,15 @@ const styles = StyleSheet.create({
   sendText: {
     color: '#fff',
     fontWeight: '800',
+  },
+  clearButton: {
+    marginRight: 8,
+    height: 42,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  clearText: {
+    color: '#aaa',
+    fontWeight: '700',
   },
 });

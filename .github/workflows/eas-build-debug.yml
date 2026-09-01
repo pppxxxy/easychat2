@@ -6,7 +6,6 @@ on:
       build_id:
         description: 'EAS build id'
         required: true
-        default: 'cc92cd4b-073b-4683-b1c8-02e6101c005f'
 
 jobs:
   debug:
@@ -19,12 +18,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Initialize EAS project
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          npx eas-cli@latest init --non-interactive --force
 
       - name: Show EAS build metadata
         env:

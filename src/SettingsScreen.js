@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+} from 'react-native';
 
 import { getApiConfig, saveApiConfig } from './storage';
 
@@ -17,30 +26,67 @@ export default function SettingsScreen() {
   }, []);
 
   const save = async () => {
-    await saveApiConfig({ baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() });
+    await saveApiConfig({
+      baseUrl: baseUrl.trim(),
+      model: model.trim(),
+      apiKey: apiKey.trim()
+    });
     Alert.alert('已保存', 'API 配置已保存到本机。');
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>设置</Text>
-      <Text style={styles.label}>API 地址</Text>
-      <TextInput style={styles.input} value={baseUrl} onChangeText={setBaseUrl} autoCapitalize="none" placeholderTextColor="#888" />
-      <Text style={styles.label}>模型</Text>
-      <TextInput style={styles.input} value={model} onChangeText={setModel} autoCapitalize="none" placeholderTextColor="#888" />
-      <Text style={styles.label}>API Key</Text>
-      <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} secureTextEntry autoCapitalize="none" placeholder="sk-..." placeholderTextColor="#888" />
-      <TouchableOpacity style={styles.button} onPress={save}>
-        <Text style={styles.buttonText}>保存配置</Text>
-      </TouchableOpacity>
-    </View>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>设置</Text>
+        <Text style={styles.label}>API 地址</Text>
+        <TextInput
+          style={styles.input}
+          value={baseUrl}
+          onChangeText={setBaseUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="https://api.deepseek.com"
+          placeholderTextColor="#888"
+        />
+        <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
+        <Text style={styles.label}>模型</Text>
+        <TextInput
+          style={styles.input}
+          value={model}
+          onChangeText={setModel}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="deepseek-chat"
+          placeholderTextColor="#888"
+        />
+        <Text style={styles.label}>API Key</Text>
+        <TextInput
+          style={styles.input}
+          value={apiKey}
+          onChangeText={setApiKey}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="sk-..."
+          placeholderTextColor="#888"
+        />
+        <TouchableOpacity style={styles.button} onPress={save}>
+          <Text style={styles.buttonText}>保存配置</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1, backgroundColor: '#1a1a2e' },
   container: { flex: 1, backgroundColor: '#1a1a2e', padding: 20 },
   title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 18 },
   label: { color: '#fff', marginTop: 14, marginBottom: 6, fontWeight: '700' },
+  hint: { color: '#888', fontSize: 12, marginTop: 6, lineHeight: 18 },
   input: { backgroundColor: '#2d2d44', color: '#fff', padding: 12, borderRadius: 8 },
   button: { backgroundColor: '#6c63ff', padding: 14, borderRadius: 8, marginTop: 24, alignItems: 'center' },
   buttonText: { color: '#fff', fontWeight: '800' }

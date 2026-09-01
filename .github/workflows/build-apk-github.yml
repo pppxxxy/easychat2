@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Android APK without EAS,
+    name: Build Android APK without EAS
     runs-on: ubuntu-latest
 
     steps:
@@ -39,23 +39,44 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x android/gradlew
 
-      - name: Embed JS bundle into debug APK
+      - name: Configure preview release signing
         run: |
-          mkdir -p android/app/src/main/assets
-          npx expo export:embed --platform android \
-            --entry-file node_modules/expo/AppEntry.js \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res \
-            --dev false
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
-      - name: Build debug APK
+          gradle = Path('android/app/build.gradle')
+          text = gradle.read_text()
+          updated, count = re.subn(
+              r'(release\s*\{(?:[^{}]|\{[^{}]*\})*?)signingConfig\s+signingConfigs\.\w+',
+              r'\1signingConfig signingConfigs.debug',
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count == 0:
+              updated = text.replace(
+                  'release {',
+                  'release {\n            signingConfig signingConfigs.debug',
+                  1,
+              )
+          gradle.write_text(updated)
+
+          props = Path('android/gradle.properties')
+          extra = 'org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m\n'
+          current = props.read_text() if props.exists() else ''
+          if 'org.gradle.jvmargs' not in current:
+              props.write_text(current + extra)
+          PY
+
+      - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: easychat2-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: easychat2-apk
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
