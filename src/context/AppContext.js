@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { Alert } from 'react-native';
 
 import { DEFAULT_CHARACTER, getCharacter, saveCharacter } from '../storage';
 
@@ -28,8 +29,14 @@ export function AppProvider({ children }) {
         ...character,
         ...patch
       };
+      const oldCharacter = character;
       setCharacterState(merged);
-      await saveCharacter(merged);
+      try {
+        await saveCharacter(merged);
+      } catch (error) {
+        setCharacterState(oldCharacter);
+        Alert.alert('保存失败，请检查存储空间或权限');
+      }
       return merged;
     },
     [character]
