@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,32 +10,32 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 
-import { getCharacter, saveCharacter } from './storage';
+import { useApp } from './context/AppContext';
 
 export default function CharacterScreen() {
-  const [name, setName] = useState('EasyChat2 助手');
-  const [systemPrompt, setSystemPrompt] = useState('你是 EasyChat2 的智能助手，回答简洁清晰。');
+  const { character, loaded, updateCharacter } = useApp();
+  const [name, setName] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const seededRef = useRef(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      getCharacter().then(character => {
-        setName(character.name || '');
-        setSystemPrompt(character.systemPrompt || '');
-      });
-    }, [])
-  );
+  useEffect(() => {
+    if (loaded && !seededRef.current) {
+      seededRef.current = true;
+      setName(character.name || '');
+      setSystemPrompt(character.systemPrompt || '');
+    }
+  }, [loaded, character]);
 
   const save = async () => {
     const next = {
       name: name.trim() || 'EasyChat2 助手',
       systemPrompt: systemPrompt.trim() || '你是 EasyChat2 的智能助手，回答简洁清晰。'
     };
-    await saveCharacter(next);
+    await updateCharacter(next);
     setName(next.name);
     setSystemPrompt(next.systemPrompt);
-    Alert.alert('已保存', '角色设定会在下次发送消息时生效。');
+    Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
   };
 
   return (

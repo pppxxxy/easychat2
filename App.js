@@ -11,6 +11,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import ChatScreen from './src/ChatScreen';
 import CharacterScreen from './src/CharacterScreen';
 import SettingsScreen from './src/SettingsScreen';
+import { AppProvider } from './src/context/AppContext';
 
 const Tab = createBottomTabNavigator();
 
@@ -40,7 +41,8 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer theme={theme}>
+        <AppProvider>
+          <NavigationContainer theme={theme}>
           <StatusBar style="light" />
           <Header />
           <Tab.Navigator
@@ -55,7 +57,8 @@ export default function App() {
             <Tab.Screen name="角色" component={CharacterScreen} />
             <Tab.Screen name="设置" component={SettingsScreen} />
           </Tab.Navigator>
-        </NavigationContainer>
+          </NavigationContainer>
+        </AppProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

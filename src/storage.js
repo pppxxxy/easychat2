@@ -10,7 +10,7 @@ const DEFAULT_API_CONFIG = {
   apiKey: ''
 };
 
-const DEFAULT_CHARACTER = {
+export const DEFAULT_CHARACTER = {
   name: 'EasyChat2 助手',
   systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。'
 };

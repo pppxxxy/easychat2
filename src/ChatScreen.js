@@ -10,10 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 
 import { sendChatMessage } from './api';
-import { getCharacter, getMessages, saveMessages } from './storage';
+import { useApp } from './context/AppContext';
+import { getMessages, saveMessages } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -31,14 +31,11 @@ function MessageBubble({ message }) {
 
 export default function ChatScreen() {
   const scrollRef = useRef(null);
+  const { character } = useApp();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
-  const [character, setCharacter] = useState({
-    name: 'EasyChat2 助手',
-    systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。'
-  });
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -52,12 +49,6 @@ export default function ChatScreen() {
       setReady(true);
     });
   }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      getCharacter().then(setCharacter);
-    }, [])
-  );
 
   useEffect(() => {
     if (!ready) return;
