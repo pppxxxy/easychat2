@@ -22,15 +22,18 @@ export function AppProvider({ children }) {
     });
   }, []);
 
-  const updateCharacter = useCallback(async patch => {
-    const merged = {
-      ...DEFAULT_CHARACTER,
-      ...patch
-    };
-    setCharacterState(merged);
-    await saveCharacter(merged);
-    return merged;
-  }, []);
+  const updateCharacter = useCallback(
+    async patch => {
+      const merged = {
+        ...character,
+        ...patch
+      };
+      setCharacterState(merged);
+      await saveCharacter(merged);
+      return merged;
+    },
+    [character]
+  );
 
   const value = useMemo(
     () => ({ character, loaded, updateCharacter }),
