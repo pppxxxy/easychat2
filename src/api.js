@@ -35,25 +35,37 @@ export async function sendChatMessage(messages) {
 
   const model = config.model || 'deepseek-chat';
   const url = normalizeChatUrl(config.baseUrl);
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`
-    },
-    body: JSON.stringify({ model, messages, stream: false })
-  });
-
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(formatApiError(text, response.status));
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const data = JSON.parse(text);
-    return data.choices?.[0]?.message?.content || '没有收到回复。';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({ model, messages, stream: false }),
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(formatApiError(text, response.status));
+    }
+
+    try {
+      const data = JSON.parse(text);
+      return data.choices?.[0]?.message?.content || '没有收到回复。';
+    } catch (error) {
+      throw new Error('接口返回了无法解析的内容。');
+    }
   } catch (error) {
-    throw new Error('接口返回了无法解析的内容。');
+    if (error?.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络后重试');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
