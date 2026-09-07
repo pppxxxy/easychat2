@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 
 import { sendChatMessage } from './api';
 import { useApp } from './context/AppContext';
@@ -17,6 +18,30 @@ import { getMessages, saveMessages } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
+const SYSTEM_ERROR_ID = 'system-error';
+const SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g;
+
+function maskSecrets(text) {
+  return String(text || '').replace(SECRET_PATTERN, '[API_KEY已隐藏]');
+}
+
+function getHttpStatus(error) {
+  return error?.status || error?.statusCode || error?.response?.status || null;
+}
+
+function buildErrorRawText(error) {
+  const message = error?.message || '请检查 API 配置或网络连接。';
+  const status = getHttpStatus(error);
+  const stack = error?.stack || '';
+  const lines = [message];
+  if (status) {
+    lines.push(`HTTP 状态码: ${status}`);
+  }
+  if (stack) {
+    lines.push(stack);
+  }
+  return lines.join('\n');
+}
 
 function MessageBubble({ message }) {
   const isUser = message.role === USER_ID;
@@ -29,8 +54,43 @@ function MessageBubble({ message }) {
   );
 }
 
+function ErrorBubble({ message, rawError, onCopied }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = useCallback(async () => {
+    const payload = rawError || message.detail || message.text || '';
+    await Clipboard.setStringAsync(payload);
+    setCopied(true);
+    onCopied?.();
+    setTimeout(() => setCopied(false), 1500);
+  }, [message.detail, message.text, onCopied, rawError]);
+
+  return (
+    <View style={[styles.messageRow, styles.messageRowLeft]}>
+      <View style={[styles.bubble, styles.errorBubble]}>
+        <Text style={styles.errorBadge}>系统报错</Text>
+        <TouchableOpacity onPress={() => setExpanded(current => !current)} activeOpacity={0.8}>
+          <Text style={styles.errorSummary}>请求失败，点击查看详情</Text>
+        </TouchableOpacity>
+        {expanded ? (
+          <Text style={styles.errorDetail} selectable>
+            {maskSecrets(message.detail || message.text || '')}
+          </Text>
+        ) : null}
+        <View style={styles.errorActions}>
+          <TouchableOpacity style={styles.copyButton} onPress={onCopy}>
+            <Text style={styles.copyButtonText}>{copied ? '已复制' : '复制报错'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const scrollRef = useRef(null);
+  const errorRawRef = useRef({});
   const { character } = useApp();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
@@ -61,7 +121,10 @@ export default function ChatScreen() {
       {
         text: '清空',
         style: 'destructive',
-        onPress: () => setMessages([])
+        onPress: () => {
+          errorRawRef.current = {};
+          setMessages([]);
+        }
       }
     ]);
   }, []);
@@ -89,10 +152,12 @@ export default function ChatScreen() {
     scrollToBottom();
 
     try {
-      const history = messages.map(item => ({
-        role: item.role === USER_ID ? 'user' : 'assistant',
-        content: item.text,
-      }));
+      const history = messages
+        .filter(item => item.role === USER_ID || item.role === ASSISTANT_ID)
+        .map(item => ({
+          role: item.role === USER_ID ? 'user' : 'assistant',
+          content: item.text,
+        }));
 
       const systemPrompt = (character.systemPrompt || '').trim()
         || '你是 EasyChat2 的智能助手，回答简洁清晰。';
@@ -115,8 +180,17 @@ export default function ChatScreen() {
         )
       );
     } catch (error) {
-      Alert.alert('发送失败', error?.message || '请检查 API 配置或网络连接。');
-      setMessages(current => current.filter(item => item.id !== pendingAssistantMessage.id));
+      const rawText = buildErrorRawText(error);
+      const errorMessage = {
+        id: pendingAssistantMessage.id,
+        role: SYSTEM_ERROR_ID,
+        text: '请求失败，点击查看详情',
+        detail: maskSecrets(rawText),
+      };
+      errorRawRef.current[errorMessage.id] = rawText;
+      setMessages(current =>
+        current.map(item => (item.id === pendingAssistantMessage.id ? errorMessage : item))
+      );
     } finally {
       setIsSending(false);
       scrollToBottom();
@@ -145,7 +219,17 @@ export default function ChatScreen() {
             </Text>
           </View>
         ) : (
-          messages.map(message => <MessageBubble key={message.id} message={message} />)
+          messages.map(message =>
+            message.role === SYSTEM_ERROR_ID ? (
+              <ErrorBubble
+                key={message.id}
+                message={message}
+                rawError={errorRawRef.current[message.id]}
+              />
+            ) : (
+              <MessageBubble key={message.id} message={message} />
+            )
+          )
         )}
       </ScrollView>
 
@@ -230,6 +314,45 @@ const styles = StyleSheet.create({
   assistantBubble: {
     backgroundColor: '#2d2d44',
     borderBottomLeftRadius: 6,
+  },
+  errorBubble: {
+    backgroundColor: '#5a1d1d',
+    borderColor: '#8b2e2e',
+    borderWidth: 1,
+    borderBottomLeftRadius: 6,
+    maxWidth: '92%',
+  },
+  errorBadge: {
+    color: '#ffb4b4',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  errorSummary: {
+    color: '#ffd6d6',
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  errorDetail: {
+    color: '#ffd6d6',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 10,
+  },
+  errorActions: {
+    marginTop: 10,
+    alignItems: 'flex-end',
+  },
+  copyButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#7a2a2a',
+  },
+  copyButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   messageText: {
     color: '#fff',
