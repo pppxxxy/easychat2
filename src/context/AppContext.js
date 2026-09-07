@@ -36,6 +36,7 @@ export function AppProvider({ children }) {
       } catch (error) {
         setCharacterState(oldCharacter);
         Alert.alert('保存失败，请检查存储空间或权限');
+        throw error;
       }
       return merged;
     },
