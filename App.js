@@ -1,3 +1,4 @@
+import './src/polyfills';
 import 'react-native-gesture-handler';
 
 import React from 'react';

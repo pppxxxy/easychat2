@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "web": "expo start --web",
-    "build:apk": "eas build -p android --profile preview"
+    "build:apk": "eas build -p android --profile preview",
+    "prebuild": "npx expo prebuild --clean"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "1.21.0",
@@ -18,9 +19,9 @@
     "expo-clipboard": "~5.0.1",
     "expo-document-picker": "~11.10.0",
     "expo-file-system": "~16.0.0",
-    "expo-image-picker": "~14.7.0",
     "expo-status-bar": "~1.11.1",
     "expo-system-ui": "~2.9.4",
+    "graphql": "^15.10.3",
     "parsecard": "^2.0.4",
     "react": "18.2.0",
     "react-native": "^0.73.6",
@@ -31,8 +32,7 @@
     "react-native-vector-icons": "^10.0.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0",
-    "graphql": "^15.10.3"
+    "@babel/core": "^7.20.0"
   },
   "private": true
 }
