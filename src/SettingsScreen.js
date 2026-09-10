@@ -18,19 +18,43 @@ export default function SettingsScreen() {
   const [apiKey, setApiKey] = useState('');
 
   useEffect(() => {
-    getApiConfig().then(config => {
-      setBaseUrl(config.baseUrl || 'https://api.deepseek.com');
-      setModel(config.model || 'deepseek-chat');
-      setApiKey(config.apiKey || '');
-    });
+    getApiConfig()
+      .then(config => {
+        setBaseUrl(config.baseUrl || 'https://api.deepseek.com');
+        setModel(config.model || 'deepseek-chat');
+        setApiKey(config.apiKey || '');
+      })
+      .catch(() => {
+        Alert.alert('读取配置失败', '已使用默认配置，请重新填写后保存。');
+      });
   }, []);
 
   const save = async () => {
-    await saveApiConfig({
-      baseUrl: baseUrl.trim(),
-      model: model.trim(),
-      apiKey: apiKey.trim()
-    });
+    const trimmedBaseUrl = baseUrl.trim();
+    if (/^http:\/\//i.test(trimmedBaseUrl)) {
+      const confirmed = await new Promise(resolve => {
+        Alert.alert(
+          '当前使用 HTTP',
+          '该地址不是 HTTPS，API Key 会以明文传输，存在被窃听的风险。仍要保存吗？',
+          [
+            { text: '取消', style: 'cancel', onPress: () => resolve(false) },
+            { text: '仍然保存', style: 'destructive', onPress: () => resolve(true) }
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+      if (!confirmed) return;
+    }
+    try {
+      await saveApiConfig({
+        baseUrl: trimmedBaseUrl,
+        model: model.trim(),
+        apiKey: apiKey.trim()
+      });
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+      return;
+    }
     Alert.alert('已保存', 'API 配置已保存到本机。');
   };
 

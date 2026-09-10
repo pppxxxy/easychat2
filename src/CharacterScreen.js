@@ -79,6 +79,10 @@ export default function CharacterScreen() {
   }, [loaded, character]);
 
   const save = async () => {
+    if (!loaded) {
+      Alert.alert('角色加载中', '请稍候再保存。');
+      return;
+    }
     const next = {
       name: name.trim() || 'EasyChat2 助手',
       systemPrompt: systemPrompt.trim() || '你是 EasyChat2 的智能助手，回答简洁清晰。'
@@ -94,7 +98,7 @@ export default function CharacterScreen() {
   };
 
   const importCard = async () => {
-    if (importing) return;
+    if (importing || !loaded) return;
     setImporting(true);
 
     try {
@@ -146,7 +150,7 @@ export default function CharacterScreen() {
 
       const next = {
         name: parsed.name,
-        systemPrompt: parsed.description || character.systemPrompt || '',
+        systemPrompt: parsed.description || '',
       };
 
       try {
@@ -179,9 +183,9 @@ export default function CharacterScreen() {
           placeholderTextColor="#888"
         />
         <TouchableOpacity
-          style={[styles.importButton, importing && styles.buttonDisabled]}
+          style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
           onPress={importCard}
-          disabled={importing}
+          disabled={importing || !loaded}
         >
           <Text style={styles.importButtonText}>
             {importing ? '导入中...' : '导入角色卡'}
@@ -198,7 +202,11 @@ export default function CharacterScreen() {
           multiline
           textAlignVertical="top"
         />
-        <TouchableOpacity style={styles.button} onPress={save}>
+        <TouchableOpacity
+          style={[styles.button, !loaded && styles.buttonDisabled]}
+          onPress={save}
+          disabled={!loaded}
+        >
           <Text style={styles.buttonText}>保存角色</Text>
         </TouchableOpacity>
         <View style={{ height: 24 }} />

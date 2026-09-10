@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -91,6 +91,8 @@ function ErrorBubble({ message, rawError, onCopied }) {
 export default function ChatScreen() {
   const scrollRef = useRef(null);
   const errorRawRef = useRef({});
+  const lastSavedSnapshotRef = useRef(null);
+  const saveFailedRef = useRef(false);
   const { character } = useApp();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
@@ -103,17 +105,42 @@ export default function ChatScreen() {
     });
   }, []);
 
+  const persistableMessages = useMemo(
+    () => (messages || []).filter(item => item && !item.pending),
+    [messages]
+  );
+  const persistableSnapshot = useMemo(
+    () => JSON.stringify(persistableMessages),
+    [persistableMessages]
+  );
+
   useEffect(() => {
-    getMessages().then(list => {
-      setMessages(list);
-      setReady(true);
-    });
+    getMessages()
+      .then(list => {
+        const initial = Array.isArray(list) ? list : [];
+        lastSavedSnapshotRef.current = JSON.stringify(initial);
+        setMessages(initial);
+      })
+      .catch(() => {
+        lastSavedSnapshotRef.current = '[]';
+        setMessages([]);
+      })
+      .finally(() => {
+        setReady(true);
+      });
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    saveMessages(messages);
-  }, [messages, ready]);
+    if (persistableSnapshot === lastSavedSnapshotRef.current) return;
+    lastSavedSnapshotRef.current = persistableSnapshot;
+    saveMessages(persistableMessages).catch(() => {
+      if (!saveFailedRef.current) {
+        saveFailedRef.current = true;
+        Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
+      }
+    });
+  }, [persistableSnapshot, ready]);
 
   const onClear = useCallback(() => {
     Alert.alert('清空聊天', '确定删除当前会话记录吗？', [
