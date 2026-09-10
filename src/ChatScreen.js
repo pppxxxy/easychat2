@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import Markdown from 'react-native-markdown-display';
 
 import { sendChatMessage } from './api';
 import { useApp } from './context/AppContext';
@@ -20,6 +21,49 @@ const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
 const SYSTEM_ERROR_ID = 'system-error';
 const SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g;
+const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
+const markdownStyles = {
+  body: { color: '#f2f2f7', fontSize: 15, lineHeight: 22 },
+  heading1: { color: '#ffffff' },
+  heading2: { color: '#ffffff' },
+  heading3: { color: '#ffffff' },
+  heading4: { color: '#ffffff' },
+  heading5: { color: '#ffffff' },
+  heading6: { color: '#ffffff' },
+  hr: { backgroundColor: '#3a3a55' },
+  blockquote: { backgroundColor: '#24243b', borderColor: '#6c63ff' },
+  code_inline: {
+    color: '#ffd479',
+    backgroundColor: '#111322',
+    borderWidth: 0,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    fontFamily: MONO_FONT,
+  },
+  code_block: {
+    color: '#e6e6ef',
+    backgroundColor: '#111322',
+    borderWidth: 0,
+    borderRadius: 8,
+    padding: 10,
+    fontFamily: MONO_FONT,
+  },
+  fence: {
+    color: '#e6e6ef',
+    backgroundColor: '#111322',
+    borderWidth: 0,
+    borderRadius: 8,
+    padding: 10,
+    fontFamily: MONO_FONT,
+  },
+  link: { color: '#8b85ff' },
+  bullet_list_icon: { color: '#f2f2f7' },
+  ordered_list_icon: { color: '#f2f2f7' },
+  bullet_list_content: { flex: 1, color: '#f2f2f7' },
+  ordered_list_content: { flex: 1, color: '#f2f2f7' },
+};
 
 function maskSecrets(text) {
   return String(text || '').replace(SECRET_PATTERN, '[API_KEY已隐藏]');
@@ -48,7 +92,11 @@ function MessageBubble({ message }) {
   return (
     <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-        <Text style={styles.messageText}>{message.text}</Text>
+        {isUser ? (
+          <Text style={styles.messageText}>{message.text}</Text>
+        ) : (
+          <Markdown style={markdownStyles}>{message.text}</Markdown>
+        )}
       </View>
     </View>
   );
