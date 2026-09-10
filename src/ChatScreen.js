@@ -94,6 +94,8 @@ export default function ChatScreen() {
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
   const { character } = useApp();
+  const characterId = character.id || 'default';
+  const activeCharacterIdRef = useRef(characterId);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
@@ -115,32 +117,42 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
-    getMessages()
+    let cancelled = false;
+    activeCharacterIdRef.current = characterId;
+    setReady(false);
+    setIsSending(false);
+    errorRawRef.current = {};
+    getMessages(characterId)
       .then(list => {
+        if (cancelled) return;
         const initial = Array.isArray(list) ? list : [];
         lastSavedSnapshotRef.current = JSON.stringify(initial);
         setMessages(initial);
       })
       .catch(() => {
+        if (cancelled) return;
         lastSavedSnapshotRef.current = '[]';
         setMessages([]);
       })
       .finally(() => {
-        setReady(true);
+        if (!cancelled) setReady(true);
       });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [characterId]);
 
   useEffect(() => {
     if (!ready) return;
     if (persistableSnapshot === lastSavedSnapshotRef.current) return;
     lastSavedSnapshotRef.current = persistableSnapshot;
-    saveMessages(persistableMessages).catch(() => {
+    saveMessages(characterId, persistableMessages).catch(() => {
       if (!saveFailedRef.current) {
         saveFailedRef.current = true;
         Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
       }
     });
-  }, [persistableSnapshot, ready]);
+  }, [characterId, persistableSnapshot, ready]);
 
   const onClear = useCallback(() => {
     Alert.alert('清空聊天', '确定删除当前会话记录吗？', [
@@ -158,7 +170,8 @@ export default function ChatScreen() {
 
   const onSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || isSending) return;
+    if (!text || isSending || !ready) return;
+    const sendCharacterId = activeCharacterIdRef.current;
 
     const userMessage = {
       id: `${Date.now()}-user`,
@@ -199,13 +212,14 @@ export default function ChatScreen() {
         { role: 'user', content: text },
       ]);
 
-      setMessages(current =>
-        current.map(item =>
+      setMessages(current => {
+        if (activeCharacterIdRef.current !== sendCharacterId) return current;
+        return current.map(item =>
           item.id === pendingAssistantMessage.id
             ? { ...item, text: reply || '没有收到回复。', pending: false }
             : item
-        )
-      );
+        );
+      });
     } catch (error) {
       const rawText = buildErrorRawText(error);
       const errorMessage = {
@@ -214,15 +228,20 @@ export default function ChatScreen() {
         text: '请求失败，点击查看详情',
         detail: maskSecrets(rawText),
       };
-      errorRawRef.current[errorMessage.id] = rawText;
-      setMessages(current =>
-        current.map(item => (item.id === pendingAssistantMessage.id ? errorMessage : item))
-      );
+      if (activeCharacterIdRef.current === sendCharacterId) {
+        errorRawRef.current[errorMessage.id] = rawText;
+      }
+      setMessages(current => {
+        if (activeCharacterIdRef.current !== sendCharacterId) return current;
+        return current.map(item =>
+          item.id === pendingAssistantMessage.id ? errorMessage : item
+        );
+      });
     } finally {
       setIsSending(false);
       scrollToBottom();
     }
-  }, [character.name, character.systemPrompt, input, isSending, messages, scrollToBottom]);
+  }, [character.name, character.systemPrompt, input, isSending, messages, ready, scrollToBottom]);
 
   return (
     <KeyboardAvoidingView
@@ -273,12 +292,12 @@ export default function ChatScreen() {
           placeholder="输入消息..."
           placeholderTextColor="#888"
           multiline
-          editable={!isSending}
+          editable={!isSending && ready}
         />
         <TouchableOpacity
-          style={[styles.sendButton, (!input.trim() || isSending) && styles.sendButtonDisabled]}
+          style={[styles.sendButton, (!input.trim() || isSending || !ready) && styles.sendButtonDisabled]}
           onPress={onSend}
-          disabled={!input.trim() || isSending}
+          disabled={!input.trim() || isSending || !ready}
         >
           <Text style={styles.sendText}>{isSending ? '...' : '发送'}</Text>
         </TouchableOpacity>

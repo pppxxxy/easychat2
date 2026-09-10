@@ -84,6 +84,7 @@ export default function CharacterScreen() {
       return;
     }
     const next = {
+      id: character.id || 'default',
       name: name.trim() || 'EasyChat2 助手',
       systemPrompt: systemPrompt.trim() || '你是 EasyChat2 的智能助手，回答简洁清晰。'
     };
@@ -149,6 +150,7 @@ export default function CharacterScreen() {
       }
 
       const next = {
+        id: `card-${Date.now().toString(36)}`,
         name: parsed.name,
         systemPrompt: parsed.description || '',
       };
