@@ -7,7 +7,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Alert } from 'react-native';
 
 import { DEFAULT_CHARACTER, getCharacter, saveCharacter } from '../storage';
 
@@ -51,7 +50,6 @@ export function AppProvider({ children }) {
     } catch (error) {
       characterRef.current = oldCharacter;
       setCharacterState(oldCharacter);
-      Alert.alert('保存失败，请检查存储空间或权限');
       throw error;
     }
     return merged;

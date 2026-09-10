@@ -94,7 +94,7 @@ export default function CharacterScreen() {
       setSystemPrompt(next.systemPrompt);
       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
     } catch (error) {
-      return;
+      Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   };
 
@@ -161,7 +161,7 @@ export default function CharacterScreen() {
         setSystemPrompt(next.systemPrompt);
         Alert.alert('导入成功', `已加载角色：${next.name}`);
       } catch (error) {
-        return;
+        Alert.alert('导入失败', '请检查存储空间或权限。');
       }
     } finally {
       setImporting(false);
