@@ -31,6 +31,7 @@ npm run build:apk    # EAS preview APK
 - Message storage is keyed per character: `@easychat2_messages::<characterId>`. The default character reads legacy key `@easychat2_messages` as a fallback. Changing key names needs a migration branch.
 - `AppContext` uses `characterRef`/`loadedRef` to avoid stale closures; `updateCharacter` rejects writes before load completes. Preserve the ref pattern.
 - When switching characters mid-request, the late reply/error is dropped via `activeCharacterIdRef`. Keep the guard.
+- RN's `fetch` has no streamable `response.body`. Streaming goes through the built-in `XMLHttpRequest` `onprogress` + cumulative `responseText` in `api.js`. Do not switch it back to `fetch` or add an SSE library without verifying Metro bundling.
 
 ## Architecture map
 
@@ -38,7 +39,7 @@ npm run build:apk    # EAS preview APK
 - `src/ChatScreen.js` — message list, send flow, Markdown assistant replies, error bubbles.
 - `src/CharacterScreen.js` — character edit + SillyTavern PNG/JSON card import (`parsecard`).
 - `src/SettingsScreen.js` — API `baseUrl` / `model` / `apiKey`; warns before saving `http://`.
-- `src/api.js` — `sendChatMessage`, URL normalization, 30s `AbortController` timeout.
+- `src/api.js` — `sendChatMessage`, URL normalization, streaming via `XMLHttpRequest` SSE parsing (`onChunk`), 30s idle timeout.
 - `src/storage.js` — all AsyncStorage access and defaults.
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.

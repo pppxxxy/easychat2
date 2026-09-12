@@ -254,11 +254,26 @@ export default function ChatScreen() {
         ? `你的名字是${characterName}。${systemPrompt}`
         : systemPrompt;
 
-      const reply = await sendChatMessage([
-        { role: 'system', content: systemContent },
-        ...history,
-        { role: 'user', content: text },
-      ]);
+      const reply = await sendChatMessage(
+        [
+          { role: 'system', content: systemContent },
+          ...history,
+          { role: 'user', content: text },
+        ],
+        {
+          onChunk: fullText => {
+            if (activeCharacterIdRef.current !== sendCharacterId) return;
+            setMessages(current =>
+              current.map(item =>
+                item.id === pendingAssistantMessage.id
+                  ? { ...item, text: fullText }
+                  : item
+              )
+            );
+            scrollToBottom();
+          }
+        }
+      );
 
       setMessages(current => {
         if (activeCharacterIdRef.current !== sendCharacterId) return current;

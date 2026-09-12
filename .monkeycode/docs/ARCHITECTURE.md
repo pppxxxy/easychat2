@@ -112,10 +112,10 @@ easychat2/
 **被依赖**: `AppContext`、`ChatScreen`、`SettingsScreen`、`api.js`
 
 ### 网络请求
-**目的**: 归一化接口地址、发起带超时的请求、格式化错误响应
+**目的**: 归一化接口地址、以 SSE 流式发起请求、按空闲超时中断、格式化错误响应
 **位置**: `src/api.js`
 **关键文件**: `src/api.js`
-**依赖**: `src/storage.js`、全局 `fetch`、`AbortController`
+**依赖**: `src/storage.js`、全局 `XMLHttpRequest`
 **被依赖**: `ChatScreen`
 
 ### 运行时兼容与打包
@@ -176,13 +176,18 @@ sequenceDiagram
 
     U->>C: 点击发送
     C->>C: 追加 user 消息与 pending 助手占位
-    C->>A: sendChatMessage(system + history + 新消息)
+    C->>A: sendChatMessage(system + history + 新消息, onChunk)
     A->>S: getApiConfig()
     S-->>A: baseUrl / model / apiKey
-    A->>L: POST {baseUrl}/v1/chat/completions
-    L-->>A: choices[0].message.content
-    A-->>C: 回复文本
-    C->>C: 用回复替换 pending 占位
+    A->>L: POST {baseUrl}/v1/chat/completions stream=true
+    loop 每个增量片段
+        L-->>A: data: delta.content
+        A-->>C: onChunk(累计文本)
+        C->>C: 覆盖 pending 占位 text 并滚动
+    end
+    L-->>A: data: [DONE]
+    A-->>C: resolve(累计文本)
+    C->>C: 占位 pending 置为 false
     C->>S: saveMessages(characterId, messages)
 ```
 
@@ -205,5 +210,5 @@ stateDiagram-v2
 - **pending 消息不落盘**：`storage` 与 `ChatScreen` 都会过滤 `pending` 标记的占位消息，避免把「正在思考…」写入历史。
 - **报错原文只留内存**：持久化消息中只保存脱敏后的 `detail`，未脱敏原文保存在仅会话内可见的 `errorRawRef`，防止密钥写入磁盘。
 - **切换角色的竞态防护**：发送期间记录发起时的 `characterId`，若用户中途切换角色，迟到返回的回复或错误会被丢弃。
-- **请求超时与错误归一**：`api.js` 用 `AbortController` 实现 30 秒超时，并把非 JSON、HTML 响应统一成可读文案。
+- **请求走 XHR 增量解析 SSE**：RN 的 `fetch` 不暴露 `response.body`，`api.js` 因此使用内置 `XMLHttpRequest` 的 `onprogress` 与累计 `responseText` 解析 `stream: true` 的 SSE，逐片段通过 `onChunk` 回调上抛累计文本，无需新增依赖。超时改为空闲超时，30 秒无数据才判定失败。
 - **运行时垫片先行**：`Buffer` 垫片置于 `App.js` 首行导入，规避 ES 模块提升导致的求值顺序问题；Metro 全局开启 `unstable_enablePackageExports` 以解析 `parsecard` 的 `exports` 字段。

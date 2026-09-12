@@ -104,20 +104,25 @@
 
 ## 网络接口
 
-### `sendChatMessage(messages)`
+### `sendChatMessage(messages, options?)`
 **位置**: `src/api.js`
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `messages` | `Array<{ role, content }>` | 完整消息数组，含 `system`、历史与最新用户消息 |
+| `options.onChunk` | `(fullText: string) => void?` | 每解析出一个增量片段后触发；入参为截至当前的累计助手文本 |
 
-**返回**: `Promise<string>` - `choices[0].message.content`，为空时返回 `'没有收到回复。'`
+**返回**: `Promise<string>` - 流式累计文本；服务端忽略流式而返回整包 JSON 时取 `choices[0].message.content`；空响应返回 `'没有收到回复。'`
+
+**实现说明**: React Native 的 `fetch` 不暴露 `response.body`，无法流式读取。本函数改用 RN 内置 `XMLHttpRequest` 的增量事件（`onprogress` + 累计 `responseText`）解析 SSE，因此不引入任何额外依赖。`onChunk` 接收累计文本，调用方可直接覆盖助手消息的 `text` 字段。收到 `data: [DONE]` 时立即结算并中断连接，无需等待服务端关闭。
 
 **异常**:
 - 未配置 Key：`Error('请先在“设置”里填写 API Key。')`
-- 超时：`Error('请求超时，请检查网络后重试')`
+- 空闲超时：`Error('请求超时，请检查网络后重试')`
+- 网络失败：`Error('网络请求失败，请检查网络或 API 地址。')`
 - 非 2xx：由 `formatApiError` 提取后端错误信息
-- 响应无法解析：`Error('接口返回了无法解析的内容。')`
+- 2xx 但响应既非 SSE 也非可解析 JSON：`Error('接口返回了无法解析的内容。')`
+- SSE 流内 `error` 负载：抛出其 `message`
 
 **地址归一化规则** `normalizeChatUrl(baseUrl)`:
 
@@ -132,16 +137,25 @@
 ```http
 POST {normalizedUrl}
 Content-Type: application/json
+Accept: text/event-stream
 Authorization: Bearer <API_KEY>
 
 {
   "model": "<model>",
   "messages": [{ "role": "system", "content": "..." }],
-  "stream": false
+  "stream": true
 }
 ```
 
-预期响应：
+流式响应为 SSE，每个事件的数据行形如：
+
+```
+data: {"choices":[{"delta":{"content":"增量文本"}}]}
+
+data: [DONE]
+```
+
+服务端返回整包 JSON 时的兼容响应：
 
 ```json
 {
@@ -151,7 +165,7 @@ Authorization: Bearer <API_KEY>
 }
 ```
 
-**超时**: 30 秒，通过 `AbortController` 触发。
+**超时**: 采用空闲超时。每次收到增量数据都会重置 30 秒计时器；30 秒无数据则判定为超时。
 
 ## 数据结构
 
@@ -172,6 +186,8 @@ Authorization: Bearer <API_KEY>
 | `text` | `string` | 展示文本 |
 | `detail` | `string?` | 系统报错消息的脱敏详情 |
 | `pending` | `boolean?` | 占位消息标记，为真时不持久化 |
+
+流式回复期间，助手消息的 `pending` 保持为真、`text` 随每个增量片段实时覆盖；流结束时 `pending` 置为假，随后才进入持久化。这样可确保「正在思考…」与流式中途内容都不会落盘。
 
 ### `ApiConfig`
 
