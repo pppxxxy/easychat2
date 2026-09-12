@@ -111,18 +111,23 @@
 |------|------|------|
 | `messages` | `Array<{ role, content }>` | 完整消息数组，含 `system`、历史与最新用户消息 |
 | `options.onChunk` | `(fullText: string) => void?` | 每解析出一个增量片段后触发；入参为截至当前的累计助手文本 |
+| `options.signal` | `AbortSignal?` | 传入后可通过 `abort()` 取消请求；取消时 Promise 以 `AbortError` 拒绝，并移除监听 |
 
 **返回**: `Promise<string>` - 流式累计文本；服务端忽略流式而返回整包 JSON 时取 `choices[0].message.content`；空响应返回 `'没有收到回复。'`
+
+**辅助导出**: `isCanceledError(error): boolean` - 判断错误是否来自主动取消（`error.canceled === true` 或 `error.name === 'AbortError'`）。
 
 **实现说明**: React Native 的 `fetch` 不暴露 `response.body`，无法流式读取。本函数改用 RN 内置 `XMLHttpRequest` 的增量事件（`onprogress` + 累计 `responseText`）解析 SSE，因此不引入任何额外依赖。`onChunk` 接收累计文本，调用方可直接覆盖助手消息的 `text` 字段。收到 `data: [DONE]` 时立即结算并中断连接，无需等待服务端关闭。
 
 **异常**:
+- 已取消的信号：`Error('已停止生成。')`，`name = 'AbortError'`
 - 未配置 Key：`Error('请先在“设置”里填写 API Key。')`
 - 空闲超时：`Error('请求超时，请检查网络后重试')`
 - 网络失败：`Error('网络请求失败，请检查网络或 API 地址。')`
 - 非 2xx：由 `formatApiError` 提取后端错误信息
 - 2xx 但响应既非 SSE 也非可解析 JSON：`Error('接口返回了无法解析的内容。')`
 - SSE 流内 `error` 负载：抛出其 `message`
+- SSE 流内所有 `data:` 行都无法解析为 JSON：`Error('接口返回了无法解析的内容。')`
 
 **地址归一化规则** `normalizeChatUrl(baseUrl)`:
 

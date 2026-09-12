@@ -44,8 +44,23 @@ function extractErrorMessage(payload) {
   return '接口返回错误。';
 }
 
+function createAbortError() {
+  const error = new Error('已停止生成。');
+  error.name = 'AbortError';
+  error.canceled = true;
+  return error;
+}
+
+export function isCanceledError(error) {
+  return !!error && (error.canceled === true || error.name === 'AbortError');
+}
+
 export async function sendChatMessage(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
+  const signal = options && options.signal ? options.signal : null;
+  if (signal && signal.aborted) {
+    throw createAbortError();
+  }
   const config = await getApiConfig();
   if (!config.apiKey) {
     throw new Error('请先在“设置”里填写 API Key。');
@@ -60,8 +75,12 @@ export async function sendChatMessage(messages, options = {}) {
     let lineBuffer = '';
     let fullText = '';
     let sawSse = false;
+    let sawPayloadData = false;
+    let parseFailures = 0;
+    let canceled = false;
     let settled = false;
     let idleTimer = null;
+    let removeAbortListener = null;
 
     const settle = (fn, value) => {
       if (settled) return;
@@ -70,10 +89,26 @@ export async function sendChatMessage(messages, options = {}) {
         clearTimeout(idleTimer);
         idleTimer = null;
       }
+      if (removeAbortListener) {
+        removeAbortListener();
+        removeAbortListener = null;
+      }
       fn(value);
     };
     const succeed = value => settle(resolve, value);
     const fail = error => settle(reject, error);
+
+    const finishFromStream = () => {
+      if (fullText) {
+        succeed(fullText);
+        return;
+      }
+      if (!sawPayloadData && parseFailures > 0) {
+        fail(new Error('接口返回了无法解析的内容。'));
+        return;
+      }
+      succeed('没有收到回复。');
+    };
 
     const armIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -91,7 +126,7 @@ export async function sendChatMessage(messages, options = {}) {
       if (!payloadText) return;
       sawSse = true;
       if (payloadText === '[DONE]') {
-        succeed(fullText || '没有收到回复。');
+        finishFromStream();
         xhr.abort();
         return;
       }
@@ -100,8 +135,10 @@ export async function sendChatMessage(messages, options = {}) {
       try {
         payload = JSON.parse(payloadText);
       } catch (error) {
+        parseFailures += 1;
         return;
       }
+      sawPayloadData = true;
 
       const errorMessage = extractErrorMessage(payload);
       if (errorMessage) {
@@ -130,6 +167,16 @@ export async function sendChatMessage(messages, options = {}) {
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'text/event-stream');
     xhr.setRequestHeader('Authorization', `Bearer ${config.apiKey}`);
+
+    if (signal) {
+      const onAbortSignal = () => {
+        canceled = true;
+        xhr.abort();
+      };
+      signal.addEventListener('abort', onAbortSignal);
+      removeAbortListener = () => signal.removeEventListener('abort', onAbortSignal);
+      if (signal.aborted) onAbortSignal();
+    }
 
     xhr.onprogress = () => {
       try {
@@ -166,7 +213,7 @@ export async function sendChatMessage(messages, options = {}) {
       }
 
       if (sawSse) {
-        succeed('没有收到回复。');
+        finishFromStream();
         return;
       }
 
@@ -185,7 +232,7 @@ export async function sendChatMessage(messages, options = {}) {
     };
 
     xhr.onerror = () => fail(new Error('网络请求失败，请检查网络或 API 地址。'));
-    xhr.onabort = () => fail(new Error('请求已中断。'));
+    xhr.onabort = () => fail(canceled ? createAbortError() : new Error('请求已中断。'));
 
     try {
       xhr.send(JSON.stringify({ model, messages, stream: true }));

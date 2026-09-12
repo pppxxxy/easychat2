@@ -13,7 +13,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 
-import { sendChatMessage } from './api';
+import { isCanceledError, sendChatMessage } from './api';
 import { useApp } from './context/AppContext';
 import { getMessages, saveMessages } from './storage';
 
@@ -147,6 +147,7 @@ export default function ChatScreen() {
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
   const atBottomRef = useRef(true);
+  const abortRef = useRef(null);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
@@ -181,6 +182,10 @@ export default function ChatScreen() {
   useEffect(() => {
     let cancelled = false;
     activeCharacterIdRef.current = characterId;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
     setReady(false);
     setIsSending(false);
     errorRawRef.current = {};
@@ -215,6 +220,18 @@ export default function ChatScreen() {
       }
     });
   }, [characterId, persistableSnapshot, ready]);
+
+  useEffect(() => () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }, []);
+
+  const onStop = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }, []);
 
   const onClear = useCallback(() => {
     Alert.alert('清空聊天', '确定删除当前会话记录吗？', [
@@ -254,6 +271,9 @@ export default function ChatScreen() {
     atBottomRef.current = true;
     scrollToBottom();
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const history = messages
         .filter(item => item.role === USER_ID || item.role === ASSISTANT_ID)
@@ -276,6 +296,7 @@ export default function ChatScreen() {
           { role: 'user', content: text },
         ],
         {
+          signal: controller.signal,
           onChunk: fullText => {
             if (activeCharacterIdRef.current !== sendCharacterId) return;
             setMessages(current =>
@@ -298,6 +319,23 @@ export default function ChatScreen() {
         );
       });
     } catch (error) {
+      if (isCanceledError(error)) {
+        setMessages(current => {
+          if (activeCharacterIdRef.current !== sendCharacterId) return current;
+          const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
+          const hasPartial = !!pendingItem
+            && typeof pendingItem.text === 'string'
+            && pendingItem.text.trim().length > 0
+            && pendingItem.text !== THINKING_PLACEHOLDER;
+          if (hasPartial) {
+            return current.map(item => (
+              item.id === pendingAssistantMessage.id ? { ...item, pending: false } : item
+            ));
+          }
+          return current.filter(item => item.id !== pendingAssistantMessage.id);
+        });
+        return;
+      }
       const rawText = buildErrorRawText(error);
       const errorMessage = {
         id: `${pendingAssistantMessage.id}-error`,
@@ -327,6 +365,7 @@ export default function ChatScreen() {
         ));
       });
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setIsSending(false);
       autoScrollToBottom();
     }
@@ -385,13 +424,19 @@ export default function ChatScreen() {
           multiline
           editable={!isSending && ready}
         />
-        <TouchableOpacity
-          style={[styles.sendButton, (!input.trim() || isSending || !ready) && styles.sendButtonDisabled]}
-          onPress={onSend}
-          disabled={!input.trim() || isSending || !ready}
-        >
-          <Text style={styles.sendText}>{isSending ? '...' : '发送'}</Text>
-        </TouchableOpacity>
+        {isSending ? (
+          <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={onStop}>
+            <Text style={styles.sendText}>停止</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.sendButton, (!input.trim() || !ready) && styles.sendButtonDisabled]}
+            onPress={onSend}
+            disabled={!input.trim() || !ready}
+          >
+            <Text style={styles.sendText}>发送</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -528,6 +573,9 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.45,
+  },
+  stopButton: {
+    backgroundColor: '#7a2a2a',
   },
   sendText: {
     color: '#fff',
