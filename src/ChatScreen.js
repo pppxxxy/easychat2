@@ -22,6 +22,8 @@ const ASSISTANT_ID = 'assistant';
 const SYSTEM_ERROR_ID = 'system-error';
 const SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g;
 const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+const THINKING_PLACEHOLDER = '正在思考...';
+const NEAR_BOTTOM_THRESHOLD = 80;
 
 const markdownStyles = {
   body: { color: '#f2f2f7', fontSize: 15, lineHeight: 22 },
@@ -144,6 +146,7 @@ export default function ChatScreen() {
   const { character } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
+  const atBottomRef = useRef(true);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
@@ -153,6 +156,17 @@ export default function ChatScreen() {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd?.({ animated: true });
     });
+  }, []);
+
+  const autoScrollToBottom = useCallback(() => {
+    if (atBottomRef.current) scrollToBottom();
+  }, [scrollToBottom]);
+
+  const onMessagesScroll = useCallback(({ nativeEvent }) => {
+    const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - layoutMeasurement.height - contentOffset.y;
+    atBottomRef.current = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD;
   }, []);
 
   const persistableMessages = useMemo(
@@ -229,7 +243,7 @@ export default function ChatScreen() {
     const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
-      text: '正在思考...',
+      text: THINKING_PLACEHOLDER,
       pending: true,
     };
 
@@ -237,6 +251,7 @@ export default function ChatScreen() {
     setInput('');
     setMessages(nextMessages);
     setIsSending(true);
+    atBottomRef.current = true;
     scrollToBottom();
 
     try {
@@ -270,7 +285,6 @@ export default function ChatScreen() {
                   : item
               )
             );
-            scrollToBottom();
           }
         }
       );
@@ -286,7 +300,7 @@ export default function ChatScreen() {
     } catch (error) {
       const rawText = buildErrorRawText(error);
       const errorMessage = {
-        id: pendingAssistantMessage.id,
+        id: `${pendingAssistantMessage.id}-error`,
         role: SYSTEM_ERROR_ID,
         text: '请求失败，点击查看详情',
         detail: maskSecrets(rawText),
@@ -296,15 +310,27 @@ export default function ChatScreen() {
       }
       setMessages(current => {
         if (activeCharacterIdRef.current !== sendCharacterId) return current;
-        return current.map(item =>
+        const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
+        const hasPartial = !!pendingItem
+          && typeof pendingItem.text === 'string'
+          && pendingItem.text.trim().length > 0
+          && pendingItem.text !== THINKING_PLACEHOLDER;
+        if (hasPartial) {
+          return current
+            .map(item => (
+              item.id === pendingAssistantMessage.id ? { ...item, pending: false } : item
+            ))
+            .concat(errorMessage);
+        }
+        return current.map(item => (
           item.id === pendingAssistantMessage.id ? errorMessage : item
-        );
+        ));
       });
     } finally {
       setIsSending(false);
-      scrollToBottom();
+      autoScrollToBottom();
     }
-  }, [character.name, character.systemPrompt, input, isSending, messages, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character.name, character.systemPrompt, input, isSending, messages, ready, scrollToBottom]);
 
   return (
     <KeyboardAvoidingView
@@ -316,7 +342,9 @@ export default function ChatScreen() {
         ref={scrollRef}
         style={styles.messages}
         contentContainerStyle={styles.messagesContent}
-        onContentSizeChange={scrollToBottom}
+        onContentSizeChange={autoScrollToBottom}
+        onScroll={onMessagesScroll}
+        scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
       >
         {messages.length === 0 ? (

@@ -198,6 +198,7 @@ stateDiagram-v2
     [*] --> Pending: 发送后写入占位
     Pending --> Assistant: 收到回复
     Pending --> SystemError: 请求失败
+    Assistant --> SystemError: 流中途失败保留部分文本后追加
     Assistant --> [*]
     SystemError --> [*]
 ```
@@ -208,6 +209,8 @@ stateDiagram-v2
 - **乐观写入加失败回滚**：`updateCharacter` 先更新内存与界面状态，再落盘；落盘失败时回滚到旧值并向上抛出，由调用方决定如何提示用户，Context 不承担界面展示职责。
 - **消息按角色隔离**：消息键为 `@easychat2_messages::<characterId>`；默认角色读取时兜底旧键 `@easychat2_messages`，实现旧版本数据平滑迁移。
 - **pending 消息不落盘**：`storage` 与 `ChatScreen` 都会过滤 `pending` 标记的占位消息，避免把「正在思考…」写入历史。
+- **失败保留部分回复**：流式进行中若请求失败且已收到文本，`ChatScreen` 将该部分文本标记为已完成并保留，再追加一条 `system-error`，避免已展示内容被清空；无任何文本时占位直接转为报错。
+- **自动滚动尊重用户**：消息列表仅在用户处于底部附近时随内容增长自动滚到底部，用户上滚查看历史时不会被流式增量反复拽回。
 - **报错原文只留内存**：持久化消息中只保存脱敏后的 `detail`，未脱敏原文保存在仅会话内可见的 `errorRawRef`，防止密钥写入磁盘。
 - **切换角色的竞态防护**：发送期间记录发起时的 `characterId`，若用户中途切换角色，迟到返回的回复或错误会被丢弃。
 - **请求走 XHR 增量解析 SSE**：RN 的 `fetch` 不暴露 `response.body`，`api.js` 因此使用内置 `XMLHttpRequest` 的 `onprogress` 与累计 `responseText` 解析 `stream: true` 的 SSE，逐片段通过 `onChunk` 回调上抛累计文本，无需新增依赖。超时改为空闲超时，30 秒无数据才判定失败。
