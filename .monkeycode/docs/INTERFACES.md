@@ -30,9 +30,10 @@
 - 依赖 `useApp()` 获取 `character`，派生 `characterId = character.id || 'default'`
 - `characterId` 变化时重新加载该角色的消息，并在加载期间禁用输入与发送
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘
+- `renderedMessages` 对助手消息应用 placement 2 的展示正则（mode `display`），原始文本仍用于落盘
 
 **消息角色常量**: `user`、`assistant`、`system-error`
-**密钥脱敏正则**: `/(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g`，替换为 `[API_KEY已隐藏]`
+**密钥脱敏**: 来自 `src/secrets.js` 的 `SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g` 与 `maskSecrets`，替换为 `[API_KEY已隐藏]`
 
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
@@ -40,8 +41,10 @@
 **状态**: `name`、`systemPrompt`、`importing`、`seededRef`
 **行为**:
 - 首次加载完成后用 Context 中的角色回填输入框（仅一次）
-- `save()` 组装 `{ id, name, systemPrompt }` 并调用 `updateCharacter`
+- `save()` 组装 `{ id, name, systemPrompt }` 并调用 `updateCharacter`（浅合并，保留导入的扩展字段）
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析
+- PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传 RP-Hub 导出的 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
+- 导入成功后展示只读的「导入数据」面板：角色资料、标签、世界书与正则脚本
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
@@ -83,7 +86,7 @@
 | `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending` |
 
 **导出的默认值**:
-- `DEFAULT_CHARACTER = { id: 'default', name: 'EasyChat2 助手', systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。' }`
+- `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
 **AsyncStorage 键约定**:
 
@@ -172,6 +175,47 @@ data: [DONE]
 
 **超时**: 采用空闲超时。每次收到增量数据都会重置 30 秒计时器；30 秒无数据则判定为超时。
 
+## 卡解析与提示管线接口
+
+### `parseCardFromJson(text)`
+**位置**: `src/cardParser.js`
+**返回**: 标准化角色卡 `{ name, fields, systemPrompt, worldInfo, regexScripts }`
+**异常**: JSON 语法错误时抛出 `Error('JSON 语法错误：...')`
+
+### `parseCardFromPng(bytes)`
+**位置**: `src/cardParser.js`
+**返回**: 标准化角色卡；PNG 无 `chara`/`ccv3` 文本块时返回 `null`
+**异常**: 非 PNG 签名、base64 解码失败、JSON 语法错误时抛出
+
+### `readCardJsonFromPng(bytes)`
+**位置**: `src/cardParser.js`
+**说明**: 先用 `parsecard.readJsonFromPNG` 读取 `tEXt`，为空时用本地无压缩 `iTXt` 兜底；均无数据返回 `null`
+
+### `buildRequestMessages({ character, historyMessages, userText })`
+**位置**: `src/chatPipeline.js`
+**返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
+**说明**: 历史用户消息与当前输入应用 placement 1 正则，历史助手消息应用 placement 2 正则
+
+### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
+**位置**: `src/lorebook.js`
+**返回**: `{ before, after, depth }` 三组已激活条目，各组按 `order` 升序
+
+### `applyRegexScripts(text, scripts, placement, options?)`
+**位置**: `src/regexEngine.js`
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `scripts` | `RegexScript[]` | 角色携带的正则脚本 |
+| `placement` | `number` | 见 `REGEX_PLACEMENT`（1 用户输入、2 AI 输出、5 世界信息、6 推理） |
+| `options.mode` | `'prompt' \| 'display' \| 'both'` | 决定跳过 `markdownOnly` 或 `promptOnly` |
+| `options.depth` | `number?` | 用于 `minDepth`/`maxDepth` 过滤 |
+
+**辅助导出**: `REGEX_PLACEMENT`。
+
+### `maskSecrets(text)`
+**位置**: `src/secrets.js`
+**说明**: 将 `sk-...` 与 `Bearer ...` 替换为 `[API_KEY已隐藏]`；**辅助导出** `SECRET_PATTERN`
+
 ## 数据结构
 
 ### `Character`
@@ -181,6 +225,16 @@ data: [DONE]
 | `id` | `string` | 角色标识；默认角色为 `default`，导入卡为 `card-<base36 时间戳>` |
 | `name` | `string` | 角色名 |
 | `systemPrompt` | `string` | 人设 / 系统提示词 |
+| `description` | `string?` | 角色描述（角色卡导入） |
+| `personality` | `string?` | 性格 |
+| `scenario` | `string?` | 场景 |
+| `firstMes` | `string?` | 开场白 |
+| `mesExample` | `string?` | 对话示例 |
+| `creatorNotes` | `string?` | 作者注释 |
+| `postHistoryInstructions` | `string?` | 历史后指令 |
+| `tags` | `string[]?` | 标签 |
+| `worldInfo` | `WorldInfoEntry[]?` | 世界书条目，结构见[世界书](./专有概念/世界书.md) |
+| `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
 
 ### `Message`
 

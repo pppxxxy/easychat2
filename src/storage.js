@@ -14,7 +14,17 @@ const DEFAULT_API_CONFIG = {
 export const DEFAULT_CHARACTER = {
   id: 'default',
   name: 'EasyChat2 助手',
-  systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。'
+  systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。',
+  description: '',
+  personality: '',
+  scenario: '',
+  firstMes: '',
+  mesExample: '',
+  creatorNotes: '',
+  postHistoryInstructions: '',
+  tags: [],
+  worldInfo: [],
+  regexScripts: []
 };
 
 function messagesKey(characterId) {

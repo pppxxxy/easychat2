@@ -14,13 +14,15 @@ import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 
 import { isCanceledError, sendChatMessage } from './api';
+import { buildRequestMessages } from './chatPipeline';
 import { useApp } from './context/AppContext';
+import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
+import { maskSecrets } from './secrets';
 import { getMessages, saveMessages } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
 const SYSTEM_ERROR_ID = 'system-error';
-const SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g;
 const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
@@ -66,10 +68,6 @@ const markdownStyles = {
   bullet_list_content: { flex: 1, color: '#f2f2f7' },
   ordered_list_content: { flex: 1, color: '#f2f2f7' },
 };
-
-function maskSecrets(text) {
-  return String(text || '').replace(SECRET_PATTERN, '[API_KEY已隐藏]');
-}
 
 function getHttpStatus(error) {
   return error?.status || error?.statusCode || error?.response?.status || null;
@@ -178,6 +176,19 @@ export default function ChatScreen() {
     () => JSON.stringify(persistableMessages),
     [persistableMessages]
   );
+  const renderedMessages = useMemo(
+    () => messages.map((message, index) => {
+      if (!message || message.role !== ASSISTANT_ID) return message;
+      const text = applyRegexScripts(
+        message.text,
+        character.regexScripts,
+        REGEX_PLACEMENT.AI_OUTPUT,
+        { mode: 'display', depth: messages.length - 1 - index }
+      );
+      return text === message.text ? message : { ...message, text };
+    }),
+    [messages, character.regexScripts]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -275,26 +286,14 @@ export default function ChatScreen() {
     abortRef.current = controller;
 
     try {
-      const history = messages
-        .filter(item => item.role === USER_ID || item.role === ASSISTANT_ID)
-        .map(item => ({
-          role: item.role === USER_ID ? 'user' : 'assistant',
-          content: item.text,
-        }));
-
-      const systemPrompt = (character.systemPrompt || '').trim()
-        || '你是 EasyChat2 的智能助手，回答简洁清晰。';
-      const characterName = (character.name || '').trim();
-      const systemContent = characterName
-        ? `你的名字是${characterName}。${systemPrompt}`
-        : systemPrompt;
+      const requestMessages = buildRequestMessages({
+        character,
+        historyMessages: messages,
+        userText: text,
+      });
 
       const reply = await sendChatMessage(
-        [
-          { role: 'system', content: systemContent },
-          ...history,
-          { role: 'user', content: text },
-        ],
+        requestMessages,
         {
           signal: controller.signal,
           onChunk: fullText => {
@@ -369,7 +368,7 @@ export default function ChatScreen() {
       setIsSending(false);
       autoScrollToBottom();
     }
-  }, [autoScrollToBottom, character.name, character.systemPrompt, input, isSending, messages, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character, input, isSending, messages, ready, scrollToBottom]);
 
   return (
     <KeyboardAvoidingView
@@ -395,7 +394,7 @@ export default function ChatScreen() {
             </Text>
           </View>
         ) : (
-          messages.map(message =>
+          renderedMessages.map(message =>
             message.role === SYSTEM_ERROR_ID ? (
               <ErrorBubble
                 key={message.id}

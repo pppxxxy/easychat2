@@ -6,7 +6,7 @@ EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应�
 
 应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由三个底部标签页组成——聊天、角色、设置，分别负责对话、角色管理与 API 配置，并通过一个全局 `AppContext` 共享当前角色状态。
 
-在能力上，应用支持按角色隔离的多会话聊天、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 SillyTavern 风格的 PNG 或 JSON 角色卡导入人设。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
+在能力上，应用支持按角色隔离的多会话聊天、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 SillyTavern / RP-Hub 的 PNG 或 JSON 角色卡导入人设、世界书与正则脚本。导入的世界书会在发送前按键触发注入提示词，正则脚本会分别在发送提示词与界面展示时应用。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
 
 架构上强调几项特征：角色状态集中在 Context 并采用乐观写入加失败回滚；消息持久化以 `characterId` 为维度隔离，并保留对旧版单会话数据的兼容读取；运行时的 Buffer 兼容垫片与 Metro 的 `package exports` 开关共同保证 ESM 依赖 `parsecard` 能正确打包。
 
@@ -55,6 +55,11 @@ easychat2/
 │   ├── CharacterScreen.js    # 角色设置与角色卡导入
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
 │   ├── api.js                # 大模型接口调用与错误格式化
+│   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
+│   ├── lorebook.js           # 世界书条目激活判定
+│   ├── regexEngine.js        # 正则脚本作用范围与应用
+│   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
+│   ├── secrets.js            # 共享密钥脱敏
 │   ├── storage.js            # AsyncStorage 读写封装与默认值
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
@@ -80,15 +85,22 @@ easychat2/
 **目的**: 管理消息列表、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`
-**依赖**: `src/api.js`、`src/storage.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
+**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
 **被依赖**: `App.js`
 
 ### 角色管理
-**目的**: 编辑角色名与人设，并从 PNG/JSON 角色卡导入
+**目的**: 编辑角色名与人设，并从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
-**依赖**: `parsecard`、`expo-document-picker`、`expo-file-system`、`buffer`、`src/context/AppContext.js`
+**依赖**: `src/cardParser.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`buffer`、`src/context/AppContext.js`
 **被依赖**: `App.js`
+
+### 卡解析与提示管线
+**目的**: 解析角色卡并标准化字段，判定世界书激活，应用正则，组装最终请求消息
+**位置**: `src/cardParser.js`、`src/lorebook.js`、`src/regexEngine.js`、`src/chatPipeline.js`
+**关键文件**: `src/cardParser.js`、`src/chatPipeline.js`
+**依赖**: `parsecard`、`buffer`
+**被依赖**: `ChatScreen`、`CharacterScreen`
 
 ### API 配置界面
 **目的**: 维护 API 地址、模型与密钥，并对非 HTTPS 地址做发送前二次确认
@@ -143,6 +155,12 @@ flowchart TB
     subgraph DATA["数据层"]
         Storage["storage.js AsyncStorage 封装"]
     end
+    subgraph PIPE["卡解析与提示管线"]
+        Parser["cardParser.js 角色卡解析"]
+        Lore["lorebook.js 世界书激活"]
+        Regex["regexEngine.js 正则应用"]
+        Pipeline["chatPipeline.js 请求组装"]
+    end
     subgraph NET["网络层"]
         Api["api.js 兼容 OpenAI 调用"]
     end
@@ -158,6 +176,10 @@ flowchart TB
     Settings --> Storage
     Context --> Storage
     Chat --> Storage
+    Chat --> Pipeline
+    Character --> Parser
+    Pipeline --> Lore
+    Pipeline --> Regex
     Chat --> Api
     Api --> Storage
     Storage --> Device
@@ -170,13 +192,17 @@ flowchart TB
 sequenceDiagram
     participant U as 用户
     participant C as ChatScreen
+    participant P as chatPipeline
     participant S as storage.js
     participant A as api.js
     participant L as 大模型接口
 
     U->>C: 点击发送
     C->>C: 追加 user 消息与 pending 助手占位
-    C->>A: sendChatMessage(system + history + 新消息, onChunk)
+    C->>P: buildRequestMessages(character, history, 新消息)
+    P->>P: 世界书激活 + 正则应用
+    P-->>C: system + history + user 消息
+    C->>A: sendChatMessage(messages, onChunk)
     A->>S: getApiConfig()
     S-->>A: baseUrl / model / apiKey
     A->>L: POST {baseUrl}/v1/chat/completions stream=true
@@ -218,3 +244,7 @@ stateDiagram-v2
 - **请求走 XHR 增量解析 SSE**：RN 的 `fetch` 不暴露 `response.body`，`api.js` 因此使用内置 `XMLHttpRequest` 的 `onprogress` 与累计 `responseText` 解析 `stream: true` 的 SSE，逐片段通过 `onChunk` 回调上抛累计文本，无需新增依赖。超时改为空闲超时，30 秒无数据才判定失败。
 - **请求可取消**：`sendChatMessage` 接受 `AbortSignal`，取消时以 `AbortError` 拒绝并清理监听；`ChatScreen` 为每次发送创建 `AbortController`，在用户点击「停止」、切换角色或组件卸载时中断，已收到的部分文本按失败保留规则处理。
 - **运行时垫片先行**：`Buffer` 垫片置于 `App.js` 首行导入，规避 ES 模块提升导致的求值顺序问题；Metro 全局开启 `unstable_enablePackageExports` 以解析 `parsecard` 的 `exports` 字段。
+- **解析与解析库解耦**：`parsecard` 只用于 PNG `tEXt` 文本块主读取；字段映射、世界书与正则标准化全部在 `cardParser.js` 完成，避免 `parsecard` 构造时丢弃 `character_book`/`regex_scripts` 或忽略 RP-Hub 顶层字段。`iTXt` 无压缩块由本地兜底读取，压缩块因 RN 无 zlib 而跳过。
+- **解析错误与无数据分离**：PNG 未找到 `chara`/`ccv3` 文本块属于「无数据」，返回 `null` 并由界面给出友好提示；文件损坏、base64 解码失败、JSON 语法错误才抛出并附带脱敏详情。解析错误经共享的 `src/secrets.js` 脱敏后才展示与记录。
+- **世界书独立引擎**：`lorebook.js` 在不引入 UI 依赖的前提下实现常驻/关键词激活、次要关键词、概率与扫描深度，`chatPipeline.js` 按位置与顺序拼装系统消息或按深度插入消息。
+- **正则运行时应用**：助手回复以原始文本落盘，提示词版本与展示版本在发送和渲染时分别计算（`promptOnly`/`markdownOnly` 区分），避免污染历史且保证幂等。
