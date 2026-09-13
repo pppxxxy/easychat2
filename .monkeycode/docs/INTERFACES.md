@@ -38,13 +38,13 @@
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
 **Props**: 无
-**状态**: `name`、`systemPrompt`、`importing`、`seededRef`
+**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`importing`、`seededRef`
 **行为**:
 - 首次加载完成后用 Context 中的角色回填输入框（仅一次）
-- `save()` 组装 `{ id, name, systemPrompt }` 并调用 `updateCharacter`（浅合并，保留导入的扩展字段）
+- `save()` 组装 `{ id, name, systemPrompt, description, personality, scenario, firstMes }` 并调用 `updateCharacter`（浅合并，保留导入的其余扩展字段）
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传 RP-Hub 导出的 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
-- 导入成功后展示只读的「导入数据」面板：角色资料、标签、世界书与正则脚本
+- 导入成功后展示「导入数据」面板，其中对话示例/作者注释/历史后指令/标签/世界书/正则脚本为只读
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`

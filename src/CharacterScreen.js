@@ -149,6 +149,10 @@ export default function CharacterScreen() {
   const { character, loaded, updateCharacter } = useApp();
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [description, setDescription] = useState('');
+  const [personality, setPersonality] = useState('');
+  const [scenario, setScenario] = useState('');
+  const [firstMes, setFirstMes] = useState('');
   const [importing, setImporting] = useState(false);
   const seededRef = useRef(false);
 
@@ -157,6 +161,10 @@ export default function CharacterScreen() {
       seededRef.current = true;
       setName(character.name || '');
       setSystemPrompt(character.systemPrompt || '');
+      setDescription(character.description || '');
+      setPersonality(character.personality || '');
+      setScenario(character.scenario || '');
+      setFirstMes(character.firstMes || '');
     }
   }, [loaded, character]);
 
@@ -168,12 +176,20 @@ export default function CharacterScreen() {
     const next = {
       id: character.id || 'default',
       name: name.trim() || 'EasyChat2 助手',
-      systemPrompt: systemPrompt.trim() || '你是 EasyChat2 的智能助手，回答简洁清晰。'
+      systemPrompt: systemPrompt.trim() || '你是 EasyChat2 的智能助手，回答简洁清晰。',
+      description: description.trim(),
+      personality: personality.trim(),
+      scenario: scenario.trim(),
+      firstMes: firstMes.trim(),
     };
     try {
       await updateCharacter(next);
       setName(next.name);
       setSystemPrompt(next.systemPrompt);
+      setDescription(next.description);
+      setPersonality(next.personality);
+      setScenario(next.scenario);
+      setFirstMes(next.firstMes);
       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
@@ -242,6 +258,10 @@ export default function CharacterScreen() {
         await updateCharacter(next);
         setName(next.name);
         setSystemPrompt(next.systemPrompt);
+        setDescription(next.description);
+        setPersonality(next.personality);
+        setScenario(next.scenario);
+        setFirstMes(next.firstMes);
         const summary = [
           `已加载角色：${next.name}`,
           `世界书 ${next.worldInfo.length} 条`,
@@ -260,10 +280,6 @@ export default function CharacterScreen() {
   const hasPanelData = Boolean(
     card.worldInfo?.length
     || card.regexScripts?.length
-    || card.description
-    || card.personality
-    || card.scenario
-    || card.firstMes
     || card.mesExample
     || card.creatorNotes
     || card.postHistoryInstructions
@@ -296,12 +312,52 @@ export default function CharacterScreen() {
           </Text>
         </TouchableOpacity>
         <Text style={styles.importHint}>支持 SillyTavern / RP-Hub 的 PNG / JSON 角色卡。</Text>
+        <Text style={styles.label}>开场白</Text>
+        <TextInput
+          style={[styles.input, styles.multilineSmall]}
+          value={firstMes}
+          onChangeText={setFirstMes}
+          placeholder="角色登场时的第一句话"
+          placeholderTextColor="#888"
+          multiline
+          textAlignVertical="top"
+        />
         <Text style={styles.label}>人设 / 系统提示词</Text>
         <TextInput
           style={[styles.input, styles.multiline]}
           value={systemPrompt}
           onChangeText={setSystemPrompt}
           placeholder="描述角色的语气、知识和回答方式"
+          placeholderTextColor="#888"
+          multiline
+          textAlignVertical="top"
+        />
+        <Text style={styles.label}>角色描述</Text>
+        <TextInput
+          style={[styles.input, styles.multiline]}
+          value={description}
+          onChangeText={setDescription}
+          placeholder="角色的背景、外貌与身份设定"
+          placeholderTextColor="#888"
+          multiline
+          textAlignVertical="top"
+        />
+        <Text style={styles.label}>性格</Text>
+        <TextInput
+          style={[styles.input, styles.multilineSmall]}
+          value={personality}
+          onChangeText={setPersonality}
+          placeholder="角色的性格特点"
+          placeholderTextColor="#888"
+          multiline
+          textAlignVertical="top"
+        />
+        <Text style={styles.label}>场景</Text>
+        <TextInput
+          style={[styles.input, styles.multilineSmall]}
+          value={scenario}
+          onChangeText={setScenario}
+          placeholder="剧情发生的背景与情境"
           placeholderTextColor="#888"
           multiline
           textAlignVertical="top"
@@ -318,14 +374,9 @@ export default function CharacterScreen() {
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>导入数据</Text>
 
-            {card.description || card.personality || card.scenario || card.firstMes
-              || card.mesExample || card.creatorNotes || card.postHistoryInstructions ? (
+            {card.mesExample || card.creatorNotes || card.postHistoryInstructions ? (
                 <View style={styles.dataSection}>
-                  <Text style={styles.sectionTitle}>角色资料</Text>
-                  <DataField label="描述" value={card.description} />
-                  <DataField label="性格" value={card.personality} />
-                  <DataField label="场景" value={card.scenario} />
-                  <DataField label="开场白" value={card.firstMes} />
+                  <Text style={styles.sectionTitle}>其他资料</Text>
                   <DataField label="对话示例" value={card.mesExample} />
                   <DataField label="作者注释" value={card.creatorNotes} />
                   <DataField label="历史后指令" value={card.postHistoryInstructions} />
@@ -369,6 +420,7 @@ const styles = StyleSheet.create({
   label: { color: '#fff', marginTop: 14, marginBottom: 6, fontWeight: '700' },
   input: { backgroundColor: '#2d2d44', color: '#fff', padding: 12, borderRadius: 8 },
   multiline: { minHeight: 160 },
+  multilineSmall: { minHeight: 80 },
   button: { backgroundColor: '#6c63ff', padding: 14, borderRadius: 8, marginTop: 24, alignItems: 'center' },
   buttonText: { color: '#fff', fontWeight: '800' },
   importButton: {

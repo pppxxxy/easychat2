@@ -89,7 +89,7 @@ easychat2/
 **被依赖**: `App.js`
 
 ### 角色管理
-**目的**: 编辑角色名与人设，并从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本
+**目的**: 编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），并从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
 **依赖**: `src/cardParser.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`buffer`、`src/context/AppContext.js`
