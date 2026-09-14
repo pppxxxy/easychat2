@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import Markdown from 'react-native-markdown-display';
 
 import { isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
+import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import { maskSecrets } from './secrets';
@@ -151,7 +153,7 @@ export default function ChatScreen() {
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
-  const { character, loaded } = useApp();
+  const { character, characters, activeId, loaded, switchCharacter } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
   const atBottomRef = useRef(true);
@@ -160,6 +162,15 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  const onSwitch = useCallback(id => {
+    setSwitcherOpen(false);
+    if (id === activeCharacterIdRef.current) return;
+    switchCharacter(id).catch(() => {
+      Alert.alert('切换失败', '请检查存储空间或权限。');
+    });
+  }, [switchCharacter]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -324,7 +335,7 @@ export default function ChatScreen() {
         {
           signal: controller.signal,
           onChunk: fullText => {
-            if (activeCharacterIdRef.current !== sendCharacterId) return;
+            if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return;
             setMessages(current =>
               current.map(item =>
                 item.id === pendingAssistantMessage.id
@@ -337,7 +348,7 @@ export default function ChatScreen() {
       );
 
       setMessages(current => {
-        if (activeCharacterIdRef.current !== sendCharacterId) return current;
+        if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return current;
         return current.map(item =>
           item.id === pendingAssistantMessage.id
             ? { ...item, text: reply || '没有收到回复。', pending: false }
@@ -347,7 +358,7 @@ export default function ChatScreen() {
     } catch (error) {
       if (isCanceledError(error)) {
         setMessages(current => {
-          if (activeCharacterIdRef.current !== sendCharacterId) return current;
+          if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return current;
           const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
           const hasPartial = !!pendingItem
             && typeof pendingItem.text === 'string'
@@ -369,11 +380,11 @@ export default function ChatScreen() {
         text: '请求失败，点击查看详情',
         detail: maskSecrets(rawText),
       };
-      if (activeCharacterIdRef.current === sendCharacterId) {
+      if (!isStaleReply(activeCharacterIdRef.current, sendCharacterId)) {
         errorRawRef.current[errorMessage.id] = rawText;
       }
       setMessages(current => {
-        if (activeCharacterIdRef.current !== sendCharacterId) return current;
+        if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return current;
         const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
         const hasPartial = !!pendingItem
           && typeof pendingItem.text === 'string'
@@ -403,6 +414,20 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.topBarButton}
+          onPress={() => setSwitcherOpen(true)}
+          disabled={!loaded}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.topBarLabel}>当前角色</Text>
+          <Text style={styles.topBarName} numberOfLines={1}>
+            {character.name || 'EasyChat2 助手'}
+          </Text>
+          <Text style={styles.topBarAction}>切换</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         ref={scrollRef}
         style={styles.messages}
@@ -464,11 +489,88 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal
+        visible={switcherOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSwitcherOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setSwitcherOpen(false)}
+        >
+          <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
+            <Text style={styles.modalTitle}>选择角色</Text>
+            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              {characters.map(item => {
+                const selected = item.id === activeId;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.modalRow, selected && styles.modalRowActive]}
+                    onPress={() => onSwitch(item.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[styles.modalRowText, selected && styles.modalRowTextActive]}
+                      numberOfLines={1}
+                    >
+                      {item.name || '未命名角色'}
+                    </Text>
+                    {selected ? <Text style={styles.modalBadge}>当前</Text> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  topBar: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+    backgroundColor: '#1a1a2e',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  topBarButton: { flexDirection: 'row', alignItems: 'center' },
+  topBarLabel: { color: '#888', fontSize: 12, marginRight: 8 },
+  topBarName: { color: '#fff', fontWeight: '700', flexShrink: 1 },
+  topBarAction: { color: '#8b85ff', fontSize: 12, fontWeight: '700', marginLeft: 8 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalSheet: {
+    backgroundColor: '#24243b',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '70%',
+  },
+  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  modalList: { maxHeight: 360 },
+  modalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#2d2d44',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  modalRowActive: { borderWidth: 1, borderColor: '#6c63ff' },
+  modalRowText: { color: '#d9d9e6', flex: 1, marginRight: 8 },
+  modalRowTextActive: { color: '#fff', fontWeight: '700' },
+  modalBadge: { color: '#c8c4ff', fontSize: 12, fontWeight: '700' },
   container: {
     flex: 1,
     backgroundColor: '#1a1a2e',

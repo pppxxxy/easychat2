@@ -371,7 +371,16 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
 }
 
 export default function CharacterScreen() {
-  const { character, loaded, updateCharacter } = useApp();
+  const {
+    character,
+    characters,
+    activeId,
+    loaded,
+    updateCharacter,
+    switchCharacter,
+    addCharacter,
+    deleteCharacter,
+  } = useApp();
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [description, setDescription] = useState('');
@@ -383,28 +392,28 @@ export default function CharacterScreen() {
   const [expandedWorld, setExpandedWorld] = useState(false);
   const [expandedRegex, setExpandedRegex] = useState(false);
   const [importing, setImporting] = useState(false);
-  const seededRef = useRef(false);
+  const seededIdRef = useRef(null);
 
   useEffect(() => {
-    if (loaded && !seededRef.current) {
-      seededRef.current = true;
-      setName(character.name || '');
-      setSystemPrompt(character.systemPrompt || '');
-      setDescription(character.description || '');
-      setPersonality(character.personality || '');
-      setScenario(character.scenario || '');
-      setFirstMes(character.firstMes || '');
-      setWorldInfo(
-        ensureUniqueIds(Array.isArray(character.worldInfo) ? character.worldInfo : [], 'entry')
-      );
-      setRegexScripts(
-        ensureUniqueIds(
-          Array.isArray(character.regexScripts) ? character.regexScripts : [],
-          'regex'
-        )
-      );
-    }
-  }, [loaded, character]);
+    if (!loaded) return;
+    if (seededIdRef.current === activeId) return;
+    seededIdRef.current = activeId;
+    setName(character.name || '');
+    setSystemPrompt(character.systemPrompt || '');
+    setDescription(character.description || '');
+    setPersonality(character.personality || '');
+    setScenario(character.scenario || '');
+    setFirstMes(character.firstMes || '');
+    setWorldInfo(
+      ensureUniqueIds(Array.isArray(character.worldInfo) ? character.worldInfo : [], 'entry')
+    );
+    setRegexScripts(
+      ensureUniqueIds(
+        Array.isArray(character.regexScripts) ? character.regexScripts : [],
+        'regex'
+      )
+    );
+  }, [loaded, activeId, character]);
 
   const updateWorldEntry = (id, patch) => {
     setWorldInfo(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
@@ -543,7 +552,7 @@ export default function CharacterScreen() {
 
       const next = buildCharacterPatch(parsed);
       try {
-        await updateCharacter(next);
+        await addCharacter(next);
         setName(next.name);
         setSystemPrompt(next.systemPrompt);
         setDescription(next.description);
@@ -568,6 +577,40 @@ export default function CharacterScreen() {
     }
   };
 
+  const onSwitch = id => {
+    switchCharacter(id).catch(() => {
+      Alert.alert('切换失败', '请检查存储空间或权限。');
+    });
+  };
+
+  const onNewCharacter = async () => {
+    if (!loaded) return;
+    try {
+      await addCharacter({ name: '新角色' });
+    } catch (error) {
+      Alert.alert('新建失败', '请检查存储空间或权限。');
+    }
+  };
+
+  const onDeleteCharacter = item => {
+    Alert.alert(
+      '删除角色',
+      `确定删除「${item.name || '未命名角色'}」及其聊天记录吗？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            deleteCharacter(item.id).catch(error => {
+              Alert.alert('删除失败', error?.message || '请稍后重试。');
+            });
+          },
+        },
+      ]
+    );
+  };
+
   const card = character || {};
 
   return (
@@ -582,6 +625,45 @@ export default function CharacterScreen() {
       >
         <Text style={styles.title}>角色</Text>
         <Text style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</Text>
+        <View style={styles.library}>
+          <View style={styles.libraryHeader}>
+            <Text style={styles.libraryTitle}>角色库（{characters.length}）</Text>
+            <TouchableOpacity
+              style={[styles.newButton, !loaded && styles.buttonDisabled]}
+              onPress={onNewCharacter}
+              disabled={!loaded}
+            >
+              <Text style={styles.newButtonText}>新建角色</Text>
+            </TouchableOpacity>
+          </View>
+          {characters.map(item => {
+            const selected = item.id === activeId;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.characterRow, selected && styles.characterRowActive]}
+                onPress={() => onSwitch(item.id)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.characterName, selected && styles.characterNameActive]}
+                  numberOfLines={1}
+                >
+                  {item.name || '未命名角色'}
+                </Text>
+                {selected ? <Text style={styles.characterBadge}>当前</Text> : null}
+                {item.id !== 'default' ? (
+                  <TouchableOpacity
+                    onPress={() => onDeleteCharacter(item)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.removeText}>删除</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
         <Text style={styles.label}>角色名</Text>
         <TextInput
           style={styles.input}
@@ -758,6 +840,44 @@ const styles = StyleSheet.create({
   },
   importButtonText: { color: '#c8c4ff', fontWeight: '800' },
   importHint: { color: '#888', fontSize: 12, marginTop: 8 },
+  library: { marginTop: 8 },
+  libraryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  libraryTitle: { color: '#fff', fontWeight: '800' },
+  newButton: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  newButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  characterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2d2d44',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  characterRowActive: {
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+  },
+  characterName: { color: '#d9d9e6', flex: 1, marginRight: 8 },
+  characterNameActive: { color: '#fff', fontWeight: '700' },
+  characterBadge: {
+    color: '#c8c4ff',
+    fontSize: 12,
+    fontWeight: '700',
+    marginRight: 8,
+  },
   buttonDisabled: { opacity: 0.45 },
   panel: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 18 },
   panelTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
