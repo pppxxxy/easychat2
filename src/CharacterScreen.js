@@ -14,7 +14,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 
-import { parseCardFromJson, parseCardFromPng } from './cardParser';
+import { buildSystemPrompt, parseCardFromJson, parseCardFromPng } from './cardParser';
 import { useApp } from './context/AppContext';
 import { maskSecrets } from './secrets';
 
@@ -68,7 +68,8 @@ function buildCharacterPatch(card) {
   return {
     id: `card-${Date.now().toString(36)}`,
     name: card.name || '导入角色',
-    systemPrompt: card.systemPrompt || '',
+    systemPrompt: fields.systemPrompt || '',
+    systemPromptComposed: card.systemPrompt || '',
     description: fields.description || '',
     personality: fields.personality || '',
     scenario: fields.scenario || '',
@@ -173,10 +174,18 @@ export default function CharacterScreen() {
       Alert.alert('角色加载中', '请稍候再保存。');
       return;
     }
+    const trimmedPrompt = systemPrompt.trim();
     const next = {
       id: character.id || 'default',
       name: name.trim() || 'EasyChat2 助手',
-      systemPrompt: systemPrompt.trim() || '你是 EasyChat2 的智能助手，回答简洁清晰。',
+      systemPrompt: trimmedPrompt || '你是 EasyChat2 的智能助手，回答简洁清晰。',
+      systemPromptComposed: buildSystemPrompt({
+        description: description.trim(),
+        personality: personality.trim(),
+        scenario: scenario.trim(),
+        systemPrompt: trimmedPrompt,
+        postHistoryInstructions: character.postHistoryInstructions,
+      }),
       description: description.trim(),
       personality: personality.trim(),
       scenario: scenario.trim(),

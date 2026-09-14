@@ -41,8 +41,8 @@
 **状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`importing`、`seededRef`
 **行为**:
 - 首次加载完成后用 Context 中的角色回填输入框（仅一次）
-- `save()` 组装 `{ id, name, systemPrompt, description, personality, scenario, firstMes }` 并调用 `updateCharacter`（浅合并，保留导入的其余扩展字段）
-- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析
+- `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes }` 并调用 `updateCharacter`（浅合并，保留导入的其余扩展字段）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
+- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；导入时原始 `system_prompt` 存入 `systemPrompt`，合成结果存入 `systemPromptComposed`
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传 RP-Hub 导出的 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 导入成功后展示「导入数据」面板，其中对话示例/作者注释/历史后指令/标签/世界书/正则脚本为只读
 
@@ -86,7 +86,7 @@
 | `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending` |
 
 **导出的默认值**:
-- `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
+- `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`、`systemPromptComposed`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
 **AsyncStorage 键约定**:
 
@@ -194,7 +194,7 @@ data: [DONE]
 ### `buildRequestMessages({ character, historyMessages, userText })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 历史用户消息与当前输入应用 placement 1 正则，历史助手消息应用 placement 2 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；历史用户消息与当前输入应用 placement 1 正则，历史助手消息应用 placement 2 正则
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/lorebook.js`
@@ -224,8 +224,9 @@ data: [DONE]
 |------|------|------|
 | `id` | `string` | 角色标识；默认角色为 `default`，导入卡为 `card-<base36 时间戳>` |
 | `name` | `string` | 角色名 |
-| `systemPrompt` | `string` | 人设 / 系统提示词 |
-| `description` | `string?` | 角色描述（角色卡导入） |
+| `systemPrompt` | `string` | 人设 / 系统提示词的原始文本（界面输入框绑定） |
+| `systemPromptComposed` | `string?` | 保存/导入时合成的最终系统提示词，聊天优先使用 |
+| `description` | `string?` | 角色描述（角色卡导入，参与合成） |
 | `personality` | `string?` | 性格 |
 | `scenario` | `string?` | 场景 |
 | `firstMes` | `string?` | 开场白 |

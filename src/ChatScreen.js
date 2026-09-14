@@ -87,6 +87,16 @@ function buildErrorRawText(error) {
   return lines.join('\n');
 }
 
+function buildGreetingMessage(characterId, firstMes) {
+  const text = String(firstMes || '').trim();
+  if (!text) return null;
+  return {
+    id: `greeting-${characterId}`,
+    role: ASSISTANT_ID,
+    text,
+  };
+}
+
 function MessageBubble({ message }) {
   const isUser = message.role === USER_ID;
   return (
@@ -141,7 +151,7 @@ export default function ChatScreen() {
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
-  const { character } = useApp();
+  const { character, loaded } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
   const atBottomRef = useRef(true);
@@ -191,6 +201,7 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
+    if (!loaded) return;
     let cancelled = false;
     activeCharacterIdRef.current = characterId;
     if (abortRef.current) {
@@ -204,8 +215,11 @@ export default function ChatScreen() {
       .then(list => {
         if (cancelled) return;
         const initial = Array.isArray(list) ? list : [];
+        const greeting = initial.length === 0
+          ? buildGreetingMessage(characterId, character.firstMes)
+          : null;
         lastSavedSnapshotRef.current = JSON.stringify(initial);
-        setMessages(initial);
+        setMessages(greeting ? [greeting] : initial);
       })
       .catch(() => {
         if (cancelled) return;
@@ -218,7 +232,7 @@ export default function ChatScreen() {
     return () => {
       cancelled = true;
     };
-  }, [characterId]);
+  }, [characterId, loaded]);
 
   useEffect(() => {
     if (!ready) return;

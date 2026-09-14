@@ -51,7 +51,9 @@ export function buildRequestMessages({ character, historyMessages, userText }) {
     userText
   );
 
-  const base = String(character?.systemPrompt || '').trim() || DEFAULT_SYSTEM_PROMPT;
+  const base = String(character?.systemPromptComposed || '').trim()
+    || String(character?.systemPrompt || '').trim()
+    || DEFAULT_SYSTEM_PROMPT;
   const name = String(character?.name || '').trim();
   let systemContent = name ? `你的名字是${name}。${base}` : base;
 
