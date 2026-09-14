@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -420,6 +421,8 @@ export default function CharacterScreen() {
   const [expandedRegex, setExpandedRegex] = useState(false);
   const [editingWorldId, setEditingWorldId] = useState(null);
   const [editingRegexId, setEditingRegexId] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [bgPreview, setBgPreview] = useState(null);
   const [importing, setImporting] = useState(false);
   const seededIdRef = useRef(null);
 
@@ -444,6 +447,8 @@ export default function CharacterScreen() {
     );
     setEditingWorldId(null);
     setEditingRegexId(null);
+    setAvatarPreview(character.avatarUri || null);
+    setBgPreview(character.bgUri || null);
   }, [loaded, activeId, character]);
 
   const updateWorldEntry = (id, patch) => {
@@ -511,6 +516,8 @@ export default function CharacterScreen() {
       firstMes: firstMes.trim(),
       worldInfo,
       regexScripts,
+      avatarUri: avatarPreview || '',
+      bgUri: bgPreview || '',
     };
     try {
       await updateCharacter(next);
@@ -587,7 +594,19 @@ export default function CharacterScreen() {
 
       const next = buildCharacterPatch(parsed);
       try {
-        await addCharacter(next);
+        const created = await addCharacter(next);
+
+        if (treatAsPng && asset?.uri) {
+          try {
+            const avatarDir = `${FileSystem.documentDirectory}avatars/`;
+            await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
+            const dest = `${avatarDir}${created.id}.png`;
+            await FileSystem.copyAsync({ from: asset.uri, to: dest });
+            await updateCharacter({ avatarUri: dest });
+            setAvatarPreview(dest);
+          } catch (error) {}
+        }
+
         setName(next.name);
         setSystemPrompt(next.systemPrompt);
         setDescription(next.description);
@@ -654,6 +673,29 @@ export default function CharacterScreen() {
     setScenario(preset.scenario || '');
     setFirstMes(preset.firstMes || '');
   };
+
+  const pickImage = async (setter, fieldName) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/png', 'image/jpeg'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      const asset = getPickedAsset(result);
+      if (!asset?.uri) return;
+      const dir = `${FileSystem.documentDirectory}avatars/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
+      const dest = `${dir}${character.id}-${fieldName}${ext}`;
+      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      setter(dest);
+    } catch (error) {
+      Alert.alert('图片读取失败', '请重试。');
+    }
+  };
+
+  const pickAvatar = () => pickImage(setAvatarPreview, 'avatar');
+  const pickBg = () => pickImage(setBgPreview, 'bg');
 
   const editingWorldIndex = worldInfo.findIndex(item => item.id === editingWorldId);
   const editingWorldEntry = editingWorldIndex >= 0 ? worldInfo[editingWorldIndex] : null;
@@ -731,6 +773,45 @@ export default function CharacterScreen() {
           </Text>
         </TouchableOpacity>
         <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
+
+        <View style={styles.imageSection}>
+          <Text style={styles.sectionTitle}>角色头像</Text>
+          <View style={styles.imageRow}>
+            <View style={styles.avatarBox}>
+              {avatarPreview ? (
+                <Image source={{ uri: avatarPreview }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarPlaceholderText}>
+                    {(name || character.name || '?').charAt(0)}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <TouchableOpacity style={styles.imageButton} onPress={pickAvatar} activeOpacity={0.8}>
+              <Text style={styles.imageButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
+            </TouchableOpacity>
+            {avatarPreview ? (
+              <TouchableOpacity onPress={() => setAvatarPreview(null)} hitSlop={8}>
+                <Text style={styles.removeText}>清除</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <Text style={styles.sectionTitle}>背景图</Text>
+          <View style={styles.imageRow}>
+            {bgPreview ? (
+              <Image source={{ uri: bgPreview }} style={styles.bgPreview} />
+            ) : null}
+            <TouchableOpacity style={styles.imageButton} onPress={pickBg} activeOpacity={0.8}>
+              <Text style={styles.imageButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
+            </TouchableOpacity>
+            {bgPreview ? (
+              <TouchableOpacity onPress={() => setBgPreview(null)} hitSlop={8}>
+                <Text style={styles.removeText}>清除</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
 
         <View style={styles.presetsSection}>
           <TouchableOpacity
@@ -1151,4 +1232,43 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   presetChipText: { color: '#c8c4ff', fontSize: 13, fontWeight: '700' },
+  imageSection: { marginTop: 16 },
+  imageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  avatarBox: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: '#2d2d44',
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  avatarImage: { width: 56, height: 56 },
+  avatarPlaceholder: {
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderText: { color: '#aaa', fontSize: 20, fontWeight: '800' },
+  bgPreview: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    marginRight: 12,
+    backgroundColor: '#2d2d44',
+  },
+  imageButton: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  imageButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
 });

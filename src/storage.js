@@ -30,6 +30,8 @@ export const DEFAULT_CHARACTER = {
   tags: [],
   worldInfo: [],
   regexScripts: [],
+  avatarUri: '',
+  bgUri: '',
   lastUsedAt: 0
 };
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -32,18 +33,18 @@ const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
 
 const markdownStyles = {
-  body: { color: '#f2f2f7', fontSize: 15, lineHeight: 22 },
-  heading1: { color: '#ffffff' },
-  heading2: { color: '#ffffff' },
-  heading3: { color: '#ffffff' },
-  heading4: { color: '#ffffff' },
-  heading5: { color: '#ffffff' },
-  heading6: { color: '#ffffff' },
-  hr: { backgroundColor: '#3a3a55' },
-  blockquote: { backgroundColor: '#24243b', borderColor: '#6c63ff' },
+  body: { color: '#1a1a2e', fontSize: 15, lineHeight: 22 },
+  heading1: { color: '#000' },
+  heading2: { color: '#000' },
+  heading3: { color: '#000' },
+  heading4: { color: '#000' },
+  heading5: { color: '#000' },
+  heading6: { color: '#000' },
+  hr: { backgroundColor: '#ddd' },
+  blockquote: { backgroundColor: '#f5f5f5', borderColor: '#6c63ff' },
   code_inline: {
-    color: '#ffd479',
-    backgroundColor: '#111322',
+    color: '#c7254e',
+    backgroundColor: '#f5f5f5',
     borderWidth: 0,
     borderRadius: 4,
     paddingHorizontal: 5,
@@ -51,41 +52,41 @@ const markdownStyles = {
     fontFamily: MONO_FONT,
   },
   code_block: {
-    color: '#e6e6ef',
-    backgroundColor: '#111322',
+    color: '#333',
+    backgroundColor: '#f5f5f5',
     borderWidth: 0,
     borderRadius: 8,
     padding: 10,
     fontFamily: MONO_FONT,
   },
   fence: {
-    color: '#e6e6ef',
-    backgroundColor: '#111322',
+    color: '#333',
+    backgroundColor: '#f5f5f5',
     borderWidth: 0,
     borderRadius: 8,
     padding: 10,
     fontFamily: MONO_FONT,
   },
-  link: { color: '#8b85ff' },
-  bullet_list_icon: { color: '#f2f2f7' },
-  ordered_list_icon: { color: '#f2f2f7' },
-  bullet_list_content: { flex: 1, color: '#f2f2f7' },
-  ordered_list_content: { flex: 1, color: '#f2f2f7' },
+  link: { color: '#6c63ff' },
+  bullet_list_icon: { color: '#1a1a2e' },
+  ordered_list_icon: { color: '#1a1a2e' },
+  bullet_list_content: { flex: 1, color: '#1a1a2e' },
+  ordered_list_content: { flex: 1, color: '#1a1a2e' },
 };
 
 const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre)\b[^>]*>/i;
 
 const htmlBaseStyle = {
-  color: '#f2f2f7',
+  color: '#1a1a2e',
   fontSize: 15,
   lineHeight: 22,
 };
 
 const htmlTagsStyles = {
-  a: { color: '#8b85ff' },
-  code: { fontFamily: MONO_FONT, color: '#ffd479' },
-  pre: { fontFamily: MONO_FONT, color: '#e6e6ef' },
-  q: { color: '#f2f2f7' },
+  a: { color: '#6c63ff' },
+  code: { fontFamily: MONO_FONT, color: '#c7254e', backgroundColor: '#f5f5f5' },
+  pre: { fontFamily: MONO_FONT, color: '#333', backgroundColor: '#f5f5f5' },
+  q: { color: '#1a1a2e' },
 };
 
 function containsHtml(text) {
@@ -120,7 +121,7 @@ function buildGreetingMessage(characterId, firstMes) {
   };
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const renderHtml =
@@ -128,22 +129,40 @@ const MessageBubble = React.memo(function MessageBubble({ message }) {
   const contentWidth = Math.max(160, Math.floor((width - 28) * 0.82) - 28);
   const htmlSource = useMemo(() => ({ html: message.text }), [message.text]);
 
+  const avatarElement = isUser ? null : (
+    <View style={styles.avatarContainer}>
+      {characterAvatar ? (
+        <Image source={{ uri: characterAvatar }} style={styles.avatarImage} />
+      ) : (
+        <View style={styles.avatarPlaceholder}>
+          <Text style={styles.avatarPlaceholderText}>
+            {(characterName || '?').charAt(0)}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
-      <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-        {isUser ? (
-          <Text style={styles.messageText}>{message.text}</Text>
-        ) : renderHtml ? (
-          <RenderHtml
-            contentWidth={contentWidth}
-            source={htmlSource}
-            baseStyle={htmlBaseStyle}
-            tagsStyles={htmlTagsStyles}
-            defaultTextProps={{ selectable: true }}
-          />
-        ) : (
-          <Markdown style={markdownStyles}>{message.text}</Markdown>
-        )}
+      {!isUser ? avatarElement : null}
+      <View style={[styles.messageContent]}>
+        {!isUser ? <Text style={styles.nameLabel}>{characterName || ''}</Text> : null}
+        <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
+          {isUser ? (
+            <Text style={styles.messageText}>{message.text}</Text>
+          ) : renderHtml ? (
+            <RenderHtml
+              contentWidth={contentWidth}
+              source={htmlSource}
+              baseStyle={htmlBaseStyle}
+              tagsStyles={htmlTagsStyles}
+              defaultTextProps={{ selectable: true }}
+            />
+          ) : (
+            <Markdown style={markdownStyles}>{message.text}</Markdown>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -492,7 +511,12 @@ export default function ChatScreen() {
                 rawError={errorRawRef.current[message.id]}
               />
             ) : (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                characterName={character.name}
+                characterAvatar={character.avatarUri}
+              />
             )
           )
         )}
@@ -649,6 +673,49 @@ const styles = StyleSheet.create({
   messageRowRight: {
     justifyContent: 'flex-end',
   },
+  avatarContainer: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    marginRight: 8,
+    overflow: 'hidden',
+    alignSelf: 'flex-end',
+    marginBottom: 2,
+  },
+  avatarImage: {
+    width: 34,
+    height: 34,
+  },
+  avatarPlaceholder: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#6c63ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  messageContent: {
+    flexShrink: 1,
+    maxWidth: '78%',
+  },
+  nameLabel: {
+    color: '#6c63ff',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 2,
+    marginLeft: 2,
+  },
+  messageRowLeft: {
+    justifyContent: 'flex-start',
+  },
+  messageRowRight: {
+    justifyContent: 'flex-end',
+  },
   bubble: {
     maxWidth: '82%',
     borderRadius: 18,
@@ -660,7 +727,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 6,
   },
   assistantBubble: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: '#f0f0f0',
     borderBottomLeftRadius: 6,
   },
   errorBubble: {
