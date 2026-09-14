@@ -200,7 +200,7 @@ npm run start
 ### 错误处理
 
 - `storage.js` 的 `readJson` 对读取失败返回回退值，调用方无需重复处理读取异常
-- 写入类调用（`saveApiConfig`、`saveCharacter`、`saveMessages`）会向上抛出，由界面层决定提示方式
+- 写入类调用（`saveApiConfigs`、`saveCharacter`、`saveMessages`）会向上抛出，由界面层决定提示方式
 - Context 只负责回滚状态并重抛，不直接弹窗
 - 报错展示前一律经过 `maskSecrets`
 

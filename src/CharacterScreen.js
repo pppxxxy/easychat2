@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -373,6 +374,28 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
   );
 }
 
+function worldEntryMeta(entry) {
+  if (entry.constant) return '常驻';
+  const keys = Array.isArray(entry.keys) ? entry.keys.filter(Boolean) : [];
+  if (keys.length) return `关键词：${keys.join('、')}`;
+  const content = String(entry.content || '').replace(/\s+/g, ' ').trim();
+  return content ? content.slice(0, 40) : '未设置关键词';
+}
+
+function SummaryRow({ title, meta, enabled, onPress }) {
+  return (
+    <TouchableOpacity style={styles.summaryRow} onPress={onPress} activeOpacity={0.8}>
+      <View style={styles.summaryInfo}>
+        <Text style={styles.summaryTitle} numberOfLines={1}>{title}</Text>
+        {meta ? <Text style={styles.summaryMeta} numberOfLines={1}>{meta}</Text> : null}
+      </View>
+      <Text style={[styles.summaryStatus, enabled === false && styles.summaryStatusOff]}>
+        {enabled === false ? '已停用' : '编辑'}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function CharacterScreen() {
   const {
     character,
@@ -394,6 +417,8 @@ export default function CharacterScreen() {
   const [regexScripts, setRegexScripts] = useState([]);
   const [expandedWorld, setExpandedWorld] = useState(false);
   const [expandedRegex, setExpandedRegex] = useState(false);
+  const [editingWorldId, setEditingWorldId] = useState(null);
+  const [editingRegexId, setEditingRegexId] = useState(null);
   const [importing, setImporting] = useState(false);
   const seededIdRef = useRef(null);
 
@@ -416,6 +441,8 @@ export default function CharacterScreen() {
         'regex'
       )
     );
+    setEditingWorldId(null);
+    setEditingRegexId(null);
   }, [loaded, activeId, character]);
 
   const updateWorldEntry = (id, patch) => {
@@ -428,13 +455,15 @@ export default function CharacterScreen() {
 
   const addWorldEntry = () => {
     setExpandedWorld(true);
+    const id = `entry-${Date.now().toString(36)}`;
     setWorldInfo(list => [
       ...list,
       createWorldEntry({
-        id: `entry-${Date.now().toString(36)}`,
+        id,
         comment: `世界书条目 ${list.length + 1}`,
       }),
     ]);
+    setEditingWorldId(id);
   };
 
   const updateRegexScript = (id, patch) => {
@@ -447,13 +476,15 @@ export default function CharacterScreen() {
 
   const addRegexScript = () => {
     setExpandedRegex(true);
+    const id = `regex-${Date.now().toString(36)}`;
     setRegexScripts(list => [
       ...list,
       createRegexScript({
-        id: `regex-${Date.now().toString(36)}`,
+        id,
         name: `正则脚本 ${list.length + 1}`,
       }),
     ]);
+    setEditingRegexId(id);
   };
 
   const save = async () => {
@@ -613,6 +644,11 @@ export default function CharacterScreen() {
       ]
     );
   };
+
+  const editingWorldIndex = worldInfo.findIndex(item => item.id === editingWorldId);
+  const editingWorldEntry = editingWorldIndex >= 0 ? worldInfo[editingWorldIndex] : null;
+  const editingRegexIndex = regexScripts.findIndex(item => item.id === editingRegexId);
+  const editingRegexEntry = editingRegexIndex >= 0 ? regexScripts[editingRegexIndex] : null;
 
   const card = character || {};
 
@@ -779,12 +815,12 @@ export default function CharacterScreen() {
               <Text style={styles.dataEmpty}>暂无世界书条目。</Text>
             ) : (
               worldInfo.map((entry, index) => (
-                <WorldEntryEditor
+                <SummaryRow
                   key={entry.id}
-                  entry={entry}
-                  index={index}
-                  onChange={patch => updateWorldEntry(entry.id, patch)}
-                  onRemove={() => removeWorldEntry(entry.id)}
+                  title={entry.comment || `条目 ${index + 1}`}
+                  meta={worldEntryMeta(entry)}
+                  enabled={entry.enabled}
+                  onPress={() => setEditingWorldId(entry.id)}
                 />
               ))
             )}
@@ -802,12 +838,12 @@ export default function CharacterScreen() {
               <Text style={styles.dataEmpty}>暂无正则脚本。</Text>
             ) : (
               regexScripts.map((script, index) => (
-                <RegexEntryEditor
+                <SummaryRow
                   key={script.id}
-                  script={script}
-                  index={index}
-                  onChange={patch => updateRegexScript(script.id, patch)}
-                  onRemove={() => removeRegexScript(script.id)}
+                  title={script.name || `正则 ${index + 1}`}
+                  meta={script.placementLabel || ''}
+                  enabled={script.enabled}
+                  onPress={() => setEditingRegexId(script.id)}
                 />
               ))
             )}
@@ -816,6 +852,80 @@ export default function CharacterScreen() {
 
         <View style={{ height: 24 }} />
       </ScrollView>
+
+      <Modal
+        visible={!!editingWorldEntry}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingWorldId(null)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>编辑世界书条目</Text>
+              <TouchableOpacity
+                onPress={() => setEditingWorldId(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.modalDone}>完成</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+              {editingWorldEntry ? (
+                <WorldEntryEditor
+                  entry={editingWorldEntry}
+                  index={editingWorldIndex}
+                  onChange={patch => updateWorldEntry(editingWorldEntry.id, patch)}
+                  onRemove={() => {
+                    removeWorldEntry(editingWorldEntry.id);
+                    setEditingWorldId(null);
+                  }}
+                />
+              ) : null}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={!!editingRegexEntry}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingRegexId(null)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>编辑正则脚本</Text>
+              <TouchableOpacity
+                onPress={() => setEditingRegexId(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.modalDone}>完成</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+              {editingRegexEntry ? (
+                <RegexEntryEditor
+                  script={editingRegexEntry}
+                  index={editingRegexIndex}
+                  onChange={patch => updateRegexScript(editingRegexEntry.id, patch)}
+                  onRemove={() => {
+                    removeRegexScript(editingRegexEntry.id);
+                    setEditingRegexId(null);
+                  }}
+                />
+              ) : null}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -960,4 +1070,39 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: '#6c63ff' },
   chipText: { color: '#aaa', fontSize: 13, fontWeight: '700' },
   chipTextActive: { color: '#fff' },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#24243b',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  summaryInfo: { flex: 1, marginRight: 8 },
+  summaryTitle: { color: '#fff', fontWeight: '700' },
+  summaryMeta: { color: '#888', fontSize: 12, marginTop: 2 },
+  summaryStatus: { color: '#8b85ff', fontSize: 12, fontWeight: '700' },
+  summaryStatusOff: { color: '#888' },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalSheet: {
+    backgroundColor: '#1f1f33',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  modalDone: { color: '#8b85ff', fontWeight: '800' },
+  modalBody: { flexGrow: 0 },
 });

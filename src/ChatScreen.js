@@ -9,10 +9,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
+import RenderHtml from 'react-native-render-html';
 
 import { isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
@@ -71,6 +73,25 @@ const markdownStyles = {
   ordered_list_content: { flex: 1, color: '#f2f2f7' },
 };
 
+const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre)\b[^>]*>/i;
+
+const htmlBaseStyle = {
+  color: '#f2f2f7',
+  fontSize: 15,
+  lineHeight: 22,
+};
+
+const htmlTagsStyles = {
+  a: { color: '#8b85ff' },
+  code: { fontFamily: MONO_FONT, color: '#ffd479' },
+  pre: { fontFamily: MONO_FONT, color: '#e6e6ef' },
+  q: { color: '#f2f2f7' },
+};
+
+function containsHtml(text) {
+  return HTML_TAG_PATTERN.test(String(text || ''));
+}
+
 function getHttpStatus(error) {
   return error?.status || error?.statusCode || error?.response?.status || null;
 }
@@ -99,20 +120,34 @@ function buildGreetingMessage(characterId, firstMes) {
   };
 }
 
-function MessageBubble({ message }) {
+const MessageBubble = React.memo(function MessageBubble({ message }) {
   const isUser = message.role === USER_ID;
+  const { width } = useWindowDimensions();
+  const renderHtml =
+    !isUser && !message.pending && containsHtml(message.text);
+  const contentWidth = Math.max(160, Math.floor((width - 28) * 0.82) - 28);
+  const htmlSource = useMemo(() => ({ html: message.text }), [message.text]);
+
   return (
     <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
         {isUser ? (
           <Text style={styles.messageText}>{message.text}</Text>
+        ) : renderHtml ? (
+          <RenderHtml
+            contentWidth={contentWidth}
+            source={htmlSource}
+            baseStyle={htmlBaseStyle}
+            tagsStyles={htmlTagsStyles}
+            defaultTextProps={{ selectable: true }}
+          />
         ) : (
           <Markdown style={markdownStyles}>{message.text}</Markdown>
         )}
       </View>
     </View>
   );
-}
+});
 
 function ErrorBubble({ message, rawError, onCopied }) {
   const [expanded, setExpanded] = useState(false);
@@ -200,6 +235,7 @@ export default function ChatScreen() {
   const renderedMessages = useMemo(
     () => messages.map((message, index) => {
       if (!message) return message;
+      if (message.pending) return message;
       const depth = messages.length - 1 - index;
       if (message.role === ASSISTANT_ID) {
         const text = applyRegexScripts(

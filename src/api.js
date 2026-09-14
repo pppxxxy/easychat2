@@ -1,4 +1,4 @@
-import { getApiConfig } from './storage';
+import { getActiveApiConfig } from './storage';
 
 const IDLE_TIMEOUT_MS = 30000;
 
@@ -61,7 +61,7 @@ export async function sendChatMessage(messages, options = {}) {
   if (signal && signal.aborted) {
     throw createAbortError();
   }
-  const config = await getApiConfig();
+  const config = await getActiveApiConfig();
   if (!config.apiKey) {
     throw new Error('请先在“设置”里填写 API Key。');
   }

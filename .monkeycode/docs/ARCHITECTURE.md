@@ -105,7 +105,7 @@ easychat2/
 **被依赖**: `ChatScreen`、`CharacterScreen`
 
 ### API 配置界面
-**目的**: 维护 API 地址、模型与密钥，并对非 HTTPS 地址做发送前二次确认
+**目的**: 管理多套 API 配置（接口地址、模型名与密钥），支持创建、切换、编辑、删除，当前活跃配置由 `getActiveApiConfig` 读取
 **位置**: `src/SettingsScreen.js`
 **关键文件**: `src/SettingsScreen.js`
 **依赖**: `src/storage.js`
@@ -119,7 +119,7 @@ easychat2/
 **被依赖**: `ChatScreen`、`CharacterScreen`
 
 ### 数据持久化
-**目的**: 以稳定键名读写 API 配置、角色库、当前角色与按角色隔离的消息，并迁移旧版单角色数据，屏蔽 `AsyncStorage` 细节
+**目的**: 以稳定键名读写 API 配置、角色库、当前角色与按角色隔离的消息，并迁移旧版单角色与旧版单 API 配置数据，屏蔽 `AsyncStorage` 细节
 **位置**: `src/storage.js`
 **关键文件**: `src/storage.js`
 **依赖**: `@react-native-async-storage/async-storage`
@@ -207,8 +207,9 @@ sequenceDiagram
     P->>P: 世界书激活 + 正则应用
     P-->>C: system + history + user 消息
     C->>A: sendChatMessage(messages, onChunk)
-    A->>S: getApiConfig()
+    A->>S: getActiveApiConfig()
     S-->>A: baseUrl / model / apiKey
+    note over A,S: sendChatMessage 通过 getActiveApiConfig 读取当前活跃配置
     A->>L: POST {baseUrl}/v1/chat/completions stream=true
     loop 每个增量片段
         L-->>A: data: delta.content

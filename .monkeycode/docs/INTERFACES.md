@@ -53,8 +53,8 @@
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
-**状态**: `baseUrl`、`model`、`apiKey`
-**行为**: 挂载时读取配置；页面提示 API Key 与聊天内容会发送到所填地址且仅存本机；保存前若地址匹配 `/^http:\/\//i` 则弹出明文传输风险确认。
+**状态**: `configs`、`activeId`、`loaded`
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。
 
 ## 全局状态
 
@@ -100,8 +100,10 @@
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `getApiConfig` | `() => Promise<ApiConfig>` | 读取配置并与默认值合并 |
-| `saveApiConfig` | `(config) => Promise<void>` | 写入配置 |
+| `getApiConfigs` | `() => Promise<{ configs, activeId }>` | 读取多配置列表与当前活跃 id；旧单条配置自动迁移 |
+| `saveApiConfigs` | `(configs, activeId) => Promise<{ configs, activeId }>` | 写入多配置列表与活跃 id |
+| `getActiveApiConfig` | `() => Promise<ApiConfig>` | 返回当前活跃配置（至少一条） |
+| `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
 | `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；库键缺失时迁移旧键并补入默认角色 |
 | `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后写入角色库 |
 | `getActiveCharacterId` | `() => Promise<string>` | 读取当前角色 `id`（缺失或损坏返回空串） |
@@ -121,7 +123,8 @@
 
 | 键 | 内容 |
 |----|------|
-| `@easychat2_api_config` | API 配置 JSON |
+| `@easychat2_api_configs` | API 多配置 `{ configs, activeId }` |
+| `@easychat2_api_config` | 旧版单条 API 配置（仅迁移读取，保留） |
 | `@easychat2_characters` | 角色库 JSON 数组 |
 | `@easychat2_active_character` | 当前角色 `id` |
 | `@easychat2_character` | 旧版单角色 JSON（仅迁移读取，保留） |

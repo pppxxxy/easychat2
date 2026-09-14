@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
+const API_CONFIGS_KEY = '@easychat2_api_configs';
 const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
@@ -197,16 +198,102 @@ export async function deleteCharacter(characterId) {
   return saved;
 }
 
-export async function getApiConfig() {
-  const config = await readJson(API_CONFIG_KEY, DEFAULT_API_CONFIG);
+function makeApiConfigId() {
+  return `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeApiConfig(raw, index = 0) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
-    ...DEFAULT_API_CONFIG,
-    ...config
+    id: String(source.id || `cfg-${index}`),
+    name: String(source.name || `配置 ${index + 1}`),
+    baseUrl: String(source.baseUrl || DEFAULT_API_CONFIG.baseUrl),
+    model: String(source.model || DEFAULT_API_CONFIG.model),
+    apiKey: String(source.apiKey || ''),
   };
 }
 
-export async function saveApiConfig(config) {
-  await AsyncStorage.setItem(API_CONFIG_KEY, JSON.stringify(config));
+function ensureUniqueApiConfigIds(list) {
+  const seen = new Set();
+  return list.map((item, index) => {
+    let id = String(item.id);
+    if (seen.has(id)) {
+      let candidate = `${id}-${index}`;
+      let bump = index;
+      while (seen.has(candidate)) {
+        bump += 1;
+        candidate = `${id}-${index}-${bump}`;
+      }
+      id = candidate;
+    }
+    seen.add(id);
+    return id === item.id ? item : { ...item, id };
+  });
+}
+
+async function persistApiConfigs(configs, activeId) {
+  await AsyncStorage.setItem(
+    API_CONFIGS_KEY,
+    JSON.stringify({ configs, activeId })
+  );
+}
+
+export async function getApiConfigs() {
+  const stored = await readJsonStatus(API_CONFIGS_KEY);
+  let configs = [];
+  let activeId = '';
+  let needsPersist = false;
+
+  if (stored.status === 'ok' && stored.value && typeof stored.value === 'object') {
+    const rawList = Array.isArray(stored.value.configs) ? stored.value.configs : [];
+    configs = ensureUniqueApiConfigIds(rawList.map(normalizeApiConfig));
+    activeId = String(stored.value.activeId || '');
+  } else {
+    const legacy = await readJson(API_CONFIG_KEY, null);
+    const seed = legacy && typeof legacy === 'object' && !Array.isArray(legacy)
+      ? { ...legacy, id: 'default', name: '默认配置' }
+      : { id: 'default', name: '默认配置' };
+    configs = [normalizeApiConfig(seed, 0)];
+    needsPersist = true;
+  }
+
+  if (configs.length === 0) {
+    configs = [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
+    needsPersist = true;
+  }
+  if (!configs.some(item => item.id === activeId)) {
+    activeId = configs[0].id;
+    needsPersist = true;
+  }
+  if (needsPersist) {
+    try {
+      await persistApiConfigs(configs, activeId);
+    } catch (error) {}
+  }
+  return { configs, activeId };
+}
+
+export async function saveApiConfigs(configs, activeId) {
+  const normalized = ensureUniqueApiConfigIds(
+    (Array.isArray(configs) ? configs : []).map(normalizeApiConfig)
+  );
+  const list = normalized.length
+    ? normalized
+    : [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
+  const resolvedActive = list.some(item => item.id === activeId)
+    ? String(activeId)
+    : list[0].id;
+  await persistApiConfigs(list, resolvedActive);
+  return { configs: list, activeId: resolvedActive };
+}
+
+export function createApiConfig(partial = {}) {
+  return normalizeApiConfig({ id: makeApiConfigId(), ...partial });
+}
+
+export async function getActiveApiConfig() {
+  const { configs, activeId } = await getApiConfigs();
+  return configs.find(item => item.id === activeId) || configs[0];
 }
 
 export async function getCharacter() {
