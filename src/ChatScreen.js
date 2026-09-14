@@ -704,7 +704,7 @@ const styles = StyleSheet.create({
     maxWidth: '78%',
   },
   nameLabel: {
-    color: '#6c63ff',
+    color: '#fff',
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 2,
