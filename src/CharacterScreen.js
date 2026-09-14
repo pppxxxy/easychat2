@@ -247,6 +247,7 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         placeholder="命中后注入提示词的内容"
         placeholderTextColor="#888"
         multiline
+        scrollEnabled={false}
         textAlignVertical="top"
       />
       <ToggleRow
@@ -321,6 +322,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         placeholder="例如：\\bfoo\\b"
         placeholderTextColor="#888"
         multiline
+        scrollEnabled={false}
         textAlignVertical="top"
       />
       <Text style={styles.fieldLabel}>替换为</Text>
@@ -331,6 +333,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         placeholder="替换后的文本，可留空表示删除"
         placeholderTextColor="#888"
         multiline
+        scrollEnabled={false}
         textAlignVertical="top"
       />
       <Text style={styles.fieldLabel}>flags</Text>
@@ -690,6 +693,7 @@ export default function CharacterScreen() {
           placeholder="角色登场时的第一句话"
           placeholderTextColor="#888"
           multiline
+          scrollEnabled={false}
           textAlignVertical="top"
         />
         <Text style={styles.label}>人设 / 系统提示词</Text>
@@ -700,6 +704,7 @@ export default function CharacterScreen() {
           placeholder="描述角色的语气、知识和回答方式"
           placeholderTextColor="#888"
           multiline
+          scrollEnabled={false}
           textAlignVertical="top"
         />
         <Text style={styles.label}>角色描述</Text>
@@ -710,6 +715,7 @@ export default function CharacterScreen() {
           placeholder="角色的背景、外貌与身份设定"
           placeholderTextColor="#888"
           multiline
+          scrollEnabled={false}
           textAlignVertical="top"
         />
         <Text style={styles.label}>性格</Text>
@@ -720,6 +726,7 @@ export default function CharacterScreen() {
           placeholder="角色的性格特点"
           placeholderTextColor="#888"
           multiline
+          scrollEnabled={false}
           textAlignVertical="top"
         />
         <Text style={styles.label}>场景</Text>
@@ -730,6 +737,7 @@ export default function CharacterScreen() {
           placeholder="剧情发生的背景与情境"
           placeholderTextColor="#888"
           multiline
+          scrollEnabled={false}
           textAlignVertical="top"
         />
         <TouchableOpacity
@@ -820,9 +828,9 @@ const styles = StyleSheet.create({
   label: { color: '#fff', marginTop: 14, marginBottom: 6, fontWeight: '700' },
   input: { backgroundColor: '#2d2d44', color: '#fff', padding: 12, borderRadius: 8 },
   inputSmall: { paddingVertical: 8, paddingHorizontal: 10 },
-  multiline: { minHeight: 160, maxHeight: 240 },
-  multilineSmall: { minHeight: 80, maxHeight: 140 },
-  contentInput: { minHeight: 80, maxHeight: 200 },
+  multiline: { minHeight: 160 },
+  multilineSmall: { minHeight: 80 },
+  contentInput: { minHeight: 80 },
   codeInput: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 13,
