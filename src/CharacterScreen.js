@@ -354,6 +354,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
           />
         ))}
       </View>
+      <Text style={styles.dataMeta}>AI 输出包含开场白与助手历史消息。</Text>
       <ToggleRow label="启用" value={script.enabled} onValueChange={enabled => onChange({ enabled })} />
       <ToggleRow
         label="仅用于界面显示"

@@ -188,14 +188,27 @@ export default function ChatScreen() {
   );
   const renderedMessages = useMemo(
     () => messages.map((message, index) => {
-      if (!message || message.role !== ASSISTANT_ID) return message;
-      const text = applyRegexScripts(
-        message.text,
-        character.regexScripts,
-        REGEX_PLACEMENT.AI_OUTPUT,
-        { mode: 'display', depth: messages.length - 1 - index }
-      );
-      return text === message.text ? message : { ...message, text };
+      if (!message) return message;
+      const depth = messages.length - 1 - index;
+      if (message.role === ASSISTANT_ID) {
+        const text = applyRegexScripts(
+          message.text,
+          character.regexScripts,
+          REGEX_PLACEMENT.AI_OUTPUT,
+          { mode: 'display', depth }
+        );
+        return text === message.text ? message : { ...message, text };
+      }
+      if (message.role === USER_ID) {
+        const text = applyRegexScripts(
+          message.text,
+          character.regexScripts,
+          REGEX_PLACEMENT.USER_INPUT,
+          { mode: 'display', depth }
+        );
+        return text === message.text ? message : { ...message, text };
+      }
+      return message;
     }),
     [messages, character.regexScripts]
   );

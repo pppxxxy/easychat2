@@ -22,7 +22,7 @@ function buildHistory(historyMessages, scripts) {
   });
 }
 
-function insertDepthEntries(assembled, depthEntries) {
+function insertDepthEntries(assembled, depthEntries, scripts) {
   if (!Array.isArray(depthEntries) || depthEntries.length === 0) return;
   const baseLength = assembled.length;
   const groups = new Map();
@@ -36,7 +36,12 @@ function insertDepthEntries(assembled, depthEntries) {
   for (const index of indexes) {
     const items = groups.get(index).map(entry => ({
       role: entry.role || 'system',
-      content: String(entry.content || ''),
+      content: applyForPrompt(
+        String(entry.content || ''),
+        scripts,
+        REGEX_PLACEMENT.WORLD_INFO,
+        0
+      ),
     }));
     assembled.splice(index, 0, ...items);
   }
@@ -57,8 +62,18 @@ export function buildRequestMessages({ character, historyMessages, userText }) {
   const name = String(character?.name || '').trim();
   let systemContent = name ? `你的名字是${name}。${base}` : base;
 
-  const beforeText = buildWorldInfoText(before);
-  const afterText = buildWorldInfoText(after);
+  const beforeText = applyForPrompt(
+    buildWorldInfoText(before),
+    scripts,
+    REGEX_PLACEMENT.WORLD_INFO,
+    0
+  );
+  const afterText = applyForPrompt(
+    buildWorldInfoText(after),
+    scripts,
+    REGEX_PLACEMENT.WORLD_INFO,
+    0
+  );
   if (beforeText) systemContent = `${beforeText}\n\n${systemContent}`;
   if (afterText) systemContent = `${systemContent}\n\n${afterText}`;
 
@@ -69,6 +84,6 @@ export function buildRequestMessages({ character, historyMessages, userText }) {
     ...history,
     { role: 'user', content: promptUserText },
   ];
-  insertDepthEntries(assembled, depth);
+  insertDepthEntries(assembled, depth, scripts);
   return assembled;
 }

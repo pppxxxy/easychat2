@@ -30,7 +30,7 @@
 - 依赖 `useApp()` 获取 `character`，派生 `characterId = character.id || 'default'`
 - `characterId` 变化时重新加载该角色的消息，并在加载期间禁用输入与发送
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘
-- `renderedMessages` 对助手消息应用 placement 2 的展示正则（mode `display`），原始文本仍用于落盘
+- `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
 
 **消息角色常量**: `user`、`assistant`、`system-error`
 **密钥脱敏**: 来自 `src/secrets.js` 的 `SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g` 与 `maskSecrets`，替换为 `[API_KEY已隐藏]`
@@ -203,7 +203,7 @@ data: [DONE]
 ### `buildRequestMessages({ character, historyMessages, userText })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；历史用户消息与当前输入应用 placement 1 正则，历史助手消息应用 placement 2 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/lorebook.js`
