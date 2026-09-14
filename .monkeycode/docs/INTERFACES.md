@@ -27,8 +27,10 @@
 | `ErrorBubble` | `message`, `rawError`, `onCopied` | 可展开的系统报错气泡，支持复制原文 |
 
 **状态与副作用**:
-- 依赖 `useApp()` 获取 `character`，派生 `characterId = character.id || 'default'`
-- `characterId` 变化时重新加载该角色的消息，并在加载期间禁用输入与发送
+- 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`，派生 `characterId = character.id || 'default'`
+- 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选调用 `switchCharacter`
+- `characterId` 变化时重新加载该角色的消息，并在加载期间禁用输入与发送；切换会中断进行中的请求
+- 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 守卫并在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
 
@@ -38,11 +40,13 @@
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
 **Props**: 无
-**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`expandedWorld`、`expandedRegex`、`importing`、`seededRef`
+**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`expandedWorld`、`expandedRegex`、`importing`、`seededIdRef`
 **行为**:
-- 首次加载完成后用 Context 中的角色回填全部可编辑字段（仅一次）
+- 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并标「当前」；点选条目调用 `switchCharacter`
+- 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter` 并连同聊天记录移除
+- 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
-- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；导入时原始 `system_prompt` 存入 `systemPrompt`，合成结果存入 `systemPromptComposed`
+- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析，并经 `addCharacter` 加入角色库并设为当前角色
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；对话示例/作者注释/历史后指令/标签为只读
 
@@ -62,15 +66,33 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `character` | `Character` | 当前角色，初始为 `DEFAULT_CHARACTER` |
-| `loaded` | `boolean` | 角色是否已从存储加载完成 |
-| `updateCharacter` | `(patch) => Promise<Character>` | 合并并持久化角色更新 |
+| `character` | `Character` | 当前角色（由 `activeId` 在角色库中解析，缺失时回退默认角色） |
+| `characters` | `Character[]` | 角色库，按最近使用降序 |
+| `activeId` | `string` | 当前角色 `id` |
+| `loaded` | `boolean` | 角色库与当前角色是否已从存储加载完成 |
+| `updateCharacter` | `(patch) => Promise<Character>` | 合并并持久化当前角色更新 |
+| `switchCharacter` | `(id) => Promise<Character>` | 切换当前角色并更新其 `lastUsedAt` |
+| `addCharacter` | `(character) => Promise<Character>` | 以唯一 `id` 新增角色并设为当前角色 |
+| `deleteCharacter` | `(id) => Promise<Character[]>` | 删除非默认角色及其消息，必要时切换当前角色 |
 
-**`updateCharacter(patch)` 契约**:
-1. 若尚未加载完成，抛出 `Error('角色尚未加载完成')`
-2. 基于 `characterRef.current` 合并 `patch`，乐观更新内存与界面
-3. 调用 `saveCharacter(merged)`；失败时回滚旧值并重新抛出
-4. 成功时返回合并后的角色对象
+**契约**:
+1. 未加载完成时 `updateCharacter`/`switchCharacter`/`addCharacter`/`deleteCharacter` 抛出 `Error('角色尚未加载完成')`
+2. 所有写操作先在内存乐观更新，再持久化；失败时回滚内存快照并重新抛出（`runWithRollback`）
+3. `switchCharacter` 对不存在的 `id` 抛出 `Error('角色不存在')`
+4. `deleteCharacter` 对默认角色抛出 `Error('默认角色不可删除')`
+
+### `characterLibrary` 辅助函数
+**位置**: `src/context/characterLibrary.js`（纯函数，供 `AppContext` 与测试使用）
+
+| 函数 | 说明 |
+|------|------|
+| `resolveActiveId(list, activeId)` | 校验当前角色 `id`，无效时回退默认角色 |
+| `uniqueId(base, list)` | 生成库内唯一 `id`，冲突时追加 `-2`、`-3` |
+| `withUpdatedCharacter(list, activeId, patch)` | 返回更新后的列表与被更新角色 |
+| `withSwitchedCharacter(list, id, now)` | 返回切换后（含 `lastUsedAt`）的列表与目标角色 |
+| `withAddedCharacter(list, character, now)` | 返回新增并排序后的列表与新角色 |
+| `withDeletedCharacter(list, id, activeId)` | 返回删除后的列表与回退后的当前 `id` |
+| `runWithRollback(snapshot, restore, persist)` | 持久化失败时恢复快照并重新抛出 |
 
 ## 持久化接口
 
@@ -80,20 +102,29 @@
 |------|------|------|
 | `getApiConfig` | `() => Promise<ApiConfig>` | 读取配置并与默认值合并 |
 | `saveApiConfig` | `(config) => Promise<void>` | 写入配置 |
-| `getCharacter` | `() => Promise<Character>` | 读取角色，缺失字段回退默认值并补全 `id` |
-| `saveCharacter` | `(character) => Promise<void>` | 写入角色 |
+| `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；库键缺失时迁移旧键并补入默认角色 |
+| `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后写入角色库 |
+| `getActiveCharacterId` | `() => Promise<string>` | 读取当前角色 `id`（缺失或损坏返回空串） |
+| `setActiveCharacterId` | `(id) => Promise<void>` | 写入当前角色 `id` |
+| `getActiveCharacter` | `() => Promise<Character>` | 组合读取当前角色，无效 `id` 回退默认并修正 |
+| `upsertCharacter` | `(character) => Promise<Character[]>` | 按 `id` 新增或替换一个角色 |
+| `deleteCharacter` | `(characterId) => Promise<Character[]>` | 删除非默认角色并移除其消息键 |
+| `sortCharacters` | `(list) => Character[]` | 按 `lastUsedAt` 降序、并列按 `id` 升序排序 |
+| `getCharacter` / `saveCharacter` | 见下 | 过渡包装：`getActiveCharacter` / `upsertCharacter` + 设为当前 |
 | `getMessages` | `(characterId?) => Promise<Message[]>` | 读取指定角色消息，过滤 `pending` |
 | `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending` |
 
 **导出的默认值**:
-- `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`、`systemPromptComposed`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
+- `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
 **AsyncStorage 键约定**:
 
 | 键 | 内容 |
 |----|------|
 | `@easychat2_api_config` | API 配置 JSON |
-| `@easychat2_character` | 当前角色 JSON |
+| `@easychat2_characters` | 角色库 JSON 数组 |
+| `@easychat2_active_character` | 当前角色 `id` |
+| `@easychat2_character` | 旧版单角色 JSON（仅迁移读取，保留） |
 | `@easychat2_messages::<characterId>` | 指定角色的消息数组 |
 | `@easychat2_messages` | 旧版单会话消息（仅默认角色读取时兜底） |
 
@@ -175,6 +206,13 @@ data: [DONE]
 
 **超时**: 采用空闲超时。每次收到增量数据都会重置 30 秒计时器；30 秒无数据则判定为超时。
 
+## 聊天竞态接口
+
+### `isStaleReply(currentCharacterId, sendCharacterId)`
+**位置**: `src/chatRace.js`
+**返回**: `boolean` - 当前角色与发起请求时的角色不同时返回 `true`
+**用途**: `ChatScreen` 在 `onChunk`、`setMessages` 与错误原文写入处据此丢弃切换角色后的迟到回复
+
 ## 卡解析与提示管线接口
 
 ### `parseCardFromJson(text)`
@@ -245,6 +283,7 @@ data: [DONE]
 | `tags` | `string[]?` | 标签 |
 | `worldInfo` | `WorldInfoEntry[]?` | 世界书条目，结构见[世界书](./专有概念/世界书.md) |
 | `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
+| `lastUsedAt` | `number?` | 最近一次成为当前角色的时间戳，决定列表排序 |
 
 ### `Message`
 

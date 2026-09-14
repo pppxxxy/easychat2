@@ -4,11 +4,11 @@
 
 EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应用，面向希望在手机上使用自有大模型 API Key 进行对话的个人用户。应用兼容 OpenAI 的 Chat Completions 协议，通过一个可配置的 API 地址、模型名和密钥与任意兼容服务（如 DeepSeek、OpenAI 或自建网关）通信。
 
-应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由三个底部标签页组成——聊天、角色、设置，分别负责对话、角色管理与 API 配置，并通过一个全局 `AppContext` 共享当前角色状态。
+应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由三个底部标签页组成——聊天、角色、设置，分别负责对话、角色库管理与 API 配置，并通过一个全局 `AppContext` 共享角色库与当前角色状态。
 
-在能力上，应用支持按角色隔离的多会话聊天、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 PNG 或 JSON 角色卡导入人设、世界书与正则脚本。导入的世界书会在发送前按键触发注入提示词，正则脚本会分别在发送提示词与界面展示时应用。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
+在能力上，应用支持按角色隔离的多会话聊天、可陈列与切换的角色库、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 PNG 或 JSON 角色卡导入人设、世界书与正则脚本。导入的世界书会在发送前按键触发注入提示词，正则脚本会分别在发送提示词与界面展示时应用。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
 
-架构上强调几项特征：角色状态集中在 Context 并采用乐观写入加失败回滚；消息持久化以 `characterId` 为维度隔离，并保留对旧版单会话数据的兼容读取；运行时的 Buffer 兼容垫片与 Metro 的 `package exports` 开关共同保证 ESM 依赖 `parsecard` 能正确打包。
+架构上强调几项特征：角色以「角色库 + 当前角色 id」两键持久化，旧版单角色数据在首次读取时迁移；角色状态集中在 Context 并采用乐观写入加失败回滚，切换角色时中断进行中的请求并丢弃迟到回复；消息持久化以 `characterId` 为维度隔离，并保留对旧版单会话数据的兼容读取；运行时的 Buffer 兼容垫片与 Metro 的 `package exports` 开关共同保证 ESM 依赖 `parsecard` 能正确打包。
 
 ## 技术栈
 
@@ -51,19 +51,21 @@ easychat2/
 ├── .npmrc                    # npm 配置（legacy-peer-deps）
 ├── assets/                   # 图标、自适应图标与启动图
 ├── src/
-│   ├── ChatScreen.js         # 聊天界面：消息列表、发送、错误气泡、持久化
-│   ├── CharacterScreen.js    # 角色设置与角色卡导入
+│   ├── ChatScreen.js         # 聊天界面：角色切换、消息列表、发送、错误气泡、持久化
+│   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
 │   ├── api.js                # 大模型接口调用与错误格式化
 │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
 │   ├── lorebook.js           # 世界书条目激活判定
 │   ├── regexEngine.js        # 正则脚本作用范围与应用
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
+│   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── storage.js            # AsyncStorage 读写封装与默认值
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
-│       └── AppContext.js     # 全局角色状态与更新逻辑
+│       ├── AppContext.js     # 全局角色库状态与更新逻辑
+│       └── characterLibrary.js # 角色库状态迁移纯函数
 └── .github/workflows/        # APK 构建与 EAS 调试流水线
 ```
 
@@ -82,14 +84,14 @@ easychat2/
 **被依赖**: 全体界面通过导航挂载
 
 ### 聊天界面
-**目的**: 管理消息列表、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
+**目的**: 顶部展示并可切换当前角色，管理消息列表、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`
-**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
+**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
 **被依赖**: `App.js`
 
 ### 角色管理
-**目的**: 编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），并从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本
+**目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，并从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
 **依赖**: `src/cardParser.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`buffer`、`src/context/AppContext.js`
@@ -109,15 +111,15 @@ easychat2/
 **依赖**: `src/storage.js`
 **被依赖**: `App.js`
 
-### 全局角色状态
-**目的**: 加载、共享并更新当前角色，提供失败回滚与加载完成标志
-**位置**: `src/context/AppContext.js`
+### 全局角色库状态
+**目的**: 加载、共享并更新角色库与当前角色，提供切换、增删、失败回滚与加载完成标志
+**位置**: `src/context/AppContext.js`、`src/context/characterLibrary.js`
 **关键文件**: `src/context/AppContext.js`
 **依赖**: `src/storage.js`
 **被依赖**: `ChatScreen`、`CharacterScreen`
 
 ### 数据持久化
-**目的**: 以稳定键名读写 API 配置、角色与按角色隔离的消息，屏蔽 `AsyncStorage` 细节
+**目的**: 以稳定键名读写 API 配置、角色库、当前角色与按角色隔离的消息，并迁移旧版单角色数据，屏蔽 `AsyncStorage` 细节
 **位置**: `src/storage.js`
 **关键文件**: `src/storage.js`
 **依赖**: `@react-native-async-storage/async-storage`
@@ -146,11 +148,11 @@ flowchart TB
     subgraph UI["界面层 (src/)"]
         App["App.js 应用外壳与底部导航"]
         Chat["ChatScreen 聊天界面"]
-        Character["CharacterScreen 角色管理"]
+        Character["CharacterScreen 角色库与编辑"]
         Settings["SettingsScreen API 配置"]
     end
     subgraph STATE["状态层"]
-        Context["AppContext 全局角色状态"]
+        Context["AppContext 全局角色库状态"]
     end
     subgraph DATA["数据层"]
         Storage["storage.js AsyncStorage 封装"]
@@ -160,6 +162,7 @@ flowchart TB
         Lore["lorebook.js 世界书激活"]
         Regex["regexEngine.js 正则应用"]
         Pipeline["chatPipeline.js 请求组装"]
+        Race["chatRace.js 迟到回复守卫"]
     end
     subgraph NET["网络层"]
         Api["api.js 兼容 OpenAI 调用"]
@@ -181,6 +184,7 @@ flowchart TB
     Pipeline --> Lore
     Pipeline --> Regex
     Chat --> Api
+    Chat --> Race
     Api --> Storage
     Storage --> Device
     Api --> LLM
