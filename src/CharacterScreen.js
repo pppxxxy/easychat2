@@ -5,6 +5,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -14,12 +15,26 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 
-import { buildSystemPrompt, parseCardFromJson, parseCardFromPng } from './cardParser';
+import {
+  buildSystemPrompt,
+  createRegexScript,
+  createWorldEntry,
+  parseCardFromJson,
+  parseCardFromPng,
+  REGEX_PLACEMENT_LABELS,
+  WORLD_POSITION_LABELS,
+} from './cardParser';
 import { useApp } from './context/AppContext';
 import { maskSecrets } from './secrets';
 
 const NO_CARD_DATA_MESSAGE =
-  '该图片不包含角色卡数据，请上传 RP-Hub 导出的 JSON 文件或含数据的 PNG 图片。';
+  '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
+
+const WORLD_POSITION_KEYS = Object.keys(WORLD_POSITION_LABELS)
+  .map(Number)
+  .sort((a, b) => a - b);
+const REGEX_PLACEMENT_KEYS = [1, 2, 3, 5, 6];
+const WORLD_ROLES = ['system', 'user', 'assistant'];
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -43,6 +58,25 @@ function isPngBuffer(buffer) {
     && buffer[2] === 0x4e
     && buffer[3] === 0x47
   );
+}
+
+function splitKeywords(text) {
+  return String(text || '')
+    .split(/[,，\n]/)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function toIntOrZero(text) {
+  const digits = String(text).replace(/[^0-9-]/g, '');
+  const value = parseInt(digits, 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function placementText(placement) {
+  return placement
+    .map(item => REGEX_PLACEMENT_LABELS[item] || `范围 ${item}`)
+    .join('、');
 }
 
 function hasCardContent(card) {
@@ -93,57 +127,232 @@ function DataField({ label, value }) {
   );
 }
 
-function WorldInfoList({ entries }) {
-  if (!entries || entries.length === 0) {
-    return <Text style={styles.dataEmpty}>未导入世界书条目。</Text>;
-  }
-  return entries.map(entry => (
-    <View key={`world-${entry.id}`} style={styles.dataCard}>
-      <Text style={styles.dataTitle}>{entry.comment}</Text>
-      <Text style={styles.dataMeta}>
-        {entry.constant ? '常驻' : '关键词触发'}
-        {' · '}
-        {entry.enabled ? '启用' : '停用'}
-        {' · '}
-        {entry.positionLabel}
-        {' · 顺序 '}
-        {entry.order}
-        {entry.position === 4 ? ` · 深度 ${entry.depth}` : ''}
-      </Text>
-      {entry.keys.length ? (
-        <Text style={styles.dataMeta}>关键词：{entry.keys.join('、')}</Text>
-      ) : null}
-      {entry.content ? (
-        <Text style={styles.dataContent} numberOfLines={4}>{entry.content}</Text>
-      ) : null}
+function ToggleRow({ label, value, onValueChange }) {
+  return (
+    <View style={styles.toggleRow}>
+      <Text style={styles.toggleLabel}>{label}</Text>
+      <Switch
+        value={!!value}
+        onValueChange={onValueChange}
+        trackColor={{ false: '#3a3a55', true: '#6c63ff' }}
+        thumbColor="#f2f2f7"
+      />
     </View>
-  ));
+  );
 }
 
-function RegexScriptList({ scripts }) {
-  if (!scripts || scripts.length === 0) {
-    return <Text style={styles.dataEmpty}>未导入正则脚本。</Text>;
-  }
-  return scripts.map(script => (
-    <View key={`regex-${script.id}`} style={styles.dataCard}>
-      <Text style={styles.dataTitle}>{script.name}</Text>
-      <Text style={styles.dataMeta}>
-        {script.enabled ? '启用' : '停用'}
-        {' · '}
-        {script.placementLabel}
-        {' · flags '}
-        {script.flags}
-        {script.markdownOnly ? ' · 仅显示' : ''}
-        {script.promptOnly ? ' · 仅提示词' : ''}
-      </Text>
-      {script.findRegex ? (
-        <Text style={styles.dataCode} numberOfLines={2}>{script.findRegex}</Text>
-      ) : null}
-      {script.replaceString ? (
-        <Text style={styles.dataMeta} numberOfLines={2}>替换为：{script.replaceString}</Text>
+function Chip({ label, active, onPress }) {
+  return (
+    <TouchableOpacity
+      style={[styles.chip, active && styles.chipActive]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, children }) {
+  return (
+    <View style={styles.dataSection}>
+      <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
+        <Text style={styles.sectionTitle}>{title}（{count} 条）</Text>
+        <Text style={styles.sectionToggle}>{expanded ? '收起' : '展开'}</Text>
+      </TouchableOpacity>
+      {expanded ? (
+        <View style={styles.sectionBody}>
+          {children}
+          {onAdd ? (
+            <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
+              <Text style={styles.addButtonText}>{addLabel}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
     </View>
-  ));
+  );
+}
+
+function WorldEntryEditor({ entry, index, onChange, onRemove }) {
+  const keys = Array.isArray(entry.keys) ? entry.keys : [];
+  const position = WORLD_POSITION_LABELS[entry.position] ? entry.position : 0;
+  const cyclePosition = () => {
+    const current = WORLD_POSITION_KEYS.indexOf(position);
+    const next = WORLD_POSITION_KEYS[(current + 1) % WORLD_POSITION_KEYS.length];
+    onChange({ position: next, positionLabel: WORLD_POSITION_LABELS[next] });
+  };
+  const cycleRole = () => {
+    const current = WORLD_ROLES.indexOf(entry.role);
+    const next = WORLD_ROLES[(current + 1) % WORLD_ROLES.length];
+    onChange({ role: next });
+  };
+  return (
+    <View style={styles.entryCard}>
+      <View style={styles.entryHeader}>
+        <Text style={styles.entryTitle} numberOfLines={1}>
+          {entry.comment || `条目 ${index + 1}`}
+        </Text>
+        <TouchableOpacity onPress={onRemove} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.removeText}>删除</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.fieldLabel}>名称</Text>
+      <TextInput
+        style={[styles.input, styles.inputSmall]}
+        value={entry.comment}
+        onChangeText={comment => onChange({ comment })}
+        placeholder="世界书条目名称"
+        placeholderTextColor="#888"
+      />
+      <Text style={styles.fieldLabel}>触发关键词（逗号分隔）</Text>
+      <TextInput
+        style={[styles.input, styles.inputSmall]}
+        value={keys.join(', ')}
+        onChangeText={text => onChange({ keys: splitKeywords(text) })}
+        placeholder="关键词一, 关键词二"
+        placeholderTextColor="#888"
+      />
+      <Text style={styles.fieldLabel}>内容</Text>
+      <TextInput
+        style={[styles.input, styles.contentInput]}
+        value={entry.content}
+        onChangeText={content => onChange({ content })}
+        placeholder="命中后注入提示词的内容"
+        placeholderTextColor="#888"
+        multiline
+        textAlignVertical="top"
+      />
+      <ToggleRow
+        label="常驻（无需关键词）"
+        value={entry.constant}
+        onValueChange={constant => onChange({ constant })}
+      />
+      <ToggleRow
+        label="启用"
+        value={entry.enabled}
+        onValueChange={enabled => onChange({ enabled })}
+      />
+      <View style={styles.cycleRow}>
+        <TouchableOpacity style={styles.cycleButton} onPress={cyclePosition} activeOpacity={0.8}>
+          <Text style={styles.cycleButtonText}>位置：{WORLD_POSITION_LABELS[position]}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.cycleButton} onPress={cycleRole} activeOpacity={0.8}>
+          <Text style={styles.cycleButtonText}>角色：{entry.role}</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={styles.numberRow}>
+        <View style={styles.numberField}>
+          <Text style={styles.fieldLabel}>顺序</Text>
+          <TextInput
+            style={[styles.input, styles.inputSmall]}
+            value={String(entry.order ?? 100)}
+            onChangeText={text => onChange({ order: toIntOrZero(text) })}
+            keyboardType="number-pad"
+            placeholder="100"
+            placeholderTextColor="#888"
+          />
+        </View>
+        {position === 4 ? (
+          <View style={styles.numberField}>
+            <Text style={styles.fieldLabel}>深度</Text>
+            <TextInput
+              style={[styles.input, styles.inputSmall]}
+              value={String(entry.depth ?? 4)}
+              onChangeText={text => onChange({ depth: toIntOrZero(text) })}
+              keyboardType="number-pad"
+              placeholder="4"
+              placeholderTextColor="#888"
+            />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function RegexEntryEditor({ script, index, onChange, onRemove }) {
+  const placement = Array.isArray(script.placement) ? script.placement : [1, 2];
+  const togglePlacement = value => {
+    const has = placement.includes(value);
+    const next = has
+      ? placement.filter(item => item !== value)
+      : [...placement, value].sort((a, b) => a - b);
+    const safe = next.length ? next : [1, 2];
+    onChange({ placement: safe, placementLabel: placementText(safe) });
+  };
+  return (
+    <View style={styles.entryCard}>
+      <View style={styles.entryHeader}>
+        <Text style={styles.entryTitle} numberOfLines={1}>
+          {script.name || `正则 ${index + 1}`}
+        </Text>
+        <TouchableOpacity onPress={onRemove} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.removeText}>删除</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.fieldLabel}>名称</Text>
+      <TextInput
+        style={[styles.input, styles.inputSmall]}
+        value={script.name}
+        onChangeText={name => onChange({ name })}
+        placeholder="正则脚本名称"
+        placeholderTextColor="#888"
+      />
+      <Text style={styles.fieldLabel}>匹配表达式</Text>
+      <TextInput
+        style={[styles.input, styles.contentInput, styles.codeInput]}
+        value={script.findRegex}
+        onChangeText={findRegex => onChange({ findRegex })}
+        placeholder="例如：\\bfoo\\b"
+        placeholderTextColor="#888"
+        multiline
+        textAlignVertical="top"
+      />
+      <Text style={styles.fieldLabel}>替换为</Text>
+      <TextInput
+        style={[styles.input, styles.contentInput, styles.codeInput]}
+        value={script.replaceString}
+        onChangeText={replaceString => onChange({ replaceString })}
+        placeholder="替换后的文本，可留空表示删除"
+        placeholderTextColor="#888"
+        multiline
+        textAlignVertical="top"
+      />
+      <Text style={styles.fieldLabel}>flags</Text>
+      <TextInput
+        style={[styles.input, styles.inputSmall, styles.codeInput]}
+        value={script.flags}
+        onChangeText={flags => onChange({ flags })}
+        autoCapitalize="none"
+        autoCorrect={false}
+        placeholder="g"
+        placeholderTextColor="#888"
+      />
+      <Text style={styles.fieldLabel}>作用范围</Text>
+      <View style={styles.chipRow}>
+        {REGEX_PLACEMENT_KEYS.map(key => (
+          <Chip
+            key={key}
+            label={REGEX_PLACEMENT_LABELS[key] || `范围 ${key}`}
+            active={placement.includes(key)}
+            onPress={() => togglePlacement(key)}
+          />
+        ))}
+      </View>
+      <ToggleRow label="启用" value={script.enabled} onValueChange={enabled => onChange({ enabled })} />
+      <ToggleRow
+        label="仅用于界面显示"
+        value={script.markdownOnly}
+        onValueChange={markdownOnly => onChange({ markdownOnly })}
+      />
+      <ToggleRow
+        label="仅用于发送提示词"
+        value={script.promptOnly}
+        onValueChange={promptOnly => onChange({ promptOnly })}
+      />
+    </View>
+  );
 }
 
 export default function CharacterScreen() {
@@ -154,6 +363,10 @@ export default function CharacterScreen() {
   const [personality, setPersonality] = useState('');
   const [scenario, setScenario] = useState('');
   const [firstMes, setFirstMes] = useState('');
+  const [worldInfo, setWorldInfo] = useState([]);
+  const [regexScripts, setRegexScripts] = useState([]);
+  const [expandedWorld, setExpandedWorld] = useState(false);
+  const [expandedRegex, setExpandedRegex] = useState(false);
   const [importing, setImporting] = useState(false);
   const seededRef = useRef(false);
 
@@ -166,8 +379,48 @@ export default function CharacterScreen() {
       setPersonality(character.personality || '');
       setScenario(character.scenario || '');
       setFirstMes(character.firstMes || '');
+      setWorldInfo(Array.isArray(character.worldInfo) ? character.worldInfo : []);
+      setRegexScripts(Array.isArray(character.regexScripts) ? character.regexScripts : []);
     }
   }, [loaded, character]);
+
+  const updateWorldEntry = (id, patch) => {
+    setWorldInfo(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const removeWorldEntry = id => {
+    setWorldInfo(list => list.filter(item => item.id !== id));
+  };
+
+  const addWorldEntry = () => {
+    setExpandedWorld(true);
+    setWorldInfo(list => [
+      ...list,
+      createWorldEntry({
+        id: `entry-${Date.now().toString(36)}`,
+        comment: `世界书条目 ${list.length + 1}`,
+      }),
+    ]);
+  };
+
+  const updateRegexScript = (id, patch) => {
+    setRegexScripts(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const removeRegexScript = id => {
+    setRegexScripts(list => list.filter(item => item.id !== id));
+  };
+
+  const addRegexScript = () => {
+    setExpandedRegex(true);
+    setRegexScripts(list => [
+      ...list,
+      createRegexScript({
+        id: `regex-${Date.now().toString(36)}`,
+        name: `正则脚本 ${list.length + 1}`,
+      }),
+    ]);
+  };
 
   const save = async () => {
     if (!loaded) {
@@ -190,6 +443,8 @@ export default function CharacterScreen() {
       personality: personality.trim(),
       scenario: scenario.trim(),
       firstMes: firstMes.trim(),
+      worldInfo,
+      regexScripts,
     };
     try {
       await updateCharacter(next);
@@ -199,6 +454,8 @@ export default function CharacterScreen() {
       setPersonality(next.personality);
       setScenario(next.scenario);
       setFirstMes(next.firstMes);
+      setWorldInfo(next.worldInfo);
+      setRegexScripts(next.regexScripts);
       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
@@ -271,6 +528,10 @@ export default function CharacterScreen() {
         setPersonality(next.personality);
         setScenario(next.scenario);
         setFirstMes(next.firstMes);
+        setWorldInfo(next.worldInfo);
+        setRegexScripts(next.regexScripts);
+        setExpandedWorld(false);
+        setExpandedRegex(false);
         const summary = [
           `已加载角色：${next.name}`,
           `世界书 ${next.worldInfo.length} 条`,
@@ -286,21 +547,17 @@ export default function CharacterScreen() {
   };
 
   const card = character || {};
-  const hasPanelData = Boolean(
-    card.worldInfo?.length
-    || card.regexScripts?.length
-    || card.mesExample
-    || card.creatorNotes
-    || card.postHistoryInstructions
-    || card.tags?.length
-  );
 
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.container}
+        keyboardShouldPersistTaps="handled"
+        removeClippedSubviews={false}
+      >
         <Text style={styles.title}>角色</Text>
         <Text style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</Text>
         <Text style={styles.label}>角色名</Text>
@@ -320,7 +577,7 @@ export default function CharacterScreen() {
             {importing ? '导入中...' : '导入角色卡'}
           </Text>
         </TouchableOpacity>
-        <Text style={styles.importHint}>支持 SillyTavern / RP-Hub 的 PNG / JSON 角色卡。</Text>
+        <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
         <Text style={styles.label}>开场白</Text>
         <TextInput
           style={[styles.input, styles.multilineSmall]}
@@ -379,41 +636,71 @@ export default function CharacterScreen() {
           <Text style={styles.buttonText}>保存角色</Text>
         </TouchableOpacity>
 
-        {hasPanelData ? (
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>导入数据</Text>
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>角色数据</Text>
 
-            {card.mesExample || card.creatorNotes || card.postHistoryInstructions ? (
-                <View style={styles.dataSection}>
-                  <Text style={styles.sectionTitle}>其他资料</Text>
-                  <DataField label="对话示例" value={card.mesExample} />
-                  <DataField label="作者注释" value={card.creatorNotes} />
-                  <DataField label="历史后指令" value={card.postHistoryInstructions} />
-                </View>
-              ) : null}
-
-            {card.tags?.length ? (
-              <View style={styles.dataSection}>
-                <Text style={styles.sectionTitle}>标签</Text>
-                <Text style={styles.dataMeta}>{card.tags.join('、')}</Text>
-              </View>
-            ) : null}
-
+          {card.mesExample || card.creatorNotes || card.postHistoryInstructions ? (
             <View style={styles.dataSection}>
-              <Text style={styles.sectionTitle}>
-                世界书（{card.worldInfo?.length || 0} 条）
-              </Text>
-              <WorldInfoList entries={card.worldInfo} />
+              <Text style={styles.sectionTitle}>其他资料</Text>
+              <DataField label="对话示例" value={card.mesExample} />
+              <DataField label="作者注释" value={card.creatorNotes} />
+              <DataField label="历史后指令" value={card.postHistoryInstructions} />
             </View>
+          ) : null}
 
+          {card.tags?.length ? (
             <View style={styles.dataSection}>
-              <Text style={styles.sectionTitle}>
-                正则脚本（{card.regexScripts?.length || 0} 条）
-              </Text>
-              <RegexScriptList scripts={card.regexScripts} />
+              <Text style={styles.sectionTitle}>标签</Text>
+              <Text style={styles.dataMeta}>{card.tags.join('、')}</Text>
             </View>
-          </View>
-        ) : null}
+          ) : null}
+
+          <CollapsibleSection
+            title="世界书"
+            count={worldInfo.length}
+            expanded={expandedWorld}
+            onToggle={() => setExpandedWorld(value => !value)}
+            onAdd={addWorldEntry}
+            addLabel="添加世界书条目"
+          >
+            {worldInfo.length === 0 ? (
+              <Text style={styles.dataEmpty}>暂无世界书条目。</Text>
+            ) : (
+              worldInfo.map((entry, index) => (
+                <WorldEntryEditor
+                  key={entry.id}
+                  entry={entry}
+                  index={index}
+                  onChange={patch => updateWorldEntry(entry.id, patch)}
+                  onRemove={() => removeWorldEntry(entry.id)}
+                />
+              ))
+            )}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="正则脚本"
+            count={regexScripts.length}
+            expanded={expandedRegex}
+            onToggle={() => setExpandedRegex(value => !value)}
+            onAdd={addRegexScript}
+            addLabel="添加正则脚本"
+          >
+            {regexScripts.length === 0 ? (
+              <Text style={styles.dataEmpty}>暂无正则脚本。</Text>
+            ) : (
+              regexScripts.map((script, index) => (
+                <RegexEntryEditor
+                  key={script.id}
+                  script={script}
+                  index={index}
+                  onChange={patch => updateRegexScript(script.id, patch)}
+                  onRemove={() => removeRegexScript(script.id)}
+                />
+              ))
+            )}
+          </CollapsibleSection>
+        </View>
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -428,8 +715,14 @@ const styles = StyleSheet.create({
   hint: { color: '#aaa', fontSize: 14, lineHeight: 20, marginBottom: 12 },
   label: { color: '#fff', marginTop: 14, marginBottom: 6, fontWeight: '700' },
   input: { backgroundColor: '#2d2d44', color: '#fff', padding: 12, borderRadius: 8 },
-  multiline: { minHeight: 160 },
-  multilineSmall: { minHeight: 80 },
+  inputSmall: { paddingVertical: 8, paddingHorizontal: 10 },
+  multiline: { minHeight: 160, maxHeight: 240 },
+  multilineSmall: { minHeight: 80, maxHeight: 140 },
+  contentInput: { minHeight: 80, maxHeight: 200 },
+  codeInput: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 13,
+  },
   button: { backgroundColor: '#6c63ff', padding: 14, borderRadius: 8, marginTop: 24, alignItems: 'center' },
   buttonText: { color: '#fff', fontWeight: '800' },
   importButton: {
@@ -447,25 +740,74 @@ const styles = StyleSheet.create({
   panel: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 18 },
   panelTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
   dataSection: { marginTop: 16 },
-  sectionTitle: { color: '#c8c4ff', fontWeight: '800', marginBottom: 8 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  sectionTitle: { color: '#c8c4ff', fontWeight: '800' },
+  sectionToggle: { color: '#8b85ff', fontWeight: '700' },
+  sectionBody: { marginTop: 8 },
+  addButton: {
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  addButtonText: { color: '#c8c4ff', fontWeight: '700' },
   dataField: { marginBottom: 10 },
   dataFieldLabel: { color: '#888', fontSize: 12, marginBottom: 2 },
   dataFieldValue: { color: '#e6e6ef', fontSize: 14, lineHeight: 20 },
   dataEmpty: { color: '#888', fontSize: 13 },
-  dataCard: {
+  dataMeta: { color: '#aaa', fontSize: 12, lineHeight: 18 },
+  entryCard: {
     backgroundColor: '#24243b',
     borderRadius: 8,
     padding: 12,
     marginBottom: 10,
   },
-  dataTitle: { color: '#fff', fontWeight: '700', marginBottom: 4 },
-  dataMeta: { color: '#aaa', fontSize: 12, lineHeight: 18 },
-  dataContent: { color: '#d9d9e6', fontSize: 13, lineHeight: 19, marginTop: 6 },
-  dataCode: {
-    color: '#ffd479',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  entryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
+  entryTitle: { color: '#fff', fontWeight: '700', flex: 1, marginRight: 8 },
+  removeText: { color: '#ff9b9b', fontWeight: '700' },
+  fieldLabel: { color: '#888', fontSize: 12, marginTop: 8, marginBottom: 4 },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  toggleLabel: { color: '#d9d9e6', fontSize: 14 },
+  cycleRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
+  cycleButton: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  cycleButtonText: { color: '#c8c4ff', fontSize: 13, fontWeight: '700' },
+  numberRow: { flexDirection: 'row', marginTop: 4 },
+  numberField: { flex: 1, marginRight: 10 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  chip: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  chipActive: { backgroundColor: '#6c63ff' },
+  chipText: { color: '#aaa', fontSize: 13, fontWeight: '700' },
+  chipTextActive: { color: '#fff' },
 });

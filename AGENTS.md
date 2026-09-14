@@ -37,7 +37,7 @@ npm run build:apk    # EAS preview APK
 
 - `App.js` — real entrypoint (package.json `main` points at Expo's AppEntry). Wraps `AppProvider`, bottom tabs: 聊天 / 角色 / 设置.
 - `src/ChatScreen.js` — message list, send flow, Markdown assistant replies, error bubbles.
-- `src/CharacterScreen.js` — character edit + SillyTavern PNG/JSON card import (`parsecard`).
+- `src/CharacterScreen.js` — character edit + PNG/JSON card import (`parsecard`).
 - `src/SettingsScreen.js` — API `baseUrl` / `model` / `apiKey`; warns before saving `http://`.
 - `src/api.js` — `sendChatMessage`, URL normalization, streaming via `XMLHttpRequest` SSE parsing (`onChunk`), 30s idle timeout.
 - `src/storage.js` — all AsyncStorage access and defaults.

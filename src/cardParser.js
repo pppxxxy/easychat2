@@ -486,3 +486,13 @@ export function parseCardFromPng(bytes) {
   if (!jsonText) return null;
   return parseCardFromJson(jsonText);
 }
+
+export function createWorldEntry(partial = {}, index = 0) {
+  return normalizeWorldEntry(partial, index);
+}
+
+export function createRegexScript(partial = {}, index = 0) {
+  return normalizeRegexScript(partial, index);
+}
+
+export { WORLD_POSITION_LABELS, REGEX_PLACEMENT_LABELS };

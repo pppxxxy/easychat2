@@ -8,12 +8,12 @@ EasyChat2 是一个单机运行的移动端 AI 聊天应用，让用户用自备
 - 提供暗色主题的三页移动端界面：聊天、角色、设置
 - 将 API 配置、角色与聊天记录持久化在设备本机
 - 兼容 OpenAI Chat Completions 协议，支持自定义地址与模型
-- 支持从 SillyTavern PNG / JSON 角色卡导入人设
+- 支持从 PNG / JSON 角色卡导入人设
 - 展示助手 Markdown 回复，并对请求错误提供可复制的诊断信息
 
 **相关系统**:
 - 外部大模型 HTTP 接口 - 通过用户配置的地址调用
-- `parsecard` - 解析 SillyTavern 角色卡文件
+- `parsecard` - 解析角色卡文件
 - EAS Build / GitHub Actions - 产出 Android APK
 
 **许可**: AGPL-3.0-or-later

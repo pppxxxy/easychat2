@@ -97,6 +97,9 @@ export default function SettingsScreen() {
           placeholder="sk-..."
           placeholderTextColor="#888"
         />
+        <Text style={styles.hint}>
+          API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
+        </Text>
         <TouchableOpacity style={styles.button} onPress={save}>
           <Text style={styles.buttonText}>保存配置</Text>
         </TouchableOpacity>

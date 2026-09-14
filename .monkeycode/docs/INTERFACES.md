@@ -38,19 +38,19 @@
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
 **Props**: 无
-**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`importing`、`seededRef`
+**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`expandedWorld`、`expandedRegex`、`importing`、`seededRef`
 **行为**:
-- 首次加载完成后用 Context 中的角色回填输入框（仅一次）
-- `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes }` 并调用 `updateCharacter`（浅合并，保留导入的其余扩展字段）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
+- 首次加载完成后用 Context 中的角色回填全部可编辑字段（仅一次）
+- `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；导入时原始 `system_prompt` 存入 `systemPrompt`，合成结果存入 `systemPromptComposed`
-- PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传 RP-Hub 导出的 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
-- 导入成功后展示「导入数据」面板，其中对话示例/作者注释/历史后指令/标签/世界书/正则脚本为只读
+- PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
+- 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；对话示例/作者注释/历史后指令/标签为只读
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `baseUrl`、`model`、`apiKey`
-**行为**: 挂载时读取配置；保存前若地址匹配 `/^http:\/\//i` 则弹出明文传输风险确认。
+**行为**: 挂载时读取配置；页面提示 API Key 与聊天内容会发送到所填地址且仅存本机；保存前若地址匹配 `/^http:\/\//i` 则弹出明文传输风险确认。
 
 ## 全局状态
 
@@ -190,6 +190,11 @@ data: [DONE]
 ### `readCardJsonFromPng(bytes)`
 **位置**: `src/cardParser.js`
 **说明**: 先用 `parsecard.readJsonFromPNG` 读取 `tEXt`，为空时用本地无压缩 `iTXt` 兜底；均无数据返回 `null`
+
+### `createWorldEntry(partial?, index?)` / `createRegexScript(partial?, index?)`
+**位置**: `src/cardParser.js`
+**返回**: 经标准化补全默认值的一条世界书条目 / 正则脚本；用于角色页新增条目
+**辅助导出**: `WORLD_POSITION_LABELS`、`REGEX_PLACEMENT_LABELS`
 
 ### `buildRequestMessages({ character, historyMessages, userText })`
 **位置**: `src/chatPipeline.js`
