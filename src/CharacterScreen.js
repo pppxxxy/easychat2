@@ -19,6 +19,7 @@ import {
   buildSystemPrompt,
   createRegexScript,
   createWorldEntry,
+  ensureUniqueIds,
   parseCardFromJson,
   parseCardFromPng,
   REGEX_PLACEMENT_LABELS,
@@ -65,12 +66,6 @@ function splitKeywords(text) {
     .split(/[,，\n]/)
     .map(item => item.trim())
     .filter(Boolean);
-}
-
-function toIntOrZero(text) {
-  const digits = String(text).replace(/[^0-9-]/g, '');
-  const value = parseInt(digits, 10);
-  return Number.isFinite(value) ? value : 0;
 }
 
 function placementText(placement) {
@@ -150,6 +145,37 @@ function Chip({ label, active, onPress }) {
     >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </TouchableOpacity>
+  );
+}
+
+function NumberField({ label, value, onCommit }) {
+  const [text, setText] = useState(String(value ?? ''));
+  useEffect(() => {
+    setText(String(value ?? ''));
+  }, [value]);
+  const commit = () => {
+    const parsed = parseInt(String(text).replace(/[^0-9-]/g, ''), 10);
+    if (Number.isFinite(parsed)) {
+      setText(String(parsed));
+      onCommit(parsed);
+    } else {
+      setText(String(value ?? ''));
+    }
+  };
+  return (
+    <View style={styles.numberField}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        style={[styles.input, styles.inputSmall]}
+        value={text}
+        onChangeText={setText}
+        onBlur={commit}
+        onEndEditing={commit}
+        keyboardType="number-pad"
+        placeholder={label}
+        placeholderTextColor="#888"
+      />
+    </View>
   );
 }
 
@@ -242,29 +268,17 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         </TouchableOpacity>
       </View>
       <View style={styles.numberRow}>
-        <View style={styles.numberField}>
-          <Text style={styles.fieldLabel}>顺序</Text>
-          <TextInput
-            style={[styles.input, styles.inputSmall]}
-            value={String(entry.order ?? 100)}
-            onChangeText={text => onChange({ order: toIntOrZero(text) })}
-            keyboardType="number-pad"
-            placeholder="100"
-            placeholderTextColor="#888"
-          />
-        </View>
+        <NumberField
+          label="顺序"
+          value={entry.order ?? 100}
+          onCommit={order => onChange({ order })}
+        />
         {position === 4 ? (
-          <View style={styles.numberField}>
-            <Text style={styles.fieldLabel}>深度</Text>
-            <TextInput
-              style={[styles.input, styles.inputSmall]}
-              value={String(entry.depth ?? 4)}
-              onChangeText={text => onChange({ depth: toIntOrZero(text) })}
-              keyboardType="number-pad"
-              placeholder="4"
-              placeholderTextColor="#888"
-            />
-          </View>
+          <NumberField
+            label="深度"
+            value={entry.depth ?? 4}
+            onCommit={depth => onChange({ depth })}
+          />
         ) : null}
       </View>
     </View>
@@ -379,8 +393,15 @@ export default function CharacterScreen() {
       setPersonality(character.personality || '');
       setScenario(character.scenario || '');
       setFirstMes(character.firstMes || '');
-      setWorldInfo(Array.isArray(character.worldInfo) ? character.worldInfo : []);
-      setRegexScripts(Array.isArray(character.regexScripts) ? character.regexScripts : []);
+      setWorldInfo(
+        ensureUniqueIds(Array.isArray(character.worldInfo) ? character.worldInfo : [], 'entry')
+      );
+      setRegexScripts(
+        ensureUniqueIds(
+          Array.isArray(character.regexScripts) ? character.regexScripts : [],
+          'regex'
+        )
+      );
     }
   }, [loaded, character]);
 
@@ -528,8 +549,8 @@ export default function CharacterScreen() {
         setPersonality(next.personality);
         setScenario(next.scenario);
         setFirstMes(next.firstMes);
-        setWorldInfo(next.worldInfo);
-        setRegexScripts(next.regexScripts);
+        setWorldInfo(ensureUniqueIds(next.worldInfo, 'entry'));
+        setRegexScripts(ensureUniqueIds(next.regexScripts, 'regex'));
         setExpandedWorld(false);
         setExpandedRegex(false);
         const summary = [

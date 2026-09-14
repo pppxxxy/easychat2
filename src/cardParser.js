@@ -344,6 +344,24 @@ export function buildSystemPrompt(fields) {
     .join('\n\n');
 }
 
+export function ensureUniqueIds(items, prefix) {
+  const seen = new Set();
+  return items.map((item, index) => {
+    let id = String(item.id);
+    if (seen.has(id)) {
+      let candidate = `${prefix}-${index}`;
+      let bump = index;
+      while (seen.has(candidate)) {
+        bump += 1;
+        candidate = `${prefix}-${index}-${bump}`;
+      }
+      id = candidate;
+    }
+    seen.add(id);
+    return id === item.id ? item : { ...item, id };
+  });
+}
+
 export function normalizeCard(raw) {
   const source = Array.isArray(raw) ? raw.find(isPlainObject) : raw;
   if (!isPlainObject(source)) {
@@ -356,8 +374,8 @@ export function normalizeCard(raw) {
       ? source.extensions
       : {};
   const fields = extractStandardFields(source, data, extensions);
-  const worldInfo = extractWorldInfo(source, data);
-  const regexScripts = extractRegexScripts(source, data);
+  const worldInfo = ensureUniqueIds(extractWorldInfo(source, data), 'entry');
+  const regexScripts = ensureUniqueIds(extractRegexScripts(source, data), 'regex');
   return {
     name: fields.name,
     fields,

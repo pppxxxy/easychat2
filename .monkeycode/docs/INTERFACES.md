@@ -196,6 +196,10 @@ data: [DONE]
 **返回**: 经标准化补全默认值的一条世界书条目 / 正则脚本；用于角色页新增条目
 **辅助导出**: `WORLD_POSITION_LABELS`、`REGEX_PLACEMENT_LABELS`
 
+### `ensureUniqueIds(items, prefix)`
+**位置**: `src/cardParser.js`
+**说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
+
 ### `buildRequestMessages({ character, historyMessages, userText })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
