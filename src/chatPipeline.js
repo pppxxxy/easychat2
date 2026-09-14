@@ -47,7 +47,7 @@ function insertDepthEntries(assembled, depthEntries, scripts) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const { before, after, depth } = collectActiveWorldInfo(
@@ -56,11 +56,22 @@ export function buildRequestMessages({ character, historyMessages, userText }) {
     userText
   );
 
+  const userName = String(userProfile?.userName || '').trim();
+  const userPersona = String(userProfile?.persona || '').trim();
+  const replaceUser = text => {
+    if (!userName) return text;
+    return text.replace(/\{\{user\}\}/g, userName);
+  };
+
   const base = String(character?.systemPromptComposed || '').trim()
     || String(character?.systemPrompt || '').trim()
     || DEFAULT_SYSTEM_PROMPT;
   const name = String(character?.name || '').trim();
   let systemContent = name ? `你的名字是${name}。${base}` : base;
+  systemContent = replaceUser(systemContent);
+  if (userPersona) {
+    systemContent = `${systemContent}\n\n[用户设定]\n${replaceUser(userPersona)}`;
+  }
 
   const beforeText = applyForPrompt(
     buildWorldInfoText(before),
@@ -74,8 +85,8 @@ export function buildRequestMessages({ character, historyMessages, userText }) {
     REGEX_PLACEMENT.WORLD_INFO,
     0
   );
-  if (beforeText) systemContent = `${beforeText}\n\n${systemContent}`;
-  if (afterText) systemContent = `${systemContent}\n\n${afterText}`;
+  if (beforeText) systemContent = `${replaceUser(beforeText)}\n\n${systemContent}`;
+  if (afterText) systemContent = `${systemContent}\n\n${replaceUser(afterText)}`;
 
   const promptUserText = applyForPrompt(userText, scripts, REGEX_PLACEMENT.USER_INPUT, 0);
 

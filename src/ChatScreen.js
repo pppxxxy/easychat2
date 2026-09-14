@@ -22,7 +22,7 @@ import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { getMessages, saveMessages } from './storage';
+import { getMessages, getUserProfile, saveMessages } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -360,10 +360,12 @@ export default function ChatScreen() {
     abortRef.current = controller;
 
     try {
+      const userProfile = await getUserProfile();
       const requestMessages = buildRequestMessages({
         character,
         historyMessages: messages,
         userText: text,
+        userProfile,
       });
 
       const reply = await sendChatMessage(

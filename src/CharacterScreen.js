@@ -28,6 +28,7 @@ import {
 } from './cardParser';
 import { useApp } from './context/AppContext';
 import { maskSecrets } from './secrets';
+import PRESETS from './presets';
 
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
@@ -645,6 +646,15 @@ export default function CharacterScreen() {
     );
   };
 
+  const applyPreset = preset => {
+    setName(preset.name || name);
+    setSystemPrompt(preset.systemPrompt || '');
+    setDescription(preset.description || '');
+    setPersonality(preset.personality || '');
+    setScenario(preset.scenario || '');
+    setFirstMes(preset.firstMes || '');
+  };
+
   const editingWorldIndex = worldInfo.findIndex(item => item.id === editingWorldId);
   const editingWorldEntry = editingWorldIndex >= 0 ? worldInfo[editingWorldIndex] : null;
   const editingRegexIndex = regexScripts.findIndex(item => item.id === editingRegexId);
@@ -721,6 +731,29 @@ export default function CharacterScreen() {
           </Text>
         </TouchableOpacity>
         <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
+
+        <View style={styles.presetsSection}>
+          <TouchableOpacity
+            style={styles.sectionHeader}
+            onPress={() => {}}
+            activeOpacity={1}
+          >
+            <Text style={styles.sectionTitle}>预设模板</Text>
+          </TouchableOpacity>
+          <View style={styles.presetRow}>
+            {PRESETS.map(preset => (
+              <TouchableOpacity
+                key={preset.name}
+                style={styles.presetChip}
+                onPress={() => applyPreset(preset)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.presetChipText}>{preset.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         <Text style={styles.label}>开场白</Text>
         <TextInput
           style={[styles.input, styles.multilineSmall]}
@@ -1105,4 +1138,17 @@ const styles = StyleSheet.create({
   modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalDone: { color: '#8b85ff', fontWeight: '800' },
   modalBody: { flexGrow: 0 },
+  presetsSection: { marginTop: 16 },
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
+  presetChip: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  presetChipText: { color: '#c8c4ff', fontSize: 13, fontWeight: '700' },
 });

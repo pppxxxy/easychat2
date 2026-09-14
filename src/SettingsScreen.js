@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,12 +12,20 @@ import {
   View,
 } from 'react-native';
 
-import { createApiConfig, getApiConfigs, saveApiConfigs } from './storage';
+import { createApiConfig, getApiConfigs, getUserProfile, saveApiConfigs, saveUserProfile } from './storage';
 
 export default function SettingsScreen() {
   const [configs, setConfigs] = useState([]);
   const [activeId, setActiveId] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [userPersona, setUserPersona] = useState('');
+  const [userProfileLoaded, setUserProfileLoaded] = useState(false);
+  const [detectingModels, setDetectingModels] = useState(false);
+  const [modelList, setModelList] = useState([]);
+  const [modelModalVisible, setModelModalVisible] = useState(false);
+  const [userProfileSaved, setUserProfileSaved] = useState(false);
+  const profileTimerRef = useRef(null);
 
   useEffect(() => {
     getApiConfigs()
@@ -28,6 +37,26 @@ export default function SettingsScreen() {
         Alert.alert('读取配置失败', '已使用默认配置，请重新填写后保存。');
       })
       .finally(() => setLoaded(true));
+    getUserProfile()
+      .then(profile => {
+        setUserName(profile.userName);
+        setUserPersona(profile.persona);
+      })
+      .catch(() => {})
+      .finally(() => setUserProfileLoaded(true));
+  }, []);
+
+  const saveUserProfileDelayed = useMemo(() => {
+    return (name, persona) => {
+      if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+      profileTimerRef.current = setTimeout(async () => {
+        try {
+          await saveUserProfile({ userName: name, persona });
+          setUserProfileSaved(true);
+          setTimeout(() => setUserProfileSaved(false), 2000);
+        } catch (error) {}
+      }, 600);
+    };
   }, []);
 
   const active = useMemo(
@@ -127,6 +156,58 @@ export default function SettingsScreen() {
     Alert.alert('已保存', 'API 配置已保存到本机。');
   };
 
+  const detectModels = async () => {
+    if (!active || !active.apiKey || !active.baseUrl) {
+      Alert.alert('请先填写 API 地址和 Key');
+      return;
+    }
+    setDetectingModels(true);
+    setModelList([]);
+    const base = active.baseUrl.replace(/\/+$/, '').replace(/\/v1\/chat\/completions$/, '').replace(/\/chat\/completions$/, '');
+    const urls = [`${base}/v1/models`, `${base}/models`];
+    let result = [];
+    for (const url of urls) {
+      if (result.length) break;
+      try {
+        const text = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url);
+          xhr.setRequestHeader('Authorization', `Bearer ${active.apiKey}`);
+          xhr.timeout = 15000;
+          xhr.onload = () => resolve(xhr.responseText);
+          xhr.onerror = () => reject(new Error('网络错误'));
+          xhr.ontimeout = () => reject(new Error('超时'));
+          xhr.send();
+        });
+        const data = JSON.parse(text);
+        if (Array.isArray(data?.data)) {
+          result = data.data.map(item => String(item.id || '')).filter(Boolean);
+        }
+      } catch (error) {}
+    }
+    setDetectingModels(false);
+    if (result.length) {
+      setModelList(result);
+      setModelModalVisible(true);
+    } else {
+      Alert.alert('未检测到模型', '无法获取模型列表，请检查 API 地址和 Key。');
+    }
+  };
+
+  const applyModel = model => {
+    updateField({ model });
+    setModelModalVisible(false);
+  };
+
+  const saveUserProfileNow = async () => {
+    try {
+      await saveUserProfile({ userName, persona: userPersona });
+      Alert.alert('已保存', '用户人设已保存到本机。');
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -192,15 +273,27 @@ export default function SettingsScreen() {
             />
             <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
             <Text style={styles.label}>模型</Text>
-            <TextInput
-              style={styles.input}
-              value={active.model}
-              onChangeText={model => updateField({ model })}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="deepseek-chat"
-              placeholderTextColor="#888"
-            />
+            <View style={styles.modelRow}>
+              <TextInput
+                style={[styles.input, styles.modelInput]}
+                value={active.model}
+                onChangeText={model => updateField({ model })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="deepseek-chat"
+                placeholderTextColor="#888"
+              />
+              <TouchableOpacity
+                style={styles.detectButton}
+                onPress={detectModels}
+                disabled={detectingModels}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.detectButtonText}>
+                  {detectingModels ? '检测中...' : '检测模型'}
+                </Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.label}>API Key</Text>
             <TextInput
               style={styles.input}
@@ -228,7 +321,65 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </>
         ) : null}
+
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>用户人设</Text>
+          <Text style={styles.fieldHint}>
+            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。
+          </Text>
+          <Text style={styles.label}>你的名字</Text>
+          <TextInput
+            style={styles.input}
+            value={userName}
+            onChangeText={text => { setUserName(text); saveUserProfileDelayed(text, userPersona); }}
+            placeholder="例如：小明"
+            placeholderTextColor="#888"
+          />
+          <Text style={styles.label}>人设描述</Text>
+          <TextInput
+            style={[styles.input, styles.multilineInput]}
+            value={userPersona}
+            onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text); }}
+            placeholder="描述你自己的性格、背景、喜好等"
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+          />
+          <TouchableOpacity style={styles.secondaryButton} onPress={saveUserProfileNow} activeOpacity={0.8}>
+            <Text style={styles.secondaryButtonText}>保存用户人设</Text>
+          </TouchableOpacity>
+          {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
+        </View>
       </ScrollView>
+
+      <Modal
+        visible={modelModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModelModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setModelModalVisible(false)}
+        >
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>可用模型</Text>
+            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              {modelList.map(model => (
+                <TouchableOpacity
+                  key={model}
+                  style={styles.modalRow}
+                  onPress={() => applyModel(model)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalRowText}>{model}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -284,4 +435,52 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: { color: '#ff9b9b', fontWeight: '800' },
   buttonDisabled: { opacity: 0.45 },
+  modelRow: { flexDirection: 'row', alignItems: 'center' },
+  modelInput: { flex: 1, marginRight: 8 },
+  detectButton: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  detectButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  panel: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 18 },
+  panelTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  fieldHint: { color: '#888', fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  multilineInput: { minHeight: 100 },
+  secondaryButton: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  secondaryButtonText: { color: '#c8c4ff', fontWeight: '800' },
+  savedHint: { color: '#6c63ff', fontSize: 12, marginTop: 4 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalSheet: {
+    backgroundColor: '#24243b',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '70%',
+  },
+  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  modalList: { maxHeight: 360 },
+  modalRow: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  modalRowText: { color: '#d9d9e6' },
 });

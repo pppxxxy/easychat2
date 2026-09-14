@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
+const USER_PROFILE_KEY = '@easychat2_user_profile';
 const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
@@ -317,4 +318,24 @@ export async function getMessages(characterId = DEFAULT_CHARACTER.id) {
 export async function saveMessages(characterId, messages) {
   const persistable = (messages || []).filter(item => item && !item.pending);
   await AsyncStorage.setItem(messagesKey(characterId), JSON.stringify(persistable));
+}
+
+const DEFAULT_USER_PROFILE = { userName: '', persona: '' };
+
+export async function getUserProfile() {
+  const profile = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
+  return {
+    userName: String(profile?.userName || ''),
+    persona: String(profile?.persona || ''),
+  };
+}
+
+export async function saveUserProfile(profile) {
+  await AsyncStorage.setItem(
+    USER_PROFILE_KEY,
+    JSON.stringify({
+      userName: String(profile?.userName || ''),
+      persona: String(profile?.persona || ''),
+    })
+  );
 }
