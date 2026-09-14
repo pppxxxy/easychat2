@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -208,6 +209,37 @@ export default function SettingsScreen() {
     }
   };
 
+  const openTutorial = () => {
+    Linking.openURL('https://github.com/pppxxxy/easychat2/wiki').catch(() =>
+      Alert.alert('无法打开', '请手动访问 GitHub 仓库查看使用说明。')
+    );
+  };
+
+  const openDisclaimer = () => {
+    Alert.alert(
+      '免责条款',
+      'EasyChat2 是一个开源 AI 聊天工具，仅供学习交流使用。\n\n'
+        + '用户自行配置 API 端点与密钥，所有聊天内容直发到用户指定的服务地址。\n\n'
+        + '开发者不对用户使用本应用产生的任何后果负责，包括但不限于：\n'
+        + '- 第三方服务中断或数据泄露\n'
+        + '- 因配置错误导致的安全问题\n'
+        + '- 生成的任何内容的准确性、合法性\n\n'
+        + '使用即代表同意以上条款。'
+    );
+  };
+
+  const openGitHub = () => {
+    Linking.openURL('https://github.com/pppxxxy/easychat2').catch(() =>
+      Alert.alert('无法打开', '请手动访问 GitHub：https://github.com/pppxxxy/easychat2')
+    );
+  };
+
+  const checkUpdate = () => {
+    Linking.openURL('https://github.com/pppxxxy/easychat2/releases').catch(() =>
+      Alert.alert('无法打开', '请手动访问 GitHub Releases 页面检查更新。')
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -215,6 +247,7 @@ export default function SettingsScreen() {
     >
       <ScrollView
         style={styles.container}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
@@ -350,6 +383,25 @@ export default function SettingsScreen() {
           </TouchableOpacity>
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
         </View>
+
+        <View style={styles.linksSection}>
+          <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
+            <Text style={styles.linkText}>使用教程</Text>
+            <Text style={styles.linkArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.linkRow} onPress={openDisclaimer} activeOpacity={0.7}>
+            <Text style={styles.linkText}>免责条款</Text>
+            <Text style={styles.linkArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.linkRow} onPress={openGitHub} activeOpacity={0.7}>
+            <Text style={styles.linkText}>GitHub 地址</Text>
+            <Text style={styles.linkArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.linkRow} onPress={checkUpdate} activeOpacity={0.7}>
+            <Text style={styles.linkText}>检测更新</Text>
+            <Text style={styles.linkArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       <Modal
@@ -483,4 +535,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   modalRowText: { color: '#d9d9e6' },
+  scrollContent: { paddingBottom: 80 },
+  linksSection: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 4 },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  linkText: { color: '#d9d9e6', fontSize: 15 },
+  linkArrow: { color: '#888', fontSize: 20 },
 });
