@@ -306,10 +306,14 @@ export default function ChatScreen() {
     setIsSending(false);
     errorRawRef.current = {};
     let userProfileCache = null;
-    getUserProfile().then(profile => { userProfileCache = profile; setUserAvatar(profile.avatarUri || ''); }).catch(() => {});
+    const profilePromise = getUserProfile().then(profile => {
+      userProfileCache = profile;
+      setUserAvatar(profile.avatarUri || '');
+    }).catch(() => {});
     getMessages(characterId)
-      .then(list => {
+      .then(async list => {
         if (cancelled) return;
+        await profilePromise;
         const initial = Array.isArray(list) ? list : [];
         const greeting = initial.length === 0
           ? buildGreetingMessage(characterId, character.firstMes, userProfileCache?.userName)
