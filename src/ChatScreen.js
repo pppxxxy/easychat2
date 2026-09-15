@@ -111,25 +111,38 @@ function buildErrorRawText(error) {
   return lines.join('\n');
 }
 
-function buildGreetingMessage(characterId, firstMes) {
+function buildGreetingMessage(characterId, firstMes, userName) {
   const text = String(firstMes || '').trim();
   if (!text) return null;
+  const replaced = userName ? text.replace(/\{\{user\}\}/g, userName) : text;
   return {
     id: `greeting-${characterId}`,
     role: ASSISTANT_ID,
-    text,
+    text: replaced,
   };
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
-  const contentWidth = Math.max(160, Math.floor((width - 28) * 0.82) - 28);
+  const contentWidth = Math.max(200, Math.floor((width - 28) * 0.88) - 28);
   const htmlSource = useMemo(() => ({ html: message.text }), [message.text]);
 
-  const avatarElement = isUser ? null : (
+  const avatarElement = isUser ? (
+    <View style={styles.avatarContainerRight}>
+      {userAvatarUri ? (
+        <Image source={{ uri: userAvatarUri }} style={styles.avatarImage} />
+      ) : (
+        <View style={styles.avatarPlaceholderUser}>
+          <Text style={styles.avatarPlaceholderText}>
+            {'我'}
+          </Text>
+        </View>
+      )}
+    </View>
+  ) : (
     <View style={styles.avatarContainer}>
       {characterAvatar ? (
         <Image source={{ uri: characterAvatar }} style={styles.avatarImage} />
@@ -164,6 +177,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
           )}
         </View>
       </View>
+      {isUser ? avatarElement : null}
     </View>
   );
 });
@@ -217,6 +231,7 @@ export default function ChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [userAvatar, setUserAvatar] = useState('');
 
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
@@ -290,12 +305,14 @@ export default function ChatScreen() {
     setReady(false);
     setIsSending(false);
     errorRawRef.current = {};
+    let userProfileCache = null;
+    getUserProfile().then(profile => { userProfileCache = profile; setUserAvatar(profile.avatarUri || ''); }).catch(() => {});
     getMessages(characterId)
       .then(list => {
         if (cancelled) return;
         const initial = Array.isArray(list) ? list : [];
         const greeting = initial.length === 0
-          ? buildGreetingMessage(characterId, character.firstMes)
+          ? buildGreetingMessage(characterId, character.firstMes, userProfileCache?.userName)
           : null;
         lastSavedSnapshotRef.current = JSON.stringify(initial);
         setMessages(greeting ? [greeting] : initial);
@@ -516,6 +533,7 @@ export default function ChatScreen() {
                 message={message}
                 characterName={character.name}
                 characterAvatar={character.avatarUri}
+                userAvatarUri={userAvatar}
               />
             )
           )
@@ -679,8 +697,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 8,
     overflow: 'hidden',
-    alignSelf: 'flex-end',
-    marginBottom: 2,
+    alignSelf: 'flex-start',
+    marginTop: 16,
+  },
+  avatarContainerRight: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    marginLeft: 8,
+    overflow: 'hidden',
+    alignSelf: 'flex-start',
+    marginTop: 16,
   },
   avatarImage: {
     width: 34,
@@ -694,14 +721,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  avatarPlaceholderUser: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#555',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarPlaceholderText: {
     color: '#fff',
     fontWeight: '800',
     fontSize: 14,
   },
   messageContent: {
-    flexShrink: 1,
-    maxWidth: '78%',
+    maxWidth: '92%',
   },
   nameLabel: {
     color: '#fff',
@@ -717,7 +751,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   bubble: {
-    maxWidth: '82%',
+    maxWidth: '95%',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,

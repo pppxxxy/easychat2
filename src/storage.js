@@ -322,13 +322,14 @@ export async function saveMessages(characterId, messages) {
   await AsyncStorage.setItem(messagesKey(characterId), JSON.stringify(persistable));
 }
 
-const DEFAULT_USER_PROFILE = { userName: '', persona: '' };
+const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '' };
 
 export async function getUserProfile() {
   const profile = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
   return {
     userName: String(profile?.userName || ''),
     persona: String(profile?.persona || ''),
+    avatarUri: String(profile?.avatarUri || ''),
   };
 }
 
@@ -338,6 +339,7 @@ export async function saveUserProfile(profile) {
     JSON.stringify({
       userName: String(profile?.userName || ''),
       persona: String(profile?.persona || ''),
+      avatarUri: String(profile?.avatarUri || ''),
     })
   );
 }

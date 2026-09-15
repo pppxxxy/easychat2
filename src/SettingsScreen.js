@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -12,8 +13,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 
 import { createApiConfig, getApiConfigs, getUserProfile, saveApiConfigs, saveUserProfile } from './storage';
+
+function getPickedAsset(result) {
+  if (!result || result.canceled || result.type === 'cancel') return null;
+  if (Array.isArray(result.assets) && result.assets[0]) return result.assets[0];
+  if (result.uri) return result;
+  return null;
+}
 
 export default function SettingsScreen() {
   const [configs, setConfigs] = useState([]);
@@ -21,6 +31,7 @@ export default function SettingsScreen() {
   const [loaded, setLoaded] = useState(false);
   const [userName, setUserName] = useState('');
   const [userPersona, setUserPersona] = useState('');
+  const [userAvatarUri, setUserAvatarUri] = useState('');
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
@@ -42,23 +53,44 @@ export default function SettingsScreen() {
       .then(profile => {
         setUserName(profile.userName);
         setUserPersona(profile.persona);
+        setUserAvatarUri(profile.avatarUri || '');
       })
       .catch(() => {})
       .finally(() => setUserProfileLoaded(true));
   }, []);
 
   const saveUserProfileDelayed = useMemo(() => {
-    return (name, persona) => {
+    return (name, persona, avatar) => {
       if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
       profileTimerRef.current = setTimeout(async () => {
         try {
-          await saveUserProfile({ userName: name, persona });
+          await saveUserProfile({ userName: name, persona, avatarUri: avatar ?? userAvatarUri });
           setUserProfileSaved(true);
           setTimeout(() => setUserProfileSaved(false), 2000);
         } catch (error) {}
       }, 600);
     };
   }, []);
+
+  const pickUserAvatar = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/png', 'image/jpeg'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      const asset = getPickedAsset(result);
+      if (!asset?.uri) return;
+      const dir = `${FileSystem.documentDirectory}avatars/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
+      const dest = `${dir}user-avatar${ext}`;
+      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      setUserAvatarUri(dest);
+    } catch (error) {
+      Alert.alert('图片读取失败', '请重试。');
+    }
+  };
 
   const active = useMemo(
     () => configs.find(item => item.id === activeId) || configs[0] || null,
@@ -202,7 +234,7 @@ export default function SettingsScreen() {
 
   const saveUserProfileNow = async () => {
     try {
-      await saveUserProfile({ userName, persona: userPersona });
+      await saveUserProfile({ userName, persona: userPersona, avatarUri: userAvatarUri });
       Alert.alert('已保存', '用户人设已保存到本机。');
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
@@ -360,11 +392,32 @@ export default function SettingsScreen() {
           <Text style={styles.fieldHint}>
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。
           </Text>
+          <View style={styles.avatarRow}>
+            <View style={styles.avatarBox}>
+              {userAvatarUri ? (
+                <Image source={{ uri: userAvatarUri }} style={styles.avatarImg} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarPlaceholderText}>
+                    {userName ? userName.charAt(0) : '我'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <TouchableOpacity style={styles.imageButton} onPress={pickUserAvatar} activeOpacity={0.8}>
+              <Text style={styles.imageButtonText}>{userAvatarUri ? '更换头像' : '选择头像'}</Text>
+            </TouchableOpacity>
+            {userAvatarUri ? (
+              <TouchableOpacity onPress={() => setUserAvatarUri('')} hitSlop={8}>
+                <Text style={styles.removeText}>清除</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           <Text style={styles.label}>你的名字</Text>
           <TextInput
             style={styles.input}
             value={userName}
-            onChangeText={text => { setUserName(text); saveUserProfileDelayed(text, userPersona); }}
+            onChangeText={text => { setUserName(text); saveUserProfileDelayed(text, userPersona, userAvatarUri); }}
             placeholder="例如：小明"
             placeholderTextColor="#888"
           />
@@ -372,7 +425,7 @@ export default function SettingsScreen() {
           <TextInput
             style={[styles.input, styles.multilineInput]}
             value={userPersona}
-            onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text); }}
+            onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text, userAvatarUri); }}
             placeholder="描述你自己的性格、背景、喜好等"
             placeholderTextColor="#888"
             multiline
@@ -547,4 +600,32 @@ const styles = StyleSheet.create({
   },
   linkText: { color: '#d9d9e6', fontSize: 15 },
   linkArrow: { color: '#888', fontSize: 20 },
+  avatarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  avatarBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: '#2d2d44',
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  avatarImg: { width: 52, height: 52 },
+  avatarPlaceholder: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderText: { color: '#aaa', fontSize: 18, fontWeight: '800' },
+  imageButton: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  imageButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  removeText: { color: '#ff9b9b', fontWeight: '700' },
 });
