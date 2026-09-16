@@ -695,6 +695,21 @@ export default function CharacterScreen() {
   const pickAvatar = () => pickImage(setAvatarPreview, 'avatar');
   const pickBg = () => pickImage(setBgPreview, 'bg');
 
+  const clearBgImage = async () => {
+    if (!loaded) {
+      Alert.alert('角色加载中', '请稍候再操作。');
+      return;
+    }
+    const previous = bgPreview;
+    setBgPreview(null);
+    try {
+      await updateCharacter({ bgUri: '' });
+    } catch (error) {
+      setBgPreview(previous);
+      Alert.alert('清除失败', '请检查存储空间或权限。');
+    }
+  };
+
   const editingWorldIndex = worldInfo.findIndex(item => item.id === editingWorldId);
   const editingWorldEntry = editingWorldIndex >= 0 ? worldInfo[editingWorldIndex] : null;
   const editingRegexIndex = regexScripts.findIndex(item => item.id === editingRegexId);
@@ -804,7 +819,7 @@ export default function CharacterScreen() {
               <Text style={styles.imageButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
             </TouchableOpacity>
             {bgPreview ? (
-              <TouchableOpacity onPress={() => setBgPreview(null)} hitSlop={8}>
+              <TouchableOpacity onPress={clearBgImage} hitSlop={8}>
                 <Text style={styles.removeText}>清除</Text>
               </TouchableOpacity>
             ) : null}
