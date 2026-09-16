@@ -1,8 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import GLOBAL_PRESETS from './presets';
+
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
 const USER_PROFILE_KEY = '@easychat2_user_profile';
+const GLOBAL_PRESETS_KEY = '@easychat2_global_presets';
 const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
@@ -342,4 +345,29 @@ export async function saveUserProfile(profile) {
       avatarUri: String(profile?.avatarUri || ''),
     })
   );
+}
+
+export async function getGlobalPresetSettings() {
+  const stored = await readJson(GLOBAL_PRESETS_KEY, {});
+  const source = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  const enabled = {};
+  GLOBAL_PRESETS.forEach(preset => {
+    enabled[preset.id] = source[preset.id] === true;
+  });
+  return enabled;
+}
+
+export async function saveGlobalPresetSettings(enabled) {
+  const source = enabled && typeof enabled === 'object' ? enabled : {};
+  const normalized = {};
+  GLOBAL_PRESETS.forEach(preset => {
+    normalized[preset.id] = source[preset.id] === true;
+  });
+  await AsyncStorage.setItem(GLOBAL_PRESETS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+export async function getEnabledGlobalPresetPrompts() {
+  const enabled = await getGlobalPresetSettings();
+  return GLOBAL_PRESETS.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
 }

@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -16,7 +17,16 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 
-import { createApiConfig, getApiConfigs, getUserProfile, saveApiConfigs, saveUserProfile } from './storage';
+import GLOBAL_PRESETS from './presets';
+import {
+  createApiConfig,
+  getApiConfigs,
+  getGlobalPresetSettings,
+  getUserProfile,
+  saveApiConfigs,
+  saveGlobalPresetSettings,
+  saveUserProfile,
+} from './storage';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -37,6 +47,7 @@ export default function SettingsScreen() {
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
   const [userProfileSaved, setUserProfileSaved] = useState(false);
+  const [presetEnabled, setPresetEnabled] = useState({});
   const profileTimerRef = useRef(null);
 
   useEffect(() => {
@@ -57,7 +68,18 @@ export default function SettingsScreen() {
       })
       .catch(() => {})
       .finally(() => setUserProfileLoaded(true));
+    getGlobalPresetSettings()
+      .then(enabled => setPresetEnabled(enabled))
+      .catch(() => {});
   }, []);
+
+  const togglePreset = (id, value) => {
+    const next = { ...presetEnabled, [id]: value };
+    setPresetEnabled(next);
+    saveGlobalPresetSettings(next).catch(() => {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    });
+  };
 
   const saveUserProfileDelayed = useMemo(() => {
     return (name, persona, avatar) => {
@@ -437,6 +459,27 @@ export default function SettingsScreen() {
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
         </View>
 
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>对话预设</Text>
+          <Text style={styles.fieldHint}>
+            这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。
+          </Text>
+          {GLOBAL_PRESETS.map(preset => (
+            <View key={preset.id} style={styles.presetRow}>
+              <View style={styles.presetInfo}>
+                <Text style={styles.presetName}>{preset.name}</Text>
+                <Text style={styles.presetDesc}>{preset.description}</Text>
+              </View>
+              <Switch
+                value={presetEnabled[preset.id] === true}
+                onValueChange={value => togglePreset(preset.id, value)}
+                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+                thumbColor="#ffffff"
+              />
+            </View>
+          ))}
+        </View>
+
         <View style={styles.linksSection}>
           <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
             <Text style={styles.linkText}>使用教程</Text>
@@ -566,6 +609,17 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: { color: '#c8c4ff', fontWeight: '800' },
   savedHint: { color: '#6c63ff', fontSize: 12, marginTop: 4 },
+  presetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  presetInfo: { flex: 1, marginRight: 12 },
+  presetName: { color: '#fff', fontWeight: '700' },
+  presetDesc: { color: '#888', fontSize: 12, marginTop: 2, lineHeight: 17 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

@@ -24,7 +24,7 @@ import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { getMessages, getUserProfile, saveMessages } from './storage';
+import { getEnabledGlobalPresetPrompts, getMessages, getUserProfile, saveMessages } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -566,12 +566,16 @@ export default function ChatScreen() {
     abortRef.current = controller;
 
     try {
-      const userProfile = await getUserProfile();
+      const [userProfile, globalPresets] = await Promise.all([
+        getUserProfile(),
+        getEnabledGlobalPresetPrompts(),
+      ]);
       const requestMessages = buildRequestMessages({
         character,
         historyMessages,
         userText,
         userProfile,
+        globalPresets,
       });
 
       const reply = await sendChatMessage(

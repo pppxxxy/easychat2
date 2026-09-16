@@ -47,7 +47,7 @@ function insertDepthEntries(assembled, depthEntries, scripts) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const { before, after, depth } = collectActiveWorldInfo(
@@ -87,6 +87,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   );
   if (beforeText) systemContent = `${replaceUser(beforeText)}\n\n${systemContent}`;
   if (afterText) systemContent = `${systemContent}\n\n${replaceUser(afterText)}`;
+
+  const presetText = (Array.isArray(globalPresets) ? globalPresets : [])
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .join('\n');
+  if (presetText) {
+    const presetUserName = userName || '用户';
+    systemContent = `${systemContent}\n\n[全局预设]\n${presetText.replace(/\{\{user\}\}/g, presetUserName)}`;
+  }
 
   const promptUserText = applyForPrompt(userText, scripts, REGEX_PLACEMENT.USER_INPUT, 0);
 
