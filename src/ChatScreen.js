@@ -128,6 +128,25 @@ function collectTNodeText(node) {
   return '';
 }
 
+function toPlainText(text) {
+  let out = String(text || '');
+  out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+  out = out.replace(/<!--[\s\S]*?-->/g, '');
+  out = out.replace(/<br\s*\/?>/gi, '\n');
+  out = out.replace(/<\/(?:p|div|h[1-6]|li|tr|section|article)>/gi, '\n');
+  out = out.replace(/<[^>]+>/g, '');
+  out = out.replace(/&nbsp;/gi, ' ');
+  out = out.replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
+  out = out.replace(/&quot;/gi, '"').replace(/&#39;/gi, "'");
+  out = out.replace(/&amp;/gi, '&');
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out.trim();
+}
+
+function messageCopyText(text) {
+  return containsHtml(text) ? toPlainText(text) : String(text || '');
+}
+
 function prepareAssistantHtml(raw) {
   let html = String(raw || '').replace(STYLE_BLOCK_PATTERN, '');
   html = html.replace(/class="(ml-open-[a-z]+)"/g, (full, cls) => {
@@ -175,11 +194,20 @@ function buildGreetingMessage(characterId, firstMes, userName) {
   };
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
+  const [copied, setCopied] = useState(false);
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
+  const plainText = messageCopyText(message.text);
+  const onCopy = useCallback(async () => {
+    try {
+      await Clipboard.setStringAsync(plainText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {}
+  }, [plainText]);
   const contentWidth = Math.max(200, Math.floor((width - 28) * 0.88) - 28);
   const htmlSource = useMemo(
     () => ({ html: prepareAssistantHtml(message.text) }),
@@ -261,6 +289,37 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             <Markdown style={markdownStyles}>{message.text}</Markdown>
           )}
         </View>
+        {!message.pending ? (
+          <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
+            <TouchableOpacity style={styles.messageActionButton} onPress={onCopy} activeOpacity={0.8}>
+              <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => onSelectText?.(plainText)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.messageActionText}>选择文本</Text>
+            </TouchableOpacity>
+            {isUser ? (
+              <TouchableOpacity
+                style={styles.messageActionButton}
+                onPress={() => onEditUserMessage?.(message.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.messageActionText}>修改重发</Text>
+              </TouchableOpacity>
+            ) : canRegenerate ? (
+              <TouchableOpacity
+                style={styles.messageActionButton}
+                onPress={() => onRegenerate?.(message.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.messageActionText}>重新生成</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
       {isUser ? avatarElement : null}
     </View>
@@ -317,6 +376,7 @@ export default function ChatScreen() {
   const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
+  const [selectionText, setSelectionText] = useState('');
 
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
@@ -378,6 +438,20 @@ export default function ChatScreen() {
     }),
     [messages, character.regexScripts]
   );
+
+  const regenerableIds = useMemo(() => {
+    const ids = new Set();
+    let hasUser = false;
+    for (const item of messages) {
+      if (!item) continue;
+      if (item.role === USER_ID) {
+        hasUser = true;
+      } else if (item.role === ASSISTANT_ID && hasUser) {
+        ids.add(item.id);
+      }
+    }
+    return ids;
+  }, [messages]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -457,16 +531,10 @@ export default function ChatScreen() {
     ]);
   }, []);
 
-  const sendText = useCallback(async rawText => {
-    const text = String(rawText || '').trim();
-    if (!text || isSending || !ready) return;
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
+    if (isSending || !ready || abortRef.current) return;
     const sendCharacterId = activeCharacterIdRef.current;
 
-    const userMessage = {
-      id: `${Date.now()}-user`,
-      role: USER_ID,
-      text,
-    };
     const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
@@ -474,8 +542,7 @@ export default function ChatScreen() {
       pending: true,
     };
 
-    const nextMessages = [...messages, userMessage, pendingAssistantMessage];
-    setMessages(nextMessages);
+    setMessages([...baseMessages, pendingAssistantMessage]);
     setIsSending(true);
     atBottomRef.current = true;
     scrollToBottom();
@@ -487,8 +554,8 @@ export default function ChatScreen() {
       const userProfile = await getUserProfile();
       const requestMessages = buildRequestMessages({
         character,
-        historyMessages: messages,
-        userText: text,
+        historyMessages,
+        userText,
         userProfile,
       });
 
@@ -568,7 +635,66 @@ export default function ChatScreen() {
       setIsSending(false);
       autoScrollToBottom();
     }
-  }, [autoScrollToBottom, character, isSending, messages, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character, isSending, ready, scrollToBottom]);
+
+  const sendText = useCallback(rawText => {
+    const text = String(rawText || '').trim();
+    if (!text || isSending || !ready) return;
+    const userMessage = {
+      id: `${Date.now()}-user`,
+      role: USER_ID,
+      text,
+    };
+    requestReply({
+      historyMessages: messages,
+      userText: text,
+      baseMessages: [...messages, userMessage],
+    });
+  }, [isSending, messages, ready, requestReply]);
+
+  const regenerateMessage = useCallback(targetId => {
+    if (isSending || !ready) return;
+    const index = messages.findIndex(item => item.id === targetId);
+    if (index < 0 || messages[index].role !== ASSISTANT_ID) return;
+    let userIndex = -1;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (messages[i].role === USER_ID) {
+        userIndex = i;
+        break;
+      }
+    }
+    if (userIndex < 0) return;
+    requestReply({
+      historyMessages: messages.slice(0, userIndex),
+      userText: messages[userIndex].text,
+      baseMessages: messages.slice(0, index),
+    });
+  }, [isSending, messages, ready, requestReply]);
+
+  const editUserMessage = useCallback(targetId => {
+    if (isSending) return;
+    const index = messages.findIndex(item => item.id === targetId);
+    if (index < 0 || messages[index].role !== USER_ID) return;
+    setMessages(messages.slice(0, index));
+    setInput(messages[index].text);
+  }, [isSending, messages]);
+
+  const messageActionsRef = useRef({});
+  useEffect(() => {
+    messageActionsRef.current = { regenerateMessage, editUserMessage };
+  }, [regenerateMessage, editUserMessage]);
+
+  const onRegenerateMessage = useCallback(targetId => {
+    messageActionsRef.current.regenerateMessage?.(targetId);
+  }, []);
+
+  const onEditUserMessage = useCallback(targetId => {
+    messageActionsRef.current.editUserMessage?.(targetId);
+  }, []);
+
+  const onSelectText = useCallback(text => {
+    setSelectionText(String(text || ''));
+  }, []);
 
   const sendTextRef = useRef(sendText);
   useEffect(() => {
@@ -639,6 +765,10 @@ export default function ChatScreen() {
                 characterAvatar={character.avatarUri}
                 userAvatarUri={userAvatar}
                 onSlashCommand={onSlashCommand}
+                canRegenerate={regenerableIds.has(message.id)}
+                onRegenerate={onRegenerateMessage}
+                onEditUserMessage={onEditUserMessage}
+                onSelectText={onSelectText}
               />
             )
           )
@@ -712,6 +842,38 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <Modal
+        visible={!!selectionText}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectionText('')}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>选择文本</Text>
+            <ScrollView style={styles.selectScroll} keyboardShouldPersistTaps="handled">
+              <Text selectable style={styles.selectText}>{selectionText}</Text>
+            </ScrollView>
+            <View style={styles.selectActions}>
+              <TouchableOpacity
+                style={styles.selectButton}
+                onPress={() => { Clipboard.setStringAsync(selectionText).catch(() => {}); }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>复制</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.selectButton, styles.selectButtonGhost]}
+                onPress={() => setSelectionText('')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>关闭</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -756,6 +918,23 @@ const styles = StyleSheet.create({
   modalRowText: { color: '#d9d9e6', flex: 1, marginRight: 8 },
   modalRowTextActive: { color: '#fff', fontWeight: '700' },
   modalBadge: { color: '#c8c4ff', fontSize: 12, fontWeight: '700' },
+  selectScroll: { maxHeight: 360, marginBottom: 12 },
+  selectText: { color: '#e6e6f0', fontSize: 15, lineHeight: 22 },
+  selectActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  selectButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#6c63ff',
+    marginLeft: 8,
+  },
+  selectButtonGhost: {
+    backgroundColor: '#2d2d44',
+  },
+  selectButtonText: { color: '#fff', fontWeight: '700' },
   container: {
     flex: 1,
     backgroundColor: '#1a1a2e',
@@ -848,6 +1027,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 2,
     marginLeft: 2,
+  },
+  messageActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 4,
+  },
+  messageActionsLeft: {
+    justifyContent: 'flex-start',
+  },
+  messageActionsRight: {
+    justifyContent: 'flex-end',
+  },
+  messageActionButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#2d2d44',
+    marginRight: 6,
+    marginTop: 4,
+  },
+  messageActionText: {
+    color: '#c8c4ff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   messageRowLeft: {
     justifyContent: 'flex-start',

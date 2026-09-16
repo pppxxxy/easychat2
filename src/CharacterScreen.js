@@ -599,8 +599,9 @@ export default function CharacterScreen() {
             await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
             const dest = `${avatarDir}${created.id}.png`;
             await FileSystem.copyAsync({ from: asset.uri, to: dest });
-            await updateCharacter({ avatarUri: dest });
+            await updateCharacter({ avatarUri: dest, bgUri: dest });
             setAvatarPreview(dest);
+            setBgPreview(dest);
           } catch (error) {}
         }
 
