@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +16,7 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
-import RenderHtml from 'react-native-render-html';
+import RenderHtml, { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
 import { isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
@@ -76,6 +77,11 @@ const markdownStyles = {
 
 const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre)\b[^>]*>/i;
 
+const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
+const ONCLICK_ATTRIBUTE_PATTERN = /onclick\s*=\s*("[^"]*"|'[^']*')/i;
+const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
+
 const htmlBaseStyle = {
   color: '#1a1a2e',
   fontSize: 15,
@@ -87,10 +93,57 @@ const htmlTagsStyles = {
   code: { fontFamily: MONO_FONT, color: '#c7254e', backgroundColor: '#f5f5f5' },
   pre: { fontFamily: MONO_FONT, color: '#333', backgroundColor: '#f5f5f5' },
   q: { color: '#1a1a2e' },
+  h4: { color: '#344f5d', fontSize: 13, marginTop: 0, marginBottom: 6 },
+};
+
+const PANEL_CLASS_STYLES = {
+  'ml-open-panel':
+    'margin-top:14px;padding:14px;border-radius:10px;background-color:#eef5f3;border-width:1px;border-color:#cfd8dc',
+  'ml-open-head': 'margin-bottom:8px',
+  'ml-open-grid': '',
+  'ml-open-group':
+    'margin-top:8px;padding:10px;border-radius:9px;background-color:#ffffff;border-width:1px;border-color:#dde5e8',
+};
+
+const customHTMLElementModels = {
+  button: HTMLElementModel.fromCustomModel({
+    tagName: 'button',
+    contentModel: HTMLContentModel.block,
+  }),
 };
 
 function containsHtml(text) {
   return HTML_TAG_PATTERN.test(String(text || ''));
+}
+
+function extractSendCommand(onclick) {
+  const match = String(onclick || '').match(SLASH_SEND_PATTERN);
+  return match ? match[1].trim() : '';
+}
+
+function collectTNodeText(node) {
+  if (!node) return '';
+  if (node.type === 'text') return node.data || '';
+  if (Array.isArray(node.children)) return node.children.map(collectTNodeText).join('');
+  return '';
+}
+
+function prepareAssistantHtml(raw) {
+  let html = String(raw || '').replace(STYLE_BLOCK_PATTERN, '');
+  html = html.replace(/class="(ml-open-[a-z]+)"/g, (full, cls) => {
+    const inline = PANEL_CLASS_STYLES[cls];
+    return inline ? `style="${inline}"` : full;
+  });
+  if (!/<button\b/i.test(html)) return html;
+  return html.replace(BUTTON_BLOCK_PATTERN, (full, attrs, label) => {
+    const onclickMatch = attrs.match(ONCLICK_ATTRIBUTE_PATTERN);
+    const onclick = onclickMatch ? onclickMatch[1].slice(1, -1) : '';
+    const command = extractSendCommand(onclick);
+    const dataCommand = command ? encodeURIComponent(command) : '';
+    const cleanAttrs = attrs.replace(ONCLICK_ATTRIBUTE_PATTERN, '').trim();
+    const attrPrefix = cleanAttrs ? ` ${cleanAttrs}` : '';
+    return `<button${attrPrefix} data-command="${dataCommand}">${label}</button>`;
+  });
 }
 
 function getHttpStatus(error) {
@@ -122,13 +175,43 @@ function buildGreetingMessage(characterId, firstMes, userName) {
   };
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
   const contentWidth = Math.max(200, Math.floor((width - 28) * 0.88) - 28);
-  const htmlSource = useMemo(() => ({ html: message.text }), [message.text]);
+  const htmlSource = useMemo(
+    () => ({ html: prepareAssistantHtml(message.text) }),
+    [message.text]
+  );
+  const htmlRenderers = useMemo(
+    () => ({
+      button: ({ tnode }) => {
+        const encoded = (tnode && tnode.attributes && tnode.attributes['data-command']) || '';
+        let command = encoded;
+        try {
+          command = encoded ? decodeURIComponent(encoded) : '';
+        } catch (error) {
+          command = encoded;
+        }
+        const label = collectTNodeText(tnode).trim();
+        const onPress = command && onSlashCommand ? () => onSlashCommand(command) : undefined;
+        return (
+          <Pressable
+            onPress={onPress}
+            style={({ pressed }) => [
+              styles.panelButton,
+              pressed && onPress ? styles.panelButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.panelButtonText}>{label}</Text>
+          </Pressable>
+        );
+      },
+    }),
+    [onSlashCommand]
+  );
 
   const avatarElement = isUser ? (
     <View style={styles.avatarContainerRight}>
@@ -170,6 +253,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
               source={htmlSource}
               baseStyle={htmlBaseStyle}
               tagsStyles={htmlTagsStyles}
+              customHTMLElementModels={customHTMLElementModels}
+              renderers={htmlRenderers}
               defaultTextProps={{ selectable: true }}
             />
           ) : (
@@ -372,8 +457,8 @@ export default function ChatScreen() {
     ]);
   }, []);
 
-  const onSend = useCallback(async () => {
-    const text = input.trim();
+  const sendText = useCallback(async rawText => {
+    const text = String(rawText || '').trim();
     if (!text || isSending || !ready) return;
     const sendCharacterId = activeCharacterIdRef.current;
 
@@ -390,7 +475,6 @@ export default function ChatScreen() {
     };
 
     const nextMessages = [...messages, userMessage, pendingAssistantMessage];
-    setInput('');
     setMessages(nextMessages);
     setIsSending(true);
     atBottomRef.current = true;
@@ -484,7 +568,23 @@ export default function ChatScreen() {
       setIsSending(false);
       autoScrollToBottom();
     }
-  }, [autoScrollToBottom, character, input, isSending, messages, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character, isSending, messages, ready, scrollToBottom]);
+
+  const sendTextRef = useRef(sendText);
+  useEffect(() => {
+    sendTextRef.current = sendText;
+  }, [sendText]);
+
+  const onSlashCommand = useCallback(command => {
+    sendTextRef.current?.(command);
+  }, []);
+
+  const onSend = useCallback(() => {
+    const text = input.trim();
+    if (!text || isSending || !ready) return;
+    setInput('');
+    sendText(text);
+  }, [input, isSending, ready, sendText]);
 
   return (
     <KeyboardAvoidingView
@@ -538,6 +638,7 @@ export default function ChatScreen() {
                 characterName={character.name}
                 characterAvatar={character.avatarUri}
                 userAvatarUri={userAvatar}
+                onSlashCommand={onSlashCommand}
               />
             )
           )
@@ -767,6 +868,21 @@ const styles = StyleSheet.create({
   assistantBubble: {
     backgroundColor: '#f0f0f0',
     borderBottomLeftRadius: 6,
+  },
+  panelButton: {
+    marginTop: 6,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#344f5d',
+  },
+  panelButtonPressed: {
+    opacity: 0.75,
+  },
+  panelButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 18,
   },
   errorBubble: {
     backgroundColor: '#5a1d1d',
