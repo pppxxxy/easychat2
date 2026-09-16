@@ -81,6 +81,8 @@ const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
 const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
 const ONCLICK_ATTRIBUTE_PATTERN = /onclick\s*=\s*("[^"]*"|'[^']*')/i;
 const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
+const GRADIENT_DECLARATION_PATTERN = /(?:background(?:-image)?)\s*:\s*(?:repeating-)?(?:linear|radial)-gradient\(((?:[^()]|\([^()]*\))*)\)/gi;
+const GRADIENT_COLOR_STOP_PATTERN = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/;
 
 const htmlBaseStyle = {
   color: '#1a1a2e',
@@ -147,8 +149,21 @@ function messageCopyText(text) {
   return containsHtml(text) ? toPlainText(text) : String(text || '');
 }
 
+function solidColorFromGradient(stops) {
+  const match = String(stops || '').match(GRADIENT_COLOR_STOP_PATTERN);
+  return match ? match[0] : '';
+}
+
+function replaceGradientBackgrounds(html) {
+  return String(html || '').replace(GRADIENT_DECLARATION_PATTERN, (full, stops) => {
+    const color = solidColorFromGradient(stops);
+    return color ? `background-color: ${color}` : 'background-color: transparent';
+  });
+}
+
 function prepareAssistantHtml(raw) {
   let html = String(raw || '').replace(STYLE_BLOCK_PATTERN, '');
+  html = replaceGradientBackgrounds(html);
   html = html.replace(/class="(ml-open-[a-z]+)"/g, (full, cls) => {
     const inline = PANEL_CLASS_STYLES[cls];
     return inline ? `style="${inline}"` : full;
