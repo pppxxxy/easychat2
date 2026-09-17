@@ -394,10 +394,12 @@ function ErrorBubble({ message, rawError, onCopied }) {
 
   const onCopy = useCallback(async () => {
     const payload = rawError || message.detail || message.text || '';
-    await Clipboard.setStringAsync(payload);
-    setCopied(true);
-    onCopied?.();
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await Clipboard.setStringAsync(payload);
+      setCopied(true);
+      onCopied?.();
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {}
   }, [message.detail, message.text, onCopied, rawError]);
 
   return (
@@ -532,6 +534,7 @@ export default function ChatScreen() {
     setReady(false);
     setIsSending(false);
     errorRawRef.current = {};
+    atBottomRef.current = true;
     let userProfileCache = null;
     const profilePromise = getUserProfile().then(profile => {
       if (cancelled) return;
@@ -568,12 +571,16 @@ export default function ChatScreen() {
     if (!ready) return;
     if (persistableSnapshot === lastSavedSnapshotRef.current) return;
     lastSavedSnapshotRef.current = persistableSnapshot;
-    saveMessages(characterId, persistableMessages).catch(() => {
-      if (!saveFailedRef.current) {
-        saveFailedRef.current = true;
-        Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
-      }
-    });
+    saveMessages(characterId, persistableMessages)
+      .then(() => {
+        saveFailedRef.current = false;
+      })
+      .catch(() => {
+        if (!saveFailedRef.current) {
+          saveFailedRef.current = true;
+          Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
+        }
+      });
   }, [characterId, persistableSnapshot, ready]);
 
   useEffect(() => () => {
@@ -1004,7 +1011,6 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  bgImage: { resizeMode: 'cover' },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1199,12 +1205,6 @@ const styles = StyleSheet.create({
     color: '#c8c4ff',
     fontSize: 12,
     fontWeight: '700',
-  },
-  messageRowLeft: {
-    justifyContent: 'flex-start',
-  },
-  messageRowRight: {
-    justifyContent: 'flex-end',
   },
   bubble: {
     maxWidth: '95%',
