@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Image,
+  ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -731,6 +732,43 @@ export default function ChatScreen() {
     sendText(text);
   }, [input, isSending, ready, sendText]);
 
+  const bgUri = character.bgUri || '';
+
+  return (
+    bgUri ? (
+      <ImageBackground source={{ uri: bgUri }} style={styles.container} imageStyle={styles.bgImage}>
+        <ChatScreenInner bgUri={bgUri} />
+      </ImageBackground>
+    ) : (
+      <View style={styles.container}>
+        <ChatScreenInner bgUri={bgUri} />
+      </View>
+    )
+  );
+}
+
+function ChatScreenInner({ bgUri }) {
+  const scrollRef = useRef(null);
+  const errorRawRef = useRef({});
+  const lastSavedSnapshotRef = useRef(null);
+  const saveFailedRef = useRef(false);
+  const { character, characters, activeId, loaded, switchCharacter } = useApp();
+  const characterId = character.id || 'default';
+  const activeCharacterIdRef = useRef(characterId);
+  const atBottomRef = useRef(true);
+  const abortRef = useRef(null);
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [isSending, setIsSending] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [userAvatar, setUserAvatar] = useState('');
+  const [selectionText, setSelectionText] = useState('');
+  const surfaceStyle = useMemo(
+    () => ({ backgroundColor: bgUri ? 'rgba(26,26,46,0.72)' : '#1a1a2e' }),
+    [bgUri]
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -794,7 +832,7 @@ export default function ChatScreen() {
         )}
       </ScrollView>
 
-      <View style={styles.inputBar}>
+      <View style={[styles.inputBar, bgUri ? null : styles.inputBarSurface]}>
         {messages.length > 0 ? (
           <TouchableOpacity style={styles.clearButton} onPress={onClear} disabled={isSending}>
             <Text style={styles.clearText}>清空</Text>
@@ -898,10 +936,11 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
+  bgImage: { resizeMode: 'cover' },
   topBar: {
     borderBottomWidth: 1,
     borderBottomColor: '#2d2d44',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: 'rgba(26,26,46,0.72)',
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
@@ -1158,6 +1197,8 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     borderTopWidth: 1,
     borderTopColor: '#2d2d44',
+  },
+  inputBarSurface: {
     backgroundColor: '#1a1a2e',
   },
   input: {
