@@ -862,6 +862,9 @@ export default function ChatScreen() {
       >
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
+            <View style={styles.emptyIconBadge}>
+              <Ionicons name="chatbubbles-outline" size={36} color="#8b85ff" />
+            </View>
             <Text style={styles.emptyTitle}>开始聊天</Text>
             <Text style={styles.emptyText}>
               当前角色：{character.name || 'EasyChat2 助手'}{'\n'}
@@ -1107,6 +1110,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
+  emptyIconBadge: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(108,99,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,133,255,0.35)',
+    marginBottom: 16,
+  },
   emptyTitle: {
     color: '#fff',
     fontSize: 22,
@@ -1130,39 +1144,44 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   avatarContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     marginRight: 8,
     overflow: 'hidden',
     alignSelf: 'flex-start',
     marginTop: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(139,133,255,0.35)',
   },
   avatarContainerRight: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     marginLeft: 8,
     overflow: 'hidden',
     alignSelf: 'flex-start',
     marginTop: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(139,133,255,0.35)',
   },
   avatarImage: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   avatarPlaceholder: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#6c63ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarPlaceholderUser: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#555',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1211,6 +1230,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 3,
+    elevation: 2,
   },
   userBubble: {
     backgroundColor: '#6c63ff',
