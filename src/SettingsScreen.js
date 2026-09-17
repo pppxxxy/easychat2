@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api';
 import { DISCLAIMER_TEXT } from './disclaimer';
@@ -518,113 +519,138 @@ export default function SettingsScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <Text style={styles.title}>设置</Text>
-
-        <View style={styles.libraryHeader}>
-          <Text style={styles.libraryTitle}>API 配置</Text>
-          <TouchableOpacity style={styles.newButton} onPress={addConfig} disabled={!loaded || apiSaving} activeOpacity={0.8}>
-            <Text style={styles.newButtonText}>新建</Text>
-          </TouchableOpacity>
+        <View style={styles.pageHeader}>
+          <Text style={styles.title}>设置</Text>
+          <Text style={styles.hint}>配置 API、用户人设与全局对话预设。</Text>
         </View>
-        {configs.map(item => {
-          const selected = item.id === activeId;
-          return (
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="key-outline" size={16} color="#8b85ff" />
+              <Text style={styles.cardTitle}>API 配置</Text>
+            </View>
             <TouchableOpacity
-              key={item.id}
-              style={[styles.configRow, selected && styles.configRowActive]}
-              onPress={() => selectConfig(item.id)}
+              style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
+              onPress={addConfig}
               disabled={!loaded || apiSaving}
               activeOpacity={0.8}
             >
-              <View style={styles.configInfo}>
-                <Text
-                  style={[styles.configName, selected && styles.configNameActive]}
-                  numberOfLines={1}
-                >
-                  {item.name || '未命名配置'}
-                </Text>
-                <Text style={styles.configMeta} numberOfLines={1}>
-                  {item.baseUrl || '未填写地址'} · {item.model || '未填写模型'}
-                </Text>
-              </View>
-              {selected ? <Text style={styles.configBadge}>当前</Text> : null}
+              <Ionicons name="add" size={15} color="#c8c4ff" />
+              <Text style={styles.pillButtonText}>新建</Text>
             </TouchableOpacity>
-          );
-        })}
-
-        {active ? (
-          <>
-            <Text style={styles.label}>配置名称</Text>
-            <TextInput
-              style={styles.input}
-              value={active.name}
-              onChangeText={name => updateField({ name })}
-              placeholder="例如：DeepSeek 主力"
-              placeholderTextColor="#888"
-            />
-            <Text style={styles.label}>API 地址</Text>
-            <TextInput
-              style={styles.input}
-              value={active.baseUrl}
-              onChangeText={baseUrl => updateField({ baseUrl })}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="https://api.deepseek.com"
-              placeholderTextColor="#888"
-            />
-            <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
-            <Text style={styles.label}>模型</Text>
-            <View style={styles.modelRow}>
-              <TextInput
-                style={[styles.input, styles.modelInput]}
-                value={active.model}
-                onChangeText={model => updateField({ model })}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="deepseek-chat"
-                placeholderTextColor="#888"
-              />
+          </View>
+          {configs.map(item => {
+            const selected = item.id === activeId;
+            return (
               <TouchableOpacity
-                style={styles.detectButton}
-                onPress={detectModels}
-                disabled={detectingModels}
+                key={item.id}
+                style={[styles.configRow, selected && styles.configRowActive]}
+                onPress={() => selectConfig(item.id)}
+                disabled={!loaded || apiSaving}
                 activeOpacity={0.8}
               >
-                <Text style={styles.detectButtonText}>
-                  {detectingModels ? '检测中...' : '检测模型'}
-                </Text>
+                <View style={styles.configInfo}>
+                  <Text
+                    style={[styles.configName, selected && styles.configNameActive]}
+                    numberOfLines={1}
+                  >
+                    {item.name || '未命名配置'}
+                  </Text>
+                  <Text style={styles.configMeta} numberOfLines={1}>
+                    {item.baseUrl || '未填写地址'} · {item.model || '未填写模型'}
+                  </Text>
+                </View>
+                {selected ? (
+                  <View style={styles.currentBadge}>
+                    <Ionicons name="checkmark" size={11} color="#c8c4ff" />
+                    <Text style={styles.currentBadgeText}>当前</Text>
+                  </View>
+                ) : null}
               </TouchableOpacity>
-            </View>
-            <Text style={styles.label}>API Key</Text>
-            <TextInput
-              style={styles.input}
-              value={active.apiKey}
-              onChangeText={apiKey => updateField({ apiKey })}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="sk-..."
-              placeholderTextColor="#888"
-            />
-            <Text style={styles.hint}>
-              API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
-            </Text>
-            <TouchableOpacity style={styles.button} onPress={save}>
-              <Text style={styles.buttonText}>保存配置</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.deleteButton, configs.length <= 1 && styles.buttonDisabled]}
-              onPress={deleteConfig}
-              disabled={configs.length <= 1}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.deleteButtonText}>删除当前配置</Text>
-            </TouchableOpacity>
-          </>
-        ) : null}
+            );
+          })}
 
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>用户人设</Text>
+          {active ? (
+            <>
+              <Text style={styles.label}>配置名称</Text>
+              <TextInput
+                style={styles.input}
+                value={active.name}
+                onChangeText={name => updateField({ name })}
+                placeholder="例如：DeepSeek 主力"
+                placeholderTextColor="#888"
+              />
+              <Text style={styles.label}>API 地址</Text>
+              <TextInput
+                style={styles.input}
+                value={active.baseUrl}
+                onChangeText={baseUrl => updateField({ baseUrl })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="https://api.deepseek.com"
+                placeholderTextColor="#888"
+              />
+              <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
+              <Text style={styles.label}>模型</Text>
+              <View style={styles.modelRow}>
+                <TextInput
+                  style={[styles.input, styles.modelInput]}
+                  value={active.model}
+                  onChangeText={model => updateField({ model })}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="deepseek-chat"
+                  placeholderTextColor="#888"
+                />
+                <TouchableOpacity
+                  style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
+                  onPress={detectModels}
+                  disabled={detectingModels}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="pulse-outline" size={15} color="#c8c4ff" />
+                  <Text style={styles.detectButtonText}>
+                    {detectingModels ? '检测中...' : '检测模型'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.label}>API Key</Text>
+              <TextInput
+                style={styles.input}
+                value={active.apiKey}
+                onChangeText={apiKey => updateField({ apiKey })}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="sk-..."
+                placeholderTextColor="#888"
+              />
+              <Text style={styles.hint}>
+                API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
+              </Text>
+              <TouchableOpacity style={styles.button} onPress={save} activeOpacity={0.85}>
+                <Ionicons name="save-outline" size={17} color="#fff" />
+                <Text style={styles.buttonText}>保存配置</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteButton, configs.length <= 1 && styles.buttonDisabled]}
+                onPress={deleteConfig}
+                disabled={configs.length <= 1}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
+                <Text style={styles.deleteButtonText}>删除当前配置</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="person-circle-outline" size={16} color="#8b85ff" />
+            <Text style={styles.cardTitle}>用户人设</Text>
+          </View>
           <Text style={styles.fieldHint}>
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。
           </Text>
@@ -640,14 +666,16 @@ export default function SettingsScreen() {
                 </View>
               )}
             </View>
-            <TouchableOpacity style={styles.imageButton} onPress={pickUserAvatar} activeOpacity={0.8}>
-              <Text style={styles.imageButtonText}>{userAvatarUri ? '更换头像' : '选择头像'}</Text>
-            </TouchableOpacity>
-            {userAvatarUri ? (
-              <TouchableOpacity onPress={() => changeUserAvatar('')} hitSlop={8}>
-                <Text style={styles.removeText}>清除</Text>
+            <View style={styles.imageActions}>
+              <TouchableOpacity style={styles.smallButton} onPress={pickUserAvatar} activeOpacity={0.8}>
+                <Text style={styles.smallButtonText}>{userAvatarUri ? '更换头像' : '选择头像'}</Text>
               </TouchableOpacity>
-            ) : null}
+              {userAvatarUri ? (
+                <TouchableOpacity onPress={() => changeUserAvatar('')} hitSlop={8}>
+                  <Text style={styles.removeText}>清除</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
           <Text style={styles.label}>你的名字</Text>
           <TextInput
@@ -668,13 +696,17 @@ export default function SettingsScreen() {
             textAlignVertical="top"
           />
           <TouchableOpacity style={styles.secondaryButton} onPress={saveUserProfileNow} activeOpacity={0.8}>
+            <Ionicons name="save-outline" size={16} color="#c8c4ff" />
             <Text style={styles.secondaryButtonText}>保存用户人设</Text>
           </TouchableOpacity>
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
         </View>
 
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>对话预设</Text>
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="options-outline" size={16} color="#8b85ff" />
+            <Text style={styles.cardTitle}>对话预设</Text>
+          </View>
           <Text style={styles.fieldHint}>
             这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。点击条目可编辑。
           </Text>
@@ -701,8 +733,9 @@ export default function SettingsScreen() {
                 hitSlop={8}
                 onPress={() => deletePreset(preset)}
                 disabled={presetSaving}
+                accessibilityLabel="删除预设"
               >
-                <Text style={styles.presetDeleteText}>删除</Text>
+                <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
               </TouchableOpacity>
             </View>
           ))}
@@ -715,6 +748,7 @@ export default function SettingsScreen() {
             disabled={!presetsLoaded || presetSaving}
             activeOpacity={0.8}
           >
+            <Ionicons name="add" size={16} color="#c8c4ff" />
             <Text style={styles.secondaryButtonText}>新增预设</Text>
           </TouchableOpacity>
         </View>
@@ -781,22 +815,38 @@ export default function SettingsScreen() {
           </KeyboardAvoidingView>
         </Modal>
 
-        <View style={styles.linksSection}>
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="information-circle-outline" size={16} color="#8b85ff" />
+            <Text style={styles.cardTitle}>关于</Text>
+          </View>
           <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
-            <Text style={styles.linkText}>使用教程</Text>
-            <Text style={styles.linkArrow}>›</Text>
+            <View style={styles.linkLeft}>
+              <Ionicons name="book-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>使用教程</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={openDisclaimer} activeOpacity={0.7}>
-            <Text style={styles.linkText}>免责条款</Text>
-            <Text style={styles.linkArrow}>›</Text>
+            <View style={styles.linkLeft}>
+              <Ionicons name="document-text-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>免责条款</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={openGitHub} activeOpacity={0.7}>
-            <Text style={styles.linkText}>GitHub 地址</Text>
-            <Text style={styles.linkArrow}>›</Text>
+            <View style={styles.linkLeft}>
+              <Ionicons name="logo-github" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>GitHub 地址</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={checkUpdate} activeOpacity={0.7}>
-            <Text style={styles.linkText}>检测更新</Text>
-            <Text style={styles.linkArrow}>›</Text>
+            <View style={styles.linkLeft}>
+              <Ionicons name="refresh-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>检测更新</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -835,81 +885,135 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#1a1a2e' },
-  container: { flex: 1, backgroundColor: '#1a1a2e', padding: 20 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 18 },
-  libraryHeader: {
+  container: { flex: 1, backgroundColor: '#1a1a2e', padding: 18 },
+  scrollContent: { paddingBottom: 80 },
+
+  pageHeader: { marginTop: 4, marginBottom: 6 },
+  title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 6 },
+  hint: { color: '#9a9ab5', fontSize: 12, marginTop: 6, lineHeight: 18 },
+
+  card: {
+    backgroundColor: '#232338',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2d2d44',
+    padding: 14,
+    marginTop: 14,
+  },
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  libraryTitle: { color: '#fff', fontWeight: '800' },
-  newButton: {
-    backgroundColor: '#2d2d44',
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  cardTitle: { color: '#fff', fontSize: 15, fontWeight: '800', marginLeft: 8 },
+
+  pillButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(108,99,255,0.12)',
     borderWidth: 1,
     borderColor: '#6c63ff',
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 15,
   },
-  newButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  pillButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 4 },
+
   configRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2d2d44',
-    borderRadius: 8,
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginBottom: 8,
-  },
-  configRowActive: { borderWidth: 1, borderColor: '#6c63ff' },
-  configInfo: { flex: 1, marginRight: 8 },
-  configName: { color: '#d9d9e6' },
-  configNameActive: { color: '#fff', fontWeight: '700' },
-  configMeta: { color: '#888', fontSize: 12, marginTop: 2 },
-  configBadge: { color: '#c8c4ff', fontSize: 12, fontWeight: '700' },
-  label: { color: '#fff', marginTop: 14, marginBottom: 6, fontWeight: '700' },
-  hint: { color: '#888', fontSize: 12, marginTop: 6, lineHeight: 18 },
-  input: { backgroundColor: '#2d2d44', color: '#fff', padding: 12, borderRadius: 8 },
-  button: { backgroundColor: '#6c63ff', padding: 14, borderRadius: 8, marginTop: 24, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: '800' },
-  deleteButton: {
-    backgroundColor: '#2d2d44',
+    marginTop: 8,
     borderWidth: 1,
-    borderColor: '#7a2e2e',
-    padding: 14,
-    borderRadius: 8,
-    marginTop: 12,
-    alignItems: 'center',
+    borderColor: 'transparent',
   },
-  deleteButtonText: { color: '#ff9b9b', fontWeight: '800' },
-  buttonDisabled: { opacity: 0.45 },
+  configRowActive: { borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,0.16)' },
+  configInfo: { flex: 1, marginRight: 8 },
+  configName: { color: '#d9d9e6', fontSize: 14 },
+  configNameActive: { color: '#fff', fontWeight: '700' },
+  configMeta: { color: '#7d7d99', fontSize: 12, marginTop: 2 },
+  currentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(108,99,255,0.25)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  currentBadgeText: { color: '#c8c4ff', fontSize: 11, fontWeight: '700', marginLeft: 3 },
+
+  label: { color: '#e6e6f2', marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
+  input: {
+    backgroundColor: '#2d2d44',
+    color: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+    fontSize: 14,
+  },
+  multilineInput: { minHeight: 100, paddingTop: 12 },
   modelRow: { flexDirection: 'row', alignItems: 'center' },
   modelInput: { flex: 1, marginRight: 8 },
+
+  button: {
+    flexDirection: 'row',
+    backgroundColor: '#6c63ff',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: { color: '#fff', fontWeight: '800', marginLeft: 8, fontSize: 15 },
+  buttonDisabled: { opacity: 0.45 },
+
   detectButton: {
-    backgroundColor: '#2d2d44',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(108,99,255,0.12)',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  detectButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 6 },
+
+  deleteButton: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(176,70,63,0.12)',
+    borderWidth: 1,
+    borderColor: '#7a2e2e',
+    paddingVertical: 13,
+    borderRadius: 12,
+    marginTop: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteButtonText: { color: '#ff9b9b', fontWeight: '800', marginLeft: 8 },
+
+  fieldHint: { color: '#7d7d99', fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  secondaryButton: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(108,99,255,0.12)',
     borderWidth: 1,
     borderColor: '#6c63ff',
     paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-  },
-  detectButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
-  panel: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 18 },
-  panelTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  fieldHint: { color: '#888', fontSize: 12, lineHeight: 18, marginBottom: 4 },
-  multilineInput: { minHeight: 100 },
-  secondaryButton: {
-    backgroundColor: '#2d2d44',
-    borderWidth: 1,
-    borderColor: '#6c63ff',
-    padding: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     marginTop: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  secondaryButtonText: { color: '#c8c4ff', fontWeight: '800' },
-  savedHint: { color: '#6c63ff', fontSize: 12, marginTop: 4 },
+  secondaryButtonText: { color: '#c8c4ff', fontWeight: '800', marginLeft: 6 },
+  savedHint: { color: '#8b85ff', fontSize: 12, marginTop: 8 },
+
   presetRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -919,39 +1023,24 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2d2d44',
   },
   presetInfo: { flex: 1, marginRight: 12 },
-  presetName: { color: '#fff', fontWeight: '700' },
-  presetDesc: { color: '#888', fontSize: 12, marginTop: 2, lineHeight: 17 },
+  presetName: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  presetDesc: { color: '#7d7d99', fontSize: 12, marginTop: 2, lineHeight: 17 },
   presetDelete: { marginLeft: 10, paddingVertical: 6 },
-  presetDeleteText: { color: '#ff9b9b', fontSize: 12, fontWeight: '700' },
   presetModalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
   presetPromptInput: { minHeight: 120, maxHeight: 240 },
-  selectButton: { backgroundColor: '#6c63ff', borderRadius: 8, paddingHorizontal: 18, paddingVertical: 10, marginLeft: 8 },
+  selectButton: {
+    flexDirection: 'row',
+    backgroundColor: '#6c63ff',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   selectButtonGhost: { backgroundColor: '#2d2d44' },
   selectButtonText: { color: '#fff', fontWeight: '700' },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalSheet: {
-    backgroundColor: '#24243b',
-    borderRadius: 12,
-    padding: 16,
-    maxHeight: '70%',
-  },
-  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
-  modalList: { maxHeight: 360 },
-  modalRow: {
-    backgroundColor: '#2d2d44',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-  },
-  modalRowText: { color: '#d9d9e6' },
-  scrollContent: { paddingBottom: 80 },
-  linksSection: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 4 },
+
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -960,34 +1049,65 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#2d2d44',
   },
-  linkText: { color: '#d9d9e6', fontSize: 15 },
-  linkArrow: { color: '#888', fontSize: 20 },
-  avatarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  linkLeft: { flexDirection: 'row', alignItems: 'center' },
+  linkText: { color: '#d9d9e6', fontSize: 15, marginLeft: 10 },
+
+  avatarRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   avatarBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 10,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#2d2d44',
     overflow: 'hidden',
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
   },
-  avatarImg: { width: 52, height: 52 },
+  avatarImg: { width: 60, height: 60 },
   avatarPlaceholder: {
-    width: 52,
-    height: 52,
+    width: 60,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarPlaceholderText: { color: '#aaa', fontSize: 18, fontWeight: '800' },
-  imageButton: {
+  avatarPlaceholderText: { color: '#9a9ab5', fontSize: 20, fontWeight: '800' },
+  imageActions: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  smallButton: {
     backgroundColor: '#2d2d44',
     borderWidth: 1,
     borderColor: '#6c63ff',
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    marginRight: 10,
+    borderRadius: 10,
+    marginRight: 12,
   },
-  imageButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  smallButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
   removeText: { color: '#ff9b9b', fontWeight: '700' },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalSheet: {
+    backgroundColor: '#232338',
+    borderRadius: 16,
+    padding: 16,
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: '#2d2d44',
+  },
+  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  modalList: { maxHeight: 360 },
+  modalRow: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+  },
+  modalRowText: { color: '#d9d9e6' },
 });
