@@ -6,6 +6,7 @@ const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
 const USER_PROFILE_KEY = '@easychat2_user_profile';
 const GLOBAL_PRESETS_KEY = '@easychat2_global_presets';
+const PRESET_LIST_KEY = '@easychat2_preset_list';
 const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
@@ -347,27 +348,69 @@ export async function saveUserProfile(profile) {
   );
 }
 
-export async function getGlobalPresetSettings() {
-  const stored = await readJson(GLOBAL_PRESETS_KEY, {});
-  const source = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+function normalizePreset(source) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)
+    || typeof source.id !== 'string' || !source.id.trim()
+    || typeof source.name !== 'string' || !source.name.trim()
+    || typeof source.prompt !== 'string' || !source.prompt.trim()) {
+    throw new Error('预设需要有效的 ID、名称和提示词');
+  }
+  return {
+    id: source.id.trim(),
+    name: source.name.trim(),
+    description: String(source.description || '').trim(),
+    prompt: source.prompt.trim(),
+  };
+}
+
+function normalizePresetList(presets) {
+  if (!Array.isArray(presets)) throw new Error('预设列表格式错误');
+  const list = presets.map(normalizePreset);
+  if (new Set(list.map(preset => preset.id)).size !== list.length) {
+    throw new Error('预设 ID 重复');
+  }
+  return list;
+}
+
+export async function getGlobalPresets() {
+  const raw = await AsyncStorage.getItem(PRESET_LIST_KEY);
+  if (raw === null) return GLOBAL_PRESETS.map(normalizePreset);
+  return normalizePresetList(JSON.parse(raw));
+}
+
+export async function saveGlobalPresets(presets) {
+  const list = normalizePresetList(presets);
+  await AsyncStorage.setItem(PRESET_LIST_KEY, JSON.stringify(list));
+  return list;
+}
+
+function normalizeEnabledMap(source, presets) {
+  const raw = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
   const enabled = {};
-  GLOBAL_PRESETS.forEach(preset => {
-    enabled[preset.id] = source[preset.id] === true;
+  presets.forEach(preset => {
+    enabled[preset.id] = raw[preset.id] === true;
   });
   return enabled;
 }
 
+export async function getGlobalPresetSettings() {
+  const [raw, presets] = await Promise.all([
+    readJson(GLOBAL_PRESETS_KEY, {}),
+    getGlobalPresets(),
+  ]);
+  return normalizeEnabledMap(raw, presets);
+}
+
 export async function saveGlobalPresetSettings(enabled) {
-  const source = enabled && typeof enabled === 'object' ? enabled : {};
-  const normalized = {};
-  GLOBAL_PRESETS.forEach(preset => {
-    normalized[preset.id] = source[preset.id] === true;
-  });
+  const presets = await getGlobalPresets();
+  const normalized = normalizeEnabledMap(enabled, presets);
   await AsyncStorage.setItem(GLOBAL_PRESETS_KEY, JSON.stringify(normalized));
   return normalized;
 }
 
 export async function getEnabledGlobalPresetPrompts() {
-  const enabled = await getGlobalPresetSettings();
-  return GLOBAL_PRESETS.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
+  const presets = await getGlobalPresets();
+  const raw = await readJson(GLOBAL_PRESETS_KEY, {});
+  const enabled = normalizeEnabledMap(raw, presets);
+  return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
 }
