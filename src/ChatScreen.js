@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -254,6 +255,44 @@ function buildGreetingMessage(characterId, firstMes, userName) {
   };
 }
 
+function ThinkingIndicator() {
+  const progress = useRef(null);
+  if (progress.current === null) progress.current = new Animated.Value(0);
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(progress.current, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+        isInteraction: false,
+      })
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  return (
+    <View style={styles.thinkingIndicator} accessible accessibilityLabel="正在思考" accessibilityRole="text">
+      <Text style={styles.thinkingText}>正在思考</Text>
+      {[0, 1, 2].map(index => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.thinkingDot,
+            {
+              opacity: progress.current.interpolate({
+                inputRange: [0, 0.15 + index * 0.2, 0.35 + index * 0.2, 1],
+                outputRange: [0.25, 1, 0.25, 0.25],
+              }),
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
@@ -335,6 +374,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
         <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
           {isUser ? (
             <Text style={styles.messageText}>{message.text}</Text>
+          ) : message.pending && message.waitingForResponse ? (
+            <ThinkingIndicator />
           ) : renderHtml ? (
             <RenderHtml
               contentWidth={contentWidth}
@@ -630,6 +671,7 @@ export default function ChatScreen() {
       role: ASSISTANT_ID,
       text: THINKING_PLACEHOLDER,
       pending: true,
+      waitingForResponse: true,
     };
 
     setMessages([...baseMessages, pendingAssistantMessage]);
@@ -664,7 +706,7 @@ export default function ChatScreen() {
               if (!isCurrentSession()) return current;
               return current.map(item =>
                 item.id === pendingAssistantMessage.id && item.pending
-                  ? { ...item, text: fullText }
+                  ? { ...item, text: fullText, waitingForResponse: false }
                   : item
               );
             });
@@ -676,7 +718,7 @@ export default function ChatScreen() {
         if (!isCurrentSession()) return current;
         return current.map(item =>
           item.id === pendingAssistantMessage.id
-            ? { ...item, text: reply || '没有收到回复。', pending: false }
+            ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
             : item
         );
       });
@@ -1243,6 +1285,24 @@ const styles = StyleSheet.create({
   assistantBubble: {
     backgroundColor: '#f0f0f0',
     borderBottomLeftRadius: 6,
+  },
+  thinkingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 28,
+  },
+  thinkingText: {
+    color: '#55516f',
+    fontSize: 14,
+    lineHeight: 22,
+    marginRight: 6,
+  },
+  thinkingDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginLeft: 4,
+    backgroundColor: '#6c63ff',
   },
   panelButton: {
     marginTop: 6,
