@@ -81,7 +81,7 @@ easychat2/
 **目的**: 初始化运行时垫片、全局 Provider，并组织三个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款
 **位置**: `App.js`
 **关键文件**: `App.js`
-**依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`
+**依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`@expo/vector-icons`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`
 **被依赖**: 全体界面通过导航挂载
 
 ### 聊天界面
