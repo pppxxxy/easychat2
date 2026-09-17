@@ -47,7 +47,11 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
     if (!withinDepth(script, options.depth)) continue;
     try {
       const regex = new RegExp(script.findRegex, normalizeFlags(script.flags));
-      output = output.replace(regex, script.replaceString ?? '');
+      let replacement = script.replaceString ?? '';
+      if (mode === 'display' && /^\s*<style\b[^>]*>(?:(?!<\/style>)[\s\S])*<\/style>$/i.test(replacement)) {
+        replacement += '\n';
+      }
+      output = output.replace(regex, replacement);
     } catch (error) {
       // 非法正则直接跳过，避免影响整条消息链路
     }

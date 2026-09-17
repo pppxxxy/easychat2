@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Image,
-  ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -108,7 +107,50 @@ const PANEL_CLASS_STYLES = {
     'margin-top:8px;padding:10px;border-radius:9px;background-color:#ffffff;border-width:1px;border-color:#dde5e8',
 };
 
+const regexClassesStyles = {
+  'ml-course-ui': { marginTop: 18, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(52,79,93,0.22)', borderRadius: 8, backgroundColor: '#fbfcfd', overflow: 'hidden', color: '#24343d' },
+  'ml-course-head': { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: '#344f5d', color: '#fff' },
+  'ml-course-title': { fontWeight: '700', color: '#fff' },
+  'ml-course-day': { fontSize: 12, color: '#fff', backgroundColor: 'rgba(255,255,255,0.16)' },
+  'ml-course-list': { paddingVertical: 4 },
+  'ml-course-row': { paddingVertical: 8, paddingHorizontal: 12, borderTopWidth: 1, borderTopColor: 'rgba(55,78,91,0.12)', fontSize: 13, lineHeight: 18 },
+  'ml-course-number': { fontStyle: 'normal', fontWeight: '700', color: '#344f5d', backgroundColor: '#dbe8ec', marginBottom: 4 },
+  'ml-course-time': { color: '#48636f', fontSize: 12, marginBottom: 4 },
+  'ml-course-subject': { color: '#24343d', fontSize: 13, fontWeight: '700', marginBottom: 4 },
+  'ml-course-detail': { color: '#60737b', fontSize: 13 },
+  'ml-course-empty': { paddingVertical: 14, paddingHorizontal: 16, color: '#60737b', fontSize: 13, lineHeight: 21 },
+  'ml-prose-safe': { marginTop: 12, paddingVertical: 17, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(65,88,96,0.18)', backgroundColor: '#fbfcfb', color: '#26343a', fontSize: 14.5, lineHeight: 27, whiteSpace: 'pre' },
+  'ml-quote': { color: '#8b4052', fontWeight: '600' },
+  'ml-strong': { color: '#243139', fontWeight: '800', backgroundColor: 'rgba(159,63,85,0.22)' },
+};
+
+const regexDomVisitors = {
+  onElement(element) {
+    const parentClasses = (element.parent?.attribs?.class || '').split(/\s+/);
+    const rowClass = { em: 'ml-course-number', time: 'ml-course-time', strong: 'ml-course-subject', span: 'ml-course-detail' };
+    const headClass = { span: 'ml-course-title', b: 'ml-course-day' };
+    const className = parentClasses.includes('ml-course-row')
+      ? rowClass[element.name]
+      : parentClasses.includes('ml-course-head') ? headClass[element.name] : null;
+    if (!className) return;
+    element.attribs.class = `${element.attribs.class || ''} ${className}`.trim();
+    if (parentClasses.includes('ml-course-row')) element.name = 'div';
+  },
+};
+
+const VARIANT_STATUS_BAR_PATTERN =
+  /(^|\r?\n)[\t ]*【数值状态栏】[\t ]*\r?\n[\t ]*好感度[：:][\t ]*\d+\/200[\t ]*\r?\n[\t ]*心情[：:][\t ]*\d+\/100[\t ]*\r?\n[\t ]*友情[：:][\t ]*\d+\/100[\t ]*(?=\r?\n|$)/g;
+const VARIANT_STATUS_LINE_PATTERN =
+  /(^|\r?\n)[\t ]*(?:【触碰度】[^\r\n]*|【特殊】[^\r\n]*|(?:心情|友情)[：:][\t ]*\d+\/100[\t ]*)(?=\r?\n|$)/g;
+
+function hideVariantStatusBar(text) {
+  return String(text ?? '')
+    .replace(VARIANT_STATUS_BAR_PATTERN, '$1')
+    .replace(VARIANT_STATUS_LINE_PATTERN, '$1');
+}
+
 const customHTMLElementModels = {
+  time: HTMLElementModel.fromCustomModel({ tagName: 'time', contentModel: HTMLContentModel.textual }),
   button: HTMLElementModel.fromCustomModel({
     tagName: 'button',
     contentModel: HTMLContentModel.block,
@@ -297,6 +339,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
               source={htmlSource}
               baseStyle={htmlBaseStyle}
               tagsStyles={htmlTagsStyles}
+              classesStyles={regexClassesStyles}
+              domVisitors={regexDomVisitors}
               customHTMLElementModels={customHTMLElementModels}
               renderers={htmlRenderers}
               defaultTextProps={{ selectable: true }}
@@ -430,11 +474,15 @@ export default function ChatScreen() {
   const renderedMessages = useMemo(
     () => messages.map((message, index) => {
       if (!message) return message;
-      if (message.pending) return message;
+      if (message.pending) {
+        if (message.role !== ASSISTANT_ID) return message;
+        const text = hideVariantStatusBar(message.text);
+        return text === message.text ? message : { ...message, text };
+      }
       const depth = messages.length - 1 - index;
       if (message.role === ASSISTANT_ID) {
         const text = applyRegexScripts(
-          message.text,
+          hideVariantStatusBar(message.text),
           character.regexScripts,
           REGEX_PLACEMENT.AI_OUTPUT,
           { mode: 'display', depth }
@@ -735,46 +783,14 @@ export default function ChatScreen() {
   const bgUri = character.bgUri || '';
 
   return (
-    bgUri ? (
-      <ImageBackground source={{ uri: bgUri }} style={styles.container} imageStyle={styles.bgImage}>
-        <ChatScreenInner bgUri={bgUri} />
-      </ImageBackground>
-    ) : (
-      <View style={styles.container}>
-        <ChatScreenInner bgUri={bgUri} />
-      </View>
-    )
-  );
-}
-
-function ChatScreenInner({ bgUri }) {
-  const scrollRef = useRef(null);
-  const errorRawRef = useRef({});
-  const lastSavedSnapshotRef = useRef(null);
-  const saveFailedRef = useRef(false);
-  const { character, characters, activeId, loaded, switchCharacter } = useApp();
-  const characterId = character.id || 'default';
-  const activeCharacterIdRef = useRef(characterId);
-  const atBottomRef = useRef(true);
-  const abortRef = useRef(null);
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [isSending, setIsSending] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [userAvatar, setUserAvatar] = useState('');
-  const [selectionText, setSelectionText] = useState('');
-  const surfaceStyle = useMemo(
-    () => ({ backgroundColor: bgUri ? 'rgba(26,26,46,0.72)' : '#1a1a2e' }),
-    [bgUri]
-  );
-
-  return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
+      {bgUri ? (
+        <Image key={bgUri} source={{ uri: bgUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" pointerEvents="none" />
+      ) : null}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.topBarButton}
