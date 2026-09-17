@@ -88,7 +88,7 @@ easychat2/
 **目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理消息列表、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`
-**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
+**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`@expo/vector-icons`、`expo-clipboard`、`react-native-markdown-display`
 **被依赖**: `App.js`
 
 ### 角色管理

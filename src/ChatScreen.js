@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml, { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
@@ -817,22 +818,29 @@ export default function ChatScreen() {
       ) : null}
       <View style={styles.topBar}>
         <TouchableOpacity
-          style={styles.topBarButton}
+          style={styles.characterChip}
           onPress={() => setSwitcherOpen(true)}
           disabled={!loaded}
           activeOpacity={0.8}
         >
-          <Text style={styles.topBarLabel}>当前角色</Text>
-          <Text style={styles.topBarName} numberOfLines={1}>
+          {character.avatarUri ? (
+            <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
+          ) : (
+            <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
+              <Ionicons name="person" size={13} color="#c8c4ff" />
+            </View>
+          )}
+          <Text style={styles.characterName} numberOfLines={1}>
             {character.name || 'EasyChat2 助手'}
           </Text>
-          <Text style={styles.topBarAction}>切换</Text>
+          <Ionicons name="chevron-down" size={14} color="#8b85ff" style={styles.characterCaret} />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.noticeButton}
           onPress={() => setNoticeOpen(true)}
           activeOpacity={0.8}
         >
+          <Ionicons name="megaphone-outline" size={13} color="#c8c4ff" />
           <Text style={styles.noticeButtonText}>公告</Text>
         </TouchableOpacity>
       </View>
@@ -886,25 +894,32 @@ export default function ChatScreen() {
           </TouchableOpacity>
         ) : null}
         <TextInput
-          style={styles.input}
+          style={[styles.input, bgUri && styles.inputOverlay]}
           value={input}
           onChangeText={setInput}
           placeholder="输入消息..."
-          placeholderTextColor="#888"
+          placeholderTextColor={bgUri ? '#cfcfe4' : '#888'}
           multiline
           editable={!isSending && ready}
         />
         {isSending ? (
-          <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={onStop}>
-            <Text style={styles.sendText}>停止</Text>
+          <TouchableOpacity
+            style={[styles.sendButton, styles.stopButton]}
+            onPress={onStop}
+            accessibilityLabel="停止"
+            activeOpacity={0.8}
+          >
+            <Ionicons name="stop" size={18} color="#fff" />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             style={[styles.sendButton, (!input.trim() || !ready) && styles.sendButtonDisabled]}
             onPress={onSend}
             disabled={!input.trim() || !ready}
+            accessibilityLabel="发送"
+            activeOpacity={0.8}
           >
-            <Text style={styles.sendText}>发送</Text>
+            <Ionicons name="arrow-up" size={20} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
@@ -1000,18 +1015,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  topBarButton: { flex: 1, flexDirection: 'row', alignItems: 'center', marginRight: 8 },
-  topBarLabel: { color: '#888', fontSize: 12, marginRight: 8 },
-  topBarName: { color: '#fff', fontWeight: '700', flexShrink: 1 },
-  topBarAction: { color: '#8b85ff', fontSize: 12, fontWeight: '700', marginLeft: 8 },
+  characterChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 18,
+  },
+  characterAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 8 },
+  characterAvatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#3a3a58' },
+  characterName: { color: '#fff', fontWeight: '700', flexShrink: 1 },
+  characterCaret: { marginLeft: 6 },
   noticeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#6c63ff',
     borderRadius: 14,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
   },
-  noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700' },
+  noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700', marginLeft: 4 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1266,22 +1292,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e',
   },
   inputBarOverlay: {
-    backgroundColor: 'rgba(26,26,46,0.72)',
+    backgroundColor: 'rgba(20,20,34,0.42)',
   },
   input: {
     flex: 1,
     minHeight: 42,
     maxHeight: 110,
-    borderRadius: 20,
+    borderRadius: 21,
     backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#3a3a58',
     color: '#fff',
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
   },
+  inputOverlay: {
+    backgroundColor: 'rgba(45,45,68,0.42)',
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
   sendButton: {
     marginLeft: 8,
-    minWidth: 58,
+    width: 42,
     height: 42,
     borderRadius: 21,
     alignItems: 'center',
@@ -1292,20 +1324,21 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   stopButton: {
-    backgroundColor: '#7a2a2a',
-  },
-  sendText: {
-    color: '#fff',
-    fontWeight: '800',
+    backgroundColor: '#b0463f',
   },
   clearButton: {
     marginRight: 8,
     height: 42,
+    borderRadius: 21,
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+    backgroundColor: 'rgba(45,45,68,0.6)',
   },
   clearText: {
-    color: '#aaa',
+    color: '#b8b8d0',
+    fontSize: 13,
     fontWeight: '700',
   },
 });
