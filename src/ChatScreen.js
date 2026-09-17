@@ -997,15 +997,29 @@ export default function ChatScreen() {
                     key={item.id}
                     style={[styles.modalRow, selected && styles.modalRowActive]}
                     onPress={() => onSwitch(item.id)}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
                   >
+                    {item.avatarUri ? (
+                      <Image source={{ uri: item.avatarUri }} style={styles.modalRowAvatar} />
+                    ) : (
+                      <View style={styles.modalRowAvatarFallback}>
+                        <Text style={styles.modalRowAvatarText}>
+                          {(item.name || '?').charAt(0)}
+                        </Text>
+                      </View>
+                    )}
                     <Text
                       style={[styles.modalRowText, selected && styles.modalRowTextActive]}
                       numberOfLines={1}
                     >
                       {item.name || '未命名角色'}
                     </Text>
-                    {selected ? <Text style={styles.modalBadge}>当前</Text> : null}
+                    {selected ? (
+                      <View style={styles.modalBadge}>
+                        <Ionicons name="checkmark" size={12} color="#ffffff" />
+                        <Text style={styles.modalBadgeText}>当前</Text>
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -1097,9 +1111,14 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: '#24243b',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
   },
   modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
   modalList: { maxHeight: 360 },
@@ -1108,15 +1127,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#2d2d44',
-    borderRadius: 8,
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 8,
   },
-  modalRowActive: { borderWidth: 1, borderColor: '#6c63ff' },
+  modalRowActive: { borderWidth: 1, borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,0.16)' },
+  modalRowAvatar: { width: 34, height: 34, borderRadius: 17, marginRight: 10 },
+  modalRowAvatarFallback: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#6c63ff',
+  },
+  modalRowAvatarText: { color: '#fff', fontSize: 14, fontWeight: '800' },
   modalRowText: { color: '#d9d9e6', flex: 1, marginRight: 8 },
   modalRowTextActive: { color: '#fff', fontWeight: '700' },
-  modalBadge: { color: '#c8c4ff', fontSize: 12, fontWeight: '700' },
+  modalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6c63ff',
+    borderRadius: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  modalBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700', marginLeft: 2 },
   selectScroll: { maxHeight: 360, marginBottom: 12 },
   selectText: { color: '#e6e6f0', fontSize: 15, lineHeight: 22 },
   selectActions: {
