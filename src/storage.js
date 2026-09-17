@@ -10,6 +10,7 @@ const PRESET_LIST_KEY = '@easychat2_preset_list';
 const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
+const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
 
@@ -464,4 +465,14 @@ export async function getEnabledGlobalPresetPrompts() {
   const raw = await readGlobalPresetSettings();
   const enabled = normalizeEnabledMap(raw, presets);
   return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
+}
+
+export async function isDisclaimerAcknowledged() {
+  const raw = await AsyncStorage.getItem(DISCLAIMER_ACK_KEY);
+  return raw === 'true';
+}
+
+export async function acknowledgeDisclaimer() {
+  await AsyncStorage.setItem(DISCLAIMER_ACK_KEY, 'true');
+  return true;
 }

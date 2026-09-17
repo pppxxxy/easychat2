@@ -29,6 +29,7 @@
 **状态与副作用**:
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选调用 `switchCharacter`
+- 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
 - `characterId` 变化时重新加载该角色的消息，并在加载期间禁用输入与发送；切换会中断进行中的请求
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 守卫并在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘
@@ -53,8 +54,8 @@
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
-**状态**: `configs`、`activeId`、`loaded`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。
+**状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presets`、`presetEnabled`、`presetModalOpen`、`editingPreset`、`presetForm`
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。另有全局对话预设的开关与增删改（弹窗编辑名称/描述/提示词），以及「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ## 全局状态
 
@@ -115,6 +116,16 @@
 | `getCharacter` / `saveCharacter` | 见下 | 过渡包装：`getActiveCharacter` / `upsertCharacter` + 设为当前 |
 | `getMessages` | `(characterId?) => Promise<Message[]>` | 读取指定角色消息，过滤 `pending` |
 | `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending` |
+| `saveCharacterState` | `(list, activeId, deletedId?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedId` 存在时移除其消息键 |
+| `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入用户人设（用户名、人设、头像路径） |
+| `getGlobalPresets` | `() => Promise<Preset[]>` | 读取预设列表；键缺失时由内置预设播种 |
+| `saveGlobalPresets` | `(presets) => Promise<Preset[]>` | 校验并写入预设列表（ID/名称/提示词非空、ID 不重复） |
+| `createGlobalPresetId` | `(presets) => Promise<string>` | 生成未与列表及开关键冲突的预设 `id` |
+| `getGlobalPresetSettings` | `() => Promise<Record<string, boolean>>` | 读取按当前预设归一化后的开关映射 |
+| `saveGlobalPresetSettings` | `(enabled) => Promise<Record<string, boolean>>` | 归一化并写入开关映射 |
+| `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
+| `isDisclaimerAcknowledged` | `() => Promise<boolean>` | 是否已确认免责条款 |
+| `acknowledgeDisclaimer` | `() => Promise<boolean>` | 写入免责条款已确认标记 |
 
 **导出的默认值**:
 - `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
@@ -130,6 +141,10 @@
 | `@easychat2_character` | 旧版单角色 JSON（仅迁移读取，保留） |
 | `@easychat2_messages::<characterId>` | 指定角色的消息数组 |
 | `@easychat2_messages` | 旧版单会话消息（仅默认角色读取时兜底） |
+| `@easychat2_user_profile` | 用户人设 `{ userName, persona, avatarUri }` |
+| `@easychat2_preset_list` | 全局对话预设数组 |
+| `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
+| `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
 
 **默认 API 配置**:
 
@@ -265,6 +280,10 @@ data: [DONE]
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`
 **说明**: 将 `sk-...` 与 `Bearer ...` 替换为 `[API_KEY已隐藏]`；**辅助导出** `SECRET_PATTERN`
+
+### `DISCLAIMER_TEXT` / `DisclaimerModal`
+**位置**: `src/disclaimer.js`
+**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`，用于启动弹窗与聊天「公告」
 
 ## 数据结构
 

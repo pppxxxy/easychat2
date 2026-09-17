@@ -18,6 +18,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 
 import { normalizeChatUrl } from './api';
+import { DISCLAIMER_TEXT } from './disclaimer';
 import {
   createApiConfig,
   createGlobalPresetId,
@@ -491,17 +492,7 @@ export default function SettingsScreen() {
   };
 
   const openDisclaimer = () => {
-    Alert.alert(
-      '免责条款',
-      'EasyChat2 是一个开源 AI 聊天工具，仅供学习交流使用。\n\n'
-        + '本应用面向成年人，禁止未成年人下载、安装或使用。\n\n'
-        + '用户自行配置 API 端点与密钥，所有聊天内容直发到用户指定的服务地址。\n\n'
-        + '开发者不对用户使用本应用产生的任何后果负责，包括但不限于：\n'
-        + '- 第三方服务中断或数据泄露\n'
-        + '- 因配置错误导致的安全问题\n'
-        + '- 生成的任何内容的准确性、合法性\n\n'
-        + '使用即代表同意以上条款。'
-    );
+    Alert.alert('免责条款', DISCLAIMER_TEXT);
   };
 
   const openGitHub = () => {

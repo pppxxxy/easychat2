@@ -1,7 +1,7 @@
 import './src/polyfills';
 import 'react-native-gesture-handler';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -12,6 +12,8 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import ChatScreen from './src/ChatScreen';
 import CharacterScreen from './src/CharacterScreen';
 import SettingsScreen from './src/SettingsScreen';
+import DisclaimerModal from './src/disclaimer';
+import { acknowledgeDisclaimer, isDisclaimerAcknowledged } from './src/storage';
 import { AppProvider } from './src/context/AppContext';
 
 const Tab = createBottomTabNavigator();
@@ -38,6 +40,31 @@ function Header() {
   );
 }
 
+function StartupDisclaimer() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    isDisclaimerAcknowledged()
+      .then(ack => {
+        if (!cancelled && !ack) setVisible(true);
+      })
+      .catch(() => {
+        if (!cancelled) setVisible(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onClose = () => {
+    setVisible(false);
+    acknowledgeDisclaimer().catch(() => {});
+  };
+
+  return <DisclaimerModal visible={visible} onClose={onClose} />;
+}
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -59,6 +86,7 @@ export default function App() {
             <Tab.Screen name="设置" component={SettingsScreen} />
           </Tab.Navigator>
           </NavigationContainer>
+          <StartupDisclaimer />
         </AppProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -22,6 +22,7 @@ import { isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
+import DisclaimerModal from './disclaimer';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import { maskSecrets } from './secrets';
 import { getEnabledGlobalPresetPrompts, getMessages, getUserProfile, saveMessages } from './storage';
@@ -436,6 +437,7 @@ export default function ChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
   const [selectionText, setSelectionText] = useState('');
 
@@ -826,6 +828,13 @@ export default function ChatScreen() {
           </Text>
           <Text style={styles.topBarAction}>切换</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.noticeButton}
+          onPress={() => setNoticeOpen(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.noticeButtonText}>公告</Text>
+        </TouchableOpacity>
       </View>
       <ScrollView
         ref={scrollRef}
@@ -969,6 +978,12 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
+
+      <DisclaimerModal
+        visible={noticeOpen}
+        title="公告"
+        onClose={() => setNoticeOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -976,16 +991,27 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   bgImage: { resizeMode: 'cover' },
   topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: '#2d2d44',
     backgroundColor: 'rgba(26,26,46,0.72)',
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  topBarButton: { flexDirection: 'row', alignItems: 'center' },
+  topBarButton: { flex: 1, flexDirection: 'row', alignItems: 'center', marginRight: 8 },
   topBarLabel: { color: '#888', fontSize: 12, marginRight: 8 },
   topBarName: { color: '#fff', fontWeight: '700', flexShrink: 1 },
   topBarAction: { color: '#8b85ff', fontSize: 12, fontWeight: '700', marginLeft: 8 },
+  noticeButton: {
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    borderRadius: 14,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

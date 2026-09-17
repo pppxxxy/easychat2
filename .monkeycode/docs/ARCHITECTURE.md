@@ -61,6 +61,7 @@ easychat2/
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
 │   ├── secrets.js            # 共享密钥脱敏
+│   ├── disclaimer.js         # 免责条款文本与弹窗组件
 │   ├── storage.js            # AsyncStorage 读写封装与默认值
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
@@ -77,17 +78,17 @@ easychat2/
 ## 子系统
 
 ### 应用外壳与导航
-**目的**: 初始化运行时垫片、全局 Provider，并组织三个标签页
+**目的**: 初始化运行时垫片、全局 Provider，并组织三个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款
 **位置**: `App.js`
 **关键文件**: `App.js`
-**依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`src/context/AppContext.js`
+**依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`
 **被依赖**: 全体界面通过导航挂载
 
 ### 聊天界面
-**目的**: 顶部展示并可切换当前角色，管理消息列表、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
+**目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理消息列表、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`
-**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
+**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`expo-clipboard`、`react-native-markdown-display`
 **被依赖**: `App.js`
 
 ### 角色管理
@@ -110,6 +111,13 @@ easychat2/
 **关键文件**: `src/SettingsScreen.js`
 **依赖**: `src/storage.js`
 **被依赖**: `App.js`
+
+### 免责条款与公告
+**目的**: 集中维护免责条款文本；首次启动时弹出一次并要求确认，聊天页右上角「公告」可随时再次查看
+**位置**: `src/disclaimer.js`
+**关键文件**: `src/disclaimer.js`
+**依赖**: `react-native`
+**被依赖**: `App.js`、`src/ChatScreen.js`、`src/SettingsScreen.js`
 
 ### 全局角色库状态
 **目的**: 加载、共享并更新角色库与当前角色，提供切换、增删、失败回滚与加载完成标志
