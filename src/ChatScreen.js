@@ -477,6 +477,7 @@ export default function ChatScreen() {
   const abortRef = useRef(null);
   const sessionVersionRef = useRef(0);
   const [input, setInput] = useState('');
+  const [inputFocused, setInputFocused] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
@@ -870,7 +871,10 @@ export default function ChatScreen() {
           style={styles.characterChip}
           onPress={() => setSwitcherOpen(true)}
           disabled={!loaded}
-          activeOpacity={0.8}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="切换角色"
+          accessibilityState={{ disabled: !loaded }}
         >
           {character.avatarUri ? (
             <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
@@ -887,7 +891,9 @@ export default function ChatScreen() {
         <TouchableOpacity
           style={styles.noticeButton}
           onPress={() => setNoticeOpen(true)}
-          activeOpacity={0.8}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="查看公告"
         >
           <Ionicons name="megaphone-outline" size={13} color="#c8c4ff" />
           <Text style={styles.noticeButtonText}>公告</Text>
@@ -941,14 +947,24 @@ export default function ChatScreen() {
 
       <View style={[styles.inputBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
         {messages.length > 0 ? (
-          <TouchableOpacity style={styles.clearButton} onPress={onClear} disabled={isSending}>
+          <TouchableOpacity
+            style={[styles.clearButton, isSending && styles.clearButtonDisabled]}
+            onPress={onClear}
+            disabled={isSending}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="清空当前聊天"
+            accessibilityState={{ disabled: isSending }}
+          >
             <Text style={styles.clearText}>清空</Text>
           </TouchableOpacity>
         ) : null}
         <TextInput
-          style={[styles.input, bgUri && styles.inputOverlay]}
+          style={[styles.input, bgUri && styles.inputOverlay, inputFocused && styles.inputFocused]}
           value={input}
           onChangeText={setInput}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           placeholder="输入消息..."
           placeholderTextColor={bgUri ? '#cfcfe4' : '#888'}
           multiline
@@ -1085,11 +1101,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
     borderRadius: 18,
+    backgroundColor: 'rgba(108,99,255,0.10)',
   },
-  characterAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 8 },
+  characterAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 8, borderWidth: 1, borderColor: 'rgba(139,133,255,0.35)' },
   characterAvatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#3a3a58' },
   characterName: { color: '#fff', fontWeight: '700', flexShrink: 1 },
   characterCaret: { marginLeft: 6 },
@@ -1097,7 +1114,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#6c63ff',
+    borderColor: 'rgba(139,133,255,0.45)',
+    backgroundColor: 'rgba(108,99,255,0.10)',
     borderRadius: 14,
     paddingVertical: 5,
     paddingHorizontal: 10,
@@ -1404,8 +1422,8 @@ const styles = StyleSheet.create({
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 10,
-    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
     paddingBottom: 10,
     borderTopWidth: 1,
     borderTopColor: '#2d2d44',
@@ -1429,6 +1447,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 15,
   },
+  inputFocused: {
+    borderColor: '#8b85ff',
+  },
   inputOverlay: {
     backgroundColor: 'rgba(45,45,68,0.42)',
     borderColor: 'rgba(255,255,255,0.22)',
@@ -1441,12 +1462,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#6c63ff',
+    shadowColor: '#6c63ff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
   },
   sendButtonDisabled: {
     opacity: 0.45,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   stopButton: {
     backgroundColor: '#b0463f',
+    shadowColor: '#b0463f',
   },
   clearButton: {
     marginRight: 8,
@@ -1457,6 +1486,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3a3a58',
     backgroundColor: 'rgba(45,45,68,0.6)',
+  },
+  clearButtonDisabled: {
+    opacity: 0.45,
   },
   clearText: {
     color: '#b8b8d0',
