@@ -2,8 +2,8 @@ import { getActiveApiConfig } from './storage';
 
 const IDLE_TIMEOUT_MS = 30000;
 
-function normalizeChatUrl(baseUrl) {
-  const trimmed = (baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+export function normalizeChatUrl(baseUrl) {
+  const trimmed = ((baseUrl || '').trim() || 'https://api.deepseek.com').replace(/\/+$/, '');
   if (/\/chat\/completions$/i.test(trimmed)) {
     return trimmed;
   }
@@ -62,6 +62,9 @@ export async function sendChatMessage(messages, options = {}) {
     throw createAbortError();
   }
   const config = await getActiveApiConfig();
+  if (signal && signal.aborted) {
+    throw createAbortError();
+  }
   if (!config.apiKey) {
     throw new Error('请先在“设置”里填写 API Key。');
   }
@@ -111,6 +114,7 @@ export async function sendChatMessage(messages, options = {}) {
     };
 
     const armIdleTimer = () => {
+      if (settled) return;
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         fail(new Error('请求超时，请检查网络后重试'));
@@ -119,6 +123,7 @@ export async function sendChatMessage(messages, options = {}) {
     };
 
     const handleLine = line => {
+      if (settled) return;
       const trimmed = line.replace(/\r$/, '').trim();
       if (!trimmed || trimmed.startsWith(':')) return;
       if (!trimmed.startsWith('data:')) return;
@@ -170,17 +175,20 @@ export async function sendChatMessage(messages, options = {}) {
 
     if (signal) {
       const onAbortSignal = () => {
+        if (settled) return;
         canceled = true;
+        fail(createAbortError());
         xhr.abort();
       };
-      signal.addEventListener('abort', onAbortSignal);
       removeAbortListener = () => signal.removeEventListener('abort', onAbortSignal);
+      signal.addEventListener('abort', onAbortSignal);
       if (signal.aborted) onAbortSignal();
     }
 
     xhr.onprogress = () => {
+      if (settled) return;
       try {
-        drainIncremental();
+        if (!xhr.status || (xhr.status >= 200 && xhr.status < 300)) drainIncremental();
         if (settled) return;
         armIdleTimer();
       } catch (error) {
@@ -191,6 +199,10 @@ export async function sendChatMessage(messages, options = {}) {
 
     xhr.onload = () => {
       if (settled) return;
+      if (xhr.status < 200 || xhr.status >= 300) {
+        fail(new Error(formatApiError(xhr.responseText, xhr.status)));
+        return;
+      }
       try {
         drainIncremental();
         if (lineBuffer) {
@@ -202,11 +214,7 @@ export async function sendChatMessage(messages, options = {}) {
         return;
       }
 
-      if (xhr.status < 200 || xhr.status >= 300) {
-        fail(new Error(formatApiError(xhr.responseText, xhr.status)));
-        return;
-      }
-
+      if (settled) return;
       if (fullText) {
         succeed(fullText);
         return;
@@ -234,6 +242,7 @@ export async function sendChatMessage(messages, options = {}) {
     xhr.onerror = () => fail(new Error('网络请求失败，请检查网络或 API 地址。'));
     xhr.onabort = () => fail(canceled ? createAbortError() : new Error('请求已中断。'));
 
+    if (settled) return;
     try {
       xhr.send(JSON.stringify({ model, messages, stream: true }));
       armIdleTimer();

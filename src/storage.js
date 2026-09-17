@@ -152,6 +152,31 @@ export async function saveCharacterLibrary(list) {
   return next;
 }
 
+export async function saveCharacterState(list, activeId, deletedId) {
+  const previousList = await AsyncStorage.getItem(CHARACTERS_KEY);
+  let librarySaved = false;
+  try {
+    await saveCharacterLibrary(list);
+    librarySaved = true;
+    await setActiveCharacterId(activeId);
+  } catch (error) {
+    if (librarySaved) {
+      try {
+        if (previousList === null) await AsyncStorage.removeItem(CHARACTERS_KEY);
+        else await AsyncStorage.setItem(CHARACTERS_KEY, previousList);
+      } catch (rollbackError) {
+        throw new Error('角色保存失败，存储回滚失败，请重新打开应用检查。');
+      }
+    }
+    throw error;
+  }
+  if (deletedId && deletedId !== DEFAULT_CHARACTER.id) {
+    try {
+      await AsyncStorage.removeItem(messagesKey(deletedId));
+    } catch (error) {}
+  }
+}
+
 export async function getActiveCharacterId() {
   try {
     const raw = await AsyncStorage.getItem(ACTIVE_CHARACTER_KEY);
@@ -169,10 +194,8 @@ export async function setActiveCharacterId(id) {
 }
 
 export async function getActiveCharacter() {
-  const [list, activeId] = await Promise.all([
-    getCharacterLibrary(),
-    getActiveCharacterId()
-  ]);
+  const list = await getCharacterLibrary();
+  const activeId = await getActiveCharacterId();
   const found = activeId ? list.find(character => character.id === activeId) : null;
   if (found) return found;
   const fallback = list.find(character => character.id === DEFAULT_CHARACTER.id)
@@ -246,17 +269,22 @@ async function persistApiConfigs(configs, activeId) {
 }
 
 export async function getApiConfigs() {
-  const stored = await readJsonStatus(API_CONFIGS_KEY);
+  const raw = await AsyncStorage.getItem(API_CONFIGS_KEY);
+  const stored = raw === null || raw === undefined ? null : JSON.parse(raw);
+  if (raw !== null && raw !== undefined
+    && (!stored || typeof stored !== 'object' || Array.isArray(stored) || !Array.isArray(stored.configs))) {
+    throw new Error('API 配置格式错误');
+  }
   let configs = [];
   let activeId = '';
   let needsPersist = false;
 
-  if (stored.status === 'ok' && stored.value && typeof stored.value === 'object') {
-    const rawList = Array.isArray(stored.value.configs) ? stored.value.configs : [];
-    configs = ensureUniqueApiConfigIds(rawList.map(normalizeApiConfig));
-    activeId = String(stored.value.activeId || '');
+  if (stored) {
+    configs = ensureUniqueApiConfigIds(stored.configs.map(normalizeApiConfig));
+    activeId = String(stored.activeId || '');
   } else {
-    const legacy = await readJson(API_CONFIG_KEY, null);
+    const legacyRaw = await AsyncStorage.getItem(API_CONFIG_KEY);
+    const legacy = legacyRaw === null || legacyRaw === undefined ? null : JSON.parse(legacyRaw);
     const seed = legacy && typeof legacy === 'object' && !Array.isArray(legacy)
       ? { ...legacy, id: 'default', name: '默认配置' }
       : { id: 'default', name: '默认配置' };
@@ -393,9 +421,32 @@ function normalizeEnabledMap(source, presets) {
   return enabled;
 }
 
+async function readGlobalPresetSettings() {
+  const raw = await AsyncStorage.getItem(GLOBAL_PRESETS_KEY);
+  if (raw === null) return {};
+  const enabled = JSON.parse(raw);
+  if (!enabled || typeof enabled !== 'object' || Array.isArray(enabled)) {
+    throw new Error('预设开关格式错误');
+  }
+  return enabled;
+}
+
+export async function createGlobalPresetId(presets) {
+  const enabled = await readGlobalPresetSettings();
+  const used = new Set([...presets.map(preset => preset.id), ...Object.keys(enabled)]);
+  const base = `preset-${Date.now()}`;
+  let id = base;
+  let suffix = 0;
+  while (used.has(id)) {
+    suffix += 1;
+    id = `${base}-${suffix}`;
+  }
+  return id;
+}
+
 export async function getGlobalPresetSettings() {
   const [raw, presets] = await Promise.all([
-    readJson(GLOBAL_PRESETS_KEY, {}),
+    readGlobalPresetSettings(),
     getGlobalPresets(),
   ]);
   return normalizeEnabledMap(raw, presets);
@@ -410,7 +461,7 @@ export async function saveGlobalPresetSettings(enabled) {
 
 export async function getEnabledGlobalPresetPrompts() {
   const presets = await getGlobalPresets();
-  const raw = await readJson(GLOBAL_PRESETS_KEY, {});
+  const raw = await readGlobalPresetSettings();
   const enabled = normalizeEnabledMap(raw, presets);
   return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
 }

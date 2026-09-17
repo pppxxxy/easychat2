@@ -10,7 +10,7 @@ import React, {
 
 import {
   DEFAULT_CHARACTER,
-  deleteCharacter as deleteCharacterRecord,
+  saveCharacterState,
   getActiveCharacterId,
   getCharacterLibrary,
   saveCharacterLibrary,
@@ -35,6 +35,13 @@ export function AppProvider({ children }) {
   const charactersRef = useRef([DEFAULT_CHARACTER]);
   const activeIdRef = useRef(DEFAULT_CHARACTER.id);
   const loadedRef = useRef(false);
+  const mutationRef = useRef(Promise.resolve());
+
+  const enqueueMutation = useCallback(operation => {
+    const pending = mutationRef.current.then(operation);
+    mutationRef.current = pending.catch(() => {});
+    return pending;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,56 +100,58 @@ export function AppProvider({ children }) {
     if (!loadedRef.current) {
       throw new Error('角色尚未加载完成');
     }
-    const snapshot = snapshotState();
-    const { list, character } = withUpdatedCharacter(
-      snapshot.list,
-      snapshot.activeId,
-      patch
-    );
-    applyList(list);
-    await runWithRollback(snapshot, restore, () => saveCharacterLibrary(list));
-    return character;
-  }, [applyList, restore, snapshotState]);
+    const targetId = patch?.id || activeIdRef.current;
+    return enqueueMutation(async () => {
+      const snapshot = snapshotState();
+      if (!snapshot.list.some(item => item.id === targetId)) {
+        throw new Error('角色不存在');
+      }
+      const { list, character } = withUpdatedCharacter(snapshot.list, targetId, patch);
+      applyList(list);
+      await runWithRollback(snapshot, restore, () => saveCharacterLibrary(list));
+      return character;
+    });
+  }, [applyList, restore, snapshotState, enqueueMutation]);
 
   const switchCharacter = useCallback(async id => {
     if (!loadedRef.current) {
       throw new Error('角色尚未加载完成');
     }
-    const snapshot = snapshotState();
-    const { list, character, found } = withSwitchedCharacter(
-      snapshot.list,
-      id,
-      Date.now()
-    );
-    if (!found) {
-      throw new Error('角色不存在');
-    }
-    if (id === snapshot.activeId) return character;
-    applyList(list);
-    activeIdRef.current = id;
-    setActiveIdState(id);
-    await runWithRollback(snapshot, restore, async () => {
-      await saveCharacterLibrary(list);
-      await setActiveCharacterId(id);
+    return enqueueMutation(async () => {
+      const snapshot = snapshotState();
+      const { list, character, found } = withSwitchedCharacter(
+        snapshot.list,
+        id,
+        Date.now()
+      );
+      if (!found) {
+        throw new Error('角色不存在');
+      }
+      if (id === snapshot.activeId) return character;
+      applyList(list);
+      activeIdRef.current = id;
+      setActiveIdState(id);
+      await runWithRollback(snapshot, restore, () => saveCharacterState(list, id));
+      return character;
     });
-    return character;
-  }, [applyList, restore, snapshotState]);
+  }, [applyList, restore, snapshotState, enqueueMutation]);
 
   const addCharacter = useCallback(async character => {
     if (!loadedRef.current) {
       throw new Error('角色尚未加载完成');
     }
-    const snapshot = snapshotState();
-    const created = withAddedCharacter(snapshot.list, character, Date.now());
-    applyList(created.list);
-    activeIdRef.current = created.character.id;
-    setActiveIdState(created.character.id);
-    await runWithRollback(snapshot, restore, async () => {
-      await saveCharacterLibrary(created.list);
-      await setActiveCharacterId(created.character.id);
+    return enqueueMutation(async () => {
+      const snapshot = snapshotState();
+      const created = withAddedCharacter(snapshot.list, character, Date.now());
+      applyList(created.list);
+      activeIdRef.current = created.character.id;
+      setActiveIdState(created.character.id);
+      await runWithRollback(snapshot, restore, () =>
+        saveCharacterState(created.list, created.character.id)
+      );
+      return created.character;
     });
-    return created.character;
-  }, [applyList, restore, snapshotState]);
+  }, [applyList, restore, snapshotState, enqueueMutation]);
 
   const deleteCharacter = useCallback(async id => {
     if (!loadedRef.current) {
@@ -151,22 +160,21 @@ export function AppProvider({ children }) {
     if (id === DEFAULT_CHARACTER.id) {
       throw new Error('默认角色不可删除');
     }
-    const snapshot = snapshotState();
-    const result = withDeletedCharacter(snapshot.list, id, snapshot.activeId);
-    if (!result.removed) {
-      throw new Error('角色不存在');
-    }
-    applyList(result.list);
-    activeIdRef.current = result.activeId;
-    setActiveIdState(result.activeId);
-    await runWithRollback(snapshot, restore, async () => {
-      await deleteCharacterRecord(id);
-      if (result.activeId !== snapshot.activeId) {
-        await setActiveCharacterId(result.activeId);
+    return enqueueMutation(async () => {
+      const snapshot = snapshotState();
+      const result = withDeletedCharacter(snapshot.list, id, snapshot.activeId);
+      if (!result.removed) {
+        throw new Error('角色不存在');
       }
+      applyList(result.list);
+      activeIdRef.current = result.activeId;
+      setActiveIdState(result.activeId);
+      await runWithRollback(snapshot, restore, () =>
+        saveCharacterState(result.list, result.activeId, id)
+      );
+      return result.list;
     });
-    return result.list;
-  }, [applyList, restore, snapshotState]);
+  }, [applyList, restore, snapshotState, enqueueMutation]);
 
   const character = useMemo(
     () => characters.find(item => item.id === activeId)

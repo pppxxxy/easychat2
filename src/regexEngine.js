@@ -6,18 +6,35 @@ export const REGEX_PLACEMENT = {
   REASONING: 6,
 };
 
-const ALLOWED_FLAGS = new Set(['g', 'i', 'm', 's', 'u', 'y']);
-
-function normalizeFlags(flags) {
-  const raw = String(flags || 'g');
-  let result = '';
-  for (const flag of raw) {
-    if (ALLOWED_FLAGS.has(flag) && !result.includes(flag)) {
-      result += flag;
+export function compileRegex(findRegex, flags = 'g') {
+  let pattern = String(findRegex ?? '');
+  let effectiveFlags = String(flags ?? 'g');
+  new RegExp('', effectiveFlags);
+  if (pattern.startsWith('/')) {
+    let escaped = false;
+    let inClass = false;
+    let delimiter = -1;
+    for (let index = 1; index < pattern.length; index += 1) {
+      const char = pattern[index];
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '[') {
+        inClass = true;
+      } else if (char === ']') {
+        inClass = false;
+      } else if (char === '/' && !inClass) {
+        delimiter = index;
+      }
+    }
+    if (delimiter >= 0) {
+      effectiveFlags = pattern.slice(delimiter + 1);
+      pattern = pattern.slice(1, delimiter);
     }
   }
-  if (!result.includes('g')) result += 'g';
-  return result;
+  if (pattern.length === 0) throw new Error('匹配表达式不能为空。');
+  return new RegExp(pattern, effectiveFlags);
 }
 
 function withinDepth(script, depth) {
@@ -41,12 +58,12 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
   for (const script of list) {
     if (!script || script.enabled === false) continue;
     if (!Array.isArray(script.placement) || !script.placement.includes(placement)) continue;
-    if (mode === 'prompt' && script.markdownOnly) continue;
-    if (mode === 'display' && script.promptOnly) continue;
+    if (mode === 'prompt' && script.markdownOnly && !script.promptOnly) continue;
+    if (mode === 'display' && script.promptOnly && !script.markdownOnly) continue;
     if (!script.findRegex) continue;
     if (!withinDepth(script, options.depth)) continue;
     try {
-      const regex = new RegExp(script.findRegex, normalizeFlags(script.flags));
+      const regex = compileRegex(script.findRegex, script.flags);
       let replacement = script.replaceString ?? '';
       if (mode === 'display' && /^\s*<style\b[^>]*>(?:(?!<\/style>)[\s\S])*<\/style>$/i.test(replacement)) {
         replacement += '\n';

@@ -190,6 +190,7 @@ function normalizeRegexPlacement(value) {
   const placement = list
     .map(item => Number(item))
     .filter(item => Number.isFinite(item));
+  if (Array.isArray(value) && value.length === 0) return [];
   if (placement.length === 0) return [1, 2];
   return Array.from(new Set(placement));
 }
@@ -198,6 +199,13 @@ function placementLabel(placement) {
   return placement
     .map(item => REGEX_PLACEMENT_LABELS[item] || `范围 ${item}`)
     .join('、');
+}
+
+function firstRegexString(source, keys, fallback = '') {
+  for (const key of keys) {
+    if (source[key] !== null && source[key] !== undefined) return String(source[key]);
+  }
+  return fallback;
 }
 
 function normalizeRegexScript(script, index) {
@@ -211,12 +219,12 @@ function normalizeRegexScript(script, index) {
     name:
       firstString([source], ['name', 'scriptName', 'script_name']) ||
       `正则脚本 ${index + 1}`,
-    findRegex: firstString([source], ['regex', 'findRegex', 'find_regex']),
-    replaceString: firstString(
-      [source],
+    findRegex: firstRegexString(source, ['regex', 'findRegex', 'find_regex']),
+    replaceString: firstRegexString(
+      source,
       ['replacement', 'replaceString', 'replace_string']
     ),
-    flags: firstString([source], ['flags', 'regexFlags', 'regex_flags']) || 'g',
+    flags: firstRegexString(source, ['flags', 'regexFlags', 'regex_flags'], 'g'),
     placement,
     placementLabel: placementLabel(placement),
     enabled,

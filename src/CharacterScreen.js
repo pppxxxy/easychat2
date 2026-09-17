@@ -28,6 +28,7 @@ import {
   WORLD_POSITION_LABELS,
 } from './cardParser';
 import { useApp } from './context/AppContext';
+import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
 
 const NO_CARD_DATA_MESSAGE =
@@ -294,8 +295,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
     const next = has
       ? placement.filter(item => item !== value)
       : [...placement, value].sort((a, b) => a - b);
-    const safe = next.length ? next : [1, 2];
-    onChange({ placement: safe, placementLabel: placementText(safe) });
+    onChange({ placement: next, placementLabel: placementText(next) });
   };
   return (
     <View style={styles.entryCard}>
@@ -345,6 +345,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         placeholder="g"
         placeholderTextColor="#888"
       />
+      <Text style={styles.dataMeta}>/表达式/flags 使用内嵌 flags；裸表达式的 flags 留空时仅替换首个匹配。</Text>
       <Text style={styles.fieldLabel}>作用范围</Text>
       <View style={styles.chipRow}>
         {REGEX_PLACEMENT_KEYS.map(key => (
@@ -421,6 +422,14 @@ export default function CharacterScreen() {
   const [bgPreview, setBgPreview] = useState(null);
   const [importing, setImporting] = useState(false);
   const seededIdRef = useRef(null);
+  const screenSessionRef = useRef({ activeId });
+  if (screenSessionRef.current.activeId !== activeId) {
+    screenSessionRef.current = { activeId };
+  }
+
+  useEffect(() => () => {
+    screenSessionRef.current = {};
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -494,6 +503,21 @@ export default function CharacterScreen() {
       Alert.alert('角色加载中', '请稍候再保存。');
       return;
     }
+    for (const [index, script] of regexScripts.entries()) {
+      if (script.enabled === false) continue;
+      try {
+        compileRegex(script.findRegex, script.flags);
+      } catch (error) {
+        setExpandedRegex(true);
+        setEditingRegexId(script.id);
+        Alert.alert(
+          '正则脚本无效',
+          maskSecrets(`第 ${index + 1} 条「${script.name || '未命名'}」：${error.message}`)
+        );
+        return;
+      }
+    }
+    const session = screenSessionRef.current;
     const trimmedPrompt = systemPrompt.trim();
     const next = {
       id: character.id || 'default',
@@ -517,6 +541,7 @@ export default function CharacterScreen() {
     };
     try {
       await updateCharacter(next);
+      if (screenSessionRef.current !== session) return;
       setName(next.name);
       setSystemPrompt(next.systemPrompt);
       setDescription(next.description);
@@ -592,34 +617,37 @@ export default function CharacterScreen() {
       try {
         const created = await addCharacter(next);
 
+        const session = screenSessionRef.current;
+        let imageFailed = false;
         if (treatAsPng && asset?.uri) {
           try {
             const avatarDir = `${FileSystem.documentDirectory}avatars/`;
             await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
             const dest = `${avatarDir}${created.id}.png`;
             await FileSystem.copyAsync({ from: asset.uri, to: dest });
-            await updateCharacter({ avatarUri: dest, bgUri: dest });
-            setAvatarPreview(dest);
-            setBgPreview(dest);
-          } catch (error) {}
+            await updateCharacter({ id: created.id, avatarUri: dest, bgUri: dest });
+            if (screenSessionRef.current === session && session.activeId === created.id) {
+              setAvatarPreview(dest);
+              setBgPreview(dest);
+            }
+          } catch (error) {
+            imageFailed = true;
+          }
         }
 
-        setName(next.name);
-        setSystemPrompt(next.systemPrompt);
-        setDescription(next.description);
-        setPersonality(next.personality);
-        setScenario(next.scenario);
-        setFirstMes(next.firstMes);
-        setWorldInfo(ensureUniqueIds(next.worldInfo, 'entry'));
-        setRegexScripts(ensureUniqueIds(next.regexScripts, 'regex'));
-        setExpandedWorld(false);
-        setExpandedRegex(false);
+        if (screenSessionRef.current === session && session.activeId === created.id) {
+          setExpandedWorld(false);
+          setExpandedRegex(false);
+        }
         const summary = [
           `已加载角色：${next.name}`,
           `世界书 ${next.worldInfo.length} 条`,
           `正则 ${next.regexScripts.length} 条`,
         ].join('，');
-        Alert.alert('导入成功', summary);
+        Alert.alert(
+          imageFailed ? '角色已导入，图片保存失败' : '导入成功',
+          imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
+        );
       } catch (error) {
         Alert.alert('导入失败', '请检查存储空间或权限。');
       }
@@ -663,6 +691,8 @@ export default function CharacterScreen() {
   };
 
   const pickImage = async (setter, fieldName) => {
+    if (!loaded) return;
+    const session = screenSessionRef.current;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/png', 'image/jpeg'],
@@ -674,9 +704,9 @@ export default function CharacterScreen() {
       const dir = `${FileSystem.documentDirectory}avatars/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
-      const dest = `${dir}${character.id}-${fieldName}${ext}`;
+      const dest = `${dir}${character.id}-${fieldName}-${Date.now()}${ext}`;
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
-      setter(dest);
+      if (screenSessionRef.current === session) setter(dest);
     } catch (error) {
       Alert.alert('图片读取失败', '请重试。');
     }
@@ -690,12 +720,13 @@ export default function CharacterScreen() {
       Alert.alert('角色加载中', '请稍候再操作。');
       return;
     }
+    const session = screenSessionRef.current;
     const previous = bgPreview;
     setBgPreview(null);
     try {
-      await updateCharacter({ bgUri: '' });
+      await updateCharacter({ id: character.id, bgUri: '' });
     } catch (error) {
-      setBgPreview(previous);
+      if (screenSessionRef.current === session) setBgPreview(previous);
       Alert.alert('清除失败', '请检查存储空间或权限。');
     }
   };

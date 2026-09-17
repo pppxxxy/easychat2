@@ -22,12 +22,12 @@ function buildHistory(historyMessages, scripts) {
   });
 }
 
-function insertDepthEntries(assembled, depthEntries, scripts) {
+function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   if (!Array.isArray(depthEntries) || depthEntries.length === 0) return;
   const baseLength = assembled.length;
   const groups = new Map();
   for (const entry of depthEntries) {
-    const depth = Math.max(1, Math.min(Number(entry.depth) || 0, baseLength - 1));
+    const depth = Math.min(Math.max(0, Math.trunc(Number(entry.depth)) || 0), baseLength);
     const index = baseLength - depth;
     if (!groups.has(index)) groups.set(index, []);
     groups.get(index).push(entry);
@@ -37,7 +37,7 @@ function insertDepthEntries(assembled, depthEntries, scripts) {
     const items = groups.get(index).map(entry => ({
       role: entry.role || 'system',
       content: applyForPrompt(
-        String(entry.content || ''),
+        replaceUser(String(entry.content || '')),
         scripts,
         REGEX_PLACEMENT.WORLD_INFO,
         0
@@ -104,6 +104,6 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     ...history,
     { role: 'user', content: promptUserText },
   ];
-  insertDepthEntries(assembled, depth, scripts);
+  insertDepthEntries(assembled, depth, scripts, replaceUser);
   return assembled;
 }

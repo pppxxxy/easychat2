@@ -430,6 +430,7 @@ export default function ChatScreen() {
   const activeCharacterIdRef = useRef(characterId);
   const atBottomRef = useRef(true);
   const abortRef = useRef(null);
+  const sessionVersionRef = useRef(0);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
@@ -530,6 +531,7 @@ export default function ChatScreen() {
     errorRawRef.current = {};
     let userProfileCache = null;
     const profilePromise = getUserProfile().then(profile => {
+      if (cancelled) return;
       userProfileCache = profile;
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
@@ -537,6 +539,7 @@ export default function ChatScreen() {
       .then(async list => {
         if (cancelled) return;
         await profilePromise;
+        if (cancelled) return;
         const initial = Array.isArray(list) ? list : [];
         const greeting = initial.length === 0
           ? buildGreetingMessage(characterId, character.firstMes, userProfileCache?.userName)
@@ -554,6 +557,7 @@ export default function ChatScreen() {
       });
     return () => {
       cancelled = true;
+      sessionVersionRef.current += 1;
     };
   }, [characterId, loaded]);
 
@@ -582,14 +586,21 @@ export default function ChatScreen() {
   }, []);
 
   const onClear = useCallback(() => {
+    const clearCharacterId = activeCharacterIdRef.current;
+    const clearSessionVersion = sessionVersionRef.current;
+    const canClear = () =>
+      sessionVersionRef.current === clearSessionVersion
+      && !isStaleReply(activeCharacterIdRef.current, clearCharacterId)
+      && !abortRef.current;
     Alert.alert('清空聊天', '确定删除当前会话记录吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '清空',
         style: 'destructive',
         onPress: () => {
+          if (!canClear()) return;
           errorRawRef.current = {};
-          setMessages([]);
+          setMessages(current => canClear() ? [] : current);
         }
       }
     ]);
@@ -598,6 +609,11 @@ export default function ChatScreen() {
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
     if (isSending || !ready || abortRef.current) return;
     const sendCharacterId = activeCharacterIdRef.current;
+    const sendSessionVersion = sessionVersionRef.current;
+    const isCurrentSession = () =>
+      sessionVersionRef.current === sendSessionVersion
+      && !isStaleReply(activeCharacterIdRef.current, sendCharacterId);
+    let receivedChunk = false;
 
     const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
@@ -632,20 +648,22 @@ export default function ChatScreen() {
         {
           signal: controller.signal,
           onChunk: fullText => {
-            if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return;
-            setMessages(current =>
-              current.map(item =>
-                item.id === pendingAssistantMessage.id
+            if (!isCurrentSession() || controller.signal.aborted) return;
+            receivedChunk = true;
+            setMessages(current => {
+              if (!isCurrentSession()) return current;
+              return current.map(item =>
+                item.id === pendingAssistantMessage.id && item.pending
                   ? { ...item, text: fullText }
                   : item
-              )
-            );
+              );
+            });
           }
         }
       );
 
       setMessages(current => {
-        if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return current;
+        if (!isCurrentSession()) return current;
         return current.map(item =>
           item.id === pendingAssistantMessage.id
             ? { ...item, text: reply || '没有收到回复。', pending: false }
@@ -655,12 +673,12 @@ export default function ChatScreen() {
     } catch (error) {
       if (isCanceledError(error)) {
         setMessages(current => {
-          if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return current;
+          if (!isCurrentSession()) return current;
           const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
           const hasPartial = !!pendingItem
+            && receivedChunk
             && typeof pendingItem.text === 'string'
-            && pendingItem.text.trim().length > 0
-            && pendingItem.text !== THINKING_PLACEHOLDER;
+            && pendingItem.text.trim().length > 0;
           if (hasPartial) {
             return current.map(item => (
               item.id === pendingAssistantMessage.id ? { ...item, pending: false } : item
@@ -677,16 +695,16 @@ export default function ChatScreen() {
         text: '请求失败，点击查看详情',
         detail: maskSecrets(rawText),
       };
-      if (!isStaleReply(activeCharacterIdRef.current, sendCharacterId)) {
+      if (isCurrentSession()) {
         errorRawRef.current[errorMessage.id] = rawText;
       }
       setMessages(current => {
-        if (isStaleReply(activeCharacterIdRef.current, sendCharacterId)) return current;
+        if (!isCurrentSession()) return current;
         const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
         const hasPartial = !!pendingItem
+          && receivedChunk
           && typeof pendingItem.text === 'string'
-          && pendingItem.text.trim().length > 0
-          && pendingItem.text !== THINKING_PLACEHOLDER;
+          && pendingItem.text.trim().length > 0;
         if (hasPartial) {
           return current
             .map(item => (
@@ -699,15 +717,19 @@ export default function ChatScreen() {
         ));
       });
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setIsSending(false);
-      autoScrollToBottom();
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        if (isCurrentSession()) {
+          setIsSending(false);
+          autoScrollToBottom();
+        }
+      }
     }
   }, [autoScrollToBottom, character, isSending, ready, scrollToBottom]);
 
   const sendText = useCallback(rawText => {
     const text = String(rawText || '').trim();
-    if (!text || isSending || !ready) return;
+    if (!text || isSending || !ready || abortRef.current) return;
     const userMessage = {
       id: `${Date.now()}-user`,
       role: USER_ID,
@@ -740,12 +762,12 @@ export default function ChatScreen() {
   }, [isSending, messages, ready, requestReply]);
 
   const editUserMessage = useCallback(targetId => {
-    if (isSending) return;
+    if (isSending || !ready || abortRef.current) return;
     const index = messages.findIndex(item => item.id === targetId);
     if (index < 0 || messages[index].role !== USER_ID) return;
     setMessages(messages.slice(0, index));
     setInput(messages[index].text);
-  }, [isSending, messages]);
+  }, [isSending, messages, ready]);
 
   const messageActionsRef = useRef({});
   useEffect(() => {
@@ -775,7 +797,7 @@ export default function ChatScreen() {
 
   const onSend = useCallback(() => {
     const text = input.trim();
-    if (!text || isSending || !ready) return;
+    if (!text || isSending || !ready || abortRef.current) return;
     setInput('');
     sendText(text);
   }, [input, isSending, ready, sendText]);
@@ -848,7 +870,7 @@ export default function ChatScreen() {
         )}
       </ScrollView>
 
-      <View style={[styles.inputBar, bgUri ? null : styles.inputBarSurface]}>
+      <View style={[styles.inputBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
         {messages.length > 0 ? (
           <TouchableOpacity style={styles.clearButton} onPress={onClear} disabled={isSending}>
             <Text style={styles.clearText}>清空</Text>
@@ -1216,6 +1238,9 @@ const styles = StyleSheet.create({
   },
   inputBarSurface: {
     backgroundColor: '#1a1a2e',
+  },
+  inputBarOverlay: {
+    backgroundColor: 'rgba(26,26,46,0.72)',
   },
   input: {
     flex: 1,

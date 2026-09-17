@@ -17,8 +17,10 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 
+import { normalizeChatUrl } from './api';
 import {
   createApiConfig,
+  createGlobalPresetId,
   getApiConfigs,
   getGlobalPresetSettings,
   getGlobalPresets,
@@ -54,7 +56,27 @@ export default function SettingsScreen() {
   const [editingPreset, setEditingPreset] = useState(null);
   const [presetForm, setPresetForm] = useState({ name: '', description: '', prompt: '' });
   const profileTimerRef = useRef(null);
+  const profileHintTimerRef = useRef(null);
+  const profileSavingRef = useRef(null);
+  const profileMountedRef = useRef(true);
+  const profileStateRef = useRef(null);
+  profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri };
+
+  useEffect(() => {
+    profileMountedRef.current = true;
+    return () => {
+      profileMountedRef.current = false;
+      clearTimeout(profileTimerRef.current);
+      clearTimeout(profileHintTimerRef.current);
+    };
+  }, []);
   const presetBusyRef = useRef(false);
+  const apiStateRef = useRef({ configs: [], activeId: '', loaded: false });
+  const apiBusyRef = useRef(false);
+  const apiMountedRef = useRef(true);
+  const modelRequestRef = useRef(null);
+  const modelSourceRef = useRef(null);
+  const [apiSaving, setApiSaving] = useState(false);
   const [presetsLoaded, setPresetsLoaded] = useState(false);
   const [presetSaving, setPresetSaving] = useState(false);
 
@@ -69,15 +91,18 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
+    apiMountedRef.current = true;
     getApiConfigs()
       .then(({ configs: list, activeId: id }) => {
+        if (!apiMountedRef.current) return;
+        apiStateRef.current = { configs: list, activeId: id, loaded: true };
         setConfigs(list);
         setActiveId(id);
+        setLoaded(true);
       })
       .catch(() => {
-        Alert.alert('读取配置失败', '已使用默认配置，请重新填写后保存。');
-      })
-      .finally(() => setLoaded(true));
+        if (apiMountedRef.current) Alert.alert('读取配置失败', '请重新打开应用后重试。');
+      });
     getUserProfile()
       .then(profile => {
         setUserName(profile.userName);
@@ -86,6 +111,13 @@ export default function SettingsScreen() {
       })
       .catch(() => {})
       .finally(() => setUserProfileLoaded(true));
+    return () => {
+      apiMountedRef.current = false;
+      const request = modelRequestRef.current;
+      modelRequestRef.current = null;
+      modelSourceRef.current = null;
+      request?.cancel?.();
+    };
   }, []);
 
   const togglePreset = async (id, value) => {
@@ -122,20 +154,18 @@ export default function SettingsScreen() {
       Alert.alert('信息不全', '名称和提示词不能为空。');
       return;
     }
-    const item = {
-      id: editingPreset?.id || `preset-${Date.now()}`,
-      name,
-      description: presetForm.description.trim(),
-      prompt,
-    };
-    const list = editingPreset
-      ? presets.map(item0 => (item0.id === item.id ? item : item0))
-      : [...presets, item];
     presetBusyRef.current = true;
     setPresetSaving(true);
     try {
+      const basePresets = await getGlobalPresets();
+      const id = editingPreset?.id || await createGlobalPresetId(basePresets);
+      const item = { id, name, description: presetForm.description.trim(), prompt };
+      const list = editingPreset
+        ? basePresets.map(item0 => (item0.id === item.id ? item : item0))
+        : [...basePresets, item];
       const saved = await saveGlobalPresets(list);
       setPresets(saved);
+      setEditingPreset(editingPreset ? saved.find(entry => entry.id === id) || null : null);
       setPresetModalOpen(false);
     } catch (error) {
       Alert.alert('保存失败', error?.message || '请检查存储空间或权限。');
@@ -153,17 +183,19 @@ export default function SettingsScreen() {
         text: '删除',
         style: 'destructive',
         onPress: async () => {
-          const list = presets.filter(item => item.id !== preset.id);
+          if (presetBusyRef.current) return;
           presetBusyRef.current = true;
           setPresetSaving(true);
           try {
-            const saved = await saveGlobalPresets(list);
+            const saved = await saveGlobalPresets(
+              (await getGlobalPresets()).filter(item => item.id !== preset.id)
+            );
             setPresets(saved);
-            if (presetEnabled[preset.id]) {
-              const next = { ...presetEnabled };
+            setPresetEnabled(current => {
+              const next = { ...current };
               delete next[preset.id];
-              setPresetEnabled(next);
-            }
+              return next;
+            });
           } catch (error) {
             Alert.alert('删除失败', error?.message || '请检查存储空间或权限。');
           } finally {
@@ -177,18 +209,35 @@ export default function SettingsScreen() {
 
   const saveUserProfileDelayed = useMemo(() => {
     return (name, persona, avatar) => {
+      profileStateRef.current = { userName: name, persona, avatarUri: avatar ?? profileStateRef.current.avatarUri };
       if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
       profileTimerRef.current = setTimeout(async () => {
-        try {
-          await saveUserProfile({ userName: name, persona, avatarUri: avatar ?? userAvatarUri });
-          setUserProfileSaved(true);
-          setTimeout(() => setUserProfileSaved(false), 2000);
-        } catch (error) {}
+        profileTimerRef.current = null;
+        const saving = (async () => {
+          try {
+            await saveUserProfile(profileStateRef.current);
+          } catch (error) {}
+        })();
+        profileSavingRef.current = saving;
+        await saving;
+        if (profileSavingRef.current === saving) profileSavingRef.current = null;
+        if (!profileMountedRef.current) return;
+        setUserProfileSaved(true);
+        clearTimeout(profileHintTimerRef.current);
+        profileHintTimerRef.current = setTimeout(() => setUserProfileSaved(false), 2000);
       }, 600);
     };
   }, []);
 
+  const changeUserAvatar = avatarUri => {
+    if (!userProfileLoaded || !profileMountedRef.current) return;
+    setUserAvatarUri(avatarUri);
+    const profile = profileStateRef.current;
+    saveUserProfileDelayed(profile.userName, profile.persona, avatarUri);
+  };
+
   const pickUserAvatar = async () => {
+    if (!userProfileLoaded) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/png', 'image/jpeg'],
@@ -202,7 +251,7 @@ export default function SettingsScreen() {
       const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
       const dest = `${dir}user-avatar${ext}`;
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
-      setUserAvatarUri(dest);
+      changeUserAvatar(dest);
     } catch (error) {
       Alert.alert('图片读取失败', '请重试。');
     }
@@ -213,129 +262,194 @@ export default function SettingsScreen() {
     [configs, activeId]
   );
 
+  const invalidateModels = () => {
+    const request = modelRequestRef.current;
+    modelRequestRef.current = null;
+    modelSourceRef.current = null;
+    request?.cancel?.();
+    setDetectingModels(false);
+    setModelList([]);
+    setModelModalVisible(false);
+  };
+
+  const canChangeApi = () => apiMountedRef.current && apiStateRef.current.loaded && !apiBusyRef.current;
+
   const persist = async (list, id) => {
     const saved = await saveApiConfigs(list, id);
+    if (!apiMountedRef.current) return saved;
+    invalidateModels();
+    apiStateRef.current = { ...saved, loaded: true };
     setConfigs(saved.configs);
     setActiveId(saved.activeId);
     return saved;
   };
 
+  const changeConfig = async (list, id) => {
+    if (!canChangeApi()) return;
+    apiBusyRef.current = true;
+    setApiSaving(true);
+    invalidateModels();
+    try {
+      await persist(list, id);
+    } catch (error) {
+      if (apiMountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
+    } finally {
+      apiBusyRef.current = false;
+      if (apiMountedRef.current) setApiSaving(false);
+    }
+  };
+
   const updateField = patch => {
-    if (!active) return;
-    setConfigs(list =>
-      list.map(item => (item.id === active.id ? { ...item, ...patch } : item))
-    );
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    if (!current.configs.some(item => item.id === current.activeId)) return;
+    if ('baseUrl' in patch || 'apiKey' in patch) invalidateModels();
+    const list = current.configs.map(item => (item.id === current.activeId ? { ...item, ...patch } : item));
+    apiStateRef.current = { ...current, configs: list };
+    setConfigs(list);
   };
 
   const selectConfig = id => {
-    if (id === activeId) return;
-    setActiveId(id);
-    persist(configs, id).catch(() => {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    });
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    if (id === current.activeId || !current.configs.some(item => item.id === id)) return;
+    return changeConfig(current.configs, id);
   };
 
   const addConfig = () => {
-    const created = createApiConfig({ name: `配置 ${configs.length + 1}` });
-    const next = [...configs, created];
-    setConfigs(next);
-    setActiveId(created.id);
-    persist(next, created.id).catch(() => {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    });
+    if (!canChangeApi()) return;
+    const list = apiStateRef.current.configs;
+    const created = createApiConfig({ name: `配置 ${list.length + 1}` });
+    return changeConfig([...list, created], created.id);
   };
 
   const deleteConfig = () => {
-    if (!active || configs.length <= 1) {
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    const target = current.configs.find(item => item.id === current.activeId);
+    if (!target || current.configs.length <= 1) {
       Alert.alert('无法删除', '至少保留一套 API 配置。');
       return;
     }
-    Alert.alert('删除配置', `确定删除“${active.name}”吗？`, [
+    Alert.alert('删除配置', `确定删除“${target.name}”吗？`, [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
         style: 'destructive',
         onPress: () => {
-          const next = configs.filter(item => item.id !== active.id);
-          const nextActive = activeId === active.id ? next[0].id : activeId;
-          setConfigs(next);
-          setActiveId(nextActive);
-          persist(next, nextActive).catch(() => {
-            Alert.alert('保存失败', '请检查存储空间或权限。');
-          });
+          if (!canChangeApi()) return;
+          const latest = apiStateRef.current;
+          if (latest.configs.length <= 1 || !latest.configs.some(item => item.id === target.id)) return;
+          const next = latest.configs.filter(item => item.id !== target.id);
+          const nextActive = latest.activeId === target.id ? next[0].id : latest.activeId;
+          return changeConfig(next, nextActive);
         },
       },
     ]);
   };
 
   const save = async () => {
-    if (!loaded || !active) return;
-    const trimmedBaseUrl = active.baseUrl.trim();
-    if (/^http:\/\//i.test(trimmedBaseUrl)) {
-      const confirmed = await new Promise(resolve => {
-        Alert.alert(
-          '当前使用 HTTP',
-          '该地址不是 HTTPS，API Key 会以明文传输，存在被窃听的风险。仍要保存吗？',
-          [
-            { text: '取消', style: 'cancel', onPress: () => resolve(false) },
-            { text: '仍然保存', style: 'destructive', onPress: () => resolve(true) }
-          ],
-          { cancelable: true, onDismiss: () => resolve(false) }
-        );
-      });
-      if (!confirmed) return;
-    }
-    const trimmed = configs.map(item =>
-      item.id === active.id
-        ? {
-            ...item,
-            name: item.name.trim() || '未命名配置',
-            baseUrl: trimmedBaseUrl,
-            model: item.model.trim(),
-            apiKey: item.apiKey.trim(),
-          }
-        : item
-    );
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    apiBusyRef.current = true;
+    setApiSaving(true);
     try {
-      await persist(trimmed, active.id);
+      const trimmedBaseUrl = selected.baseUrl.trim();
+      if (/^http:\/\//i.test(trimmedBaseUrl)) {
+        const confirmed = await new Promise(resolve => {
+          Alert.alert(
+            '当前使用 HTTP',
+            '该地址不是 HTTPS，API Key 会以明文传输，存在被窃听的风险。仍要保存吗？',
+            [
+              { text: '取消', style: 'cancel', onPress: () => resolve(false) },
+              { text: '仍然保存', style: 'destructive', onPress: () => resolve(true) }
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) }
+          );
+        });
+        if (!confirmed || !apiMountedRef.current) return;
+      }
+      const trimmed = current.configs.map(item =>
+        item.id === selected.id
+          ? {
+              ...item,
+              name: item.name.trim() || '未命名配置',
+              baseUrl: trimmedBaseUrl,
+              model: item.model.trim(),
+              apiKey: item.apiKey.trim(),
+            }
+          : item
+      );
+      await persist(trimmed, selected.id);
+      if (apiMountedRef.current) Alert.alert('已保存', 'API 配置已保存到本机。');
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-      return;
+      if (apiMountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
+    } finally {
+      apiBusyRef.current = false;
+      if (apiMountedRef.current) setApiSaving(false);
     }
-    Alert.alert('已保存', 'API 配置已保存到本机。');
   };
 
   const detectModels = async () => {
-    if (!active || !active.apiKey || !active.baseUrl) {
+    if (!canChangeApi() || modelRequestRef.current) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected?.apiKey.trim() || !selected?.baseUrl.trim()) {
       Alert.alert('请先填写 API 地址和 Key');
       return;
     }
+    invalidateModels();
+    const request = { cancel: null };
+    modelRequestRef.current = request;
+    const isCurrent = () => apiMountedRef.current && modelRequestRef.current === request;
     setDetectingModels(true);
-    setModelList([]);
-    const base = active.baseUrl.replace(/\/+$/, '').replace(/\/v1\/chat\/completions$/, '').replace(/\/chat\/completions$/, '');
-    const urls = [`${base}/v1/models`, `${base}/models`];
+    const base = normalizeChatUrl(selected.baseUrl).replace(/\/chat\/completions$/i, '');
+    const fallback = /\/v1$/i.test(base) ? base.replace(/\/v1$/i, '') : `${base}/v1`;
+    const urls = [`${base}/models`, `${fallback}/models`];
     let result = [];
     for (const url of urls) {
+      if (!isCurrent()) return;
       if (result.length) break;
       try {
         const text = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
+          let settled = false;
+          const finish = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            request.cancel = null;
+            fn(value);
+          };
+          request.cancel = () => {
+            finish(reject, new Error('检测已取消'));
+            xhr.abort();
+          };
           xhr.open('GET', url);
-          xhr.setRequestHeader('Authorization', `Bearer ${active.apiKey}`);
+          xhr.setRequestHeader('Authorization', `Bearer ${selected.apiKey.trim()}`);
           xhr.timeout = 15000;
-          xhr.onload = () => resolve(xhr.responseText);
-          xhr.onerror = () => reject(new Error('网络错误'));
-          xhr.ontimeout = () => reject(new Error('超时'));
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) finish(resolve, xhr.responseText);
+            else finish(reject, new Error('请求失败'));
+          };
+          xhr.onerror = () => finish(reject, new Error('网络错误'));
+          xhr.ontimeout = () => finish(reject, new Error('超时'));
+          xhr.onabort = () => finish(reject, new Error('检测已取消'));
           xhr.send();
         });
+        if (!isCurrent()) return;
         const data = JSON.parse(text);
         if (Array.isArray(data?.data)) {
-          result = data.data.map(item => String(item.id || '')).filter(Boolean);
+          result = [...new Set(data.data.map(item => String(item?.id || '')).filter(Boolean))];
         }
       } catch (error) {}
     }
+    if (!isCurrent()) return;
+    modelRequestRef.current = null;
     setDetectingModels(false);
     if (result.length) {
+      modelSourceRef.current = selected;
       setModelList(result);
       setModelModalVisible(true);
     } else {
@@ -344,13 +458,26 @@ export default function SettingsScreen() {
   };
 
   const applyModel = model => {
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    const source = modelSourceRef.current;
+    if (!selected || !source || selected.id !== source.id
+      || selected.baseUrl !== source.baseUrl || selected.apiKey !== source.apiKey) return;
     updateField({ model });
     setModelModalVisible(false);
   };
 
   const saveUserProfileNow = async () => {
+    if (!userProfileLoaded) return;
+    clearTimeout(profileTimerRef.current);
+    profileTimerRef.current = null;
+    if (profileSavingRef.current) {
+      profileSavingRef.current.then(() => saveUserProfileNow());
+      return;
+    }
     try {
-      await saveUserProfile({ userName, persona: userPersona, avatarUri: userAvatarUri });
+      await saveUserProfile(profileStateRef.current);
       Alert.alert('已保存', '用户人设已保存到本机。');
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
@@ -403,7 +530,7 @@ export default function SettingsScreen() {
 
         <View style={styles.libraryHeader}>
           <Text style={styles.libraryTitle}>API 配置</Text>
-          <TouchableOpacity style={styles.newButton} onPress={addConfig} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.newButton} onPress={addConfig} disabled={!loaded || apiSaving} activeOpacity={0.8}>
             <Text style={styles.newButtonText}>新建</Text>
           </TouchableOpacity>
         </View>
@@ -414,6 +541,7 @@ export default function SettingsScreen() {
               key={item.id}
               style={[styles.configRow, selected && styles.configRowActive]}
               onPress={() => selectConfig(item.id)}
+              disabled={!loaded || apiSaving}
               activeOpacity={0.8}
             >
               <View style={styles.configInfo}>
@@ -524,7 +652,7 @@ export default function SettingsScreen() {
               <Text style={styles.imageButtonText}>{userAvatarUri ? '更换头像' : '选择头像'}</Text>
             </TouchableOpacity>
             {userAvatarUri ? (
-              <TouchableOpacity onPress={() => setUserAvatarUri('')} hitSlop={8}>
+              <TouchableOpacity onPress={() => changeUserAvatar('')} hitSlop={8}>
                 <Text style={styles.removeText}>清除</Text>
               </TouchableOpacity>
             ) : null}
