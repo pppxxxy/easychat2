@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Buffer } from 'buffer';
 
 import {
@@ -182,18 +183,25 @@ function NumberField({ label, value, onCommit }) {
   );
 }
 
-function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, children }) {
+function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, icon, children }) {
   return (
-    <View style={styles.dataSection}>
+    <View style={styles.sectionCard}>
       <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
-        <Text style={styles.sectionTitle}>{title}（{count} 条）</Text>
-        <Text style={styles.sectionToggle}>{expanded ? '收起' : '展开'}</Text>
+        <View style={styles.sectionTitleRow}>
+          {icon ? <Ionicons name={icon} size={15} color="#8b85ff" /> : null}
+          <Text style={styles.sectionTitle}>{title}</Text>
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeText}>{count}</Text>
+          </View>
+        </View>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#8b85ff" />
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.sectionBody}>
           {children}
           {onAdd ? (
             <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
+              <Ionicons name="add" size={16} color="#c8c4ff" />
               <Text style={styles.addButtonText}>{addLabel}</Text>
             </TouchableOpacity>
           ) : null}
@@ -388,9 +396,12 @@ function SummaryRow({ title, meta, enabled, onPress }) {
         <Text style={styles.summaryTitle} numberOfLines={1}>{title}</Text>
         {meta ? <Text style={styles.summaryMeta} numberOfLines={1}>{meta}</Text> : null}
       </View>
-      <Text style={[styles.summaryStatus, enabled === false && styles.summaryStatusOff]}>
-        {enabled === false ? '已停用' : '编辑'}
-      </Text>
+      {enabled === false ? (
+        <View style={styles.statusBadge}>
+          <Text style={styles.statusBadgeText}>已停用</Text>
+        </View>
+      ) : null}
+      <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
     </TouchableOpacity>
   );
 }
@@ -748,17 +759,28 @@ export default function CharacterScreen() {
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={false}
       >
-        <Text style={styles.title}>角色</Text>
-        <Text style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</Text>
-        <View style={styles.library}>
-          <View style={styles.libraryHeader}>
-            <Text style={styles.libraryTitle}>角色库（{characters.length}）</Text>
+        <View style={styles.pageHeader}>
+          <Text style={styles.title}>角色</Text>
+          <Text style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</Text>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="people-outline" size={16} color="#8b85ff" />
+              <Text style={styles.cardTitle}>角色库</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{characters.length}</Text>
+              </View>
+            </View>
             <TouchableOpacity
-              style={[styles.newButton, !loaded && styles.buttonDisabled]}
+              style={[styles.pillButton, !loaded && styles.buttonDisabled]}
               onPress={onNewCharacter}
               disabled={!loaded}
+              activeOpacity={0.8}
             >
-              <Text style={styles.newButtonText}>新建角色</Text>
+              <Ionicons name="add" size={15} color="#c8c4ff" />
+              <Text style={styles.pillButtonText}>新建</Text>
             </TouchableOpacity>
           </View>
           {characters.map(item => {
@@ -770,46 +792,68 @@ export default function CharacterScreen() {
                 onPress={() => onSwitch(item.id)}
                 activeOpacity={0.8}
               >
+                {item.avatarUri ? (
+                  <Image source={{ uri: item.avatarUri }} style={styles.characterThumb} />
+                ) : (
+                  <View style={[styles.characterThumb, styles.characterThumbFallback]}>
+                    <Text style={styles.characterThumbText}>
+                      {(item.name || '?').charAt(0)}
+                    </Text>
+                  </View>
+                )}
                 <Text
                   style={[styles.characterName, selected && styles.characterNameActive]}
                   numberOfLines={1}
                 >
                   {item.name || '未命名角色'}
                 </Text>
-                {selected ? <Text style={styles.characterBadge}>当前</Text> : null}
+                {selected ? (
+                  <View style={styles.currentBadge}>
+                    <Ionicons name="checkmark" size={11} color="#c8c4ff" />
+                    <Text style={styles.currentBadgeText}>当前</Text>
+                  </View>
+                ) : null}
                 {item.id !== 'default' ? (
                   <TouchableOpacity
+                    style={styles.rowDelete}
                     onPress={() => onDeleteCharacter(item)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="删除角色"
                   >
-                    <Text style={styles.removeText}>删除</Text>
+                    <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
                   </TouchableOpacity>
                 ) : null}
               </TouchableOpacity>
             );
           })}
         </View>
-        <Text style={styles.label}>角色名</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="例如：严谨的代码助手"
-          placeholderTextColor="#888"
-        />
-        <TouchableOpacity
-          style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
-          onPress={importCard}
-          disabled={importing || !loaded}
-        >
-          <Text style={styles.importButtonText}>
-            {importing ? '导入中...' : '导入角色卡'}
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="create-outline" size={16} color="#8b85ff" />
+            <Text style={styles.cardTitle}>基本信息</Text>
+          </View>
+          <Text style={styles.label}>角色名</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="例如：严谨的代码助手"
+            placeholderTextColor="#888"
+          />
+          <TouchableOpacity
+            style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
+            onPress={importCard}
+            disabled={importing || !loaded}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={16} color="#c8c4ff" />
+            <Text style={styles.importButtonText}>
+              {importing ? '导入中...' : '导入角色卡'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
 
-        <View style={styles.imageSection}>
-          <Text style={styles.sectionTitle}>角色头像</Text>
+          <Text style={styles.fieldLabel}>角色头像</Text>
           <View style={styles.imageRow}>
             <View style={styles.avatarBox}>
               {avatarPreview ? (
@@ -822,95 +866,112 @@ export default function CharacterScreen() {
                 </View>
               )}
             </View>
-            <TouchableOpacity style={styles.imageButton} onPress={pickAvatar} activeOpacity={0.8}>
-              <Text style={styles.imageButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
-            </TouchableOpacity>
-            {avatarPreview ? (
-              <TouchableOpacity onPress={() => setAvatarPreview(null)} hitSlop={8}>
-                <Text style={styles.removeText}>清除</Text>
+            <View style={styles.imageActions}>
+              <TouchableOpacity style={styles.smallButton} onPress={pickAvatar} activeOpacity={0.8}>
+                <Text style={styles.smallButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
               </TouchableOpacity>
-            ) : null}
+              {avatarPreview ? (
+                <TouchableOpacity onPress={() => setAvatarPreview(null)} hitSlop={8}>
+                  <Text style={styles.removeText}>清除</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
-          <Text style={styles.sectionTitle}>背景图</Text>
+
+          <Text style={styles.fieldLabel}>背景图</Text>
           <View style={styles.imageRow}>
             {bgPreview ? (
               <Image source={{ uri: bgPreview }} style={styles.bgPreview} />
             ) : null}
-            <TouchableOpacity style={styles.imageButton} onPress={pickBg} activeOpacity={0.8}>
-              <Text style={styles.imageButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
-            </TouchableOpacity>
-            {bgPreview ? (
-              <TouchableOpacity onPress={clearBgImage} hitSlop={8}>
-                <Text style={styles.removeText}>清除</Text>
+            <View style={styles.imageActions}>
+              <TouchableOpacity style={styles.smallButton} onPress={pickBg} activeOpacity={0.8}>
+                <Text style={styles.smallButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
               </TouchableOpacity>
-            ) : null}
+              {bgPreview ? (
+                <TouchableOpacity onPress={clearBgImage} hitSlop={8}>
+                  <Text style={styles.removeText}>清除</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
         </View>
 
-        <Text style={styles.label}>开场白</Text>
-        <TextInput
-          style={[styles.input, styles.multilineSmall]}
-          value={firstMes}
-          onChangeText={setFirstMes}
-          placeholder="角色登场时的第一句话"
-          placeholderTextColor="#888"
-          multiline
-          textAlignVertical="top"
-        />
-        <Text style={styles.label}>人设 / 系统提示词</Text>
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          value={systemPrompt}
-          onChangeText={setSystemPrompt}
-          placeholder="描述角色的语气、知识和回答方式"
-          placeholderTextColor="#888"
-          multiline
-          textAlignVertical="top"
-        />
-        <Text style={styles.label}>角色描述</Text>
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="角色的背景、外貌与身份设定"
-          placeholderTextColor="#888"
-          multiline
-          textAlignVertical="top"
-        />
-        <Text style={styles.label}>性格</Text>
-        <TextInput
-          style={[styles.input, styles.multilineSmall]}
-          value={personality}
-          onChangeText={setPersonality}
-          placeholder="角色的性格特点"
-          placeholderTextColor="#888"
-          multiline
-          textAlignVertical="top"
-        />
-        <Text style={styles.label}>场景</Text>
-        <TextInput
-          style={[styles.input, styles.multilineSmall]}
-          value={scenario}
-          onChangeText={setScenario}
-          placeholder="剧情发生的背景与情境"
-          placeholderTextColor="#888"
-          multiline
-          textAlignVertical="top"
-        />
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="sparkles-outline" size={16} color="#8b85ff" />
+            <Text style={styles.cardTitle}>人设设定</Text>
+          </View>
+          <Text style={styles.label}>开场白</Text>
+          <TextInput
+            style={[styles.input, styles.multilineSmall]}
+            value={firstMes}
+            onChangeText={setFirstMes}
+            placeholder="角色登场时的第一句话"
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+          />
+          <Text style={styles.label}>人设 / 系统提示词</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            value={systemPrompt}
+            onChangeText={setSystemPrompt}
+            placeholder="描述角色的语气、知识和回答方式"
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+          />
+          <Text style={styles.label}>角色描述</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="角色的背景、外貌与身份设定"
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+          />
+          <Text style={styles.label}>性格</Text>
+          <TextInput
+            style={[styles.input, styles.multilineSmall]}
+            value={personality}
+            onChangeText={setPersonality}
+            placeholder="角色的性格特点"
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+          />
+          <Text style={styles.label}>场景</Text>
+          <TextInput
+            style={[styles.input, styles.multilineSmall]}
+            value={scenario}
+            onChangeText={setScenario}
+            placeholder="剧情发生的背景与情境"
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+          />
+        </View>
+
         <TouchableOpacity
           style={[styles.button, !loaded && styles.buttonDisabled]}
           onPress={save}
           disabled={!loaded}
+          activeOpacity={0.85}
         >
+          <Ionicons name="save-outline" size={17} color="#fff" />
           <Text style={styles.buttonText}>保存角色</Text>
         </TouchableOpacity>
 
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>角色数据</Text>
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="albums-outline" size={16} color="#8b85ff" />
+            <Text style={styles.cardTitle}>角色数据</Text>
+          </View>
 
           {card.mesExample || card.creatorNotes || card.postHistoryInstructions ? (
             <View style={styles.dataSection}>
-              <Text style={styles.sectionTitle}>其他资料</Text>
+              <Text style={styles.dataTitle}>其他资料</Text>
               <DataField label="对话示例" value={card.mesExample} />
               <DataField label="作者注释" value={card.creatorNotes} />
               <DataField label="历史后指令" value={card.postHistoryInstructions} />
@@ -919,13 +980,20 @@ export default function CharacterScreen() {
 
           {card.tags?.length ? (
             <View style={styles.dataSection}>
-              <Text style={styles.sectionTitle}>标签</Text>
-              <Text style={styles.dataMeta}>{card.tags.join('、')}</Text>
+              <Text style={styles.dataTitle}>标签</Text>
+              <View style={styles.tagRow}>
+                {card.tags.map((tag, index) => (
+                  <View key={`${tag}-${index}`} style={styles.tag}>
+                    <Text style={styles.tagText}>{tag}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
           ) : null}
 
           <CollapsibleSection
             title="世界书"
+            icon="book-outline"
             count={worldInfo.length}
             expanded={expandedWorld}
             onToggle={() => setExpandedWorld(value => !value)}
@@ -949,6 +1017,7 @@ export default function CharacterScreen() {
 
           <CollapsibleSection
             title="正则脚本"
+            icon="code-slash-outline"
             count={regexScripts.length}
             expanded={expandedRegex}
             onToggle={() => setExpandedRegex(value => !value)}
@@ -1053,103 +1122,232 @@ export default function CharacterScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#1a1a2e' },
-  container: { flex: 1, backgroundColor: '#1a1a2e', padding: 20 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 8 },
-  hint: { color: '#aaa', fontSize: 14, lineHeight: 20, marginBottom: 12 },
-  label: { color: '#fff', marginTop: 14, marginBottom: 6, fontWeight: '700' },
-  input: { backgroundColor: '#2d2d44', color: '#fff', padding: 12, borderRadius: 8 },
-  inputSmall: { paddingVertical: 8, paddingHorizontal: 10 },
-  multiline: { minHeight: 160, maxHeight: 340 },
-  multilineSmall: { minHeight: 80, maxHeight: 220 },
+  container: { flex: 1, backgroundColor: '#1a1a2e', padding: 18 },
+  pageHeader: { marginTop: 4, marginBottom: 6 },
+  title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 6 },
+  hint: { color: '#9a9ab5', fontSize: 13, lineHeight: 19 },
+
+  card: {
+    backgroundColor: '#232338',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2d2d44',
+    padding: 14,
+    marginTop: 14,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  cardTitle: { color: '#fff', fontSize: 15, fontWeight: '800', marginLeft: 8 },
+  countBadge: {
+    marginLeft: 8,
+    minWidth: 22,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 11,
+    backgroundColor: 'rgba(108,99,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countBadgeText: { color: '#c8c4ff', fontSize: 11, fontWeight: '700' },
+
+  label: { color: '#e6e6f2', marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
+  fieldLabel: { color: '#9a9ab5', fontSize: 12, marginTop: 12, marginBottom: 6, fontWeight: '600' },
+  input: {
+    backgroundColor: '#2d2d44',
+    color: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+    fontSize: 14,
+  },
+  inputSmall: { paddingVertical: 9, paddingHorizontal: 11 },
+  multiline: { minHeight: 160, maxHeight: 340, paddingTop: 12 },
+  multilineSmall: { minHeight: 80, maxHeight: 220, paddingTop: 12 },
   contentInput: { minHeight: 80, maxHeight: 220 },
   codeInput: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 13,
   },
-  button: { backgroundColor: '#6c63ff', padding: 14, borderRadius: 8, marginTop: 24, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: '800' },
+
+  button: {
+    flexDirection: 'row',
+    backgroundColor: '#6c63ff',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: { color: '#fff', fontWeight: '800', marginLeft: 8, fontSize: 15 },
+  buttonDisabled: { opacity: 0.45 },
+
   importButton: {
-    backgroundColor: '#2d2d44',
+    flexDirection: 'row',
+    backgroundColor: 'rgba(108,99,255,0.12)',
     borderWidth: 1,
     borderColor: '#6c63ff',
-    padding: 12,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 10,
     marginTop: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  importButtonText: { color: '#c8c4ff', fontWeight: '800' },
-  importHint: { color: '#888', fontSize: 12, marginTop: 8 },
-  library: { marginTop: 8 },
-  libraryHeader: {
+  importButtonText: { color: '#c8c4ff', fontWeight: '700', marginLeft: 8 },
+  importHint: { color: '#7d7d99', fontSize: 12, marginTop: 8 },
+
+  pillButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  libraryTitle: { color: '#fff', fontWeight: '800' },
-  newButton: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: 'rgba(108,99,255,0.12)',
     borderWidth: 1,
     borderColor: '#6c63ff',
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 15,
   },
-  newButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  pillButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 4 },
+
   characterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2d2d44',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   characterRowActive: {
-    borderWidth: 1,
     borderColor: '#6c63ff',
+    backgroundColor: 'rgba(108,99,255,0.16)',
   },
-  characterName: { color: '#d9d9e6', flex: 1, marginRight: 8 },
+  characterThumb: { width: 32, height: 32, borderRadius: 16, marginRight: 10 },
+  characterThumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3a3a58',
+  },
+  characterThumbText: { color: '#c8c4ff', fontWeight: '800', fontSize: 14 },
+  characterName: { color: '#d9d9e6', flex: 1, marginRight: 8, fontSize: 14 },
   characterNameActive: { color: '#fff', fontWeight: '700' },
-  characterBadge: {
-    color: '#c8c4ff',
-    fontSize: 12,
-    fontWeight: '700',
+  currentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(108,99,255,0.25)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     marginRight: 8,
   },
-  buttonDisabled: { opacity: 0.45 },
-  panel: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#2d2d44', paddingTop: 18 },
-  panelTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  currentBadgeText: { color: '#c8c4ff', fontSize: 11, fontWeight: '700', marginLeft: 3 },
+  rowDelete: { padding: 4 },
+  removeText: { color: '#ff9b9b', fontWeight: '700' },
+
+  imageRow: { flexDirection: 'row', alignItems: 'center' },
+  imageActions: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  avatarBox: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#2d2d44',
+    overflow: 'hidden',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+  },
+  avatarImage: { width: 60, height: 60 },
+  avatarPlaceholder: {
+    width: 60,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderText: { color: '#9a9ab5', fontSize: 22, fontWeight: '800' },
+  bgPreview: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    marginRight: 12,
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+  },
+  smallButton: {
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#6c63ff',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    marginRight: 12,
+  },
+  smallButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+
   dataSection: { marginTop: 16 },
+  dataTitle: { color: '#c8c4ff', fontWeight: '800', fontSize: 13, marginBottom: 8 },
+  sectionCard: {
+    marginTop: 12,
+    backgroundColor: '#1f1f33',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2d2d44',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    paddingVertical: 10,
   },
-  sectionTitle: { color: '#c8c4ff', fontWeight: '800' },
-  sectionToggle: { color: '#8b85ff', fontWeight: '700' },
-  sectionBody: { marginTop: 8 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  sectionTitle: { color: '#c8c4ff', fontWeight: '800', marginLeft: 8, fontSize: 13 },
+  sectionBody: { paddingBottom: 10 },
   addButton: {
+    flexDirection: 'row',
     borderWidth: 1,
     borderColor: '#6c63ff',
     borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 10,
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 4,
   },
-  addButtonText: { color: '#c8c4ff', fontWeight: '700' },
+  addButtonText: { color: '#c8c4ff', fontWeight: '700', marginLeft: 6 },
+
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  tag: {
+    backgroundColor: 'rgba(108,99,255,0.14)',
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  tagText: { color: '#c8c4ff', fontSize: 12, fontWeight: '600' },
+
   dataField: { marginBottom: 10 },
-  dataFieldLabel: { color: '#888', fontSize: 12, marginBottom: 2 },
+  dataFieldLabel: { color: '#7d7d99', fontSize: 12, marginBottom: 3 },
   dataFieldValue: { color: '#e6e6ef', fontSize: 14, lineHeight: 20 },
-  dataEmpty: { color: '#888', fontSize: 13 },
-  dataMeta: { color: '#aaa', fontSize: 12, lineHeight: 18 },
+  dataEmpty: { color: '#7d7d99', fontSize: 13, paddingVertical: 6 },
+  dataMeta: { color: '#9a9ab5', fontSize: 12, lineHeight: 18 },
+
   entryCard: {
     backgroundColor: '#24243b',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 12,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2d2d44',
   },
   entryHeader: {
     flexDirection: 'row',
@@ -1158,8 +1356,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   entryTitle: { color: '#fff', fontWeight: '700', flex: 1, marginRight: 8 },
-  removeText: { color: '#ff9b9b', fontWeight: '700' },
-  fieldLabel: { color: '#888', fontSize: 12, marginTop: 8, marginBottom: 4 },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1167,55 +1363,70 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   toggleLabel: { color: '#d9d9e6', fontSize: 14 },
-  cycleRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
+  cycleRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 },
   cycleButton: {
     backgroundColor: '#2d2d44',
-    borderRadius: 8,
+    borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 12,
     marginRight: 8,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
   },
   cycleButtonText: { color: '#c8c4ff', fontSize: 13, fontWeight: '700' },
   numberRow: { flexDirection: 'row', marginTop: 4 },
   numberField: { flex: 1, marginRight: 10 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
   chip: {
     backgroundColor: '#2d2d44',
-    borderRadius: 16,
+    borderRadius: 15,
     paddingVertical: 6,
     paddingHorizontal: 12,
     marginRight: 8,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
   },
-  chipActive: { backgroundColor: '#6c63ff' },
-  chipText: { color: '#aaa', fontSize: 13, fontWeight: '700' },
+  chipActive: { backgroundColor: '#6c63ff', borderColor: '#6c63ff' },
+  chipText: { color: '#9a9ab5', fontSize: 13, fontWeight: '700' },
   chipTextActive: { color: '#fff' },
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#24243b',
-    borderRadius: 8,
+    backgroundColor: '#2d2d44',
+    borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginBottom: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
   },
   summaryInfo: { flex: 1, marginRight: 8 },
-  summaryTitle: { color: '#fff', fontWeight: '700' },
-  summaryMeta: { color: '#888', fontSize: 12, marginTop: 2 },
-  summaryStatus: { color: '#8b85ff', fontSize: 12, fontWeight: '700' },
-  summaryStatusOff: { color: '#888' },
+  summaryTitle: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  summaryMeta: { color: '#7d7d99', fontSize: 12, marginTop: 2 },
+  statusBadge: {
+    backgroundColor: 'rgba(136,136,136,0.18)',
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 6,
+  },
+  statusBadgeText: { color: '#9a9ab5', fontSize: 11, fontWeight: '700' },
+
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'center',
     padding: 20,
   },
   modalSheet: {
-    backgroundColor: '#1f1f33',
-    borderRadius: 12,
+    backgroundColor: '#232338',
+    borderRadius: 16,
     padding: 16,
     maxHeight: '85%',
+    borderWidth: 1,
+    borderColor: '#2d2d44',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1226,43 +1437,4 @@ const styles = StyleSheet.create({
   modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalDone: { color: '#8b85ff', fontWeight: '800' },
   modalBody: { flexGrow: 0 },
-  imageSection: { marginTop: 16 },
-  imageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  avatarBox: {
-    width: 56,
-    height: 56,
-    borderRadius: 10,
-    backgroundColor: '#2d2d44',
-    overflow: 'hidden',
-    marginRight: 12,
-  },
-  avatarImage: { width: 56, height: 56 },
-  avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarPlaceholderText: { color: '#aaa', fontSize: 20, fontWeight: '800' },
-  bgPreview: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
-    marginRight: 12,
-    backgroundColor: '#2d2d44',
-  },
-  imageButton: {
-    backgroundColor: '#2d2d44',
-    borderWidth: 1,
-    borderColor: '#6c63ff',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    marginRight: 10,
-  },
-  imageButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
 });
