@@ -36,7 +36,7 @@ export default function PluginPanel({ visible, onClose }) {
         setLoaded(true);
       })
       .catch(() => {
-        if (!cancelled) Alert.alert('插件读取失败', '请重新打开后重试。');
+        if (!cancelled) Alert.alert('联网搜索读取失败', '请重新打开后重试。');
       });
     return () => {
       cancelled = true;
@@ -109,14 +109,14 @@ export default function PluginPanel({ visible, onClose }) {
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>插件</Text>
+            <Text style={styles.title}>联网搜索</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <Text style={styles.hint}>
-              插件为全局能力，开启后对后续请求生效。联网搜索会在消息命中触发词时获取实时资料。
+              联网搜索为全局能力，开启后对后续请求生效。命中触发词时会获取实时资料并注入对话。
             </Text>
             {loaded ? plugins.map(plugin => {
               const config = plugin.config || {};

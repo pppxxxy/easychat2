@@ -124,7 +124,7 @@
 **位置**: `src/PluginPanel.js`
 **Props**: `{ visible, onClose }`
 **行为**:
-- 打开时读取插件列表，列出名称、描述与启用开关
+- 打开时读取联网搜索列表，列出名称、描述与启用开关
 - 联网搜索插件可配置搜索服务（SerpAPI / Google CSE / Bing / 自定义）、API 密钥（密文展示，可切换明暗）、Google CSE 的 `cx`、自定义接口地址与结果条数（1-10）
 - 开关即时保存；开启联网搜索但未填密钥（或自定义地址）时提示先填写
 - 关闭时保存未提交的配置
@@ -258,8 +258,8 @@
 | `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
 | `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取记忆总结开关与阈值，缺失时默认 `{ enabled: false, threshold: 40 }` |
 | `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入记忆总结设置，阈值非法时回退 40 |
-| `getPlugins` | `() => Promise<Plugin[]>` | 读取插件列表并规范化，内置项缺失时补入 |
-| `savePlugins` | `(plugins) => Promise<Plugin[]>` | 规范化并写入插件列表，确保内置项存在 |
+| `getPlugins` | `() => Promise<Plugin[]>` | 读取联网搜索列表并规范化，内置项缺失时补入 |
+| `savePlugins` | `(plugins) => Promise<Plugin[]>` | 规范化并写入联网搜索列表，确保内置项存在 |
 | `getEnabledPlugins` | `() => Promise<Plugin[]>` | 返回已开启插件 |
 | `isDisclaimerAcknowledged` | `() => Promise<boolean>` | 是否已确认免责条款 |
 | `acknowledgeDisclaimer` | `() => Promise<boolean>` | 写入免责条款已确认标记 |
@@ -286,7 +286,7 @@
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
 | `@easychat2_memory_summary` | 记忆总结 `{ enabled, threshold }`，默认 `{ enabled: true, threshold: 40 }` |
-| `@easychat2_plugins` | 插件数组（内置 `web-search`） |
+| `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |

@@ -846,7 +846,7 @@ function normalizePlugin(raw, index = 0) {
   const maxResults = Math.trunc(Number(config.maxResults));
   return {
     id: String(source.id || `plugin-${index}`),
-    name: String(source.name || (preset && preset.name) || `插件 ${index + 1}`),
+    name: String(source.name || (preset && preset.name) || `联网搜索 ${index + 1}`),
     description: String(source.description || (preset && preset.description) || ''),
     type: String(source.type || (preset && preset.type) || ''),
     enabled: source.enabled === true,

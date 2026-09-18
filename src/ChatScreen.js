@@ -410,7 +410,7 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
@@ -606,18 +606,18 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
         ) : null}
         {!message.pending ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
-            <TouchableOpacity style={styles.messageActionButton} onPress={onCopy} activeOpacity={0.8}>
+            <TouchableOpacity style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]} onPress={onCopy} activeOpacity={0.8}>
               <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.messageActionButton}
+              style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
               onPress={() => onQuote?.(message)}
               activeOpacity={0.8}
             >
               <Text style={styles.messageActionText}>引用</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.messageActionButton}
+              style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
               onPress={() => onSelectText?.(plainText)}
               activeOpacity={0.8}
             >
@@ -625,7 +625,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             </TouchableOpacity>
             {!isUser && onGenerateImage ? (
               <TouchableOpacity
-                style={styles.messageActionButton}
+                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onGenerateImage(message.id, message.text)}
                 activeOpacity={0.8}
               >
@@ -634,7 +634,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             ) : null}
             {!isUser && onBroadcast ? (
               <TouchableOpacity
-                style={styles.messageActionButton}
+                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onBroadcast(message.text)}
                 activeOpacity={0.8}
               >
@@ -643,7 +643,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             ) : null}
             {isUser ? (
               <TouchableOpacity
-                style={styles.messageActionButton}
+                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onEditUserMessage?.(message.id)}
                 activeOpacity={0.8}
               >
@@ -651,7 +651,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
               </TouchableOpacity>
             ) : canRegenerate ? (
               <TouchableOpacity
-                style={styles.messageActionButton}
+                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onRegenerate?.(message.id)}
                 activeOpacity={0.8}
               >
@@ -2144,6 +2144,7 @@ export default function ChatScreen() {
                     isActiveMatch={focusedMessageId === message.id}
                     fullWidth={chatOptions.fullWidth}
                     thinkingDisplay={thinkingDisplay}
+                    overlayActions={!!bgUri}
                   />
                 )}
               </View>
@@ -2989,6 +2990,11 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     marginRight: 6,
     marginTop: 4,
   },
+  messageActionButtonOverlay: {
+    backgroundColor: 'rgba(45,45,68,0.30)',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+  },
   messageActionText: {
     color: theme.colors.primarySoft,
     fontSize: 12,
@@ -3178,7 +3184,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   inputBarOverlay: {
-    backgroundColor: 'rgba(20,20,34,0.42)',
+    backgroundColor: 'rgba(20,20,34,0.26)',
   },
   input: {
     flex: 1,
@@ -3197,7 +3203,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     borderColor: theme.colors.primaryMuted,
   },
   inputOverlay: {
-    backgroundColor: 'rgba(45,45,68,0.42)',
+    backgroundColor: 'rgba(45,45,68,0.28)',
     borderColor: 'rgba(255,255,255,0.22)',
   },
   sendButton: {

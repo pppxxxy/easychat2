@@ -1042,7 +1042,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="extension-puzzle-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>插件</Text>
+              <Text style={styles.linkText}>联网搜索</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>

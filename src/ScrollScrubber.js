@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   Modal,
   PanResponder,
   StyleSheet,
@@ -12,7 +13,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from './theme/ThemeContext';
 
 const PREVIEW_THRESHOLD = 30;
-const THUMB_SIZE = 26;
+const THUMB_HEIGHT = 44;
+const THUMB_WIDTH = 10;
 
 export function indexFromRatio(ratio, messageCount) {
   if (!Number.isFinite(messageCount) || messageCount <= 0) return 0;
@@ -32,6 +34,8 @@ export default function ScrollScrubber({
   const [ratio, setRatio] = useState(0);
   const [trackHeight, setTrackHeight] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const previewIndexRef = useRef(-1);
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const trackHeightRef = useRef(0);
@@ -42,10 +46,16 @@ export default function ScrollScrubber({
   onSeekRef.current = onSeek;
 
   const applyY = y => {
-    const usable = Math.max(1, trackHeightRef.current - THUMB_SIZE);
-    const next = Math.min(1, Math.max(0, (y - THUMB_SIZE / 2) / usable));
+    const usable = Math.max(1, trackHeightRef.current - THUMB_HEIGHT);
+    const next = Math.min(1, Math.max(0, (y - THUMB_HEIGHT / 2) / usable));
     ratioRef.current = next;
-    setRatio(next);
+    translateY.setValue(next * usable);
+    const count = messageCountRef.current;
+    const index = indexFromRatio(next, count);
+    if (index !== previewIndexRef.current) {
+      previewIndexRef.current = index;
+      setRatio(next);
+    }
     return next;
   };
 
@@ -78,7 +88,6 @@ export default function ScrollScrubber({
     && count > PREVIEW_THRESHOLD
     && Array.isArray(previews)
     && previews[previewIndex];
-  const thumbTop = ratio * Math.max(0, trackHeight - THUMB_SIZE);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -109,7 +118,7 @@ export default function ScrollScrubber({
             }}
             {...panResponder.panHandlers}
           >
-            <View style={[styles.thumb, { top: thumbTop }]} />
+            <Animated.View style={[styles.thumb, { transform: [{ translateY }] }]} />
           </View>
 
           <TouchableOpacity
@@ -172,14 +181,16 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginVertical: 10,
     alignItems: 'center',
     justifyContent: 'flex-start',
+    backgroundColor: 'transparent',
   },
   thumb: {
     position: 'absolute',
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: THUMB_SIZE / 2,
+    top: 0,
+    width: THUMB_WIDTH,
+    height: THUMB_HEIGHT,
+    borderRadius: THUMB_WIDTH / 2,
     backgroundColor: theme.colors.primary,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: theme.colors.primarySoft,
   },
   disabled: { opacity: 0.4 },
