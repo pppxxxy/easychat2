@@ -27,6 +27,7 @@ const IMAGE_GEN_KEY = '@easychat2_image_gen';
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
 const APPEARANCE_KEY = '@easychat2_appearance';
 const INLINE_IMAGE_KEY = '@easychat2_inline_image';
+const TTS_KEY = '@easychat2_tts';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -444,6 +445,44 @@ export async function getInlineImageSettings() {
 export async function saveInlineImageSettings(settings) {
   const normalized = normalizeInlineImage(settings);
   await AsyncStorage.setItem(INLINE_IMAGE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+const DEFAULT_TTS = { enabled: false, activeProvider: 'system', providers: {} };
+
+function normalizeTtsProvider(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const result = {};
+  Object.entries(source).forEach(([key, value]) => {
+    result[String(key)] = value === undefined || value === null ? '' : String(value);
+  });
+  return result;
+}
+
+function normalizeTts(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const providers = {};
+  const list = source.providers && typeof source.providers === 'object' && !Array.isArray(source.providers)
+    ? source.providers
+    : {};
+  Object.entries(list).forEach(([id, value]) => {
+    providers[String(id)] = normalizeTtsProvider(value);
+  });
+  return {
+    enabled: source.enabled === true,
+    activeProvider: String(source.activeProvider || DEFAULT_TTS.activeProvider),
+    providers,
+  };
+}
+
+export async function getTtsSettings() {
+  const raw = await readJson(TTS_KEY, null);
+  return normalizeTts(raw);
+}
+
+export async function saveTtsSettings(settings) {
+  const normalized = normalizeTts(settings);
+  await AsyncStorage.setItem(TTS_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

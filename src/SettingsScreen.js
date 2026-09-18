@@ -23,6 +23,7 @@ import { useTheme } from './theme/ThemeContext';
 import DisclaimerModal from './disclaimer';
 import PluginPanel from './PluginPanel';
 import PresetPanel from './PresetPanel';
+import TtsPanel from './TtsPanel';
 import {
   createApiConfig,
   getApiConfigs,
@@ -71,6 +72,7 @@ export default function SettingsScreen() {
   const [userProfileSaved, setUserProfileSaved] = useState(false);
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
+  const [ttsEntryOpen, setTtsEntryOpen] = useState(false);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
@@ -1027,7 +1029,23 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => setTtsEntryOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="volume-high-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>语音播报</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
         </View>
+
+        <TtsPanel
+          visible={ttsEntryOpen}
+          onClose={() => setTtsEntryOpen(false)}
+        />
 
         <PresetPanel
           visible={presetEntryOpen}

@@ -72,6 +72,7 @@ easychat2/
 │   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
 │   ├── games/games.js        # 内嵌 HTML 小游戏清单
 │   ├── theme/                # 五套主题语义色板与字体缩放上下文
+│   ├── tts/                  # 声明式语音播报 Provider 与统一适配层
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
@@ -158,6 +159,13 @@ easychat2/
 **关键文件**: `src/theme/ThemeContext.js`
 **依赖**: `src/storage.js`
 **被依赖**: `App.js` 与全部界面屏
+
+### 语音播报
+**目的**: 以声明式 Provider 描述系统引擎与九家云端 TTS，统一请求、令牌兑换与音频播放，支持随回复自动播报与手动重播
+**位置**: `src/tts/providers.js`、`src/tts/index.js`、`src/TtsPanel.js`
+**关键文件**: `src/tts/index.js`
+**依赖**: `expo-speech`、`expo-av`、`src/storage.js`
+**被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`
 
 ### 免责条款与公告
 **目的**: 集中维护免责条款文本；首次启动时弹出一次并要求确认，聊天页右上角「公告」可随时再次查看

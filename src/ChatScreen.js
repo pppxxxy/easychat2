@@ -65,12 +65,16 @@ import {
   saveApiConfigs,
   saveMessagesBySession,
   saveThinkingSettings,
+  getTtsSettings,
+  saveTtsSettings,
   startNewSession,
   THINKING_LEVELS,
 } from './storage';
 import { runPlugins } from './plugins/registry';
 import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
+import { speak as ttsSpeak, stop as ttsStop } from './tts';
+import { getTtsProvider } from './tts/providers';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -399,7 +403,7 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
@@ -621,6 +625,15 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
                 <Text style={styles.messageActionText}>生成配图</Text>
               </TouchableOpacity>
             ) : null}
+            {!isUser && onBroadcast ? (
+              <TouchableOpacity
+                style={styles.messageActionButton}
+                onPress={() => onBroadcast(message.text)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.messageActionText}>播报</Text>
+              </TouchableOpacity>
+            ) : null}
             {isUser ? (
               <TouchableOpacity
                 style={styles.messageActionButton}
@@ -769,6 +782,7 @@ export default function ChatScreen() {
     maxPromptChars: 400,
   });
   const inlineImageBusyRef = useRef(false);
+  const [ttsSettings, setTtsSettings] = useState({ enabled: false, activeProvider: 'system', providers: {} });
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1138,6 +1152,9 @@ export default function ChatScreen() {
       getInlineImageSettings()
         .then(settings => setInlineImageSettings(settings))
         .catch(() => {});
+      getTtsSettings()
+        .then(settings => setTtsSettings(settings))
+        .catch(() => {});
     };
     load();
     const unsubscribe = navigation.addListener('focus', load);
@@ -1413,6 +1430,7 @@ export default function ChatScreen() {
         if (inlineImageEnabledRef.current) {
           generateInlineImageRef.current?.(pendingAssistantMessage.id, reply || '');
         }
+        broadcastMessage(reply || '');
       }
     } catch (error) {
       if (isCanceledError(error)) {
@@ -1473,7 +1491,7 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [autoScrollToBottom, character, isSending, maybeAutoSummarize, ready, scrollToBottom]);
+  }, [autoScrollToBottom, broadcastMessage, character, isSending, maybeAutoSummarize, ready, scrollToBottom]);
 
   const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, quote }) => {
     if (isSending || !ready || abortRef.current) return;
@@ -1577,6 +1595,7 @@ export default function ChatScreen() {
     const text = String(rawText || '').trim();
     const imageAttachments = attachments.filter(item => item.kind === 'image');
     if ((!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
+    ttsStop().catch(() => {});
     const mergedText = mergeTextAttachments(text, attachments)
       || (imageAttachments.length > 0 ? '（见图片）' : '');
     const userMessage = {
@@ -1668,6 +1687,32 @@ export default function ChatScreen() {
     scrollToMessage(quote.id);
   }, [messages, scrollToMessage]);
 
+  const toggleBroadcast = useCallback(async () => {
+    const next = { ...ttsSettings, enabled: !ttsSettings.enabled };
+    setTtsSettings(next);
+    ttsRef.current = next;
+    if (!next.enabled) {
+      ttsStop().catch(() => {});
+    }
+    try {
+      await saveTtsSettings(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, [ttsSettings]);
+
+  const broadcastMessage = useCallback(async text => {
+    const settings = ttsRef.current;
+    if (!settings || !settings.enabled) return;
+    const provider = getTtsProvider(settings.activeProvider);
+    const config = (settings.providers && settings.providers[provider.id]) || {};
+    try {
+      await ttsSpeak({ provider, config, text });
+    } catch (error) {
+      Alert.alert('播报失败', (error && error.message) || '请稍后重试。');
+    }
+  }, []);
+
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
       Alert.alert('配图生成中', '请稍后重试。');
@@ -1729,10 +1774,14 @@ export default function ChatScreen() {
   const sendTextRef = useRef(sendText);
   const generateInlineImageRef = useRef(null);
   const inlineImageEnabledRef = useRef(false);
+  const ttsRef = useRef({ enabled: false, activeProvider: 'system', providers: {} });
   useEffect(() => {
     generateInlineImageRef.current = generateInlineImage;
     inlineImageEnabledRef.current = inlineImageSettings.enabled;
   }, [generateInlineImage, inlineImageSettings.enabled]);
+  useEffect(() => {
+    ttsRef.current = ttsSettings;
+  }, [ttsSettings]);
   useEffect(() => {
     sendTextRef.current = sendText;
   }, [sendText]);
@@ -1889,6 +1938,20 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>思考</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.noticeButton, !ttsSettings.enabled && styles.actionDisabled]}
+          onPress={toggleBroadcast}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={ttsSettings.enabled ? '关闭语音播报' : '开启语音播报'}
+        >
+          <Ionicons
+            name={ttsSettings.enabled ? 'volume-high-outline' : 'volume-mute-outline'}
+            size={13}
+            color={theme.colors.primarySoft}
+          />
+          <Text style={styles.noticeButtonText}>{ttsSettings.enabled ? '播报开' : '播报关'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.noticeButton, scrubberMessages.length === 0 && styles.actionDisabled]}
           onPress={() => setScrubberOpen(true)}
           disabled={scrubberMessages.length === 0}
@@ -2021,6 +2084,7 @@ export default function ChatScreen() {
                     onQuote={onQuoteMessage}
                     onPressQuote={onPressQuoteBlock}
                     onGenerateImage={generateInlineImage}
+                    onBroadcast={broadcastMessage}
                     highlightKeyword={searchQuery.trim()}
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}

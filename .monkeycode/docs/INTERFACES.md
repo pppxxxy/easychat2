@@ -34,6 +34,7 @@
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
 - 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
+- 顶部栏常驻「播报」开关并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏「新建」按钮为当前角色开启新会话（群聊则按相同成员新建），旧会话保留在记忆页；空会话时提示且不创建，成功后清空消息、附件、引用与搜索状态
 - 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
@@ -287,6 +288,7 @@
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
+| `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
 | `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }` |
 
@@ -479,6 +481,24 @@ data: [DONE]
 | `getGame(id)` | 按 id 取游戏，未命中返回 `null` |
 
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
+
+### 语音播报接口
+**位置**: `src/tts/providers.js`、`src/tts/index.js`
+
+`TTS_PROVIDERS` 为声明式配置表，内置 `system` 与 `xiaomi-mimo`、`siliconflow`、`iflytek-spark`、`stepfun`、`tencent-cloud`、`aliyun`、`baidu`、`volcano`、`minimax`；`getTtsProvider(id)` 按 id 取配置并回退系统引擎。
+
+| 函数 | 说明 |
+|------|------|
+| `truncateText(text, maxChars?)` | 按 `TTS_MAX_CHARS`（800）截断 |
+| `buildTtsRequest(provider, config, text, token?)` | 按字段映射构造请求；支持 header/query/body/token 鉴权与讯飞/腾讯云/火山签名；无地址返回 `null` |
+| `resolveToken(provider, config, opts?)` | `auth.type === 'token'` 时兑换并缓存令牌（按 `tokenTtlSec`） |
+| `synthesize({ provider, config, text })` | 返回 `{ mode: 'system' | 'audio', text?/base64? }` |
+| `speak({ provider, config, text, onDone?, onError? })` | 系统引擎走 `expo-speech`，云端音频走 `expo-av` 播放；播放前先停止上一段 |
+| `stop()` | 停止系统朗读与当前音频 |
+| `listVoices(provider)` | 系统引擎取 `getAvailableVoicesAsync`，云端取声明音色 |
+| `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「播报失败（HTTP n）」 |
+
+**说明**: 密钥仅存本机 AsyncStorage，不写入日志或文档。
 
 ### 插件接口
 **位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`
