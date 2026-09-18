@@ -55,6 +55,8 @@ export default function SettingsScreen() {
   const [capabilityDraft, setCapabilityDraft] = useState({
     supportsThinking: false,
     supportsVision: false,
+    thinkingField: 'reasoning_effort',
+    thinkingFormat: 'effort',
   });
   const [userProfileSaved, setUserProfileSaved] = useState(false);
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
@@ -292,6 +294,12 @@ export default function SettingsScreen() {
               activeModel,
               supportsThinking: caps.supportsThinking === true,
               supportsVision: caps.supportsVision === true,
+              thinking: {
+                field: String(caps.thinkingField || '').trim() || 'reasoning_effort',
+                format: ['effort', 'boolean', 'object'].includes(caps.thinkingFormat)
+                  ? caps.thinkingFormat
+                  : 'effort',
+              },
             }
           : item
       );
@@ -335,6 +343,8 @@ export default function SettingsScreen() {
     setCapabilityDraft({
       supportsThinking: selected.supportsThinking === true,
       supportsVision: selected.supportsVision === true,
+      thinkingField: (selected.thinking && selected.thinking.field) || 'reasoning_effort',
+      thinkingFormat: (selected.thinking && selected.thinking.format) || 'effort',
     });
     setCapabilityOpen(true);
   };
@@ -861,6 +871,43 @@ export default function SettingsScreen() {
                 thumbColor="#ffffff"
               />
             </View>
+            {capabilityDraft.supportsThinking ? (
+              <>
+                <Text style={styles.label}>思考参数字段名</Text>
+                <TextInput
+                  style={styles.input}
+                  value={capabilityDraft.thinkingField}
+                  onChangeText={thinkingField => setCapabilityDraft(current => ({
+                    ...current,
+                    thinkingField,
+                  }))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="reasoning_effort"
+                  placeholderTextColor="#888"
+                />
+                <View style={styles.thinkingFormatRow}>
+                  {['effort', 'boolean', 'object'].map(format => {
+                    const active = capabilityDraft.thinkingFormat === format;
+                    return (
+                      <TouchableOpacity
+                        key={format}
+                        style={[styles.formatChip, active && styles.formatChipActive]}
+                        onPress={() => setCapabilityDraft(current => ({
+                          ...current,
+                          thinkingFormat: format,
+                        }))}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
+                          {format}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持识图（多模态模型）</Text>
               <Switch
@@ -1091,6 +1138,18 @@ const styles = StyleSheet.create({
   modelChipMain: { maxWidth: 180, marginRight: 6 },
   modelChipText: { color: '#c9c9e0', fontSize: 13 },
   modelChipTextActive: { color: '#ffffff', fontWeight: '700' },
+  thinkingFormatRow: { flexDirection: 'row', marginTop: 8, marginBottom: 4 },
+  formatChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+    marginRight: 8,
+  },
+  formatChipActive: { backgroundColor: 'rgba(108,99,255,0.25)', borderColor: '#6c63ff' },
+  formatChipText: { color: '#a8a8c2', fontSize: 12, fontWeight: '700' },
+  formatChipTextActive: { color: '#d9d5ff' },
 
   linkRow: {
     flexDirection: 'row',

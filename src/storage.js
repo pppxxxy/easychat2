@@ -22,6 +22,7 @@ const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const MEMORY_SUMMARY_KEY = '@easychat2_memory_summary';
 const PLUGINS_KEY = '@easychat2_plugins';
+const THINKING_KEY = '@easychat2_thinking';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -274,6 +275,13 @@ function normalizeApiConfig(raw, index = 0) {
     activeModel,
     supportsThinking: source.supportsThinking === true,
     supportsVision: source.supportsVision === true,
+    thinking: {
+      field: String((source.thinking && source.thinking.field) || 'reasoning_effort')
+        || 'reasoning_effort',
+      format: ['effort', 'boolean', 'object'].includes(source.thinking && source.thinking.format)
+        ? source.thinking.format
+        : 'effort',
+    },
   };
 }
 
@@ -283,6 +291,28 @@ export function getActiveModel(config) {
     || (Array.isArray(config.models) && config.models[0])
     || String(config.model || '')
     || DEFAULT_API_CONFIG.model;
+}
+
+const DEFAULT_THINKING = { enabled: false, level: 'medium' };
+export const THINKING_LEVELS = ['low', 'medium', 'high'];
+
+function normalizeThinking(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    enabled: source.enabled === true,
+    level: THINKING_LEVELS.includes(source.level) ? source.level : DEFAULT_THINKING.level,
+  };
+}
+
+export async function getThinkingSettings() {
+  const raw = await readJson(THINKING_KEY, null);
+  return normalizeThinking(raw);
+}
+
+export async function saveThinkingSettings(settings) {
+  const normalized = normalizeThinking(settings);
+  await AsyncStorage.setItem(THINKING_KEY, JSON.stringify(normalized));
+  return normalized;
 }
 
 function ensureUniqueApiConfigIds(list) {

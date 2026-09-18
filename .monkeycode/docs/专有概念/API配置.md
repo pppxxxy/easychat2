@@ -11,6 +11,7 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 - 旧版单条配置 `@easychat2_api_config` 在首次读取时自动迁移为多配置格式
 - 旧版 `model` 字段自动迁移为 `models: [model]` 与 `activeModel: model`
 - 每个来源带能力标记：是否支持思考、是否支持识图
+- 支持思考的来源可声明思考参数名与格式，聊天页的思考开关据此注入请求参数
 - 未填写密钥时，发送消息会直接抛出提示，不发起网络请求
 - 地址支持根地址、`/v1` 结尾与完整 `/v1/chat/completions` 三种写法
 - 使用 `http://` 明文地址保存前会弹出安全确认；保存前还会确认模型能力
@@ -52,6 +53,7 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 | `activeModel` | `string` | 当前模型 | 必须属于 `models`，否则回退列表首项 |
 | `supportsThinking` | `boolean` | 是否支持思考 | 保存前确认，缺省 `false` |
 | `supportsVision` | `boolean` | 是否支持识图 | 保存前确认，缺省 `false` |
+| `thinking` | `{ field, format }` | 思考参数声明 | `format` 为 `effort` / `boolean` / `object`；缺省 `reasoning_effort` + `effort` |
 
 ## 不变量
 

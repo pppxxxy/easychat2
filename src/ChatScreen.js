@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -46,9 +47,12 @@ import {
   getEnabledPlugins,
   getMemorySummarySettings,
   getMessagesBySession,
+  getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
   saveMessagesBySession,
+  saveThinkingSettings,
+  THINKING_LEVELS,
 } from './storage';
 import { runPlugins } from './plugins/registry';
 
@@ -58,6 +62,7 @@ const SYSTEM_ERROR_ID = 'system-error';
 const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
+const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
 
 const markdownStyles = {
   body: { color: '#1a1a2e', fontSize: 15, lineHeight: 22 },
@@ -597,6 +602,10 @@ export default function ChatScreen() {
   const [apiConfigs, setApiConfigs] = useState([]);
   const [apiActiveId, setApiActiveId] = useState('');
   const [modelSourceId, setModelSourceId] = useState('');
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [thinkingLevel, setThinkingLevel] = useState('medium');
+  const [thinkingSupported, setThinkingSupported] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
@@ -965,6 +974,32 @@ export default function ChatScreen() {
       Alert.alert('切换失败', '请检查存储空间或权限。');
     }
   }, [apiConfigs]);
+
+  const openThinkingPanel = useCallback(async () => {
+    try {
+      const [settings, { configs, activeId }] = await Promise.all([
+        getThinkingSettings(),
+        getApiConfigs(),
+      ]);
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      setThinkingSupported(!!(current && current.supportsThinking));
+      setThinkingEnabled(settings.enabled);
+      setThinkingLevel(settings.level);
+      setThinkingOpen(true);
+    } catch (error) {
+      Alert.alert('读取失败', '无法读取思考设置。');
+    }
+  }, []);
+
+  const applyThinking = useCallback(async (enabled, level) => {
+    try {
+      const saved = await saveThinkingSettings({ enabled, level });
+      setThinkingEnabled(saved.enabled);
+      setThinkingLevel(saved.level);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
 
   const runSummarize = useCallback(async (session, list, manual) => {
     if (summarizingRef.current) return;
@@ -1420,6 +1455,16 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>模型</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={styles.noticeButton}
+          onPress={openThinkingPanel}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="思考设置"
+        >
+          <Ionicons name="bulb-outline" size={13} color="#c8c4ff" />
+          <Text style={styles.noticeButtonText}>思考</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.noticeButton, scrubberMessages.length === 0 && styles.actionDisabled]}
           onPress={() => setScrubberOpen(true)}
           disabled={scrubberMessages.length === 0}
@@ -1766,6 +1811,74 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <Modal
+        visible={thinkingOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setThinkingOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modelBackdrop}
+          activeOpacity={1}
+          onPress={() => setThinkingOpen(false)}
+        >
+          <View style={styles.modelSheet}>
+            <Text style={styles.modelTitle}>思考设置</Text>
+            {!thinkingSupported ? (
+              <Text style={styles.modelEmpty}>
+                当前来源未标记为支持思考，请在设置中确认模型能力。
+              </Text>
+            ) : null}
+            <View style={styles.thinkingRow}>
+              <Text style={styles.thinkingLabel}>开启思考</Text>
+              <Switch
+                value={thinkingEnabled}
+                onValueChange={value => applyThinking(value, thinkingLevel)}
+                disabled={!thinkingSupported}
+                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+                thumbColor="#ffffff"
+              />
+            </View>
+            <Text style={styles.modelLabel}>思考深度</Text>
+            <View style={styles.thinkingLevels}>
+              {THINKING_LEVELS.map(level => {
+                const active = thinkingLevel === level;
+                const disabled = !thinkingSupported || !thinkingEnabled;
+                return (
+                  <TouchableOpacity
+                    key={level}
+                    style={[
+                      styles.thinkingLevelChip,
+                      active && styles.thinkingLevelChipActive,
+                      disabled && styles.actionDisabled,
+                    ]}
+                    disabled={disabled}
+                    onPress={() => applyThinking(thinkingEnabled, level)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.thinkingLevelText,
+                        active && styles.thinkingLevelTextActive,
+                      ]}
+                    >
+                      {THINKING_LEVEL_LABELS[level]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity
+              style={styles.modelClose}
+              onPress={() => setThinkingOpen(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modelCloseText}>关闭</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <ScrollScrubber
         visible={scrubberOpen}
         onClose={() => setScrubberOpen(false)}
@@ -1864,6 +1977,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modelCloseText: { color: '#c8c4ff', fontSize: 14, fontWeight: '700' },
+  thinkingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  thinkingLabel: { color: '#e6e6f2', fontSize: 15, fontWeight: '700' },
+  thinkingLevels: { flexDirection: 'row', marginTop: 4 },
+  thinkingLevelChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#4a4a68',
+    marginRight: 8,
+  },
+  thinkingLevelChipActive: {
+    backgroundColor: 'rgba(108,99,255,0.25)',
+    borderColor: '#6c63ff',
+  },
+  thinkingLevelText: { color: '#a8a8c2', fontSize: 13, fontWeight: '700' },
+  thinkingLevelTextActive: { color: '#d9d5ff' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',

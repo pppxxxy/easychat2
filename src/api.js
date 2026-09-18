@@ -1,6 +1,18 @@
-import { getActiveApiConfig, getActiveModel } from './storage';
+import { getActiveApiConfig, getActiveModel, getThinkingSettings } from './storage';
 
 const IDLE_TIMEOUT_MS = 30000;
+
+export function buildThinkingParams(config, settings) {
+  if (!settings || settings.enabled !== true) return {};
+  if (!config || config.supportsThinking !== true) return {};
+  const declaration = config.thinking || {};
+  const field = String(declaration.field || 'reasoning_effort') || 'reasoning_effort';
+  const level = ['low', 'medium', 'high'].includes(settings.level) ? settings.level : 'medium';
+  const format = declaration.format || 'effort';
+  if (format === 'boolean') return { [field]: true };
+  if (format === 'object') return { [field]: { type: 'enabled', depth: level } };
+  return { [field]: level };
+}
 
 export function normalizeChatUrl(baseUrl) {
   const trimmed = ((baseUrl || '').trim() || 'https://api.deepseek.com').replace(/\/+$/, '');
@@ -71,6 +83,8 @@ export async function sendChatMessage(messages, options = {}) {
 
   const model = getActiveModel(config);
   const url = normalizeChatUrl(config.baseUrl);
+  const thinkingSettings = await getThinkingSettings().catch(() => null);
+  const thinkingParams = buildThinkingParams(config, thinkingSettings);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -244,7 +258,7 @@ export async function sendChatMessage(messages, options = {}) {
 
     if (settled) return;
     try {
-      xhr.send(JSON.stringify({ model, messages, stream: true }));
+      xhr.send(JSON.stringify({ model, messages, stream: true, ...thinkingParams }));
       armIdleTimer();
     } catch (error) {
       fail(error);
