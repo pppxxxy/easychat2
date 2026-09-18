@@ -28,10 +28,13 @@ import {
   getChatOptions,
   getGlobalPresetSettings,
   getGlobalPresets,
+  getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
   saveChatOptions,
+  saveThinkingSettings,
   saveUserProfile,
+  THINKING_DISPLAYS,
 } from './storage';
 
 function getPickedAsset(result) {
@@ -66,6 +69,7 @@ export default function SettingsScreen() {
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
+  const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
   const profileSavingRef = useRef(null);
@@ -110,6 +114,19 @@ export default function SettingsScreen() {
         setChatOptions(options);
       })
       .catch(() => {});
+    getThinkingSettings()
+      .then(settings => setThinkingDisplay(settings.display))
+      .catch(() => {});
+  }, []);
+
+  const updateThinkingDisplay = useCallback(async display => {
+    setThinkingDisplay(display);
+    try {
+      const current = await getThinkingSettings();
+      await saveThinkingSettings({ ...current, display });
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
   }, []);
 
   const updateChatOption = useCallback(async (key, value) => {
@@ -806,6 +823,30 @@ export default function SettingsScreen() {
               thumbColor="#ffffff"
             />
           </View>
+          <View style={styles.thinkingDisplayRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="bulb-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>思考内容展示</Text>
+            </View>
+            <View style={styles.thinkingDisplayChips}>
+              {THINKING_DISPLAYS.map(display => {
+                const active = thinkingDisplay === display;
+                const label = display === 'open' ? '开启' : display === 'fold' ? '折叠' : '关闭';
+                return (
+                  <TouchableOpacity
+                    key={display}
+                    style={[styles.formatChip, active && styles.formatChipActive]}
+                    onPress={() => updateThinkingDisplay(display)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => setPluginEntryOpen(true)}
@@ -1163,6 +1204,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#2d2d44',
   },
+  thinkingDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  thinkingDisplayChips: { flexDirection: 'row', alignItems: 'center' },
   capabilityLabel: { color: '#d9d9e6', fontSize: 14, flex: 1, marginRight: 12 },
   modelChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
   modelChip: {

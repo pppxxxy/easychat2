@@ -43,6 +43,7 @@
 - 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
 - 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
 - 顶部栏「思考」按钮打开思考设置：开关与深度（低/中/高），按来源声明的字段与格式注入请求；来源不支持思考时禁用
+- 助手消息保存可选 `reasoning` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
 - 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
@@ -266,7 +267,7 @@
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
 | `@easychat2_memory_summary` | 记忆总结 `{ enabled: boolean, threshold: number }` |
 | `@easychat2_plugins` | 插件数组（内置 `web-search`） |
-| `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high' }` |
+| `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
 
@@ -289,6 +290,7 @@
 | `options.onChunk` | `(fullText: string) => void?` | 每解析出一个增量片段后触发；入参为截至当前的累计助手文本 |
 | `options.signal` | `AbortSignal?` | 传入后可通过 `abort()` 取消请求；取消时 Promise 以 `AbortError` 拒绝，并移除监听 |
 | `options.stream` | `boolean?` | 默认 `true`；为 `false` 时请求体 `stream: false` 并跳过增量解析，改走整包 JSON 分支 |
+| `options.onReasoning` | `(fullReasoning: string) => void?` | 每解析出增量思考内容后触发；入参为截至当前的累计思考文本，兼容 `reasoning_content` 与 `reasoning` |
 
 **返回**: `Promise<string>` - 流式累计文本；服务端忽略流式而返回整包 JSON 时取 `choices[0].message.content`；空响应返回 `'没有收到回复。'`
 

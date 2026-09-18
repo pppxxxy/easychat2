@@ -49,6 +49,14 @@ function extractDeltaContent(payload) {
   return typeof message === 'string' ? message : '';
 }
 
+function extractReasoningDelta(payload) {
+  const choice = payload?.choices?.[0];
+  const delta = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning;
+  if (typeof delta === 'string') return delta;
+  const message = choice?.message?.reasoning_content ?? choice?.message?.reasoning;
+  return typeof message === 'string' ? message : '';
+}
+
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   if (typeof payload.error === 'string') return payload.error;
@@ -69,6 +77,7 @@ export function isCanceledError(error) {
 
 export async function sendChatMessage(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
+  const onReasoning = options && typeof options.onReasoning === 'function' ? options.onReasoning : null;
   const signal = options && options.signal ? options.signal : null;
   const stream = options && options.stream === false ? false : true;
   if (signal && signal.aborted) {
@@ -92,6 +101,7 @@ export async function sendChatMessage(messages, options = {}) {
     let consumed = 0;
     let lineBuffer = '';
     let fullText = '';
+    let fullReasoning = '';
     let sawSse = false;
     let sawPayloadData = false;
     let parseFailures = 0;
@@ -163,6 +173,12 @@ export async function sendChatMessage(messages, options = {}) {
       const errorMessage = extractErrorMessage(payload);
       if (errorMessage) {
         throw new Error(errorMessage);
+      }
+
+      const reasoningDelta = extractReasoningDelta(payload);
+      if (reasoningDelta) {
+        fullReasoning += reasoningDelta;
+        if (onReasoning) onReasoning(fullReasoning);
       }
 
       const delta = extractDeltaContent(payload);
@@ -247,8 +263,12 @@ export async function sendChatMessage(messages, options = {}) {
       }
       try {
         const data = JSON.parse(body);
-        const content = data?.choices?.[0]?.message?.content;
-        succeed(content || '没有收到回复。');
+        const message = data?.choices?.[0]?.message || {};
+        const reasoning = typeof message.reasoning_content === 'string'
+          ? message.reasoning_content
+          : (typeof message.reasoning === 'string' ? message.reasoning : '');
+        if (reasoning && onReasoning) onReasoning(reasoning);
+        succeed(message.content || '没有收到回复。');
       } catch (error) {
         fail(new Error('接口返回了无法解析的内容。'));
       }

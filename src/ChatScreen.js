@@ -366,10 +366,11 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, highlightKeyword, isMatch, isActiveMatch, fullWidth }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
   const plainText = messageCopyText(message.text);
@@ -451,6 +452,36 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
         ]}>
+          {!isUser && thinkingDisplay !== 'off' && typeof message.reasoning === 'string' && message.reasoning.trim() ? (
+            thinkingDisplay === 'open' ? (
+              <View style={styles.reasoningBox}>
+                <Text style={styles.reasoningLabel}>思考过程</Text>
+                <Text style={styles.reasoningText} selectable>{message.reasoning}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.reasoningBox}
+                onPress={() => setReasoningExpanded(current => !current)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.reasoningHeader}>
+                  <Ionicons name="bulb-outline" size={12} color="#8a8aa3" />
+                  <Text style={styles.reasoningLabel}>思考过程</Text>
+                  <Ionicons
+                    name={reasoningExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={12}
+                    color="#8a8aa3"
+                  />
+                </View>
+                <Text
+                  style={styles.reasoningText}
+                  numberOfLines={reasoningExpanded ? undefined : 1}
+                >
+                  {message.reasoning}
+                </Text>
+              </TouchableOpacity>
+            )
+          ) : null}
           {isUser ? (
             <Text style={styles.messageText}>
               {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword) : message.text}
@@ -617,6 +648,7 @@ export default function ChatScreen() {
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [thinkingLevel, setThinkingLevel] = useState('medium');
   const [thinkingSupported, setThinkingSupported] = useState(false);
+  const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [attachments, setAttachments] = useState([]);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
@@ -927,6 +959,9 @@ export default function ChatScreen() {
       getChatOptions()
         .then(options => setChatOptions(options))
         .catch(() => {});
+      getThinkingSettings()
+        .then(settings => setThinkingDisplay(settings.display))
+        .catch(() => {});
     };
     load();
     const unsubscribe = navigation.addListener('focus', load);
@@ -1104,6 +1139,7 @@ export default function ChatScreen() {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
       text: THINKING_PLACEHOLDER,
+      reasoning: '',
       pending: true,
       waitingForResponse: true,
     };
@@ -1161,6 +1197,17 @@ export default function ChatScreen() {
               return current.map(item =>
                 item.id === pendingAssistantMessage.id && item.pending
                   ? { ...item, text: fullText, waitingForResponse: false }
+                  : item
+              );
+            });
+          },
+          onReasoning: fullReasoning => {
+            if (!isCurrentSession() || controller.signal.aborted) return;
+            setMessages(current => {
+              if (!isCurrentSession()) return current;
+              return current.map(item =>
+                item.id === pendingAssistantMessage.id
+                  ? { ...item, reasoning: fullReasoning }
                   : item
               );
             });
@@ -1692,6 +1739,7 @@ export default function ChatScreen() {
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}
                     fullWidth={chatOptions.fullWidth}
+                    thinkingDisplay={thinkingDisplay}
                   />
                 )}
               </View>
@@ -2401,6 +2449,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 2,
     marginLeft: 2,
+  },
+  reasoningBox: {
+    backgroundColor: 'rgba(108,99,255,0.10)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 8,
+  },
+  reasoningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  reasoningLabel: {
+    color: '#6c63ff',
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 4,
+    marginRight: 4,
+  },
+  reasoningText: {
+    color: '#4a4a68',
+    fontSize: 12,
+    lineHeight: 18,
   },
   messageActions: {
     flexDirection: 'row',

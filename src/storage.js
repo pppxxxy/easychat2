@@ -295,14 +295,16 @@ export function getActiveModel(config) {
     || DEFAULT_API_CONFIG.model;
 }
 
-const DEFAULT_THINKING = { enabled: false, level: 'medium' };
+const DEFAULT_THINKING = { enabled: false, level: 'medium', display: 'fold' };
 export const THINKING_LEVELS = ['low', 'medium', 'high'];
+export const THINKING_DISPLAYS = ['open', 'fold', 'off'];
 
 function normalizeThinking(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
     enabled: source.enabled === true,
     level: THINKING_LEVELS.includes(source.level) ? source.level : DEFAULT_THINKING.level,
+    display: THINKING_DISPLAYS.includes(source.display) ? source.display : DEFAULT_THINKING.display,
   };
 }
 
