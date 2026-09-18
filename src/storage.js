@@ -1,6 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import GLOBAL_PRESETS from './presets';
+import {
+  buildClonedSession,
+  buildPreview,
+  createEmptySession,
+  normalizeSession,
+  regenerateMessageIds,
+  sortSessions,
+} from './context/sessionLibrary';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
@@ -11,6 +19,8 @@ const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
+const SESSIONS_KEY = '@easychat2_sessions';
+const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
 
@@ -42,6 +52,14 @@ export const DEFAULT_CHARACTER = {
 
 function messagesKey(characterId) {
   return `${MESSAGES_KEY_PREFIX}::${characterId || DEFAULT_CHARACTER.id}`;
+}
+
+function sessionMessagesKey(sessionId) {
+  return `${MESSAGES_KEY_PREFIX}::${sessionId}`;
+}
+
+function legacySessionId(characterId) {
+  return `legacy-${characterId}`;
 }
 
 async function readJson(key, fallback) {
@@ -475,4 +493,179 @@ export async function isDisclaimerAcknowledged() {
 export async function acknowledgeDisclaimer() {
   await AsyncStorage.setItem(DISCLAIMER_ACK_KEY, 'true');
   return true;
+}
+
+function ensureUniqueSessionIds(list) {
+  const seen = new Set();
+  return list.map((item, index) => {
+    let id = String(item.id);
+    if (seen.has(id)) {
+      let candidate = `${id}-${index}`;
+      let bump = index;
+      while (seen.has(candidate)) {
+        bump += 1;
+        candidate = `${id}-${index}-${bump}`;
+      }
+      id = candidate;
+    }
+    seen.add(id);
+    return id === item.id ? item : { ...item, id };
+  });
+}
+
+export async function getSessions() {
+  const stored = await readJson(SESSIONS_KEY, []);
+  if (!Array.isArray(stored)) return [];
+  return ensureUniqueSessionIds(stored.map(normalizeSession));
+}
+
+export async function saveSessions(sessions) {
+  const list = ensureUniqueSessionIds(
+    (Array.isArray(sessions) ? sessions : []).map(normalizeSession)
+  );
+  await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(list));
+  return list;
+}
+
+export async function getActiveSessionId() {
+  try {
+    const raw = await AsyncStorage.getItem(ACTIVE_SESSION_KEY);
+    return raw ? String(JSON.parse(raw)) : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+export async function setActiveSessionId(id) {
+  await AsyncStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(String(id || '')));
+}
+
+export async function getMessagesBySession(sessionId) {
+  const stored = await readJson(sessionMessagesKey(sessionId), null);
+  return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
+}
+
+export async function saveMessagesBySession(sessionId, messages) {
+  const persistable = (messages || []).filter(item => item && !item.pending);
+  await AsyncStorage.setItem(sessionMessagesKey(sessionId), JSON.stringify(persistable));
+  const sessions = await getSessions();
+  if (sessions.some(session => session.id === sessionId)) {
+    const updated = sessions.map(session =>
+      session.id === sessionId
+        ? { ...session, preview: buildPreview(persistable), updatedAt: Date.now() }
+        : session
+    );
+    await saveSessions(sortSessions(updated));
+  }
+  return persistable;
+}
+
+async function readLegacyMessages(characterId) {
+  let stored = await readJson(messagesKey(characterId), null);
+  if ((!Array.isArray(stored) || stored.length === 0)
+    && characterId === DEFAULT_CHARACTER.id) {
+    stored = await readJson(LEGACY_MESSAGES_KEY, null);
+  }
+  return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
+}
+
+export async function startNewSession(characterId) {
+  const sessions = await getSessions();
+  const nonEmpty = [];
+  if (sessions.length > 0) {
+    const pairs = await AsyncStorage.multiGet(sessions.map(item => sessionMessagesKey(item.id)));
+    const persisted = new Map(
+      pairs.map(pair => {
+        const raw = pair[1];
+        let list = [];
+        try {
+          const parsed = raw ? JSON.parse(raw) : [];
+          list = Array.isArray(parsed) ? parsed.filter(item => item && !item.pending) : [];
+        } catch (error) {
+          list = [];
+        }
+        return [pair[0], list];
+      })
+    );
+    sessions.forEach(session => {
+      const messages = persisted.get(sessionMessagesKey(session.id)) || [];
+      if (messages.length > 0) nonEmpty.push(session);
+    });
+  }
+  const created = createEmptySession(characterId, nonEmpty);
+  const next = sortSessions([...nonEmpty, created]);
+  await saveSessions(next);
+  await setActiveSessionId(created.id);
+  return created;
+}
+
+export async function cloneSession(sessionId) {
+  const sessions = await getSessions();
+  const source = sessions.find(session => session.id === sessionId);
+  if (!source) throw new Error('会话不存在');
+  const messages = await getMessagesBySession(sessionId);
+  const now = Date.now();
+  const copy = buildClonedSession(sessions, source, messages, now);
+  await AsyncStorage.setItem(
+    sessionMessagesKey(copy.id),
+    JSON.stringify(regenerateMessageIds(messages, now))
+  );
+  await saveSessions(sortSessions([...sessions, copy]));
+  return copy;
+}
+
+export async function deleteSession(sessionId) {
+  const sessions = await getSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  const activeId = await getActiveSessionId();
+  const remaining = sessions.filter(session => session.id !== sessionId);
+  await saveSessions(remaining);
+  try {
+    await AsyncStorage.removeItem(sessionMessagesKey(sessionId));
+  } catch (error) {}
+  if (activeId === sessionId) {
+    const created = createEmptySession(target && target.characterId, remaining);
+    const next = sortSessions([...remaining, created]);
+    await saveSessions(next);
+    await setActiveSessionId(created.id);
+    return { sessions: next, activeSessionId: created.id, created };
+  }
+  return { sessions: remaining, activeSessionId: activeId, created: null };
+}
+
+export async function migrateLegacyMessages(characters) {
+  const list = Array.isArray(characters) ? characters : [];
+  const sessions = await getSessions();
+  const existingIds = new Set(sessions.map(session => session.id));
+  const migrated = [];
+  for (const character of list) {
+    const characterId = character && character.id;
+    if (!characterId) continue;
+    const sessionId = legacySessionId(characterId);
+    if (existingIds.has(sessionId)) continue;
+    const messages = await readLegacyMessages(characterId);
+    if (messages.length === 0) continue;
+    const timestamps = messages
+      .map(item => Number(item && item.timestamp))
+      .filter(value => Number.isFinite(value));
+    const fallback = Date.now();
+    const createdAt = timestamps.length ? Math.min(...timestamps) : fallback;
+    const updatedAt = timestamps.length ? Math.max(...timestamps) : fallback;
+    const session = {
+      id: sessionId,
+      characterId: String(characterId),
+      preview: buildPreview(messages),
+      pinned: false,
+      createdAt,
+      updatedAt,
+      clonedFrom: '',
+    };
+    await AsyncStorage.setItem(sessionMessagesKey(sessionId), JSON.stringify(messages));
+    existingIds.add(sessionId);
+    migrated.push(session);
+  }
+  if (migrated.length > 0) {
+    await saveSessions(sortSessions([...sessions, ...migrated]));
+  }
+  return migrated;
 }

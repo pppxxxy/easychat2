@@ -114,8 +114,18 @@
 | `deleteCharacter` | `(characterId) => Promise<Character[]>` | 删除非默认角色并移除其消息键 |
 | `sortCharacters` | `(list) => Character[]` | 按 `lastUsedAt` 降序、并列按 `id` 升序排序 |
 | `getCharacter` / `saveCharacter` | 见下 | 过渡包装：`getActiveCharacter` / `upsertCharacter` + 设为当前 |
-| `getMessages` | `(characterId?) => Promise<Message[]>` | 读取指定角色消息，过滤 `pending` |
-| `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending` |
+| `getMessages` | `(characterId?) => Promise<Message[]>` | 读取指定角色消息，过滤 `pending`（旧接口，过渡期保留） |
+| `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending`（旧接口，过渡期保留） |
+| `getSessions` | `() => Promise<Session[]>` | 读取会话列表，规范化并去重 `id` |
+| `saveSessions` | `(sessions) => Promise<Session[]>` | 规范化并写入会话列表 |
+| `getActiveSessionId` | `() => Promise<string>` | 读取当前会话 `id`（缺失或损坏返回空串） |
+| `setActiveSessionId` | `(id) => Promise<void>` | 写入当前会话 `id` |
+| `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
+| `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
+| `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前 |
+| `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
+| `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
+| `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `saveCharacterState` | `(list, activeId, deletedId?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedId` 存在时移除其消息键 |
 | `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入用户人设（用户名、人设、头像路径） |
 | `getGlobalPresets` | `() => Promise<Preset[]>` | 读取预设列表；键缺失时由内置预设播种 |
@@ -139,8 +149,11 @@
 | `@easychat2_characters` | 角色库 JSON 数组 |
 | `@easychat2_active_character` | 当前角色 `id` |
 | `@easychat2_character` | 旧版单角色 JSON（仅迁移读取，保留） |
-| `@easychat2_messages::<characterId>` | 指定角色的消息数组 |
-| `@easychat2_messages` | 旧版单会话消息（仅默认角色读取时兜底） |
+| `@easychat2_sessions` | 会话元数据数组 |
+| `@easychat2_active_session` | 当前会话 `id` |
+| `@easychat2_messages::<sessionId>` | 会话消息数组（新数据按会话 id 存储） |
+| `@easychat2_messages::<characterId>` | 旧版按角色存储的消息（仅迁移读取） |
+| `@easychat2_messages` | 旧版单会话消息（仅默认角色迁移读取时兜底） |
 | `@easychat2_user_profile` | 用户人设 `{ userName, persona, avatarUri }` |
 | `@easychat2_preset_list` | 全局对话预设数组 |
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
@@ -318,6 +331,20 @@ data: [DONE]
 | `pending` | `boolean?` | 占位消息标记，为真时不持久化 |
 
 流式回复期间，助手消息的 `pending` 保持为真、`text` 随每个增量片段实时覆盖；流正常结束时 `pending` 置为假，随后才进入持久化，确保「正在思考…」不会落盘。若请求在流中途失败且已收到部分文本，则把该部分文本转为已完成助手消息予以保留，并额外追加一条 `system-error` 消息（`id` 为助手占位 `id` 加后缀 `-error`）；若失败时仍无任何文本，则占位直接替换为 `system-error`。
+
+### `Session`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 会话标识，形如 `session-<base36 时间戳>-<随机>`；迁移会话为 `legacy-<characterId>` |
+| `characterId` | `string` | 所属角色 `id` |
+| `preview` | `string` | 最后一条可读消息的摘要，最长 60 字 |
+| `pinned` | `boolean` | 是否置顶 |
+| `createdAt` | `number` | 创建时间戳 |
+| `updatedAt` | `number` | 最后更新时间戳，决定排序 |
+| `clonedFrom` | `string` | 克隆来源会话 `id`，非副本为空串 |
+
+排序规则：置顶优先，其余按 `updatedAt` 降序，并列按 `id` 升序。空会话（无消息）不进入列表。
 
 ### `ApiConfig`
 
