@@ -19,7 +19,7 @@ import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api';
-import { DISCLAIMER_TEXT } from './disclaimer';
+import DisclaimerModal from './disclaimer';
 import {
   createApiConfig,
   createGlobalPresetId,
@@ -81,6 +81,7 @@ export default function SettingsScreen() {
   const [apiSaving, setApiSaving] = useState(false);
   const [presetsLoaded, setPresetsLoaded] = useState(false);
   const [presetSaving, setPresetSaving] = useState(false);
+  const [disclaimerOpen, setDisclaimerOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
@@ -493,7 +494,7 @@ export default function SettingsScreen() {
   };
 
   const openDisclaimer = () => {
-    Alert.alert('免责条款', DISCLAIMER_TEXT);
+    setDisclaimerOpen(true);
   };
 
   const openGitHub = () => {
@@ -879,6 +880,12 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <DisclaimerModal
+        visible={disclaimerOpen}
+        title="免责条款"
+        onClose={() => setDisclaimerOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
