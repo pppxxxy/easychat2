@@ -36,6 +36,7 @@
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
+- 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -90,6 +91,15 @@
 - 全屏 Modal，输入关键词后调用 `searchMessages`，展示命中片段、角色名与时间；空结果显示提示
 - 关键词为空时不搜索
 - 点击结果调用 `onOpenResult(result)`，由记忆页完成切换角色、切换会话与设置定位目标
+
+### `ScrollScrubber`（默认导出）
+**位置**: `src/ScrollScrubber.js`
+**Props**: `{ visible, onClose, messageCount, previews, onSeek, onToStart, onToEnd }`
+**行为**:
+- 覆盖层内渲染竖向轨道与滑块，用 `PanResponder` 拖动，按滑动比例映射消息索引（`indexFromRatio`）
+- 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；松手时以映射索引调用 `onSeek`
+- 消息数超过 30 时拖动显示预览卡（时间、发言者、缩略与位置）；无消息时按钮禁用
+**辅助导出**: `indexFromRatio(ratio, messageCount)`
 
 ## 全局状态
 

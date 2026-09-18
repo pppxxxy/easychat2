@@ -32,6 +32,7 @@ import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import DisclaimerModal from './disclaimer';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
+import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import {
   getEnabledGlobalPresetPrompts,
@@ -265,6 +266,14 @@ function buildGreetingMessage(sessionId, firstMes, userName) {
     role: ASSISTANT_ID,
     text: replaced,
   };
+}
+
+function formatScrubberTime(timestamp) {
+  const value = Number(timestamp);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const date = new Date(value);
+  const pad = number => String(number).padStart(2, '0');
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function ThinkingIndicator() {
@@ -551,6 +560,7 @@ export default function ChatScreen() {
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [scrubberOpen, setScrubberOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
@@ -824,6 +834,42 @@ export default function ChatScreen() {
     setSearchQuery('');
     setActiveMatchIndex(0);
     setFocusedMessageId('');
+  }, []);
+
+  const scrubberMessages = useMemo(
+    () => messages.filter(message => message && !message.pending),
+    [messages]
+  );
+
+  const scrubberPreviews = useMemo(
+    () => scrubberMessages.map(message => {
+      const timestamp = Number(String(message.id || '').split('-')[0]);
+      return {
+        label: formatScrubberTime(timestamp),
+        speaker: message.role === USER_ID ? '我' : (character.name || '角色'),
+        text: String(message.text || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+      };
+    }),
+    [scrubberMessages, character.name]
+  );
+
+  const onScrubberSeek = useCallback(index => {
+    const target = scrubberMessages[index];
+    if (!target) return;
+    const offset = messageOffsetsRef.current[target.id];
+    if (typeof offset === 'number') {
+      scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
+    } else {
+      scrollToMessage(target.id);
+    }
+  }, [scrubberMessages, scrollToMessage]);
+
+  const onScrubberToStart = useCallback(() => {
+    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+  }, []);
+
+  const onScrubberToEnd = useCallback(() => {
+    scrollRef.current?.scrollToEnd?.({ animated: true });
   }, []);
 
   const runSummarize = useCallback(async (session, list, manual) => {
@@ -1151,6 +1197,17 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>公告</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.noticeButton, scrubberMessages.length === 0 && styles.actionDisabled]}
+          onPress={() => setScrubberOpen(true)}
+          disabled={scrubberMessages.length === 0}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="快速定位"
+        >
+          <Ionicons name="options-outline" size={13} color="#c8c4ff" />
+          <Text style={styles.noticeButtonText}>定位</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.noticeButton}
           onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
           activeOpacity={0.7}
@@ -1404,6 +1461,16 @@ export default function ChatScreen() {
         visible={noticeOpen}
         title="公告"
         onClose={() => setNoticeOpen(false)}
+      />
+
+      <ScrollScrubber
+        visible={scrubberOpen}
+        onClose={() => setScrubberOpen(false)}
+        messageCount={scrubberMessages.length}
+        previews={scrubberPreviews}
+        onSeek={onScrubberSeek}
+        onToStart={onScrubberToStart}
+        onToEnd={onScrubberToEnd}
       />
     </KeyboardAvoidingView>
   );
