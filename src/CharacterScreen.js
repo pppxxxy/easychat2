@@ -415,6 +415,8 @@ function worldEntryMeta(entry) {
 }
 
 function SummaryRow({ title, meta, enabled, onPress }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   return (
     <TouchableOpacity style={styles.summaryRow} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.summaryInfo}>

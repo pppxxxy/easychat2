@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Image,
@@ -76,6 +77,7 @@ import {
   THINKING_LEVELS,
 } from './storage';
 import { runPlugins } from './plugins/registry';
+import { useTheme } from './theme/ThemeContext';
 import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
 import { speak as ttsSpeak, stop as ttsStop } from './tts';
@@ -393,7 +395,7 @@ function ThinkingIndicator() {
   );
 }
 
-function renderHighlightedText(text, keyword) {
+function renderHighlightedText(text, keyword, styles) {
   const source = String(text || '');
   const needle = String(keyword || '');
   if (!needle) return source;
@@ -579,7 +581,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
           ) : null}
           {isUser ? (
             <Text style={styles.messageText}>
-              {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword) : message.text}
+              {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword, styles) : message.text}
             </Text>
           ) : message.pending && message.waitingForResponse ? (
             <ThinkingIndicator />
