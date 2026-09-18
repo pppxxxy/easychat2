@@ -19,6 +19,7 @@ import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api';
+import { useTheme } from './theme/ThemeContext';
 import DisclaimerModal from './disclaimer';
 import PluginPanel from './PluginPanel';
 import PresetPanel from './PresetPanel';
@@ -92,6 +93,8 @@ export default function SettingsScreen() {
   const modelSourceRef = useRef(null);
   const [apiSaving, setApiSaving] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+  const { theme, fonts, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
   const refreshPresetCount = useCallback(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
@@ -566,7 +569,7 @@ export default function SettingsScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
-              <Ionicons name="key-outline" size={16} color="#8b85ff" />
+              <Ionicons name="key-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>API 配置</Text>
             </View>
             <TouchableOpacity
@@ -575,7 +578,7 @@ export default function SettingsScreen() {
               disabled={!loaded || apiSaving}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={15} color="#c8c4ff" />
+              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
               <Text style={styles.pillButtonText}>新建</Text>
             </TouchableOpacity>
           </View>
@@ -602,7 +605,7 @@ export default function SettingsScreen() {
                 </View>
                 {selected ? (
                   <View style={styles.currentBadge}>
-                    <Ionicons name="checkmark" size={11} color="#c8c4ff" />
+                    <Ionicons name="checkmark" size={11} color={theme.colors.primarySoft} />
                     <Text style={styles.currentBadgeText}>当前</Text>
                   </View>
                 ) : null}
@@ -618,7 +621,7 @@ export default function SettingsScreen() {
                 value={active.name}
                 onChangeText={name => updateField({ name })}
                 placeholder="例如：DeepSeek 主力"
-                placeholderTextColor="#888"
+                placeholderTextColor={theme.colors.textFaint}
               />
               <Text style={styles.label}>API 地址</Text>
               <TextInput
@@ -628,7 +631,7 @@ export default function SettingsScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="https://api.deepseek.com"
-                placeholderTextColor="#888"
+                placeholderTextColor={theme.colors.textFaint}
               />
               <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
               <Text style={styles.label}>模型列表</Text>
@@ -640,7 +643,7 @@ export default function SettingsScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder="输入模型名后点击添加"
-                  placeholderTextColor="#888"
+                  placeholderTextColor={theme.colors.textFaint}
                   onSubmitEditing={addModel}
                 />
                 <TouchableOpacity
@@ -648,7 +651,7 @@ export default function SettingsScreen() {
                   onPress={addModel}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="add" size={15} color="#c8c4ff" />
+                  <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
                   <Text style={styles.detectButtonText}>添加</Text>
                 </TouchableOpacity>
               </View>
@@ -673,7 +676,7 @@ export default function SettingsScreen() {
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => removeModel(model)} hitSlop={6}>
-                        <Ionicons name="close" size={14} color="#9a9ab5" />
+                        <Ionicons name="close" size={14} color={theme.colors.textFaint} />
                       </TouchableOpacity>
                     </View>
                   );
@@ -686,7 +689,7 @@ export default function SettingsScreen() {
                 disabled={detectingModels}
                 activeOpacity={0.8}
               >
-                <Ionicons name="pulse-outline" size={15} color="#c8c4ff" />
+                <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
                 <Text style={styles.detectButtonText}>
                   {detectingModels ? '检测中...' : '检测模型'}
                 </Text>
@@ -700,13 +703,13 @@ export default function SettingsScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="sk-..."
-                placeholderTextColor="#888"
+                placeholderTextColor={theme.colors.textFaint}
               />
               <Text style={styles.hint}>
                 API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
               </Text>
               <TouchableOpacity style={styles.button} onPress={save} activeOpacity={0.85}>
-                <Ionicons name="save-outline" size={17} color="#fff" />
+                <Ionicons name="save-outline" size={17} color={theme.colors.primaryContrast} />
                 <Text style={styles.buttonText}>保存配置</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -715,7 +718,7 @@ export default function SettingsScreen() {
                 disabled={configs.length <= 1}
                 activeOpacity={0.8}
               >
-                <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
+                <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
                 <Text style={styles.deleteButtonText}>删除当前配置</Text>
               </TouchableOpacity>
             </>
@@ -724,7 +727,7 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="person-circle-outline" size={16} color="#8b85ff" />
+            <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>用户人设</Text>
           </View>
           <Text style={styles.fieldHint}>
@@ -759,7 +762,7 @@ export default function SettingsScreen() {
             value={userName}
             onChangeText={text => { setUserName(text); saveUserProfileDelayed(text, userPersona, userAvatarUri); }}
             placeholder="例如：小明"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
           />
           <Text style={styles.label}>人设描述</Text>
           <TextInput
@@ -767,12 +770,12 @@ export default function SettingsScreen() {
             value={userPersona}
             onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text, userAvatarUri); }}
             placeholder="描述你自己的性格、背景、喜好等"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
           <TouchableOpacity style={styles.secondaryButton} onPress={saveUserProfileNow} activeOpacity={0.8}>
-            <Ionicons name="save-outline" size={16} color="#c8c4ff" />
+            <Ionicons name="save-outline" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.secondaryButtonText}>保存用户人设</Text>
           </TouchableOpacity>
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
@@ -780,7 +783,53 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="options-outline" size={16} color="#8b85ff" />
+            <Ionicons name="color-palette-outline" size={16} color={theme.colors.primaryMuted} />
+            <Text style={styles.cardTitle}>外观</Text>
+          </View>
+          <View style={styles.appearanceRow}>
+            {themes.map(item => {
+              const active = item.id === themeId;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.themeChip, active && { borderColor: item.colors.primary }]}
+                  onPress={() => setThemeId(item.id)}
+                  activeOpacity={0.85}
+                  accessibilityLabel={`切换到${item.label}主题`}
+                >
+                  <View style={[styles.themeSwatch, { backgroundColor: item.colors.background }]}>
+                    <View style={[styles.themeSwatchDot, { backgroundColor: item.colors.primary }]} />
+                  </View>
+                  <Text style={[styles.themeChipText, active && { color: item.colors.primary, fontWeight: '800' }]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.label}>字体大小</Text>
+          <View style={styles.fontRow}>
+            {fontScales.map(item => {
+              const active = item.id === fontScaleId;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.fontChip, active && styles.fontChipActive]}
+                  onPress={() => setFontScaleId(item.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="options-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>全局配置</Text>
           </View>
           <TouchableOpacity
@@ -789,43 +838,43 @@ export default function SettingsScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.linkLeft}>
-              <Ionicons name="list-outline" size={17} color="#8b85ff" />
+              <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>全局预设</Text>
             </View>
             <View style={styles.linkRight}>
               <Text style={styles.linkValue}>
                 {enabledPresetCount > 0 ? `已开启 ${enabledPresetCount} 项` : '未开启'}
               </Text>
-              <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
             </View>
           </TouchableOpacity>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
-              <Ionicons name="pulse-outline" size={17} color="#8b85ff" />
+              <Ionicons name="pulse-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>流式输出</Text>
             </View>
             <Switch
               value={chatOptions.streaming}
               onValueChange={value => updateChatOption('streaming', value)}
-              trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-              thumbColor="#ffffff"
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
             />
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
-              <Ionicons name="resize-outline" size={17} color="#8b85ff" />
+              <Ionicons name="resize-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>全宽对话</Text>
             </View>
             <Switch
               value={chatOptions.fullWidth}
               onValueChange={value => updateChatOption('fullWidth', value)}
-              trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-              thumbColor="#ffffff"
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
             />
           </View>
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
-              <Ionicons name="bulb-outline" size={17} color="#8b85ff" />
+              <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>思考内容展示</Text>
             </View>
             <View style={styles.thinkingDisplayChips}>
@@ -853,10 +902,10 @@ export default function SettingsScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.linkLeft}>
-              <Ionicons name="extension-puzzle-outline" size={17} color="#8b85ff" />
+              <Ionicons name="extension-puzzle-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>插件</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
         </View>
 
@@ -875,36 +924,36 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="information-circle-outline" size={16} color="#8b85ff" />
+            <Ionicons name="information-circle-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>关于</Text>
           </View>
           <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
-              <Ionicons name="book-outline" size={17} color="#8b85ff" />
+              <Ionicons name="book-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>使用教程</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={openDisclaimer} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
-              <Ionicons name="document-text-outline" size={17} color="#8b85ff" />
+              <Ionicons name="document-text-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>免责条款</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={openGitHub} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
-              <Ionicons name="logo-github" size={17} color="#8b85ff" />
+              <Ionicons name="logo-github" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>GitHub 地址</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={checkUpdate} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
-              <Ionicons name="refresh-outline" size={17} color="#8b85ff" />
+              <Ionicons name="refresh-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>检测更新</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -956,8 +1005,8 @@ export default function SettingsScreen() {
                   ...current,
                   supportsThinking: value,
                 }))}
-                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                thumbColor="#ffffff"
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
               />
             </View>
             {capabilityDraft.supportsThinking ? (
@@ -973,7 +1022,7 @@ export default function SettingsScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder="reasoning_effort"
-                  placeholderTextColor="#888"
+                  placeholderTextColor={theme.colors.textFaint}
                 />
                 <View style={styles.thinkingFormatRow}>
                   {['effort', 'boolean', 'object'].map(format => {
@@ -1005,8 +1054,8 @@ export default function SettingsScreen() {
                   ...current,
                   supportsVision: value,
                 }))}
-                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                thumbColor="#ffffff"
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
               />
             </View>
             <View style={styles.modalActions}>
@@ -1038,20 +1087,20 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#1a1a2e' },
-  container: { flex: 1, backgroundColor: '#1a1a2e', padding: 18 },
+const createStyles = (theme, fonts) => StyleSheet.create({
+  flex: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   scrollContent: { paddingBottom: 80 },
 
   pageHeader: { marginTop: 4, marginBottom: 6 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 6 },
-  hint: { color: '#9a9ab5', fontSize: 12, marginTop: 6, lineHeight: 18 },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(24), fontWeight: '800', marginBottom: 6 },
+  hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6, lineHeight: fonts.scaled(18) },
 
   card: {
-    backgroundColor: '#232338',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
     padding: 14,
     marginTop: 14,
     shadowColor: '#000',
@@ -1067,24 +1116,63 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { color: '#fff', fontSize: 15, fontWeight: '800', marginLeft: 8 },
+  cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
+  appearanceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
+  themeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  themeSwatch: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  themeSwatchDot: { width: 8, height: 8, borderRadius: 4 },
+  themeChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
+  fontRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  fontChip: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  fontChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  fontChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
+  fontChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '700' },
 
   pillButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(108,99,255,0.12)',
+    backgroundColor: `${theme.colors.primary}1f`,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.45)',
+    borderColor: `${theme.colors.primaryMuted}73`,
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 15,
   },
-  pillButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 4 },
+  pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 4 },
 
   configRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -1092,31 +1180,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
-  configRowActive: { borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,0.16)' },
+  configRowActive: { borderColor: theme.colors.primary, backgroundColor: `${theme.colors.primary}29` },
   configInfo: { flex: 1, marginRight: 8 },
-  configName: { color: '#d9d9e6', fontSize: 14 },
-  configNameActive: { color: '#fff', fontWeight: '700' },
-  configMeta: { color: '#7d7d99', fontSize: 12, marginTop: 2 },
+  configName: { color: theme.colors.textMuted, fontSize: fonts.scaled(14) },
+  configNameActive: { color: theme.colors.text, fontWeight: '700' },
+  configMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2 },
   currentBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(108,99,255,0.25)',
+    backgroundColor: `${theme.colors.primary}40`,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  currentBadgeText: { color: '#c8c4ff', fontSize: 11, fontWeight: '700', marginLeft: 3 },
+  currentBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 3 },
 
-  label: { color: '#e6e6f2', marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
+  label: { color: theme.colors.text, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: fonts.scaled(13) },
   input: {
-    backgroundColor: '#2d2d44',
-    color: '#fff',
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.text,
     paddingHorizontal: 12,
     paddingVertical: 11,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3a3a58',
-    fontSize: 14,
+    borderColor: theme.colors.surfaceBorder,
+    fontSize: fonts.scaled(14),
   },
   multilineInput: { minHeight: 100, paddingTop: 12 },
   modelRow: { flexDirection: 'row', alignItems: 'center' },
@@ -1124,64 +1212,64 @@ const styles = StyleSheet.create({
 
   button: {
     flexDirection: 'row',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     marginTop: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#6c63ff',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 4,
   },
-  buttonText: { color: '#fff', fontWeight: '800', marginLeft: 8, fontSize: 15 },
+  buttonText: { color: theme.colors.primaryContrast, fontWeight: '800', marginLeft: 8, fontSize: fonts.scaled(15) },
   buttonDisabled: { opacity: 0.45 },
 
   detectButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(108,99,255,0.12)',
+    backgroundColor: `${theme.colors.primary}1f`,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.45)',
+    borderColor: `${theme.colors.primaryMuted}73`,
     paddingVertical: 11,
     paddingHorizontal: 14,
     borderRadius: 10,
   },
-  detectButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 6 },
+  detectButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 6 },
 
   deleteButton: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(176,70,63,0.12)',
+    backgroundColor: `${theme.colors.danger}1f`,
     borderWidth: 1,
-    borderColor: '#7a2e2e',
+    borderColor: theme.colors.danger,
     paddingVertical: 13,
     borderRadius: 12,
     marginTop: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteButtonText: { color: '#ff9b9b', fontWeight: '800', marginLeft: 8 },
+  deleteButtonText: { color: theme.colors.dangerSoft, fontWeight: '800', marginLeft: 8 },
 
-  fieldHint: { color: '#7d7d99', fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 4 },
   secondaryButton: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(108,99,255,0.12)',
+    backgroundColor: `${theme.colors.primary}1f`,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.45)',
+    borderColor: `${theme.colors.primaryMuted}73`,
     paddingVertical: 12,
     borderRadius: 10,
     marginTop: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secondaryButtonText: { color: '#c8c4ff', fontWeight: '800', marginLeft: 6 },
-  savedHint: { color: '#8b85ff', fontSize: 12, marginTop: 8 },
+  secondaryButtonText: { color: theme.colors.primarySoft, fontWeight: '800', marginLeft: 6 },
+  savedHint: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 8 },
 
   selectButton: {
     flexDirection: 'row',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 10,
     paddingHorizontal: 18,
     paddingVertical: 10,
@@ -1190,11 +1278,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   selectButtonGhost: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
   },
-  selectButtonText: { color: '#fff', fontWeight: '700' },
+  selectButtonText: { color: theme.colors.primaryContrast, fontWeight: '700' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 18 },
   capabilityRow: {
     flexDirection: 'row',
@@ -1202,7 +1290,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.divider,
   },
   thinkingDisplayRow: {
     flexDirection: 'row',
@@ -1210,18 +1298,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.divider,
   },
   thinkingDisplayChips: { flexDirection: 'row', alignItems: 'center' },
-  capabilityLabel: { color: '#d9d9e6', fontSize: 14, flex: 1, marginRight: 12 },
+  capabilityLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), flex: 1, marginRight: 12 },
   modelChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
   modelChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
     paddingLeft: 10,
     paddingRight: 8,
     paddingVertical: 6,
@@ -1230,24 +1318,24 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   modelChipActive: {
-    backgroundColor: 'rgba(108,99,255,0.25)',
-    borderColor: '#6c63ff',
+    backgroundColor: `${theme.colors.primary}40`,
+    borderColor: theme.colors.primary,
   },
   modelChipMain: { maxWidth: 180, marginRight: 6 },
-  modelChipText: { color: '#c9c9e0', fontSize: 13 },
-  modelChipTextActive: { color: '#ffffff', fontWeight: '700' },
+  modelChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
+  modelChipTextActive: { color: theme.colors.text, fontWeight: '700' },
   thinkingFormatRow: { flexDirection: 'row', marginTop: 8, marginBottom: 4 },
   formatChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
     marginRight: 8,
   },
-  formatChipActive: { backgroundColor: 'rgba(108,99,255,0.25)', borderColor: '#6c63ff' },
-  formatChipText: { color: '#a8a8c2', fontSize: 12, fontWeight: '700' },
-  formatChipTextActive: { color: '#d9d5ff' },
+  formatChipActive: { backgroundColor: `${theme.colors.primary}40`, borderColor: theme.colors.primary },
+  formatChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  formatChipTextActive: { color: theme.colors.primarySoft },
 
   linkRow: {
     flexDirection: 'row',
@@ -1255,76 +1343,76 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.divider,
   },
   linkLeft: { flexDirection: 'row', alignItems: 'center' },
-  linkText: { color: '#d9d9e6', fontSize: 15, marginLeft: 10 },
+  linkText: { color: theme.colors.textMuted, fontSize: fonts.scaled(15), marginLeft: 10 },
   linkRight: { flexDirection: 'row', alignItems: 'center' },
-  linkValue: { color: '#8a8aa3', fontSize: 13, marginRight: 6 },
+  linkValue: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginRight: 6 },
 
   avatarRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   avatarBox: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     overflow: 'hidden',
     marginRight: 12,
     borderWidth: 2,
-    borderColor: 'rgba(139,133,255,0.45)',
+    borderColor: `${theme.colors.primaryMuted}73`,
   },
   avatarImg: { width: 56, height: 56, borderRadius: 28 },
   avatarPlaceholder: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(108,99,255,0.14)',
+    backgroundColor: `${theme.colors.primary}24`,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarPlaceholderText: { color: '#c8c4ff', fontSize: 20, fontWeight: '800' },
+  avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(20), fontWeight: '800' },
   imageActions: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   smallButton: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.45)',
+    borderColor: `${theme.colors.primaryMuted}73`,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 10,
     marginRight: 12,
   },
-  smallButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
-  removeText: { color: '#ff9b9b', fontWeight: '700' },
+  smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13) },
+  removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
 
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     padding: 24,
   },
   modalSheet: {
-    backgroundColor: '#232338',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 16,
     padding: 16,
     maxHeight: '70%',
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 8,
   },
-  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  modalTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800', marginBottom: 12 },
   modalList: { maxHeight: 360 },
   modalRow: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
   },
-  modalRowText: { color: '#d9d9e6' },
+  modalRowText: { color: theme.colors.textMuted },
 });

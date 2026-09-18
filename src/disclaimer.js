@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { useTheme } from './theme/ThemeContext';
 
 export const DISCLAIMER_TEXT =
   'EasyChat2 是一个开源 AI 聊天工具，仅供学习交流使用。\n\n'
@@ -12,6 +14,8 @@ export const DISCLAIMER_TEXT =
   + '使用即代表同意以上条款。';
 
 export default function DisclaimerModal({ visible, title = '免责条款', content = DISCLAIMER_TEXT, onClose }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -29,7 +33,7 @@ export default function DisclaimerModal({ visible, title = '免责条款', conte
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme, fonts) => StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.65)',
@@ -37,32 +41,32 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   sheet: {
-    backgroundColor: '#232338',
+    backgroundColor: theme.colors.surface,
     borderRadius: 16,
     padding: 18,
     maxHeight: '75%',
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 8,
   },
-  title: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800', marginBottom: 12 },
   body: { flexGrow: 0 },
-  text: { color: '#cfcbe6', fontSize: 14, lineHeight: 22 },
+  text: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), lineHeight: fonts.scaled(22) },
   button: {
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 16,
-    shadowColor: '#6c63ff',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
     elevation: 4,
   },
-  buttonText: { color: '#fff', fontWeight: '800' },
+  buttonText: { color: theme.colors.primaryContrast, fontWeight: '800' },
 });

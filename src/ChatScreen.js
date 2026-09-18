@@ -90,19 +90,19 @@ function buildQuotePayload(message, name) {
 }
 const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
 
-const markdownStyles = {
-  body: { color: '#1a1a2e', fontSize: 15, lineHeight: 22 },
-  heading1: { color: '#000' },
-  heading2: { color: '#000' },
-  heading3: { color: '#000' },
-  heading4: { color: '#000' },
-  heading5: { color: '#000' },
-  heading6: { color: '#000' },
-  hr: { backgroundColor: '#ddd' },
-  blockquote: { backgroundColor: '#f5f5f5', borderColor: '#6c63ff' },
+const createMarkdownStyles = (theme, fonts) => ({
+  body: { color: theme.colors.bubbleAssistantText, fontSize: fonts.scaled(15), lineHeight: fonts.scaled(22) },
+  heading1: { color: theme.colors.bubbleAssistantText },
+  heading2: { color: theme.colors.bubbleAssistantText },
+  heading3: { color: theme.colors.bubbleAssistantText },
+  heading4: { color: theme.colors.bubbleAssistantText },
+  heading5: { color: theme.colors.bubbleAssistantText },
+  heading6: { color: theme.colors.bubbleAssistantText },
+  hr: { backgroundColor: theme.colors.surfaceBorder },
+  blockquote: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.primary },
   code_inline: {
     color: '#c7254e',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 0,
     borderRadius: 4,
     paddingHorizontal: 5,
@@ -110,27 +110,27 @@ const markdownStyles = {
     fontFamily: MONO_FONT,
   },
   code_block: {
-    color: '#333',
-    backgroundColor: '#f5f5f5',
+    color: theme.colors.bubbleAssistantText,
+    backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 0,
     borderRadius: 8,
     padding: 10,
     fontFamily: MONO_FONT,
   },
   fence: {
-    color: '#333',
-    backgroundColor: '#f5f5f5',
+    color: theme.colors.bubbleAssistantText,
+    backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 0,
     borderRadius: 8,
     padding: 10,
     fontFamily: MONO_FONT,
   },
-  link: { color: '#6c63ff' },
-  bullet_list_icon: { color: '#1a1a2e' },
-  ordered_list_icon: { color: '#1a1a2e' },
-  bullet_list_content: { flex: 1, color: '#1a1a2e' },
-  ordered_list_content: { flex: 1, color: '#1a1a2e' },
-};
+  link: { color: theme.colors.primary },
+  bullet_list_icon: { color: theme.colors.bubbleAssistantText },
+  ordered_list_icon: { color: theme.colors.bubbleAssistantText },
+  bullet_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
+  ordered_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
+});
 
 const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre)\b[^>]*>/i;
 
@@ -141,19 +141,19 @@ const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
 const GRADIENT_DECLARATION_PATTERN = /(?:background(?:-image)?)\s*:\s*(?:repeating-)?(?:linear|radial)-gradient\(((?:[^()]|\([^()]*\))*)\)/gi;
 const GRADIENT_COLOR_STOP_PATTERN = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/;
 
-const htmlBaseStyle = {
-  color: '#1a1a2e',
-  fontSize: 15,
-  lineHeight: 22,
-};
+const createHtmlBaseStyle = (theme, fonts) => ({
+  color: theme.colors.bubbleAssistantText,
+  fontSize: fonts.scaled(15),
+  lineHeight: fonts.scaled(22),
+});
 
-const htmlTagsStyles = {
-  a: { color: '#6c63ff' },
-  code: { fontFamily: MONO_FONT, color: '#c7254e', backgroundColor: '#f5f5f5' },
-  pre: { fontFamily: MONO_FONT, color: '#333', backgroundColor: '#f5f5f5' },
-  q: { color: '#1a1a2e' },
-  h4: { color: '#344f5d', fontSize: 13, marginTop: 0, marginBottom: 6 },
-};
+const createHtmlTagsStyles = (theme, fonts) => ({
+  a: { color: theme.colors.primary },
+  code: { fontFamily: MONO_FONT, color: '#c7254e', backgroundColor: theme.colors.surfaceAlt },
+  pre: { fontFamily: MONO_FONT, color: theme.colors.bubbleAssistantText, backgroundColor: theme.colors.surfaceAlt },
+  q: { color: theme.colors.bubbleAssistantText },
+  h4: { color: theme.colors.bubbleAssistantText, fontSize: fonts.scaled(13), marginTop: 0, marginBottom: 6 },
+});
 
 const PANEL_CLASS_STYLES = {
   'ml-open-panel':
@@ -318,6 +318,8 @@ function formatScrubberTime(timestamp) {
 }
 
 function ThinkingIndicator() {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const progress = useRef(null);
   if (progress.current === null) progress.current = new Animated.Value(0);
 
@@ -383,6 +385,11 @@ function renderHighlightedText(text, keyword) {
 }
 
 const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
+  const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
+  const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
@@ -503,12 +510,12 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
                 activeOpacity={0.8}
               >
                 <View style={styles.reasoningHeader}>
-                  <Ionicons name="bulb-outline" size={12} color="#8a8aa3" />
+                  <Ionicons name="bulb-outline" size={12} color={theme.colors.textFaint} />
                   <Text style={styles.reasoningLabel}>思考过程</Text>
                   <Ionicons
                     name={reasoningExpanded ? 'chevron-up' : 'chevron-down'}
                     size={12}
-                    color="#8a8aa3"
+                    color={theme.colors.textFaint}
                   />
                 </View>
                 <Text
@@ -587,6 +594,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
 });
 
 function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -623,6 +632,8 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
 }
 
 export default function ChatScreen() {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const scrollRef = useRef(null);
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
@@ -1684,20 +1695,20 @@ export default function ChatScreen() {
         >
           {isGroup ? (
             <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-              <Ionicons name="people" size={13} color="#c8c4ff" />
+              <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
             </View>
           ) : character.avatarUri ? (
             <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
           ) : (
             <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-              <Ionicons name="person" size={13} color="#c8c4ff" />
+              <Ionicons name="person" size={13} color={theme.colors.primarySoft} />
             </View>
           )}
           <Text style={styles.characterName} numberOfLines={1}>
             {displayName}
           </Text>
           {isGroup ? null : (
-            <Ionicons name="chevron-down" size={14} color="#8b85ff" style={styles.characterCaret} />
+            <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
           )}
         </TouchableOpacity>
         <TouchableOpacity
@@ -1709,7 +1720,7 @@ export default function ChatScreen() {
           accessibilityLabel="新建对话"
           accessibilityState={{ disabled: isSending || !ready }}
         >
-          <Ionicons name="add-circle-outline" size={13} color="#c8c4ff" />
+          <Ionicons name="add-circle-outline" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>新建</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1719,7 +1730,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="查看公告"
         >
-          <Ionicons name="megaphone-outline" size={13} color="#c8c4ff" />
+          <Ionicons name="megaphone-outline" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>公告</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1729,7 +1740,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="切换模型"
         >
-          <Ionicons name="cube-outline" size={13} color="#c8c4ff" />
+          <Ionicons name="cube-outline" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>模型</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1739,7 +1750,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="思考设置"
         >
-          <Ionicons name="bulb-outline" size={13} color="#c8c4ff" />
+          <Ionicons name="bulb-outline" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>思考</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1750,7 +1761,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="快速定位"
         >
-          <Ionicons name="options-outline" size={13} color="#c8c4ff" />
+          <Ionicons name="options-outline" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>定位</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1760,7 +1771,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="搜索当前对话"
         >
-          <Ionicons name="search" size={13} color="#c8c4ff" />
+          <Ionicons name="search" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>搜索</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1771,7 +1782,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="总结记忆"
         >
-          <Ionicons name="book-outline" size={13} color="#c8c4ff" />
+          <Ionicons name="book-outline" size={13} color={theme.colors.primarySoft} />
           <Text style={styles.noticeButtonText}>{summarizing ? '总结中' : '总结'}</Text>
         </TouchableOpacity>
       </View>
@@ -1780,13 +1791,13 @@ export default function ChatScreen() {
       </View>
       {searchOpen ? (
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={15} color="#8a8aa3" />
+          <Ionicons name="search" size={15} color={theme.colors.textFaint} />
           <TextInput
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="在本对话中搜索"
-            placeholderTextColor="#8a8aa3"
+            placeholderTextColor={theme.colors.textFaint}
             autoFocus
             returnKeyType="search"
             onSubmitEditing={() => goToMatch(1)}
@@ -1803,7 +1814,7 @@ export default function ChatScreen() {
             <Ionicons
               name="chevron-up"
               size={18}
-              color={searchMatches.length ? '#c8c4ff' : '#55556f'}
+              color={searchMatches.length ? theme.colors.primarySoft : theme.colors.textFaint}
             />
           </TouchableOpacity>
           <TouchableOpacity
@@ -1815,11 +1826,11 @@ export default function ChatScreen() {
             <Ionicons
               name="chevron-down"
               size={18}
-              color={searchMatches.length ? '#c8c4ff' : '#55556f'}
+              color={searchMatches.length ? theme.colors.primarySoft : theme.colors.textFaint}
             />
           </TouchableOpacity>
           <TouchableOpacity onPress={closeSearch} hitSlop={6} style={styles.searchNav}>
-            <Ionicons name="close" size={18} color="#c8c4ff" />
+            <Ionicons name="close" size={18} color={theme.colors.primarySoft} />
           </TouchableOpacity>
         </View>
       ) : null}
@@ -1835,7 +1846,7 @@ export default function ChatScreen() {
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIconBadge}>
-              <Ionicons name="chatbubbles-outline" size={36} color="#8b85ff" />
+              <Ionicons name="chatbubbles-outline" size={36} color={theme.colors.primaryMuted} />
             </View>
             <Text style={styles.emptyTitle}>开始聊天</Text>
             <Text style={styles.emptyText}>
@@ -1894,7 +1905,7 @@ export default function ChatScreen() {
             <Text style={styles.quoteBarText} numberOfLines={1}>{quoteTarget.text}</Text>
           </View>
           <TouchableOpacity onPress={() => setQuoteTarget(null)} hitSlop={8} accessibilityLabel="取消引用">
-            <Ionicons name="close" size={16} color="#9a9ab5" />
+            <Ionicons name="close" size={16} color={theme.colors.textFaint} />
           </TouchableOpacity>
         </View>
       ) : null}
@@ -1905,11 +1916,11 @@ export default function ChatScreen() {
               {item.kind === 'image' && item.uri ? (
                 <Image source={{ uri: item.uri }} style={styles.attachmentThumb} />
               ) : (
-                <Ionicons name="document-text-outline" size={14} color="#c8c4ff" />
+                <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
               )}
               <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
               <TouchableOpacity onPress={() => removeAttachment(item.id)} hitSlop={6}>
-                <Ionicons name="close" size={14} color="#9a9ab5" />
+                <Ionicons name="close" size={14} color={theme.colors.textFaint} />
               </TouchableOpacity>
             </View>
           ))}
@@ -1937,7 +1948,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="添加附件"
         >
-          <Ionicons name="add-circle-outline" size={22} color="#c8c4ff" />
+          <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
         </TouchableOpacity>
         <TextInput
           style={[styles.input, bgUri && styles.inputOverlay, inputFocused && styles.inputFocused]}
@@ -1946,7 +1957,7 @@ export default function ChatScreen() {
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}
           placeholder="输入消息..."
-          placeholderTextColor={bgUri ? '#cfcfe4' : '#888'}
+          placeholderTextColor={theme.colors.textFaint}
           multiline
           editable={!isSending && ready}
         />
@@ -1961,7 +1972,7 @@ export default function ChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="全屏输入"
         >
-          <Ionicons name="expand-outline" size={18} color="#c8c4ff" />
+          <Ionicons name="expand-outline" size={18} color={theme.colors.primarySoft} />
         </TouchableOpacity>
         {isSending ? (
           <TouchableOpacity
@@ -1970,7 +1981,7 @@ export default function ChatScreen() {
             accessibilityLabel="停止"
             activeOpacity={0.8}
           >
-            <Ionicons name="stop" size={18} color="#fff" />
+            <Ionicons name="stop" size={18} color={theme.colors.text} />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -1983,7 +1994,7 @@ export default function ChatScreen() {
             accessibilityLabel="发送"
             activeOpacity={0.8}
           >
-            <Ionicons name="arrow-up" size={20} color="#fff" />
+            <Ionicons name="arrow-up" size={20} color={theme.colors.text} />
           </TouchableOpacity>
         )}
       </View>
@@ -2004,7 +2015,7 @@ export default function ChatScreen() {
               hitSlop={8}
               accessibilityLabel="退出全屏"
             >
-              <Ionicons name="close" size={24} color="#c9c9e0" />
+              <Ionicons name="close" size={24} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <TextInput
@@ -2012,7 +2023,7 @@ export default function ChatScreen() {
             value={fullScreenText}
             onChangeText={setFullScreenText}
             placeholder="输入消息..."
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
             autoFocus
@@ -2029,7 +2040,7 @@ export default function ChatScreen() {
             disabled={!fullScreenText.trim()}
             activeOpacity={0.8}
           >
-            <Ionicons name="arrow-up" size={18} color="#fff" />
+            <Ionicons name="arrow-up" size={18} color={theme.colors.text} />
             <Text style={styles.fullScreenSendText}>发送</Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>
@@ -2075,7 +2086,7 @@ export default function ChatScreen() {
                     </Text>
                     {selected ? (
                       <View style={styles.modalBadge}>
-                        <Ionicons name="checkmark" size={12} color="#ffffff" />
+                        <Ionicons name="checkmark" size={12} color={theme.colors.text} />
                         <Text style={styles.modalBadgeText}>当前</Text>
                       </View>
                     ) : null}
@@ -2180,7 +2191,7 @@ export default function ChatScreen() {
                     >
                       <Text style={styles.modelOptionText} numberOfLines={1}>{model}</Text>
                       {isActive ? (
-                        <Ionicons name="checkmark" size={16} color="#8b85ff" />
+                        <Ionicons name="checkmark" size={16} color={theme.colors.primaryMuted} />
                       ) : null}
                     </TouchableOpacity>
                   );
@@ -2222,8 +2233,8 @@ export default function ChatScreen() {
                 value={thinkingEnabled}
                 onValueChange={value => applyThinking(value, thinkingLevel)}
                 disabled={!thinkingSupported}
-                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                thumbColor="#ffffff"
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
               />
             </View>
             <Text style={styles.modelLabel}>思考深度</Text>
@@ -2279,7 +2290,7 @@ export default function ChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createChatStyles = (theme, fonts) => StyleSheet.create({
   aiNoticeBar: {
     paddingHorizontal: 16,
     paddingTop: 6,
@@ -2287,7 +2298,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   aiNoticeText: {
-    color: '#8a8aa3',
+    color: theme.colors.textFaint,
     fontSize: 11,
     opacity: 0.7,
     textAlign: 'center',
@@ -2297,7 +2308,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.surface,
     backgroundColor: 'rgba(26,26,46,0.72)',
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -2313,8 +2324,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(108,99,255,0.10)',
   },
   characterAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 8, borderWidth: 1, borderColor: 'rgba(139,133,255,0.35)' },
-  characterAvatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#3a3a58' },
-  characterName: { color: '#fff', fontWeight: '700', flexShrink: 1 },
+  characterAvatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceBorder },
+  characterName: { color: theme.colors.text, fontWeight: '700', flexShrink: 1 },
   characterCaret: { marginLeft: 6 },
   noticeButton: {
     flexDirection: 'row',
@@ -2326,7 +2337,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: 10,
   },
-  noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700', marginLeft: 4 },
+  noticeButtonText: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', marginLeft: 4 },
   actionDisabled: { opacity: 0.5 },
   modelBackdrop: {
     flex: 1,
@@ -2335,28 +2346,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   modelSheet: {
-    backgroundColor: '#20203a',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
     maxHeight: '75%',
   },
-  modelTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800', marginBottom: 10 },
-  modelLabel: { color: '#9a9ab5', fontSize: 12, marginTop: 8, marginBottom: 6 },
+  modelTitle: { color: theme.colors.text, fontSize: 17, fontWeight: '800', marginBottom: 10 },
+  modelLabel: { color: theme.colors.textFaint, fontSize: 12, marginTop: 8, marginBottom: 6 },
   modelSourceRow: { flexDirection: 'row' },
   modelSourceChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#4a4a68',
+    borderColor: theme.colors.surfaceBorder,
     marginRight: 8,
     maxWidth: 140,
   },
-  modelSourceChipActive: { backgroundColor: 'rgba(108,99,255,0.25)', borderColor: '#6c63ff' },
-  modelSourceText: { color: '#a8a8c2', fontSize: 12, fontWeight: '700' },
-  modelSourceTextActive: { color: '#d9d5ff' },
+  modelSourceChipActive: { backgroundColor: 'rgba(108,99,255,0.25)', borderColor: theme.colors.primary },
+  modelSourceText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
+  modelSourceTextActive: { color: theme.colors.primarySoft },
   modelListScroll: { maxHeight: 240, marginTop: 2 },
   modelOption: {
     flexDirection: 'row',
@@ -2364,59 +2375,59 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.surface,
   },
-  modelOptionText: { color: '#e6e6f2', fontSize: 14, flex: 1, marginRight: 8 },
-  modelEmpty: { color: '#7d7d99', fontSize: 13, paddingVertical: 12 },
+  modelOptionText: { color: theme.colors.text, fontSize: 14, flex: 1, marginRight: 8 },
+  modelEmpty: { color: theme.colors.textFaint, fontSize: 13, paddingVertical: 12 },
   modelClose: {
     marginTop: 12,
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: 'center',
   },
-  modelCloseText: { color: '#c8c4ff', fontSize: 14, fontWeight: '700' },
+  modelCloseText: { color: theme.colors.primarySoft, fontSize: 14, fontWeight: '700' },
   thinkingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.surface,
   },
-  thinkingLabel: { color: '#e6e6f2', fontSize: 15, fontWeight: '700' },
+  thinkingLabel: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
   thinkingLevels: { flexDirection: 'row', marginTop: 4 },
   thinkingLevelChip: {
     paddingHorizontal: 18,
     paddingVertical: 8,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#4a4a68',
+    borderColor: theme.colors.surfaceBorder,
     marginRight: 8,
   },
   thinkingLevelChipActive: {
     backgroundColor: 'rgba(108,99,255,0.25)',
-    borderColor: '#6c63ff',
+    borderColor: theme.colors.primary,
   },
-  thinkingLevelText: { color: '#a8a8c2', fontSize: 13, fontWeight: '700' },
-  thinkingLevelTextActive: { color: '#d9d5ff' },
+  thinkingLevelText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
+  thinkingLevelTextActive: { color: theme.colors.primarySoft },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#20203a',
+    backgroundColor: theme.colors.surfaceAlt,
     borderBottomWidth: 1,
-    borderBottomColor: '#35354f',
+    borderBottomColor: theme.colors.divider,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   searchInput: {
     flex: 1,
-    color: '#ffffff',
+    color: theme.colors.text,
     fontSize: 14,
     paddingVertical: 6,
     marginLeft: 8,
   },
-  searchCount: { color: '#8a8aa3', fontSize: 12, marginHorizontal: 8 },
+  searchCount: { color: theme.colors.textFaint, fontSize: 12, marginHorizontal: 8 },
   searchNav: { paddingHorizontal: 4 },
   modalBackdrop: {
     flex: 1,
@@ -2425,7 +2436,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalSheet: {
-    backgroundColor: '#24243b',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 16,
     padding: 16,
     maxHeight: '70%',
@@ -2435,19 +2446,19 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  modalTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 12 },
   modalList: { maxHeight: 360 },
   modalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 8,
   },
-  modalRowActive: { borderWidth: 1, borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,0.16)' },
+  modalRowActive: { borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: 'rgba(108,99,255,0.16)' },
   modalRowAvatar: { width: 34, height: 34, borderRadius: 17, marginRight: 10 },
   modalRowAvatarFallback: {
     width: 34,
@@ -2456,22 +2467,22 @@ const styles = StyleSheet.create({
     marginRight: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
   },
-  modalRowAvatarText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  modalRowText: { color: '#d9d9e6', flex: 1, marginRight: 8 },
-  modalRowTextActive: { color: '#fff', fontWeight: '700' },
+  modalRowAvatarText: { color: theme.colors.text, fontSize: 14, fontWeight: '800' },
+  modalRowText: { color: theme.colors.textMuted, flex: 1, marginRight: 8 },
+  modalRowTextActive: { color: theme.colors.text, fontWeight: '700' },
   modalBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 10,
     paddingVertical: 3,
     paddingHorizontal: 8,
   },
-  modalBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700', marginLeft: 2 },
+  modalBadgeText: { color: theme.colors.text, fontSize: 11, fontWeight: '700', marginLeft: 2 },
   selectScroll: { maxHeight: 360, marginBottom: 12 },
-  selectText: { color: '#e6e6f0', fontSize: 15, lineHeight: 22 },
+  selectText: { color: theme.colors.text, fontSize: 15, lineHeight: 22 },
   selectActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -2480,16 +2491,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 8,
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     marginLeft: 8,
   },
   selectButtonGhost: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
   },
-  selectButtonText: { color: '#fff', fontWeight: '700' },
+  selectButtonText: { color: theme.colors.text, fontWeight: '700' },
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: theme.colors.background,
   },
   messages: {
     flex: 1,
@@ -2517,13 +2528,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 22,
     fontWeight: '800',
     marginBottom: 8,
   },
   emptyText: {
-    color: '#aaa',
+    color: theme.colors.textFaint,
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',
@@ -2569,7 +2580,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2577,12 +2588,12 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#555',
+    backgroundColor: theme.colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarPlaceholderText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontWeight: '800',
     fontSize: 14,
   },
@@ -2601,19 +2612,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   quoteBlockUser: {
-    borderLeftColor: '#d9d5ff',
+    borderLeftColor: theme.colors.primarySoft,
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
   quoteBlockAssistant: {
-    borderLeftColor: '#6c63ff',
+    borderLeftColor: theme.colors.primary,
     backgroundColor: 'rgba(108,99,255,0.10)',
   },
   quoteName: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
   quoteNameUser: { color: '#f0efff' },
-  quoteNameAssistant: { color: '#6c63ff' },
+  quoteNameAssistant: { color: theme.colors.primary },
   quoteText: { fontSize: 12, lineHeight: 17 },
   quoteTextUser: { color: '#e8e6ff' },
-  quoteTextAssistant: { color: '#6a6a88' },
+  quoteTextAssistant: { color: theme.colors.textMuted },
   quoteBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2624,14 +2635,14 @@ const styles = StyleSheet.create({
   quoteBarBody: {
     flex: 1,
     borderLeftWidth: 3,
-    borderLeftColor: '#6c63ff',
+    borderLeftColor: theme.colors.primary,
     paddingLeft: 8,
     marginRight: 8,
   },
-  quoteBarName: { color: '#8b85ff', fontSize: 11, fontWeight: '700' },
-  quoteBarText: { color: '#9a9ab5', fontSize: 12, marginTop: 2 },
+  quoteBarName: { color: theme.colors.primaryMuted, fontSize: 11, fontWeight: '700' },
+  quoteBarText: { color: theme.colors.textFaint, fontSize: 12, marginTop: 2 },
   nameLabel: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 2,
@@ -2650,14 +2661,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   reasoningLabel: {
-    color: '#6c63ff',
+    color: theme.colors.primary,
     fontSize: 11,
     fontWeight: '700',
     marginLeft: 4,
     marginRight: 4,
   },
   reasoningText: {
-    color: '#4a4a68',
+    color: theme.colors.surfaceBorder,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -2676,12 +2687,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     marginRight: 6,
     marginTop: 4,
   },
   messageActionText: {
-    color: '#c8c4ff',
+    color: theme.colors.primarySoft,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -2704,11 +2715,11 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   userBubble: {
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderBottomRightRadius: 6,
   },
   assistantBubble: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.colors.bubbleAssistant,
     borderBottomLeftRadius: 6,
   },
   bubbleMatch: {
@@ -2725,7 +2736,7 @@ const styles = StyleSheet.create({
     minHeight: 28,
   },
   thinkingText: {
-    color: '#55516f',
+    color: theme.colors.textFaint,
     fontSize: 14,
     lineHeight: 22,
     marginRight: 6,
@@ -2735,7 +2746,7 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
     marginLeft: 4,
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
   },
   panelButton: {
     marginTop: 6,
@@ -2748,7 +2759,7 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   panelButtonText: {
-    color: '#ffffff',
+    color: theme.colors.text,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -2787,12 +2798,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#7a2a2a',
   },
   copyButtonText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
   messageText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 15,
     lineHeight: 21,
   },
@@ -2811,10 +2822,10 @@ const styles = StyleSheet.create({
   attachmentChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
     paddingHorizontal: 8,
     paddingVertical: 5,
     marginRight: 8,
@@ -2822,10 +2833,10 @@ const styles = StyleSheet.create({
     maxWidth: 220,
   },
   attachmentThumb: { width: 20, height: 20, borderRadius: 4, marginRight: 6 },
-  attachmentName: { color: '#c9c9e0', fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
+  attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
   fullScreenButton: { paddingHorizontal: 6, paddingVertical: 6 },
-  fullScreenContainer: { flex: 1, backgroundColor: '#1a1a2e', paddingTop: 48 },
+  fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   fullScreenHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2833,12 +2844,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.surface,
   },
-  fullScreenTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800' },
+  fullScreenTitle: { color: theme.colors.text, fontSize: 17, fontWeight: '800' },
   fullScreenInput: {
     flex: 1,
-    color: '#ffffff',
+    color: theme.colors.text,
     fontSize: 16,
     lineHeight: 23,
     paddingHorizontal: 20,
@@ -2851,11 +2862,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginHorizontal: 16,
     marginBottom: 20,
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 12,
     paddingVertical: 12,
   },
-  fullScreenSendText: { color: '#ffffff', fontSize: 15, fontWeight: '700', marginLeft: 6 },
+  fullScreenSendText: { color: theme.colors.text, fontSize: 15, fontWeight: '700', marginLeft: 6 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -2863,10 +2874,10 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 10,
     borderTopWidth: 1,
-    borderTopColor: '#2d2d44',
+    borderTopColor: theme.colors.surface,
   },
   inputBarSurface: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: theme.colors.background,
   },
   inputBarOverlay: {
     backgroundColor: 'rgba(20,20,34,0.42)',
@@ -2876,16 +2887,16 @@ const styles = StyleSheet.create({
     minHeight: 42,
     maxHeight: 110,
     borderRadius: 21,
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#3a3a58',
-    color: '#fff',
+    borderColor: theme.colors.surfaceBorder,
+    color: theme.colors.text,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
   },
   inputFocused: {
-    borderColor: '#8b85ff',
+    borderColor: theme.colors.primaryMuted,
   },
   inputOverlay: {
     backgroundColor: 'rgba(45,45,68,0.42)',
@@ -2898,8 +2909,8 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#6c63ff',
-    shadowColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
+    shadowColor: theme.colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
@@ -2921,14 +2932,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
     backgroundColor: 'rgba(45,45,68,0.6)',
   },
   clearButtonDisabled: {
     opacity: 0.45,
   },
   clearText: {
-    color: '#b8b8d0',
+    color: theme.colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
   },

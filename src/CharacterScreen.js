@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -36,6 +36,7 @@ import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
 import { createGroupSession } from './storage';
+import { useTheme } from './theme/ThemeContext';
 
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
@@ -138,8 +139,8 @@ function ToggleRow({ label, value, onValueChange }) {
       <Switch
         value={!!value}
         onValueChange={onValueChange}
-        trackColor={{ false: '#3a3a55', true: '#6c63ff' }}
-        thumbColor="#f2f2f7"
+        trackColor={{ false: theme.colors.surfaceBorder, true: theme.colors.primary }}
+        thumbColor={theme.colors.primaryContrast}
       />
     </View>
   );
@@ -182,7 +183,7 @@ function NumberField({ label, value, onCommit }) {
         onEndEditing={commit}
         keyboardType="number-pad"
         placeholder={label}
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
       />
     </View>
   );
@@ -193,20 +194,20 @@ function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel,
     <View style={styles.sectionCard}>
       <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
         <View style={styles.sectionTitleRow}>
-          {icon ? <Ionicons name={icon} size={15} color="#8b85ff" /> : null}
+          {icon ? <Ionicons name={icon} size={15} color={theme.colors.primaryMuted} /> : null}
           <Text style={styles.sectionTitle}>{title}</Text>
           <View style={styles.countBadge}>
             <Text style={styles.countBadgeText}>{count}</Text>
           </View>
         </View>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#8b85ff" />
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.primaryMuted} />
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.sectionBody}>
           {children}
           {onAdd ? (
             <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color="#c8c4ff" />
+              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
               <Text style={styles.addButtonText}>{addLabel}</Text>
             </TouchableOpacity>
           ) : null}
@@ -245,7 +246,7 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         value={entry.comment}
         onChangeText={comment => onChange({ comment })}
         placeholder="世界书条目名称"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.fieldLabel}>触发关键词（逗号分隔）</Text>
       <TextInput
@@ -253,7 +254,7 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         value={keys.join(', ')}
         onChangeText={text => onChange({ keys: splitKeywords(text) })}
         placeholder="关键词一, 关键词二"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.fieldLabel}>内容</Text>
       <TextInput
@@ -261,7 +262,7 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         value={entry.content}
         onChangeText={content => onChange({ content })}
         placeholder="命中后注入提示词的内容"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
         multiline
         textAlignVertical="top"
       />
@@ -326,7 +327,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         value={script.name}
         onChangeText={name => onChange({ name })}
         placeholder="正则脚本名称"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.fieldLabel}>匹配表达式</Text>
       <TextInput
@@ -334,7 +335,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         value={script.findRegex}
         onChangeText={findRegex => onChange({ findRegex })}
         placeholder="例如：\\bfoo\\b"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
         multiline
         textAlignVertical="top"
       />
@@ -344,7 +345,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         value={script.replaceString}
         onChangeText={replaceString => onChange({ replaceString })}
         placeholder="替换后的文本，可留空表示删除"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
         multiline
         textAlignVertical="top"
       />
@@ -356,7 +357,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         autoCapitalize="none"
         autoCorrect={false}
         placeholder="g"
-        placeholderTextColor="#888"
+        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.dataMeta}>/表达式/flags 使用内嵌 flags；裸表达式的 flags 留空时仅替换首个匹配。</Text>
       <Text style={styles.fieldLabel}>作用范围</Text>
@@ -406,7 +407,7 @@ function SummaryRow({ title, meta, enabled, onPress }) {
           <Text style={styles.statusBadgeText}>已停用</Text>
         </View>
       ) : null}
-      <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+      <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
     </TouchableOpacity>
   );
 }
@@ -424,6 +425,8 @@ export default function CharacterScreen() {
     refreshSessions,
   } = useApp();
   const navigation = useNavigation();
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [description, setDescription] = useState('');
@@ -866,7 +869,7 @@ export default function CharacterScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
-              <Ionicons name="people-outline" size={16} color="#8b85ff" />
+              <Ionicons name="people-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>角色库</Text>
               <View style={styles.countBadge}>
                 <Text style={styles.countBadgeText}>{characters.length}</Text>
@@ -878,7 +881,7 @@ export default function CharacterScreen() {
               disabled={!loaded}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={15} color="#c8c4ff" />
+              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
               <Text style={styles.pillButtonText}>新建</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -887,7 +890,7 @@ export default function CharacterScreen() {
               disabled={!loaded || characters.length < 2}
               activeOpacity={0.8}
             >
-              <Ionicons name="people" size={15} color="#c8c4ff" />
+              <Ionicons name="people" size={15} color={theme.colors.primarySoft} />
               <Text style={styles.pillButtonText}>群聊</Text>
             </TouchableOpacity>
           </View>
@@ -927,7 +930,7 @@ export default function CharacterScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="删除角色"
                       >
-                        <Ionicons name="trash-outline" size={15} color="#ffffff" />
+                        <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -943,7 +946,7 @@ export default function CharacterScreen() {
         </View>
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="create-outline" size={16} color="#8b85ff" />
+            <Ionicons name="create-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>基本信息</Text>
           </View>
           <Text style={styles.label}>角色名</Text>
@@ -952,7 +955,7 @@ export default function CharacterScreen() {
             value={name}
             onChangeText={setName}
             placeholder="例如：严谨的代码助手"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
           />
           <TouchableOpacity
             style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
@@ -960,7 +963,7 @@ export default function CharacterScreen() {
             disabled={importing || !loaded}
             activeOpacity={0.8}
           >
-            <Ionicons name="download-outline" size={16} color="#c8c4ff" />
+            <Ionicons name="download-outline" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.importButtonText}>
               {importing ? '导入中...' : '导入角色卡'}
             </Text>
@@ -1016,12 +1019,12 @@ export default function CharacterScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.presetEntryLeft}>
-              <Ionicons name="share-outline" size={17} color="#8b85ff" />
+              <Ionicons name="share-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.presetEntryText}>
                 {exporting ? '导出中...' : '导出角色卡'}
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1030,16 +1033,16 @@ export default function CharacterScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.presetEntryLeft}>
-              <Ionicons name="list-outline" size={17} color="#8b85ff" />
+              <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.presetEntryText}>全局预设</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="sparkles-outline" size={16} color="#8b85ff" />
+            <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>人设设定</Text>
           </View>
           <Text style={styles.label}>开场白</Text>
@@ -1048,7 +1051,7 @@ export default function CharacterScreen() {
             value={firstMes}
             onChangeText={setFirstMes}
             placeholder="角色登场时的第一句话"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -1058,7 +1061,7 @@ export default function CharacterScreen() {
             value={systemPrompt}
             onChangeText={setSystemPrompt}
             placeholder="描述角色的语气、知识和回答方式"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -1068,7 +1071,7 @@ export default function CharacterScreen() {
             value={description}
             onChangeText={setDescription}
             placeholder="角色的背景、外貌与身份设定"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -1078,7 +1081,7 @@ export default function CharacterScreen() {
             value={personality}
             onChangeText={setPersonality}
             placeholder="角色的性格特点"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -1088,7 +1091,7 @@ export default function CharacterScreen() {
             value={scenario}
             onChangeText={setScenario}
             placeholder="剧情发生的背景与情境"
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -1100,13 +1103,13 @@ export default function CharacterScreen() {
           disabled={!loaded}
           activeOpacity={0.85}
         >
-          <Ionicons name="save-outline" size={17} color="#fff" />
+          <Ionicons name="save-outline" size={17} color={theme.colors.text} />
           <Text style={styles.buttonText}>保存角色</Text>
         </TouchableOpacity>
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="albums-outline" size={16} color="#8b85ff" />
+            <Ionicons name="albums-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>角色数据</Text>
           </View>
 
@@ -1202,7 +1205,7 @@ export default function CharacterScreen() {
               value={groupName}
               onChangeText={setGroupName}
               placeholder="例如：周末闲聊群"
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textFaint}
               editable={!creatingGroup}
             />
             <Text style={styles.label}>{`选择成员（已选 ${groupSelected.length} / 2-8）`}</Text>
@@ -1219,7 +1222,7 @@ export default function CharacterScreen() {
                     <Ionicons
                       name={selected ? 'checkbox' : 'square-outline'}
                       size={20}
-                      color={selected ? '#8b85ff' : '#7d7d99'}
+                      color={selected ? theme.colors.primaryMuted : theme.colors.textFaint}
                     />
                     {item.avatarUri ? (
                       <Image source={{ uri: item.avatarUri }} style={styles.groupAvatar} />
@@ -1343,18 +1346,18 @@ export default function CharacterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#1a1a2e' },
-  container: { flex: 1, backgroundColor: '#1a1a2e', padding: 18 },
+const createStyles = (theme, fonts) => StyleSheet.create({
+  flex: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   pageHeader: { marginTop: 4, marginBottom: 6 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 6 },
-  hint: { color: '#9a9ab5', fontSize: 13, lineHeight: 19 },
+  title: { color: theme.colors.text, fontSize: 24, fontWeight: '800', marginBottom: 6 },
+  hint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: 19 },
 
   card: {
-    backgroundColor: '#232338',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
     padding: 14,
     marginTop: 14,
     shadowColor: '#000',
@@ -1370,7 +1373,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { color: '#fff', fontSize: 15, fontWeight: '800', marginLeft: 8 },
+  cardTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '800', marginLeft: 8 },
   presetEntryRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1378,21 +1381,21 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginTop: 6,
     borderTopWidth: 1,
-    borderTopColor: '#35354f',
+    borderTopColor: theme.colors.divider,
   },
   presetEntryLeft: { flexDirection: 'row', alignItems: 'center' },
-  presetEntryText: { color: '#d9d9e6', fontSize: 15, marginLeft: 10 },
+  presetEntryText: { color: theme.colors.textMuted, fontSize: 15, marginLeft: 10 },
   groupList: { maxHeight: 300, marginTop: 4 },
   groupRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
+    borderBottomColor: theme.colors.surface,
   },
-  groupAvatar: { width: 34, height: 34, borderRadius: 9, marginLeft: 10, backgroundColor: '#3a3a55' },
+  groupAvatar: { width: 34, height: 34, borderRadius: 9, marginLeft: 10, backgroundColor: theme.colors.surfaceBorder },
   groupAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  groupName: { color: '#e6e6f2', fontSize: 14, marginLeft: 10, flex: 1 },
+  groupName: { color: theme.colors.textMuted, fontSize: 14, marginLeft: 10, flex: 1 },
   countBadge: {
     marginLeft: 8,
     minWidth: 22,
@@ -1403,18 +1406,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countBadgeText: { color: '#c8c4ff', fontSize: 11, fontWeight: '700' },
+  countBadgeText: { color: theme.colors.primarySoft, fontSize: 11, fontWeight: '700' },
 
-  label: { color: '#e6e6f2', marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
-  fieldLabel: { color: '#9a9ab5', fontSize: 12, marginTop: 12, marginBottom: 6, fontWeight: '600' },
+  label: { color: theme.colors.textMuted, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
+  fieldLabel: { color: theme.colors.textFaint, fontSize: 12, marginTop: 12, marginBottom: 6, fontWeight: '600' },
   input: {
-    backgroundColor: '#2d2d44',
-    color: '#fff',
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.text,
     paddingHorizontal: 12,
     paddingVertical: 11,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
     fontSize: 14,
   },
   inputSmall: { paddingVertical: 9, paddingHorizontal: 11 },
@@ -1428,41 +1431,41 @@ const styles = StyleSheet.create({
 
   button: {
     flexDirection: 'row',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     marginTop: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonText: { color: '#fff', fontWeight: '800', marginLeft: 8, fontSize: 15 },
+  buttonText: { color: theme.colors.text, fontWeight: '800', marginLeft: 8, fontSize: 15 },
   buttonDisabled: { opacity: 0.45 },
 
   importButton: {
     flexDirection: 'row',
     backgroundColor: 'rgba(108,99,255,0.12)',
     borderWidth: 1,
-    borderColor: '#6c63ff',
+    borderColor: theme.colors.primary,
     paddingVertical: 11,
     borderRadius: 10,
     marginTop: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  importButtonText: { color: '#c8c4ff', fontWeight: '700', marginLeft: 8 },
-  importHint: { color: '#7d7d99', fontSize: 12, marginTop: 8 },
+  importButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 8 },
+  importHint: { color: theme.colors.textFaint, fontSize: 12, marginTop: 8 },
 
   pillButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(108,99,255,0.12)',
     borderWidth: 1,
-    borderColor: '#6c63ff',
+    borderColor: theme.colors.primary,
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 15,
   },
-  pillButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 4 },
+  pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 13, marginLeft: 4 },
 
   characterGrid: {
     flexDirection: 'row',
@@ -1472,7 +1475,7 @@ const styles = StyleSheet.create({
   },
   characterCard: {
     width: '48%',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'transparent',
@@ -1480,12 +1483,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   characterCardActive: {
-    borderColor: '#6c63ff',
+    borderColor: theme.colors.primary,
   },
   characterCardImageWrap: {
     width: '100%',
     aspectRatio: 1,
-    backgroundColor: '#3a3a58',
+    backgroundColor: theme.colors.surfaceBorder,
   },
   characterCardImage: { width: '100%', height: '100%' },
   characterCardFallback: {
@@ -1495,17 +1498,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(108,99,255,0.18)',
   },
-  characterCardFallbackText: { color: '#c8c4ff', fontSize: 34, fontWeight: '800' },
+  characterCardFallbackText: { color: theme.colors.primarySoft, fontSize: 34, fontWeight: '800' },
   characterCardBadge: {
     position: 'absolute',
     top: 8,
     left: 8,
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  characterCardBadgeText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
+  characterCardBadgeText: { color: theme.colors.text, fontSize: 11, fontWeight: '700' },
   characterCardDelete: {
     position: 'absolute',
     top: 6,
@@ -1518,19 +1521,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   characterCardNameBar: {
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.colors.text,
     paddingVertical: 7,
     paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   characterCardName: {
-    color: '#1a1a2e',
+    color: theme.colors.background,
     fontSize: 13,
     fontWeight: '700',
     maxWidth: '100%',
   },
-  removeText: { color: '#ff9b9b', fontWeight: '700' },
+  removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
 
   imageRow: { flexDirection: 'row', alignItems: 'center' },
   imageActions: { flexDirection: 'row', alignItems: 'center', flex: 1 },
@@ -1538,7 +1541,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     overflow: 'hidden',
     marginRight: 12,
     borderWidth: 2,
@@ -1553,35 +1556,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarPlaceholderText: { color: '#c8c4ff', fontSize: 22, fontWeight: '800' },
+  avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: 22, fontWeight: '800' },
   bgPreview: {
     width: 60,
     height: 60,
     borderRadius: 12,
     marginRight: 12,
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
   },
   smallButton: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#6c63ff',
+    borderColor: theme.colors.primary,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 10,
     marginRight: 12,
   },
-  smallButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13 },
+  smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 13 },
 
   dataSection: { marginTop: 16 },
-  dataTitle: { color: '#c8c4ff', fontWeight: '800', fontSize: 13, marginBottom: 8 },
+  dataTitle: { color: theme.colors.primarySoft, fontWeight: '800', fontSize: 13, marginBottom: 8 },
   sectionCard: {
     marginTop: 12,
-    backgroundColor: '#1f1f33',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2d2d44',
+    borderColor: theme.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
@@ -1592,12 +1595,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center' },
-  sectionTitle: { color: '#c8c4ff', fontWeight: '800', marginLeft: 8, fontSize: 13 },
+  sectionTitle: { color: theme.colors.primarySoft, fontWeight: '800', marginLeft: 8, fontSize: 13 },
   sectionBody: { paddingBottom: 10 },
   addButton: {
     flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#6c63ff',
+    borderColor: theme.colors.primary,
     borderStyle: 'dashed',
     borderRadius: 10,
     paddingVertical: 10,
@@ -1605,7 +1608,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 4,
   },
-  addButtonText: { color: '#c8c4ff', fontWeight: '700', marginLeft: 6 },
+  addButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6 },
 
   tagRow: { flexDirection: 'row', flexWrap: 'wrap' },
   tag: {
@@ -1620,21 +1623,21 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     flexShrink: 1,
   },
-  tagText: { color: '#c8c4ff', fontSize: 12, lineHeight: 18, fontWeight: '600', flexShrink: 1 },
+  tagText: { color: theme.colors.primarySoft, fontSize: 12, lineHeight: 18, fontWeight: '600', flexShrink: 1 },
 
   dataField: { marginBottom: 10 },
-  dataFieldLabel: { color: '#7d7d99', fontSize: 12, marginBottom: 3 },
-  dataFieldValue: { color: '#e6e6ef', fontSize: 14, lineHeight: 20 },
-  dataEmpty: { color: '#7d7d99', fontSize: 13, paddingVertical: 6 },
-  dataMeta: { color: '#9a9ab5', fontSize: 12, lineHeight: 18 },
+  dataFieldLabel: { color: theme.colors.textFaint, fontSize: 12, marginBottom: 3 },
+  dataFieldValue: { color: theme.colors.text, fontSize: 14, lineHeight: 20 },
+  dataEmpty: { color: theme.colors.textFaint, fontSize: 13, paddingVertical: 6 },
+  dataMeta: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 18 },
 
   entryCard: {
-    backgroundColor: '#24243b',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#2d2d44',
+    borderColor: theme.colors.surface,
   },
   entryHeader: {
     flexDirection: 'row',
@@ -1642,56 +1645,56 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 4,
   },
-  entryTitle: { color: '#fff', fontWeight: '700', flex: 1, marginRight: 8 },
+  entryTitle: { color: theme.colors.text, fontWeight: '700', flex: 1, marginRight: 8 },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 10,
   },
-  toggleLabel: { color: '#d9d9e6', fontSize: 14 },
+  toggleLabel: { color: theme.colors.textMuted, fontSize: 14 },
   cycleRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 },
   cycleButton: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 12,
     marginRight: 8,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
   },
-  cycleButtonText: { color: '#c8c4ff', fontSize: 13, fontWeight: '700' },
+  cycleButtonText: { color: theme.colors.primarySoft, fontSize: 13, fontWeight: '700' },
   numberRow: { flexDirection: 'row', marginTop: 4 },
   numberField: { flex: 1, marginRight: 10 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
   chip: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 15,
     paddingVertical: 6,
     paddingHorizontal: 12,
     marginRight: 8,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
   },
-  chipActive: { backgroundColor: '#6c63ff', borderColor: '#6c63ff' },
-  chipText: { color: '#9a9ab5', fontSize: 13, fontWeight: '700' },
-  chipTextActive: { color: '#fff' },
+  chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  chipText: { color: theme.colors.textFaint, fontSize: 13, fontWeight: '700' },
+  chipTextActive: { color: theme.colors.text },
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
   },
   summaryInfo: { flex: 1, marginRight: 8 },
-  summaryTitle: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  summaryMeta: { color: '#7d7d99', fontSize: 12, marginTop: 2 },
+  summaryTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
+  summaryMeta: { color: theme.colors.textFaint, fontSize: 12, marginTop: 2 },
   statusBadge: {
     backgroundColor: 'rgba(136,136,136,0.18)',
     borderRadius: 9,
@@ -1699,7 +1702,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     marginRight: 6,
   },
-  statusBadgeText: { color: '#9a9ab5', fontSize: 11, fontWeight: '700' },
+  statusBadgeText: { color: theme.colors.textFaint, fontSize: 11, fontWeight: '700' },
 
   modalBackdrop: {
     flex: 1,
@@ -1708,12 +1711,12 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalSheet: {
-    backgroundColor: '#232338',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 16,
     padding: 16,
     maxHeight: '85%',
     borderWidth: 1,
-    borderColor: '#2d2d44',
+    borderColor: theme.colors.surface,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1721,7 +1724,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
-  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  modalDone: { color: '#8b85ff', fontWeight: '800' },
+  modalTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '800' },
+  modalDone: { color: theme.colors.primaryMuted, fontWeight: '800' },
   modalBody: { flexGrow: 0 },
 });

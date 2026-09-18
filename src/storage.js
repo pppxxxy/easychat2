@@ -25,6 +25,7 @@ const PLUGINS_KEY = '@easychat2_plugins';
 const THINKING_KEY = '@easychat2_thinking';
 const IMAGE_GEN_KEY = '@easychat2_image_gen';
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
+const APPEARANCE_KEY = '@easychat2_appearance';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -384,6 +385,31 @@ export async function getChatOptions() {
 export async function saveChatOptions(options) {
   const normalized = normalizeChatOptions(options);
   await AsyncStorage.setItem(CHAT_OPTIONS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+const THEME_IDS = ['dark', 'light', 'blue', 'pink', 'crimson'];
+const FONT_SCALE_IDS = ['default', 'system', 'small', 'medium', 'large', 'xlarge'];
+const DEFAULT_APPEARANCE = { themeId: 'dark', fontScaleId: 'default' };
+
+function normalizeAppearance(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    themeId: THEME_IDS.includes(source.themeId) ? source.themeId : DEFAULT_APPEARANCE.themeId,
+    fontScaleId: FONT_SCALE_IDS.includes(source.fontScaleId)
+      ? source.fontScaleId
+      : DEFAULT_APPEARANCE.fontScaleId,
+  };
+}
+
+export async function getAppearanceSettings() {
+  const raw = await readJson(APPEARANCE_KEY, null);
+  return normalizeAppearance(raw);
+}
+
+export async function saveAppearanceSettings(settings) {
+  const normalized = normalizeAppearance(settings);
+  await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

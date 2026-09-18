@@ -23,6 +23,7 @@ import {
   startNewSession,
 } from './src/storage';
 import { AppProvider, useApp } from './src/context/AppContext';
+import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 
 const Tab = createBottomTabNavigator();
 
@@ -34,29 +35,22 @@ const TAB_ICONS = {
   设置: ['settings-outline', 'settings'],
 };
 
-const theme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: '#1a1a2e',
-    card: '#1a1a2e',
-    text: '#ffffff',
-    border: '#2d2d44',
-    primary: '#6c63ff'
-  }
-};
-
 function Header() {
   const insets = useSafeAreaInsets();
+  const { theme, fonts } = useTheme();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+    <View style={[styles.header, {
+      paddingTop: insets.top + 12,
+      backgroundColor: theme.colors.background,
+      borderBottomColor: theme.colors.divider,
+    }]}>
       <View style={styles.brandRow}>
-        <View style={styles.logoBadge}>
-          <Ionicons name="chatbubbles" size={20} color="#ffffff" />
+        <View style={[styles.logoBadge, { backgroundColor: theme.colors.primary }]}>
+          <Ionicons name="chatbubbles" size={20} color={theme.colors.primaryContrast} />
         </View>
         <View style={styles.brandText}>
-          <Text style={styles.title}>EasyChat2</Text>
-          <Text style={styles.subtitle}>AI CHAT APP</Text>
+          <Text style={[styles.title, { color: theme.colors.text, fontSize: fonts.scaled(22) }]}>EasyChat2</Text>
+          <Text style={[styles.subtitle, { color: theme.colors.textFaint, fontSize: fonts.scaled(11) }]}>AI CHAT APP</Text>
         </View>
       </View>
     </View>
@@ -111,41 +105,67 @@ function StartupSession() {
   return null;
 }
 
+function AppShell() {
+  const { theme: palette } = useTheme();
+  const navTheme = {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: palette.colors.background,
+      card: palette.colors.background,
+      text: palette.colors.text,
+      border: palette.colors.surface,
+      primary: palette.colors.primary,
+    },
+  };
+  return (
+    <NavigationContainer theme={navTheme}>
+      <StatusBar style={palette.id === 'light' ? 'dark' : 'light'} />
+      <Header />
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarStyle: [styles.tabBar, {
+            backgroundColor: palette.colors.surfaceAlt,
+            borderTopColor: palette.colors.divider,
+          }],
+          tabBarActiveTintColor: palette.colors.primaryMuted,
+          tabBarInactiveTintColor: palette.colors.textFaint,
+          tabBarLabelStyle: styles.tabLabel,
+          tabBarIcon: ({ color, focused }) => {
+            const [outline, filled] = TAB_ICONS[route.name] || ['ellipse-outline', 'ellipse'];
+            return (
+              <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive, focused && {
+                backgroundColor: `${palette.colors.primary}38`,
+                borderColor: `${palette.colors.primaryMuted}59`,
+              }]}>
+                <Ionicons name={focused ? filled : outline} size={20} color={color} />
+              </View>
+            );
+          },
+        })}
+      >
+        <Tab.Screen name="聊天" component={ChatScreen} />
+        <Tab.Screen name="记忆" component={MemoryScreen} />
+        <Tab.Screen name="角色" component={CharacterScreen} />
+        <Tab.Screen name="扩展" component={ExtensionScreen} />
+        <Tab.Screen name="设置" component={SettingsScreen} />
+      </Tab.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AppProvider>
-          <NavigationContainer theme={theme}>
-          <StatusBar style="light" />
-          <Header />
-          <Tab.Navigator
-            screenOptions={({ route }) => ({
-              headerShown: false,
-              tabBarStyle: styles.tabBar,
-              tabBarActiveTintColor: '#8b85ff',
-              tabBarInactiveTintColor: '#7d7d99',
-              tabBarLabelStyle: styles.tabLabel,
-              tabBarIcon: ({ color, focused }) => {
-                const [outline, filled] = TAB_ICONS[route.name] || ['ellipse-outline', 'ellipse'];
-                return (
-                  <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
-                    <Ionicons name={focused ? filled : outline} size={20} color={color} />
-                  </View>
-                );
-              },
-            })}
-          >
-            <Tab.Screen name="聊天" component={ChatScreen} />
-            <Tab.Screen name="记忆" component={MemoryScreen} />
-            <Tab.Screen name="角色" component={CharacterScreen} />
-            <Tab.Screen name="扩展" component={ExtensionScreen} />
-            <Tab.Screen name="设置" component={SettingsScreen} />
-          </Tab.Navigator>
-          </NavigationContainer>
-          <StartupSession />
-          <StartupDisclaimer />
-        </AppProvider>
+        <ThemeProvider>
+          <AppProvider>
+            <AppShell />
+            <StartupSession />
+            <StartupDisclaimer />
+          </AppProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -155,34 +175,29 @@ const styles = StyleSheet.create({
   header: {
     paddingBottom: 16,
     paddingHorizontal: 20,
-    backgroundColor: '#1a1a2e',
     borderBottomWidth: 1,
-    borderBottomColor: '#35354f',
   },
   brandRow: { flexDirection: 'row', alignItems: 'center' },
   logoBadge: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#6c63ff',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.45)',
-    shadowColor: '#6c63ff',
+    borderColor: 'rgba(255,255,255,0.18)',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
     elevation: 4,
   },
   brandText: { justifyContent: 'center' },
-  title: { color: '#ffffff', fontSize: 22, fontWeight: '800', letterSpacing: 0.2 },
-  subtitle: { color: '#8a8aa3', fontSize: 11, marginTop: 3, letterSpacing: 2, fontWeight: '600' },
+  title: { fontWeight: '800', letterSpacing: 0.2 },
+  subtitle: { marginTop: 3, letterSpacing: 2, fontWeight: '600' },
   tabBar: {
-    backgroundColor: '#20203a',
     borderTopWidth: 1,
-    borderTopColor: '#35354f',
     paddingTop: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
@@ -199,9 +214,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'transparent',
-  },
-  tabIconWrapActive: {
-    backgroundColor: 'rgba(108,99,255,0.22)',
-    borderColor: 'rgba(139,133,255,0.35)',
   },
 });

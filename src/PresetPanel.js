@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { useTheme } from './theme/ThemeContext';
 import {
   createGlobalPresetId,
   getGlobalPresetSettings,
@@ -36,6 +37,8 @@ export default function PresetPanel({ visible, onClose }) {
   const [editingPreset, setEditingPreset] = useState(null);
   const [form, setForm] = useState({ name: '', description: '', prompt: '' });
   const [saving, setSaving] = useState(false);
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const busyRef = useRef(false);
 
   useEffect(() => {
@@ -200,7 +203,7 @@ export default function PresetPanel({ visible, onClose }) {
           <View style={styles.header}>
             <Text style={styles.title}>全局预设</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
-              <Ionicons name="close" size={22} color="#c9c9e0" />
+              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.listContent}>
@@ -222,8 +225,8 @@ export default function PresetPanel({ visible, onClose }) {
                 <Switch
                   value={enabled[preset.id] === true}
                   onValueChange={value => togglePreset(preset.id, value)}
-                  trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                  thumbColor="#ffffff"
+                  trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                  thumbColor={theme.colors.primaryContrast}
                 />
                 <TouchableOpacity
                   style={styles.presetDelete}
@@ -232,7 +235,7 @@ export default function PresetPanel({ visible, onClose }) {
                   disabled={saving}
                   accessibilityLabel="删除预设"
                 >
-                  <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
+                  <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -245,7 +248,7 @@ export default function PresetPanel({ visible, onClose }) {
               disabled={!loaded || saving}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={16} color="#c8c4ff" />
+              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
               <Text style={styles.secondaryButtonText}>新增预设</Text>
             </TouchableOpacity>
 
@@ -260,8 +263,8 @@ export default function PresetPanel({ visible, onClose }) {
               <Switch
                 value={memoryEnabled}
                 onValueChange={toggleMemory}
-                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                thumbColor="#ffffff"
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
               />
             </View>
             <Text style={styles.label}>触发阈值（消息条数）</Text>
@@ -273,7 +276,7 @@ export default function PresetPanel({ visible, onClose }) {
               onBlur={commitThreshold}
               keyboardType="number-pad"
               placeholder={String(THRESHOLD_FALLBACK)}
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textFaint}
             />
           </ScrollView>
         </View>
@@ -303,7 +306,7 @@ export default function PresetPanel({ visible, onClose }) {
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, name: text }))}
                 placeholder="例如：控制篇幅"
-                placeholderTextColor="#888"
+                placeholderTextColor={theme.colors.textFaint}
               />
               <Text style={styles.label}>描述（可选）</Text>
               <TextInput
@@ -312,7 +315,7 @@ export default function PresetPanel({ visible, onClose }) {
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, description: text }))}
                 placeholder="一句话说明用途"
-                placeholderTextColor="#888"
+                placeholderTextColor={theme.colors.textFaint}
               />
               <Text style={styles.label}>提示词</Text>
               <TextInput
@@ -321,7 +324,7 @@ export default function PresetPanel({ visible, onClose }) {
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, prompt: text }))}
                 placeholder="开启后追加到系统提示词的内容"
-                placeholderTextColor="#888"
+                placeholderTextColor={theme.colors.textFaint}
                 multiline
                 textAlignVertical="top"
               />
@@ -351,14 +354,14 @@ export default function PresetPanel({ visible, onClose }) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme, fonts) => StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#20203a',
+    backgroundColor: theme.colors.surfaceAlt,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     padding: 18,
@@ -370,58 +373,58 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  title: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800', marginBottom: 6 },
   listContent: { paddingBottom: 12 },
-  fieldHint: { color: '#8a8aa3', fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 10 },
   presetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
   presetInfo: { flex: 1, marginRight: 8 },
-  presetName: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
-  presetDesc: { color: '#a8a8c2', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  presetName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
+  presetDesc: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 3 },
   presetDelete: { marginLeft: 6, padding: 4 },
   secondaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(108,99,255,0.18)',
+    backgroundColor: `${theme.colors.primary}2e`,
     borderRadius: 12,
     paddingVertical: 11,
     marginTop: 4,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.35)',
+    borderColor: `${theme.colors.primaryMuted}59`,
   },
-  secondaryButtonText: { color: '#c8c4ff', fontSize: 14, fontWeight: '700', marginLeft: 6 },
+  secondaryButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 6 },
   sectionDivider: {
     height: 1,
-    backgroundColor: '#35354f',
+    backgroundColor: theme.colors.divider,
     marginVertical: 16,
   },
   memoryRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   memoryText: { flex: 1, marginRight: 8 },
-  label: { color: '#9a9ab5', fontSize: 12, marginBottom: 6, marginTop: 8 },
+  label: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginBottom: 6, marginTop: 8 },
   input: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-    color: '#ffffff',
-    fontSize: 14,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
   promptInput: { minHeight: 110, marginBottom: 6 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 },
   selectButton: {
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 10,
     paddingHorizontal: 18,
     paddingVertical: 10,
@@ -429,7 +432,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  selectButtonGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#4a4a68' },
-  selectButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  selectButtonGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.colors.surfaceBorder },
+  selectButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700' },
   buttonDisabled: { opacity: 0.45 },
 });

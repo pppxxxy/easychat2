@@ -91,6 +91,7 @@ npm run prebuild     # 生成原生工程
 | `src/ChatScreen.js` | 聊天主流程 |
 | `src/CharacterScreen.js` | 角色编辑与角色卡导入 |
 | `src/ExtensionScreen.js` | 扩展页：内嵌小游戏与生图 |
+| `src/theme/ThemeContext.js` | 主题与字体缩放的全局上下文 |
 | `src/imageGen/index.js` | 生图统一适配与响应解析 |
 | `src/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
 | `src/chatPipeline.js` | 世界书/正则提示词组装 |

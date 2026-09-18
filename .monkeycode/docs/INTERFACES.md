@@ -16,7 +16,7 @@
 | `扩展` | `ExtensionScreen` | 内嵌小游戏与生图 |
 | `设置` | `SettingsScreen` | API 配置 |
 
-导航主题在 `App.js` 内以 `DefaultTheme` 扩展定义，暗色背景 `#1a1a2e`，主色 `#6c63ff`。`Header` 组件使用 `useSafeAreaInsets` 计算顶部内边距。
+导航主题在 `App.js` 内由当前语义色板扩展 `DefaultTheme` 生成，Header、状态栏与底部标签栏颜色均取自 `useTheme()`。`Header` 组件使用 `useSafeAreaInsets` 计算顶部内边距。
 
 ### `ChatScreen`（默认导出）
 **位置**: `src/ChatScreen.js`
@@ -126,6 +126,20 @@
 - 关闭时保存未提交的配置
 
 ## 全局状态
+
+### `ThemeProvider`
+**位置**: `src/theme/ThemeContext.js`
+**Props**: `children`
+**说明**: 加载并持久化 `@easychat2_appearance`，向全应用提供主题与字体缩放。`useTheme()` 在无 Provider 时回退默认主题，便于脚本测试。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `theme` | `{ id, label, colors }` | 当前主题，`colors` 为语义令牌（`background`、`surface`、`surfaceAlt`、`surfaceBorder`、`divider`、`primary`、`primaryMuted`、`primarySoft`、`primaryContrast`、`text`、`textMuted`、`textFaint`、`danger`、`dangerSoft`、`overlay`、`star`、`bubbleAssistant`、`bubbleAssistantText`） |
+| `themes` | `Array` | 五套预设主题 |
+| `themeId` / `setThemeId` | `string` / `(id) => void` | 当前主题 id 与切换 |
+| `fontScaleId` / `setFontScaleId` | `string` / `(id) => void` | 当前字体档位与切换 |
+| `fontScales` | `Array` | 六档字体（`default` / `system` / `small` / `medium` / `large` / `xlarge`） |
+| `fonts.scaled(size)` | `(number) => number` | 按当前档位缩放字号；`system` 取 `PixelRatio.getFontScale()` |
 
 ### `AppProvider`
 **位置**: `src/context/AppContext.js`
@@ -272,6 +286,7 @@
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
+| `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }` |
 
 **默认 API 配置**:
 

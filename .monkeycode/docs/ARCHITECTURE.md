@@ -71,6 +71,7 @@ easychat2/
 │   ├── attachments.js        # 聊天附件：文本类读取、图片 data URI 与合并
 │   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
 │   ├── games/games.js        # 内嵌 HTML 小游戏清单
+│   ├── theme/                # 五套主题语义色板与字体缩放上下文
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
@@ -150,6 +151,13 @@ easychat2/
 **关键文件**: `src/ExtensionScreen.js`、`src/games/games.js`
 **依赖**: `react-native-webview`、`src/ImageGenScreen.js`
 **被依赖**: `App.js`
+
+### 外观主题与字体
+**目的**: 提供五套预设主题与六档字体大小，全局即时生效并持久化；各屏样式由 `createStyles(theme, fonts)` 按语义令牌生成
+**位置**: `src/theme/themes.js`、`src/theme/ThemeContext.js`
+**关键文件**: `src/theme/ThemeContext.js`
+**依赖**: `src/storage.js`
+**被依赖**: `App.js` 与全部界面屏
 
 ### 免责条款与公告
 **目的**: 集中维护免责条款文本；首次启动时弹出一次并要求确认，聊天页右上角「公告」可随时再次查看

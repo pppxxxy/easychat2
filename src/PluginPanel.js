@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -15,6 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getPlugins, savePlugins } from './storage';
+import { useTheme } from './theme/ThemeContext';
 import { PROVIDERS } from './plugins/providers';
 
 export default function PluginPanel({ visible, onClose }) {
@@ -22,6 +23,8 @@ export default function PluginPanel({ visible, onClose }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState({});
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -108,7 +111,7 @@ export default function PluginPanel({ visible, onClose }) {
           <View style={styles.header}>
             <Text style={styles.title}>插件</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
-              <Ionicons name="close" size={22} color="#c9c9e0" />
+              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
@@ -130,8 +133,8 @@ export default function PluginPanel({ visible, onClose }) {
                     <Switch
                       value={plugin.enabled === true}
                       onValueChange={value => togglePlugin(plugin, value)}
-                      trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                      thumbColor="#ffffff"
+                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                      thumbColor={theme.colors.primaryContrast}
                     />
                   </View>
 
@@ -163,7 +166,7 @@ export default function PluginPanel({ visible, onClose }) {
                           value={config.apiKey || ''}
                           onChangeText={text => setConfigField(plugin.id, 'apiKey', text)}
                           placeholder="填写搜索服务密钥"
-                          placeholderTextColor="#888"
+                          placeholderTextColor={theme.colors.textFaint}
                           secureTextEntry={!showKey[plugin.id]}
                           autoCapitalize="none"
                         />
@@ -178,7 +181,7 @@ export default function PluginPanel({ visible, onClose }) {
                           <Ionicons
                             name={showKey[plugin.id] ? 'eye-off-outline' : 'eye-outline'}
                             size={18}
-                            color="#9a9ab5"
+                            color={theme.colors.textFaint}
                           />
                         </TouchableOpacity>
                       </View>
@@ -191,7 +194,7 @@ export default function PluginPanel({ visible, onClose }) {
                             value={config.cx || ''}
                             onChangeText={text => setConfigField(plugin.id, 'cx', text)}
                             placeholder="Google 自定义搜索引擎 ID"
-                            placeholderTextColor="#888"
+                            placeholderTextColor={theme.colors.textFaint}
                             autoCapitalize="none"
                           />
                         </>
@@ -205,7 +208,7 @@ export default function PluginPanel({ visible, onClose }) {
                             value={config.customBaseUrl || ''}
                             onChangeText={text => setConfigField(plugin.id, 'customBaseUrl', text)}
                             placeholder="https://example.com/search"
-                            placeholderTextColor="#888"
+                            placeholderTextColor={theme.colors.textFaint}
                             autoCapitalize="none"
                           />
                         </>
@@ -218,7 +221,7 @@ export default function PluginPanel({ visible, onClose }) {
                         onChangeText={text => setConfigField(plugin.id, 'maxResults', text)}
                         keyboardType="number-pad"
                         placeholder="5"
-                        placeholderTextColor="#888"
+                        placeholderTextColor={theme.colors.textFaint}
                       />
                     </View>
                   ) : null}
@@ -241,10 +244,10 @@ export default function PluginPanel({ visible, onClose }) {
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+const createStyles = (theme, fonts) => StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#20203a',
+    backgroundColor: theme.colors.surfaceAlt,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     padding: 18,
@@ -256,56 +259,56 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  title: { color: '#ffffff', fontSize: 18, fontWeight: '800' },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   content: { paddingBottom: 16 },
-  hint: { color: '#8a8aa3', fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 12 },
   card: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   cardText: { flex: 1, marginRight: 8 },
-  name: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
-  desc: { color: '#a8a8c2', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  name: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700' },
+  desc: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 3 },
   config: { marginTop: 10 },
-  label: { color: '#9a9ab5', fontSize: 12, marginTop: 10, marginBottom: 6 },
+  label: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 10, marginBottom: 6 },
   providerRow: { flexDirection: 'row', flexWrap: 'wrap' },
   providerChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#4a4a68',
+    borderColor: theme.colors.surfaceBorder,
     marginRight: 8,
     marginBottom: 8,
   },
-  providerChipActive: { backgroundColor: 'rgba(108,99,255,0.25)', borderColor: '#6c63ff' },
-  providerText: { color: '#a8a8c2', fontSize: 12, fontWeight: '700' },
-  providerTextActive: { color: '#d9d5ff' },
+  providerChipActive: { backgroundColor: `${theme.colors.primary}40`, borderColor: theme.colors.primary },
+  providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  providerTextActive: { color: theme.colors.primarySoft },
   keyRow: { flexDirection: 'row', alignItems: 'center' },
   keyInput: { flex: 1 },
   eyeButton: { paddingHorizontal: 8, paddingVertical: 8 },
   input: {
-    backgroundColor: '#20203a',
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-    color: '#ffffff',
-    fontSize: 14,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
   saveButton: {
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 4,
   },
-  saveText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
+  saveText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
   disabled: { opacity: 0.45 },
 });

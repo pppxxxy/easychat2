@@ -12,6 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
 import SearchScreen from './SearchScreen';
+import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);
@@ -28,7 +29,7 @@ function formatTime(timestamp) {
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
-function RowAction({ icon, color, onPress, label }) {
+function RowAction({ icon, color, onPress, label, styles }) {
   return (
     <TouchableOpacity
       style={styles.rowAction}
@@ -58,6 +59,8 @@ export default function MemoryScreen({ navigation }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -201,14 +204,14 @@ export default function MemoryScreen({ navigation }) {
               activeOpacity={0.7}
               accessibilityLabel="搜索历史聊天记录"
             >
-              <Ionicons name="search" size={18} color="#c8c4ff" />
+              <Ionicons name="search" size={18} color={theme.colors.primarySoft} />
             </TouchableOpacity>
           )}
         </View>
       </View>
       {loaded && visibleSessions.length === 0 ? (
         <View style={styles.emptyWrap}>
-          <Ionicons name="albums-outline" size={40} color="#5a5a78" />
+          <Ionicons name="albums-outline" size={40} color={theme.colors.textFaint} />
           <Text style={styles.emptyTitle}>还没有历史对话</Text>
           <Text style={styles.emptyHint}>去聊天页开始一段新的对话吧。</Text>
         </View>
@@ -244,7 +247,7 @@ export default function MemoryScreen({ navigation }) {
                     <Ionicons
                       name={selectedIds.includes(session.id) ? 'checkbox' : 'square-outline'}
                       size={22}
-                      color={selectedIds.includes(session.id) ? '#8b85ff' : '#7d7d99'}
+                      color={selectedIds.includes(session.id) ? theme.colors.primaryMuted : theme.colors.textFaint}
                       style={styles.checkbox}
                     />
                   ) : null}
@@ -281,7 +284,7 @@ export default function MemoryScreen({ navigation }) {
                       <Text style={styles.name} numberOfLines={1}>{name}</Text>
                       {isClone ? <Text style={styles.badge}>副本</Text> : null}
                       {session.pinned ? (
-                        <Ionicons name="star" size={12} color="#f2c14e" style={styles.pinMark} />
+                        <Ionicons name="star" size={12} color={theme.colors.star} style={styles.pinMark} />
                       ) : null}
                     </View>
                     <Text style={styles.preview} numberOfLines={2}>
@@ -294,20 +297,23 @@ export default function MemoryScreen({ navigation }) {
                   <View style={styles.actions}>
                     <RowAction
                       icon={session.pinned ? 'star' : 'star-outline'}
-                      color={session.pinned ? '#f2c14e' : '#9a9ab5'}
+                      color={session.pinned ? theme.colors.star : theme.colors.textFaint}
                       label="置顶"
+                      styles={styles}
                       onPress={() => onPin(session)}
                     />
                     <RowAction
                       icon="copy-outline"
-                      color="#9a9ab5"
+                      color={theme.colors.textFaint}
                       label="克隆"
+                      styles={styles}
                       onPress={() => onClone(session)}
                     />
                     <RowAction
                       icon="trash-outline"
-                      color="#ff6b81"
+                      color={theme.colors.danger}
                       label="删除"
+                      styles={styles}
                       onPress={() => onDelete(session)}
                     />
                   </View>
@@ -328,7 +334,7 @@ export default function MemoryScreen({ navigation }) {
             <Ionicons
               name={allSelected ? 'checkbox' : 'square-outline'}
               size={20}
-              color="#c8c4ff"
+              color={theme.colors.primarySoft}
             />
             <Text style={styles.selectAllText}>
               {allSelected ? '取消全选' : '全选'}
@@ -355,8 +361,8 @@ export default function MemoryScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
+const createStyles = (theme, fonts) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -365,8 +371,8 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 10,
   },
-  title: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
-  count: { color: '#8a8aa3', fontSize: 13 },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
+  count: { color: theme.colors.textFaint, fontSize: fonts.scaled(13) },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   searchButton: {
     marginLeft: 12,
@@ -375,27 +381,27 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(108,99,255,0.18)',
+    backgroundColor: `${theme.colors.primary}2e`,
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.35)',
+    borderColor: `${theme.colors.primaryMuted}59`,
   },
   editButton: { marginLeft: 12, paddingVertical: 6, paddingHorizontal: 4 },
-  editButtonText: { color: '#8b85ff', fontSize: 14, fontWeight: '700' },
+  editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
   checkbox: { marginRight: 10 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 14,
     marginBottom: 10,
     paddingLeft: 12,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
   cardSelected: {
-    borderColor: '#6c63ff',
-    backgroundColor: '#33335a',
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.surfaceAlt,
   },
   cardMain: {
     flex: 1,
@@ -404,7 +410,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingRight: 6,
   },
-  avatar: { width: 46, height: 46, borderRadius: 12, backgroundColor: '#3a3a55' },
+  avatar: { width: 46, height: 46, borderRadius: 12, backgroundColor: theme.colors.surfaceBorder },
   groupAvatars: { width: 46, height: 46, marginRight: 0 },
   groupAvatar: {
     position: 'absolute',
@@ -412,29 +418,29 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 9,
-    backgroundColor: '#3a3a55',
+    backgroundColor: theme.colors.surfaceBorder,
     borderWidth: 1,
-    borderColor: '#20203a',
+    borderColor: theme.colors.surfaceAlt,
   },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#c9c9e0', fontSize: 18, fontWeight: '700' },
+  avatarText: { color: theme.colors.textMuted, fontSize: fonts.scaled(18), fontWeight: '700' },
   cardText: { flex: 1, marginLeft: 12 },
   nameRow: { flexDirection: 'row', alignItems: 'center' },
-  name: { color: '#ffffff', fontSize: 15, fontWeight: '700', maxWidth: '70%' },
+  name: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', maxWidth: '70%' },
   badge: {
     marginLeft: 6,
-    color: '#b9b3ff',
-    fontSize: 10,
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(10),
     fontWeight: '700',
-    backgroundColor: 'rgba(108,99,255,0.25)',
+    backgroundColor: `${theme.colors.primary}40`,
     borderRadius: 6,
     paddingHorizontal: 5,
     paddingVertical: 1,
     overflow: 'hidden',
   },
   pinMark: { marginLeft: 6 },
-  preview: { color: '#a8a8c2', fontSize: 13, lineHeight: 18, marginTop: 4 },
-  time: { color: '#6f6f8d', fontSize: 11, marginTop: 5 },
+  preview: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(18), marginTop: 4 },
+  time: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 5 },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -452,8 +458,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingBottom: 80,
   },
-  emptyTitle: { color: '#c9c9e0', fontSize: 15, fontWeight: '700', marginTop: 14 },
-  emptyHint: { color: '#7d7d99', fontSize: 13, marginTop: 6 },
+  emptyTitle: { color: theme.colors.textMuted, fontSize: fonts.scaled(15), fontWeight: '700', marginTop: 14 },
+  emptyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 6 },
   editBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -461,17 +467,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#35354f',
-    backgroundColor: '#20203a',
+    borderTopColor: theme.colors.divider,
+    backgroundColor: theme.colors.surfaceAlt,
   },
   selectAll: { flexDirection: 'row', alignItems: 'center' },
-  selectAllText: { color: '#c8c4ff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
+  selectAllText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
   deleteButton: {
-    backgroundColor: '#ff6b81',
+    backgroundColor: theme.colors.danger,
     borderRadius: 12,
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
-  deleteButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  deleteButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700' },
   disabled: { opacity: 0.45 },
 });

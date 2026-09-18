@@ -22,6 +22,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
 import { generateImage } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
+import { useTheme } from './theme/ThemeContext';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
 const DEFAULT_PROVIDER = IMAGE_PROVIDERS[0].id;
@@ -51,6 +52,8 @@ export default function ImageGenScreen({ embedded = false }) {
   const [draftModel, setDraftModel] = useState('');
   const [draftExtra, setDraftExtra] = useState('');
   const mountedRef = useRef(true);
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -281,7 +284,7 @@ export default function ImageGenScreen({ embedded = false }) {
       <View style={[styles.header, embedded && styles.headerEmbedded]}>
         {embedded ? null : <Text style={styles.title}>生图</Text>}
         <TouchableOpacity style={styles.keyButton} onPress={openSettings} activeOpacity={0.8}>
-          <Ionicons name="key-outline" size={16} color="#ffffff" />
+          <Ionicons name="key-outline" size={16} color={theme.colors.primaryContrast} />
           <Text style={styles.keyButtonText}>填密钥</Text>
         </TouchableOpacity>
       </View>
@@ -290,7 +293,7 @@ export default function ImageGenScreen({ embedded = false }) {
         <Text style={styles.label}>服务</Text>
         <TouchableOpacity style={styles.selectButton} onPress={() => setProviderOpen(true)} activeOpacity={0.8}>
           <Text style={styles.selectButtonText}>{provider.label}</Text>
-          <Ionicons name="chevron-down" size={18} color="#c9c9e0" />
+          <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
 
         <Text style={styles.label}>模型</Text>
@@ -308,7 +311,7 @@ export default function ImageGenScreen({ embedded = false }) {
           <Text style={[styles.selectButtonText, !model && styles.placeholderText]}>
             {model || '未填写（点击「填密钥」）'}
           </Text>
-          <Ionicons name="chevron-down" size={18} color="#c9c9e0" />
+          <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
 
         <Text style={styles.label}>提示词</Text>
@@ -317,7 +320,7 @@ export default function ImageGenScreen({ embedded = false }) {
           value={prompt}
           onChangeText={setPrompt}
           placeholder="描述你想生成的画面..."
-          placeholderTextColor="#888"
+          placeholderTextColor={theme.colors.textFaint}
           multiline
           textAlignVertical="top"
         />
@@ -346,7 +349,7 @@ export default function ImageGenScreen({ embedded = false }) {
           onChangeText={value => setSeed(value.replace(/[^0-9]/g, ''))}
           keyboardType="number-pad"
           placeholder="留空为随机"
-          placeholderTextColor="#888"
+          placeholderTextColor={theme.colors.textFaint}
         />
 
         <Text style={styles.label}>输入图片（图生图，可选）</Text>
@@ -354,12 +357,12 @@ export default function ImageGenScreen({ embedded = false }) {
           <View style={styles.previewRow}>
             <Image source={imagePreview} style={styles.preview} resizeMode="cover" />
             <TouchableOpacity style={styles.removeImage} onPress={clearImage} hitSlop={8}>
-              <Ionicons name="close" size={16} color="#ffffff" />
+              <Ionicons name="close" size={16} color={theme.colors.primaryContrast} />
             </TouchableOpacity>
           </View>
         ) : (
           <TouchableOpacity style={styles.uploadButton} onPress={pickImage} activeOpacity={0.8}>
-            <Ionicons name="image-outline" size={18} color="#c9c9e0" />
+            <Ionicons name="image-outline" size={18} color={theme.colors.textMuted} />
             <Text style={styles.uploadButtonText}>选择图片</Text>
           </TouchableOpacity>
         )}
@@ -371,10 +374,10 @@ export default function ImageGenScreen({ embedded = false }) {
           activeOpacity={0.8}
         >
           {generating ? (
-            <ActivityIndicator color="#ffffff" />
+            <ActivityIndicator color={theme.colors.primaryContrast} />
           ) : (
             <>
-              <Ionicons name="sparkles" size={18} color="#ffffff" />
+              <Ionicons name="sparkles" size={18} color={theme.colors.primaryContrast} />
               <Text style={styles.generateButtonText}>生成</Text>
             </>
           )}
@@ -398,7 +401,7 @@ export default function ImageGenScreen({ embedded = false }) {
                     {uri ? <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" /> : null}
                     {busyResult === (result.url || result.base64 || 'result') ? (
                       <View style={styles.galleryBusy}>
-                        <ActivityIndicator color="#ffffff" />
+                        <ActivityIndicator color={theme.colors.primaryContrast} />
                       </View>
                     ) : null}
                   </TouchableOpacity>
@@ -467,7 +470,7 @@ export default function ImageGenScreen({ embedded = false }) {
               autoCapitalize="none"
               autoCorrect={false}
               placeholder={provider.baseUrl || 'https://example.com/v1/images'}
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textFaint}
             />
             <Text style={styles.label}>API Key</Text>
             <TextInput
@@ -478,7 +481,7 @@ export default function ImageGenScreen({ embedded = false }) {
               autoCorrect={false}
               secureTextEntry
               placeholder="sk-..."
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textFaint}
             />
             <Text style={styles.label}>模型名（可用逗号或换行分隔多个）</Text>
             <TextInput
@@ -488,7 +491,7 @@ export default function ImageGenScreen({ embedded = false }) {
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="z-image-turbo"
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textFaint}
             />
             <Text style={styles.label}>额外参数（JSON，可选）</Text>
             <TextInput
@@ -499,7 +502,7 @@ export default function ImageGenScreen({ embedded = false }) {
               autoCorrect={false}
               multiline
               placeholder='{"quality":"hd"}'
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textFaint}
             />
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -520,8 +523,8 @@ export default function ImageGenScreen({ embedded = false }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e', paddingTop: 48 },
+const createStyles = (theme, fonts) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   containerEmbedded: { paddingTop: 0 },
   header: {
     flexDirection: 'row',
@@ -531,25 +534,25 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   headerEmbedded: { justifyContent: 'flex-end', paddingTop: 4 },
-  title: { color: '#ffffff', fontSize: 22, fontWeight: '800' },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(22), fontWeight: '800' },
   keyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  keyButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '700', marginLeft: 6 },
+  keyButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 6 },
   body: { flex: 1 },
   bodyContent: { paddingHorizontal: 20, paddingBottom: 40 },
-  label: { color: '#aaa', fontSize: 13, marginTop: 16, marginBottom: 8 },
-  hint: { color: '#888', fontSize: 12, marginTop: 6 },
+  label: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 16, marginBottom: 8 },
+  hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6 },
   input: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
-    color: '#ffffff',
-    fontSize: 14,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -559,45 +562,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  selectButtonGhost: { backgroundColor: '#2d2d44', flex: 1, justifyContent: 'center', marginRight: 10 },
-  selectButtonText: { color: '#ffffff', fontSize: 14 },
-  placeholderText: { color: '#888' },
+  selectButtonGhost: { backgroundColor: theme.colors.surface, flex: 1, justifyContent: 'center', marginRight: 10 },
+  selectButtonText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
+  placeholderText: { color: theme.colors.textFaint },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
   chip: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 9,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginRight: 8,
     marginBottom: 8,
   },
-  chipActive: { backgroundColor: '#6c63ff' },
-  chipText: { color: '#c9c9e0', fontSize: 13 },
-  chipTextActive: { color: '#ffffff', fontWeight: '700' },
+  chipActive: { backgroundColor: theme.colors.primary },
+  chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
+  chipTextActive: { color: theme.colors.primaryContrast, fontWeight: '700' },
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: '#3a3a58',
+    borderColor: theme.colors.surfaceBorder,
     paddingVertical: 18,
   },
-  uploadButtonText: { color: '#c9c9e0', fontSize: 14, marginLeft: 8 },
+  uploadButtonText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 8 },
   previewRow: { alignSelf: 'flex-start' },
-  preview: { width: 120, height: 120, borderRadius: 10, backgroundColor: '#2d2d44' },
+  preview: { width: 120, height: 120, borderRadius: 10, backgroundColor: theme.colors.surface },
   removeImage: {
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#ff5a5f',
+    backgroundColor: theme.colors.danger,
     borderRadius: 11,
     width: 22,
     height: 22,
@@ -608,21 +611,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     marginTop: 24,
   },
   generateButtonDisabled: { opacity: 0.7 },
-  generateButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '700', marginLeft: 6 },
-  generatingHint: { color: '#aaa', fontSize: 12, textAlign: 'center', marginTop: 10 },
+  generateButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6 },
+  generatingHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), textAlign: 'center', marginTop: 10 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap' },
   galleryItem: {
     width: '48%',
     aspectRatio: 1,
     borderRadius: 10,
     overflow: 'hidden',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     marginRight: '4%',
     marginBottom: 10,
   },
@@ -635,20 +638,20 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#242438',
+    backgroundColor: theme.colors.surface,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     padding: 20,
     paddingBottom: 32,
   },
-  modalTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800', marginBottom: 8 },
+  modalTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800', marginBottom: 8 },
   modalList: { maxHeight: 280 },
   modalRow: { paddingVertical: 12 },
-  modalRowText: { color: '#c9c9e0', fontSize: 15 },
-  modalRowTextActive: { color: '#6c63ff', fontWeight: '700' },
+  modalRowText: { color: theme.colors.textMuted, fontSize: fonts.scaled(15) },
+  modalRowTextActive: { color: theme.colors.primaryMuted, fontWeight: '700' },
   modalActions: { flexDirection: 'row', marginTop: 20 },
 });

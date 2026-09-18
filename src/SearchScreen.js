@@ -15,6 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { searchMessages } from './storage';
+import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);
@@ -39,6 +40,8 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -89,7 +92,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
       >
         <View style={styles.header}>
           <View style={styles.searchBox}>
-            <Ionicons name="search" size={16} color="#8a8aa3" />
+            <Ionicons name="search" size={16} color={theme.colors.textFaint} />
             <TextInput
               style={styles.input}
               value={keyword}
@@ -97,12 +100,12 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
               onSubmitEditing={runSearch}
               returnKeyType="search"
               placeholder="搜索历史聊天记录"
-              placeholderTextColor="#8a8aa3"
+              placeholderTextColor={theme.colors.textFaint}
               autoFocus
             />
             {keyword ? (
               <TouchableOpacity onPress={() => setKeyword('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={16} color="#8a8aa3" />
+                <Ionicons name="close-circle" size={16} color={theme.colors.textFaint} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -121,7 +124,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
 
         {searching ? (
           <View style={styles.center}>
-            <ActivityIndicator color="#6c63ff" />
+            <ActivityIndicator color={theme.colors.primary} />
           </View>
         ) : results.length > 0 ? (
           <ScrollView
@@ -157,7 +160,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             <Ionicons
               name={searched ? 'search-outline' : 'chatbubbles-outline'}
               size={36}
-              color="#5a5a78"
+              color={theme.colors.textFaint}
             />
             <Text style={styles.emptyText}>
               {searched ? '没有找到匹配的记录' : '输入关键词搜索全部历史对话'}
@@ -169,47 +172,47 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e', paddingTop: 48 },
+const createStyles = (theme, fonts) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
   searchBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
-  input: { flex: 1, color: '#ffffff', fontSize: 15, paddingVertical: 10, marginLeft: 8 },
+  input: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(15), paddingVertical: 10, marginLeft: 8 },
   cancel: { paddingHorizontal: 12, paddingVertical: 8 },
-  cancelText: { color: '#8b85ff', fontSize: 15, fontWeight: '700' },
+  cancelText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(15), fontWeight: '700' },
   searchButton: {
     marginTop: 12,
     marginHorizontal: 16,
-    backgroundColor: '#6c63ff',
+    backgroundColor: theme.colors.primary,
     borderRadius: 12,
     paddingVertical: 11,
     alignItems: 'center',
   },
-  searchButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
+  searchButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
   disabled: { opacity: 0.5 },
   list: { flex: 1, marginTop: 8 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
-  count: { color: '#8a8aa3', fontSize: 12, marginVertical: 10 },
+  count: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginVertical: 10 },
   item: {
-    backgroundColor: '#2d2d44',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#35354f',
+    borderColor: theme.colors.divider,
   },
   itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  itemName: { color: '#ffffff', fontSize: 14, fontWeight: '700', flex: 1, marginRight: 8 },
-  itemTime: { color: '#6f6f8d', fontSize: 11 },
-  itemText: { color: '#a8a8c2', fontSize: 13, lineHeight: 19, marginTop: 6 },
+  itemName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: 8 },
+  itemTime: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
+  itemText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 6 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80 },
-  emptyText: { color: '#7d7d99', fontSize: 14, marginTop: 12 },
+  emptyText: { color: theme.colors.textFaint, fontSize: fonts.scaled(14), marginTop: 12 },
 });
