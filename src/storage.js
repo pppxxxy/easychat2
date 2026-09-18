@@ -256,13 +256,33 @@ function makeApiConfigId() {
 
 function normalizeApiConfig(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const legacyModel = String(source.model || source.activeModel || DEFAULT_API_CONFIG.model);
+  const rawModels = Array.isArray(source.models)
+    ? source.models.map(item => String(item || '').trim()).filter(Boolean)
+    : [];
+  const models = rawModels.length ? rawModels : [legacyModel];
+  const requestedActive = String(source.activeModel || '');
+  const activeModel = models.includes(requestedActive)
+    ? requestedActive
+    : (models.includes(legacyModel) ? legacyModel : models[0]);
   return {
     id: String(source.id || `cfg-${index}`),
     name: String(source.name || `配置 ${index + 1}`),
     baseUrl: String(source.baseUrl || DEFAULT_API_CONFIG.baseUrl),
-    model: String(source.model || DEFAULT_API_CONFIG.model),
     apiKey: String(source.apiKey || ''),
+    models,
+    activeModel,
+    supportsThinking: source.supportsThinking === true,
+    supportsVision: source.supportsVision === true,
   };
+}
+
+export function getActiveModel(config) {
+  if (!config) return DEFAULT_API_CONFIG.model;
+  return String(config.activeModel || '')
+    || (Array.isArray(config.models) && config.models[0])
+    || String(config.model || '')
+    || DEFAULT_API_CONFIG.model;
 }
 
 function ensureUniqueApiConfigIds(list) {

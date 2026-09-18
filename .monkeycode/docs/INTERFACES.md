@@ -36,6 +36,7 @@
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
+- 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
 - 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
@@ -65,7 +66,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `PresetPanel`（默认导出）
 **位置**: `src/PresetPanel.js`
@@ -192,6 +193,7 @@
 | `getApiConfigs` | `() => Promise<{ configs, activeId }>` | 读取多配置列表与当前活跃 id；旧单条配置自动迁移 |
 | `saveApiConfigs` | `(configs, activeId) => Promise<{ configs, activeId }>` | 写入多配置列表与活跃 id |
 | `getActiveApiConfig` | `() => Promise<ApiConfig>` | 返回当前活跃配置（至少一条） |
+| `getActiveModel` | `(config) => string` | 返回配置的当前模型，回退列表首项与默认模型 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
 | `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；库键缺失时迁移旧键并补入默认角色 |
 | `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后写入角色库 |
@@ -555,5 +557,8 @@ data: [DONE]
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `baseUrl` | `string` | 接口地址 |
-| `model` | `string` | 模型名 |
 | `apiKey` | `string` | 密钥，仅存本机 |
+| `models` | `string[]` | 模型列表，始终非空 |
+| `activeModel` | `string` | 当前模型，必须属于 `models` |
+| `supportsThinking` | `boolean` | 是否支持思考，保存前确认 |
+| `supportsVision` | `boolean` | 是否支持识图，保存前确认 |

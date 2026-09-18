@@ -126,7 +126,7 @@ easychat2/
 **被依赖**: `ChatScreen`、`CharacterScreen`
 
 ### API 配置界面
-**目的**: 管理多套 API 配置（接口地址、模型名与密钥），支持创建、切换、编辑、删除，当前活跃配置由 `getActiveApiConfig` 读取
+**目的**: 管理多套 API 来源（接口地址、模型列表与密钥），支持创建、切换、编辑、删除；每个来源可保存多个模型并标记是否支持思考与识图，当前来源由 `getActiveApiConfig` 读取、当前模型由 `getActiveModel` 读取
 **位置**: `src/SettingsScreen.js`
 **关键文件**: `src/SettingsScreen.js`
 **依赖**: `src/storage.js`

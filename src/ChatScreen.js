@@ -41,11 +41,13 @@ import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import {
+  getApiConfigs,
   getEnabledGlobalPresetPrompts,
   getEnabledPlugins,
   getMemorySummarySettings,
   getMessagesBySession,
   getUserProfile,
+  saveApiConfigs,
   saveMessagesBySession,
 } from './storage';
 import { runPlugins } from './plugins/registry';
@@ -591,6 +593,10 @@ export default function ChatScreen() {
   const [summarizing, setSummarizing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scrubberOpen, setScrubberOpen] = useState(false);
+  const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const [apiConfigs, setApiConfigs] = useState([]);
+  const [apiActiveId, setApiActiveId] = useState('');
+  const [modelSourceId, setModelSourceId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
@@ -932,6 +938,33 @@ export default function ChatScreen() {
   const onScrubberToEnd = useCallback(() => {
     scrollRef.current?.scrollToEnd?.({ animated: true });
   }, []);
+
+  const openModelPanel = useCallback(async () => {
+    try {
+      const { configs: list, activeId: id } = await getApiConfigs();
+      setApiConfigs(list);
+      setApiActiveId(id);
+      setModelSourceId(id);
+      setModelPanelOpen(true);
+    } catch (error) {
+      Alert.alert('读取失败', '无法读取 API 配置。');
+    }
+  }, []);
+
+  const applyModelSelection = useCallback(async (sourceId, model) => {
+    const list = apiConfigs.map(item => (
+      item.id === sourceId ? { ...item, activeModel: model } : item
+    ));
+    try {
+      const saved = await saveApiConfigs(list, sourceId);
+      setApiConfigs(saved.configs);
+      setApiActiveId(saved.activeId);
+      setModelSourceId(sourceId);
+      setModelPanelOpen(false);
+    } catch (error) {
+      Alert.alert('切换失败', '请检查存储空间或权限。');
+    }
+  }, [apiConfigs]);
 
   const runSummarize = useCallback(async (session, list, manual) => {
     if (summarizingRef.current) return;
@@ -1377,6 +1410,16 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>公告</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={styles.noticeButton}
+          onPress={openModelPanel}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="切换模型"
+        >
+          <Ionicons name="cube-outline" size={13} color="#c8c4ff" />
+          <Text style={styles.noticeButtonText}>模型</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.noticeButton, scrubberMessages.length === 0 && styles.actionDisabled]}
           onPress={() => setScrubberOpen(true)}
           disabled={scrubberMessages.length === 0}
@@ -1650,6 +1693,79 @@ export default function ChatScreen() {
         onClose={() => setNoticeOpen(false)}
       />
 
+      <Modal
+        visible={modelPanelOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModelPanelOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modelBackdrop}
+          activeOpacity={1}
+          onPress={() => setModelPanelOpen(false)}
+        >
+          <View style={styles.modelSheet}>
+            <Text style={styles.modelTitle}>切换模型</Text>
+            <Text style={styles.modelLabel}>来源</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.modelSourceRow}>
+                {apiConfigs.map(config => {
+                  const selected = config.id === modelSourceId;
+                  return (
+                    <TouchableOpacity
+                      key={config.id}
+                      style={[styles.modelSourceChip, selected && styles.modelSourceChipActive]}
+                      onPress={() => setModelSourceId(config.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[styles.modelSourceText, selected && styles.modelSourceTextActive]}
+                        numberOfLines={1}
+                      >
+                        {config.name || '未命名配置'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+            <Text style={styles.modelLabel}>模型</Text>
+            <ScrollView style={styles.modelListScroll}>
+              {(() => {
+                const source = apiConfigs.find(item => item.id === modelSourceId);
+                const models = (source && source.models) || [];
+                if (models.length === 0) {
+                  return <Text style={styles.modelEmpty}>该来源没有模型。</Text>;
+                }
+                return models.map(model => {
+                  const isActive = source.activeModel === model;
+                  return (
+                    <TouchableOpacity
+                      key={model}
+                      style={styles.modelOption}
+                      onPress={() => applyModelSelection(source.id, model)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.modelOptionText} numberOfLines={1}>{model}</Text>
+                      {isActive ? (
+                        <Ionicons name="checkmark" size={16} color="#8b85ff" />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                });
+              })()}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.modelClose}
+              onPress={() => setModelPanelOpen(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modelCloseText}>关闭</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <ScrollScrubber
         visible={scrubberOpen}
         onClose={() => setScrubberOpen(false)}
@@ -1700,6 +1816,54 @@ const styles = StyleSheet.create({
   },
   noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700', marginLeft: 4 },
   actionDisabled: { opacity: 0.5 },
+  modelBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  modelSheet: {
+    backgroundColor: '#20203a',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#35354f',
+    maxHeight: '75%',
+  },
+  modelTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800', marginBottom: 10 },
+  modelLabel: { color: '#9a9ab5', fontSize: 12, marginTop: 8, marginBottom: 6 },
+  modelSourceRow: { flexDirection: 'row' },
+  modelSourceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#4a4a68',
+    marginRight: 8,
+    maxWidth: 140,
+  },
+  modelSourceChipActive: { backgroundColor: 'rgba(108,99,255,0.25)', borderColor: '#6c63ff' },
+  modelSourceText: { color: '#a8a8c2', fontSize: 12, fontWeight: '700' },
+  modelSourceTextActive: { color: '#d9d5ff' },
+  modelListScroll: { maxHeight: 240, marginTop: 2 },
+  modelOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  modelOptionText: { color: '#e6e6f2', fontSize: 14, flex: 1, marginRight: 8 },
+  modelEmpty: { color: '#7d7d99', fontSize: 13, paddingVertical: 12 },
+  modelClose: {
+    marginTop: 12,
+    backgroundColor: '#2d2d44',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  modelCloseText: { color: '#c8c4ff', fontSize: 14, fontWeight: '700' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',

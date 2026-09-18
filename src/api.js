@@ -1,4 +1,4 @@
-import { getActiveApiConfig } from './storage';
+import { getActiveApiConfig, getActiveModel } from './storage';
 
 const IDLE_TIMEOUT_MS = 30000;
 
@@ -69,7 +69,7 @@ export async function sendChatMessage(messages, options = {}) {
     throw new Error('请先在“设置”里填写 API Key。');
   }
 
-  const model = config.model || 'deepseek-chat';
+  const model = getActiveModel(config);
   const url = normalizeChatUrl(config.baseUrl);
 
   return new Promise((resolve, reject) => {

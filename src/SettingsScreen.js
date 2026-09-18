@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -49,6 +50,12 @@ export default function SettingsScreen() {
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
+  const [modelDraft, setModelDraft] = useState('');
+  const [capabilityOpen, setCapabilityOpen] = useState(false);
+  const [capabilityDraft, setCapabilityDraft] = useState({
+    supportsThinking: false,
+    supportsVision: false,
+  });
   const [userProfileSaved, setUserProfileSaved] = useState(false);
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
@@ -261,37 +268,30 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const save = async () => {
-    if (!canChangeApi()) return;
+  const performSave = async caps => {
     const current = apiStateRef.current;
     const selected = current.configs.find(item => item.id === current.activeId);
     if (!selected) return;
     apiBusyRef.current = true;
     setApiSaving(true);
     try {
-      const trimmedBaseUrl = selected.baseUrl.trim();
-      if (/^http:\/\//i.test(trimmedBaseUrl)) {
-        const confirmed = await new Promise(resolve => {
-          Alert.alert(
-            '当前使用 HTTP',
-            '该地址不是 HTTPS，API Key 会以明文传输，存在被窃听的风险。仍要保存吗？',
-            [
-              { text: '取消', style: 'cancel', onPress: () => resolve(false) },
-              { text: '仍然保存', style: 'destructive', onPress: () => resolve(true) }
-            ],
-            { cancelable: true, onDismiss: () => resolve(false) }
-          );
-        });
-        if (!confirmed || !apiMountedRef.current) return;
-      }
+      const trimmedModels = (selected.models || [])
+        .map(item => String(item || '').trim())
+        .filter(Boolean);
+      const activeModel = trimmedModels.includes(selected.activeModel)
+        ? selected.activeModel
+        : trimmedModels[0];
       const trimmed = current.configs.map(item =>
         item.id === selected.id
           ? {
               ...item,
               name: item.name.trim() || '未命名配置',
-              baseUrl: trimmedBaseUrl,
-              model: item.model.trim(),
+              baseUrl: item.baseUrl.trim(),
               apiKey: item.apiKey.trim(),
+              models: trimmedModels,
+              activeModel,
+              supportsThinking: caps.supportsThinking === true,
+              supportsVision: caps.supportsVision === true,
             }
           : item
       );
@@ -303,6 +303,45 @@ export default function SettingsScreen() {
       apiBusyRef.current = false;
       if (apiMountedRef.current) setApiSaving(false);
     }
+  };
+
+  const save = async () => {
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    const trimmedModels = (selected.models || [])
+      .map(item => String(item || '').trim())
+      .filter(Boolean);
+    if (trimmedModels.length === 0) {
+      Alert.alert('模型不能为空', '请至少添加一个模型。');
+      return;
+    }
+    const trimmedBaseUrl = selected.baseUrl.trim();
+    if (/^http:\/\//i.test(trimmedBaseUrl)) {
+      const confirmed = await new Promise(resolve => {
+        Alert.alert(
+          '当前使用 HTTP',
+          '该地址不是 HTTPS，API Key 会以明文传输，存在被窃听的风险。仍要保存吗？',
+          [
+            { text: '取消', style: 'cancel', onPress: () => resolve(false) },
+            { text: '仍然保存', style: 'destructive', onPress: () => resolve(true) }
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+      if (!confirmed || !apiMountedRef.current) return;
+    }
+    setCapabilityDraft({
+      supportsThinking: selected.supportsThinking === true,
+      supportsVision: selected.supportsVision === true,
+    });
+    setCapabilityOpen(true);
+  };
+
+  const confirmCapability = async () => {
+    setCapabilityOpen(false);
+    await performSave(capabilityDraft);
   };
 
   const detectModels = async () => {
@@ -377,8 +416,46 @@ export default function SettingsScreen() {
     const source = modelSourceRef.current;
     if (!selected || !source || selected.id !== source.id
       || selected.baseUrl !== source.baseUrl || selected.apiKey !== source.apiKey) return;
-    updateField({ model });
+    const models = Array.isArray(selected.models) ? selected.models : [];
+    const nextModels = models.includes(model) ? models : [...models, model];
+    updateField({ models: nextModels, activeModel: model });
     setModelModalVisible(false);
+  };
+
+  const addModel = () => {
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    const model = modelDraft.trim();
+    if (!selected || !model) return;
+    const models = Array.isArray(selected.models) ? selected.models : [];
+    if (models.includes(model)) {
+      updateField({ activeModel: model });
+      setModelDraft('');
+      return;
+    }
+    updateField({ models: [...models, model], activeModel: model });
+    setModelDraft('');
+  };
+
+  const selectActiveModel = model => {
+    if (!canChangeApi()) return;
+    updateField({ activeModel: model });
+  };
+
+  const removeModel = model => {
+    if (!canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    const models = Array.isArray(selected.models) ? selected.models : [];
+    if (models.length <= 1) {
+      Alert.alert('至少保留一个模型', '模型列表不能为空。');
+      return;
+    }
+    const nextModels = models.filter(item => item !== model);
+    const activeModel = selected.activeModel === model ? nextModels[0] : selected.activeModel;
+    updateField({ models: nextModels, activeModel });
   };
 
   const saveUserProfileNow = async () => {
@@ -469,7 +546,7 @@ export default function SettingsScreen() {
                     {item.name || '未命名配置'}
                   </Text>
                   <Text style={styles.configMeta} numberOfLines={1}>
-                    {item.baseUrl || '未填写地址'} · {item.model || '未填写模型'}
+                    {item.baseUrl || '未填写地址'} · {item.activeModel || '未填写模型'}
                   </Text>
                 </View>
                 {selected ? (
@@ -503,29 +580,66 @@ export default function SettingsScreen() {
                 placeholderTextColor="#888"
               />
               <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
-              <Text style={styles.label}>模型</Text>
+              <Text style={styles.label}>模型列表</Text>
               <View style={styles.modelRow}>
                 <TextInput
                   style={[styles.input, styles.modelInput]}
-                  value={active.model}
-                  onChangeText={model => updateField({ model })}
+                  value={modelDraft}
+                  onChangeText={setModelDraft}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="deepseek-chat"
+                  placeholder="输入模型名后点击添加"
                   placeholderTextColor="#888"
+                  onSubmitEditing={addModel}
                 />
                 <TouchableOpacity
-                  style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
-                  onPress={detectModels}
-                  disabled={detectingModels}
+                  style={styles.detectButton}
+                  onPress={addModel}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="pulse-outline" size={15} color="#c8c4ff" />
-                  <Text style={styles.detectButtonText}>
-                    {detectingModels ? '检测中...' : '检测模型'}
-                  </Text>
+                  <Ionicons name="add" size={15} color="#c8c4ff" />
+                  <Text style={styles.detectButtonText}>添加</Text>
                 </TouchableOpacity>
               </View>
+              <View style={styles.modelChips}>
+                {(active.models || []).map(model => {
+                  const isActive = active.activeModel === model;
+                  return (
+                    <View
+                      key={model}
+                      style={[styles.modelChip, isActive && styles.modelChipActive]}
+                    >
+                      <TouchableOpacity
+                        style={styles.modelChipMain}
+                        onPress={() => selectActiveModel(model)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[styles.modelChipText, isActive && styles.modelChipTextActive]}
+                          numberOfLines={1}
+                        >
+                          {model}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => removeModel(model)} hitSlop={6}>
+                        <Ionicons name="close" size={14} color="#9a9ab5" />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+              <Text style={styles.hint}>点击模型将其设为当前模型，请求将使用当前模型。</Text>
+              <TouchableOpacity
+                style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
+                onPress={detectModels}
+                disabled={detectingModels}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="pulse-outline" size={15} color="#c8c4ff" />
+                <Text style={styles.detectButtonText}>
+                  {detectingModels ? '检测中...' : '检测模型'}
+                </Text>
+              </TouchableOpacity>
               <Text style={styles.label}>API Key</Text>
               <TextInput
                 style={styles.input}
@@ -725,6 +839,60 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <Modal
+        visible={capabilityOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCapabilityOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>确认模型能力</Text>
+            <Text style={styles.hint}>用于决定聊天页是否开放「思考」与图片上传。</Text>
+            <View style={styles.capabilityRow}>
+              <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
+              <Switch
+                value={capabilityDraft.supportsThinking}
+                onValueChange={value => setCapabilityDraft(current => ({
+                  ...current,
+                  supportsThinking: value,
+                }))}
+                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+                thumbColor="#ffffff"
+              />
+            </View>
+            <View style={styles.capabilityRow}>
+              <Text style={styles.capabilityLabel}>支持识图（多模态模型）</Text>
+              <Switch
+                value={capabilityDraft.supportsVision}
+                onValueChange={value => setCapabilityDraft(current => ({
+                  ...current,
+                  supportsVision: value,
+                }))}
+                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+                thumbColor="#ffffff"
+              />
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.selectButton, styles.selectButtonGhost]}
+                onPress={() => setCapabilityOpen(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.selectButton}
+                onPress={confirmCapability}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>确认保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <DisclaimerModal
         visible={disclaimerOpen}
         title="免责条款"
@@ -891,6 +1059,38 @@ const styles = StyleSheet.create({
     borderColor: '#3a3a58',
   },
   selectButtonText: { color: '#fff', fontWeight: '700' },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 18 },
+  capabilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  capabilityLabel: { color: '#d9d9e6', fontSize: 14, flex: 1, marginRight: 12 },
+  modelChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
+  modelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2d2d44',
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+    paddingLeft: 10,
+    paddingRight: 8,
+    paddingVertical: 6,
+    marginRight: 8,
+    marginBottom: 8,
+    maxWidth: '100%',
+  },
+  modelChipActive: {
+    backgroundColor: 'rgba(108,99,255,0.25)',
+    borderColor: '#6c63ff',
+  },
+  modelChipMain: { maxWidth: 180, marginRight: 6 },
+  modelChipText: { color: '#c9c9e0', fontSize: 13 },
+  modelChipTextActive: { color: '#ffffff', fontWeight: '700' },
 
   linkRow: {
     flexDirection: 'row',
