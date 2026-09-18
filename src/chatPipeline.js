@@ -72,6 +72,10 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   if (userPersona) {
     systemContent = `${systemContent}\n\n[用户设定]\n${replaceUser(userPersona)}`;
   }
+  const exampleDialogue = String(character?.mesExample || '').trim();
+  if (exampleDialogue) {
+    systemContent = `${systemContent}\n\n[对话示例]\n${replaceUser(exampleDialogue)}`;
+  }
 
   const beforeText = applyForPrompt(
     buildWorldInfoText(before),

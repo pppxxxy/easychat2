@@ -92,6 +92,16 @@ const NEAR_BOTTOM_THRESHOLD = 80;
 const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
 const QUOTE_TEXT_MAX = 200;
 const INLINE_IMAGE_PROMPT_MAX = 400;
+const DOUBLE_TAP_MS = 300;
+
+function buildNudgeText(template, userName, characterName) {
+  const source = String(template || '').trim() || '{user} 戳了戳 {char}';
+  return source
+    .replace(/\{\{user\}\}/g, userName || '我')
+    .replace(/\{user\}/g, userName || '我')
+    .replace(/\{\{char\}\}/g, characterName || '对方')
+    .replace(/\{char\}/g, characterName || '对方');
+}
 
 function buildInlineImagePrompt(text, stylePrefix, maxChars) {
   const source = String(text || '').replace(/\s+/g, ' ').trim();
@@ -410,7 +420,7 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, onNudge, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
@@ -420,6 +430,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const lastNudgeRef = useRef(0);
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
   const plainText = messageCopyText(message.text);
@@ -476,7 +487,20 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
       )}
     </View>
   ) : (
-    <View style={styles.avatarContainer}>
+    <Pressable
+      style={styles.avatarContainer}
+      onPress={() => {
+        const now = Date.now();
+        if (now - lastNudgeRef.current < DOUBLE_TAP_MS) {
+          lastNudgeRef.current = 0;
+          onNudge?.(characterName);
+          return;
+        }
+        lastNudgeRef.current = now;
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`拍一拍 ${characterName || ''}`}
+    >
       {characterAvatar ? (
         <Image source={{ uri: characterAvatar }} style={styles.avatarImage} />
       ) : (
@@ -486,7 +510,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
           </Text>
         </View>
       )}
-    </View>
+    </Pressable>
   );
 
   return (
@@ -766,6 +790,7 @@ export default function ChatScreen() {
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
   const userNameRef = useRef('');
+  const nudgeDefaultRef = useRef('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -926,6 +951,7 @@ export default function ChatScreen() {
       if (cancelled) return;
       userProfileCache = profile;
       userNameRef.current = String(profile.userName || '').trim();
+      nudgeDefaultRef.current = String(profile.nudgeText || '').trim();
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
     getMessagesBySession(activeSessionId)
@@ -1721,6 +1747,21 @@ export default function ChatScreen() {
     }
   }, []);
 
+  const onNudge = useCallback(speakerName => {
+    const charName = speakerName || String(character?.name || '').trim();
+    const speaker = charName && charName !== character?.name
+      ? characters.find(item => item.name === charName)
+      : character;
+    const template = String((speaker && speaker.nudgeText) || '').trim() || nudgeDefaultRef.current;
+    const text = buildNudgeText(template, userNameRef.current, charName);
+    const nudge = {
+      id: `${Date.now()}-nudge`,
+      role: ASSISTANT_ID,
+      text,
+    };
+    setMessages(current => [...current, nudge]);
+  }, [character, characters]);
+
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
       Alert.alert('配图生成中', '请稍后重试。');
@@ -2139,6 +2180,7 @@ export default function ChatScreen() {
                     onPressQuote={onPressQuoteBlock}
                     onGenerateImage={generateInlineImage}
                     onBroadcast={broadcastMessage}
+                    onNudge={onNudge}
                     highlightKeyword={searchQuery.trim()}
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}

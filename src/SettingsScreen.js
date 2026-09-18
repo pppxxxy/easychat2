@@ -58,6 +58,7 @@ export default function SettingsScreen() {
   const [loaded, setLoaded] = useState(false);
   const [userName, setUserName] = useState('');
   const [userPersona, setUserPersona] = useState('');
+  const [nudgeDefault, setNudgeDefault] = useState('');
   const [userAvatarUri, setUserAvatarUri] = useState('');
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
   const [detectingModels, setDetectingModels] = useState(false);
@@ -100,7 +101,7 @@ export default function SettingsScreen() {
   const profileSavingRef = useRef(null);
   const profileMountedRef = useRef(true);
   const profileStateRef = useRef(null);
-  profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri };
+  profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri, nudgeText: nudgeDefault };
 
   useEffect(() => {
     profileMountedRef.current = true;
@@ -232,6 +233,7 @@ export default function SettingsScreen() {
         setUserName(profile.userName);
         setUserPersona(profile.persona);
         setUserAvatarUri(profile.avatarUri || '');
+        setNudgeDefault(profile.nudgeText || '');
       })
       .catch(() => {})
       .finally(() => setUserProfileLoaded(true));
@@ -246,7 +248,12 @@ export default function SettingsScreen() {
 
   const saveUserProfileDelayed = useMemo(() => {
     return (name, persona, avatar) => {
-      profileStateRef.current = { userName: name, persona, avatarUri: avatar ?? profileStateRef.current.avatarUri };
+      profileStateRef.current = {
+        userName: name,
+        persona,
+        avatarUri: avatar ?? profileStateRef.current.avatarUri,
+        nudgeText: profileStateRef.current.nudgeText,
+      };
       if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
       profileTimerRef.current = setTimeout(async () => {
         profileTimerRef.current = null;
@@ -845,6 +852,22 @@ export default function SettingsScreen() {
             multiline
             textAlignVertical="top"
           />
+          <Text style={styles.label}>默认拍一拍文案</Text>
+          <TextInput
+            style={styles.input}
+            value={nudgeDefault}
+            onChangeText={text => {
+              setNudgeDefault(text);
+              if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+              profileTimerRef.current = setTimeout(() => {
+                profileTimerRef.current = null;
+                saveUserProfile({ ...profileStateRef.current, nudgeText: text }).catch(() => {});
+              }, 600);
+            }}
+            placeholder="{user} 戳了戳 {char}"
+            placeholderTextColor={theme.colors.textFaint}
+          />
+          <Text style={styles.hint}>角色未单独设置拍一拍文案时使用；支持 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
           <TouchableOpacity style={styles.secondaryButton} onPress={saveUserProfileNow} activeOpacity={0.8}>
             <Ionicons name="save-outline" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.secondaryButtonText}>保存用户人设</Text>

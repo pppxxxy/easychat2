@@ -96,6 +96,7 @@ function hasCardContent(card) {
     || fields.personality
     || fields.scenario
     || fields.firstMes
+    || (fields.alternateGreetings && fields.alternateGreetings.length)
     || fields.mesExample
     || fields.creatorNotes
     || fields.postHistoryInstructions
@@ -113,7 +114,9 @@ function buildCharacterPatch(card) {
     personality: fields.personality || '',
     scenario: fields.scenario || '',
     firstMes: fields.firstMes || '',
+    alternateGreetings: Array.isArray(fields.alternateGreetings) ? fields.alternateGreetings : [],
     mesExample: fields.mesExample || '',
+    nudgeText: fields.nudgeText || '',
     creatorNotes: fields.creatorNotes || '',
     postHistoryInstructions: fields.postHistoryInstructions || '',
     tags: Array.isArray(fields.tags) ? fields.tags : [],
@@ -437,6 +440,9 @@ export default function CharacterScreen() {
   const [personality, setPersonality] = useState('');
   const [scenario, setScenario] = useState('');
   const [firstMes, setFirstMes] = useState('');
+  const [alternateGreetings, setAlternateGreetings] = useState([]);
+  const [mesExample, setMesExample] = useState('');
+  const [nudgeText, setNudgeText] = useState('');
   const [worldInfo, setWorldInfo] = useState([]);
   const [regexScripts, setRegexScripts] = useState([]);
   const [expandedWorld, setExpandedWorld] = useState(false);
@@ -478,6 +484,9 @@ export default function CharacterScreen() {
     setTags(Array.isArray(character.tags) ? character.tags : []);
     setScenario(character.scenario || '');
     setFirstMes(character.firstMes || '');
+    setAlternateGreetings(Array.isArray(character.alternateGreetings) ? character.alternateGreetings : []);
+    setMesExample(String(character.mesExample || ''));
+    setNudgeText(String(character.nudgeText || ''));
     setWorldInfo(
       ensureUniqueIds(Array.isArray(character.worldInfo) ? character.worldInfo : [], 'entry')
     );
@@ -572,6 +581,9 @@ export default function CharacterScreen() {
       tags,
       scenario: scenario.trim(),
       firstMes: firstMes.trim(),
+      alternateGreetings: alternateGreetings.map(item => String(item || '').trim()).filter(Boolean),
+      mesExample: mesExample.trim(),
+      nudgeText: nudgeText.trim(),
       worldInfo,
       regexScripts,
       avatarUri: avatarPreview || '',
@@ -586,6 +598,9 @@ export default function CharacterScreen() {
       setPersonality(next.personality);
       setScenario(next.scenario);
       setFirstMes(next.firstMes);
+      setAlternateGreetings(Array.isArray(next.alternateGreetings) ? next.alternateGreetings : []);
+      setMesExample(String(next.mesExample || ''));
+      setNudgeText(String(next.nudgeText || ''));
       setWorldInfo(next.worldInfo);
       setRegexScripts(next.regexScripts);
       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
@@ -882,6 +897,18 @@ export default function CharacterScreen() {
 
   const removeTag = tag => {
     setTags(current => current.filter(item => item !== tag));
+  };
+
+  const addGreeting = () => {
+    setAlternateGreetings(current => [...current, '']);
+  };
+
+  const updateGreeting = (index, value) => {
+    setAlternateGreetings(current => current.map((item, i) => (i === index ? value : item)));
+  };
+
+  const removeGreeting = index => {
+    setAlternateGreetings(current => current.filter((_, i) => i !== index));
   };
 
   const onNewCharacter = async () => {
@@ -1215,6 +1242,32 @@ export default function CharacterScreen() {
             multiline
             textAlignVertical="top"
           />
+          <Text style={styles.label}>备用开场白</Text>
+          {alternateGreetings.map((item, index) => (
+            <View key={`greeting-${index}`} style={styles.greetingRow}>
+              <TextInput
+                style={[styles.input, styles.multilineSmall, styles.greetingInput]}
+                value={item}
+                onChangeText={value => updateGreeting(index, value)}
+                placeholder={`备用开场白 ${index + 1}`}
+                placeholderTextColor={theme.colors.textFaint}
+                multiline
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={styles.greetingRemove}
+                onPress={() => removeGreeting(index)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="删除备用开场白"
+              >
+                <Ionicons name="close" size={16} color={theme.colors.dangerSoft} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
+            <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
+          </TouchableOpacity>
           <Text style={styles.label}>人设 / 系统提示词</Text>
           <TextInput
             style={[styles.input, styles.multiline]}
@@ -1255,6 +1308,28 @@ export default function CharacterScreen() {
             multiline
             textAlignVertical="top"
           />
+
+          <Text style={styles.label}>对话示例</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            value={mesExample}
+            onChangeText={setMesExample}
+            placeholder="<START>\n{{user}}: 你好\n{{char}}: 你好呀"
+            placeholderTextColor={theme.colors.textFaint}
+            multiline
+            textAlignVertical="top"
+          />
+          <Text style={styles.fieldHint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
+
+          <Text style={styles.label}>拍一拍文案</Text>
+          <TextInput
+            style={styles.input}
+            value={nudgeText}
+            onChangeText={setNudgeText}
+            placeholder="{user} 戳了戳 {char}"
+            placeholderTextColor={theme.colors.textFaint}
+          />
+          <Text style={styles.fieldHint}>双击角色头像时显示，可用 {`{{user}}`} 与 {`{{char}}`} 占位；留空使用默认文案。</Text>
 
           <Text style={styles.label}>标签</Text>
           <View style={styles.tagRow}>
@@ -1297,10 +1372,9 @@ export default function CharacterScreen() {
             <Text style={styles.cardTitle}>角色数据</Text>
           </View>
 
-          {card.mesExample || card.creatorNotes || card.postHistoryInstructions ? (
+          {card.creatorNotes || card.postHistoryInstructions ? (
             <View style={styles.dataSection}>
               <Text style={styles.dataTitle}>其他资料</Text>
-              <DataField label="对话示例" value={card.mesExample} />
               <DataField label="作者注释" value={card.creatorNotes} />
               <DataField label="历史后指令" value={card.postHistoryInstructions} />
             </View>
@@ -1719,7 +1793,22 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   tagChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginRight: 4 },
   tagInputRow: { flexDirection: 'row', alignItems: 'center' },
-  tagInput: { flex: 1, marginRight: 8 },
+  greetingRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+  greetingInput: { flex: 1, marginBottom: 0 },
+  greetingRemove: { paddingHorizontal: 10, paddingVertical: 10 },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${theme.colors.primary}1f`,
+    borderWidth: 1,
+    borderColor: `${theme.colors.primaryMuted}73`,
+    paddingVertical: 11,
+    borderRadius: 10,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  secondaryButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6, fontSize: fonts.scaled(13) },  tagInput: { flex: 1, marginRight: 8 },
   tagAdd: {
     width: 40,
     height: 40,

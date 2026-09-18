@@ -229,6 +229,9 @@ export function buildCardV2(character) {
     personality: String(source.personality || ''),
     scenario: String(source.scenario || ''),
     first_mes: String(source.firstMes || ''),
+    alternate_greetings: Array.isArray(source.alternateGreetings)
+      ? source.alternateGreetings.map(item => String(item || ''))
+      : [],
     mes_example: String(source.mesExample || ''),
     creator_notes: String(source.creatorNotes || ''),
     system_prompt: String(source.systemPrompt || source.systemPromptComposed || ''),
@@ -240,6 +243,7 @@ export function buildCardV2(character) {
     extensions: {
       regex_scripts: (Array.isArray(source.regexScripts) ? source.regexScripts : [])
         .map(mapRegexScript),
+      nudge_text: String(source.nudgeText || ''),
     },
   };
   const card = {
@@ -252,6 +256,7 @@ export function buildCardV2(character) {
   card.personality = data.personality;
   card.scenario = data.scenario;
   card.first_mes = data.first_mes;
+  card.alternate_greetings = data.alternate_greetings;
   card.mes_example = data.mes_example;
   card.creator_notes = data.creator_notes;
   card.system_prompt = data.system_prompt;

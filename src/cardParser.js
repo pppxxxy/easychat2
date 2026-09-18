@@ -321,6 +321,9 @@ function extractStandardFields(root, data, extensions) {
       [data, root],
       ['first_mes', 'firstMes', 'first_message']
     ),
+    alternateGreetings: toStringArray(
+      data?.alternate_greetings ?? root?.alternate_greetings ?? data?.alternateGreetings
+    ),
     mesExample: firstString(
       [data, root],
       ['mes_example', 'mesExample', 'example_dialogue', 'exampleMessages']
@@ -335,6 +338,10 @@ function extractStandardFields(root, data, extensions) {
       ['post_history_instructions', 'postHistoryInstructions']
     ),
     tags: toStringArray(data?.tags ?? root?.tags),
+    nudgeText: firstString(
+      [extensions, data, root],
+      ['nudge_text', 'nudgeText']
+    ),
   };
 }
 

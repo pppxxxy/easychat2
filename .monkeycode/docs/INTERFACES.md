@@ -71,9 +71,10 @@
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析，并经 `addCharacter` 加入角色库并设为当前角色
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
-- 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；对话示例/作者注释/历史后指令/标签为只读
-- 基本信息卡片底部提供「全局预设」入口，打开与设置页相同的 `PresetPanel`，关闭后不影响未保存的表单内容
-- 角色库卡片提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
+- 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
+- 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）、「拍一拍文案」与「标签」
+- 「全局预设」入口位于世界书与正则区块之后
+- 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
@@ -428,7 +429,7 @@ data: [DONE]
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与插件背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -593,7 +594,8 @@ data: [DONE]
 | `personality` | `string?` | 性格 |
 | `scenario` | `string?` | 场景 |
 | `firstMes` | `string?` | 开场白 |
-| `mesExample` | `string?` | 对话示例 |
+| `alternateGreetings` | `string[]?` | 备用开场白（角色卡 `alternate_greetings`） |
+| `mesExample` | `string?` | 对话示例，非空时注入系统提示词 `[对话示例]` |
 | `creatorNotes` | `string?` | 作者注释 |
 | `postHistoryInstructions` | `string?` | 历史后指令 |
 | `tags` | `string[]?` | 标签 |
@@ -601,6 +603,7 @@ data: [DONE]
 | `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
 | `lastUsedAt` | `number?` | 最近一次成为当前角色的时间戳，决定列表排序 |
 | `pinned` | `boolean?` | 是否置顶；置顶角色排在角色库最前 |
+| `nudgeText` | `string?` | 拍一拍文案（角色卡 `extensions.nudge_text`）；留空用全局默认 |
 
 ### `Message`
 

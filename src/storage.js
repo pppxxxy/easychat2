@@ -51,7 +51,9 @@ export const DEFAULT_CHARACTER = {
   personality: '',
   scenario: '',
   firstMes: '',
+  alternateGreetings: [],
   mesExample: '',
+  nudgeText: '',
   creatorNotes: '',
   postHistoryInstructions: '',
   tags: [],
@@ -103,6 +105,11 @@ function normalizeCharacter(raw) {
   merged.tags = Array.isArray(merged.tags)
     ? merged.tags.map(tag => String(tag || '').trim()).filter(Boolean)
     : [];
+  merged.alternateGreetings = Array.isArray(merged.alternateGreetings)
+    ? merged.alternateGreetings.map(item => String(item == null ? '' : item))
+    : [];
+  merged.mesExample = String(merged.mesExample || '');
+  merged.nudgeText = String(merged.nudgeText || '');
   return merged;
 }
 
@@ -684,7 +691,7 @@ export async function saveMessages(characterId, messages) {
   await AsyncStorage.setItem(messagesKey(characterId), JSON.stringify(persistable));
 }
 
-const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '' };
+const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '', nudgeText: '' };
 
 export async function getUserProfile() {
   const profile = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
@@ -692,6 +699,7 @@ export async function getUserProfile() {
     userName: String(profile?.userName || ''),
     persona: String(profile?.persona || ''),
     avatarUri: String(profile?.avatarUri || ''),
+    nudgeText: String(profile?.nudgeText || ''),
   };
 }
 
@@ -702,6 +710,7 @@ export async function saveUserProfile(profile) {
       userName: String(profile?.userName || ''),
       persona: String(profile?.persona || ''),
       avatarUri: String(profile?.avatarUri || ''),
+      nudgeText: String(profile?.nudgeText || ''),
     })
   );
 }
