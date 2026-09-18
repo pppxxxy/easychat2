@@ -16,6 +16,7 @@
     ],
     "android": {
       "package": "com.pppxxxy.easychat2",
+      "versionCode": 2,
       "softwareKeyboardLayoutMode": "resize",
       "allowBackup": false,
       "adaptiveIcon": {
