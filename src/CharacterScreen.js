@@ -126,6 +126,8 @@ function buildCharacterPatch(card) {
 }
 
 function DataField({ label, value }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   if (!value) return null;
   return (
     <View style={styles.dataField}>
@@ -136,6 +138,8 @@ function DataField({ label, value }) {
 }
 
 function ToggleRow({ label, value, onValueChange }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   return (
     <View style={styles.toggleRow}>
       <Text style={styles.toggleLabel}>{label}</Text>
@@ -150,6 +154,8 @@ function ToggleRow({ label, value, onValueChange }) {
 }
 
 function Chip({ label, active, onPress }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   return (
     <TouchableOpacity
       style={[styles.chip, active && styles.chipActive]}
@@ -162,6 +168,8 @@ function Chip({ label, active, onPress }) {
 }
 
 function NumberField({ label, value, onCommit }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [text, setText] = useState(String(value ?? ''));
   useEffect(() => {
     setText(String(value ?? ''));
@@ -193,6 +201,8 @@ function NumberField({ label, value, onCommit }) {
 }
 
 function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, icon, children }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   return (
     <View style={styles.sectionCard}>
       <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
@@ -221,6 +231,9 @@ function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel,
 }
 
 function WorldEntryEditor({ entry, index, onChange, onRemove }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+
   const keys = Array.isArray(entry.keys) ? entry.keys : [];
   const position = WORLD_POSITION_LABELS[entry.position] ? entry.position : 0;
   const cyclePosition = () => {
@@ -306,6 +319,9 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
 }
 
 function RegexEntryEditor({ script, index, onChange, onRemove }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+
   const placement = Array.isArray(script.placement) ? script.placement : [1, 2];
   const togglePlacement = value => {
     const has = placement.includes(value);
