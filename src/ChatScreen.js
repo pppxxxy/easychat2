@@ -22,6 +22,14 @@ import Markdown from 'react-native-markdown-display';
 import RenderHtml, { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
 import { isCanceledError, sendChatMessage } from './api';
+import {
+  isImage,
+  isTextLike,
+  mergeTextAttachments,
+  pickAttachment,
+  readImageDataUri,
+  readTextAttachment,
+} from './attachments';
 import { buildRequestMessages } from './chatPipeline';
 import {
   applySummary,
@@ -606,6 +614,9 @@ export default function ChatScreen() {
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [thinkingLevel, setThinkingLevel] = useState('medium');
   const [thinkingSupported, setThinkingSupported] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [fullScreenOpen, setFullScreenOpen] = useState(false);
+  const [fullScreenText, setFullScreenText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
@@ -1061,7 +1072,7 @@ export default function ChatScreen() {
     runSummarize(session, messages, true);
   }, [isSending, ready, messages, runSummarize]);
 
-  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images }) => {
     if (isSending || !ready || abortRef.current) return;
     const sendCharacterId = activeCharacterIdRef.current;
     const sendSessionId = activeSessionIdRef.current;
@@ -1117,6 +1128,7 @@ export default function ChatScreen() {
         globalPresets,
         summaryText: buildMemorySummaryText(character),
         pluginContext,
+        images,
       });
 
       const reply = await sendChatMessage(
@@ -1314,23 +1326,28 @@ export default function ChatScreen() {
 
   const sendText = useCallback(rawText => {
     const text = String(rawText || '').trim();
-    if (!text || isSending || !ready || abortRef.current) return;
+    const imageAttachments = attachments.filter(item => item.kind === 'image');
+    if ((!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
+    const mergedText = mergeTextAttachments(text, attachments)
+      || (imageAttachments.length > 0 ? '（见图片）' : '');
     const userMessage = {
       id: `${Date.now()}-user`,
       role: USER_ID,
-      text,
+      text: text || '（图片）',
     };
     const payload = {
       historyMessages: messages,
-      userText: text,
+      userText: mergedText,
       baseMessages: [...messages, userMessage],
+      images: imageAttachments.map(item => item.dataUri),
     };
+    setAttachments([]);
     if (isGroupRef.current) {
       requestGroupReply(payload);
     } else {
       requestReply(payload);
     }
-  }, [isSending, messages, ready, requestReply, requestGroupReply]);
+  }, [attachments, isSending, messages, ready, requestReply, requestGroupReply]);
 
   const regenerateMessage = useCallback(targetId => {
     if (isSending || !ready) return;
@@ -1385,12 +1402,68 @@ export default function ChatScreen() {
     sendTextRef.current?.(command);
   }, []);
 
+  const removeAttachment = useCallback(id => {
+    setAttachments(current => current.filter(item => item.id !== id));
+  }, []);
+
+  const addAttachment = useCallback(async kind => {
+    try {
+      const picked = await pickAttachment();
+      if (!picked) return;
+      if (kind === 'text') {
+        if (!isTextLike(picked.name, picked.mime)) {
+          Alert.alert('不支持的文件', '当前仅支持纯文本类文档。');
+          return;
+        }
+        const text = await readTextAttachment(picked.uri);
+        setAttachments(current => [...current, {
+          id: `${Date.now()}-${current.length}`,
+          kind: 'text',
+          name: picked.name,
+          text,
+        }]);
+        return;
+      }
+      if (!isImage(picked.name, picked.mime)) {
+        Alert.alert('不支持的文件', '请选择图片文件。');
+        return;
+      }
+      const { configs, activeId } = await getApiConfigs();
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      if (!current || current.supportsVision !== true) {
+        Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
+        return;
+      }
+      const dataUri = await readImageDataUri(picked.uri, picked.mime);
+      setAttachments(list => [...list, {
+        id: `${Date.now()}-${list.length}`,
+        kind: 'image',
+        name: picked.name,
+        uri: picked.uri,
+        dataUri,
+      }]);
+    } catch (error) {
+      Alert.alert(
+        '文件读取失败',
+        error && error.message === '文件过大' ? '文件过大，请选择更小的文档。' : '请重试。'
+      );
+    }
+  }, []);
+
+  const pickAttachmentMenu = useCallback(() => {
+    Alert.alert('添加附件', '选择要上传的内容类型。', [
+      { text: '取消', style: 'cancel' },
+      { text: '纯文本文档', onPress: () => addAttachment('text') },
+      { text: '图片', onPress: () => addAttachment('image') },
+    ]);
+  }, [addAttachment]);
+
   const onSend = useCallback(() => {
     const text = input.trim();
-    if (!text || isSending || !ready || abortRef.current) return;
+    if ((!text && attachments.length === 0) || isSending || !ready || abortRef.current) return;
     setInput('');
     sendText(text);
-  }, [input, isSending, ready, sendText]);
+  }, [attachments.length, input, isSending, ready, sendText]);
 
   const bgUri = character.bgUri || '';
   const displayName = isGroup
@@ -1601,6 +1674,23 @@ export default function ChatScreen() {
         )}
       </ScrollView>
 
+      {attachments.length > 0 ? (
+        <View style={[styles.attachmentBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
+          {attachments.map(item => (
+            <View key={item.id} style={styles.attachmentChip}>
+              {item.kind === 'image' && item.uri ? (
+                <Image source={{ uri: item.uri }} style={styles.attachmentThumb} />
+              ) : (
+                <Ionicons name="document-text-outline" size={14} color="#c8c4ff" />
+              )}
+              <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
+              <TouchableOpacity onPress={() => removeAttachment(item.id)} hitSlop={6}>
+                <Ionicons name="close" size={14} color="#9a9ab5" />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <View style={[styles.inputBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
         {messages.length > 0 ? (
           <TouchableOpacity
@@ -1615,6 +1705,16 @@ export default function ChatScreen() {
             <Text style={styles.clearText}>清空</Text>
           </TouchableOpacity>
         ) : null}
+        <TouchableOpacity
+          style={styles.attachButton}
+          onPress={pickAttachmentMenu}
+          disabled={!ready || isSending}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="添加附件"
+        >
+          <Ionicons name="add-circle-outline" size={22} color="#c8c4ff" />
+        </TouchableOpacity>
         <TextInput
           style={[styles.input, bgUri && styles.inputOverlay, inputFocused && styles.inputFocused]}
           value={input}
@@ -1626,6 +1726,19 @@ export default function ChatScreen() {
           multiline
           editable={!isSending && ready}
         />
+        <TouchableOpacity
+          style={styles.fullScreenButton}
+          onPress={() => {
+            setFullScreenText(input);
+            setFullScreenOpen(true);
+          }}
+          disabled={!ready}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="全屏输入"
+        >
+          <Ionicons name="expand-outline" size={18} color="#c8c4ff" />
+        </TouchableOpacity>
         {isSending ? (
           <TouchableOpacity
             style={[styles.sendButton, styles.stopButton]}
@@ -1637,9 +1750,12 @@ export default function ChatScreen() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.sendButton, (!input.trim() || !ready) && styles.sendButtonDisabled]}
+            style={[
+              styles.sendButton,
+              ((!input.trim() && attachments.length === 0) || !ready) && styles.sendButtonDisabled,
+            ]}
             onPress={onSend}
-            disabled={!input.trim() || !ready}
+            disabled={(!input.trim() && attachments.length === 0) || !ready}
             accessibilityLabel="发送"
             activeOpacity={0.8}
           >
@@ -1647,6 +1763,53 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal
+        visible={fullScreenOpen}
+        animationType="slide"
+        onRequestClose={() => setFullScreenOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.fullScreenContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.fullScreenHeader}>
+            <Text style={styles.fullScreenTitle}>全屏输入</Text>
+            <TouchableOpacity
+              onPress={() => setFullScreenOpen(false)}
+              hitSlop={8}
+              accessibilityLabel="退出全屏"
+            >
+              <Ionicons name="close" size={24} color="#c9c9e0" />
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={styles.fullScreenInput}
+            value={fullScreenText}
+            onChangeText={setFullScreenText}
+            placeholder="输入消息..."
+            placeholderTextColor="#888"
+            multiline
+            textAlignVertical="top"
+            autoFocus
+          />
+          <TouchableOpacity
+            style={[styles.fullScreenSend, !fullScreenText.trim() && styles.sendButtonDisabled]}
+            onPress={() => {
+              const text = fullScreenText.trim();
+              setFullScreenOpen(false);
+              setFullScreenText('');
+              setInput('');
+              if (text) sendText(text);
+            }}
+            disabled={!fullScreenText.trim()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="arrow-up" size={18} color="#fff" />
+            <Text style={styles.fullScreenSendText}>发送</Text>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={switcherOpen}
@@ -2330,6 +2493,61 @@ const styles = StyleSheet.create({
     color: '#3a2a00',
     fontWeight: '700',
   },
+  attachmentBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  attachmentChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2d2d44',
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#3a3a58',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginRight: 8,
+    marginBottom: 6,
+    maxWidth: 220,
+  },
+  attachmentThumb: { width: 20, height: 20, borderRadius: 4, marginRight: 6 },
+  attachmentName: { color: '#c9c9e0', fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
+  attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
+  fullScreenButton: { paddingHorizontal: 6, paddingVertical: 6 },
+  fullScreenContainer: { flex: 1, backgroundColor: '#1a1a2e', paddingTop: 48 },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  fullScreenTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800' },
+  fullScreenInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 16,
+    lineHeight: 23,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  fullScreenSend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: '#6c63ff',
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  fullScreenSendText: { color: '#ffffff', fontSize: 15, fontWeight: '700', marginLeft: 6 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

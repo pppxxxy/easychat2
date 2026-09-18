@@ -36,6 +36,8 @@
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
+- 输入栏附件入口可选择纯文本类文档或图片：文本文档读取内容并在发送时以 `[附件：名称]` 并入上下文；图片仅当来源支持识图时允许，并以多模态形式发送；已选附件以标签与缩略图展示、可移除
+- 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
 - 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
 - 顶部栏「思考」按钮打开思考设置：开关与深度（低/中/高），按来源声明的字段与格式注入请求；来源不支持思考时禁用
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
@@ -387,10 +389,10 @@ data: [DONE]
 **位置**: `src/cardParser.js`
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
-### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext })`
+### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与插件背景资料（`pluginContext`）；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与插件背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -405,6 +407,18 @@ data: [DONE]
 | `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets })` | 以发言角色卡设定构造请求 |
 
 **常量**: `MAX_SPEAKERS = 3`。
+
+### 附件接口
+**位置**: `src/attachments.js`
+
+| 函数 | 说明 |
+|------|------|
+| `TEXT_EXTENSIONS` / `IMAGE_EXTENSIONS` | 支持的文档与图片扩展名 |
+| `isTextLike(name, mime)` / `isImage(name, mime)` | 按扩展名与 MIME 判定类型 |
+| `pickAttachment()` | 选取单个文件，返回 `{ uri, name, mime, size }` |
+| `readTextAttachment(uri, maxBytes?)` | 读取为 UTF-8 文本，默认上限 200KB，超限抛「文件过大」 |
+| `readImageDataUri(uri, mime)` | 读取为 `data:` URI |
+| `mergeTextAttachments(userText, attachments)` | 把文本附件以 `[附件：名称]` 追加到用户消息上下文 |
 
 ### 插件接口
 **位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`

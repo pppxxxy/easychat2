@@ -47,7 +47,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const { before, after, depth } = collectActiveWorldInfo(
@@ -108,11 +108,18 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   }
 
   const promptUserText = applyForPrompt(userText, scripts, REGEX_PLACEMENT.USER_INPUT, 0);
+  const imageList = Array.isArray(images) ? images.filter(Boolean) : [];
+  const userContent = imageList.length > 0
+    ? [
+        { type: 'text', text: promptUserText },
+        ...imageList.map(url => ({ type: 'image_url', image_url: { url } })),
+      ]
+    : promptUserText;
 
   const assembled = [
     { role: 'system', content: systemContent },
     ...history,
-    { role: 'user', content: promptUserText },
+    { role: 'user', content: userContent },
   ];
   insertDepthEntries(assembled, depth, scripts, replaceUser);
   return assembled;
