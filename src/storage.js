@@ -26,6 +26,7 @@ const THINKING_KEY = '@easychat2_thinking';
 const IMAGE_GEN_KEY = '@easychat2_image_gen';
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
 const APPEARANCE_KEY = '@easychat2_appearance';
+const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -410,6 +411,39 @@ export async function getAppearanceSettings() {
 export async function saveAppearanceSettings(settings) {
   const normalized = normalizeAppearance(settings);
   await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+const DEFAULT_INLINE_IMAGE = {
+  enabled: false,
+  providerId: '',
+  stylePrefix: '',
+  size: '832*1216',
+  maxPromptChars: 400,
+};
+
+function normalizeInlineImage(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const maxPromptChars = Number(source.maxPromptChars);
+  return {
+    enabled: source.enabled === true,
+    providerId: String(source.providerId || ''),
+    stylePrefix: String(source.stylePrefix || ''),
+    size: String(source.size || DEFAULT_INLINE_IMAGE.size),
+    maxPromptChars: Number.isFinite(maxPromptChars) && maxPromptChars > 0
+      ? Math.min(Math.round(maxPromptChars), 2000)
+      : DEFAULT_INLINE_IMAGE.maxPromptChars,
+  };
+}
+
+export async function getInlineImageSettings() {
+  const raw = await readJson(INLINE_IMAGE_KEY, null);
+  return normalizeInlineImage(raw);
+}
+
+export async function saveInlineImageSettings(settings) {
+  const normalized = normalizeInlineImage(settings);
+  await AsyncStorage.setItem(INLINE_IMAGE_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

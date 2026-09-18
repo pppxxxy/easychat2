@@ -117,6 +117,13 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
       setByPath(payload, field, value);
     }
   });
+  if (provider.sizeSplit && typeof size === 'string' && size.includes('*')) {
+    const [rawWidth, rawHeight] = size.split('*');
+    const width = Number(rawWidth);
+    const height = Number(rawHeight);
+    if (Number.isFinite(width) && width > 0) setByPath(payload, provider.sizeSplit.width, Math.round(width));
+    if (Number.isFinite(height) && height > 0) setByPath(payload, provider.sizeSplit.height, Math.round(height));
+  }
   if (extra && extra.negativePrompt && provider.negativePromptField) {
     setByPath(payload, provider.negativePromptField, extra.negativePrompt);
   }
@@ -175,6 +182,10 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
 
 export function parseImages(provider, data) {
   const response = provider.response || {};
+  if (data && typeof data === 'object' && typeof data.__binary === 'string') {
+    const binary = data.__binary.trim();
+    return binary ? [{ base64: binary }] : [];
+  }
   const root = response.path ? getByPath(data, response.path) : data;
   const list = Array.isArray(root) ? root : root === undefined || root === null ? [] : [root];
   const images = [];
@@ -202,7 +213,7 @@ export function mapHttpError(status) {
   return `生成失败（HTTP ${status}）`;
 }
 
-function xhrRequest({ method, url, headers, body, timeoutMs }) {
+function xhrRequest({ method, url, headers, body, timeoutMs, expectBinary }) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let settled = false;
@@ -235,6 +246,10 @@ function xhrRequest({ method, url, headers, body, timeoutMs }) {
       try {
         parsed = JSON.parse(xhr.responseText || '{}');
       } catch (error) {
+        if (expectBinary) {
+          finish(resolve, { __binary: xhr.responseText || '' });
+          return;
+        }
         finish(reject, new Error('生成返回无法解析'));
         return;
       }
@@ -285,6 +300,7 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
       const data = await xhrRequest({
         ...request,
         timeoutMs: resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS,
+        expectBinary: resolvedProvider.response && resolvedProvider.response.mode === 'binary',
       });
       const images = parseImages(resolvedProvider, data);
       if (images.length === 0) throw new Error('未从响应中解析到图片');

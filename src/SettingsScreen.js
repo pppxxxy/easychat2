@@ -29,14 +29,18 @@ import {
   getChatOptions,
   getGlobalPresetSettings,
   getGlobalPresets,
+  getImageGenSettings,
+  getInlineImageSettings,
   getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
   saveChatOptions,
+  saveInlineImageSettings,
   saveThinkingSettings,
   saveUserProfile,
   THINKING_DISPLAYS,
 } from './storage';
+import { IMAGE_PROVIDERS } from './imageGen/providers';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -71,6 +75,21 @@ export default function SettingsScreen() {
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
+  const [inlineImage, setInlineImage] = useState({
+    enabled: false,
+    providerId: '',
+    stylePrefix: '',
+    size: '832*1216',
+    maxPromptChars: 400,
+  });
+  const [inlineImageProviders, setInlineImageProviders] = useState([]);
+  const inlineImageRef = useRef({
+    enabled: false,
+    providerId: '',
+    stylePrefix: '',
+    size: '832*1216',
+    maxPromptChars: 400,
+  });
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
   const profileSavingRef = useRef(null);
@@ -120,6 +139,26 @@ export default function SettingsScreen() {
     getThinkingSettings()
       .then(settings => setThinkingDisplay(settings.display))
       .catch(() => {});
+    getInlineImageSettings()
+      .then(settings => {
+        inlineImageRef.current = settings;
+        setInlineImage(settings);
+      })
+      .catch(() => {});
+    getImageGenSettings()
+      .then(settings => {
+        const active = settings.activeProvider || (IMAGE_PROVIDERS[0] && IMAGE_PROVIDERS[0].id) || '';
+        setInlineImageProviders(Object.keys(settings.providers || {}));
+        setInlineImage(current => {
+          const next = {
+            ...current,
+            providerId: current.providerId || active,
+          };
+          inlineImageRef.current = next;
+          return next;
+        });
+      })
+      .catch(() => {});
   }, []);
 
   const updateThinkingDisplay = useCallback(async display => {
@@ -127,6 +166,19 @@ export default function SettingsScreen() {
     try {
       const current = await getThinkingSettings();
       await saveThinkingSettings({ ...current, display });
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
+
+  const updateInlineImage = useCallback(async patch => {
+    const next = { ...inlineImageRef.current, ...patch };
+    inlineImageRef.current = next;
+    setInlineImage(next);
+    try {
+      const saved = await saveInlineImageSettings(next);
+      inlineImageRef.current = saved;
+      setInlineImage(saved);
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
@@ -825,6 +877,74 @@ export default function SettingsScreen() {
               );
             })}
           </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
+            <Text style={styles.cardTitle}>对话配图</Text>
+          </View>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>自动配图</Text>
+            </View>
+            <Switch
+              value={inlineImage.enabled}
+              onValueChange={value => updateInlineImage({ enabled: value })}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <Text style={styles.label}>生图服务</Text>
+          <View style={styles.fontRow}>
+            {IMAGE_PROVIDERS.map(provider => {
+              const active = inlineImage.providerId === provider.id;
+              const configured = inlineImageProviders.includes(provider.id);
+              return (
+                <TouchableOpacity
+                  key={provider.id}
+                  style={[styles.fontChip, active && styles.fontChipActive]}
+                  onPress={() => updateInlineImage({ providerId: provider.id })}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                    {configured ? provider.label : `${provider.label}（未配置）`}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.label}>风格前缀（可选）</Text>
+          <TextInput
+            style={styles.input}
+            value={inlineImage.stylePrefix}
+            onChangeText={text => updateInlineImage({ stylePrefix: text })}
+            placeholder="例如：anime style, detailed"
+            placeholderTextColor={theme.colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Text style={styles.label}>尺寸（宽*高）</Text>
+          <TextInput
+            style={styles.input}
+            value={inlineImage.size}
+            onChangeText={text => updateInlineImage({ size: text })}
+            placeholder="832*1216"
+            placeholderTextColor={theme.colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Text style={styles.label}>提示词长度上限（字符）</Text>
+          <TextInput
+            style={styles.input}
+            value={String(inlineImage.maxPromptChars)}
+            onChangeText={text => updateInlineImage({ maxPromptChars: text.replace(/[^0-9]/g, '') })}
+            keyboardType="number-pad"
+            placeholder="400"
+            placeholderTextColor={theme.colors.textFaint}
+          />
+          <Text style={styles.fieldHint}>生图密钥请在「扩展 → 生图」中配置。</Text>
         </View>
 
         <View style={styles.card}>

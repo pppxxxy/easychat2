@@ -34,6 +34,7 @@
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
 - 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
+- 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏「新建」按钮为当前角色开启新会话（群聊则按相同成员新建），旧会话保留在记忆页；空会话时提示且不创建，成功后清空消息、附件、引用与搜索状态
 - 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
@@ -45,7 +46,7 @@
 - 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
 - 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
 - 顶部栏「思考」按钮打开思考设置：开关与深度（低/中/高），按来源声明的字段与格式注入请求；来源不支持思考时禁用
-- 助手消息保存可选 `reasoning` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
+- 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
 - 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
@@ -286,6 +287,7 @@
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
+| `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
 | `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }` |
 
 **默认 API 配置**:
@@ -448,16 +450,16 @@ data: [DONE]
 ### 生图接口
 **位置**: `src/imageGen/providers.js`、`src/imageGen/index.js`
 
-`IMAGE_PROVIDERS` 为声明式配置表，内置 `z-image`、`wan-image`、`qwen-image`、`flux2-klein-4b`、`glm-image` 与 `openai-compatible`；`getImageProvider(id)` 按 id 取配置并回退首个。
+`IMAGE_PROVIDERS` 为声明式配置表，内置 `z-image`、`wan-image`、`qwen-image`、`flux2-klein-4b`、`glm-image`、`novelai` 与 `openai-compatible`；`getImageProvider(id)` 按 id 取配置并回退首个。
 
 | 函数 | 说明 |
 |------|------|
 | `buildRequest({ provider, config, prompt, image, model, size, seed, extra })` | 按 t2i/i2i 模板构造请求；支持 GET 查询参数、POST JSON、header/body/query 认证、multipart/base64/url 图生图；缺 `baseUrl` 返回 `null` |
-| `parseImages(provider, data)` | 按 `response.path` 取根节点，兼容字符串、`url`、`base64`（`b64_json`、`images[].url`、`output.results`、`output[]`） |
+| `parseImages(provider, data)` | 按 `response.path` 取根节点，兼容字符串、`url`、`base64`（`b64_json`、`images[].url`、`output.results`、`output[]`）；`response.mode === 'binary'` 时把非 JSON 响应按 base64 包装为图片项 |
 | `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「生成失败（HTTP n）」 |
 | `generateImage({ provider, prompt, imageFile?, imageUrl?, model?, size?, seed?, extra?, config? })` | 统一生成入口，返回 `Promise<{ images: [{ url?, base64? }], raw }>`；含超时与按 `retries` 重试 |
 
-**说明**: 密钥仅存本机 AsyncStorage；未填地址或密钥时直接抛错不发起请求；`extra.params` 与 Provider 的 `params` 映射按点号路径写入请求体；图生图必须携带图片。
+**说明**: 密钥仅存本机 AsyncStorage；未填地址或密钥时直接抛错不发起请求；`extra.params` 与 Provider 的 `params` 映射按点号路径写入请求体；`sizeSplit` 把 `宽*高` 拆为 width/height；图生图必须携带图片。
 
 ### `getImageGenSettings()` / `saveImageGenSettings(settings)`
 **位置**: `src/storage.js`

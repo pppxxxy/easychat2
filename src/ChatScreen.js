@@ -48,13 +48,16 @@ import {
   selectSpeakers,
 } from './groupChat';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
-import ScrollScrubber from './ScrollScrubber';import { maskSecrets } from './secrets';
+import ScrollScrubber from './ScrollScrubber';
+import { maskSecrets } from './secrets';
 import {
   createGroupSession,
   getApiConfigs,
   getChatOptions,
   getEnabledGlobalPresetPrompts,
   getEnabledPlugins,
+  getImageGenSettings,
+  getInlineImageSettings,
   getMemorySummarySettings,
   getMessagesBySession,
   getThinkingSettings,
@@ -66,6 +69,8 @@ import {
   THINKING_LEVELS,
 } from './storage';
 import { runPlugins } from './plugins/registry';
+import { generateImage } from './imageGen';
+import { getImageProvider } from './imageGen/providers';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -75,6 +80,16 @@ const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
 const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
 const QUOTE_TEXT_MAX = 200;
+const INLINE_IMAGE_PROMPT_MAX = 400;
+
+function buildInlineImagePrompt(text, stylePrefix, maxChars) {
+  const source = String(text || '').replace(/\s+/g, ' ').trim();
+  const limit = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : INLINE_IMAGE_PROMPT_MAX;
+  const clipped = source.length > limit ? source.slice(0, limit) : source;
+  const prefix = String(stylePrefix || '').trim();
+  if (!clipped) return prefix;
+  return prefix ? `${prefix}, ${clipped}` : clipped;
+}
 
 function buildQuotePayload(message, name) {
   if (!message || !message.id) return null;
@@ -384,7 +399,7 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
@@ -549,6 +564,35 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             <Markdown style={markdownStyles}>{message.text}</Markdown>
           )}
         </View>
+        {!isUser && message.inlineImage ? (
+          <View style={styles.inlineImageWrap}>
+            {message.inlineImage.status === 'loading' ? (
+              <View style={[styles.inlineImageBox, styles.inlineImageLoading]}>
+                <ActivityIndicator color={theme.colors.primary} />
+                <Text style={styles.inlineImageHint}>配图生成中...</Text>
+              </View>
+            ) : message.inlineImage.status === 'error' ? (
+              <View style={[styles.inlineImageBox, styles.inlineImageError]}>
+                <Text style={styles.inlineImageHint} numberOfLines={2}>
+                  {message.inlineImage.message || '配图生成失败'}
+                </Text>
+                <TouchableOpacity
+                  style={styles.inlineImageRetry}
+                  onPress={() => onGenerateImage?.(message.id, message.text)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.inlineImageRetryText}>重试</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: message.inlineImage.url || `data:image/png;base64,${message.inlineImage.base64}` }}
+                style={styles.inlineImage}
+                resizeMode="cover"
+              />
+            )}
+          </View>
+        ) : null}
         {!message.pending ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
             <TouchableOpacity style={styles.messageActionButton} onPress={onCopy} activeOpacity={0.8}>
@@ -568,6 +612,15 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             >
               <Text style={styles.messageActionText}>选择文本</Text>
             </TouchableOpacity>
+            {!isUser && onGenerateImage ? (
+              <TouchableOpacity
+                style={styles.messageActionButton}
+                onPress={() => onGenerateImage(message.id, message.text)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.messageActionText}>生成配图</Text>
+              </TouchableOpacity>
+            ) : null}
             {isUser ? (
               <TouchableOpacity
                 style={styles.messageActionButton}
@@ -708,6 +761,14 @@ export default function ChatScreen() {
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [attachments, setAttachments] = useState([]);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
+  const [inlineImageSettings, setInlineImageSettings] = useState({
+    enabled: false,
+    providerId: '',
+    stylePrefix: '',
+    size: '832*1216',
+    maxPromptChars: 400,
+  });
+  const inlineImageBusyRef = useRef(false);
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -756,9 +817,13 @@ export default function ChatScreen() {
     () => (messages || [])
       .filter(item => item && !item.pending)
       .map(item => {
-        if (!Object.prototype.hasOwnProperty.call(item, 'waitingForResponse')) return item;
+        const hasWaiting = Object.prototype.hasOwnProperty.call(item, 'waitingForResponse');
+        const inlineImage = item.inlineImage;
+        const inlineImageSettled = inlineImage && inlineImage.status === 'done';
+        if (!hasWaiting && (!inlineImage || inlineImageSettled)) return item;
         const next = { ...item };
         delete next.waitingForResponse;
+        if (inlineImage && !inlineImageSettled) delete next.inlineImage;
         return next;
       }),
     [messages]
@@ -1070,6 +1135,9 @@ export default function ChatScreen() {
       getThinkingSettings()
         .then(settings => setThinkingDisplay(settings.display))
         .catch(() => {});
+      getInlineImageSettings()
+        .then(settings => setInlineImageSettings(settings))
+        .catch(() => {});
     };
     load();
     const unsubscribe = navigation.addListener('focus', load);
@@ -1342,6 +1410,9 @@ export default function ChatScreen() {
             waitingForResponse: false,
           },
         ]);
+        if (inlineImageEnabledRef.current) {
+          generateInlineImageRef.current?.(pendingAssistantMessage.id, reply || '');
+        }
       }
     } catch (error) {
       if (isCanceledError(error)) {
@@ -1597,7 +1668,71 @@ export default function ChatScreen() {
     scrollToMessage(quote.id);
   }, [messages, scrollToMessage]);
 
+  const generateInlineImage = useCallback(async (messageId, sourceText) => {
+    if (inlineImageBusyRef.current) {
+      Alert.alert('配图生成中', '请稍后重试。');
+      return;
+    }
+    const settings = inlineImageSettings;
+    const providerId = settings.providerId || '';
+    if (!providerId) {
+      Alert.alert('未配置生图服务', '请到「设置 → 对话配图」选择生图服务并填写密钥。');
+      return;
+    }
+    const provider = getImageProvider(providerId);
+    const prompt = buildInlineImagePrompt(sourceText, settings.stylePrefix, settings.maxPromptChars);
+    if (!prompt) return;
+
+    let genConfig = null;
+    try {
+      const stored = await getImageGenSettings();
+      genConfig = (stored.providers && stored.providers[providerId]) || null;
+    } catch (error) {
+      genConfig = null;
+    }
+    if (!genConfig || !String(genConfig.baseUrl || provider.baseUrl || '').trim()) {
+      Alert.alert('未配置生图服务', '请到「设置 → 对话配图」填写服务地址与密钥。');
+      return;
+    }
+
+    inlineImageBusyRef.current = true;
+    setMessages(current => current.map(item => (
+      item.id === messageId ? { ...item, inlineImage: { status: 'loading' } } : item
+    )));
+    try {
+      const response = await generateImage({
+        provider,
+        config: genConfig,
+        prompt,
+        size: settings.size,
+      });
+      const first = response.images[0] || null;
+      setMessages(current => current.map(item => (
+        item.id === messageId
+          ? {
+            ...item,
+            inlineImage: first ? { status: 'done', ...first } : { status: 'error', message: '未获取到图片' },
+          }
+          : item
+      )));
+    } catch (error) {
+      setMessages(current => current.map(item => (
+        item.id === messageId
+          ? { ...item, inlineImage: { status: 'error', message: (error && error.message) || '配图生成失败' } }
+          : item
+      )));
+    } finally {
+      inlineImageBusyRef.current = false;
+    }
+  }, [inlineImageSettings]);
+
   const sendTextRef = useRef(sendText);
+  const generateInlineImageRef = useRef(null);
+  const inlineImageEnabledRef = useRef(false);
+  useEffect(() => {
+    generateInlineImageRef.current = generateInlineImage;
+    inlineImageEnabledRef.current = inlineImageSettings.enabled;
+  }, [generateInlineImage, inlineImageSettings.enabled]);
   useEffect(() => {
     sendTextRef.current = sendText;
   }, [sendText]);
@@ -1885,6 +2020,7 @@ export default function ChatScreen() {
                     onSelectText={onSelectText}
                     onQuote={onQuoteMessage}
                     onPressQuote={onPressQuoteBlock}
+                    onGenerateImage={generateInlineImage}
                     highlightKeyword={searchQuery.trim()}
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}
@@ -2603,6 +2739,50 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   messageContentFullWidth: {
     maxWidth: '100%',
     flex: 1,
+  },
+  inlineImageWrap: {
+    marginTop: 6,
+    maxWidth: '92%',
+  },
+  inlineImageBox: {
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+  },
+  inlineImageLoading: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.divider,
+  },
+  inlineImageError: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.danger,
+  },
+  inlineImageHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  inlineImageRetry: {
+    marginTop: 10,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+  },
+  inlineImageRetryText: {
+    color: theme.colors.primaryContrast,
+    fontSize: fonts.scaled(12),
+    fontWeight: '700',
+  },
+  inlineImage: {
+    width: 220,
+    height: 300,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
   },
   quoteBlock: {
     borderLeftWidth: 3,
