@@ -75,12 +75,22 @@
 | `switchCharacter` | `(id) => Promise<Character>` | 切换当前角色并更新其 `lastUsedAt` |
 | `addCharacter` | `(character) => Promise<Character>` | 以唯一 `id` 新增角色并设为当前角色 |
 | `deleteCharacter` | `(id) => Promise<Character[]>` | 删除非默认角色及其消息，必要时切换当前角色 |
+| `sessions` | `Session[]` | 全部会话，置顶优先、按更新时间降序 |
+| `activeSessionId` | `string` | 当前会话 `id`，无可用会话时为空串 |
+| `switchSession` | `(id) => Promise<Session>` | 切换当前会话并持久化指针 |
+| `pinSession` | `(id) => Promise<Session[]>` | 切换会话置顶标记并持久化排序结果 |
+| `cloneSession` | `(id) => Promise<Session>` | 克隆会话并加入列表，不改变当前会话 |
+| `deleteSession` | `(id) => Promise<{ sessions, activeSessionId, created }>` | 删除会话，必要时新建空会话并设为当前 |
+| `refreshSessions` | `() => Promise<Session[]>` | 从存储重新读取会话与当前指针并同步状态 |
 
 **契约**:
 1. 未加载完成时 `updateCharacter`/`switchCharacter`/`addCharacter`/`deleteCharacter` 抛出 `Error('角色尚未加载完成')`
 2. 所有写操作先在内存乐观更新，再持久化；失败时回滚内存快照并重新抛出（`runWithRollback`）
 3. `switchCharacter` 对不存在的 `id` 抛出 `Error('角色不存在')`
 4. `deleteCharacter` 对默认角色抛出 `Error('默认角色不可删除')`
+5. 未加载完成时 `switchSession`/`pinSession`/`cloneSession`/`deleteSession` 抛出 `Error('会话尚未加载完成')`
+6. 会话写操作同样乐观更新并在失败时回滚；`switchSession`/`pinSession`/`cloneSession` 对不存在的会话 `id` 抛出 `Error('会话不存在')`
+7. 加载时对无效的当前会话 `id` 回退到排序后的首个会话，回退结果会写回存储
 
 ### `characterLibrary` 辅助函数
 **位置**: `src/context/characterLibrary.js`（纯函数，供 `AppContext` 与测试使用）
@@ -94,6 +104,21 @@
 | `withAddedCharacter(list, character, now)` | 返回新增并排序后的列表与新角色 |
 | `withDeletedCharacter(list, id, activeId)` | 返回删除后的列表与回退后的当前 `id` |
 | `runWithRollback(snapshot, restore, persist)` | 持久化失败时恢复快照并重新抛出 |
+
+### `sessionLibrary` 辅助函数
+**位置**: `src/context/sessionLibrary.js`（纯函数，供 `storage` 与 `AppContext` 使用）
+
+| 函数 | 说明 |
+|------|------|
+| `makeSessionId(now?)` | 生成 `session-<base36 时间戳>-<随机>` 形式的新会话 `id` |
+| `uniqueSessionId(base, list)` | 生成库内唯一会话 `id`，冲突时追加 `-2`、`-3` |
+| `normalizeSession(raw, index?)` | 规范会话字段与类型，缺失补默认 |
+| `sortSessions(list)` | 置顶优先、其次 `updatedAt` 降序、并列 `id` 升序 |
+| `buildPreview(messages, maxLength?)` | 取最后一条可读消息生成摘要，默认截断 60 字 |
+| `regenerateMessageIds(messages, now?)` | 重新生成消息 `id`，用于克隆 |
+| `resolveActiveSessionId(sessions, activeId)` | 校验当前会话 `id`，无效时回退首个会话 |
+| `createEmptySession(characterId, sessions, now?)` | 构造未置顶空会话 |
+| `buildClonedSession(sessions, source, messages, now?)` | 构造克隆会话（未置顶、记录 `clonedFrom`） |
 
 ## 持久化接口
 

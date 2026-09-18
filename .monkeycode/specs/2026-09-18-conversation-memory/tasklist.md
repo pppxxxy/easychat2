@@ -11,13 +11,13 @@
   - [x] 1.8 实现 `migrateLegacyMessages(characters)`：旧键迁移为历史会话，幂等，保留内容与顺序（需求 8.1、8.2、8.3）
   - [ ]* 1.9 属性测试：会话排序稳定、克隆独立性、迁移幂等（设计「正确性属性」1、2、6）
 
-- [ ] 2. 改造 AppContext 为会话状态
-  - [ ] 2.1 建立会话状态与派生值：`sessions`、`activeSessionId`，沿用 `characterRef`/`loadedRef` 与 `mutationRef` 模式（设计「AppContext」）
-  - [ ] 2.2 实现 `switchSession(id)`：切换当前会话并持久化指针（需求 2.8、3.1）
-  - [ ] 2.3 实现 `pinSession(id)`：切换置顶标记并持久化（需求 2.7）
-  - [ ] 2.4 实现 `cloneSession(id)`：克隆并刷新列表，不改变当前会话（需求 4.1、4.3、4.5）
-  - [ ] 2.5 实现 `deleteSession(id)`：删除并在当前会话被删时新建（需求 5.1、5.2、5.3）
-  - [ ] 2.6 实现 `refreshSessions()` 与写入失败回滚后抛出（设计「错误处理」）
+- [x] 2. 改造 AppContext 为会话状态
+  - [x] 2.1 建立会话状态与派生值：`sessions`、`activeSessionId`，沿用 `characterRef`/`loadedRef` 与 `mutationRef` 模式（设计「AppContext」）
+  - [x] 2.2 实现 `switchSession(id)`：切换当前会话并持久化指针（需求 2.8、3.1）
+  - [x] 2.3 实现 `pinSession(id)`：切换置顶标记并持久化（需求 2.7）
+  - [x] 2.4 实现 `cloneSession(id)`：克隆并刷新列表，不改变当前会话（需求 4.1、4.3、4.5）
+  - [x] 2.5 实现 `deleteSession(id)`：删除并在当前会话被删时新建（需求 5.1、5.2、5.3）
+  - [x] 2.6 实现 `refreshSessions()` 与写入失败回滚后抛出（设计「错误处理」）
   - [ ]* 2.7 单元测试：写入失败回滚且向上抛出、删除当前会话后指针有效（设计「错误处理」）
 
 - [ ] 3. 检查点 - 确保所有可运行验证通过

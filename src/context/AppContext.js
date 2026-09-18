@@ -16,6 +16,12 @@ import {
   saveCharacterLibrary,
   setActiveCharacterId,
   sortCharacters,
+  getSessions,
+  getActiveSessionId,
+  setActiveSessionId,
+  saveSessions,
+  cloneSession as cloneSessionStorage,
+  deleteSession as deleteSessionStorage,
 } from '../storage';
 import {
   resolveActiveId,
@@ -25,15 +31,20 @@ import {
   withSwitchedCharacter,
   withUpdatedCharacter,
 } from './characterLibrary';
+import { resolveActiveSessionId, sortSessions } from './sessionLibrary';
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
   const [characters, setCharactersState] = useState([DEFAULT_CHARACTER]);
   const [activeId, setActiveIdState] = useState(DEFAULT_CHARACTER.id);
+  const [sessions, setSessionsState] = useState([]);
+  const [activeSessionId, setActiveSessionIdState] = useState('');
   const [loaded, setLoaded] = useState(false);
   const charactersRef = useRef([DEFAULT_CHARACTER]);
   const activeIdRef = useRef(DEFAULT_CHARACTER.id);
+  const sessionsRef = useRef([]);
+  const activeSessionIdRef = useRef('');
   const loadedRef = useRef(false);
   const mutationRef = useRef(Promise.resolve());
 
@@ -47,23 +58,40 @@ export function AppProvider({ children }) {
     let cancelled = false;
     const load = async () => {
       try {
-        const list = await getCharacterLibrary();
-        const storedActiveId = await getActiveCharacterId();
+        const [list, storedActiveId, sessionList, storedActiveSessionId] = await Promise.all([
+          getCharacterLibrary(),
+          getActiveCharacterId(),
+          getSessions(),
+          getActiveSessionId(),
+        ]);
         if (cancelled) return;
         const resolved = resolveActiveId(list, storedActiveId);
+        const sortedSessions = sortSessions(sessionList);
+        const resolvedSessionId = resolveActiveSessionId(sortedSessions, storedActiveSessionId);
         charactersRef.current = list;
         activeIdRef.current = resolved;
+        sessionsRef.current = sortedSessions;
+        activeSessionIdRef.current = resolvedSessionId;
         setCharactersState(list);
         setActiveIdState(resolved);
+        setSessionsState(sortedSessions);
+        setActiveSessionIdState(resolvedSessionId);
         if (resolved !== storedActiveId) {
           setActiveCharacterId(resolved).catch(() => {});
+        }
+        if (resolvedSessionId !== storedActiveSessionId && resolvedSessionId) {
+          setActiveSessionId(resolvedSessionId).catch(() => {});
         }
       } catch (error) {
         if (cancelled) return;
         charactersRef.current = [DEFAULT_CHARACTER];
         activeIdRef.current = DEFAULT_CHARACTER.id;
+        sessionsRef.current = [];
+        activeSessionIdRef.current = '';
         setCharactersState([DEFAULT_CHARACTER]);
         setActiveIdState(DEFAULT_CHARACTER.id);
+        setSessionsState([]);
+        setActiveSessionIdState('');
       } finally {
         if (!cancelled) {
           loadedRef.current = true;
@@ -176,6 +204,108 @@ export function AppProvider({ children }) {
     });
   }, [applyList, restore, snapshotState, enqueueMutation]);
 
+  const applySessions = useCallback(list => {
+    const sorted = sortSessions(list);
+    sessionsRef.current = sorted;
+    setSessionsState(sorted);
+    return sorted;
+  }, []);
+
+  const restoreSessions = useCallback(snapshot => {
+    sessionsRef.current = snapshot.sessions;
+    activeSessionIdRef.current = snapshot.activeSessionId;
+    setSessionsState(snapshot.sessions);
+    setActiveSessionIdState(snapshot.activeSessionId);
+  }, []);
+
+  const snapshotSessions = useCallback(() => ({
+    sessions: sessionsRef.current,
+    activeSessionId: activeSessionIdRef.current,
+  }), []);
+
+  const applyActiveSessionId = useCallback(id => {
+    activeSessionIdRef.current = id;
+    setActiveSessionIdState(id);
+  }, []);
+
+  const refreshSessions = useCallback(async () => {
+    const [sessionList, storedActiveSessionId] = await Promise.all([
+      getSessions(),
+      getActiveSessionId(),
+    ]);
+    const sorted = applySessions(sessionList);
+    const resolved = resolveActiveSessionId(sorted, storedActiveSessionId);
+    applyActiveSessionId(resolved);
+    return sorted;
+  }, [applySessions, applyActiveSessionId]);
+
+  const switchSession = useCallback(async id => {
+    if (!loadedRef.current) {
+      throw new Error('会话尚未加载完成');
+    }
+    return enqueueMutation(async () => {
+      const snapshot = snapshotSessions();
+      const target = snapshot.sessions.find(session => session.id === id);
+      if (!target) {
+        throw new Error('会话不存在');
+      }
+      if (id === snapshot.activeSessionId) return target;
+      applyActiveSessionId(id);
+      await runWithRollback(snapshot, restoreSessions, () => setActiveSessionId(id));
+      return target;
+    });
+  }, [applyActiveSessionId, restoreSessions, snapshotSessions, enqueueMutation]);
+
+  const pinSession = useCallback(async id => {
+    if (!loadedRef.current) {
+      throw new Error('会话尚未加载完成');
+    }
+    return enqueueMutation(async () => {
+      const snapshot = snapshotSessions();
+      if (!snapshot.sessions.some(session => session.id === id)) {
+        throw new Error('会话不存在');
+      }
+      const next = snapshot.sessions.map(session =>
+        session.id === id ? { ...session, pinned: !session.pinned } : session
+      );
+      const sorted = applySessions(next);
+      await runWithRollback(snapshot, restoreSessions, () => saveSessions(sorted));
+      return sorted;
+    });
+  }, [applySessions, restoreSessions, snapshotSessions, enqueueMutation]);
+
+  const cloneSession = useCallback(async id => {
+    if (!loadedRef.current) {
+      throw new Error('会话尚未加载完成');
+    }
+    return enqueueMutation(async () => {
+      const snapshot = snapshotSessions();
+      if (!snapshot.sessions.some(session => session.id === id)) {
+        throw new Error('会话不存在');
+      }
+      const copy = await cloneSessionStorage(id);
+      applySessions([...sessionsRef.current, copy]);
+      return copy;
+    });
+  }, [applySessions, snapshotSessions, enqueueMutation]);
+
+  const deleteSession = useCallback(async id => {
+    if (!loadedRef.current) {
+      throw new Error('会话尚未加载完成');
+    }
+    return enqueueMutation(async () => {
+      try {
+        const result = await deleteSessionStorage(id);
+        applySessions(result.sessions);
+        applyActiveSessionId(result.activeSessionId);
+        return result;
+      } catch (error) {
+        await refreshSessions().catch(() => {});
+        throw error;
+      }
+    });
+  }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
+
   const character = useMemo(
     () => characters.find(item => item.id === activeId)
       || characters.find(item => item.id === DEFAULT_CHARACTER.id)
@@ -193,6 +323,13 @@ export function AppProvider({ children }) {
       switchCharacter,
       addCharacter,
       deleteCharacter,
+      sessions,
+      activeSessionId,
+      switchSession,
+      pinSession,
+      cloneSession,
+      deleteSession,
+      refreshSessions,
     }),
     [
       character,
@@ -203,6 +340,13 @@ export function AppProvider({ children }) {
       switchCharacter,
       addCharacter,
       deleteCharacter,
+      sessions,
+      activeSessionId,
+      switchSession,
+      pinSession,
+      cloneSession,
+      deleteSession,
+      refreshSessions,
     ]
   );
 
