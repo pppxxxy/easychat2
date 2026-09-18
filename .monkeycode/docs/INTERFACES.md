@@ -82,6 +82,8 @@
 - 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标
 - 点击行先 `switchCharacter` 再 `switchSession`，随后 `navigation.navigate('聊天')`
 - 右侧提供置顶、克隆、删除三个按钮；克隆与删除弹二次确认，失败时 `Alert`
+- 顶部「编辑」入口（存在会话时显示）进入编辑模式，每行显示勾选框，底部操作条提供「全选」与「删除（N）」并二次确认，成功后退出编辑模式
+- 编辑模式下点击行切换选中且不打开会话，隐藏行内操作按钮
 - 列表为空时展示空状态
 
 ### `SearchScreen`（默认导出）
@@ -125,6 +127,7 @@
 | `pinSession` | `(id) => Promise<Session[]>` | 切换会话置顶标记并持久化排序结果 |
 | `cloneSession` | `(id) => Promise<Session>` | 克隆会话并加入列表，不改变当前会话 |
 | `deleteSession` | `(id) => Promise<{ sessions, activeSessionId, created }>` | 删除会话，必要时新建空会话并设为当前 |
+| `deleteSessions` | `(ids) => Promise<Session[]>` | 批量删除多个会话；包含当前会话时先新建空会话再删除 |
 | `refreshSessions` | `() => Promise<Session[]>` | 从存储重新读取会话与当前指针并同步状态 |
 | `ensureCharacterSession` | `(characterId) => Promise<Session>` | 激活该角色最近更新的会话；无会话时新建空会话 |
 | `pendingTarget` | `{ sessionId, messageId } \| null` | 待定位的消息目标，供聊天页消费 |
@@ -198,6 +201,7 @@
 | `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前 |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
+| `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedId?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedId` 存在时移除其消息键 |

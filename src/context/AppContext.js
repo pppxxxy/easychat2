@@ -23,6 +23,7 @@ import {
   startNewSession,
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
+  deleteSessions as deleteSessionsStorage,
 } from '../storage';
 import {
   resolveActiveId,
@@ -349,6 +350,35 @@ export function AppProvider({ children }) {
     });
   }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
 
+  const deleteSessions = useCallback(async ids => {
+    if (!loadedRef.current) {
+      throw new Error('会话尚未加载完成');
+    }
+    const targets = (Array.isArray(ids) ? ids : [])
+      .map(id => String(id || ''))
+      .filter(Boolean);
+    if (targets.length === 0) return sessionsRef.current;
+    return enqueueMutation(async () => {
+      const snapshot = snapshotSessions();
+      try {
+        if (targets.includes(snapshot.activeSessionId)) {
+          const current = snapshot.sessions.find(
+            session => session.id === snapshot.activeSessionId
+          );
+          await startNewSession(current ? current.characterId : '');
+        }
+        const result = await deleteSessionsStorage(targets);
+        const sorted = applySessions(result.sessions);
+        const resolved = resolveActiveSessionId(sorted, result.activeSessionId);
+        applyActiveSessionId(resolved);
+        return sorted;
+      } catch (error) {
+        await refreshSessions().catch(() => {});
+        throw error;
+      }
+    });
+  }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
+
   const character = useMemo(
     () => characters.find(item => item.id === activeId)
       || characters.find(item => item.id === DEFAULT_CHARACTER.id)
@@ -372,6 +402,7 @@ export function AppProvider({ children }) {
       pinSession,
       cloneSession,
       deleteSession,
+      deleteSessions,
       refreshSessions,
       ensureCharacterSession,
       pendingTarget,
@@ -393,6 +424,7 @@ export function AppProvider({ children }) {
       pinSession,
       cloneSession,
       deleteSession,
+      deleteSessions,
       refreshSessions,
       ensureCharacterSession,
       pendingTarget,

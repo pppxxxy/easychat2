@@ -714,6 +714,23 @@ export async function deleteSession(sessionId) {
   return { sessions: remaining, activeSessionId: activeId, created: null };
 }
 
+export async function deleteSessions(sessionIds) {
+  const ids = (Array.isArray(sessionIds) ? sessionIds : [])
+    .map(id => String(id || ''))
+    .filter(Boolean);
+  const sessions = await getSessions();
+  if (ids.length === 0) {
+    return { sessions, activeSessionId: await getActiveSessionId() };
+  }
+  const idSet = new Set(ids);
+  const remaining = sessions.filter(session => !idSet.has(session.id));
+  await saveSessions(remaining);
+  try {
+    await AsyncStorage.multiRemove(ids.map(id => sessionMessagesKey(id)));
+  } catch (error) {}
+  return { sessions: remaining, activeSessionId: await getActiveSessionId() };
+}
+
 export async function migrateLegacyMessages(characters) {
   const list = Array.isArray(characters) ? characters : [];
   const sessions = await getSessions();
