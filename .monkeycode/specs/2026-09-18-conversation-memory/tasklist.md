@@ -43,10 +43,10 @@
   - [x] 6.1 `TAB_ICONS` 与 `Tab.Screen` 增加「记忆」入口（需求 2.1）
   - [x] 6.2 冷启动调用 `migrateLegacyMessages` 与 `startNewSession`（需求 7.1、7.2、8.1；设计「App.js」）
 
-- [ ] 7. 检查点 - 确保所有可运行验证通过
+- [x] 7. 检查点 - 确保所有可运行验证通过
   - 确保所有验证通过,如有疑问请询问用户
 
-- [ ] 8. 回归验证
-  - [ ] 8.1 运行 `npm ci` 验证依赖与锁文件一致（设计「测试策略」）
-  - [ ] 8.2 运行 `npx expo export --platform android` 验证打包成功（设计「测试策略」）
-  - [ ] 8.3 同步 `.monkeycode/docs/` 中会话模型相关章节（需求 1、2、8）
+- [x] 8. 回归验证
+  - [x] 8.1 运行 `npm ci` 验证依赖与锁文件一致（设计「测试策略」）
+  - [x] 8.2 运行 `npx expo export --platform android` 验证打包成功（设计「测试策略」）
+  - [x] 8.3 同步 `.monkeycode/docs/` 中会话模型相关章节（需求 1、2、8）
