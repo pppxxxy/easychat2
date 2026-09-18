@@ -41,6 +41,7 @@
 - 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
 - 发送前按会话 `summarizedUpTo` 截断历史，并把 `buildMemorySummaryText(character)` 作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩
+- 角色页切换角色时同步切换会话（`ensureCharacterSession`）；记忆页打开群聊不依赖基础角色存在
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
@@ -284,7 +285,7 @@
 | `@easychat2_preset_list` | 全局预设数组 |
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
-| `@easychat2_memory_summary` | 记忆总结 `{ enabled: boolean, threshold: number }` |
+| `@easychat2_memory_summary` | 记忆总结 `{ enabled, threshold }`，默认 `{ enabled: true, threshold: 40 }` |
 | `@easychat2_plugins` | 插件数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |

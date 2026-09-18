@@ -79,7 +79,9 @@ export default function MemoryScreen({ navigation }) {
 
   const onOpen = useCallback(async session => {
     try {
-      await switchCharacter(session.characterId);
+      if (session.type !== 'group') {
+        await switchCharacter(session.characterId);
+      }
       await switchSession(session.id);
       navigation.navigate('聊天');
     } catch (error) {
@@ -126,7 +128,10 @@ export default function MemoryScreen({ navigation }) {
 
   const onOpenResult = useCallback(async result => {
     try {
-      await switchCharacter(result.characterId);
+      const target = sessions.find(session => session.id === result.sessionId);
+      if (!target || target.type !== 'group') {
+        await switchCharacter(result.characterId);
+      }
       await switchSession(result.sessionId);
       setPendingTarget({ sessionId: result.sessionId, messageId: result.messageId });
       setSearchOpen(false);
@@ -134,7 +139,7 @@ export default function MemoryScreen({ navigation }) {
     } catch (error) {
       Alert.alert('打开失败', '请检查存储空间或权限。');
     }
-  }, [navigation, setPendingTarget, switchCharacter, switchSession]);
+  }, [navigation, sessions, setPendingTarget, switchCharacter, switchSession]);
 
   const exitEdit = useCallback(() => {
     setEditing(false);

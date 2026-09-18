@@ -172,13 +172,14 @@ export default function PresetPanel({ visible, onClose }) {
 
   const commitThreshold = () => {
     if (busyRef.current) return;
+    const previous = Number(threshold);
     const parsed = Math.trunc(Number(String(threshold).trim()));
     const value = Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
     if (value !== parsed) {
       Alert.alert('阈值无效', `请输入大于 0 的整数，已改为 ${THRESHOLD_FALLBACK}。`);
     }
     setThreshold(String(value));
-    if (value !== Number(threshold)) {
+    if (previous !== value) {
       persistMemory(memoryEnabled, value);
     }
   };

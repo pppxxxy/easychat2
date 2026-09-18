@@ -420,6 +420,7 @@ export default function CharacterScreen() {
     loaded,
     updateCharacter,
     switchCharacter,
+    ensureCharacterSession,
     addCharacter,
     deleteCharacter,
     refreshSessions,
@@ -770,9 +771,11 @@ export default function CharacterScreen() {
   };
 
   const onSwitch = id => {
-    switchCharacter(id).catch(() => {
-      Alert.alert('切换失败', '请检查存储空间或权限。');
-    });
+    switchCharacter(id)
+      .then(() => ensureCharacterSession(id))
+      .catch(() => {
+        Alert.alert('切换失败', '请检查存储空间或权限。');
+      });
   };
 
   const onNewCharacter = async () => {
@@ -1247,7 +1250,7 @@ export default function CharacterScreen() {
                 disabled={creatingGroup}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectButtonText}>取消</Text>
+                <Text style={[styles.selectButtonText, styles.selectButtonTextGhost]}>取消</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.selectButton, creatingGroup && styles.buttonDisabled]}
@@ -1440,6 +1443,29 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   buttonText: { color: theme.colors.text, fontWeight: '800', marginLeft: 8, fontSize: 15 },
   buttonDisabled: { opacity: 0.45 },
+  presetModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  selectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+    marginLeft: 10,
+  },
+  selectButtonGhost: {
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  selectButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
+  selectButtonTextGhost: { color: theme.colors.text },
 
   importButton: {
     flexDirection: 'row',

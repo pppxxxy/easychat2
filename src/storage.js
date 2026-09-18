@@ -790,13 +790,13 @@ export async function getEnabledGlobalPresetPrompts() {
   return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
 }
 
-const DEFAULT_MEMORY_SUMMARY = { enabled: false, threshold: 40 };
+const DEFAULT_MEMORY_SUMMARY = { enabled: true, threshold: 40 };
 
 function normalizeMemorySummary(raw) {
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const threshold = Math.trunc(Number(source.threshold));
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  const threshold = Math.trunc(Number(source && source.threshold));
   return {
-    enabled: source.enabled === true,
+    enabled: source ? source.enabled === true : DEFAULT_MEMORY_SUMMARY.enabled,
     threshold: Number.isFinite(threshold) && threshold > 0
       ? threshold
       : DEFAULT_MEMORY_SUMMARY.threshold,
