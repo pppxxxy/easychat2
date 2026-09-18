@@ -22,8 +22,9 @@ export function formatContext(results, now = Date.now()) {
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
     + `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   const lines = results.map((item, index) => {
+    const link = item.url || item.link || '';
     const parts = [`${index + 1}. ${item.title || '未命名结果'}`];
-    if (item.link) parts.push(`来源：${item.link}`);
+    if (link) parts.push(`来源：${link}`);
     if (item.snippet) parts.push(`摘要：${item.snippet}`);
     return parts.join('\n');
   });

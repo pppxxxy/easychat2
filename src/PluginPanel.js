@@ -15,13 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getPlugins, savePlugins } from './storage';
-
-const PROVIDERS = [
-  { id: 'serpapi', label: 'SerpAPI' },
-  { id: 'google-cse', label: 'Google CSE' },
-  { id: 'bing', label: 'Bing' },
-  { id: 'custom', label: '自定义' },
-];
+import { PROVIDERS } from './plugins/providers';
 
 export default function PluginPanel({ visible, onClose }) {
   const [plugins, setPlugins] = useState([]);
@@ -69,10 +63,17 @@ export default function PluginPanel({ visible, onClose }) {
   const togglePlugin = useCallback(async (plugin, value) => {
     if (value && plugin.type === 'web-search') {
       const config = plugin.config || {};
-      const needsKey = config.provider === 'custom'
-        ? !String(config.customBaseUrl || '').trim()
-        : !String(config.apiKey || '').trim();
-      if (needsKey) {
+      const provider = PROVIDERS.find(item => item.id === config.provider) || PROVIDERS[0];
+      let missing = false;
+      if (provider.custom) {
+        missing = !String(config.customBaseUrl || '').trim();
+      } else if ((provider.secretFields || []).includes('apiKey')) {
+        missing = !String(config.apiKey || '').trim();
+      }
+      if (!missing && (provider.extraFields || []).includes('cx')) {
+        missing = !String(config.cx || '').trim();
+      }
+      if (missing) {
         Alert.alert('请先填写密钥', '开启联网搜索前，请先填写搜索服务的密钥或地址。');
       }
     }
@@ -116,6 +117,9 @@ export default function PluginPanel({ visible, onClose }) {
             </Text>
             {loaded ? plugins.map(plugin => {
               const config = plugin.config || {};
+              const currentProvider = PROVIDERS.find(
+                provider => provider.id === config.provider
+              ) || PROVIDERS[0];
               return (
                 <View key={plugin.id} style={styles.card}>
                   <View style={styles.cardHeader}>
@@ -179,7 +183,7 @@ export default function PluginPanel({ visible, onClose }) {
                         </TouchableOpacity>
                       </View>
 
-                      {config.provider === 'google-cse' ? (
+                      {(currentProvider.extraFields || []).includes('cx') ? (
                         <>
                           <Text style={styles.label}>搜索引擎 ID（cx）</Text>
                           <TextInput
@@ -193,7 +197,7 @@ export default function PluginPanel({ visible, onClose }) {
                         </>
                       ) : null}
 
-                      {config.provider === 'custom' ? (
+                      {currentProvider.custom ? (
                         <>
                           <Text style={styles.label}>自定义接口地址</Text>
                           <TextInput

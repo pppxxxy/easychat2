@@ -35,3 +35,10 @@
 - [x] 8. 回归验证
   - [x] 8.1 运行 `npx expo export --platform android` 验证打包成功（设计「测试策略」）
   - [x] 8.2 同步 `.monkeycode/docs/` 中插件、设置页与请求组装相关章节（需求 1—4）
+
+- [x] 9. 重构为声明式 Provider（加服务不改代码）
+  - [x] 9.1 新增 `src/plugins/providers.js`：声明 `baseUrl`、`method`、`authType`、`authKeyName`、`queryParam`、`limitParam`、`extra`、`extraFields`、`resultsPath`、`fields`、`secretFields`，内置 serpapi / google-cse / bing / brave / tavily / custom
+  - [x] 9.2 `src/plugins/webSearch.js` 改为通用请求器：`getByPath` 点号路径、按声明构造请求（GET 查询参数 `encodeURIComponent`）、统一返回 `{ title, url, snippet, raw }`
+  - [x] 9.3 增加 60 秒内存缓存、一次重试、每分钟 20 次限流与 10 秒超时；密钥仍由应用内填写
+  - [x] 9.4 `src/PluginPanel.js` 从声明表读取 Provider，并按 `extraFields`/`custom` 动态展示字段
+  - [x] 9.5 `storage` 的 Provider 白名单扩展到 brave/tavily

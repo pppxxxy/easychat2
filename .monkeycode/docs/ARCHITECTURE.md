@@ -67,8 +67,9 @@ easychat2/
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
+│   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
 │   │   ├── registry.js       # 插件注册表：触发词、执行与背景资料格式化
-│   │   └── webSearch.js      # 联网搜索 Provider 适配与 XHR 调用
+│   │   └── webSearch.js      # 通用请求器：构造、解析、缓存、重试与限流
 │   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── disclaimer.js         # 免责条款文本与弹窗组件

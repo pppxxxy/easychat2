@@ -382,7 +382,7 @@ data: [DONE]
 **说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与插件背景资料（`pluginContext`）；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 插件接口
-**位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`
+**位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -390,8 +390,13 @@ data: [DONE]
 | `shouldSearch({ userText, plugin, sessionId, now? })` | 插件启用、类型匹配、命中触发词且不在 30 秒冷却内 |
 | `formatContext(results, now?)` | 生成含标题、来源链接与获取时间的 `[背景资料（联网搜索 …）]` 文本 |
 | `runPlugins({ userText, plugins, sessionId, now? })` | 遍历启用插件，命中则搜索并返回注入文本；失败或超时返回空串并记录冷却 |
-| `runWebSearch({ query, config, maxResults? })` | 适配 `serpapi` / `google-cse` / `bing` / `custom`，XHR GET 调用，10 秒超时，返回 `{ title, link, snippet }[]` |
-| `resetSearchCooldown()` | 清空搜索冷却记录（测试用） |
+| `runWebSearch({ query, config, maxResults? })` | 按 `config.provider` 取声明、构造请求、解析并返回 `{ title, url, snippet, raw }[]`；带 60 秒内存缓存、一次重试、每分钟 20 次限流与 10 秒超时 |
+| `getByPath(source, path)` | 按点号路径取值（如 `web.results`） |
+| `buildRequest(provider, config, query, limit)` | 按声明构造请求（URL/方法/头/体），GET 查询参数 `encodeURIComponent` |
+| `parseResults(provider, data, limit)` | 按 `resultsPath` 与 `fields` 映射为统一结构 |
+| `resetSearchCooldown()` / `resetSearchCache()` | 清空冷却与缓存（测试用） |
+
+**声明式 Provider**: `src/plugins/providers.js` 的 `PROVIDERS` 描述各搜索服务的 `baseUrl`、`method`、`authType`（query/header/body）、`authKeyName`、`queryParam`、`limitParam`、`extra`、`extraFields`、`resultsPath`、`fields` 与 `secretFields`；新增服务只需追加声明。内置 `serpapi`、`google-cse`、`bing`、`brave`、`tavily` 与 `custom`（自定义地址）。密钥仍由用户在应用内填写并存入 `@easychat2_plugins`，不使用环境变量。
 
 **触发词**: `TRIGGER_KEYWORDS`（最新、今天、新闻、股价、天气、汇率等）。
 

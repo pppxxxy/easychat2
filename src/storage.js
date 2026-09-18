@@ -528,7 +528,7 @@ const DEFAULT_PLUGINS = [
   },
 ];
 
-const PLUGIN_PROVIDERS = ['serpapi', 'google-cse', 'bing', 'custom'];
+const PLUGIN_PROVIDERS = ['serpapi', 'google-cse', 'bing', 'brave', 'tavily', 'custom'];
 
 function normalizePlugin(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
