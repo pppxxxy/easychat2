@@ -2,7 +2,7 @@ import './src/polyfills';
 import 'react-native-gesture-handler';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -26,6 +26,40 @@ import { AppProvider, useApp } from './src/context/AppContext';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 
 const Tab = createBottomTabNavigator();
+
+class StartupErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.log('StartupErrorBoundary', error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={styles.crashScreen}>
+          <Text style={styles.crashTitle}>启动失败</Text>
+          <Text style={styles.crashHint}>请把以下内容截图反馈：</Text>
+          <ScrollView style={styles.crashScroll}>
+            <Text style={styles.crashText} selectable>
+              {String(this.state.error && this.state.error.message)}
+              {'\n\n'}
+              {String(this.state.error && this.state.error.stack)}
+            </Text>
+          </ScrollView>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const TAB_ICONS = {
   聊天: ['chatbubble-outline', 'chatbubble'],
@@ -159,19 +193,31 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider>
-          <AppProvider>
-            <AppShell />
-            <StartupSession />
-            <StartupDisclaimer />
-          </AppProvider>
-        </ThemeProvider>
+        <StartupErrorBoundary>
+          <ThemeProvider>
+            <AppProvider>
+              <AppShell />
+              <StartupSession />
+              <StartupDisclaimer />
+            </AppProvider>
+          </ThemeProvider>
+        </StartupErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  crashScreen: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+    paddingTop: 60,
+    paddingHorizontal: 20,
+  },
+  crashTitle: { color: '#ff9b9b', fontSize: 20, fontWeight: '800', marginBottom: 8 },
+  crashHint: { color: '#c9c9e0', fontSize: 13, marginBottom: 12 },
+  crashScroll: { flex: 1 },
+  crashText: { color: '#e6e6f2', fontSize: 12, lineHeight: 18 },
   header: {
     paddingBottom: 16,
     paddingHorizontal: 20,
