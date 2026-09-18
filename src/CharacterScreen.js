@@ -783,49 +783,55 @@ export default function CharacterScreen() {
               <Text style={styles.pillButtonText}>新建</Text>
             </TouchableOpacity>
           </View>
-          {characters.map(item => {
-            const selected = item.id === activeId;
-            return (
-              <TouchableOpacity
-                key={item.id}
-                style={[styles.characterRow, selected && styles.characterRowActive]}
-                onPress={() => onSwitch(item.id)}
-                activeOpacity={0.8}
-              >
-                {item.avatarUri ? (
-                  <Image source={{ uri: item.avatarUri }} style={styles.characterThumb} />
-                ) : (
-                  <View style={[styles.characterThumb, styles.characterThumbFallback]}>
-                    <Text style={styles.characterThumbText}>
-                      {(item.name || '?').charAt(0)}
+          <View style={styles.characterGrid}>
+            {characters.map(item => {
+              const selected = item.id === activeId;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.characterCard, selected && styles.characterCardActive]}
+                  onPress={() => onSwitch(item.id)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={`切换到角色 ${item.name || '未命名角色'}`}
+                  accessibilityState={{ selected }}
+                >
+                  <View style={styles.characterCardImageWrap}>
+                    {item.avatarUri ? (
+                      <Image source={{ uri: item.avatarUri }} style={styles.characterCardImage} />
+                    ) : (
+                      <View style={styles.characterCardFallback}>
+                        <Text style={styles.characterCardFallbackText}>
+                          {(item.name || '?').charAt(0)}
+                        </Text>
+                      </View>
+                    )}
+                    {selected ? (
+                      <View style={styles.characterCardBadge}>
+                        <Text style={styles.characterCardBadgeText}>当前</Text>
+                      </View>
+                    ) : null}
+                    {item.id !== 'default' ? (
+                      <TouchableOpacity
+                        style={styles.characterCardDelete}
+                        onPress={() => onDeleteCharacter(item)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel="删除角色"
+                      >
+                        <Ionicons name="trash-outline" size={15} color="#ffffff" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <View style={styles.characterCardNameBar}>
+                    <Text style={styles.characterCardName} numberOfLines={1}>
+                      {item.name || '未命名角色'}
                     </Text>
                   </View>
-                )}
-                <Text
-                  style={[styles.characterName, selected && styles.characterNameActive]}
-                  numberOfLines={1}
-                >
-                  {item.name || '未命名角色'}
-                </Text>
-                {selected ? (
-                  <View style={styles.currentBadge}>
-                    <Ionicons name="checkmark" size={11} color="#c8c4ff" />
-                    <Text style={styles.currentBadgeText}>当前</Text>
-                  </View>
-                ) : null}
-                {item.id !== 'default' ? (
-                  <TouchableOpacity
-                    style={styles.rowDelete}
-                    onPress={() => onDeleteCharacter(item)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityLabel="删除角色"
-                  >
-                    <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
-                  </TouchableOpacity>
-                ) : null}
-              </TouchableOpacity>
-            );
-          })}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
@@ -1219,49 +1225,72 @@ const styles = StyleSheet.create({
   },
   pillButtonText: { color: '#c8c4ff', fontWeight: '700', fontSize: 13, marginLeft: 4 },
 
-  characterRow: {
+  characterGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  characterCard: {
+    width: '48%',
     backgroundColor: '#2d2d44',
     borderRadius: 12,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    marginTop: 8,
     borderWidth: 1,
     borderColor: 'transparent',
+    overflow: 'hidden',
+    marginTop: 10,
   },
-  characterRowActive: {
+  characterCardActive: {
     borderColor: '#6c63ff',
-    backgroundColor: 'rgba(108,99,255,0.16)',
   },
-  characterThumb: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.35)',
-    flexShrink: 0,
+  characterCardImageWrap: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#3a3a58',
   },
-  characterThumbFallback: {
+  characterCardImage: { width: '100%', height: '100%' },
+  characterCardFallback: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(108,99,255,0.14)',
+    backgroundColor: 'rgba(108,99,255,0.18)',
   },
-  characterThumbText: { color: '#c8c4ff', fontWeight: '800', fontSize: 14 },
-  characterName: { color: '#d9d9e6', flex: 1, marginRight: 8, fontSize: 14 },
-  characterNameActive: { color: '#fff', fontWeight: '700' },
-  currentBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(108,99,255,0.25)',
+  characterCardFallbackText: { color: '#c8c4ff', fontSize: 34, fontWeight: '800' },
+  characterCardBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#6c63ff',
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    marginRight: 8,
   },
-  currentBadgeText: { color: '#c8c4ff', fontSize: 11, fontWeight: '700', marginLeft: 3 },
-  rowDelete: { padding: 4 },
+  characterCardBadgeText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
+  characterCardDelete: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  characterCardNameBar: {
+    backgroundColor: '#ffffff',
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  characterCardName: {
+    color: '#1a1a2e',
+    fontSize: 13,
+    fontWeight: '700',
+    maxWidth: '100%',
+  },
   removeText: { color: '#ff9b9b', fontWeight: '700' },
 
   imageRow: { flexDirection: 'row', alignItems: 'center' },
