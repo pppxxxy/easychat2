@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Buffer } from 'buffer';
 
@@ -28,6 +29,7 @@ import {
   REGEX_PLACEMENT_LABELS,
   WORLD_POSITION_LABELS,
 } from './cardParser';
+import { exportCardFile } from './cardExporter';
 import { useApp } from './context/AppContext';
 import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
@@ -434,6 +436,8 @@ export default function CharacterScreen() {
   const [bgPreview, setBgPreview] = useState(null);
   const [importing, setImporting] = useState(false);
   const [presetPanelOpen, setPresetPanelOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportBusyRef = useRef(false);
   const seededIdRef = useRef(null);
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
@@ -669,6 +673,57 @@ export default function CharacterScreen() {
     }
   };
 
+  const readAvatarBytes = async () => {
+    const uri = character && character.avatarUri;
+    if (!uri) return null;
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return Buffer.from(base64, 'base64');
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const runExport = async format => {
+    if (exportBusyRef.current) return;
+    exportBusyRef.current = true;
+    setExporting(true);
+    try {
+      const avatarBytes = format === 'png' ? await readAvatarBytes() : null;
+      const uri = await exportCardFile(character, format, avatarBytes);
+      const available = await Sharing.isAvailableAsync().catch(() => false);
+      if (available) {
+        await Sharing.shareAsync(uri, {
+          mimeType: format === 'png' ? 'image/png' : 'application/json',
+          dialogTitle: '导出角色卡',
+        });
+      } else {
+        Alert.alert('导出完成', `文件已生成：\n${uri}`);
+      }
+    } catch (error) {
+      Alert.alert('导出失败', '请稍后重试。');
+    } finally {
+      exportBusyRef.current = false;
+      setExporting(false);
+    }
+  };
+
+  const onExport = () => {
+    if (exportBusyRef.current || !loaded) return;
+    const dirty = String(name || '').trim() !== String((character && character.name) || '').trim();
+    Alert.alert(
+      '导出角色卡',
+      dirty ? '当前有未保存的编辑，将导出已保存的内容。请选择格式。' : '请选择导出格式。',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: 'PNG 图片', onPress: () => runExport('png') },
+        { text: 'JSON 文件', onPress: () => runExport('json') },
+      ]
+    );
+  };
+
   const onSwitch = id => {
     switchCharacter(id).catch(() => {
       Alert.alert('切换失败', '请检查存储空间或权限。');
@@ -902,6 +957,21 @@ export default function CharacterScreen() {
               ) : null}
             </View>
           </View>
+
+          <TouchableOpacity
+            style={styles.presetEntryRow}
+            onPress={onExport}
+            disabled={exporting || !loaded}
+            activeOpacity={0.7}
+          >
+            <View style={styles.presetEntryLeft}>
+              <Ionicons name="share-outline" size={17} color="#8b85ff" />
+              <Text style={styles.presetEntryText}>
+                {exporting ? '导出中...' : '导出角色卡'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.presetEntryRow}

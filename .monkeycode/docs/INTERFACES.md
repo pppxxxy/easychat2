@@ -313,6 +313,18 @@ data: [DONE]
 **位置**: `src/cardParser.js`
 **说明**: 先用 `parsecard.readJsonFromPNG` 读取 `tEXt`，为空时用本地无压缩 `iTXt` 兜底；均无数据返回 `null`
 
+### 角色卡导出接口
+**位置**: `src/cardExporter.js`
+
+| 函数 | 说明 |
+|------|------|
+| `buildCardV2(character)` | 构造 `chara_card_v2`（V2 `data` + V1 平铺字段），映射 `character_book` 与 `extensions.regex_scripts` |
+| `cardToJson(character)` | 返回格式化 JSON 字符串 |
+| `cardToPng(character, avatarBytes?)` | 返回含 `chara` 文本块的 PNG 字节；头像缺失或非法时回退占位 PNG |
+| `exportCardFile(character, format, avatarBytes?)` | 写入缓存目录并返回文件 uri；`format` 为 `'png'` 或 `'json'` |
+| `createPlaceholderPng(width?, height?)` | 生成最小 RGB 占位 PNG（deflate stored + 自实现 CRC32/Adler32） |
+| `injectCharaChunk(pngBytes, jsonText)` | 在 `IHDR` 之后、`IDAT` 之前插入 `chara` 文本块 |
+
 ### `createWorldEntry(partial?, index?)` / `createRegexScript(partial?, index?)`
 **位置**: `src/cardParser.js`
 **返回**: 经标准化补全默认值的一条世界书条目 / 正则脚本；用于角色页新增条目

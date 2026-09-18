@@ -58,6 +58,7 @@ easychat2/
 │   ├── PresetPanel.js        # 全局预设与记忆总结设置面板
 │   ├── api.js                # 大模型接口调用与错误格式化
 │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
+│   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
 │   ├── lorebook.js           # 世界书条目激活判定
 │   ├── regexEngine.js        # 正则脚本作用范围与应用
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
@@ -103,10 +104,10 @@ easychat2/
 **被依赖**: `App.js`
 
 ### 角色管理
-**目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，并从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本
+**目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本，并把角色导出为标准 V2 卡
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
-**依赖**: `src/cardParser.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`buffer`、`src/context/AppContext.js`
+**依赖**: `src/cardParser.js`、`src/cardExporter.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
 **被依赖**: `App.js`
 
 ### 卡解析与提示管线
