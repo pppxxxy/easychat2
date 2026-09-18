@@ -512,7 +512,14 @@ export default function ChatScreen() {
   }, []);
 
   const persistableMessages = useMemo(
-    () => (messages || []).filter(item => item && !item.pending),
+    () => (messages || [])
+      .filter(item => item && !item.pending)
+      .map(item => {
+        if (!Object.prototype.hasOwnProperty.call(item, 'waitingForResponse')) return item;
+        const next = { ...item };
+        delete next.waitingForResponse;
+        return next;
+      }),
     [messages]
   );
   const persistableSnapshot = useMemo(
@@ -734,7 +741,9 @@ export default function ChatScreen() {
             && pendingItem.text.trim().length > 0;
           if (hasPartial) {
             return current.map(item => (
-              item.id === pendingAssistantMessage.id ? { ...item, pending: false } : item
+              item.id === pendingAssistantMessage.id
+                ? { ...item, pending: false, waitingForResponse: false }
+                : item
             ));
           }
           return current.filter(item => item.id !== pendingAssistantMessage.id);
@@ -761,7 +770,9 @@ export default function ChatScreen() {
         if (hasPartial) {
           return current
             .map(item => (
-              item.id === pendingAssistantMessage.id ? { ...item, pending: false } : item
+              item.id === pendingAssistantMessage.id
+                ? { ...item, pending: false, waitingForResponse: false }
+                : item
             ))
             .concat(errorMessage);
         }
