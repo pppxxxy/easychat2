@@ -32,6 +32,8 @@
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
+- 发送前按会话 `summarizedUpTo` 截断历史，并把 `buildMemorySummaryText(character)` 作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩
+- 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -320,10 +322,25 @@ data: [DONE]
 **位置**: `src/cardParser.js`
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
-### `buildRequestMessages({ character, historyMessages, userText })`
+### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）与 `[记忆摘要]`（`summaryText`，记忆总结结果）；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+
+### 记忆总结接口
+**位置**: `src/memorySummary.js`
+
+| 函数 | 说明 |
+|------|------|
+| `selectSummarizable(messages, summarizedUpTo, keepRecent?)` | 返回边界之后、且保留最近若干条（默认 6）以外的可总结消息 |
+| `shouldSummarize({ session, messages, settings, force? })` | 自动触发需开关开启且消息数达到阈值且有可总结消息；`force` 用于手动触发 |
+| `buildSummaryPrompt(messages, userName?)` | 组装要求输出 `{ summary, keywords }` JSON 的提示词 |
+| `parseSummaryResponse(text)` | 解析摘要与关键词，兼容代码块与前后缀文字，关键词为空时兜底，非法输入抛错 |
+| `generateSummary({ character, messages, userName? })` | 调用 `sendChatMessage` 生成摘要 |
+| `applySummary({ session, character, messages, updateCharacter, userName? })` | 把摘要写入角色世界书（`记忆总结 N`、关键词触发）并更新会话边界 |
+| `buildMemorySummaryText(character)` | 拼接世界书中「记忆总结」条目内容，供请求压缩 |
+
+**常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`FALLBACK_KEYWORDS`。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/lorebook.js`
@@ -394,6 +411,7 @@ data: [DONE]
 | `createdAt` | `number` | 创建时间戳 |
 | `updatedAt` | `number` | 最后更新时间戳，决定排序 |
 | `clonedFrom` | `string` | 克隆来源会话 `id`，非副本为空串 |
+| `summarizedUpTo` | `string` | 记忆总结边界消息 `id`，未总结为空串；仅允许单调前移，克隆不继承 |
 
 排序规则：置顶优先，其余按 `updatedAt` 降序，并列按 `id` 升序。空会话（无消息）不进入列表。
 

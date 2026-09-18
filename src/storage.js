@@ -585,6 +585,24 @@ export async function saveMessagesBySession(sessionId, messages) {
   return persistable;
 }
 
+export async function setSessionSummarizedUpTo(sessionId, messageId) {
+  const sessions = await getSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target) throw new Error('会话不存在');
+  const nextBoundary = String(messageId || '');
+  if (!nextBoundary) return target;
+  const messages = await getMessagesBySession(sessionId);
+  const newIndex = messages.findIndex(item => item.id === nextBoundary);
+  if (newIndex < 0) throw new Error('总结边界无效');
+  const oldIndex = messages.findIndex(item => item.id === target.summarizedUpTo);
+  if (target.summarizedUpTo && oldIndex >= 0 && newIndex <= oldIndex) {
+    return target;
+  }
+  const updated = { ...target, summarizedUpTo: nextBoundary };
+  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  return updated;
+}
+
 async function readLegacyMessages(characterId) {
   let stored = await readJson(messagesKey(characterId), null);
   if ((!Array.isArray(stored) || stored.length === 0)

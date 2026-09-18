@@ -22,12 +22,24 @@ import RenderHtml, { HTMLContentModel, HTMLElementModel } from 'react-native-ren
 
 import { isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
+import {
+  applySummary,
+  buildMemorySummaryText,
+  selectSummarizable,
+  shouldSummarize,
+} from './memorySummary';
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import DisclaimerModal from './disclaimer';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { getEnabledGlobalPresetPrompts, getMessagesBySession, getUserProfile, saveMessagesBySession } from './storage';
+import {
+  getEnabledGlobalPresetPrompts,
+  getMemorySummarySettings,
+  getMessagesBySession,
+  getUserProfile,
+  saveMessagesBySession,
+} from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -470,10 +482,24 @@ export default function ChatScreen() {
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
-  const { character, characters, activeId, loaded, switchCharacter, activeSessionId, ensureCharacterSession } = useApp();
+  const {
+    character,
+    characters,
+    activeId,
+    loaded,
+    switchCharacter,
+    activeSessionId,
+    sessions,
+    ensureCharacterSession,
+    updateCharacter,
+    refreshSessions,
+  } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
   const activeSessionIdRef = useRef(activeSessionId);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const summarizingRef = useRef(false);
   const atBottomRef = useRef(true);
   const abortRef = useRef(null);
   const sessionVersionRef = useRef(0);
@@ -486,6 +512,7 @@ export default function ChatScreen() {
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
   const [selectionText, setSelectionText] = useState('');
+  const [summarizing, setSummarizing] = useState(false);
 
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
@@ -688,6 +715,62 @@ export default function ChatScreen() {
     ]);
   }, []);
 
+  const runSummarize = useCallback(async (session, list, manual) => {
+    if (summarizingRef.current) return;
+    const picked = selectSummarizable(list, session.summarizedUpTo);
+    if (picked.length === 0) {
+      if (manual) Alert.alert('无法总结', '当前没有可总结的消息。');
+      return;
+    }
+    summarizingRef.current = true;
+    setSummarizing(true);
+    try {
+      const userProfile = await getUserProfile();
+      await applySummary({
+        session,
+        character,
+        messages: picked,
+        updateCharacter,
+        userName: userProfile.userName,
+      });
+      await refreshSessions().catch(() => {});
+      if (manual) Alert.alert('已完成', '记忆总结已写入角色世界书。');
+    } catch (error) {
+      Alert.alert('记忆总结失败', '请稍后重试。');
+    } finally {
+      summarizingRef.current = false;
+      setSummarizing(false);
+    }
+  }, [character, updateCharacter, refreshSessions]);
+
+  const maybeAutoSummarize = useCallback(async list => {
+    if (summarizingRef.current) return;
+    const session = sessionsRef.current.find(
+      item => item.id === activeSessionIdRef.current
+    );
+    if (!session) return;
+    let settings = null;
+    try {
+      settings = await getMemorySummarySettings();
+    } catch (error) {
+      return;
+    }
+    if (!shouldSummarize({ session, messages: list, settings })) return;
+    await runSummarize(session, list, false);
+  }, [runSummarize]);
+
+  const onSummarize = useCallback(() => {
+    if (summarizingRef.current || isSending || !ready) return;
+    const session = sessionsRef.current.find(
+      item => item.id === activeSessionIdRef.current
+    );
+    if (!session) {
+      Alert.alert('无法总结', '当前没有可总结的会话。');
+      return;
+    }
+    runSummarize(session, messages, true);
+  }, [isSending, ready, messages, runSummarize]);
+
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
     if (isSending || !ready || abortRef.current) return;
     const sendCharacterId = activeCharacterIdRef.current;
@@ -720,12 +803,23 @@ export default function ChatScreen() {
         getUserProfile(),
         getEnabledGlobalPresetPrompts(),
       ]);
+      const currentSession = sessionsRef.current.find(
+        session => session.id === sendSessionId
+      );
+      const boundary = currentSession && currentSession.summarizedUpTo;
+      const boundaryIndex = boundary
+        ? historyMessages.findIndex(item => item.id === boundary)
+        : -1;
+      const trimmedHistory = boundaryIndex >= 0
+        ? historyMessages.slice(boundaryIndex + 1)
+        : historyMessages;
       const requestMessages = buildRequestMessages({
         character,
-        historyMessages,
+        historyMessages: trimmedHistory,
         userText,
         userProfile,
         globalPresets,
+        summaryText: buildMemorySummaryText(character),
       });
 
       const reply = await sendChatMessage(
@@ -755,6 +849,17 @@ export default function ChatScreen() {
             : item
         );
       });
+      if (isCurrentSession()) {
+        maybeAutoSummarize([
+          ...baseMessages,
+          {
+            ...pendingAssistantMessage,
+            text: reply || '没有收到回复。',
+            pending: false,
+            waitingForResponse: false,
+          },
+        ]);
+      }
     } catch (error) {
       if (isCanceledError(error)) {
         setMessages(current => {
@@ -814,7 +919,7 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [autoScrollToBottom, character, isSending, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character, isSending, maybeAutoSummarize, ready, scrollToBottom]);
 
   const sendText = useCallback(rawText => {
     const text = String(rawText || '').trim();
@@ -933,6 +1038,17 @@ export default function ChatScreen() {
         >
           <Ionicons name="megaphone-outline" size={13} color="#c8c4ff" />
           <Text style={styles.noticeButtonText}>公告</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.noticeButton, (summarizing || !ready) && styles.actionDisabled]}
+          onPress={onSummarize}
+          disabled={summarizing || !ready}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="总结记忆"
+        >
+          <Ionicons name="book-outline" size={13} color="#c8c4ff" />
+          <Text style={styles.noticeButtonText}>{summarizing ? '总结中' : '总结'}</Text>
         </TouchableOpacity>
       </View>
       <ScrollView
@@ -1157,6 +1273,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700', marginLeft: 4 },
+  actionDisabled: { opacity: 0.5 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

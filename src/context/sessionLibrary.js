@@ -25,6 +25,7 @@ export function normalizeSession(raw, index = 0) {
     createdAt: Number.isFinite(createdAt) ? createdAt : 0,
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
     clonedFrom: String(source.clonedFrom || ''),
+    summarizedUpTo: source.summarizedUpTo ? String(source.summarizedUpTo) : '',
   };
 }
 
@@ -73,6 +74,7 @@ export function createEmptySession(characterId, sessions, now = Date.now()) {
     createdAt: now,
     updatedAt: now,
     clonedFrom: '',
+    summarizedUpTo: '',
   };
 }
 
@@ -84,6 +86,7 @@ export function buildClonedSession(sessions, source, messages, now = Date.now())
     createdAt: now,
     updatedAt: now,
     clonedFrom: String((source && source.id) || ''),
+    summarizedUpTo: '',
     preview: buildPreview(messages),
   };
 }
