@@ -37,6 +37,7 @@
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
+- 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -102,6 +103,15 @@
 - 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；松手时以映射索引调用 `onSeek`
 - 消息数超过 30 时拖动显示预览卡（时间、发言者、缩略与位置）；无消息时按钮禁用
 **辅助导出**: `indexFromRatio(ratio, messageCount)`
+
+### `PluginPanel`（默认导出）
+**位置**: `src/PluginPanel.js`
+**Props**: `{ visible, onClose }`
+**行为**:
+- 打开时读取插件列表，列出名称、描述与启用开关
+- 联网搜索插件可配置搜索服务（SerpAPI / Google CSE / Bing / 自定义）、API 密钥（密文展示，可切换明暗）、Google CSE 的 `cx`、自定义接口地址与结果条数（1-10）
+- 开关即时保存；开启联网搜索但未填密钥（或自定义地址）时提示先填写
+- 关闭时保存未提交的配置
 
 ## 全局状态
 
@@ -214,6 +224,9 @@
 | `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
 | `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取记忆总结开关与阈值，缺失时默认 `{ enabled: false, threshold: 40 }` |
 | `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入记忆总结设置，阈值非法时回退 40 |
+| `getPlugins` | `() => Promise<Plugin[]>` | 读取插件列表并规范化，内置项缺失时补入 |
+| `savePlugins` | `(plugins) => Promise<Plugin[]>` | 规范化并写入插件列表，确保内置项存在 |
+| `getEnabledPlugins` | `() => Promise<Plugin[]>` | 返回已开启插件 |
 | `isDisclaimerAcknowledged` | `() => Promise<boolean>` | 是否已确认免责条款 |
 | `acknowledgeDisclaimer` | `() => Promise<boolean>` | 写入免责条款已确认标记 |
 
@@ -239,6 +252,7 @@
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
 | `@easychat2_memory_summary` | 记忆总结 `{ enabled: boolean, threshold: number }` |
+| `@easychat2_plugins` | 插件数组（内置 `web-search`） |
 
 **默认 API 配置**:
 
@@ -362,10 +376,24 @@ data: [DONE]
 **位置**: `src/cardParser.js`
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
-### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText })`
+### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）与 `[记忆摘要]`（`summaryText`，记忆总结结果）；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与插件背景资料（`pluginContext`）；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+
+### 插件接口
+**位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`
+
+| 函数 | 说明 |
+|------|------|
+| `hasTrigger(userText, keywords?)` | 判断文本是否命中内置触发词 |
+| `shouldSearch({ userText, plugin, sessionId, now? })` | 插件启用、类型匹配、命中触发词且不在 30 秒冷却内 |
+| `formatContext(results, now?)` | 生成含标题、来源链接与获取时间的 `[背景资料（联网搜索 …）]` 文本 |
+| `runPlugins({ userText, plugins, sessionId, now? })` | 遍历启用插件，命中则搜索并返回注入文本；失败或超时返回空串并记录冷却 |
+| `runWebSearch({ query, config, maxResults? })` | 适配 `serpapi` / `google-cse` / `bing` / `custom`，XHR GET 调用，10 秒超时，返回 `{ title, link, snippet }[]` |
+| `resetSearchCooldown()` | 清空搜索冷却记录（测试用） |
+
+**触发词**: `TRIGGER_KEYWORDS`（最新、今天、新闻、股价、天气、汇率等）。
 
 ### 记忆总结接口
 **位置**: `src/memorySummary.js`
@@ -481,6 +509,21 @@ data: [DONE]
 |------|------|------|
 | `enabled` | `boolean` | 是否开启记忆总结 |
 | `threshold` | `number` | 触发阈值（当前会话消息条数），大于 0 的整数，默认 40 |
+
+### `Plugin`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 插件标识；内置为 `web-search` |
+| `name` | `string` | 名称 |
+| `description` | `string` | 描述 |
+| `type` | `string` | 插件类型；内置为 `web-search` |
+| `enabled` | `boolean` | 是否启用 |
+| `config.provider` | `'serpapi' \| 'google-cse' \| 'bing' \| 'custom'` | 搜索服务 |
+| `config.apiKey` | `string` | 搜索服务密钥（仅存本机） |
+| `config.cx` | `string` | Google CSE 的搜索引擎 ID |
+| `config.customBaseUrl` | `string` | 自定义接口地址 |
+| `config.maxResults` | `number` | 单次返回结果数上限，1-10，默认 5 |
 
 ### `ApiConfig`
 

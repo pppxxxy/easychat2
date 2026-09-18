@@ -58,6 +58,7 @@ easychat2/
 │   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
 │   ├── PresetPanel.js        # 全局预设与记忆总结设置面板
+│   ├── PluginPanel.js        # 插件管理面板（联网搜索等）
 │   ├── api.js                # 大模型接口调用与错误格式化
 │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
 │   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
@@ -65,6 +66,9 @@ easychat2/
 │   ├── regexEngine.js        # 正则脚本作用范围与应用
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
+│   ├── plugins/
+│   │   ├── registry.js       # 插件注册表：触发词、执行与背景资料格式化
+│   │   └── webSearch.js      # 联网搜索 Provider 适配与 XHR 调用
 │   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── disclaimer.js         # 免责条款文本与弹窗组件

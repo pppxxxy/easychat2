@@ -36,11 +36,13 @@ import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import {
   getEnabledGlobalPresetPrompts,
+  getEnabledPlugins,
   getMemorySummarySettings,
   getMessagesBySession,
   getUserProfile,
   saveMessagesBySession,
 } from './storage';
+import { runPlugins } from './plugins/registry';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -956,10 +958,16 @@ export default function ChatScreen() {
     abortRef.current = controller;
 
     try {
-      const [userProfile, globalPresets] = await Promise.all([
+      const [userProfile, globalPresets, enabledPlugins] = await Promise.all([
         getUserProfile(),
         getEnabledGlobalPresetPrompts(),
+        getEnabledPlugins(),
       ]);
+      const pluginContext = await runPlugins({
+        userText,
+        plugins: enabledPlugins,
+        sessionId: sendSessionId,
+      });
       const currentSession = sessionsRef.current.find(
         session => session.id === sendSessionId
       );
@@ -977,6 +985,7 @@ export default function ChatScreen() {
         userProfile,
         globalPresets,
         summaryText: buildMemorySummaryText(character),
+        pluginContext,
       });
 
       const reply = await sendChatMessage(

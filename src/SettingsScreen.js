@@ -19,6 +19,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api';
 import DisclaimerModal from './disclaimer';
+import PluginPanel from './PluginPanel';
 import PresetPanel from './PresetPanel';
 import {
   createApiConfig,
@@ -50,6 +51,7 @@ export default function SettingsScreen() {
   const [modelModalVisible, setModelModalVisible] = useState(false);
   const [userProfileSaved, setUserProfileSaved] = useState(false);
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
+  const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
@@ -632,6 +634,17 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
             </View>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => setPluginEntryOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="extension-puzzle-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>插件</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+          </TouchableOpacity>
         </View>
 
         <PresetPanel
@@ -640,6 +653,11 @@ export default function SettingsScreen() {
             setPresetEntryOpen(false);
             refreshPresetCount();
           }}
+        />
+
+        <PluginPanel
+          visible={pluginEntryOpen}
+          onClose={() => setPluginEntryOpen(false)}
         />
 
         <View style={styles.card}>

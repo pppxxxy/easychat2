@@ -20,6 +20,7 @@ const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const MEMORY_SUMMARY_KEY = '@easychat2_memory_summary';
+const PLUGINS_KEY = '@easychat2_plugins';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -508,6 +509,88 @@ export async function saveMemorySummarySettings(settings) {
   const normalized = normalizeMemorySummary(settings);
   await AsyncStorage.setItem(MEMORY_SUMMARY_KEY, JSON.stringify(normalized));
   return normalized;
+}
+
+const DEFAULT_PLUGINS = [
+  {
+    id: 'web-search',
+    name: '联网搜索',
+    description: '角色可搜索网络信息，结合时事回答。',
+    type: 'web-search',
+    enabled: false,
+    config: {
+      provider: 'serpapi',
+      apiKey: '',
+      cx: '',
+      customBaseUrl: '',
+      maxResults: 5,
+    },
+  },
+];
+
+const PLUGIN_PROVIDERS = ['serpapi', 'google-cse', 'bing', 'custom'];
+
+function normalizePlugin(raw, index = 0) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const preset = DEFAULT_PLUGINS.find(item => item.id === source.id);
+  const defaultConfig = (preset && preset.config) || {};
+  const config = source.config && typeof source.config === 'object' && !Array.isArray(source.config)
+    ? source.config
+    : {};
+  const provider = PLUGIN_PROVIDERS.includes(config.provider)
+    ? config.provider
+    : (defaultConfig.provider || 'serpapi');
+  const maxResults = Math.trunc(Number(config.maxResults));
+  return {
+    id: String(source.id || `plugin-${index}`),
+    name: String(source.name || (preset && preset.name) || `插件 ${index + 1}`),
+    description: String(source.description || (preset && preset.description) || ''),
+    type: String(source.type || (preset && preset.type) || ''),
+    enabled: source.enabled === true,
+    config: {
+      provider,
+      apiKey: String(config.apiKey || ''),
+      cx: String(config.cx || ''),
+      customBaseUrl: String(config.customBaseUrl || ''),
+      maxResults: Number.isFinite(maxResults) && maxResults > 0
+        ? Math.min(maxResults, 10)
+        : 5,
+    },
+  };
+}
+
+export async function getPlugins() {
+  const raw = await readJson(PLUGINS_KEY, null);
+  const list = Array.isArray(raw) ? raw.map(normalizePlugin) : [];
+  let changed = raw === null;
+  DEFAULT_PLUGINS.forEach(preset => {
+    if (!list.some(item => item.id === preset.id)) {
+      list.push(normalizePlugin(preset));
+      changed = true;
+    }
+  });
+  if (changed) {
+    try {
+      await AsyncStorage.setItem(PLUGINS_KEY, JSON.stringify(list));
+    } catch (error) {}
+  }
+  return list;
+}
+
+export async function savePlugins(plugins) {
+  const list = (Array.isArray(plugins) ? plugins : []).map(normalizePlugin);
+  DEFAULT_PLUGINS.forEach(preset => {
+    if (!list.some(item => item.id === preset.id)) {
+      list.push(normalizePlugin(preset));
+    }
+  });
+  await AsyncStorage.setItem(PLUGINS_KEY, JSON.stringify(list));
+  return list;
+}
+
+export async function getEnabledPlugins() {
+  const list = await getPlugins();
+  return list.filter(plugin => plugin.enabled === true);
 }
 
 export async function isDisclaimerAcknowledged() {
