@@ -4,11 +4,11 @@
 
 EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应用，面向希望在手机上使用自有大模型 API Key 进行对话的个人用户。应用兼容 OpenAI 的 Chat Completions 协议，通过一个可配置的 API 地址、模型名和密钥与任意兼容服务（如 DeepSeek、OpenAI 或自建网关）通信。
 
-应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由三个底部标签页组成——聊天、角色、设置，分别负责对话、角色库管理与 API 配置，并通过一个全局 `AppContext` 共享角色库与当前角色状态。
+应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由四个底部标签页组成——聊天、记忆、角色、设置，分别负责对话、历史会话管理、角色库管理与 API 配置，并通过一个全局 `AppContext` 共享角色库、会话列表与当前选择状态。
 
-在能力上，应用支持按角色隔离的多会话聊天、可陈列与切换的角色库、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 PNG 或 JSON 角色卡导入人设、世界书与正则脚本。导入的世界书会在发送前按键触发注入提示词，正则脚本会分别在发送提示词与界面展示时应用。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
+在能力上，应用支持一个角色拥有多段对话、可陈列与切换的历史会话（记忆页支持置顶、克隆与删除）、可陈列与切换的角色库、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 PNG 或 JSON 角色卡导入人设、世界书与正则脚本。导入的世界书会在发送前按键触发注入提示词，正则脚本会分别在发送提示词与界面展示时应用。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
 
-架构上强调几项特征：角色以「角色库 + 当前角色 id」两键持久化，旧版单角色数据在首次读取时迁移；角色状态集中在 Context 并采用乐观写入加失败回滚，切换角色时中断进行中的请求并丢弃迟到回复；消息持久化以 `characterId` 为维度隔离，并保留对旧版单会话数据的兼容读取；运行时的 Buffer 兼容垫片与 Metro 的 `package exports` 开关共同保证 ESM 依赖 `parsecard` 能正确打包。
+架构上强调几项特征：角色以「角色库 + 当前角色 id」两键持久化，旧版单角色数据在首次读取时迁移；会话以「会话列表 + 当前会话 id」持久化，消息按会话 id 隔离，旧版按角色存储的消息在启动时迁移为历史会话；角色与会话状态集中在 Context 并采用乐观写入加失败回滚，切换角色或会话时中断进行中的请求并丢弃迟到回复。运行时的 Buffer 兼容垫片与 Metro 的 `package exports` 开关共同保证 ESM 依赖 `parsecard` 能正确打包。
 
 ## 技术栈
 
@@ -52,6 +52,7 @@ easychat2/
 ├── assets/                   # 图标、自适应图标与启动图
 ├── src/
 │   ├── ChatScreen.js         # 聊天界面：角色切换、消息列表、发送、错误气泡、持久化
+│   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
 │   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
 │   ├── api.js                # 大模型接口调用与错误格式化
@@ -65,8 +66,9 @@ easychat2/
 │   ├── storage.js            # AsyncStorage 读写封装与默认值
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
-│       ├── AppContext.js     # 全局角色库状态与更新逻辑
-│       └── characterLibrary.js # 角色库状态迁移纯函数
+│       ├── AppContext.js     # 全局角色库与会话状态
+│       ├── characterLibrary.js # 角色库状态迁移纯函数
+│       └── sessionLibrary.js # 会话状态纯函数
 └── .github/workflows/        # APK 构建与 EAS 调试流水线
 ```
 
@@ -78,7 +80,7 @@ easychat2/
 ## 子系统
 
 ### 应用外壳与导航
-**目的**: 初始化运行时垫片、全局 Provider，并组织三个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款
+**目的**: 初始化运行时垫片、全局 Provider，并组织四个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款，`StartupSession` 迁移旧消息并开启新会话
 **位置**: `App.js`
 **关键文件**: `App.js`
 **依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`@expo/vector-icons`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`
@@ -89,6 +91,13 @@ easychat2/
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`
 **依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`@expo/vector-icons`、`expo-clipboard`、`react-native-markdown-display`
+**被依赖**: `App.js`
+
+### 记忆页
+**目的**: 逐行陈列历史会话，支持点击续聊、置顶、克隆与删除
+**位置**: `src/MemoryScreen.js`
+**关键文件**: `src/MemoryScreen.js`
+**依赖**: `src/context/AppContext.js`、`@expo/vector-icons`
 **被依赖**: `App.js`
 
 ### 角色管理
@@ -119,15 +128,15 @@ easychat2/
 **依赖**: `react-native`
 **被依赖**: `App.js`、`src/ChatScreen.js`、`src/SettingsScreen.js`
 
-### 全局角色库状态
-**目的**: 加载、共享并更新角色库与当前角色，提供切换、增删、失败回滚与加载完成标志
-**位置**: `src/context/AppContext.js`、`src/context/characterLibrary.js`
+### 全局角色与会话状态
+**目的**: 加载、共享并更新角色库、当前角色、会话列表与当前会话，提供切换、增删、置顶、克隆、失败回滚与加载完成标志
+**位置**: `src/context/AppContext.js`、`src/context/characterLibrary.js`、`src/context/sessionLibrary.js`
 **关键文件**: `src/context/AppContext.js`
 **依赖**: `src/storage.js`
-**被依赖**: `ChatScreen`、`CharacterScreen`
+**被依赖**: `ChatScreen`、`CharacterScreen`、`MemoryScreen`
 
 ### 数据持久化
-**目的**: 以稳定键名读写 API 配置、角色库、当前角色与按角色隔离的消息，并迁移旧版单角色与旧版单 API 配置数据，屏蔽 `AsyncStorage` 细节
+**目的**: 以稳定键名读写 API 配置、角色库、当前角色、会话列表、当前会话与按会话隔离的消息，并迁移旧版单角色、旧版单 API 配置与旧版按角色存储的消息，屏蔽 `AsyncStorage` 细节
 **位置**: `src/storage.js`
 **关键文件**: `src/storage.js`
 **依赖**: `@react-native-async-storage/async-storage`
@@ -156,11 +165,12 @@ flowchart TB
     subgraph UI["界面层 (src/)"]
         App["App.js 应用外壳与底部导航"]
         Chat["ChatScreen 聊天界面"]
+        Memory["MemoryScreen 历史会话"]
         Character["CharacterScreen 角色库与编辑"]
         Settings["SettingsScreen API 配置"]
     end
     subgraph STATE["状态层"]
-        Context["AppContext 全局角色库状态"]
+        Context["AppContext 全局角色与会话状态"]
     end
     subgraph DATA["数据层"]
         Storage["storage.js AsyncStorage 封装"]
@@ -179,10 +189,12 @@ flowchart TB
     LLM["外部大模型 HTTP 接口"]
 
     App --> Chat
+    App --> Memory
     App --> Character
     App --> Settings
     App --> Context
     Chat --> Context
+    Memory --> Context
     Character --> Context
     Settings --> Storage
     Context --> Storage
@@ -227,7 +239,7 @@ sequenceDiagram
     L-->>A: data: [DONE]
     A-->>C: resolve(累计文本)
     C->>C: 占位 pending 置为 false
-    C->>S: saveMessages(characterId, messages)
+    C->>S: saveMessagesBySession(activeSessionId, messages)
 ```
 
 ### 助手消息状态
@@ -248,7 +260,7 @@ stateDiagram-v2
 
 - **角色状态集中在 Context 并提供加载完成标志**：`AppContext` 通过 `characterRef` 与 `loadedRef` 保存最新值，避免闭包过期；未加载完成前拒绝写入，保证界面与存储一致。
 - **乐观写入加失败回滚**：`updateCharacter` 先更新内存与界面状态，再落盘；落盘失败时回滚到旧值并向上抛出，由调用方决定如何提示用户，Context 不承担界面展示职责。
-- **消息按角色隔离**：消息键为 `@easychat2_messages::<characterId>`；默认角色读取时兜底旧键 `@easychat2_messages`，实现旧版本数据平滑迁移。
+- **消息按会话隔离**：消息键为 `@easychat2_messages::<sessionId>`；会话元数据存于 `@easychat2_sessions`，当前会话指针存于 `@easychat2_active_session`。旧版按角色存储的 `::<characterId>` 与旧版单会话键在启动时由 `migrateLegacyMessages` 幂等迁移为 `legacy-<characterId>` 历史会话。
 - **pending 消息不落盘**：`storage` 与 `ChatScreen` 都会过滤 `pending` 标记的占位消息，避免把「正在思考…」写入历史。
 - **失败保留部分回复**：流式进行中若请求失败且已收到文本，`ChatScreen` 将该部分文本标记为已完成并保留，再追加一条 `system-error`，避免已展示内容被清空；无任何文本时占位直接转为报错。
 - **自动滚动尊重用户**：消息列表仅在用户处于底部附近时随内容增长自动滚到底部，用户上滚查看历史时不会被流式增量反复拽回。

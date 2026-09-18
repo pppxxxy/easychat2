@@ -11,6 +11,7 @@
 | 标签页名称 | 组件 | 说明 |
 |-----------|------|------|
 | `聊天` | `ChatScreen` | 对话与消息列表 |
+| `记忆` | `MemoryScreen` | 历史会话列表与操作 |
 | `角色` | `CharacterScreen` | 角色编辑与角色卡导入 |
 | `设置` | `SettingsScreen` | API 配置 |
 
@@ -56,6 +57,16 @@
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presets`、`presetEnabled`、`presetModalOpen`、`editingPreset`、`presetForm`
 **行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。另有全局对话预设的开关与增删改（弹窗编辑名称/描述/提示词），以及「免责条款」入口复用 `DISCLAIMER_TEXT`。
+
+### `MemoryScreen`（默认导出）
+**位置**: `src/MemoryScreen.js`
+**Props**: `navigation`（由导航注入）
+**行为**:
+- 从 `useApp()` 读取 `sessions`、`characters`、`loaded` 与会话操作，只展示摘要非空的会话（空会话不占行）
+- 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标
+- 点击行先 `switchCharacter` 再 `switchSession`，随后 `navigation.navigate('聊天')`
+- 右侧提供置顶、克隆、删除三个按钮；克隆与删除弹二次确认，失败时 `Alert`
+- 列表为空时展示空状态
 
 ## 全局状态
 

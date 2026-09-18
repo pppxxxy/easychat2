@@ -1,7 +1,7 @@
 import './src/polyfills';
 import 'react-native-gesture-handler';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -12,15 +12,22 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 
 import ChatScreen from './src/ChatScreen';
 import CharacterScreen from './src/CharacterScreen';
+import MemoryScreen from './src/MemoryScreen';
 import SettingsScreen from './src/SettingsScreen';
 import DisclaimerModal from './src/disclaimer';
-import { acknowledgeDisclaimer, isDisclaimerAcknowledged } from './src/storage';
-import { AppProvider } from './src/context/AppContext';
+import {
+  acknowledgeDisclaimer,
+  isDisclaimerAcknowledged,
+  migrateLegacyMessages,
+  startNewSession,
+} from './src/storage';
+import { AppProvider, useApp } from './src/context/AppContext';
 
 const Tab = createBottomTabNavigator();
 
 const TAB_ICONS = {
   聊天: ['chatbubble-outline', 'chatbubble'],
+  记忆: ['albums-outline', 'albums'],
   角色: ['people-outline', 'people'],
   设置: ['settings-outline', 'settings'],
 };
@@ -79,6 +86,29 @@ function StartupDisclaimer() {
   return <DisclaimerModal visible={visible} onClose={onClose} />;
 }
 
+function StartupSession() {
+  const { characters, activeId, loaded, refreshSessions } = useApp();
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (!loaded || startedRef.current) return;
+    startedRef.current = true;
+    (async () => {
+      try {
+        await migrateLegacyMessages(characters);
+      } catch (error) {}
+      try {
+        await startNewSession(activeId);
+      } catch (error) {}
+      try {
+        await refreshSessions();
+      } catch (error) {}
+    })();
+  }, [loaded, characters, activeId, refreshSessions]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -105,10 +135,12 @@ export default function App() {
             })}
           >
             <Tab.Screen name="聊天" component={ChatScreen} />
+            <Tab.Screen name="记忆" component={MemoryScreen} />
             <Tab.Screen name="角色" component={CharacterScreen} />
             <Tab.Screen name="设置" component={SettingsScreen} />
           </Tab.Navigator>
           </NavigationContainer>
+          <StartupSession />
           <StartupDisclaimer />
         </AppProvider>
       </SafeAreaProvider>
