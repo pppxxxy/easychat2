@@ -23,6 +23,7 @@ const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const MEMORY_SUMMARY_KEY = '@easychat2_memory_summary';
 const PLUGINS_KEY = '@easychat2_plugins';
 const THINKING_KEY = '@easychat2_thinking';
+const IMAGE_GEN_KEY = '@easychat2_image_gen';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -312,6 +313,53 @@ export async function getThinkingSettings() {
 export async function saveThinkingSettings(settings) {
   const normalized = normalizeThinking(settings);
   await AsyncStorage.setItem(THINKING_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function normalizeImageGenProvider(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  let extra = {};
+  if (typeof source.extra === 'string') {
+    try {
+      const parsed = JSON.parse(source.extra);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) extra = parsed;
+    } catch (error) {
+      extra = {};
+    }
+  } else if (source.extra && typeof source.extra === 'object' && !Array.isArray(source.extra)) {
+    extra = source.extra;
+  }
+  return {
+    apiKey: String(source.apiKey || ''),
+    baseUrl: String(source.baseUrl || ''),
+    model: String(source.model || ''),
+    extra,
+  };
+}
+
+function normalizeImageGenSettings(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const providers = {};
+  const list = source.providers && typeof source.providers === 'object' && !Array.isArray(source.providers)
+    ? source.providers
+    : {};
+  Object.entries(list).forEach(([id, value]) => {
+    providers[String(id)] = normalizeImageGenProvider(value);
+  });
+  return {
+    activeProvider: String(source.activeProvider || ''),
+    providers,
+  };
+}
+
+export async function getImageGenSettings() {
+  const raw = await readJson(IMAGE_GEN_KEY, null);
+  return normalizeImageGenSettings(raw);
+}
+
+export async function saveImageGenSettings(settings) {
+  const normalized = normalizeImageGenSettings(settings);
+  await AsyncStorage.setItem(IMAGE_GEN_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

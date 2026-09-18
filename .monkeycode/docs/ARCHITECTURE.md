@@ -67,6 +67,7 @@ easychat2/
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
 │   ├── attachments.js        # 聊天附件：文本类读取、图片 data URI 与合并
+│   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）

@@ -264,6 +264,7 @@
 | `@easychat2_memory_summary` | 记忆总结 `{ enabled: boolean, threshold: number }` |
 | `@easychat2_plugins` | 插件数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high' }` |
+| `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 
 **默认 API 配置**:
 
@@ -419,6 +420,24 @@ data: [DONE]
 | `readTextAttachment(uri, maxBytes?)` | 读取为 UTF-8 文本，默认上限 200KB，超限抛「文件过大」 |
 | `readImageDataUri(uri, mime)` | 读取为 `data:` URI |
 | `mergeTextAttachments(userText, attachments)` | 把文本附件以 `[附件：名称]` 追加到用户消息上下文 |
+
+### 生图接口
+**位置**: `src/imageGen/providers.js`、`src/imageGen/index.js`
+
+`IMAGE_PROVIDERS` 为声明式配置表，内置 `z-image`、`wan-image`、`qwen-image`、`flux2-klein-4b`、`glm-image` 与 `openai-compatible`；`getImageProvider(id)` 按 id 取配置并回退首个。
+
+| 函数 | 说明 |
+|------|------|
+| `buildRequest({ provider, config, prompt, image, model, size, seed, extra })` | 按 t2i/i2i 模板构造请求；支持 GET 查询参数、POST JSON、header/body/query 认证、multipart/base64/url 图生图；缺 `baseUrl` 返回 `null` |
+| `parseImages(provider, data)` | 按 `response.path` 取根节点，兼容字符串、`url`、`base64`（`b64_json`、`images[].url`、`output.results`、`output[]`） |
+| `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「生成失败（HTTP n）」 |
+| `generateImage({ provider, prompt, imageFile?, imageUrl?, model?, size?, seed?, extra?, config? })` | 统一生成入口，返回 `Promise<{ images: [{ url?, base64? }], raw }>`；含超时与按 `retries` 重试 |
+
+**说明**: 密钥仅存本机 AsyncStorage；未填地址或密钥时直接抛错不发起请求；`extra.params` 与 Provider 的 `params` 映射按点号路径写入请求体；图生图必须携带图片。
+
+### `getImageGenSettings()` / `saveImageGenSettings(settings)`
+**位置**: `src/storage.js`
+**说明**: 读取/写入 `@easychat2_image_gen`；`extra` 支持 JSON 字符串或对象，读取时统一规范化为对象。
 
 ### 插件接口
 **位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`
