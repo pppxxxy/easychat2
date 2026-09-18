@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,6 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
+import SearchScreen from './SearchScreen';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);
@@ -50,7 +51,10 @@ export default function MemoryScreen({ navigation }) {
     pinSession,
     cloneSession,
     deleteSession,
+    setPendingTarget,
   } = useApp();
+
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -114,13 +118,35 @@ export default function MemoryScreen({ navigation }) {
     ]);
   }, [deleteSession]);
 
+  const onOpenResult = useCallback(async result => {
+    try {
+      await switchCharacter(result.characterId);
+      await switchSession(result.sessionId);
+      setPendingTarget({ sessionId: result.sessionId, messageId: result.messageId });
+      setSearchOpen(false);
+      navigation.navigate('聊天');
+    } catch (error) {
+      Alert.alert('打开失败', '请检查存储空间或权限。');
+    }
+  }, [navigation, setPendingTarget, switchCharacter, switchSession]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>记忆</Text>
-        <Text style={styles.count}>
-          {loaded ? `${visibleSessions.length} 段对话` : '加载中'}
-        </Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.count}>
+            {loaded ? `${visibleSessions.length} 段对话` : '加载中'}
+          </Text>
+          <TouchableOpacity
+            style={styles.searchButton}
+            onPress={() => setSearchOpen(true)}
+            activeOpacity={0.7}
+            accessibilityLabel="搜索历史聊天记录"
+          >
+            <Ionicons name="search" size={18} color="#c8c4ff" />
+          </TouchableOpacity>
+        </View>
       </View>
       {loaded && visibleSessions.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -190,6 +216,13 @@ export default function MemoryScreen({ navigation }) {
           })}
         </ScrollView>
       )}
+
+      <SearchScreen
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onOpenResult={onOpenResult}
+        characters={characters}
+      />
     </View>
   );
 }
@@ -206,6 +239,18 @@ const styles = StyleSheet.create({
   },
   title: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
   count: { color: '#8a8aa3', fontSize: 13 },
+  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  searchButton: {
+    marginLeft: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(108,99,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,133,255,0.35)',
+  },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   card: {
     flexDirection: 'row',

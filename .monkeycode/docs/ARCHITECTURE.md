@@ -53,6 +53,7 @@ easychat2/
 ├── src/
 │   ├── ChatScreen.js         # 聊天界面：角色切换、消息列表、发送、错误气泡、持久化
 │   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
+│   ├── SearchScreen.js       # 跨会话搜索：关键词检索历史消息并跳转定位
 │   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
 │   ├── PresetPanel.js        # 全局预设与记忆总结设置面板

@@ -603,6 +603,44 @@ export async function setSessionSummarizedUpTo(sessionId, messageId) {
   return updated;
 }
 
+export async function searchMessages(keyword) {
+  const query = String(keyword || '').trim();
+  if (!query) return [];
+  const sessions = await getSessions();
+  if (sessions.length === 0) return [];
+  const needle = query.toLowerCase();
+  const pairs = await AsyncStorage.multiGet(
+    sessions.map(session => sessionMessagesKey(session.id))
+  );
+  const byKey = new Map(pairs);
+  const results = [];
+  for (const session of sessions) {
+    const raw = byKey.get(sessionMessagesKey(session.id));
+    let stored = [];
+    try {
+      const parsed = raw ? JSON.parse(raw) : [];
+      stored = Array.isArray(parsed) ? parsed.filter(item => item && !item.pending) : [];
+    } catch (error) {
+      stored = [];
+    }
+    for (const message of stored) {
+      if (message.role !== 'user' && message.role !== 'assistant') continue;
+      const text = String(message.text || '');
+      if (!text || !text.toLowerCase().includes(needle)) continue;
+      results.push({
+        sessionId: session.id,
+        characterId: session.characterId,
+        messageId: message.id,
+        role: message.role,
+        text,
+        updatedAt: session.updatedAt || 0,
+      });
+    }
+  }
+  results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return results;
+}
+
 async function readLegacyMessages(characterId) {
   let stored = await readJson(messagesKey(characterId), null);
   if ((!Array.isArray(stored) || stored.length === 0)

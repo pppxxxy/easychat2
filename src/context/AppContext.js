@@ -41,11 +41,13 @@ export function AppProvider({ children }) {
   const [activeId, setActiveIdState] = useState(DEFAULT_CHARACTER.id);
   const [sessions, setSessionsState] = useState([]);
   const [activeSessionId, setActiveSessionIdState] = useState('');
+  const [pendingTarget, setPendingTargetState] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const charactersRef = useRef([DEFAULT_CHARACTER]);
   const activeIdRef = useRef(DEFAULT_CHARACTER.id);
   const sessionsRef = useRef([]);
   const activeSessionIdRef = useRef('');
+  const pendingTargetRef = useRef(null);
   const loadedRef = useRef(false);
   const mutationRef = useRef(Promise.resolve());
 
@@ -229,6 +231,21 @@ export function AppProvider({ children }) {
     setActiveSessionIdState(id);
   }, []);
 
+  const setPendingTarget = useCallback(target => {
+    const value = target && target.sessionId && target.messageId
+      ? { sessionId: String(target.sessionId), messageId: String(target.messageId) }
+      : null;
+    pendingTargetRef.current = value;
+    setPendingTargetState(value);
+  }, []);
+
+  const consumePendingTarget = useCallback(() => {
+    const value = pendingTargetRef.current;
+    pendingTargetRef.current = null;
+    setPendingTargetState(null);
+    return value;
+  }, []);
+
   const refreshSessions = useCallback(async () => {
     const [sessionList, storedActiveSessionId] = await Promise.all([
       getSessions(),
@@ -357,6 +374,9 @@ export function AppProvider({ children }) {
       deleteSession,
       refreshSessions,
       ensureCharacterSession,
+      pendingTarget,
+      setPendingTarget,
+      consumePendingTarget,
     }),
     [
       character,
@@ -375,6 +395,9 @@ export function AppProvider({ children }) {
       deleteSession,
       refreshSessions,
       ensureCharacterSession,
+      pendingTarget,
+      setPendingTarget,
+      consumePendingTarget,
     ]
   );
 

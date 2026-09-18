@@ -34,6 +34,8 @@
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
 - 发送前按会话 `summarizedUpTo` 截断历史，并把 `buildMemorySummaryText(character)` 作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
+- 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
+- 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -81,6 +83,14 @@
 - 右侧提供置顶、克隆、删除三个按钮；克隆与删除弹二次确认，失败时 `Alert`
 - 列表为空时展示空状态
 
+### `SearchScreen`（默认导出）
+**位置**: `src/SearchScreen.js`
+**Props**: `{ visible, onClose, onOpenResult, characters }`
+**行为**:
+- 全屏 Modal，输入关键词后调用 `searchMessages`，展示命中片段、角色名与时间；空结果显示提示
+- 关键词为空时不搜索
+- 点击结果调用 `onOpenResult(result)`，由记忆页完成切换角色、切换会话与设置定位目标
+
 ## 全局状态
 
 ### `AppProvider`
@@ -107,6 +117,9 @@
 | `deleteSession` | `(id) => Promise<{ sessions, activeSessionId, created }>` | 删除会话，必要时新建空会话并设为当前 |
 | `refreshSessions` | `() => Promise<Session[]>` | 从存储重新读取会话与当前指针并同步状态 |
 | `ensureCharacterSession` | `(characterId) => Promise<Session>` | 激活该角色最近更新的会话；无会话时新建空会话 |
+| `pendingTarget` | `{ sessionId, messageId } \| null` | 待定位的消息目标，供聊天页消费 |
+| `setPendingTarget` | `(target) => void` | 设置待定位目标；参数不完整时置空 |
+| `consumePendingTarget` | `() => { sessionId, messageId } \| null` | 读取并清空待定位目标 |
 
 **契约**:
 1. 未加载完成时 `updateCharacter`/`switchCharacter`/`addCharacter`/`deleteCharacter` 抛出 `Error('角色尚未加载完成')`
@@ -176,6 +189,7 @@
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
+| `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedId?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedId` 存在时移除其消息键 |
 | `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入用户人设（用户名、人设、头像路径） |
 | `getGlobalPresets` | `() => Promise<Preset[]>` | 读取预设列表；键缺失时由内置预设播种 |
@@ -426,6 +440,17 @@ data: [DONE]
 | `summarizedUpTo` | `string` | 记忆总结边界消息 `id`，未总结为空串；仅允许单调前移，克隆不继承 |
 
 排序规则：置顶优先，其余按 `updatedAt` 降序，并列按 `id` 升序。空会话（无消息）不进入列表。
+
+### `SearchHit`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `sessionId` | `string` | 命中消息所属会话 |
+| `characterId` | `string` | 所属角色 |
+| `messageId` | `string` | 命中消息标识 |
+| `role` | `'user' \| 'assistant'` | 消息角色 |
+| `text` | `string` | 消息原文 |
+| `updatedAt` | `number` | 所属会话更新时间，用于倒序排列 |
 
 ### `Preset`
 

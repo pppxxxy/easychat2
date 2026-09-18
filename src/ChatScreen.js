@@ -305,7 +305,34 @@ function ThinkingIndicator() {
   );
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText }) {
+function renderHighlightedText(text, keyword) {
+  const source = String(text || '');
+  const needle = String(keyword || '');
+  if (!needle) return source;
+  const lowerSource = source.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  const parts = [];
+  let index = 0;
+  let count = 0;
+  while (index < source.length) {
+    const found = lowerSource.indexOf(lowerNeedle, index);
+    if (found < 0) {
+      parts.push(source.slice(index));
+      break;
+    }
+    if (found > index) parts.push(source.slice(index, found));
+    parts.push(
+      <Text key={`hl-${count}`} style={styles.highlightText}>
+        {source.slice(found, found + needle.length)}
+      </Text>
+    );
+    count += 1;
+    index = found + needle.length;
+  }
+  return parts;
+}
+
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, highlightKeyword, isMatch, isActiveMatch }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
@@ -383,9 +410,16 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
       {!isUser ? avatarElement : null}
       <View style={[styles.messageContent]}>
         {!isUser ? <Text style={styles.nameLabel}>{characterName || ''}</Text> : null}
-        <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
+        <View style={[
+          styles.bubble,
+          isUser ? styles.userBubble : styles.assistantBubble,
+          isMatch ? styles.bubbleMatch : null,
+          isActiveMatch ? styles.bubbleActiveMatch : null,
+        ]}>
           {isUser ? (
-            <Text style={styles.messageText}>{message.text}</Text>
+            <Text style={styles.messageText}>
+              {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword) : message.text}
+            </Text>
           ) : message.pending && message.waitingForResponse ? (
             <ThinkingIndicator />
           ) : renderHtml ? (
@@ -493,6 +527,8 @@ export default function ChatScreen() {
     ensureCharacterSession,
     updateCharacter,
     refreshSessions,
+    pendingTarget,
+    consumePendingTarget,
   } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
@@ -500,6 +536,7 @@ export default function ChatScreen() {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const summarizingRef = useRef(false);
+  const messageOffsetsRef = useRef({});
   const atBottomRef = useRef(true);
   const abortRef = useRef(null);
   const sessionVersionRef = useRef(0);
@@ -513,6 +550,10 @@ export default function ChatScreen() {
   const [userAvatar, setUserAvatar] = useState('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [focusedMessageId, setFocusedMessageId] = useState('');
 
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
@@ -713,6 +754,76 @@ export default function ChatScreen() {
         }
       }
     ]);
+  }, []);
+
+  const searchMatches = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return messages
+      .filter(message => (
+        message
+        && (message.role === USER_ID || message.role === ASSISTANT_ID)
+        && String(message.text || '').toLowerCase().includes(query)
+      ))
+      .map(message => message.id);
+  }, [messages, searchQuery]);
+
+  const scrollToMessage = useCallback(id => {
+    const attempt = tries => {
+      const offset = messageOffsetsRef.current[id];
+      if (typeof offset === 'number') {
+        scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
+      } else if (tries > 0) {
+        setTimeout(() => attempt(tries - 1), 120);
+      }
+    };
+    setTimeout(() => attempt(6), 60);
+  }, []);
+
+  const onMessageLayout = useCallback((id, event) => {
+    messageOffsetsRef.current[id] = event.nativeEvent.layout.y;
+  }, []);
+
+  const goToMatch = useCallback(delta => {
+    if (searchMatches.length === 0) return;
+    const next = (activeMatchIndex + delta + searchMatches.length) % searchMatches.length;
+    setActiveMatchIndex(next);
+    setFocusedMessageId(searchMatches[next]);
+    scrollToMessage(searchMatches[next]);
+  }, [activeMatchIndex, searchMatches, scrollToMessage]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const query = searchQuery.trim();
+    if (!query) {
+      setActiveMatchIndex(0);
+      setFocusedMessageId('');
+      return;
+    }
+    setActiveMatchIndex(0);
+    if (searchMatches.length > 0) {
+      setFocusedMessageId(searchMatches[0]);
+      scrollToMessage(searchMatches[0]);
+    } else {
+      setFocusedMessageId('');
+    }
+  }, [searchOpen, searchQuery, searchMatches, scrollToMessage]);
+
+  useEffect(() => {
+    if (!ready || !pendingTarget) return;
+    if (pendingTarget.sessionId !== activeSessionId) return;
+    const exists = messages.some(message => message.id === pendingTarget.messageId);
+    consumePendingTarget();
+    if (!exists) return;
+    setFocusedMessageId(pendingTarget.messageId);
+    scrollToMessage(pendingTarget.messageId);
+  }, [ready, pendingTarget, activeSessionId, messages, consumePendingTarget, scrollToMessage]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setActiveMatchIndex(0);
+    setFocusedMessageId('');
   }, []);
 
   const runSummarize = useCallback(async (session, list, manual) => {
@@ -1040,6 +1151,16 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>公告</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={styles.noticeButton}
+          onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="搜索当前对话"
+        >
+          <Ionicons name="search" size={13} color="#c8c4ff" />
+          <Text style={styles.noticeButtonText}>搜索</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.noticeButton, (summarizing || !ready) && styles.actionDisabled]}
           onPress={onSummarize}
           disabled={summarizing || !ready}
@@ -1051,6 +1172,51 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>{summarizing ? '总结中' : '总结'}</Text>
         </TouchableOpacity>
       </View>
+      {searchOpen ? (
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={15} color="#8a8aa3" />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="在本对话中搜索"
+            placeholderTextColor="#8a8aa3"
+            autoFocus
+            returnKeyType="search"
+            onSubmitEditing={() => goToMatch(1)}
+          />
+          <Text style={styles.searchCount}>
+            {searchMatches.length ? `${activeMatchIndex + 1}/${searchMatches.length}` : '0/0'}
+          </Text>
+          <TouchableOpacity
+            onPress={() => goToMatch(-1)}
+            disabled={searchMatches.length === 0}
+            hitSlop={6}
+            style={styles.searchNav}
+          >
+            <Ionicons
+              name="chevron-up"
+              size={18}
+              color={searchMatches.length ? '#c8c4ff' : '#55556f'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => goToMatch(1)}
+            disabled={searchMatches.length === 0}
+            hitSlop={6}
+            style={styles.searchNav}
+          >
+            <Ionicons
+              name="chevron-down"
+              size={18}
+              color={searchMatches.length ? '#c8c4ff' : '#55556f'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={closeSearch} hitSlop={6} style={styles.searchNav}>
+            <Ionicons name="close" size={18} color="#c8c4ff" />
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <ScrollView
         ref={scrollRef}
         style={styles.messages}
@@ -1072,28 +1238,34 @@ export default function ChatScreen() {
             </Text>
           </View>
         ) : (
-          renderedMessages.map(message =>
-            message.role === SYSTEM_ERROR_ID ? (
-              <ErrorBubble
-                key={message.id}
-                message={message}
-                rawError={errorRawRef.current[message.id]}
-              />
-            ) : (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                characterName={character.name}
-                characterAvatar={character.avatarUri}
-                userAvatarUri={userAvatar}
-                onSlashCommand={onSlashCommand}
-                canRegenerate={regenerableIds.has(message.id)}
-                onRegenerate={onRegenerateMessage}
-                onEditUserMessage={onEditUserMessage}
-                onSelectText={onSelectText}
-              />
-            )
-          )
+          renderedMessages.map(message => (
+            <View
+              key={message.id}
+              onLayout={event => onMessageLayout(message.id, event)}
+            >
+              {message.role === SYSTEM_ERROR_ID ? (
+                <ErrorBubble
+                  message={message}
+                  rawError={errorRawRef.current[message.id]}
+                />
+              ) : (
+                <MessageBubble
+                  message={message}
+                  characterName={character.name}
+                  characterAvatar={character.avatarUri}
+                  userAvatarUri={userAvatar}
+                  onSlashCommand={onSlashCommand}
+                  canRegenerate={regenerableIds.has(message.id)}
+                  onRegenerate={onRegenerateMessage}
+                  onEditUserMessage={onEditUserMessage}
+                  onSelectText={onSelectText}
+                  highlightKeyword={searchQuery.trim()}
+                  isMatch={searchMatches.includes(message.id)}
+                  isActiveMatch={focusedMessageId === message.id}
+                />
+              )}
+            </View>
+          ))
         )}
       </ScrollView>
 
@@ -1274,6 +1446,24 @@ const styles = StyleSheet.create({
   },
   noticeButtonText: { color: '#c8c4ff', fontSize: 12, fontWeight: '700', marginLeft: 4 },
   actionDisabled: { opacity: 0.5 },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#20203a',
+    borderBottomWidth: 1,
+    borderBottomColor: '#35354f',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 14,
+    paddingVertical: 6,
+    marginLeft: 8,
+  },
+  searchCount: { color: '#8a8aa3', fontSize: 12, marginHorizontal: 8 },
+  searchNav: { paddingHorizontal: 4 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1495,6 +1685,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     borderBottomLeftRadius: 6,
   },
+  bubbleMatch: {
+    borderWidth: 2,
+    borderColor: 'rgba(242,193,78,0.9)',
+  },
+  bubbleActiveMatch: {
+    borderWidth: 2,
+    borderColor: '#ff8c42',
+  },
   thinkingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1571,6 +1769,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     lineHeight: 21,
+  },
+  highlightText: {
+    backgroundColor: 'rgba(255,214,102,0.6)',
+    color: '#3a2a00',
+    fontWeight: '700',
   },
   inputBar: {
     flexDirection: 'row',
