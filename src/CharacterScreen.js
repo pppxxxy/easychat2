@@ -423,12 +423,15 @@ export default function CharacterScreen() {
     ensureCharacterSession,
     addCharacter,
     deleteCharacter,
+    pinCharacter,
+    deleteCharacters,
     refreshSessions,
   } = useApp();
   const navigation = useNavigation();
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [name, setName] = useState('');
+  const [tags, setTags] = useState([]);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [description, setDescription] = useState('');
   const [personality, setPersonality] = useState('');
@@ -450,6 +453,10 @@ export default function CharacterScreen() {
   const [groupSelected, setGroupSelected] = useState([]);
   const [groupName, setGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [query, setQuery] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [tagDraft, setTagDraft] = useState('');
   const seededIdRef = useRef(null);
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
@@ -468,6 +475,7 @@ export default function CharacterScreen() {
     setSystemPrompt(character.systemPrompt || '');
     setDescription(character.description || '');
     setPersonality(character.personality || '');
+    setTags(Array.isArray(character.tags) ? character.tags : []);
     setScenario(character.scenario || '');
     setFirstMes(character.firstMes || '');
     setWorldInfo(
@@ -561,6 +569,7 @@ export default function CharacterScreen() {
       }),
       description: description.trim(),
       personality: personality.trim(),
+      tags,
       scenario: scenario.trim(),
       firstMes: firstMes.trim(),
       worldInfo,
@@ -778,6 +787,103 @@ export default function CharacterScreen() {
       });
   };
 
+  const visibleCharacters = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    if (!text) return characters;
+    return characters.filter(item => {
+      const name = String(item.name || '').toLowerCase();
+      if (name.includes(text)) return true;
+      return (item.tags || []).some(tag => String(tag).toLowerCase().includes(text));
+    });
+  }, [characters, query]);
+
+  const toggleEditMode = () => {
+    setEditMode(current => {
+      if (current) setSelectedIds([]);
+      return !current;
+    });
+  };
+
+  const toggleSelect = id => {
+    setSelectedIds(current => (
+      current.includes(id) ? current.filter(item => item !== id) : [...current, id]
+    ));
+  };
+
+  const selectAll = () => {
+    setSelectedIds(
+      characters.filter(item => item.id !== 'default').map(item => item.id)
+    );
+  };
+
+  const onTogglePin = item => {
+    pinCharacter(item.id, !item.pinned).catch(() => {
+      Alert.alert('置顶失败', '请检查存储空间或权限。');
+    });
+  };
+
+  const runDeleteSelected = ids => {
+    deleteCharacters(ids)
+      .then(() => {
+        setSelectedIds([]);
+        setEditMode(false);
+      })
+      .catch(error => {
+        Alert.alert('删除失败', (error && error.message) || '请检查存储空间或权限。');
+      });
+  };
+
+  const onDeleteSelected = () => {
+    if (selectedIds.length === 0) return;
+    const allSelected = selectedIds.length >= characters.filter(item => item.id !== 'default').length;
+    if (!allSelected) {
+      Alert.alert('删除角色', `将删除选中的 ${selectedIds.length} 个角色及其全部对话。`, [
+        { text: '取消', style: 'cancel' },
+        { text: '删除', style: 'destructive', onPress: () => runDeleteSelected(selectedIds) },
+      ]);
+      return;
+    }
+    Alert.alert(
+      '删除全部角色',
+      '这会删除除默认角色外的全部角色及其对话，且无法恢复。请输入「删除」以确认。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确认删除',
+          style: 'destructive',
+          onPress: () => promptConfirmAllDelete(),
+        },
+      ]
+    );
+  };
+
+  const promptConfirmAllDelete = () => {
+    Alert.prompt
+      ? Alert.prompt('输入确认', '请输入「删除」两个字以确认。', value => {
+        if (String(value || '').trim() === '删除') {
+          runDeleteSelected(selectedIds);
+        } else {
+          Alert.alert('已取消', '确认文字不匹配，未执行删除。');
+        }
+      })
+      : Alert.alert('无法输入确认', '当前平台不支持输入确认，请逐个删除。');
+  };
+
+  const addTag = () => {
+    const tag = tagDraft.trim();
+    if (!tag) return;
+    if ((tags || []).includes(tag)) {
+      setTagDraft('');
+      return;
+    }
+    setTags(current => [...current, tag]);
+    setTagDraft('');
+  };
+
+  const removeTag = tag => {
+    setTags(current => current.filter(item => item !== tag));
+  };
+
   const onNewCharacter = async () => {
     if (!loaded) return;
     try {
@@ -896,15 +1002,51 @@ export default function CharacterScreen() {
               <Ionicons name="people" size={15} color={theme.colors.primarySoft} />
               <Text style={styles.pillButtonText}>群聊</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pillButton, !loaded && styles.buttonDisabled]}
+              onPress={toggleEditMode}
+              disabled={!loaded}
+              activeOpacity={0.8}
+            >
+              <Ionicons name={editMode ? 'close' : 'checkmark-circle-outline'} size={15} color={theme.colors.primarySoft} />
+              <Text style={styles.pillButtonText}>{editMode ? '完成' : '多选'}</Text>
+            </TouchableOpacity>
           </View>
+          {editMode ? (
+            <View style={styles.selectBar}>
+              <TouchableOpacity onPress={selectAll} activeOpacity={0.8}>
+                <Text style={styles.selectBarText}>全选</Text>
+              </TouchableOpacity>
+              <Text style={styles.selectBarCount}>{`已选 ${selectedIds.length}`}</Text>
+              <TouchableOpacity
+                style={[styles.selectBarDelete, selectedIds.length === 0 && styles.buttonDisabled]}
+                onPress={onDeleteSelected}
+                disabled={selectedIds.length === 0}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectBarDeleteText}>删除</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          <TextInput
+            style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="搜索角色名或标签"
+            placeholderTextColor={theme.colors.textFaint}
+          />
+          {visibleCharacters.length === 0 ? (
+            <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
+          ) : null}
           <View style={styles.characterGrid}>
-            {characters.map(item => {
+            {visibleCharacters.map(item => {
               const selected = item.id === activeId;
+              const checked = selectedIds.includes(item.id);
               return (
                 <TouchableOpacity
                   key={item.id}
                   style={[styles.characterCard, selected && styles.characterCardActive]}
-                  onPress={() => onSwitch(item.id)}
+                  onPress={() => (editMode ? (item.id === 'default' ? null : toggleSelect(item.id)) : onSwitch(item.id))}
                   activeOpacity={0.85}
                   accessibilityRole="button"
                   accessibilityLabel={`切换到角色 ${item.name || '未命名角色'}`}
@@ -920,21 +1062,40 @@ export default function CharacterScreen() {
                         </Text>
                       </View>
                     )}
-                    {selected ? (
+                    {editMode && item.id !== 'default' ? (
+                      <View style={[styles.characterCardCheck, checked && styles.characterCardCheckOn]}>
+                        <Ionicons name={checked ? 'checkmark' : 'ellipse-outline'} size={15} color={theme.colors.primaryContrast} />
+                      </View>
+                    ) : selected ? (
                       <View style={styles.characterCardBadge}>
                         <Text style={styles.characterCardBadgeText}>当前</Text>
                       </View>
                     ) : null}
-                    {item.id !== 'default' ? (
-                      <TouchableOpacity
-                        style={styles.characterCardDelete}
-                        onPress={() => onDeleteCharacter(item)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="删除角色"
-                      >
-                        <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
-                      </TouchableOpacity>
+                    {item.id !== 'default' && !editMode ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.characterCardPin}
+                          onPress={() => onTogglePin(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityRole="button"
+                          accessibilityLabel={item.pinned ? '取消置顶' : '置顶角色'}
+                        >
+                          <Ionicons
+                            name={item.pinned ? 'star' : 'star-outline'}
+                            size={15}
+                            color={item.pinned ? theme.colors.star : theme.colors.text}
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.characterCardDelete}
+                          onPress={() => onDeleteCharacter(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityRole="button"
+                          accessibilityLabel="删除角色"
+                        >
+                          <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
+                        </TouchableOpacity>
+                      </>
                     ) : null}
                   </View>
                   <View style={styles.characterCardNameBar}>
@@ -942,6 +1103,13 @@ export default function CharacterScreen() {
                       {item.name || '未命名角色'}
                     </Text>
                   </View>
+                  {item.tags && item.tags.length > 0 ? (
+                    <View style={styles.characterCardTags}>
+                      {item.tags.slice(0, 3).map(tag => (
+                        <Text key={tag} style={styles.characterCardTag} numberOfLines={1}>{tag}</Text>
+                      ))}
+                    </View>
+                  ) : null}
                 </TouchableOpacity>
               );
             })}
@@ -1030,17 +1198,6 @@ export default function CharacterScreen() {
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.presetEntryRow}
-            onPress={() => setPresetPanelOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.presetEntryLeft}>
-              <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.presetEntryText}>全局预设</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
@@ -1098,6 +1255,30 @@ export default function CharacterScreen() {
             multiline
             textAlignVertical="top"
           />
+
+          <Text style={styles.label}>标签</Text>
+          <View style={styles.tagRow}>
+            {tags.map(tag => (
+              <TouchableOpacity key={tag} style={styles.tagChip} onPress={() => removeTag(tag)} activeOpacity={0.8}>
+                <Text style={styles.tagChipText}>{tag}</Text>
+                <Ionicons name="close" size={12} color={theme.colors.primarySoft} />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.tagInputRow}>
+            <TextInput
+              style={[styles.input, styles.tagInput]}
+              value={tagDraft}
+              onChangeText={setTagDraft}
+              onSubmitEditing={addTag}
+              placeholder="输入标签后回车添加"
+              placeholderTextColor={theme.colors.textFaint}
+              returnKeyType="done"
+            />
+            <TouchableOpacity style={styles.tagAdd} onPress={addTag} activeOpacity={0.8}>
+              <Ionicons name="add" size={18} color={theme.colors.primaryContrast} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -1185,6 +1366,18 @@ export default function CharacterScreen() {
               ))
             )}
           </CollapsibleSection>
+
+          <TouchableOpacity
+            style={styles.presetEntryRow}
+            onPress={() => setPresetPanelOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.presetEntryLeft}>
+              <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.presetEntryText}>全局预设</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
         </View>
 
         <View style={{ height: 24 }} />
@@ -1443,6 +1636,98 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   buttonText: { color: theme.colors.text, fontWeight: '800', marginLeft: 8, fontSize: 15 },
   buttonDisabled: { opacity: 0.45 },
+  searchInput: {
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.text,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    fontSize: fonts.scaled(13),
+    marginTop: 10,
+  },
+  selectBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingHorizontal: 4,
+  },
+  selectBarText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
+  selectBarCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
+  selectBarDelete: {
+    backgroundColor: theme.colors.danger,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  selectBarDeleteText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700' },
+  emptyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 12, textAlign: 'center' },
+  characterCardCheck: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: theme.colors.primaryContrast,
+  },
+  characterCardCheckOn: { backgroundColor: theme.colors.primary },
+  characterCardPin: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  characterCardTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 6,
+    paddingBottom: 6,
+  },
+  characterCardTag: {
+    color: theme.colors.primarySoft,
+    backgroundColor: `${theme.colors.primary}33`,
+    fontSize: fonts.scaled(10),
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginRight: 4,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${theme.colors.primary}33`,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  tagChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginRight: 4 },
+  tagInputRow: { flexDirection: 'row', alignItems: 'center' },
+  tagInput: { flex: 1, marginRight: 8 },
+  tagAdd: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   presetModalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',

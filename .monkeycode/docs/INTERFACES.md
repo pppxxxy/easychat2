@@ -153,13 +153,15 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `character` | `Character` | 当前角色（由 `activeId` 在角色库中解析，缺失时回退默认角色） |
+| `character` | `Character` | 当前角色（由 `activeId` 在角色库中解析，缺失时回退默认角色）；含可选 `pinned` 与 `tags` |
 | `characters` | `Character[]` | 角色库，按最近使用降序 |
 | `activeId` | `string` | 当前角色 `id` |
 | `loaded` | `boolean` | 角色库与当前角色是否已从存储加载完成 |
 | `updateCharacter` | `(patch) => Promise<Character>` | 合并并持久化当前角色更新 |
 | `switchCharacter` | `(id) => Promise<Character>` | 切换当前角色并更新其 `lastUsedAt` |
 | `addCharacter` | `(character) => Promise<Character>` | 以唯一 `id` 新增角色并设为当前角色 |
+| `pinCharacter` | `(id, pinned) => Promise<Character>` | 切换角色置顶并持久化，置顶优先排序 |
+| `deleteCharacters` | `(ids) => Promise<Character[]>` | 批量删除角色；删除当前角色时切换；至少保留一个 |
 | `deleteCharacter` | `(id) => Promise<Character[]>` | 删除非默认角色及其消息，必要时切换当前角色 |
 | `sessions` | `Session[]` | 全部会话，置顶优先、按更新时间降序 |
 | `activeSessionId` | `string` | 当前会话 `id`，无可用会话时为空串 |
@@ -231,7 +233,7 @@
 | `getActiveCharacter` | `() => Promise<Character>` | 组合读取当前角色，无效 `id` 回退默认并修正 |
 | `upsertCharacter` | `(character) => Promise<Character[]>` | 按 `id` 新增或替换一个角色 |
 | `deleteCharacter` | `(characterId) => Promise<Character[]>` | 删除非默认角色并移除其消息键 |
-| `sortCharacters` | `(list) => Character[]` | 按 `lastUsedAt` 降序、并列按 `id` 升序排序 |
+| `sortCharacters` | `(list) => Character[]` | 置顶优先，其次 `lastUsedAt` 降序、并列按 `id` 升序 |
 | `getCharacter` / `saveCharacter` | 见下 | 过渡包装：`getActiveCharacter` / `upsertCharacter` + 设为当前 |
 | `getMessages` | `(characterId?) => Promise<Message[]>` | 读取指定角色消息，过滤 `pending`（旧接口，过渡期保留） |
 | `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending`（旧接口，过渡期保留） |
@@ -598,6 +600,7 @@ data: [DONE]
 | `worldInfo` | `WorldInfoEntry[]?` | 世界书条目，结构见[世界书](./专有概念/世界书.md) |
 | `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
 | `lastUsedAt` | `number?` | 最近一次成为当前角色的时间戳，决定列表排序 |
+| `pinned` | `boolean?` | 是否置顶；置顶角色排在角色库最前 |
 
 ### `Message`
 

@@ -99,6 +99,10 @@ function normalizeCharacter(raw) {
   merged.id = String(merged.id || DEFAULT_CHARACTER.id);
   const lastUsedAt = Number(merged.lastUsedAt);
   merged.lastUsedAt = Number.isFinite(lastUsedAt) ? lastUsedAt : 0;
+  merged.pinned = merged.pinned === true;
+  merged.tags = Array.isArray(merged.tags)
+    ? merged.tags.map(tag => String(tag || '').trim()).filter(Boolean)
+    : [];
   return merged;
 }
 
@@ -130,6 +134,8 @@ function ensureDefaultCharacter(list) {
 
 export function sortCharacters(list) {
   return [...list].sort((a, b) => {
+    const pinnedDiff = (b.pinned === true ? 1 : 0) - (a.pinned === true ? 1 : 0);
+    if (pinnedDiff !== 0) return pinnedDiff;
     const diff = (b.lastUsedAt || 0) - (a.lastUsedAt || 0);
     if (diff !== 0) return diff;
     return String(a.id).localeCompare(String(b.id));

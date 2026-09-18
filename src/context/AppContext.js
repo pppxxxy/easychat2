@@ -30,6 +30,8 @@ import {
   runWithRollback,
   withAddedCharacter,
   withDeletedCharacter,
+  withDeletedCharacters,
+  withPinnedCharacter,
   withSwitchedCharacter,
   withUpdatedCharacter,
 } from './characterLibrary';
@@ -203,6 +205,53 @@ export function AppProvider({ children }) {
       setActiveIdState(result.activeId);
       await runWithRollback(snapshot, restore, () =>
         saveCharacterState(result.list, result.activeId, id)
+      );
+      return result.list;
+    });
+  }, [applyList, restore, snapshotState, enqueueMutation]);
+
+  const pinCharacter = useCallback(async (id, pinned) => {
+    if (!loadedRef.current) {
+      throw new Error('角色尚未加载完成');
+    }
+    return enqueueMutation(async () => {
+      const snapshot = snapshotState();
+      const result = withPinnedCharacter(snapshot.list, id, pinned);
+      if (!result.found) {
+        throw new Error('角色不存在');
+      }
+      applyList(result.list);
+      await runWithRollback(snapshot, restore, () =>
+        saveCharacterState(result.list, snapshot.activeId)
+      );
+      return result.character;
+    });
+  }, [applyList, restore, snapshotState, enqueueMutation]);
+
+  const deleteCharacters = useCallback(async ids => {
+    if (!loadedRef.current) {
+      throw new Error('角色尚未加载完成');
+    }
+    const list = (Array.isArray(ids) ? ids : []).map(String)
+      .filter(id => id && id !== DEFAULT_CHARACTER.id);
+    if (list.length === 0) {
+      throw new Error('没有可删除的角色');
+    }
+    return enqueueMutation(async () => {
+      const snapshot = snapshotState();
+      const totalDeletable = snapshot.list.filter(item => item.id !== DEFAULT_CHARACTER.id).length;
+      if (list.length >= totalDeletable) {
+        throw new Error('至少保留一个角色');
+      }
+      const result = withDeletedCharacters(snapshot.list, list, snapshot.activeId);
+      if (result.removedCount === 0) {
+        throw new Error('角色不存在');
+      }
+      applyList(result.list);
+      activeIdRef.current = result.activeId;
+      setActiveIdState(result.activeId);
+      await runWithRollback(snapshot, restore, () =>
+        saveCharacterState(result.list, result.activeId)
       );
       return result.list;
     });
@@ -396,6 +445,8 @@ export function AppProvider({ children }) {
       switchCharacter,
       addCharacter,
       deleteCharacter,
+      pinCharacter,
+      deleteCharacters,
       sessions,
       activeSessionId,
       switchSession,
@@ -418,6 +469,8 @@ export function AppProvider({ children }) {
       switchCharacter,
       addCharacter,
       deleteCharacter,
+      pinCharacter,
+      deleteCharacters,
       sessions,
       activeSessionId,
       switchSession,

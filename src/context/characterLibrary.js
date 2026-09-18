@@ -56,6 +56,29 @@ export function withDeletedCharacter(list, id, activeId) {
   return { list: next, activeId: nextActiveId, removed };
 }
 
+export function withPinnedCharacter(list, id, pinned) {
+  const target = list.find(character => character.id === id);
+  if (!target) {
+    return { list, character: null, found: false };
+  }
+  const updated = { ...target, pinned: pinned === true };
+  const next = sortCharacters(
+    list.map(character => (character.id === id ? updated : character))
+  );
+  return { list: next, character: updated, found: true };
+}
+
+export function withDeletedCharacters(list, ids, activeId) {
+  const removal = new Set((Array.isArray(ids) ? ids : []).map(String));
+  const remaining = list.filter(character => !removal.has(String(character.id)));
+  const removedCount = list.length - remaining.length;
+  const next = remaining.length === 0 ? [{ ...DEFAULT_CHARACTER }] : remaining;
+  const nextActiveId = removal.has(String(activeId))
+    ? resolveActiveId(next, '')
+    : activeId;
+  return { list: next, activeId: nextActiveId, removedCount };
+}
+
 export async function runWithRollback(snapshot, restore, persist) {
   try {
     await persist();
