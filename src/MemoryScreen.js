@@ -219,7 +219,13 @@ export default function MemoryScreen({ navigation }) {
         >
           {visibleSessions.map(session => {
             const character = characterMap.get(session.characterId);
-            const name = (character && character.name) || '未命名角色';
+            const isGroup = session.type === 'group';
+            const groupMembers = isGroup
+              ? (session.members || []).map(id => characterMap.get(id)).filter(Boolean)
+              : [];
+            const name = isGroup
+              ? (session.name || groupMembers.map(item => item.name).join('、') || '群聊')
+              : ((character && character.name) || '未命名角色');
             const isClone = !!session.clonedFrom;
             return (
               <View
@@ -242,7 +248,28 @@ export default function MemoryScreen({ navigation }) {
                       style={styles.checkbox}
                     />
                   ) : null}
-                  {character && character.avatarUri ? (
+                  {isGroup ? (
+                    <View style={styles.groupAvatars}>
+                      {groupMembers.slice(0, 3).map((member, index) => (
+                        member.avatarUri ? (
+                          <Image
+                            key={member.id}
+                            source={{ uri: member.avatarUri }}
+                            style={[styles.groupAvatar, { left: index * 12 }]}
+                          />
+                        ) : (
+                          <View
+                            key={member.id}
+                            style={[styles.groupAvatar, styles.avatarFallback, { left: index * 12 }]}
+                          >
+                            <Text style={styles.avatarText}>
+                              {String(member.name || '?').charAt(0)}
+                            </Text>
+                          </View>
+                        )
+                      ))}
+                    </View>
+                  ) : character && character.avatarUri ? (
                     <Image source={{ uri: character.avatarUri }} style={styles.avatar} />
                   ) : (
                     <View style={[styles.avatar, styles.avatarFallback]}>
@@ -378,6 +405,17 @@ const styles = StyleSheet.create({
     paddingRight: 6,
   },
   avatar: { width: 46, height: 46, borderRadius: 12, backgroundColor: '#3a3a55' },
+  groupAvatars: { width: 46, height: 46, marginRight: 0 },
+  groupAvatar: {
+    position: 'absolute',
+    top: 0,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    backgroundColor: '#3a3a55',
+    borderWidth: 1,
+    borderColor: '#20203a',
+  },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#c9c9e0', fontSize: 18, fontWeight: '700' },
   cardText: { flex: 1, marginLeft: 12 },

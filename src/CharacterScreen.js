@@ -31,9 +31,11 @@ import {
 } from './cardParser';
 import { exportCardFile } from './cardExporter';
 import { useApp } from './context/AppContext';
+import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
+import { createGroupSession } from './storage';
 
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
@@ -419,7 +421,9 @@ export default function CharacterScreen() {
     switchCharacter,
     addCharacter,
     deleteCharacter,
+    refreshSessions,
   } = useApp();
+  const navigation = useNavigation();
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [description, setDescription] = useState('');
@@ -438,6 +442,10 @@ export default function CharacterScreen() {
   const [presetPanelOpen, setPresetPanelOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportBusyRef = useRef(false);
+  const [groupPanelOpen, setGroupPanelOpen] = useState(false);
+  const [groupSelected, setGroupSelected] = useState([]);
+  const [groupName, setGroupName] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const seededIdRef = useRef(null);
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
@@ -724,6 +732,40 @@ export default function CharacterScreen() {
     );
   };
 
+  const toggleGroupMember = id => {
+    setGroupSelected(current => (
+      current.includes(id)
+        ? current.filter(item => item !== id)
+        : (current.length >= 8 ? current : [...current, id])
+    ));
+  };
+
+  const onCreateGroup = async () => {
+    if (groupSelected.length < 2 || groupSelected.length > 8) {
+      Alert.alert('成员数量不符', '群聊需要选择 2 到 8 个角色。');
+      return;
+    }
+    if (creatingGroup) return;
+    setCreatingGroup(true);
+    try {
+      const members = groupSelected.slice();
+      const fallbackName = characters
+        .filter(item => members.includes(item.id))
+        .map(item => item.name || '未命名角色')
+        .join('、');
+      await createGroupSession(members, groupName.trim() || fallbackName);
+      await refreshSessions();
+      setGroupPanelOpen(false);
+      setGroupSelected([]);
+      setGroupName('');
+      navigation.navigate('聊天');
+    } catch (error) {
+      Alert.alert('创建失败', '请检查存储空间或权限。');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
   const onSwitch = id => {
     switchCharacter(id).catch(() => {
       Alert.alert('切换失败', '请检查存储空间或权限。');
@@ -838,6 +880,15 @@ export default function CharacterScreen() {
             >
               <Ionicons name="add" size={15} color="#c8c4ff" />
               <Text style={styles.pillButtonText}>新建</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pillButton, (!loaded || characters.length < 2) && styles.buttonDisabled]}
+              onPress={() => setGroupPanelOpen(true)}
+              disabled={!loaded || characters.length < 2}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="people" size={15} color="#c8c4ff" />
+              <Text style={styles.pillButtonText}>群聊</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.characterGrid}>
@@ -1133,6 +1184,83 @@ export default function CharacterScreen() {
         <View style={{ height: 24 }} />
       </ScrollView>
 
+      <Modal
+        visible={groupPanelOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGroupPanelOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>创建群聊</Text>
+            <Text style={styles.label}>群名（留空自动生成）</Text>
+            <TextInput
+              style={styles.input}
+              value={groupName}
+              onChangeText={setGroupName}
+              placeholder="例如：周末闲聊群"
+              placeholderTextColor="#888"
+              editable={!creatingGroup}
+            />
+            <Text style={styles.label}>{`选择成员（已选 ${groupSelected.length} / 2-8）`}</Text>
+            <ScrollView style={styles.groupList} keyboardShouldPersistTaps="handled">
+              {characters.map(item => {
+                const selected = groupSelected.includes(item.id);
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.groupRow}
+                    onPress={() => toggleGroupMember(item.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons
+                      name={selected ? 'checkbox' : 'square-outline'}
+                      size={20}
+                      color={selected ? '#8b85ff' : '#7d7d99'}
+                    />
+                    {item.avatarUri ? (
+                      <Image source={{ uri: item.avatarUri }} style={styles.groupAvatar} />
+                    ) : (
+                      <View style={[styles.groupAvatar, styles.groupAvatarFallback]}>
+                        <Text style={styles.avatarPlaceholderText}>
+                          {String(item.name || '?').charAt(0)}
+                        </Text>
+                      </View>
+                    )}
+                    <Text style={styles.groupName} numberOfLines={1}>
+                      {item.name || '未命名角色'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.presetModalActions}>
+              <TouchableOpacity
+                style={[styles.selectButton, styles.selectButtonGhost]}
+                onPress={() => setGroupPanelOpen(false)}
+                disabled={creatingGroup}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.selectButton, creatingGroup && styles.buttonDisabled]}
+                onPress={onCreateGroup}
+                disabled={creatingGroup}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>
+                  {creatingGroup ? '创建中...' : '创建'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <PresetPanel
         visible={presetPanelOpen}
         onClose={() => setPresetPanelOpen(false)}
@@ -1254,6 +1382,17 @@ const styles = StyleSheet.create({
   },
   presetEntryLeft: { flexDirection: 'row', alignItems: 'center' },
   presetEntryText: { color: '#d9d9e6', fontSize: 15, marginLeft: 10 },
+  groupList: { maxHeight: 300, marginTop: 4 },
+  groupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  groupAvatar: { width: 34, height: 34, borderRadius: 9, marginLeft: 10, backgroundColor: '#3a3a55' },
+  groupAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  groupName: { color: '#e6e6f2', fontSize: 14, marginLeft: 10, flex: 1 },
   countBadge: {
     marginLeft: 8,
     minWidth: 22,

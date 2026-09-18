@@ -31,6 +31,12 @@ import {
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import DisclaimerModal from './disclaimer';
+import {
+  buildGroupRequest,
+  generateOpening,
+  parseMentions,
+  selectSpeakers,
+} from './groupChat';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
@@ -546,6 +552,28 @@ export default function ChatScreen() {
   const activeSessionIdRef = useRef(activeSessionId);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const activeSession = useMemo(
+    () => sessions.find(session => session.id === activeSessionId) || null,
+    [sessions, activeSessionId]
+  );
+  const isGroup = activeSession?.type === 'group';
+  const characterMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(characters) ? characters : []).forEach(item => {
+      map.set(item.id, item);
+    });
+    return map;
+  }, [characters]);
+  const groupCharacters = useMemo(() => {
+    if (!activeSession || activeSession.type !== 'group') return [];
+    return (activeSession.members || [])
+      .map(id => characterMap.get(id))
+      .filter(Boolean);
+  }, [activeSession, characterMap]);
+  const groupCharactersRef = useRef(groupCharacters);
+  groupCharactersRef.current = groupCharacters;
+  const isGroupRef = useRef(isGroup);
+  isGroupRef.current = isGroup;
   const summarizingRef = useRef(false);
   const messageOffsetsRef = useRef({});
   const atBottomRef = useRef(true);
@@ -696,6 +724,37 @@ export default function ChatScreen() {
         await profilePromise;
         if (cancelled) return;
         const initial = Array.isArray(list) ? list : [];
+        if (initial.length === 0 && isGroupRef.current) {
+          const members = groupCharactersRef.current;
+          lastSavedSnapshotRef.current = '[]';
+          setMessages([]);
+          if (members.length > 0) {
+            const openingSessionId = activeSessionId;
+            (async () => {
+              try {
+                const [profile, presets] = await Promise.all([
+                  getUserProfile().catch(() => null),
+                  getEnabledGlobalPresetPrompts().catch(() => []),
+                ]);
+                const opening = await generateOpening({
+                  characters: members,
+                  userProfile: profile,
+                  globalPresets: presets,
+                });
+                if (cancelled || !opening) return;
+                if (activeSessionIdRef.current !== openingSessionId) return;
+                setMessages([{
+                  id: `${Date.now()}-opening`,
+                  role: ASSISTANT_ID,
+                  text: opening.opening,
+                  speakerId: opening.speakerId,
+                  speakerName: opening.speakerName,
+                }]);
+              } catch (error) {}
+            })();
+          }
+          return;
+        }
         const greeting = initial.length === 0
           ? buildGreetingMessage(activeSessionId, character.firstMes, userProfileCache?.userName)
           : null;
@@ -920,6 +979,10 @@ export default function ChatScreen() {
 
   const onSummarize = useCallback(() => {
     if (summarizingRef.current || isSending || !ready) return;
+    if (isGroupRef.current) {
+      Alert.alert('群聊暂不支持', '记忆总结仅适用于单聊会话。');
+      return;
+    }
     const session = sessionsRef.current.find(
       item => item.id === activeSessionIdRef.current
     );
@@ -1087,6 +1150,100 @@ export default function ChatScreen() {
     }
   }, [autoScrollToBottom, character, isSending, maybeAutoSummarize, ready, scrollToBottom]);
 
+  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
+    if (isSending || !ready || abortRef.current) return;
+    const members = groupCharactersRef.current;
+    if (members.length === 0) return;
+    const sendSessionId = activeSessionIdRef.current;
+    const sendSessionVersion = sessionVersionRef.current;
+    const isCurrent = () =>
+      sessionVersionRef.current === sendSessionVersion
+      && activeSessionIdRef.current === sendSessionId;
+
+    setIsSending(true);
+    atBottomRef.current = true;
+    setMessages(baseMessages);
+    scrollToBottom();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const [userProfile, globalPresets] = await Promise.all([
+        getUserProfile(),
+        getEnabledGlobalPresetPrompts(),
+      ]);
+      const mentions = parseMentions(userText, members);
+      const speakerIds = await selectSpeakers({
+        characters: members,
+        history: historyMessages,
+        userText,
+        mentions,
+      });
+      let working = baseMessages;
+      for (const speakerId of speakerIds) {
+        if (!isCurrent() || controller.signal.aborted) break;
+        const speaker = members.find(item => item.id === speakerId);
+        if (!speaker) continue;
+        const pendingMessage = {
+          id: `${Date.now()}-${speakerId}-assistant`,
+          role: ASSISTANT_ID,
+          text: THINKING_PLACEHOLDER,
+          pending: true,
+          waitingForResponse: true,
+          speakerId,
+          speakerName: speaker.name,
+        };
+        working = [...working, pendingMessage];
+        setMessages(working);
+        scrollToBottom();
+        try {
+          const requestMessages = buildGroupRequest({
+            speaker,
+            characters: members,
+            historyMessages,
+            userText,
+            userProfile,
+            globalPresets,
+          });
+          const reply = await sendChatMessage(requestMessages, { signal: controller.signal });
+          if (!isCurrent()) return;
+          working = working.map(item => (
+            item.id === pendingMessage.id
+              ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
+              : item
+          ));
+          setMessages(working);
+        } catch (error) {
+          if (isCanceledError(error)) break;
+          if (!isCurrent()) return;
+          working = working.map(item => (
+            item.id === pendingMessage.id
+              ? {
+                ...item,
+                text: `${speaker.name} 本次回复失败`,
+                pending: false,
+                waitingForResponse: false,
+              }
+              : item
+          ));
+          setMessages(working);
+        }
+      }
+    } catch (error) {
+      if (isCurrent()) {
+        Alert.alert('群聊回复失败', '请稍后重试。');
+      }
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        if (isCurrent()) {
+          setIsSending(false);
+          autoScrollToBottom();
+        }
+      }
+    }
+  }, [autoScrollToBottom, isSending, ready, scrollToBottom]);
+
   const sendText = useCallback(rawText => {
     const text = String(rawText || '').trim();
     if (!text || isSending || !ready || abortRef.current) return;
@@ -1095,12 +1252,17 @@ export default function ChatScreen() {
       role: USER_ID,
       text,
     };
-    requestReply({
+    const payload = {
       historyMessages: messages,
       userText: text,
       baseMessages: [...messages, userMessage],
-    });
-  }, [isSending, messages, ready, requestReply]);
+    };
+    if (isGroupRef.current) {
+      requestGroupReply(payload);
+    } else {
+      requestReply(payload);
+    }
+  }, [isSending, messages, ready, requestReply, requestGroupReply]);
 
   const regenerateMessage = useCallback(targetId => {
     if (isSending || !ready) return;
@@ -1163,6 +1325,9 @@ export default function ChatScreen() {
   }, [input, isSending, ready, sendText]);
 
   const bgUri = character.bgUri || '';
+  const displayName = isGroup
+    ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
+    : (character.name || 'EasyChat2 助手');
 
   return (
     <KeyboardAvoidingView
@@ -1177,13 +1342,17 @@ export default function ChatScreen() {
         <TouchableOpacity
           style={styles.characterChip}
           onPress={() => setSwitcherOpen(true)}
-          disabled={!loaded}
+          disabled={!loaded || isGroup}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="切换角色"
-          accessibilityState={{ disabled: !loaded }}
+          accessibilityLabel={isGroup ? '群聊' : '切换角色'}
+          accessibilityState={{ disabled: !loaded || isGroup }}
         >
-          {character.avatarUri ? (
+          {isGroup ? (
+            <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
+              <Ionicons name="people" size={13} color="#c8c4ff" />
+            </View>
+          ) : character.avatarUri ? (
             <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
           ) : (
             <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
@@ -1191,9 +1360,11 @@ export default function ChatScreen() {
             </View>
           )}
           <Text style={styles.characterName} numberOfLines={1}>
-            {character.name || 'EasyChat2 助手'}
+            {displayName}
           </Text>
-          <Ionicons name="chevron-down" size={14} color="#8b85ff" style={styles.characterCaret} />
+          {isGroup ? null : (
+            <Ionicons name="chevron-down" size={14} color="#8b85ff" style={styles.characterCaret} />
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.noticeButton}
@@ -1304,34 +1475,41 @@ export default function ChatScreen() {
             </Text>
           </View>
         ) : (
-          renderedMessages.map(message => (
-            <View
-              key={message.id}
-              onLayout={event => onMessageLayout(message.id, event)}
-            >
-              {message.role === SYSTEM_ERROR_ID ? (
-                <ErrorBubble
-                  message={message}
-                  rawError={errorRawRef.current[message.id]}
-                />
-              ) : (
-                <MessageBubble
-                  message={message}
-                  characterName={character.name}
-                  characterAvatar={character.avatarUri}
-                  userAvatarUri={userAvatar}
-                  onSlashCommand={onSlashCommand}
-                  canRegenerate={regenerableIds.has(message.id)}
-                  onRegenerate={onRegenerateMessage}
-                  onEditUserMessage={onEditUserMessage}
-                  onSelectText={onSelectText}
-                  highlightKeyword={searchQuery.trim()}
-                  isMatch={searchMatches.includes(message.id)}
-                  isActiveMatch={focusedMessageId === message.id}
-                />
-              )}
-            </View>
-          ))
+          renderedMessages.map(message => {
+            const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
+            return (
+              <View
+                key={message.id}
+                onLayout={event => onMessageLayout(message.id, event)}
+              >
+                {message.role === SYSTEM_ERROR_ID ? (
+                  <ErrorBubble
+                    message={message}
+                    rawError={errorRawRef.current[message.id]}
+                  />
+                ) : (
+                  <MessageBubble
+                    message={message}
+                    characterName={(speaker && speaker.name) || message.speakerName || character.name}
+                    characterAvatar={
+                      speaker
+                        ? (speaker.avatarUri || '')
+                        : (message.speakerId ? '' : character.avatarUri)
+                    }
+                    userAvatarUri={userAvatar}
+                    onSlashCommand={onSlashCommand}
+                    canRegenerate={!isGroup && regenerableIds.has(message.id)}
+                    onRegenerate={onRegenerateMessage}
+                    onEditUserMessage={onEditUserMessage}
+                    onSelectText={onSelectText}
+                    highlightKeyword={searchQuery.trim()}
+                    isMatch={searchMatches.includes(message.id)}
+                    isActiveMatch={focusedMessageId === message.id}
+                  />
+                )}
+              </View>
+            );
+          })
         )}
       </ScrollView>
 

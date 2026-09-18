@@ -5,6 +5,7 @@ import {
   buildClonedSession,
   buildPreview,
   createEmptySession,
+  createGroupSession as buildGroupSession,
   normalizeSession,
   regenerateMessageIds,
   sortSessions,
@@ -758,6 +759,15 @@ export async function startNewSession(characterId) {
   }
   const created = createEmptySession(characterId, nonEmpty);
   const next = sortSessions([...nonEmpty, created]);
+  await saveSessions(next);
+  await setActiveSessionId(created.id);
+  return created;
+}
+
+export async function createGroupSession(members, name) {
+  const sessions = await getSessions();
+  const created = buildGroupSession(members, name, sessions);
+  const next = sortSessions([...sessions, created]);
   await saveSessions(next);
   await setActiveSessionId(created.id);
   return created;

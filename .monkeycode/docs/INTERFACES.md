@@ -38,6 +38,7 @@
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
+- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -58,6 +59,7 @@
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；对话示例/作者注释/历史后指令/标签为只读
 - 基本信息卡片底部提供「全局预设」入口，打开与设置页相同的 `PresetPanel`，关闭后不影响未保存的表单内容
+- 角色库卡片提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
@@ -80,7 +82,7 @@
 **Props**: `navigation`（由导航注入）
 **行为**:
 - 从 `useApp()` 读取 `sessions`、`characters`、`loaded` 与会话操作，只展示摘要非空的会话（空会话不占行）
-- 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标
+- 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标；群聊会话展示叠放成员头像与群名
 - 点击行先 `switchCharacter` 再 `switchSession`，随后 `navigation.navigate('聊天')`
 - 右侧提供置顶、克隆、删除三个按钮；克隆与删除弹二次确认，失败时 `Alert`
 - 顶部「编辑」入口（存在会话时显示）进入编辑模式，每行显示勾选框，底部操作条提供「全选」与「删除（N）」并二次确认，成功后退出编辑模式
@@ -209,6 +211,7 @@
 | `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
 | `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
 | `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前 |
+| `createGroupSession` | `(members, name) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前 |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
 | `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键 |
@@ -381,6 +384,20 @@ data: [DONE]
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
 **说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与插件背景资料（`pluginContext`）；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
+### 群聊接口
+**位置**: `src/groupChat.js`
+
+| 函数 | 说明 |
+|------|------|
+| `parseMentions(text, characters)` | 解析消息中的 `@角色名`，返回角色 `id` 列表 |
+| `selectSpeakers({ characters, history, userText, mentions })` | 调用 LLM 选出 1-3 个发言角色；解析失败回退本地规则（`@` 优先、名字命中、轮转）；`@` 角色必定入选 |
+| `parseSpeakerResponse(text, characters)` | 解析调度返回的 `{ speakers: [...] }`，按角色名映射为 `id` |
+| `generateOpening({ characters, userProfile, globalPresets })` | 生成群场景开场白与首位发言角色，失败回退合成文案 |
+| `buildGroupHistory(messages)` | 为助手消息加上 `发言者：` 前缀，供模型区分发言人 |
+| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets })` | 以发言角色卡设定构造请求 |
+
+**常量**: `MAX_SPEAKERS = 3`。
+
 ### 插件接口
 **位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`
 
@@ -478,7 +495,10 @@ data: [DONE]
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | `string` | 会话标识，形如 `session-<base36 时间戳>-<随机>`；迁移会话为 `legacy-<characterId>` |
-| `characterId` | `string` | 所属角色 `id` |
+| `type` | `'single' \| 'group'` | 会话类型，缺省为 `single` |
+| `characterId` | `string` | 单聊所属角色 `id`；群聊为空串 |
+| `members` | `string[]` | 群聊成员角色 `id` 列表；单聊为空数组 |
+| `name` | `string` | 群聊名称；单聊为空串 |
 | `preview` | `string` | 最后一条可读消息的摘要，最长 60 字 |
 | `pinned` | `boolean` | 是否置顶 |
 | `createdAt` | `number` | 创建时间戳 |

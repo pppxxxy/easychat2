@@ -65,6 +65,7 @@ easychat2/
 │   ├── lorebook.js           # 世界书条目激活判定
 │   ├── regexEngine.js        # 正则脚本作用范围与应用
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
+│   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）

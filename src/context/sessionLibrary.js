@@ -17,9 +17,15 @@ export function normalizeSession(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const createdAt = Number(source.createdAt);
   const updatedAt = Number(source.updatedAt);
+  const type = source.type === 'group' ? 'group' : 'single';
   return {
     id: String(source.id || `session-${index}`),
+    type,
     characterId: String(source.characterId || ''),
+    members: type === 'group' && Array.isArray(source.members)
+      ? source.members.map(String).filter(Boolean)
+      : [],
+    name: String(source.name || ''),
     preview: String(source.preview || ''),
     pinned: source.pinned === true,
     createdAt: Number.isFinite(createdAt) ? createdAt : 0,
@@ -68,7 +74,28 @@ export function createEmptySession(characterId, sessions, now = Date.now()) {
   const list = Array.isArray(sessions) ? sessions : [];
   return {
     id: uniqueSessionId(makeSessionId(now), list),
+    type: 'single',
     characterId: String(characterId || ''),
+    members: [],
+    name: '',
+    preview: '',
+    pinned: false,
+    createdAt: now,
+    updatedAt: now,
+    clonedFrom: '',
+    summarizedUpTo: '',
+  };
+}
+
+export function createGroupSession(members, name, sessions, now = Date.now()) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const ids = (Array.isArray(members) ? members : []).map(String).filter(Boolean);
+  return {
+    id: uniqueSessionId(makeSessionId(now), list),
+    type: 'group',
+    characterId: '',
+    members: ids,
+    name: String(name || ''),
     preview: '',
     pinned: false,
     createdAt: now,
