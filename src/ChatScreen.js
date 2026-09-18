@@ -72,6 +72,20 @@ const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
 const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
+const QUOTE_TEXT_MAX = 200;
+
+function buildQuotePayload(message, name) {
+  if (!message || !message.id) return null;
+  const raw = String(message.text || '').trim();
+  const text = raw.length > QUOTE_TEXT_MAX ? `${raw.slice(0, QUOTE_TEXT_MAX)}…` : raw;
+  if (!text) return null;
+  return {
+    id: message.id,
+    name: String(name || '').trim(),
+    role: message.role,
+    text,
+  };
+}
 const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
 
 const markdownStyles = {
@@ -366,7 +380,7 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
@@ -452,6 +466,28 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
         ]}>
+          {message.quoted && message.quoted.text ? (
+            <TouchableOpacity
+              style={[styles.quoteBlock, isUser ? styles.quoteBlockUser : styles.quoteBlockAssistant]}
+              onPress={() => onPressQuote?.(message.quoted)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`引用 ${message.quoted.name || ''}`}
+            >
+              <Text
+                style={[styles.quoteName, isUser ? styles.quoteNameUser : styles.quoteNameAssistant]}
+                numberOfLines={1}
+              >
+                {message.quoted.name || '原文'}
+              </Text>
+              <Text
+                style={[styles.quoteText, isUser ? styles.quoteTextUser : styles.quoteTextAssistant]}
+                numberOfLines={2}
+              >
+                {message.quoted.text}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           {!isUser && thinkingDisplay !== 'off' && typeof message.reasoning === 'string' && message.reasoning.trim() ? (
             thinkingDisplay === 'open' ? (
               <View style={styles.reasoningBox}>
@@ -508,6 +544,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
             <TouchableOpacity style={styles.messageActionButton} onPress={onCopy} activeOpacity={0.8}>
               <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => onQuote?.(message)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.messageActionText}>引用</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.messageActionButton}
@@ -636,6 +679,7 @@ export default function ChatScreen() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
+  const userNameRef = useRef('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -656,6 +700,7 @@ export default function ChatScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
+  const [quoteTarget, setQuoteTarget] = useState(null);
   const navigation = useNavigation();
 
   const onSwitch = useCallback(id => {
@@ -667,6 +712,8 @@ export default function ChatScreen() {
       abortRef.current = null;
     }
     setIsSending(false);
+    setQuoteTarget(null);
+    setAttachments([]);
     switchCharacter(id)
       .then(() => ensureCharacterSession(id))
       .catch(() => {
@@ -779,6 +826,7 @@ export default function ChatScreen() {
     const profilePromise = getUserProfile().then(profile => {
       if (cancelled) return;
       userProfileCache = profile;
+      userNameRef.current = String(profile.userName || '').trim();
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
     getMessagesBySession(activeSessionId)
@@ -1124,7 +1172,7 @@ export default function ChatScreen() {
     runSummarize(session, messages, true);
   }, [isSending, ready, messages, runSummarize]);
 
-  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images }) => {
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, quote }) => {
     if (isSending || !ready || abortRef.current) return;
     const sendCharacterId = activeCharacterIdRef.current;
     const sendSessionId = activeSessionIdRef.current;
@@ -1182,6 +1230,7 @@ export default function ChatScreen() {
         summaryText: buildMemorySummaryText(character),
         pluginContext,
         images,
+        quote,
       });
 
       const reply = await sendChatMessage(
@@ -1295,7 +1344,7 @@ export default function ChatScreen() {
     }
   }, [autoScrollToBottom, character, isSending, maybeAutoSummarize, ready, scrollToBottom]);
 
-  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
+  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, quote }) => {
     if (isSending || !ready || abortRef.current) return;
     const members = groupCharactersRef.current;
     if (members.length === 0) return;
@@ -1349,6 +1398,7 @@ export default function ChatScreen() {
             userText,
             userProfile,
             globalPresets,
+            quote,
           });
           const reply = await sendChatMessage(requestMessages, {
             signal: controller.signal,
@@ -1403,19 +1453,22 @@ export default function ChatScreen() {
       role: USER_ID,
       text: text || '（图片）',
     };
+    if (quoteTarget) userMessage.quoted = quoteTarget;
     const payload = {
       historyMessages: messages,
       userText: mergedText,
       baseMessages: [...messages, userMessage],
       images: imageAttachments.map(item => item.dataUri),
+      quote: quoteTarget,
     };
     setAttachments([]);
+    setQuoteTarget(null);
     if (isGroupRef.current) {
       requestGroupReply(payload);
     } else {
       requestReply(payload);
     }
-  }, [attachments, isSending, messages, ready, requestReply, requestGroupReply]);
+  }, [attachments, isSending, messages, quoteTarget, ready, requestReply, requestGroupReply]);
 
   const regenerateMessage = useCallback(targetId => {
     if (isSending || !ready) return;
@@ -1460,6 +1513,29 @@ export default function ChatScreen() {
   const onSelectText = useCallback(text => {
     setSelectionText(String(text || ''));
   }, []);
+
+  const onQuoteMessage = useCallback(message => {
+    if (!message || !message.id) return;
+    const isUserMessage = message.role === USER_ID;
+    const speakerName = String(message.speakerName || '').trim();
+    const name = isUserMessage
+      ? (userNameRef.current || '我')
+      : (speakerName || String(character?.name || '').trim());
+    const payload = buildQuotePayload(message, name);
+    if (!payload) return;
+    setQuoteTarget(payload);
+  }, [character]);
+
+  const onPressQuoteBlock = useCallback(quote => {
+    if (!quote || !quote.id) return;
+    const exists = messages.some(item => item.id === quote.id);
+    if (!exists) {
+      Alert.alert('原消息已删除', '无法定位到被引用的消息。');
+      return;
+    }
+    setFocusedMessageId(quote.id);
+    scrollToMessage(quote.id);
+  }, [messages, scrollToMessage]);
 
   const sendTextRef = useRef(sendText);
   useEffect(() => {
@@ -1735,6 +1811,8 @@ export default function ChatScreen() {
                     onRegenerate={onRegenerateMessage}
                     onEditUserMessage={onEditUserMessage}
                     onSelectText={onSelectText}
+                    onQuote={onQuoteMessage}
+                    onPressQuote={onPressQuoteBlock}
                     highlightKeyword={searchQuery.trim()}
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}
@@ -1748,6 +1826,17 @@ export default function ChatScreen() {
         )}
       </ScrollView>
 
+      {quoteTarget ? (
+        <View style={[styles.quoteBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
+          <View style={styles.quoteBarBody}>
+            <Text style={styles.quoteBarName} numberOfLines={1}>{quoteTarget.name || '原文'}</Text>
+            <Text style={styles.quoteBarText} numberOfLines={1}>{quoteTarget.text}</Text>
+          </View>
+          <TouchableOpacity onPress={() => setQuoteTarget(null)} hitSlop={8} accessibilityLabel="取消引用">
+            <Ionicons name="close" size={16} color="#9a9ab5" />
+          </TouchableOpacity>
+        </View>
+      ) : null}
       {attachments.length > 0 ? (
         <View style={[styles.attachmentBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
           {attachments.map(item => (
@@ -2443,6 +2532,43 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     flex: 1,
   },
+  quoteBlock: {
+    borderLeftWidth: 3,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  quoteBlockUser: {
+    borderLeftColor: '#d9d5ff',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  quoteBlockAssistant: {
+    borderLeftColor: '#6c63ff',
+    backgroundColor: 'rgba(108,99,255,0.10)',
+  },
+  quoteName: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
+  quoteNameUser: { color: '#f0efff' },
+  quoteNameAssistant: { color: '#6c63ff' },
+  quoteText: { fontSize: 12, lineHeight: 17 },
+  quoteTextUser: { color: '#e8e6ff' },
+  quoteTextAssistant: { color: '#6a6a88' },
+  quoteBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 6,
+  },
+  quoteBarBody: {
+    flex: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: '#6c63ff',
+    paddingLeft: 8,
+    marginRight: 8,
+  },
+  quoteBarName: { color: '#8b85ff', fontSize: 11, fontWeight: '700' },
+  quoteBarText: { color: '#9a9ab5', fontSize: 12, marginTop: 2 },
   nameLabel: {
     color: '#fff',
     fontSize: 11,

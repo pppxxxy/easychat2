@@ -190,6 +190,7 @@ export function buildGroupRequest({
   userText,
   userProfile,
   globalPresets,
+  quote,
 }) {
   return buildRequestMessages({
     character: speaker,
@@ -197,5 +198,6 @@ export function buildGroupRequest({
     userText,
     userProfile,
     globalPresets,
+    quote,
   });
 }

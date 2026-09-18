@@ -47,7 +47,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const { before, after, depth } = collectActiveWorldInfo(
@@ -108,13 +108,16 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   }
 
   const promptUserText = applyForPrompt(userText, scripts, REGEX_PLACEMENT.USER_INPUT, 0);
+  const quoteText = quote && String(quote.text || '').trim()
+    ? `[引用${String(quote.name || '').trim() || '对方'}的消息] ${String(quote.text).trim()}\n\n${promptUserText}`
+    : promptUserText;
   const imageList = Array.isArray(images) ? images.filter(Boolean) : [];
   const userContent = imageList.length > 0
     ? [
-        { type: 'text', text: promptUserText },
+        { type: 'text', text: quoteText },
         ...imageList.map(url => ({ type: 'image_url', image_url: { url } })),
       ]
-    : promptUserText;
+    : quoteText;
 
   const assembled = [
     { role: 'system', content: systemContent },
