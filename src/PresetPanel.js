@@ -1,0 +1,435 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+
+import {
+  createGlobalPresetId,
+  getGlobalPresetSettings,
+  getGlobalPresets,
+  getMemorySummarySettings,
+  saveGlobalPresetSettings,
+  saveGlobalPresets,
+  saveMemorySummarySettings,
+} from './storage';
+
+const THRESHOLD_FALLBACK = 40;
+
+export default function PresetPanel({ visible, onClose }) {
+  const [presets, setPresets] = useState([]);
+  const [enabled, setEnabled] = useState({});
+  const [memoryEnabled, setMemoryEnabled] = useState(false);
+  const [threshold, setThreshold] = useState(String(THRESHOLD_FALLBACK));
+  const [loaded, setLoaded] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingPreset, setEditingPreset] = useState(null);
+  const [form, setForm] = useState({ name: '', description: '', prompt: '' });
+  const [saving, setSaving] = useState(false);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    let cancelled = false;
+    Promise.all([
+      getGlobalPresets(),
+      getGlobalPresetSettings(),
+      getMemorySummarySettings(),
+    ])
+      .then(([list, map, memory]) => {
+        if (cancelled) return;
+        setPresets(list);
+        setEnabled(map);
+        setMemoryEnabled(memory.enabled === true);
+        setThreshold(String(memory.threshold));
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) Alert.alert('预设读取失败', '请重新打开后重试。');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
+
+  const togglePreset = useCallback(async (id, value) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try {
+      const next = await saveGlobalPresetSettings({ ...enabled, [id]: value });
+      setEnabled(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    } finally {
+      busyRef.current = false;
+    }
+  }, [enabled]);
+
+  const openEditor = preset => {
+    if (busyRef.current) return;
+    setEditingPreset(preset);
+    setForm({
+      name: preset?.name || '',
+      description: preset?.description || '',
+      prompt: preset?.prompt || '',
+    });
+    setModalOpen(true);
+  };
+
+  const saveForm = async () => {
+    if (busyRef.current) return;
+    const name = form.name.trim();
+    const prompt = form.prompt.trim();
+    if (!name || !prompt) {
+      Alert.alert('信息不全', '名称和提示词不能为空。');
+      return;
+    }
+    busyRef.current = true;
+    setSaving(true);
+    try {
+      const base = await getGlobalPresets();
+      const id = editingPreset?.id || await createGlobalPresetId(base);
+      const item = { id, name, description: form.description.trim(), prompt };
+      const list = editingPreset
+        ? base.map(entry => (entry.id === id ? item : entry))
+        : [...base, item];
+      const saved = await saveGlobalPresets(list);
+      setPresets(saved);
+      setModalOpen(false);
+    } catch (error) {
+      Alert.alert('保存失败', error?.message || '请检查存储空间或权限。');
+    } finally {
+      busyRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const deletePreset = preset => {
+    if (busyRef.current) return;
+    Alert.alert('删除预设', `确定删除「${preset.name || '未命名'}」吗？`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          if (busyRef.current) return;
+          busyRef.current = true;
+          setSaving(true);
+          try {
+            const saved = await saveGlobalPresets(
+              (await getGlobalPresets()).filter(item => item.id !== preset.id)
+            );
+            setPresets(saved);
+            setEnabled(current => {
+              const next = { ...current };
+              delete next[preset.id];
+              return next;
+            });
+          } catch (error) {
+            Alert.alert('删除失败', error?.message || '请检查存储空间或权限。');
+          } finally {
+            busyRef.current = false;
+            setSaving(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const persistMemory = async (enabledValue, thresholdValue) => {
+    busyRef.current = true;
+    try {
+      const saved = await saveMemorySummarySettings({
+        enabled: enabledValue,
+        threshold: thresholdValue,
+      });
+      setMemoryEnabled(saved.enabled);
+      setThreshold(String(saved.threshold));
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    } finally {
+      busyRef.current = false;
+    }
+  };
+
+  const toggleMemory = value => {
+    if (busyRef.current) return;
+    persistMemory(value, threshold);
+  };
+
+  const commitThreshold = () => {
+    if (busyRef.current) return;
+    const parsed = Math.trunc(Number(String(threshold).trim()));
+    const value = Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
+    if (value !== parsed) {
+      Alert.alert('阈值无效', `请输入大于 0 的整数，已改为 ${THRESHOLD_FALLBACK}。`);
+    }
+    setThreshold(String(value));
+    if (value !== Number(threshold)) {
+      persistMemory(memoryEnabled, value);
+    }
+  };
+
+  const handleClose = () => {
+    commitThreshold();
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={handleClose}
+    >
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.sheet}>
+          <View style={styles.header}>
+            <Text style={styles.title}>全局预设</Text>
+            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
+              <Ionicons name="close" size={22} color="#c9c9e0" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.listContent}>
+            <Text style={styles.fieldHint}>
+              这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。点击条目可编辑。
+            </Text>
+            {presets.map(preset => (
+              <View key={preset.id} style={styles.presetRow}>
+                <TouchableOpacity
+                  style={styles.presetInfo}
+                  activeOpacity={0.7}
+                  onPress={() => openEditor(preset)}
+                >
+                  <Text style={styles.presetName}>{preset.name}</Text>
+                  {preset.description ? (
+                    <Text style={styles.presetDesc}>{preset.description}</Text>
+                  ) : null}
+                </TouchableOpacity>
+                <Switch
+                  value={enabled[preset.id] === true}
+                  onValueChange={value => togglePreset(preset.id, value)}
+                  trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+                  thumbColor="#ffffff"
+                />
+                <TouchableOpacity
+                  style={styles.presetDelete}
+                  hitSlop={8}
+                  onPress={() => deletePreset(preset)}
+                  disabled={saving}
+                  accessibilityLabel="删除预设"
+                >
+                  <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            {loaded && presets.length === 0 ? (
+              <Text style={styles.fieldHint}>暂无预设，点击下方按钮新增。</Text>
+            ) : null}
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => openEditor(null)}
+              disabled={!loaded || saving}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={16} color="#c8c4ff" />
+              <Text style={styles.secondaryButtonText}>新增预设</Text>
+            </TouchableOpacity>
+
+            <View style={styles.sectionDivider} />
+            <View style={styles.memoryRow}>
+              <View style={styles.memoryText}>
+                <Text style={styles.presetName}>记忆总结</Text>
+                <Text style={styles.presetDesc}>
+                  对话过长时总结历史并写入世界书，阈值为当前会话消息条数。
+                </Text>
+              </View>
+              <Switch
+                value={memoryEnabled}
+                onValueChange={toggleMemory}
+                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+                thumbColor="#ffffff"
+              />
+            </View>
+            <Text style={styles.label}>触发阈值（消息条数）</Text>
+            <TextInput
+              style={styles.input}
+              value={threshold}
+              onChangeText={setThreshold}
+              onEndEditing={commitThreshold}
+              onBlur={commitThreshold}
+              keyboardType="number-pad"
+              placeholder={String(THRESHOLD_FALLBACK)}
+              placeholderTextColor="#888"
+            />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+
+      <Modal
+        visible={modalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!busyRef.current) setModalOpen(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.backdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.sheet}>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.title}>
+                {editingPreset ? '编辑预设' : '新增预设'}
+              </Text>
+              <Text style={styles.label}>名称</Text>
+              <TextInput
+                style={styles.input}
+                value={form.name}
+                editable={!saving}
+                onChangeText={text => setForm(current => ({ ...current, name: text }))}
+                placeholder="例如：控制篇幅"
+                placeholderTextColor="#888"
+              />
+              <Text style={styles.label}>描述（可选）</Text>
+              <TextInput
+                style={styles.input}
+                value={form.description}
+                editable={!saving}
+                onChangeText={text => setForm(current => ({ ...current, description: text }))}
+                placeholder="一句话说明用途"
+                placeholderTextColor="#888"
+              />
+              <Text style={styles.label}>提示词</Text>
+              <TextInput
+                style={[styles.input, styles.promptInput]}
+                value={form.prompt}
+                editable={!saving}
+                onChangeText={text => setForm(current => ({ ...current, prompt: text }))}
+                placeholder="开启后追加到系统提示词的内容"
+                placeholderTextColor="#888"
+                multiline
+                textAlignVertical="top"
+              />
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.selectButton, styles.selectButtonGhost]}
+                onPress={() => setModalOpen(false)}
+                disabled={saving}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.selectButton, saving && styles.buttonDisabled]}
+                onPress={saveForm}
+                disabled={saving}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>{saving ? '保存中...' : '保存'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#20203a',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 18,
+    maxHeight: '85%',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  title: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  listContent: { paddingBottom: 12 },
+  fieldHint: { color: '#8a8aa3', fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  presetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#35354f',
+  },
+  presetInfo: { flex: 1, marginRight: 8 },
+  presetName: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  presetDesc: { color: '#a8a8c2', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  presetDelete: { marginLeft: 6, padding: 4 },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(108,99,255,0.18)',
+    borderRadius: 12,
+    paddingVertical: 11,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(139,133,255,0.35)',
+  },
+  secondaryButtonText: { color: '#c8c4ff', fontSize: 14, fontWeight: '700', marginLeft: 6 },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#35354f',
+    marginVertical: 16,
+  },
+  memoryRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  memoryText: { flex: 1, marginRight: 8 },
+  label: { color: '#9a9ab5', fontSize: 12, marginBottom: 6, marginTop: 8 },
+  input: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
+    color: '#ffffff',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#35354f',
+  },
+  promptInput: { minHeight: 110, marginBottom: 6 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 },
+  selectButton: {
+    backgroundColor: '#6c63ff',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    marginLeft: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectButtonGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#4a4a68' },
+  selectButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  buttonDisabled: { opacity: 0.45 },
+});

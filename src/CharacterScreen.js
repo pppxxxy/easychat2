@@ -29,6 +29,7 @@ import {
   WORLD_POSITION_LABELS,
 } from './cardParser';
 import { useApp } from './context/AppContext';
+import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
 
@@ -432,6 +433,7 @@ export default function CharacterScreen() {
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [bgPreview, setBgPreview] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [presetPanelOpen, setPresetPanelOpen] = useState(false);
   const seededIdRef = useRef(null);
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
@@ -900,6 +902,18 @@ export default function CharacterScreen() {
               ) : null}
             </View>
           </View>
+
+          <TouchableOpacity
+            style={styles.presetEntryRow}
+            onPress={() => setPresetPanelOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.presetEntryLeft}>
+              <Ionicons name="list-outline" size={17} color="#8b85ff" />
+              <Text style={styles.presetEntryText}>全局预设</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
@@ -1049,6 +1063,11 @@ export default function CharacterScreen() {
         <View style={{ height: 24 }} />
       </ScrollView>
 
+      <PresetPanel
+        visible={presetPanelOpen}
+        onClose={() => setPresetPanelOpen(false)}
+      />
+
       <Modal
         visible={!!editingWorldEntry}
         transparent
@@ -1154,6 +1173,17 @@ const styles = StyleSheet.create({
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { color: '#fff', fontSize: 15, fontWeight: '800', marginLeft: 8 },
+  presetEntryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#35354f',
+  },
+  presetEntryLeft: { flexDirection: 'row', alignItems: 'center' },
+  presetEntryText: { color: '#d9d9e6', fontSize: 15, marginLeft: 10 },
   countBadge: {
     marginLeft: 8,
     minWidth: 22,

@@ -19,6 +19,7 @@ const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
+const MEMORY_SUMMARY_KEY = '@easychat2_memory_summary';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -483,6 +484,30 @@ export async function getEnabledGlobalPresetPrompts() {
   const raw = await readGlobalPresetSettings();
   const enabled = normalizeEnabledMap(raw, presets);
   return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
+}
+
+const DEFAULT_MEMORY_SUMMARY = { enabled: false, threshold: 40 };
+
+function normalizeMemorySummary(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const threshold = Math.trunc(Number(source.threshold));
+  return {
+    enabled: source.enabled === true,
+    threshold: Number.isFinite(threshold) && threshold > 0
+      ? threshold
+      : DEFAULT_MEMORY_SUMMARY.threshold,
+  };
+}
+
+export async function getMemorySummarySettings() {
+  const raw = await readJson(MEMORY_SUMMARY_KEY, null);
+  return normalizeMemorySummary(raw);
+}
+
+export async function saveMemorySummarySettings(settings) {
+  const normalized = normalizeMemorySummary(settings);
+  await AsyncStorage.setItem(MEMORY_SUMMARY_KEY, JSON.stringify(normalized));
+  return normalized;
 }
 
 export async function isDisclaimerAcknowledged() {

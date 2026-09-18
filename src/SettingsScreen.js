@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -8,7 +8,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -20,16 +19,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api';
 import DisclaimerModal from './disclaimer';
+import PresetPanel from './PresetPanel';
 import {
   createApiConfig,
-  createGlobalPresetId,
   getApiConfigs,
   getGlobalPresetSettings,
   getGlobalPresets,
   getUserProfile,
   saveApiConfigs,
-  saveGlobalPresetSettings,
-  saveGlobalPresets,
   saveUserProfile,
 } from './storage';
 
@@ -52,11 +49,8 @@ export default function SettingsScreen() {
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
   const [userProfileSaved, setUserProfileSaved] = useState(false);
-  const [presetEnabled, setPresetEnabled] = useState({});
-  const [presets, setPresets] = useState([]);
-  const [presetModalOpen, setPresetModalOpen] = useState(false);
-  const [editingPreset, setEditingPreset] = useState(null);
-  const [presetForm, setPresetForm] = useState({ name: '', description: '', prompt: '' });
+  const [presetEntryOpen, setPresetEntryOpen] = useState(false);
+  const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
   const profileSavingRef = useRef(null);
@@ -72,26 +66,27 @@ export default function SettingsScreen() {
       clearTimeout(profileHintTimerRef.current);
     };
   }, []);
-  const presetBusyRef = useRef(false);
   const apiStateRef = useRef({ configs: [], activeId: '', loaded: false });
   const apiBusyRef = useRef(false);
   const apiMountedRef = useRef(true);
   const modelRequestRef = useRef(null);
   const modelSourceRef = useRef(null);
   const [apiSaving, setApiSaving] = useState(false);
-  const [presetsLoaded, setPresetsLoaded] = useState(false);
-  const [presetSaving, setPresetSaving] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
 
-  useEffect(() => {
+  const refreshPresetCount = useCallback(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
       .then(([list, enabled]) => {
-        setPresets(list);
-        setPresetEnabled(enabled);
-        setPresetsLoaded(true);
+        setEnabledPresetCount(
+          list.filter(preset => enabled[preset.id] === true).length
+        );
       })
-      .catch(() => Alert.alert('预设读取失败', '请重新打开应用后重试。'));
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshPresetCount();
+  }, [refreshPresetCount]);
 
   useEffect(() => {
     apiMountedRef.current = true;
@@ -122,93 +117,6 @@ export default function SettingsScreen() {
       request?.cancel?.();
     };
   }, []);
-
-  const togglePreset = async (id, value) => {
-    if (!presetsLoaded || presetBusyRef.current) return;
-    presetBusyRef.current = true;
-    setPresetSaving(true);
-    try {
-      const next = await saveGlobalPresetSettings({ ...presetEnabled, [id]: value });
-      setPresetEnabled(next);
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    } finally {
-      presetBusyRef.current = false;
-      setPresetSaving(false);
-    }
-  };
-
-  const openPresetEditor = preset => {
-    if (!presetsLoaded || presetBusyRef.current) return;
-    setEditingPreset(preset);
-    setPresetForm({
-      name: preset?.name || '',
-      description: preset?.description || '',
-      prompt: preset?.prompt || '',
-    });
-    setPresetModalOpen(true);
-  };
-
-  const savePresetForm = async () => {
-    if (presetBusyRef.current) return;
-    const name = presetForm.name.trim();
-    const prompt = presetForm.prompt.trim();
-    if (!name || !prompt) {
-      Alert.alert('信息不全', '名称和提示词不能为空。');
-      return;
-    }
-    presetBusyRef.current = true;
-    setPresetSaving(true);
-    try {
-      const basePresets = await getGlobalPresets();
-      const id = editingPreset?.id || await createGlobalPresetId(basePresets);
-      const item = { id, name, description: presetForm.description.trim(), prompt };
-      const list = editingPreset
-        ? basePresets.map(item0 => (item0.id === item.id ? item : item0))
-        : [...basePresets, item];
-      const saved = await saveGlobalPresets(list);
-      setPresets(saved);
-      setEditingPreset(editingPreset ? saved.find(entry => entry.id === id) || null : null);
-      setPresetModalOpen(false);
-    } catch (error) {
-      Alert.alert('保存失败', error?.message || '请检查存储空间或权限。');
-    } finally {
-      presetBusyRef.current = false;
-      setPresetSaving(false);
-    }
-  };
-
-  const deletePreset = preset => {
-    if (!presetsLoaded || presetBusyRef.current) return;
-    Alert.alert('删除预设', `确定删除「${preset.name || '未命名'}」吗？`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: async () => {
-          if (presetBusyRef.current) return;
-          presetBusyRef.current = true;
-          setPresetSaving(true);
-          try {
-            const saved = await saveGlobalPresets(
-              (await getGlobalPresets()).filter(item => item.id !== preset.id)
-            );
-            setPresets(saved);
-            setPresetEnabled(current => {
-              const next = { ...current };
-              delete next[preset.id];
-              return next;
-            });
-          } catch (error) {
-            Alert.alert('删除失败', error?.message || '请检查存储空间或权限。');
-          } finally {
-            presetBusyRef.current = false;
-            setPresetSaving(false);
-          }
-        },
-      },
-    ]);
-  };
 
   const saveUserProfileDelayed = useMemo(() => {
     return (name, persona, avatar) => {
@@ -706,115 +614,33 @@ export default function SettingsScreen() {
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
             <Ionicons name="options-outline" size={16} color="#8b85ff" />
-            <Text style={styles.cardTitle}>对话预设</Text>
+            <Text style={styles.cardTitle}>全局配置</Text>
           </View>
-          <Text style={styles.fieldHint}>
-            这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。点击条目可编辑。
-          </Text>
-          {presets.map(preset => (
-            <View key={preset.id} style={styles.presetRow}>
-              <TouchableOpacity
-                style={styles.presetInfo}
-                activeOpacity={0.7}
-                onPress={() => openPresetEditor(preset)}
-              >
-                <Text style={styles.presetName}>{preset.name}</Text>
-                {preset.description ? (
-                  <Text style={styles.presetDesc}>{preset.description}</Text>
-                ) : null}
-              </TouchableOpacity>
-              <Switch
-                value={presetEnabled[preset.id] === true}
-                onValueChange={value => togglePreset(preset.id, value)}
-                trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
-                thumbColor="#ffffff"
-              />
-              <TouchableOpacity
-                style={styles.presetDelete}
-                hitSlop={8}
-                onPress={() => deletePreset(preset)}
-                disabled={presetSaving}
-                accessibilityLabel="删除预设"
-              >
-                <Ionicons name="trash-outline" size={16} color="#ff9b9b" />
-              </TouchableOpacity>
-            </View>
-          ))}
-          {presetsLoaded && presets.length === 0 ? (
-            <Text style={styles.fieldHint}>暂无预设，点击下方按钮新增。</Text>
-          ) : null}
           <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => openPresetEditor(null)}
-            disabled={!presetsLoaded || presetSaving}
-            activeOpacity={0.8}
+            style={styles.linkRow}
+            onPress={() => setPresetEntryOpen(true)}
+            activeOpacity={0.7}
           >
-            <Ionicons name="add" size={16} color="#c8c4ff" />
-            <Text style={styles.secondaryButtonText}>新增预设</Text>
+            <View style={styles.linkLeft}>
+              <Ionicons name="list-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>全局预设</Text>
+            </View>
+            <View style={styles.linkRight}>
+              <Text style={styles.linkValue}>
+                {enabledPresetCount > 0 ? `已开启 ${enabledPresetCount} 项` : '未开启'}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
+            </View>
           </TouchableOpacity>
         </View>
 
-        <Modal
-          visible={presetModalOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => { if (!presetBusyRef.current) setPresetModalOpen(false); }}
-        >
-          <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <View style={styles.modalSheet}>
-              <ScrollView keyboardShouldPersistTaps="handled">
-                <Text style={styles.modalTitle}>{editingPreset ? '编辑预设' : '新增预设'}</Text>
-                <Text style={styles.label}>名称</Text>
-                <TextInput
-                  style={styles.input}
-                  value={presetForm.name}
-                  editable={!presetSaving}
-                  onChangeText={text => setPresetForm(current => ({ ...current, name: text }))}
-                  placeholder="例如：控制篇幅"
-                  placeholderTextColor="#888"
-                />
-                <Text style={styles.label}>描述（可选）</Text>
-                <TextInput
-                  style={styles.input}
-                  value={presetForm.description}
-                  editable={!presetSaving}
-                  onChangeText={text => setPresetForm(current => ({ ...current, description: text }))}
-                  placeholder="一句话说明用途"
-                  placeholderTextColor="#888"
-                />
-                <Text style={styles.label}>提示词</Text>
-                <TextInput
-                  style={[styles.input, styles.presetPromptInput]}
-                  value={presetForm.prompt}
-                  editable={!presetSaving}
-                  onChangeText={text => setPresetForm(current => ({ ...current, prompt: text }))}
-                  placeholder="开启后追加到系统提示词的内容"
-                  placeholderTextColor="#888"
-                  multiline
-                  textAlignVertical="top"
-                />
-              </ScrollView>
-              <View style={styles.presetModalActions}>
-                <TouchableOpacity
-                  style={[styles.selectButton, styles.selectButtonGhost]}
-                  onPress={() => setPresetModalOpen(false)}
-                  disabled={presetSaving}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.selectButtonText}>取消</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.selectButton, presetSaving && styles.buttonDisabled]}
-                  onPress={savePresetForm}
-                  disabled={presetSaving}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.selectButtonText}>{presetSaving ? '保存中…' : '保存'}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
+        <PresetPanel
+          visible={presetEntryOpen}
+          onClose={() => {
+            setPresetEntryOpen(false);
+            refreshPresetCount();
+          }}
+        />
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
@@ -1031,20 +857,6 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: '#c8c4ff', fontWeight: '800', marginLeft: 6 },
   savedHint: { color: '#8b85ff', fontSize: 12, marginTop: 8 },
 
-  presetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2d2d44',
-  },
-  presetInfo: { flex: 1, marginRight: 12 },
-  presetName: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  presetDesc: { color: '#7d7d99', fontSize: 12, marginTop: 2, lineHeight: 17 },
-  presetDelete: { marginLeft: 10, paddingVertical: 6 },
-  presetModalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
-  presetPromptInput: { minHeight: 120, maxHeight: 240 },
   selectButton: {
     flexDirection: 'row',
     backgroundColor: '#6c63ff',
@@ -1072,6 +884,8 @@ const styles = StyleSheet.create({
   },
   linkLeft: { flexDirection: 'row', alignItems: 'center' },
   linkText: { color: '#d9d9e6', fontSize: 15, marginLeft: 10 },
+  linkRight: { flexDirection: 'row', alignItems: 'center' },
+  linkValue: { color: '#8a8aa3', fontSize: 13, marginRight: 6 },
 
   avatarRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   avatarBox: {

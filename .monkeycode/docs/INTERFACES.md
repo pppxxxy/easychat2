@@ -51,12 +51,23 @@
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析，并经 `addCharacter` 加入角色库并设为当前角色
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；对话示例/作者注释/历史后指令/标签为只读
+- 基本信息卡片底部提供「全局预设」入口，打开与设置页相同的 `PresetPanel`，关闭后不影响未保存的表单内容
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
-**状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presets`、`presetEnabled`、`presetModalOpen`、`editingPreset`、`presetForm`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。另有全局对话预设的开关与增删改（弹窗编辑名称/描述/提示词），以及「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；保存前对当前选中的配置做 HTTP 明文地址确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+
+### `PresetPanel`（默认导出）
+**位置**: `src/PresetPanel.js`
+**Props**: `{ visible, onClose }`
+**行为**:
+- `visible` 变为真时读取预设、开关映射与记忆总结设置
+- 列出全部预设（名称、描述、启用开关），开关切换即时保存；点击条目打开编辑弹窗
+- 提供新增与编辑（名称、描述、提示词）以及删除二次确认，删除同时移除其开关记录
+- 列表之外提供「记忆总结」开关与触发阈值输入，阈值只接受大于 0 的整数，非法回退 40
+- 设置页与角色编辑页共用该组件；关闭时提交未保存的阈值
 
 ### `MemoryScreen`（默认导出）
 **位置**: `src/MemoryScreen.js`
@@ -171,6 +182,8 @@
 | `getGlobalPresetSettings` | `() => Promise<Record<string, boolean>>` | 读取按当前预设归一化后的开关映射 |
 | `saveGlobalPresetSettings` | `(enabled) => Promise<Record<string, boolean>>` | 归一化并写入开关映射 |
 | `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
+| `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取记忆总结开关与阈值，缺失时默认 `{ enabled: false, threshold: 40 }` |
+| `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入记忆总结设置，阈值非法时回退 40 |
 | `isDisclaimerAcknowledged` | `() => Promise<boolean>` | 是否已确认免责条款 |
 | `acknowledgeDisclaimer` | `() => Promise<boolean>` | 写入免责条款已确认标记 |
 
@@ -192,9 +205,10 @@
 | `@easychat2_messages::<characterId>` | 旧版按角色存储的消息（仅迁移读取） |
 | `@easychat2_messages` | 旧版单会话消息（仅默认角色迁移读取时兜底） |
 | `@easychat2_user_profile` | 用户人设 `{ userName, persona, avatarUri }` |
-| `@easychat2_preset_list` | 全局对话预设数组 |
+| `@easychat2_preset_list` | 全局预设数组 |
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
+| `@easychat2_memory_summary` | 记忆总结 `{ enabled: boolean, threshold: number }` |
 
 **默认 API 配置**:
 
@@ -382,6 +396,22 @@ data: [DONE]
 | `clonedFrom` | `string` | 克隆来源会话 `id`，非副本为空串 |
 
 排序规则：置顶优先，其余按 `updatedAt` 降序，并列按 `id` 升序。空会话（无消息）不进入列表。
+
+### `Preset`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 预设标识；内置项含 `immersive`、`no-user-act`、`rich-senses`、`no-repeat`、`concise`、`paragraphs`、`zh-cn`、`character-state` |
+| `name` | `string` | 名称 |
+| `description` | `string` | 描述 |
+| `prompt` | `string` | 开启后追加到系统提示词的内容 |
+
+### `MemorySummary`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `enabled` | `boolean` | 是否开启记忆总结 |
+| `threshold` | `number` | 触发阈值（当前会话消息条数），大于 0 的整数，默认 40 |
 
 ### `ApiConfig`
 

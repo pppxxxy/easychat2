@@ -47,6 +47,13 @@ export const GLOBAL_PRESETS = [
     description: '无论输入使用何种语言，始终用简体中文回复。',
     prompt: '无论输入使用何种语言，始终使用简体中文回复。',
   },
+  {
+    id: 'character-state',
+    name: '角色状态',
+    description: '在每次回复末尾附带角色的心情、好感度与内心想法。',
+    prompt:
+      '每次回复的末尾用一行附上角色的当前状态，格式为：[心情: ...][好感度: 0-100][内心想法: ...]。心情用一个词概括，好感度随互动合理变化，内心想法控制在 30 字以内。',
+  },
 ];
 
 export default GLOBAL_PRESETS;

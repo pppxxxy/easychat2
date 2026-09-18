@@ -55,6 +55,7 @@ easychat2/
 │   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
 │   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
+│   ├── PresetPanel.js        # 全局预设与记忆总结设置面板
 │   ├── api.js                # 大模型接口调用与错误格式化
 │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
 │   ├── lorebook.js           # 世界书条目激活判定
