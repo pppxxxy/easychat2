@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigation } from '@react-navigation/native';
 import {
   Alert,
   Animated,
@@ -47,10 +48,10 @@ import {
   selectSpeakers,
 } from './groupChat';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
-import ScrollScrubber from './ScrollScrubber';
-import { maskSecrets } from './secrets';
+import ScrollScrubber from './ScrollScrubber';import { maskSecrets } from './secrets';
 import {
   getApiConfigs,
+  getChatOptions,
   getEnabledGlobalPresetPrompts,
   getEnabledPlugins,
   getMemorySummarySettings,
@@ -70,6 +71,7 @@ const SYSTEM_ERROR_ID = 'system-error';
 const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
+const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
 const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
 
 const markdownStyles = {
@@ -364,7 +366,7 @@ function renderHighlightedText(text, keyword) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, highlightKeyword, isMatch, isActiveMatch }) {
+const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, highlightKeyword, isMatch, isActiveMatch, fullWidth }) {
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
@@ -440,10 +442,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
   return (
     <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
       {!isUser ? avatarElement : null}
-      <View style={[styles.messageContent]}>
+      <View style={[styles.messageContent, fullWidth ? styles.messageContentFullWidth : null]}>
         {!isUser ? <Text style={styles.nameLabel}>{characterName || ''}</Text> : null}
         <View style={[
           styles.bubble,
+          fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded,
           isUser ? styles.userBubble : styles.assistantBubble,
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
@@ -507,7 +510,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
   );
 });
 
-function ErrorBubble({ message, rawError, onCopied }) {
+function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -523,7 +526,7 @@ function ErrorBubble({ message, rawError, onCopied }) {
 
   return (
     <View style={[styles.messageRow, styles.messageRowLeft]}>
-      <View style={[styles.bubble, styles.errorBubble]}>
+      <View style={[styles.bubble, fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded, styles.errorBubble]}>
         <Text style={styles.errorBadge}>系统报错</Text>
         <TouchableOpacity onPress={() => setExpanded(current => !current)} activeOpacity={0.8}>
           <Text style={styles.errorSummary}>请求失败，点击查看详情</Text>
@@ -615,11 +618,13 @@ export default function ChatScreen() {
   const [thinkingLevel, setThinkingLevel] = useState('medium');
   const [thinkingSupported, setThinkingSupported] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
+  const navigation = useNavigation();
 
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
@@ -916,6 +921,18 @@ export default function ChatScreen() {
     scrollToMessage(pendingTarget.messageId);
   }, [ready, pendingTarget, activeSessionId, messages, consumePendingTarget, scrollToMessage]);
 
+  useEffect(() => {
+    if (!navigation) return undefined;
+    const load = () => {
+      getChatOptions()
+        .then(options => setChatOptions(options))
+        .catch(() => {});
+    };
+    load();
+    const unsubscribe = navigation.addListener('focus', load);
+    return unsubscribe;
+  }, [navigation]);
+
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setSearchQuery('');
@@ -1135,6 +1152,7 @@ export default function ChatScreen() {
         requestMessages,
         {
           signal: controller.signal,
+          stream: chatOptions.stream,
           onChunk: fullText => {
             if (!isCurrentSession() || controller.signal.aborted) return;
             receivedChunk = true;
@@ -1285,7 +1303,10 @@ export default function ChatScreen() {
             userProfile,
             globalPresets,
           });
-          const reply = await sendChatMessage(requestMessages, { signal: controller.signal });
+          const reply = await sendChatMessage(requestMessages, {
+            signal: controller.signal,
+            stream: chatOptions.stream,
+          });
           if (!isCurrent()) return;
           working = working.map(item => (
             item.id === pendingMessage.id
@@ -1570,6 +1591,9 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>{summarizing ? '总结中' : '总结'}</Text>
         </TouchableOpacity>
       </View>
+      <View style={styles.aiNoticeBar} pointerEvents="none">
+        <Text style={styles.aiNoticeText}>{AI_DISCLAIMER_TEXT}</Text>
+      </View>
       {searchOpen ? (
         <View style={styles.searchBar}>
           <Ionicons name="search" size={15} color="#8a8aa3" />
@@ -1647,6 +1671,7 @@ export default function ChatScreen() {
                   <ErrorBubble
                     message={message}
                     rawError={errorRawRef.current[message.id]}
+                    fullWidth={chatOptions.fullWidth}
                   />
                 ) : (
                   <MessageBubble
@@ -1666,6 +1691,7 @@ export default function ChatScreen() {
                     highlightKeyword={searchQuery.trim()}
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}
+                    fullWidth={chatOptions.fullWidth}
                   />
                 )}
               </View>
@@ -2056,6 +2082,18 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
+  aiNoticeBar: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 2,
+    alignItems: 'center',
+  },
+  aiNoticeText: {
+    color: '#8a8aa3',
+    fontSize: 11,
+    opacity: 0.7,
+    textAlign: 'center',
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2353,6 +2391,10 @@ const styles = StyleSheet.create({
   messageContent: {
     maxWidth: '92%',
   },
+  messageContentFullWidth: {
+    maxWidth: '100%',
+    flex: 1,
+  },
   nameLabel: {
     color: '#fff',
     fontSize: 11,
@@ -2394,6 +2436,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 3,
     elevation: 2,
+  },
+  bubbleBounded: {
+    maxWidth: '95%',
+  },
+  bubbleFullWidth: {
+    maxWidth: '100%',
+    alignSelf: 'stretch',
   },
   userBubble: {
     backgroundColor: '#6c63ff',

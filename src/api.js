@@ -70,6 +70,7 @@ export function isCanceledError(error) {
 export async function sendChatMessage(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
   const signal = options && options.signal ? options.signal : null;
+  const stream = options && options.stream === false ? false : true;
   if (signal && signal.aborted) {
     throw createAbortError();
   }
@@ -202,7 +203,7 @@ export async function sendChatMessage(messages, options = {}) {
     xhr.onprogress = () => {
       if (settled) return;
       try {
-        if (!xhr.status || (xhr.status >= 200 && xhr.status < 300)) drainIncremental();
+        if (stream && (!xhr.status || (xhr.status >= 200 && xhr.status < 300))) drainIncremental();
         if (settled) return;
         armIdleTimer();
       } catch (error) {
@@ -258,7 +259,7 @@ export async function sendChatMessage(messages, options = {}) {
 
     if (settled) return;
     try {
-      xhr.send(JSON.stringify({ model, messages, stream: true, ...thinkingParams }));
+      xhr.send(JSON.stringify({ model, messages, stream, ...thinkingParams }));
       armIdleTimer();
     } catch (error) {
       fail(error);

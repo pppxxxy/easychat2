@@ -25,10 +25,12 @@ import PresetPanel from './PresetPanel';
 import {
   createApiConfig,
   getApiConfigs,
+  getChatOptions,
   getGlobalPresetSettings,
   getGlobalPresets,
   getUserProfile,
   saveApiConfigs,
+  saveChatOptions,
   saveUserProfile,
 } from './storage';
 
@@ -62,6 +64,8 @@ export default function SettingsScreen() {
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
+  const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
   const profileSavingRef = useRef(null);
@@ -98,6 +102,26 @@ export default function SettingsScreen() {
   useEffect(() => {
     refreshPresetCount();
   }, [refreshPresetCount]);
+
+  useEffect(() => {
+    getChatOptions()
+      .then(options => {
+        chatOptionsRef.current = options;
+        setChatOptions(options);
+      })
+      .catch(() => {});
+  }, []);
+
+  const updateChatOption = useCallback(async (key, value) => {
+    const next = { ...chatOptionsRef.current, [key]: value };
+    chatOptionsRef.current = next;
+    setChatOptions(next);
+    try {
+      await saveChatOptions(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
 
   useEffect(() => {
     apiMountedRef.current = true;
@@ -758,6 +782,30 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={16} color="#6c63ff" />
             </View>
           </TouchableOpacity>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="pulse-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>流式输出</Text>
+            </View>
+            <Switch
+              value={chatOptions.streaming}
+              onValueChange={value => updateChatOption('streaming', value)}
+              trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+              thumbColor="#ffffff"
+            />
+          </View>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="resize-outline" size={17} color="#8b85ff" />
+              <Text style={styles.linkText}>全宽对话</Text>
+            </View>
+            <Switch
+              value={chatOptions.fullWidth}
+              onValueChange={value => updateChatOption('fullWidth', value)}
+              trackColor={{ false: '#2d2d44', true: '#6c63ff' }}
+              thumbColor="#ffffff"
+            />
+          </View>
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => setPluginEntryOpen(true)}

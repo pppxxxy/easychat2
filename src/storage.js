@@ -24,6 +24,7 @@ const MEMORY_SUMMARY_KEY = '@easychat2_memory_summary';
 const PLUGINS_KEY = '@easychat2_plugins';
 const THINKING_KEY = '@easychat2_thinking';
 const IMAGE_GEN_KEY = '@easychat2_image_gen';
+const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -360,6 +361,27 @@ export async function getImageGenSettings() {
 export async function saveImageGenSettings(settings) {
   const normalized = normalizeImageGenSettings(settings);
   await AsyncStorage.setItem(IMAGE_GEN_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+const DEFAULT_CHAT_OPTIONS = { streaming: true, fullWidth: false };
+
+function normalizeChatOptions(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    streaming: source.streaming !== false,
+    fullWidth: source.fullWidth === true,
+  };
+}
+
+export async function getChatOptions() {
+  const raw = await readJson(CHAT_OPTIONS_KEY, null);
+  return normalizeChatOptions(raw);
+}
+
+export async function saveChatOptions(options) {
+  const normalized = normalizeChatOptions(options);
+  await AsyncStorage.setItem(CHAT_OPTIONS_KEY, JSON.stringify(normalized));
   return normalized;
 }
 
