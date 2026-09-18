@@ -23,11 +23,11 @@
 - [ ] 3. 检查点 - 确保所有可运行验证通过
   - 确保所有验证通过,如有疑问请询问用户
 
-- [ ] 4. 改造 ChatScreen 为会话维度
-  - [ ] 4.1 消息读取改为 `getMessagesBySession(activeSessionId)`，并在会话切换时重置状态（需求 1.3、3.1）
-  - [ ] 4.2 消息写入改为 `saveMessagesBySession` 并同步更新会话 `updatedAt` 与预览（需求 1.3、3.2、2.3）
-  - [ ] 4.3 保留 `pending` 不落盘与 `activeCharacterIdRef` 守卫，新增会话维度过期判断（设计「ChatScreen」；需求 1.2）
-  - [ ] 4.4 `onClear` 改为仅清空当前会话消息、保留会话并隐藏空会话（需求 6.1、6.2、6.3）
+- [x] 4. 改造 ChatScreen 为会话维度
+  - [x] 4.1 消息读取改为 `getMessagesBySession(activeSessionId)`，并在会话切换时重置状态（需求 1.3、3.1）
+  - [x] 4.2 消息写入改为 `saveMessagesBySession` 并同步更新会话 `updatedAt` 与预览（需求 1.3、3.2、2.3）
+  - [x] 4.3 保留 `pending` 不落盘与 `activeCharacterIdRef` 守卫，新增会话维度过期判断（设计「ChatScreen」；需求 1.2）
+  - [x] 4.4 `onClear` 改为仅清空当前会话消息、保留会话并隐藏空会话（需求 6.1、6.2、6.3）
   - [ ]* 4.5 生命周期脚本：按会话读写、清空保留会话、切换丢弃迟到回复（设计「测试策略」）
 
 - [ ] 5. 新增 MemoryScreen 记忆页

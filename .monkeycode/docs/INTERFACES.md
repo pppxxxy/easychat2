@@ -27,12 +27,12 @@
 | `ErrorBubble` | `message`, `rawError`, `onCopied` | 可展开的系统报错气泡，支持复制原文 |
 
 **状态与副作用**:
-- 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`，派生 `characterId = character.id || 'default'`
-- 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选调用 `switchCharacter`
+- 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
+- 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
-- `characterId` 变化时重新加载该角色的消息，并在加载期间禁用输入与发送；切换会中断进行中的请求
-- 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 守卫并在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
-- `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘
+- `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
+- 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
+- `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
 
 **消息角色常量**: `user`、`assistant`、`system-error`
@@ -82,6 +82,7 @@
 | `cloneSession` | `(id) => Promise<Session>` | 克隆会话并加入列表，不改变当前会话 |
 | `deleteSession` | `(id) => Promise<{ sessions, activeSessionId, created }>` | 删除会话，必要时新建空会话并设为当前 |
 | `refreshSessions` | `() => Promise<Session[]>` | 从存储重新读取会话与当前指针并同步状态 |
+| `ensureCharacterSession` | `(characterId) => Promise<Session>` | 激活该角色最近更新的会话；无会话时新建空会话 |
 
 **契约**:
 1. 未加载完成时 `updateCharacter`/`switchCharacter`/`addCharacter`/`deleteCharacter` 抛出 `Error('角色尚未加载完成')`

@@ -27,7 +27,7 @@ import { useApp } from './context/AppContext';
 import DisclaimerModal from './disclaimer';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { getEnabledGlobalPresetPrompts, getMessages, getUserProfile, saveMessages } from './storage';
+import { getEnabledGlobalPresetPrompts, getMessagesBySession, getUserProfile, saveMessagesBySession } from './storage';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -244,12 +244,12 @@ function buildErrorRawText(error) {
   return lines.join('\n');
 }
 
-function buildGreetingMessage(characterId, firstMes, userName) {
+function buildGreetingMessage(sessionId, firstMes, userName) {
   const text = String(firstMes || '').trim();
   if (!text) return null;
   const replaced = userName ? text.replace(/\{\{user\}\}/g, userName) : text;
   return {
-    id: `greeting-${characterId}`,
+    id: `greeting-${sessionId}`,
     role: ASSISTANT_ID,
     text: replaced,
   };
@@ -470,9 +470,10 @@ export default function ChatScreen() {
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
-  const { character, characters, activeId, loaded, switchCharacter } = useApp();
+  const { character, characters, activeId, loaded, switchCharacter, activeSessionId, ensureCharacterSession } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
+  const activeSessionIdRef = useRef(activeSessionId);
   const atBottomRef = useRef(true);
   const abortRef = useRef(null);
   const sessionVersionRef = useRef(0);
@@ -489,10 +490,19 @@ export default function ChatScreen() {
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
     if (id === activeCharacterIdRef.current) return;
-    switchCharacter(id).catch(() => {
-      Alert.alert('切换失败', '请检查存储空间或权限。');
-    });
-  }, [switchCharacter]);
+    activeCharacterIdRef.current = id;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setIsSending(false);
+    switchCharacter(id)
+      .then(() => ensureCharacterSession(id))
+      .catch(() => {
+        activeCharacterIdRef.current = characterId;
+        Alert.alert('切换失败', '请检查存储空间或权限。');
+      });
+  }, [switchCharacter, ensureCharacterSession, characterId]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -574,8 +584,9 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!loaded) return;
-    let cancelled = false;
     activeCharacterIdRef.current = characterId;
+    activeSessionIdRef.current = activeSessionId;
+    let cancelled = false;
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
@@ -584,20 +595,29 @@ export default function ChatScreen() {
     setIsSending(false);
     errorRawRef.current = {};
     atBottomRef.current = true;
+    if (!activeSessionId) {
+      lastSavedSnapshotRef.current = '[]';
+      setMessages([]);
+      setReady(true);
+      return () => {
+        cancelled = true;
+        sessionVersionRef.current += 1;
+      };
+    }
     let userProfileCache = null;
     const profilePromise = getUserProfile().then(profile => {
       if (cancelled) return;
       userProfileCache = profile;
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
-    getMessages(characterId)
+    getMessagesBySession(activeSessionId)
       .then(async list => {
         if (cancelled) return;
         await profilePromise;
         if (cancelled) return;
         const initial = Array.isArray(list) ? list : [];
         const greeting = initial.length === 0
-          ? buildGreetingMessage(characterId, character.firstMes, userProfileCache?.userName)
+          ? buildGreetingMessage(activeSessionId, character.firstMes, userProfileCache?.userName)
           : null;
         lastSavedSnapshotRef.current = JSON.stringify(initial);
         setMessages(greeting ? [greeting] : initial);
@@ -614,13 +634,14 @@ export default function ChatScreen() {
       cancelled = true;
       sessionVersionRef.current += 1;
     };
-  }, [characterId, loaded]);
+  }, [activeSessionId, loaded]);
 
   useEffect(() => {
     if (!ready) return;
+    if (!activeSessionId) return;
     if (persistableSnapshot === lastSavedSnapshotRef.current) return;
     lastSavedSnapshotRef.current = persistableSnapshot;
-    saveMessages(characterId, persistableMessages)
+    saveMessagesBySession(activeSessionId, persistableMessages)
       .then(() => {
         saveFailedRef.current = false;
       })
@@ -630,7 +651,7 @@ export default function ChatScreen() {
           Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
         }
       });
-  }, [characterId, persistableSnapshot, ready]);
+  }, [activeSessionId, persistableSnapshot, ready]);
 
   useEffect(() => () => {
     if (abortRef.current) {
@@ -646,12 +667,14 @@ export default function ChatScreen() {
 
   const onClear = useCallback(() => {
     const clearCharacterId = activeCharacterIdRef.current;
+    const clearSessionId = activeSessionIdRef.current;
     const clearSessionVersion = sessionVersionRef.current;
     const canClear = () =>
       sessionVersionRef.current === clearSessionVersion
       && !isStaleReply(activeCharacterIdRef.current, clearCharacterId)
+      && activeSessionIdRef.current === clearSessionId
       && !abortRef.current;
-    Alert.alert('清空聊天', '确定删除当前会话记录吗？', [
+    Alert.alert('清空聊天', '确定清空当前会话的消息吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '清空',
@@ -668,10 +691,12 @@ export default function ChatScreen() {
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages }) => {
     if (isSending || !ready || abortRef.current) return;
     const sendCharacterId = activeCharacterIdRef.current;
+    const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
     const isCurrentSession = () =>
       sessionVersionRef.current === sendSessionVersion
-      && !isStaleReply(activeCharacterIdRef.current, sendCharacterId);
+      && !isStaleReply(activeCharacterIdRef.current, sendCharacterId)
+      && activeSessionIdRef.current === sendSessionId;
     let receivedChunk = false;
 
     const pendingAssistantMessage = {

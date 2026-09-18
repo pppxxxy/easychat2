@@ -20,6 +20,7 @@ import {
   getActiveSessionId,
   setActiveSessionId,
   saveSessions,
+  startNewSession,
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
 } from '../storage';
@@ -239,6 +240,31 @@ export function AppProvider({ children }) {
     return sorted;
   }, [applySessions, applyActiveSessionId]);
 
+  const ensureCharacterSession = useCallback(async characterId => {
+    if (!loadedRef.current) {
+      throw new Error('会话尚未加载完成');
+    }
+    return enqueueMutation(async () => {
+      const targetId = String(characterId || '');
+      const existing = sessionsRef.current.find(session => session.characterId === targetId);
+      if (existing) {
+        if (activeSessionIdRef.current !== existing.id) {
+          applyActiveSessionId(existing.id);
+          await setActiveSessionId(existing.id);
+        }
+        return existing;
+      }
+      try {
+        const created = await startNewSession(targetId);
+        await refreshSessions();
+        return sessionsRef.current.find(session => session.id === created.id) || created;
+      } catch (error) {
+        await refreshSessions().catch(() => {});
+        throw error;
+      }
+    });
+  }, [applyActiveSessionId, refreshSessions, enqueueMutation]);
+
   const switchSession = useCallback(async id => {
     if (!loadedRef.current) {
       throw new Error('会话尚未加载完成');
@@ -330,6 +356,7 @@ export function AppProvider({ children }) {
       cloneSession,
       deleteSession,
       refreshSessions,
+      ensureCharacterSession,
     }),
     [
       character,
@@ -347,6 +374,7 @@ export function AppProvider({ children }) {
       cloneSession,
       deleteSession,
       refreshSessions,
+      ensureCharacterSession,
     ]
   );
 

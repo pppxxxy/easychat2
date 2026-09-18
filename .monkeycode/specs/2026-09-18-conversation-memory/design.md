@@ -43,12 +43,12 @@ graph TD
 
 ### `src/context/AppContext.js`
 
-在角色状态上扩展：`sessions`、`activeSessionId`、`loaded`、`switchSession(id)`、`pinSession(id)`、`cloneSession(id)`、`deleteSession(id)`、`refreshSessions()`。沿用 `characterRef`/`loadedRef` 模式，写入前校验加载完成，失败回滚并抛出，由 `MemoryScreen` 捕获后 `Alert`。
+在角色状态上扩展：`sessions`、`activeSessionId`、`loaded`、`switchSession(id)`、`pinSession(id)`、`cloneSession(id)`、`deleteSession(id)`、`refreshSessions()`、`ensureCharacterSession(characterId)`。沿用 `characterRef`/`loadedRef` 模式，写入前校验加载完成，失败回滚并抛出，由 `MemoryScreen` 捕获后 `Alert`。其中 `ensureCharacterSession` 用于切换角色时激活该角色最近更新的会话，没有会话时新建空会话，使角色切换与记忆页指定会话切换互不干扰。
 
 ### `src/ChatScreen.js`
 
 - 消息读取与写入由 `characterId` 改为 `activeSessionId`（现有 `src/ChatScreen.js:593`、`:623` 改为按会话）。
-- 保留 `pending` 不落盘、迟到回复丢弃与 `activeCharacterIdRef` 守卫，新增会话维度的过期判断。
+- 保留 `pending` 不落盘、迟到回复丢弃与 `activeCharacterIdRef` 守卫，新增 `activeSessionIdRef` 会话维度的过期判断；切换角色时中断进行中的请求并由 `ensureCharacterSession` 激活目标角色的会话。
 - 顶部或输入区保留「清空」，语义为清空当前会话消息、保留会话（`src/ChatScreen.js:647` 的 `onClear` 改为仅置空消息）。
 
 ### `src/MemoryScreen.js`（新增）
