@@ -2,17 +2,33 @@ import { TTS_MAX_CHARS, getTtsProvider } from './providers';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
-let speechModule = null;
-let audioModule = null;
-try {
-  speechModule = require('expo-speech');
-} catch (error) {
-  speechModule = null;
+let speechModule;
+let speechLoaded = false;
+let audioModule;
+let audioLoaded = false;
+
+function getSpeechModule() {
+  if (!speechLoaded) {
+    speechLoaded = true;
+    try {
+      speechModule = require('expo-speech');
+    } catch (error) {
+      speechModule = null;
+    }
+  }
+  return speechModule;
 }
-try {
-  audioModule = require('expo-av');
-} catch (error) {
-  audioModule = null;
+
+function getAudioModule() {
+  if (!audioLoaded) {
+    audioLoaded = true;
+    try {
+      audioModule = require('expo-av');
+    } catch (error) {
+      audioModule = null;
+    }
+  }
+  return audioModule;
 }
 
 let currentSound = null;
@@ -273,9 +289,10 @@ export async function synthesize({ provider, config = {}, text }) {
 }
 
 export async function stop() {
-  if (speechModule && typeof speechModule.stop === 'function') {
+  const speech = getSpeechModule();
+  if (speech && typeof speech.stop === 'function') {
     try {
-      speechModule.stop();
+      speech.stop();
     } catch (error) {}
   }
   if (currentSound) {
@@ -293,7 +310,8 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
   await stop();
   try {
     if (isSystemProvider(resolvedProvider)) {
-      if (!speechModule || typeof speechModule.speak !== 'function') {
+      const speech = getSpeechModule();
+      if (!speech || typeof speech.speak !== 'function') {
         throw new Error('当前设备不支持系统语音合成');
       }
       const content = truncateText(text);
@@ -302,7 +320,7 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
       if (config.voice) options.voice = config.voice;
       const speed = Number(config.speed);
       if (Number.isFinite(speed) && speed > 0) options.rate = speed;
-      speechModule.speak(content, {
+      speech.speak(content, {
         ...options,
         onDone: () => onDone && onDone(),
         onError: error => {
@@ -312,11 +330,12 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
       return;
     }
     const result = await synthesize({ provider: resolvedProvider, config, text });
-    if (!audioModule || !audioModule.Audio || typeof audioModule.Audio.Sound === 'undefined') {
+    const audio = getAudioModule();
+    if (!audio || !audio.Audio || typeof audio.Audio.Sound === 'undefined') {
       throw new Error('当前设备不支持音频播放');
     }
     const uri = `data:audio/mp3;base64,${result.base64}`;
-    const { sound } = await audioModule.Audio.Sound.createAsync({ uri });
+    const { sound } = await audio.Audio.Sound.createAsync({ uri });
     currentSound = sound;
     sound.setOnPlaybackStatusUpdate(status => {
       if (status && status.didJustFinish) {
@@ -335,9 +354,10 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
 export async function listVoices(provider) {
   const resolvedProvider = typeof provider === 'string' ? getTtsProvider(provider) : provider;
   if (isSystemProvider(resolvedProvider)) {
-    if (!speechModule || typeof speechModule.getAvailableVoicesAsync !== 'function') return [];
+    const speech = getSpeechModule();
+    if (!speech || typeof speech.getAvailableVoicesAsync !== 'function') return [];
     try {
-      const voices = await speechModule.getAvailableVoicesAsync();
+      const voices = await speech.getAvailableVoicesAsync();
       return Array.isArray(voices) ? voices : [];
     } catch (error) {
       return [];
