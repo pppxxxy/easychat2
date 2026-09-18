@@ -66,6 +66,11 @@ import {
   saveMessagesBySession,
   saveThinkingSettings,
   getTtsSettings,
+  getMomentsSettings,
+  getAffinity,
+  saveAffinity,
+  getMoments,
+  saveMoments,
   saveTtsSettings,
   startNewSession,
   THINKING_LEVELS,
@@ -75,6 +80,8 @@ import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
 import { speak as ttsSpeak, stop as ttsStop } from './tts';
 import { getTtsProvider } from './tts/providers';
+import { evaluateTurn, clampAffinity } from './moments/affinity';
+import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -1431,6 +1438,7 @@ export default function ChatScreen() {
           generateInlineImageRef.current?.(pendingAssistantMessage.id, reply || '');
         }
         broadcastMessage(reply || '');
+        recordTurnRef.current?.(userText, reply || '');
       }
     } catch (error) {
       if (isCanceledError(error)) {
@@ -1775,6 +1783,10 @@ export default function ChatScreen() {
   const generateInlineImageRef = useRef(null);
   const inlineImageEnabledRef = useRef(false);
   const ttsRef = useRef({ enabled: false, activeProvider: 'system', providers: {} });
+  const recordTurnRef = useRef(null);
+  useEffect(() => {
+    recordTurnRef.current = recordTurn;
+  }, [recordTurn]);
   useEffect(() => {
     generateInlineImageRef.current = generateInlineImage;
     inlineImageEnabledRef.current = inlineImageSettings.enabled;
@@ -1857,6 +1869,48 @@ export default function ChatScreen() {
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
     : (character.name || 'EasyChat2 助手');
+
+  const recordTurn = useCallback(async (userText, assistantText) => {
+    const settings = await getMomentsSettings().catch(() => ({ enabled: false }));
+    if (!settings.enabled) return;
+    const characterId = activeCharacterIdRef.current;
+    if (!characterId) return;
+    const { delta, milestone } = evaluateTurn({ userText, assistantText });
+    const map = await getAffinity().catch(() => ({}));
+    const current = map[characterId] || { score: 0, turnCount: 0, triggers: [] };
+    const next = {
+      score: clampAffinity(current.score + delta),
+      turnCount: current.turnCount + 1,
+      triggers: Array.isArray(current.triggers) ? current.triggers : [],
+    };
+    const trigger = shouldTrigger({
+      affinity: next.score,
+      turnCount: next.turnCount,
+      milestone,
+      triggers: next.triggers,
+    });
+    if (!trigger) {
+      await saveAffinity({ ...map, [characterId]: next }).catch(() => {});
+      return;
+    }
+    next.triggers = [...next.triggers, trigger];
+    await saveAffinity({ ...map, [characterId]: next }).catch(() => {});
+    const speaker = characters.find(item => item.id === characterId) || character;
+    const moment = {
+      id: `${Date.now()}-${trigger}`,
+      characterId,
+      characterName: String((speaker && speaker.name) || ''),
+      avatarUri: String((speaker && speaker.avatarUri) || ''),
+      trigger,
+      text: buildMomentText({ trigger, character: speaker, seed: next.turnCount }),
+      createdAt: Date.now(),
+      likedByUser: false,
+      likes: [],
+      comments: [],
+    };
+    const list = await getMoments().catch(() => []);
+    await saveMoments(appendMoment(list, moment)).catch(() => {});
+  }, [character, characters]);
 
   return (
     <KeyboardAvoidingView

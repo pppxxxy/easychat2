@@ -34,7 +34,8 @@
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
 - 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
-- 顶部栏常驻「播报」开关并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播
+- 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条朋友圈动态；开关关闭时不生成
+- 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏「新建」按钮为当前角色开启新会话（群聊则按相同成员新建），旧会话保留在记忆页；空会话时提示且不创建，成功后清空消息、附件、引用与搜索状态
 - 顶部栏右侧「公告」按钮弹出 `DisclaimerModal` 再次展示免责条款
@@ -288,6 +289,9 @@
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
+| `@easychat2_moments_settings` | 虚拟朋友圈开关 `{ enabled: boolean }` |
+| `@easychat2_moments` | 朋友圈动态数组（按时间倒序，含点赞与评论） |
+| `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
 | `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }` |
@@ -481,6 +485,20 @@ data: [DONE]
 | `getGame(id)` | 按 id 取游戏，未命中返回 `null` |
 
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
+
+### 虚拟朋友圈接口
+**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/MomentsView.js`
+
+| 函数 | 说明 |
+|------|------|
+| `evaluateTurn({ userText, assistantText })` | 本地关键词启发式，返回 `{ delta, milestone }`，`delta` 绝对值不超过 5 |
+| `detectMilestone(text)` | 命中表白/生日/永别/约定等事件时返回事件 id |
+| `clampAffinity(score)` | 好感夹在 `[-100, 100]` |
+| `shouldTrigger({ affinity, turnCount, milestone, triggers })` | 依次判定好感上限/下限、`turns-50`/`turns-100`、`milestone-*`，已存在 `triggers` 中则不重复 |
+| `buildMomentText({ trigger, character, seed })` | 按触发类型从固定模板生成文本，包含角色名 |
+| `appendMoment(list, moment)` | 追加并按 `MAX_MOMENTS`（200）淘汰最旧 |
+
+**说明**: 全部为本地纯逻辑，无模型调用与网络请求。
 
 ### 语音播报接口
 **位置**: `src/tts/providers.js`、`src/tts/index.js`

@@ -28,6 +28,9 @@ const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
 const APPEARANCE_KEY = '@easychat2_appearance';
 const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const TTS_KEY = '@easychat2_tts';
+const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
+const MOMENTS_KEY = '@easychat2_moments';
+const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
@@ -483,6 +486,84 @@ export async function getTtsSettings() {
 export async function saveTtsSettings(settings) {
   const normalized = normalizeTts(settings);
   await AsyncStorage.setItem(TTS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function normalizeMomentsSettings(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return { enabled: source.enabled === true };
+}
+
+export async function getMomentsSettings() {
+  const raw = await readJson(MOMENTS_SETTINGS_KEY, null);
+  return normalizeMomentsSettings(raw);
+}
+
+export async function saveMomentsSettings(settings) {
+  const normalized = normalizeMomentsSettings(settings);
+  await AsyncStorage.setItem(MOMENTS_SETTINGS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function normalizeMoment(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const likes = Array.isArray(source.likes) ? source.likes.filter(item => item && typeof item === 'object') : [];
+  const comments = Array.isArray(source.comments)
+    ? source.comments.filter(item => item && typeof item === 'object')
+    : [];
+  return {
+    id: String(source.id || ''),
+    characterId: String(source.characterId || ''),
+    characterName: String(source.characterName || ''),
+    avatarUri: String(source.avatarUri || ''),
+    trigger: String(source.trigger || ''),
+    text: String(source.text || ''),
+    createdAt: Number(source.createdAt) || 0,
+    likedByUser: source.likedByUser === true,
+    likes,
+    comments,
+  };
+}
+
+export async function getMoments() {
+  const raw = await readJson(MOMENTS_KEY, null);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(normalizeMoment)
+    .filter(item => item.id)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function saveMoments(moments) {
+  const list = Array.isArray(moments) ? moments.map(normalizeMoment).filter(item => item.id) : [];
+  await AsyncStorage.setItem(MOMENTS_KEY, JSON.stringify(list));
+  return list;
+}
+
+function normalizeAffinityState(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const result = {};
+  Object.entries(source).forEach(([id, value]) => {
+    const entry = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    result[String(id)] = {
+      score: Number(entry.score) || 0,
+      turnCount: Number(entry.turnCount) || 0,
+      triggers: Array.isArray(entry.triggers)
+        ? entry.triggers.filter(item => typeof item === 'string')
+        : [],
+    };
+  });
+  return result;
+}
+
+export async function getAffinity() {
+  const raw = await readJson(AFFINITY_KEY, null);
+  return normalizeAffinityState(raw);
+}
+
+export async function saveAffinity(map) {
+  const normalized = normalizeAffinityState(map);
+  await AsyncStorage.setItem(AFFINITY_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

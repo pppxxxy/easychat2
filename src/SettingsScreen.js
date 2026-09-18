@@ -32,6 +32,8 @@ import {
   getGlobalPresets,
   getImageGenSettings,
   getInlineImageSettings,
+  getMomentsSettings,
+  saveMomentsSettings,
   getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
@@ -73,6 +75,7 @@ export default function SettingsScreen() {
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [ttsEntryOpen, setTtsEntryOpen] = useState(false);
+  const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
@@ -147,6 +150,9 @@ export default function SettingsScreen() {
         setInlineImage(settings);
       })
       .catch(() => {});
+    getMomentsSettings()
+      .then(settings => setMomentsEnabled(settings.enabled === true))
+      .catch(() => {});
     getImageGenSettings()
       .then(settings => {
         const active = settings.activeProvider || (IMAGE_PROVIDERS[0] && IMAGE_PROVIDERS[0].id) || '';
@@ -185,6 +191,17 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
+
+  const toggleMoments = useCallback(async () => {
+    const next = !momentsEnabled;
+    setMomentsEnabled(next);
+    try {
+      await saveMomentsSettings({ enabled: next });
+    } catch (error) {
+      setMomentsEnabled(!next);
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, [momentsEnabled]);
 
   const updateChatOption = useCallback(async (key, value) => {
     const next = { ...chatOptionsRef.current, [key]: value };
@@ -1040,6 +1057,18 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="planet-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>虚拟朋友圈</Text>
+            </View>
+            <Switch
+              value={momentsEnabled}
+              onValueChange={toggleMoments}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
         </View>
 
         <TtsPanel

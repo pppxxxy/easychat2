@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   StyleSheet,
@@ -6,11 +6,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import ImageGenScreen from './ImageGenScreen';
+import MomentsView from './MomentsView';
 import { GAMES } from './games/games';
+import { getMomentsSettings } from './storage';
 import { useTheme } from './theme/ThemeContext';
 
 let WebViewComponent = null;
@@ -25,6 +28,8 @@ const SEGMENTS = [
   { id: 'games', label: '游戏', icon: 'game-controller-outline' },
   { id: 'image', label: '生图', icon: 'image-outline' },
 ];
+
+const MOMENTS_SEGMENT = { id: 'moments', label: '朋友圈', icon: 'planet-outline' };
 
 function GamesView() {
   const [activeGameId, setActiveGameId] = useState('');
@@ -123,13 +128,38 @@ function GamesView() {
 
 export default function ExtensionScreen() {
   const [segment, setSegment] = useState('games');
+  const [momentsEnabled, setMomentsEnabled] = useState(false);
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+
+  const navigation = useNavigation();
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      getMomentsSettings()
+        .then(settings => {
+          if (!cancelled) setMomentsEnabled(settings.enabled === true);
+        })
+        .catch(() => {});
+    };
+    load();
+    if (!navigation) return () => { cancelled = true; };
+    const unsubscribe = navigation.addListener('focus', load);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [navigation]);
+
+  const segments = useMemo(
+    () => (momentsEnabled ? [...SEGMENTS, MOMENTS_SEGMENT] : SEGMENTS),
+    [momentsEnabled]
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.segmentRow}>
-        {SEGMENTS.map(item => {
+        {segments.map(item => {
           const active = item.id === segment;
           return (
             <TouchableOpacity
@@ -161,6 +191,14 @@ export default function ExtensionScreen() {
         >
           <ImageGenScreen embedded />
         </View>
+        {momentsEnabled ? (
+          <View
+            style={[styles.pane, segment === 'moments' ? styles.paneVisible : styles.paneHidden]}
+            pointerEvents={segment === 'moments' ? 'auto' : 'none'}
+          >
+            <MomentsView active={segment === 'moments'} />
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
