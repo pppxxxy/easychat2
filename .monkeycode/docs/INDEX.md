@@ -90,6 +90,8 @@ npm run prebuild     # 生成原生工程
 | `App.js` | 应用入口与导航 |
 | `src/ChatScreen.js` | 聊天主流程 |
 | `src/CharacterScreen.js` | 角色编辑与角色卡导入 |
+| `src/ExtensionScreen.js` | 扩展页：内嵌小游戏与生图 |
+| `src/imageGen/index.js` | 生图统一适配与响应解析 |
 | `src/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
 | `src/chatPipeline.js` | 世界书/正则提示词组装 |
 | `src/storage.js` | 持久化封装 |

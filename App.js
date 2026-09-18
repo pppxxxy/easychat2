@@ -13,6 +13,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import ChatScreen from './src/ChatScreen';
 import CharacterScreen from './src/CharacterScreen';
 import MemoryScreen from './src/MemoryScreen';
+import ExtensionScreen from './src/ExtensionScreen';
 import SettingsScreen from './src/SettingsScreen';
 import DisclaimerModal from './src/disclaimer';
 import {
@@ -29,6 +30,7 @@ const TAB_ICONS = {
   聊天: ['chatbubble-outline', 'chatbubble'],
   记忆: ['albums-outline', 'albums'],
   角色: ['people-outline', 'people'],
+  扩展: ['extension-puzzle-outline', 'extension-puzzle'],
   设置: ['settings-outline', 'settings'],
 };
 
@@ -137,6 +139,7 @@ export default function App() {
             <Tab.Screen name="聊天" component={ChatScreen} />
             <Tab.Screen name="记忆" component={MemoryScreen} />
             <Tab.Screen name="角色" component={CharacterScreen} />
+            <Tab.Screen name="扩展" component={ExtensionScreen} />
             <Tab.Screen name="设置" component={SettingsScreen} />
           </Tab.Navigator>
           </NavigationContainer>

@@ -4,7 +4,7 @@
 
 EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应用，面向希望在手机上使用自有大模型 API Key 进行对话的个人用户。应用兼容 OpenAI 的 Chat Completions 协议，通过一个可配置的 API 地址、模型名和密钥与任意兼容服务（如 DeepSeek、OpenAI 或自建网关）通信。
 
-应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由四个底部标签页组成——聊天、记忆、角色、设置，分别负责对话、历史会话管理、角色库管理与 API 配置，并通过一个全局 `AppContext` 共享角色库、会话列表与当前选择状态。
+应用采用单机、无后端的形态：所有配置、角色设定与聊天记录都保存在设备本机的 `AsyncStorage` 中，不经过任何自建服务器。应用由五个底部标签页组成——聊天、记忆、角色、扩展、设置，分别负责对话、历史会话管理、角色库管理、扩展功能（内嵌小游戏与生图）与 API 配置，并通过一个全局 `AppContext` 共享角色库、会话列表与当前选择状态。
 
 在能力上，应用支持一个角色拥有多段对话、可陈列与切换的历史会话（记忆页支持置顶、克隆与删除）、可陈列与切换的角色库、Markdown 格式的助手回复渲染、可折叠并一键复制的系统报错气泡，以及从 PNG 或 JSON 角色卡导入人设、世界书与正则脚本。导入的世界书会在发送前按键触发注入提示词，正则脚本会分别在发送提示词与界面展示时应用。请求层内置 30 秒超时与错误格式化，报错展示前会对疑似密钥字符串做脱敏。
 
@@ -56,6 +56,8 @@ easychat2/
 │   ├── SearchScreen.js       # 跨会话搜索：关键词检索历史消息并跳转定位
 │   ├── ScrollScrubber.js     # 快速定位滑动条：拖动跳转会话任意位置
 │   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
+│   ├── ImageGenScreen.js     # 生图界面：服务/模型选择、图生图与结果画廊
+│   ├── ExtensionScreen.js    # 扩展页：切换内嵌小游戏与生图
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
 │   ├── PresetPanel.js        # 全局预设与记忆总结设置面板
 │   ├── PluginPanel.js        # 插件管理面板（联网搜索等）
@@ -68,6 +70,7 @@ easychat2/
 │   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
 │   ├── attachments.js        # 聊天附件：文本类读取、图片 data URI 与合并
 │   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
+│   ├── games/games.js        # 内嵌 HTML 小游戏清单
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
@@ -93,7 +96,7 @@ easychat2/
 ## 子系统
 
 ### 应用外壳与导航
-**目的**: 初始化运行时垫片、全局 Provider，并组织四个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款，`StartupSession` 迁移旧消息并开启新会话
+**目的**: 初始化运行时垫片、全局 Provider，并组织五个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款，`StartupSession` 迁移旧消息并开启新会话
 **位置**: `App.js`
 **关键文件**: `App.js`
 **依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`@expo/vector-icons`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`
@@ -132,6 +135,20 @@ easychat2/
 **位置**: `src/SettingsScreen.js`
 **关键文件**: `src/SettingsScreen.js`
 **依赖**: `src/storage.js`
+**被依赖**: `App.js`
+
+### 生图模块
+**目的**: 以声明式 Provider 描述各生图服务并统一适配调用，支持文生图与图生图；提供设置面板（地址、密钥、模型、额外参数）与结果画廊
+**位置**: `src/imageGen/providers.js`、`src/imageGen/index.js`、`src/ImageGenScreen.js`
+**关键文件**: `src/imageGen/index.js`、`src/ImageGenScreen.js`
+**依赖**: `expo-document-picker`、`expo-file-system`、`expo-clipboard`、`expo-sharing`、`src/storage.js`
+**被依赖**: `src/ExtensionScreen.js`
+
+### 扩展页与小游戏
+**目的**: 在底部导航提供「扩展」入口，以分段控件切换内嵌小游戏与生图界面；小游戏为纯前端 HTML，经 `WebView` 在应用内运行、无需联网
+**位置**: `src/ExtensionScreen.js`、`src/games/games.js`
+**关键文件**: `src/ExtensionScreen.js`、`src/games/games.js`
+**依赖**: `react-native-webview`、`src/ImageGenScreen.js`
 **被依赖**: `App.js`
 
 ### 免责条款与公告

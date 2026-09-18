@@ -13,6 +13,7 @@
 | `聊天` | `ChatScreen` | 对话与消息列表 |
 | `记忆` | `MemoryScreen` | 历史会话列表与操作 |
 | `角色` | `CharacterScreen` | 角色编辑与角色卡导入 |
+| `扩展` | `ExtensionScreen` | 内嵌小游戏与生图 |
 | `设置` | `SettingsScreen` | API 配置 |
 
 导航主题在 `App.js` 内以 `DefaultTheme` 扩展定义，暗色背景 `#1a1a2e`，主色 `#6c63ff`。`Header` 组件使用 `useSafeAreaInsets` 计算顶部内边距。
@@ -438,6 +439,21 @@ data: [DONE]
 ### `getImageGenSettings()` / `saveImageGenSettings(settings)`
 **位置**: `src/storage.js`
 **说明**: 读取/写入 `@easychat2_image_gen`；`extra` 支持 JSON 字符串或对象，读取时统一规范化为对象。
+
+### `ExtensionScreen`（默认导出）
+**位置**: `src/ExtensionScreen.js`
+**Props**: 无（由导航注入）
+**说明**: 分段控件切换「游戏」与「生图」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；两视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留生图已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。
+
+### 游戏清单
+**位置**: `src/games/games.js`
+
+| 导出 | 说明 |
+|------|------|
+| `GAMES` | `[{ id, name, description, html }]`，内置 `guess-number`、`snake`、`breakout` |
+| `getGame(id)` | 按 id 取游戏，未命中返回 `null` |
+
+**说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
 
 ### 插件接口
 **位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`
