@@ -50,6 +50,7 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import ScrollScrubber from './ScrollScrubber';import { maskSecrets } from './secrets';
 import {
+  createGroupSession,
   getApiConfigs,
   getChatOptions,
   getEnabledGlobalPresetPrompts,
@@ -61,6 +62,7 @@ import {
   saveApiConfigs,
   saveMessagesBySession,
   saveThinkingSettings,
+  startNewSession,
   THINKING_LEVELS,
 } from './storage';
 import { runPlugins } from './plugins/registry';
@@ -938,6 +940,53 @@ export default function ChatScreen() {
     ]);
   }, []);
 
+  const onNewChat = useCallback(() => {
+    if (isSending || !ready || abortRef.current) return;
+    if (persistableMessages.length === 0) {
+      Alert.alert('当前对话还没有内容', '发送一条消息后再新建对话。');
+      return;
+    }
+    Alert.alert('新建对话', '将为当前角色开启一段新对话，旧对话保留在「记忆」中。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '新建',
+        onPress: async () => {
+          if (abortRef.current) {
+            abortRef.current.abort();
+            abortRef.current = null;
+          }
+          setIsSending(false);
+          try {
+            if (isGroupRef.current && groupCharactersRef.current.length > 0) {
+              const current = sessionsRef.current.find(
+                item => item.id === activeSessionIdRef.current
+              );
+              await createGroupSession(
+                groupCharactersRef.current,
+                (current && current.name) || '群聊'
+              );
+            } else {
+              await startNewSession(activeCharacterIdRef.current);
+            }
+            await refreshSessions();
+            errorRawRef.current = {};
+            sessionVersionRef.current += 1;
+            setMessages([]);
+            setAttachments([]);
+            setQuoteTarget(null);
+            setSearchOpen(false);
+            setSearchQuery('');
+            setActiveMatchIndex(0);
+            setFocusedMessageId('');
+            setSelectionText('');
+          } catch (error) {
+            Alert.alert('新建对话失败', '请稍后重试。');
+          }
+        },
+      },
+    ]);
+  }, [isSending, persistableMessages.length, ready, refreshSessions]);
+
   const searchMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return [];
@@ -1650,6 +1699,18 @@ export default function ChatScreen() {
           {isGroup ? null : (
             <Ionicons name="chevron-down" size={14} color="#8b85ff" style={styles.characterCaret} />
           )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.noticeButton, (isSending || !ready) && styles.actionDisabled]}
+          onPress={onNewChat}
+          disabled={isSending || !ready}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="新建对话"
+          accessibilityState={{ disabled: isSending || !ready }}
+        >
+          <Ionicons name="add-circle-outline" size={13} color="#c8c4ff" />
+          <Text style={styles.noticeButtonText}>新建</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.noticeButton}
