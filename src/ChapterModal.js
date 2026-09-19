@@ -13,6 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { getOnboardingChapters } from './onboardingContent';
 import { getOnboardingImages } from './onboarding/images';
 import ChapterNotice from './ChapterNotice';
+import ChapterOutro from './ChapterOutro';
 import { useTheme } from './theme/ThemeContext';
 
 export default function ChapterModal({
@@ -70,6 +71,7 @@ export default function ChapterModal({
                   </View>
                 ))}
                 {chapter.note ? <Text style={styles.note}>{chapter.note}</Text> : null}
+                <ChapterOutro outro={chapter.outro} />
               </View>
             );
           })}
