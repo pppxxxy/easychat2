@@ -1,4 +1,4 @@
-import { getActiveApiConfig, getActiveModel, getThinkingSettings } from './storage';
+import { getActiveApiConfig, getActiveModel, getSamplingSettings, getThinkingSettings } from './storage';
 
 const IDLE_TIMEOUT_MS = 30000;
 
@@ -12,6 +12,23 @@ export function buildThinkingParams(config, settings) {
   if (format === 'boolean') return { [field]: true };
   if (format === 'object') return { [field]: { type: 'enabled', depth: level } };
   return { [field]: level };
+}
+
+export function buildSamplingParams(settings) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const params = {};
+  const pick = (name, key, integer) => {
+    const entry = source[name];
+    if (!entry || entry.enabled !== true) return;
+    const value = Number(entry.value);
+    if (!Number.isFinite(value)) return;
+    params[key] = integer ? Math.round(value) : value;
+  };
+  pick('maxTokens', 'max_tokens', true);
+  pick('temperature', 'temperature', false);
+  pick('topP', 'top_p', false);
+  pick('topK', 'top_k', true);
+  return params;
 }
 
 export function normalizeChatUrl(baseUrl) {
@@ -95,6 +112,8 @@ export async function sendChatMessage(messages, options = {}) {
   const url = normalizeChatUrl(config.baseUrl);
   const thinkingSettings = await getThinkingSettings().catch(() => null);
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
+  const samplingSettings = await getSamplingSettings().catch(() => null);
+  const samplingParams = buildSamplingParams(samplingSettings);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -279,7 +298,7 @@ export async function sendChatMessage(messages, options = {}) {
 
     if (settled) return;
     try {
-      xhr.send(JSON.stringify({ model, messages, stream, ...thinkingParams }));
+      xhr.send(JSON.stringify({ model, messages, stream, ...thinkingParams, ...samplingParams }));
       armIdleTimer();
     } catch (error) {
       fail(error);

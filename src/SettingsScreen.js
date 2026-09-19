@@ -35,12 +35,15 @@ import {
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
+  getSamplingSettings,
   getUserProfile,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
+  saveSamplingSettings,
   saveThinkingSettings,
   saveUserProfile,
+  SAMPLING_FIELDS,
   THINKING_DISPLAYS,
 } from './storage';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
@@ -80,6 +83,18 @@ export default function SettingsScreen() {
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
+  const [sampling, setSampling] = useState({
+    maxTokens: { enabled: false, value: 8024 },
+    temperature: { enabled: false, value: 1 },
+    topP: { enabled: false, value: 1 },
+    topK: { enabled: false, value: 0 },
+  });
+  const samplingRef = useRef({
+    maxTokens: { enabled: false, value: 8024 },
+    temperature: { enabled: false, value: 1 },
+    topP: { enabled: false, value: 1 },
+    topK: { enabled: false, value: 0 },
+  });
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
     enabled: false,
@@ -145,6 +160,12 @@ export default function SettingsScreen() {
     getThinkingSettings()
       .then(settings => setThinkingDisplay(settings.display))
       .catch(() => {});
+    getSamplingSettings()
+      .then(settings => {
+        samplingRef.current = settings;
+        setSampling(settings);
+      })
+      .catch(() => {});
     getInlineImageSettings()
       .then(settings => {
         inlineImageRef.current = settings;
@@ -179,6 +200,51 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
+
+  const persistSampling = useCallback(async next => {
+    samplingRef.current = next;
+    setSampling(next);
+    try {
+      const saved = await saveSamplingSettings(next);
+      samplingRef.current = saved;
+      setSampling(saved);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
+
+  const toggleSamplingField = useCallback(name => {
+    const current = samplingRef.current;
+    const field = current[name] || {};
+    persistSampling({
+      ...current,
+      [name]: { ...field, enabled: field.enabled !== true },
+    });
+  }, [persistSampling]);
+
+  const commitSamplingValue = useCallback((name, rawText) => {
+    const rule = SAMPLING_FIELDS[name];
+    if (!rule) return;
+    const current = samplingRef.current;
+    const field = current[name] || {};
+    const trimmed = String(rawText == null ? '' : rawText).trim();
+    let value;
+    if (!trimmed || !Number.isFinite(Number(trimmed))) {
+      value = rule.default;
+    } else {
+      value = Number(trimmed);
+      if (rule.integer) value = Math.round(value);
+      if (value < rule.min || value > rule.max) {
+        const clamped = Math.min(rule.max, Math.max(rule.min, value));
+        Alert.alert('数值超出范围', `已调整为 ${clamped}。`);
+        value = clamped;
+      }
+    }
+    persistSampling({
+      ...current,
+      [name]: { enabled: field.enabled === true, value },
+    });
+  }, [persistSampling]);
 
   const updateInlineImage = useCallback(async patch => {
     const next = { ...inlineImageRef.current, ...patch };
@@ -1094,6 +1160,54 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="analytics-outline" size={16} color={theme.colors.primaryMuted} />
+            <Text style={styles.cardTitle}>生成参数</Text>
+          </View>
+          {[
+            { name: 'maxTokens', label: '最大回复令牌', keyboard: 'number-pad', hint: '1 - 128000' },
+            { name: 'temperature', label: '温度', keyboard: 'decimal-pad', hint: '0 - 2' },
+            { name: 'topP', label: 'top-p', keyboard: 'decimal-pad', hint: '0 - 1' },
+            { name: 'topK', label: 'top-k', keyboard: 'number-pad', hint: '0 - 50' },
+          ].map(item => {
+            const field = sampling[item.name] || {};
+            return (
+              <View key={item.name} style={styles.capabilityRow}>
+                <View style={styles.linkLeft}>
+                  <Text style={styles.linkText}>{item.label}</Text>
+                </View>
+                <View style={styles.samplingRight}>
+                  <TextInput
+                    style={styles.samplingInput}
+                    value={String(field.value == null ? '' : field.value)}
+                    onChangeText={text => {
+                      const current = samplingRef.current;
+                      const next = {
+                        ...current,
+                        [item.name]: { ...(current[item.name] || {}), value: text },
+                      };
+                      samplingRef.current = next;
+                      setSampling(next);
+                    }}
+                    onEndEditing={event => commitSamplingValue(item.name, event.nativeEvent.text)}
+                    keyboardType={item.keyboard}
+                    placeholder={item.hint}
+                    placeholderTextColor={theme.colors.textFaint}
+                  />
+                  <Switch
+                    value={field.enabled === true}
+                    onValueChange={() => toggleSamplingField(item.name)}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                    thumbColor={theme.colors.primaryContrast}
+                  />
+                </View>
+              </View>
+            );
+          })}
+          <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
+        </View>
+
         <TtsPanel
           visible={ttsEntryOpen}
           onClose={() => setTtsEntryOpen(false)}
@@ -1481,6 +1595,20 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.divider,
+  },
+  samplingRight: { flexDirection: 'row', alignItems: 'center' },
+  samplingInput: {
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.text,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    fontSize: fonts.scaled(14),
+    minWidth: 84,
+    marginRight: 10,
+    textAlign: 'right',
   },
   thinkingDisplayRow: {
     flexDirection: 'row',
