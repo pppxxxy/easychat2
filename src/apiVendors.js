@@ -47,7 +47,7 @@ export const CHAT_API_VENDORS = [
     protocol: 'openai',
     auth: { header: 'api-key', prefix: '' },
     apiKeyUrl: 'https://dots.ai/platform/apikeys',
-    note: '鉴权头是 api-key，不是 Bearer；完整 Key 只显示一次，请立即保存；限时免费至 2026-09-30，限流较严，建议仅用于尝鲜和轻量使用。',
+    note: '完整 Key 只显示一次，请立即保存；限时免费至 2026-09-30，限流较严，建议仅用于尝鲜和轻量使用。',
   },
   {
     id: 'nvidia-nim',
@@ -63,11 +63,11 @@ export const CHAT_API_VENDORS = [
     id: 'amd-radeon-cloud',
     name: 'AMD 开发者计划（Radeon Cloud Token Factory）',
     category: ['chat', 'image'],
-    baseUrl: '',
+    baseUrl: 'https://developer.amd.com.cn/radeon/api/v1',
     protocol: 'openai',
     auth: { header: 'Authorization', prefix: 'Bearer ' },
-    apiKeyUrl: 'https://developer.amd.com/',
-    note: '登录后进入 Radeon Cloud Token Factory 控制台，在 API Keys 页面创建；Base URL 由控制台提供，请复制填入。每日 $1 等值额度（北京时间早 8 点重置）；限流严格，响应极慢；免费模型包括 DeepSeek、Qwen 等。',
+    apiKeyUrl: 'https://developer.amd.com.cn/radeon/tokenfactory',
+    note: '登录后进入 Radeon Cloud Token Factory 控制台，在 API Keys 页面创建；Base URL 使用 https://developer.amd.com.cn/radeon/api/v1。每日 $1 等值额度（北京时间早 8 点重置）；限流严格，响应极慢；免费模型包括 DeepSeek、Qwen 等。',
   },
 ];
 
