@@ -43,6 +43,7 @@ import {
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import CharacterEditForm from './CharacterEditForm';
+import GroupEditForm from './GroupEditForm';
 import DisclaimerModal from './disclaimer';
 import {
   buildEnsemblePrompt,
@@ -809,6 +810,7 @@ export default function ChatScreen() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
+  const [groupEditOpen, setGroupEditOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
   const userNameRef = useRef('');
@@ -1745,13 +1747,16 @@ export default function ChatScreen() {
           everyone,
         });
         if (requestMessages.length === 0) return false;
+        const groupName = String(activeSessionRef.current?.name || '').trim()
+          || members.map(item => String(item.name || '').trim()).filter(Boolean).join('、')
+          || '群聊';
         const pendingMessage = {
           id: `${Date.now()}-ensemble-assistant`,
           role: ASSISTANT_ID,
           text: THINKING_PLACEHOLDER,
           pending: true,
           waitingForResponse: true,
-          speakerName: '',
+          speakerName: groupName,
         };
         working = [...working, pendingMessage];
         setMessages(working);
@@ -2123,7 +2128,10 @@ export default function ChatScreen() {
     });
   }, []);
 
-  const bgUri = character.bgUri || '';
+  const bgUri = isGroup
+    ? String(activeSession?.bgUri || '')
+    : (character.bgUri || '');
+  const groupAvatarUri = isGroup ? String(activeSession?.avatarUri || '') : '';
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
     : (character.name || 'EasyChat2 助手');
@@ -2190,9 +2198,13 @@ export default function ChatScreen() {
           accessibilityState={{ disabled: !loaded || isGroup }}
         >
           {isGroup ? (
-            <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-              <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
-            </View>
+            groupAvatarUri ? (
+              <Image source={{ uri: groupAvatarUri }} style={styles.characterAvatar} />
+            ) : (
+              <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
+                <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
+              </View>
+            )
           ) : character.avatarUri ? (
             <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
           ) : (
@@ -2329,11 +2341,22 @@ export default function ChatScreen() {
                   <MessageBubble
                     message={message}
                     rawText={rawTextById.get(message.id)}
-                    characterName={(speaker && speaker.name) || message.speakerName || character.name}
+                    characterName={
+                      isGroup
+                        ? ((speaker && speaker.name) || message.speakerName || displayName)
+                        : ((speaker && speaker.name) || message.speakerName || character.name)
+                    }
                     characterAvatar={
-                      speaker
-                        ? (speaker.avatarUri || '')
-                        : (message.speakerId ? '' : character.avatarUri)
+                      isGroup
+                        ? (
+                          (speaker && speaker.avatarUri)
+                          || (message.speakerName
+                            ? (groupCharacters.find(item => item.name === message.speakerName) || {}).avatarUri
+                            : '')
+                          || groupAvatarUri
+                          || ''
+                        )
+                        : (speaker ? (speaker.avatarUri || '') : (message.speakerId ? '' : character.avatarUri))
                     }
                     userAvatarUri={userAvatar}
                     onSlashCommand={onSlashCommand}
@@ -2775,23 +2798,19 @@ export default function ChatScreen() {
               <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.linkRow, isGroup && styles.actionDisabled]}
+              style={styles.linkRow}
               onPress={() => {
                 setChatSettingsOpen(false);
-                setCharacterEditOpen(true);
+                if (isGroup) setGroupEditOpen(true);
+                else setCharacterEditOpen(true);
               }}
-              disabled={isGroup}
               activeOpacity={0.7}
             >
               <View style={styles.linkLeft}>
                 <Ionicons name="create-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.chatSettingsText}>编辑角色</Text>
+                <Text style={styles.chatSettingsText}>{isGroup ? '编辑群聊' : '编辑角色'}</Text>
               </View>
-              {isGroup ? (
-                <Text style={styles.chatSettingsHint}>群聊不支持</Text>
-              ) : (
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-              )}
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -2804,6 +2823,18 @@ export default function ChatScreen() {
         onSaved={() => {
           setCharacterEditOpen(false);
           Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
+        }}
+      />
+
+      <GroupEditForm
+        visible={groupEditOpen}
+        session={activeSession}
+        members={groupCharacters}
+        onClose={() => setGroupEditOpen(false)}
+        onSaved={() => {
+          setGroupEditOpen(false);
+          refreshSessions().catch(() => {});
+          Alert.alert('已保存', '群聊信息已更新。');
         }}
       />
 

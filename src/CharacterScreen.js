@@ -478,6 +478,8 @@ export default function CharacterScreen() {
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [groupSelected, setGroupSelected] = useState([]);
   const [groupName, setGroupName] = useState('');
+  const [groupAvatarUri, setGroupAvatarUri] = useState('');
+  const [groupBgUri, setGroupBgUri] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [query, setQuery] = useState('');
   const [editMode, setEditMode] = useState(false);
@@ -801,11 +803,16 @@ export default function CharacterScreen() {
         .filter(item => members.includes(item.id))
         .map(item => item.name || '未命名角色')
         .join('、');
-      await createGroupSession(members, groupName.trim() || fallbackName);
+      await createGroupSession(members, groupName.trim() || fallbackName, {
+        avatarUri: groupAvatarUri,
+        bgUri: groupBgUri,
+      });
       await refreshSessions();
       setGroupPanelOpen(false);
       setGroupSelected([]);
       setGroupName('');
+      setGroupAvatarUri('');
+      setGroupBgUri('');
       navigation.navigate('聊天');
     } catch (error) {
       Alert.alert('创建失败', '请检查存储空间或权限。');
@@ -1581,6 +1588,75 @@ export default function CharacterScreen() {
                 );
               })}
             </ScrollView>
+            {groupSelected.length > 0 ? (
+              <>
+                <Text style={styles.label}>群头像（可从成员选择）</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
+                  <TouchableOpacity
+                    style={[styles.groupPickChip, !groupAvatarUri && styles.groupPickChipActive]}
+                    onPress={() => setGroupAvatarUri('')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.groupPickText, !groupAvatarUri && styles.groupPickTextActive]}>不使用</Text>
+                  </TouchableOpacity>
+                  {characters.filter(item => groupSelected.includes(item.id)).map(item => {
+                    const uri = String(item.avatarUri || '');
+                    const active = uri && groupAvatarUri === uri;
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.groupPickChip, active && styles.groupPickChipActive]}
+                        onPress={() => setGroupAvatarUri(uri)}
+                        activeOpacity={0.8}
+                      >
+                        {uri ? (
+                          <Image source={{ uri }} style={styles.groupPickAvatar} />
+                        ) : (
+                          <View style={[styles.groupPickAvatar, styles.groupPickAvatarFallback]}>
+                            <Text style={styles.avatarPlaceholderText}>{String(item.name || '?').charAt(0)}</Text>
+                          </View>
+                        )}
+                        <Text style={[styles.groupPickText, active && styles.groupPickTextActive]} numberOfLines={1}>
+                          {item.name || '未命名'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <Text style={styles.label}>群背景（可从成员背景选择）</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
+                  <TouchableOpacity
+                    style={[styles.groupPickChip, !groupBgUri && styles.groupPickChipActive]}
+                    onPress={() => setGroupBgUri('')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.groupPickText, !groupBgUri && styles.groupPickTextActive]}>不使用</Text>
+                  </TouchableOpacity>
+                  {characters.filter(item => groupSelected.includes(item.id)).map(item => {
+                    const uri = String(item.bgUri || '');
+                    const active = uri && groupBgUri === uri;
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.groupPickChip, active && styles.groupPickChipActive]}
+                        onPress={() => {
+                          if (!uri) {
+                            Alert.alert('无法选择', `「${item.name || '该角色'}」没有背景图。`);
+                            return;
+                          }
+                          setGroupBgUri(uri);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.groupPickText, active && styles.groupPickTextActive]} numberOfLines={1}>
+                          {item.name || '未命名'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
             <View style={styles.presetModalActions}>
               <TouchableOpacity
                 style={[styles.selectButton, styles.selectButtonGhost]}
@@ -1737,6 +1813,24 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   groupAvatar: { width: 34, height: 34, borderRadius: 9, marginLeft: 10, backgroundColor: theme.colors.surfaceBorder },
   groupAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
   groupName: { color: theme.colors.textMuted, fontSize: 14, marginLeft: 10, flex: 1 },
+  groupPickRow: { flexGrow: 0, marginTop: 2 },
+  groupPickChip: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 60,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+  },
+  groupPickChipActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft },
+  groupPickAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.surfaceBorder },
+  groupPickAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  groupPickText: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
+  groupPickTextActive: { color: theme.colors.primary, fontWeight: '700' },
   countBadge: {
     marginLeft: 8,
     minWidth: 22,

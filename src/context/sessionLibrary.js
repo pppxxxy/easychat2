@@ -38,6 +38,8 @@ export function normalizeSession(raw, index = 0) {
       : [],
     memberProfiles: type === 'group' ? normalizeMemberProfiles(source.memberProfiles) : {},
     groupMode: type === 'group' ? (source.groupMode === 'turn' ? 'turn' : 'ensemble') : '',
+    avatarUri: type === 'group' ? String(source.avatarUri || '') : '',
+    bgUri: type === 'group' ? String(source.bgUri || '') : '',
     name: String(source.name || ''),
     preview: String(source.preview || ''),
     pinned: source.pinned === true,
@@ -92,6 +94,8 @@ export function createEmptySession(characterId, sessions, now = Date.now()) {
     members: [],
     memberProfiles: {},
     groupMode: '',
+    avatarUri: '',
+    bgUri: '',
     name: '',
     preview: '',
     pinned: false,
@@ -102,7 +106,7 @@ export function createEmptySession(characterId, sessions, now = Date.now()) {
   };
 }
 
-export function createGroupSession(members, name, sessions, now = Date.now()) {
+export function createGroupSession(members, name, sessions, now = Date.now(), extras = {}) {
   const list = Array.isArray(sessions) ? sessions : [];
   const ids = (Array.isArray(members) ? members : []).map(String).filter(Boolean);
   return {
@@ -112,6 +116,8 @@ export function createGroupSession(members, name, sessions, now = Date.now()) {
     members: ids,
     memberProfiles: {},
     groupMode: 'ensemble',
+    avatarUri: String(extras.avatarUri || ''),
+    bgUri: String(extras.bgUri || ''),
     name: String(name || ''),
     preview: '',
     pinned: false,

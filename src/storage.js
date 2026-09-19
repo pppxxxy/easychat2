@@ -1388,13 +1388,27 @@ export async function startNewSession(characterId) {
   return created;
 }
 
-export async function createGroupSession(members, name) {
+export async function createGroupSession(members, name, extras = {}) {
   const sessions = await getSessions();
-  const created = buildGroupSession(members, name, sessions);
+  const created = buildGroupSession(members, name, sessions, Date.now(), extras);
   const next = sortSessions([...sessions, created]);
   await saveSessions(next);
   await setActiveSessionId(created.id);
   return created;
+}
+
+export async function updateSessionInfo(sessionId, patch = {}) {
+  const sessions = await getSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target || target.type !== 'group') return target || null;
+  const source = patch && typeof patch === 'object' ? patch : {};
+  const updated = { ...target };
+  if (source.name !== undefined) updated.name = String(source.name || '');
+  if (source.avatarUri !== undefined) updated.avatarUri = String(source.avatarUri || '');
+  if (source.bgUri !== undefined) updated.bgUri = String(source.bgUri || '');
+  updated.updatedAt = Date.now();
+  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  return updated;
 }
 
 export async function updateSessionMemberProfiles(sessionId, memberProfiles) {

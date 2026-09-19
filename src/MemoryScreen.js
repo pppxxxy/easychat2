@@ -257,26 +257,30 @@ export default function MemoryScreen({ navigation }) {
                     />
                   ) : null}
                   {isGroup ? (
-                    <View style={styles.groupAvatars}>
-                      {groupMembers.slice(0, 3).map((member, index) => (
-                        member.avatarUri ? (
-                          <Image
-                            key={member.id}
-                            source={{ uri: member.avatarUri }}
-                            style={[styles.groupAvatar, { left: index * 12 }]}
-                          />
-                        ) : (
-                          <View
-                            key={member.id}
-                            style={[styles.groupAvatar, styles.avatarFallback, { left: index * 12 }]}
-                          >
-                            <Text style={styles.avatarText}>
-                              {String(member.name || '?').charAt(0)}
-                            </Text>
-                          </View>
-                        )
-                      ))}
-                    </View>
+                    session.avatarUri ? (
+                      <Image source={{ uri: session.avatarUri }} style={styles.avatar} />
+                    ) : (
+                      <View style={styles.groupAvatars}>
+                        {groupMembers.slice(0, 3).map((member, index) => (
+                          member.avatarUri ? (
+                            <Image
+                              key={member.id}
+                              source={{ uri: member.avatarUri }}
+                              style={[styles.groupAvatar, { left: index * 12 }]}
+                            />
+                          ) : (
+                            <View
+                              key={member.id}
+                              style={[styles.groupAvatar, styles.avatarFallback, { left: index * 12 }]}
+                            >
+                              <Text style={styles.avatarText}>
+                                {String(member.name || '?').charAt(0)}
+                              </Text>
+                            </View>
+                          )
+                        ))}
+                      </View>
+                    )
                   ) : character && character.avatarUri ? (
                     <Image source={{ uri: character.avatarUri }} style={styles.avatar} />
                   ) : (

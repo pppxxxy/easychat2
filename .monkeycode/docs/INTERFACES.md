@@ -54,7 +54,7 @@
 - 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
-- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；输入栏左侧为 `@` 按钮（替代附件入口），点击弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
+- 群聊会话（`type: 'group'`）：顶部展示群名与群头像（未设置头像时回退群图标），聊天背景取会话 `bgUri`；输入栏左侧为 `@` 按钮（替代附件入口），点击弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。群像卡思考阶段的消息显示为群名，不再显示基础角色名；消息头像优先取该成员角色卡的头像，取不到时用群头像。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -93,6 +93,15 @@
 - 保存成功回调 `onSaved`；失败 `Alert` 并保留草稿不清空
 - 世界书与正则脚本不在此表单内，界面提示前往「角色」页编辑
 - 供聊天页「编辑角色」使用；角色页保留其完整编辑界面
+
+### `GroupEditForm`（默认导出）
+**位置**: `src/GroupEditForm.js`
+**Props**: `{ visible, session, members, onClose, onSaved }`
+**行为**:
+- 底部抽屉式 `Modal`，把群聊当作一张卡，只编辑名称、头像与背景
+- 头像/背景可从本地图片选择，也可从成员角色卡中选择（头像取成员 `avatarUri`、背景取成员 `bgUri`），或选择「不使用」
+- 保存经 `updateSessionInfo` 写入；成功回调 `onSaved` 由聊天页刷新会话
+- 供聊天页「编辑群聊」入口使用
 
 ### `PresetPanel`（默认导出）
 **位置**: `src/PresetPanel.js`
@@ -262,7 +271,8 @@
 | `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
 | `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
 | `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前 |
-| `createGroupSession` | `(members, name) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前 |
+| `createGroupSession` | `(members, name, extras?) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前；`extras` 可带 `avatarUri`/`bgUri` |
+| `updateSessionInfo` | `(sessionId, patch) => Promise<Session\|null>` | 更新群聊名称/头像/背景；非群聊返回目标且不改动 |
 | `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
@@ -714,6 +724,8 @@ data: [DONE]
 | `members` | `string[]` | 群聊成员角色 `id` 列表；单聊为空数组 |
 | `memberProfiles` | `{[characterId]: string}` | 群聊成员人设卡缓存（简介不足时懒生成）；单聊为 `{}` |
 | `groupMode` | `'ensemble' \| 'turn' \| ''` | 群聊发言模式：`ensemble` 群像卡单次生成（缺省），`turn` 逐角色模式；单聊为空串 |
+| `avatarUri` | `string` | 群聊头像路径（可来自成员角色卡或用图片）；单聊为空串 |
+| `bgUri` | `string` | 群聊背景图路径；单聊为空串 |
 | `name` | `string` | 群聊名称；单聊为空串 |
 | `preview` | `string` | 最后一条可读消息的摘要，最长 60 字 |
 | `pinned` | `boolean` | 是否置顶 |
