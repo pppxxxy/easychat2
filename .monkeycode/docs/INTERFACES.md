@@ -399,7 +399,7 @@
 POST {normalizedUrl}
 Content-Type: application/json
 Accept: text/event-stream
-Authorization: Bearer <API_KEY>
+{authHeader}: {authScheme}<API_KEY>    # 默认 Authorization: Bearer <KEY>；小红书 Dots Studio 为 api-key: <KEY>
 
 {
   "model": "<model>",
@@ -407,6 +407,8 @@ Authorization: Bearer <API_KEY>
   "stream": true
 }
 ```
+
+**发送前校验**: `baseUrl` 为空抛「请先填写 API 地址」；无可用模型抛「请先添加并选择模型」；`protocol === 'anthropic'` 抛「Claude 协议暂未开放」。避免空地址或空模型静默回退到默认端点与模型。
 
 流式响应为 SSE，每个事件的数据行形如：
 
@@ -786,10 +788,17 @@ data: [DONE]
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `baseUrl` | `string` | 接口地址 |
+| `baseUrl` | `string` | 接口地址；可为空串（厂商预设如 AMD 待用户填），发送前会校验非空 |
 | `apiKey` | `string` | 密钥，仅存本机 |
-| `models` | `string[]` | 模型列表，始终非空 |
+| `vendorId` | `string` | 来源厂商预设 id（`apiVendors.js`），空串表示自定义 |
+| `protocol` | `'openai' \| 'anthropic'` | 接口协议；`anthropic` 目前置灰未开放，发送时会报错 |
+| `authHeader` | `string` | 鉴权头字段名，默认 `Authorization`；小红书 Dots Studio 为 `api-key` |
+| `authScheme` | `string` | 鉴权头前缀，默认 `Bearer `；允许空串 |
+| `apiKeyUrl` | `string` | 密钥获取页，用于「点击获取密钥」跳转 |
+| `models` | `string[]` | 模型列表；厂商预设创建时为空，需添加或「检测模型」，保存时要求非空 |
 | `activeModel` | `string` | 当前模型，必须属于 `models` |
 | `supportsThinking` | `boolean` | 是否支持思考，保存前确认 |
 | `supportsVision` | `boolean` | 是否支持识图，保存前确认 |
 | `thinking` | `{ field, format }` | 思考参数声明；`format` 为 `effort` / `boolean` / `object`，缺省 `reasoning_effort` + `effort` |
+
+厂商与协议预设见 `src/apiVendors.js`：`CHAT_API_VENDORS`（DeepSeek、魔搭、ai.gitee、Agnes、小红书 Dots Studio、NVIDIA NIM、AMD Radeon Cloud）、`API_PROTOCOL_PRESETS` 与 `THIRD_PARTY_RELAY_RISK`；`getChatApiVendor(id)` 按 id 取厂商。

@@ -55,6 +55,7 @@ import {
   THINKING_DISPLAYS,
 } from './storage';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
+import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
 import TutorialModal from './TutorialModal';
 
@@ -92,6 +93,7 @@ export default function SettingsScreen() {
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
+  const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
   const [modelDraft, setModelDraft] = useState('');
   const [capabilityOpen, setCapabilityOpen] = useState(false);
   const [capabilityDraft, setCapabilityDraft] = useState({
@@ -496,6 +498,10 @@ export default function SettingsScreen() {
     () => configs.find(item => item.id === activeId) || configs[0] || null,
     [configs, activeId]
   );
+  const activeVendor = useMemo(
+    () => getChatApiVendor(active && active.vendorId),
+    [active]
+  );
 
   const invalidateModels = () => {
     const request = modelRequestRef.current;
@@ -553,9 +559,33 @@ export default function SettingsScreen() {
 
   const addConfig = () => {
     if (!canChangeApi()) return;
+    setVendorPickerOpen(true);
+  };
+
+  const applyVendorPreset = preset => {
+    if (!canChangeApi() || !preset) return;
+    setVendorPickerOpen(false);
     const list = apiStateRef.current.configs;
-    const created = createApiConfig({ name: `配置 ${list.length + 1}` });
+    const auth = preset.auth || {};
+    const created = createApiConfig({
+      name: preset.name,
+      baseUrl: preset.baseUrl || '',
+      vendorId: preset.id,
+      protocol: preset.protocol || 'openai',
+      authHeader: auth.header || 'Authorization',
+      authScheme: auth.prefix === undefined ? 'Bearer ' : auth.prefix,
+      apiKeyUrl: preset.apiKeyUrl || '',
+      models: [],
+      activeModel: '',
+    });
     return changeConfig([...list, created], created.id);
+  };
+
+  const openApiKeyUrl = url => {
+    if (!url) return;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('无法打开链接', url);
+    });
   };
 
   const deleteConfig = () => {
@@ -702,7 +732,9 @@ export default function SettingsScreen() {
             xhr.abort();
           };
           xhr.open('GET', url);
-          xhr.setRequestHeader('Authorization', `Bearer ${selected.apiKey.trim()}`);
+          const detectAuthHeader = String(selected.authHeader || 'Authorization');
+          const detectAuthScheme = selected.authScheme === undefined ? 'Bearer ' : String(selected.authScheme);
+          xhr.setRequestHeader(detectAuthHeader, `${detectAuthScheme}${selected.apiKey.trim()}`);
           xhr.timeout = 15000;
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) finish(resolve, xhr.responseText);
@@ -972,6 +1004,20 @@ export default function SettingsScreen() {
                 placeholder="sk-..."
                 placeholderTextColor={theme.colors.textFaint}
               />
+              {active.apiKeyUrl ? (
+                <TouchableOpacity
+                  style={styles.apiKeyLinkRow}
+                  onPress={() => openApiKeyUrl(active.apiKeyUrl)}
+                  activeOpacity={0.7}
+                  accessibilityRole="link"
+                  accessibilityLabel="点击获取密钥"
+                >
+                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
+                </TouchableOpacity>
+              ) : null}
+              {activeVendor && activeVendor.note ? (
+                <Text style={styles.vendorEditorNote}>{activeVendor.note}</Text>
+              ) : null}
               <Text style={styles.hint}>
                 API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
               </Text>
@@ -1514,6 +1560,64 @@ export default function SettingsScreen() {
       </ScrollView>
 
       <Modal
+        visible={vendorPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setVendorPickerOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setVendorPickerOpen(false)}
+        >
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>选择厂商 / 协议</Text>
+            <Text style={styles.hint}>选中后会自动填好地址与鉴权，只需再补 API Key。</Text>
+            <ScrollView style={styles.vendorList} keyboardShouldPersistTaps="handled">
+              <Text style={styles.vendorSectionLabel}>推荐平台（官方直连）</Text>
+              {CHAT_API_VENDORS.map(vendor => (
+                <TouchableOpacity
+                  key={vendor.id}
+                  style={styles.vendorRow}
+                  onPress={() => applyVendorPreset(vendor)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.vendorRowHead}>
+                    <Text style={styles.vendorName}>{vendor.name}</Text>
+                    <Text style={styles.vendorCategory}>
+                      {vendor.category.map(item => (item === 'image' ? '生图' : '对话')).join(' / ')}
+                    </Text>
+                  </View>
+                  <Text style={styles.vendorBaseUrl}>{vendor.baseUrl || '地址由控制台提供'}</Text>
+                  <Text style={styles.vendorNote}>{vendor.note}</Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={styles.vendorSectionLabel}>协议</Text>
+              {API_PROTOCOL_PRESETS.map(preset => (
+                <TouchableOpacity
+                  key={preset.id}
+                  style={[styles.vendorRow, preset.disabled && styles.vendorRowDisabled]}
+                  onPress={() => applyVendorPreset(preset)}
+                  disabled={preset.disabled}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.vendorRowHead}>
+                    <Text style={[styles.vendorName, preset.disabled && styles.vendorNameDisabled]}>
+                      {preset.name}
+                    </Text>
+                    {preset.disabled ? (
+                      <Text style={styles.vendorCategory}>暂未开放</Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.vendorNote}>{preset.note}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
         visible={modelModalVisible}
         transparent
         animationType="fade"
@@ -2028,4 +2132,42 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
   },
   modalRowText: { color: theme.colors.textMuted },
+  apiKeyLinkRow: { alignItems: 'flex-end', marginTop: 6 },
+  apiKeyLink: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+  vendorEditorNote: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    lineHeight: fonts.scaled(18),
+    marginTop: 6,
+  },
+  vendorList: { maxHeight: 420 },
+  vendorSectionLabel: {
+    color: theme.colors.primaryMuted,
+    fontSize: fonts.scaled(12),
+    fontWeight: '800',
+    marginTop: 10,
+    marginBottom: 8,
+    letterSpacing: 0.4,
+  },
+  vendorRow: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  vendorRowDisabled: { opacity: 0.5 },
+  vendorRowHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  vendorName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: 8 },
+  vendorNameDisabled: { color: theme.colors.textMuted },
+  vendorCategory: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  vendorBaseUrl: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginBottom: 3 },
+  vendorNote: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18) },
 });

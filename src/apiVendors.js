@@ -1,0 +1,116 @@
+export const CHAT_API_VENDORS = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    category: ['chat'],
+    baseUrl: 'https://api.deepseek.com',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+    note: '国内直连，兼容 OpenAI 接口规范。',
+  },
+  {
+    id: 'modelscope',
+    name: '魔搭社区（ModelScope）',
+    category: ['chat', 'image'],
+    baseUrl: 'https://api-inference.modelscope.cn/v1',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://modelscope.cn/my/myaccesstoken',
+    note: '国内直连；需绑定阿里云账号并实名认证；平台对部分模型输出有安全审查。',
+  },
+  {
+    id: 'gitee-ai',
+    name: 'ai.gitee 模力方舟',
+    category: ['chat', 'image'],
+    baseUrl: 'https://ai.gitee.com/v1',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://ai.gitee.com/dashboard/tokens',
+    note: '国内直连；充值 10 元后部分模型每日 100 次免费调用；建议使用临时令牌。',
+  },
+  {
+    id: 'agnes-ai',
+    name: 'Agnes AI',
+    category: ['chat', 'image'],
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://platform.agnes-ai.com/',
+    note: '免费 API；国内可直连。',
+  },
+  {
+    id: 'dots-studio',
+    name: '小红书 Dots Studio',
+    category: ['chat'],
+    baseUrl: 'https://note3-prev-api.askdiandian.com/v1',
+    protocol: 'openai',
+    auth: { header: 'api-key', prefix: '' },
+    apiKeyUrl: 'https://dots.ai/platform/apikeys',
+    note: '鉴权头是 api-key，不是 Bearer；完整 Key 只显示一次，请立即保存；限时免费至 2026-09-30，限流较严，建议仅用于尝鲜和轻量使用。',
+  },
+  {
+    id: 'nvidia-nim',
+    name: 'NVIDIA NIM（英伟达）',
+    category: ['chat'],
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://build.nvidia.com/',
+    note: '响应极慢，经常需一分钟以上；限流严格（40 次/分钟）；模型名请参考官方文档。',
+  },
+  {
+    id: 'amd-radeon-cloud',
+    name: 'AMD 开发者计划（Radeon Cloud Token Factory）',
+    category: ['chat', 'image'],
+    baseUrl: '',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://developer.amd.com/',
+    note: '登录后进入 Radeon Cloud Token Factory 控制台，在 API Keys 页面创建；Base URL 由控制台提供，请复制填入。每日 $1 等值额度（北京时间早 8 点重置）；限流严格，响应极慢；免费模型包括 DeepSeek、Qwen 等。',
+  },
+];
+
+export const API_PROTOCOL_PRESETS = [
+  {
+    id: 'openai',
+    name: 'OpenAI 兼容协议',
+    protocol: 'openai',
+    baseUrl: '',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    note: '标准 /v1/chat/completions，Bearer 鉴权。',
+    disabled: false,
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic（Claude）协议',
+    protocol: 'anthropic',
+    baseUrl: '',
+    auth: { header: 'x-api-key', prefix: '' },
+    note: '实验性，暂未开放。端点与请求格式与 OpenAI 不同，后续版本支持。',
+    disabled: true,
+  },
+  {
+    id: 'relay',
+    name: '第三方中转站（自定义）',
+    protocol: 'openai',
+    baseUrl: '',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    note: '自行填写中转服务地址与密钥，风险自负。',
+    disabled: false,
+  },
+];
+
+export const THIRD_PARTY_RELAY_RISK = [
+  '本 App 支持连接任意 OpenAI 兼容协议的中转服务。如果你有需要，可以在网上自行搜索相关信息，但请自行甄别服务商的合规性、稳定性和数据安全。',
+  '强烈建议优先使用上方推荐的官方直连平台（如 DeepSeek、魔搭、ai.gitee 等），避免使用来源不明的中转服务。',
+  '1. 数据安全：部分中转站可能存在非法倒卖用户数据、植入后门、监控用户设备等问题。使用中转服务时，请避免输入敏感或隐私信息。',
+  '2. 模型缩水：部分中转站可能会用低质量模型冒充高质量模型，以次充好。',
+  '3. 合规风险：涉及境外模型的传输，可能未取得数据出境资质，存在合规风险。',
+  '4. 服务稳定性：中转站随时可能因上游封号、资金链断裂或监管原因停服，请做好随时更换的准备。',
+  '本 App 不对任何第三方中转服务的安全性、合规性及稳定性做任何背书。你使用任何第三方服务，均属于个人自主选择，需自行承担相应风险。',
+];
+
+export function getChatApiVendor(id) {
+  return CHAT_API_VENDORS.find(item => item.id === id) || null;
+}

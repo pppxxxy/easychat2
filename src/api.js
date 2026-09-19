@@ -107,8 +107,20 @@ export async function sendChatMessage(messages, options = {}) {
   if (!config.apiKey) {
     throw new Error('请先在“设置”里填写 API Key。');
   }
-
+  if (!String(config.baseUrl || '').trim()) {
+    throw new Error('请先在“设置 → API 配置”里填写 API 地址。');
+  }
   const model = getActiveModel(config);
+  const hasModel = (Array.isArray(config.models) && config.models.length > 0)
+    || String(config.activeModel || '').trim()
+    || String(config.model || '').trim();
+  if (!hasModel) {
+    throw new Error('请先在“设置 → API 配置”里添加并选择模型。');
+  }
+  if (config.protocol === 'anthropic') {
+    throw new Error('Claude 协议暂未开放，请在「设置 → API 配置」改用 OpenAI 兼容协议。');
+  }
+
   const url = normalizeChatUrl(config.baseUrl);
   const thinkingSettings = await getThinkingSettings().catch(() => null);
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
@@ -221,7 +233,9 @@ export async function sendChatMessage(messages, options = {}) {
     xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'text/event-stream');
-    xhr.setRequestHeader('Authorization', `Bearer ${config.apiKey}`);
+    const authHeader = String(config.authHeader || 'Authorization');
+    const authScheme = config.authScheme === undefined ? 'Bearer ' : String(config.authScheme);
+    xhr.setRequestHeader(authHeader, `${authScheme}${config.apiKey}`);
 
     if (signal) {
       const onAbortSignal = () => {

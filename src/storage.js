@@ -286,19 +286,26 @@ function makeApiConfigId() {
 function normalizeApiConfig(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const legacyModel = String(source.model || source.activeModel || DEFAULT_API_CONFIG.model);
-  const rawModels = Array.isArray(source.models)
+  const providedModels = Array.isArray(source.models)
     ? source.models.map(item => String(item || '').trim()).filter(Boolean)
-    : [];
-  const models = rawModels.length ? rawModels : [legacyModel];
+    : null;
+  const models = providedModels !== null ? providedModels : [legacyModel];
   const requestedActive = String(source.activeModel || '');
   const activeModel = models.includes(requestedActive)
     ? requestedActive
-    : (models.includes(legacyModel) ? legacyModel : models[0]);
+    : (models.includes(legacyModel) ? legacyModel : (models[0] || ''));
   return {
     id: String(source.id || `cfg-${index}`),
     name: String(source.name || `配置 ${index + 1}`),
-    baseUrl: String(source.baseUrl || DEFAULT_API_CONFIG.baseUrl),
+    baseUrl: typeof source.baseUrl === 'string' ? source.baseUrl : DEFAULT_API_CONFIG.baseUrl,
     apiKey: String(source.apiKey || ''),
+    vendorId: String(source.vendorId || ''),
+    protocol: source.protocol === 'anthropic' ? 'anthropic' : 'openai',
+    authHeader: String(source.authHeader || 'Authorization'),
+    authScheme: source.authScheme === undefined || source.authScheme === null
+      ? 'Bearer '
+      : String(source.authScheme),
+    apiKeyUrl: String(source.apiKeyUrl || ''),
     models,
     activeModel,
     supportsThinking: source.supportsThinking === true,
