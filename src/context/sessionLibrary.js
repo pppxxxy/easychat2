@@ -37,6 +37,7 @@ export function normalizeSession(raw, index = 0) {
       ? source.members.map(String).filter(Boolean)
       : [],
     memberProfiles: type === 'group' ? normalizeMemberProfiles(source.memberProfiles) : {},
+    groupMode: type === 'group' ? (source.groupMode === 'turn' ? 'turn' : 'ensemble') : '',
     name: String(source.name || ''),
     preview: String(source.preview || ''),
     pinned: source.pinned === true,
@@ -90,6 +91,7 @@ export function createEmptySession(characterId, sessions, now = Date.now()) {
     characterId: String(characterId || ''),
     members: [],
     memberProfiles: {},
+    groupMode: '',
     name: '',
     preview: '',
     pinned: false,
@@ -109,6 +111,7 @@ export function createGroupSession(members, name, sessions, now = Date.now()) {
     characterId: '',
     members: ids,
     memberProfiles: {},
+    groupMode: 'ensemble',
     name: String(name || ''),
     preview: '',
     pinned: false,

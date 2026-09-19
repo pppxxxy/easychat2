@@ -54,7 +54,7 @@
 - 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
-- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
+- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -500,9 +500,12 @@ data: [DONE]
 | `generateMemberProfile(character)` | 基于完整角色卡调用 LLM 生成 1-2 行第三人称人设卡，失败返回 `null` |
 | `ensureMemberProfiles({ characters, profiles })` | 对简介不足且无缓存的成员生成人设卡，返回新 `profiles`（不重复生成） |
 | `buildGroupContext({ speaker, characters, historyMessages, profiles })` | 构造 `[群聊情境]` 文本：多人群聊说明、在场成员名单（含简介与最近发言）、最近对话 |
-| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote, summaryText, pluginContext, profiles })` | 以发言角色卡设定构造请求，注入群聊情境并透传引用信息 |
+| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote, summaryText, pluginContext, profiles })` | 逐角色模式：以发言角色卡设定构造请求，注入群聊情境并透传引用信息 |
+| `buildEnsemblePrompt({ characters, historyMessages, userText, userProfile, globalPresets, profiles, mentions })` | 群像卡模式：合并全部成员设定为单次调用的提示词，要求按「角色名：」分段并由模型决定发言者与篇幅；`mentions` 注入点名 |
+| `parseEnsembleReply(text, characters)` | 解析「角色名：内容」为发言段 `[{ speakerId, speakerName, text }]`，兼容空行、半角冒号、星号包裹、未知角色与多行内容 |
+| `mergeAdjacentSegments(segments)` | 合并同一发言者的连续段，丢弃空文本段 |
 
-**常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`。
+**常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`、`ENSEMBLE_MODE = 'ensemble'`、`TURN_MODE = 'turn'`。
 
 ### 附件接口
 **位置**: `src/attachments.js`
@@ -708,6 +711,7 @@ data: [DONE]
 | `characterId` | `string` | 单聊所属角色 `id`；群聊为空串 |
 | `members` | `string[]` | 群聊成员角色 `id` 列表；单聊为空数组 |
 | `memberProfiles` | `{[characterId]: string}` | 群聊成员人设卡缓存（简介不足时懒生成）；单聊为 `{}` |
+| `groupMode` | `'ensemble' \| 'turn' \| ''` | 群聊发言模式：`ensemble` 群像卡单次生成（缺省），`turn` 逐角色模式；单聊为空串 |
 | `name` | `string` | 群聊名称；单聊为空串 |
 | `preview` | `string` | 最后一条可读消息的摘要，最长 60 字 |
 | `pinned` | `boolean` | 是否置顶 |

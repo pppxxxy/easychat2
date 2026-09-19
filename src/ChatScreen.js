@@ -45,9 +45,13 @@ import { useApp } from './context/AppContext';
 import CharacterEditForm from './CharacterEditForm';
 import DisclaimerModal from './disclaimer';
 import {
+  buildEnsemblePrompt,
   buildGroupRequest,
+  ENSEMBLE_MODE,
   ensureMemberProfiles,
   generateOpening,
+  mergeAdjacentSegments,
+  parseEnsembleReply,
   parseMentions,
   selectSpeakers,
 } from './groupChat';
@@ -1646,72 +1650,160 @@ export default function ChatScreen() {
         }
       } catch (error) {}
       const mentions = parseMentions(userText, members);
-      const speakerIds = await selectSpeakers({
-        characters: members,
-        history: historyMessages,
-        userText,
-        mentions,
-      });
       let working = baseMessages;
-      for (const speakerId of speakerIds) {
-        if (!isCurrent() || controller.signal.aborted) break;
-        const speaker = members.find(item => item.id === speakerId);
-        if (!speaker) continue;
-        const pendingMessage = {
-          id: `${Date.now()}-${speakerId}-assistant`,
-          role: ASSISTANT_ID,
-          text: THINKING_PLACEHOLDER,
-          pending: true,
-          waitingForResponse: true,
-          speakerId,
-          speakerName: speaker.name,
-        };
-        const roundHistory = working.filter(
+
+      const runTurnSpeakers = async () => {
+        const speakerIds = await selectSpeakers({
+          characters: members,
+          history: historyMessages,
+          userText,
+          mentions,
+        });
+        for (const speakerId of speakerIds) {
+          if (!isCurrent() || controller.signal.aborted) break;
+          const speaker = members.find(item => item.id === speakerId);
+          if (!speaker) continue;
+          const pendingMessage = {
+            id: `${Date.now()}-${speakerId}-assistant`,
+            role: ASSISTANT_ID,
+            text: THINKING_PLACEHOLDER,
+            pending: true,
+            waitingForResponse: true,
+            speakerId,
+            speakerName: speaker.name,
+          };
+          const roundHistory = working.filter(
+            (item, index) => item
+              && !item.pending
+              && (item.role === USER_ID || item.role === ASSISTANT_ID)
+              && index < baseMessages.length - 1
+          );
+          working = [...working, pendingMessage];
+          setMessages(working);
+          scrollToBottom();
+          try {
+            const requestMessages = buildGroupRequest({
+              speaker,
+              characters: members,
+              historyMessages: roundHistory,
+              userText,
+              userProfile,
+              globalPresets,
+              quote,
+              profiles: memberProfiles,
+            });
+            const reply = await sendChatMessage(requestMessages, {
+              signal: controller.signal,
+              stream: chatOptions.stream,
+            });
+            if (!isCurrent()) return;
+            working = working.map(item => (
+              item.id === pendingMessage.id
+                ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
+                : item
+            ));
+            setMessages(working);
+          } catch (error) {
+            if (isCanceledError(error)) break;
+            if (!isCurrent()) return;
+            working = working.map(item => (
+              item.id === pendingMessage.id
+                ? {
+                  ...item,
+                  text: `${speaker.name} 本次回复失败`,
+                  pending: false,
+                  waitingForResponse: false,
+                }
+                : item
+            ));
+            setMessages(working);
+          }
+        }
+      };
+
+      const runEnsemble = async () => {
+        const historyForPrompt = working.filter(
           (item, index) => item
             && !item.pending
             && (item.role === USER_ID || item.role === ASSISTANT_ID)
             && index < baseMessages.length - 1
         );
+        const requestMessages = buildEnsemblePrompt({
+          characters: members,
+          historyMessages: historyForPrompt,
+          userText,
+          userProfile,
+          globalPresets,
+          profiles: memberProfiles,
+          mentions,
+        });
+        if (requestMessages.length === 0) return false;
+        const pendingMessage = {
+          id: `${Date.now()}-ensemble-assistant`,
+          role: ASSISTANT_ID,
+          text: THINKING_PLACEHOLDER,
+          pending: true,
+          waitingForResponse: true,
+          speakerName: '',
+        };
         working = [...working, pendingMessage];
         setMessages(working);
         scrollToBottom();
+        let reply = '';
         try {
-          const requestMessages = buildGroupRequest({
-            speaker,
-            characters: members,
-            historyMessages: roundHistory,
-            userText,
-            userProfile,
-            globalPresets,
-            quote,
-            profiles: memberProfiles,
-          });
-          const reply = await sendChatMessage(requestMessages, {
+          reply = await sendChatMessage(requestMessages, {
             signal: controller.signal,
             stream: chatOptions.stream,
+            onChunk: fullText => {
+              if (!isCurrent() || controller.signal.aborted) return;
+              setMessages(current => current.map(item => (
+                item.id === pendingMessage.id
+                  ? { ...item, text: fullText, waitingForResponse: false }
+                  : item
+              )));
+            },
           });
-          if (!isCurrent()) return;
-          working = working.map(item => (
-            item.id === pendingMessage.id
-              ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
-              : item
-          ));
-          setMessages(working);
         } catch (error) {
-          if (isCanceledError(error)) break;
-          if (!isCurrent()) return;
-          working = working.map(item => (
-            item.id === pendingMessage.id
-              ? {
-                ...item,
-                text: `${speaker.name} 本次回复失败`,
-                pending: false,
-                waitingForResponse: false,
-              }
-              : item
-          ));
-          setMessages(working);
+          if (isCanceledError(error)) throw error;
+          working = working.filter(item => item.id !== pendingMessage.id);
+          if (isCurrent()) setMessages(working);
+          return false;
         }
+        if (!isCurrent()) return true;
+        const segments = mergeAdjacentSegments(parseEnsembleReply(reply, members));
+        if (segments.length === 0) {
+          // 回退：移除临时消息后交给逐角色模式
+          working = working.filter(item => item.id !== pendingMessage.id);
+          setMessages(working);
+          return false;
+        }
+        working = working.filter(item => item.id !== pendingMessage.id);
+        segments.forEach((segment, index) => {
+          working = [...working, {
+            id: `${Date.now()}-ensemble-${index}-assistant`,
+            role: ASSISTANT_ID,
+            text: segment.text,
+            speakerId: segment.speakerId || undefined,
+            speakerName: segment.speakerName || '',
+          }];
+        });
+        setMessages(working);
+        scrollToBottom();
+        return true;
+      };
+
+      const groupMode = activeSessionRef.current?.groupMode || ENSEMBLE_MODE;
+      let handled = false;
+      if (groupMode !== 'turn') {
+        try {
+          handled = await runEnsemble();
+        } catch (error) {
+          if (isCanceledError(error)) return;
+          handled = false;
+        }
+      }
+      if (!handled) {
+        await runTurnSpeakers();
       }
     } catch (error) {
       if (isCurrent()) {
