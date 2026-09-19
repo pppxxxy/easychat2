@@ -332,7 +332,7 @@
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
-| `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }` |
+| `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }`（`pink` 显示为「蜜桃」、`crimson` 显示为「薰衣草」） |
 
 **默认 API 配置**:
 
