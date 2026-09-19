@@ -38,6 +38,8 @@ export const IMAGE_PROVIDERS = [
     keyHint: '以 AIza 开头；需在 Google Cloud Console 设置 Referrer 限制，否则可能 403。',
     cors: 'blocked',
     corsNote: '默认不支持浏览器跨域直连，纯网页环境可能需自建代理。',
+    networkNote: '中国大陆需使用境外代理（推荐美/日/新），香港节点不可用，否则会报 403 或区域限制错误。',
+    apiKeyUrl: 'https://aistudio.google.com/apikey',
   },
   {
     id: 'openrouter',
@@ -70,6 +72,8 @@ export const IMAGE_PROVIDERS = [
     keyHint: '以 sk-or- 开头；建议在 OpenRouter 仪表盘设置用量上限。',
     cors: 'ok',
     corsNote: '支持浏览器跨域直连。',
+    networkNote: '海外的部分模型需要代理，若连接失败请尝试切换代理节点。',
+    apiKeyUrl: 'https://openrouter.ai/settings/keys',
   },
   {
     id: 'stability-ai',
@@ -94,6 +98,8 @@ export const IMAGE_PROVIDERS = [
     keyHint: '以 sk- 开头；不同生成端点参数不同。',
     cors: 'ok',
     corsNote: '官方声明支持浏览器跨域直连。',
+    networkNote: '中国大陆访问需使用代理，建议优先测试控制台和 API 的连通性。',
+    apiKeyUrl: 'https://platform.stability.ai/',
   },
   {
     id: 'gitee-ai',
@@ -147,6 +153,7 @@ export const IMAGE_PROVIDERS = [
     keyHint: '30-60 位无前缀字母数字字符串；建议使用临时令牌。',
     cors: 'warn',
     corsNote: '技术上可直连，官方建议用后端代理。',
+    apiKeyUrl: 'https://ai.gitee.com/dashboard/tokens',
   },
   {
     id: 'agnes-ai',
@@ -175,6 +182,7 @@ export const IMAGE_PROVIDERS = [
     keyHint: 'Bearer Token 格式；官方建议使用临时 Key 或设置用量限制。',
     cors: 'warn',
     corsNote: 'CORS 需服务端白名单，默认可能不开启；建议先用「检测」验证。',
+    apiKeyUrl: 'https://platform.agnes-ai.com/',
   },
   {
     id: 'openai-relay',
@@ -204,9 +212,10 @@ export const IMAGE_PROVIDERS = [
     timeoutMs: 120000,
     retries: 1,
     extraDefaults: { response_format: 'b64_json' },
-    keyHint: '由中转站决定；地址请填到 /v1/images/generations 完整路径，否则图生图的端点替换与模型列表探测无法生效；不确定时先用「检测」验证连通性。',
+    keyHint: '由中转站决定；地址请填到 /v1/images/generations 完整路径，否则图生图的端点替换与模型列表探测无法生效；API Key 请从你选择的中转站后台获取；不确定时先用「检测」验证连通性。',
     cors: 'unknown',
     corsNote: '取决于中转站配置；图生图按 /v1/images/edits 的 multipart 约定发送，部分中转站可能不支持。',
+    networkNote: '连通性由中转站决定，请使用「检测」功能验证，若失败请检查中转站状态或更换地址。',
     custom: true,
   },
 ];

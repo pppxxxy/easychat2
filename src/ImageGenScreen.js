@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -150,6 +151,23 @@ export default function ImageGenScreen({ embedded = false }) {
       if (mountedRef.current) setDetecting(false);
     }
   }, [detecting, draftApiKey, draftBaseUrl, draftModel, prompt, provider]);
+
+  const openApiKeyUrl = useCallback(async () => {
+    if (!provider.apiKeyUrl) {
+      Alert.alert('获取 API Key', provider.keyHint || '请从服务提供方后台获取 API Key。');
+      return;
+    }
+    try {
+      const canOpen = await Linking.canOpenURL(provider.apiKeyUrl);
+      if (!canOpen) {
+        Alert.alert('无法打开链接', provider.apiKeyUrl);
+        return;
+      }
+      await Linking.openURL(provider.apiKeyUrl);
+    } catch (error) {
+      Alert.alert('无法打开链接', provider.apiKeyUrl);
+    }
+  }, [provider.apiKeyUrl, provider.keyHint]);
 
   const confirmSettings = useCallback(async () => {
     let extra = {};
@@ -325,6 +343,12 @@ export default function ImageGenScreen({ embedded = false }) {
           <Text style={styles.selectButtonText}>{provider.label}</Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
+        {provider.networkNote ? (
+          <View style={styles.networkNoteRow}>
+            <Ionicons name="globe-outline" size={14} color={theme.colors.textMuted} />
+            <Text style={styles.networkNoteText}>{provider.networkNote}</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.label}>模型</Text>
         <TouchableOpacity
@@ -521,6 +545,14 @@ export default function ImageGenScreen({ embedded = false }) {
               placeholder="sk-..."
               placeholderTextColor={theme.colors.textFaint}
             />
+            <TouchableOpacity
+              style={[styles.selectButton, styles.apiKeyButton]}
+              onPress={openApiKeyUrl}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
+              <Text style={styles.selectButtonText}>获取 API Key</Text>
+            </TouchableOpacity>
             <Text style={styles.label}>模型名（可用逗号或换行分隔多个）</Text>
             <TextInput
               style={styles.input}
@@ -620,6 +652,21 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginTop: 10,
     borderWidth: 1,
     borderColor: theme.colors.surfaceBorder,
+  },
+  apiKeyButton: {
+    justifyContent: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    gap: 6,
+  },
+  networkNoteRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8, paddingHorizontal: 2 },
+  networkNoteText: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(12),
+    marginLeft: 6,
+    flex: 1,
+    lineHeight: fonts.scaled(17),
   },
   selectButtonText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
   placeholderText: { color: theme.colors.textFaint },
