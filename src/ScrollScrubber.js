@@ -32,23 +32,27 @@ export default function ScrollScrubber({
   onToEnd,
 }) {
   const [ratio, setRatio] = useState(0);
-  const [trackHeight, setTrackHeight] = useState(0);
   const [dragging, setDragging] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
   const previewIndexRef = useRef(-1);
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const trackHeightRef = useRef(0);
-  const ratioRef = useRef(0);
   const messageCountRef = useRef(messageCount);
   const onSeekRef = useRef(onSeek);
+  const gestureStartRatioRef = useRef(0);
   messageCountRef.current = messageCount;
   onSeekRef.current = onSeek;
 
-  const applyY = y => {
-    const usable = Math.max(1, trackHeightRef.current - THUMB_HEIGHT);
-    const next = Math.min(1, Math.max(0, (y - THUMB_HEIGHT / 2) / usable));
-    ratioRef.current = next;
+  const usableHeight = () => Math.max(1, trackHeightRef.current - THUMB_HEIGHT);
+
+  const ratioFromY = y => {
+    const usable = usableHeight();
+    return Math.min(1, Math.max(0, (y - THUMB_HEIGHT / 2) / usable));
+  };
+
+  const applyRatio = next => {
+    const usable = usableHeight();
     translateY.setValue(next * usable);
     const count = messageCountRef.current;
     const index = indexFromRatio(next, count);
@@ -65,13 +69,20 @@ export default function ScrollScrubber({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: event => {
         setDragging(true);
-        applyY(event.nativeEvent.locationY);
+        // 按下位置的 locationY 相对轨道视图，是可靠的；用它作为拖拽起点。
+        const start = ratioFromY(event.nativeEvent.locationY);
+        gestureStartRatioRef.current = start;
+        applyRatio(start);
       },
-      onPanResponderMove: event => {
-        applyY(event.nativeEvent.locationY);
+      onPanResponderMove: (_event, gestureState) => {
+        // 移动过程中不能用 locationY：手指越过滑块后它变成相对滑块的坐标，
+        // 会导致滑块来回跳到顶部。改用累计位移 dy 叠加起始比例。
+        const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
+        applyRatio(next);
       },
-      onPanResponderRelease: event => {
-        const next = applyY(event.nativeEvent.locationY);
+      onPanResponderRelease: (_event, gestureState) => {
+        const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
+        applyRatio(next);
         setDragging(false);
         const count = messageCountRef.current;
         if (count > 0) {
@@ -112,13 +123,14 @@ export default function ScrollScrubber({
           <View
             style={styles.track}
             onLayout={event => {
-              const height = event.nativeEvent.layout.height;
-              trackHeightRef.current = height;
-              setTrackHeight(height);
+              trackHeightRef.current = event.nativeEvent.layout.height;
             }}
             {...panResponder.panHandlers}
           >
-            <Animated.View style={[styles.thumb, { transform: [{ translateY }] }]} />
+            <Animated.View
+              style={[styles.thumb, { transform: [{ translateY }] }]}
+              pointerEvents="none"
+            />
           </View>
 
           <TouchableOpacity
