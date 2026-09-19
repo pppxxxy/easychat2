@@ -541,7 +541,7 @@ data: [DONE]
 
 | 导出 | 说明 |
 |------|------|
-| `GAMES` | `[{ id, name, description, html }]`，内置 `guess-number`、`snake`、`breakout` |
+| `GAMES` | `[{ id, name, description, html }]`，内置 `guess-number`、`snake`、`breakout`、`snake-battle`、`thunder-fighter` |
 | `getGame(id)` | 按 id 取游戏，未命中返回 `null` |
 
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
