@@ -61,6 +61,7 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
+import { hideVariantStatusBar, toSpeechText } from './speechText';
 import {
   createGroupSession,
   getApiConfigs,
@@ -253,16 +254,7 @@ const regexDomVisitors = {
   },
 };
 
-const VARIANT_STATUS_BAR_PATTERN =
-  /(^|\r?\n)[\t ]*【数值状态栏】[\t ]*\r?\n[\t ]*好感度[：:][\t ]*\d+\/200[\t ]*\r?\n[\t ]*心情[：:][\t ]*\d+\/100[\t ]*\r?\n[\t ]*友情[：:][\t ]*\d+\/100[\t ]*(?=\r?\n|$)/g;
-const VARIANT_STATUS_LINE_PATTERN =
-  /(^|\r?\n)[\t ]*(?:【触碰度】[^\r\n]*|【特殊】[^\r\n]*|(?:心情|友情)[：:][\t ]*\d+\/100[\t ]*)(?=\r?\n|$)/g;
 
-function hideVariantStatusBar(text) {
-  return String(text ?? '')
-    .replace(VARIANT_STATUS_BAR_PATTERN, '$1')
-    .replace(VARIANT_STATUS_LINE_PATTERN, '$1');
-}
 
 const customHTMLElementModels = {
   time: HTMLElementModel.fromCustomModel({ tagName: 'time', contentModel: HTMLContentModel.textual }),
@@ -442,7 +434,7 @@ function renderHighlightedText(text, keyword, styles) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, onNudge, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, onNudge, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
@@ -681,7 +673,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, characterName
             {!isUser && onBroadcast ? (
               <TouchableOpacity
                 style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-                onPress={() => onBroadcast(message.text)}
+                onPress={() => onBroadcast(rawText != null ? rawText : message.text)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.messageActionText}>播报</Text>
@@ -908,6 +900,13 @@ export default function ChatScreen() {
     () => JSON.stringify(persistableMessages),
     [persistableMessages]
   );
+  const rawTextById = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(messages) ? messages : []).forEach(message => {
+      if (message && message.id) map.set(message.id, String(message.text ?? ''));
+    });
+    return map;
+  }, [messages]);
   const renderedMessages = useMemo(
     () => messages.map((message, index) => {
       if (!message) return message;
@@ -1941,10 +1940,12 @@ export default function ChatScreen() {
   const broadcastMessage = useCallback(async text => {
     const settings = ttsRef.current;
     if (!settings || !settings.enabled) return;
+    const content = toSpeechText(text);
+    if (!content) return;
     const provider = getTtsProvider(settings.activeProvider);
     const config = (settings.providers && settings.providers[provider.id]) || {};
     try {
-      await ttsSpeak({ provider, config, text });
+      await ttsSpeak({ provider, config, text: content });
     } catch (error) {
       Alert.alert('播报失败', (error && error.message) || '请稍后重试。');
     }
@@ -2327,6 +2328,7 @@ export default function ChatScreen() {
                 ) : (
                   <MessageBubble
                     message={message}
+                    rawText={rawTextById.get(message.id)}
                     characterName={(speaker && speaker.name) || message.speakerName || character.name}
                     characterAvatar={
                       speaker
