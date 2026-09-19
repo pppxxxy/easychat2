@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -449,6 +449,8 @@ export default function CharacterScreen() {
     deleteCharacters,
     refreshSessions,
     sessions,
+    activeSessionId,
+    switchSession,
     deleteSessions,
   } = useApp();
   const navigation = useNavigation();
@@ -841,6 +843,43 @@ export default function CharacterScreen() {
     });
   }, [characters, query]);
 
+  const activeIsGroup = useMemo(
+    () => (Array.isArray(sessions) ? sessions : []).some(
+      item => item && item.id === activeSessionId && item.type === 'group'
+    ),
+    [sessions, activeSessionId]
+  );
+
+  const characterMap = useMemo(() => {
+    const map = new Map();
+    characters.forEach(item => map.set(item.id, item));
+    return map;
+  }, [characters]);
+
+  const groupNameOf = useCallback(session => {
+    const names = (session.members || [])
+      .map(id => (characterMap.get(id) || {}).name)
+      .filter(Boolean);
+    return String(session.name || '').trim() || names.join('、') || '群聊';
+  }, [characterMap]);
+
+  const visibleGroups = useMemo(() => {
+    const list = (Array.isArray(sessions) ? sessions : []).filter(
+      item => item && item.type === 'group'
+    );
+    const text = query.trim().toLowerCase();
+    if (!text) return list;
+    return list.filter(item => groupNameOf(item).toLowerCase().includes(text));
+  }, [sessions, query, groupNameOf]);
+
+  const onOpenGroup = useCallback(group => {
+    switchSession(group.id)
+      .then(() => navigation.navigate('聊天'))
+      .catch(() => {
+        Alert.alert('切换失败', '请检查存储空间或权限。');
+      });
+  }, [switchSession, navigation]);
+
   const toggleEditMode = () => {
     setEditMode(current => {
       if (current) setSelectedIds([]);
@@ -1142,12 +1181,12 @@ export default function CharacterScreen() {
             placeholder="搜索角色名或标签"
             placeholderTextColor={theme.colors.textFaint}
           />
-          {visibleCharacters.length === 0 ? (
+          {visibleCharacters.length === 0 && (editMode || visibleGroups.length === 0) ? (
             <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
           ) : null}
           <View style={styles.characterGrid}>
             {visibleCharacters.map(item => {
-              const selected = item.id === activeId;
+              const selected = !activeIsGroup && item.id === activeId;
               const checked = selectedIds.includes(item.id);
               return (
                 <TouchableOpacity
@@ -1217,6 +1256,45 @@ export default function CharacterScreen() {
                       ))}
                     </View>
                   ) : null}
+                </TouchableOpacity>
+              );
+            })}
+            {!editMode && visibleGroups.map(group => {
+              const selected = group.id === activeSessionId;
+              return (
+                <TouchableOpacity
+                  key={`group-${group.id}`}
+                  style={[styles.characterCard, selected && styles.characterCardActive]}
+                  onPress={() => onOpenGroup(group)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={`进入群聊 ${groupNameOf(group)}`}
+                  accessibilityState={{ selected }}
+                >
+                  <View style={styles.characterCardImageWrap}>
+                    {group.avatarUri ? (
+                      <Image source={{ uri: group.avatarUri }} style={styles.characterCardImage} />
+                    ) : (
+                      <View style={styles.characterCardFallback}>
+                        <Ionicons name="people" size={24} color={theme.colors.primarySoft} />
+                      </View>
+                    )}
+                    {selected ? (
+                      <View style={styles.characterCardBadge}>
+                        <Text style={styles.characterCardBadgeText}>当前</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.characterCardNameBar}>
+                    <Text style={styles.characterCardName} numberOfLines={1}>
+                      {groupNameOf(group)}
+                    </Text>
+                  </View>
+                  <View style={styles.characterCardTags}>
+                    <Text style={styles.characterCardTag} numberOfLines={1}>
+                      {`${(group.members || []).length} 人群聊`}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}

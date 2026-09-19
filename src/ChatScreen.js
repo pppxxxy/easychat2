@@ -774,6 +774,7 @@ export default function ChatScreen() {
     ensureCharacterSession,
     updateCharacter,
     refreshSessions,
+    switchSession,
     pendingTarget,
     consumePendingTarget,
   } = useApp();
@@ -805,6 +806,17 @@ export default function ChatScreen() {
   }, [activeSession, characterMap]);
   const groupCharactersRef = useRef(groupCharacters);
   groupCharactersRef.current = groupCharacters;
+  const groupSessions = useMemo(
+    () => (Array.isArray(sessions) ? sessions : []).filter(item => item && item.type === 'group'),
+    [sessions]
+  );
+  const groupSessionName = useCallback(session => {
+    const map = characterMap;
+    const memberNames = (session.members || [])
+      .map(id => (map.get(id) || {}).name)
+      .filter(Boolean);
+    return String(session.name || '').trim() || memberNames.join('、') || '群聊';
+  }, [characterMap]);
   const isGroupRef = useRef(isGroup);
   isGroupRef.current = isGroup;
   const summarizingRef = useRef(false);
@@ -862,7 +874,8 @@ export default function ChatScreen() {
 
   const onSwitch = useCallback(id => {
     setSwitcherOpen(false);
-    if (id === activeCharacterIdRef.current) return;
+    // 群聊会话下 activeCharacterIdRef 仍是上次单聊角色，此时点同一角色也要切回其会话。
+    if (id === activeCharacterIdRef.current && !isGroupRef.current) return;
     activeCharacterIdRef.current = id;
     if (abortRef.current) {
       abortRef.current.abort();
@@ -878,6 +891,21 @@ export default function ChatScreen() {
         Alert.alert('切换失败', '请检查存储空间或权限。');
       });
   }, [switchCharacter, ensureCharacterSession, characterId]);
+
+  const onSwitchGroup = useCallback(id => {
+    setSwitcherOpen(false);
+    if (id === activeSessionIdRef.current) return;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setIsSending(false);
+    setQuoteTarget(null);
+    setAttachments([]);
+    switchSession(id).catch(() => {
+      Alert.alert('切换失败', '请检查存储空间或权限。');
+    });
+  }, [switchSession]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -2229,11 +2257,11 @@ export default function ChatScreen() {
         <TouchableOpacity
           style={styles.characterChip}
           onPress={() => setSwitcherOpen(true)}
-          disabled={!loaded || isGroup}
+          disabled={!loaded}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={isGroup ? '群聊' : '切换角色'}
-          accessibilityState={{ disabled: !loaded || isGroup }}
+          accessibilityLabel={isGroup ? '切换群聊' : '切换角色'}
+          accessibilityState={{ disabled: !loaded }}
         >
           {isGroup ? (
             groupAvatarUri ? (
@@ -2253,9 +2281,7 @@ export default function ChatScreen() {
           <Text style={styles.characterName} numberOfLines={1}>
             {displayName}
           </Text>
-          {isGroup ? null : (
-            <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
-          )}
+          <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.noticeButton, (isSending || !ready) && styles.actionDisabled]}
@@ -2599,10 +2625,10 @@ export default function ChatScreen() {
           onPress={() => setSwitcherOpen(false)}
         >
           <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
-            <Text style={styles.modalTitle}>选择角色</Text>
+            <Text style={styles.modalTitle}>选择角色或群聊</Text>
             <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
               {characters.map(item => {
-                const selected = item.id === activeId;
+                const selected = !isGroup && item.id === activeId;
                 return (
                   <TouchableOpacity
                     key={item.id}
@@ -2624,6 +2650,37 @@ export default function ChatScreen() {
                       numberOfLines={1}
                     >
                       {item.name || '未命名角色'}
+                    </Text>
+                    {selected ? (
+                      <View style={styles.modalBadge}>
+                        <Ionicons name="checkmark" size={12} color={theme.colors.text} />
+                        <Text style={styles.modalBadgeText}>当前</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+              {groupSessions.map(item => {
+                const selected = item.id === activeSessionId;
+                return (
+                  <TouchableOpacity
+                    key={`group-${item.id}`}
+                    style={[styles.modalRow, selected && styles.modalRowActive]}
+                    onPress={() => onSwitchGroup(item.id)}
+                    activeOpacity={0.7}
+                  >
+                    {item.avatarUri ? (
+                      <Image source={{ uri: item.avatarUri }} style={styles.modalRowAvatar} />
+                    ) : (
+                      <View style={[styles.modalRowAvatarFallback, styles.modalRowGroupFallback]}>
+                        <Ionicons name="people" size={14} color={theme.colors.primarySoft} />
+                      </View>
+                    )}
+                    <Text
+                      style={[styles.modalRowText, selected && styles.modalRowTextActive]}
+                      numberOfLines={1}
+                    >
+                      {groupSessionName(item)}
                     </Text>
                     {selected ? (
                       <View style={styles.modalBadge}>
@@ -3257,6 +3314,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   modalRowAvatarText: { color: theme.colors.text, fontSize: 14, fontWeight: '800' },
+  modalRowGroupFallback: { backgroundColor: theme.colors.surfaceBorder },
   modalRowText: { color: theme.colors.textMuted, flex: 1, marginRight: 8 },
   modalRowTextActive: { color: theme.colors.text, fontWeight: '700' },
   modalBadge: {
