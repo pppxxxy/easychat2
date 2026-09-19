@@ -1122,8 +1122,10 @@ export default function ChatScreen() {
             abortRef.current = null;
           }
           setIsSending(false);
+          let step = 'init';
           try {
             if (isGroupRef.current && groupCharactersRef.current.length > 0) {
+              step = 'group';
               const current = sessionsRef.current.find(
                 item => item.id === activeSessionIdRef.current
               );
@@ -1132,8 +1134,10 @@ export default function ChatScreen() {
                 (current && current.name) || '群聊'
               );
             } else {
+              step = 'single';
               await startNewSession(activeCharacterIdRef.current);
             }
+            step = 'refresh';
             await refreshSessions();
             errorRawRef.current = {};
             sessionVersionRef.current += 1;
@@ -1146,6 +1150,9 @@ export default function ChatScreen() {
             setFocusedMessageId('');
             setSelectionText('');
           } catch (error) {
+            if (__DEV__) {
+              console.error('[onNewChat] failed at', step, error);
+            }
             Alert.alert('新建对话失败', '请稍后重试。');
           }
         },

@@ -1366,26 +1366,36 @@ async function readLegacyMessages(characterId) {
 
 export async function startNewSession(characterId) {
   const sessions = await getSessions();
-  const nonEmpty = [];
+  let nonEmpty = [];
   if (sessions.length > 0) {
-    const pairs = await AsyncStorage.multiGet(sessions.map(item => sessionMessagesKey(item.id)));
-    const persisted = new Map(
-      pairs.map(pair => {
-        const raw = pair[1];
-        let list = [];
-        try {
-          const parsed = raw ? JSON.parse(raw) : [];
-          list = Array.isArray(parsed) ? parsed.filter(item => item && !item.pending) : [];
-        } catch (error) {
-          list = [];
-        }
-        return [pair[0], list];
-      })
-    );
-    sessions.forEach(session => {
-      const messages = persisted.get(sessionMessagesKey(session.id)) || [];
-      if (messages.length > 0) nonEmpty.push(session);
-    });
+    try {
+      const pairs = await AsyncStorage.multiGet(sessions.map(item => sessionMessagesKey(item.id)));
+      const persisted = new Map(
+        pairs.map(pair => {
+          const raw = pair[1];
+          let list = [];
+          try {
+            const parsed = raw ? JSON.parse(raw) : [];
+            list = Array.isArray(parsed) ? parsed.filter(item => item && !item.pending) : [];
+          } catch (error) {
+            list = [];
+          }
+          return [pair[0], list];
+        })
+      );
+      sessions.forEach(session => {
+        const messages = persisted.get(sessionMessagesKey(session.id)) || [];
+        if (messages.length > 0) nonEmpty.push(session);
+      });
+    } catch (error) {
+      // Reading every session's message body can fail on device (e.g. an oversized
+      // value hitting the Android cursor window). Fall back to keeping all sessions
+      // instead of failing the whole new-conversation action.
+      if (__DEV__) {
+        console.warn('[startNewSession] message scan failed, keeping all sessions', error);
+      }
+      nonEmpty = sessions;
+    }
   }
   const created = createEmptySession(characterId, nonEmpty);
   const next = sortSessions([...nonEmpty, created]);

@@ -270,7 +270,7 @@
 | `setActiveSessionId` | `(id) => Promise<void>` | 写入当前会话 `id` |
 | `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
 | `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
-| `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前 |
+| `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前；读取各会话消息判断有无内容失败时（如超大值触发 Android cursor window）降级为保留全部会话而不报错 |
 | `createGroupSession` | `(members, name, extras?) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前；`extras` 可带 `avatarUri`/`bgUri` |
 | `updateSessionInfo` | `(sessionId, patch) => Promise<Session\|null>` | 更新群聊名称/头像/背景；非群聊返回目标且不改动 |
 | `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
