@@ -11,6 +11,9 @@ const IMAGES = {
   'chat-ui': require('../../assets/onboarding/chat-ui.jpg'),
   'chat-ui-menu': require('../../assets/onboarding/chat-ui-menu.jpg'),
   'chat-ui-empty': require('../../assets/onboarding/chat-ui-empty.jpg'),
+  'character-card': require('../../assets/onboarding/character-card.jpg'),
+  'character-edit': require('../../assets/onboarding/character-edit.jpg'),
+  memory: require('../../assets/onboarding/memory.jpg'),
 };
 
 export function getOnboardingImage(key) {
