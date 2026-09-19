@@ -80,7 +80,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `PresetPanel`（默认导出）
 **位置**: `src/PresetPanel.js`
@@ -255,7 +255,15 @@
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedId?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedId` 存在时移除其消息键 |
-| `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入用户人设（用户名、人设、头像路径） |
+| `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入当前人设（用户名、人设）+ 全局头像与拍一拍文案 |
+| `getPersonas` | `() => Promise<Persona[]>` | 读取人设列表；为空时把旧 `@easychat2_user_profile` 迁移为 `default` 一项并写入 |
+| `savePersonas` | `(list) => Promise<Persona[]>` | 规范化并写入人设列表（空列表补默认人设） |
+| `getActivePersonaId` | `(list?) => Promise<string>` | 读取当前人设 id；不存在或非法时回退列表首项 |
+| `setActivePersonaId` | `(id) => Promise<string>` | 写入当前人设 id；非法 id 回退列表首项 |
+| `getActivePersona` | `() => Promise<Persona>` | 返回当前人设对象 |
+| `createPersona` | `(partial?) => Promise<Persona>` | 新建人设并设为当前 |
+| `updatePersona` | `(id, patch) => Promise<Persona>` | 更新指定人设的名称/描述 |
+| `deletePersona` | `(id) => Promise<{ personas, activeId }>` | 删除人设；少于 1 个抛错，删除当前时切到剩余首项 |
 | `getGlobalPresets` | `() => Promise<Preset[]>` | 读取预设列表；键缺失时由内置预设播种 |
 | `saveGlobalPresets` | `(presets) => Promise<Preset[]>` | 校验并写入预设列表（ID/名称/提示词非空、ID 不重复） |
 | `createGlobalPresetId` | `(presets) => Promise<string>` | 生成未与列表及开关键冲突的预设 `id` |
@@ -287,7 +295,9 @@
 | `@easychat2_messages::<sessionId>` | 会话消息数组（新数据按会话 id 存储） |
 | `@easychat2_messages::<characterId>` | 旧版按角色存储的消息（仅迁移读取） |
 | `@easychat2_messages` | 旧版单会话消息（仅默认角色迁移读取时兜底） |
-| `@easychat2_user_profile` | 用户人设 `{ userName, persona, avatarUri }` |
+| `@easychat2_user_profile` | 用户全局资料 `{ avatarUri, nudgeText }`（并作为旧单人设的迁移来源，兼容读取 `userName`/`persona`） |
+| `@easychat2_personas` | 用户人设列表 `[{ id, userName, persona, createdAt, updatedAt }]` |
+| `@easychat2_active_persona` | 当前人设 `id` |
 | `@easychat2_preset_list` | 全局预设数组 |
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
@@ -626,6 +636,17 @@ data: [DONE]
 | `pending` | `boolean?` | 占位消息标记，为真时不持久化 |
 
 流式回复期间，助手消息的 `pending` 保持为真、`text` 随每个增量片段实时覆盖；流正常结束时 `pending` 置为假，随后才进入持久化，确保「正在思考…」不会落盘。若请求在流中途失败且已收到部分文本，则把该部分文本转为已完成助手消息予以保留，并额外追加一条 `system-error` 消息（`id` 为助手占位 `id` 加后缀 `-error`）；若失败时仍无任何文本，则占位直接替换为 `system-error`。
+
+### `Persona`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 人设标识；迁移生成的为 `default`，新建为 `persona-<base36 时间戳>-<随机>` |
+| `userName` | `string` | 人设名称（注入 `{{user}}`） |
+| `persona` | `string` | 人设描述文本 |
+| `createdAt` / `updatedAt` | `number` | 创建与更新时间戳 |
+
+头像与拍一拍文案为全局共用，存于 `@easychat2_user_profile`，不随人设切换。
 
 ### `Session`
 

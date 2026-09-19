@@ -37,6 +37,12 @@ import {
   getThinkingSettings,
   getSamplingSettings,
   getUserProfile,
+  getPersonas,
+  getActivePersonaId,
+  createPersona,
+  updatePersona,
+  deletePersona,
+  setActivePersonaId,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
@@ -64,6 +70,8 @@ export default function SettingsScreen() {
   const [nudgeDefault, setNudgeDefault] = useState('');
   const [userAvatarUri, setUserAvatarUri] = useState('');
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
+  const [personas, setPersonas] = useState([]);
+  const [activePersonaId, setActivePersonaIdState] = useState('');
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
@@ -294,6 +302,13 @@ export default function SettingsScreen() {
       .catch(() => {
         if (apiMountedRef.current) Alert.alert('读取配置失败', '请重新打开应用后重试。');
       });
+    getPersonas()
+      .then(list => {
+        setPersonas(list);
+        return getActivePersonaId(list);
+      })
+      .then(id => setActivePersonaIdState(id))
+      .catch(() => {});
     getUserProfile()
       .then(profile => {
         setUserName(profile.userName);
@@ -344,6 +359,63 @@ export default function SettingsScreen() {
     setUserAvatarUri(avatarUri);
     const profile = profileStateRef.current;
     saveUserProfileDelayed(profile.userName, profile.persona, avatarUri);
+  };
+
+  const refreshPersonas = useCallback(async () => {
+    try {
+      const list = await getPersonas();
+      const id = await getActivePersonaId(list);
+      setPersonas(list);
+      setActivePersonaIdState(id);
+      const active = list.find(item => item.id === id);
+      setUserName(active ? active.userName : '');
+      setUserPersona(active ? active.persona : '');
+    } catch (error) {}
+  }, []);
+
+  const selectPersona = async id => {
+    if (id === activePersonaId) return;
+    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    try {
+      const resolved = await setActivePersonaId(id);
+      setActivePersonaIdState(resolved);
+      await refreshPersonas();
+    } catch (error) {
+      Alert.alert('切换失败', '请重试。');
+    }
+  };
+
+  const addPersona = async () => {
+    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    try {
+      await createPersona({ userName: '', persona: '' });
+      await refreshPersonas();
+    } catch (error) {
+      Alert.alert('新增失败', '请重试。');
+    }
+  };
+
+  const removePersona = id => {
+    if (personas.length <= 1) {
+      Alert.alert('无法删除', '至少保留一个人设。');
+      return;
+    }
+    Alert.alert('删除人设', '确定删除这个人设吗？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+          try {
+            await deletePersona(id);
+            await refreshPersonas();
+          } catch (error) {
+            Alert.alert('删除失败', '至少保留一个人设。');
+          }
+        },
+      },
+    ]);
   };
 
   const pickUserAvatar = async () => {
@@ -875,8 +947,41 @@ export default function SettingsScreen() {
             <Text style={styles.cardTitle}>用户人设</Text>
           </View>
           <Text style={styles.fieldHint}>
-            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。
+            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像与拍一拍文案为全部人设共用。
           </Text>
+          <Text style={styles.label}>我的身份</Text>
+          <View style={styles.personaList}>
+            {personas.map(item => {
+              const active = item.id === activePersonaId;
+              const label = String(item.userName || '').trim() || '未命名人设';
+              return (
+                <View key={item.id} style={[styles.personaChip, active && styles.personaChipActive]}>
+                  <TouchableOpacity
+                    style={styles.personaChipMain}
+                    onPress={() => selectPersona(item.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.personaChipText, active && styles.personaChipTextActive]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                  {personas.length > 1 ? (
+                    <TouchableOpacity
+                      style={styles.personaChipRemove}
+                      onPress={() => removePersona(item.id)}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="close" size={14} color={theme.colors.textFaint} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              );
+            })}
+            <TouchableOpacity style={styles.personaAddChip} onPress={addPersona} activeOpacity={0.8}>
+              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+              <Text style={styles.personaAddText}>新增</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.avatarRow}>
             <View style={styles.avatarBox}>
               {userAvatarUri ? (
@@ -900,11 +1005,17 @@ export default function SettingsScreen() {
               ) : null}
             </View>
           </View>
-          <Text style={styles.label}>你的名字</Text>
+          <Text style={styles.label}>人设名称（当前人设）</Text>
           <TextInput
             style={styles.input}
             value={userName}
-            onChangeText={text => { setUserName(text); saveUserProfileDelayed(text, userPersona, userAvatarUri); }}
+            onChangeText={text => {
+              setUserName(text);
+              setPersonas(list => list.map(item => (
+                item.id === activePersonaId ? { ...item, userName: text } : item
+              )));
+              saveUserProfileDelayed(text, userPersona, userAvatarUri);
+            }}
             placeholder="例如：小明"
             placeholderTextColor={theme.colors.textFaint}
           />
@@ -1596,6 +1707,45 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.divider,
   },
+  personaList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  personaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+  },
+  personaChipActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primarySoft,
+  },
+  personaChipMain: { paddingRight: 4 },
+  personaChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
+  personaChipTextActive: { color: theme.colors.primaryContrast },
+  personaChipRemove: { paddingHorizontal: 2, paddingVertical: 2 },
+  personaAddChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  personaAddText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4 },
   samplingRight: { flexDirection: 'row', alignItems: 'center' },
   samplingInput: {
     backgroundColor: theme.colors.surface,
