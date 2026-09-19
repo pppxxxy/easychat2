@@ -16,7 +16,10 @@ const IMAGES = {
   'character-library': require('../../assets/onboarding/character-library.jpg'),
   memory: require('../../assets/onboarding/memory.jpg'),
   'image-api': require('../../assets/onboarding/image-api.jpg'),
+  'image-api-key': require('../../assets/onboarding/image-api-key.jpg'),
   games: require('../../assets/onboarding/games.jpg'),
+  'chat-api': require('../../assets/onboarding/chat-api.jpg'),
+  moments: require('../../assets/onboarding/moments.jpg'),
 };
 
 export function getOnboardingImage(key) {
