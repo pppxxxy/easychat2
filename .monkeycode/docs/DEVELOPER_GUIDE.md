@@ -106,6 +106,70 @@ npm run start
 
 若改动了会被打包的代码，建议在合并前至少确认 `npm run start` 能正常加载应用，并手动覆盖受影响的功能路径。
 
+### 未定义引用检查（重要）
+
+Metro/Babel **不做未定义变量检查**，只做语法与模块解析。因此「调用了某个函数/组件但忘记 import」或「模块级函数引用了组件作用域内的变量」这类错误**能顺利打包**，却在运行时抛 `ReferenceError` 并导致白屏闪退。历史上曾因此出现启动即崩的回归。
+
+改动界面代码后，务必运行一次未定义引用检查：
+
+```bash
+# 生成一次性 flat config（不写入仓库）
+cat > /tmp/eslint.check.mjs <<'EOF'
+export default [
+  {
+    files: ['**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      parserOptions: { ecmaFeatures: { jsx: true } },
+      globals: {
+        React: 'readonly', global: 'readonly', Promise: 'readonly', require: 'readonly',
+        module: 'readonly', exports: 'readonly', process: 'readonly', console: 'readonly',
+        setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly',
+        clearInterval: 'readonly', fetch: 'readonly', FormData: 'readonly',
+        XMLHttpRequest: 'readonly', AbortController: 'readonly', Buffer: 'readonly',
+        requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', alert: 'readonly',
+        __DEV__: 'readonly',
+      },
+    },
+    rules: { 'no-undef': 'error' },
+  },
+];
+EOF
+
+npx eslint --config /tmp/eslint.check.mjs App.js src/*.js src/*/*.js
+```
+
+输出为空即通过；任何 `no-undef` 都必须修复后才能提交。
+
+**高频踩坑点**：
+
+1. **忘记 import 新加入的原生组件或 hook**：例如在 `ChatScreen` 使用 `ActivityIndicator`、`useTheme` 却未 import。
+2. **主题化改造遗漏模块级组件**：`styles`/`theme` 从模块常量改为 `useTheme()` + `createStyles()` 工厂后，**同文件内的每个顶层组件与顶层辅助函数都必须各自调用 `useTheme()`**。只给主组件加会导致其子组件渲染时 `ReferenceError`。
+3. **模块级辅助函数引用组件作用域变量**：如 `renderHighlightedText(text, keyword)` 直接使用 `styles.highlightText`。应把 `styles` 作为参数传入。
+4. **计数式检查不可靠**：用 `grep -c "useTheme()"` 与 `grep -c "const styles"` 比对数量**无法发现**遗漏——必须按「顶层组件/函数」逐个切分检查，或直接依赖 `no-undef`。
+
+**自检命令（按顶层定义切分）**：
+
+```bash
+# 列出所有使用 styles./theme. 但没有 useTheme() 的顶层组件/函数
+for f in src/*.js; do
+  node -e "
+    const fs=require('fs');const s=fs.readFileSync('$f','utf8');
+    const lines=s.split('\n');
+    const comps=[];
+    lines.forEach((l,i)=>{ if(/^(function|const)\s+[A-Z][A-Za-z]*\s*(=|\()/.test(l) && !/^const\s+[A-Z_]+\s*=/.test(l)) comps.push({name:l.trim().slice(0,55), line:i+1}); });
+    for(let k=0;k<comps.length;k++){
+      const start=comps[k].line-1;
+      const end=(k+1<comps.length)?comps[k+1].line-1:Math.min(lines.length, comps[k].line+400);
+      const body=lines.slice(start,end).join('\n');
+      const uses=/\bstyles\.|\btheme\.(colors|id)/.test(body);
+      if(uses && !/useTheme\(\)/.test(body)) console.log('$f', comps[k].line, comps[k].name);
+    }
+  "
+done
+```
+
 ### 分支与提交
 
 - 主分支为 `main`，生产就绪代码
@@ -119,6 +183,8 @@ npm run start
 ### 变更检查清单
 
 - [ ] `npm ci` 通过，lockfile 已同步提交
+- [ ] 改动界面后运行「未定义引用检查」（`npx eslint --config /tmp/eslint.check.mjs ...`）且无输出
+- [ ] 主题化或新增 `useTheme` 时，确认同文件每个顶层组件/函数都调用了 `useTheme()`
 - [ ] 涉及界面时用 `npm run start` 手动验证
 - [ ] 新增 `AsyncStorage` 调用已做异常捕获
 - [ ] 未把任何密钥、令牌写入代码或文档

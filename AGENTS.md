@@ -16,6 +16,7 @@ npm run build:apk    # EAS preview APK
 ```
 
 - There is **no** lint, typecheck, or test runner in this repo. Do not invent `npm test`/`npm run lint`. Verify by running `npm run start` and exercising the changed path manually, plus `npm ci` for dependency integrity.
+- Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run the one-off `npx eslint --config /tmp/eslint.check.mjs App.js src/*.js src/*/*.js` check described in `.monkeycode/docs/DEVELOPER_GUIDE.md`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
 - APK builds are manual `workflow_dispatch` only. Workflows: `build-apk-github.yml` (Gradle, signs release with the debug keystore) and `build-apk.yml` (EAS, needs `EXPO_TOKEN`).
 - CI uses Node 20 and Java 17.
