@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import GLOBAL_PRESETS from './presets';
+import { isKnownImageProvider } from './imageGen/providers';
 import {
   buildClonedSession,
   buildPreview,
@@ -443,6 +444,11 @@ export async function clearVectorIndex(characterId) {
   } catch (error) {}
 }
 
+function normalizeImageProviderId(value) {
+  const id = String(value || '');
+  return isKnownImageProvider(id) ? id : '';
+}
+
 function normalizeImageGenProvider(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   let extra = {};
@@ -471,10 +477,10 @@ function normalizeImageGenSettings(raw) {
     ? source.providers
     : {};
   Object.entries(list).forEach(([id, value]) => {
-    providers[String(id)] = normalizeImageGenProvider(value);
+    if (isKnownImageProvider(String(id))) providers[String(id)] = normalizeImageGenProvider(value);
   });
   return {
-    activeProvider: String(source.activeProvider || ''),
+    activeProvider: normalizeImageProviderId(source.activeProvider),
     providers,
   };
 }
@@ -549,7 +555,7 @@ function normalizeInlineImage(raw) {
   const maxPromptChars = Number(source.maxPromptChars);
   return {
     enabled: source.enabled === true,
-    providerId: String(source.providerId || ''),
+    providerId: normalizeImageProviderId(source.providerId),
     stylePrefix: String(source.stylePrefix || ''),
     size: String(source.size || DEFAULT_INLINE_IMAGE.size),
     maxPromptChars: Number.isFinite(maxPromptChars) && maxPromptChars > 0

@@ -141,7 +141,7 @@ easychat2/
 **被依赖**: `App.js`
 
 ### 生图模块
-**目的**: 以声明式 Provider 描述各生图服务并统一适配调用，支持文生图与图生图；提供设置面板（地址、密钥、模型、额外参数）与结果画廊
+**目的**: 以声明式 Provider 描述各生图平台并统一适配调用，支持文生图与图生图；提供设置面板（地址、密钥、模型、额外参数）、连通性检测与结果画廊
 **位置**: `src/imageGen/providers.js`、`src/imageGen/index.js`、`src/ImageGenScreen.js`
 **关键文件**: `src/imageGen/index.js`、`src/ImageGenScreen.js`
 **依赖**: `expo-document-picker`、`expo-file-system`、`expo-clipboard`、`expo-sharing`、`src/storage.js`

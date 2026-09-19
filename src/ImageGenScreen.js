@@ -20,7 +20,7 @@ import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
-import { generateImage } from './imageGen';
+import { generateImage, detectImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
 import { useTheme } from './theme/ThemeContext';
 
@@ -51,6 +51,7 @@ export default function ImageGenScreen({ embedded = false }) {
   const [draftApiKey, setDraftApiKey] = useState('');
   const [draftModel, setDraftModel] = useState('');
   const [draftExtra, setDraftExtra] = useState('');
+  const [detecting, setDetecting] = useState(false);
   const mountedRef = useRef(true);
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
@@ -79,13 +80,13 @@ export default function ImageGenScreen({ embedded = false }) {
   const providerId = settings.activeProvider || DEFAULT_PROVIDER;
   const provider = useMemo(() => getImageProvider(providerId), [providerId]);
   const providerConfig = settings.providers[providerId] || {};
-  const model = String(providerConfig.model || '').trim();
+  const model = String(providerConfig.model || provider.defaultModel || '').trim();
   const modelList = useMemo(
-    () => String(providerConfig.model || '')
+    () => model
       .split(/[\n,]/)
       .map(item => item.trim())
       .filter(Boolean),
-    [providerConfig.model]
+    [model]
   );
 
   const persistProvider = useCallback(async (id, patch) => {
@@ -118,10 +119,37 @@ export default function ImageGenScreen({ embedded = false }) {
   const openSettings = useCallback(() => {
     setDraftBaseUrl(String(providerConfig.baseUrl || provider.baseUrl || ''));
     setDraftApiKey(String(providerConfig.apiKey || ''));
-    setDraftModel(String(providerConfig.model || ''));
+    setDraftModel(String(providerConfig.model || provider.defaultModel || ''));
     setDraftExtra(providerConfig.extra ? JSON.stringify(providerConfig.extra) : '');
     setSettingsOpen(true);
-  }, [provider.baseUrl, providerConfig]);
+  }, [provider.baseUrl, provider.defaultModel, providerConfig]);
+
+  const detectProvider = useCallback(async () => {
+    if (detecting) return;
+    setDetecting(true);
+    try {
+      const result = await detectImageProvider({
+        provider,
+        config: {
+          baseUrl: draftBaseUrl.trim() || provider.baseUrl || '',
+          apiKey: draftApiKey.trim(),
+          model: draftModel.trim() || provider.defaultModel || '',
+        },
+        model: draftModel.trim() || provider.defaultModel || '',
+        prompt: prompt.trim(),
+      });
+      if (result.ok) {
+        const extra = result.modelFound === false
+          ? '\n（模型名可能不正确，但接口已连通）'
+          : '';
+        Alert.alert('检测成功', `${result.message}${extra}`);
+      } else {
+        Alert.alert('检测失败', result.error || '无法连接');
+      }
+    } finally {
+      if (mountedRef.current) setDetecting(false);
+    }
+  }, [detecting, draftApiKey, draftBaseUrl, draftModel, prompt, provider]);
 
   const confirmSettings = useCallback(async () => {
     let extra = {};
@@ -206,6 +234,7 @@ export default function ImageGenScreen({ embedded = false }) {
         config: providerConfig,
         prompt: text,
         imageFile,
+        imageMime,
         model: model || undefined,
         size,
         seed: Number.isFinite(seedValue) ? seedValue : undefined,
@@ -462,6 +491,14 @@ export default function ImageGenScreen({ embedded = false }) {
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>{provider.label} 设置</Text>
             <Text style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</Text>
+            {provider.keyHint ? (
+              <Text style={styles.hint}>密钥：{provider.keyHint}</Text>
+            ) : null}
+            {provider.corsNote ? (
+              <Text style={styles.hint}>
+                CORS：{provider.corsNote}
+              </Text>
+            ) : null}
             <Text style={styles.label}>API 地址</Text>
             <TextInput
               style={styles.input}
@@ -490,9 +527,18 @@ export default function ImageGenScreen({ embedded = false }) {
               onChangeText={setDraftModel}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="z-image-turbo"
+              placeholder={provider.defaultModel || '模型名'}
               placeholderTextColor={theme.colors.textFaint}
             />
+            <TouchableOpacity
+              style={[styles.selectButton, styles.detectButton, detecting && styles.generateButtonDisabled]}
+              onPress={detectProvider}
+              disabled={detecting}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="pulse-outline" size={16} color={theme.colors.textMuted} />
+              <Text style={styles.selectButtonText}>{detecting ? '检测中...' : '检测连通性'}</Text>
+            </TouchableOpacity>
             <Text style={styles.label}>额外参数（JSON，可选）</Text>
             <TextInput
               style={[styles.input, styles.extraInput]}
@@ -568,6 +614,12 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingVertical: 12,
   },
   selectButtonGhost: { backgroundColor: theme.colors.surface, flex: 1, justifyContent: 'center', marginRight: 10 },
+  detectButton: {
+    justifyContent: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+  },
   selectButtonText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
   placeholderText: { color: theme.colors.textFaint },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },

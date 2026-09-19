@@ -84,24 +84,29 @@ export function normalizeConfig(provider, config) {
   return {
     baseUrl,
     apiKey: String(source.apiKey || '').trim(),
-    model: String(source.model || '').trim(),
+    model: String(source.model || provider.defaultModel || '').trim(),
     extra: isPlainObject(source.extra) ? source.extra : {},
   };
 }
 
-export function buildRequest({ provider, config, prompt, image, model, size, seed, extra }) {
+export function buildRequest({ provider, config, prompt, image, model, size, seed, extra, imageMime }) {
   const resolved = normalizeConfig(provider, config);
   if (!resolved.baseUrl) return null;
   const useI2I = Boolean(image);
   const spec = useI2I ? provider.i2i : provider.t2i;
   if (!spec || !spec.template) return null;
 
+  const rawImage = image || '';
+  const imagePlaceholder = (useI2I && spec.stripImagePrefix)
+    ? String(rawImage).replace(/^data:[^;]*;base64,/, '')
+    : rawImage;
   const placeholders = {
     prompt: prompt === undefined ? '' : prompt,
     model: model || resolved.model || '',
-    image: image || '',
+    image: imagePlaceholder,
     size: size || '',
     seed: seed === undefined || seed === null ? '' : seed,
+    mime: imageMime || 'image/png',
   };
   const payload = substitute(deepClone(spec.template), placeholders);
   const params = provider.params || {};
@@ -141,8 +146,8 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
     setByPath(payload, provider.modelField, resolved.model);
   }
 
-  const headers = {};
-  let url = resolved.baseUrl;
+  const headers = { ...(provider.headers || {}) };
+  let url = substitute(resolved.baseUrl, placeholders);
   const auth = provider.auth || {};
   if (auth.type === 'query') {
     const join = url.includes('?') ? '&' : '?';
@@ -154,7 +159,8 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
   }
 
   const method = provider.method || 'POST';
-  if (useI2I && spec.mode === 'multipart' && typeof FormData !== 'undefined') {
+  const useMultipart = provider.requestFormat === 'multipart' && typeof FormData !== 'undefined';
+  if (useMultipart) {
     const form = new FormData();
     Object.entries(payload).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return;
@@ -164,7 +170,9 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
         form.append(key, String(value));
       }
     });
-    return { method, url, headers, body: form };
+    const multipartHeaders = { ...headers };
+    delete multipartHeaders['Content-Type'];
+    return { method, url, headers: multipartHeaders, body: form };
   }
 
   if (method === 'GET') {
@@ -211,6 +219,108 @@ export function mapHttpError(status) {
   if (status === 401 || status === 403) return '密钥无效或未授权';
   if (status === 429) return '请求过于频繁，请稍后重试';
   return `生成失败（HTTP ${status}）`;
+}
+
+function originOf(url) {
+  const match = String(url || '').match(/^(https?:\/\/[^/]+)/i);
+  return match ? match[1] : '';
+}
+
+function listUrlFor(provider, baseUrl) {
+  const origin = originOf(baseUrl);
+  if (!origin) return '';
+  const path = provider.listModelsPath !== undefined ? provider.listModelsPath : '/v1/models';
+  return path ? `${origin}${path}` : '';
+}
+
+export function parseModelList(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) {
+    return data
+      .map(item => (typeof item === 'string' ? item : (item && (item.id || item.name))))
+      .map(item => String(item || '').trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(data.data)) return parseModelList(data.data);
+  if (Array.isArray(data.models)) return parseModelList(data.models);
+  return [];
+}
+
+export async function listModels({ provider, config }) {
+  const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
+  const resolvedConfig = normalizeConfig(resolvedProvider, config);
+  const url = listUrlFor(resolvedProvider, resolvedConfig.baseUrl);
+  if (!url) {
+    throw new Error(resolvedProvider.listModelsPath === ''
+      ? '该服务不提供模型列表接口'
+      : '请先填写 API 地址');
+  }
+  const headers = { ...(resolvedProvider.headers || {}) };
+  const auth = resolvedProvider.auth || {};
+  if (auth.keyName) headers[auth.keyName] = `${auth.prefix || ''}${resolvedConfig.apiKey}`;
+  const data = await xhrRequest({
+    method: 'GET',
+    url,
+    headers,
+    body: null,
+    timeoutMs: Math.min(resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS, 30000),
+  });
+  return parseModelList(data);
+}
+
+export async function checkConnectivity({ provider, config }) {
+  const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
+  const resolvedConfig = normalizeConfig(resolvedProvider, config);
+  if (!resolvedConfig.baseUrl) return { ok: false, error: '请先填写 API 地址' };
+  try {
+    const models = await listModels({ provider: resolvedProvider, config: resolvedConfig });
+    return { ok: true, models, note: models.length ? '已获取模型列表' : '接口可访问' };
+  } catch (error) {
+    const message = (error && error.message) || '无法连接';
+    if (/密钥无效|未授权/.test(message)) {
+      return { ok: false, error: '密钥无效或未授权', authFailed: true };
+    }
+    if (/网络|中断|超时/.test(message)) {
+      return { ok: false, error: message, networkFailed: true };
+    }
+    return { ok: false, error: message };
+  }
+}
+
+export async function detectImageProvider({ provider, config, model, prompt }) {
+  try {
+    const models = await listModels({ provider, config });
+    const normalizedModel = String(model || '').trim();
+    if (normalizedModel && models.length > 0) {
+      const hit = models.some(item => item === normalizedModel || item.includes(normalizedModel));
+      return {
+        ok: true,
+        mode: 'list',
+        models,
+        modelFound: hit,
+        message: hit ? '已连通，且模型在列表中' : '已连通，但列表中未找到该模型名',
+      };
+    }
+    return { ok: true, mode: 'list', models, message: '已连通' };
+  } catch (listError) {
+    const listMessage = (listError && listError.message) || '列表接口不可用';
+    if (/密钥无效|未授权/.test(listMessage)) {
+      return { ok: false, error: listMessage, authFailed: true };
+    }
+    try {
+      const result = await generateImage({
+        provider,
+        config,
+        prompt: String(prompt || '').trim() || 'a small red dot',
+        model,
+        size: '512*512',
+      });
+      return { ok: true, mode: 'probe', message: `已连通并生成 ${result.images.length} 张图` };
+    } catch (probeError) {
+      const probeMessage = (probeError && probeError.message) || '生成接口不可用';
+      return { ok: false, error: `列表：${listMessage}；生成：${probeMessage}` };
+    }
+  }
 }
 
 function xhrRequest({ method, url, headers, body, timeoutMs, expectBinary }) {
@@ -265,7 +375,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs, expectBinary }) {
   });
 }
 
-export async function generateImage({ provider, prompt, imageFile, imageUrl, image, model, size, seed, extra, config }) {
+export async function generateImage({ provider, prompt, imageFile, imageUrl, image, model, size, seed, extra, config, imageMime }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的生图服务');
   const resolvedConfig = config || extra && extra.config || {};
@@ -290,6 +400,7 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
     size,
     seed,
     extra,
+    imageMime,
   });
   if (!request) throw new Error('请求配置不完整');
 
