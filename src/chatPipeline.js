@@ -47,7 +47,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote, groupContext }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const { before, after, depth } = collectActiveWorldInfo(
@@ -104,6 +104,11 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const summaryContent = String(summaryText || '').trim();
   if (summaryContent) {
     systemContent = `${systemContent}\n\n[记忆摘要]\n${replaceUser(summaryContent)}`;
+  }
+
+  const groupContent = String(groupContext || '').trim();
+  if (groupContent) {
+    systemContent = `${systemContent}\n\n${replaceUser(groupContent)}`;
   }
 
   const pluginContent = String(pluginContext || '').trim();

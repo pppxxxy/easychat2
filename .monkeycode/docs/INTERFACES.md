@@ -52,7 +52,7 @@
 - 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
-- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
+- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@` 并调度 1-3 个发言角色，逐个以各自角色卡设定回复并展示发言者头像与名字；每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -246,6 +246,7 @@
 | `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
 | `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前 |
 | `createGroupSession` | `(members, name) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前 |
+| `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
 | `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键 |
@@ -429,7 +430,7 @@ data: [DONE]
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -441,9 +442,13 @@ data: [DONE]
 | `parseSpeakerResponse(text, characters)` | 解析调度返回的 `{ speakers: [...] }`，按角色名映射为 `id` |
 | `generateOpening({ characters, userProfile, globalPresets })` | 生成群场景开场白与首位发言角色，失败回退合成文案 |
 | `buildGroupHistory(messages)` | 为助手消息加上 `发言者：` 前缀，供模型区分发言人 |
-| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote })` | 以发言角色卡设定构造请求，并透传引用信息 |
+| `needsProfile(character)` | `description` + `personality` 去空白后字符数 `< 30` 视为简介不足 |
+| `generateMemberProfile(character)` | 基于完整角色卡调用 LLM 生成 1-2 行第三人称人设卡，失败返回 `null` |
+| `ensureMemberProfiles({ characters, profiles })` | 对简介不足且无缓存的成员生成人设卡，返回新 `profiles`（不重复生成） |
+| `buildGroupContext({ speaker, characters, historyMessages, profiles })` | 构造 `[群聊情境]` 文本：多人群聊说明、在场成员名单（含简介与最近发言）、最近对话 |
+| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote, summaryText, pluginContext, profiles })` | 以发言角色卡设定构造请求，注入群聊情境并透传引用信息 |
 
-**常量**: `MAX_SPEAKERS = 3`。
+**常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`。
 
 ### 附件接口
 **位置**: `src/attachments.js`
@@ -625,6 +630,7 @@ data: [DONE]
 | `type` | `'single' \| 'group'` | 会话类型，缺省为 `single` |
 | `characterId` | `string` | 单聊所属角色 `id`；群聊为空串 |
 | `members` | `string[]` | 群聊成员角色 `id` 列表；单聊为空数组 |
+| `memberProfiles` | `{[characterId]: string}` | 群聊成员人设卡缓存（简介不足时懒生成）；单聊为 `{}` |
 | `name` | `string` | 群聊名称；单聊为空串 |
 | `preview` | `string` | 最后一条可读消息的摘要，最长 60 字 |
 | `pinned` | `boolean` | 是否置顶 |

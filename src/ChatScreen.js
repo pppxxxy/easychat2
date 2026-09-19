@@ -44,6 +44,7 @@ import { useApp } from './context/AppContext';
 import DisclaimerModal from './disclaimer';
 import {
   buildGroupRequest,
+  ensureMemberProfiles,
   generateOpening,
   parseMentions,
   selectSpeakers,
@@ -75,6 +76,7 @@ import {
   saveTtsSettings,
   startNewSession,
   THINKING_LEVELS,
+  updateSessionMemberProfiles,
 } from './storage';
 import { runPlugins } from './plugins/registry';
 import { useTheme } from './theme/ThemeContext';
@@ -760,6 +762,9 @@ export default function ChatScreen() {
     () => sessions.find(session => session.id === activeSessionId) || null,
     [sessions, activeSessionId]
   );
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
+  const memberProfilesRef = useRef({ sessionId: '', profiles: {} });
   const isGroup = activeSession?.type === 'group';
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -1551,6 +1556,23 @@ export default function ChatScreen() {
         getUserProfile(),
         getEnabledGlobalPresetPrompts(),
       ]);
+      const groupSessionId = String(activeSessionRef.current?.id || '');
+      const cachedProfiles = memberProfilesRef.current.sessionId === groupSessionId
+        ? memberProfilesRef.current.profiles
+        : (activeSessionRef.current?.memberProfiles || {});
+      let memberProfiles = cachedProfiles;
+      try {
+        const ensured = await ensureMemberProfiles({
+          characters: members,
+          profiles: cachedProfiles,
+        });
+        const added = Object.keys(ensured).some(key => !cachedProfiles[key]);
+        memberProfiles = ensured;
+        memberProfilesRef.current = { sessionId: groupSessionId, profiles: ensured };
+        if (added && groupSessionId) {
+          await updateSessionMemberProfiles(groupSessionId, ensured);
+        }
+      } catch (error) {}
       const mentions = parseMentions(userText, members);
       const speakerIds = await selectSpeakers({
         characters: members,
@@ -1572,6 +1594,12 @@ export default function ChatScreen() {
           speakerId,
           speakerName: speaker.name,
         };
+        const roundHistory = working.filter(
+          (item, index) => item
+            && !item.pending
+            && (item.role === USER_ID || item.role === ASSISTANT_ID)
+            && index < baseMessages.length - 1
+        );
         working = [...working, pendingMessage];
         setMessages(working);
         scrollToBottom();
@@ -1579,11 +1607,12 @@ export default function ChatScreen() {
           const requestMessages = buildGroupRequest({
             speaker,
             characters: members,
-            historyMessages,
+            historyMessages: roundHistory,
             userText,
             userProfile,
             globalPresets,
             quote,
+            profiles: memberProfiles,
           });
           const reply = await sendChatMessage(requestMessages, {
             signal: controller.signal,

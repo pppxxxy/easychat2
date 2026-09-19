@@ -13,6 +13,17 @@ export function uniqueSessionId(base, list) {
   return `${id}-${suffix}`;
 }
 
+function normalizeMemberProfiles(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const result = {};
+  for (const [key, value] of Object.entries(source)) {
+    const id = String(key || '').trim();
+    const text = String(value || '').trim();
+    if (id && text) result[id] = text;
+  }
+  return result;
+}
+
 export function normalizeSession(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const createdAt = Number(source.createdAt);
@@ -25,6 +36,7 @@ export function normalizeSession(raw, index = 0) {
     members: type === 'group' && Array.isArray(source.members)
       ? source.members.map(String).filter(Boolean)
       : [],
+    memberProfiles: type === 'group' ? normalizeMemberProfiles(source.memberProfiles) : {},
     name: String(source.name || ''),
     preview: String(source.preview || ''),
     pinned: source.pinned === true,
@@ -77,6 +89,7 @@ export function createEmptySession(characterId, sessions, now = Date.now()) {
     type: 'single',
     characterId: String(characterId || ''),
     members: [],
+    memberProfiles: {},
     name: '',
     preview: '',
     pinned: false,
@@ -95,6 +108,7 @@ export function createGroupSession(members, name, sessions, now = Date.now()) {
     type: 'group',
     characterId: '',
     members: ids,
+    memberProfiles: {},
     name: String(name || ''),
     preview: '',
     pinned: false,

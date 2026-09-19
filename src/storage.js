@@ -1090,6 +1090,26 @@ export async function createGroupSession(members, name) {
   return created;
 }
 
+export async function updateSessionMemberProfiles(sessionId, memberProfiles) {
+  const sessions = await getSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target || target.type !== 'group') return target || null;
+  const incoming = memberProfiles && typeof memberProfiles === 'object' ? memberProfiles : {};
+  const merged = { ...(target.memberProfiles || {}) };
+  let changed = false;
+  for (const [key, value] of Object.entries(incoming)) {
+    const id = String(key || '').trim();
+    const text = String(value || '').trim();
+    if (!id || !text || merged[id]) continue;
+    merged[id] = text;
+    changed = true;
+  }
+  if (!changed) return target;
+  const updated = { ...target, memberProfiles: merged };
+  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  return updated;
+}
+
 export async function cloneSession(sessionId) {
   const sessions = await getSessions();
   const source = sessions.find(session => session.id === sessionId);
