@@ -36,6 +36,7 @@ import { buildRequestMessages } from './chatPipeline';
 import {
   applySummary,
   buildMemorySummaryText,
+  isSessionScopedMemory,
   selectSummarizable,
   shouldSummarize,
 } from './memorySummary';
@@ -63,6 +64,7 @@ import {
   getInlineImageSettings,
   getMemorySummarySettings,
   getMessagesBySession,
+  getSessionSummaries,
   getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
@@ -1332,15 +1334,24 @@ export default function ChatScreen() {
     setSummarizing(true);
     try {
       const userProfile = await getUserProfile();
-      await applySummary({
+      const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+      const result = await applySummary({
         session,
         character,
         messages: picked,
         updateCharacter,
         userName: userProfile.userName,
+        scoped,
       });
       await refreshSessions().catch(() => {});
-      if (manual) Alert.alert('已完成', '记忆总结已写入角色世界书。');
+      if (manual) {
+        Alert.alert(
+          '已完成',
+          result.scoped
+            ? '记忆已压缩为本会话上下文，不再写入世界书。'
+            : '记忆总结已写入角色世界书。'
+        );
+      }
     } catch (error) {
       Alert.alert('记忆总结失败', '请稍后重试。');
     } finally {
@@ -1446,13 +1457,23 @@ export default function ChatScreen() {
       } catch (error) {
         memorySnippets = '';
       }
+      let summaryText = '';
+      try {
+        const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+        const sessionSummaries = scoped
+          ? await getSessionSummaries(sendSessionId)
+          : [];
+        summaryText = buildMemorySummaryText(character, sessionSummaries, scoped);
+      } catch (error) {
+        summaryText = '';
+      }
       const requestMessages = buildRequestMessages({
         character,
         historyMessages: trimmedHistory,
         userText,
         userProfile,
         globalPresets,
-        summaryText: buildMemorySummaryText(character),
+        summaryText,
         memorySnippets,
         pluginContext,
         images,

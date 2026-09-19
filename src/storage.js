@@ -37,6 +37,7 @@ const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
 const MOMENTS_KEY = '@easychat2_moments';
 const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
+const SESSION_SUMMARIES_PREFIX = '@easychat2_session_summaries';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
@@ -1270,6 +1271,45 @@ export async function setSessionSummarizedUpTo(sessionId, messageId) {
   return updated;
 }
 
+function sessionSummariesKey(sessionId) {
+  return `${SESSION_SUMMARIES_PREFIX}::${String(sessionId || '')}`;
+}
+
+function normalizeSessionSummary(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    summary: String(source.summary || ''),
+    keywords: (Array.isArray(source.keywords) ? source.keywords : [])
+      .map(item => String(item || '').trim())
+      .filter(Boolean),
+    boundary: String(source.boundary || ''),
+    createdAt: Number(source.createdAt) || 0,
+  };
+}
+
+export async function getSessionSummaries(sessionId) {
+  const stored = await readJson(sessionSummariesKey(sessionId), []);
+  if (!Array.isArray(stored)) return [];
+  return stored
+    .map(normalizeSessionSummary)
+    .filter(item => item.summary.trim().length > 0);
+}
+
+export async function saveSessionSummaries(sessionId, list) {
+  const normalized = (Array.isArray(list) ? list : [])
+    .map(normalizeSessionSummary)
+    .filter(item => item.summary.trim().length > 0);
+  await AsyncStorage.setItem(sessionSummariesKey(sessionId), JSON.stringify(normalized));
+  return normalized;
+}
+
+export async function appendSessionSummary(sessionId, entry) {
+  const list = await getSessionSummaries(sessionId);
+  const next = [...list, normalizeSessionSummary(entry)];
+  await saveSessionSummaries(sessionId, next);
+  return next;
+}
+
 export async function searchMessages(keyword) {
   const query = String(keyword || '').trim();
   if (!query) return [];
@@ -1398,7 +1438,10 @@ export async function deleteSession(sessionId) {
   const remaining = sessions.filter(session => session.id !== sessionId);
   await saveSessions(remaining);
   try {
-    await AsyncStorage.removeItem(sessionMessagesKey(sessionId));
+    await AsyncStorage.multiRemove([
+      sessionMessagesKey(sessionId),
+      sessionSummariesKey(sessionId),
+    ]);
   } catch (error) {}
   if (activeId === sessionId) {
     const created = createEmptySession(target && target.characterId, remaining);
@@ -1422,7 +1465,10 @@ export async function deleteSessions(sessionIds) {
   const remaining = sessions.filter(session => !idSet.has(session.id));
   await saveSessions(remaining);
   try {
-    await AsyncStorage.multiRemove(ids.map(id => sessionMessagesKey(id)));
+    await AsyncStorage.multiRemove(ids.flatMap(id => [
+      sessionMessagesKey(id),
+      sessionSummariesKey(id),
+    ]));
   } catch (error) {}
   return { sessions: remaining, activeSessionId: await getActiveSessionId() };
 }

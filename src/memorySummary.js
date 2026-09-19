@@ -1,6 +1,10 @@
 import { sendChatMessage } from './api';
 import { createWorldEntry } from './cardParser';
-import { setSessionSummarizedUpTo } from './storage';
+import {
+  appendSessionSummary,
+  getSessionSummaries,
+  setSessionSummarizedUpTo,
+} from './storage';
 
 export const MEMORY_SUMMARY_PREFIX = '记忆总结';
 export const KEEP_RECENT = 6;
@@ -89,12 +93,29 @@ export async function generateSummary({ character, messages, userName, memories 
   return parseSummaryResponse(text);
 }
 
+export const MEMORY_SCOPE_THRESHOLD = 2;
+
+export function countCharacterMemories(sessions, characterId) {
+  const id = String(characterId || '');
+  if (!id) return 0;
+  return (Array.isArray(sessions) ? sessions : []).filter(session => (
+    session
+    && session.type !== 'group'
+    && String(session.characterId || '') === id
+    && String(session.preview || '').trim().length > 0
+  )).length;
+}
+
+export function isSessionScopedMemory(sessions, characterId) {
+  return countCharacterMemories(sessions, characterId) >= MEMORY_SCOPE_THRESHOLD;
+}
+
 function summaryIndex(comment) {
   const match = String(comment || '').match(/(\d+)\s*$/);
   return match ? Number(match[1]) : 0;
 }
 
-export function buildMemorySummaryText(character) {
+export function buildWorldSummaryText(character) {
   const entries = (Array.isArray(character && character.worldInfo) ? character.worldInfo : [])
     .filter(entry => entry
       && entry.enabled !== false
@@ -104,23 +125,53 @@ export function buildMemorySummaryText(character) {
   return entries.map(entry => String(entry.content).trim()).join('\n\n');
 }
 
+export function buildSessionSummaryText(sessionSummaries) {
+  return (Array.isArray(sessionSummaries) ? sessionSummaries : [])
+    .map(item => String((item && item.summary) || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+export function buildMemorySummaryText(character, sessionSummaries, scoped = false) {
+  if (scoped) return buildSessionSummaryText(sessionSummaries);
+  return buildWorldSummaryText(character);
+}
+
 export async function applySummary({
   session,
   character,
   messages,
   updateCharacter,
   userName,
+  scoped = false,
 }) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   if (list.length === 0) {
     throw new Error('没有可总结的消息');
   }
+  const existingSessionSummaries = scoped
+    ? await getSessionSummaries(session.id)
+    : [];
+  const memories = buildMemorySummaryText(character, existingSessionSummaries, scoped);
   const { summary, keywords } = await generateSummary({
     character,
     messages: list,
     userName,
-    memories: buildMemorySummaryText(character),
+    memories,
   });
+  const boundary = list[list.length - 1].id;
+
+  if (scoped) {
+    await appendSessionSummary(session.id, {
+      summary,
+      keywords,
+      boundary,
+      createdAt: Date.now(),
+    });
+    await setSessionSummarizedUpTo(session.id, boundary);
+    return { entry: null, boundary, summary, keywords, scoped: true };
+  }
+
   const worldInfo = Array.isArray(character && character.worldInfo) ? character.worldInfo : [];
   const count = worldInfo.filter(entry =>
     String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
@@ -136,7 +187,6 @@ export async function applySummary({
     order: 100,
   }, count);
   await updateCharacter({ id: character.id, worldInfo: [...worldInfo, entry] });
-  const boundary = list[list.length - 1].id;
   await setSessionSummarizedUpTo(session.id, boundary);
-  return { entry, boundary, summary, keywords };
+  return { entry, boundary, summary, keywords, scoped: false };
 }

@@ -41,7 +41,7 @@
 - 顶部栏常驻元素为：角色头像与名称、播报开关、「新建」与「⋯」更多菜单；「⋯」菜单收纳公告、模型、思考、定位、搜索、总结与设置，点选执行与折叠前一致的操作（定位无消息时禁用、总结进行中禁用、搜索反映开启态），菜单以浮层呈现不改变消息列表滚动位置
 - 「⋯」菜单的「设置」打开聊天设置弹窗，提供「系统设置」（跳转设置页）与「编辑角色」（群聊隐藏并提示）两个入口
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
-- 发送前按会话 `summarizedUpTo` 截断历史，并把 `buildMemorySummaryText(character)` 作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩
+- 发送前按会话 `summarizedUpTo` 截断历史，并把摘要作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩；同角色记忆 ≥ 2 时仅用当前会话总结（`buildMemorySummaryText` scoped），否则用世界书总结
 - 角色页切换角色时同步切换会话（`ensureCharacterSession`）；记忆页打开群聊不依赖基础角色存在
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 消息落库后若向量记忆开启，异步增量索引当前角色片段（已存在片段跳过，失败静默）；发送前按用户输入召回若干片段，经 `buildMemoryContext` 生成 `[相关记忆]` 注入请求；未配置或请求失败自动回退本地关键词检索；索引为空时不注入
@@ -285,6 +285,8 @@
 | `getGlobalPresetSettings` | `() => Promise<Record<string, boolean>>` | 读取按当前预设归一化后的开关映射 |
 | `saveGlobalPresetSettings` | `(enabled) => Promise<Record<string, boolean>>` | 归一化并写入开关映射 |
 | `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
+| `getSessionSummaries` / `saveSessionSummaries` | `(sessionId, list?) => Promise<SessionSummary[]>` | 读取/写入会话级记忆总结（按会话隔离） |
+| `appendSessionSummary` | `(sessionId, entry) => Promise<SessionSummary[]>` | 追加一条会话级总结 |
 | `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取记忆总结开关与阈值，缺失时默认 `{ enabled: false, threshold: 40 }` |
 | `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入记忆总结设置，阈值非法时回退 40 |
 | `getPlugins` | `() => Promise<Plugin[]>` | 读取联网搜索列表并规范化，内置项缺失时补入 |
@@ -317,6 +319,7 @@
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
 | `@easychat2_memory_summary` | 记忆总结 `{ enabled, threshold }`，默认 `{ enabled: true, threshold: 40 }` |
+| `@easychat2_session_summaries::<sessionId>` | 会话级记忆总结 `[{ summary, keywords, boundary, createdAt }]`（同角色记忆 ≥2 时启用） |
 | `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_sampling` | 生成采样设置 `{ maxTokens, temperature, topP, topK }`，每项 `{ enabled, value }`，默认全关闭 |
@@ -608,10 +611,16 @@ data: [DONE]
 | `parseMemoryLines(text)` | 按行提取记忆，去掉 `-`/`*`/`•` 前缀与空行 |
 | `parseSummaryResponse(text)` | 解析纯文本行式输出，规范化为 `- ` 行；关键词用占位；空内容抛错 |
 | `generateSummary({ character, messages, userName?, memories? })` | 调用 `sendChatMessage` 生成新增记忆行 |
-| `applySummary({ session, character, messages, updateCharacter, userName? })` | 生成新增记忆后写入角色世界书（`记忆总结 N`、关键词占位触发），注入已有记忆避免重复，并更新会话边界 |
-| `buildMemorySummaryText(character)` | 拼接世界书中「记忆总结」条目内容，供请求压缩与已知记忆注入 |
+| `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：`scoped` 为真时写入会话级总结（不写世界书），否则写入角色世界书（`记忆总结 N`、关键词占位触发）；两者都更新会话边界 |
+| `countCharacterMemories(sessions, characterId)` | 统计该角色在记忆页可见的会话数（单聊、`preview` 非空） |
+| `isSessionScopedMemory(sessions, characterId)` | 记忆数 ≥ 2 时返回 `true`，启用按会话作用域 |
+| `buildWorldSummaryText(character)` | 拼接世界书中「记忆总结」条目内容 |
+| `buildSessionSummaryText(sessionSummaries)` | 拼接会话级总结内容 |
+| `buildMemorySummaryText(character, sessionSummaries?, scoped?)` | `scoped` 为真取会话总结，否则取世界书总结 |
 
-**常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`FALLBACK_KEYWORDS`（占位关键词「前情提要」）。
+**常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`MEMORY_SCOPE_THRESHOLD = 2`、`FALLBACK_KEYWORDS`（占位关键词「前情提要」）。
+
+**作用域规则**: 当同一角色在记忆页存在 ≥ 2 条记忆（单聊、摘要非空的会话）时，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止新增。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/lorebook.js`
