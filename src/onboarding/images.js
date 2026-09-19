@@ -20,6 +20,9 @@ const IMAGES = {
   games: require('../../assets/onboarding/games.jpg'),
   'chat-api': require('../../assets/onboarding/chat-api.jpg'),
   moments: require('../../assets/onboarding/moments.jpg'),
+  'vector-api': require('../../assets/onboarding/vector-api.jpg'),
+  'user-persona': require('../../assets/onboarding/user-persona.jpg'),
+  'inline-image': require('../../assets/onboarding/inline-image.jpg'),
 };
 
 export function getOnboardingImage(key) {
