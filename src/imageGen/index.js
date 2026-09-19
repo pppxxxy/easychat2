@@ -84,15 +84,15 @@ export function normalizeConfig(provider, config) {
   return {
     baseUrl,
     apiKey: String(source.apiKey || '').trim(),
-    model: String(source.model || provider.defaultModel || '').trim(),
+    model: String(source.model || provider.defaultModel || '').trim().replace(/^models\//, ''),
     extra: isPlainObject(source.extra) ? source.extra : {},
   };
 }
 
-export function buildRequest({ provider, config, prompt, image, model, size, seed, extra, imageMime }) {
+export function buildRequest({ provider, config, prompt, image, imageUri, model, size, seed, extra, imageMime }) {
   const resolved = normalizeConfig(provider, config);
   if (!resolved.baseUrl) return null;
-  const useI2I = Boolean(image);
+  const useI2I = Boolean(image || imageUri);
   const spec = useI2I ? provider.i2i : provider.t2i;
   if (!spec || !spec.template) return null;
 
@@ -100,9 +100,11 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
   const imagePlaceholder = (useI2I && spec.stripImagePrefix)
     ? String(rawImage).replace(/^data:[^;]*;base64,/, '')
     : rawImage;
+  const rawModel = model || resolved.model || '';
+  const cleanModel = String(rawModel).replace(/^models\//, '');
   const placeholders = {
     prompt: prompt === undefined ? '' : prompt,
-    model: model || resolved.model || '',
+    model: cleanModel,
     image: imagePlaceholder,
     size: size || '',
     seed: seed === undefined || seed === null ? '' : seed,
@@ -119,7 +121,8 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
   mapping.forEach(([key, value]) => {
     const field = params[key];
     if (field && value !== undefined && value !== null && value !== '') {
-      setByPath(payload, field, value);
+      const normalizedValue = key === 'size' ? String(value).replace('*', 'x') : value;
+      setByPath(payload, field, normalizedValue);
     }
   });
   if (provider.sizeSplit && typeof size === 'string' && size.includes('*')) {
@@ -145,9 +148,14 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
   if (provider.modelField && resolved.model) {
     setByPath(payload, provider.modelField, resolved.model);
   }
-
   const headers = { ...(provider.headers || {}) };
   let url = substitute(resolved.baseUrl, placeholders);
+  if (spec.endpoint) {
+    url = substitute(spec.endpoint, placeholders);
+  } else if (spec.endpointFromBaseUrl) {
+    const { from, to } = spec.endpointFromBaseUrl;
+    if (from && to && url.includes(from)) url = url.replace(from, to);
+  }
   const auth = provider.auth || {};
   if (auth.type === 'query') {
     const join = url.includes('?') ? '&' : '?';
@@ -159,11 +167,21 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
   }
 
   const method = provider.method || 'POST';
-  const useMultipart = provider.requestFormat === 'multipart' && typeof FormData !== 'undefined';
+  const requestFormat = spec.requestFormat || provider.requestFormat;
+  const useMultipart = requestFormat === 'multipart' && typeof FormData !== 'undefined';
   if (useMultipart) {
     const form = new FormData();
+    const imageAttachment = useI2I && imageUri && typeof imageUri === 'string' && /^(file|content|ph|assets-library|blob):/i.test(imageUri);
     Object.entries(payload).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return;
+      if (key === 'image' && imageAttachment) {
+        form.append(key, {
+          uri: imageUri,
+          name: `image.${(String(imageMime || 'image/png').split('/')[1] || 'png')}`,
+          type: imageMime || 'image/png',
+        });
+        return;
+      }
       if (isPlainObject(value) || Array.isArray(value)) {
         form.append(key, JSON.stringify(value));
       } else {
@@ -190,10 +208,6 @@ export function buildRequest({ provider, config, prompt, image, model, size, see
 
 export function parseImages(provider, data) {
   const response = provider.response || {};
-  if (data && typeof data === 'object' && typeof data.__binary === 'string') {
-    const binary = data.__binary.trim();
-    return binary ? [{ base64: binary }] : [];
-  }
   const root = response.path ? getByPath(data, response.path) : data;
   const list = Array.isArray(root) ? root : root === undefined || root === null ? [] : [root];
   const images = [];
@@ -227,7 +241,8 @@ function originOf(url) {
 }
 
 function listUrlFor(provider, baseUrl) {
-  const origin = originOf(baseUrl);
+  const trimmed = String(baseUrl || '').replace(/\/+$/, '');
+  const origin = originOf(trimmed);
   if (!origin) return '';
   const path = provider.listModelsPath !== undefined ? provider.listModelsPath : '/v1/models';
   return path ? `${origin}${path}` : '';
@@ -313,7 +328,7 @@ export async function detectImageProvider({ provider, config, model, prompt }) {
         config,
         prompt: String(prompt || '').trim() || 'a small red dot',
         model,
-        size: '512*512',
+        size: provider.probeSize || '1024x1024',
       });
       return { ok: true, mode: 'probe', message: `已连通并生成 ${result.images.length} 张图` };
     } catch (probeError) {
@@ -323,7 +338,7 @@ export async function detectImageProvider({ provider, config, model, prompt }) {
   }
 }
 
-function xhrRequest({ method, url, headers, body, timeoutMs, expectBinary }) {
+function xhrRequest({ method, url, headers, body, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let settled = false;
@@ -356,10 +371,6 @@ function xhrRequest({ method, url, headers, body, timeoutMs, expectBinary }) {
       try {
         parsed = JSON.parse(xhr.responseText || '{}');
       } catch (error) {
-        if (expectBinary) {
-          finish(resolve, { __binary: xhr.responseText || '' });
-          return;
-        }
         finish(reject, new Error('生成返回无法解析'));
         return;
       }
@@ -375,7 +386,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs, expectBinary }) {
   });
 }
 
-export async function generateImage({ provider, prompt, imageFile, imageUrl, image, model, size, seed, extra, config, imageMime }) {
+export async function generateImage({ provider, prompt, imageFile, imageUrl, imageUri, image, model, size, seed, extra, config, imageMime }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的生图服务');
   const resolvedConfig = config || extra && extra.config || {};
@@ -385,17 +396,18 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
     throw new Error('请先填写 API 密钥');
   }
   const text = String(prompt || '').trim();
-  const hasImage = Boolean(imageFile || imageUrl || image);
+  const hasImage = Boolean(imageFile || imageUrl || imageUri || image);
   if (!text && !hasImage) throw new Error('请输入提示词');
-  if (imageFile || imageUrl) {
+  if (hasImage) {
     if (!resolvedProvider.i2i) throw new Error('该服务不支持图生图');
   }
-  const imageValue = image || imageFile || imageUrl || '';
+  const imageValue = image || imageFile || imageUrl || imageUri || '';
   const request = buildRequest({
     provider: resolvedProvider,
     config: resolvedConfig,
     prompt: text,
     image: hasImage ? imageValue : '',
+    imageUri: hasImage ? imageUri : '',
     model,
     size,
     seed,
@@ -411,7 +423,6 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
       const data = await xhrRequest({
         ...request,
         timeoutMs: resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS,
-        expectBinary: resolvedProvider.response && resolvedProvider.response.mode === 'binary',
       });
       const images = parseImages(resolvedProvider, data);
       if (images.length === 0) throw new Error('未从响应中解析到图片');

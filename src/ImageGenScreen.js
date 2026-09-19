@@ -234,6 +234,7 @@ export default function ImageGenScreen({ embedded = false }) {
         config: providerConfig,
         prompt: text,
         imageFile,
+        imageUri: imageUri || undefined,
         imageMime,
         model: model || undefined,
         size,

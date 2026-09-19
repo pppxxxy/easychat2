@@ -534,18 +534,18 @@ data: [DONE]
 ### 生图接口
 **位置**: `src/imageGen/providers.js`、`src/imageGen/index.js`
 
-`IMAGE_PROVIDERS` 为声明式配置表，按平台内置 `google-ai-studio`、`openrouter`、`stability-ai`、`gitee-ai`、`agnes-ai`、`openai-relay`（自定义中转站）与 `novelai`；每个平台可声明 `defaultModel`、`listModelsPath`、`keyHint` 与 `corsNote`。`getImageProvider(id)` 按 id 取配置并回退首个，`isKnownImageProvider(id)` 判断 id 是否为当前已内置平台。
+`IMAGE_PROVIDERS` 为声明式配置表，按平台内置 `google-ai-studio`、`openrouter`、`stability-ai`、`gitee-ai`、`agnes-ai` 与 `openai-relay`（自定义中转站）；每个平台可声明 `defaultModel`、`listModelsPath`、`keyHint` 与 `corsNote`。`getImageProvider(id)` 按 id 取配置并回退首个，`isKnownImageProvider(id)` 判断 id 是否为当前已内置平台。
 
 | 函数 | 说明 |
 |------|------|
-| `buildRequest({ provider, config, prompt, image, model, size, seed, extra, imageMime })` | 按 t2i/i2i 模板构造请求；支持 GET 查询参数、POST JSON、header/body/query 认证；`provider.requestFormat === 'multipart'` 时改发 FormData（文生图与图生图通用，且自动去掉 `Content-Type`）；缺 `baseUrl` 返回 `null`；`model` 缺省时回退 `provider.defaultModel`，`imageMime` 供 `{mime}` 占位符使用，`spec.stripImagePrefix` 控制图生图是否去掉 `data:` 前缀 |
-| `parseImages(provider, data)` | 按 `response.path` 取根节点，兼容字符串、`url`、`base64`（`b64_json`、`images[].url`、`output.results`、`output[]`）；`response.mode === 'binary'` 时把非 JSON 响应按 base64 包装为图片项 |
+| `buildRequest({ provider, config, prompt, image, imageUri, model, size, seed, extra, imageMime })` | 按 t2i/i2i 模板构造请求；支持 GET 查询参数、POST JSON、header/body/query 认证；`requestFormat === 'multipart'`（可由 i2i 规格覆盖）时改发 FormData，若提供 `imageUri` 则把图片作为文件部件发送，否则回退字符串，并自动去掉 `Content-Type`；`spec.endpoint` / `spec.endpointFromBaseUrl` 可覆盖端点（如 OpenAI 中转站图生图走 `/v1/images/edits`）；缺 `baseUrl` 返回 `null`；`model` 缺省回退 `provider.defaultModel` 并剥离 `models/` 前缀，`imageMime` 供 `{mime}` 占位符使用；`size` 写入 `params.size` 前会把 `宽*高` 归一化为 `宽x高`（OpenAI 兼容 / OpenRouter 的像素格式），`spec.stripImagePrefix` 控制图生图是否去掉 `data:` 前缀 |
+| `parseImages(provider, data)` | 按 `response.path` 取根节点，兼容字符串、`url`、`base64`（`b64_json`、`images[].url`、`output.results`、`output[]`） |
 | `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「生成失败（HTTP n）」 |
-| `listModels({ provider, config })` | 按平台的 `listModelsPath` 拼 `origin + path` 拉取模型列表（Google AI Studio 为 `/v1beta/models`，OpenRouter 为 `/api/v1/images/models`）；`listModelsPath` 为空串的平台（Stability AI、NovelAI）抛「该服务不提供模型列表接口」 |
+| `listModels({ provider, config })` | 按平台的 `listModelsPath` 拼模型列表地址，统一用 `origin + path`（Google AI Studio `/v1beta/models`、OpenRouter `/api/v1/images/models`、OpenAI 兼容中转站 `/v1/models`），只取 baseUrl 的 origin 以避免自定义端点路径重复；`listModelsPath` 为空串的平台（Stability AI）抛「该服务不提供模型列表接口」 |
 | `parseModelList(data)` | 兼容数组、`data[]`、`models[]`，取 `id` / `name` 归一化为字符串数组 |
 | `checkConnectivity({ provider, config })` | 调用 `listModels`，区分 401/403（密钥无效）与网络类错误并返回 `{ ok, models?, error?, authFailed?, networkFailed? }` |
 | `detectImageProvider({ provider, config, model, prompt })` | 先尝试模型列表并比对模型名；列表不可用时回退到一次真实生成探测，返回 `{ ok, mode, message, modelFound?, models? }` |
-| `generateImage({ provider, prompt, imageFile?, imageUrl?, image?, model?, size?, seed?, extra?, config?, imageMime? })` | 统一生成入口，返回 `Promise<{ images: [{ url?, base64? }], raw }>`；含超时与按 `retries` 重试 |
+| `generateImage({ provider, prompt, imageFile?, imageUrl?, imageUri?, image?, model?, size?, seed?, extra?, config?, imageMime? })` | 统一生成入口，返回 `Promise<{ images: [{ url?, base64? }], raw }>`；含超时与按 `retries` 重试 |
 
 **说明**: 密钥仅存本机 AsyncStorage；未填地址或密钥时直接抛错不发起请求；`extra.params` 与 Provider 的 `params` 映射按点号路径写入请求体；`sizeSplit` 把 `宽*高` 拆为 width/height；图生图必须携带图片。个性化配置中已下线的旧平台 id 会在读取时被规范化为空，界面回退到首个平台。
 
