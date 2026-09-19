@@ -36,6 +36,7 @@ import {
   saveMomentsSettings,
   getThinkingSettings,
   getSamplingSettings,
+  getVectorMemoryConfig,
   getUserProfile,
   getPersonas,
   getActivePersonaId,
@@ -49,10 +50,12 @@ import {
   saveSamplingSettings,
   saveThinkingSettings,
   saveUserProfile,
+  saveVectorMemoryConfig,
   SAMPLING_FIELDS,
   THINKING_DISPLAYS,
 } from './storage';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
+import { testVectorConnection } from './vectorMemory';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -72,6 +75,19 @@ export default function SettingsScreen() {
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaIdState] = useState('');
+  const [vectorMemory, setVectorMemory] = useState({
+    enabled: false,
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    model: 'text-embedding-3-small',
+    topK: 5,
+    maxChars: 400,
+    batchSize: 16,
+  });
+  const vectorMemoryRef = useRef(null);
+  const [vectorTesting, setVectorTesting] = useState(false);
+  const [vectorTopKDraft, setVectorTopKDraft] = useState('5');
+  const [vectorMaxCharsDraft, setVectorMaxCharsDraft] = useState('400');
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
@@ -174,6 +190,14 @@ export default function SettingsScreen() {
         setSampling(settings);
       })
       .catch(() => {});
+    getVectorMemoryConfig()
+      .then(config => {
+        vectorMemoryRef.current = config;
+        setVectorMemory(config);
+        setVectorTopKDraft(String(config.topK));
+        setVectorMaxCharsDraft(String(config.maxChars));
+      })
+      .catch(() => {});
     getInlineImageSettings()
       .then(settings => {
         inlineImageRef.current = settings;
@@ -253,6 +277,33 @@ export default function SettingsScreen() {
       [name]: { enabled: field.enabled === true, value },
     });
   }, [persistSampling]);
+
+  const updateVectorMemory = useCallback(async patch => {
+    const base = vectorMemoryRef.current || vectorMemory;
+    const next = { ...base, ...patch };
+    vectorMemoryRef.current = next;
+    setVectorMemory(next);
+    try {
+      const saved = await saveVectorMemoryConfig(next);
+      vectorMemoryRef.current = saved;
+      setVectorMemory(saved);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, [vectorMemory]);
+
+  const testVector = useCallback(async () => {
+    if (vectorTesting) return;
+    setVectorTesting(true);
+    try {
+      const dims = await testVectorConnection(vectorMemoryRef.current || vectorMemory);
+      Alert.alert('连接成功', `向量维度：${dims}`);
+    } catch (error) {
+      Alert.alert('连接失败', error?.message || '请检查地址、密钥与模型。');
+    } finally {
+      setVectorTesting(false);
+    }
+  }, [vectorMemory, vectorTesting]);
 
   const updateInlineImage = useCallback(async patch => {
     const next = { ...inlineImageRef.current, ...patch };
@@ -1317,6 +1368,95 @@ export default function SettingsScreen() {
             );
           })}
           <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
+            <Text style={styles.cardTitle}>向量记忆</Text>
+          </View>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Text style={styles.linkText}>启用向量检索</Text>
+            </View>
+            <Switch
+              value={vectorMemory.enabled === true}
+              onValueChange={value => updateVectorMemory({ enabled: value })}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <Text style={styles.label}>接口地址</Text>
+          <TextInput
+            style={styles.input}
+            value={vectorMemory.baseUrl}
+            onChangeText={text => updateVectorMemory({ baseUrl: text })}
+            placeholder="https://api.openai.com/v1"
+            placeholderTextColor={theme.colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Text style={styles.label}>密钥</Text>
+          <TextInput
+            style={styles.input}
+            value={vectorMemory.apiKey}
+            onChangeText={text => updateVectorMemory({ apiKey: text })}
+            placeholder="sk-..."
+            placeholderTextColor={theme.colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+          />
+          <Text style={styles.label}>模型</Text>
+          <TextInput
+            style={styles.input}
+            value={vectorMemory.model}
+            onChangeText={text => updateVectorMemory({ model: text })}
+            placeholder="text-embedding-3-small"
+            placeholderTextColor={theme.colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Text style={styles.label}>召回条数（1 - 20）</Text>
+          <TextInput
+            style={styles.input}
+            value={vectorTopKDraft}
+            onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
+            onEndEditing={event => updateVectorMemory({ topK: event.nativeEvent.text }).then(() => {
+              const saved = vectorMemoryRef.current;
+              if (saved) setVectorTopKDraft(String(saved.topK));
+            })}
+            keyboardType="number-pad"
+            placeholder="5"
+            placeholderTextColor={theme.colors.textFaint}
+          />
+          <Text style={styles.label}>分片长度（字符，1 - 2000）</Text>
+          <TextInput
+            style={styles.input}
+            value={vectorMaxCharsDraft}
+            onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
+            onEndEditing={event => updateVectorMemory({ maxChars: event.nativeEvent.text }).then(() => {
+              const saved = vectorMemoryRef.current;
+              if (saved) setVectorMaxCharsDraft(String(saved.maxChars));
+            })}
+            keyboardType="number-pad"
+            placeholder="400"
+            placeholderTextColor={theme.colors.textFaint}
+          />
+          <TouchableOpacity
+            style={[styles.secondaryButton, vectorTesting && styles.buttonDisabled]}
+            onPress={testVector}
+            disabled={vectorTesting}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="pulse-outline" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.secondaryButtonText}>
+              {vectorTesting ? '测试中...' : '测试连接'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.fieldHint}>
+            未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
+          </Text>
         </View>
 
         <TtsPanel

@@ -44,6 +44,7 @@
 - 发送前按会话 `summarizedUpTo` 截断历史，并把 `buildMemorySummaryText(character)` 作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩
 - 角色页切换角色时同步切换会话（`ensureCharacterSession`）；记忆页打开群聊不依赖基础角色存在
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
+- 消息落库后若向量记忆开启，异步增量索引当前角色片段（已存在片段跳过，失败静默）；发送前按用户输入召回若干片段，经 `buildMemoryContext` 生成 `[相关记忆]` 注入请求；未配置或请求失败自动回退本地关键词检索；索引为空时不注入
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
 - 输入栏附件入口可选择纯文本类文档或图片：文本文档读取内容并在发送时以 `[附件：名称]` 并入上下文；图片仅当来源支持识图时允许，并以多模态形式发送；已选附件以标签与缩略图展示、可移除
@@ -81,7 +82,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
@@ -239,6 +240,9 @@
 | `saveThinkingSettings` | `({ enabled, level }) => Promise<{ enabled, level }>` | 归一化并写入思考设置（`level` 为 `low`/`medium`/`high`） |
 | `getSamplingSettings` | `() => Promise<Sampling>` | 读取生成采样设置，缺省四项均关闭（maxTokens 8024 / temperature 1 / topP 1 / topK 0） |
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
+| `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
+| `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入按角色隔离的记忆片段索引，写入时过滤非法条目 |
+| `clearVectorIndex` | `(characterId) => Promise<void>` | 清除某角色的记忆片段索引 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
 | `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；库键缺失时迁移旧键并补入默认角色 |
 | `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后写入角色库 |
@@ -316,6 +320,8 @@
 | `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_sampling` | 生成采样设置 `{ maxTokens, temperature, topP, topK }`，每项 `{ enabled, value }`，默认全关闭 |
+| `@easychat2_vector_memory` | 向量记忆配置 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }` |
+| `@easychat2_vector_index::<characterId>` | 按角色隔离的记忆片段索引 `[{ id, messageId, role, at, text, vector }]` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
 | `@easychat2_moments_settings` | 虚拟朋友圈开关 `{ enabled: boolean }` |
@@ -409,6 +415,25 @@ data: [DONE]
 
 **超时**: 采用空闲超时。每次收到增量数据都会重置 30 秒计时器；30 秒无数据则判定为超时。
 
+## 向量记忆接口
+
+**位置**: `src/vectorMemory/`
+
+| 函数 | 说明 |
+|------|------|
+| `VECTOR_PROVIDERS` / `getVectorProvider(id)` | 声明式向量服务（内置 `openai-embeddings`，默认 `https://api.openai.com/v1`、`text-embedding-3-small`） |
+| `buildEmbeddingUrl(baseUrl)` | 归一化 `/embeddings` 结尾 |
+| `mapEmbeddingError(status)` | 401/403、429 与其他的可读错误映射 |
+| `normalizeVectorConfig(raw)` | 规范化配置并夹取范围 |
+| `chunkMessages(messages, { maxChars })` | 按消息边界与长度切分片段，附 `id`/`messageId`/`role`/`at`，文本前缀标注说话者 |
+| `embedTexts({ config, texts })` | 调用 `/embeddings` 批量向量化，返回向量数组 |
+| `cosineSimilarity(a, b)` | 余弦相似度 |
+| `retrieve({ config, index, query, topK })` | 查询向量化后按相似度取 TopN；未启用或失败回退 `keywordRetrieve` |
+| `keywordRetrieve({ index, query, topK })` | 本地关键词检索（中英文分词计分） |
+| `buildMemoryContext(snippets, { maxTotalChars })` | 拼装 `[相关记忆]` 文本并限制总长，空输入返回空串 |
+| `indexMessages({ characterId, messages, config, existing })` | 增量分片并向量化，已存在片段跳过；未启用或失败时仅存片段（`vector: []`） |
+| `testVectorConnection(config)` | 测试连接，返回向量维度或抛可读错误 |
+
 ## 聊天竞态接口
 
 ### `isStaleReply(currentCharacterId, sendCharacterId)`
@@ -456,7 +481,7 @@ data: [DONE]
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`

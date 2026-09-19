@@ -31,6 +31,8 @@ const APPEARANCE_KEY = '@easychat2_appearance';
 const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const TTS_KEY = '@easychat2_tts';
 const SAMPLING_KEY = '@easychat2_sampling';
+const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
+const VECTOR_INDEX_PREFIX = '@easychat2_vector_index';
 const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
 const MOMENTS_KEY = '@easychat2_moments';
 const AFFINITY_KEY = '@easychat2_affinity';
@@ -379,6 +381,65 @@ export async function saveSamplingSettings(settings) {
   const normalized = normalizeSampling(settings);
   await AsyncStorage.setItem(SAMPLING_KEY, JSON.stringify(normalized));
   return normalized;
+}
+
+export function normalizeVectorMemoryConfig(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const topK = Math.trunc(Number(source.topK));
+  const maxChars = Math.trunc(Number(source.maxChars));
+  const batchSize = Math.trunc(Number(source.batchSize));
+  return {
+    enabled: source.enabled === true,
+    providerId: String(source.providerId || 'openai-embeddings'),
+    baseUrl: String(source.baseUrl || 'https://api.openai.com/v1'),
+    apiKey: String(source.apiKey || ''),
+    model: String(source.model || 'text-embedding-3-small'),
+    topK: Number.isFinite(topK) && topK > 0 ? Math.min(20, topK) : 5,
+    maxChars: Number.isFinite(maxChars) && maxChars > 0 ? Math.min(2000, maxChars) : 400,
+    batchSize: Number.isFinite(batchSize) && batchSize > 0 ? Math.min(64, batchSize) : 16,
+  };
+}
+
+export async function getVectorMemoryConfig() {
+  const raw = await readJson(VECTOR_MEMORY_KEY, null);
+  return normalizeVectorMemoryConfig(raw);
+}
+
+export async function saveVectorMemoryConfig(config) {
+  const normalized = normalizeVectorMemoryConfig(config);
+  await AsyncStorage.setItem(VECTOR_MEMORY_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function vectorIndexKey(characterId) {
+  return `${VECTOR_INDEX_PREFIX}::${String(characterId || 'default')}`;
+}
+
+export async function getVectorIndex(characterId) {
+  const stored = await readJson(vectorIndexKey(characterId), []);
+  if (!Array.isArray(stored)) return [];
+  return stored.filter(item => item && item.id && typeof item.text === 'string');
+}
+
+export async function saveVectorIndex(characterId, index) {
+  const list = (Array.isArray(index) ? index : [])
+    .filter(item => item && item.id && typeof item.text === 'string')
+    .map(item => ({
+      id: String(item.id),
+      messageId: String(item.messageId || ''),
+      role: String(item.role || ''),
+      at: Number(item.at) || 0,
+      text: String(item.text),
+      vector: Array.isArray(item.vector) ? item.vector.map(Number) : [],
+    }));
+  await AsyncStorage.setItem(vectorIndexKey(characterId), JSON.stringify(list));
+  return list;
+}
+
+export async function clearVectorIndex(characterId) {
+  try {
+    await AsyncStorage.removeItem(vectorIndexKey(characterId));
+  } catch (error) {}
 }
 
 function normalizeImageGenProvider(raw) {

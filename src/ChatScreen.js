@@ -78,8 +78,16 @@ import {
   startNewSession,
   THINKING_LEVELS,
   updateSessionMemberProfiles,
+  getVectorMemoryConfig,
+  getVectorIndex,
+  saveVectorIndex,
 } from './storage';
 import { runPlugins } from './plugins/registry';
+import {
+  buildMemoryContext,
+  indexMessages,
+  retrieve,
+} from './vectorMemory';
 import { useTheme } from './theme/ThemeContext';
 import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
@@ -1027,9 +1035,21 @@ export default function ChatScreen() {
     if (!activeSessionId) return;
     if (persistableSnapshot === lastSavedSnapshotRef.current) return;
     lastSavedSnapshotRef.current = persistableSnapshot;
+    const indexedCharacterId = character.id || 'default';
+    const messagesToIndex = persistableMessages;
     saveMessagesBySession(activeSessionId, persistableMessages)
       .then(() => {
         saveFailedRef.current = false;
+        getVectorMemoryConfig()
+          .then(config => getVectorIndex(indexedCharacterId)
+            .then(existing => indexMessages({
+              characterId: indexedCharacterId,
+              messages: messagesToIndex,
+              config,
+              existing,
+            }))
+            .then(next => saveVectorIndex(indexedCharacterId, next)))
+          .catch(() => {});
       })
       .catch(() => {
         if (!saveFailedRef.current) {
@@ -1037,7 +1057,7 @@ export default function ChatScreen() {
           Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
         }
       });
-  }, [activeSessionId, persistableSnapshot, ready]);
+  }, [activeSessionId, persistableSnapshot, ready, character.id]);
 
   useEffect(() => () => {
     if (abortRef.current) {
@@ -1410,6 +1430,22 @@ export default function ChatScreen() {
       const trimmedHistory = boundaryIndex >= 0
         ? historyMessages.slice(boundaryIndex + 1)
         : historyMessages;
+      let memorySnippets = '';
+      try {
+        const vectorConfig = await getVectorMemoryConfig();
+        const index = await getVectorIndex(character.id);
+        if (index.length > 0 && String(userText || '').trim()) {
+          const hits = await retrieve({
+            config: vectorConfig,
+            index,
+            query: userText,
+            topK: vectorConfig.topK,
+          });
+          memorySnippets = buildMemoryContext(hits);
+        }
+      } catch (error) {
+        memorySnippets = '';
+      }
       const requestMessages = buildRequestMessages({
         character,
         historyMessages: trimmedHistory,
@@ -1417,6 +1453,7 @@ export default function ChatScreen() {
         userProfile,
         globalPresets,
         summaryText: buildMemorySummaryText(character),
+        memorySnippets,
         pluginContext,
         images,
         quote,
