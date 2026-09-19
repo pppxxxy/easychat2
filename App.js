@@ -1,7 +1,7 @@
 import './src/polyfills';
 import 'react-native-gesture-handler';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -16,9 +16,12 @@ import MemoryScreen from './src/MemoryScreen';
 import ExtensionScreen from './src/ExtensionScreen';
 import SettingsScreen from './src/SettingsScreen';
 import DisclaimerModal from './src/disclaimer';
+import OnboardingModal from './src/OnboardingModal';
 import {
   acknowledgeDisclaimer,
+  completeOnboarding,
   isDisclaimerAcknowledged,
+  isOnboardingDone,
   migrateLegacyMessages,
   startNewSession,
 } from './src/storage';
@@ -91,29 +94,49 @@ function Header() {
   );
 }
 
-function StartupDisclaimer() {
-  const [visible, setVisible] = useState(false);
+function StartupFlow() {
+  const [stage, setStage] = useState('loading');
 
   useEffect(() => {
     let cancelled = false;
-    isDisclaimerAcknowledged()
-      .then(ack => {
-        if (!cancelled && !ack) setVisible(true);
-      })
-      .catch(() => {
-        if (!cancelled) setVisible(true);
-      });
+    (async () => {
+      try {
+        const ack = await isDisclaimerAcknowledged();
+        if (cancelled) return;
+        if (!ack) {
+          setStage('disclaimer');
+          return;
+        }
+        const done = await isOnboardingDone();
+        if (cancelled) return;
+        setStage(done ? 'done' : 'onboarding');
+      } catch (error) {
+        if (!cancelled) setStage('disclaimer');
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const onClose = () => {
-    setVisible(false);
+  const onDisclaimerClose = useCallback(() => {
     acknowledgeDisclaimer().catch(() => {});
-  };
+    isOnboardingDone()
+      .then(done => setStage(done ? 'done' : 'onboarding'))
+      .catch(() => setStage('done'));
+  }, []);
 
-  return <DisclaimerModal visible={visible} onClose={onClose} />;
+  const onOnboardingFinish = useCallback(() => {
+    completeOnboarding().catch(() => {});
+    setStage('done');
+  }, []);
+
+  return (
+    <>
+      <DisclaimerModal visible={stage === 'disclaimer'} onClose={onDisclaimerClose} />
+      <OnboardingModal visible={stage === 'onboarding'} onFinish={onOnboardingFinish} />
+    </>
+  );
 }
 
 function StartupSession() {
@@ -198,7 +221,7 @@ export default function App() {
             <AppProvider>
               <AppShell />
               <StartupSession />
-              <StartupDisclaimer />
+              <StartupFlow />
             </AppProvider>
           </ThemeProvider>
         </StartupErrorBoundary>

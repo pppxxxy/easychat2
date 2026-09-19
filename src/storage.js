@@ -23,6 +23,7 @@ const CHARACTER_KEY = '@easychat2_character';
 const CHARACTERS_KEY = '@easychat2_characters';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
+const ONBOARDING_DONE_KEY = '@easychat2_onboarding_done';
 const MEMORY_SUMMARY_KEY = '@easychat2_memory_summary';
 const PLUGINS_KEY = '@easychat2_plugins';
 const THINKING_KEY = '@easychat2_thinking';
@@ -1199,6 +1200,16 @@ export async function isDisclaimerAcknowledged() {
 
 export async function acknowledgeDisclaimer() {
   await AsyncStorage.setItem(DISCLAIMER_ACK_KEY, 'true');
+  return true;
+}
+
+export async function isOnboardingDone() {
+  const raw = await AsyncStorage.getItem(ONBOARDING_DONE_KEY);
+  return raw === 'true';
+}
+
+export async function completeOnboarding() {
+  await AsyncStorage.setItem(ONBOARDING_DONE_KEY, 'true');
   return true;
 }
 

@@ -99,7 +99,7 @@ easychat2/
 ## 子系统
 
 ### 应用外壳与导航
-**目的**: 初始化运行时垫片、全局 Provider，并组织五个标签页；首次启动时经 `StartupDisclaimer` 弹出免责条款，`StartupSession` 迁移旧消息并开启新会话
+**目的**: 初始化运行时垫片、全局 Provider，并组织五个标签页；首次启动时经 `StartupFlow` 先弹免责条款、再进入新手教学向导，`StartupSession` 迁移旧消息并开启新会话
 **位置**: `App.js`
 **关键文件**: `App.js`
 **依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`@expo/vector-icons`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`

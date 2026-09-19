@@ -1,14 +1,23 @@
 import React, { useMemo } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { TUTORIAL_SECTIONS } from './tutorialContent';
+import { ONBOARDING_CHAPTERS } from './onboardingContent';
+import { getOnboardingImage } from './onboarding/images';
 import { useTheme } from './theme/ThemeContext';
 
 export default function TutorialModal({ visible, onClose }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
-  const sections = Array.isArray(TUTORIAL_SECTIONS) ? TUTORIAL_SECTIONS : [];
+  const chapters = Array.isArray(ONBOARDING_CHAPTERS) ? ONBOARDING_CHAPTERS : [];
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
@@ -23,22 +32,34 @@ export default function TutorialModal({ visible, onClose }) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {sections.map(section => (
-            <View key={section.id} style={styles.card}>
-              <View style={styles.cardTitleRow}>
-                <Ionicons name={section.icon} size={16} color={theme.colors.primaryMuted} />
-                <Text style={styles.cardTitle}>{section.title}</Text>
-              </View>
-              {section.intro ? <Text style={styles.intro}>{section.intro}</Text> : null}
-              {(section.items || []).map(item => (
-                <View key={`${section.id}-${item.name}`} style={styles.item}>
-                  <Text style={styles.itemName}>{item.name}</Text>
-                  <Text style={styles.itemWhere}>位置：{item.where}</Text>
-                  <Text style={styles.itemUsage}>用法：{item.usage}</Text>
+          {chapters.map(chapter => {
+            const image = getOnboardingImage(chapter.image);
+            return (
+              <View key={chapter.id} style={styles.card}>
+                <View style={styles.cardTitleRow}>
+                  <Ionicons name={chapter.icon || 'information-circle-outline'} size={16} color={theme.colors.primaryMuted} />
+                  <Text style={styles.cardTitle}>{chapter.title}</Text>
                 </View>
-              ))}
-            </View>
-          ))}
+                {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
+                {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
+                {image ? <Image source={image} style={styles.image} resizeMode="contain" /> : null}
+                {(chapter.steps || []).map((step, stepIndex) => (
+                  <View key={`${chapter.id}-step-${stepIndex}`} style={styles.stepRow}>
+                    <Text style={styles.stepIndex}>{stepIndex + 1}.</Text>
+                    <Text style={styles.stepText}>{step}</Text>
+                  </View>
+                ))}
+                {(chapter.items || []).map(item => (
+                  <View key={`${chapter.id}-${item.name}`} style={styles.item}>
+                    <Text style={styles.itemName}>{item.name}</Text>
+                    <Text style={styles.itemWhere}>位置：{item.where}</Text>
+                    <Text style={styles.itemUsage}>用法：{item.usage}</Text>
+                  </View>
+                ))}
+                {chapter.note ? <Text style={styles.note}>{chapter.note}</Text> : null}
+              </View>
+            );
+          })}
         </ScrollView>
         <TouchableOpacity style={styles.button} onPress={onClose} activeOpacity={0.85}>
           <Text style={styles.buttonText}>关闭</Text>
@@ -75,7 +96,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 8 },
+  summary: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', lineHeight: fonts.scaled(19), marginBottom: 6 },
   intro: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginBottom: 8 },
+  image: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    marginBottom: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
+  stepIndex: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '800', marginRight: 6, minWidth: 18 },
+  stepText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(20) },
   item: {
     paddingVertical: 8,
     borderTopWidth: 1,
@@ -84,6 +116,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   itemName: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700' },
   itemWhere: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 3 },
   itemUsage: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 2 },
+  note: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(19), marginTop: 10, fontStyle: 'italic' },
   button: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,
