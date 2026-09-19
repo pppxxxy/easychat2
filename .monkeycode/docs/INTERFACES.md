@@ -675,7 +675,7 @@ data: [DONE]
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
 **位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`
-**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（12 章），结构 `{ id, title, icon, image, summary, intro, steps: string[], items: [{ name, where, usage }], note }`；聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；截图经 `getOnboardingImage(image)` 取，未注册为 `null`（`src/onboarding/images.js`）
+**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（12 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, intro, steps: string[], items: [{ name, where, usage }], note }`；单图用 `image`，多图用 `images`（优先于 `image`）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`），未注册的图直接跳过。
 
 ### `ChapterModal` / `TutorialModal`
 **位置**: `src/ChapterModal.js` / `src/TutorialModal.js`

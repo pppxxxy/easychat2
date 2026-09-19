@@ -11,7 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { ONBOARDING_CHAPTERS } from './onboardingContent';
-import { getOnboardingImage } from './onboarding/images';
+import { getOnboardingImages } from './onboarding/images';
 import { useTheme } from './theme/ThemeContext';
 
 export default function OnboardingModal({ visible, onFinish }) {
@@ -22,7 +22,7 @@ export default function OnboardingModal({ visible, onFinish }) {
 
   const total = chapters.length;
   const chapter = chapters[Math.min(index, Math.max(total - 1, 0))];
-  const image = getOnboardingImage(chapter?.image);
+  const images = getOnboardingImages(chapter);
   const isFirst = index <= 0;
   const isLast = index >= total - 1;
 
@@ -67,14 +67,12 @@ export default function OnboardingModal({ visible, onFinish }) {
           {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
           {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
 
-          {image ? (
-            <Image source={image} style={styles.image} resizeMode="contain" />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Ionicons name="image-outline" size={26} color={theme.colors.textFaint} />
-              <Text style={styles.imagePlaceholderText}>示意图待补充</Text>
+          {images.map((item, imageIndex) => (
+            <View key={`${chapter.id}-image-${imageIndex}`} style={styles.figure}>
+              <Image source={item.source} style={styles.image} resizeMode="contain" />
+              {item.caption ? <Text style={styles.figureCaption}>{item.caption}</Text> : null}
             </View>
-          )}
+          ))}
 
           {(chapter.steps || []).map((step, stepIndex) => (
             <View key={`${chapter.id}-step-${stepIndex}`} style={styles.stepRow}>
@@ -167,22 +165,15 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     width: '100%',
     height: 220,
     borderRadius: 14,
-    marginBottom: 14,
     backgroundColor: theme.colors.surface,
   },
-  imagePlaceholder: {
-    width: '100%',
-    height: 120,
-    borderRadius: 14,
-    marginBottom: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderStyle: 'dashed',
+  figure: { marginBottom: 14 },
+  figureCaption: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginTop: 6,
   },
-  imagePlaceholderText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6 },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   stepIndex: {
     width: 22,

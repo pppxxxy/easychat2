@@ -11,7 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getOnboardingChapters } from './onboardingContent';
-import { getOnboardingImage } from './onboarding/images';
+import { getOnboardingImages } from './onboarding/images';
 import { useTheme } from './theme/ThemeContext';
 
 export default function ChapterModal({
@@ -39,7 +39,7 @@ export default function ChapterModal({
           keyboardShouldPersistTaps="handled"
         >
           {chapters.map(chapter => {
-            const image = getOnboardingImage(chapter.image);
+            const images = getOnboardingImages(chapter);
             return (
               <View key={chapter.id} style={styles.card}>
                 <View style={styles.cardTitleRow}>
@@ -48,7 +48,12 @@ export default function ChapterModal({
                 </View>
                 {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
                 {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
-                {image ? <Image source={image} style={styles.image} resizeMode="contain" /> : null}
+                {images.map((item, imageIndex) => (
+                  <View key={`${chapter.id}-image-${imageIndex}`} style={styles.figure}>
+                    <Image source={item.source} style={styles.image} resizeMode="contain" />
+                    {item.caption ? <Text style={styles.figureCaption}>{item.caption}</Text> : null}
+                  </View>
+                ))}
                 {(chapter.steps || []).map((step, stepIndex) => (
                   <View key={`${chapter.id}-step-${stepIndex}`} style={styles.stepRow}>
                     <Text style={styles.stepIndex}>{stepIndex + 1}.</Text>
@@ -104,12 +109,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 8 },
   summary: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', lineHeight: fonts.scaled(19), marginBottom: 6 },
   intro: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginBottom: 8 },
+  figure: { marginBottom: 10 },
   image: {
     width: '100%',
     height: 180,
     borderRadius: 12,
-    marginBottom: 10,
     backgroundColor: theme.colors.surfaceAlt,
+  },
+  figureCaption: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginTop: 6,
   },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
   stepIndex: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '800', marginRight: 6, minWidth: 18 },

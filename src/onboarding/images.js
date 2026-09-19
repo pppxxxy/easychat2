@@ -30,4 +30,25 @@ export function getOnboardingImage(key) {
   return IMAGES[key] || null;
 }
 
+// 解析章节的图片列表：优先用 images（[{ key, caption }]），否则回退单个 image。
+// 返回 [{ source, caption }]，已过滤掉未注册/无效项。
+export function getOnboardingImages(chapter) {
+  if (!chapter) return [];
+  const resolve = items => items
+    .map(item => {
+      const key = typeof item === 'string' ? item : item?.key;
+      const source = getOnboardingImage(key);
+      if (!source) return null;
+      const caption = typeof item === 'string' ? '' : String(item?.caption || '');
+      return { source, caption };
+    })
+    .filter(Boolean);
+
+  const list = Array.isArray(chapter.images) && chapter.images.length > 0
+    ? resolve(chapter.images)
+    : [];
+  if (list.length > 0) return list;
+  return chapter.image ? resolve([{ key: chapter.image }]) : [];
+}
+
 export default IMAGES;

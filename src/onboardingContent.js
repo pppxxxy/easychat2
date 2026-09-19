@@ -122,6 +122,11 @@ export const ONBOARDING_CHAPTERS = [
     title: '聊天界面与聊天设置',
     icon: 'chatbubbles-outline',
     image: 'chat-ui',
+    images: [
+      { key: 'chat-ui', caption: '聊天对话：消息气泡、操作行与拍一拍旁白（「用户 戳了戳 角色」）。' },
+      { key: 'chat-ui-menu', caption: '顶部「⋯」更多菜单：公告、模型、思考、定位、搜索、总结与设置。' },
+      { key: 'chat-ui-empty', caption: '空会话时的引导页：提示先在「设置」填写 API Key。' },
+    ],
     summary: '认识聊天页的主要操作，让对话更顺手。',
     intro: '聊天页是使用最频繁的界面，底部输入、顶部菜单和消息操作集中了大部分功能。',
     steps: [
@@ -153,6 +158,10 @@ export const ONBOARDING_CHAPTERS = [
     title: '角色编辑',
     icon: 'create-outline',
     image: 'character-edit',
+    images: [
+      { key: 'character-library', caption: '角色库：卡片点选切换，顶部可新建、创建群聊、批量多选；群聊也会作为卡片出现。' },
+      { key: 'character-edit', caption: '编辑表单：拍一拍文案、标签、保存，以及世界书 / 正则 / 全局预设入口。' },
+    ],
     summary: '自定义角色的人设、开场白与高级能力。',
     intro: '在角色页可以编辑角色的全部字段，塑造出符合预期的对话风格。聊天设置里也能就地打开角色编辑。',
     steps: [
@@ -256,6 +265,10 @@ export const ONBOARDING_CHAPTERS = [
     title: '生图 API 获取与设置',
     icon: 'color-wand-outline',
     image: 'image-api',
+    images: [
+      { key: 'image-api', caption: '生图界面：选择服务与模型、填写提示词、设置尺寸与种子。' },
+      { key: 'image-api-key', caption: '「填密钥」面板：填写 API 地址与 Key，可「获取 API Key」「检测连通性」。' },
+    ],
     summary: '配置生图服务，在 App 内生成图片。',
     intro: '生图功能位于「扩展」页，支持多个官方平台与 OpenAI 兼容中转站。不同平台对网络与跨域的要求不同，配置前请先看平台提示。',
     steps: [
