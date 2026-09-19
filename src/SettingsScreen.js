@@ -56,6 +56,7 @@ import {
 } from './storage';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { testVectorConnection } from './vectorMemory';
+import TutorialModal from './TutorialModal';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -157,6 +158,7 @@ export default function SettingsScreen() {
   const modelSourceRef = useRef(null);
   const [apiSaving, setApiSaving] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const { theme, fonts, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
@@ -796,9 +798,7 @@ export default function SettingsScreen() {
   };
 
   const openTutorial = () => {
-    Linking.openURL('https://github.com/pppxxxy/easychat2/wiki').catch(() =>
-      Alert.alert('无法打开', '请手动访问 GitHub 仓库查看使用说明。')
-    );
+    setTutorialOpen(true);
   };
 
   const openDisclaimer = () => {
@@ -1637,6 +1637,11 @@ export default function SettingsScreen() {
         visible={disclaimerOpen}
         title="免责条款"
         onClose={() => setDisclaimerOpen(false)}
+      />
+
+      <TutorialModal
+        visible={tutorialOpen}
+        onClose={() => setTutorialOpen(false)}
       />
     </KeyboardAvoidingView>
   );

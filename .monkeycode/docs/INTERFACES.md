@@ -82,7 +82,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（聊天/记忆/角色/设置四章），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
@@ -635,6 +635,10 @@ data: [DONE]
 ### `DISCLAIMER_TEXT` / `DisclaimerModal`
 **位置**: `src/disclaimer.js`
 **说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`，用于启动弹窗与聊天「公告」
+
+### `TUTORIAL_SECTIONS` / `TutorialModal`
+**位置**: `src/tutorialContent.js` / `src/TutorialModal.js`
+**说明**: `TUTORIAL_SECTIONS` 为静态教程数据，结构 `{ id, title, icon, intro, items: [{ name, where, usage }] }`，含聊天/记忆/角色/设置四章；`TutorialModal`（默认导出）Props 为 `{ visible, onClose }`，全屏 `Modal` + `ScrollView` 只读渲染，由设置页「使用教程」入口打开
 
 ## 数据结构
 
