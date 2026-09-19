@@ -49,8 +49,11 @@ import {
   buildGroupRequest,
   ENSEMBLE_MODE,
   ensureMemberProfiles,
+  EVERYONE_MENTION,
   generateOpening,
+  hasEveryoneMention,
   mergeAdjacentSegments,
+  MENTION_PREFIX,
   parseEnsembleReply,
   parseMentions,
   selectSpeakers,
@@ -804,6 +807,8 @@ export default function ChatScreen() {
   const abortRef = useRef(null);
   const sessionVersionRef = useRef(0);
   const [input, setInput] = useState('');
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
+  const inputSelectionRef = useRef({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
@@ -1649,6 +1654,7 @@ export default function ChatScreen() {
           await updateSessionMemberProfiles(groupSessionId, ensured);
         }
       } catch (error) {}
+      const everyone = hasEveryoneMention(userText);
       const mentions = parseMentions(userText, members);
       let working = baseMessages;
 
@@ -1658,6 +1664,7 @@ export default function ChatScreen() {
           history: historyMessages,
           userText,
           mentions,
+          everyone,
         });
         for (const speakerId of speakerIds) {
           if (!isCurrent() || controller.signal.aborted) break;
@@ -1736,6 +1743,7 @@ export default function ChatScreen() {
           globalPresets,
           profiles: memberProfiles,
           mentions,
+          everyone,
         });
         if (requestMessages.length === 0) return false;
         const pendingMessage = {
@@ -2101,6 +2109,19 @@ export default function ChatScreen() {
     sendText(text);
   }, [attachments.length, input, isSending, ready, sendText]);
 
+  const insertMention = useCallback(name => {
+    const label = `${MENTION_PREFIX}${name} `;
+    setInput(current => {
+      const selection = inputSelectionRef.current || { start: current.length, end: current.length };
+      const start = Math.max(0, Math.min(selection.start, current.length));
+      const end = Math.max(start, Math.min(selection.end, current.length));
+      const next = `${current.slice(0, start)}${label}${current.slice(end)}`;
+      const caret = start + label.length;
+      inputSelectionRef.current = { start: caret, end: caret };
+      return next;
+    });
+  }, []);
+
   const bgUri = character.bgUri || '';
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
@@ -2379,22 +2400,38 @@ export default function ChatScreen() {
             <Text style={styles.clearText}>清空</Text>
           </TouchableOpacity>
         ) : null}
-        <TouchableOpacity
-          style={styles.attachButton}
-          onPress={pickAttachmentMenu}
-          disabled={!ready || isSending}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="添加附件"
-        >
-          <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
-        </TouchableOpacity>
+        {isGroup ? (
+          <TouchableOpacity
+            style={styles.attachButton}
+            onPress={() => setMentionPickerOpen(true)}
+            disabled={!ready || isSending}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="提及成员"
+          >
+            <Text style={styles.mentionButtonText}>{MENTION_PREFIX}</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.attachButton}
+            onPress={pickAttachmentMenu}
+            disabled={!ready || isSending}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="添加附件"
+          >
+            <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
+          </TouchableOpacity>
+        )}
         <TextInput
           style={[styles.input, bgUri && styles.inputOverlay, inputFocused && styles.inputFocused]}
           value={input}
           onChangeText={setInput}
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}
+          onSelectionChange={event => {
+            inputSelectionRef.current = event.nativeEvent.selection;
+          }}
           placeholder="输入消息..."
           placeholderTextColor={theme.colors.textFaint}
           multiline
@@ -2532,6 +2569,62 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={mentionPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMentionPickerOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setMentionPickerOpen(false)}
+        >
+          <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
+            <Text style={styles.modalTitle}>提及成员</Text>
+            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity
+                style={styles.modalRow}
+                onPress={() => {
+                  setMentionPickerOpen(false);
+                  insertMention(EVERYONE_MENTION);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.modalRowAvatarFallback}>
+                  <Ionicons name="people" size={14} color={theme.colors.primarySoft} />
+                </View>
+                <Text style={styles.modalRowText}>@{EVERYONE_MENTION}</Text>
+              </TouchableOpacity>
+              {groupCharacters.map(item => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.modalRow}
+                  onPress={() => {
+                    setMentionPickerOpen(false);
+                    insertMention(String(item.name || '').trim());
+                  }}
+                  activeOpacity={0.7}
+                >
+                  {item.avatarUri ? (
+                    <Image source={{ uri: item.avatarUri }} style={styles.modalRowAvatar} />
+                  ) : (
+                    <View style={styles.modalRowAvatarFallback}>
+                      <Text style={styles.modalRowAvatarText}>
+                        {(item.name || '?').charAt(0)}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={styles.modalRowText} numberOfLines={1}>
+                    {item.name || '未命名角色'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -3505,6 +3598,13 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   attachmentThumb: { width: 20, height: 20, borderRadius: 4, marginRight: 6 },
   attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
+  mentionButtonText: {
+    color: theme.colors.primarySoft,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 24,
+    paddingHorizontal: 4,
+  },
   fullScreenButton: { paddingHorizontal: 6, paddingVertical: 6 },
   fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   fullScreenHeader: {

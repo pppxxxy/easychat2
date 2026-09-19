@@ -54,7 +54,7 @@
 - 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
-- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
+- 群聊会话（`type: 'group'`）：顶部展示群名与群图标；输入栏左侧为 `@` 按钮（替代附件入口），点击弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -491,8 +491,10 @@ data: [DONE]
 
 | 函数 | 说明 |
 |------|------|
-| `parseMentions(text, characters)` | 解析消息中的 `@角色名`，返回角色 `id` 列表 |
-| `selectSpeakers({ characters, history, userText, mentions })` | 调用 LLM 选出 1-3 个发言角色；解析失败回退本地规则（`@` 优先、名字命中、轮转）；`@` 角色必定入选 |
+| `parseMentions(text, characters)` | 解析消息中的 `@角色名`，返回角色 `id` 列表；`@全体` 返回全部成员 `id` |
+| `hasEveryoneMention(text)` | 消息是否包含 `@全体` |
+| `EVERYONE_MENTION` / `MENTION_PREFIX` | `'全体'` / `'@'` 常量 |
+| `selectSpeakers({ characters, history, userText, mentions, everyone })` | 调用 LLM 选出 1-3 个发言角色；解析失败回退本地规则（`@` 优先、名字命中、轮转）；`@` 角色必定入选；`everyone` 为真时返回全部成员且不受 3 人上限 |
 | `parseSpeakerResponse(text, characters)` | 解析调度返回的 `{ speakers: [...] }`，按角色名映射为 `id` |
 | `generateOpening({ characters, userProfile, globalPresets })` | 生成群场景开场白与首位发言角色，失败回退合成文案 |
 | `buildGroupHistory(messages)` | 为助手消息加上 `发言者：` 前缀，供模型区分发言人 |
@@ -501,7 +503,7 @@ data: [DONE]
 | `ensureMemberProfiles({ characters, profiles })` | 对简介不足且无缓存的成员生成人设卡，返回新 `profiles`（不重复生成） |
 | `buildGroupContext({ speaker, characters, historyMessages, profiles })` | 构造 `[群聊情境]` 文本：多人群聊说明、在场成员名单（含简介与最近发言）、最近对话 |
 | `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote, summaryText, pluginContext, profiles })` | 逐角色模式：以发言角色卡设定构造请求，注入群聊情境并透传引用信息 |
-| `buildEnsemblePrompt({ characters, historyMessages, userText, userProfile, globalPresets, profiles, mentions })` | 群像卡模式：合并全部成员设定为单次调用的提示词，要求按「角色名：」分段并由模型决定发言者与篇幅；`mentions` 注入点名 |
+| `buildEnsemblePrompt({ characters, historyMessages, userText, userProfile, globalPresets, profiles, mentions, everyone })` | 群像卡模式：合并全部成员设定为单次调用的提示词，要求按「角色名：」分段并由模型决定发言者与篇幅；`mentions` 注入点名，`everyone` 为真时要求全员发言 |
 | `parseEnsembleReply(text, characters)` | 解析「角色名：内容」为发言段 `[{ speakerId, speakerName, text }]`，兼容空行、半角冒号、星号包裹、未知角色与多行内容 |
 | `mergeAdjacentSegments(segments)` | 合并同一发言者的连续段，丢弃空文本段 |
 

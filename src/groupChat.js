@@ -68,9 +68,19 @@ export async function ensureMemberProfiles({ characters, profiles }) {
   return next;
 }
 
+export const EVERYONE_MENTION = '全体';
+export const MENTION_PREFIX = '@';
+
+export function hasEveryoneMention(text) {
+  return String(text || '').includes(`${MENTION_PREFIX}${EVERYONE_MENTION}`);
+}
+
 export function parseMentions(text, characters) {
   const source = String(text || '');
   const list = Array.isArray(characters) ? characters : [];
+  if (hasEveryoneMention(source)) {
+    return list.map(character => character.id).filter(Boolean);
+  }
   const ids = [];
   list.forEach(character => {
     const name = String(character.name || '').trim();
@@ -174,9 +184,10 @@ export function parseSpeakerResponse(text, characters) {
   return ids;
 }
 
-export async function selectSpeakers({ characters, history, userText, mentions = [] }) {
+export async function selectSpeakers({ characters, history, userText, mentions = [], everyone = false }) {
   const list = Array.isArray(characters) ? characters : [];
   if (list.length === 0) return [];
+  if (everyone) return list.map(character => character.id).filter(Boolean);
   if (mentions.length >= MAX_SPEAKERS) return mentions.slice(0, MAX_SPEAKERS);
   let picked = [];
   try {
@@ -388,6 +399,7 @@ export function buildEnsemblePrompt({
   globalPresets,
   profiles,
   mentions = [],
+  everyone = false,
 }) {
   const list = (Array.isArray(characters) ? characters : []).filter(Boolean);
   if (list.length === 0) return [];
@@ -402,7 +414,9 @@ export function buildEnsemblePrompt({
     '在场成员：',
     roster,
   ];
-  if (mentionNames) {
+  if (everyone) {
+    systemLines.push('', '用户在本轮点名了全体成员，请确保每个角色都发言。');
+  } else if (mentionNames) {
     systemLines.push('', `用户在本轮点名了：${mentionNames}。请确保被点名的角色一定发言。`);
   }
   const recent = (Array.isArray(historyMessages) ? historyMessages : [])
