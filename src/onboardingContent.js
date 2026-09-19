@@ -90,9 +90,15 @@ export const ONBOARDING_CHAPTERS = [
     icon: 'id-card-outline',
     image: 'character-card',
     summary: '把喜欢的角色卡导入 App，开始专属对话。',
-    intro: '角色卡通常以 PNG 或 JSON 文件分享，里面包含角色的名字、人设、开场白，有的还带有世界书与正则脚本。导入后即可直接聊天。',
+    intro: '角色卡可以自行去社交媒体、网站，或询问 AI 获取。下面提供几个平台入口作为参考，具体内容由平台算法和你的主动搜索决定。',
+    warning: '请自行确认角色卡的版权状态，避免使用未经授权改编的知名动漫、游戏、影视角色（如《进击的巨人》《航海王》等 IP 的二创卡），下载后请勿在公开渠道二次传播，避免扩大侵权风险，优先选择原创角色。本教程不展示、不推荐任何具体角色卡，仅提供平台入口。你所看到和下载的内容均由平台算法和你的主动搜索决定。',
+    links: [
+      { label: 'AI Character Cards', url: 'https://aicharactercards.com/search' },
+      { label: 'Character Tavern', url: 'https://character-tavern.com/search/cards' },
+      { label: 'RisuRealm', url: 'https://realm.risuai.net/?search=' },
+    ],
     steps: [
-      '在角色分享社区或创作者处获取角色卡文件，常见格式为 PNG 图片或 JSON 文本。',
+      '在下列平台中搜索并下载角色卡，常见格式为 PNG 图片或 JSON 文本。',
       '打开底部「角色」页，进入「基本信息」区块。',
       '点击「导入角色卡」，选择 PNG 或 JSON 文件。',
       '导入成功后角色会出现在角色库中，点选即可设为当前角色。',
@@ -106,8 +112,8 @@ export const ONBOARDING_CHAPTERS = [
       },
       {
         name: '角色卡来源',
-        where: '角色分享社区或创作者',
-        usage: '获取时请留意版权与使用许可，避免导入来源不明的文件。',
+        where: 'AI Character Cards / Character Tavern / RisuRealm',
+        usage: '在平台内自行搜索下载；请注意版权与使用许可，避免导入来源不明的文件。',
       },
       {
         name: '导出角色卡',

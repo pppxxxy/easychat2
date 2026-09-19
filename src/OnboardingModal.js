@@ -12,6 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { ONBOARDING_CHAPTERS } from './onboardingContent';
 import { getOnboardingImages } from './onboarding/images';
+import ChapterNotice from './ChapterNotice';
 import { useTheme } from './theme/ThemeContext';
 
 export default function OnboardingModal({ visible, onFinish }) {
@@ -66,6 +67,8 @@ export default function OnboardingModal({ visible, onFinish }) {
 
           {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
           {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
+
+          <ChapterNotice warning={chapter.warning} links={chapter.links} />
 
           {images.map((item, imageIndex) => (
             <View key={`${chapter.id}-image-${imageIndex}`} style={styles.figure}>
