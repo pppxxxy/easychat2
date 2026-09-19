@@ -447,6 +447,8 @@ export default function CharacterScreen() {
     pinCharacter,
     deleteCharacters,
     refreshSessions,
+    sessions,
+    deleteSessions,
   } = useApp();
   const navigation = useNavigation();
   const { theme, fonts } = useTheme();
@@ -855,8 +857,13 @@ export default function CharacterScreen() {
     });
   };
 
-  const runDeleteSelected = ids => {
+  const runDeleteSelected = (ids, deleteMemories) => {
+    const memoryIds = sessionsOfCharacters(ids);
+    const afterCharacterDelete = () => (
+      deleteMemories && memoryIds.length > 0 ? deleteSessions(memoryIds) : null
+    );
     deleteCharacters(ids)
+      .then(afterCharacterDelete)
       .then(() => {
         setSelectedIds([]);
         setEditMode(false);
@@ -866,19 +873,44 @@ export default function CharacterScreen() {
       });
   };
 
+  const confirmSelectedDelete = ids => {
+    const memoryCount = sessionsOfCharacters(ids).length;
+    if (memoryCount === 0) {
+      runDeleteSelected(ids, false);
+      return;
+    }
+    Alert.alert(
+      '删除角色',
+      `选中的角色还有 ${memoryCount} 条记忆。是否连同这些记忆一起删除？`,
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '仅删角色', onPress: () => runDeleteSelected(ids, false) },
+        {
+          text: '角色和记忆都删',
+          style: 'destructive',
+          onPress: () => runDeleteSelected(ids, true),
+        },
+      ]
+    );
+  };
+
   const onDeleteSelected = () => {
     if (selectedIds.length === 0) return;
     const allSelected = selectedIds.length >= characters.filter(item => item.id !== 'default').length;
     if (!allSelected) {
-      Alert.alert('删除角色', `将删除选中的 ${selectedIds.length} 个角色及其全部对话。`, [
+      Alert.alert('删除角色', `将删除选中的 ${selectedIds.length} 个角色。`, [
         { text: '取消', style: 'cancel' },
-        { text: '删除', style: 'destructive', onPress: () => runDeleteSelected(selectedIds) },
+        {
+          text: '继续',
+          style: 'destructive',
+          onPress: () => confirmSelectedDelete(selectedIds),
+        },
       ]);
       return;
     }
     Alert.alert(
       '删除全部角色',
-      '这会删除除默认角色外的全部角色及其对话，且无法恢复。请输入「删除」以确认。',
+      '这会删除除默认角色外的全部角色，且无法恢复。请输入「删除」以确认。',
       [
         { text: '取消', style: 'cancel' },
         {
@@ -894,7 +926,7 @@ export default function CharacterScreen() {
     Alert.prompt
       ? Alert.prompt('输入确认', '请输入「删除」两个字以确认。', value => {
         if (String(value || '').trim() === '删除') {
-          runDeleteSelected(selectedIds);
+          confirmSelectedDelete(selectedIds);
         } else {
           Alert.alert('已取消', '确认文字不匹配，未执行删除。');
         }
@@ -938,20 +970,41 @@ export default function CharacterScreen() {
     }
   };
 
+  const sessionsOfCharacters = ids => {
+    const idSet = new Set((Array.isArray(ids) ? ids : []).map(String));
+    return (Array.isArray(sessions) ? sessions : [])
+      .filter(session => session && idSet.has(String(session.characterId || '')))
+      .map(session => session.id);
+  };
+
   const onDeleteCharacter = item => {
+    const memoryIds = sessionsOfCharacters([item.id]);
+    const runDelete = deleteMemories => {
+      const doDelete = () => deleteCharacter(item.id);
+      const chain = deleteMemories && memoryIds.length > 0
+        ? doDelete().then(() => deleteSessions(memoryIds))
+        : doDelete();
+      chain.catch(error => {
+        Alert.alert('删除失败', (error && error.message) || '请稍后重试。');
+      });
+    };
+    if (memoryIds.length === 0) {
+      Alert.alert('删除角色', `确定删除「${item.name || '未命名角色'}」吗？`, [
+        { text: '取消', style: 'cancel' },
+        { text: '删除', style: 'destructive', onPress: () => runDelete(false) },
+      ]);
+      return;
+    }
     Alert.alert(
       '删除角色',
-      `确定删除「${item.name || '未命名角色'}」及其聊天记录吗？`,
+      `「${item.name || '未命名角色'}」还有 ${memoryIds.length} 条记忆。是否连同这些记忆一起删除？`,
       [
         { text: '取消', style: 'cancel' },
+        { text: '仅删角色', onPress: () => runDelete(false) },
         {
-          text: '删除',
+          text: '角色和记忆都删',
           style: 'destructive',
-          onPress: () => {
-            deleteCharacter(item.id).catch(error => {
-              Alert.alert('删除失败', error?.message || '请稍后重试。');
-            });
-          },
+          onPress: () => runDelete(true),
         },
       ]
     );

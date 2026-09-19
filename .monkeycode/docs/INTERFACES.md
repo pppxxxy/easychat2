@@ -68,7 +68,7 @@
 **状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`expandedWorld`、`expandedRegex`、`importing`、`seededIdRef`
 **行为**:
 - 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并标「当前」；点选条目调用 `switchCharacter`
-- 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter` 并连同聊天记录移除
+- 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter`；若该角色还有会话（记忆），会再询问「仅删角色」或「角色和记忆都删」，后者一并调用 `deleteSessions` 清除会话与消息
 - 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析，并经 `addCharacter` 加入角色库并设为当前角色
@@ -101,7 +101,7 @@
 - `visible` 变为真时读取预设、开关映射与记忆总结设置
 - 列出全部预设（名称、描述、启用开关），开关切换即时保存；点击条目打开编辑弹窗
 - 提供新增与编辑（名称、描述、提示词）以及删除二次确认，删除同时移除其开关记录
-- 列表之外提供「记忆总结」开关与触发阈值输入，阈值只接受大于 0 的整数，非法回退 40
+- 列表之外提供「记忆总结」开关与触发阈值输入，阈值只接受大于 0 的整数，非法回退 40；输入框右侧提供「确认」按钮，点击即校验并保存并提示已保存
 - 设置页与角色编辑页共用该组件；关闭时提交未保存的阈值
 
 ### `MemoryScreen`（默认导出）

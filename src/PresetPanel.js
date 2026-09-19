@@ -170,18 +170,30 @@ export default function PresetPanel({ visible, onClose }) {
     persistMemory(value, threshold);
   };
 
+  const normalizeThreshold = () => {
+    const parsed = Math.trunc(Number(String(threshold).trim()));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
+  };
+
   const commitThreshold = () => {
     if (busyRef.current) return;
     const previous = Number(threshold);
-    const parsed = Math.trunc(Number(String(threshold).trim()));
-    const value = Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
-    if (value !== parsed) {
+    const value = normalizeThreshold();
+    if (value !== Math.trunc(Number(String(threshold).trim()))) {
       Alert.alert('阈值无效', `请输入大于 0 的整数，已改为 ${THRESHOLD_FALLBACK}。`);
     }
     setThreshold(String(value));
     if (previous !== value) {
       persistMemory(memoryEnabled, value);
     }
+  };
+
+  const confirmThreshold = async () => {
+    if (busyRef.current) return;
+    const value = normalizeThreshold();
+    setThreshold(String(value));
+    await persistMemory(memoryEnabled, value);
+    Alert.alert('已保存', `触发阈值已设为 ${value} 条消息。`);
   };
 
   const handleClose = () => {
@@ -269,16 +281,26 @@ export default function PresetPanel({ visible, onClose }) {
               />
             </View>
             <Text style={styles.label}>触发阈值（消息条数）</Text>
-            <TextInput
-              style={styles.input}
-              value={threshold}
-              onChangeText={setThreshold}
-              onEndEditing={commitThreshold}
-              onBlur={commitThreshold}
-              keyboardType="number-pad"
-              placeholder={String(THRESHOLD_FALLBACK)}
-              placeholderTextColor={theme.colors.textFaint}
-            />
+            <View style={styles.thresholdRow}>
+              <TextInput
+                style={[styles.input, styles.thresholdInput]}
+                value={threshold}
+                onChangeText={setThreshold}
+                onEndEditing={commitThreshold}
+                onBlur={commitThreshold}
+                keyboardType="number-pad"
+                placeholder={String(THRESHOLD_FALLBACK)}
+                placeholderTextColor={theme.colors.textFaint}
+              />
+              <TouchableOpacity
+                style={styles.thresholdConfirm}
+                onPress={confirmThreshold}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark" size={16} color={theme.colors.primaryContrast} />
+                <Text style={styles.thresholdConfirmText}>确认</Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
@@ -422,6 +444,19 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.divider,
   },
+  thresholdRow: { flexDirection: 'row', alignItems: 'center' },
+  thresholdInput: { flex: 1 },
+  thresholdConfirm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    marginLeft: 8,
+  },
+  thresholdConfirmText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), marginLeft: 4 },
   promptInput: { minHeight: 110, marginBottom: 6 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 },
   selectButton: {
