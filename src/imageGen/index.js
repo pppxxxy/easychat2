@@ -150,6 +150,8 @@ export function buildRequest({ provider, config, prompt, image, imageUri, model,
   }
   const headers = { ...(provider.headers || {}) };
   let url = substitute(resolved.baseUrl, placeholders);
+  // 某些平台的 t2i 与 i2i 使用不同端点：spec.endpoint 直接指定完整 URL，
+  // spec.endpointFromBaseUrl 则把 baseUrl 中的某段路径替换掉（如 /images/generations → /images/edits）。
   if (spec.endpoint) {
     url = substitute(spec.endpoint, placeholders);
   } else if (spec.endpointFromBaseUrl) {
@@ -240,12 +242,26 @@ function originOf(url) {
   return match ? match[1] : '';
 }
 
+function stripKnownSuffix(url, suffixes) {
+  const list = Array.isArray(suffixes) ? suffixes : [];
+  for (let index = 0; index < list.length; index += 1) {
+    const suffix = list[index];
+    if (suffix && url.endsWith(suffix)) return url.slice(0, -suffix.length);
+  }
+  return url;
+}
+
 function listUrlFor(provider, baseUrl) {
   const trimmed = String(baseUrl || '').replace(/\/+$/, '');
-  const origin = originOf(trimmed);
-  if (!origin) return '';
+  if (!trimmed) return '';
   const path = provider.listModelsPath !== undefined ? provider.listModelsPath : '/v1/models';
-  return path ? `${origin}${path}` : '';
+  if (!path) return '';
+  if (provider.custom) {
+    const directory = stripKnownSuffix(trimmed, provider.baseUrlSuffixes);
+    return `${directory}${path}`;
+  }
+  const origin = originOf(trimmed);
+  return origin ? `${origin}${path}` : '';
 }
 
 export function parseModelList(data) {

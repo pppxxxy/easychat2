@@ -507,7 +507,7 @@ export default function ImageGenScreen({ embedded = false }) {
               onChangeText={setDraftBaseUrl}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder={provider.baseUrl || 'https://example.com/v1/images'}
+              placeholder={provider.baseUrlPlaceholder || provider.baseUrl || 'https://example.com/v1/images'}
               placeholderTextColor={theme.colors.textFaint}
             />
             <Text style={styles.label}>API Key</Text>
