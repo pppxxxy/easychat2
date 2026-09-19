@@ -32,7 +32,7 @@ import {
   readImageDataUri,
   readTextAttachment,
 } from './attachments';
-import { buildRequestMessages } from './chatPipeline';
+import { buildRequestMessages, NUDGE_ROLE } from './chatPipeline';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -110,6 +110,7 @@ import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments'
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
 const SYSTEM_ERROR_ID = 'system-error';
+const NUDGE_ID = NUDGE_ROLE;
 const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
@@ -743,6 +744,18 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
   );
 }
 
+function NudgeBubble({ message }) {
+  const { theme, fonts } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  return (
+    <View style={styles.nudgeRow}>
+      <View style={styles.nudgeBubble}>
+        <Text style={styles.nudgeText}>{message.text}</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
@@ -948,6 +961,9 @@ export default function ChatScreen() {
       if (!item) continue;
       if (item.role === USER_ID) {
         hasUser = true;
+      } else if (item.role === NUDGE_ID) {
+        // 拍一拍触发的回复不提供「重新生成」：重生成会回溯到上一条用户消息，忽略旁白。
+        hasUser = false;
       } else if (item.role === ASSISTANT_ID && hasUser) {
         ids.add(item.id);
       }
@@ -1252,7 +1268,11 @@ export default function ChatScreen() {
   }, []);
 
   const scrubberMessages = useMemo(
-    () => messages.filter(message => message && !message.pending),
+    () => messages.filter(message => (
+      message
+      && !message.pending
+      && (message.role === USER_ID || message.role === ASSISTANT_ID)
+    )),
     [messages]
   );
 
@@ -1690,8 +1710,8 @@ export default function ChatScreen() {
           const roundHistory = working.filter(
             (item, index) => item
               && !item.pending
-              && (item.role === USER_ID || item.role === ASSISTANT_ID)
-              && index < baseMessages.length - 1
+              && (item.role === USER_ID || item.role === ASSISTANT_ID || item.role === NUDGE_ID)
+              && (index < baseMessages.length - 1 || item.role === NUDGE_ID)
           );
           working = [...working, pendingMessage];
           setMessages(working);
@@ -1740,8 +1760,8 @@ export default function ChatScreen() {
         const historyForPrompt = working.filter(
           (item, index) => item
             && !item.pending
-            && (item.role === USER_ID || item.role === ASSISTANT_ID)
-            && index < baseMessages.length - 1
+            && (item.role === USER_ID || item.role === ASSISTANT_ID || item.role === NUDGE_ID)
+            && (index < baseMessages.length - 1 || item.role === NUDGE_ID)
         );
         const requestMessages = buildEnsemblePrompt({
           characters: members,
@@ -1964,6 +1984,7 @@ export default function ChatScreen() {
   }, []);
 
   const onNudge = useCallback(speakerName => {
+    if (isSending || !ready || abortRef.current) return;
     const charName = speakerName || String(character?.name || '').trim();
     const speaker = charName && charName !== character?.name
       ? characters.find(item => item.name === charName)
@@ -1972,11 +1993,21 @@ export default function ChatScreen() {
     const text = buildNudgeText(template, userNameRef.current, charName);
     const nudge = {
       id: `${Date.now()}-nudge`,
-      role: ASSISTANT_ID,
+      role: NUDGE_ID,
       text,
     };
-    setMessages(current => [...current, nudge]);
-  }, [character, characters]);
+    ttsStop().catch(() => {});
+    const payload = {
+      historyMessages: [...messages, nudge],
+      userText: '',
+      baseMessages: [...messages, nudge],
+    };
+    if (isGroupRef.current) {
+      requestGroupReply(payload);
+    } else {
+      requestReply(payload);
+    }
+  }, [character, characters, isSending, messages, ready, requestGroupReply, requestReply]);
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
@@ -2338,7 +2369,9 @@ export default function ChatScreen() {
                 key={message.id}
                 onLayout={event => onMessageLayout(message.id, event)}
               >
-                {message.role === SYSTEM_ERROR_ID ? (
+                {message.role === NUDGE_ID ? (
+                  <NudgeBubble message={message} />
+                ) : message.role === SYSTEM_ERROR_ID ? (
                   <ErrorBubble
                     message={message}
                     rawError={errorRawRef.current[message.id]}
@@ -3565,6 +3598,25 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     color: theme.colors.text,
     fontSize: 13,
     lineHeight: 18,
+  },
+  nudgeRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 24,
+  },
+  nudgeBubble: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  nudgeText: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(12),
+    textAlign: 'center',
   },
   errorBubble: {
     backgroundColor: '#5a1d1d',

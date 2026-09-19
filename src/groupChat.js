@@ -1,5 +1,5 @@
 import { sendChatMessage } from './api';
-import { buildRequestMessages } from './chatPipeline';
+import { buildRequestMessages, NUDGE_ROLE } from './chatPipeline';
 
 export const MAX_SPEAKERS = 3;
 export const PROFILE_MIN_CHARS = 30;
@@ -140,7 +140,9 @@ function buildSchedulerPrompt(characters, history, userText, mentions) {
     .map(item => {
       const speaker = item.role === 'user'
         ? '用户'
-        : (item.speakerName || nameOf(characters, item.speakerId) || '角色');
+        : (item.role === NUDGE_ROLE
+          ? '旁白'
+          : (item.speakerName || nameOf(characters, item.speakerId) || '角色'));
       return `${speaker}：${String(item.text || '').slice(0, 120)}`;
     })
     .join('\n');
@@ -260,6 +262,7 @@ export function buildGroupHistory(messages) {
 }
 
 function speakerLabel(characters, item) {
+  if (item?.role === NUDGE_ROLE) return '旁白';
   if (item?.role === 'user') return '用户';
   const name = String(item?.speakerName || nameOf(characters, item?.speakerId) || '').trim();
   return name || '角色';
@@ -311,7 +314,7 @@ export function buildGroupContext({ speaker, characters, historyMessages, profil
   ].join('\n');
 
   const recent = (Array.isArray(historyMessages) ? historyMessages : [])
-    .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
+    .filter(item => item && (item.role === 'user' || item.role === 'assistant' || item.role === NUDGE_ROLE))
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
@@ -420,7 +423,7 @@ export function buildEnsemblePrompt({
     systemLines.push('', `用户在本轮点名了：${mentionNames}。请确保被点名的角色一定发言。`);
   }
   const recent = (Array.isArray(historyMessages) ? historyMessages : [])
-    .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
+    .filter(item => item && (item.role === 'user' || item.role === 'assistant' || item.role === NUDGE_ROLE))
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
@@ -431,10 +434,19 @@ export function buildEnsemblePrompt({
   if (recent.length > 0) {
     systemLines.push('', '最近对话：', recent.join('\n'));
   }
-  return [
+  const prompt = [
     { role: 'system', content: systemLines.join('\n') },
-    { role: 'user', content: String(userText || '').trim() },
   ];
+  const userContent = String(userText || '').trim();
+  if (userContent) {
+    prompt.push({ role: 'user', content: userContent });
+  } else {
+    prompt.push({
+      role: 'system',
+      content: '（以上是当前场景的旁白，请让需要回应的角色自然发言。）',
+    });
+  }
+  return prompt;
 }
 
 function matchSpeaker(name, characters) {

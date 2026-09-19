@@ -3,16 +3,21 @@ import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
 
+export const NUDGE_ROLE = 'nudge';
+
 function applyForPrompt(text, scripts, placement, depth) {
   return applyRegexScripts(text, scripts, placement, { mode: 'prompt', depth });
 }
 
 function buildHistory(historyMessages, scripts) {
   const list = (Array.isArray(historyMessages) ? historyMessages : []).filter(
-    item => item && (item.role === 'user' || item.role === 'assistant')
+    item => item && (item.role === 'user' || item.role === 'assistant' || item.role === NUDGE_ROLE)
   );
   const total = list.length;
   return list.map((item, index) => {
+    if (item.role === NUDGE_ROLE) {
+      return { role: 'system', content: `（旁白）${String(item.text || '')}` };
+    }
     const isUser = item.role === 'user';
     const placement = isUser ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT;
     return {
@@ -136,8 +141,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const assembled = [
     { role: 'system', content: systemContent },
     ...history,
-    { role: 'user', content: userContent },
   ];
+  if (String(userText || '').trim() || imageList.length > 0) {
+    assembled.push({ role: 'user', content: userContent });
+  } else {
+    assembled.push({
+      role: 'system',
+      content: '（以上是当前场景的旁白，请以你的角色身份自然回应并推进对话。）',
+    });
+  }
   insertDepthEntries(assembled, depth, scripts, replaceUser);
   return assembled;
 }

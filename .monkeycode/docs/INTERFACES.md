@@ -495,8 +495,8 @@ data: [DONE]
 
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
 **位置**: `src/chatPipeline.js`
-**返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；历史中的旁白消息（`role: 'nudge'`）转为 `system` 并前缀「（旁白）」；`userText` 为空且无 `images` 时不再追加空 `user` 消息，改为追加一条 `system` 旁白回应提示；世界书 `position 4` 条目以独立消息按深度插入
+**说明**: `NUDGE_ROLE = 'nudge'` 为「拍一拍」旁白角色，也是接受的历史角色之一（仅 `user` / `assistant` / `nudge`）；系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -520,6 +520,8 @@ data: [DONE]
 | `mergeAdjacentSegments(segments)` | 合并同一发言者的连续段，丢弃空文本段 |
 
 **常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`、`ENSEMBLE_MODE = 'ensemble'`、`TURN_MODE = 'turn'`。
+
+**拍一拍（旁白）**: `role: 'nudge'` 的历史项在 `buildGroupContext` / `buildEnsemblePrompt` / `buildSchedulerPrompt` 的最近对话中以「旁白」标注，`buildGroupHistory` 原样透传后由 `buildRequestMessages` 统一转为 `system` 旁白；`userText` 为空时 `buildEnsemblePrompt` 末尾追加 `system` 提示而非空 `user`。
 
 ### 附件接口
 **位置**: `src/attachments.js`
