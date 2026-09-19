@@ -41,6 +41,7 @@ import {
 } from './memorySummary';
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
+import CharacterEditForm from './CharacterEditForm';
 import DisclaimerModal from './disclaimer';
 import {
   buildGroupRequest,
@@ -794,6 +795,9 @@ export default function ChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  const [characterEditOpen, setCharacterEditOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
   const userNameRef = useRef('');
@@ -2034,36 +2038,6 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>新建</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.noticeButton}
-          onPress={() => setNoticeOpen(true)}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="查看公告"
-        >
-          <Ionicons name="megaphone-outline" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>公告</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.noticeButton}
-          onPress={openModelPanel}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="切换模型"
-        >
-          <Ionicons name="cube-outline" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>模型</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.noticeButton}
-          onPress={openThinkingPanel}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="思考设置"
-        >
-          <Ionicons name="bulb-outline" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>思考</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
           style={[styles.noticeButton, !ttsSettings.enabled && styles.actionDisabled]}
           onPress={toggleBroadcast}
           activeOpacity={0.7}
@@ -2078,36 +2052,13 @@ export default function ChatScreen() {
           <Text style={styles.noticeButtonText}>{ttsSettings.enabled ? '播报开' : '播报关'}</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.noticeButton, scrubberMessages.length === 0 && styles.actionDisabled]}
-          onPress={() => setScrubberOpen(true)}
-          disabled={scrubberMessages.length === 0}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="快速定位"
-        >
-          <Ionicons name="options-outline" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>定位</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
           style={styles.noticeButton}
-          onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          onPress={() => setMoreOpen(true)}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="搜索当前对话"
+          accessibilityLabel="更多功能"
         >
-          <Ionicons name="search" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>搜索</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.noticeButton, (summarizing || !ready) && styles.actionDisabled]}
-          onPress={onSummarize}
-          disabled={summarizing || !ready}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="总结记忆"
-        >
-          <Ionicons name="book-outline" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>{summarizing ? '总结中' : '总结'}</Text>
+          <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
         </TouchableOpacity>
       </View>
       <View style={styles.aiNoticeBar} pointerEvents="none">
@@ -2458,6 +2409,149 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={moreOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMoreOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.moreBackdrop}
+          activeOpacity={1}
+          onPress={() => setMoreOpen(false)}
+        >
+          <View style={styles.moreSheet}>
+            {[
+              {
+                key: 'notice',
+                label: '公告',
+                icon: 'megaphone-outline',
+                onPress: () => setNoticeOpen(true),
+              },
+              {
+                key: 'model',
+                label: '模型',
+                icon: 'cube-outline',
+                onPress: openModelPanel,
+              },
+              {
+                key: 'thinking',
+                label: '思考',
+                icon: 'bulb-outline',
+                onPress: openThinkingPanel,
+              },
+              {
+                key: 'scrubber',
+                label: '定位',
+                icon: 'options-outline',
+                disabled: scrubberMessages.length === 0,
+                onPress: () => setScrubberOpen(true),
+              },
+              {
+                key: 'search',
+                label: '搜索',
+                icon: 'search',
+                active: searchOpen,
+                onPress: () => (searchOpen ? closeSearch() : setSearchOpen(true)),
+              },
+              {
+                key: 'summary',
+                label: summarizing ? '总结中' : '总结',
+                icon: 'book-outline',
+                disabled: summarizing || !ready,
+                onPress: onSummarize,
+              },
+              {
+                key: 'settings',
+                label: '设置',
+                icon: 'settings-outline',
+                onPress: () => setChatSettingsOpen(true),
+              },
+            ].map(item => (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.moreRow, item.disabled && styles.actionDisabled]}
+                disabled={item.disabled}
+                onPress={() => {
+                  setMoreOpen(false);
+                  if (typeof item.onPress === 'function') item.onPress();
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={item.icon}
+                  size={16}
+                  color={item.active ? theme.colors.primary : theme.colors.primaryMuted}
+                />
+                <Text style={[styles.moreRowText, item.active && styles.moreRowTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={chatSettingsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setChatSettingsOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setChatSettingsOpen(false)}
+        >
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>聊天设置</Text>
+            <TouchableOpacity
+              style={styles.linkRow}
+              onPress={() => {
+                setChatSettingsOpen(false);
+                if (navigation) navigation.navigate('设置');
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.linkLeft}>
+                <Ionicons name="settings-outline" size={17} color={theme.colors.primaryMuted} />
+                <Text style={styles.chatSettingsText}>系统设置</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.linkRow, isGroup && styles.actionDisabled]}
+              onPress={() => {
+                setChatSettingsOpen(false);
+                setCharacterEditOpen(true);
+              }}
+              disabled={isGroup}
+              activeOpacity={0.7}
+            >
+              <View style={styles.linkLeft}>
+                <Ionicons name="create-outline" size={17} color={theme.colors.primaryMuted} />
+                <Text style={styles.chatSettingsText}>编辑角色</Text>
+              </View>
+              {isGroup ? (
+                <Text style={styles.chatSettingsHint}>群聊不支持</Text>
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <CharacterEditForm
+        visible={characterEditOpen}
+        character={character}
+        onClose={() => setCharacterEditOpen(false)}
+        onSaved={() => {
+          setCharacterEditOpen(false);
+          Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
+        }}
+      />
+
       <DisclaimerModal
         visible={noticeOpen}
         title="公告"
@@ -2775,6 +2869,45 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     elevation: 8,
   },
   modalTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 12 },
+  moreBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'flex-end',
+    paddingTop: 64,
+    paddingRight: 12,
+  },
+  moreSheet: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 14,
+    paddingVertical: 6,
+    minWidth: 168,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  moreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+  },
+  moreRowText: { color: theme.colors.textMuted, fontSize: 14, marginLeft: 10 },
+  moreRowTextActive: { color: theme.colors.primary },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.divider,
+  },
+  linkLeft: { flexDirection: 'row', alignItems: 'center' },
+  chatSettingsText: { color: theme.colors.textMuted, fontSize: 15, marginLeft: 10 },
+  chatSettingsHint: { color: theme.colors.textFaint, fontSize: 13 },
   modalList: { maxHeight: 360 },
   modalRow: {
     flexDirection: 'row',
