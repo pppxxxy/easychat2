@@ -34,7 +34,7 @@
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
 - 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
-- 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条朋友圈动态；开关关闭时不生成
+- 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏提供「新建」按钮为当前角色开启新会话（群聊则按相同成员新建），旧会话保留在记忆页；空会话时提示且不创建，成功后清空消息、附件、引用与搜索状态
@@ -82,7 +82,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（10 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索；API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（12 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
@@ -340,8 +340,8 @@
 | `@easychat2_vector_index::<characterId>` | 按角色隔离的记忆片段索引 `[{ id, messageId, role, at, text, vector }]` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
-| `@easychat2_moments_settings` | 虚拟朋友圈开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
-| `@easychat2_moments` | 朋友圈动态数组（按时间倒序，含点赞与评论） |
+| `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
+| `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
@@ -575,7 +575,7 @@ data: [DONE]
 
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
 
-### 虚拟朋友圈接口
+### 动态接口
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/MomentsView.js`
 
 | 函数 | 说明 |
@@ -675,11 +675,11 @@ data: [DONE]
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
 **位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`
-**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（10 章），结构 `{ id, title, icon, image, summary, intro, steps: string[], items: [{ name, where, usage }], note }`；聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；截图经 `getOnboardingImage(image)` 取，未注册为 `null`（`src/onboarding/images.js`）
+**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（12 章），结构 `{ id, title, icon, image, summary, intro, steps: string[], items: [{ name, where, usage }], note }`；聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；截图经 `getOnboardingImage(image)` 取，未注册为 `null`（`src/onboarding/images.js`）
 
-### `TUTORIAL_SECTIONS` / `TutorialModal`
-**位置**: `src/tutorialContent.js` / `src/TutorialModal.js`
-**说明**: `TUTORIAL_SECTIONS` 为 `ONBOARDING_CHAPTERS` 的兼容转发；`TutorialModal`（默认导出）Props 为 `{ visible, onClose }`，全屏 `Modal` + `ScrollView` 只读渲染全部章节（摘要、正文、编号步骤、速查条目、注意事项与已注册截图），由设置页「使用教程」入口打开
+### `ChapterModal` / `TutorialModal`
+**位置**: `src/ChapterModal.js` / `src/TutorialModal.js`
+**说明**: `ChapterModal`（默认导出）Props 为 `{ visible, onClose, chapterIds, title?, buttonText? }`，全屏 `Modal` + `ScrollView` 渲染指定章节（摘要、正文、编号步骤、速查条目、注意事项与已注册截图，`chapterIds` 为空数组时渲染全部）；各界面「教学」按钮以单章子集打开它。`TutorialModal`（默认导出）Props 为 `{ visible, onClose }`，是 `ChapterModal` 展示全部章节的薄封装，由设置页「使用教程」入口打开；`TUTORIAL_SECTIONS` 为 `ONBOARDING_CHAPTERS` 的兼容转发（`src/tutorialContent.js`）。
 
 ## 数据结构
 

@@ -93,7 +93,7 @@ npm run prebuild     # 生成原生工程
 | `src/ExtensionScreen.js` | 扩展页：内嵌小游戏与生图 |
 | `src/theme/ThemeContext.js` | 主题与字体缩放的全局上下文 |
 | `src/tts/index.js` | 语音播报适配层与播放控制 |
-| `src/moments/moments.js` | 虚拟朋友圈触发判定与文本模板 |
+| `src/moments/moments.js` | 动态触发判定与文本模板 |
 | `src/imageGen/index.js` | 生图统一适配与响应解析 |
 | `src/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
 | `src/chatPipeline.js` | 世界书/正则提示词组装 |

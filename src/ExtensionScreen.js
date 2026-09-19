@@ -29,7 +29,7 @@ const SEGMENTS = [
   { id: 'image', label: '生图', icon: 'image-outline' },
 ];
 
-const MOMENTS_SEGMENT = { id: 'moments', label: '朋友圈', icon: 'planet-outline' };
+const MOMENTS_SEGMENT = { id: 'moments', label: '动态', icon: 'planet-outline' };
 
 function GamesView() {
   const [activeGameId, setActiveGameId] = useState('');

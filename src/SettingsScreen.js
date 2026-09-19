@@ -57,6 +57,7 @@ import {
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
+import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
 
 function getPickedAsset(result) {
@@ -107,6 +108,7 @@ export default function SettingsScreen() {
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [ttsEntryOpen, setTtsEntryOpen] = useState(false);
   const [momentsEnabled, setMomentsEnabled] = useState(false);
+  const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false });
@@ -871,15 +873,26 @@ export default function SettingsScreen() {
               <Ionicons name="key-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>API 配置</Text>
             </View>
-            <TouchableOpacity
-              style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
-              onPress={addConfig}
-              disabled={!loaded || apiSaving}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.pillButtonText}>新建</Text>
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={[styles.topicButton, styles.topicButtonSpaced]}
+                onPress={() => setTopic('chat-api')}
+                activeOpacity={0.8}
+                accessibilityLabel="查看 API 配置教学"
+              >
+                <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
+                <Text style={styles.topicButtonText}>教学</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
+                onPress={addConfig}
+                disabled={!loaded || apiSaving}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+                <Text style={styles.pillButtonText}>新建</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           {configs.map(item => {
             const selected = item.id === activeId;
@@ -1039,9 +1052,20 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>用户人设</Text>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>用户人设</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.topicButton}
+              onPress={() => setTopic('user-persona')}
+              activeOpacity={0.8}
+              accessibilityLabel="查看用户人设教学"
+            >
+              <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
+              <Text style={styles.topicButtonText}>教学</Text>
+            </TouchableOpacity>
           </View>
           <Text style={styles.fieldHint}>
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像与拍一拍文案为全部人设共用。
@@ -1196,9 +1220,20 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>对话配图</Text>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>对话配图</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.topicButton}
+              onPress={() => setTopic('inline-image')}
+              activeOpacity={0.8}
+              accessibilityLabel="查看对话配图教学"
+            >
+              <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
+              <Text style={styles.topicButtonText}>教学</Text>
+            </TouchableOpacity>
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
@@ -1357,7 +1392,7 @@ export default function SettingsScreen() {
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="planet-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>虚拟朋友圈</Text>
+              <Text style={styles.linkText}>动态</Text>
             </View>
             <Switch
               value={momentsEnabled}
@@ -1417,9 +1452,20 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>向量记忆</Text>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>向量记忆</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.topicButton}
+              onPress={() => setTopic('vector-api')}
+              activeOpacity={0.8}
+              accessibilityLabel="查看向量记忆教学"
+            >
+              <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
+              <Text style={styles.topicButtonText}>教学</Text>
+            </TouchableOpacity>
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
@@ -1747,6 +1793,13 @@ export default function SettingsScreen() {
         visible={tutorialOpen}
         onClose={() => setTutorialOpen(false)}
       />
+
+      <ChapterModal
+        visible={!!topic}
+        onClose={() => setTopic(null)}
+        chapterIds={topic ? [topic] : []}
+        title="教学"
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1781,6 +1834,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  topicButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 14,
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+  },
+  topicButtonSpaced: { marginRight: 8 },
+  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 4 },
   appearanceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
   themeChip: {
     flexDirection: 'row',

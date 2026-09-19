@@ -30,6 +30,7 @@ import {
   WORLD_POSITION_LABELS,
 } from './cardParser';
 import { exportCardFile } from './cardExporter';
+import ChapterModal from './ChapterModal';
 import { useApp } from './context/AppContext';
 import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
@@ -485,6 +486,7 @@ export default function CharacterScreen() {
   const [editMode, setEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [tagDraft, setTagDraft] = useState('');
+  const [topic, setTopic] = useState(null);
   const seededIdRef = useRef(null);
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
@@ -1245,6 +1247,15 @@ export default function CharacterScreen() {
             </Text>
           </TouchableOpacity>
           <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
+          <TouchableOpacity
+            style={styles.topicButton}
+            onPress={() => setTopic('character-card')}
+            activeOpacity={0.8}
+            accessibilityLabel="查看角色卡获取教学"
+          >
+            <Ionicons name="help-circle-outline" size={15} color={theme.colors.primarySoft} />
+            <Text style={styles.topicButtonText}>教学</Text>
+          </TouchableOpacity>
 
           <Text style={styles.fieldLabel}>角色头像</Text>
           <View style={styles.imageRow}>
@@ -1686,6 +1697,13 @@ export default function CharacterScreen() {
         onClose={() => setPresetPanelOpen(false)}
       />
 
+      <ChapterModal
+        visible={!!topic}
+        onClose={() => setTopic(null)}
+        chapterIds={topic ? [topic] : []}
+        title="教学"
+      />
+
       <Modal
         visible={!!editingWorldEntry}
         transparent
@@ -2019,6 +2037,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   importButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 8 },
   importHint: { color: theme.colors.textFaint, fontSize: 12, marginTop: 8 },
+  topicButton: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    marginTop: 10,
+  },
+  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 5 },
 
   pillButton: {
     flexDirection: 'row',

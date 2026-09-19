@@ -62,6 +62,29 @@ export const ONBOARDING_CHAPTERS = [
     note: `第三方中转站风险提示：${THIRD_PARTY_RELAY_RISK.join(' ')}`,
   },
   {
+    id: 'user-persona',
+    title: '用户人设',
+    icon: 'person-circle-outline',
+    image: 'user-persona',
+    summary: '告诉角色「你是谁」，让对话更贴合你。',
+    intro: '用户人设是你在对话中的身份。这里的信息会注入到提示词中，角色的正则脚本也可以通过 {{user}} 引用你的名字。头像与拍一拍文案为全部人设共用。',
+    steps: [
+      '打开「设置」，找到「用户人设」卡片。',
+      '在 chip 列表中点击切换当前人设，或点「+ 新增」创建一套新的人设。',
+      '填写「人设名称（当前人设）」与「人设描述」，例如你的称呼、身份、与角色的关系。',
+      '点击「保存用户人设」写入本机。',
+      '回到聊天页，角色就会以这套设定来称呼和理解你。',
+    ],
+    items: [
+      { name: '切换人设', where: '设置 → 用户人设 → chip 列表', usage: '点击某个人设即切换为当前人设。' },
+      { name: '新增人设', where: '设置 → 用户人设 → + 新增', usage: '创建一套新人设并自动设为当前。' },
+      { name: '删除人设', where: '设置 → 用户人设 → 删除', usage: '至少保留一套人设，删除当前人设时会自动切到剩余首项。' },
+      { name: '人设名称 / 描述', where: '设置 → 用户人设', usage: '名字会被角色与正则脚本引用，描述会注入提示词。' },
+      { name: '共用头像与拍一拍文案', where: '设置 → 用户人设', usage: '头像与拍一拍文案为全部人设共用，不随人设切换。' },
+    ],
+    note: '人设描述越具体，角色越能稳定地按你的身份回应；留空也不会影响正常聊天。',
+  },
+  {
     id: 'character-card',
     title: '角色卡获取',
     icon: 'id-card-outline',
@@ -184,24 +207,24 @@ export const ONBOARDING_CHAPTERS = [
   },
   {
     id: 'moments',
-    title: '朋友圈',
+    title: '动态',
     icon: 'images-outline',
     image: 'moments',
     summary: '让角色发布动态，点赞评论都算数。',
-    intro: '朋友圈会根据聊天进展让角色发布动态，你可以点赞、评论，这些互动也会影响角色与你的好感度。',
+    intro: '动态会根据聊天进展让角色发布内容，你可以点赞、评论，这些互动也会影响角色与你的好感度。',
     steps: [
-      '在扩展页进入朋友圈视图，查看角色发布的动态。',
-      '在设置中开启或关闭朋友圈功能。',
+      '在扩展页进入动态视图，查看角色发布的内容。',
+      '在设置中开启或关闭动态功能。',
       '对动态点赞或评论，互动会记录到好感度中。',
       '点击动态可查看完整内容，长按或使用操作按钮可删除。',
     ],
     items: [
-      { name: '查看动态', where: '扩展 → 朋友圈', usage: '以时间线形式展示角色发布的动态。' },
-      { name: '开启与设置', where: '设置 → 虚拟朋友圈', usage: '开启或关闭朋友圈功能。' },
+      { name: '查看动态', where: '扩展 → 动态', usage: '以时间线形式展示角色发布的内容。' },
+      { name: '开启与设置', where: '设置 → 动态', usage: '开启或关闭动态功能。' },
       { name: '点赞 / 评论', where: '动态下方操作', usage: '参与互动，会累计好感度。' },
       { name: '删除动态', where: '动态的操作按钮', usage: '删除单条动态，需二次确认。' },
     ],
-    note: '朋友圈内容由模型生成，可能存在与设定不符的情况，可随时删除。',
+    note: '动态内容由模型生成，可能存在与设定不符的情况，可随时删除。',
   },
   {
     id: 'vector-api',
@@ -255,6 +278,30 @@ export const ONBOARDING_CHAPTERS = [
     note: '部分平台在中国大陆需要代理，部分平台不支持网页跨域直连。生成前请先阅读面板内的网络与跨域提示，并用「检测连通性」确认。',
   },
   {
+    id: 'inline-image',
+    title: '对话配图（自动配图）',
+    icon: 'images-outline',
+    image: 'inline-image',
+    summary: '让助手在回复中自动生成配图。',
+    intro: '开启对话配图后，助手可以在回复中插入自动生成的图片，让表达更直观。配图会复用你在「扩展 → 生图」中配置的服务。',
+    steps: [
+      '先在「扩展 → 生图」中配置好可用的生图服务，确认「检测连通性」通过。',
+      '打开「设置」，找到「对话配图」卡片。',
+      '开启「自动配图」开关。',
+      '选择用于配图的服务 Provider。',
+      '按需填写风格前缀、图片尺寸与提示词长度上限。',
+      '回到聊天页正常对话，助手会在合适的时候插入配图。',
+    ],
+    items: [
+      { name: '自动配图开关', where: '设置 → 对话配图', usage: '开启后助手可在回复中插入生成图片。' },
+      { name: '生图服务', where: '设置 → 对话配图 → 生图服务', usage: '选择用于配图的服务，需先在生图页配置好。' },
+      { name: '风格前缀', where: '设置 → 对话配图 → 风格前缀（可选）', usage: '自动追加到配图提示词前，统一出图风格。' },
+      { name: '尺寸（宽*高）', where: '设置 → 对话配图 → 尺寸（宽*高）', usage: '控制自动配图的尺寸，例如 832*1216。' },
+      { name: '提示词长度上限', where: '设置 → 对话配图 → 提示词长度上限（字符）', usage: '限制单次配图提示词长度，避免过长。' },
+    ],
+    note: '自动配图会消耗生图服务额度；未配置生图服务时建议保持关闭。',
+  },
+  {
     id: 'games',
     title: '游戏教程',
     icon: 'game-controller-outline',
@@ -291,5 +338,19 @@ export const ONBOARDING_CHAPTERS = [
     note: '你可以随时在「设置 → 关于 → 免责条款」重新查看本声明。',
   },
 ];
+
+const CHAPTER_MAP = ONBOARDING_CHAPTERS.reduce((acc, chapter) => {
+  acc[chapter.id] = chapter;
+  return acc;
+}, {});
+
+export function getOnboardingChapter(id) {
+  return CHAPTER_MAP[id] || null;
+}
+
+export function getOnboardingChapters(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return ONBOARDING_CHAPTERS;
+  return ids.map(id => CHAPTER_MAP[id]).filter(Boolean);
+}
 
 export default ONBOARDING_CHAPTERS;

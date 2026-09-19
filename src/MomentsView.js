@@ -12,6 +12,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getMoments, saveMoments } from './storage';
+import ChapterModal from './ChapterModal';
 import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
@@ -28,6 +29,7 @@ export default function MomentsView({ active = true }) {
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState({});
+  const [topic, setTopic] = useState(null);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -78,7 +80,7 @@ export default function MomentsView({ active = true }) {
   }, [moments, persist]);
 
   const removeMoment = useCallback(moment => {
-    Alert.alert('删除动态', '确定删除这条朋友圈吗？', [
+    Alert.alert('删除动态', '确定删除这条动态吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
@@ -206,24 +208,79 @@ export default function MomentsView({ active = true }) {
 
   if (loaded && moments.length === 0) {
     return (
-      <View style={styles.empty}>
-        <Ionicons name="planet-outline" size={32} color={theme.colors.textFaint} />
-        <Text style={styles.emptyText}>还没有动态。和角色多聊聊，重要时刻会自动出现。</Text>
+      <View style={styles.wrap}>
+        <MomentHeader theme={theme} styles={styles} onPress={() => setTopic('moments')} />
+        <View style={styles.empty}>
+          <Ionicons name="planet-outline" size={32} color={theme.colors.textFaint} />
+          <Text style={styles.emptyText}>还没有动态。和角色多聊聊，重要时刻会自动出现。</Text>
+        </View>
+        <ChapterModal
+          visible={!!topic}
+          onClose={() => setTopic(null)}
+          chapterIds={topic ? [topic] : []}
+          title="教学"
+        />
       </View>
     );
   }
 
   return (
-    <FlatList
-      data={moments}
-      keyExtractor={item => item.id}
-      contentContainerStyle={styles.listContent}
-      renderItem={renderItem}
-    />
+    <View style={styles.wrap}>
+      <MomentHeader theme={theme} styles={styles} onPress={() => setTopic('moments')} />
+      <FlatList
+        data={moments}
+        keyExtractor={item => item.id}
+        contentContainerStyle={styles.listContent}
+        renderItem={renderItem}
+      />
+      <ChapterModal
+        visible={!!topic}
+        onClose={() => setTopic(null)}
+        chapterIds={topic ? [topic] : []}
+        title="教学"
+      />
+    </View>
+  );
+}
+
+function MomentHeader({ theme, styles, onPress }) {
+  return (
+    <View style={styles.headerRow}>
+      <Text style={styles.headerTitle}>动态</Text>
+      <TouchableOpacity
+        style={styles.topicButton}
+        onPress={onPress}
+        activeOpacity={0.7}
+        accessibilityLabel="查看动态教学"
+      >
+        <Ionicons name="help-circle-outline" size={15} color={theme.colors.primarySoft} />
+        <Text style={styles.topicButtonText}>教学</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const createStyles = (theme, fonts) => StyleSheet.create({
+  wrap: { flex: 1 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 10,
+  },
+  headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
+  topicButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 4 },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
   card: {
     backgroundColor: theme.colors.surface,

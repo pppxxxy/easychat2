@@ -73,7 +73,7 @@ easychat2/
 │   ├── games/games.js        # 内嵌 HTML 小游戏清单
 │   ├── theme/                # 五套主题语义色板与字体缩放上下文
 │   ├── tts/                  # 声明式语音播报 Provider 与统一适配层
-│   ├── moments/              # 本地好感启发式与朋友圈触发
+│   ├── moments/              # 本地好感启发式与动态触发
 │   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
@@ -168,7 +168,7 @@ easychat2/
 **依赖**: `expo-speech`、`expo-av`、`src/storage.js`
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`
 
-### 虚拟朋友圈
+### 动态
 **目的**: 基于本地关键词启发式评估好感与对话轮次，在重要节点生成角色动态；提供全局时间线与点赞、评论、删除
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/MomentsView.js`
 **关键文件**: `src/moments/moments.js`
