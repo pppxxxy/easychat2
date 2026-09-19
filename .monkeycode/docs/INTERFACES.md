@@ -607,11 +607,12 @@ data: [DONE]
 |------|------|
 | `selectSummarizable(messages, summarizedUpTo, keepRecent?)` | 返回边界之后、且保留最近若干条（默认 6）以外的可总结消息 |
 | `shouldSummarize({ session, messages, settings, force? })` | 自动触发需开关开启且消息数达到阈值且有可总结消息；`force` 用于手动触发 |
-| `buildSummaryPrompt(messages, userName?, memories?)` | 组装「只提取新增记忆、每行一条 `- `」的提示词，并把已有记忆注入 `<memories>` 区块 |
-| `parseMemoryLines(text)` | 按行提取记忆，去掉 `-`/`*`/`•` 前缀与空行 |
-| `parseSummaryResponse(text)` | 解析纯文本行式输出，规范化为 `- ` 行；关键词用占位；空内容抛错 |
+| `buildSummaryPrompt(messages, userName?, memories?)` | 组装「只提取新增记忆、每行一条 `- `，并在末行输出尽量多、覆盖主要事件的关键词」的提示词，并把已有记忆注入 `<memories>` 区块 |
+| `parseMemoryLines(text)` | 按行提取记忆，排除关键词行，去掉 `-`/`*`/`•` 前缀与空行 |
+| `parseKeywordsLine(text)` | 从「关键词：」行解析顿号/逗号分隔的关键词，兼容中英文标点 |
+| `parseSummaryResponse(text)` | 解析纯文本行式输出，规范化为 `- ` 行并提取关键词；无关键词回退占位，全空抛错 |
 | `generateSummary({ character, messages, userName?, memories? })` | 调用 `sendChatMessage` 生成新增记忆行 |
-| `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：`scoped` 为真时写入会话级总结（不写世界书），否则写入角色世界书（`记忆总结 N`、关键词占位触发）；两者都更新会话边界 |
+| `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：`scoped` 为真时写入会话级总结（不写世界书），否则写入角色世界书（`记忆总结 N`，`position 0`、`order 10` 以排在靠前，关键词来自 LLM 输出）；两者都更新会话边界 |
 | `countCharacterMemories(sessions, characterId)` | 统计该角色在记忆页可见的会话数（单聊、`preview` 非空） |
 | `isSessionScopedMemory(sessions, characterId)` | 记忆数 ≥ 2 时返回 `true`，启用按会话作用域 |
 | `buildWorldSummaryText(character)` | 拼接世界书中「记忆总结」条目内容 |

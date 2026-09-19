@@ -24,6 +24,12 @@ const SUMMARY_INSTRUCTION = [
   '- 跳过已有记忆和无关紧要的细节。明确的纠正或状态变化应作为新记忆记录，说明变化。',
   '- 每条记忆应能独立理解，写清涉及的人物，保留必要的时间、地点和因果。',
   '- 只输出新增记忆，每行一条，以“- ”开头。无新增信息时不输出任何内容。',
+  '',
+  '关键词：',
+  '- 在最后单独输出一行，以“关键词：”开头，后接顿号分隔的关键词。',
+  '- 关键词要尽量多、尽量覆盖本段的重要信息与主要事件，包括出现的人物名、称呼、地点、物品、事件、约定、情绪与关系等。',
+  '- 关键词用于日后检索这段记忆，请优先选择对话中真实出现、容易被再次提及的词或短语，每条 2 到 6 个字，覆盖尽可能全面。',
+  '- 示例：关键词：小明、咖啡店、生日约定、表白、加班、猫、淋雨。',
 ].join('\n');
 
 function isConversational(message) {
@@ -68,22 +74,39 @@ export function buildSummaryPrompt(messages, userName, memories = '') {
   ];
 }
 
+const KEYWORDS_LABEL = /^\s*(?:关键词|關鍵詞|keywords?)\s*[:：]\s*/i;
+
+export function parseKeywordsLine(text) {
+  const lines = String(text || '').split('\n');
+  const hit = lines.find(line => KEYWORDS_LABEL.test(line));
+  if (!hit) return [];
+  const raw = hit.replace(KEYWORDS_LABEL, '');
+  return raw
+    .split(/[、,，;；|\/\s]+/)
+    .map(item => item.replace(/^[-*•]\s*/, '').trim())
+    .filter(Boolean);
+}
+
 export function parseMemoryLines(text) {
   return String(text || '')
     .split('\n')
     .map(line => line.trim())
+    .filter(line => !KEYWORDS_LABEL.test(line))
     .map(line => line.replace(/^[-*•]\s*/, '').trim())
     .filter(line => line && !/^（暂无已记录的记忆）$/.test(line));
 }
 
 export function parseSummaryResponse(text) {
   const lines = parseMemoryLines(text);
-  if (lines.length === 0) throw new Error('记忆总结内容为空');
+  const keywords = parseKeywordsLine(text);
+  if (lines.length === 0 && keywords.length === 0) {
+    throw new Error('记忆总结内容为空');
+  }
   const summary = lines.map(line => `- ${line}`).join('\n');
   return {
     summary,
     lines,
-    keywords: [...FALLBACK_KEYWORDS],
+    keywords: keywords.length ? keywords : [...FALLBACK_KEYWORDS],
   };
 }
 
@@ -184,7 +207,7 @@ export async function applySummary({
     constant: false,
     enabled: true,
     position: 0,
-    order: 100,
+    order: 10,
   }, count);
   await updateCharacter({ id: character.id, worldInfo: [...worldInfo, entry] });
   await setSessionSummarizedUpTo(session.id, boundary);
