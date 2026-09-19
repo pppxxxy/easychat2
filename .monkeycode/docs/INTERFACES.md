@@ -604,13 +604,14 @@ data: [DONE]
 |------|------|
 | `selectSummarizable(messages, summarizedUpTo, keepRecent?)` | 返回边界之后、且保留最近若干条（默认 6）以外的可总结消息 |
 | `shouldSummarize({ session, messages, settings, force? })` | 自动触发需开关开启且消息数达到阈值且有可总结消息；`force` 用于手动触发 |
-| `buildSummaryPrompt(messages, userName?)` | 组装要求输出 `{ summary, keywords }` JSON 的提示词 |
-| `parseSummaryResponse(text)` | 解析摘要与关键词，兼容代码块与前后缀文字，关键词为空时兜底，非法输入抛错 |
-| `generateSummary({ character, messages, userName? })` | 调用 `sendChatMessage` 生成摘要 |
-| `applySummary({ session, character, messages, updateCharacter, userName? })` | 把摘要写入角色世界书（`记忆总结 N`、关键词触发）并更新会话边界 |
-| `buildMemorySummaryText(character)` | 拼接世界书中「记忆总结」条目内容，供请求压缩 |
+| `buildSummaryPrompt(messages, userName?, memories?)` | 组装「只提取新增记忆、每行一条 `- `」的提示词，并把已有记忆注入 `<memories>` 区块 |
+| `parseMemoryLines(text)` | 按行提取记忆，去掉 `-`/`*`/`•` 前缀与空行 |
+| `parseSummaryResponse(text)` | 解析纯文本行式输出，规范化为 `- ` 行；关键词用占位；空内容抛错 |
+| `generateSummary({ character, messages, userName?, memories? })` | 调用 `sendChatMessage` 生成新增记忆行 |
+| `applySummary({ session, character, messages, updateCharacter, userName? })` | 生成新增记忆后写入角色世界书（`记忆总结 N`、关键词占位触发），注入已有记忆避免重复，并更新会话边界 |
+| `buildMemorySummaryText(character)` | 拼接世界书中「记忆总结」条目内容，供请求压缩与已知记忆注入 |
 
-**常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`FALLBACK_KEYWORDS`。
+**常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`FALLBACK_KEYWORDS`（占位关键词「前情提要」）。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/lorebook.js`

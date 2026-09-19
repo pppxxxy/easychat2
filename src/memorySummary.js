@@ -7,11 +7,20 @@ export const KEEP_RECENT = 6;
 export const DEFAULT_THRESHOLD = 40;
 export const FALLBACK_KEYWORDS = ['前情提要'];
 
-const SUMMARY_INSTRUCTION =
-  '你是对话摘要助手。请阅读用户给出的对话记录，输出一个 JSON 对象，格式为 '
-  + '{"summary": "摘要", "keywords": ["关键词1", "关键词2"]}。'
-  + 'summary 用第三人称概括对话中的关键事件、人物关系与设定，控制在 300 字以内；'
-  + 'keywords 为 3 到 8 个便于日后检索的词或短语。只输出 JSON，不要添加解释或代码块标记。';
+const SUMMARY_INSTRUCTION = [
+  '从本段对话中提取值得在后续对话中记住的新信息，包括人物的重要事实与偏好、关系变化、关键事件、约定及未完成事项。',
+  '',
+  '已知记忆：',
+  '<memories>',
+  '{{memories}}',
+  '</memories>',
+  '',
+  '要求：',
+  '- 只记录对话中明确出现的信息，不猜测，不提取思考过程，不把假设或计划写成已发生的事实。',
+  '- 跳过已有记忆和无关紧要的细节。明确的纠正或状态变化应作为新记忆记录，说明变化。',
+  '- 每条记忆应能独立理解，写清涉及的人物，保留必要的时间、地点和因果。',
+  '- 只输出新增记忆，每行一条，以“- ”开头。无新增信息时不输出任何内容。',
+].join('\n');
 
 function isConversational(message) {
   return !!message
@@ -42,54 +51,40 @@ export function shouldSummarize({ session, messages, settings, force = false } =
   return selectSummarizable(list, session && session.summarizedUpTo).length > 0;
 }
 
-export function buildSummaryPrompt(messages, userName) {
+export function buildSummaryPrompt(messages, userName, memories = '') {
   const speakerForUser = String(userName || '').trim() || '用户';
   const lines = (Array.isArray(messages) ? messages : []).map(item => {
     const speaker = item.role === 'user' ? speakerForUser : '角色';
     return `${speaker}：${String(item.text || '').trim()}`;
   });
+  const memoryText = String(memories || '').trim() || '（暂无已记录的记忆）';
   return [
-    { role: 'system', content: SUMMARY_INSTRUCTION },
+    { role: 'system', content: SUMMARY_INSTRUCTION.replace('{{memories}}', memoryText) },
     { role: 'user', content: lines.join('\n') },
   ];
 }
 
-function extractJson(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1].trim() : raw;
-  try {
-    return JSON.parse(candidate);
-  } catch (error) {}
-  const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start >= 0 && end > start) {
-    try {
-      return JSON.parse(candidate.slice(start, end + 1));
-    } catch (error) {}
-  }
-  return null;
+export function parseMemoryLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .map(line => line.replace(/^[-*•]\s*/, '').trim())
+    .filter(line => line && !/^（暂无已记录的记忆）$/.test(line));
 }
 
 export function parseSummaryResponse(text) {
-  const parsed = extractJson(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('记忆总结返回格式无法解析');
-  }
-  const summary = String(parsed.summary || parsed.text || '').trim();
-  if (!summary) throw new Error('记忆总结内容为空');
-  const keywords = (Array.isArray(parsed.keywords) ? parsed.keywords : [])
-    .map(item => String(item || '').trim())
-    .filter(Boolean);
+  const lines = parseMemoryLines(text);
+  if (lines.length === 0) throw new Error('记忆总结内容为空');
+  const summary = lines.map(line => `- ${line}`).join('\n');
   return {
     summary,
-    keywords: keywords.length ? keywords : [...FALLBACK_KEYWORDS],
+    lines,
+    keywords: [...FALLBACK_KEYWORDS],
   };
 }
 
-export async function generateSummary({ character, messages, userName }) {
-  const prompt = buildSummaryPrompt(messages, userName);
+export async function generateSummary({ character, messages, userName, memories }) {
+  const prompt = buildSummaryPrompt(messages, userName, memories);
   const text = await sendChatMessage(prompt);
   return parseSummaryResponse(text);
 }
@@ -120,7 +115,12 @@ export async function applySummary({
   if (list.length === 0) {
     throw new Error('没有可总结的消息');
   }
-  const { summary, keywords } = await generateSummary({ character, messages: list, userName });
+  const { summary, keywords } = await generateSummary({
+    character,
+    messages: list,
+    userName,
+    memories: buildMemorySummaryText(character),
+  });
   const worldInfo = Array.isArray(character && character.worldInfo) ? character.worldInfo : [];
   const count = worldInfo.filter(entry =>
     String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
