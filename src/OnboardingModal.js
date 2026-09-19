@@ -66,9 +66,10 @@ export default function OnboardingModal({ visible, onFinish }) {
           </View>
 
           {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
-          {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
 
-          <ChapterNotice warning={chapter.warning} links={chapter.links} />
+          <ChapterNotice disclaimer={chapter.disclaimer} warning={chapter.warning} links={chapter.links} />
+
+          {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
 
           {images.map((item, imageIndex) => (
             <View key={`${chapter.id}-image-${imageIndex}`} style={styles.figure}>

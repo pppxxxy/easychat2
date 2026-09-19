@@ -48,8 +48,8 @@ export default function ChapterModal({
                   <Text style={styles.cardTitle}>{chapter.title}</Text>
                 </View>
                 {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
+                <ChapterNotice disclaimer={chapter.disclaimer} warning={chapter.warning} links={chapter.links} />
                 {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
-                <ChapterNotice warning={chapter.warning} links={chapter.links} />
                 {images.map((item, imageIndex) => (
                   <View key={`${chapter.id}-image-${imageIndex}`} style={styles.figure}>
                     <Image source={item.source} style={styles.image} resizeMode="contain" />
