@@ -327,7 +327,7 @@
 | `@easychat2_vector_index::<characterId>` | 按角色隔离的记忆片段索引 `[{ id, messageId, role, at, text, vector }]` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
-| `@easychat2_moments_settings` | 虚拟朋友圈开关 `{ enabled: boolean }` |
+| `@easychat2_moments_settings` | 虚拟朋友圈开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
 | `@easychat2_moments` | 朋友圈动态数组（按时间倒序，含点赞与评论） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
@@ -621,7 +621,7 @@ data: [DONE]
 
 **常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`MEMORY_SCOPE_THRESHOLD = 2`、`FALLBACK_KEYWORDS`（占位关键词「前情提要」）。
 
-**作用域规则**: 当同一角色在记忆页存在 ≥ 2 条记忆（单聊、摘要非空的会话）时，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止新增。
+**作用域规则**: 当同一角色在记忆页存在 ≥ 2 条记忆（单聊、摘要非空的会话）时，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止新增。**当会话所属角色已被删除（`characters` 中不存在该 `characterId`）时，同样强制按会话作用域处理**，避免写入不存在的角色世界书。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/lorebook.js`

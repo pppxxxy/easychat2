@@ -1334,7 +1334,11 @@ export default function ChatScreen() {
     setSummarizing(true);
     try {
       const userProfile = await getUserProfile();
-      const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+      const sessionCharacterId = String(session.characterId || character.id || '');
+      const characterExists = (Array.isArray(characters) ? characters : [])
+        .some(item => item.id === sessionCharacterId);
+      const scoped = !characterExists
+        || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
       const result = await applySummary({
         session,
         character,
@@ -1358,7 +1362,7 @@ export default function ChatScreen() {
       summarizingRef.current = false;
       setSummarizing(false);
     }
-  }, [character, updateCharacter, refreshSessions]);
+  }, [character, characters, updateCharacter, refreshSessions]);
 
   const maybeAutoSummarize = useCallback(async list => {
     if (summarizingRef.current) return;
@@ -1459,7 +1463,13 @@ export default function ChatScreen() {
       }
       let summaryText = '';
       try {
-        const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+        const sessionCharacterId = String(
+          (currentSession && currentSession.characterId) || character.id || ''
+        );
+        const characterExists = (Array.isArray(characters) ? characters : [])
+          .some(item => item.id === sessionCharacterId);
+        const scoped = !characterExists
+          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
         const sessionSummaries = scoped
           ? await getSessionSummaries(sendSessionId)
           : [];
@@ -1594,7 +1604,7 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [autoScrollToBottom, broadcastMessage, character, isSending, maybeAutoSummarize, ready, scrollToBottom]);
+  }, [autoScrollToBottom, broadcastMessage, character, characters, isSending, maybeAutoSummarize, ready, scrollToBottom]);
 
   const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, quote }) => {
     if (isSending || !ready || abortRef.current) return;
@@ -2005,7 +2015,7 @@ export default function ChatScreen() {
     : (character.name || 'EasyChat2 助手');
 
   const recordTurn = useCallback(async (userText, assistantText) => {
-    const settings = await getMomentsSettings().catch(() => ({ enabled: false }));
+    const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
     if (!settings.enabled) return;
     const characterId = activeCharacterIdRef.current;
     if (!characterId) return;

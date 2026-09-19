@@ -608,8 +608,9 @@ export async function saveTtsSettings(settings) {
 }
 
 function normalizeMomentsSettings(raw) {
+  if (raw === null || raw === undefined) return { enabled: true };
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  return { enabled: source.enabled === true };
+  return { enabled: source.enabled !== false };
 }
 
 export async function getMomentsSettings() {
