@@ -9,8 +9,10 @@
 | 组件 | 导入 | 主要 Props | 说明 |
 |------|------|-----------|------|
 | `Card` | `src/ui` | `title?`、`titleIcon?`、`right?`、`padded?`、`elevated?`、`style?` | 统一卡片：背景 / 圆角 / 描边 / 可选阴影与标题行 |
-| `PrimaryButton` | `src/ui` | `title`、`onPress`、`icon?`、`disabled?`、`loading?`、`small?`、`style?`、`textStyle?` | 主按钮，高度 44、圆角 12，禁用透明度 0.45 |
-| `GhostButton` | `src/ui` | 同 `PrimaryButton`（无 `loading`） | 描边次按钮 |
+| `PrimaryButton` | `src/ui` | `title`、`onPress`、`icon?`、`disabled?`、`loading?`、`small?`、`pill?`、`style?`、`textStyle?` | 主操作按钮（主色底、elevation 1 投影，高度 44/32） |
+| `SecondaryButton` | `src/ui` | 同 `PrimaryButton` | 次要操作按钮（微透主色浅底 + 主色柔边框，用于测试/新增/检测） |
+| `DangerButton` | `src/ui` | 同 `PrimaryButton` | 危险操作按钮（危险色底，高度 44/32，用于删除配置/会话） |
+| `GhostButton` | `src/ui` | 同 `PrimaryButton`（无 `loading`） | 描边次按钮（透明底 + surfaceBorder） |
 | `IconButton` | `src/ui` | `name`、`onPress`、`size?`（`xs/sm/md/lg/xl`）、`color?`、`disabled?`、`hitSlop?`、`accessibilityLabel?`、`style?` | 纯图标按钮 |
 | `Chip` | `src/ui` | `label`、`active?`、`onPress?`、`icon?`、`disabled?`、`style?`、`textStyle?` | 选中/未选中两态胶囊 |
 | `EmptyState` | `src/ui` | `icon?`、`title?`、`description?`、`action?`、`style?` | 统一空状态（居中主色光晕徽章 + 标题 + 弱化文案 + 可选操作） |
