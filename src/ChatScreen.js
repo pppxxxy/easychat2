@@ -370,8 +370,8 @@ function formatScrubberTime(timestamp) {
 }
 
 function ThinkingIndicator() {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const progress = useRef(null);
   if (progress.current === null) progress.current = new Animated.Value(0);
 
@@ -437,8 +437,8 @@ function renderHighlightedText(text, keyword, styles) {
 }
 
 const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, onNudge, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts), [theme, fonts]);
   const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
   const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
@@ -707,8 +707,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
 });
 
 function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -745,8 +745,8 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
 }
 
 function NudgeBubble({ message }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={styles.nudgeRow}>
       <View style={styles.nudgeBubble}>
@@ -757,8 +757,8 @@ function NudgeBubble({ message }) {
 }
 
 export default function ChatScreen() {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const scrollRef = useRef(null);
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
@@ -3095,7 +3095,7 @@ export default function ChatScreen() {
   );
 }
 
-const createChatStyles = (theme, fonts) => StyleSheet.create({
+const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   aiNoticeBar: {
     paddingHorizontal: 16,
     paddingTop: 6,
@@ -3125,7 +3125,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     marginRight: 8,
     paddingVertical: 5,
     paddingHorizontal: 8,
-    borderRadius: 18,
+    borderRadius: tokens.radius.bubble,
     backgroundColor: 'rgba(108,99,255,0.10)',
   },
   characterAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 8, borderWidth: 1, borderColor: 'rgba(139,133,255,0.35)' },
@@ -3135,10 +3135,10 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   noticeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: 'rgba(139,133,255,0.45)',
     backgroundColor: 'rgba(108,99,255,0.10)',
-    borderRadius: 14,
+    borderRadius: tokens.radius.md,
     paddingVertical: 5,
     paddingHorizontal: 10,
   },
@@ -3152,9 +3152,9 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   },
   modelSheet: {
     backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 16,
+    borderRadius: tokens.radius.lg,
     padding: 16,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.divider,
     maxHeight: '75%',
   },
@@ -3164,8 +3164,8 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   modelSourceChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 9,
-    borderWidth: 1,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     marginRight: 8,
     maxWidth: 140,
@@ -3397,7 +3397,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   avatarContainer: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: tokens.radius.pill,
     marginRight: 8,
     overflow: 'hidden',
     alignSelf: 'flex-start',
@@ -3408,7 +3408,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   avatarContainerRight: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: tokens.radius.pill,
     marginLeft: 8,
     overflow: 'hidden',
     alignSelf: 'flex-start',
@@ -3419,12 +3419,12 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   avatarImage: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: tokens.radius.lg,
   },
   avatarPlaceholder: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: tokens.radius.lg,
     backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3592,14 +3592,10 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   },
   bubble: {
     maxWidth: '95%',
-    borderRadius: 18,
+    borderRadius: tokens.radius.bubble,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.18,
-    shadowRadius: 3,
-    elevation: 2,
+    ...tokens.elevation(1, theme),
   },
   bubbleBounded: {
     maxWidth: '95%',
@@ -3644,7 +3640,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   },
   panelButton: {
     marginTop: 6,
-    borderRadius: 8,
+    borderRadius: tokens.radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: '#344f5d',
@@ -3665,9 +3661,9 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   },
   nudgeBubble: {
     backgroundColor: 'transparent',
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    borderRadius: 14,
+    borderRadius: tokens.radius.md,
     paddingHorizontal: 12,
     paddingVertical: 5,
   },
@@ -3679,7 +3675,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   errorBubble: {
     backgroundColor: '#5a1d1d',
     borderColor: '#8b2e2e',
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderBottomLeftRadius: 6,
     maxWidth: '92%',
   },
@@ -3707,7 +3703,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   copyButton: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     backgroundColor: '#7a2a2a',
   },
   copyButtonText: {
@@ -3736,8 +3732,8 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 9,
-    borderWidth: 1,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -3745,7 +3741,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     marginBottom: 6,
     maxWidth: 220,
   },
-  attachmentThumb: { width: 20, height: 20, borderRadius: 4, marginRight: 6 },
+  attachmentThumb: { width: 20, height: 20, borderRadius: tokens.spacing.xs, marginRight: 6 },
   attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
   mentionButtonText: {
@@ -3763,7 +3759,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: tokens.border.thin,
     borderBottomColor: theme.colors.surface,
   },
   fullScreenTitle: { color: theme.colors.text, fontSize: 17, fontWeight: '800' },
@@ -3783,7 +3779,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 20,
     backgroundColor: theme.colors.primary,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 12,
   },
   fullScreenSendText: { color: theme.colors.text, fontSize: 15, fontWeight: '700', marginLeft: 6 },
@@ -3793,7 +3789,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 10,
-    borderTopWidth: 1,
+    borderTopWidth: tokens.border.thin,
     borderTopColor: theme.colors.surface,
   },
   inputBarSurface: {
@@ -3806,9 +3802,9 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     flex: 1,
     minHeight: 42,
     maxHeight: 110,
-    borderRadius: 21,
+    borderRadius: tokens.radius.pill,
     backgroundColor: theme.colors.surface,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     color: theme.colors.text,
     paddingHorizontal: 14,
@@ -3826,7 +3822,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     marginLeft: 8,
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: tokens.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
@@ -3837,7 +3833,7 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
     elevation: 4,
   },
   sendButtonDisabled: {
-    opacity: 0.45,
+    opacity: tokens.opacity.disabled,
     elevation: 0,
     shadowOpacity: 0,
   },
@@ -3848,15 +3844,15 @@ const createChatStyles = (theme, fonts) => StyleSheet.create({
   clearButton: {
     marginRight: 8,
     height: 42,
-    borderRadius: 21,
+    borderRadius: tokens.radius.pill,
     justifyContent: 'center',
     paddingHorizontal: 12,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     backgroundColor: 'rgba(45,45,68,0.6)',
   },
   clearButtonDisabled: {
-    opacity: 0.45,
+    opacity: tokens.opacity.disabled,
   },
   clearText: {
     color: theme.colors.textMuted,
