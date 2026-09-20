@@ -1,6 +1,6 @@
 import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from './apiVendors';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
-import { DISCLAIMER_TEXT } from './disclaimer';
+import { DISCLAIMER_SECTIONS } from './disclaimer';
 
 // 新手教学 / 使用教程共用内容。
 // 每个章节既可作为「分步向导」的一步，也可作为「速查长列表」的一节。
@@ -362,7 +362,7 @@ export const ONBOARDING_CHAPTERS = [
     icon: 'document-text-outline',
     image: 'disclaimer',
     summary: '使用前请完整阅读并理解。',
-    intro: DISCLAIMER_TEXT,
+    sections: DISCLAIMER_SECTIONS,
     steps: [
       '本应用仅供学习交流使用，面向成年人。',
       'API 端点与密钥由你自行配置，聊天内容直发到你指定的服务地址。',

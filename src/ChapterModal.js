@@ -14,6 +14,7 @@ import { getOnboardingImages } from './onboarding/images';
 import ChapterImages from './ChapterImages';
 import ChapterNotice from './ChapterNotice';
 import ChapterOutro from './ChapterOutro';
+import ChapterSections from './ChapterSections';
 import { useTheme } from './theme/ThemeContext';
 
 export default function ChapterModal({
@@ -89,6 +90,7 @@ export default function ChapterModal({
                 {chapter.summary ? <Text style={styles.summary}>{chapter.summary}</Text> : null}
                 <ChapterNotice disclaimer={chapter.disclaimer} warning={chapter.warning} links={chapter.links} />
                 {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
+                <ChapterSections sections={chapter.sections} />
                 <ChapterImages images={images} height={180} />
                 {(chapter.steps || []).map((step, stepIndex) => (
                   <View key={`${chapter.id}-step-${stepIndex}`} style={styles.stepRow}>

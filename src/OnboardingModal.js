@@ -14,6 +14,7 @@ import { getOnboardingImages } from './onboarding/images';
 import ChapterImages from './ChapterImages';
 import ChapterNotice from './ChapterNotice';
 import ChapterOutro from './ChapterOutro';
+import ChapterSections from './ChapterSections';
 import { useTheme } from './theme/ThemeContext';
 
 export default function OnboardingModal({ visible, onFinish }) {
@@ -71,6 +72,8 @@ export default function OnboardingModal({ visible, onFinish }) {
           <ChapterNotice disclaimer={chapter.disclaimer} warning={chapter.warning} links={chapter.links} />
 
           {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
+
+          <ChapterSections sections={chapter.sections} />
 
           <ChapterImages images={images} height={220} />
 

@@ -669,13 +669,13 @@ data: [DONE]
 **位置**: `src/secrets.js`
 **说明**: 将 `sk-...` 与 `Bearer ...` 替换为 `[API_KEY已隐藏]`；**辅助导出** `SECRET_PATTERN`
 
-### `DISCLAIMER_TEXT` / `DisclaimerModal`
+### `DISCLAIMER_TEXT` / `DISCLAIMER_SECTIONS` / `DisclaimerModal`
 **位置**: `src/disclaimer.js`
-**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`，用于启动弹窗与聊天「公告」
+**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DISCLAIMER_SECTIONS` 为同源的分节结构 `[{ title?, icon?, body?, bullets? }]`；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, sections?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`、`sections` 缺省为 `DISCLAIMER_SECTIONS`（传入 `content` 时以文本渲染），用于启动弹窗与聊天「公告」
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
 **位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`
-**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（12 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。
+**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（12 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, sections?, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`sections` 为结构化条款（免责章取自 `DISCLAIMER_SECTIONS`），经 `ChapterSections` 渲染；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。`ChapterSections`（`src/ChapterSections.js`，默认导出）Props 为 `{ sections: [{ title?, icon?, body?, bullets? }] }`，逐节渲染图标标题、正文与要点，供免责弹窗与免责教学章共用。
 
 ### `ChapterModal` / `ChapterNotice` / `ChapterImages` / `TutorialModal`
 **位置**: `src/ChapterModal.js` / `src/ChapterNotice.js` / `src/ChapterImages.js` / `src/TutorialModal.js`
