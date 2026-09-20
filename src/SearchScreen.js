@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,6 +16,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { searchMessages } from './storage';
+import { EmptyState } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
@@ -156,16 +158,11 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             })}
           </ScrollView>
         ) : (
-          <View style={styles.center}>
-            <Ionicons
-              name={searched ? 'search-outline' : 'chatbubbles-outline'}
-              size={36}
-              color={theme.colors.textFaint}
-            />
-            <Text style={styles.emptyText}>
-              {searched ? '没有找到匹配的记录' : '输入关键词搜索全部历史对话'}
-            </Text>
-          </View>
+          <EmptyState
+            icon={searched ? 'search-outline' : 'chatbubbles-outline'}
+            title={searched ? '未找到匹配记录' : '搜索历史对话'}
+            description={searched ? '请换个关键词重新搜索。' : '输入关键词搜索全部角色的聊天记录。'}
+          />
         )}
       </KeyboardAvoidingView>
     </Modal>

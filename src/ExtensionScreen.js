@@ -14,6 +14,7 @@ import ImageGenScreen from './ImageGenScreen';
 import MomentsView from './MomentsView';
 import { GAMES } from './games/games';
 import { getMomentsSettings } from './storage';
+import { EmptyState, PrimaryButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 let WebViewComponent = null;
@@ -56,10 +57,11 @@ function GamesView() {
 
   if (!WebViewComponent) {
     return (
-      <View style={styles.empty}>
-        <Ionicons name="alert-circle-outline" size={32} color={theme.colors.textFaint} />
-        <Text style={styles.emptyText}>当前环境不支持游戏运行，请更新应用到最新版本。</Text>
-      </View>
+      <EmptyState
+        icon="alert-circle-outline"
+        title="环境不支持"
+        description="当前环境不支持游戏运行，请更新应用到最新版本。"
+      />
     );
   }
 
@@ -74,20 +76,21 @@ function GamesView() {
           <Text style={styles.gameBarTitle}>{activeGame.name}</Text>
         </View>
         {failed ? (
-          <View style={styles.empty}>
-            <Ionicons name="cloud-offline-outline" size={32} color={theme.colors.textFaint} />
-            <Text style={styles.emptyText}>加载失败，请重试。</Text>
-            <TouchableOpacity
-              style={styles.retryButton}
-              onPress={() => {
-                setFailed(false);
-                setReloadKey(value => value + 1);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.retryButtonText}>重试</Text>
-            </TouchableOpacity>
-          </View>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="加载失败"
+            description="网络或资源异常，请重试。"
+            action={
+              <PrimaryButton
+                title="重试"
+                small
+                onPress={() => {
+                  setFailed(false);
+                  setReloadKey(value => value + 1);
+                }}
+              />
+            }
+          />
         ) : (
           <WebViewComponent
             key={`${activeGame.id}-${reloadKey}`}

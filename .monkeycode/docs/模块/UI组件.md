@@ -13,6 +13,7 @@
 | `GhostButton` | `src/ui` | 同 `PrimaryButton`（无 `loading`） | 描边次按钮 |
 | `IconButton` | `src/ui` | `name`、`onPress`、`size?`（`xs/sm/md/lg/xl`）、`color?`、`disabled?`、`hitSlop?`、`accessibilityLabel?`、`style?` | 纯图标按钮 |
 | `Chip` | `src/ui` | `label`、`active?`、`onPress?`、`icon?`、`disabled?`、`style?`、`textStyle?` | 选中/未选中两态胶囊 |
+| `EmptyState` | `src/ui` | `icon?`、`title?`、`description?`、`action?`、`style?` | 统一空状态（居中主色光晕徽章 + 标题 + 弱化文案 + 可选操作） |
 | `FieldLabel` / `FieldHint` | `src/ui` | `children`、`style?` | 表单标签 / 提示文案 |
 | `TextField` | `src/ui` | 透传 `TextInput`，另有 `multiline?` | 统一输入框（高度 44、占位色统一） |
 | `FieldGroup` | `src/ui` | `label?`、`hint?`、`children`、`style?` | 标签 + 控件 + 提示的组合块 |
@@ -28,5 +29,6 @@
 - `Card` 已接入设置页 8 张卡片与角色页 4 张卡片（外层容器替换，内部标题行仍由各屏定义）、动态页动态卡片、记忆页会话卡片（`padded={false}` + `style` 保留横排结构与选中态描边）；这些界面不再保留自有卡片背景/圆角/描边。
 - `TopicButton` 已接入设置页（API 配置 / 用户人设 / 对话配图 / 向量记忆）、角色页、记忆页、生图页与动态页；各屏仅通过 `style` 传入外边距。
 - `Chip` 已接入生图页尺寸选择（选中态为描边胶囊），替换该页自定义 chip 样式。
+- `EmptyState` 已接入记忆页、动态页、扩展页（不支持游戏/加载失败）与搜索页，各界面空状态规格统一。
 - `FieldLabel` / `FieldHint` / `TextField` 已接入设置页、角色页、角色编辑表单、群聊编辑表单、预设面板、插件面板、语音面板与生图页；输入框基础规格（高度、圆角、描边、占位色）统一由 `TextField` 提供，各屏仅保留多行与紧凑场景的尺寸覆盖。
 - 仍使用原生输入框的仅剩 `SearchScreen` 与聊天页搜索栏（无边框内嵌样式，不属于表单字段）。

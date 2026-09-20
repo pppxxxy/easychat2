@@ -12,7 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
 import ChapterModal from './ChapterModal';
-import { Card, TopicButton } from './ui';
+import { Card, EmptyState, TopicButton } from './ui';
 import SearchScreen from './SearchScreen';
 import { useTheme } from './theme/ThemeContext';
 
@@ -223,11 +223,11 @@ export default function MemoryScreen({ navigation }) {
         </View>
       </View>
       {loaded && visibleSessions.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <Ionicons name="albums-outline" size={40} color={theme.colors.textFaint} />
-          <Text style={styles.emptyTitle}>还没有历史对话</Text>
-          <Text style={styles.emptyHint}>去聊天页开始一段新的对话吧。</Text>
-        </View>
+        <EmptyState
+          icon="albums-outline"
+          title="还没有历史对话"
+          description="去聊天页开始一段新的对话吧。"
+        />
       ) : (
         <ScrollView
           contentContainerStyle={styles.listContent}

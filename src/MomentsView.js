@@ -13,7 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getMoments, saveMoments } from './storage';
 import ChapterModal from './ChapterModal';
-import { Card, TopicButton } from './ui';
+import { Card, EmptyState, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
@@ -211,10 +211,11 @@ export default function MomentsView({ active = true }) {
     return (
       <View style={styles.wrap}>
         <MomentHeader styles={styles} onPress={() => setTopic('moments')} />
-        <View style={styles.empty}>
-          <Ionicons name="planet-outline" size={32} color={theme.colors.textFaint} />
-          <Text style={styles.emptyText}>还没有动态。和角色多聊聊，重要时刻会自动出现。</Text>
-        </View>
+        <EmptyState
+          icon="planet-outline"
+          title="还没有动态"
+          description="和角色多聊聊，重要时刻会自动出现。"
+        />
         <ChapterModal
           visible={!!topic}
           onClose={() => setTopic(null)}
