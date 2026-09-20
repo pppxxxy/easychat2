@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FieldLabel, TextField } from './ui';
+import { FieldLabel, SecondaryButton, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 import {
   createGlobalPresetId,
@@ -255,15 +255,13 @@ export default function PresetPanel({ visible, onClose }) {
             {loaded && presets.length === 0 ? (
               <Text style={styles.fieldHint}>暂无预设，点击下方按钮新增。</Text>
             ) : null}
-            <TouchableOpacity
-              style={styles.secondaryButton}
+            <SecondaryButton
+              title="新增预设"
+              icon="add"
               onPress={() => openEditor(null)}
               disabled={!loaded || saving}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.secondaryButtonText}>新增预设</Text>
-            </TouchableOpacity>
+              style={styles.secondaryButton}
+            />
 
             <View style={styles.sectionDivider} />
             <View style={styles.memoryRow}>
@@ -409,17 +407,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   presetDesc: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 3 },
   presetDelete: { marginLeft: 6, padding: 4 },
   secondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: `${theme.colors.primary}2e`,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingVertical: 11,
-    marginTop: 4,
-    borderWidth: tokens.border.thin,
-    borderColor: `${theme.colors.primaryMuted}59`,
+    marginTop: tokens.spacing.sm,
   },
-  secondaryButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 6 },
   sectionDivider: {
     height: 1,
     backgroundColor: theme.colors.divider,

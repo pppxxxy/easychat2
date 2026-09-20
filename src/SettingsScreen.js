@@ -56,7 +56,16 @@ import {
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
-import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
+import {
+  Card,
+  DangerButton,
+  FieldHint,
+  FieldLabel,
+  PrimaryButton,
+  SecondaryButton,
+  TextField,
+  TopicButton,
+} from './ui';
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
 
@@ -1023,19 +1032,19 @@ export default function SettingsScreen() {
               <FieldHint style={styles.hint}>
                 API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
               </FieldHint>
-              <TouchableOpacity style={styles.button} onPress={save} activeOpacity={0.85}>
-                <Ionicons name="save-outline" size={17} color={theme.colors.primaryContrast} />
-                <Text style={styles.buttonText}>保存配置</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.deleteButton, configs.length <= 1 && styles.buttonDisabled]}
+              <PrimaryButton
+                title="保存配置"
+                icon="save-outline"
+                onPress={save}
+                style={styles.actionBtn}
+              />
+              <DangerButton
+                title="删除当前配置"
+                icon="trash-outline"
                 onPress={deleteConfig}
                 disabled={configs.length <= 1}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
-                <Text style={styles.deleteButtonText}>删除当前配置</Text>
-              </TouchableOpacity>
+                style={styles.actionBtn}
+              />
             </>
           ) : null}
         </Card>
@@ -1145,10 +1154,12 @@ export default function SettingsScreen() {
             placeholder="{user} 戳了戳 {char}"
           />
           <FieldHint style={styles.hint}>角色未单独设置拍一拍文案时使用；支持 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
-          <TouchableOpacity style={styles.secondaryButton} onPress={saveUserProfileNow} activeOpacity={0.8}>
-            <Ionicons name="save-outline" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.secondaryButtonText}>保存用户人设</Text>
-          </TouchableOpacity>
+          <SecondaryButton
+            title="保存用户人设"
+            icon="save-outline"
+            onPress={saveUserProfileNow}
+            style={styles.actionBtn}
+          />
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
         </Card>
 
@@ -1487,17 +1498,13 @@ export default function SettingsScreen() {
             keyboardType="number-pad"
             placeholder="400"
           />
-          <TouchableOpacity
-            style={[styles.secondaryButton, vectorTesting && styles.buttonDisabled]}
+          <SecondaryButton
+            title={vectorTesting ? '测试中...' : '测试连接'}
+            icon="pulse-outline"
             onPress={testVector}
-            disabled={vectorTesting}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="pulse-outline" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.secondaryButtonText}>
-              {vectorTesting ? '测试中...' : '测试连接'}
-            </Text>
-          </TouchableOpacity>
+            loading={vectorTesting}
+            style={styles.actionBtn}
+          />
           <Text style={styles.fieldHint}>
             未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
           </Text>
@@ -1856,17 +1863,9 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   modelRow: { flexDirection: 'row', alignItems: 'center' },
   modelInput: { flex: 1, minHeight: 40, marginRight: 8 },
 
-  button: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 14,
-    borderRadius: tokens.metrics.buttonRadius,
-    marginTop: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...tokens.elevation(2, theme),
+  actionBtn: {
+    marginTop: tokens.spacing.md,
   },
-  buttonText: { color: theme.colors.primaryContrast, fontWeight: '800', marginLeft: 8, fontSize: fonts.scaled(15) },
   buttonDisabled: { opacity: 0.45 },
 
   detectButton: {

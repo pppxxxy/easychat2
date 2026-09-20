@@ -23,7 +23,7 @@ import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
 import { generateImage, detectImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
 import ChapterModal from './ChapterModal';
-import { Chip, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
+import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
@@ -422,21 +422,14 @@ export default function ImageGenScreen({ embedded = false }) {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={[styles.generateButton, generating && styles.generateButtonDisabled]}
+        <PrimaryButton
+          title="生成"
+          icon="sparkles"
           onPress={onGenerate}
           disabled={generating}
-          activeOpacity={0.8}
-        >
-          {generating ? (
-            <ActivityIndicator color={theme.colors.primaryContrast} />
-          ) : (
-            <>
-              <Ionicons name="sparkles" size={18} color={theme.colors.primaryContrast} />
-              <Text style={styles.generateButtonText}>生成</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          loading={generating}
+          style={styles.generateButton}
+        />
         {generating ? <Text style={styles.generatingHint}>生成中，请稍候...</Text> : null}
 
         {results.length > 0 ? (
@@ -694,16 +687,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     justifyContent: 'center',
   },
   generateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingVertical: 14,
     marginTop: 24,
   },
-  generateButtonDisabled: { opacity: tokens.opacity.muted },
-  generateButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6 },
   generatingHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), textAlign: 'center', marginTop: 10 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap' },
   galleryItem: {
