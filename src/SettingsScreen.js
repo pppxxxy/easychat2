@@ -163,8 +163,8 @@ export default function SettingsScreen() {
   const [apiSaving, setApiSaving] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const { theme, fonts, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const refreshPresetCount = useCallback(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
@@ -1754,7 +1754,7 @@ export default function SettingsScreen() {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   flex: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   scrollContent: { paddingBottom: 80 },
@@ -1860,15 +1860,11 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: theme.colors.primary,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     marginTop: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    ...tokens.elevation(2, theme),
   },
   buttonText: { color: theme.colors.primaryContrast, fontWeight: '800', marginLeft: 8, fontSize: fonts.scaled(15) },
   buttonDisabled: { opacity: 0.45 },
@@ -2091,16 +2087,12 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: tokens.radius.lg,
+    padding: tokens.metrics.cardPadding,
     maxHeight: '70%',
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.divider,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
+    ...tokens.elevation(2, theme),
   },
   modalTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800', marginBottom: 12 },
   modalList: { maxHeight: 360 },

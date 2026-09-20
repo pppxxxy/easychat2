@@ -40,8 +40,8 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -172,45 +172,47 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: tokens.spacing.lg },
   searchBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: tokens.spacing.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    minHeight: tokens.metrics.fieldHeight,
   },
-  input: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(15), paddingVertical: 10, marginLeft: 8 },
-  cancel: { paddingHorizontal: 12, paddingVertical: 8 },
+  input: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(15), paddingVertical: 10, marginLeft: tokens.spacing.sm },
+  cancel: { paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm },
   cancelText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(15), fontWeight: '700' },
   searchButton: {
-    marginTop: 12,
-    marginHorizontal: 16,
+    marginTop: tokens.spacing.md,
+    marginHorizontal: tokens.spacing.lg,
     backgroundColor: theme.colors.primary,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 11,
     alignItems: 'center',
+    ...tokens.elevation(1, theme),
   },
   searchButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
-  disabled: { opacity: 0.5 },
-  list: { flex: 1, marginTop: 8 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 24 },
+  disabled: { opacity: tokens.opacity.disabled },
+  list: { flex: 1, marginTop: tokens.spacing.sm },
+  listContent: { paddingHorizontal: tokens.spacing.lg, paddingBottom: tokens.spacing.xl },
   count: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginVertical: 10 },
   item: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.md,
+    marginBottom: tokens.metrics.cardGap,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
   },
   itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  itemName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: 8 },
+  itemName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: tokens.spacing.sm },
   itemTime: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
   itemText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 6 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80 },
