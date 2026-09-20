@@ -57,7 +57,7 @@ import {
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
-import { TopicButton } from './ui';
+import { Card, TopicButton } from './ui';
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
 
@@ -868,7 +868,7 @@ export default function SettingsScreen() {
           <Text style={styles.hint}>配置 API、用户人设与全局对话预设。</Text>
         </View>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="key-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1046,9 +1046,9 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </>
           ) : null}
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1163,9 +1163,9 @@ export default function SettingsScreen() {
             <Text style={styles.secondaryButtonText}>保存用户人设</Text>
           </TouchableOpacity>
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="color-palette-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>外观</Text>
@@ -1209,9 +1209,9 @@ export default function SettingsScreen() {
               );
             })}
           </View>
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1283,9 +1283,9 @@ export default function SettingsScreen() {
             placeholderTextColor={theme.colors.textFaint}
           />
           <Text style={styles.fieldHint}>生图密钥请在「扩展 → 生图」中配置。</Text>
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="options-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>全局配置</Text>
@@ -1388,9 +1388,9 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="analytics-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>生成参数</Text>
@@ -1436,9 +1436,9 @@ export default function SettingsScreen() {
             );
           })}
           <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1531,7 +1531,7 @@ export default function SettingsScreen() {
           <Text style={styles.fieldHint}>
             未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
           </Text>
-        </View>
+        </Card>
 
         <TtsPanel
           visible={ttsEntryOpen}
@@ -1551,7 +1551,7 @@ export default function SettingsScreen() {
           onClose={() => setPluginEntryOpen(false)}
         />
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="information-circle-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>关于</Text>
@@ -1584,7 +1584,7 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
-        </View>
+        </Card>
       </ScrollView>
 
       <Modal
@@ -1791,23 +1791,10 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   scrollContent: { paddingBottom: 80 },
 
-  pageHeader: { marginTop: 4, marginBottom: 6 },
+  pageHeader: { marginTop: 4, marginBottom: 14 },
   title: { color: theme.colors.text, fontSize: fonts.scaled(24), fontWeight: '800', marginBottom: 6 },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6, lineHeight: fonts.scaled(18) },
 
-  card: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
-    padding: 14,
-    marginTop: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.16,
-    shadowRadius: 4,
-    elevation: 2,
-  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',

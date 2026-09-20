@@ -31,7 +31,7 @@ import {
 } from './cardParser';
 import { exportCardFile } from './cardExporter';
 import ChapterModal from './ChapterModal';
-import { TopicButton } from './ui';
+import { Card, TopicButton } from './ui';
 import { useApp } from './context/AppContext';
 import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
@@ -1122,7 +1122,7 @@ export default function CharacterScreen() {
           <Text style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</Text>
         </View>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="people-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1300,8 +1300,8 @@ export default function CharacterScreen() {
               );
             })}
           </View>
-        </View>
-        <View style={styles.card}>
+        </Card>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="create-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>基本信息</Text>
@@ -1389,9 +1389,9 @@ export default function CharacterScreen() {
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
 
-        </View>
+        </Card>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>人设设定</Text>
@@ -1518,10 +1518,10 @@ export default function CharacterScreen() {
               <Ionicons name="add" size={18} color={theme.colors.primaryContrast} />
             </TouchableOpacity>
           </View>
-        </View>
+        </Card>
 
         <TouchableOpacity
-          style={[styles.button, !loaded && styles.buttonDisabled]}
+          style={[styles.button, !loaded && styles.buttonDisabled, styles.saveButton]}
           onPress={save}
           disabled={!loaded}
           activeOpacity={0.85}
@@ -1530,7 +1530,7 @@ export default function CharacterScreen() {
           <Text style={styles.buttonText}>保存角色</Text>
         </TouchableOpacity>
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="albums-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>角色数据</Text>
@@ -1616,7 +1616,7 @@ export default function CharacterScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
-        </View>
+        </Card>
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -1859,23 +1859,10 @@ export default function CharacterScreen() {
 const createStyles = (theme, fonts) => StyleSheet.create({
   flex: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
-  pageHeader: { marginTop: 4, marginBottom: 6 },
+  pageHeader: { marginTop: 4, marginBottom: 14 },
   title: { color: theme.colors.text, fontSize: 24, fontWeight: '800', marginBottom: 6 },
   hint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: 19 },
 
-  card: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
-    padding: 14,
-    marginTop: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.16,
-    shadowRadius: 4,
-    elevation: 2,
-  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1968,6 +1955,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   buttonText: { color: theme.colors.text, fontWeight: '800', marginLeft: 8, fontSize: 15 },
   buttonDisabled: { opacity: 0.45 },
+  saveButton: { marginBottom: 12 },
   searchInput: {
     backgroundColor: theme.colors.surface,
     color: theme.colors.text,
