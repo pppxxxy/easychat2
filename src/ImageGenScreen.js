@@ -24,6 +24,7 @@ import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
 import { generateImage, detectImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
 import ChapterModal from './ChapterModal';
+import { TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
@@ -334,15 +335,11 @@ export default function ImageGenScreen({ embedded = false }) {
       <View style={[styles.header, embedded && styles.headerEmbedded]}>
         {embedded ? null : <Text style={styles.title}>生图</Text>}
         <View style={styles.headerActions}>
-          <TouchableOpacity
+          <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('image-api')}
-            activeOpacity={0.8}
             accessibilityLabel="查看生图教学"
-          >
-            <Ionicons name="help-circle-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.topicButtonText}>教学</Text>
-          </TouchableOpacity>
+          />
           <TouchableOpacity style={styles.keyButton} onPress={openSettings} activeOpacity={0.8}>
             <Ionicons name="key-outline" size={16} color={theme.colors.primaryContrast} />
             <Text style={styles.keyButtonText}>填密钥</Text>
@@ -636,16 +633,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   title: { color: theme.colors.text, fontSize: fonts.scaled(22), fontWeight: '800' },
   topicButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: 16,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
     marginRight: 8,
   },
-  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 4 },
   keyButton: {
     flexDirection: 'row',
     alignItems: 'center',

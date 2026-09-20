@@ -4,3 +4,4 @@ export { default as Chip } from './Chip';
 export { FieldLabel, FieldHint, TextField, FieldGroup } from './Field';
 export { default as ListRow } from './ListRow';
 export { default as SheetHeader } from './SheetHeader';
+export { default as TopicButton } from './TopicButton';

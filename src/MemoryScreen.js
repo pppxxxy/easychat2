@@ -12,6 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
 import ChapterModal from './ChapterModal';
+import { TopicButton } from './ui';
 import SearchScreen from './SearchScreen';
 import { useTheme } from './theme/ThemeContext';
 
@@ -189,15 +190,11 @@ export default function MemoryScreen({ navigation }) {
       <View style={styles.header}>
         <Text style={styles.title}>记忆</Text>
         <View style={styles.headerRight}>
-          <TouchableOpacity
+          <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('memory')}
-            activeOpacity={0.7}
             accessibilityLabel="查看记忆界面教学"
-          >
-            <Ionicons name="help-circle-outline" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.topicButtonText}>教学</Text>
-          </TouchableOpacity>
+          />
           {editing ? null : (
             <Text style={styles.count}>
               {loaded ? `${visibleSessions.length} 段对话` : '加载中'}
@@ -402,16 +399,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   count: { color: theme.colors.textFaint, fontSize: fonts.scaled(13) },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   topicButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
     marginRight: 6,
   },
-  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 4 },
   searchButton: {
     marginLeft: 12,
     width: 34,

@@ -18,9 +18,11 @@
 | `FieldGroup` | `src/ui` | `label?`、`hint?`、`children`、`style?` | 标签 + 控件 + 提示的组合块 |
 | `ListRow` | `src/ui` | `icon?`、`label`、`subtitle?`、`value?`、`right?`、`onPress?`、`showChevron?`、`destructive?`、`disabled?`、`style?` | 统一列表行（最小高度 48） |
 | `SheetHeader` | `src/ui` | `title`、`onClose?`、`onBack?`、`closeLabel?` | 弹窗标题行（标题 + 返回/关闭） |
+| `TopicButton` | `src/ui` | `onPress`、`label?`（默认「教学」）、`accessibilityLabel?`、`disabled?`、`style?` | 「教学」入口按钮（问号图标 + 文字），各界面统一 |
 
 ## 使用约定
 
 - 尺寸一律走 `tokens`（`spacing` / `radius` / `border` / `iconSize` / `metrics` / `elevation`），颜色走 `theme.colors`，字号走 `fonts.scaled`。
 - 组件只负责视觉与基础交互，业务逻辑仍留在各屏；`Card` 等不接管数据。
 - 新增界面优先复用这些组件，避免再次内联重复样式。迁移工作见 P2（设置页 / 角色页）。
+- `TopicButton` 已接入设置页（API 配置 / 用户人设 / 对话配图 / 向量记忆）、角色页、记忆页、生图页与动态页；各屏仅通过 `style` 传入外边距。

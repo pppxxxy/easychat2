@@ -13,6 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getMoments, saveMoments } from './storage';
 import ChapterModal from './ChapterModal';
+import { TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
@@ -209,7 +210,7 @@ export default function MomentsView({ active = true }) {
   if (loaded && moments.length === 0) {
     return (
       <View style={styles.wrap}>
-        <MomentHeader theme={theme} styles={styles} onPress={() => setTopic('moments')} />
+        <MomentHeader styles={styles} onPress={() => setTopic('moments')} />
         <View style={styles.empty}>
           <Ionicons name="planet-outline" size={32} color={theme.colors.textFaint} />
           <Text style={styles.emptyText}>还没有动态。和角色多聊聊，重要时刻会自动出现。</Text>
@@ -226,7 +227,7 @@ export default function MomentsView({ active = true }) {
 
   return (
     <View style={styles.wrap}>
-      <MomentHeader theme={theme} styles={styles} onPress={() => setTopic('moments')} />
+      <MomentHeader styles={styles} onPress={() => setTopic('moments')} />
       <FlatList
         data={moments}
         keyExtractor={item => item.id}
@@ -243,19 +244,14 @@ export default function MomentsView({ active = true }) {
   );
 }
 
-function MomentHeader({ theme, styles, onPress }) {
+function MomentHeader({ styles, onPress }) {
   return (
     <View style={styles.headerRow}>
       <Text style={styles.headerTitle}>动态</Text>
-      <TouchableOpacity
-        style={styles.topicButton}
+      <TopicButton
         onPress={onPress}
-        activeOpacity={0.7}
         accessibilityLabel="查看动态教学"
-      >
-        <Ionicons name="help-circle-outline" size={15} color={theme.colors.primarySoft} />
-        <Text style={styles.topicButtonText}>教学</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }
@@ -271,16 +267,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingBottom: 10,
   },
   headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
-  topicButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-  },
-  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 4 },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
   card: {
     backgroundColor: theme.colors.surface,

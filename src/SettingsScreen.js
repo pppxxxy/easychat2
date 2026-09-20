@@ -57,6 +57,7 @@ import {
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
+import { TopicButton } from './ui';
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
 
@@ -874,15 +875,11 @@ export default function SettingsScreen() {
               <Text style={styles.cardTitle}>API 配置</Text>
             </View>
             <View style={styles.headerActions}>
-              <TouchableOpacity
-                style={[styles.topicButton, styles.topicButtonSpaced]}
+              <TopicButton
+                style={styles.topicButtonSpaced}
                 onPress={() => setTopic('chat-api')}
-                activeOpacity={0.8}
                 accessibilityLabel="查看 API 配置教学"
-              >
-                <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
-                <Text style={styles.topicButtonText}>教学</Text>
-              </TouchableOpacity>
+              />
               <TouchableOpacity
                 style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
                 onPress={addConfig}
@@ -1057,15 +1054,10 @@ export default function SettingsScreen() {
               <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>用户人设</Text>
             </View>
-            <TouchableOpacity
-              style={styles.topicButton}
+            <TopicButton
               onPress={() => setTopic('user-persona')}
-              activeOpacity={0.8}
               accessibilityLabel="查看用户人设教学"
-            >
-              <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
-              <Text style={styles.topicButtonText}>教学</Text>
-            </TouchableOpacity>
+            />
           </View>
           <Text style={styles.fieldHint}>
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像与拍一拍文案为全部人设共用。
@@ -1225,15 +1217,10 @@ export default function SettingsScreen() {
               <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>对话配图</Text>
             </View>
-            <TouchableOpacity
-              style={styles.topicButton}
+            <TopicButton
               onPress={() => setTopic('inline-image')}
-              activeOpacity={0.8}
               accessibilityLabel="查看对话配图教学"
-            >
-              <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
-              <Text style={styles.topicButtonText}>教学</Text>
-            </TouchableOpacity>
+            />
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
@@ -1457,15 +1444,10 @@ export default function SettingsScreen() {
               <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>向量记忆</Text>
             </View>
-            <TouchableOpacity
-              style={styles.topicButton}
+            <TopicButton
               onPress={() => setTopic('vector-api')}
-              activeOpacity={0.8}
               accessibilityLabel="查看向量记忆教学"
-            >
-              <Ionicons name="help-circle-outline" size={14} color={theme.colors.primarySoft} />
-              <Text style={styles.topicButtonText}>教学</Text>
-            </TouchableOpacity>
+            />
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
@@ -1835,17 +1817,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
-  topicButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: 14,
-    paddingVertical: 4,
-    paddingHorizontal: 9,
-  },
   topicButtonSpaced: { marginRight: 8 },
-  topicButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 12, marginLeft: 4 },
   appearanceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
   themeChip: {
     flexDirection: 'row',
