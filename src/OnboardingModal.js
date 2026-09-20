@@ -15,6 +15,7 @@ import ChapterImages from './ChapterImages';
 import ChapterNotice from './ChapterNotice';
 import ChapterOutro from './ChapterOutro';
 import ChapterSections from './ChapterSections';
+import { GhostButton, PrimaryButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 export default function OnboardingModal({ visible, onFinish }) {
@@ -106,21 +107,17 @@ export default function OnboardingModal({ visible, onFinish }) {
         </ScrollView>
 
         <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.secondaryButton, isFirst && styles.buttonDisabled]}
+          <GhostButton
+            title="上一步"
             onPress={goPrev}
             disabled={isFirst}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.secondaryButtonText}>上一步</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.primaryButton}
+            style={styles.footerButton}
+          />
+          <PrimaryButton
+            title={isLast ? '开始使用' : '下一步'}
             onPress={goNext}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryButtonText}>{isLast ? '开始使用' : '下一步'}</Text>
-          </TouchableOpacity>
+            style={[styles.footerButton, styles.footerPrimary]}
+          />
         </View>
       </View>
     </Modal>
@@ -204,31 +201,19 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   dotActive: { backgroundColor: theme.colors.primary, width: 16 },
   footer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 20,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingTop: tokens.spacing.sm + 2,
+    paddingBottom: tokens.spacing.xl,
     borderTopWidth: tokens.border.thin,
     borderTopColor: theme.colors.divider,
+    backgroundColor: theme.colors.background,
   },
-  secondaryButton: {
+  footerButton: {
     flex: 1,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    marginRight: 10,
+    marginRight: tokens.spacing.sm,
   },
-  secondaryButtonText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: fonts.scaled(15) },
-  buttonDisabled: { opacity: tokens.opacity.disabled },
-  primaryButton: {
-    flex: 1.4,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
+  footerPrimary: {
+    flex: 1.3,
+    marginRight: 0,
   },
-  primaryButtonText: { color: theme.colors.primaryContrast, fontWeight: '800', fontSize: fonts.scaled(15) },
 });

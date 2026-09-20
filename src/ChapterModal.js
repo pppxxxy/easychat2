@@ -15,6 +15,7 @@ import ChapterImages from './ChapterImages';
 import ChapterNotice from './ChapterNotice';
 import ChapterOutro from './ChapterOutro';
 import ChapterSections from './ChapterSections';
+import { Card, PrimaryButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 export default function ChapterModal({
@@ -76,9 +77,8 @@ export default function ChapterModal({
           {chapters.map(chapter => {
             const images = getOnboardingImages(chapter);
             return (
-              <View
+              <Card
                 key={chapter.id}
-                style={styles.card}
                 onLayout={event => {
                   offsetsRef.current[chapter.id] = event.nativeEvent.layout.y;
                 }}
@@ -107,13 +107,13 @@ export default function ChapterModal({
                 ))}
                 {chapter.note ? <Text style={styles.note}>{chapter.note}</Text> : null}
                 <ChapterOutro outro={chapter.outro} />
-              </View>
+              </Card>
             );
           })}
         </ScrollView>
-        <TouchableOpacity style={styles.button} onPress={onClose} activeOpacity={0.85}>
-          <Text style={styles.buttonText}>{buttonText}</Text>
-        </TouchableOpacity>
+        <View style={styles.footer}>
+          <PrimaryButton title={buttonText} onPress={onClose} />
+        </View>
       </View>
     </Modal>
   );
@@ -134,19 +134,24 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderBottomColor: theme.colors.divider,
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
-  jumpBar: { flexGrow: 0, borderBottomWidth: tokens.border.thin, borderBottomColor: theme.colors.divider },
-  jumpContent: { paddingHorizontal: 16, paddingVertical: 10 },
+  jumpBar: {
+    flexGrow: 0,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderBottomWidth: tokens.border.thin,
+    borderBottomColor: theme.colors.divider,
+  },
+  jumpContent: { paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm },
   jumpChip: {
     backgroundColor: theme.colors.surface,
     borderRadius: tokens.radius.pill,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.xs + 2,
+    marginRight: tokens.spacing.sm,
     maxWidth: 200,
   },
-  jumpText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
+  jumpText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 24 },
   card: {
@@ -173,14 +178,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   itemWhere: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 3 },
   itemUsage: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 2 },
   note: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(19), marginTop: 10, fontStyle: 'italic' },
-  button: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 20,
-    marginTop: 8,
+  footer: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing.xl,
+    paddingTop: tokens.spacing.sm,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.divider,
+    backgroundColor: theme.colors.background,
   },
-  buttonText: { color: theme.colors.primaryContrast, fontWeight: '800', fontSize: fonts.scaled(15) },
 });
