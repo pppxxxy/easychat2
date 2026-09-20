@@ -24,7 +24,7 @@ import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
 import { generateImage, detectImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
 import ChapterModal from './ChapterModal';
-import { TopicButton } from './ui';
+import { Chip, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
@@ -57,8 +57,8 @@ export default function ImageGenScreen({ embedded = false }) {
   const [detecting, setDetecting] = useState(false);
   const [topic, setTopic] = useState(null);
   const mountedRef = useRef(true);
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -391,19 +391,14 @@ export default function ImageGenScreen({ embedded = false }) {
 
         <Text style={styles.label}>尺寸</Text>
         <View style={styles.chipRow}>
-          {SIZES.map(item => {
-            const active = item === size;
-            return (
-              <TouchableOpacity
-                key={item}
-                style={[styles.chip, active && styles.chipActive]}
-                onPress={() => setSize(item)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
-              </TouchableOpacity>
-            );
-          })}
+          {SIZES.map(item => (
+            <Chip
+              key={item}
+              label={item}
+              active={item === size}
+              onPress={() => setSize(item)}
+            />
+          ))}
         </View>
 
         <Text style={styles.label}>随机种子（可选）</Text>
@@ -619,7 +614,7 @@ export default function ImageGenScreen({ embedded = false }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   containerEmbedded: { paddingTop: 0 },
   header: {
@@ -639,18 +634,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.primary,
-    borderRadius: 10,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   keyButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 6 },
   body: { flex: 1 },
   bodyContent: { paddingHorizontal: 20, paddingBottom: 40 },
-  label: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 16, marginBottom: 8 },
+  label: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: tokens.spacing.lg, marginBottom: tokens.spacing.sm },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6 },
   input: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 10,
+    borderRadius: tokens.radius.md,
     color: theme.colors.text,
     fontSize: fonts.scaled(14),
     paddingHorizontal: 12,
@@ -663,7 +658,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
-    borderRadius: 10,
+    borderRadius: tokens.radius.md,
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
@@ -671,13 +666,13 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   detectButton: {
     justifyContent: 'center',
     marginTop: 10,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
   },
   apiKeyButton: {
     justifyContent: 'center',
     marginTop: 10,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     gap: 6,
   },
@@ -692,37 +687,26 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   selectButtonText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
   placeholderText: { color: theme.colors.textFaint },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
-  chip: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 9,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  chipActive: { backgroundColor: theme.colors.primary },
-  chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
-  chipTextActive: { color: theme.colors.primaryContrast, fontWeight: '700' },
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
     borderStyle: 'dashed',
     borderColor: theme.colors.surfaceBorder,
     paddingVertical: 18,
   },
   uploadButtonText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 8 },
   previewRow: { alignSelf: 'flex-start' },
-  preview: { width: 120, height: 120, borderRadius: 10, backgroundColor: theme.colors.surface },
+  preview: { width: 120, height: 120, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surface },
   removeImage: {
     position: 'absolute',
     top: -8,
     right: -8,
     backgroundColor: theme.colors.danger,
-    borderRadius: 11,
+    borderRadius: tokens.radius.pill,
     width: 22,
     height: 22,
     alignItems: 'center',
@@ -733,18 +717,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 14,
     marginTop: 24,
   },
-  generateButtonDisabled: { opacity: 0.7 },
+  generateButtonDisabled: { opacity: tokens.opacity.muted },
   generateButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6 },
   generatingHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), textAlign: 'center', marginTop: 10 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap' },
   galleryItem: {
     width: '48%',
     aspectRatio: 1,
-    borderRadius: 10,
+    borderRadius: tokens.radius.md,
     overflow: 'hidden',
     backgroundColor: theme.colors.surface,
     marginRight: '4%',
@@ -764,8 +748,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: theme.colors.surface,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: tokens.radius.bubble,
+    borderTopRightRadius: tokens.radius.bubble,
     padding: 20,
     paddingBottom: 32,
   },

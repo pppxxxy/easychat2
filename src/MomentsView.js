@@ -13,7 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getMoments, saveMoments } from './storage';
 import ChapterModal from './ChapterModal';
-import { TopicButton } from './ui';
+import { Card, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 function formatTime(timestamp) {
@@ -25,8 +25,8 @@ function formatTime(timestamp) {
 }
 
 export default function MomentsView({ active = true }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState({});
@@ -121,7 +121,7 @@ export default function MomentsView({ active = true }) {
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
     return (
-      <View style={styles.card}>
+      <Card>
         <View style={styles.cardHeader}>
           <View style={styles.avatarWrap}>
             {item.avatarUri ? (
@@ -203,7 +203,7 @@ export default function MomentsView({ active = true }) {
             <Ionicons name="send" size={14} color={theme.colors.primaryContrast} />
           </TouchableOpacity>
         </View>
-      </View>
+      </Card>
     );
   }, [commentDrafts, removeMoment, styles, submitComment, theme.colors, toggleLike]);
 
@@ -256,7 +256,7 @@ function MomentHeader({ styles, onPress }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   wrap: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
@@ -268,17 +268,9 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
-  },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   avatarWrap: { marginRight: 10 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceBorder },
+  avatar: { width: 40, height: 40, borderRadius: tokens.radius.pill, backgroundColor: theme.colors.surfaceBorder },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(16), fontWeight: '800' },
   cardTitleWrap: { flex: 1 },
@@ -292,7 +284,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   commentList: {
     marginTop: 10,
     backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 10,
+    borderRadius: tokens.radius.md,
     padding: 10,
   },
   commentRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 },
@@ -303,7 +295,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   commentInput: {
     flex: 1,
     backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 10,
+    borderRadius: tokens.radius.md,
     color: theme.colors.text,
     fontSize: fonts.scaled(13),
     paddingHorizontal: 12,
@@ -313,7 +305,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   commentSend: {
     width: 34,
     height: 34,
-    borderRadius: 17,
+    borderRadius: tokens.radius.pill,
     backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',

@@ -12,7 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
 import ChapterModal from './ChapterModal';
-import { TopicButton } from './ui';
+import { Card, TopicButton } from './ui';
 import SearchScreen from './SearchScreen';
 import { useTheme } from './theme/ThemeContext';
 
@@ -62,8 +62,8 @@ export default function MemoryScreen({ navigation }) {
   const [editing, setEditing] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [topic, setTopic] = useState(null);
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -244,8 +244,9 @@ export default function MemoryScreen({ navigation }) {
               : ((character && character.name) || '未命名角色');
             const isClone = !!session.clonedFrom;
             return (
-              <View
+              <Card
                 key={session.id}
+                padded={false}
                 style={[
                   styles.card,
                   editing && selectedIds.includes(session.id) && styles.cardSelected,
@@ -335,7 +336,7 @@ export default function MemoryScreen({ navigation }) {
                     />
                   </View>
                 )}
-              </View>
+              </Card>
             );
           })}
         </ScrollView>
@@ -385,7 +386,7 @@ export default function MemoryScreen({ navigation }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: 'row',
@@ -405,7 +406,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginLeft: 12,
     width: 34,
     height: 34,
-    borderRadius: 17,
+    borderRadius: tokens.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: `${theme.colors.primary}2e`,
@@ -419,12 +420,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: 14,
-    marginBottom: 10,
     paddingLeft: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
   },
   cardSelected: {
     borderColor: theme.colors.primary,
@@ -437,14 +433,14 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingVertical: 12,
     paddingRight: 6,
   },
-  avatar: { width: 46, height: 46, borderRadius: 12, backgroundColor: theme.colors.surfaceBorder },
+  avatar: { width: 46, height: 46, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surfaceBorder },
   groupAvatars: { width: 46, height: 46, marginRight: 0 },
   groupAvatar: {
     position: 'absolute',
     top: 0,
     width: 34,
     height: 34,
-    borderRadius: 9,
+    borderRadius: tokens.radius.sm,
     backgroundColor: theme.colors.surfaceBorder,
     borderWidth: 1,
     borderColor: theme.colors.surfaceAlt,
@@ -493,7 +489,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderTopWidth: 1,
+    borderTopWidth: tokens.border.thin,
     borderTopColor: theme.colors.divider,
     backgroundColor: theme.colors.surfaceAlt,
   },
@@ -501,10 +497,10 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   selectAllText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
   deleteButton: {
     backgroundColor: theme.colors.danger,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
   deleteButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700' },
-  disabled: { opacity: 0.45 },
+  disabled: { opacity: tokens.opacity.disabled },
 });

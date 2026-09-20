@@ -35,8 +35,8 @@ function GamesView() {
   const [activeGameId, setActiveGameId] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [failed, setFailed] = useState(false);
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const activeGame = useMemo(
     () => GAMES.find(game => game.id === activeGameId) || null,
@@ -129,8 +129,8 @@ function GamesView() {
 export default function ExtensionScreen() {
   const [segment, setSegment] = useState('games');
   const [momentsEnabled, setMomentsEnabled] = useState(false);
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const navigation = useNavigation();
   useEffect(() => {
@@ -204,7 +204,7 @@ export default function ExtensionScreen() {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   segmentRow: {
     flexDirection: 'row',
@@ -212,8 +212,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginTop: 12,
     marginBottom: 12,
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 4,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.xs,
   },
   segment: {
     flex: 1,
@@ -221,7 +221,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 9,
-    borderRadius: 9,
+    borderRadius: tokens.radius.sm,
   },
   segmentActive: { backgroundColor: theme.colors.primary },
   segmentText: { color: theme.colors.textFaint, fontSize: fonts.scaled(14), fontWeight: '600', marginLeft: 6 },
@@ -236,14 +236,16 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
+    borderRadius: tokens.metrics.cardRadius,
+    padding: tokens.metrics.cardPadding,
+    marginBottom: tokens.metrics.cardGap,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
   },
   gameIcon: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: tokens.radius.md,
     backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -267,7 +269,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   retryButton: {
     marginTop: 14,
     backgroundColor: theme.colors.primary,
-    borderRadius: 10,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
