@@ -22,6 +22,7 @@ import {
   getAppearanceSettings,
   saveAppearanceSettings,
 } from '../storage';
+import { tokens } from './tokens';
 
 const ThemeContext = createContext(null);
 
@@ -77,6 +78,7 @@ export function ThemeProvider({ children }) {
       setFontScaleId: changeFontScale,
       fontScale: scale,
       fonts: { scale, scaled },
+      tokens,
     };
   }, [theme, themeId, changeTheme, fontScaleId, changeFontScale, systemScale]);
 
@@ -104,5 +106,6 @@ export function useTheme() {
       scale: fallbackScale,
       scaled: size => Math.round(Number(size || 0) * fallbackScale),
     },
+    tokens,
   };
 }
