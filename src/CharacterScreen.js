@@ -31,7 +31,7 @@ import {
 } from './cardParser';
 import { exportCardFile } from './cardExporter';
 import ChapterModal from './ChapterModal';
-import { Card, TopicButton } from './ui';
+import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
 import { useApp } from './context/AppContext';
 import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
@@ -188,15 +188,14 @@ function NumberField({ label, value, onCommit }) {
   return (
     <View style={styles.numberField}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        style={[styles.input, styles.inputSmall]}
+      <TextField
+        style={styles.inputSmall}
         value={text}
         onChangeText={setText}
         onBlur={commit}
         onEndEditing={commit}
         keyboardType="number-pad"
         placeholder={label}
-        placeholderTextColor={theme.colors.textFaint}
       />
     </View>
   );
@@ -259,28 +258,25 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         </TouchableOpacity>
       </View>
       <Text style={styles.fieldLabel}>名称</Text>
-      <TextInput
-        style={[styles.input, styles.inputSmall]}
+      <TextField
+        style={styles.inputSmall}
         value={entry.comment}
         onChangeText={comment => onChange({ comment })}
         placeholder="世界书条目名称"
-        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.fieldLabel}>触发关键词（逗号分隔）</Text>
-      <TextInput
-        style={[styles.input, styles.inputSmall]}
+      <TextField
+        style={styles.inputSmall}
         value={keys.join(', ')}
         onChangeText={text => onChange({ keys: splitKeywords(text) })}
         placeholder="关键词一, 关键词二"
-        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.fieldLabel}>内容</Text>
-      <TextInput
-        style={[styles.input, styles.contentInput]}
+      <TextField
+        style={styles.contentInput}
         value={entry.content}
         onChangeText={content => onChange({ content })}
         placeholder="命中后注入提示词的内容"
-        placeholderTextColor={theme.colors.textFaint}
         multiline
         textAlignVertical="top"
       />
@@ -343,42 +339,38 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         </TouchableOpacity>
       </View>
       <Text style={styles.fieldLabel}>名称</Text>
-      <TextInput
-        style={[styles.input, styles.inputSmall]}
+      <TextField
+        style={styles.inputSmall}
         value={script.name}
         onChangeText={name => onChange({ name })}
         placeholder="正则脚本名称"
-        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.fieldLabel}>匹配表达式</Text>
-      <TextInput
-        style={[styles.input, styles.contentInput, styles.codeInput]}
+      <TextField
+        style={[styles.contentInput, styles.codeInput]}
         value={script.findRegex}
         onChangeText={findRegex => onChange({ findRegex })}
         placeholder="例如：\\bfoo\\b"
-        placeholderTextColor={theme.colors.textFaint}
         multiline
         textAlignVertical="top"
       />
       <Text style={styles.fieldLabel}>替换为</Text>
-      <TextInput
-        style={[styles.input, styles.contentInput, styles.codeInput]}
+      <TextField
+        style={[styles.contentInput, styles.codeInput]}
         value={script.replaceString}
         onChangeText={replaceString => onChange({ replaceString })}
         placeholder="替换后的文本，可留空表示删除"
-        placeholderTextColor={theme.colors.textFaint}
         multiline
         textAlignVertical="top"
       />
       <Text style={styles.fieldLabel}>flags</Text>
-      <TextInput
-        style={[styles.input, styles.inputSmall, styles.codeInput]}
+      <TextField
+        style={[styles.inputSmall, styles.codeInput]}
         value={script.flags}
         onChangeText={flags => onChange({ flags })}
         autoCapitalize="none"
         autoCorrect={false}
         placeholder="g"
-        placeholderTextColor={theme.colors.textFaint}
       />
       <Text style={styles.dataMeta}>/表达式/flags 使用内嵌 flags；裸表达式的 flags 留空时仅替换首个匹配。</Text>
       <Text style={styles.fieldLabel}>作用范围</Text>
@@ -1119,7 +1111,7 @@ export default function CharacterScreen() {
       >
         <View style={styles.pageHeader}>
           <Text style={styles.title}>角色</Text>
-          <Text style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</Text>
+          <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
         </View>
 
         <Card>
@@ -1306,13 +1298,11 @@ export default function CharacterScreen() {
             <Ionicons name="create-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>基本信息</Text>
           </View>
-          <Text style={styles.label}>角色名</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>角色名</FieldLabel>
+          <TextField
             value={name}
             onChangeText={setName}
             placeholder="例如：严谨的代码助手"
-            placeholderTextColor={theme.colors.textFaint}
           />
           <TouchableOpacity
             style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
@@ -1396,25 +1386,23 @@ export default function CharacterScreen() {
             <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>人设设定</Text>
           </View>
-          <Text style={styles.label}>开场白</Text>
-          <TextInput
-            style={[styles.input, styles.multilineSmall]}
+          <FieldLabel style={styles.label}>开场白</FieldLabel>
+          <TextField
+            style={styles.multilineSmall}
             value={firstMes}
             onChangeText={setFirstMes}
             placeholder="角色登场时的第一句话"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.label}>备用开场白</Text>
+          <FieldLabel style={styles.label}>备用开场白</FieldLabel>
           {alternateGreetings.map((item, index) => (
             <View key={`greeting-${index}`} style={styles.greetingRow}>
-              <TextInput
-                style={[styles.input, styles.multilineSmall, styles.greetingInput]}
+              <TextField
+                style={[styles.multilineSmall, styles.greetingInput]}
                 value={item}
                 onChangeText={value => updateGreeting(index, value)}
                 placeholder={`备用开场白 ${index + 1}`}
-                placeholderTextColor={theme.colors.textFaint}
                 multiline
                 textAlignVertical="top"
               />
@@ -1432,70 +1420,63 @@ export default function CharacterScreen() {
             <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
           </TouchableOpacity>
-          <Text style={styles.label}>人设 / 系统提示词</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
+          <FieldLabel style={styles.label}>人设 / 系统提示词</FieldLabel>
+          <TextField
+            style={styles.multiline}
             value={systemPrompt}
             onChangeText={setSystemPrompt}
             placeholder="描述角色的语气、知识和回答方式"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.label}>角色描述</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
+          <FieldLabel style={styles.label}>角色描述</FieldLabel>
+          <TextField
+            style={styles.multiline}
             value={description}
             onChangeText={setDescription}
             placeholder="角色的背景、外貌与身份设定"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.label}>性格</Text>
-          <TextInput
-            style={[styles.input, styles.multilineSmall]}
+          <FieldLabel style={styles.label}>性格</FieldLabel>
+          <TextField
+            style={styles.multilineSmall}
             value={personality}
             onChangeText={setPersonality}
             placeholder="角色的性格特点"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.label}>场景</Text>
-          <TextInput
-            style={[styles.input, styles.multilineSmall]}
+          <FieldLabel style={styles.label}>场景</FieldLabel>
+          <TextField
+            style={styles.multilineSmall}
             value={scenario}
             onChangeText={setScenario}
             placeholder="剧情发生的背景与情境"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
 
-          <Text style={styles.label}>对话示例</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
+          <FieldLabel style={styles.label}>对话示例</FieldLabel>
+          <TextField
+            style={styles.multiline}
             value={mesExample}
             onChangeText={setMesExample}
             placeholder="<START>\n{{user}}: 你好\n{{char}}: 你好呀"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
           <Text style={styles.fieldHint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
 
-          <Text style={styles.label}>拍一拍文案</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>拍一拍文案</FieldLabel>
+          <TextField
             value={nudgeText}
             onChangeText={setNudgeText}
             placeholder="{user} 戳了戳 {char}"
-            placeholderTextColor={theme.colors.textFaint}
           />
           <Text style={styles.fieldHint}>双击角色头像时显示，可用 {`{{user}}`} 与 {`{{char}}`} 占位；留空使用默认文案。</Text>
 
-          <Text style={styles.label}>标签</Text>
+          <FieldLabel style={styles.label}>标签</FieldLabel>
           <View style={styles.tagRow}>
             {tags.map(tag => (
               <TouchableOpacity key={tag} style={styles.tagChip} onPress={() => removeTag(tag)} activeOpacity={0.8}>
@@ -1505,13 +1486,12 @@ export default function CharacterScreen() {
             ))}
           </View>
           <View style={styles.tagInputRow}>
-            <TextInput
-              style={[styles.input, styles.tagInput]}
+            <TextField
+              style={styles.tagInput}
               value={tagDraft}
               onChangeText={setTagDraft}
               onSubmitEditing={addTag}
               placeholder="输入标签后回车添加"
-              placeholderTextColor={theme.colors.textFaint}
               returnKeyType="done"
             />
             <TouchableOpacity style={styles.tagAdd} onPress={addTag} activeOpacity={0.8}>
@@ -1633,16 +1613,14 @@ export default function CharacterScreen() {
         >
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>创建群聊</Text>
-            <Text style={styles.label}>群名（留空自动生成）</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>群名（留空自动生成）</FieldLabel>
+            <TextField
               value={groupName}
               onChangeText={setGroupName}
               placeholder="例如：周末闲聊群"
-              placeholderTextColor={theme.colors.textFaint}
               editable={!creatingGroup}
             />
-            <Text style={styles.label}>{`选择成员（已选 ${groupSelected.length} / 2-8）`}</Text>
+            <FieldLabel style={styles.label}>{`选择成员（已选 ${groupSelected.length} / 2-8）`}</FieldLabel>
             <ScrollView style={styles.groupList} keyboardShouldPersistTaps="handled">
               {characters.map(item => {
                 const selected = groupSelected.includes(item.id);
@@ -1676,7 +1654,7 @@ export default function CharacterScreen() {
             </ScrollView>
             {groupSelected.length > 0 ? (
               <>
-                <Text style={styles.label}>群头像（可从成员选择）</Text>
+                <FieldLabel style={styles.label}>群头像（可从成员选择）</FieldLabel>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
                   <TouchableOpacity
                     style={[styles.groupPickChip, !groupAvatarUri && styles.groupPickChipActive]}
@@ -1709,7 +1687,7 @@ export default function CharacterScreen() {
                     );
                   })}
                 </ScrollView>
-                <Text style={styles.label}>群背景（可从成员背景选择）</Text>
+                <FieldLabel style={styles.label}>群背景（可从成员背景选择）</FieldLabel>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
                   <TouchableOpacity
                     style={[styles.groupPickChip, !groupBgUri && styles.groupPickChipActive]}
@@ -1925,16 +1903,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
 
   label: { color: theme.colors.textMuted, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
   fieldLabel: { color: theme.colors.textFaint, fontSize: 12, marginTop: 12, marginBottom: 6, fontWeight: '600' },
-  input: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    fontSize: 14,
-  },
   inputSmall: { paddingVertical: 9, paddingHorizontal: 11 },
   multiline: { minHeight: 160, maxHeight: 340, paddingTop: 12 },
   multilineSmall: { minHeight: 80, maxHeight: 220, paddingTop: 12 },
@@ -2054,7 +2022,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginTop: 4,
     marginBottom: 4,
   },
-  secondaryButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6, fontSize: fonts.scaled(13) },  tagInput: { flex: 1, marginRight: 8 },
+  secondaryButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6, fontSize: fonts.scaled(13) },
+  tagInput: { flex: 1, minHeight: 40, marginRight: 8 },
   tagAdd: {
     width: 40,
     height: 40,

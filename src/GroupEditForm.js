@@ -8,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -17,6 +16,7 @@ import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { updateSessionInfo } from './storage';
+import { FieldLabel, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 function getPickedAsset(result) {
@@ -86,7 +86,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
 
   const renderMemberPicks = (current, setter, label) => (
     <>
-      <Text style={styles.label}>{label}</Text>
+      <FieldLabel style={styles.label}>{label}</FieldLabel>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickRow}>
         <TouchableOpacity
           style={[styles.pickChip, !current && styles.pickChipActive]}
@@ -148,16 +148,14 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.label}>群名</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>群名</FieldLabel>
+            <TextField
               value={name}
               onChangeText={setName}
               placeholder="例如：周末闲聊群"
-              placeholderTextColor={theme.colors.textFaint}
             />
 
-            <Text style={styles.label}>群头像</Text>
+            <FieldLabel style={styles.label}>群头像</FieldLabel>
             <View style={styles.previewRow}>
               <View style={styles.previewBoxRound}>
                 {avatarUri ? (
@@ -179,7 +177,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
             </View>
             {renderMemberPicks(avatarUri, setAvatarUri, '或用成员头像')}
 
-            <Text style={styles.label}>群背景</Text>
+            <FieldLabel style={styles.label}>群背景</FieldLabel>
             <View style={styles.previewRow}>
               <View style={styles.previewBoxWide}>
                 {bgUri ? (
@@ -248,16 +246,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   scroll: { flexGrow: 0 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 },
   label: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), marginTop: 14, marginBottom: 6 },
-  input: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    fontSize: fonts.scaled(14),
-  },
   previewRow: { flexDirection: 'row', alignItems: 'center' },
   previewBoxRound: {
     width: 64,

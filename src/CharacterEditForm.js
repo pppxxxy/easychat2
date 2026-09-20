@@ -8,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -18,6 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { buildSystemPrompt } from './cardParser';
 import { useApp } from './context/AppContext';
+import { FieldHint, FieldLabel, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 function getPickedAsset(result) {
@@ -181,16 +181,14 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.label}>角色名</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>角色名</FieldLabel>
+            <TextField
               value={draft.name}
               onChangeText={text => patch('name', text)}
               placeholder="例如：严谨的代码助手"
-              placeholderTextColor={theme.colors.textFaint}
             />
 
-            <Text style={styles.label}>角色头像</Text>
+            <FieldLabel style={styles.label}>角色头像</FieldLabel>
             <View style={styles.imageRow}>
               <View style={styles.avatarBox}>
                 {draft.avatarUri ? (
@@ -219,7 +217,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               </View>
             </View>
 
-            <Text style={styles.label}>背景图</Text>
+            <FieldLabel style={styles.label}>背景图</FieldLabel>
             <View style={styles.imageRow}>
               {draft.bgUri ? (
                 <Image source={{ uri: draft.bgUri }} style={styles.bgPreview} />
@@ -240,66 +238,60 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               </View>
             </View>
 
-            <Text style={styles.label}>人设 / 系统提示词</Text>
-            <TextInput
-              style={[styles.input, styles.multiline]}
+            <FieldLabel style={styles.label}>人设 / 系统提示词</FieldLabel>
+            <TextField
+              style={styles.multiline}
               value={draft.systemPrompt}
               onChangeText={text => patch('systemPrompt', text)}
               placeholder="描述角色的语气、知识和回答方式"
-              placeholderTextColor={theme.colors.textFaint}
               multiline
               textAlignVertical="top"
             />
-            <Text style={styles.label}>角色描述</Text>
-            <TextInput
-              style={[styles.input, styles.multiline]}
+            <FieldLabel style={styles.label}>角色描述</FieldLabel>
+            <TextField
+              style={styles.multiline}
               value={draft.description}
               onChangeText={text => patch('description', text)}
               placeholder="角色的背景、外貌与身份设定"
-              placeholderTextColor={theme.colors.textFaint}
               multiline
               textAlignVertical="top"
             />
-            <Text style={styles.label}>性格</Text>
-            <TextInput
-              style={[styles.input, styles.multilineSmall]}
+            <FieldLabel style={styles.label}>性格</FieldLabel>
+            <TextField
+              style={styles.multilineSmall}
               value={draft.personality}
               onChangeText={text => patch('personality', text)}
               placeholder="角色的性格特点"
-              placeholderTextColor={theme.colors.textFaint}
               multiline
               textAlignVertical="top"
             />
-            <Text style={styles.label}>场景</Text>
-            <TextInput
-              style={[styles.input, styles.multilineSmall]}
+            <FieldLabel style={styles.label}>场景</FieldLabel>
+            <TextField
+              style={styles.multilineSmall}
               value={draft.scenario}
               onChangeText={text => patch('scenario', text)}
               placeholder="剧情发生的背景与情境"
-              placeholderTextColor={theme.colors.textFaint}
               multiline
               textAlignVertical="top"
             />
-            <Text style={styles.label}>开场白</Text>
-            <TextInput
-              style={[styles.input, styles.multilineSmall]}
+            <FieldLabel style={styles.label}>开场白</FieldLabel>
+            <TextField
+              style={styles.multilineSmall}
               value={draft.firstMes}
               onChangeText={text => patch('firstMes', text)}
               placeholder="角色登场时的第一句话"
-              placeholderTextColor={theme.colors.textFaint}
               multiline
               textAlignVertical="top"
             />
 
-            <Text style={styles.label}>备用开场白</Text>
+            <FieldLabel style={styles.label}>备用开场白</FieldLabel>
             {draft.alternateGreetings.map((item, index) => (
               <View key={`greeting-${index}`} style={styles.greetingRow}>
-                <TextInput
-                  style={[styles.input, styles.multilineSmall, styles.greetingInput]}
+                <TextField
+                  style={[styles.multilineSmall, styles.greetingInput]}
                   value={item}
                   onChangeText={value => updateGreeting(index, value)}
                   placeholder={`备用开场白 ${index + 1}`}
-                  placeholderTextColor={theme.colors.textFaint}
                   multiline
                   textAlignVertical="top"
                 />
@@ -318,29 +310,26 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
             </TouchableOpacity>
 
-            <Text style={styles.label}>对话示例</Text>
-            <TextInput
-              style={[styles.input, styles.multiline]}
+            <FieldLabel style={styles.label}>对话示例</FieldLabel>
+            <TextField
+              style={styles.multiline}
               value={draft.mesExample}
               onChangeText={text => patch('mesExample', text)}
               placeholder="<START>\n{{user}}: 你好\n{{char}}: 你好呀"
-              placeholderTextColor={theme.colors.textFaint}
               multiline
               textAlignVertical="top"
             />
-            <Text style={styles.hint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
+            <FieldHint style={styles.hint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
 
-            <Text style={styles.label}>拍一拍文案</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>拍一拍文案</FieldLabel>
+            <TextField
               value={draft.nudgeText}
               onChangeText={text => patch('nudgeText', text)}
               placeholder="{user} 戳了戳 {char}"
-              placeholderTextColor={theme.colors.textFaint}
             />
-            <Text style={styles.hint}>双击角色头像时显示，可用 {`{{user}}`} 与 {`{{char}}`} 占位；留空使用默认文案。</Text>
+            <FieldHint style={styles.hint}>双击角色头像时显示，可用 {`{{user}}`} 与 {`{{char}}`} 占位；留空使用默认文案。</FieldHint>
 
-            <Text style={styles.label}>标签</Text>
+            <FieldLabel style={styles.label}>标签</FieldLabel>
             <View style={styles.tagRow}>
               {draft.tags.map(tag => (
                 <TouchableOpacity
@@ -355,20 +344,19 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               ))}
             </View>
             <View style={styles.tagInputRow}>
-              <TextInput
-                style={[styles.input, styles.tagInput]}
+              <TextField
+                style={styles.tagInput}
                 value={tagDraft}
                 onChangeText={setTagDraft}
                 onSubmitEditing={addTag}
                 placeholder="输入标签后回车添加"
-                placeholderTextColor={theme.colors.textFaint}
                 returnKeyType="done"
               />
               <TouchableOpacity style={styles.tagAdd} onPress={addTag} activeOpacity={0.8}>
                 <Ionicons name="add" size={18} color={theme.colors.primaryContrast} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.hint}>世界书与正则脚本请在「角色」页编辑。</Text>
+            <FieldHint style={styles.hint}>世界书与正则脚本请在「角色」页编辑。</FieldHint>
           </ScrollView>
           <View style={styles.footer}>
             <TouchableOpacity
@@ -425,16 +413,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     fontSize: fonts.scaled(13),
     marginTop: 14,
     marginBottom: 6,
-  },
-  input: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    fontSize: fonts.scaled(14),
   },
   multiline: { minHeight: 90, paddingTop: 10 },
   multilineSmall: { minHeight: 64, paddingTop: 10 },
@@ -501,7 +479,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   tagChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginRight: 4 },
   tagInputRow: { flexDirection: 'row', alignItems: 'center' },
-  tagInput: { flex: 1 },
+  tagInput: { flex: 1, minHeight: 40 },
   tagAdd: {
     width: 40,
     height: 40,

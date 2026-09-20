@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -57,7 +56,7 @@ import {
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
-import { Card, TopicButton } from './ui';
+import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
 
@@ -865,7 +864,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.pageHeader}>
           <Text style={styles.title}>设置</Text>
-          <Text style={styles.hint}>配置 API、用户人设与全局对话预设。</Text>
+          <FieldHint style={styles.hint}>配置 API、用户人设与全局对话预设。</FieldHint>
         </View>
 
         <Card>
@@ -924,35 +923,30 @@ export default function SettingsScreen() {
 
           {active ? (
             <>
-              <Text style={styles.label}>配置名称</Text>
-              <TextInput
-                style={styles.input}
+              <FieldLabel style={styles.label}>配置名称</FieldLabel>
+              <TextField
                 value={active.name}
                 onChangeText={name => updateField({ name })}
                 placeholder="例如：DeepSeek 主力"
-                placeholderTextColor={theme.colors.textFaint}
               />
-              <Text style={styles.label}>API 地址</Text>
-              <TextInput
-                style={styles.input}
+              <FieldLabel style={styles.label}>API 地址</FieldLabel>
+              <TextField
                 value={active.baseUrl}
                 onChangeText={baseUrl => updateField({ baseUrl })}
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="https://api.deepseek.com"
-                placeholderTextColor={theme.colors.textFaint}
               />
-              <Text style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</Text>
-              <Text style={styles.label}>模型列表</Text>
+              <FieldHint style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</FieldHint>
+              <FieldLabel style={styles.label}>模型列表</FieldLabel>
               <View style={styles.modelRow}>
-                <TextInput
-                  style={[styles.input, styles.modelInput]}
+                <TextField
+                  style={styles.modelInput}
                   value={modelDraft}
                   onChangeText={setModelDraft}
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder="输入模型名后点击添加"
-                  placeholderTextColor={theme.colors.textFaint}
                   onSubmitEditing={addModel}
                 />
                 <TouchableOpacity
@@ -991,7 +985,7 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
-              <Text style={styles.hint}>点击模型将其设为当前模型，请求将使用当前模型。</Text>
+              <FieldHint style={styles.hint}>点击模型将其设为当前模型，请求将使用当前模型。</FieldHint>
               <TouchableOpacity
                 style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
                 onPress={detectModels}
@@ -1003,16 +997,14 @@ export default function SettingsScreen() {
                   {detectingModels ? '检测中...' : '检测模型'}
                 </Text>
               </TouchableOpacity>
-              <Text style={styles.label}>API Key</Text>
-              <TextInput
-                style={styles.input}
+              <FieldLabel style={styles.label}>API Key</FieldLabel>
+              <TextField
                 value={active.apiKey}
                 onChangeText={apiKey => updateField({ apiKey })}
                 secureTextEntry
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="sk-..."
-                placeholderTextColor={theme.colors.textFaint}
               />
               {active.apiKeyUrl ? (
                 <TouchableOpacity
@@ -1028,9 +1020,9 @@ export default function SettingsScreen() {
               {activeVendor && activeVendor.note ? (
                 <Text style={styles.vendorEditorNote}>{activeVendor.note}</Text>
               ) : null}
-              <Text style={styles.hint}>
+              <FieldHint style={styles.hint}>
                 API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
-              </Text>
+              </FieldHint>
               <TouchableOpacity style={styles.button} onPress={save} activeOpacity={0.85}>
                 <Ionicons name="save-outline" size={17} color={theme.colors.primaryContrast} />
                 <Text style={styles.buttonText}>保存配置</Text>
@@ -1062,7 +1054,7 @@ export default function SettingsScreen() {
           <Text style={styles.fieldHint}>
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像与拍一拍文案为全部人设共用。
           </Text>
-          <Text style={styles.label}>我的身份</Text>
+          <FieldLabel style={styles.label}>我的身份</FieldLabel>
           <View style={styles.personaList}>
             {personas.map(item => {
               const active = item.id === activePersonaId;
@@ -1118,9 +1110,8 @@ export default function SettingsScreen() {
               ) : null}
             </View>
           </View>
-          <Text style={styles.label}>人设名称（当前人设）</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>人设名称（当前人设）</FieldLabel>
+          <TextField
             value={userName}
             onChangeText={text => {
               setUserName(text);
@@ -1130,21 +1121,18 @@ export default function SettingsScreen() {
               saveUserProfileDelayed(text, userPersona, userAvatarUri);
             }}
             placeholder="例如：小明"
-            placeholderTextColor={theme.colors.textFaint}
           />
-          <Text style={styles.label}>人设描述</Text>
-          <TextInput
-            style={[styles.input, styles.multilineInput]}
+          <FieldLabel style={styles.label}>人设描述</FieldLabel>
+          <TextField
+            style={styles.multilineInput}
             value={userPersona}
             onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text, userAvatarUri); }}
             placeholder="描述你自己的性格、背景、喜好等"
-            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.label}>默认拍一拍文案</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>默认拍一拍文案</FieldLabel>
+          <TextField
             value={nudgeDefault}
             onChangeText={text => {
               setNudgeDefault(text);
@@ -1155,9 +1143,8 @@ export default function SettingsScreen() {
               }, 600);
             }}
             placeholder="{user} 戳了戳 {char}"
-            placeholderTextColor={theme.colors.textFaint}
           />
-          <Text style={styles.hint}>角色未单独设置拍一拍文案时使用；支持 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
+          <FieldHint style={styles.hint}>角色未单独设置拍一拍文案时使用；支持 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
           <TouchableOpacity style={styles.secondaryButton} onPress={saveUserProfileNow} activeOpacity={0.8}>
             <Ionicons name="save-outline" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.secondaryButtonText}>保存用户人设</Text>
@@ -1191,7 +1178,7 @@ export default function SettingsScreen() {
               );
             })}
           </View>
-          <Text style={styles.label}>字体大小</Text>
+          <FieldLabel style={styles.label}>字体大小</FieldLabel>
           <View style={styles.fontRow}>
             {fontScales.map(item => {
               const active = item.id === fontScaleId;
@@ -1234,7 +1221,7 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.label}>生图服务</Text>
+          <FieldLabel style={styles.label}>生图服务</FieldLabel>
           <View style={styles.fontRow}>
             {IMAGE_PROVIDERS.map(provider => {
               const active = inlineImage.providerId === provider.id;
@@ -1253,34 +1240,28 @@ export default function SettingsScreen() {
               );
             })}
           </View>
-          <Text style={styles.label}>风格前缀（可选）</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>风格前缀（可选）</FieldLabel>
+          <TextField
             value={inlineImage.stylePrefix}
             onChangeText={text => updateInlineImage({ stylePrefix: text })}
             placeholder="例如：anime style, detailed"
-            placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={styles.label}>尺寸（宽*高）</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>尺寸（宽*高）</FieldLabel>
+          <TextField
             value={inlineImage.size}
             onChangeText={text => updateInlineImage({ size: text })}
             placeholder="832*1216"
-            placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={styles.label}>提示词长度上限（字符）</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>提示词长度上限（字符）</FieldLabel>
+          <TextField
             value={String(inlineImage.maxPromptChars)}
             onChangeText={text => updateInlineImage({ maxPromptChars: text.replace(/[^0-9]/g, '') })}
             keyboardType="number-pad"
             placeholder="400"
-            placeholderTextColor={theme.colors.textFaint}
           />
           <Text style={styles.fieldHint}>生图密钥请在「扩展 → 生图」中配置。</Text>
         </Card>
@@ -1408,7 +1389,7 @@ export default function SettingsScreen() {
                   <Text style={styles.linkText}>{item.label}</Text>
                 </View>
                 <View style={styles.samplingRight}>
-                  <TextInput
+                  <TextField
                     style={styles.samplingInput}
                     value={String(field.value == null ? '' : field.value)}
                     onChangeText={text => {
@@ -1423,7 +1404,6 @@ export default function SettingsScreen() {
                     onEndEditing={event => commitSamplingValue(item.name, event.nativeEvent.text)}
                     keyboardType={item.keyboard}
                     placeholder={item.hint}
-                    placeholderTextColor={theme.colors.textFaint}
                   />
                   <Switch
                     value={field.enabled === true}
@@ -1460,40 +1440,33 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.label}>接口地址</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>接口地址</FieldLabel>
+          <TextField
             value={vectorMemory.baseUrl}
             onChangeText={text => updateVectorMemory({ baseUrl: text })}
             placeholder="https://api.openai.com/v1"
-            placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={styles.label}>密钥</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>密钥</FieldLabel>
+          <TextField
             value={vectorMemory.apiKey}
             onChangeText={text => updateVectorMemory({ apiKey: text })}
             placeholder="sk-..."
-            placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
           />
-          <Text style={styles.label}>模型</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>模型</FieldLabel>
+          <TextField
             value={vectorMemory.model}
             onChangeText={text => updateVectorMemory({ model: text })}
             placeholder="text-embedding-3-small"
-            placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={styles.label}>召回条数（1 - 20）</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>召回条数（1 - 20）</FieldLabel>
+          <TextField
             value={vectorTopKDraft}
             onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
             onEndEditing={event => updateVectorMemory({ topK: event.nativeEvent.text }).then(() => {
@@ -1502,11 +1475,9 @@ export default function SettingsScreen() {
             })}
             keyboardType="number-pad"
             placeholder="5"
-            placeholderTextColor={theme.colors.textFaint}
           />
-          <Text style={styles.label}>分片长度（字符，1 - 2000）</Text>
-          <TextInput
-            style={styles.input}
+          <FieldLabel style={styles.label}>分片长度（字符，1 - 2000）</FieldLabel>
+          <TextField
             value={vectorMaxCharsDraft}
             onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
             onEndEditing={event => updateVectorMemory({ maxChars: event.nativeEvent.text }).then(() => {
@@ -1515,7 +1486,6 @@ export default function SettingsScreen() {
             })}
             keyboardType="number-pad"
             placeholder="400"
-            placeholderTextColor={theme.colors.textFaint}
           />
           <TouchableOpacity
             style={[styles.secondaryButton, vectorTesting && styles.buttonDisabled]}
@@ -1600,7 +1570,7 @@ export default function SettingsScreen() {
         >
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>选择厂商 / 协议</Text>
-            <Text style={styles.hint}>选中后会自动填好地址与鉴权，只需再补 API Key。</Text>
+            <FieldHint style={styles.hint}>选中后会自动填好地址与鉴权，只需再补 API Key。</FieldHint>
             <ScrollView style={styles.vendorList} keyboardShouldPersistTaps="handled">
               <Text style={styles.vendorSectionLabel}>推荐平台（官方直连）</Text>
               {CHAT_API_VENDORS.map(vendor => (
@@ -1683,7 +1653,7 @@ export default function SettingsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>确认模型能力</Text>
-            <Text style={styles.hint}>用于决定聊天页是否开放「思考」与图片上传。</Text>
+            <FieldHint style={styles.hint}>用于决定聊天页是否开放「思考」与图片上传。</FieldHint>
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
               <Switch
@@ -1698,9 +1668,8 @@ export default function SettingsScreen() {
             </View>
             {capabilityDraft.supportsThinking ? (
               <>
-                <Text style={styles.label}>思考参数字段名</Text>
-                <TextInput
-                  style={styles.input}
+                <FieldLabel style={styles.label}>思考参数字段名</FieldLabel>
+                <TextField
                   value={capabilityDraft.thinkingField}
                   onChangeText={thinkingField => setCapabilityDraft(current => ({
                     ...current,
@@ -1709,7 +1678,6 @@ export default function SettingsScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder="reasoning_effort"
-                  placeholderTextColor={theme.colors.textFaint}
                 />
                 <View style={styles.thinkingFormatRow}>
                   {['effort', 'boolean', 'object'].map(format => {
@@ -1884,16 +1852,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   currentBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 3 },
 
   label: { color: theme.colors.text, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: fonts.scaled(13) },
-  input: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    fontSize: fonts.scaled(14),
-  },
   multilineInput: { minHeight: 100, paddingTop: 12 },
   modelRow: { flexDirection: 'row', alignItems: 'center' },
   modelInput: { flex: 1, marginRight: 8 },

@@ -28,3 +28,5 @@
 - `Card` 已接入设置页 8 张卡片与角色页 4 张卡片（外层容器替换，内部标题行仍由各屏定义）、动态页动态卡片、记忆页会话卡片（`padded={false}` + `style` 保留横排结构与选中态描边）；这些界面不再保留自有卡片背景/圆角/描边。
 - `TopicButton` 已接入设置页（API 配置 / 用户人设 / 对话配图 / 向量记忆）、角色页、记忆页、生图页与动态页；各屏仅通过 `style` 传入外边距。
 - `Chip` 已接入生图页尺寸选择（选中态为描边胶囊），替换该页自定义 chip 样式。
+- `FieldLabel` / `FieldHint` / `TextField` 已接入设置页、角色页、角色编辑表单与群聊编辑表单；输入框基础规格（高度、圆角、描边、占位色）统一由 `TextField` 提供，各屏仅保留多行与紧凑场景的尺寸覆盖。
+- 尚未迁移的界面（PresetPanel / PluginPanel / TtsPanel / ImageGenScreen / SearchScreen）仍使用各自的 `input` 样式，后续可继续收敛。
