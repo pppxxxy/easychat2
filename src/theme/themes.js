@@ -145,10 +145,12 @@ export function getTheme(id) {
   const found = THEMES.find(theme => theme.id === id) || THEMES[0];
   const primary = found.colors.primary;
   const primaryMuted = found.colors.primaryMuted;
+  const danger = found.colors.danger;
   const colors = {
     ...found.colors,
     primaryAlpha: (alpha = 0.1) => hexToRgba(primary, alpha),
     primaryMutedAlpha: (alpha = 0.35) => hexToRgba(primaryMuted, alpha),
+    dangerAlpha: (alpha = 0.1) => hexToRgba(danger, alpha),
   };
   return { ...found, colors };
 }

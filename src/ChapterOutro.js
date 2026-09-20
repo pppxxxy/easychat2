@@ -7,8 +7,8 @@ import { useTheme } from './theme/ThemeContext';
 // 章末附加区块：标题 + 正文 + 要点列表 + 外链 + 免责声明。
 // 外链点击先 Alert 二次确认，确认文案用 linkNotice（缺省回退到通用提示），确认后才打开。
 export default function ChapterOutro({ outro }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   if (!outro) return null;
 
   const { title, body, bullets, link, linkNotice, disclaimer } = outro;
@@ -62,32 +62,32 @@ export default function ChapterOutro({ outro }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
-  wrap: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  container: {
+    marginTop: tokens.spacing.md,
+    paddingTop: tokens.spacing.md,
+    borderTopWidth: tokens.border.thin,
     borderTopColor: theme.colors.divider,
   },
   title: {
     color: theme.colors.text,
     fontSize: fonts.scaled(14),
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: tokens.spacing.xs + 2,
   },
   body: {
     color: theme.colors.textMuted,
     fontSize: fonts.scaled(13),
     lineHeight: fonts.scaled(20),
-    marginBottom: 8,
+    marginBottom: tokens.spacing.sm,
   },
-  bullets: { marginBottom: 8 },
-  bulletRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4 },
+  bullets: { marginBottom: tokens.spacing.sm },
+  bulletRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: tokens.spacing.xs },
   bulletDot: {
     color: theme.colors.primarySoft,
     fontSize: fonts.scaled(13),
     lineHeight: fonts.scaled(20),
-    marginRight: 6,
+    marginRight: tokens.spacing.xs + 2,
   },
   bulletText: {
     flex: 1,
@@ -98,34 +98,35 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    borderRadius: tokens.radius.md,
+    paddingVertical: tokens.spacing.sm + 2,
+    paddingHorizontal: tokens.spacing.md,
+    marginBottom: tokens.spacing.sm,
   },
   linkLabel: {
     flex: 1,
     color: theme.colors.primarySoft,
     fontSize: fonts.scaled(14),
     fontWeight: '700',
-    marginLeft: 8,
+    marginLeft: tokens.spacing.sm,
   },
   disclaimerBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: theme.colors.surfaceAlt,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.sm + 2,
   },
   disclaimerText: {
     flex: 1,
     color: theme.colors.textMuted,
     fontSize: fonts.scaled(12),
     lineHeight: fonts.scaled(18),
-    marginLeft: 8,
+    marginLeft: tokens.spacing.sm,
   },
 });
