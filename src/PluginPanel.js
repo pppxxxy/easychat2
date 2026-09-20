@@ -8,12 +8,12 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { FieldHint, FieldLabel, TextField } from './ui';
 import { getPlugins, savePlugins } from './storage';
 import { useTheme } from './theme/ThemeContext';
 import { PROVIDERS } from './plugins/providers';
@@ -115,9 +115,9 @@ export default function PluginPanel({ visible, onClose }) {
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-            <Text style={styles.hint}>
+            <FieldHint style={styles.hint}>
               联网搜索为全局能力，开启后对后续请求生效。命中触发词时会获取实时资料并注入对话。
-            </Text>
+            </FieldHint>
             {loaded ? plugins.map(plugin => {
               const config = plugin.config || {};
               const currentProvider = PROVIDERS.find(
@@ -140,7 +140,7 @@ export default function PluginPanel({ visible, onClose }) {
 
                   {plugin.type === 'web-search' ? (
                     <View style={styles.config}>
-                      <Text style={styles.label}>搜索服务</Text>
+                      <FieldLabel style={styles.label}>搜索服务</FieldLabel>
                       <View style={styles.providerRow}>
                         {PROVIDERS.map(provider => {
                           const active = config.provider === provider.id;
@@ -159,14 +159,13 @@ export default function PluginPanel({ visible, onClose }) {
                         })}
                       </View>
 
-                      <Text style={styles.label}>API 密钥</Text>
+                      <FieldLabel style={styles.label}>API 密钥</FieldLabel>
                       <View style={styles.keyRow}>
-                        <TextInput
-                          style={[styles.input, styles.keyInput]}
+                        <TextField
+                          style={styles.keyInput}
                           value={config.apiKey || ''}
                           onChangeText={text => setConfigField(plugin.id, 'apiKey', text)}
                           placeholder="填写搜索服务密钥"
-                          placeholderTextColor={theme.colors.textFaint}
                           secureTextEntry={!showKey[plugin.id]}
                           autoCapitalize="none"
                         />
@@ -188,13 +187,11 @@ export default function PluginPanel({ visible, onClose }) {
 
                       {(currentProvider.extraFields || []).includes('cx') ? (
                         <>
-                          <Text style={styles.label}>搜索引擎 ID（cx）</Text>
-                          <TextInput
-                            style={styles.input}
+                          <FieldLabel style={styles.label}>搜索引擎 ID（cx）</FieldLabel>
+                          <TextField
                             value={config.cx || ''}
                             onChangeText={text => setConfigField(plugin.id, 'cx', text)}
                             placeholder="Google 自定义搜索引擎 ID"
-                            placeholderTextColor={theme.colors.textFaint}
                             autoCapitalize="none"
                           />
                         </>
@@ -202,26 +199,22 @@ export default function PluginPanel({ visible, onClose }) {
 
                       {currentProvider.custom ? (
                         <>
-                          <Text style={styles.label}>自定义接口地址</Text>
-                          <TextInput
-                            style={styles.input}
+                          <FieldLabel style={styles.label}>自定义接口地址</FieldLabel>
+                          <TextField
                             value={config.customBaseUrl || ''}
                             onChangeText={text => setConfigField(plugin.id, 'customBaseUrl', text)}
                             placeholder="https://example.com/search"
-                            placeholderTextColor={theme.colors.textFaint}
                             autoCapitalize="none"
                           />
                         </>
                       ) : null}
 
-                      <Text style={styles.label}>结果条数（1-10）</Text>
-                      <TextInput
-                        style={styles.input}
+                      <FieldLabel style={styles.label}>结果条数（1-10）</FieldLabel>
+                      <TextField
                         value={String(config.maxResults ?? 5)}
                         onChangeText={text => setConfigField(plugin.id, 'maxResults', text)}
                         keyboardType="number-pad"
                         placeholder="5"
-                        placeholderTextColor={theme.colors.textFaint}
                       />
                     </View>
                   ) : null}
@@ -290,18 +283,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   providerTextActive: { color: theme.colors.primarySoft },
   keyRow: { flexDirection: 'row', alignItems: 'center' },
-  keyInput: { flex: 1 },
+  keyInput: { flex: 1, minHeight: 40 },
   eyeButton: { paddingHorizontal: 8, paddingVertical: 8 },
-  input: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
-  },
   saveButton: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,

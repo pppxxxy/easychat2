@@ -10,7 +10,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -24,7 +23,7 @@ import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
 import { generateImage, detectImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
 import ChapterModal from './ChapterModal';
-import { Chip, TopicButton } from './ui';
+import { Chip, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
@@ -348,7 +347,7 @@ export default function ImageGenScreen({ embedded = false }) {
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>服务</Text>
+        <FieldLabel style={styles.label}>服务</FieldLabel>
         <TouchableOpacity style={styles.selectButton} onPress={() => setProviderOpen(true)} activeOpacity={0.8}>
           <Text style={styles.selectButtonText}>{provider.label}</Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
@@ -360,7 +359,7 @@ export default function ImageGenScreen({ embedded = false }) {
           </View>
         ) : null}
 
-        <Text style={styles.label}>模型</Text>
+        <FieldLabel style={styles.label}>模型</FieldLabel>
         <TouchableOpacity
           style={styles.selectButton}
           onPress={() => {
@@ -378,18 +377,17 @@ export default function ImageGenScreen({ embedded = false }) {
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
 
-        <Text style={styles.label}>提示词</Text>
-        <TextInput
-          style={[styles.input, styles.promptInput]}
+        <FieldLabel style={styles.label}>提示词</FieldLabel>
+        <TextField
+          style={styles.promptInput}
           value={prompt}
           onChangeText={setPrompt}
           placeholder="描述你想生成的画面..."
-          placeholderTextColor={theme.colors.textFaint}
           multiline
           textAlignVertical="top"
         />
 
-        <Text style={styles.label}>尺寸</Text>
+        <FieldLabel style={styles.label}>尺寸</FieldLabel>
         <View style={styles.chipRow}>
           {SIZES.map(item => (
             <Chip
@@ -401,17 +399,15 @@ export default function ImageGenScreen({ embedded = false }) {
           ))}
         </View>
 
-        <Text style={styles.label}>随机种子（可选）</Text>
-        <TextInput
-          style={styles.input}
+        <FieldLabel style={styles.label}>随机种子（可选）</FieldLabel>
+        <TextField
           value={seed}
           onChangeText={value => setSeed(value.replace(/[^0-9]/g, ''))}
           keyboardType="number-pad"
           placeholder="留空为随机"
-          placeholderTextColor={theme.colors.textFaint}
         />
 
-        <Text style={styles.label}>输入图片（图生图，可选）</Text>
+        <FieldLabel style={styles.label}>输入图片（图生图，可选）</FieldLabel>
         {imagePreview ? (
           <View style={styles.previewRow}>
             <Image source={imagePreview} style={styles.preview} resizeMode="cover" />
@@ -445,7 +441,7 @@ export default function ImageGenScreen({ embedded = false }) {
 
         {results.length > 0 ? (
           <>
-            <Text style={styles.label}>结果画廊</Text>
+            <FieldLabel style={styles.label}>结果画廊</FieldLabel>
             <View style={styles.gallery}>
               {results.map((result, index) => {
                 const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
@@ -520,35 +516,31 @@ export default function ImageGenScreen({ embedded = false }) {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>{provider.label} 设置</Text>
-            <Text style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</Text>
+            <FieldHint style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</FieldHint>
             {provider.keyHint ? (
-              <Text style={styles.hint}>密钥：{provider.keyHint}</Text>
+              <FieldHint style={styles.hint}>密钥：{provider.keyHint}</FieldHint>
             ) : null}
             {provider.corsNote ? (
-              <Text style={styles.hint}>
+              <FieldHint style={styles.hint}>
                 CORS：{provider.corsNote}
-              </Text>
+              </FieldHint>
             ) : null}
-            <Text style={styles.label}>API 地址</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>API 地址</FieldLabel>
+            <TextField
               value={draftBaseUrl}
               onChangeText={setDraftBaseUrl}
               autoCapitalize="none"
               autoCorrect={false}
               placeholder={provider.baseUrlPlaceholder || provider.baseUrl || 'https://example.com/v1/images'}
-              placeholderTextColor={theme.colors.textFaint}
             />
-            <Text style={styles.label}>API Key</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>API Key</FieldLabel>
+            <TextField
               value={draftApiKey}
               onChangeText={setDraftApiKey}
               autoCapitalize="none"
               autoCorrect={false}
               secureTextEntry
               placeholder="sk-..."
-              placeholderTextColor={theme.colors.textFaint}
             />
             <TouchableOpacity
               style={[styles.selectButton, styles.apiKeyButton]}
@@ -558,15 +550,13 @@ export default function ImageGenScreen({ embedded = false }) {
               <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
               <Text style={styles.selectButtonText}>获取 API Key</Text>
             </TouchableOpacity>
-            <Text style={styles.label}>模型名（可用逗号或换行分隔多个）</Text>
-            <TextInput
-              style={styles.input}
+            <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
+            <TextField
               value={draftModel}
               onChangeText={setDraftModel}
               autoCapitalize="none"
               autoCorrect={false}
               placeholder={provider.defaultModel || '模型名'}
-              placeholderTextColor={theme.colors.textFaint}
             />
             <TouchableOpacity
               style={[styles.selectButton, styles.detectButton, detecting && styles.generateButtonDisabled]}
@@ -577,16 +567,15 @@ export default function ImageGenScreen({ embedded = false }) {
               <Ionicons name="pulse-outline" size={16} color={theme.colors.textMuted} />
               <Text style={styles.selectButtonText}>{detecting ? '检测中...' : '检测连通性'}</Text>
             </TouchableOpacity>
-            <Text style={styles.label}>额外参数（JSON，可选）</Text>
-            <TextInput
-              style={[styles.input, styles.extraInput]}
+            <FieldLabel style={styles.label}>额外参数（JSON，可选）</FieldLabel>
+            <TextField
+              style={styles.extraInput}
               value={draftExtra}
               onChangeText={setDraftExtra}
               autoCapitalize="none"
               autoCorrect={false}
               multiline
               placeholder='{"quality":"hd"}'
-              placeholderTextColor={theme.colors.textFaint}
             />
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -643,14 +632,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bodyContent: { paddingHorizontal: 20, paddingBottom: 40 },
   label: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: tokens.spacing.lg, marginBottom: tokens.spacing.sm },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6 },
-  input: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
   promptInput: { minHeight: 96 },
   extraInput: { minHeight: 72 },
   selectButton: {

@@ -1854,7 +1854,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   label: { color: theme.colors.text, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: fonts.scaled(13) },
   multilineInput: { minHeight: 100, paddingTop: 12 },
   modelRow: { flexDirection: 'row', alignItems: 'center' },
-  modelInput: { flex: 1, marginRight: 8 },
+  modelInput: { flex: 1, minHeight: 40, marginRight: 8 },
 
   button: {
     flexDirection: 'row',

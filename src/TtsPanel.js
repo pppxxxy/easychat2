@@ -7,12 +7,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { FieldHint, FieldLabel, TextField } from './ui';
 import { getTtsSettings, saveTtsSettings } from './storage';
 import { TTS_PROVIDERS, getTtsProvider } from './tts/providers';
 import { useTheme } from './theme/ThemeContext';
@@ -88,8 +88,8 @@ export default function TtsPanel({ visible, onClose }) {
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-            <Text style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</Text>
-            <Text style={styles.label}>播报源</Text>
+            <FieldHint style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</FieldHint>
+            <FieldLabel style={styles.label}>播报源</FieldLabel>
             <View style={styles.providerRow}>
               {TTS_PROVIDERS.map(item => {
                 const active = item.id === provider.id;
@@ -110,13 +110,11 @@ export default function TtsPanel({ visible, onClose }) {
 
             {loaded ? provider.fields.map(field => (
               <View key={field.key}>
-                <Text style={styles.label}>{field.label}</Text>
-                <TextInput
-                  style={styles.input}
+                <FieldLabel style={styles.label}>{field.label}</FieldLabel>
+                <TextField
                   value={String(providerConfig[field.key] || '')}
                   onChangeText={value => setField(field.key, value)}
                   placeholder={field.placeholder || ''}
-                  placeholderTextColor={theme.colors.textFaint}
                   secureTextEntry={field.secret === true}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -172,16 +170,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   providerChipActive: { backgroundColor: `${theme.colors.primary}40`, borderColor: theme.colors.primary },
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   providerTextActive: { color: theme.colors.primarySoft },
-  input: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
-  },
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 10 },
   saveButton: {
     backgroundColor: theme.colors.primary,

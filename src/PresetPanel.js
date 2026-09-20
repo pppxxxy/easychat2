@@ -8,12 +8,12 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { FieldLabel, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 import {
   createGlobalPresetId,
@@ -280,17 +280,16 @@ export default function PresetPanel({ visible, onClose }) {
                 thumbColor={theme.colors.primaryContrast}
               />
             </View>
-            <Text style={styles.label}>触发阈值（消息条数）</Text>
+            <FieldLabel style={styles.label}>触发阈值（消息条数）</FieldLabel>
             <View style={styles.thresholdRow}>
-              <TextInput
-                style={[styles.input, styles.thresholdInput]}
+              <TextField
+                style={styles.thresholdInput}
                 value={threshold}
                 onChangeText={setThreshold}
                 onEndEditing={commitThreshold}
                 onBlur={commitThreshold}
                 keyboardType="number-pad"
                 placeholder={String(THRESHOLD_FALLBACK)}
-                placeholderTextColor={theme.colors.textFaint}
               />
               <TouchableOpacity
                 style={styles.thresholdConfirm}
@@ -322,32 +321,27 @@ export default function PresetPanel({ visible, onClose }) {
               <Text style={styles.title}>
                 {editingPreset ? '编辑预设' : '新增预设'}
               </Text>
-              <Text style={styles.label}>名称</Text>
-              <TextInput
-                style={styles.input}
+              <FieldLabel style={styles.label}>名称</FieldLabel>
+              <TextField
                 value={form.name}
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, name: text }))}
                 placeholder="例如：控制篇幅"
-                placeholderTextColor={theme.colors.textFaint}
               />
-              <Text style={styles.label}>描述（可选）</Text>
-              <TextInput
-                style={styles.input}
+              <FieldLabel style={styles.label}>描述（可选）</FieldLabel>
+              <TextField
                 value={form.description}
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, description: text }))}
                 placeholder="一句话说明用途"
-                placeholderTextColor={theme.colors.textFaint}
               />
-              <Text style={styles.label}>提示词</Text>
-              <TextInput
-                style={[styles.input, styles.promptInput]}
+              <FieldLabel style={styles.label}>提示词</FieldLabel>
+              <TextField
+                style={styles.promptInput}
                 value={form.prompt}
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, prompt: text }))}
                 placeholder="开启后追加到系统提示词的内容"
-                placeholderTextColor={theme.colors.textFaint}
                 multiline
                 textAlignVertical="top"
               />
@@ -434,18 +428,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   memoryRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   memoryText: { flex: 1, marginRight: 8 },
   label: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginBottom: 6, marginTop: 8 },
-  input: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
-  },
   thresholdRow: { flexDirection: 'row', alignItems: 'center' },
-  thresholdInput: { flex: 1 },
+  thresholdInput: { flex: 1, minHeight: 40 },
   thresholdConfirm: {
     flexDirection: 'row',
     alignItems: 'center',
