@@ -74,7 +74,7 @@ const TAB_ICONS = {
 
 function Header() {
   const insets = useSafeAreaInsets();
-  const { theme, fonts } = useTheme();
+  const { theme, fonts, tokens } = useTheme();
   return (
     <View style={[styles.header, {
       paddingTop: insets.top + 12,
@@ -82,7 +82,7 @@ function Header() {
       borderBottomColor: theme.colors.divider,
     }]}>
       <View style={styles.brandRow}>
-        <View style={[styles.logoBadge, { backgroundColor: theme.colors.primary }]}>
+        <View style={[styles.logoBadge, { backgroundColor: theme.colors.primary }, tokens.elevation(2, theme)]}>
           <Ionicons name="chatbubbles" size={20} color={theme.colors.primaryContrast} />
         </View>
         <View style={styles.brandText}>
@@ -163,7 +163,7 @@ function StartupSession() {
 }
 
 function AppShell() {
-  const { theme: palette } = useTheme();
+  const { theme: palette, tokens } = useTheme();
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -185,7 +185,7 @@ function AppShell() {
           tabBarStyle: [styles.tabBar, {
             backgroundColor: palette.colors.surfaceAlt,
             borderTopColor: palette.colors.divider,
-          }],
+          }, tokens.elevation(2, palette)],
           tabBarActiveTintColor: palette.colors.primaryMuted,
           tabBarInactiveTintColor: palette.colors.textFaint,
           tabBarLabelStyle: styles.tabLabel,
@@ -193,8 +193,8 @@ function AppShell() {
             const [outline, filled] = TAB_ICONS[route.name] || ['ellipse-outline', 'ellipse'];
             return (
               <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive, focused && {
-                backgroundColor: `${palette.colors.primary}38`,
-                borderColor: `${palette.colors.primaryMuted}59`,
+                backgroundColor: palette.colors.primaryAlpha(0.18),
+                borderColor: palette.colors.primaryMutedAlpha(0.35),
               }]}>
                 <Ionicons name={focused ? filled : outline} size={20} color={color} />
               </View>
@@ -256,11 +256,6 @@ const styles = StyleSheet.create({
     marginRight: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 4,
   },
   brandText: { justifyContent: 'center' },
   title: { fontWeight: '800', letterSpacing: 0.2 },
@@ -268,11 +263,6 @@ const styles = StyleSheet.create({
   tabBar: {
     borderTopWidth: 1,
     paddingTop: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 12,
   },
   tabLabel: { fontSize: 11, fontWeight: '600' },
   tabIconWrap: {

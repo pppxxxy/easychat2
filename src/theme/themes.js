@@ -123,8 +123,34 @@ export const THEMES = [
 
 export const DEFAULT_THEME_ID = 'dark';
 
+export function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string') return `rgba(108,99,255,${alpha})`;
+  const clean = hex.replace('#', '').trim();
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  if (clean.length === 6) {
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return hex;
+}
+
 export function getTheme(id) {
-  return THEMES.find(theme => theme.id === id) || THEMES[0];
+  const found = THEMES.find(theme => theme.id === id) || THEMES[0];
+  const primary = found.colors.primary;
+  const primaryMuted = found.colors.primaryMuted;
+  const colors = {
+    ...found.colors,
+    primaryAlpha: (alpha = 0.1) => hexToRgba(primary, alpha),
+    primaryMutedAlpha: (alpha = 0.35) => hexToRgba(primaryMuted, alpha),
+  };
+  return { ...found, colors };
 }
 
 export const FONT_SCALES = [

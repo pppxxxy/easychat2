@@ -1895,7 +1895,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 11,
-    backgroundColor: 'rgba(108,99,255,0.18)',
+    backgroundColor: theme.colors.primaryAlpha(0.18),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2058,7 +2058,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
 
   importButton: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(108,99,255,0.12)',
+    backgroundColor: theme.colors.primaryAlpha(0.12),
     borderWidth: 1,
     borderColor: theme.colors.primary,
     paddingVertical: 11,
@@ -2077,7 +2077,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   pillButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(108,99,255,0.12)',
+    backgroundColor: theme.colors.primaryAlpha(0.12),
     borderWidth: 1,
     borderColor: theme.colors.primary,
     paddingVertical: 6,
@@ -2115,7 +2115,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(108,99,255,0.18)',
+    backgroundColor: theme.colors.primaryAlpha(0.18),
   },
   characterCardFallbackText: { color: theme.colors.primarySoft, fontSize: 34, fontWeight: '800' },
   characterCardBadge: {
@@ -2164,14 +2164,14 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     overflow: 'hidden',
     marginRight: 12,
     borderWidth: 2,
-    borderColor: 'rgba(139,133,255,0.45)',
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
   },
   avatarImage: { width: 56, height: 56, borderRadius: 28 },
   avatarPlaceholder: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(108,99,255,0.14)',
+    backgroundColor: theme.colors.primaryAlpha(0.14),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2231,9 +2231,9 @@ const createStyles = (theme, fonts) => StyleSheet.create({
 
   tagRow: { flexDirection: 'row', flexWrap: 'wrap' },
   tag: {
-    backgroundColor: 'rgba(108,99,255,0.14)',
+    backgroundColor: theme.colors.primaryAlpha(0.14),
     borderWidth: 1,
-    borderColor: 'rgba(139,133,255,0.3)',
+    borderColor: theme.colors.primaryMutedAlpha(0.3),
     borderRadius: 14,
     paddingVertical: 5,
     paddingHorizontal: 10,
