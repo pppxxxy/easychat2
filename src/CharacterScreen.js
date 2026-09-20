@@ -128,8 +128,8 @@ function buildCharacterPatch(card) {
 }
 
 function DataField({ label, value }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   if (!value) return null;
   return (
     <View style={styles.dataField}>
@@ -140,8 +140,8 @@ function DataField({ label, value }) {
 }
 
 function ToggleRow({ label, value, onValueChange }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={styles.toggleRow}>
       <Text style={styles.toggleLabel}>{label}</Text>
@@ -156,8 +156,8 @@ function ToggleRow({ label, value, onValueChange }) {
 }
 
 function Chip({ label, active, onPress }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <TouchableOpacity
       style={[styles.chip, active && styles.chipActive]}
@@ -170,8 +170,8 @@ function Chip({ label, active, onPress }) {
 }
 
 function NumberField({ label, value, onCommit }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [text, setText] = useState(String(value ?? ''));
   useEffect(() => {
     setText(String(value ?? ''));
@@ -202,8 +202,8 @@ function NumberField({ label, value, onCommit }) {
 }
 
 function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, icon, children }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={styles.sectionCard}>
       <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
@@ -232,8 +232,8 @@ function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel,
 }
 
 function WorldEntryEditor({ entry, index, onChange, onRemove }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const keys = Array.isArray(entry.keys) ? entry.keys : [];
   const position = WORLD_POSITION_LABELS[entry.position] ? entry.position : 0;
@@ -317,8 +317,8 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
 }
 
 function RegexEntryEditor({ script, index, onChange, onRemove }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const placement = Array.isArray(script.placement) ? script.placement : [1, 2];
   const togglePlacement = value => {
@@ -409,8 +409,8 @@ function worldEntryMeta(entry) {
 }
 
 function SummaryRow({ title, meta, enabled, onPress }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <TouchableOpacity style={styles.summaryRow} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.summaryInfo}>
@@ -447,8 +447,8 @@ export default function CharacterScreen() {
     deleteSessions,
   } = useApp();
   const navigation = useNavigation();
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [name, setName] = useState('');
   const [tags, setTags] = useState([]);
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -1834,7 +1834,7 @@ export default function CharacterScreen() {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   flex: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   pageHeader: { marginTop: 4, marginBottom: 14 },
@@ -2095,11 +2095,12 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   characterCard: {
     width: '48%',
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
     overflow: 'hidden',
-    marginTop: 10,
+    marginTop: tokens.spacing.sm + 2,
+    ...tokens.elevation(1, theme),
   },
   characterCardActive: {
     borderColor: theme.colors.primary,
@@ -2123,31 +2124,33 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     top: 8,
     left: 8,
     backgroundColor: theme.colors.primary,
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: tokens.spacing.sm,
+    paddingVertical: 2,
   },
-  characterCardBadgeText: { color: theme.colors.text, fontSize: 11, fontWeight: '700' },
+  characterCardBadgeText: { color: theme.colors.primaryContrast, fontSize: 11, fontWeight: '700' },
   characterCardDelete: {
     position: 'absolute',
     top: 6,
     right: 6,
     width: 26,
     height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: tokens.radius.pill,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   characterCardNameBar: {
-    backgroundColor: theme.colors.text,
-    paddingVertical: 7,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.surfaceBorder,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   characterCardName: {
-    color: theme.colors.background,
+    color: theme.colors.text,
     fontSize: 13,
     fontWeight: '700',
     maxWidth: '100%',
