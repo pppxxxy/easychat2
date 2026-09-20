@@ -37,8 +37,8 @@ export default function PresetPanel({ visible, onClose }) {
   const [editingPreset, setEditingPreset] = useState(null);
   const [form, setForm] = useState({ name: '', description: '', prompt: '' });
   const [saving, setSaving] = useState(false);
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const busyRef = useRef(false);
 
   useEffect(() => {
@@ -371,7 +371,7 @@ export default function PresetPanel({ visible, onClose }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: theme.colors.overlay,
@@ -397,12 +397,12 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.divider,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.sm + 2,
+    marginBottom: tokens.spacing.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
   },
   presetInfo: { flex: 1, marginRight: 8 },
   presetName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
@@ -413,10 +413,10 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: `${theme.colors.primary}2e`,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 11,
     marginTop: 4,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: `${theme.colors.primaryMuted}59`,
   },
   secondaryButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 6 },

@@ -736,7 +736,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   modalTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800', marginBottom: 8 },
   modalList: { maxHeight: 280 },
-  modalRow: { paddingVertical: 12 },
+  modalRow: {
+    paddingVertical: tokens.spacing.md,
+    paddingHorizontal: tokens.spacing.sm,
+    borderRadius: tokens.radius.md,
+  },
   modalRowText: { color: theme.colors.textMuted, fontSize: fonts.scaled(15) },
   modalRowTextActive: { color: theme.colors.primaryMuted, fontWeight: '700' },
   modalActions: { flexDirection: 'row', marginTop: 20 },
