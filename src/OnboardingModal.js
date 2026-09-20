@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -12,13 +11,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { ONBOARDING_CHAPTERS } from './onboardingContent';
 import { getOnboardingImages } from './onboarding/images';
+import ChapterImages from './ChapterImages';
 import ChapterNotice from './ChapterNotice';
 import ChapterOutro from './ChapterOutro';
 import { useTheme } from './theme/ThemeContext';
 
 export default function OnboardingModal({ visible, onFinish }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const chapters = Array.isArray(ONBOARDING_CHAPTERS) ? ONBOARDING_CHAPTERS : [];
   const [index, setIndex] = useState(0);
 
@@ -72,12 +72,7 @@ export default function OnboardingModal({ visible, onFinish }) {
 
           {chapter.intro ? <Text style={styles.intro}>{chapter.intro}</Text> : null}
 
-          {images.map((item, imageIndex) => (
-            <View key={`${chapter.id}-image-${imageIndex}`} style={styles.figure}>
-              <Image source={item.source} style={styles.image} resizeMode="contain" />
-              {item.caption ? <Text style={styles.figureCaption}>{item.caption}</Text> : null}
-            </View>
-          ))}
+          <ChapterImages images={images} height={220} />
 
           {(chapter.steps || []).map((step, stepIndex) => (
             <View key={`${chapter.id}-step-${stepIndex}`} style={styles.stepRow}>
@@ -129,7 +124,7 @@ export default function OnboardingModal({ visible, onFinish }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -140,18 +135,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: tokens.border.thin,
     borderBottomColor: theme.colors.divider,
   },
   progressWrap: { flex: 1, marginRight: 12 },
   progressText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginBottom: 6 },
   progressTrack: {
     height: 4,
-    borderRadius: 2,
+    borderRadius: tokens.radius.pill,
     backgroundColor: theme.colors.surfaceAlt,
     overflow: 'hidden',
   },
-  progressFill: { height: 4, borderRadius: 2, backgroundColor: theme.colors.primary },
+  progressFill: { height: 4, borderRadius: tokens.radius.pill, backgroundColor: theme.colors.primary },
   skipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), fontWeight: '600' },
   scroll: { flex: 1 },
   scrollContent: { padding: 18, paddingBottom: 28 },
@@ -159,7 +154,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   iconBadge: {
     width: 34,
     height: 34,
-    borderRadius: 10,
+    borderRadius: tokens.radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
@@ -168,28 +163,15 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   title: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(19), fontWeight: '800' },
   summary: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', lineHeight: fonts.scaled(20), marginBottom: 8 },
   intro: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), lineHeight: fonts.scaled(22), marginBottom: 14 },
-  image: {
-    width: '100%',
-    height: 220,
-    borderRadius: 14,
-    backgroundColor: theme.colors.surface,
-  },
-  figure: { marginBottom: 14 },
-  figureCaption: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(11),
-    lineHeight: fonts.scaled(16),
-    marginTop: 6,
-  },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   stepIndex: {
     width: 22,
     height: 22,
-    borderRadius: 11,
+    borderRadius: tokens.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surfaceAlt,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     marginRight: 10,
     marginTop: 1,
@@ -200,9 +182,9 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: theme.colors.surface,
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    borderRadius: 12,
+    borderRadius: tokens.radius.md,
     padding: 12,
     marginTop: 4,
   },
@@ -211,7 +193,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   dot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: tokens.radius.pill,
     backgroundColor: theme.colors.surfaceBorder,
     marginHorizontal: 3,
     marginVertical: 3,
@@ -222,24 +204,24 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 20,
-    borderTopWidth: 1,
+    borderTopWidth: tokens.border.thin,
     borderTopColor: theme.colors.divider,
   },
   secondaryButton: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     marginRight: 10,
   },
   secondaryButtonText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: fonts.scaled(15) },
-  buttonDisabled: { opacity: 0.4 },
+  buttonDisabled: { opacity: tokens.opacity.disabled },
   primaryButton: {
     flex: 1.4,
-    borderRadius: 12,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
