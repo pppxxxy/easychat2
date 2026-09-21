@@ -7,7 +7,8 @@
     "android": "expo start --android",
     "web": "expo start --web",
     "build:apk": "eas build -p android --profile preview",
-    "prebuild": "npx expo prebuild --clean"
+    "prebuild": "npx expo prebuild --clean",
+    "test": "node --test"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "1.21.0",
