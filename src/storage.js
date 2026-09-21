@@ -1320,17 +1320,41 @@ export async function getMessagesBySession(sessionId) {
   return Array.isArray(stored.value) ? stored.value.filter(item => item && !item.pending) : [];
 }
 
-export async function saveMessagesBySession(sessionId, messages) {
+export async function saveMessagesBySession(sessionId, messages, characterId = '') {
   const persistable = (messages || []).filter(item => item && !item.pending);
   await AsyncStorage.setItem(sessionMessagesKey(sessionId), JSON.stringify(persistable));
   const sessions = await getSessions();
-  if (sessions.some(session => session.id === sessionId)) {
+  const existing = sessions.find(session => session.id === sessionId);
+  if (existing) {
     const updated = sessions.map(session =>
       session.id === sessionId
         ? { ...session, preview: buildPreview(persistable), updatedAt: Date.now() }
         : session
     );
     await saveSessions(sortSessions(updated));
+    return persistable;
+  }
+  // 会话条目缺失（历史版本的 startNewSession 会误删），但消息体还在：
+  // 只要调用方能给出归属角色，就补回这一行，避免“消息还在、会话却永远看不见”。
+  // 只补“仍然是当前会话”的那一个：删除会话会立刻把 activeSessionId 切到新会话，
+  // 因此这条判断能挡住“用飞行中的写盘请求把已删除的会话复活”。
+  const ownerId = String(characterId || '');
+  if (persistable.length > 0 && ownerId) {
+    const activeId = await getActiveSessionId();
+    if (activeId === String(sessionId)) {
+      const timestamps = persistable
+        .map(item => Number(item.timestamp))
+        .filter(value => Number.isFinite(value));
+      const restored = {
+        ...createEmptySession(ownerId, sessions),
+        id: String(sessionId),
+        characterId: ownerId,
+        preview: buildPreview(persistable),
+        createdAt: timestamps.length ? Math.min(...timestamps) : Date.now(),
+        updatedAt: timestamps.length ? Math.max(...timestamps) : Date.now(),
+      };
+      await saveSessions(sortSessions([...sessions, restored]));
+    }
   }
   return persistable;
 }
@@ -1440,40 +1464,13 @@ async function readLegacyMessages(characterId) {
 }
 
 export async function startNewSession(characterId) {
+  // 这里以前会先扫描每个会话的消息体，只把“读得到内容”的会话写回列表。
+  // 于是任何一次读取失败（例如值过大触发 Android cursor window）都会让该会话
+  // 被静默地从会话列表里删除：消息体还在，但会话再也看不见、也删不掉，
+  // 只有下次扫描恰好成功时才会“复活”。新建对话无权删掉别的会话。
   const sessions = await getSessions();
-  let nonEmpty = [];
-  if (sessions.length > 0) {
-    try {
-      const pairs = await AsyncStorage.multiGet(sessions.map(item => sessionMessagesKey(item.id)));
-      const persisted = new Map(
-        pairs.map(pair => {
-          const raw = pair[1];
-          let list = [];
-          try {
-            const parsed = raw ? JSON.parse(raw) : [];
-            list = Array.isArray(parsed) ? parsed.filter(item => item && !item.pending) : [];
-          } catch (error) {
-            list = [];
-          }
-          return [pair[0], list];
-        })
-      );
-      sessions.forEach(session => {
-        const messages = persisted.get(sessionMessagesKey(session.id)) || [];
-        if (messages.length > 0) nonEmpty.push(session);
-      });
-    } catch (error) {
-      // Reading every session's message body can fail on device (e.g. an oversized
-      // value hitting the Android cursor window). Fall back to keeping all sessions
-      // instead of failing the whole new-conversation action.
-      if (__DEV__) {
-        console.warn('[startNewSession] message scan failed, keeping all sessions', error);
-      }
-      nonEmpty = sessions;
-    }
-  }
-  const created = createEmptySession(characterId, nonEmpty);
-  const next = sortSessions([...nonEmpty, created]);
+  const created = createEmptySession(characterId, sessions);
+  const next = sortSessions([...sessions, created]);
   await saveSessions(next);
   await setActiveSessionId(created.id);
   return created;

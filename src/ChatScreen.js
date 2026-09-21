@@ -1115,7 +1115,13 @@ export default function ChatScreen() {
     lastSavedSnapshotRef.current = persistableSnapshot;
     const indexedCharacterId = character.id || 'default';
     const messagesToIndex = persistableMessages;
-    saveMessagesBySession(activeSessionId, persistableMessages)
+    // 会话条目若已从存储里缺失（历史版本的 startNewSession 会误删），
+    // 把归属角色一并传下去，让本次写盘把会话行补回来；群聊没有单一归属角色，跳过。
+    const ownerRow = sessionsRef.current.find(item => item.id === activeSessionId);
+    const recoverOwnerId = isGroupRef.current
+      ? ''
+      : String((ownerRow && ownerRow.characterId) || character.id || '');
+    saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId)
       .then(() => {
         saveFailedRef.current = false;
         getVectorMemoryConfig()
