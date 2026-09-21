@@ -622,7 +622,7 @@ data: [DONE]
 | `parseResults(provider, data, limit)` | 按 `resultsPath` 与 `fields` 映射为统一结构 |
 | `resetSearchCooldown()` / `resetSearchCache()` | 清空冷却与缓存（测试用） |
 
-**声明式 Provider**: `src/plugins/providers.js` 的 `PROVIDERS` 描述各搜索服务的 `baseUrl`、`method`、`authType`（query/header/body）、`authKeyName`、`queryParam`、`limitParam`、`extra`、`extraFields`、`resultsPath`、`fields` 与 `secretFields`；新增服务只需追加声明。内置 `serpapi`、`google-cse`、`bing`、`brave`、`tavily` 与 `custom`（自定义地址）。密钥仍由用户在应用内填写并存入 `@easychat2_plugins`，不使用环境变量。
+**声明式 Provider**: `src/plugins/providers.js` 的 `PROVIDERS` 描述各搜索服务的 `baseUrl`、`method`、`authType`（query/header/body）、`authKeyName`、`queryParam`、`limitParam`、`extra`、`extraFields`、`resultsPath`、`fields`、`secretFields` 与 `keyLinks`（`[{ label, url }]`，各厂商密钥/凭据申请地址，`PluginPanel` 据此渲染外链入口；Google CSE 含凭据与可编程搜索引擎两条）；新增服务只需追加声明。内置 `serpapi`、`google-cse`、`bing`、`brave`、`tavily` 与 `custom`（自定义地址）。密钥仍由用户在应用内填写并存入 `@easychat2_plugins`，不使用环境变量。
 
 **触发词**: `TRIGGER_KEYWORDS`（最新、今天、新闻、股价、天气、汇率等）。
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -83,6 +84,20 @@ export default function PluginPanel({ visible, onClose }) {
     updatePlugin(plugin.id, item => ({ ...item, enabled: value }));
     await persist(plugins.map(item => (item.id === plugin.id ? { ...item, enabled: value } : item)));
   }, [plugins, persist, updatePlugin]);
+
+  const openKeyUrl = useCallback(async url => {
+    if (!url) return;
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        Alert.alert('无法打开链接', url);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert('无法打开链接', url);
+    }
+  }, []);
 
   const setConfigField = useCallback((id, key, value) => {
     updatePlugin(id, plugin => ({
@@ -185,6 +200,25 @@ export default function PluginPanel({ visible, onClose }) {
                         </TouchableOpacity>
                       </View>
 
+                      {(currentProvider.keyLinks || []).length > 0 ? (
+                        <View style={styles.keyLinks}>
+                          {(currentProvider.keyLinks || []).map(link => (
+                            <TouchableOpacity
+                              key={link.url}
+                              style={styles.keyLink}
+                              onPress={() => openKeyUrl(link.url)}
+                              activeOpacity={0.8}
+                              accessibilityRole="link"
+                              accessibilityLabel={link.label}
+                            >
+                              <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
+                              <Text style={styles.keyLinkText}>{link.label}</Text>
+                              <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      ) : null}
+
                       {(currentProvider.extraFields || []).includes('cx') ? (
                         <>
                           <FieldLabel style={styles.label}>搜索引擎 ID（cx）</FieldLabel>
@@ -285,6 +319,19 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   keyRow: { flexDirection: 'row', alignItems: 'center' },
   keyInput: { flex: 1, minHeight: 40 },
   eyeButton: { paddingHorizontal: 8, paddingVertical: 8 },
+  keyLinks: { marginTop: 8 },
+  keyLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  keyLinkText: { flex: 1, color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 8 },
   saveButton: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,
