@@ -361,6 +361,34 @@ function formatScrubberTime(timestamp) {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// 停止/失败时，若只生成了思考内容而没有正文，用这段文案替代占位符，
+// 避免把“正在思考...”当作最终回复存下来。
+const NO_BODY_TEXT = '（未生成正文）';
+
+// 把一条 pending 占位消息“结算”：有内容（正文或思考）就保留并落盘，
+// 只有占位符则整条移除。单聊、群聊-逐角色、群聊-合议三条路径的停止/失败
+// 处理统一走这里，避免出现“生成的部分整条消失”或“永远停在正在思考”的僵尸气泡。
+function settlePendingMessage(list, id) {
+  const source = Array.isArray(list) ? list : [];
+  return source.reduce((acc, item) => {
+    if (!item || item.id !== id) {
+      acc.push(item);
+      return acc;
+    }
+    const text = typeof item.text === 'string' ? item.text : '';
+    const reasoning = typeof item.reasoning === 'string' ? item.reasoning : '';
+    const hasBody = text.trim().length > 0 && text !== THINKING_PLACEHOLDER;
+    if (!hasBody && reasoning.trim().length === 0) return acc;
+    acc.push({
+      ...item,
+      pending: false,
+      waitingForResponse: false,
+      text: hasBody ? text : NO_BODY_TEXT,
+    });
+    return acc;
+  }, []);
+}
+
 // 消息时间：优先用显式 timestamp 字段；旧消息没有该字段，
 // 退化为从 id 前缀解析（历史行为），都对不上则返回 0。
 function messageTimestamp(message) {
@@ -1467,8 +1495,6 @@ export default function ChatScreen() {
       sessionVersionRef.current === sendSessionVersion
       && !isStaleReply(activeCharacterIdRef.current, sendCharacterId)
       && activeSessionIdRef.current === sendSessionId;
-    let receivedChunk = false;
-
     const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
@@ -1565,7 +1591,6 @@ export default function ChatScreen() {
           stream: chatOptions.stream,
           onChunk: fullText => {
             if (!isCurrentSession() || controller.signal.aborted) return;
-            receivedChunk = true;
             setMessages(current => {
               if (!isCurrentSession()) return current;
               return current.map(item =>
@@ -1615,22 +1640,12 @@ export default function ChatScreen() {
       }
     } catch (error) {
       if (isCanceledError(error)) {
-        setMessages(current => {
-          if (!isCurrentSession()) return current;
-          const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
-          const hasPartial = !!pendingItem
-            && receivedChunk
-            && typeof pendingItem.text === 'string'
-            && pendingItem.text.trim().length > 0;
-          if (hasPartial) {
-            return current.map(item => (
-              item.id === pendingAssistantMessage.id
-                ? { ...item, pending: false, waitingForResponse: false }
-                : item
-            ));
-          }
-          return current.filter(item => item.id !== pendingAssistantMessage.id);
-        });
+        // 停止：已有内容（含只生成了思考）就保留并落盘，只有占位符才整条移除
+        setMessages(current => (
+          isCurrentSession()
+            ? settlePendingMessage(current, pendingAssistantMessage.id)
+            : current
+        ));
         return;
       }
       const rawText = buildErrorRawText(error);
@@ -1646,20 +1661,9 @@ export default function ChatScreen() {
       }
       setMessages(current => {
         if (!isCurrentSession()) return current;
-        const pendingItem = current.find(item => item.id === pendingAssistantMessage.id);
-        const hasPartial = !!pendingItem
-          && receivedChunk
-          && typeof pendingItem.text === 'string'
-          && pendingItem.text.trim().length > 0;
-        if (hasPartial) {
-          return current
-            .map(item => (
-              item.id === pendingAssistantMessage.id
-                ? { ...item, pending: false, waitingForResponse: false }
-                : item
-            ))
-            .concat(errorMessage);
-        }
+        const settled = settlePendingMessage(current, pendingAssistantMessage.id);
+        const keptPartial = settled.some(item => item && item.id === pendingAssistantMessage.id);
+        if (keptPartial) return settled.concat(errorMessage);
         return current.map(item => (
           item.id === pendingAssistantMessage.id ? errorMessage : item
         ));
@@ -1772,7 +1776,13 @@ export default function ChatScreen() {
             ));
             setMessages(working);
           } catch (error) {
-            if (isCanceledError(error)) break;
+            if (isCanceledError(error)) {
+              // 停止：结算占位气泡，避免留下永远“正在思考”的僵尸消息
+              setMessages(current => (
+                isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
+              ));
+              break;
+            }
             if (!isCurrent()) return;
             working = working.map(item => (
               item.id === pendingMessage.id
@@ -1837,7 +1847,14 @@ export default function ChatScreen() {
             },
           });
         } catch (error) {
-          if (isCanceledError(error)) throw error;
+          if (isCanceledError(error)) {
+            // 停止：合议模式的流式增量只写进了 state（局部变量 working 里仍是占位符），
+            // 所以必须按当前 state 结算，否则已生成的部分会被整条丢掉
+            setMessages(current => (
+              isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
+            ));
+            throw error;
+          }
           working = working.filter(item => item.id !== pendingMessage.id);
           if (isCurrent()) setMessages(working);
           return false;
