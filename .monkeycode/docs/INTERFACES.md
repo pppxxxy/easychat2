@@ -50,8 +50,8 @@
 - 输入栏附件入口可选择纯文本类文档或图片：文本文档读取内容并在发送时以 `[附件：名称]` 并入上下文；图片仅当来源支持识图时允许，并以多模态形式发送；已选附件以标签与缩略图展示、可移除
 - 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
 - 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
-- 顶部栏「思考」按钮打开思考设置：开关与深度（低/中/高），按来源声明的字段与格式注入请求；来源不支持思考时禁用
-- 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。导航聚焦时读取思考设置的 `display`，按 `open` 完整展开、`fold` 折叠一行可展开、`off` 不展示
+- 顶部栏「思考」按钮打开思考设置：开关、深度（低/中/高）与思考内容展示（开启/折叠/关闭），按来源声明的字段与格式注入请求；来源不支持思考时禁用；三项保存时合并现有设置，互不覆盖
+- 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。思考内容展示 `open` 为思考阶段自动展开、内容开始输出后自动收缩为一行「思考过程 ˅」；`fold` 默认收缩为一行可点开；`off` 不展示。用户手动点开/收起后不再自动收缩
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
 - 群聊会话（`type: 'group'`）：顶部展示群名与群头像（未设置头像时回退群图标），聊天背景取会话 `bgUri`；输入栏左侧为 `@` 按钮（替代附件入口），点击弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。群像卡思考阶段的消息显示为群名，不再显示基础角色名；消息头像优先取该成员角色卡的头像，取不到时用群头像。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
@@ -245,8 +245,8 @@
 | `saveApiConfigs` | `(configs, activeId) => Promise<{ configs, activeId }>` | 写入多配置列表与活跃 id |
 | `getActiveApiConfig` | `() => Promise<ApiConfig>` | 返回当前活跃配置（至少一条） |
 | `getActiveModel` | `(config) => string` | 返回配置的当前模型，回退列表首项与默认模型 |
-| `getThinkingSettings` | `() => Promise<{ enabled, level }>` | 读取思考设置，默认 `{ enabled: false, level: 'medium' }` |
-| `saveThinkingSettings` | `({ enabled, level }) => Promise<{ enabled, level }>` | 归一化并写入思考设置（`level` 为 `low`/`medium`/`high`） |
+| `getThinkingSettings` | `() => Promise<{ enabled, level, display }>` | 读取思考设置，默认 `{ enabled: false, level: 'medium', display: 'fold' }` |
+| `saveThinkingSettings` | `({ enabled, level, display }) => Promise<{ enabled, level, display }>` | 归一化并写入思考设置（`level` 为 `low`/`medium`/`high`，`display` 为 `open`/`fold`/`off`；未传字段回落到默认值，调用方应先合并现有设置） |
 | `getSamplingSettings` | `() => Promise<Sampling>` | 读取生成采样设置，缺省四项均关闭（maxTokens 8024 / temperature 1 / topP 1 / topK 0） |
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
 | `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |

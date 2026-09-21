@@ -87,6 +87,7 @@ import {
   saveMoments,
   saveTtsSettings,
   startNewSession,
+  THINKING_DISPLAYS,
   THINKING_LEVELS,
   updateSessionMemberProfiles,
   getVectorMemoryConfig,
@@ -150,6 +151,7 @@ function buildQuotePayload(message, name) {
   };
 }
 const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
+const THINKING_DISPLAY_LABELS = { open: '开启', fold: '折叠', off: '关闭' };
 
 const createMarkdownStyles = (theme, fonts, tokens) => ({
   body: { color: theme.colors.bubbleAssistantText, fontSize: fonts.scaled(15), lineHeight: fonts.scaled(22) },
@@ -445,6 +447,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const isUser = message.role === USER_ID;
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
+  const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const lastNudgeRef = useRef(0);
   const renderHtml =
@@ -564,34 +567,35 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
             </TouchableOpacity>
           ) : null}
           {!isUser && thinkingDisplay !== 'off' && typeof message.reasoning === 'string' && message.reasoning.trim() ? (
-            thinkingDisplay === 'open' ? (
-              <View style={styles.reasoningBox}>
-                <Text style={styles.reasoningLabel}>思考过程</Text>
-                <Text style={styles.reasoningText} selectable>{message.reasoning}</Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={styles.reasoningBox}
-                onPress={() => setReasoningExpanded(current => !current)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.reasoningHeader}>
-                  <Ionicons name="bulb-outline" size={12} color={theme.colors.textFaint} />
-                  <Text style={styles.reasoningLabel}>思考过程</Text>
-                  <Ionicons
-                    name={reasoningExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={12}
-                    color={theme.colors.textFaint}
-                  />
-                </View>
-                <Text
-                  style={styles.reasoningText}
-                  numberOfLines={reasoningExpanded ? undefined : 1}
+            (() => {
+              const thinking = !!message.pending && !!message.waitingForResponse;
+              const expanded = reasoningPinned
+                ? reasoningExpanded
+                : (thinkingDisplay === 'open' && thinking);
+              return (
+                <TouchableOpacity
+                  style={[styles.reasoningBox, !expanded && styles.reasoningBoxCollapsed]}
+                  onPress={() => {
+                    setReasoningExpanded(!expanded);
+                    setReasoningPinned(true);
+                  }}
+                  activeOpacity={0.8}
                 >
-                  {message.reasoning}
-                </Text>
-              </TouchableOpacity>
-            )
+                  <View style={[styles.reasoningHeader, !expanded && styles.reasoningHeaderCollapsed]}>
+                    <Ionicons name="bulb-outline" size={12} color={theme.colors.textFaint} />
+                    <Text style={styles.reasoningLabel}>思考过程</Text>
+                    <Ionicons
+                      name={expanded ? 'chevron-up' : 'chevron-down'}
+                      size={12}
+                      color={theme.colors.textFaint}
+                    />
+                  </View>
+                  {expanded ? (
+                    <Text style={styles.reasoningText} selectable>{message.reasoning}</Text>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })()
           ) : null}
           {isUser ? (
             <Text style={styles.messageText}>
@@ -1372,17 +1376,20 @@ export default function ChatScreen() {
       setThinkingSupported(!!(current && current.supportsThinking));
       setThinkingEnabled(settings.enabled);
       setThinkingLevel(settings.level);
+      setThinkingDisplay(settings.display);
       setThinkingOpen(true);
     } catch (error) {
       Alert.alert('读取失败', '无法读取思考设置。');
     }
   }, []);
 
-  const applyThinking = useCallback(async (enabled, level) => {
+  const applyThinking = useCallback(async patch => {
     try {
-      const saved = await saveThinkingSettings({ enabled, level });
+      const current = await getThinkingSettings();
+      const saved = await saveThinkingSettings({ ...current, ...patch });
       setThinkingEnabled(saved.enabled);
       setThinkingLevel(saved.level);
+      setThinkingDisplay(saved.display);
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
@@ -3034,7 +3041,7 @@ export default function ChatScreen() {
               <Text style={styles.thinkingLabel}>开启思考</Text>
               <Switch
                 value={thinkingEnabled}
-                onValueChange={value => applyThinking(value, thinkingLevel)}
+                onValueChange={value => applyThinking({ enabled: value })}
                 disabled={!thinkingSupported}
                 trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
                 thumbColor={theme.colors.primaryContrast}
@@ -3054,7 +3061,7 @@ export default function ChatScreen() {
                       disabled && styles.actionDisabled,
                     ]}
                     disabled={disabled}
-                    onPress={() => applyThinking(thinkingEnabled, level)}
+                    onPress={() => applyThinking({ level })}
                     activeOpacity={0.8}
                   >
                     <Text
@@ -3064,6 +3071,35 @@ export default function ChatScreen() {
                       ]}
                     >
                       {THINKING_LEVEL_LABELS[level]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.modelLabel}>思考内容展示</Text>
+            <View style={styles.thinkingLevels}>
+              {THINKING_DISPLAYS.map(display => {
+                const active = thinkingDisplay === display;
+                const disabled = !thinkingSupported || !thinkingEnabled;
+                return (
+                  <TouchableOpacity
+                    key={display}
+                    style={[
+                      styles.thinkingLevelChip,
+                      active && styles.thinkingLevelChipActive,
+                      disabled && styles.actionDisabled,
+                    ]}
+                    disabled={disabled}
+                    onPress={() => applyThinking({ display })}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.thinkingLevelText,
+                        active && styles.thinkingLevelTextActive,
+                      ]}
+                    >
+                      {THINKING_DISPLAY_LABELS[display]}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -3533,12 +3569,16 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     marginBottom: tokens.spacing.sm,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
+  reasoningBoxCollapsed: { paddingVertical: tokens.spacing.xs + 1 },
   reasoningHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: tokens.spacing.xs,
   },
+  reasoningHeaderCollapsed: { marginBottom: 0 },
   reasoningLabel: {
     color: theme.colors.primary,
     fontSize: 11,
