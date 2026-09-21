@@ -24,6 +24,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'xiaomi-mimo',
     label: '小米 MiMo',
+    apiKeyUrl: 'https://platform.xiaomimimo.com',
     baseUrl: 'https://api.xiaomi.com/v1/audio/speech',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
@@ -40,6 +41,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'siliconflow',
     label: '硅基流动',
+    apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
     baseUrl: 'https://api.siliconflow.cn/v1/audio/speech',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
@@ -57,6 +59,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'iflytek-spark',
     label: '讯飞星火',
+    apiKeyUrl: 'https://console.xfyun.cn/services/bmx1',
     baseUrl: 'wss://tts-api.xfyun.cn/v2/tts',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization' },
@@ -79,6 +82,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'stepfun',
     label: '阶跃星辰',
+    apiKeyUrl: 'https://platform.stepfun.com',
     baseUrl: 'https://api.stepfun.com/v1/audio/speech',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
@@ -96,6 +100,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'tencent-cloud',
     label: '腾讯云',
+    apiKeyUrl: 'https://console.cloud.tencent.com/cam/capi',
     baseUrl: 'https://tts.tencentcloudapi.com',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization' },
@@ -118,7 +123,8 @@ export const TTS_PROVIDERS = [
   },
   {
     id: 'aliyun',
-    label: '阿里云',
+    label: '阿里云百炼',
+    apiKeyUrl: 'https://bailian.console.aliyun.com/',
     baseUrl: 'https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
@@ -140,6 +146,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'baidu',
     label: '百度智能云',
+    apiKeyUrl: 'https://console.bce.baidu.com/ai-engine/old/#/ai/speech/app/list',
     baseUrl: 'https://tsn.baidu.com/text2audio',
     method: 'POST',
     auth: { type: 'token', keyName: 'access_token', tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token', tokenFields: { grant_type: 'client_credentials' }, tokenPath: 'access_token', tokenTtlSec: 2592000 },
@@ -161,6 +168,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'volcano',
     label: '火山引擎',
+    apiKeyUrl: 'https://console.volcengine.com/speech/new/setting/apikeys',
     baseUrl: 'https://openspeech.bytedance.com/api/v1/tts',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer;' },
@@ -183,6 +191,7 @@ export const TTS_PROVIDERS = [
   {
     id: 'minimax',
     label: 'MiniMax',
+    apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
     baseUrl: 'https://api.minimax.chat/v1/t2a_v2',
     method: 'POST',
     auth: { type: 'query', keyName: 'GroupId' },

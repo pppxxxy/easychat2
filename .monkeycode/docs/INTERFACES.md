@@ -592,7 +592,7 @@ data: [DONE]
 ### 语音播报接口
 **位置**: `src/tts/providers.js`、`src/tts/index.js`
 
-`TTS_PROVIDERS` 为声明式配置表，内置 `system` 与 `xiaomi-mimo`、`siliconflow`、`iflytek-spark`、`stepfun`、`tencent-cloud`、`aliyun`、`baidu`、`volcano`、`minimax`；`getTtsProvider(id)` 按 id 取配置并回退系统引擎。
+`TTS_PROVIDERS` 为声明式配置表，内置 `system` 与 `xiaomi-mimo`、`siliconflow`、`iflytek-spark`、`stepfun`、`tencent-cloud`、`aliyun`、`baidu`、`volcano`、`minimax`；`getTtsProvider(id)` 按 id 取配置并回退系统引擎。除 `system` 外的每个服务商带 `apiKeyUrl`（各厂商控制台的密钥申请地址），`TtsPanel` 据此渲染「获取 API Key / 密钥」外链入口。
 
 | 函数 | 说明 |
 |------|------|

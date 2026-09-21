@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -64,6 +65,21 @@ export default function TtsPanel({ visible, onClose }) {
     setSettings(next);
   }, [provider.id, settings]);
 
+  const openKeyUrl = useCallback(async () => {
+    const url = provider.apiKeyUrl;
+    if (!url) return;
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        Alert.alert('无法打开链接', url);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert('无法打开链接', url);
+    }
+  }, [provider.apiKeyUrl]);
+
   const onSave = useCallback(() => {
     persist({
       ...settings,
@@ -122,6 +138,20 @@ export default function TtsPanel({ visible, onClose }) {
               </View>
             )) : null}
 
+            {provider.apiKeyUrl ? (
+              <TouchableOpacity
+                style={styles.keyLink}
+                onPress={openKeyUrl}
+                activeOpacity={0.8}
+                accessibilityRole="link"
+                accessibilityLabel={`获取 ${provider.label} 的 API Key`}
+              >
+                <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
+                <Text style={styles.keyLinkText}>获取 API Key / 密钥</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
+              </TouchableOpacity>
+            ) : null}
+
             {provider.engine !== 'system' && provider.signer ? (
               <Text style={styles.fieldHint}>
                 该服务使用{provider.signer === 'iflytek' ? '讯飞' : provider.signer === 'tencent' ? '腾讯云' : '火山引擎'}签名，若签名校验失败可改用服务商提供的预生成令牌。
@@ -171,6 +201,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   providerTextActive: { color: theme.colors.primarySoft },
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 10 },
+  keyLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    marginTop: 14,
+  },
+  keyLinkText: { flex: 1, color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
   saveButton: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,
