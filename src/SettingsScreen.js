@@ -6,6 +6,7 @@ import {
   Linking,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -1570,12 +1571,11 @@ export default function SettingsScreen() {
         animationType="fade"
         onRequestClose={() => setVendorPickerOpen(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modalBackdrop}
-          activeOpacity={1}
           onPress={() => setVendorPickerOpen(false)}
         >
-          <View style={styles.modalSheet}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
             <Text style={styles.modalTitle}>选择厂商 / 协议</Text>
             <FieldHint style={styles.hint}>选中后会自动填好地址与鉴权，只需再补 API Key。</FieldHint>
             <ScrollView style={styles.vendorList} keyboardShouldPersistTaps="handled">
@@ -1618,8 +1618,8 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
@@ -1628,14 +1628,17 @@ export default function SettingsScreen() {
         animationType="fade"
         onRequestClose={() => setModelModalVisible(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modalBackdrop}
-          activeOpacity={1}
           onPress={() => setModelModalVisible(false)}
         >
-          <View style={styles.modalSheet}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
             <Text style={styles.modalTitle}>可用模型</Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              style={styles.modalList}
+              contentContainerStyle={styles.modalListContent}
+              keyboardShouldPersistTaps="handled"
+            >
               {modelList.map(model => (
                 <TouchableOpacity
                   key={model}
@@ -1647,8 +1650,8 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
@@ -2097,6 +2100,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   modalTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800', marginBottom: 12 },
   modalList: { maxHeight: 360 },
+  modalListContent: { paddingBottom: tokens.spacing.xs },
   modalRow: {
     backgroundColor: theme.colors.surface,
     borderRadius: tokens.radius.md,

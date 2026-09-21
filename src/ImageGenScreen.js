@@ -7,6 +7,7 @@ import {
   Linking,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -461,8 +462,8 @@ export default function ImageGenScreen({ embedded = false }) {
       </ScrollView>
 
       <Modal visible={providerOpen} transparent animationType="fade" onRequestClose={() => setProviderOpen(false)}>
-        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setProviderOpen(false)}>
-          <View style={styles.modalSheet}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setProviderOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
             <Text style={styles.modalTitle}>选择服务</Text>
             <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
               {IMAGE_PROVIDERS.map(item => (
@@ -478,13 +479,13 @@ export default function ImageGenScreen({ embedded = false }) {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal visible={modelOpen} transparent animationType="fade" onRequestClose={() => setModelOpen(false)}>
-        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setModelOpen(false)}>
-          <View style={styles.modalSheet}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setModelOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
             <Text style={styles.modalTitle}>选择模型</Text>
             <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
               {modelList.map(item => (
@@ -501,8 +502,8 @@ export default function ImageGenScreen({ embedded = false }) {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>

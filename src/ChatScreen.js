@@ -2947,12 +2947,11 @@ export default function ChatScreen() {
         animationType="fade"
         onRequestClose={() => setModelPanelOpen(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modelBackdrop}
-          activeOpacity={1}
           onPress={() => setModelPanelOpen(false)}
         >
-          <View style={styles.modelSheet}>
+          <Pressable style={styles.modelSheet} onPress={() => {}}>
             <Text style={styles.modelTitle}>切换模型</Text>
             <Text style={styles.modelLabel}>来源</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -3010,8 +3009,8 @@ export default function ChatScreen() {
             >
               <Text style={styles.modelCloseText}>关闭</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
@@ -3020,12 +3019,11 @@ export default function ChatScreen() {
         animationType="fade"
         onRequestClose={() => setThinkingOpen(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modelBackdrop}
-          activeOpacity={1}
           onPress={() => setThinkingOpen(false)}
         >
-          <View style={styles.modelSheet}>
+          <Pressable style={styles.modelSheet} onPress={() => {}}>
             <Text style={styles.modelTitle}>思考设置</Text>
             {!thinkingSupported ? (
               <Text style={styles.modelEmpty}>
@@ -3078,8 +3076,8 @@ export default function ChatScreen() {
             >
               <Text style={styles.modelCloseText}>关闭</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <ScrollScrubber
