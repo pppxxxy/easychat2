@@ -349,6 +349,7 @@ function buildGreetingMessage(sessionId, firstMes, userName) {
     id: `greeting-${sessionId}`,
     role: ASSISTANT_ID,
     text: replaced,
+    timestamp: Date.now(),
   };
 }
 
@@ -358,6 +359,15 @@ function formatScrubberTime(timestamp) {
   const date = new Date(value);
   const pad = number => String(number).padStart(2, '0');
   return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+// 消息时间：优先用显式 timestamp 字段；旧消息没有该字段，
+// 退化为从 id 前缀解析（历史行为），都对不上则返回 0。
+function messageTimestamp(message) {
+  const explicit = Number(message && message.timestamp);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const fromId = Number(String((message && message.id) || '').split('-')[0]);
+  return Number.isFinite(fromId) && fromId > 0 ? fromId : 0;
 }
 
 function ThinkingIndicator() {
@@ -905,10 +915,25 @@ export default function ChatScreen() {
       }),
     [messages]
   );
-  const persistableSnapshot = useMemo(
-    () => JSON.stringify(persistableMessages),
-    [persistableMessages]
+  // 已提交（非 pending）消息：流式期间 pending 消息不参与落盘
+  const committedMessages = useMemo(
+    () => (messages || []).filter(item => item && !item.pending),
+    [messages]
   );
+  const committedRef = useRef({ list: [], snapshot: '[]' });
+  const persistableSnapshot = useMemo(() => {
+    // 只有“已提交消息”确实变化时才做整份 JSON.stringify：流式回复期间每个
+    // token 都会更新 messages，但已提交部分没有变（元素仍是同一批对象引用），
+    // 因此这里按引用比对即可跳过无意义的全量序列化，同时保留
+    // “用户消息一发出就落盘”的原有行为。
+    const previous = committedRef.current.list;
+    const unchanged = previous.length === committedMessages.length
+      && committedMessages.every((item, index) => item === previous[index]);
+    if (unchanged) return committedRef.current.snapshot;
+    const snapshot = JSON.stringify(persistableMessages);
+    committedRef.current = { list: committedMessages, snapshot };
+    return snapshot;
+  }, [committedMessages, persistableMessages]);
   const rawTextById = useMemo(() => {
     const map = new Map();
     (Array.isArray(messages) ? messages : []).forEach(message => {
@@ -1022,6 +1047,7 @@ export default function ChatScreen() {
                   text: opening.opening,
                   speakerId: opening.speakerId,
                   speakerName: opening.speakerName,
+                  timestamp: Date.now(),
                 }]);
               } catch (error) {}
             })();
@@ -1038,6 +1064,12 @@ export default function ChatScreen() {
         if (cancelled) return;
         lastSavedSnapshotRef.current = '[]';
         setMessages([]);
+        // 读取失败时以前是静默显示空对话，用户很容易误以为记录被清空了。
+        // 明确告知：记录还在，只是这次没读出来；且不会覆盖原数据。
+        Alert.alert(
+          '聊天记录读取失败',
+          '本次没能读出该会话的消息（可能因数据过大）。记录本身没有被删除，可稍后重试或新建对话。'
+        );
       })
       .finally(() => {
         if (!cancelled) setReady(true);
@@ -1268,7 +1300,7 @@ export default function ChatScreen() {
 
   const scrubberPreviews = useMemo(
     () => scrubberMessages.map(message => {
-      const timestamp = Number(String(message.id || '').split('-')[0]);
+      const timestamp = messageTimestamp(message);
       return {
         label: formatScrubberTime(timestamp),
         speaker: message.role === USER_ID ? '我' : (character.name || '角色'),
@@ -1444,6 +1476,7 @@ export default function ChatScreen() {
       reasoning: '',
       pending: true,
       waitingForResponse: true,
+      timestamp: Date.now(),
     };
 
     setMessages([...baseMessages, pendingAssistantMessage]);
@@ -1464,6 +1497,11 @@ export default function ChatScreen() {
         userText,
         plugins: enabledPlugins,
         sessionId: sendSessionId,
+        onError: error => {
+          if (__DEV__) console.warn('[webSearch] failed', error);
+          // registry 内部已按会话去重，这里不会每条消息都弹
+          Alert.alert('联网搜索失败', (error && error.message) || '请检查搜索服务配置。');
+        },
       });
       const currentSession = sessionsRef.current.find(
         session => session.id === sendSessionId
@@ -1601,6 +1639,7 @@ export default function ChatScreen() {
         role: SYSTEM_ERROR_ID,
         text: '请求失败，点击查看详情',
         detail: maskSecrets(rawText),
+        timestamp: Date.now(),
       };
       if (isCurrentSession()) {
         errorRawRef.current[errorMessage.id] = rawText;
@@ -1699,6 +1738,7 @@ export default function ChatScreen() {
             waitingForResponse: true,
             speakerId,
             speakerName: speaker.name,
+            timestamp: Date.now(),
           };
           const roundHistory = working.filter(
             (item, index) => item
@@ -1777,6 +1817,7 @@ export default function ChatScreen() {
           pending: true,
           waitingForResponse: true,
           speakerName: groupName,
+          timestamp: Date.now(),
         };
         working = [...working, pendingMessage];
         setMessages(working);
@@ -1863,6 +1904,7 @@ export default function ChatScreen() {
       id: `${Date.now()}-user`,
       role: USER_ID,
       text: text || '（图片）',
+      timestamp: Date.now(),
     };
     if (quoteTarget) userMessage.quoted = quoteTarget;
     const payload = {

@@ -1,12 +1,24 @@
 import { getProvider } from './providers';
+import { registerSecretValues } from '../secrets';
 
 const SEARCH_TIMEOUT_MS = 10000;
 const CACHE_TTL_MS = 60000;
+const CACHE_MAX_ENTRIES = 50;
 const MAX_RETRIES = 1;
 const RATE_LIMIT_PER_MINUTE = 20;
 
 const cache = new Map();
 const callTimes = [];
+
+// 模块级缓存必须有过期回收：只判 TTL 而不删除，会让进程常驻大量历史结果。
+function pruneCache(now) {
+  cache.forEach((entry, key) => {
+    if (!entry || now - entry.at >= CACHE_TTL_MS) cache.delete(key);
+  });
+  if (cache.size <= CACHE_MAX_ENTRIES) return;
+  const entries = Array.from(cache.entries()).sort((a, b) => (a[1].at || 0) - (b[1].at || 0));
+  entries.slice(0, entries.length - CACHE_MAX_ENTRIES).forEach(([key]) => cache.delete(key));
+}
 
 export function getByPath(source, path) {
   if (!path) return undefined;
@@ -124,7 +136,6 @@ export function parseResults(provider, data, limit) {
       title: String(getByPath(item, fields.title) || '').trim(),
       url: String(getByPath(item, fields.url) || '').trim(),
       snippet: String(getByPath(item, fields.snippet) || '').trim(),
-      raw: item,
     }))
     .filter(item => item.title || item.url || item.snippet)
     .slice(0, limit);
@@ -134,6 +145,8 @@ export async function runWebSearch({ query, config, maxResults }) {
   const text = String(query || '').trim().slice(0, 200);
   if (!text) return [];
   const source = config || {};
+  // 登记搜索密钥：报错文本可能带出裸 Key
+  registerSecretValues([source.apiKey]);
   const provider = getProvider(source.provider);
   const limit = Math.min(
     Math.max(1, Math.trunc(Number(maxResults) || Number(source.maxResults) || 5)),
@@ -152,6 +165,8 @@ export async function runWebSearch({ query, config, maxResults }) {
   const now = Date.now();
   const cached = cache.get(key);
   if (cached && now - cached.at < CACHE_TTL_MS) return cached.results;
+  if (cached) cache.delete(key);
+  pruneCache(now);
   if (isRateLimited(now)) return [];
 
   const request = buildRequest(provider, source, text, limit);
@@ -167,8 +182,15 @@ export async function runWebSearch({ query, config, maxResults }) {
       return results;
     } catch (error) {
       lastError = error;
+      // 4xx 是确定性失败（密钥/权限/配额），重试没有意义，还会触发风控
+      if (error && /HTTP 4\d\d/.test(error.message || '')) {
+        callTimes.push(Date.now());
+        throw error;
+      }
     }
   }
+  // 失败的尝试也计入限流，避免配置错误时反复冲击服务商
+  callTimes.push(Date.now());
   throw lastError || new Error('搜索失败');
 }
 

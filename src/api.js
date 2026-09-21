@@ -1,5 +1,9 @@
 import { getActiveApiConfig, getActiveModel, getSamplingSettings, getThinkingSettings } from './storage';
+import { registerSecretValues } from './secrets';
 
+// 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
+// 用同一个 30s 阈值会误报“请求超时”。
+const FIRST_BYTE_TIMEOUT_MS = 120000;
 const IDLE_TIMEOUT_MS = 30000;
 
 export function buildThinkingParams(config, settings) {
@@ -104,6 +108,8 @@ export async function sendChatMessage(messages, options = {}) {
   if (signal && signal.aborted) {
     throw createAbortError();
   }
+  // 登记当前密钥：报错文本可能带出裸 Key，脱敏时才能按真实值兜住
+  registerSecretValues([config.apiKey]);
   if (!config.apiKey) {
     throw new Error('请先在“设置”里填写 API Key。');
   }
@@ -135,6 +141,7 @@ export async function sendChatMessage(messages, options = {}) {
     let fullReasoning = '';
     let sawSse = false;
     let sawPayloadData = false;
+    let sawFirstByte = false;
     let parseFailures = 0;
     let canceled = false;
     let settled = false;
@@ -172,10 +179,13 @@ export async function sendChatMessage(messages, options = {}) {
     const armIdleTimer = () => {
       if (settled) return;
       if (idleTimer) clearTimeout(idleTimer);
+      const waitingFirstByte = !sawFirstByte;
       idleTimer = setTimeout(() => {
-        fail(new Error('请求超时，请检查网络后重试'));
+        fail(new Error(waitingFirstByte
+          ? '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）'
+          : '请求超时，请检查网络后重试'));
         xhr.abort();
-      }, IDLE_TIMEOUT_MS);
+      }, waitingFirstByte ? FIRST_BYTE_TIMEOUT_MS : IDLE_TIMEOUT_MS);
     };
 
     const handleLine = line => {
@@ -221,6 +231,7 @@ export async function sendChatMessage(messages, options = {}) {
     const drainIncremental = () => {
       const incoming = (xhr.responseText || '').slice(consumed);
       if (!incoming) return;
+      sawFirstByte = true;
       consumed = (xhr.responseText || '').length;
       lineBuffer += incoming;
       const lines = lineBuffer.split('\n');

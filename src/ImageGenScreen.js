@@ -21,7 +21,7 @@ import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
-import { generateImage, detectImageProvider } from './imageGen';
+import { generateImage, detectImageProvider, probeImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
 import ChapterModal from './ChapterModal';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui';
@@ -29,6 +29,16 @@ import { useTheme } from './theme/ThemeContext';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
 const DEFAULT_PROVIDER = IMAGE_PROVIDERS[0].id;
+
+// 结果身份标识：以前直接把整串 base64 存进 state 做比较，
+// 每次渲染都要比对 MB 级字符串；这里改成一个短标识。
+function resultToken(result) {
+  if (!result) return '';
+  if (result.url) return `url:${result.url}`;
+  const base64 = String(result.base64 || '');
+  if (!base64) return 'result';
+  return `b64:${base64.length}:${base64.slice(0, 16)}`;
+}
 
 function isImageLike(name, mime) {
   const type = String(mime || '').toLowerCase();
@@ -128,6 +138,40 @@ export default function ImageGenScreen({ embedded = false }) {
     setSettingsOpen(true);
   }, [provider.baseUrl, provider.defaultModel, providerConfig]);
 
+  // 列表接口不可用时，不再自动试生成：先问过用户再决定是否花这笔钱。
+  const confirmProbe = useCallback(() => {
+    Alert.alert(
+      '列表接口不可用',
+      '该服务的模型列表接口无法访问。可以试生成 1 张小图来验证连通性，但可能产生费用。是否继续？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '试生成 1 张',
+          onPress: async () => {
+            if (mountedRef.current) setDetecting(true);
+            try {
+              const probe = await probeImageProvider({
+                provider,
+                config: {
+                  baseUrl: draftBaseUrl.trim() || provider.baseUrl || '',
+                  apiKey: draftApiKey.trim(),
+                  model: draftModel.trim() || provider.defaultModel || '',
+                },
+                model: draftModel.trim() || provider.defaultModel || '',
+                prompt: prompt.trim(),
+              });
+              Alert.alert('检测成功', `已连通，试生成 ${probe.images} 张小图（可能产生费用）`);
+            } catch (error) {
+              Alert.alert('检测失败', (error && error.message) || '生成接口不可用');
+            } finally {
+              if (mountedRef.current) setDetecting(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [draftApiKey, draftBaseUrl, draftModel, prompt, provider]);
+
   const detectProvider = useCallback(async () => {
     if (detecting) return;
     setDetecting(true);
@@ -140,20 +184,23 @@ export default function ImageGenScreen({ embedded = false }) {
           model: draftModel.trim() || provider.defaultModel || '',
         },
         model: draftModel.trim() || provider.defaultModel || '',
-        prompt: prompt.trim(),
       });
       if (result.ok) {
         const extra = result.modelFound === false
           ? '\n（模型名可能不正确，但接口已连通）'
           : '';
         Alert.alert('检测成功', `${result.message}${extra}`);
+      } else if (result.needsProbe) {
+        if (mountedRef.current) setDetecting(false);
+        confirmProbe();
+        return;
       } else {
         Alert.alert('检测失败', result.error || '无法连接');
       }
     } finally {
       if (mountedRef.current) setDetecting(false);
     }
-  }, [detecting, draftApiKey, draftBaseUrl, draftModel, prompt, provider]);
+  }, [confirmProbe, detecting, draftApiKey, draftBaseUrl, draftModel, provider]);
 
   const openApiKeyUrl = useCallback(async () => {
     if (!provider.apiKeyUrl) {
@@ -272,7 +319,7 @@ export default function ImageGenScreen({ embedded = false }) {
 
   const saveResult = useCallback(async result => {
     if (busyResult) return;
-    setBusyResult(result.url || result.base64 || 'result');
+    setBusyResult(resultToken(result));
     try {
       let uri = '';
       if (result.base64) {
@@ -448,7 +495,7 @@ export default function ImageGenScreen({ embedded = false }) {
                     activeOpacity={0.85}
                   >
                     {uri ? <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" /> : null}
-                    {busyResult === (result.url || result.base64 || 'result') ? (
+                    {busyResult === resultToken(result) ? (
                       <View style={styles.galleryBusy}>
                         <ActivityIndicator color={theme.colors.primaryContrast} />
                       </View>

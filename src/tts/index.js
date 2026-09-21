@@ -1,4 +1,5 @@
 import { TTS_MAX_CHARS, getTtsProvider } from './providers';
+import { registerSecretValues } from '../secrets';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -136,7 +137,10 @@ export function buildTtsRequest(provider, config, text, token) {
 export async function resolveToken(provider, config, { now = Date.now() } = {}) {
   const auth = provider.auth || {};
   if (auth.type !== 'token' || !auth.tokenUrl) return '';
-  const cached = tokenCache.get(provider.id);
+  // 缓存键要带上凭据指纹：只按 provider.id 缓存，用户换了 Key/Secret 之后
+  // 仍会复用旧令牌（部分服务商 TTL 长达 30 天），表现为“改了密钥还是失败”。
+  const cacheKey = `${provider.id}\u0000${config.apiKey || ''}\u0000${config.appSecretKey || ''}`;
+  const cached = tokenCache.get(cacheKey);
   if (cached && (!cached.expiresAt || cached.expiresAt > now)) return cached.token;
   const body = {
     ...(auth.tokenFields || {}),
@@ -147,12 +151,18 @@ export async function resolveToken(provider, config, { now = Date.now() } = {}) 
     .filter(([, value]) => value !== undefined && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&');
-  const url = `${auth.tokenUrl}?${queryString}`;
-  const data = await xhrJson({ method: 'POST', url, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: null });
+  // 凭据用 POST body（x-www-form-urlencoded）提交，不要拼进 URL：
+  // 查询串会进入服务端日志、代理和错误回显。
+  const data = await xhrJson({
+    method: 'POST',
+    url: auth.tokenUrl,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: queryString,
+  });
   const token = String(getByPath(data, auth.tokenPath || 'access_token') || '');
   if (!token) throw new Error('令牌获取失败');
   const ttl = Number(auth.tokenTtlSec) || 0;
-  tokenCache.set(provider.id, {
+  tokenCache.set(cacheKey, {
     token,
     expiresAt: ttl > 0 ? now + ttl * 1000 : 0,
   });
@@ -272,6 +282,8 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path }) {
 export async function synthesize({ provider, config = {}, text }) {
   const resolvedProvider = typeof provider === 'string' ? getTtsProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的播报服务');
+  // 登记播报密钥：报错文本可能带出裸 Key/Secret
+  registerSecretValues([config.apiKey, config.appSecretKey]);
   const content = truncateText(text);
   if (!content) throw new Error('没有可播报的内容');
   if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };
@@ -339,7 +351,9 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
     currentSound = sound;
     sound.setOnPlaybackStatusUpdate(status => {
       if (status && status.didJustFinish) {
-        stop();
+        // 期间可能已经在播放新音频，只有自己仍是“当前音频”时才停止，
+        // 否则会把新播放的音频一起停掉。
+        if (currentSound === sound) stop();
         if (onDone) onDone();
       }
     });

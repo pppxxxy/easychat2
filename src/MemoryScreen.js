@@ -73,10 +73,18 @@ export default function MemoryScreen({ navigation }) {
     return map;
   }, [characters]);
 
+  // 不再隐藏“空会话”：消息被清空过的会话 preview 会变成空串，
+  // 若继续过滤掉，这类会话既看不见也删不掉，只会在存储里越积越多。
+  // 现在全部显示，空会话排在后面并给出占位文案（列表中可删除）。
   const visibleSessions = useMemo(
-    () => (Array.isArray(sessions) ? sessions : []).filter(
-      session => String(session.preview || '').trim().length > 0
-    ),
+    () => {
+      const list = Array.isArray(sessions) ? sessions : [];
+      return [...list].sort((a, b) => {
+        const emptyA = String((a && a.preview) || '').trim().length === 0 ? 1 : 0;
+        const emptyB = String((b && b.preview) || '').trim().length === 0 ? 1 : 0;
+        return emptyA - emptyB;
+      });
+    },
     [sessions]
   );
 
@@ -306,7 +314,7 @@ export default function MemoryScreen({ navigation }) {
                       ) : null}
                     </View>
                     <Text style={styles.preview} numberOfLines={2}>
-                      {session.preview}
+                      {String(session.preview || '').trim() || '（空会话，可删除）'}
                     </Text>
                     <Text style={styles.time}>{formatTime(session.updatedAt)}</Text>
                   </View>

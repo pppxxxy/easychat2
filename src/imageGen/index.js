@@ -1,4 +1,5 @@
 import { getImageProvider } from './providers';
+import { registerSecretValues } from '../secrets';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 1;
@@ -318,7 +319,7 @@ export async function checkConnectivity({ provider, config }) {
   }
 }
 
-export async function detectImageProvider({ provider, config, model, prompt }) {
+export async function detectImageProvider({ provider, config, model }) {
   try {
     const models = await listModels({ provider, config });
     const normalizedModel = String(model || '').trim();
@@ -338,20 +339,24 @@ export async function detectImageProvider({ provider, config, model, prompt }) {
     if (/密钥无效|未授权/.test(listMessage)) {
       return { ok: false, error: listMessage, authFailed: true };
     }
-    try {
-      const result = await generateImage({
-        provider,
-        config,
-        prompt: String(prompt || '').trim() || 'a small red dot',
-        model,
-        size: provider.probeSize || '1024x1024',
-      });
-      return { ok: true, mode: 'probe', message: `已连通并生成 ${result.images.length} 张图` };
-    } catch (probeError) {
-      const probeMessage = (probeError && probeError.message) || '生成接口不可用';
-      return { ok: false, error: `列表：${listMessage}；生成：${probeMessage}` };
-    }
+    // 不再自动试生成：生图按次计费，是否花这笔钱必须由用户决定，
+    // 这里只告诉调用方“需要试生成才能判定”，由 UI 询问后再调 probeImageProvider。
+    return { ok: false, error: listMessage, needsProbe: true };
   }
+}
+
+export async function probeImageProvider({ provider, config, model, prompt }) {
+  const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
+  if (!resolvedProvider) throw new Error('未知的生图服务');
+  const result = await generateImage({
+    provider: resolvedProvider,
+    config,
+    prompt: String(prompt || '').trim() || 'a small red dot',
+    model,
+    // 探测用最小尺寸，压低试生成费用
+    size: resolvedProvider.probeSize || '512x512',
+  });
+  return { images: Array.isArray(result.images) ? result.images.length : 0 };
 }
 
 function xhrRequest({ method, url, headers, body, timeoutMs }) {
@@ -407,6 +412,8 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
   if (!resolvedProvider) throw new Error('未知的生图服务');
   const resolvedConfig = config || extra && extra.config || {};
   const normalized = normalizeConfig(resolvedProvider, resolvedConfig);
+  // 登记密钥：生图报错文本可能带出裸 Key，脱敏时按真实值兜住
+  registerSecretValues([normalized.apiKey]);
   if (!normalized.baseUrl) throw new Error('请先填写 API 地址');
   if (!normalized.apiKey && resolvedProvider.auth && resolvedProvider.auth.type) {
     throw new Error('请先填写 API 密钥');
@@ -445,7 +452,9 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
       return { images, raw: data };
     } catch (error) {
       lastError = error;
-      if (error && /密钥无效|过于频繁|请先填写|提示词|无法解析|未从响应/.test(error.message || '')) throw error;
+      // 生图接口按次计费：超时或网络中断时服务端可能已经受理并计费，
+      // 重试会造成重复扣费，所以这类失败一律不再重试（只重试确定未受理的失败）。
+      if (error && /密钥无效|过于频繁|请先填写|提示词|无法解析|未从响应|超时|网络|中断/.test(error.message || '')) throw error;
     }
   }
   throw lastError || new Error('生成失败');

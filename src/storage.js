@@ -102,6 +102,19 @@ async function readJsonStatus(key) {
   }
 }
 
+// 存储损坏时先把原始内容另存一份再重建：直接用默认值覆盖是不可逆的，
+// 留一份副本至少给用户（或后续版本）留下人工恢复的机会。
+async function backupCorruptValue(key) {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return;
+    await AsyncStorage.setItem(`${key}__corrupt_backup`, raw);
+    if (__DEV__) {
+      console.warn(`[storage] ${key} 读取失败或结构异常，已备份到 ${key}__corrupt_backup`);
+    }
+  } catch (error) {}
+}
+
 function normalizeCharacter(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const merged = { ...DEFAULT_CHARACTER, ...source };
@@ -182,6 +195,8 @@ export async function getCharacterLibrary() {
     }
     needsPersist = true;
   } else {
+    // 损坏：先备份原始值，再用默认角色重建（此前是直接覆盖，丢失不可逆）
+    await backupCorruptValue(CHARACTERS_KEY);
     items = [];
     needsPersist = true;
   }
@@ -724,24 +739,32 @@ async function persistApiConfigs(configs, activeId) {
 }
 
 export async function getApiConfigs() {
-  const raw = await AsyncStorage.getItem(API_CONFIGS_KEY);
-  const stored = raw === null || raw === undefined ? null : JSON.parse(raw);
-  if (raw !== null && raw !== undefined
-    && (!stored || typeof stored !== 'object' || Array.isArray(stored) || !Array.isArray(stored.configs))) {
-    throw new Error('API 配置格式错误');
+  const stored = await readJsonStatus(API_CONFIGS_KEY);
+  let payload = stored.status === 'ok' ? stored.value : null;
+  const shapeInvalid = payload !== null
+    && (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray(payload.configs));
+  if (stored.status === 'corrupt' || shapeInvalid) {
+    // 以前这里直接抛错：用户会卡在“读不到配置”，原始数据既没备份也无法自愈。
+    // 现在先备份原始值，再按“缺失”重建默认配置。
+    await backupCorruptValue(API_CONFIGS_KEY);
+    payload = null;
   }
   let configs = [];
   let activeId = '';
   let needsPersist = false;
 
-  if (stored) {
-    configs = ensureUniqueApiConfigIds(stored.configs.map(normalizeApiConfig));
-    activeId = String(stored.activeId || '');
+  if (payload) {
+    configs = ensureUniqueApiConfigIds(payload.configs.map(normalizeApiConfig));
+    activeId = String(payload.activeId || '');
   } else {
-    const legacyRaw = await AsyncStorage.getItem(API_CONFIG_KEY);
-    const legacy = legacyRaw === null || legacyRaw === undefined ? null : JSON.parse(legacyRaw);
-    const seed = legacy && typeof legacy === 'object' && !Array.isArray(legacy)
-      ? { ...legacy, id: 'default', name: '默认配置' }
+    const legacy = await readJsonStatus(API_CONFIG_KEY);
+    if (legacy.status === 'corrupt') await backupCorruptValue(API_CONFIG_KEY);
+    const legacyValue = legacy.status === 'ok'
+      && legacy.value && typeof legacy.value === 'object' && !Array.isArray(legacy.value)
+      ? legacy.value
+      : null;
+    const seed = legacyValue
+      ? { ...legacyValue, id: 'default', name: '默认配置' }
       : { id: 'default', name: '默认配置' };
     configs = [normalizeApiConfig(seed, 0)];
     needsPersist = true;
@@ -797,11 +820,18 @@ export async function saveCharacter(character) {
 }
 
 export async function getMessages(characterId = DEFAULT_CHARACTER.id) {
-  let stored = await readJson(messagesKey(characterId), null);
-  if (stored === null && characterId === DEFAULT_CHARACTER.id) {
-    stored = await readJson(LEGACY_MESSAGES_KEY, null);
+  const stored = await readJsonStatus(messagesKey(characterId));
+  if (stored.status === 'corrupt') {
+    await backupCorruptValue(messagesKey(characterId));
+    return [];
   }
-  return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
+  let value = stored.status === 'ok' ? stored.value : null;
+  if (value === null && characterId === DEFAULT_CHARACTER.id) {
+    const legacy = await readJsonStatus(LEGACY_MESSAGES_KEY);
+    if (legacy.status === 'corrupt') await backupCorruptValue(LEGACY_MESSAGES_KEY);
+    value = legacy.status === 'ok' ? legacy.value : null;
+  }
+  return Array.isArray(value) ? value.filter(item => item && !item.pending) : [];
 }
 
 export async function saveMessages(characterId, messages) {
@@ -1017,9 +1047,30 @@ function normalizePresetList(presets) {
 }
 
 export async function getGlobalPresets() {
-  const raw = await AsyncStorage.getItem(PRESET_LIST_KEY);
-  if (raw === null) return GLOBAL_PRESETS.map(normalizePreset);
-  return normalizePresetList(JSON.parse(raw));
+  const stored = await readJsonStatus(PRESET_LIST_KEY);
+  if (stored.status === 'missing') return GLOBAL_PRESETS.map(normalizePreset);
+  if (stored.status === 'corrupt') {
+    await backupCorruptValue(PRESET_LIST_KEY);
+    return GLOBAL_PRESETS.map(normalizePreset);
+  }
+  try {
+    return normalizePresetList(stored.value);
+  } catch (error) {
+    // 结构不合法时尽量保留可用项，而不是整份丢弃（原始值已备份）
+    const list = Array.isArray(stored.value) ? stored.value : [];
+    const kept = [];
+    const seen = new Set();
+    list.forEach(item => {
+      try {
+        const preset = normalizePreset(item);
+        if (seen.has(preset.id)) return;
+        seen.add(preset.id);
+        kept.push(preset);
+      } catch (entryError) {}
+    });
+    await backupCorruptValue(PRESET_LIST_KEY);
+    return kept.length > 0 ? kept : GLOBAL_PRESETS.map(normalizePreset);
+  }
 }
 
 export async function saveGlobalPresets(presets) {
@@ -1038,11 +1089,15 @@ function normalizeEnabledMap(source, presets) {
 }
 
 async function readGlobalPresetSettings() {
-  const raw = await AsyncStorage.getItem(GLOBAL_PRESETS_KEY);
-  if (raw === null) return {};
-  const enabled = JSON.parse(raw);
+  const stored = await readJsonStatus(GLOBAL_PRESETS_KEY);
+  if (stored.status === 'missing') return {};
+  const enabled = stored.status === 'ok' ? stored.value : null;
   if (!enabled || typeof enabled !== 'object' || Array.isArray(enabled)) {
-    throw new Error('预设开关格式错误');
+    // 这里抛错会连累 getEnabledGlobalPresetPrompts，而后者位于发送消息的
+    // Promise.all 中 —— 一个损坏的开关文件会导致“聊天完全发不出去”。
+    // 改为退回空开关并备份原始值。
+    await backupCorruptValue(GLOBAL_PRESETS_KEY);
+    return {};
   }
   return enabled;
 }
@@ -1254,8 +1309,15 @@ export async function setActiveSessionId(id) {
 }
 
 export async function getMessagesBySession(sessionId) {
-  const stored = await readJson(sessionMessagesKey(sessionId), null);
-  return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
+  const key = sessionMessagesKey(sessionId);
+  const stored = await readJsonStatus(key);
+  if (stored.status === 'corrupt') {
+    // 读取失败（例如数值过大触发 Android cursor window 限制）时先留副本，
+    // 调用方会把它当作空会话处理，但原始数据不会被静默覆盖掉。
+    await backupCorruptValue(key);
+    return [];
+  }
+  return Array.isArray(stored.value) ? stored.value.filter(item => item && !item.pending) : [];
 }
 
 export async function saveMessagesBySession(sessionId, messages) {

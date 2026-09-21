@@ -6,6 +6,26 @@ export const REGEX_PLACEMENT = {
   REASONING: 6,
 };
 
+// 正则来自第三方卡片或用户输入，可能是灾难性回溯模式（例如 (a+)+$）。
+// 这里给被匹配文本设长度上限：超长时只对「尾部」执行脚本（聊天里最新的内容在尾部），
+// 头部原样保留，把最坏耗时限制在可控范围内，而不是卡死 JS 线程。
+const MAX_REGEX_INPUT_CHARS = 20000;
+const COMPILED_CACHE_LIMIT = 300;
+const compiledCache = new Map();
+
+export function compileRegexCached(findRegex, flags = 'g') {
+  const key = `${flags}\u0000${String(findRegex ?? '')}`;
+  const cached = compiledCache.get(key);
+  if (cached) {
+    cached.lastIndex = 0;
+    return cached;
+  }
+  const compiled = compileRegex(findRegex, flags);
+  if (compiledCache.size >= COMPILED_CACHE_LIMIT) compiledCache.clear();
+  compiledCache.set(key, compiled);
+  return compiled;
+}
+
 export function compileRegex(findRegex, flags = 'g') {
   let pattern = String(findRegex ?? '');
   let effectiveFlags = String(flags ?? 'g');
@@ -53,7 +73,10 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
   const list = Array.isArray(scripts) ? scripts : [];
   if (list.length === 0) return input;
   const mode = options.mode || 'both';
-  let output = input;
+  const head = input.length > MAX_REGEX_INPUT_CHARS
+    ? input.slice(0, input.length - MAX_REGEX_INPUT_CHARS)
+    : '';
+  let output = head ? input.slice(-MAX_REGEX_INPUT_CHARS) : input;
 
   for (const script of list) {
     if (!script || script.enabled === false) continue;
@@ -63,7 +86,7 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
     if (!script.findRegex) continue;
     if (!withinDepth(script, options.depth)) continue;
     try {
-      const regex = compileRegex(script.findRegex, script.flags);
+      const regex = compileRegexCached(script.findRegex, script.flags);
       let replacement = script.replaceString ?? '';
       if (mode === 'display' && /^\s*<style\b[^>]*>(?:(?!<\/style>)[\s\S])*<\/style>$/i.test(replacement)) {
         replacement += '\n';
@@ -74,5 +97,5 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
     }
   }
 
-  return output;
+  return head + output;
 }

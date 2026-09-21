@@ -158,9 +158,14 @@ function normalizeWorldEntry(entry, index) {
     secondaryKeys,
     content,
     constant: toBool(source.constant, false),
-    selective: toBool(source.selective, true),
+    // 与 SillyTavern 保持一致：selective 默认 false（次要关键词默不生效），
+    // useRegex 默认 false（关键词按字面量匹配）。此前默认 true 会让普通关键词
+    // 被当正则编译：'(' 这类语法非法的键永久静默失效，'C++'、'1.5' 这类
+    // 语法合法但语义不同的键则会匹配错乱。
+    // 需要正则的卡片可显式写 use_regex: true，或用 /pattern/flags 写法（lorebook 会自动识别）。
+    selective: toBool(source.selective, false),
     enabled: source.enabled === undefined ? true : toBool(source.enabled, true),
-    useRegex: toBool(source.use_regex ?? source.useRegex, true),
+    useRegex: toBool(source.use_regex ?? source.useRegex, false),
     caseSensitive: toBool(source.caseSensitive ?? source.case_sensitive, false),
     matchWholeWords: toBool(source.matchWholeWords ?? source.match_whole_words, false),
     position,

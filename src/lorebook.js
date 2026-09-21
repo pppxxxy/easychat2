@@ -1,28 +1,47 @@
+// 显式带 .js 扩展名：Metro 与 Node ESM 都能解析，便于对世界书匹配逻辑做单测
+import { compileRegexCached } from './regexEngine.js';
+
 const DEFAULT_SCAN_DEPTH = 4;
+
+// 与 regexEngine 一致：给正则匹配的文本设长度上限，超长时只匹配尾部（最新内容），
+// 避免第三方卡片里的灾难性回溯模式卡死主线程。
+const MAX_REGEX_INPUT_CHARS = 20000;
 
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function regexScope(haystack) {
+  return haystack.length > MAX_REGEX_INPUT_CHARS
+    ? haystack.slice(-MAX_REGEX_INPUT_CHARS)
+    : haystack;
+}
+
+// 兼容 SillyTavern 的 /pattern/flags 键写法：即使条目未显式开启 useRegex 也按正则处理。
+function keyLooksLikeRegex(keyword) {
+  const text = String(keyword || '');
+  return text.length > 2 && text.startsWith('/') && text.lastIndexOf('/') > 0;
+}
+
 function keywordMatches(keyword, haystack, entry) {
   if (!keyword || !haystack) return false;
   const caseSensitive = entry.caseSensitive === true;
-  if (entry.useRegex) {
+  const flags = caseSensitive ? '' : 'i';
+  const slashRegex = keyLooksLikeRegex(keyword);
+  if (entry.useRegex || slashRegex) {
     try {
-      const flags = caseSensitive ? '' : 'i';
-      const source = entry.matchWholeWords ? `\\b(?:${keyword})\\b` : keyword;
-      return new RegExp(source, flags).test(haystack);
+      const source = entry.matchWholeWords && !slashRegex
+        ? `\\b(?:${keyword})\\b`
+        : keyword;
+      return compileRegexCached(source, flags).test(regexScope(haystack));
     } catch (error) {
       return false;
     }
   }
   if (entry.matchWholeWords) {
     try {
-      const re = new RegExp(
-        `\\b${escapeRegExp(keyword)}\\b`,
-        caseSensitive ? '' : 'i'
-      );
-      return re.test(haystack);
+      const re = compileRegexCached(`\\b${escapeRegExp(keyword)}\\b`, flags);
+      return re.test(regexScope(haystack));
     } catch (error) {
       return false;
     }

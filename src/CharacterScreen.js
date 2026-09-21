@@ -1062,6 +1062,18 @@ export default function CharacterScreen() {
       const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
       const dest = `${dir}${character.id}-${fieldName}-${Date.now()}${ext}`;
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      // 清理旧文件，避免头像/背景图无限堆积；但群聊的头像与背景是直接引用
+      // 角色图片路径的，必须先确认没有会话还在引用，否则会出现“群聊头像变空白”。
+      const draftValue = fieldName === 'avatar' ? avatarPreview : bgPreview;
+      [character.avatarUri, draftValue].forEach(previous => {
+        if (!previous || previous === dest || !previous.startsWith(dir)) return;
+        const stillReferenced = (sessions || []).some(item => (
+          item && (item.avatarUri === previous || item.bgUri === previous)
+        ));
+        if (!stillReferenced) {
+          FileSystem.deleteAsync(previous, { idempotent: true }).catch(() => {});
+        }
+      });
       if (screenSessionRef.current === session) setter(dest);
     } catch (error) {
       Alert.alert('图片读取失败', '请重试。');

@@ -7,6 +7,7 @@ export const TRIGGER_KEYWORDS = [
 
 const SEARCH_COOLDOWN_MS = 30000;
 const lastSearchAt = new Map();
+const reportedFailures = new Set();
 
 export function hasTrigger(userText, keywords = TRIGGER_KEYWORDS) {
   const text = String(userText || '');
@@ -39,7 +40,7 @@ export function shouldSearch({ userText, plugin, sessionId, now = Date.now() }) 
   return (now - last) >= SEARCH_COOLDOWN_MS;
 }
 
-export async function runPlugins({ userText, plugins, sessionId, now = Date.now() }) {
+export async function runPlugins({ userText, plugins, sessionId, now = Date.now(), onError }) {
   const list = Array.isArray(plugins) ? plugins : [];
   for (const plugin of list) {
     if (!shouldSearch({ userText, plugin, sessionId, now })) continue;
@@ -53,6 +54,13 @@ export async function runPlugins({ userText, plugins, sessionId, now = Date.now(
       return formatContext(results, Date.now());
     } catch (error) {
       lastSearchAt.set(sessionId, Date.now());
+      // 静默失败最误导人：用户以为联网搜索开着，其实一直在失败。
+      // 每个会话只上报一次，避免每条消息都打扰。
+      const failureKey = String(sessionId || '');
+      if (typeof onError === 'function' && !reportedFailures.has(failureKey)) {
+        reportedFailures.add(failureKey);
+        onError(error);
+      }
       return '';
     }
   }

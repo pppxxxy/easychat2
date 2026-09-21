@@ -4,6 +4,7 @@ import {
   getVectorProvider,
   mapEmbeddingError,
 } from './providers';
+import { registerSecretValues } from '../secrets';
 
 const DEFAULT_MAX_CHARS = 400;
 const DEFAULT_BATCH_SIZE = 16;
@@ -38,18 +39,21 @@ export function chunkMessages(messages, options = {}) {
     ? options.maxChars
     : DEFAULT_MAX_CHARS;
   const segments = [];
-  list.forEach(message => {
+  list.forEach((message, messageIndex) => {
     if (!message) return;
     const role = message.role;
     if (role !== 'user' && role !== 'assistant') return;
     const text = String(message.text || '').replace(/\s+/g, ' ').trim();
     if (!text) return;
     const base = role === 'user' ? '用户' : (String(message.speakerName || '').trim() || '角色');
+    // 消息没有 id（历史遗留数据）时用序号兜底：否则所有分片 id 都会退化成
+    // msg-<start>，被 indexMessages 的去重逻辑判为“已索引”而永久不入库。
+    const messageKey = message.id || `msg-${messageIndex}`;
     for (let start = 0; start < text.length; start += maxChars) {
       const slice = text.slice(start, start + maxChars).trim();
       if (!slice) continue;
       segments.push({
-        id: `${message.id || 'msg'}-${start}`,
+        id: `${messageKey}-${start}`,
         messageId: String(message.id || ''),
         role,
         at: Number(message.timestamp) || 0,
@@ -119,6 +123,8 @@ function extractVectors(data, expected) {
 
 export async function embedTexts({ config, texts }) {
   const resolved = normalizeVectorConfig(config);
+  // 登记向量服务密钥：报错文本可能带出裸 Key
+  registerSecretValues([resolved.apiKey]);
   const url = buildEmbeddingUrl(resolved.baseUrl);
   if (!url) throw new Error('请先填写向量服务地址');
   if (!resolved.apiKey) throw new Error('请先填写向量服务密钥');
