@@ -243,7 +243,6 @@ export function buildCardV2(character) {
     extensions: {
       regex_scripts: (Array.isArray(source.regexScripts) ? source.regexScripts : [])
         .map(mapRegexScript),
-      nudge_text: String(source.nudgeText || ''),
     },
   };
   const card = {

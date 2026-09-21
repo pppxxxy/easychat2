@@ -1,5 +1,5 @@
 import { sendChatMessage } from './api';
-import { buildRequestMessages, NUDGE_ROLE } from './chatPipeline';
+import { buildRequestMessages } from './chatPipeline';
 
 export const MAX_SPEAKERS = 3;
 export const PROFILE_MIN_CHARS = 30;
@@ -140,9 +140,7 @@ function buildSchedulerPrompt(characters, history, userText, mentions) {
     .map(item => {
       const speaker = item.role === 'user'
         ? '用户'
-        : (item.role === NUDGE_ROLE
-          ? '旁白'
-          : (item.speakerName || nameOf(characters, item.speakerId) || '角色'));
+        : (item.speakerName || nameOf(characters, item.speakerId) || '角色');
       return `${speaker}：${String(item.text || '').slice(0, 120)}`;
     })
     .join('\n');
@@ -262,7 +260,6 @@ export function buildGroupHistory(messages) {
 }
 
 function speakerLabel(characters, item) {
-  if (item?.role === NUDGE_ROLE) return '旁白';
   if (item?.role === 'user') return '用户';
   const name = String(item?.speakerName || nameOf(characters, item?.speakerId) || '').trim();
   return name || '角色';
@@ -314,7 +311,7 @@ export function buildGroupContext({ speaker, characters, historyMessages, profil
   ].join('\n');
 
   const recent = (Array.isArray(historyMessages) ? historyMessages : [])
-    .filter(item => item && (item.role === 'user' || item.role === 'assistant' || item.role === NUDGE_ROLE))
+    .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
@@ -423,7 +420,7 @@ export function buildEnsemblePrompt({
     systemLines.push('', `用户在本轮点名了：${mentionNames}。请确保被点名的角色一定发言。`);
   }
   const recent = (Array.isArray(historyMessages) ? historyMessages : [])
-    .filter(item => item && (item.role === 'user' || item.role === 'assistant' || item.role === NUDGE_ROLE))
+    .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);

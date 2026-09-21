@@ -83,7 +83,6 @@ export default function SettingsScreen() {
   const [loaded, setLoaded] = useState(false);
   const [userName, setUserName] = useState('');
   const [userPersona, setUserPersona] = useState('');
-  const [nudgeDefault, setNudgeDefault] = useState('');
   const [userAvatarUri, setUserAvatarUri] = useState('');
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
   const [personas, setPersonas] = useState([]);
@@ -155,7 +154,7 @@ export default function SettingsScreen() {
   const profileSavingRef = useRef(null);
   const profileMountedRef = useRef(true);
   const profileStateRef = useRef(null);
-  profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri, nudgeText: nudgeDefault };
+  profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri };
 
   useEffect(() => {
     profileMountedRef.current = true;
@@ -381,7 +380,6 @@ export default function SettingsScreen() {
         setUserName(profile.userName);
         setUserPersona(profile.persona);
         setUserAvatarUri(profile.avatarUri || '');
-        setNudgeDefault(profile.nudgeText || '');
       })
       .catch(() => {})
       .finally(() => setUserProfileLoaded(true));
@@ -400,7 +398,6 @@ export default function SettingsScreen() {
         userName: name,
         persona,
         avatarUri: avatar ?? profileStateRef.current.avatarUri,
-        nudgeText: profileStateRef.current.nudgeText,
       };
       if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
       profileTimerRef.current = setTimeout(async () => {
@@ -1062,7 +1059,7 @@ export default function SettingsScreen() {
             />
           </View>
           <Text style={styles.fieldHint}>
-            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像与拍一拍文案为全部人设共用。
+            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像为全部人设共用。
           </Text>
           <FieldLabel style={styles.label}>我的身份</FieldLabel>
           <View style={styles.personaList}>
@@ -1141,20 +1138,6 @@ export default function SettingsScreen() {
             multiline
             textAlignVertical="top"
           />
-          <FieldLabel style={styles.label}>默认拍一拍文案</FieldLabel>
-          <TextField
-            value={nudgeDefault}
-            onChangeText={text => {
-              setNudgeDefault(text);
-              if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
-              profileTimerRef.current = setTimeout(() => {
-                profileTimerRef.current = null;
-                saveUserProfile({ ...profileStateRef.current, nudgeText: text }).catch(() => {});
-              }, 600);
-            }}
-            placeholder="{user} 戳了戳 {char}"
-          />
-          <FieldHint style={styles.hint}>角色未单独设置拍一拍文案时使用；支持 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
           <SecondaryButton
             title="保存用户人设"
             icon="save-outline"

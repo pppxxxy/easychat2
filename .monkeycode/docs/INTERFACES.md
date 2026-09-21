@@ -74,7 +74,7 @@
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析，并经 `addCharacter` 加入角色库并设为当前角色
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
-- 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）、「拍一拍文案」与「标签」
+- 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）与「标签」
 - 「全局预设」入口位于世界书与正则区块之后
 - 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
 
@@ -82,13 +82,13 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像与拍一拍文案为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索；API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（12 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索；API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（12 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
 **Props**: `{ visible, character, onClose, onSaved }`
 **行为**:
-- 底部抽屉式 `Modal`，编辑当前角色的常用字段：名称、头像、背景、人设/系统提示词、角色描述、性格、场景、开场白、备用开场白（逐条增删改）、对话示例、拍一拍文案与标签
+- 底部抽屉式 `Modal`，编辑当前角色的常用字段：名称、头像、背景、人设/系统提示词、角色描述、性格、场景、开场白、备用开场白（逐条增删改）、对话示例与标签
 - 打开时以 `character` 初始化草稿；保存时经 `useApp().updateCharacter` 写入，并重建 `systemPromptComposed`
 - 保存成功回调 `onSaved`；失败 `Alert` 并保留草稿不清空
 - 世界书与正则脚本不在此表单内，界面提示前往「角色」页编辑
@@ -280,7 +280,7 @@
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedId?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedId` 存在时移除其消息键 |
-| `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入当前人设（用户名、人设）+ 全局头像与拍一拍文案 |
+| `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入当前人设（用户名、人设）+ 全局头像 |
 | `getPersonas` | `() => Promise<Persona[]>` | 读取人设列表；为空时把旧 `@easychat2_user_profile` 迁移为 `default` 一项并写入 |
 | `savePersonas` | `(list) => Promise<Persona[]>` | 规范化并写入人设列表（空列表补默认人设） |
 | `getActivePersonaId` | `(list?) => Promise<string>` | 读取当前人设 id；不存在或非法时回退列表首项 |
@@ -324,7 +324,7 @@
 | `@easychat2_messages::<sessionId>` | 会话消息数组（新数据按会话 id 存储） |
 | `@easychat2_messages::<characterId>` | 旧版按角色存储的消息（仅迁移读取） |
 | `@easychat2_messages` | 旧版单会话消息（仅默认角色迁移读取时兜底） |
-| `@easychat2_user_profile` | 用户全局资料 `{ avatarUri, nudgeText }`（并作为旧单人设的迁移来源，兼容读取 `userName`/`persona`） |
+| `@easychat2_user_profile` | 用户全局资料 `{ avatarUri }`（并作为旧单人设的迁移来源，兼容读取 `userName`/`persona`） |
 | `@easychat2_personas` | 用户人设列表 `[{ id, userName, persona, createdAt, updatedAt }]` |
 | `@easychat2_active_persona` | 当前人设 `id` |
 | `@easychat2_preset_list` | 全局预设数组 |
@@ -498,8 +498,8 @@ data: [DONE]
 
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
 **位置**: `src/chatPipeline.js`
-**返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；历史中的旁白消息（`role: 'nudge'`）转为 `system` 并前缀「（旁白）」；`userText` 为空且无 `images` 时不再追加空 `user` 消息，改为追加一条 `system` 旁白回应提示；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: `NUDGE_ROLE = 'nudge'` 为「拍一拍」旁白角色，也是接受的历史角色之一（仅 `user` / `assistant` / `nudge`）；系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -523,8 +523,6 @@ data: [DONE]
 | `mergeAdjacentSegments(segments)` | 合并同一发言者的连续段，丢弃空文本段 |
 
 **常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`、`ENSEMBLE_MODE = 'ensemble'`、`TURN_MODE = 'turn'`。
-
-**拍一拍（旁白）**: `role: 'nudge'` 的历史项在 `buildGroupContext` / `buildEnsemblePrompt` / `buildSchedulerPrompt` 的最近对话中以「旁白」标注，`buildGroupHistory` 原样透传后由 `buildRequestMessages` 统一转为 `system` 旁白；`userText` 为空时 `buildEnsemblePrompt` 末尾追加 `system` 提示而非空 `user`。
 
 ### 附件接口
 **位置**: `src/attachments.js`
@@ -704,7 +702,6 @@ data: [DONE]
 | `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
 | `lastUsedAt` | `number?` | 最近一次成为当前角色的时间戳，决定列表排序 |
 | `pinned` | `boolean?` | 是否置顶；置顶角色排在角色库最前 |
-| `nudgeText` | `string?` | 拍一拍文案（角色卡 `extensions.nudge_text`）；留空用全局默认 |
 
 ### `Message`
 
@@ -727,7 +724,7 @@ data: [DONE]
 | `persona` | `string` | 人设描述文本 |
 | `createdAt` / `updatedAt` | `number` | 创建与更新时间戳 |
 
-头像与拍一拍文案为全局共用，存于 `@easychat2_user_profile`，不随人设切换。
+头像为全局共用，存于 `@easychat2_user_profile`，不随人设切换。
 
 ### `Session`
 

@@ -32,7 +32,7 @@ import {
   readImageDataUri,
   readTextAttachment,
 } from './attachments';
-import { buildRequestMessages, NUDGE_ROLE } from './chatPipeline';
+import { buildRequestMessages } from './chatPipeline';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -111,23 +111,12 @@ import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments'
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
 const SYSTEM_ERROR_ID = 'system-error';
-const NUDGE_ID = NUDGE_ROLE;
 const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const THINKING_PLACEHOLDER = '正在思考...';
 const NEAR_BOTTOM_THRESHOLD = 80;
 const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
 const QUOTE_TEXT_MAX = 200;
 const INLINE_IMAGE_PROMPT_MAX = 400;
-const DOUBLE_TAP_MS = 300;
-
-function buildNudgeText(template, userName, characterName) {
-  const source = String(template || '').trim() || '{user} 戳了戳 {char}';
-  return source
-    .replace(/\{\{user\}\}/g, userName || '我')
-    .replace(/\{user\}/g, userName || '我')
-    .replace(/\{\{char\}\}/g, characterName || '对方')
-    .replace(/\{char\}/g, characterName || '对方');
-}
 
 function buildInlineImagePrompt(text, stylePrefix, maxChars) {
   const source = String(text || '').replace(/\s+/g, ' ').trim();
@@ -438,7 +427,7 @@ function renderHighlightedText(text, keyword, styles) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, onNudge, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -449,7 +438,6 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const [copied, setCopied] = useState(false);
   const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
-  const lastNudgeRef = useRef(0);
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
   const plainText = messageCopyText(message.text);
@@ -506,20 +494,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
       )}
     </View>
   ) : (
-    <Pressable
-      style={styles.avatarContainer}
-      onPress={() => {
-        const now = Date.now();
-        if (now - lastNudgeRef.current < DOUBLE_TAP_MS) {
-          lastNudgeRef.current = 0;
-          onNudge?.(characterName);
-          return;
-        }
-        lastNudgeRef.current = now;
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={`拍一拍 ${characterName || ''}`}
-    >
+    <View style={styles.avatarContainer}>
       {characterAvatar ? (
         <Image source={{ uri: characterAvatar }} style={styles.avatarImage} />
       ) : (
@@ -529,7 +504,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           </Text>
         </View>
       )}
-    </Pressable>
+    </View>
   );
 
   return (
@@ -748,18 +723,6 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
   );
 }
 
-function NudgeBubble({ message }) {
-  const { theme, fonts, tokens } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  return (
-    <View style={styles.nudgeRow}>
-      <View style={styles.nudgeBubble}>
-        <Text style={styles.nudgeText}>{message.text}</Text>
-      </View>
-    </View>
-  );
-}
-
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -843,7 +806,6 @@ export default function ChatScreen() {
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState('');
   const userNameRef = useRef('');
-  const nudgeDefaultRef = useRef('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -993,9 +955,6 @@ export default function ChatScreen() {
       if (!item) continue;
       if (item.role === USER_ID) {
         hasUser = true;
-      } else if (item.role === NUDGE_ID) {
-        // 拍一拍触发的回复不提供「重新生成」：重生成会回溯到上一条用户消息，忽略旁白。
-        hasUser = false;
       } else if (item.role === ASSISTANT_ID && hasUser) {
         ids.add(item.id);
       }
@@ -1030,7 +989,6 @@ export default function ChatScreen() {
       if (cancelled) return;
       userProfileCache = profile;
       userNameRef.current = String(profile.userName || '').trim();
-      nudgeDefaultRef.current = String(profile.nudgeText || '').trim();
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
     getMessagesBySession(activeSessionId)
@@ -1745,8 +1703,8 @@ export default function ChatScreen() {
           const roundHistory = working.filter(
             (item, index) => item
               && !item.pending
-              && (item.role === USER_ID || item.role === ASSISTANT_ID || item.role === NUDGE_ID)
-              && (index < baseMessages.length - 1 || item.role === NUDGE_ID)
+              && (item.role === USER_ID || item.role === ASSISTANT_ID)
+              && index < baseMessages.length - 1
           );
           working = [...working, pendingMessage];
           setMessages(working);
@@ -1795,8 +1753,8 @@ export default function ChatScreen() {
         const historyForPrompt = working.filter(
           (item, index) => item
             && !item.pending
-            && (item.role === USER_ID || item.role === ASSISTANT_ID || item.role === NUDGE_ID)
-            && (index < baseMessages.length - 1 || item.role === NUDGE_ID)
+            && (item.role === USER_ID || item.role === ASSISTANT_ID)
+            && index < baseMessages.length - 1
         );
         const requestMessages = buildEnsemblePrompt({
           characters: members,
@@ -2017,32 +1975,6 @@ export default function ChatScreen() {
       Alert.alert('播报失败', (error && error.message) || '请稍后重试。');
     }
   }, []);
-
-  const onNudge = useCallback(speakerName => {
-    if (isSending || !ready || abortRef.current) return;
-    const charName = speakerName || String(character?.name || '').trim();
-    const speaker = charName && charName !== character?.name
-      ? characters.find(item => item.name === charName)
-      : character;
-    const template = String((speaker && speaker.nudgeText) || '').trim() || nudgeDefaultRef.current;
-    const text = buildNudgeText(template, userNameRef.current, charName);
-    const nudge = {
-      id: `${Date.now()}-nudge`,
-      role: NUDGE_ID,
-      text,
-    };
-    ttsStop().catch(() => {});
-    const payload = {
-      historyMessages: [...messages, nudge],
-      userText: '',
-      baseMessages: [...messages, nudge],
-    };
-    if (isGroupRef.current) {
-      requestGroupReply(payload);
-    } else {
-      requestReply(payload);
-    }
-  }, [character, characters, isSending, messages, ready, requestGroupReply, requestReply]);
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
@@ -2402,9 +2334,7 @@ export default function ChatScreen() {
                 key={message.id}
                 onLayout={event => onMessageLayout(message.id, event)}
               >
-                {message.role === NUDGE_ID ? (
-                  <NudgeBubble message={message} />
-                ) : message.role === SYSTEM_ERROR_ID ? (
+                {message.role === SYSTEM_ERROR_ID ? (
                   <ErrorBubble
                     message={message}
                     rawError={errorRawRef.current[message.id]}
@@ -2441,7 +2371,6 @@ export default function ChatScreen() {
                     onPressQuote={onPressQuoteBlock}
                     onGenerateImage={generateInlineImage}
                     onBroadcast={broadcastMessage}
-                    onNudge={onNudge}
                     highlightKeyword={searchQuery.trim()}
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}
@@ -3682,25 +3611,6 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.text,
     fontSize: 13,
     lineHeight: 18,
-  },
-  nudgeRow: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 24,
-  },
-  nudgeBubble: {
-    backgroundColor: 'transparent',
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  nudgeText: {
-    color: theme.colors.textMuted,
-    fontSize: fonts.scaled(12),
-    textAlign: 'center',
   },
   errorBubble: {
     backgroundColor: theme.id === 'light' ? '#fde8e8' : '#3a1719',

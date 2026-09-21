@@ -61,7 +61,6 @@ export const DEFAULT_CHARACTER = {
   firstMes: '',
   alternateGreetings: [],
   mesExample: '',
-  nudgeText: '',
   creatorNotes: '',
   postHistoryInstructions: '',
   tags: [],
@@ -117,7 +116,6 @@ function normalizeCharacter(raw) {
     ? merged.alternateGreetings.map(item => String(item == null ? '' : item))
     : [];
   merged.mesExample = String(merged.mesExample || '');
-  merged.nudgeText = String(merged.nudgeText || '');
   return merged;
 }
 
@@ -811,7 +809,7 @@ export async function saveMessages(characterId, messages) {
   await AsyncStorage.setItem(messagesKey(characterId), JSON.stringify(persistable));
 }
 
-const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '', nudgeText: '' };
+const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '' };
 const DEFAULT_PERSONA_ID = 'default';
 
 function makePersonaId(now = Date.now()) {
@@ -835,7 +833,6 @@ function readGlobalProfileMeta(rawProfile) {
   const source = rawProfile && typeof rawProfile === 'object' ? rawProfile : {};
   return {
     avatarUri: String(source.avatarUri || ''),
-    nudgeText: String(source.nudgeText || ''),
   };
 }
 
@@ -965,7 +962,6 @@ export async function getUserProfile() {
     userName: String(active?.userName || ''),
     persona: String(active?.persona || ''),
     avatarUri: meta.avatarUri,
-    nudgeText: meta.nudgeText,
   };
 }
 
@@ -992,7 +988,6 @@ export async function saveUserProfile(profile) {
       userName: String(profile?.userName || ''),
       persona: String(profile?.persona || ''),
       avatarUri: String(profile?.avatarUri ?? meta.avatarUri ?? ''),
-      nudgeText: String(profile?.nudgeText ?? meta.nudgeText ?? ''),
     })
   );
 }

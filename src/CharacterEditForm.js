@@ -39,7 +39,6 @@ function emptyDraft(character) {
       ? character.alternateGreetings.map(String)
       : [],
     mesExample: String(character?.mesExample || ''),
-    nudgeText: String(character?.nudgeText || ''),
     tags: Array.isArray(character?.tags) ? character.tags.map(String) : [],
     avatarUri: String(character?.avatarUri || ''),
     bgUri: String(character?.bgUri || ''),
@@ -140,7 +139,6 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
         .map(item => String(item || '').trim())
         .filter(Boolean),
       mesExample: draft.mesExample.trim(),
-      nudgeText: draft.nudgeText.trim(),
       tags: draft.tags,
       avatarUri: draft.avatarUri || '',
       bgUri: draft.bgUri || '',
@@ -320,14 +318,6 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               textAlignVertical="top"
             />
             <FieldHint style={styles.hint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
-
-            <FieldLabel style={styles.label}>拍一拍文案</FieldLabel>
-            <TextField
-              value={draft.nudgeText}
-              onChangeText={text => patch('nudgeText', text)}
-              placeholder="{user} 戳了戳 {char}"
-            />
-            <FieldHint style={styles.hint}>双击角色头像时显示，可用 {`{{user}}`} 与 {`{{char}}`} 占位；留空使用默认文案。</FieldHint>
 
             <FieldLabel style={styles.label}>标签</FieldLabel>
             <View style={styles.tagRow}>

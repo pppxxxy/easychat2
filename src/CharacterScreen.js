@@ -118,7 +118,6 @@ function buildCharacterPatch(card) {
     firstMes: fields.firstMes || '',
     alternateGreetings: Array.isArray(fields.alternateGreetings) ? fields.alternateGreetings : [],
     mesExample: fields.mesExample || '',
-    nudgeText: fields.nudgeText || '',
     creatorNotes: fields.creatorNotes || '',
     postHistoryInstructions: fields.postHistoryInstructions || '',
     tags: Array.isArray(fields.tags) ? fields.tags : [],
@@ -458,7 +457,6 @@ export default function CharacterScreen() {
   const [firstMes, setFirstMes] = useState('');
   const [alternateGreetings, setAlternateGreetings] = useState([]);
   const [mesExample, setMesExample] = useState('');
-  const [nudgeText, setNudgeText] = useState('');
   const [worldInfo, setWorldInfo] = useState([]);
   const [regexScripts, setRegexScripts] = useState([]);
   const [expandedWorld, setExpandedWorld] = useState(false);
@@ -505,7 +503,6 @@ export default function CharacterScreen() {
     setFirstMes(character.firstMes || '');
     setAlternateGreetings(Array.isArray(character.alternateGreetings) ? character.alternateGreetings : []);
     setMesExample(String(character.mesExample || ''));
-    setNudgeText(String(character.nudgeText || ''));
     setWorldInfo(
       ensureUniqueIds(Array.isArray(character.worldInfo) ? character.worldInfo : [], 'entry')
     );
@@ -602,7 +599,6 @@ export default function CharacterScreen() {
       firstMes: firstMes.trim(),
       alternateGreetings: alternateGreetings.map(item => String(item || '').trim()).filter(Boolean),
       mesExample: mesExample.trim(),
-      nudgeText: nudgeText.trim(),
       worldInfo,
       regexScripts,
       avatarUri: avatarPreview || '',
@@ -619,7 +615,6 @@ export default function CharacterScreen() {
       setFirstMes(next.firstMes);
       setAlternateGreetings(Array.isArray(next.alternateGreetings) ? next.alternateGreetings : []);
       setMesExample(String(next.mesExample || ''));
-      setNudgeText(String(next.nudgeText || ''));
       setWorldInfo(next.worldInfo);
       setRegexScripts(next.regexScripts);
       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
@@ -1467,14 +1462,6 @@ export default function CharacterScreen() {
             textAlignVertical="top"
           />
           <Text style={styles.fieldHint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
-
-          <FieldLabel style={styles.label}>拍一拍文案</FieldLabel>
-          <TextField
-            value={nudgeText}
-            onChangeText={setNudgeText}
-            placeholder="{user} 戳了戳 {char}"
-          />
-          <Text style={styles.fieldHint}>双击角色头像时显示，可用 {`{{user}}`} 与 {`{{char}}`} 占位；留空使用默认文案。</Text>
 
           <FieldLabel style={styles.label}>标签</FieldLabel>
           <View style={styles.tagRow}>

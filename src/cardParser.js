@@ -338,10 +338,6 @@ function extractStandardFields(root, data, extensions) {
       ['post_history_instructions', 'postHistoryInstructions']
     ),
     tags: toStringArray(data?.tags ?? root?.tags),
-    nudgeText: firstString(
-      [extensions, data, root],
-      ['nudge_text', 'nudgeText']
-    ),
   };
 }
 
