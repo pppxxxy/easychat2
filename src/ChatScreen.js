@@ -1016,6 +1016,13 @@ export default function ChatScreen() {
     return ids;
   }, [messages]);
 
+  // 当前角色 id 变化时必须同步 ref。加载 effect 只依赖 [activeSessionId, loaded]，
+  // 当角色变了而会话尚未切过去（例如 activeId 失效被解析回初始卡）时它不会触发，
+  // ref 就会停留在旧角色，导致动态归属、迟到回复判定与实际界面角色不一致。
+  useEffect(() => {
+    activeCharacterIdRef.current = characterId;
+  }, [characterId]);
+
   useEffect(() => {
     if (!loaded) return;
     activeCharacterIdRef.current = characterId;

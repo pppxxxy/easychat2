@@ -46,6 +46,17 @@ test('appendMoment 超过上限时保留最新的', () => {
   assert.equal(list[0].id, 'm5');
 });
 
+test('appendMoment 传入降序列表时按 createdAt 保最新，不误删次新动态', () => {
+  const list = Array.from({ length: 200 }, (_, i) => ({ id: `old${i}`, createdAt: 1000 + i }));
+  // getMoments 返回降序（最新在前）
+  const descending = [...list].sort((a, b) => b.createdAt - a.createdAt);
+  const next = appendMoment(descending, { id: 'newest', createdAt: 99999 });
+  assert.equal(next.length, 200);
+  assert.ok(next.some(item => item.id === 'newest'));
+  // 原降序列表里最新的那条必须保留，不能被按位置截断误删
+  assert.ok(next.some(item => item.id === descending[0].id));
+});
+
 test('好感度与回合阈值去重后触发', () => {
   assert.equal(shouldTrigger({ affinity: 120 }), 'affinity-best');
   assert.equal(shouldTrigger({ affinity: 120, triggers: ['affinity-best'] }), null);

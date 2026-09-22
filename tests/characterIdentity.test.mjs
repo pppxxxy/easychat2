@@ -50,6 +50,24 @@ test('已经唯一的 id 不会被改动，顺序变化也不影响归属', () =
   assert.deepEqual(r2.list.map(item => item.id), ['b', 'a']);
 });
 
+test('持久化后再读取（顺序被 sortCharacters 改变）不再改动 id，身份不漂移', () => {
+  const stored = [
+    { id: '', name: '导入角色' },
+    { id: 'default', name: 'EasyChat2 助手' },
+  ];
+  const first = assignStableCharacterIds(stored, { defaultId: DEFAULT_ID, isInitial, now: 3000 });
+  assert.equal(first.changed, true);
+  const assigned = first.list.find(item => item.name === '导入角色').id;
+  assert.ok(assigned.startsWith('card-'));
+
+  // 模拟置顶 / 最近使用导致列表顺序变化
+  const reordered = [...first.list].reverse();
+  const second = assignStableCharacterIds(reordered, { defaultId: DEFAULT_ID, isInitial, now: 4000 });
+  assert.equal(second.changed, false);
+  assert.equal(second.list.find(item => item.name === 'EasyChat2 助手').id, 'default');
+  assert.equal(second.list.find(item => item.name === '导入角色').id, assigned);
+});
+
 test('uniqueCharacterId/makeCharacterId 产出可用 id', () => {
   const used = new Set(['x']);
   assert.equal(uniqueCharacterId('x', used), 'x-1');

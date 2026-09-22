@@ -425,18 +425,32 @@ export function AppProvider({ children }) {
     });
   }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
 
+  // activeId 失效（存储损坏 / 角色被外部删除）时界面角色会退回初始卡。若同时继续对外
+  // 暴露失效的 activeId，就会造成“高亮的角色”和“当前角色”不是同一个的身份错位，后续
+  // 按 activeId 落盘的数据也会指错人。这里统一以解析出的角色为准：character.id 就是
+  // 唯一有效的 activeId。
   const character = useMemo(
     () => characters.find(item => item.id === activeId)
       || characters.find(item => item.id === DEFAULT_CHARACTER.id)
       || DEFAULT_CHARACTER,
     [characters, activeId]
   );
+  const resolvedActiveId = character.id;
+
+  // activeId 与当前角色不一致时立即修正并落盘，避免失效 id 一直留在存储里。
+  useEffect(() => {
+    if (!loaded) return;
+    if (activeIdRef.current === resolvedActiveId) return;
+    activeIdRef.current = resolvedActiveId;
+    setActiveIdState(resolvedActiveId);
+    setActiveCharacterId(resolvedActiveId).catch(() => {});
+  }, [loaded, resolvedActiveId]);
 
   const value = useMemo(
     () => ({
       character,
       characters,
-      activeId,
+      activeId: resolvedActiveId,
       loaded,
       updateCharacter,
       switchCharacter,
@@ -460,7 +474,7 @@ export function AppProvider({ children }) {
     [
       character,
       characters,
-      activeId,
+      resolvedActiveId,
       loaded,
       updateCharacter,
       switchCharacter,
