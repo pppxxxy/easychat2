@@ -944,12 +944,14 @@ export default function CharacterScreen() {
 
   const runDeleteSelected = (ids, deleteMemories) => {
     const memoryIds = sessionsOfCharacters(ids);
-    const afterCharacterDelete = () => {
+    // 先删记忆（动态 + 会话）再删角色：反过来的话，角色删掉而会话删除失败，会留下
+    // “打不开的记忆”（点开就报角色不存在），与记忆页的删除顺序也不一致。
+    const beforeCharacterDelete = () => {
       if (!deleteMemories || memoryIds.length === 0) return null;
       return removeMomentsOfSessions(memoryIds).then(() => deleteSessions(memoryIds));
     };
-    deleteCharacters(ids)
-      .then(afterCharacterDelete)
+    Promise.resolve(beforeCharacterDelete())
+      .then(() => deleteCharacters(ids))
       .then(() => {
         setSelectedIds([]);
         setEditMode(false);
@@ -1075,12 +1077,12 @@ export default function CharacterScreen() {
   const onDeleteCharacter = item => {
     const memoryIds = sessionsOfCharacters([item.id]);
     const runDelete = deleteMemories => {
-      const afterCharacterDelete = () => {
+      const beforeCharacterDelete = () => {
         if (!deleteMemories || memoryIds.length === 0) return null;
         return removeMomentsOfSessions(memoryIds).then(() => deleteSessions(memoryIds));
       };
-      deleteCharacter(item.id)
-        .then(afterCharacterDelete)
+      Promise.resolve(beforeCharacterDelete())
+        .then(() => deleteCharacter(item.id))
         .catch(error => {
           Alert.alert('删除失败', (error && error.message) || '请稍后重试。');
         });
@@ -1150,22 +1152,6 @@ export default function CharacterScreen() {
 
   const pickAvatar = () => pickImage(setAvatarPreview, 'avatar');
   const pickBg = () => pickImage(setBgPreview, 'bg');
-
-  const clearBgImage = async () => {
-    if (!loaded) {
-      Alert.alert('角色加载中', '请稍候再操作。');
-      return;
-    }
-    const session = screenSessionRef.current;
-    const previous = bgPreview;
-    setBgPreview(null);
-    try {
-      await updateCharacter({ id: character.id, bgUri: '' });
-    } catch (error) {
-      if (screenSessionRef.current === session) setBgPreview(previous);
-      Alert.alert('清除失败', '请检查存储空间或权限。');
-    }
-  };
 
   const editingWorldIndex = worldInfo.findIndex(item => item.id === editingWorldId);
   const editingWorldEntry = editingWorldIndex >= 0 ? worldInfo[editingWorldIndex] : null;
@@ -1432,7 +1418,7 @@ export default function CharacterScreen() {
                 <Text style={styles.smallButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
               </TouchableOpacity>
               {bgPreview ? (
-                <TouchableOpacity onPress={clearBgImage} hitSlop={8}>
+                <TouchableOpacity onPress={() => setBgPreview(null)} hitSlop={8}>
                   <Text style={styles.removeText}>清除</Text>
                 </TouchableOpacity>
               ) : null}
@@ -1982,6 +1968,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   countBadgeText: { color: theme.colors.primarySoft, fontSize: 11, fontWeight: '700' },
 
   label: { color: theme.colors.textMuted, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
+  fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 6 },
   fieldLabel: { color: theme.colors.textFaint, fontSize: 12, marginTop: 12, marginBottom: 6, fontWeight: '600' },
   inputSmall: { paddingVertical: 9, paddingHorizontal: 11 },
   multiline: { minHeight: 160, maxHeight: 340, paddingTop: 12 },
@@ -2312,7 +2299,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   addButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6 },
 
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap' },
   tag: {
     backgroundColor: theme.colors.primaryAlpha(0.14),
     borderWidth: 1,
