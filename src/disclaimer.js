@@ -44,10 +44,6 @@ export const DISCLAIMER_SECTIONS = [
   },
 ];
 
-export function disclaimerSections() {
-  return DISCLAIMER_SECTIONS;
-}
-
 export default function DisclaimerModal({ visible, title = '免责条款', content = DISCLAIMER_TEXT, sections, onClose }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);

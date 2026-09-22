@@ -612,14 +612,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 80,
-  },
-  emptyTitle: { color: theme.colors.textMuted, fontSize: fonts.scaled(15), fontWeight: '700', marginTop: 14 },
-  emptyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 6 },
   editBar: {
     flexDirection: 'row',
     alignItems: 'center',

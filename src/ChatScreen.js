@@ -101,6 +101,7 @@ import {
   retrieve,
 } from './vectorMemory';
 import { useTheme } from './theme/ThemeContext';
+import { hexToRgba } from './theme/themes';
 import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
 import { speak as ttsSpeak, stop as ttsStop } from './tts';
@@ -3165,7 +3166,7 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     justifyContent: 'space-between',
     borderBottomWidth: tokens.border.thin,
     borderBottomColor: theme.colors.divider,
-    backgroundColor: theme.id === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(26,26,46,0.85)',
+    backgroundColor: hexToRgba(theme.colors.background, theme.id === 'light' ? 0.92 : 0.85),
     paddingHorizontal: tokens.spacing.md,
     paddingVertical: tokens.spacing.sm,
   },

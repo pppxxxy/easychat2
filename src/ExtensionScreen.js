@@ -284,8 +284,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   backButtonText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 2 },
   gameBarTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6 },
   webview: { flex: 1, backgroundColor: theme.colors.background },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
-  emptyText: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 10, textAlign: 'center', lineHeight: fonts.scaled(19) },
   retryButton: {
     marginTop: 14,
     backgroundColor: theme.colors.primary,

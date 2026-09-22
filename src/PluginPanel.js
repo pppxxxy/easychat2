@@ -313,7 +313,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginRight: 8,
     marginBottom: 8,
   },
-  providerChipActive: { backgroundColor: `${theme.colors.primary}40`, borderColor: theme.colors.primary },
+  providerChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   providerTextActive: { color: theme.colors.primarySoft },
   keyRow: { flexDirection: 'row', alignItems: 'center' },

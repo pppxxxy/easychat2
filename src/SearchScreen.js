@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -213,5 +212,4 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   itemTime: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
   itemText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 6 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80 },
-  emptyText: { color: theme.colors.textFaint, fontSize: fonts.scaled(14), marginTop: 12 },
 });

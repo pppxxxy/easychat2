@@ -464,6 +464,4 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
-  emptyText: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 10, textAlign: 'center', lineHeight: fonts.scaled(19) },
 });
