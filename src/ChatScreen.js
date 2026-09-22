@@ -81,9 +81,9 @@ import {
   saveThinkingSettings,
   getTtsSettings,
   getMomentsSettings,
-  getAffinity,
+  getAffinityStatus,
   saveAffinity,
-  getMoments,
+  getMomentsStatus,
   saveMoments,
   saveTtsSettings,
   startNewSession,
@@ -1705,12 +1705,16 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [autoScrollToBottom, broadcastMessage, character, characters, isSending, maybeAutoSummarize, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character, characters, isSending, maybeAutoSummarize, ready, scrollToBottom]);
 
   const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, quote }) => {
     if (isSending || !ready || abortRef.current) return;
     const members = groupCharactersRef.current;
-    if (members.length === 0) return;
+    if (members.length === 0) {
+      // 输入框在 onSend 里已清空，这里必须给个提示，不能让用户以为发出去又什么都没发生。
+      Alert.alert('无法发送', '这个群聊没有可用的角色（成员可能已被删除）。');
+      return;
+    }
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
     const isCurrent = () =>
@@ -2127,9 +2131,6 @@ export default function ChatScreen() {
   const ttsRef = useRef({ enabled: false, activeProvider: 'system', providers: {} });
   const recordTurnRef = useRef(null);
   useEffect(() => {
-    recordTurnRef.current = recordTurn;
-  }, [recordTurn]);
-  useEffect(() => {
     generateInlineImageRef.current = generateInlineImage;
     inlineImageEnabledRef.current = inlineImageSettings.enabled;
   }, [generateInlineImage, inlineImageSettings.enabled]);
@@ -2234,7 +2235,10 @@ export default function ChatScreen() {
     const characterId = activeCharacterIdRef.current;
     if (!characterId) return;
     const { delta, milestone } = evaluateTurn({ userText, assistantText });
-    const map = await getAffinity().catch(() => ({}));
+    const affinityStatus = await getAffinityStatus().catch(() => ({ status: 'corrupt', map: {} }));
+    // 好感度读不出时不要写回：否则会用空快照把其它角色的好感度清零。
+    if (affinityStatus.status === 'corrupt') return;
+    const map = affinityStatus.map;
     const current = map[characterId] || { score: 0, turnCount: 0, triggers: [] };
     const next = {
       score: clampAffinity(current.score + delta),
@@ -2270,9 +2274,15 @@ export default function ChatScreen() {
       likes: [],
       comments: [],
     };
-    const list = await getMoments().catch(() => []);
-    await saveMoments(appendMoment(list, moment)).catch(() => {});
+    const momentsStatus = await getMomentsStatus().catch(() => ({ status: 'corrupt', moments: [] }));
+    // 动态读不出时不要写回：否则会用空列表把整表动态清掉。
+    if (momentsStatus.status === 'corrupt') return;
+    await saveMoments(appendMoment(momentsStatus.moments, moment)).catch(() => {});
   }, [characters]);
+  // recordTurn 声明在下方，这里用 ref 暴露给它上面的回调，避免依赖数组引用“后声明”的 const（TDZ）。
+  useEffect(() => {
+    recordTurnRef.current = recordTurn;
+  }, [recordTurn]);
 
   return (
     <KeyboardAvoidingView

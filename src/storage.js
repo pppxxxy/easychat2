@@ -226,7 +226,7 @@ export async function saveCharacterLibrary(list) {
   return next;
 }
 
-export async function saveCharacterState(list, activeId, deletedId) {
+export async function saveCharacterState(list, activeId, deletedIds) {
   const previousList = await AsyncStorage.getItem(CHARACTERS_KEY);
   let librarySaved = false;
   try {
@@ -244,10 +244,13 @@ export async function saveCharacterState(list, activeId, deletedId) {
     }
     throw error;
   }
-  if (deletedId && deletedId !== DEFAULT_CHARACTER.id) {
-    try {
-      await AsyncStorage.removeItem(messagesKey(deletedId));
-    } catch (error) {}
+  const removed = Array.isArray(deletedIds) ? deletedIds : (deletedIds ? [deletedIds] : []);
+  for (const id of removed) {
+    if (id && id !== DEFAULT_CHARACTER.id) {
+      try {
+        await AsyncStorage.removeItem(messagesKey(id));
+      } catch (error) {}
+    }
   }
 }
 
@@ -677,13 +680,24 @@ function normalizeMoment(raw) {
   };
 }
 
-export async function getMoments() {
-  const raw = await readJson(MOMENTS_KEY, null);
-  if (!Array.isArray(raw)) return [];
-  return raw
+export async function getMomentsStatus() {
+  const stored = await readJsonStatus(MOMENTS_KEY);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    // 动态此前没有任何损坏保护：读失败被当成空列表，写回时就把整表清掉。先备份再拒绝覆盖。
+    await backupCorruptValue(MOMENTS_KEY);
+    return { status: 'corrupt', moments: [] };
+  }
+  if (stored.status === 'missing') return { status: 'missing', moments: [] };
+  const moments = stored.value
     .map(normalizeMoment)
     .filter(item => item.id)
     .sort((a, b) => b.createdAt - a.createdAt);
+  return { status: 'ok', moments };
+}
+
+export async function getMoments() {
+  const { moments } = await getMomentsStatus();
+  return moments;
 }
 
 export async function saveMoments(moments) {
@@ -800,9 +814,21 @@ function normalizeAffinityState(raw) {
   return result;
 }
 
+export async function getAffinityStatus() {
+  const stored = await readJsonStatus(AFFINITY_KEY);
+  const isBadObject = stored.status === 'ok'
+    && (!stored.value || typeof stored.value !== 'object' || Array.isArray(stored.value));
+  if (stored.status === 'corrupt' || isBadObject) {
+    await backupCorruptValue(AFFINITY_KEY);
+    return { status: 'corrupt', map: {} };
+  }
+  if (stored.status === 'missing') return { status: 'missing', map: {} };
+  return { status: 'ok', map: normalizeAffinityState(stored.value) };
+}
+
 export async function getAffinity() {
-  const raw = await readJson(AFFINITY_KEY, null);
-  return normalizeAffinityState(raw);
+  const { map } = await getAffinityStatus();
+  return map;
 }
 
 export async function saveAffinity(map) {
@@ -935,9 +961,15 @@ function readGlobalProfileMeta(rawProfile) {
 }
 
 export async function getPersonas() {
-  const stored = await readJson(PERSONAS_KEY, null);
-  if (Array.isArray(stored) && stored.length > 0) {
-    return stored.map(normalizePersona);
+  const stored = await readJsonStatus(PERSONAS_KEY);
+  if (stored.status === 'ok' && Array.isArray(stored.value) && stored.value.length > 0) {
+    return stored.value.map(normalizePersona);
+  }
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    // 读不出就不落盘，更不能把其余人设覆盖成一条；返回默认值，下次可重试。
+    await backupCorruptValue(PERSONAS_KEY);
+    const now = Date.now();
+    return [{ id: DEFAULT_PERSONA_ID, userName: '', persona: '', createdAt: now, updatedAt: now }];
   }
   const legacy = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
   const now = Date.now();
@@ -1471,12 +1503,23 @@ function normalizeSessionSummary(raw) {
   };
 }
 
-export async function getSessionSummaries(sessionId) {
-  const stored = await readJson(sessionSummariesKey(sessionId), []);
-  if (!Array.isArray(stored)) return [];
-  return stored
+export async function getSessionSummariesStatus(sessionId) {
+  const key = sessionSummariesKey(sessionId);
+  const stored = await readJsonStatus(key);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    await backupCorruptValue(key);
+    return { status: 'corrupt', summaries: [] };
+  }
+  if (stored.status === 'missing') return { status: 'missing', summaries: [] };
+  const summaries = stored.value
     .map(normalizeSessionSummary)
     .filter(item => item.summary.trim().length > 0);
+  return { status: 'ok', summaries };
+}
+
+export async function getSessionSummaries(sessionId) {
+  const { summaries } = await getSessionSummariesStatus(sessionId);
+  return summaries;
 }
 
 export async function saveSessionSummaries(sessionId, list) {
@@ -1488,8 +1531,10 @@ export async function saveSessionSummaries(sessionId, list) {
 }
 
 export async function appendSessionSummary(sessionId, entry) {
-  const list = await getSessionSummaries(sessionId);
-  const next = [...list, normalizeSessionSummary(entry)];
+  const { status, summaries } = await getSessionSummariesStatus(sessionId);
+  // 读不出历史摘要时不能当作空表写回，否则该会话的历史摘要会被压成这一条。
+  if (status === 'corrupt') throw new Error('记忆摘要读取失败，请稍后重试');
+  const next = [...summaries, normalizeSessionSummary(entry)];
   await saveSessionSummaries(sessionId, next);
   return next;
 }

@@ -59,7 +59,10 @@ export function buildMomentText({ trigger, character, seed = 0 } = {}) {
 }
 
 export function appendMoment(list, moment) {
-  const next = Array.isArray(list) ? [...list, moment] : [moment];
+  // 按 createdAt 升序后再保留最新 MAX_MOMENTS 条：调用方传入的列表可能是
+  // getMoments 的降序结果，直接按位置 slice 会把最新动态当旧数据丢掉。
+  const next = [...(Array.isArray(list) ? list : []), moment]
+    .sort((a, b) => (Number(a && a.createdAt) || 0) - (Number(b && b.createdAt) || 0));
   if (next.length <= MAX_MOMENTS) return next;
   return next.slice(next.length - MAX_MOMENTS);
 }

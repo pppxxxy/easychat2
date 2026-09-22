@@ -17,6 +17,7 @@ import {
   getEnabledGlobalPresetPrompts,
   getMessagesBySession,
   getMoments,
+  getMomentsStatus,
   getSessionSummaries,
   getUserProfile,
   saveMoments,
@@ -94,7 +95,12 @@ export default function MomentsView({ active = true }) {
   const persist = useCallback(async (list, removedIds = []) => {
     setMoments(list);
     try {
-      const stored = await getMoments();
+      const { status, moments: stored } = await getMomentsStatus();
+      // 动态记录读不出时绝不写回：否则空/不完整快照会把整表动态清空。
+      if (status === 'corrupt') {
+        Alert.alert('保存失败', '动态记录读取失败，为避免覆盖已保留原数据，本次改动未保存。');
+        return;
+      }
       const byId = new Map((Array.isArray(stored) ? stored : []).map(item => [item.id, item]));
       (Array.isArray(list) ? list : []).forEach(item => {
         if (item && byId.has(item.id)) byId.set(item.id, item);
@@ -131,7 +137,10 @@ export default function MomentsView({ active = true }) {
 
   // 停止某条动态正在进行的角色回复：中止请求，后续回包会被 isCanceledError 丢弃。
   const cancelReply = useCallback(momentId => {
-    const controller = replyControllersRef.current.get(String(momentId || ''));
+    const id = String(momentId || '');
+    // 用户显式停止：连待补发的那次也取消，不能停止后又被自动补发一次。
+    pendingReplyRef.current.delete(id);
+    const controller = replyControllersRef.current.get(id);
     if (controller) controller.abort();
   }, []);
 

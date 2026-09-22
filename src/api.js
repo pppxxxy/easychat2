@@ -311,6 +311,13 @@ export async function sendChatMessage(messages, options = {}) {
       }
       try {
         const data = JSON.parse(body);
+        // HTTP 200 也可能带 error（网关/服务商的错误体），必须按失败处理，
+        // 否则会被当成“空回复”继续朗读、记账、写总结。
+        const errorMessage = extractErrorMessage(data);
+        if (errorMessage) {
+          fail(new Error(errorMessage));
+          return;
+        }
         const message = data?.choices?.[0]?.message || {};
         const reasoning = typeof message.reasoning_content === 'string'
           ? message.reasoning_content

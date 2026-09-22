@@ -239,10 +239,7 @@ export function AppProvider({ children }) {
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
-      const totalDeletable = snapshot.list.filter(item => item.id !== DEFAULT_CHARACTER.id).length;
-      if (list.length >= totalDeletable) {
-        throw new Error('至少保留一个角色');
-      }
+      // 默认角色不可删，删掉其余全部角色后仍会保留默认角色，因此这里不再拦截“全选删除”。
       const result = withDeletedCharacters(snapshot.list, list, snapshot.activeId);
       if (result.removedCount === 0) {
         throw new Error('角色不存在');
@@ -251,7 +248,7 @@ export function AppProvider({ children }) {
       activeIdRef.current = result.activeId;
       setActiveIdState(result.activeId);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(result.list, result.activeId)
+        saveCharacterState(result.list, result.activeId, list)
       );
       return result.list;
     });
