@@ -12,12 +12,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
 import {
-  deleteMomentsByIds,
+  deleteMomentsBySessionIds,
   findOrphanSessions,
   getMoments,
   getUserProfile,
   restoreSession,
 } from './storage';
+import { countMomentsBySessionIds } from './moments/moments';
 import ChapterModal from './ChapterModal';
 import SessionRecoveryModal from './SessionRecoveryModal';
 import { Card, EmptyState, TopicButton } from './ui';
@@ -163,31 +164,21 @@ export default function MemoryScreen({ navigation }) {
 
   // 动态可能锚定在某段对话（记忆）上：删除记忆时，提示是否连带删除对应动态。
   const countLinkedMoments = useCallback(async sessionIds => {
-    const ids = new Set(
-      (Array.isArray(sessionIds) ? sessionIds : []).map(item => String(item || '')).filter(Boolean)
-    );
-    if (ids.size === 0) return 0;
-    const list = await getMoments().catch(() => []);
-    return list.filter(item => ids.has(String(item.sessionId || ''))).length;
+    const list = await getMoments();
+    return countMomentsBySessionIds(list, sessionIds);
   }, []);
 
-  const removeMomentsOfSessions = useCallback(async sessionIds => {
-    const ids = new Set(
-      (Array.isArray(sessionIds) ? sessionIds : []).map(item => String(item || '')).filter(Boolean)
-    );
-    if (ids.size === 0) return;
-    const list = await getMoments().catch(() => []);
-    const targetIds = list
-      .filter(item => ids.has(String(item.sessionId || '')))
-      .map(item => item.id);
-    if (targetIds.length > 0) await deleteMomentsByIds(targetIds);
-  }, []);
+  // 先删动态再删会话：读不出动态时直接抛错中止，绝不在“动态删除没成功”的情况下
+  // 先把会话删掉，留下指向不存在会话的孤儿动态。
+  const removeMomentsOfSessions = useCallback(sessionIds => (
+    deleteMomentsBySessionIds(sessionIds)
+  ), []);
 
   const onDelete = useCallback(session => {
     const runDelete = async deleteMomentsToo => {
       try {
-        await deleteSession(session.id);
         if (deleteMomentsToo) await removeMomentsOfSessions([session.id]);
+        await deleteSession(session.id);
       } catch (error) {
         Alert.alert('删除失败', '请检查存储空间或权限。');
       }
@@ -211,7 +202,9 @@ export default function MemoryScreen({ navigation }) {
           ]
         );
       })
-      .catch(() => {});
+      .catch(() => {
+        Alert.alert('删除失败', '没能读出关联动态，请稍后重试。');
+      });
   }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
 
   const onOpenResult = useCallback(async result => {
@@ -256,9 +249,9 @@ export default function MemoryScreen({ navigation }) {
     const count = selectedIds.length;
     const runDelete = async deleteMomentsToo => {
       try {
+        if (deleteMomentsToo) await removeMomentsOfSessions(selectedIds);
         await deleteSessions(selectedIds);
         exitEdit();
-        if (deleteMomentsToo) await removeMomentsOfSessions(selectedIds);
       } catch (error) {
         Alert.alert('删除失败', '请检查存储空间或权限。');
       }
@@ -282,7 +275,9 @@ export default function MemoryScreen({ navigation }) {
           ]
         );
       })
-      .catch(() => {});
+      .catch(() => {
+        Alert.alert('删除失败', '没能读出关联动态，请稍后重试。');
+      });
   }, [countLinkedMoments, deleteSessions, exitEdit, removeMomentsOfSessions, selectedIds]);
 
   return (

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GLOBAL_PRESETS from './presets';
 import { isKnownImageProvider } from './imageGen/providers';
 import { FORGE_FIELDS, FORGE_QUESTIONS } from './cardForge/forge';
+import { removeMomentsBySessionIds } from './moments/moments';
 import {
   buildClonedSession,
   buildPreview,
@@ -769,16 +770,19 @@ export async function clearCardForge() {
   } catch (error) {}
 }
 
-export async function deleteMomentsByIds(ids) {
-  const target = new Set(
-    (Array.isArray(ids) ? ids : []).map(item => String(item || '')).filter(Boolean)
-  );
+// 删除锚定在这些会话（记忆）上的动态。返回被删除的动态 id，便于调用方提示结果。
+export async function deleteMomentsBySessionIds(sessionIds) {
+  const ids = (Array.isArray(sessionIds) ? sessionIds : [])
+    .map(item => String(item || ''))
+    .filter(Boolean);
+  if (ids.length === 0) return [];
   const list = await getMoments();
-  if (target.size === 0) return list;
-  const next = list.filter(item => !target.has(item.id));
-  if (next.length === list.length) return list;
-  await saveMoments(next);
-  return next;
+  const removedIds = list
+    .filter(item => ids.includes(String(item.sessionId || '')))
+    .map(item => item.id);
+  if (removedIds.length === 0) return [];
+  await saveMoments(removeMomentsBySessionIds(list, ids));
+  return removedIds;
 }
 
 function normalizeAffinityState(raw) {

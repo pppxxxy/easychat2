@@ -37,7 +37,8 @@ import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { createGroupSession, saveCardForge } from './storage';
+import { createGroupSession, deleteMomentsBySessionIds, getMoments, saveCardForge } from './storage';
+import { countMomentsBySessionIds } from './moments/moments';
 import { createForgeState, draftFromCharacter } from './cardForge/forge';
 import { useTheme } from './theme/ThemeContext';
 
@@ -930,11 +931,23 @@ export default function CharacterScreen() {
     });
   };
 
+  // 记忆对应的动态：删角色时若连记忆一起删，动态也要一起清，否则会留下
+  // 指向已删除会话的孤儿动态。先删动态再删会话，避免半途失败留下孤儿。
+  const countLinkedMoments = useCallback(async sessionIds => {
+    const list = await getMoments();
+    return countMomentsBySessionIds(list, sessionIds);
+  }, []);
+
+  const removeMomentsOfSessions = useCallback(sessionIds => (
+    deleteMomentsBySessionIds(sessionIds)
+  ), []);
+
   const runDeleteSelected = (ids, deleteMemories) => {
     const memoryIds = sessionsOfCharacters(ids);
-    const afterCharacterDelete = () => (
-      deleteMemories && memoryIds.length > 0 ? deleteSessions(memoryIds) : null
-    );
+    const afterCharacterDelete = () => {
+      if (!deleteMemories || memoryIds.length === 0) return null;
+      return removeMomentsOfSessions(memoryIds).then(() => deleteSessions(memoryIds));
+    };
     deleteCharacters(ids)
       .then(afterCharacterDelete)
       .then(() => {
@@ -947,24 +960,31 @@ export default function CharacterScreen() {
   };
 
   const confirmSelectedDelete = ids => {
-    const memoryCount = sessionsOfCharacters(ids).length;
-    if (memoryCount === 0) {
+    const memoryIds = sessionsOfCharacters(ids);
+    if (memoryIds.length === 0) {
       runDeleteSelected(ids, false);
       return;
     }
-    Alert.alert(
-      '删除角色',
-      `选中的角色还有 ${memoryCount} 条记忆。是否连同这些记忆一起删除？`,
-      [
-        { text: '取消', style: 'cancel' },
-        { text: '仅删角色', onPress: () => runDeleteSelected(ids, false) },
-        {
-          text: '角色和记忆都删',
-          style: 'destructive',
-          onPress: () => runDeleteSelected(ids, true),
-        },
-      ]
-    );
+    countLinkedMoments(memoryIds)
+      .then(linked => {
+        const linkedHint = linked > 0 ? `，其中 ${linked} 条动态会一并删除` : '';
+        Alert.alert(
+          '删除角色',
+          `选中的角色还有 ${memoryIds.length} 条记忆${linkedHint}。是否连同这些记忆一起删除？`,
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '仅删角色', onPress: () => runDeleteSelected(ids, false) },
+            {
+              text: '角色和记忆都删',
+              style: 'destructive',
+              onPress: () => runDeleteSelected(ids, true),
+            },
+          ]
+        );
+      })
+      .catch(() => {
+        Alert.alert('删除失败', '没能读出关联动态，请稍后重试。');
+      });
   };
 
   const onDeleteSelected = () => {
@@ -1055,13 +1075,15 @@ export default function CharacterScreen() {
   const onDeleteCharacter = item => {
     const memoryIds = sessionsOfCharacters([item.id]);
     const runDelete = deleteMemories => {
-      const doDelete = () => deleteCharacter(item.id);
-      const chain = deleteMemories && memoryIds.length > 0
-        ? doDelete().then(() => deleteSessions(memoryIds))
-        : doDelete();
-      chain.catch(error => {
-        Alert.alert('删除失败', (error && error.message) || '请稍后重试。');
-      });
+      const afterCharacterDelete = () => {
+        if (!deleteMemories || memoryIds.length === 0) return null;
+        return removeMomentsOfSessions(memoryIds).then(() => deleteSessions(memoryIds));
+      };
+      deleteCharacter(item.id)
+        .then(afterCharacterDelete)
+        .catch(error => {
+          Alert.alert('删除失败', (error && error.message) || '请稍后重试。');
+        });
     };
     if (memoryIds.length === 0) {
       Alert.alert('删除角色', `确定删除「${item.name || '未命名角色'}」吗？`, [
@@ -1070,19 +1092,26 @@ export default function CharacterScreen() {
       ]);
       return;
     }
-    Alert.alert(
-      '删除角色',
-      `「${item.name || '未命名角色'}」还有 ${memoryIds.length} 条记忆。是否连同这些记忆一起删除？`,
-      [
-        { text: '取消', style: 'cancel' },
-        { text: '仅删角色', onPress: () => runDelete(false) },
-        {
-          text: '角色和记忆都删',
-          style: 'destructive',
-          onPress: () => runDelete(true),
-        },
-      ]
-    );
+    countLinkedMoments(memoryIds)
+      .then(linked => {
+        const linkedHint = linked > 0 ? `，其中 ${linked} 条动态会一并删除` : '';
+        Alert.alert(
+          '删除角色',
+          `「${item.name || '未命名角色'}」还有 ${memoryIds.length} 条记忆${linkedHint}。是否连同这些记忆一起删除？`,
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '仅删角色', onPress: () => runDelete(false) },
+            {
+              text: '角色和记忆都删',
+              style: 'destructive',
+              onPress: () => runDelete(true),
+            },
+          ]
+        );
+      })
+      .catch(() => {
+        Alert.alert('删除失败', '没能读出关联动态，请稍后重试。');
+      });
   };
 
   const pickImage = async (setter, fieldName) => {

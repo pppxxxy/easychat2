@@ -63,3 +63,33 @@ export function appendMoment(list, moment) {
   if (next.length <= MAX_MOMENTS) return next;
   return next.slice(next.length - MAX_MOMENTS);
 }
+
+function sessionIdSet(sessionIds) {
+  return new Set(
+    (Array.isArray(sessionIds) ? sessionIds : [])
+      .map(id => String(id || ''))
+      .filter(Boolean)
+  );
+}
+
+// 删除记忆（会话）时用于联动清理锚定在这些会话上的动态。动态的 sessionId 为
+// 空串时（老数据或不来自对话）不参与匹配。
+export function selectMomentIdsBySessionIds(list, sessionIds) {
+  const ids = sessionIdSet(sessionIds);
+  if (ids.size === 0) return [];
+  return (Array.isArray(list) ? list : [])
+    .filter(moment => moment && ids.has(String(moment.sessionId || '')))
+    .map(moment => String((moment && moment.id) || ''))
+    .filter(Boolean);
+}
+
+export function countMomentsBySessionIds(list, sessionIds) {
+  return selectMomentIdsBySessionIds(list, sessionIds).length;
+}
+
+export function removeMomentsBySessionIds(list, sessionIds) {
+  const ids = sessionIdSet(sessionIds);
+  if (ids.size === 0) return Array.isArray(list) ? list : [];
+  return (Array.isArray(list) ? list : [])
+    .filter(moment => !moment || !ids.has(String(moment.sessionId || '')));
+}
