@@ -7,10 +7,23 @@
 // 仅本模块内部使用，不对外导出（避免留下没人引用的公共 API）
 const MOMENT_REPLY_MAX_CHARS = 200;
 const FALLBACK_MESSAGE_COUNT = 8;
+// 提示词输入上限：避免几十条记忆/一长串评论把请求撑爆。
+const MAX_MEMORY_CHARS = 4000;
+const MAX_THREAD_CHARS = 2000;
 
 function clean(value) {
   if (value === null || value === undefined) return '';
   return String(value).trim();
+}
+
+function capped(text, max) {
+  const value = String(text || '');
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+function tailCapped(text, max) {
+  const value = String(text || '');
+  return value.length > max ? value.slice(value.length - max) : value;
 }
 
 function limited(value, fallback, max) {
@@ -30,7 +43,7 @@ export function buildMomentMemoryText({
   const blocks = (Array.isArray(summaries) ? summaries : [])
     .map(item => clean(item && item.summary))
     .filter(Boolean);
-  if (blocks.length > 0) return blocks.join('\n\n');
+  if (blocks.length > 0) return capped(blocks.join('\n\n'), MAX_MEMORY_CHARS);
 
   const list = (Array.isArray(messages) ? messages : [])
     .filter(item => item
@@ -41,26 +54,32 @@ export function buildMomentMemoryText({
   const limit = limited(maxMessages, FALLBACK_MESSAGE_COUNT, 40);
   const nameForUser = clean(userName) || '用户';
   const nameForChar = clean(charName) || '角色';
-  return list
-    .slice(-limit)
-    .map(item => `${item.role === 'user' ? nameForUser : nameForChar}：${clean(item.text)}`)
-    .join('\n');
+  return capped(
+    list
+      .slice(-limit)
+      .map(item => `${item.role === 'user' ? nameForUser : nameForChar}：${clean(item.text)}`)
+      .join('\n'),
+    MAX_MEMORY_CHARS
+  );
 }
 
 export function buildMomentThread(comments, { charName = '角色', userName = '用户' } = {}) {
   const nameForUser = clean(userName) || '用户';
   const nameForChar = clean(charName) || '角色';
-  return (Array.isArray(comments) ? comments : [])
-    .map(item => {
-      const text = clean(item && item.text);
-      if (!text) return '';
-      const speaker = item && item.by === 'user'
-        ? nameForUser
-        : (clean(item && item.name) || nameForChar);
-      return `${speaker}：${text}`;
-    })
-    .filter(Boolean)
-    .join('\n');
+  return tailCapped(
+    (Array.isArray(comments) ? comments : [])
+      .map(item => {
+        const text = clean(item && item.text);
+        if (!text) return '';
+        const speaker = item && item.by === 'user'
+          ? nameForUser
+          : (clean(item && item.name) || nameForChar);
+        return `${speaker}：${text}`;
+      })
+      .filter(Boolean)
+      .join('\n'),
+    MAX_THREAD_CHARS
+  );
 }
 
 export function buildMomentReplyPrompt({

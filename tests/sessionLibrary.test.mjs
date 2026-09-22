@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   buildRestoredSession,
+  collectMessageSpeakers,
   guessCharacterIdForMessages,
+  isMessageGroup,
 } from '../src/context/sessionLibrary.js';
 
 test('恢复会话沿用原 id，时间取消息时间戳', () => {
@@ -72,4 +74,46 @@ test('判不出来时返回空串，不瞎猜', () => {
   assert.equal(guessCharacterIdForMessages([], characters), '');
   assert.equal(guessCharacterIdForMessages([{ role: 'user', text: 'hi' }], characters), '');
   assert.equal(guessCharacterIdForMessages([{ role: 'assistant', text: '早呀' }], []), '');
+});
+
+test('恢复群聊：按消息里的 speakerId 还原成员，忽略传入的角色', () => {
+  const session = buildRestoredSession({
+    sessionId: 'g1',
+    characterId: 'should-be-ignored',
+    messages: [
+      { role: 'user', text: '大家好', timestamp: 1500 },
+      { role: 'assistant', text: 'a', speakerId: 'c1', speakerName: '小明', timestamp: 1000 },
+      { role: 'assistant', text: 'b', speakerId: 'c2', speakerName: '小红', timestamp: 2000 },
+      { role: 'assistant', text: 'c', speakerId: 'c1', speakerName: '小明', timestamp: 2500 },
+    ],
+  });
+  assert.equal(session.type, 'group');
+  assert.equal(session.characterId, '');
+  assert.deepEqual(session.members, ['c1', 'c2']);
+  assert.deepEqual(session.memberProfiles, { c1: '小明', c2: '小红' });
+  assert.equal(session.groupMode, 'ensemble');
+});
+
+test('单聊（无 speakerId）仍按 characterId 恢复', () => {
+  const session = buildRestoredSession({
+    sessionId: 's2',
+    characterId: 'c9',
+    messages: [{ role: 'assistant', text: 'hi', timestamp: 1 }],
+  });
+  assert.equal(session.type, 'single');
+  assert.equal(session.characterId, 'c9');
+});
+
+test('collectMessageSpeakers/isMessageGroup 只统计 assistant 的 speakerId', () => {
+  const messages = [
+    { role: 'user', speakerId: 'x' },
+    { role: 'assistant', speakerId: 'c1', speakerName: '甲' },
+    { role: 'assistant', speakerId: 'c2', speakerName: '乙' },
+  ];
+  assert.deepEqual(collectMessageSpeakers(messages), [
+    { id: 'c1', name: '甲' },
+    { id: 'c2', name: '乙' },
+  ]);
+  assert.equal(isMessageGroup(messages), true);
+  assert.equal(isMessageGroup([{ role: 'assistant', speakerId: 'c1' }]), false);
 });

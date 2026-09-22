@@ -141,13 +141,61 @@ export function buildClonedSession(sessions, source, messages, now = Date.now())
   };
 }
 
+// 群聊里每条 assistant 消息都带 speakerId/speakerName；单聊消息不带。
+// 因此收集到的发言人数量可用来判断一段消息是不是群聊。
+export const GROUP_MIN_SPEAKERS = 2;
+
+export function collectMessageSpeakers(messages) {
+  const map = new Map();
+  (Array.isArray(messages) ? messages : []).forEach(item => {
+    if (!item || item.role !== 'assistant') return;
+    const id = String(item.speakerId || '').trim();
+    if (!id) return;
+    if (!map.has(id)) map.set(id, String(item.speakerName || '').trim());
+  });
+  return [...map.entries()].map(([id, name]) => ({ id, name }));
+}
+
+export function isMessageGroup(messages) {
+  return collectMessageSpeakers(messages).length >= GROUP_MIN_SPEAKERS;
+}
+
 // 恢复"消息体还在、会话记录丢了"的对话：id 必须沿用原值，消息才对得上。
 // 时间取消息时间戳，保证恢复后在列表里的位置接近原样。
+// 消息里出现多个发言人时按群聊还原（保留成员），否则按单聊归属到 characterId。
 export function buildRestoredSession({ sessionId, characterId, messages, now = Date.now() } = {}) {
   const list = (Array.isArray(messages) ? messages : []).filter(item => item && !item.pending);
   const timestamps = list
     .map(item => Number(item && item.timestamp))
     .filter(value => Number.isFinite(value));
+  const speakers = collectMessageSpeakers(list);
+  const createdAt = timestamps.length ? Math.min(...timestamps) : now;
+  const updatedAt = timestamps.length ? Math.max(...timestamps) : now;
+
+  if (speakers.length >= GROUP_MIN_SPEAKERS) {
+    const memberProfiles = {};
+    speakers.forEach(speaker => {
+      if (speaker.name) memberProfiles[speaker.id] = speaker.name;
+    });
+    return {
+      id: String(sessionId || ''),
+      type: 'group',
+      characterId: '',
+      members: speakers.map(speaker => speaker.id),
+      memberProfiles,
+      groupMode: 'ensemble',
+      avatarUri: '',
+      bgUri: '',
+      name: '',
+      preview: buildPreview(list),
+      pinned: false,
+      createdAt,
+      updatedAt,
+      clonedFrom: '',
+      summarizedUpTo: '',
+    };
+  }
+
   return {
     id: String(sessionId || ''),
     type: 'single',
@@ -160,8 +208,8 @@ export function buildRestoredSession({ sessionId, characterId, messages, now = D
     name: '',
     preview: buildPreview(list),
     pinned: false,
-    createdAt: timestamps.length ? Math.min(...timestamps) : now,
-    updatedAt: timestamps.length ? Math.max(...timestamps) : now,
+    createdAt,
+    updatedAt,
     clonedFrom: '',
     summarizedUpTo: '',
   };

@@ -8,8 +8,10 @@ import {
   buildClonedSession,
   buildPreview,
   buildRestoredSession,
+  collectMessageSpeakers,
   createEmptySession,
   createGroupSession as buildGroupSession,
+  isMessageGroup,
   normalizeSession,
   regenerateMessageIds,
   sortSessions,
@@ -108,13 +110,15 @@ async function readJsonStatus(key) {
 
 // 存储损坏时先把原始内容另存一份再重建：直接用默认值覆盖是不可逆的，
 // 留一份副本至少给用户（或后续版本）留下人工恢复的机会。
+const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
+
 async function backupCorruptValue(key) {
   try {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return;
-    await AsyncStorage.setItem(`${key}__corrupt_backup`, raw);
+    await AsyncStorage.setItem(`${key}${CORRUPT_BACKUP_SUFFIX}`, raw);
     if (__DEV__) {
-      console.warn(`[storage] ${key} 读取失败或结构异常，已备份到 ${key}__corrupt_backup`);
+      console.warn(`[storage] ${key} 读取失败或结构异常，已备份到 ${key}${CORRUPT_BACKUP_SUFFIX}`);
     }
   } catch (error) {}
 }
@@ -1722,7 +1726,9 @@ export async function findOrphanSessions() {
   }
   const prefix = `${MESSAGES_KEY_PREFIX}::`;
   const ids = (Array.isArray(keys) ? keys : [])
-    .filter(key => typeof key === 'string' && key.startsWith(prefix) && key !== LEGACY_MESSAGES_KEY)
+    .filter(key => typeof key === 'string' && key.startsWith(prefix))
+    // 损坏备份键（<消息键>__corrupt_backup）不是真实消息体，排除掉避免误当孤儿
+    .filter(key => !key.endsWith(CORRUPT_BACKUP_SUFFIX))
     .map(key => key.slice(prefix.length))
     .filter(Boolean);
   if (ids.length === 0) return [];
@@ -1740,19 +1746,22 @@ export async function findOrphanSessions() {
   const candidates = ids.filter(id => !known.has(id) && !characterIds.has(id));
   if (candidates.length === 0) return [];
 
-  let pairs = [];
-  try {
-    pairs = await AsyncStorage.multiGet(candidates.map(sessionMessagesKey));
-  } catch (error) {
-    return [];
-  }
+  // 逐个读取：单个消息体过大触发读取失败时只跳过它，不能让整批孤儿陪葬
+  // （最需要这个功能的就是“消息过大”的场景）。
+  const entries = await Promise.all(candidates.map(async sessionId => {
+    try {
+      const raw = await AsyncStorage.getItem(sessionMessagesKey(sessionId));
+      return { sessionId, raw };
+    } catch (error) {
+      return { sessionId, raw: null };
+    }
+  }));
 
   const orphans = [];
-  for (const pair of pairs) {
-    const key = pair && pair[0];
-    const raw = pair && pair[1];
-    if (!key || !raw) continue;
-    const sessionId = key.slice(prefix.length);
+  for (const entry of entries) {
+    const sessionId = entry && entry.sessionId;
+    const raw = entry && entry.raw;
+    if (!sessionId || !raw) continue;
     let parsed = [];
     try {
       const value = JSON.parse(raw);
@@ -1778,6 +1787,8 @@ export async function findOrphanSessions() {
       createdAt: timestamps.length ? Math.min(...timestamps) : 0,
       updatedAt: timestamps.length ? Math.max(...timestamps) : 0,
       greeting: firstReply ? String(firstReply.text || '') : '',
+      // 群聊消息带 speakerId：把发言人带出去，恢复时才能还原成群聊
+      speakers: collectMessageSpeakers(messages),
     });
   }
   orphans.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -1785,15 +1796,17 @@ export async function findOrphanSessions() {
 }
 
 // 把孤儿对话按指定角色补回会话列表，id 沿用原值，消息与已有的记忆摘要都会接上。
+// 群聊（消息里带多个 speakerId）不需要归属角色，会还原成群聊并保留成员。
 export async function restoreSession(sessionId, characterId) {
   const id = String(sessionId || '');
   const owner = String(characterId || '');
-  if (!id || !owner) throw new Error('恢复参数不完整');
+  if (!id) throw new Error('恢复参数不完整');
   const sessions = await requireSessions();
   const existing = sessions.find(session => session.id === id);
   if (existing) return existing;
   const messages = await getMessagesBySession(id);
   if (messages.length === 0) throw new Error('这段对话没有可恢复的消息');
+  if (!isMessageGroup(messages) && !owner) throw new Error('恢复参数不完整');
   const restored = buildRestoredSession({ sessionId: id, characterId: owner, messages });
   await saveSessions(sortSessions([...sessions, restored]));
   return restored;

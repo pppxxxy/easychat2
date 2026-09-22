@@ -95,3 +95,24 @@ test('回复清洗：去引号、去换行、去括号、截断', () => {
   assert.equal(cut.length, 200);
   assert.ok(cut.endsWith('…'));
 });
+
+test('记忆正文与评论串都有长度上限', () => {
+  const huge = buildMomentMemoryText({
+    summaries: Array.from({ length: 20 }, () => ({ summary: 'x'.repeat(1000) })),
+  });
+  assert.equal(huge.length, 4000);
+
+  const messages = Array.from({ length: 40 }, (unused, index) => ({
+    role: 'assistant',
+    text: `第${index}-${'y'.repeat(300)}`,
+  }));
+  const fallback = buildMomentMemoryText({ messages, maxMessages: 40 });
+  assert.equal(fallback.length, 4000);
+
+  const thread = buildMomentThread(
+    Array.from({ length: 50 }, (unused, index) => ({ by: 'user', text: `第${index}条${'z'.repeat(100)}` }))
+  );
+  assert.equal(thread.length, 2000);
+  // 保留最近的部分（末尾）
+  assert.ok(thread.endsWith('z'));
+});

@@ -35,6 +35,9 @@ export default function SessionRecoveryModal({
   const [busy, setBusy] = useState(false);
 
   const list = Array.isArray(orphans) ? orphans : [];
+  const speakerCountOf = item => (item && Array.isArray(item.speakers) ? item.speakers.length : 0);
+  const pickedSpeakerCount = picked ? speakerCountOf(picked) : 0;
+  const pickedIsGroup = pickedSpeakerCount >= 2;
 
   // 用开场白猜一下归属角色，猜中的排在最前并标「推荐」
   const guessedId = useMemo(() => {
@@ -94,7 +97,9 @@ export default function SessionRecoveryModal({
                 <Text style={styles.backText}>返回列表</Text>
               </TouchableOpacity>
               <Text style={styles.subtitle}>
-                这段对话原本属于哪个角色？选定后，它和它的记忆摘要都会回到列表里。
+                {pickedIsGroup
+                  ? `检测到这段对话有 ${pickedSpeakerCount} 位发言人，将按群聊恢复并保留成员。选一个角色只是用于排序，不影响群聊成员。`
+                  : '这段对话原本属于哪个角色？选定后，它和它的记忆摘要都会回到列表里。'}
               </Text>
               <Card>
                 <Text style={styles.previewLabel}>待恢复的对话</Text>
@@ -102,7 +107,7 @@ export default function SessionRecoveryModal({
                   {String(picked.preview || '').trim() || '（无预览）'}
                 </Text>
                 <Text style={styles.meta}>
-                  {`${picked.messageCount} 条消息 · ${formatTime(picked.updatedAt) || '时间未知'}`}
+                  {`${picked.messageCount} 条消息 · ${formatTime(picked.updatedAt) || '时间未知'}${pickedIsGroup ? ` · 疑似群聊（${pickedSpeakerCount} 位）` : ''}`}
                 </Text>
               </Card>
               {orderedCharacters.length === 0 ? (
@@ -156,7 +161,7 @@ export default function SessionRecoveryModal({
                       <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
                     </View>
                     <Text style={styles.meta}>
-                      {`${item.messageCount} 条消息 · ${formatTime(item.updatedAt) || '时间未知'}`}
+                      {`${item.messageCount} 条消息 · ${formatTime(item.updatedAt) || '时间未知'}${speakerCountOf(item) >= 2 ? ' · 疑似群聊' : ''}`}
                     </Text>
                   </TouchableOpacity>
                 </Card>

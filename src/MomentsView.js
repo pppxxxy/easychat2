@@ -26,6 +26,7 @@ import {
   buildMomentReplyPrompt,
   normalizeMomentReply,
 } from './moments/momentReply';
+import { buildMemorySummaryText, isSessionScopedMemory } from './memorySummary';
 import { useApp } from './context/AppContext';
 import ChapterModal from './ChapterModal';
 import { Card, EmptyState, TopicButton } from './ui';
@@ -41,7 +42,7 @@ function formatTime(timestamp) {
 
 export default function MomentsView({ active = true }) {
   const { theme, fonts, tokens } = useTheme();
-  const { characters } = useApp();
+  const { characters, sessions } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -52,7 +53,12 @@ export default function MomentsView({ active = true }) {
   momentsRef.current = moments;
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   const replyingRef = useRef(new Set());
+  // 回复进行中又提交了评论：记下来，等这次回复结束后再补一次，避免第二条评论没有回复。
+  const pendingReplyRef = useRef(new Set());
+  const requestReplyRef = useRef(null);
   // 每条动态的回复都挂一个 AbortController，支持用户中途停止，也会在组件卸载时统一中止。
   const replyControllersRef = useRef(new Map());
 
@@ -82,10 +88,21 @@ export default function MomentsView({ active = true }) {
     };
   }, [active]);
 
-  const persist = useCallback(async list => {
+  // 写回时以“存储里的最新列表”为基准做增量：只更新仍然存在的动态、只删除
+  // 明确要删的 id。这样别处（如记忆页连带删除）已经删掉的动态不会被本页的
+  // 陈旧快照重新写回（复活）。
+  const persist = useCallback(async (list, removedIds = []) => {
     setMoments(list);
     try {
-      await saveMoments(list);
+      const stored = await getMoments();
+      const byId = new Map((Array.isArray(stored) ? stored : []).map(item => [item.id, item]));
+      (Array.isArray(list) ? list : []).forEach(item => {
+        if (item && byId.has(item.id)) byId.set(item.id, item);
+      });
+      (Array.isArray(removedIds) ? removedIds : []).forEach(id => byId.delete(String(id || '')));
+      const merged = [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      await saveMoments(merged);
+      setMoments(merged);
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
@@ -127,7 +144,7 @@ export default function MomentsView({ active = true }) {
         onPress: () => {
           // 动态都删了，正在进行的回复也没必要继续
           cancelReply(moment.id);
-          persist(moments.filter(item => item.id !== moment.id));
+          persist(moments.filter(item => item.id !== moment.id), [moment.id]);
         },
       },
     ]);
@@ -146,7 +163,12 @@ export default function MomentsView({ active = true }) {
   // 回复只写回动态评论，不写入会话消息，也不进入记忆摘要。
   const requestReply = useCallback(async moment => {
     const momentId = String((moment && moment.id) || '');
-    if (!momentId || replyingRef.current.has(momentId)) return;
+    if (!momentId) return;
+    // 已经在回复这条动态：记下来，等这次回复结束再补一次，别把新评论静默丢掉。
+    if (replyingRef.current.has(momentId)) {
+      pendingReplyRef.current.add(momentId);
+      return;
+    }
     const character = charactersRef.current.find(item => item.id === moment.characterId);
     if (!character) {
       Alert.alert('角色没有回复', '暂时找不到这条动态对应的角色（可能已被删除或尚未加载），请稍后再试。');
@@ -168,7 +190,11 @@ export default function MomentsView({ active = true }) {
       const charName = String(character.name || moment.characterName || '').trim() || '角色';
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
-      const memoryText = buildMomentMemoryText({ summaries, messages, charName, userName });
+      // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
+      // 只有会话摘要、世界书都为空时才退化成最近几条原始消息。
+      const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+      const memoryText = buildMemorySummaryText(character, summaries, scoped)
+        || buildMomentMemoryText({ summaries, messages, charName, userName });
       const prompt = buildMomentReplyPrompt({
         moment: latest,
         comments: Array.isArray(latest.comments) ? latest.comments : [],
@@ -198,7 +224,7 @@ export default function MomentsView({ active = true }) {
       const text = normalizeMomentReply(raw);
       if (!text) throw new Error('没有收到回复内容，请稍后再试。');
       appendComment(momentId, {
-        id: `r-${Date.now()}`,
+        id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         by: 'character',
         name: charName,
         text,
@@ -213,8 +239,15 @@ export default function MomentsView({ active = true }) {
       replyControllersRef.current.delete(momentId);
       replyingRef.current.delete(momentId);
       setReplying(current => current.filter(id => id !== momentId));
+      // 回复期间又来了评论：补一次回复（用最新动态，把新评论一并带上）。
+      if (pendingReplyRef.current.has(momentId)) {
+        pendingReplyRef.current.delete(momentId);
+        const latest = momentsRef.current.find(item => item.id === momentId);
+        if (latest && requestReplyRef.current) requestReplyRef.current(latest);
+      }
     }
   }, [appendComment]);
+  requestReplyRef.current = requestReply;
 
   const submitComment = useCallback(moment => {
     const text = String(commentDrafts[moment.id] || '').trim();
@@ -222,7 +255,7 @@ export default function MomentsView({ active = true }) {
     const comments = Array.isArray(moment.comments) ? moment.comments : [];
     const hasUserComment = comments.some(comment => comment.by === 'user');
     const comment = {
-      id: `c-${Date.now()}`,
+      id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       by: 'user',
       name: '我',
       text,
