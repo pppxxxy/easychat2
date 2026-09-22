@@ -13,12 +13,13 @@ export default function Card({
   padded = true,
   elevated = false,
   style,
+  ...rest
 }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const hasHeader = Boolean(title) || Boolean(right);
   return (
-    <View style={[styles.card, padded && styles.padded, elevated && styles.elevated, style]}>
+    <View {...rest} style={[styles.card, padded && styles.padded, elevated && styles.elevated, style]}>
       {hasHeader ? (
         <View style={styles.header}>
           <View style={styles.titleRow}>

@@ -6,6 +6,10 @@ import { registerSecretValues } from './secrets';
 const FIRST_BYTE_TIMEOUT_MS = 120000;
 const IDLE_TIMEOUT_MS = 30000;
 
+// 接口没有返回内容时的占位文本。调用方可用它区分“真的没回复”，
+// 避免把这段占位当成角色的真实回复（例如写入动态评论）。
+export const EMPTY_REPLY_TEXT = '没有收到回复。';
+
 export function buildThinkingParams(config, settings) {
   if (!settings || settings.enabled !== true) return {};
   if (!config || config.supportsThinking !== true) return {};
@@ -173,7 +177,7 @@ export async function sendChatMessage(messages, options = {}) {
         fail(new Error('接口返回了无法解析的内容。'));
         return;
       }
-      succeed('没有收到回复。');
+      succeed(EMPTY_REPLY_TEXT);
     };
 
     const armIdleTimer = () => {
@@ -302,7 +306,7 @@ export async function sendChatMessage(messages, options = {}) {
 
       const body = (xhr.responseText || '').trim();
       if (!body) {
-        succeed('没有收到回复。');
+        succeed(EMPTY_REPLY_TEXT);
         return;
       }
       try {
@@ -312,7 +316,7 @@ export async function sendChatMessage(messages, options = {}) {
           ? message.reasoning_content
           : (typeof message.reasoning === 'string' ? message.reasoning : '');
         if (reasoning && onReasoning) onReasoning(reasoning);
-        succeed(message.content || '没有收到回复。');
+        succeed(message.content || EMPTY_REPLY_TEXT);
       } catch (error) {
         fail(new Error('接口返回了无法解析的内容。'));
       }

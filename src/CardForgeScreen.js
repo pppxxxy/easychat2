@@ -35,7 +35,7 @@ import { useTheme } from './theme/ThemeContext';
 
 const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守输出格式要求，只输出要求的 JSON。';
 
-export default function CardForgeScreen({ active = true }) {
+export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const { theme, fonts, tokens } = useTheme();
   const { addCharacter, ensureCharacterSession } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -62,6 +62,8 @@ export default function CardForgeScreen({ active = true }) {
 
   // 每次切到「制卡」都从存储重读：角色页的「导入到制卡」会改写存储草稿，
   // 而扩展页的各个模块是一直挂载的，不回读就会看到旧内容。
+  // refreshKey 由角色页的导入导航带入（params.ts）：即使用户已经停在「制卡」
+  // 分段（active 仍为 true），也能触发重读，避免旧草稿覆盖刚导入的内容。
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
@@ -75,7 +77,7 @@ export default function CardForgeScreen({ active = true }) {
     return () => {
       cancelled = true;
     };
-  }, [active, applyState]);
+  }, [active, refreshKey, applyState]);
 
   const askModel = useCallback(async prompt => {
     const raw = await sendChatMessage([

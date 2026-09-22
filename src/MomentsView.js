@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { isCanceledError, sendChatMessage } from './api';
+import { EMPTY_REPLY_TEXT, isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
 import {
   getEnabledGlobalPresetPrompts,
@@ -167,6 +167,10 @@ export default function MomentsView({ active = true }) {
         quote: null,
       });
       const raw = await sendChatMessage(requestMessages, { stream: false });
+      // 接口空响应会返回占位文本：那不是角色回复，不能写进动态。
+      if (String(raw || '').trim() === EMPTY_REPLY_TEXT) {
+        throw new Error('没有收到回复内容，请稍后再试。');
+      }
       const text = normalizeMomentReply(raw);
       if (!text) throw new Error('没有收到回复内容，请稍后再试。');
       appendComment(momentId, {

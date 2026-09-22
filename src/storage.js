@@ -1376,10 +1376,34 @@ function ensureUniqueSessionIds(list) {
   });
 }
 
+// 会话列表的读取状态：损坏时先备份原始值再当作空列表，避免调用方
+// 用空列表把“暂时读不出”的真实数据整表覆盖掉（Android cursor window 等）。
+async function readSessionsStatus() {
+  const stored = await readJsonStatus(SESSIONS_KEY);
+  if (stored.status === 'missing') return { status: 'missing', sessions: [] };
+  if (stored.status === 'corrupt' || !Array.isArray(stored.value)) {
+    await backupCorruptValue(SESSIONS_KEY);
+    return { status: 'corrupt', sessions: [] };
+  }
+  return {
+    status: 'ok',
+    sessions: ensureUniqueSessionIds(stored.value.map(normalizeSession)),
+  };
+}
+
+// 只读路径：损坏时返回空列表（UI 容忍空列表，且不会写回）。
 export async function getSessions() {
-  const stored = await readJson(SESSIONS_KEY, []);
-  if (!Array.isArray(stored)) return [];
-  return ensureUniqueSessionIds(stored.map(normalizeSession));
+  const { sessions } = await readSessionsStatus();
+  return sessions;
+}
+
+// 读改写路径：列表损坏时必须中止，否则会把 SESSIONS_KEY 覆盖成空/单条。
+async function requireSessions() {
+  const { status, sessions } = await readSessionsStatus();
+  if (status === 'corrupt') {
+    throw new Error('会话记录读取失败，请稍后重试');
+  }
+  return sessions;
 }
 
 export async function saveSessions(sessions) {
@@ -1403,22 +1427,33 @@ export async function setActiveSessionId(id) {
   await AsyncStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(String(id || '')));
 }
 
-export async function getMessagesBySession(sessionId) {
+export async function getMessagesBySessionStatus(sessionId) {
   const key = sessionMessagesKey(sessionId);
   const stored = await readJsonStatus(key);
   if (stored.status === 'corrupt') {
     // 读取失败（例如数值过大触发 Android cursor window 限制）时先留副本，
-    // 调用方会把它当作空会话处理，但原始数据不会被静默覆盖掉。
+    // 调用方据此提示“记录未删除”，并避免把它误当成空会话。
     await backupCorruptValue(key);
-    return [];
+    return { status: 'corrupt', messages: [] };
   }
-  return Array.isArray(stored.value) ? stored.value.filter(item => item && !item.pending) : [];
+  return {
+    status: stored.status === 'missing' ? 'missing' : 'ok',
+    messages: Array.isArray(stored.value) ? stored.value.filter(item => item && !item.pending) : [],
+  };
+}
+
+export async function getMessagesBySession(sessionId) {
+  const { messages } = await getMessagesBySessionStatus(sessionId);
+  return messages;
 }
 
 export async function saveMessagesBySession(sessionId, messages, characterId = '') {
   const persistable = (messages || []).filter(item => item && !item.pending);
   await AsyncStorage.setItem(sessionMessagesKey(sessionId), JSON.stringify(persistable));
-  const sessions = await getSessions();
+  const sessionsStatus = await readSessionsStatus();
+  // 会话列表读不出时只保留消息体落盘，绝不用空/部分列表整表覆盖（否则会真丢会话）。
+  if (sessionsStatus.status === 'corrupt') return persistable;
+  const sessions = sessionsStatus.sessions;
   const existing = sessions.find(session => session.id === sessionId);
   if (existing) {
     const updated = sessions.map(session =>
@@ -1455,7 +1490,7 @@ export async function saveMessagesBySession(sessionId, messages, characterId = '
 }
 
 export async function setSessionSummarizedUpTo(sessionId, messageId) {
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target) throw new Error('会话不存在');
   const nextBoundary = String(messageId || '');
@@ -1563,7 +1598,7 @@ export async function startNewSession(characterId) {
   // 于是任何一次读取失败（例如值过大触发 Android cursor window）都会让该会话
   // 被静默地从会话列表里删除：消息体还在，但会话再也看不见、也删不掉，
   // 只有下次扫描恰好成功时才会“复活”。新建对话无权删掉别的会话。
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const created = createEmptySession(characterId, sessions);
   const next = sortSessions([...sessions, created]);
   await saveSessions(next);
@@ -1572,7 +1607,7 @@ export async function startNewSession(characterId) {
 }
 
 export async function createGroupSession(members, name, extras = {}) {
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const created = buildGroupSession(members, name, sessions, Date.now(), extras);
   const next = sortSessions([...sessions, created]);
   await saveSessions(next);
@@ -1581,7 +1616,7 @@ export async function createGroupSession(members, name, extras = {}) {
 }
 
 export async function updateSessionInfo(sessionId, patch = {}) {
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target || target.type !== 'group') return target || null;
   const source = patch && typeof patch === 'object' ? patch : {};
@@ -1595,7 +1630,7 @@ export async function updateSessionInfo(sessionId, patch = {}) {
 }
 
 export async function updateSessionMemberProfiles(sessionId, memberProfiles) {
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target || target.type !== 'group') return target || null;
   const incoming = memberProfiles && typeof memberProfiles === 'object' ? memberProfiles : {};
@@ -1615,7 +1650,7 @@ export async function updateSessionMemberProfiles(sessionId, memberProfiles) {
 }
 
 export async function cloneSession(sessionId) {
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const source = sessions.find(session => session.id === sessionId);
   if (!source) throw new Error('会话不存在');
   const messages = await getMessagesBySession(sessionId);
@@ -1630,7 +1665,7 @@ export async function cloneSession(sessionId) {
 }
 
 export async function deleteSession(sessionId) {
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   const activeId = await getActiveSessionId();
   const remaining = sessions.filter(session => session.id !== sessionId);
@@ -1655,7 +1690,7 @@ export async function deleteSessions(sessionIds) {
   const ids = (Array.isArray(sessionIds) ? sessionIds : [])
     .map(id => String(id || ''))
     .filter(Boolean);
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   if (ids.length === 0) {
     return { sessions, activeSessionId: await getActiveSessionId() };
   }
@@ -1688,7 +1723,9 @@ export async function findOrphanSessions() {
     .filter(Boolean);
   if (ids.length === 0) return [];
 
-  const sessions = await getSessions();
+  const { status, sessions } = await readSessionsStatus();
+  // 列表读不出时不能判定孤儿：否则会把所有消息体都误判成“会话丢失”。
+  if (status === 'corrupt') return [];
   const known = new Set(sessions.map(session => session.id));
   // 老版本按角色 id 存消息（messagesKey(characterId)），键的形状和会话键一样，
   // 会把它们当成孤儿。这里按角色库排除，避免把历史遗留键恢复成重复的对话。
@@ -1748,7 +1785,7 @@ export async function restoreSession(sessionId, characterId) {
   const id = String(sessionId || '');
   const owner = String(characterId || '');
   if (!id || !owner) throw new Error('恢复参数不完整');
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const existing = sessions.find(session => session.id === id);
   if (existing) return existing;
   const messages = await getMessagesBySession(id);
@@ -1760,7 +1797,7 @@ export async function restoreSession(sessionId, characterId) {
 
 export async function migrateLegacyMessages(characters) {
   const list = Array.isArray(characters) ? characters : [];
-  const sessions = await getSessions();
+  const sessions = await requireSessions();
   const existingIds = new Set(sessions.map(session => session.id));
   const migrated = [];
   for (const character of list) {

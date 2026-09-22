@@ -206,7 +206,10 @@ export default function ExtensionScreen({ route }) {
           style={[styles.pane, segment === 'forge' ? styles.paneVisible : styles.paneHidden]}
           pointerEvents={segment === 'forge' ? 'auto' : 'none'}
         >
-          <CardForgeScreen active={segment === 'forge'} />
+          <CardForgeScreen
+            active={segment === 'forge'}
+            refreshKey={route && route.params ? route.params.ts : 0}
+          />
         </View>
         {momentsEnabled ? (
           <View

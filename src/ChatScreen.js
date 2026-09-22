@@ -72,7 +72,7 @@ import {
   getImageGenSettings,
   getInlineImageSettings,
   getMemorySummarySettings,
-  getMessagesBySession,
+  getMessagesBySessionStatus,
   getSessionSummaries,
   getThinkingSettings,
   getUserProfile,
@@ -1044,12 +1044,22 @@ export default function ChatScreen() {
       userNameRef.current = String(profile.userName || '').trim();
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
-    getMessagesBySession(activeSessionId)
-      .then(async list => {
+    getMessagesBySessionStatus(activeSessionId)
+      .then(async result => {
         if (cancelled) return;
         await profilePromise;
         if (cancelled) return;
-        const initial = Array.isArray(list) ? list : [];
+        // 损坏（读取失败）时不能当成空会话：明确提示记录仍在，且不做后续写盘。
+        if (result && result.status === 'corrupt') {
+          lastSavedSnapshotRef.current = '[]';
+          setMessages([]);
+          Alert.alert(
+            '聊天记录读取失败',
+            '本次没能读出该会话的消息（可能因数据过大）。记录本身没有被删除，可稍后重试或新建对话。'
+          );
+          return;
+        }
+        const initial = Array.isArray(result && result.messages) ? result.messages : [];
         if (initial.length === 0 && isGroupRef.current) {
           const members = groupCharactersRef.current;
           lastSavedSnapshotRef.current = '[]';
