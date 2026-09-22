@@ -298,7 +298,3 @@ export const GAMES = [
     html: THUNDER_HTML,
   },
 ];
-
-export function getGame(id) {
-  return GAMES.find(game => game.id === id) || null;
-}

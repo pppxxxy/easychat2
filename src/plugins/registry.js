@@ -66,7 +66,3 @@ export async function runPlugins({ userText, plugins, sessionId, now = Date.now(
   }
   return '';
 }
-
-export function resetSearchCooldown() {
-  lastSearchAt.clear();
-}

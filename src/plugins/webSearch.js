@@ -193,8 +193,3 @@ export async function runWebSearch({ query, config, maxResults }) {
   callTimes.push(Date.now());
   throw lastError || new Error('搜索失败');
 }
-
-export function resetSearchCache() {
-  cache.clear();
-  callTimes.length = 0;
-}

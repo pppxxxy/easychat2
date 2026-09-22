@@ -300,25 +300,6 @@ export async function listModels({ provider, config }) {
   return parseModelList(data);
 }
 
-export async function checkConnectivity({ provider, config }) {
-  const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
-  const resolvedConfig = normalizeConfig(resolvedProvider, config);
-  if (!resolvedConfig.baseUrl) return { ok: false, error: '请先填写 API 地址' };
-  try {
-    const models = await listModels({ provider: resolvedProvider, config: resolvedConfig });
-    return { ok: true, models, note: models.length ? '已获取模型列表' : '接口可访问' };
-  } catch (error) {
-    const message = (error && error.message) || '无法连接';
-    if (/密钥无效|未授权/.test(message)) {
-      return { ok: false, error: '密钥无效或未授权', authFailed: true };
-    }
-    if (/网络|中断|超时/.test(message)) {
-      return { ok: false, error: message, networkFailed: true };
-    }
-    return { ok: false, error: message };
-  }
-}
-
 export async function detectImageProvider({ provider, config, model }) {
   try {
     const models = await listModels({ provider, config });

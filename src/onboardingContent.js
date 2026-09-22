@@ -377,10 +377,6 @@ const CHAPTER_MAP = ONBOARDING_CHAPTERS.reduce((acc, chapter) => {
   return acc;
 }, {});
 
-export function getOnboardingChapter(id) {
-  return CHAPTER_MAP[id] || null;
-}
-
 export function getOnboardingChapters(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return ONBOARDING_CHAPTERS;
   return ids.map(id => CHAPTER_MAP[id]).filter(Boolean);

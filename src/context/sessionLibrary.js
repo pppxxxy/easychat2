@@ -143,7 +143,7 @@ export function buildClonedSession(sessions, source, messages, now = Date.now())
 
 // 群聊里每条 assistant 消息都带 speakerId/speakerName；单聊消息不带。
 // 因此收集到的发言人数量可用来判断一段消息是不是群聊。
-export const GROUP_MIN_SPEAKERS = 2;
+const GROUP_MIN_SPEAKERS = 2;
 
 export function collectMessageSpeakers(messages) {
   const map = new Map();

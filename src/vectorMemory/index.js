@@ -284,9 +284,3 @@ export async function testVectorConnection(config) {
   }
   return vector.length;
 }
-
-export const VECTOR_DEFAULTS = {
-  topK: DEFAULT_TOP_K,
-  maxChars: DEFAULT_MAX_CHARS,
-  maxTotalChars: DEFAULT_MAX_TOTAL_CHARS,
-};

@@ -467,12 +467,6 @@ export async function saveVectorIndex(characterId, index) {
   return list;
 }
 
-export async function clearVectorIndex(characterId) {
-  try {
-    await AsyncStorage.removeItem(vectorIndexKey(characterId));
-  } catch (error) {}
-}
-
 function normalizeImageProviderId(value) {
   const id = String(value || '');
   return isKnownImageProvider(id) ? id : '';
@@ -912,36 +906,6 @@ export async function getActiveApiConfig() {
   return configs.find(item => item.id === activeId) || configs[0];
 }
 
-export async function getCharacter() {
-  return getActiveCharacter();
-}
-
-export async function saveCharacter(character) {
-  await upsertCharacter(character);
-  await setActiveCharacterId((character && character.id) || DEFAULT_CHARACTER.id);
-  return character;
-}
-
-export async function getMessages(characterId = DEFAULT_CHARACTER.id) {
-  const stored = await readJsonStatus(messagesKey(characterId));
-  if (stored.status === 'corrupt') {
-    await backupCorruptValue(messagesKey(characterId));
-    return [];
-  }
-  let value = stored.status === 'ok' ? stored.value : null;
-  if (value === null && characterId === DEFAULT_CHARACTER.id) {
-    const legacy = await readJsonStatus(LEGACY_MESSAGES_KEY);
-    if (legacy.status === 'corrupt') await backupCorruptValue(LEGACY_MESSAGES_KEY);
-    value = legacy.status === 'ok' ? legacy.value : null;
-  }
-  return Array.isArray(value) ? value.filter(item => item && !item.pending) : [];
-}
-
-export async function saveMessages(characterId, messages) {
-  const persistable = (messages || []).filter(item => item && !item.pending);
-  await AsyncStorage.setItem(messagesKey(characterId), JSON.stringify(persistable));
-}
-
 const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '' };
 const DEFAULT_PERSONA_ID = 'default';
 
@@ -969,16 +933,6 @@ function readGlobalProfileMeta(rawProfile) {
   };
 }
 
-function buildDefaultPersona(now = Date.now()) {
-  return {
-    id: DEFAULT_PERSONA_ID,
-    userName: '',
-    persona: '',
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
 export async function getPersonas() {
   const stored = await readJson(PERSONAS_KEY, null);
   if (Array.isArray(stored) && stored.length > 0) {
@@ -1002,15 +956,6 @@ export async function getPersonas() {
   return [migrated];
 }
 
-export async function savePersonas(list) {
-  const normalized = (Array.isArray(list) ? list : [])
-    .map(normalizePersona)
-    .filter(item => item.id);
-  const safe = normalized.length > 0 ? normalized : [buildDefaultPersona()];
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(safe));
-  return safe;
-}
-
 export async function getActivePersonaId(list) {
   const personas = Array.isArray(list) ? list : await getPersonas();
   if (personas.length === 0) return '';
@@ -1031,12 +976,6 @@ export async function setActivePersonaId(id) {
   const resolved = target ? target.id : (personas[0] && personas[0].id) || '';
   await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(resolved));
   return resolved;
-}
-
-export async function getActivePersona() {
-  const personas = await getPersonas();
-  const activeId = await getActivePersonaId(personas);
-  return personas.find(item => item.id === activeId) || personas[0];
 }
 
 export async function createPersona(partial = {}) {

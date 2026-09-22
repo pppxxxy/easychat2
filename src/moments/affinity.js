@@ -50,5 +50,3 @@ export function clampAffinity(score) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(-100, Math.min(100, Math.round(value)));
 }
-
-export const AFFINITY_LIMIT = 100;

@@ -359,7 +359,6 @@ export function buildGroupRequest({
 }
 
 export const ENSEMBLE_MODE = 'ensemble';
-export const TURN_MODE = 'turn';
 
 const ENSEMBLE_INSTRUCTION = [
   '你是一场多人群聊的编剧与全体角色的扮演者。',

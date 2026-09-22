@@ -169,10 +169,6 @@ export async function resolveToken(provider, config, { now = Date.now() } = {}) 
   return token;
 }
 
-export function clearTokenCache() {
-  tokenCache.clear();
-}
-
 function xhrJson({ method, url, headers, body, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -363,19 +359,4 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
     if (onError) onError(error);
     else throw error;
   }
-}
-
-export async function listVoices(provider) {
-  const resolvedProvider = typeof provider === 'string' ? getTtsProvider(provider) : provider;
-  if (isSystemProvider(resolvedProvider)) {
-    const speech = getSpeechModule();
-    if (!speech || typeof speech.getAvailableVoicesAsync !== 'function') return [];
-    try {
-      const voices = await speech.getAvailableVoicesAsync();
-      return Array.isArray(voices) ? voices : [];
-    } catch (error) {
-      return [];
-    }
-  }
-  return Array.isArray(resolvedProvider && resolvedProvider.voices) ? resolvedProvider.voices : [];
 }
