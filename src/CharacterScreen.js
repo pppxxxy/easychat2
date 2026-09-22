@@ -683,6 +683,9 @@ export default function CharacterScreen() {
       const next = buildCharacterPatch(parsed);
       try {
         const created = await addCharacter(next);
+        // 新角色必须切到它自己的会话，否则聊天页会继续显示上一个角色的对话
+        // （更糟的是新消息会写进上一个角色的那段会话、进入它的记忆）
+        await ensureCharacterSession(created.id).catch(() => {});
 
         const session = screenSessionRef.current;
         let imageFailed = false;
@@ -1000,7 +1003,9 @@ export default function CharacterScreen() {
   const onNewCharacter = async () => {
     if (!loaded) return;
     try {
-      await addCharacter({ name: '新角色' });
+      const created = await addCharacter({ name: '新角色' });
+      // 同上：新角色要有自己的会话，聊天页才不会留着上一个角色的对话
+      await ensureCharacterSession(created.id).catch(() => {});
     } catch (error) {
       Alert.alert('新建失败', '请检查存储空间或权限。');
     }

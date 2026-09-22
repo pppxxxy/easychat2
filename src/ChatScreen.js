@@ -1108,6 +1108,17 @@ export default function ChatScreen() {
     };
   }, [activeSessionId, loaded]);
 
+  // 角色与会话必须成对：导入/新建角色、或历史遗留的错配状态下，只要当前会话不属于当前角色，
+  // 就切到该角色自己的会话。否则界面会继续显示上一个角色的对话，新消息还会写进那段会话。
+  useEffect(() => {
+    if (!loaded) return;
+    if (isGroup) return;
+    if (!activeSessionId || !activeSession) return;
+    if (String(activeSession.characterId || '') === characterId) return;
+    if (!characters.some(item => item.id === characterId)) return;
+    ensureCharacterSession(characterId).catch(() => {});
+  }, [activeSession, activeSessionId, characterId, characters, ensureCharacterSession, isGroup, loaded]);
+
   useEffect(() => {
     if (!ready) return;
     if (!activeSessionId) return;
