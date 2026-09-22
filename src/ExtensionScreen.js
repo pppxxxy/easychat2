@@ -10,6 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import CardForgeScreen from './CardForgeScreen';
 import ImageGenScreen from './ImageGenScreen';
 import MomentsView from './MomentsView';
 import { GAMES } from './games/games';
@@ -28,6 +29,7 @@ try {
 const SEGMENTS = [
   { id: 'games', label: '游戏', icon: 'game-controller-outline' },
   { id: 'image', label: '生图', icon: 'image-outline' },
+  { id: 'forge', label: '制卡', icon: 'id-card-outline' },
 ];
 
 const MOMENTS_SEGMENT = { id: 'moments', label: '动态', icon: 'planet-outline' };
@@ -129,7 +131,7 @@ function GamesView() {
   );
 }
 
-export default function ExtensionScreen() {
+export default function ExtensionScreen({ route }) {
   const [segment, setSegment] = useState('games');
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const { theme, fonts, tokens } = useTheme();
@@ -153,6 +155,12 @@ export default function ExtensionScreen() {
       unsubscribe();
     };
   }, [navigation]);
+
+  // 角色页会带参数跳过来（例如「导入到制卡」），按参数切到对应模块
+  useEffect(() => {
+    const params = route && route.params;
+    if (params && params.segment) setSegment(params.segment);
+  }, [route && route.params]);
 
   const segments = useMemo(
     () => (momentsEnabled ? [...SEGMENTS, MOMENTS_SEGMENT] : SEGMENTS),
@@ -193,6 +201,12 @@ export default function ExtensionScreen() {
           pointerEvents={segment === 'image' ? 'auto' : 'none'}
         >
           <ImageGenScreen embedded />
+        </View>
+        <View
+          style={[styles.pane, segment === 'forge' ? styles.paneVisible : styles.paneHidden]}
+          pointerEvents={segment === 'forge' ? 'auto' : 'none'}
+        >
+          <CardForgeScreen active={segment === 'forge'} />
         </View>
         {momentsEnabled ? (
           <View

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import GLOBAL_PRESETS from './presets';
 import { isKnownImageProvider } from './imageGen/providers';
+import { FORGE_FIELDS, FORGE_QUESTIONS } from './cardForge/forge';
 import {
   buildClonedSession,
   buildPreview,
@@ -44,6 +45,7 @@ const SESSION_SUMMARIES_PREFIX = '@easychat2_session_summaries';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
+const CARD_FORGE_KEY = '@easychat2_card_forge';
 
 const DEFAULT_API_CONFIG = {
   baseUrl: 'https://api.deepseek.com',
@@ -688,6 +690,72 @@ export async function saveMoments(moments) {
   const list = Array.isArray(moments) ? moments.map(normalizeMoment).filter(item => item.id) : [];
   await AsyncStorage.setItem(MOMENTS_KEY, JSON.stringify(list));
   return list;
+}
+
+function normalizeForgeDraft(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const draft = {};
+  FORGE_FIELDS.forEach(key => {
+    draft[key] = String(source[key] || '').slice(0, 4000);
+  });
+  draft.tags = Array.isArray(source.tags)
+    ? source.tags.map(item => String(item || '').trim()).filter(Boolean).slice(0, 10)
+    : [];
+  return draft;
+}
+
+function normalizeForgeTranscript(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(item => item && typeof item === 'object')
+    .map((item, index) => ({
+      id: String(item.id || `forge-${index}`),
+      role: item.role === 'ai' || item.role === 'user' ? item.role : 'note',
+      text: String(item.text || '').slice(0, 4000),
+      questionId: String(item.questionId || ''),
+      createdAt: Number(item.createdAt) || 0,
+    }))
+    .filter(item => item.text)
+    .slice(-200);
+}
+
+function normalizeCardForgeState(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  if (!source) return null;
+  const sourceAnswers = source.answers && typeof source.answers === 'object' ? source.answers : {};
+  const answers = {};
+  FORGE_QUESTIONS.forEach(question => {
+    const value = String(sourceAnswers[question.id] || '').slice(0, 600);
+    if (value) answers[question.id] = value;
+  });
+  return {
+    version: 1,
+    step: Math.min(
+      Math.max(0, Math.trunc(Number(source.step)) || 0),
+      FORGE_QUESTIONS.length
+    ),
+    answers,
+    draft: normalizeForgeDraft(source.draft),
+    transcript: normalizeForgeTranscript(source.transcript),
+    updatedAt: Number(source.updatedAt) || 0,
+  };
+}
+
+export async function getCardForge() {
+  const raw = await readJson(CARD_FORGE_KEY, null);
+  return normalizeCardForgeState(raw);
+}
+
+export async function saveCardForge(state) {
+  const normalized = normalizeCardForgeState(state);
+  if (!normalized) throw new Error('制卡状态无效');
+  await AsyncStorage.setItem(CARD_FORGE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+export async function clearCardForge() {
+  try {
+    await AsyncStorage.removeItem(CARD_FORGE_KEY);
+  } catch (error) {}
 }
 
 export async function deleteMomentsByIds(ids) {

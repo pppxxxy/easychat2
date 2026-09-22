@@ -1,0 +1,145 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  FORGE_QUESTIONS,
+  appendTranscript,
+  buildEditPrompt,
+  buildGeneratePrompt,
+  createForgeDraft,
+  createForgeState,
+  currentQuestion,
+  draftFromCharacter,
+  draftToCharacterPatch,
+  hasCardContent,
+  mergeDraft,
+  parseCardPatch,
+  recordAnswer,
+  summarizeAnswers,
+} from '../src/cardForge/forge.js';
+
+test('新会话包含引导与第一题', () => {
+  const state = createForgeState(1000);
+  assert.equal(state.step, 0);
+  assert.equal(state.transcript.length, 2);
+  assert.equal(state.transcript[0].role, 'ai');
+  assert.equal(state.transcript[1].questionId, FORGE_QUESTIONS[0].id);
+  assert.equal(currentQuestion(state).id, 'name');
+  assert.equal(hasCardContent(state.draft), false);
+});
+
+test('记录答案会推进到下一题，答完给出提示', () => {
+  let state = createForgeState(1000);
+  state = recordAnswer(state, 'name', '晚星', 2000);
+  assert.equal(state.step, 1);
+  assert.equal(state.answers.name, '晚星');
+  assert.equal(state.transcript[state.transcript.length - 1].questionId, 'gender');
+
+  // 一路答到底
+  FORGE_QUESTIONS.slice(1).forEach((question, index) => {
+    state = recordAnswer(state, question.id, `答案${index}`, 3000 + index);
+  });
+  assert.equal(state.step, FORGE_QUESTIONS.length);
+  assert.equal(currentQuestion(state), null);
+  const last = state.transcript[state.transcript.length - 1];
+  assert.equal(last.role, 'note');
+  assert.ok(last.text.includes('生成'));
+});
+
+test('解析模型回复：容忍代码块与前后文字，只取白名单字段', () => {
+  const fenced = parseCardPatch('好的，这是结果：\n```json\n{"name":"晚星","personality":"温柔","未知字段":"忽略","tags":["治愈","日常"]}\n```\n希望满意');
+  assert.deepEqual(Object.keys(fenced).sort(), ['name', 'personality', 'tags']);
+  assert.equal(fenced.name, '晚星');
+  assert.deepEqual(fenced.tags, ['治愈', '日常']);
+
+  const bare = parseCardPatch('{"name":"晚星"}');
+  assert.equal(bare.name, '晚星');
+
+  const withProse = parseCardPatch('结果如下 {"firstMes":"你好呀"} 完毕');
+  assert.equal(withProse.firstMes, '你好呀');
+});
+
+test('解析失败返回 null，不会抛异常', () => {
+  assert.equal(parseCardPatch(''), null);
+  assert.equal(parseCardPatch('完全没有 JSON'), null);
+  assert.equal(parseCardPatch('{"unknown":1}'), null);
+  assert.equal(parseCardPatch(null), null);
+});
+
+test('合并草稿只记有变化的字段', () => {
+  const base = { ...createForgeDraft(), name: '晚星' };
+  const { draft, changed } = mergeDraft(base, {
+    name: '晚星',
+    personality: '温柔体贴',
+    description: '   ',
+    tags: ['日常'],
+  });
+  assert.equal(draft.personality, '温柔体贴');
+  assert.equal(draft.description, '');
+  assert.deepEqual(draft.tags, ['日常']);
+  assert.deepEqual(changed, ['性格', '标签']);
+});
+
+test('对话记录有上限，不会无限增长', () => {
+  let state = createForgeState(1000);
+  for (let index = 0; index < 260; index += 1) {
+    state = appendTranscript(state, { role: 'note', text: `第${index}条` }, 2000 + index);
+  }
+  assert.equal(state.transcript.length, 200);
+  assert.equal(state.transcript[199].text, '第259条');
+});
+
+test('角色 → 草稿 → 角色 往返保留内容', () => {
+  const character = {
+    id: 'card-abc',
+    name: '晚星',
+    description: '描述内容',
+    personality: '温柔',
+    scenario: '校园',
+    firstMes: '你好',
+    mesExample: '{{user}}：在吗\n晚星：在的',
+    creatorNotes: '备注',
+    postHistoryInstructions: '保持人设',
+    tags: ['治愈', '日常'],
+    systemPrompt: 'x',
+    worldInfo: [{ id: 'w1' }],
+    regexScripts: [{ id: 'r1' }],
+  };
+  const draft = draftFromCharacter(character);
+  assert.equal(draft.name, '晚星');
+  assert.equal(draft.description, '描述内容');
+  assert.deepEqual(draft.tags, ['治愈', '日常']);
+
+  const patch = draftToCharacterPatch(draft, { composedPrompt: '[角色描述]\n描述内容', now: 1 });
+  assert.equal(patch.name, '晚星');
+  assert.equal(patch.mesExample, '{{user}}：在吗\n晚星：在的');
+  assert.equal(patch.systemPromptComposed, '[角色描述]\n描述内容');
+  assert.deepEqual(patch.tags, ['治愈', '日常']);
+  assert.deepEqual(patch.worldInfo, []);
+  assert.deepEqual(patch.regexScripts, []);
+  assert.ok(patch.id.startsWith('forge-'));
+});
+
+test('草稿为空时给角色名兜底，且 hasCardContent 为假', () => {
+  const patch = draftToCharacterPatch({});
+  assert.equal(patch.name, '新角色');
+  assert.equal(patch.firstMes, '');
+  assert.equal(hasCardContent({}), false);
+  assert.equal(hasCardContent({ name: '晚星' }), true);
+});
+
+test('提示词包含问答结果与硬性输出要求', () => {
+  let state = createForgeState(1000);
+  state = recordAnswer(state, 'name', '晚星', 2000);
+  const generate = buildGeneratePrompt(state);
+  assert.ok(generate.includes('晚星'));
+  assert.ok(generate.includes('只输出一个 JSON 对象'));
+
+  const edit = buildEditPrompt({
+    draft: { name: '晚星' },
+    request: '把性格改得更冷淡',
+    answers: summarizeAnswers(state),
+  });
+  assert.ok(edit.includes('把性格改得更冷淡'));
+  assert.ok(edit.includes('"name":"晚星"'));
+});

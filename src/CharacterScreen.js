@@ -37,7 +37,8 @@ import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { createGroupSession } from './storage';
+import { createGroupSession, saveCardForge } from './storage';
+import { createForgeState, draftFromCharacter } from './cardForge/forge';
 import { useTheme } from './theme/ThemeContext';
 
 const NO_CARD_DATA_MESSAGE =
@@ -726,6 +727,39 @@ export default function CharacterScreen() {
     }
   };
 
+  // 反向导入：把当前角色读进制卡草稿，跳到「扩展 → 制卡」用 AI 继续改
+  const onImportToForge = () => {
+    if (!character) return;
+    const apply = () => {
+      const fresh = createForgeState();
+      saveCardForge({
+        ...fresh,
+        draft: draftFromCharacter(character),
+        // 保留首题，方便载入后继续点选项；引导语换成"从角色载入"的说明
+        transcript: [
+          {
+            id: `forge-${Date.now()}-from-character`,
+            role: 'note',
+            text: `已载入角色「${character.name || '未命名'}」的设定。直接说修改要求（例如「把性格改得更冷淡」），或继续回答下面的问题。`,
+            createdAt: Date.now(),
+          },
+          ...fresh.transcript.slice(1),
+        ],
+        updatedAt: Date.now(),
+      })
+        .then(() => navigation.navigate('扩展', { segment: 'forge', ts: Date.now() }))
+        .catch(() => Alert.alert('载入失败', '请检查存储空间或权限。'));
+    };
+    Alert.alert(
+      '导入到制卡',
+      '会把当前角色的设定载入制卡草稿（原角色不受影响），继续吗？',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '继续', onPress: apply },
+      ]
+    );
+  };
+
   const readAvatarBytes = async () => {
     const uri = character && character.avatarUri;
     if (!uri) return null;
@@ -1387,6 +1421,19 @@ export default function CharacterScreen() {
               <Text style={styles.presetEntryText}>
                 {exporting ? '导出中...' : '导出角色卡'}
               </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.presetEntryRow}
+            onPress={onImportToForge}
+            disabled={!loaded}
+            activeOpacity={0.7}
+          >
+            <View style={styles.presetEntryLeft}>
+              <Ionicons name="id-card-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.presetEntryText}>导入到制卡（AI 修改）</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
