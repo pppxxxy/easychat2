@@ -662,6 +662,9 @@ function normalizeMoment(raw) {
     characterId: String(source.characterId || ''),
     characterName: String(source.characterName || ''),
     avatarUri: String(source.avatarUri || ''),
+    // 这条动态是从哪段对话（记忆）里来的：评论回复会依据它对应的记忆来生成。
+    // 老数据没有这个字段，按空串处理（回复时退化为只用角色设定 + 动态本身）。
+    sessionId: String(source.sessionId || ''),
     trigger: String(source.trigger || ''),
     text: String(source.text || ''),
     createdAt: Number(source.createdAt) || 0,
@@ -684,6 +687,18 @@ export async function saveMoments(moments) {
   const list = Array.isArray(moments) ? moments.map(normalizeMoment).filter(item => item.id) : [];
   await AsyncStorage.setItem(MOMENTS_KEY, JSON.stringify(list));
   return list;
+}
+
+export async function deleteMomentsByIds(ids) {
+  const target = new Set(
+    (Array.isArray(ids) ? ids : []).map(item => String(item || '')).filter(Boolean)
+  );
+  const list = await getMoments();
+  if (target.size === 0) return list;
+  const next = list.filter(item => !target.has(item.id));
+  if (next.length === list.length) return list;
+  await saveMoments(next);
+  return next;
 }
 
 function normalizeAffinityState(raw) {

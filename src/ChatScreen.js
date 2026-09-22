@@ -2237,6 +2237,8 @@ export default function ChatScreen() {
       characterId,
       characterName: String((speaker && speaker.name) || ''),
       avatarUri: String((speaker && speaker.avatarUri) || ''),
+      // 记下这条动态来自哪段对话：用户在动态下评论时，角色会依据这段记忆来回复
+      sessionId: String(activeSessionIdRef.current || ''),
       trigger,
       text: buildMomentText({ trigger, character: speaker, seed: next.turnCount }),
       createdAt: Date.now(),

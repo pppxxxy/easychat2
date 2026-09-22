@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -11,7 +11,22 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getMoments, saveMoments } from './storage';
+import { isCanceledError, sendChatMessage } from './api';
+import { buildRequestMessages } from './chatPipeline';
+import {
+  getEnabledGlobalPresetPrompts,
+  getMessagesBySession,
+  getMoments,
+  getSessionSummaries,
+  getUserProfile,
+  saveMoments,
+} from './storage';
+import {
+  buildMomentMemoryText,
+  buildMomentReplyPrompt,
+  normalizeMomentReply,
+} from './moments/momentReply';
+import { useApp } from './context/AppContext';
 import ChapterModal from './ChapterModal';
 import { Card, EmptyState, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
@@ -26,11 +41,18 @@ function formatTime(timestamp) {
 
 export default function MomentsView({ active = true }) {
   const { theme, fonts, tokens } = useTheme();
+  const { characters } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState({});
+  const [replying, setReplying] = useState([]);
   const [topic, setTopic] = useState(null);
+  const momentsRef = useRef(moments);
+  momentsRef.current = moments;
+  const charactersRef = useRef(characters);
+  charactersRef.current = characters;
+  const replyingRef = useRef(new Set());
 
   useEffect(() => {
     if (!active) return undefined;
@@ -91,32 +113,111 @@ export default function MomentsView({ active = true }) {
     ]);
   }, [moments, persist]);
 
-  const submitComment = useCallback(moment => {
-    const text = String(commentDrafts[moment.id] || '').trim();
-    if (!text) return;
-    const next = moments.map(item => {
-      if (item.id !== moment.id) return item;
-      const comments = Array.isArray(item.comments) ? item.comments : [];
-      const hasUserComment = comments.some(comment => comment.by === 'user');
-      const comment = {
-        id: `c-${Date.now()}`,
-        by: 'user',
-        name: '我',
+  const appendComment = useCallback((momentId, comment) => {
+    const next = momentsRef.current.map(item => (
+      item.id === momentId
+        ? { ...item, comments: [...(Array.isArray(item.comments) ? item.comments : []), comment] }
+        : item
+    ));
+    persist(next);
+  }, [persist]);
+
+  // 动态下的评论相当于一次“不写进记忆的对话”：角色依据这条动态来源的那段记忆来回复。
+  // 回复只写回动态评论，不写入会话消息，也不进入记忆摘要。
+  const requestReply = useCallback(async moment => {
+    const momentId = String((moment && moment.id) || '');
+    if (!momentId || replyingRef.current.has(momentId)) return;
+    const character = charactersRef.current.find(item => item.id === moment.characterId);
+    if (!character) {
+      Alert.alert('角色没有回复', '暂时找不到这条动态对应的角色（可能已被删除或尚未加载），请稍后再试。');
+      return;
+    }
+    replyingRef.current.add(momentId);
+    setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
+    try {
+      const sessionId = String(moment.sessionId || '');
+      const [summaries, messages, profile, presets] = await Promise.all([
+        sessionId ? getSessionSummaries(sessionId).catch(() => []) : [],
+        sessionId ? getMessagesBySession(sessionId).catch(() => []) : [],
+        getUserProfile().catch(() => null),
+        getEnabledGlobalPresetPrompts().catch(() => []),
+      ]);
+      const charName = String(character.name || moment.characterName || '').trim() || '角色';
+      const userName = String((profile && profile.userName) || '').trim() || '用户';
+      const latest = momentsRef.current.find(item => item.id === momentId) || moment;
+      const memoryText = buildMomentMemoryText({ summaries, messages, charName, userName });
+      const prompt = buildMomentReplyPrompt({
+        moment: latest,
+        comments: Array.isArray(latest.comments) ? latest.comments : [],
+        memoryText,
+        charName,
+        userName,
+      });
+      const requestMessages = buildRequestMessages({
+        character,
+        historyMessages: [],
+        userText: prompt,
+        userProfile: profile || {},
+        globalPresets: presets,
+        // 记忆已经在 prompt 里说明过一次，这里不再重复注入摘要
+        summaryText: '',
+        memorySnippets: '',
+        pluginContext: '',
+        images: [],
+        quote: null,
+      });
+      const raw = await sendChatMessage(requestMessages, { stream: false });
+      const text = normalizeMomentReply(raw);
+      if (!text) throw new Error('没有收到回复内容，请稍后再试。');
+      appendComment(momentId, {
+        id: `r-${Date.now()}`,
+        by: 'character',
+        name: charName,
         text,
         createdAt: Date.now(),
         likedByCharacter: false,
-      };
-      let updatedComments = [...comments, comment];
-      if (!hasUserComment) {
-        updatedComments = updatedComments.map(entry => (
-          entry.id === comment.id ? { ...entry, likedByCharacter: true } : entry
-        ));
+      });
+    } catch (error) {
+      if (!isCanceledError(error)) {
+        Alert.alert('角色没有回复', (error && error.message) || '请稍后再试。');
       }
-      return { ...item, comments: updatedComments };
+    } finally {
+      replyingRef.current.delete(momentId);
+      setReplying(current => current.filter(id => id !== momentId));
+    }
+  }, [appendComment]);
+
+  const submitComment = useCallback(moment => {
+    const text = String(commentDrafts[moment.id] || '').trim();
+    if (!text) return;
+    const comments = Array.isArray(moment.comments) ? moment.comments : [];
+    const hasUserComment = comments.some(comment => comment.by === 'user');
+    const comment = {
+      id: `c-${Date.now()}`,
+      by: 'user',
+      name: '我',
+      text,
+      createdAt: Date.now(),
+      likedByCharacter: false,
+    };
+    const next = moments.map(item => {
+      if (item.id !== moment.id) return item;
+      const list = Array.isArray(item.comments) ? item.comments : [];
+      const updated = [...list, comment];
+      if (!hasUserComment) {
+        return {
+          ...item,
+          comments: updated.map(entry => (
+            entry.id === comment.id ? { ...entry, likedByCharacter: true } : entry
+          )),
+        };
+      }
+      return { ...item, comments: updated };
     });
     setCommentDrafts(current => ({ ...current, [moment.id]: '' }));
     persist(next);
-  }, [commentDrafts, moments, persist]);
+    requestReply(moment);
+  }, [commentDrafts, moments, persist, requestReply]);
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
@@ -186,6 +287,12 @@ export default function MomentsView({ active = true }) {
           </View>
         ) : null}
 
+        {replying.includes(item.id) ? (
+          <Text style={styles.replyPending}>
+            {`${item.characterName || '角色'}正在回复…`}
+          </Text>
+        ) : null}
+
         <View style={styles.commentInputRow}>
           <TextInput
             style={styles.commentInput}
@@ -205,7 +312,7 @@ export default function MomentsView({ active = true }) {
         </View>
       </Card>
     );
-  }, [commentDrafts, removeMoment, styles, submitComment, theme.colors, toggleLike]);
+  }, [commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
@@ -282,6 +389,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   likeButton: { flexDirection: 'row', alignItems: 'center' },
   likeText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginLeft: 4 },
   likeTextActive: { color: theme.colors.danger },
+  replyPending: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 8 },
   commentList: {
     marginTop: 10,
     backgroundColor: theme.colors.surfaceAlt,

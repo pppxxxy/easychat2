@@ -11,6 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
+import { deleteMomentsByIds, getMoments } from './storage';
 import ChapterModal from './ChapterModal';
 import { Card, EmptyState, TopicButton } from './ui';
 import SearchScreen from './SearchScreen';
@@ -122,20 +123,58 @@ export default function MemoryScreen({ navigation }) {
     ]);
   }, [cloneSession]);
 
+  // 动态可能锚定在某段对话（记忆）上：删除记忆时，提示是否连带删除对应动态。
+  const countLinkedMoments = useCallback(async sessionIds => {
+    const ids = new Set(
+      (Array.isArray(sessionIds) ? sessionIds : []).map(item => String(item || '')).filter(Boolean)
+    );
+    if (ids.size === 0) return 0;
+    const list = await getMoments().catch(() => []);
+    return list.filter(item => ids.has(String(item.sessionId || ''))).length;
+  }, []);
+
+  const removeMomentsOfSessions = useCallback(async sessionIds => {
+    const ids = new Set(
+      (Array.isArray(sessionIds) ? sessionIds : []).map(item => String(item || '')).filter(Boolean)
+    );
+    if (ids.size === 0) return;
+    const list = await getMoments().catch(() => []);
+    const targetIds = list
+      .filter(item => ids.has(String(item.sessionId || '')))
+      .map(item => item.id);
+    if (targetIds.length > 0) await deleteMomentsByIds(targetIds);
+  }, []);
+
   const onDelete = useCallback(session => {
-    Alert.alert('删除会话', '将删除这段对话及其全部消息。', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: () => {
-          deleteSession(session.id).catch(() => {
-            Alert.alert('删除失败', '请检查存储空间或权限。');
-          });
-        },
-      },
-    ]);
-  }, [deleteSession]);
+    const runDelete = async deleteMomentsToo => {
+      try {
+        await deleteSession(session.id);
+        if (deleteMomentsToo) await removeMomentsOfSessions([session.id]);
+      } catch (error) {
+        Alert.alert('删除失败', '请检查存储空间或权限。');
+      }
+    };
+    countLinkedMoments([session.id])
+      .then(count => {
+        if (count === 0) {
+          Alert.alert('删除会话', '将删除这段对话及其全部消息。', [
+            { text: '取消', style: 'cancel' },
+            { text: '删除', style: 'destructive', onPress: () => { runDelete(false); } },
+          ]);
+          return;
+        }
+        Alert.alert(
+          '删除记忆',
+          `这段记忆对应 ${count} 条动态，要一起删除吗？`,
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '只删记忆', onPress: () => { runDelete(false); } },
+            { text: '一起删除', style: 'destructive', onPress: () => { runDelete(true); } },
+          ]
+        );
+      })
+      .catch(() => {});
+  }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
 
   const onOpenResult = useCallback(async result => {
     try {
@@ -177,21 +216,36 @@ export default function MemoryScreen({ navigation }) {
   const onBatchDelete = useCallback(() => {
     if (selectedIds.length === 0) return;
     const count = selectedIds.length;
-    Alert.alert('删除会话', `确定删除选中的 ${count} 段对话及其消息吗？`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: () => {
-          deleteSessions(selectedIds)
-            .then(() => exitEdit())
-            .catch(() => {
-              Alert.alert('删除失败', '请检查存储空间或权限。');
-            });
-        },
-      },
-    ]);
-  }, [selectedIds, deleteSessions, exitEdit]);
+    const runDelete = async deleteMomentsToo => {
+      try {
+        await deleteSessions(selectedIds);
+        exitEdit();
+        if (deleteMomentsToo) await removeMomentsOfSessions(selectedIds);
+      } catch (error) {
+        Alert.alert('删除失败', '请检查存储空间或权限。');
+      }
+    };
+    countLinkedMoments(selectedIds)
+      .then(linked => {
+        if (linked === 0) {
+          Alert.alert('删除会话', `确定删除选中的 ${count} 段对话及其消息吗？`, [
+            { text: '取消', style: 'cancel' },
+            { text: '删除', style: 'destructive', onPress: () => { runDelete(false); } },
+          ]);
+          return;
+        }
+        Alert.alert(
+          '删除记忆',
+          `选中的 ${count} 段对话对应 ${linked} 条动态，要一起删除吗？`,
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '只删记忆', onPress: () => { runDelete(false); } },
+            { text: '一起删除', style: 'destructive', onPress: () => { runDelete(true); } },
+          ]
+        );
+      })
+      .catch(() => {});
+  }, [countLinkedMoments, deleteSessions, exitEdit, removeMomentsOfSessions, selectedIds]);
 
   return (
     <View style={styles.container}>
