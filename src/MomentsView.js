@@ -53,6 +53,16 @@ export default function MomentsView({ active = true }) {
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
   const replyingRef = useRef(new Set());
+  // 每条动态的回复都挂一个 AbortController，支持用户中途停止，也会在组件卸载时统一中止。
+  const replyControllersRef = useRef(new Map());
+
+  useEffect(() => {
+    const controllers = replyControllersRef.current;
+    return () => {
+      controllers.forEach(controller => controller.abort());
+      controllers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -102,16 +112,26 @@ export default function MomentsView({ active = true }) {
     persist(next);
   }, [moments, persist]);
 
+  // 停止某条动态正在进行的角色回复：中止请求，后续回包会被 isCanceledError 丢弃。
+  const cancelReply = useCallback(momentId => {
+    const controller = replyControllersRef.current.get(String(momentId || ''));
+    if (controller) controller.abort();
+  }, []);
+
   const removeMoment = useCallback(moment => {
     Alert.alert('删除动态', '确定删除这条动态吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
         style: 'destructive',
-        onPress: () => persist(moments.filter(item => item.id !== moment.id)),
+        onPress: () => {
+          // 动态都删了，正在进行的回复也没必要继续
+          cancelReply(moment.id);
+          persist(moments.filter(item => item.id !== moment.id));
+        },
       },
     ]);
-  }, [moments, persist]);
+  }, [cancelReply, moments, persist]);
 
   const appendComment = useCallback((momentId, comment) => {
     const next = momentsRef.current.map(item => (
@@ -132,6 +152,8 @@ export default function MomentsView({ active = true }) {
       Alert.alert('角色没有回复', '暂时找不到这条动态对应的角色（可能已被删除或尚未加载），请稍后再试。');
       return;
     }
+    const controller = new AbortController();
+    replyControllersRef.current.set(momentId, controller);
     replyingRef.current.add(momentId);
     setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
     try {
@@ -142,6 +164,7 @@ export default function MomentsView({ active = true }) {
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
       ]);
+      if (controller.signal.aborted) return;
       const charName = String(character.name || moment.characterName || '').trim() || '角色';
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
@@ -166,7 +189,8 @@ export default function MomentsView({ active = true }) {
         images: [],
         quote: null,
       });
-      const raw = await sendChatMessage(requestMessages, { stream: false });
+      const raw = await sendChatMessage(requestMessages, { stream: false, signal: controller.signal });
+      if (controller.signal.aborted) return;
       // 接口空响应会返回占位文本：那不是角色回复，不能写进动态。
       if (String(raw || '').trim() === EMPTY_REPLY_TEXT) {
         throw new Error('没有收到回复内容，请稍后再试。');
@@ -186,6 +210,7 @@ export default function MomentsView({ active = true }) {
         Alert.alert('角色没有回复', (error && error.message) || '请稍后再试。');
       }
     } finally {
+      replyControllersRef.current.delete(momentId);
       replyingRef.current.delete(momentId);
       setReplying(current => current.filter(id => id !== momentId));
     }
@@ -292,9 +317,18 @@ export default function MomentsView({ active = true }) {
         ) : null}
 
         {replying.includes(item.id) ? (
-          <Text style={styles.replyPending}>
-            {`${item.characterName || '角色'}正在回复…`}
-          </Text>
+          <View style={styles.replyPendingRow}>
+            <Text style={styles.replyPending}>
+              {`${item.characterName || '角色'}正在回复…`}
+            </Text>
+            <TouchableOpacity
+              onPress={() => cancelReply(item.id)}
+              hitSlop={8}
+              accessibilityLabel="停止回复"
+            >
+              <Text style={styles.replyCancel}>停止</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
 
         <View style={styles.commentInputRow}>
@@ -316,7 +350,7 @@ export default function MomentsView({ active = true }) {
         </View>
       </Card>
     );
-  }, [commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
+  }, [cancelReply, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
@@ -393,7 +427,14 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   likeButton: { flexDirection: 'row', alignItems: 'center' },
   likeText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginLeft: 4 },
   likeTextActive: { color: theme.colors.danger },
-  replyPending: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 8 },
+  replyPendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  replyPending: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
+  replyCancel: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
   commentList: {
     marginTop: 10,
     backgroundColor: theme.colors.surfaceAlt,
