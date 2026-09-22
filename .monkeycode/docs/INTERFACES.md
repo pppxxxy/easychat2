@@ -215,7 +215,7 @@
 |------|------|
 | `makeCharacterId(now?)` | 生成 `card-<base36 时间戳>-<随机>` 形式的新角色 `id` |
 | `uniqueCharacterId(base, used, now?)` | 基于 `used` 集合生成唯一 `id`；`base` 为空时用 `makeCharacterId`，冲突时追加 `-1`、`-2` |
-| `assignStableCharacterIds(list, { defaultId, isInitial, now? })` | 给空 `id` / 撞 `id` 分配唯一 `id`；`defaultId` 优先归属 `isInitial` 为真的那一个；返回 `{ list, changed }`，`changed=true` 表示调用方必须落盘固化，避免每次读取按顺序重算导致身份漂移 |
+| `assignStableCharacterIds(list, { defaultId, isInitial, now? })` | 给空 `id` / 撞 `id` 分配唯一 `id`；`defaultId` 归属 `isInitial` 为真的初始卡，若被冒名者抢占则一次性收回；返回 `{ list, changed }`，`changed=true` 表示调用方必须落盘固化，避免每次读取按顺序重算导致身份漂移 |
 
 ### `characterLibrary` 辅助函数
 **位置**: `src/context/characterLibrary.js`（纯函数，供 `AppContext` 与测试使用）
@@ -315,7 +315,7 @@
 | `appendSessionSummary` | `(sessionId, entry) => Promise<SessionSummary[]>` | 追加一条会话级总结；历史摘要读取失败时抛错，不覆盖原数据 |
 | `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取记忆总结开关与阈值，缺失时默认 `{ enabled: false, threshold: 40 }` |
 | `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入记忆总结设置，阈值非法时回退 40 |
-| `getPlugins` | `() => Promise<Plugin[]>` | 读取联网搜索列表并规范化，内置项缺失时补入 |
+| `getPlugins` | `() => Promise<Plugin[]>` | 读取联网搜索列表并规范化，内置项缺失时补入；损坏时先备份再返回默认且不落盘 |
 | `savePlugins` | `(plugins) => Promise<Plugin[]>` | 规范化并写入联网搜索列表，确保内置项存在 |
 | `getEnabledPlugins` | `() => Promise<Plugin[]>` | 返回已开启插件 |
 | `isDisclaimerAcknowledged` | `() => Promise<boolean>` | 是否已确认免责条款 |
@@ -324,7 +324,7 @@
 | `completeOnboarding` | `() => Promise<boolean>` | 写入新手教学完成标记 |
 
 **导出的默认值**:
-- `DEFAULT_CHARACTER` 含 `id`、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
+- `DEFAULT_CHARACTER` 含 `id`、`builtin`（初始卡标记，改名/改提示后仍可识别）、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
 **AsyncStorage 键约定**:
 
