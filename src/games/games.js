@@ -23,48 +23,69 @@ const GUESS_NUMBER_HTML = `<!DOCTYPE html>
     width: 100%; margin-top: 12px; padding: 13px; font-size: 16px; font-weight: 700;
     background: #6c63ff; color: #fff; border: none; border-radius: 10px;
   }
-  #msg { min-height: 24px; margin-top: 16px; font-size: 15px; font-weight: 600; }
+  #range { margin-top: 16px; font-size: 15px; font-weight: 700; color: #7ad1ff; }
+  #msg { min-height: 24px; margin-top: 8px; font-size: 15px; font-weight: 600; }
   #meta { color: #888; font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>猜数字</h1>
-  <p>我心里有个 1 到 100 之间的整数，来猜猜看。</p>
+  <p>我心里有个 1 到 100 之间的整数，每猜一次都会缩小范围。</p>
   <input id="guess" type="number" inputmode="numeric" placeholder="输入数字" />
   <button id="submit">提交</button>
+  <div id="range"></div>
   <div id="msg"></div>
   <div id="meta"></div>
 </div>
 <script>
-  var answer = Math.floor(Math.random() * 100) + 1;
+  var MIN = 1;
+  var MAX = 100;
+  var answer = Math.floor(Math.random() * (MAX - MIN + 1)) + MIN;
   var tries = 0;
+  var low = MIN;
+  var high = MAX;
   var input = document.getElementById('guess');
   var msg = document.getElementById('msg');
+  var range = document.getElementById('range');
   var meta = document.getElementById('meta');
+  function renderRange() {
+    range.textContent = low === high
+      ? '数字只能是 ' + low + ' 了'
+      : '数字在 ' + low + ' 到 ' + high + ' 之间';
+  }
   function reset() {
-    answer = Math.floor(Math.random() * 100) + 1;
+    answer = Math.floor(Math.random() * (MAX - MIN + 1)) + MIN;
     tries = 0;
+    low = MIN;
+    high = MAX;
     input.value = '';
     msg.textContent = '';
     meta.textContent = '';
+    renderRange();
     input.focus();
   }
   function submit() {
+    if (answer === -1) return;
     var value = parseInt(input.value, 10);
-    if (!value || value < 1 || value > 100) {
-      msg.textContent = '请输入 1 到 100 之间的整数';
+    if (!Number.isFinite(value) || value < MIN || value > MAX) {
+      msg.textContent = '请输入 ' + MIN + ' 到 ' + MAX + ' 之间的整数';
       return;
     }
     tries += 1;
     if (value === answer) {
       msg.textContent = '答对了！共猜了 ' + tries + ' 次';
-      meta.textContent = '再次点击「提交」或输入新数字将重新开始';
+      meta.textContent = '稍后自动开始新一局';
+      range.textContent = '答案就是 ' + value;
       answer = -1;
     } else if (value < answer) {
+      low = Math.max(low, value + 1);
       msg.textContent = '太小了';
+      renderRange();
     } else {
+      high = Math.min(high, value - 1);
       msg.textContent = '太大了';
+      renderRange();
     }
     input.value = '';
     if (answer === -1) {
@@ -75,6 +96,7 @@ const GUESS_NUMBER_HTML = `<!DOCTYPE html>
   input.addEventListener('keydown', function (event) {
     if (event.key === 'Enter' || event.keyCode === 13) submit();
   });
+  renderRange();
 </script>
 </body>
 </html>`;
