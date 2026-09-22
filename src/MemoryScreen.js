@@ -81,12 +81,20 @@ export default function MemoryScreen({ navigation }) {
   const [userName, setUserName] = useState('');
 
   const scanOrphans = useCallback(async () => {
-    const [list, profile] = await Promise.all([
-      findOrphanSessions().catch(() => []),
-      getUserProfile().catch(() => null),
-    ]);
-    setOrphans(list);
-    setUserName(String((profile && profile.userName) || '').trim());
+    try {
+      const [list, profile] = await Promise.all([
+        findOrphanSessions(),
+        getUserProfile().catch(() => null),
+      ]);
+      setOrphans(list);
+      setUserName(String((profile && profile.userName) || '').trim());
+    } catch (error) {
+      setOrphans([]);
+      Alert.alert(
+        '无法检查丢失的对话',
+        (error && error.message) || '会话记录暂时读不出来，请稍后重试。'
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -176,11 +184,21 @@ export default function MemoryScreen({ navigation }) {
 
   const onDelete = useCallback(session => {
     const runDelete = async deleteMomentsToo => {
+      // 动态先删、会话后删：第二步失败时明确告知动态已删，别让用户以为整件事失败。
+      let momentsDeleted = false;
       try {
-        if (deleteMomentsToo) await removeMomentsOfSessions([session.id]);
+        if (deleteMomentsToo) {
+          await removeMomentsOfSessions([session.id]);
+          momentsDeleted = true;
+        }
         await deleteSession(session.id);
       } catch (error) {
-        Alert.alert('删除失败', '请检查存储空间或权限。');
+        Alert.alert(
+          '删除失败',
+          momentsDeleted
+            ? '关联动态已删除，但这段记忆删除失败，请重试。'
+            : '请检查存储空间或权限。'
+        );
       }
     };
     countLinkedMoments([session.id])
@@ -248,12 +266,21 @@ export default function MemoryScreen({ navigation }) {
     if (selectedIds.length === 0) return;
     const count = selectedIds.length;
     const runDelete = async deleteMomentsToo => {
+      let momentsDeleted = false;
       try {
-        if (deleteMomentsToo) await removeMomentsOfSessions(selectedIds);
+        if (deleteMomentsToo) {
+          await removeMomentsOfSessions(selectedIds);
+          momentsDeleted = true;
+        }
         await deleteSessions(selectedIds);
         exitEdit();
       } catch (error) {
-        Alert.alert('删除失败', '请检查存储空间或权限。');
+        Alert.alert(
+          '删除失败',
+          momentsDeleted
+            ? '关联动态已删除，但选中的记忆删除失败，请重试。'
+            : '请检查存储空间或权限。'
+        );
       }
     };
     countLinkedMoments(selectedIds)

@@ -1438,9 +1438,9 @@ export async function setActiveSessionId(id) {
 export async function getMessagesBySessionStatus(sessionId) {
   const key = sessionMessagesKey(sessionId);
   const stored = await readJsonStatus(key);
-  if (stored.status === 'corrupt') {
-    // 读取失败（例如数值过大触发 Android cursor window 限制）时先留副本，
-    // 调用方据此提示“记录未删除”，并避免把它误当成空会话。
+  // 读失败、或结构不是数组（合法 JSON 但类型不对）都算损坏：先留副本，
+  // 调用方据此提示“记录未删除”，并避免把它误当成空会话被后续写盘覆盖。
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
     await backupCorruptValue(key);
     return { status: 'corrupt', messages: [] };
   }
@@ -1722,7 +1722,7 @@ export async function findOrphanSessions() {
   try {
     keys = await AsyncStorage.getAllKeys();
   } catch (error) {
-    return [];
+    throw new Error('会话列表读取失败，请稍后重试');
   }
   const prefix = `${MESSAGES_KEY_PREFIX}::`;
   const ids = (Array.isArray(keys) ? keys : [])
@@ -1734,8 +1734,9 @@ export async function findOrphanSessions() {
   if (ids.length === 0) return [];
 
   const { status, sessions } = await readSessionsStatus();
-  // 列表读不出时不能判定孤儿：否则会把所有消息体都误判成“会话丢失”。
-  if (status === 'corrupt') return [];
+  // 列表读不出时不能判定孤儿（否则会把所有消息体都误判成“会话丢失”），
+  // 明确抛错让调用方提示“读不到”，而不是伪装成“没有丢失的对话”。
+  if (status === 'corrupt') throw new Error('会话列表读取失败，请稍后重试');
   const known = new Set(sessions.map(session => session.id));
   // 老版本按角色 id 存消息（messagesKey(characterId)），键的形状和会话键一样，
   // 会把它们当成孤儿。这里按角色库排除，避免把历史遗留键恢复成重复的对话。
@@ -1808,6 +1809,15 @@ export async function restoreSession(sessionId, characterId) {
   if (messages.length === 0) throw new Error('这段对话没有可恢复的消息');
   if (!isMessageGroup(messages) && !owner) throw new Error('恢复参数不完整');
   const restored = buildRestoredSession({ sessionId: id, characterId: owner, messages });
+  // 会话摘要还在（单独按 sessionId 存）：把总结边界接到最后一条摘要的边界上，
+  // 免得下次总结把已经总结过的消息再总结一遍（弹窗承诺“记忆摘要会回来”）。
+  const summaries = await getSessionSummaries(id).catch(() => []);
+  if (summaries.length > 0) {
+    const boundary = String(summaries[summaries.length - 1].boundary || '');
+    if (boundary && messages.some(item => item && String(item.id) === boundary)) {
+      restored.summarizedUpTo = boundary;
+    }
+  }
   await saveSessions(sortSessions([...sessions, restored]));
   return restored;
 }
