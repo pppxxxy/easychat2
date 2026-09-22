@@ -41,7 +41,6 @@ import {
   getPersonas,
   getActivePersonaId,
   createPersona,
-  updatePersona,
   deletePersona,
   setActivePersonaId,
   saveApiConfigs,

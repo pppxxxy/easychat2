@@ -26,7 +26,7 @@ export default function ChapterOutro({ outro }) {
   };
 
   return (
-    <View style={styles.wrap}>
+    <View style={styles.container}>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {body ? <Text style={styles.body}>{body}</Text> : null}
       {bulletList.length > 0 ? (

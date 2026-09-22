@@ -79,6 +79,7 @@ export default function PluginPanel({ visible, onClose }) {
       }
       if (missing) {
         Alert.alert('请先填写密钥', '开启联网搜索前，请先填写搜索服务的密钥或地址。');
+        return;
       }
     }
     updatePlugin(plugin.id, item => ({ ...item, enabled: value }));

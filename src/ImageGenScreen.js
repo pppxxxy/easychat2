@@ -685,6 +685,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 12,
   },
   selectButtonGhost: { backgroundColor: theme.colors.surface, flex: 1, justifyContent: 'center', marginRight: 10 },
+  generateButtonDisabled: { opacity: tokens.opacity.disabled },
   detectButton: {
     justifyContent: 'center',
     marginTop: 10,
