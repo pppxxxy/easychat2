@@ -9,7 +9,7 @@ export function resolveActiveId(list, activeId) {
 }
 
 export function uniqueId(base, list) {
-  let id = String(base || '').trim() || `card-${Date.now().toString(36)}`;
+  let id = String(base || '').trim() || `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   if (!list.some(character => character.id === id)) return id;
   let suffix = 2;
   while (list.some(character => character.id === `${id}-${suffix}`)) {

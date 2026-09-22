@@ -110,7 +110,7 @@ function hasCardContent(card) {
 function buildCharacterPatch(card) {
   const fields = card.fields || {};
   return {
-    id: `card-${Date.now().toString(36)}`,
+    id: `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     name: card.name || '导入角色',
     systemPrompt: fields.systemPrompt || '',
     systemPromptComposed: card.systemPrompt || '',
@@ -584,7 +584,7 @@ export default function CharacterScreen() {
     const session = screenSessionRef.current;
     const trimmedPrompt = systemPrompt.trim();
     const next = {
-      id: character.id || 'default',
+      id: character.id,
       name: name.trim() || 'EasyChat2 助手',
       systemPrompt: trimmedPrompt || '你是 EasyChat2 的智能助手，回答简洁清晰。',
       systemPromptComposed: buildSystemPrompt({

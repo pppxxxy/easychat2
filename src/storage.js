@@ -4,6 +4,7 @@ import GLOBAL_PRESETS from './presets';
 import { isKnownImageProvider } from './imageGen/providers';
 import { FORGE_FIELDS, FORGE_QUESTIONS } from './cardForge/forge';
 import { removeMomentsBySessionIds } from './moments/moments';
+import { assignStableCharacterIds } from './context/characterIdentity';
 import {
   buildClonedSession,
   buildPreview,
@@ -126,7 +127,9 @@ async function backupCorruptValue(key) {
 function normalizeCharacter(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const merged = { ...DEFAULT_CHARACTER, ...source };
-  merged.id = String(merged.id || DEFAULT_CHARACTER.id);
+  // 这里绝不能用 DEFAULT_CHARACTER.id 兜底：空 id 一旦变成 'default'，就会和
+  // 初始卡撞成同一个身份。真正的补全交给 assignStableCharacterIds 统一分配并落盘。
+  merged.id = String(source.id == null ? '' : source.id).trim();
   const lastUsedAt = Number(merged.lastUsedAt);
   merged.lastUsedAt = Number.isFinite(lastUsedAt) ? lastUsedAt : 0;
   merged.pinned = merged.pinned === true;
@@ -140,30 +143,24 @@ function normalizeCharacter(raw) {
   return merged;
 }
 
-function ensureUniqueCharacterIds(list) {
-  const seen = new Set();
-  return list.map((item, index) => {
-    let id = String(item.id);
-    if (seen.has(id)) {
-      let candidate = `${id}-${index}`;
-      let bump = index;
-      while (seen.has(candidate)) {
-        bump += 1;
-        candidate = `${id}-${index}-${bump}`;
-      }
-      id = candidate;
-    }
-    seen.add(id);
-    return id === item.id ? item : { ...item, id };
-  });
+function isInitialCard(character) {
+  return String(character.name || '') === String(DEFAULT_CHARACTER.name || '')
+    && String(character.systemPrompt || '') === String(DEFAULT_CHARACTER.systemPrompt || '');
 }
 
-function ensureDefaultCharacter(list) {
-  const items = ensureUniqueCharacterIds(Array.isArray(list) ? list.map(normalizeCharacter) : []);
+function ensureDefaultCharacter(list, now = Date.now()) {
+  const normalized = (Array.isArray(list) ? list : []).map(normalizeCharacter);
+  const { list: items, changed } = assignStableCharacterIds(normalized, {
+    defaultId: DEFAULT_CHARACTER.id,
+    isInitial: isInitialCard,
+    now,
+  });
+  let changedNow = changed;
   if (!items.some(item => item.id === DEFAULT_CHARACTER.id)) {
     items.unshift(normalizeCharacter(DEFAULT_CHARACTER));
+    changedNow = true;
   }
-  return items;
+  return { list: items, changed: changedNow };
 }
 
 export function sortCharacters(list) {
@@ -210,8 +207,11 @@ export async function getCharacterLibrary() {
   }
 
   const hadDefault = items.some(item => item.id === DEFAULT_CHARACTER.id);
-  const list = sortCharacters(ensureDefaultCharacter(items));
-  if (needsPersist || !hadDefault) {
+  const { list: ensured, changed } = ensureDefaultCharacter(items);
+  const list = sortCharacters(ensured);
+  // changed 表示这次读取给角色补齐/纠正了 id（空 id 或撞 id）。必须落盘，让 id 从此
+  // 固定下来；否则身份会随每次读取时的排序漂移。
+  if (needsPersist || !hadDefault || changed) {
     try {
       await persistLibrary(list);
     } catch (error) {}
@@ -220,7 +220,8 @@ export async function getCharacterLibrary() {
 }
 
 export async function saveCharacterLibrary(list) {
-  const next = sortCharacters(ensureDefaultCharacter(list));
+  const { list: ensured } = ensureDefaultCharacter(list);
+  const next = sortCharacters(ensured);
   await persistLibrary(next);
   return next;
 }

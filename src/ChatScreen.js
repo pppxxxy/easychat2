@@ -2253,7 +2253,9 @@ export default function ChatScreen() {
     }
     next.triggers = [...next.triggers, trigger];
     await saveAffinity({ ...map, [characterId]: next }).catch(() => {});
-    const speaker = characters.find(item => item.id === characterId) || character;
+    const speaker = characters.find(item => item.id === characterId);
+    // 查不到角色就不要用当前活跃角色顶替：那会把名字/头像永久冻进动态，显示成另一个人。
+    if (!speaker) return;
     const moment = {
       id: `${Date.now()}-${trigger}`,
       characterId,
@@ -2270,7 +2272,7 @@ export default function ChatScreen() {
     };
     const list = await getMoments().catch(() => []);
     await saveMoments(appendMoment(list, moment)).catch(() => {});
-  }, [character, characters]);
+  }, [characters]);
 
   return (
     <KeyboardAvoidingView

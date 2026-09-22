@@ -283,23 +283,31 @@ export default function MomentsView({ active = true }) {
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
+    // 名字/头像按 characterId 实时解析：角色改名后卡片跟着变；角色被删才退回创建时的快照并标注。
+    const live = charactersRef.current.find(character => character.id === item.characterId) || null;
+    const deleted = !live && !!item.characterId;
+    const displayName = (live && live.name) || item.characterName || '角色';
+    const avatarUri = (live && live.avatarUri) || item.avatarUri || '';
     return (
       <Card>
         <View style={styles.cardHeader}>
           <View style={styles.avatarWrap}>
-            {item.avatarUri ? (
-              <Image source={{ uri: item.avatarUri }} style={styles.avatar} />
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatar} />
             ) : (
               <View style={[styles.avatar, styles.avatarFallback]}>
                 <Text style={styles.avatarText}>
-                  {String(item.characterName || '角').slice(0, 1)}
+                  {String(displayName).slice(0, 1)}
                 </Text>
               </View>
             )}
           </View>
           <View style={styles.cardTitleWrap}>
-            <Text style={styles.cardName} numberOfLines={1}>{item.characterName || '角色'}</Text>
-            <Text style={styles.cardTime}>{formatTime(item.createdAt)}</Text>
+            <Text style={styles.cardName} numberOfLines={1}>{displayName}</Text>
+            <Text style={styles.cardTime}>
+              {deleted ? '角色已删除 · ' : ''}
+              {formatTime(item.createdAt)}
+            </Text>
           </View>
           <TouchableOpacity
             onPress={() => removeMoment(item)}
@@ -383,7 +391,7 @@ export default function MomentsView({ active = true }) {
         </View>
       </Card>
     );
-  }, [cancelReply, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
+  }, [cancelReply, characters, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
