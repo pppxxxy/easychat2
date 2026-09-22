@@ -59,6 +59,8 @@ const DEFAULT_API_CONFIG = {
 
 export const DEFAULT_CHARACTER = {
   id: 'default',
+  // builtin 标记初始卡身份：改名 / 改系统提示后仍能识别，不能靠名字比对（会被用户改掉）。
+  builtin: true,
   name: 'EasyChat2 助手',
   systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。',
   systemPromptComposed: '',
@@ -130,6 +132,8 @@ function normalizeCharacter(raw) {
   // 这里绝不能用 DEFAULT_CHARACTER.id 兜底：空 id 一旦变成 'default'，就会和
   // 初始卡撞成同一个身份。真正的补全交给 assignStableCharacterIds 统一分配并落盘。
   merged.id = String(source.id == null ? '' : source.id).trim();
+  // builtin 只认存储里显式写过的标记，不能从 DEFAULT_CHARACTER 继承，否则所有角色都会变成初始卡。
+  merged.builtin = source.builtin === true;
   const lastUsedAt = Number(merged.lastUsedAt);
   merged.lastUsedAt = Number.isFinite(lastUsedAt) ? lastUsedAt : 0;
   merged.pinned = merged.pinned === true;
@@ -144,6 +148,8 @@ function normalizeCharacter(raw) {
 }
 
 function isInitialCard(character) {
+  if (character && character.builtin === true) return true;
+  // 旧数据没有 builtin：退化用「名字 + 系统提示」比对，尽量在首次读取时把真初始卡认出来并补标记。
   return String(character.name || '') === String(DEFAULT_CHARACTER.name || '')
     && String(character.systemPrompt || '') === String(DEFAULT_CHARACTER.systemPrompt || '');
 }
@@ -155,12 +161,17 @@ function ensureDefaultCharacter(list, now = Date.now()) {
     isInitial: isInitialCard,
     now,
   });
-  let changedNow = changed;
-  if (!items.some(item => item.id === DEFAULT_CHARACTER.id)) {
-    items.unshift(normalizeCharacter(DEFAULT_CHARACTER));
+  // 补 builtin 标记：初始卡改名 / 改系统提示后仍能被识别，避免身份判定再次失效。
+  const marked = items.map(item => (
+    item.id === DEFAULT_CHARACTER.id && item.builtin !== true ? { ...item, builtin: true } : item
+  ));
+  const builtinChanged = marked.some((item, index) => item !== items[index]);
+  let changedNow = changed || builtinChanged;
+  if (!marked.some(item => item.id === DEFAULT_CHARACTER.id)) {
+    marked.unshift(normalizeCharacter(DEFAULT_CHARACTER));
     changedNow = true;
   }
-  return { list: items, changed: changedNow };
+  return { list: marked, changed: changedNow };
 }
 
 export function sortCharacters(list) {
@@ -1284,10 +1295,20 @@ function normalizePlugin(raw, index = 0) {
   };
 }
 
+function buildDefaultPlugins() {
+  return DEFAULT_PLUGINS.map(preset => normalizePlugin(preset));
+}
+
 export async function getPlugins() {
-  const raw = await readJson(PLUGINS_KEY, null);
-  const list = Array.isArray(raw) ? raw.map(normalizePlugin) : [];
-  let changed = raw === null;
+  const stored = await readJsonStatus(PLUGINS_KEY);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    // 插件配置此前读失败会直接用默认值整表覆盖。先备份原值再返回默认，且本次不落盘，
+    // 避免把用户填过的密钥 / 开关不可逆地冲掉。
+    await backupCorruptValue(PLUGINS_KEY);
+    return buildDefaultPlugins();
+  }
+  const list = stored.status === 'ok' ? stored.value.map(normalizePlugin) : [];
+  let changed = stored.status === 'missing';
   DEFAULT_PLUGINS.forEach(preset => {
     if (!list.some(item => item.id === preset.id)) {
       list.push(normalizePlugin(preset));

@@ -44,6 +44,8 @@ export function withAddedCharacter(list, character, now) {
     ...DEFAULT_CHARACTER,
     ...character,
     id: uniqueId(character && character.id, list),
+    // 新增角色永远不是初始卡；显式清掉从 DEFAULT_CHARACTER 继承来的 builtin 标记。
+    builtin: false,
     lastUsedAt: now,
   };
   return { list: sortCharacters([...list, next]), character: next };

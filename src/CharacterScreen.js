@@ -1134,9 +1134,15 @@ export default function CharacterScreen() {
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       // 清理旧文件，避免头像/背景图无限堆积；但群聊的头像与背景是直接引用
       // 角色图片路径的，必须先确认没有会话还在引用，否则会出现“群聊头像变空白”。
+      // 只清理当前字段自己的旧文件：此前无论改哪个字段都会把 character.avatarUri 也删掉，
+      // 换背景会顺手删掉头像文件（avatarUri === bgUri 共用文件时更严重）。
       const draftValue = fieldName === 'avatar' ? avatarPreview : bgPreview;
-      [character.avatarUri, draftValue].forEach(previous => {
+      const otherFieldValue = fieldName === 'avatar' ? character.bgUri : character.avatarUri;
+      const committedValue = fieldName === 'avatar' ? character.avatarUri : character.bgUri;
+      [committedValue, draftValue].forEach(previous => {
         if (!previous || previous === dest || !previous.startsWith(dir)) return;
+        // 另一个字段还在用同一文件时不能删
+        if (previous === otherFieldValue) return;
         const stillReferenced = (sessions || []).some(item => (
           item && (item.avatarUri === previous || item.bgUri === previous)
         ));

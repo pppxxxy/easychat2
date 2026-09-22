@@ -68,6 +68,31 @@ test('持久化后再读取（顺序被 sortCharacters 改变）不再改动 id�
   assert.equal(second.list.find(item => item.name === '导入角色').id, assigned);
 });
 
+test('真初始卡被冒名者挤掉 defaultId 时，defaultId 收回到初始卡并落盘', () => {
+  const { list, changed } = assignStableCharacterIds(
+    [{ id: 'default', name: '冒名者' }, { id: 'default-3', name: 'EasyChat2 助手' }],
+    { defaultId: DEFAULT_ID, isInitial, now: 5000 }
+  );
+  assert.equal(changed, true);
+  assert.equal(list.find(item => item.name === 'EasyChat2 助手').id, 'default');
+  assert.notEqual(list.find(item => item.name === '冒名者').id, 'default');
+
+  // 纠正后再次读取（含顺序变化）不再改动，身份固定
+  const again = assignStableCharacterIds([...list].reverse(), { defaultId: DEFAULT_ID, isInitial, now: 5500 });
+  assert.equal(again.changed, false);
+});
+
+test('初始卡改名后用 builtin 标记仍能收回 defaultId', () => {
+  const isBuiltin = character => character.builtin === true;
+  const { list, changed } = assignStableCharacterIds(
+    [{ id: 'default', name: '别的角色' }, { id: 'default-7', name: '我改名了', builtin: true }],
+    { defaultId: DEFAULT_ID, isInitial: isBuiltin, now: 6000 }
+  );
+  assert.equal(changed, true);
+  assert.equal(list.find(item => item.builtin === true).id, 'default');
+  assert.notEqual(list.find(item => item.name === '别的角色').id, 'default');
+});
+
 test('uniqueCharacterId/makeCharacterId 产出可用 id', () => {
   const used = new Set(['x']);
   assert.equal(uniqueCharacterId('x', used), 'x-1');

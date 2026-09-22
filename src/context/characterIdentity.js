@@ -24,25 +24,36 @@ export function uniqueCharacterId(base, used, now = Date.now()) {
 // 给角色分配稳定且唯一的 id：defaultId 优先留给 isInitial(item) 为真的那一个；
 // 空 id / 重复 id 生成新 id。changed=true 表示结果与输入不同，调用方必须落盘固化——
 // 否则每次读取都会按当时的顺序（置顶 / lastUsedAt）重算，角色身份就会漂移。
+//
+// 一次性纠正：若真初始卡（isInitial 为真）被冒名者挤掉了 defaultId，这里把 defaultId
+// 收回到初始卡，冒名者换新 id。缺这一步时「初始卡 = default-N、冒名者 = default」的状态
+// 永不纠正，身份被永久冻结。
 export function assignStableCharacterIds(list, { defaultId, isInitial, now = Date.now() } = {}) {
   const items = Array.isArray(list) ? list : [];
   const initial = typeof isInitial === 'function' ? isInitial : () => false;
-  let defaultIndex = items.findIndex(item => item && item.id === defaultId && initial(item));
-  if (defaultIndex < 0) {
-    defaultIndex = items.findIndex(item => item && item.id === defaultId);
-  }
+  const initialIndex = items.findIndex(item => item && initial(item));
+  const defaultIndex = items.findIndex(item => item && item.id === defaultId);
+  // 真初始卡优先持有 defaultId；找不到初始卡时退回「当前 defaultId 持有者」。
+  const ownerIndex = initialIndex >= 0 ? initialIndex : defaultIndex;
 
   const used = new Set();
   let changed = false;
   const result = items.map((item, index) => {
     const current = item && typeof item === 'object' ? item : {};
     let id = String(current.id == null ? '' : current.id).trim();
-    const mustReassign = !id
-      || (defaultId && id === defaultId && index !== defaultIndex)
-      || used.has(id);
-    if (mustReassign) {
-      id = uniqueCharacterId(id === defaultId ? '' : id, used, now);
-      changed = true;
+    if (index === ownerIndex) {
+      if (id !== defaultId) {
+        id = defaultId;
+        changed = true;
+      }
+    } else {
+      const mustReassign = !id
+        || (defaultId && id === defaultId)
+        || used.has(id);
+      if (mustReassign) {
+        id = uniqueCharacterId(id === defaultId ? '' : id, used, now);
+        changed = true;
+      }
     }
     used.add(id);
     return id === current.id ? current : { ...current, id };
