@@ -236,9 +236,22 @@ export function recordAnswer(state, questionId, answer, now = Date.now()) {
   return next;
 }
 
+// 提示词只带 AI 可改写的字段。系统提示、备用开场白、世界书、正则脚本属于
+// 「原样保留」的字段，既不参与生成也不该出现在提示词里，否则提示词会被
+// 这些大块内容无谓放大，还会误导模型以为它们需要一起改写。
+export function projectForgeDraft(draft) {
+  const source = draft && typeof draft === 'object' ? draft : {};
+  const projected = {};
+  FORGE_FIELDS.forEach(key => { projected[key] = clean(source[key]); });
+  projected.tags = Array.isArray(source.tags)
+    ? source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT)
+    : [];
+  return projected;
+}
+
 export function buildGeneratePrompt(state) {
   const answers = summarizeAnswers(state);
-  const draft = JSON.stringify((state && state.draft) || {}, null, 0);
+  const draft = JSON.stringify(projectForgeDraft(state && state.draft), null, 0);
   return [
     '你是角色卡（SillyTavern 风格）撰写助手。请根据下面的问答结果和当前草稿，写出一张完整的角色卡。',
     '',
@@ -267,7 +280,7 @@ export function buildEditPrompt({ draft, request, answers } = {}) {
     '你是角色卡编辑器。请按用户的要求修改下面的角色卡，只改需要改的字段，其余字段原样保留。',
     '',
     '当前卡片 JSON：',
-    JSON.stringify(draft || {}, null, 0),
+    JSON.stringify(projectForgeDraft(draft), null, 0),
     summary ? `\n已知的设定要求：\n${summary}` : '',
     '',
     `用户要求：${clean(request, 800) || '（空）'}`,

@@ -14,6 +14,7 @@ import {
   hasCardContent,
   mergeDraft,
   parseCardPatch,
+  projectForgeDraft,
   recordAnswer,
   summarizeAnswers,
 } from '../src/cardForge/forge.js';
@@ -177,4 +178,33 @@ test('AI 改写不会碰系统提示这类保留字段', () => {
   assert.equal(draft.systemPrompt, '原文');
   assert.deepEqual(draft.worldInfo, [{ id: 'w1' }]);
   assert.equal(draft.personality, '温柔');
+});
+
+test('提示词只带可改写字段，不泄露保留字段', () => {
+  const base = {
+    ...createForgeDraft(),
+    name: '晚星',
+    personality: '温柔',
+    tags: ['治愈', ''],
+    systemPrompt: '秘不外传的系统提示',
+    alternateGreetings: ['备用开场白A'],
+    worldInfo: [{ id: 'w1', keys: ['月'], content: '世界书正文' }],
+    regexScripts: [{ id: 'r1', pattern: '机密正则' }],
+  };
+  const projected = projectForgeDraft(base);
+  assert.equal(projected.name, '晚星');
+  assert.deepEqual(projected.tags, ['治愈']);
+  assert.equal('systemPrompt' in projected, false);
+  assert.equal('alternateGreetings' in projected, false);
+  assert.equal('worldInfo' in projected, false);
+  assert.equal('regexScripts' in projected, false);
+
+  const generate = buildGeneratePrompt({ ...createForgeState(1), draft: base });
+  const edit = buildEditPrompt({ draft: base, request: '把性格改得更冷淡' });
+  for (const prompt of [generate, edit]) {
+    assert.equal(prompt.includes('秘不外传的系统提示'), false);
+    assert.equal(prompt.includes('备用开场白A'), false);
+    assert.equal(prompt.includes('世界书正文'), false);
+    assert.equal(prompt.includes('机密正则'), false);
+  }
 });
