@@ -200,7 +200,7 @@ export default function CardForgeScreen({ active = true }) {
         description: draft.description,
         personality: draft.personality,
         scenario: draft.scenario,
-        systemPrompt: '',
+        systemPrompt: draft.systemPrompt || '',
         postHistoryInstructions: draft.postHistoryInstructions,
       });
       const patch = draftToCharacterPatch(draft, { composedPrompt });

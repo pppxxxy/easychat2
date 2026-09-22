@@ -143,6 +143,12 @@ export function createForgeDraft() {
   const draft = {};
   FORGE_FIELDS.forEach(key => { draft[key] = ''; });
   draft.tags = [];
+  // 下面这几个不属于 AI 改写范围，只在「角色 → 制卡 → 角色」之间原样保留：
+  // 否则用制卡改一遍角色，就会把原有系统提示、备用开场白、世界书、正则脚本静默丢掉。
+  draft.systemPrompt = '';
+  draft.alternateGreetings = [];
+  draft.worldInfo = [];
+  draft.regexScripts = [];
   return draft;
 }
 
@@ -338,6 +344,17 @@ export function draftFromCharacter(character) {
   draft.tags = Array.isArray(source.tags)
     ? source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT)
     : [];
+  // 原样带走这些字段，保证往返不丢内容
+  draft.systemPrompt = clean(source.systemPrompt, 12000);
+  draft.alternateGreetings = Array.isArray(source.alternateGreetings)
+    ? source.alternateGreetings.map(item => clean(item)).filter(Boolean).slice(0, 20)
+    : [];
+  draft.worldInfo = Array.isArray(source.worldInfo)
+    ? source.worldInfo.filter(item => item && typeof item === 'object').slice(0, 100)
+    : [];
+  draft.regexScripts = Array.isArray(source.regexScripts)
+    ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, 100)
+    : [];
   return draft;
 }
 
@@ -345,26 +362,30 @@ export function draftFromCharacter(character) {
 // composedPrompt 由调用方用 cardParser 的 buildSystemPrompt 生成（这里保持零依赖）。
 export function draftToCharacterPatch(draft, { composedPrompt = '', now = Date.now() } = {}) {
   const source = draft && typeof draft === 'object' ? draft : {};
+  const ownPrompt = clean(source.systemPrompt, 12000);
   return {
     id: `forge-${now.toString(36)}`,
     name: clean(source.name, 60) || '新角色',
-    systemPrompt: '',
-    systemPromptComposed: clean(composedPrompt, 12000),
+    systemPrompt: ownPrompt,
+    systemPromptComposed: clean(composedPrompt, 12000) || ownPrompt,
     description: clean(source.description),
     personality: clean(source.personality),
     scenario: clean(source.scenario),
     firstMes: clean(source.firstMes),
-    alternateGreetings: [],
+    alternateGreetings: Array.isArray(source.alternateGreetings)
+      ? source.alternateGreetings.slice(0, 20)
+      : [],
     mesExample: clean(source.mesExample),
     creatorNotes: clean(source.creatorNotes),
     postHistoryInstructions: clean(source.postHistoryInstructions),
     tags: Array.isArray(source.tags) ? source.tags.map(item => clean(item, 40)).filter(Boolean) : [],
-    worldInfo: [],
-    regexScripts: [],
+    worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, 100) : [],
+    regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, 100) : [],
   };
 }
 
 export function hasCardContent(draft) {
   const source = draft && typeof draft === 'object' ? draft : {};
-  return FORGE_FIELDS.some(key => clean(source[key]).length > 0);
+  return FORGE_FIELDS.some(key => clean(source[key]).length > 0)
+    || clean(source.systemPrompt).length > 0;
 }

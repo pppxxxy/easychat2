@@ -701,6 +701,17 @@ function normalizeForgeDraft(raw) {
   draft.tags = Array.isArray(source.tags)
     ? source.tags.map(item => String(item || '').trim()).filter(Boolean).slice(0, 10)
     : [];
+  // 这几个字段不参与 AI 改写，但要随草稿一起持久化，保证「角色 → 制卡 → 角色」往返不丢内容
+  draft.systemPrompt = String(source.systemPrompt || '').slice(0, 12000);
+  draft.alternateGreetings = Array.isArray(source.alternateGreetings)
+    ? source.alternateGreetings.map(item => String(item || '')).filter(Boolean).slice(0, 20)
+    : [];
+  draft.worldInfo = Array.isArray(source.worldInfo)
+    ? source.worldInfo.filter(item => item && typeof item === 'object').slice(0, 100)
+    : [];
+  draft.regexScripts = Array.isArray(source.regexScripts)
+    ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, 100)
+    : [];
   return draft;
 }
 

@@ -4,8 +4,9 @@
 // - 动态下的评论交流是一次“不进记忆的对话”：这里只负责构造提示词，绝不写回会话消息或记忆；
 // - 模块保持零依赖（不 import storage/api），便于单测与在纯 Node 环境下运行。
 
-export const MOMENT_REPLY_MAX_CHARS = 200;
-export const FALLBACK_MESSAGE_COUNT = 8;
+// 仅本模块内部使用，不对外导出（避免留下没人引用的公共 API）
+const MOMENT_REPLY_MAX_CHARS = 200;
+const FALLBACK_MESSAGE_COUNT = 8;
 
 function clean(value) {
   if (value === null || value === undefined) return '';

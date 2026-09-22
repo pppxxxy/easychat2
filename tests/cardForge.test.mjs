@@ -115,8 +115,9 @@ test('角色 → 草稿 → 角色 往返保留内容', () => {
   assert.equal(patch.mesExample, '{{user}}：在吗\n晚星：在的');
   assert.equal(patch.systemPromptComposed, '[角色描述]\n描述内容');
   assert.deepEqual(patch.tags, ['治愈', '日常']);
-  assert.deepEqual(patch.worldInfo, []);
-  assert.deepEqual(patch.regexScripts, []);
+  // 世界书/正则现在会原样带走，避免"用制卡改一遍角色就把内容丢了"
+  assert.deepEqual(patch.worldInfo, [{ id: 'w1' }]);
+  assert.deepEqual(patch.regexScripts, [{ id: 'r1' }]);
   assert.ok(patch.id.startsWith('forge-'));
 });
 
@@ -142,4 +143,38 @@ test('提示词包含问答结果与硬性输出要求', () => {
   });
   assert.ok(edit.includes('把性格改得更冷淡'));
   assert.ok(edit.includes('"name":"晚星"'));
+});
+
+test('往返保留系统提示、备用开场白、世界书与正则', () => {
+  const character = {
+    name: '晚星',
+    systemPrompt: '保持冷淡的说话方式',
+    alternateGreetings: ['换一个开场', '  '],
+    worldInfo: [{ id: 'w1', keys: ['月'] }],
+    regexScripts: [{ id: 'r1', pattern: 'x' }],
+  };
+  const draft = draftFromCharacter(character);
+  assert.equal(draft.systemPrompt, '保持冷淡的说话方式');
+  assert.deepEqual(draft.alternateGreetings, ['换一个开场']);
+  assert.equal(draft.worldInfo.length, 1);
+  assert.equal(draft.regexScripts.length, 1);
+
+  const patch = draftToCharacterPatch(draft, { composedPrompt: '[系统提示]\n保持冷淡的说话方式' });
+  assert.equal(patch.systemPrompt, '保持冷淡的说话方式');
+  assert.equal(patch.systemPromptComposed, '[系统提示]\n保持冷淡的说话方式');
+  assert.deepEqual(patch.alternateGreetings, ['换一个开场']);
+  assert.deepEqual(patch.worldInfo, [{ id: 'w1', keys: ['月'] }]);
+  assert.deepEqual(patch.regexScripts, [{ id: 'r1', pattern: 'x' }]);
+});
+
+test('AI 改写不会碰系统提示这类保留字段', () => {
+  const base = { ...createForgeDraft(), systemPrompt: '原文', worldInfo: [{ id: 'w1' }] };
+  const { draft } = mergeDraft(base, {
+    systemPrompt: '模型想改掉的',
+    worldInfo: [],
+    personality: '温柔',
+  });
+  assert.equal(draft.systemPrompt, '原文');
+  assert.deepEqual(draft.worldInfo, [{ id: 'w1' }]);
+  assert.equal(draft.personality, '温柔');
 });

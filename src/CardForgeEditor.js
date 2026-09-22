@@ -61,6 +61,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave }) {
     onSave({ ...form, tags });
   };
 
+  // 这些字段不参与 AI 改写，只随草稿原样保留；有内容时提示一下，避免用户以为丢了
+  const greetings = Array.isArray(draft && draft.alternateGreetings) ? draft.alternateGreetings.length : 0;
+  const worldCount = Array.isArray(draft && draft.worldInfo) ? draft.worldInfo.length : 0;
+  const regexCount = Array.isArray(draft && draft.regexScripts) ? draft.regexScripts.length : 0;
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
@@ -86,9 +91,22 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave }) {
               />
             </FieldGroup>
           ))}
+          <FieldGroup label="系统提示" hint="原样保留，AI 不会改写它；需要时可以在这里手动调整">
+            <TextField
+              value={String(form.systemPrompt || '')}
+              onChangeText={value => setForm(current => ({ ...current, systemPrompt: value }))}
+              placeholder="例如：始终保持这个角色的说话方式，不要替用户行动"
+              multiline
+            />
+          </FieldGroup>
           <FieldGroup label="标签" hint="用顿号或逗号分隔，最多 10 个">
             <TextField value={tagText} onChangeText={setTagText} placeholder="例如：治愈、日常" />
           </FieldGroup>
+          {greetings + worldCount + regexCount > 0 ? (
+            <Text style={styles.preserved}>
+              {`已保留：备用开场白 ${greetings} 条 · 世界书 ${worldCount} 条 · 正则 ${regexCount} 条`}
+            </Text>
+          ) : null}
         </ScrollView>
         <View style={styles.footer}>
           <SecondaryButton title="取消" onPress={onClose} style={styles.footerButton} />
@@ -114,6 +132,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
   hint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    lineHeight: fonts.scaled(18),
+    marginBottom: tokens.spacing.md,
+  },
+  preserved: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),
     lineHeight: fonts.scaled(18),
