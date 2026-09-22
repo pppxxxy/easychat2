@@ -17,7 +17,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 用维护中的 LTS：Node 20 已于 2026-04 EOL。
+          # 另外这套测试是 .mjs 直接 import src/*.js（ESM 语法、package.json 没有
+          # "type": "module"），依赖模块语法检测；22.7+ 默认开启，行为最明确。
+          node-version: 22
 
       # 只覆盖无依赖的纯函数模块（正则引擎 / 世界书匹配 / 密钥脱敏），
       # 所以不需要 npm ci，几秒钟就能跑完。
