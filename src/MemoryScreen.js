@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,8 +11,15 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext';
-import { deleteMomentsByIds, getMoments } from './storage';
+import {
+  deleteMomentsByIds,
+  findOrphanSessions,
+  getMoments,
+  getUserProfile,
+  restoreSession,
+} from './storage';
 import ChapterModal from './ChapterModal';
+import SessionRecoveryModal from './SessionRecoveryModal';
 import { Card, EmptyState, TopicButton } from './ui';
 import SearchScreen from './SearchScreen';
 import { useTheme } from './theme/ThemeContext';
@@ -57,6 +64,7 @@ export default function MemoryScreen({ navigation }) {
     deleteSession,
     deleteSessions,
     setPendingTarget,
+    refreshSessions,
   } = useApp();
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -65,6 +73,36 @@ export default function MemoryScreen({ navigation }) {
   const [topic, setTopic] = useState(null);
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+
+  // 旧版本新建对话会误删会话记录：扫出"消息还在、会话没了"的对话，供用户恢复
+  const [orphans, setOrphans] = useState([]);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  const [userName, setUserName] = useState('');
+
+  const scanOrphans = useCallback(async () => {
+    const [list, profile] = await Promise.all([
+      findOrphanSessions().catch(() => []),
+      getUserProfile().catch(() => null),
+    ]);
+    setOrphans(list);
+    setUserName(String((profile && profile.userName) || '').trim());
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    scanOrphans();
+  }, [loaded, scanOrphans]);
+
+  const onRecover = useCallback(async (orphan, characterId) => {
+    try {
+      await restoreSession(orphan.sessionId, characterId);
+      await refreshSessions();
+      setOrphans(current => current.filter(item => item.sessionId !== orphan.sessionId));
+      Alert.alert('已恢复', '这段对话已回到列表，它的记忆摘要也会一起生效。');
+    } catch (error) {
+      Alert.alert('恢复失败', (error && error.message) || '请稍后重试。');
+    }
+  }, [refreshSessions]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -284,6 +322,19 @@ export default function MemoryScreen({ navigation }) {
           )}
         </View>
       </View>
+      {orphans.length > 0 ? (
+        <TouchableOpacity
+          style={styles.recoverNotice}
+          onPress={() => setRecoverOpen(true)}
+          activeOpacity={0.8}
+          accessibilityLabel="恢复丢失的对话"
+        >
+          <Ionicons name="alert-circle-outline" size={13} color={theme.colors.star} />
+          <Text style={styles.recoverNoticeText}>
+            {`发现 ${orphans.length} 段丢失的对话，点此恢复`}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
       {loaded && visibleSessions.length === 0 ? (
         <EmptyState
           icon="albums-outline"
@@ -438,6 +489,15 @@ export default function MemoryScreen({ navigation }) {
         characters={characters}
       />
 
+      <SessionRecoveryModal
+        visible={recoverOpen}
+        orphans={orphans}
+        characters={characters}
+        userName={userName}
+        onClose={() => setRecoverOpen(false)}
+        onRecover={onRecover}
+      />
+
       <ChapterModal
         visible={!!topic}
         onClose={() => setTopic(null)}
@@ -460,6 +520,24 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
   count: { color: theme.colors.textFaint, fontSize: fonts.scaled(13) },
+  recoverNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  recoverNoticeText: {
+    marginLeft: 6,
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(12),
+    fontWeight: '700',
+  },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   topicButton: {
     marginRight: 6,

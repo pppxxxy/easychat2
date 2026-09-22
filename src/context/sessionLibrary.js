@@ -140,3 +140,61 @@ export function buildClonedSession(sessions, source, messages, now = Date.now())
     preview: buildPreview(messages),
   };
 }
+
+// 恢复"消息体还在、会话记录丢了"的对话：id 必须沿用原值，消息才对得上。
+// 时间取消息时间戳，保证恢复后在列表里的位置接近原样。
+export function buildRestoredSession({ sessionId, characterId, messages, now = Date.now() } = {}) {
+  const list = (Array.isArray(messages) ? messages : []).filter(item => item && !item.pending);
+  const timestamps = list
+    .map(item => Number(item && item.timestamp))
+    .filter(value => Number.isFinite(value));
+  return {
+    id: String(sessionId || ''),
+    type: 'single',
+    characterId: String(characterId || ''),
+    members: [],
+    memberProfiles: {},
+    groupMode: '',
+    avatarUri: '',
+    bgUri: '',
+    name: '',
+    preview: buildPreview(list),
+    pinned: false,
+    createdAt: timestamps.length ? Math.min(...timestamps) : now,
+    updatedAt: timestamps.length ? Math.max(...timestamps) : now,
+    clonedFrom: '',
+    summarizedUpTo: '',
+  };
+}
+
+// 用开场白反推一段孤儿对话属于哪个角色：单聊的第一条助手消息通常就是该角色的 firstMes。
+// 先精确比对（含 {{user}} 替换），再退化为前 20 字前缀比对；判不出来返回空串。
+export function guessCharacterIdForMessages(messages, characters, { userName = '' } = {}) {
+  const user = String(userName || '').trim();
+  const normalize = text => {
+    let value = String(text || '');
+    if (user) value = value.replace(/\{\{user\}\}/g, user);
+    return value.replace(/\s+/g, ' ').trim();
+  };
+  const pool = (Array.isArray(characters) ? characters : [])
+    .map(item => ({ id: String((item && item.id) || ''), firstMes: normalize(item && item.firstMes) }))
+    .filter(item => item.id && item.firstMes);
+  if (pool.length === 0) return '';
+
+  const replies = (Array.isArray(messages) ? messages : [])
+    .filter(item => item && item.role === 'assistant')
+    .map(item => normalize(item.text))
+    .filter(Boolean);
+  if (replies.length === 0) return '';
+
+  const exact = pool.find(item => replies.some(reply => item.firstMes === reply));
+  if (exact) return exact.id;
+
+  // 开场白后面被追加了内容时，用该角色的开场白前 12 字与回复比对（太短的不猜，避免误判）
+  const first = replies[0];
+  const prefix = pool.find(item => {
+    const probe = item.firstMes.slice(0, 12);
+    return probe.length >= 6 && first.startsWith(probe);
+  });
+  return prefix ? prefix.id : '';
+}

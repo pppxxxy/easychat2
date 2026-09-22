@@ -5,6 +5,7 @@ import { isKnownImageProvider } from './imageGen/providers';
 import {
   buildClonedSession,
   buildPreview,
+  buildRestoredSession,
   createEmptySession,
   createGroupSession as buildGroupSession,
   normalizeSession,
@@ -1589,6 +1590,93 @@ export async function deleteSessions(sessionIds) {
     ]));
   } catch (error) {}
   return { sessions: remaining, activeSessionId: await getActiveSessionId() };
+}
+
+// 找出"消息体还在、会话记录却丢了"的孤儿对话。
+// 历史版本的 startNewSession 会把读不到消息体的会话从列表里静默删除，
+// 结果消息留在 @easychat2_messages::<id>，但列表里再也看不到、也删不掉。
+export async function findOrphanSessions() {
+  let keys = [];
+  try {
+    keys = await AsyncStorage.getAllKeys();
+  } catch (error) {
+    return [];
+  }
+  const prefix = `${MESSAGES_KEY_PREFIX}::`;
+  const ids = (Array.isArray(keys) ? keys : [])
+    .filter(key => typeof key === 'string' && key.startsWith(prefix) && key !== LEGACY_MESSAGES_KEY)
+    .map(key => key.slice(prefix.length))
+    .filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const sessions = await getSessions();
+  const known = new Set(sessions.map(session => session.id));
+  // 老版本按角色 id 存消息（messagesKey(characterId)），键的形状和会话键一样，
+  // 会把它们当成孤儿。这里按角色库排除，避免把历史遗留键恢复成重复的对话。
+  const characters = await getCharacterLibrary().catch(() => []);
+  const characterIds = new Set(
+    (Array.isArray(characters) ? characters : []).map(item => String((item && item.id) || ''))
+  );
+  const candidates = ids.filter(id => !known.has(id) && !characterIds.has(id));
+  if (candidates.length === 0) return [];
+
+  let pairs = [];
+  try {
+    pairs = await AsyncStorage.multiGet(candidates.map(sessionMessagesKey));
+  } catch (error) {
+    return [];
+  }
+
+  const orphans = [];
+  for (const pair of pairs) {
+    const key = pair && pair[0];
+    const raw = pair && pair[1];
+    if (!key || !raw) continue;
+    const sessionId = key.slice(prefix.length);
+    let parsed = [];
+    try {
+      const value = JSON.parse(raw);
+      parsed = Array.isArray(value) ? value.filter(item => item && !item.pending) : [];
+    } catch (error) {
+      // 解析不了的消息体不参与恢复，避免把坏数据当成一段对话
+      continue;
+    }
+    const messages = parsed.filter(item => (
+      item && (item.role === 'user' || item.role === 'assistant')
+    ));
+    if (messages.length === 0) continue;
+    const timestamps = messages
+      .map(item => Number(item.timestamp))
+      .filter(value => Number.isFinite(value));
+    const firstReply = messages.find(item => (
+      item.role === 'assistant' && String(item.text || '').trim()
+    ));
+    orphans.push({
+      sessionId,
+      messageCount: messages.length,
+      preview: buildPreview(messages),
+      createdAt: timestamps.length ? Math.min(...timestamps) : 0,
+      updatedAt: timestamps.length ? Math.max(...timestamps) : 0,
+      greeting: firstReply ? String(firstReply.text || '') : '',
+    });
+  }
+  orphans.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return orphans;
+}
+
+// 把孤儿对话按指定角色补回会话列表，id 沿用原值，消息与已有的记忆摘要都会接上。
+export async function restoreSession(sessionId, characterId) {
+  const id = String(sessionId || '');
+  const owner = String(characterId || '');
+  if (!id || !owner) throw new Error('恢复参数不完整');
+  const sessions = await getSessions();
+  const existing = sessions.find(session => session.id === id);
+  if (existing) return existing;
+  const messages = await getMessagesBySession(id);
+  if (messages.length === 0) throw new Error('这段对话没有可恢复的消息');
+  const restored = buildRestoredSession({ sessionId: id, characterId: owner, messages });
+  await saveSessions(sortSessions([...sessions, restored]));
+  return restored;
 }
 
 export async function migrateLegacyMessages(characters) {
