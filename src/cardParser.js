@@ -141,14 +141,24 @@ function normalizeWorldRole(value) {
 }
 
 function normalizeWorldEntry(entry, index) {
-  const source = isPlainObject(entry) ? entry : {};
+  const source = isPlainObject(entry)
+    ? entry
+    : { content: String(entry == null ? '' : entry) };
   const extensions = isPlainObject(source.extensions) ? source.extensions : {};
-  const keys = toStringArray(source.keys ?? source.key ?? source.keywords);
-  const secondaryKeys = toStringArray(
-    source.secondary_keys ?? source.secondaryKeys ?? source.keysecondary
+  const keys = toStringArray(
+    source.keys ?? source.key ?? source.keywords ?? source.keyword ?? source.trigger ?? source.triggers
   );
-  const comment = firstString([source, extensions], ['comment', 'name', 'title']);
-  const content = firstString([source], ['content', 'value', 'entry']);
+  const secondaryKeys = toStringArray(
+    source.secondary_keys ?? source.secondaryKeys ?? source.keysecondary ?? source.secondaryKeywords
+  );
+  const comment = firstString(
+    [source, extensions],
+    ['comment', 'name', 'title', 'label']
+  );
+  const content = firstString(
+    [source, extensions],
+    ['content', 'value', 'entry', 'text', 'prompt', 'description']
+  );
   const { position, positionLabel } = normalizeWorldPosition(
     source.position ?? extensions.position
   );
@@ -159,14 +169,16 @@ function normalizeWorldEntry(entry, index) {
     keys,
     secondaryKeys,
     content,
-    constant: toBool(source.constant, false),
+    constant: toBool(source.constant ?? source.always, false),
     // 与 SillyTavern 保持一致：selective 默认 false（次要关键词默不生效），
     // useRegex 默认 false（关键词按字面量匹配）。此前默认 true 会让普通关键词
     // 被当正则编译：'(' 这类语法非法的键永久静默失效，'C++'、'1.5' 这类
     // 语法合法但语义不同的键则会匹配错乱。
     // 需要正则的卡片可显式写 use_regex: true，或用 /pattern/flags 写法（lorebook 会自动识别）。
-    selective: toBool(source.selective, false),
-    enabled: source.enabled === undefined ? true : toBool(source.enabled, true),
+    selective: toBool(source.selective ?? source.conditional, false),
+    enabled: source.enabled === undefined
+      ? !(source.disabled === true || source.disabled === 'true')
+      : toBool(source.enabled, true),
     useRegex: toBool(source.use_regex ?? source.useRegex, false),
     caseSensitive: toBool(source.caseSensitive ?? source.case_sensitive, false),
     matchWholeWords: toBool(source.matchWholeWords ?? source.match_whole_words, false),
@@ -187,15 +199,25 @@ function normalizeWorldEntry(entry, index) {
 
 function normalizeRegexPlacement(value) {
   let list = [];
-  if (typeof value === 'number') {
+  if (typeof value === 'number' || typeof value === 'string') {
     list = [value];
   } else if (Array.isArray(value)) {
     list = value;
-  } else if (typeof value === 'string' && value.trim()) {
-    list = value.split(/[,，\s]+/);
   }
+  const aliases = {
+    user: 1,
+    input: 1,
+    ai: 2,
+    output: 2,
+    world: 5,
+    world_info: 5,
+    reasoning: 6,
+  };
   const placement = list
-    .map(item => Number(item))
+    .map(item => {
+      const key = String(item || '').trim().toLowerCase();
+      return aliases[key] ?? (key ? Number(item) : NaN);
+    })
     .filter(item => Number.isFinite(item));
   if (Array.isArray(value) && value.length === 0) return [];
   if (placement.length === 0) return [1, 2];
@@ -216,20 +238,27 @@ function firstRegexString(source, keys, fallback = '') {
 }
 
 function normalizeRegexScript(script, index) {
-  const source = isPlainObject(script) ? script : {};
-  const placement = normalizeRegexPlacement(source.placement);
+  const source = isPlainObject(script)
+    ? script
+    : { regex: String(script == null ? '' : script) };
+  const placement = normalizeRegexPlacement(
+    source.placement ?? source.placements ?? source.scope ?? source.scopes ?? source.targets
+  );
   const disabled = source.disabled === undefined ? false : toBool(source.disabled, false);
   const enabled = source.enabled === undefined ? !disabled : toBool(source.enabled, true);
-  const rawId = source.id ?? source.uid;
+  const rawId = source.id ?? source.uid ?? source.key;
   return {
     id: rawId === null || rawId === undefined ? `regex-${index}` : String(rawId),
     name:
-      firstString([source], ['name', 'scriptName', 'script_name']) ||
+      firstString([source], ['name', 'scriptName', 'script_name', 'title', 'label']) ||
       `正则脚本 ${index + 1}`,
-    findRegex: firstRegexString(source, ['regex', 'findRegex', 'find_regex']),
+    findRegex: firstRegexString(
+      source,
+      ['regex', 'findRegex', 'find_regex', 'pattern', 'match', 'search', 'find']
+    ),
     replaceString: firstRegexString(
       source,
-      ['replacement', 'replaceString', 'replace_string']
+      ['replacement', 'replaceString', 'replace_string', 'replace', 'substitute']
     ),
     flags: firstRegexString(source, ['flags', 'regexFlags', 'regex_flags'], 'g'),
     placement,
@@ -246,14 +275,33 @@ function normalizeEntriesContainer(container) {
   if (Array.isArray(container)) return container;
   if (!isPlainObject(container)) return [];
   if (Array.isArray(container.entries)) return container.entries;
-  const values = Object.values(container).filter(isPlainObject);
+  if (isPlainObject(container.entries)) return normalizeEntriesContainer(container.entries);
+  if (Array.isArray(container.items)) return container.items;
+  if (isPlainObject(container.items)) return normalizeEntriesContainer(container.items);
+  if (isPlainObject(container.book)) return normalizeEntriesContainer(container.book);
+  if (isPlainObject(container.worldbook)) return normalizeEntriesContainer(container.worldbook);
+  if (isPlainObject(container.world_info)) return normalizeEntriesContainer(container.world_info);
   if (
-    values.length > 0 &&
-    values.some(
-      item => 'content' in item || 'keys' in item || 'key' in item
+    'content' in container ||
+    'value' in container ||
+    'entry' in container ||
+    'text' in container ||
+    'keys' in container ||
+    'key' in container
+  ) {
+    return [container];
+  }
+  const values = Object.values(container);
+  const nested = values.filter(Array.isArray).flat();
+  const objects = values.filter(isPlainObject);
+  if (nested.length > 0) return nested;
+  if (
+    objects.length > 0 &&
+    objects.some(
+      item => 'content' in item || 'value' in item || 'text' in item || 'keys' in item || 'key' in item
     )
   ) {
-    return values;
+    return objects;
   }
   return [];
 }
@@ -262,12 +310,38 @@ function extractWorldInfo(root, data) {
   const candidates = [
     data?.character_book,
     root?.character_book,
+    data?.worldbook,
+    data?.world_book,
+    data?.worldBook,
+    data?.worldbook_entries,
+    data?.worldBookEntries,
     data?.worldInfo,
     data?.world_info,
+    data?.agent_worldbook,
+    data?.agent_world_book,
+    data?.agentWorldbook,
+    data?.agent_world_info,
+    data?.agentWorldInfo,
+    data?.lorebook,
+    data?.lore_book,
+    root?.worldbook,
+    root?.world_book,
+    root?.worldBook,
+    root?.worldbook_entries,
+    root?.worldBookEntries,
     root?.worldInfo,
     root?.world_info,
+    root?.agent_worldbook,
+    root?.agent_world_book,
+    root?.agentWorldbook,
+    root?.agent_world_info,
+    root?.agentWorldInfo,
+    root?.lorebook,
+    root?.lore_book,
     data?.extensions?.worldInfo,
     root?.extensions?.worldInfo,
+    data?.extensions?.worldbook,
+    root?.extensions?.worldbook,
   ];
   for (const candidate of candidates) {
     const entries = normalizeEntriesContainer(candidate);
@@ -281,12 +355,34 @@ function extractWorldInfo(root, data) {
 function normalizeRegexContainer(container) {
   if (Array.isArray(container)) return container;
   if (!isPlainObject(container)) return [];
+  if (Array.isArray(container.scripts)) return container.scripts;
+  if (isPlainObject(container.scripts)) return normalizeRegexContainer(container.scripts);
+  if (Array.isArray(container.items)) return container.items;
+  if (isPlainObject(container.items)) return normalizeRegexContainer(container.items);
+  if (Array.isArray(container.regexes)) return container.regexes;
+  if (isPlainObject(container.regexes)) return normalizeRegexContainer(container.regexes);
+  if (
+    'regex' in container ||
+    'findRegex' in container ||
+    'find_regex' in container ||
+    'pattern' in container ||
+    'replaceString' in container ||
+    'replace_string' in container ||
+    'replace' in container ||
+    'replacement' in container
+  ) {
+    return [container];
+  }
   return Object.values(container).filter(
     item =>
       isPlainObject(item) &&
       ('regex' in item ||
         'findRegex' in item ||
+        'find_regex' in item ||
+        'pattern' in item ||
         'replaceString' in item ||
+        'replace_string' in item ||
+        'replace' in item ||
         'replacement' in item ||
         'scriptName' in item)
   );
@@ -294,6 +390,12 @@ function normalizeRegexContainer(container) {
 
 function extractRegexScripts(root, data) {
   const candidates = [
+    data?.agent_regex,
+    data?.agentRegex,
+    data?.agent_regexes,
+    root?.agent_regex,
+    root?.agentRegex,
+    root?.agent_regexes,
     data?.extensions?.regex_scripts,
     data?.extensions?.regexScripts,
     root?.extensions?.regex_scripts,
@@ -312,9 +414,46 @@ function extractRegexScripts(root, data) {
   return [];
 }
 
+function toDialogStringArray(value) {
+  const result = [];
+  const visit = item => {
+    if (typeof item === 'string') {
+      const text = item.trim();
+      if (text) result.push(text);
+      return;
+    }
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+    if (!isPlainObject(item)) return;
+    const direct = firstString([item], ['text', 'greeting', 'content', 'message', 'value']);
+    if (direct) {
+      result.push(direct);
+      return;
+    }
+    Object.values(item).forEach(visit);
+  };
+  visit(value);
+  return result;
+}
+
 function extractStandardFields(root, data, extensions) {
+  const standardName = firstString([data, root], ['name', 'char_name', 'charName']);
+  const standardFirstMes = firstString(
+    [data, root],
+    ['first_mes', 'firstMes', 'first_message']
+  );
+  const standardAlternates = toStringArray(
+    data?.alternate_greetings ?? root?.alternate_greetings ?? data?.alternateGreetings
+  );
+  const standardSystemPrompt = firstString([data, root], ['system_prompt', 'systemPrompt']);
+  const zhiyuSetting = firstString(
+    [data, root],
+    ['setting', 'agent_setting', 'character_setting', 'role_setting']
+  );
   return {
-    name: firstString([data, root], ['name', 'char_name', 'charName']),
+    name: standardName || firstString([data, root], ['nickname', 'agent_nickname']),
     description: firstString(
       [data, root],
       ['description', 'char_persona', 'charPersona']
@@ -324,13 +463,10 @@ function extractStandardFields(root, data, extensions) {
       [data, root],
       ['scenario', 'world_scenario', 'worldScenario']
     ),
-    firstMes: firstString(
-      [data, root],
-      ['first_mes', 'firstMes', 'first_message']
-    ),
-    alternateGreetings: toStringArray(
-      data?.alternate_greetings ?? root?.alternate_greetings ?? data?.alternateGreetings
-    ),
+    firstMes: standardFirstMes || firstString([data, root], ['greeting', 'agent_greeting']),
+    alternateGreetings: standardAlternates.length > 0
+      ? standardAlternates
+      : toDialogStringArray(data?.preset_dialogs ?? root?.preset_dialogs),
     mesExample: firstString(
       [data, root],
       ['mes_example', 'mesExample', 'example_dialogue', 'exampleMessages']
@@ -339,7 +475,7 @@ function extractStandardFields(root, data, extensions) {
       [data, root, extensions],
       ['creator_notes', 'creatorNotes', 'creator_comment', 'creatorcomment']
     ),
-    systemPrompt: firstString([data, root], ['system_prompt', 'systemPrompt']),
+    systemPrompt: standardSystemPrompt || zhiyuSetting,
     postHistoryInstructions: firstString(
       [data, root],
       ['post_history_instructions', 'postHistoryInstructions']
@@ -405,10 +541,57 @@ export function normalizeCard(raw) {
   };
 }
 
+function normalizeJsonText(text) {
+  let source = String(text || '').replace(/^\uFEFF/, '').trim();
+  const fenced = source.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) source = fenced[1];
+  let output = '';
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) {
+        output += char;
+        escaped = false;
+      } else if (char === '\\') {
+        output += char;
+        escaped = true;
+      } else if (char === '"') {
+        output += char;
+        inString = false;
+      } else if (char === '\r') {
+        output += '\\n';
+        if (source[index + 1] === '\n') index += 1;
+      } else if (char === '\n') {
+        output += '\\n';
+      } else if (char === '\t' || char === '\b' || char === '\f') {
+        output += `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`;
+      } else {
+        output += char;
+      }
+      continue;
+    }
+    if (char === '"') {
+      output += char;
+      inString = true;
+    } else if (char === '\u3000' || char === '\u00a0' || char === '\u2028' || char === '\u2029') {
+      output += ' ';
+    } else if (char === '\uFF1A') {
+      output += ':';
+    } else if (char === '\uFF0C') {
+      output += ',';
+    } else {
+      output += char;
+    }
+  }
+  return output;
+}
+
 export function parseCardFromJson(text) {
   let raw;
   try {
-    raw = JSON.parse(text);
+    raw = JSON.parse(normalizeJsonText(text));
   } catch (error) {
     throw new Error(`JSON 语法错误：${error.message}`);
   }
