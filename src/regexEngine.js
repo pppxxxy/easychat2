@@ -57,6 +57,16 @@ export function compileRegex(findRegex, flags = 'g') {
   return new RegExp(pattern, effectiveFlags);
 }
 
+// 兼容把 `$0` 当整段匹配的写法（JS 原生只认 `$&`，`$0` 会被当字面量）。
+// 先把 `$$`（JS 里表示字面量 `$`）保护起来，再转换真正的 `$0`，避免误伤 `$$0`。
+const DOLLAR_SENTINEL = '\u0000DOLLAR\u0000';
+function normalizeReplacement(replacement) {
+  return String(replacement ?? '')
+    .replace(/\$\$/g, DOLLAR_SENTINEL)
+    .replace(/\$0(?![0-9])/g, '$$&')
+    .split(DOLLAR_SENTINEL).join('$$');
+}
+
 function withinDepth(script, depth) {
   if (depth === null || depth === undefined) return true;
   if (script.minDepth !== null && script.minDepth !== undefined && depth < script.minDepth) {
@@ -87,7 +97,7 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
     if (!withinDepth(script, options.depth)) continue;
     try {
       const regex = compileRegexCached(script.findRegex, script.flags);
-      let replacement = script.replaceString ?? '';
+      let replacement = normalizeReplacement(script.replaceString);
       if (mode === 'display' && /^\s*<style\b[^>]*>(?:(?!<\/style>)[\s\S])*<\/style>$/i.test(replacement)) {
         replacement += '\n';
       }

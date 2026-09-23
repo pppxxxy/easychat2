@@ -188,6 +188,9 @@ const createMarkdownStyles = (theme, fonts, tokens) => ({
 const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre)\b[^>]*>/i;
 
 const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+// 角色卡常把 HTML 包在 ```html 围栏里。助手消息一旦含 HTML 标签就交给
+// react-native-render-html 渲染，围栏会变成多余的正文，这里先去掉围栏行。
+const MARKDOWN_FENCE_LINE_PATTERN = /^[ \t]*```[^\n]*$/gm;
 const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
 const ONCLICK_ATTRIBUTE_PATTERN = /onclick\s*=\s*("[^"]*"|'[^']*')/i;
 const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
@@ -306,7 +309,7 @@ function replaceGradientBackgrounds(html) {
 }
 
 function prepareAssistantHtml(raw) {
-  let html = String(raw || '').replace(STYLE_BLOCK_PATTERN, '');
+  let html = String(raw || '').replace(MARKDOWN_FENCE_LINE_PATTERN, '').replace(STYLE_BLOCK_PATTERN, '');
   html = replaceGradientBackgrounds(html);
   html = html.replace(/class="(ml-open-[a-z]+)"/g, (full, cls) => {
     const inline = PANEL_CLASS_STYLES[cls];

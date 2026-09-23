@@ -56,6 +56,20 @@ test('compileRegex 仍按 /pattern/flags 解析并拒绝空表达式', () => {
   assert.throws(() => compileRegex(''), /不能为空/);
 });
 
+test('替换文本中的 $0 视作整段匹配（兼容角色卡写法）', () => {
+  const s = script({ findRegex: '/([\\s\\S]+?。)/g', replaceString: '$0<panel/>' });
+  assert.equal(
+    applyRegexScripts('第一句。第二句。', [s], REGEX_PLACEMENT.AI_OUTPUT),
+    '第一句。<panel/>第二句。<panel/>'
+  );
+  // 已支持的原生写法不受影响
+  const amp = script({ findRegex: '/x/g', replaceString: '[$&]' });
+  assert.equal(applyRegexScripts('x', [amp], REGEX_PLACEMENT.AI_OUTPUT), '[x]');
+  // $$0 表示字面量 $0，不能被当成整段匹配
+  const literal = script({ findRegex: '/x/g', replaceString: '$$0' });
+  assert.equal(applyRegexScripts('x', [literal], REGEX_PLACEMENT.AI_OUTPUT), '$0');
+});
+
 test('超长文本：只对尾部执行脚本，头部原样保留（防灾难性回溯拖死主线程）', () => {
   const head = 'H'.repeat(25000);
   const tail = 'foo';
