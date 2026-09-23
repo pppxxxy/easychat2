@@ -14,10 +14,12 @@ import { useApp } from './context/AppContext';
 import {
   deleteMomentsBySessionIds,
   findOrphanSessions,
+  getMessagesBySession,
   getMoments,
   getUserProfile,
   restoreSession,
 } from './storage';
+import { buildPreview } from './context/sessionLibrary';
 import { countMomentsBySessionIds } from './moments/moments';
 import ChapterModal from './ChapterModal';
 import SessionRecoveryModal from './SessionRecoveryModal';
@@ -102,6 +104,18 @@ export default function MemoryScreen({ navigation }) {
     scanOrphans();
   }, [loaded, scanOrphans]);
 
+  // 聊天页保存消息时只写存储、不会同步 Context 的会话列表；回到记忆页若
+  // 不重读，就会看到过期的 preview/updatedAt（空会话、排到底部都是这个原因）。
+  useEffect(() => {
+    if (!navigation) return undefined;
+    const refresh = () => {
+      refreshSessions().catch(() => {});
+    };
+    refresh();
+    const unsubscribe = navigation.addListener('focus', refresh);
+    return unsubscribe;
+  }, [navigation, refreshSessions]);
+
   const onRecover = useCallback(async (orphan, characterId) => {
     try {
       await restoreSession(orphan.sessionId, characterId);
@@ -121,20 +135,38 @@ export default function MemoryScreen({ navigation }) {
     return map;
   }, [characters]);
 
-  // 不再隐藏“空会话”：消息被清空过的会话 preview 会变成空串，
-  // 若继续过滤掉，这类会话既看不见也删不掉，只会在存储里越积越多。
-  // 现在全部显示，空会话排在后面并给出占位文案（列表中可删除）。
+  // 不再隐藏“空会话”：消息被清空过的会话 preview 会变成空串，若过滤掉就会
+  // 既看不见也删不掉。这里只保留存储层给的排序（置顶优先、updatedAt 降序），
+  // 不再按 preview 是否为空重排——否则最近用过但 preview 暂未同步的会话会被压到底部。
   const visibleSessions = useMemo(
-    () => {
-      const list = Array.isArray(sessions) ? sessions : [];
-      return [...list].sort((a, b) => {
-        const emptyA = String((a && a.preview) || '').trim().length === 0 ? 1 : 0;
-        const emptyB = String((b && b.preview) || '').trim().length === 0 ? 1 : 0;
-        return emptyA - emptyB;
-      });
-    },
+    () => (Array.isArray(sessions) ? sessions : []),
     [sessions]
   );
+
+  // 兜底：存储里的 preview 可能缺失（历史会话 / 某次写盘没同步），但消息体还在。
+  // 对空 preview 的会话读一次消息体补出摘要，避免“明明聊过却显示空会话”。
+  const [previewFallback, setPreviewFallback] = useState({});
+  useEffect(() => {
+    const missing = visibleSessions.filter(session => !String((session && session.preview) || '').trim());
+    if (missing.length === 0) return undefined;
+    let cancelled = false;
+    (async () => {
+      const found = {};
+      for (const session of missing) {
+        try {
+          const messages = await getMessagesBySession(session.id);
+          const text = buildPreview(messages);
+          if (text) found[session.id] = text;
+        } catch (error) {}
+      }
+      if (!cancelled && Object.keys(found).length > 0) {
+        setPreviewFallback(current => ({ ...current, ...found }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleSessions]);
 
   const onOpen = useCallback(async session => {
     try {
@@ -441,7 +473,9 @@ export default function MemoryScreen({ navigation }) {
                       ) : null}
                     </View>
                     <Text style={styles.preview} numberOfLines={2}>
-                      {String(session.preview || '').trim() || '（空会话，可删除）'}
+                      {String(session.preview || '').trim()
+                        || String(previewFallback[session.id] || '').trim()
+                        || '（空会话，可删除）'}
                     </Text>
                     <Text style={styles.time}>{formatTime(session.updatedAt)}</Text>
                   </View>

@@ -71,7 +71,7 @@
 - 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter`；若该角色还有会话（记忆），会再询问「仅删角色」或「角色和记忆都删」，后者一并调用 `deleteSessions` 清除会话与消息
 - 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
-- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析，并经 `addCharacter` 加入角色库并设为当前角色
+- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；随后用 `GreetingPickerModal` 让用户选择/修改/新增开场白，再经 `addCharacter` 加入角色库并设为当前角色（`confirmImport` 落库）
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
 - 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）与「标签」
@@ -117,7 +117,9 @@
 **位置**: `src/MemoryScreen.js`
 **Props**: `navigation`（由导航注入）
 **行为**:
-- 从 `useApp()` 读取 `sessions`、`characters`、`loaded` 与会话操作，只展示摘要非空的会话（空会话不占行）
+- 从 `useApp()` 读取 `sessions`、`characters`、`loaded` 与会话操作；展示全部会话，顺序沿用存储层的置顶优先 + 更新时间降序（不再按 preview 是否为空重排）
+- 聚焦时调用 `refreshSessions()` 重读会话列表：聊天页保存消息只写存储、不同步 Context，不重读会看到过期的 preview 与更新时间
+- 空 preview 的会话读一次消息体兜底补出摘要；仍为空才显示「（空会话，可删除）」
 - 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标；群聊会话展示叠放成员头像与群名
 - 点击行先 `switchCharacter` 再 `switchSession`，随后 `navigation.navigate('聊天')`
 - 右侧提供置顶、克隆、删除三个按钮；克隆与删除弹二次确认，失败时 `Alert`
@@ -244,6 +246,20 @@
 | `resolveActiveSessionId(sessions, activeId)` | 校验当前会话 `id`，无效时回退首个会话 |
 | `createEmptySession(characterId, sessions, now?)` | 构造未置顶空会话 |
 | `buildClonedSession(sessions, source, messages, now?)` | 构造克隆会话（未置顶、记录 `clonedFrom`） |
+
+### `cardGreetings` 辅助函数
+**位置**: `src/cardGreetings.js`（纯函数，供 `CharacterScreen`/`GreetingPickerModal` 与测试使用）
+
+| 函数 | 说明 |
+|------|------|
+| `listGreetingCandidates(fields)` | 把 `firstMes` + `alternateGreetings` 整理为 `[{ text, source }]`（`source` 为 `first`/`alt`），去空去空白 |
+| `buildGreetingImport(drafts, selectedIndex)` | 由可编辑草稿与选中下标得到 `{ firstMes, alternateGreetings }`；`selectedIndex < 0` 表示不使用开场白，其余非空草稿保留为备用 |
+
+### `GreetingPickerModal`（默认导出）
+**位置**: `src/GreetingPickerModal.js`
+**Props**: `{ visible, candidates: [{ text, source }], onCancel, onConfirm }`
+
+导入角色卡时选择开场白：列出候选、单选、就地编辑与增删；确认时经 `buildGreetingImport` 得到 `{ firstMes, alternateGreetings }` 交给 `confirmImport`。
 
 ## 持久化接口
 
