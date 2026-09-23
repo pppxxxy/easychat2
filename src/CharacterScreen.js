@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -46,6 +47,18 @@ import { useTheme } from './theme/ThemeContext';
 
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
+const LARGE_IMPORT_BYTES = 2 * 1024 * 1024;
+
+function formatImportSize(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(value / 1024))} KB`;
+}
+
+function isLargeImport(bytes) {
+  return Number(bytes) > LARGE_IMPORT_BYTES;
+}
 
 const WORLD_POSITION_KEYS = Object.keys(WORLD_POSITION_LABELS)
   .map(Number)
@@ -470,6 +483,7 @@ export default function CharacterScreen() {
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [bgPreview, setBgPreview] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState(null);
   const [pendingImport, setPendingImport] = useState(null);
   const [presetPanelOpen, setPresetPanelOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -631,6 +645,7 @@ export default function CharacterScreen() {
   const importCard = async () => {
     if (importing || !loaded) return;
     setImporting(true);
+    setImportStatus({ phase: 'reading', large: false, size: 0 });
 
     try {
       let result;
@@ -647,6 +662,12 @@ export default function CharacterScreen() {
 
       const asset = getPickedAsset(result);
       if (!asset?.uri) return;
+      const assetSize = Number(asset.size) > 0 ? Number(asset.size) : 0;
+      setImportStatus({
+        phase: 'reading',
+        large: isLargeImport(assetSize),
+        size: assetSize,
+      });
 
       let buffer;
       try {
@@ -654,6 +675,12 @@ export default function CharacterScreen() {
           encoding: FileSystem.EncodingType.Base64,
         });
         buffer = Buffer.from(base64, 'base64');
+        const importSize = assetSize || buffer.length;
+        setImportStatus({
+          phase: 'reading',
+          large: isLargeImport(importSize),
+          size: importSize,
+        });
       } catch (error) {
         Alert.alert('文件读取错误，请重试');
         return;
@@ -691,10 +718,13 @@ export default function CharacterScreen() {
         patch,
         treatAsPng,
         assetUri: (asset && asset.uri) || '',
+        large: isLargeImport(assetSize || buffer.length),
+        size: assetSize || buffer.length,
         candidates: listGreetingCandidates(parsed.fields || {}),
       });
     } finally {
       setImporting(false);
+      setImportStatus(null);
     }
   };
 
@@ -707,6 +737,11 @@ export default function CharacterScreen() {
       alternateGreetings: result.alternateGreetings,
     };
     setImporting(true);
+    setImportStatus({
+      phase: 'saving',
+      large: !!pending.large,
+      size: Number(pending.size) || 0,
+    });
     try {
       const created = await addCharacter(next);
       setPendingImport(null);
@@ -756,6 +791,7 @@ export default function CharacterScreen() {
       Alert.alert('导入失败', message);
     } finally {
       setImporting(false);
+      setImportStatus(null);
     }
   };
 
@@ -1196,6 +1232,17 @@ export default function CharacterScreen() {
   const editingRegexEntry = editingRegexIndex >= 0 ? regexScripts[editingRegexIndex] : null;
 
   const card = character || {};
+  const importSizeLabel = formatImportSize(importStatus && importStatus.size);
+  const importStatusTitle = !importStatus
+    ? ''
+    : importStatus.large
+      ? importStatus.phase === 'saving' ? '大卡片正在保存' : '大卡片正在读取'
+      : importStatus.phase === 'saving' ? '正在保存角色卡' : '正在导入角色卡';
+  const importStatusHint = !importStatus
+    ? ''
+    : importStatus.large
+      ? `${importStatus.phase === 'saving' ? '正在写入本地存储' : '正在读取并解析文件'}${importSizeLabel ? ` · ${importSizeLabel}` : ''}，请稍候`
+      : importStatus.phase === 'saving' ? '正在写入本地存储，请稍候' : '正在读取并解析文件，请稍候';
 
   return (
     <KeyboardAvoidingView
@@ -1854,11 +1901,26 @@ export default function CharacterScreen() {
       />
 
       <GreetingPickerModal
-        visible={!!pendingImport}
+        visible={!!pendingImport && !importing}
         candidates={pendingImport ? pendingImport.candidates : []}
         onCancel={() => setPendingImport(null)}
         onConfirm={confirmImport}
       />
+
+      <Modal
+        visible={!!importStatus}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.importOverlayBackdrop}>
+          <View style={styles.importOverlayCard}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.importOverlayTitle}>{importStatusTitle}</Text>
+            <Text style={styles.importOverlayHint}>{importStatusHint}</Text>
+          </View>
+        </View>
+      </Modal>
 
       <ChapterModal
         visible={!!topic}
@@ -2167,6 +2229,39 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   selectButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
   selectButtonTextGhost: { color: theme.colors.text },
 
+  importOverlayBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  importOverlayCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.lg,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+    ...tokens.elevation(2, theme),
+  },
+  importOverlayTitle: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(17),
+    fontWeight: '800',
+    marginTop: 18,
+    textAlign: 'center',
+  },
+  importOverlayHint: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(13),
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 8,
+  },
   importButton: {
     flexDirection: 'row',
     backgroundColor: theme.colors.primaryAlpha(0.12),
