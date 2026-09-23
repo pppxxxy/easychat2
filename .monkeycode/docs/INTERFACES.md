@@ -531,7 +531,7 @@ data: [DONE]
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）与联网搜索背景资料（`pluginContext`）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）、联网搜索背景资料（`pluginContext`），最后恒定追加 `[输出格式]`（`DEFAULT_OUTPUT_FORMAT_PROMPT`，要求自然分段换行，不受预设开关影响）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -711,7 +711,7 @@ data: [DONE]
 ### `RichHtmlMessage`（默认导出）
 **位置**: `src/RichHtmlMessage.js`
 
-用 `react-native-webview` 渲染含 `<style>`/`<script>` 的助手消息，动态高度由桥脚本回传；`onCommand` 接收 `button[data-command]` 的斜杠命令。`react-native-webview` 缺失时返回 `null`。
+用 `react-native-webview` 渲染含 `<style>`/`<script>` 的助手消息，动态高度由桥脚本回传（`<details>` 展开/收起与点击后都会重新测量）；`onCommand` 接收 `button[data-command]` 的斜杠命令。因关闭了 WebView 自身滚动，`buildRichHtmlDocument` 会注入 `body *{max-height:none !important}`，避免卡片内层 `max-height + overflow` 折叠区被裁切，内容由外层聊天列表滚动。`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`
