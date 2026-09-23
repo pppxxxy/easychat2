@@ -32,7 +32,7 @@
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式，`richHtml` 决定含 `<style>`/`<script>` 的助手消息是否用 WebView 渲染
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
@@ -355,7 +355,7 @@
 | `@easychat2_vector_memory` | 向量记忆配置 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }` |
 | `@easychat2_vector_index::<characterId>` | 按角色隔离的记忆片段索引 `[{ id, messageId, role, at, text, vector }]` |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
-| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean }`，默认 `{ streaming: true, fullWidth: false }` |
+| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true }` |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
@@ -678,6 +678,24 @@ data: [DONE]
 | `options.depth` | `number?` | 用于 `minDepth`/`maxDepth` 过滤 |
 
 **辅助导出**: `REGEX_PLACEMENT`。
+
+**替换语法**: 替换文本走 JS `String.replace` 语义（`$1`/`$&`/`$$`），并把 `$0` 兼容为整段匹配（映射为 `$&`），以兼容角色卡常见写法。
+
+### `richHtml` 辅助函数
+**位置**: `src/richHtml.js`（纯函数，供 `ChatScreen`/`RichHtmlMessage` 与测试使用）
+
+| 函数 | 说明 |
+|------|------|
+| `needsRichHtmlRendering(text)` | 文本是否含 `<style>`/`<script>`，这类消息需要 WebView 才能还原样式与交互 |
+| `shouldRenderRichHtml(text, enabled)` | 在上者基础上叠加 `richHtml` 开关（缺省开启） |
+| `stripMarkdownFences(text)` | 去掉 ` ```html ` / ` ``` ` 围栏行 |
+| `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily })` | 包装为完整 HTML 文档（含视口与高度回传/命令桥脚本） |
+| `RICH_HTML_RESIZE_BRIDGE` | 注入的桥脚本：`ResizeObserver` 回传高度、`button[data-command]` 回传命令 |
+
+### `RichHtmlMessage`（默认导出）
+**位置**: `src/RichHtmlMessage.js`
+
+用 `react-native-webview` 渲染含 `<style>`/`<script>` 的助手消息，动态高度由桥脚本回传；`onCommand` 接收 `button[data-command]` 的斜杠命令。`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`

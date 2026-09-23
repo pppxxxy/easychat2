@@ -534,13 +534,13 @@ export async function saveImageGenSettings(settings) {
   return normalized;
 }
 
-const DEFAULT_CHAT_OPTIONS = { streaming: true, fullWidth: false };
-
 function normalizeChatOptions(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
     streaming: source.streaming !== false,
     fullWidth: source.fullWidth === true,
+    // 含 <style>/<script> 的助手消息是否用 WebView 渲染；缺省开启。
+    richHtml: source.richHtml !== false,
   };
 }
 

@@ -60,6 +60,8 @@ import {
   selectSpeakers,
 } from './groupChat';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
+import RichHtmlMessage from './RichHtmlMessage';
+import { shouldRenderRichHtml, stripMarkdownFences } from './richHtml';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import { hideVariantStatusBar, toSpeechText } from './speechText';
@@ -188,9 +190,6 @@ const createMarkdownStyles = (theme, fonts, tokens) => ({
 const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre)\b[^>]*>/i;
 
 const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
-// 角色卡常把 HTML 包在 ```html 围栏里。助手消息一旦含 HTML 标签就交给
-// react-native-render-html 渲染，围栏会变成多余的正文，这里先去掉围栏行。
-const MARKDOWN_FENCE_LINE_PATTERN = /^[ \t]*```[^\n]*$/gm;
 const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
 const ONCLICK_ATTRIBUTE_PATTERN = /onclick\s*=\s*("[^"]*"|'[^']*')/i;
 const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
@@ -309,7 +308,7 @@ function replaceGradientBackgrounds(html) {
 }
 
 function prepareAssistantHtml(raw) {
-  let html = String(raw || '').replace(MARKDOWN_FENCE_LINE_PATTERN, '').replace(STYLE_BLOCK_PATTERN, '');
+  let html = stripMarkdownFences(raw).replace(STYLE_BLOCK_PATTERN, '');
   html = replaceGradientBackgrounds(html);
   html = html.replace(/class="(ml-open-[a-z]+)"/g, (full, cls) => {
     const inline = PANEL_CLASS_STYLES[cls];
@@ -469,7 +468,7 @@ function renderHighlightedText(text, keyword, styles) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -482,6 +481,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
     !isUser && !message.pending && containsHtml(message.text);
+  // 含 <style>/<script> 的助手消息用 WebView 渲染，才能还原样式与交互。
+  const renderRichHtml =
+    renderHtml && shouldRenderRichHtml(message.text, richHtmlEnabled);
   const plainText = messageCopyText(message.text);
   const onCopy = useCallback(async () => {
     try {
@@ -620,6 +622,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
             </Text>
           ) : message.pending && message.waitingForResponse ? (
             <ThinkingIndicator />
+          ) : renderRichHtml ? (
+            <RichHtmlMessage html={message.text} onCommand={onSlashCommand} />
           ) : renderHtml ? (
             <RenderHtml
               contentWidth={contentWidth}
@@ -862,7 +866,7 @@ export default function ChatScreen() {
   const [thinkingSupported, setThinkingSupported] = useState(false);
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [attachments, setAttachments] = useState([]);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true });
   const [inlineImageSettings, setInlineImageSettings] = useState({
     enabled: false,
     providerId: '',
@@ -2486,6 +2490,7 @@ export default function ChatScreen() {
                     isMatch={searchMatches.includes(message.id)}
                     isActiveMatch={focusedMessageId === message.id}
                     fullWidth={chatOptions.fullWidth}
+                    richHtmlEnabled={chatOptions.richHtml !== false}
                     thinkingDisplay={thinkingDisplay}
                     overlayActions={!!bgUri}
                   />
