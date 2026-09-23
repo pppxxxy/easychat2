@@ -40,6 +40,9 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '    setTimeout(measure, 50);',
   '    setTimeout(measure, 250);',
   '    setTimeout(measure, 800);',
+  '    function schedule(){ setTimeout(measure, 0); setTimeout(measure, 80); setTimeout(measure, 300); }',
+  '    document.addEventListener("toggle", schedule, true);',
+  '    document.addEventListener("click", schedule, true);',
   '    document.addEventListener("click", function(ev){',
   '      var el = ev.target;',
   '      while (el && el !== document.body) {',
@@ -70,11 +73,14 @@ export function buildRichHtmlDocument({
     + '<meta charset="utf-8"/>'
     + '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>'
     + '<style>'
-    + 'html,body{margin:0;padding:0;background:transparent;}'
+    + 'html,body{margin:0;padding:0;background:transparent;height:auto;}'
     + `body{color:${textColor};font-size:${fontSize}px;line-height:1.6;word-break:break-word;-webkit-text-size-adjust:100%;${fontRule}}`
     + 'img{max-width:100%!important;height:auto;}'
     + `a{color:${linkColor};}`
     + '*{box-sizing:border-box;}'
+    // 角色卡常用 max-height + overflow:auto 做折叠滚动区，但 WebView 关闭了自身滚动，
+    // 内层滚动区会卡住、内容被裁。这里解除高度上限，让内容自然撑开，由外层聊天列表滚动。
+    + 'body *{max-height:none !important;}'
     + '</style></head>'
     + `<body>${stripMarkdownFences(bodyHtml)}${RICH_HTML_RESIZE_BRIDGE}</body></html>`
   );

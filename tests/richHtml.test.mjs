@@ -40,4 +40,8 @@ test('包装文档包含视口、正文与高度桥', () => {
   assert.ok(!doc.includes('```'));
   assert.ok(doc.includes('ReactNativeWebView'));
   assert.ok(doc.includes('ResizeObserver'));
+  // 解除卡片内层 max-height，避免折叠区在关闭滚动的 WebView 里被裁
+  assert.ok(doc.includes('max-height:none'));
+  // 展开/收起后重新测量高度
+  assert.ok(doc.includes('"toggle"'));
 });
