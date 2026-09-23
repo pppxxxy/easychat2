@@ -16,6 +16,7 @@ test('含内置渲染器不支持标签的消息才需要 WebView', () => {
   // 只有内联样式的卡片也可能用 <details> 做折叠，RenderHtml 会丢弃，必须走 WebView
   assert.equal(needsRichHtmlRendering('<details><summary>标题</summary>内容</details>'), true);
   assert.equal(needsRichHtmlRendering('<svg><circle/></svg>'), true);
+  assert.equal(needsRichHtmlRendering('<video controls src="video.mp4"></video>'), true);
 });
 
 test('富 HTML 渲染受开关控制，缺省开启', () => {

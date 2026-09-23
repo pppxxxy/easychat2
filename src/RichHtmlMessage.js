@@ -50,6 +50,7 @@ export default function RichHtmlMessage({ html, onCommand }) {
     }
     return false;
   }, []);
+  const onOpenWindow = useCallback(() => {}, []);
 
   if (!WebViewComponent) return null;
 
@@ -63,9 +64,11 @@ export default function RichHtmlMessage({ html, onCommand }) {
         javaScriptEnabled
         domStorageEnabled={false}
         allowFileAccess={false}
-        setSupportMultipleWindows={false}
+        allowsFullscreenVideo
+        setSupportMultipleWindows
         scrollEnabled={false}
         onMessage={onMessage}
+        onOpenWindow={onOpenWindow}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
       />
     </View>

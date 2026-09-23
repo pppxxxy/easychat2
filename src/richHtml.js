@@ -4,7 +4,7 @@
 
 // 这些标签 react-native-render-html 处理不好或直接丢弃：<style> 被删、<script> 不执行、
 // <details>/<summary> 归为不可翻译标签、SVG 不支持，因此都改用 WebView 渲染。
-const RICH_HTML_TAG_PATTERN = /<(?:script|style|details|summary|svg)[\s>]/i;
+const RICH_HTML_TAG_PATTERN = /<(?:script|style|details|summary|svg|audio|video)[\s>]/i;
 // 角色卡常把 HTML 包在 ```html 围栏里；无论内置渲染还是 WebView 渲染，
 // 围栏都应先去掉，否则会当成正文显示。
 const MARKDOWN_FENCE_LINE_PATTERN = /^[ \t]*```[^\n]*$/gm;

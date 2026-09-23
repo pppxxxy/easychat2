@@ -22,7 +22,7 @@ EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应�
 **框架与库**
 - 界面：`react-native` 原生组件、`react-native-safe-area-context`、`react-native-gesture-handler`
 - 导航：`@react-navigation/native` + `@react-navigation/bottom-tabs`
-- 富文本：`react-native-markdown-display`
+- 富文本：`react-native-markdown-display`、`react-native-render-html`、`react-native-webview`（角色卡媒体与交互 HTML）
 - 图标资源：`react-native-vector-icons`
 
 **数据存储**
