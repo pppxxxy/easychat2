@@ -149,6 +149,7 @@ export function createForgeDraft() {
   draft.alternateGreetings = [];
   draft.worldInfo = [];
   draft.regexScripts = [];
+  draft.presets = [];
   return draft;
 }
 
@@ -368,6 +369,9 @@ export function draftFromCharacter(character) {
   draft.regexScripts = Array.isArray(source.regexScripts)
     ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, 100)
     : [];
+  draft.presets = Array.isArray(source.presets)
+    ? source.presets.filter(item => item && typeof item === 'object').slice(0, 100)
+    : [];
   return draft;
 }
 
@@ -394,11 +398,13 @@ export function draftToCharacterPatch(draft, { composedPrompt = '', now = Date.n
     tags: Array.isArray(source.tags) ? source.tags.map(item => clean(item, 40)).filter(Boolean) : [],
     worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, 100) : [],
     regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, 100) : [],
+    presets: Array.isArray(source.presets) ? source.presets.slice(0, 100) : [],
   };
 }
 
 export function hasCardContent(draft) {
   const source = draft && typeof draft === 'object' ? draft : {};
   return FORGE_FIELDS.some(key => clean(source[key]).length > 0)
-    || clean(source.systemPrompt).length > 0;
+    || clean(source.systemPrompt).length > 0
+    || (Array.isArray(source.presets) && source.presets.length > 0);
 }

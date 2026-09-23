@@ -98,7 +98,8 @@ npm run prebuild     # 生成原生工程
 | `src/moments/moments.js` | 动态触发判定与文本模板 |
 | `src/imageGen/index.js` | 生图统一适配与响应解析 |
 | `src/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
-| `src/chatPipeline.js` | 世界书/正则提示词组装 |
+| `src/chatPipeline.js` | 世界书/正则/角色预设提示词组装 |
+| `src/characterPresets.js` | 角色卡预设规范化与解析 |
 | `src/storage.js` | 持久化封装 |
 | `src/api.js` | 大模型接口调用 |
 | `src/context/AppContext.js` | 全局角色库状态 |

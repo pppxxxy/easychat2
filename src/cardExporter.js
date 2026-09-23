@@ -221,8 +221,20 @@ function mapRegexScript(script) {
   };
 }
 
+function mapCharacterPreset(preset) {
+  const source = preset || {};
+  return {
+    id: String(source.id || ''),
+    name: String(source.name || ''),
+    description: String(source.description || ''),
+    prompt: String(source.prompt || ''),
+    enabled: source.enabled !== false,
+  };
+}
+
 export function buildCardV2(character) {
   const source = character || {};
+  const presets = (Array.isArray(source.presets) ? source.presets : []).map(mapCharacterPreset);
   const data = {
     name: String(source.name || ''),
     description: String(source.description || ''),
@@ -243,6 +255,10 @@ export function buildCardV2(character) {
     extensions: {
       regex_scripts: (Array.isArray(source.regexScripts) ? source.regexScripts : [])
         .map(mapRegexScript),
+      easychat2: {
+        version: 1,
+        character_presets: presets,
+      },
     },
   };
   const card = {
@@ -263,6 +279,7 @@ export function buildCardV2(character) {
   card.tags = data.tags;
   card.character_book = data.character_book;
   card.extensions = data.extensions;
+  card.character_presets = presets;
   return card;
 }
 

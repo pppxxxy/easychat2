@@ -23,7 +23,6 @@ import {
   isDisclaimerAcknowledged,
   isOnboardingDone,
   migrateLegacyMessages,
-  startNewSession,
 } from './src/storage';
 import { AppProvider, useApp } from './src/context/AppContext';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
@@ -140,7 +139,7 @@ function StartupFlow() {
 }
 
 function StartupSession() {
-  const { characters, activeId, loaded, refreshSessions } = useApp();
+  const { characters, loaded, refreshSessions } = useApp();
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -151,13 +150,10 @@ function StartupSession() {
         await migrateLegacyMessages(characters);
       } catch (error) {}
       try {
-        await startNewSession(activeId);
-      } catch (error) {}
-      try {
         await refreshSessions();
       } catch (error) {}
     })();
-  }, [loaded, characters, activeId, refreshSessions]);
+  }, [loaded, characters, refreshSessions]);
 
   return null;
 }

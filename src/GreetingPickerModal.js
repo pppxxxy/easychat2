@@ -15,7 +15,14 @@ import { buildGreetingImport } from './cardGreetings';
 
 // 导入角色卡时选择开场白：挑一条、就地修改，或新增。确认后返回
 // { firstMes, alternateGreetings }。
-export default function GreetingPickerModal({ visible, candidates, onCancel, onConfirm }) {
+export default function GreetingPickerModal({
+  visible,
+  candidates,
+  onCancel,
+  onConfirm,
+  mode = 'import',
+  initialSelectedIndex,
+}) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const source = Array.isArray(candidates) ? candidates : [];
@@ -27,9 +34,11 @@ export default function GreetingPickerModal({ visible, candidates, onCancel, onC
     const initial = (Array.isArray(candidates) ? candidates : [])
       .map(item => String((item && item.text) || ''));
     setDrafts(initial);
-    setSelectedIndex(initial.length > 0 ? 0 : -1);
+    const hasRequestedIndex = Number.isInteger(initialSelectedIndex);
+    const requestedIndex = hasRequestedIndex ? initialSelectedIndex : (initial.length > 0 ? 0 : -1);
+    setSelectedIndex(requestedIndex >= 0 && requestedIndex < initial.length ? requestedIndex : -1);
     // candidates 在弹窗打开期间引用稳定，只在打开或候选变化时重置
-  }, [visible, candidates]);
+  }, [visible, candidates, initialSelectedIndex]);
 
   const updateDraft = (index, value) => {
     setDrafts(current => current.map((item, i) => (i === index ? value : item)));
@@ -71,9 +80,11 @@ export default function GreetingPickerModal({ visible, candidates, onCancel, onC
             </TouchableOpacity>
           </View>
           <Text style={styles.hint}>
-            {source.length > 0
-              ? '这张卡包含多条开场白，选一条作为开场白；也可以修改或新增。未选中的会保留为备用开场白。'
-              : '这张卡没有开场白，可以新增一条，或直接跳过。'}
+            {mode === 'select'
+              ? '选择后，之后新建的对话会默认使用这条开场白。也可以修改或新增。'
+              : source.length > 0
+                ? '这张卡包含多条开场白，选一条作为开场白；也可以修改或新增。未选中的会保留为备用开场白。'
+                : '这张卡没有开场白，可以新增一条，或直接跳过。'}
           </Text>
 
           <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
@@ -146,7 +157,7 @@ export default function GreetingPickerModal({ visible, candidates, onCancel, onC
               <Text style={styles.ghostText}>取消</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.button, styles.primary]} onPress={confirm} activeOpacity={0.85}>
-              <Text style={styles.primaryText}>导入</Text>
+              <Text style={styles.primaryText}>{mode === 'select' ? '使用此开场白' : '导入'}</Text>
             </TouchableOpacity>
           </View>
         </View>

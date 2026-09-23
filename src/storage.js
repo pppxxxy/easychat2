@@ -6,6 +6,7 @@ import { isKnownImageProvider } from './imageGen/providers';
 import { FORGE_FIELDS, FORGE_QUESTIONS } from './cardForge/forge';
 import { removeMomentsBySessionIds } from './moments/moments';
 import { assignStableCharacterIds } from './context/characterIdentity';
+import { normalizeCharacterPresets } from './characterPresets';
 import {
   buildClonedSession,
   buildPreview,
@@ -86,6 +87,7 @@ export const DEFAULT_CHARACTER = {
   tags: [],
   worldInfo: [],
   regexScripts: [],
+  presets: [],
   avatarUri: '',
   bgUri: '',
   lastUsedAt: 0
@@ -214,6 +216,7 @@ function normalizeCharacter(raw) {
     ? merged.alternateGreetings.map(item => String(item == null ? '' : item))
     : [];
   merged.mesExample = String(merged.mesExample || '');
+  merged.presets = normalizeCharacterPresets(merged.presets);
   return merged;
 }
 
@@ -1970,17 +1973,42 @@ async function readLegacyMessages(characterId) {
   return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
 }
 
-export async function startNewSession(characterId) {
+export async function startNewSession(characterId, opening = null) {
   // 这里以前会先扫描每个会话的消息体，只把“读得到内容”的会话写回列表。
   // 于是任何一次读取失败（例如值过大触发 Android cursor window）都会让该会话
   // 被静默地从会话列表里删除：消息体还在，但会话再也看不见、也删不掉，
   // 只有下次扫描恰好成功时才会“复活”。新建对话无权删掉别的会话。
   const sessions = await requireSessions();
   const created = createEmptySession(characterId, sessions);
+  created.greetingSelected = opening !== null && opening !== undefined;
+  const openingText = String(opening && opening.text || '').trim();
+  const openingTemplate = String(opening && opening.template || openingText).trim();
+  if (openingText) {
+    const greeting = {
+      id: `greeting-${created.id}`,
+      role: 'assistant',
+      text: openingText,
+      timestamp: Date.now(),
+      kind: 'greeting',
+      greetingTemplate: openingTemplate,
+    };
+    created.preview = buildPreview([greeting]);
+    await AsyncStorage.setItem(sessionMessagesKey(created.id), JSON.stringify([greeting]));
+  }
   const next = sortSessions([...sessions, created]);
   await saveSessions(next);
   await setActiveSessionId(created.id);
   return created;
+}
+
+export async function setSessionGreetingSelected(sessionId, selected = true) {
+  const sessions = await requireSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target || target.type === 'group') return target || null;
+  const updated = { ...target, greetingSelected: selected !== false };
+  if (updated.greetingSelected === target.greetingSelected) return target;
+  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  return updated;
 }
 
 export async function createGroupSession(members, name, extras = {}) {

@@ -37,7 +37,7 @@
 - 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
-- 顶部栏提供「新建」按钮为当前角色开启新会话（群聊则按相同成员新建），旧会话保留在记忆页；空会话时提示且不创建，成功后清空消息、附件、引用与搜索状态
+- 顶部栏提供「新建」按钮：单聊先打开开场白选择器，选择结果保存为角色默认开场白并用于后续新会话；群聊沿用成员新建逻辑。空会话也允许选择开场白，开场白消息底部提供「重选」
 - 顶部栏常驻元素为：角色头像与名称、播报开关、「新建」与「⋯」更多菜单；「⋯」菜单收纳公告、模型、思考、定位、搜索、总结与设置，点选执行与折叠前一致的操作（定位无消息时禁用、总结进行中禁用、搜索反映开启态），菜单以浮层呈现不改变消息列表滚动位置
 - 「⋯」菜单的「设置」打开聊天设置弹窗，提供「系统设置」（跳转设置页）与「编辑角色」（群聊隐藏并提示）两个入口
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；会话所属角色缺失时仍加载历史消息，界面显示「角色资料缺失」并禁用发送、重生成、附件与新建会话
@@ -65,17 +65,17 @@
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
 **Props**: 无
-**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`expandedWorld`、`expandedRegex`、`importing`、`seededIdRef`
+**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`presets`、`expandedWorld`、`expandedRegex`、`importing`、`seededIdRef`
 **行为**:
 - 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并标「当前」；点选条目调用 `switchCharacter`
 - 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter`；若该角色还有会话（记忆），会再询问「仅删角色」或「角色和记忆都删」，后者一并调用 `deleteSessions` 清除会话与消息
 - 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
-- `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
+- `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts, presets }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；读取/解析与确认落库阶段均显示不可误触的导入弹层，大卡片显示文件大小与等待提示；随后用 `GreetingPickerModal` 让用户选择/修改/新增开场白，再经 `addCharacter` 加入角色库并设为当前角色；确认落库失败时保留弹窗与开场白草稿，超大角色正文改由文件系统保存
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
 - 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）与「标签」
-- 「全局预设」入口位于世界书与正则区块之后
+- 角色数据区按「世界书 → 正则脚本 → 预设 → 全局预设」排列；角色预设随角色卡导入、编辑和导出，独立于全局预设
 - 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
 
 ### `SettingsScreen`（默认导出）
@@ -105,13 +105,13 @@
 
 ### `PresetPanel`（默认导出）
 **位置**: `src/PresetPanel.js`
-**Props**: `{ visible, onClose }`
+**Props**: `{ visible, onClose, scope = 'global', characterPresets, onCharacterPresetsChange }`
 **行为**:
-- `visible` 变为真时读取预设、开关映射与记忆总结设置
+- `scope='global'` 时读取全局预设、开关映射与记忆总结设置；`scope='character'` 时读取当前角色草稿预设并通过 `onCharacterPresetsChange` 回写
 - 列出全部预设（名称、描述、启用开关），开关切换即时保存；点击条目打开编辑弹窗
 - 提供新增与编辑（名称、描述、提示词）以及删除二次确认，删除同时移除其开关记录
-- 列表之外提供「记忆总结」开关与触发阈值输入，阈值只接受大于 0 的整数，非法回退 40；输入框右侧提供「确认」按钮，点击即校验并保存并提示已保存
-- 设置页与角色编辑页共用该组件；关闭时提交未保存的阈值
+- 全局作用域额外提供「记忆总结」开关与触发阈值；角色作用域隐藏该区域
+- 设置页与角色页共用该组件；角色页顺序为世界书、正则脚本、预设、全局预设
 
 ### `MemoryScreen`（默认导出）
 **位置**: `src/MemoryScreen.js`
@@ -195,7 +195,7 @@
 | `deleteSession` | `(id) => Promise<{ sessions, activeSessionId, created }>` | 删除会话，必要时新建空会话并设为当前 |
 | `deleteSessions` | `(ids) => Promise<Session[]>` | 批量删除多个会话；包含当前会话时先新建空会话再删除 |
 | `refreshSessions` | `() => Promise<Session[]>` | 从存储重新读取会话与当前指针并同步状态 |
-| `ensureCharacterSession` | `(characterId) => Promise<Session>` | 激活该角色最近更新的会话；无会话时新建空会话 |
+| `ensureCharacterSession` | `(characterId, opening?) => Promise<Session>` | 激活该角色最近更新的会话；无会话时新建空会话，`opening` 可携带已确认的开场白 |
 | `pendingTarget` | `{ sessionId, messageId } \| null` | 待定位的消息目标，供聊天页消费 |
 | `setPendingTarget` | `(target) => void` | 设置待定位目标；参数不完整时置空 |
 | `consumePendingTarget` | `() => { sessionId, messageId } \| null` | 读取并清空待定位目标 |
@@ -297,7 +297,8 @@
 | `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
 | `getMessagesBySessionStatus` | `(sessionId) => Promise<{ status, messages }>` | 带状态的按会话读取；损坏时先备份再返回 `status: 'corrupt'`，调用方不得把读失败当成空会话写回 |
 | `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
-| `startNewSession` | `(characterId) => Promise<Session>` | 清理无消息会话，新建空会话并设为当前；读取各会话消息判断有无内容失败时（如超大值触发 Android cursor window）降级为保留全部会话而不报错 |
+| `startNewSession` | `(characterId, opening?) => Promise<Session>` | 新建会话并设为当前；传入 `opening` 表示已完成开场白选择，空文本也会记录选择状态，创建时可写入开场白消息 |
+| `setSessionGreetingSelected` | `(sessionId, selected?) => Promise<Session\|null>` | 标记单聊已完成开场白选择；群聊或不存在会话直接返回 |
 | `createGroupSession` | `(members, name, extras?) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前；`extras` 可带 `avatarUri`/`bgUri` |
 | `updateSessionInfo` | `(sessionId, patch) => Promise<Session\|null>` | 更新群聊名称/头像/背景；非群聊返回目标且不改动 |
 | `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
@@ -753,6 +754,7 @@ data: [DONE]
 | `tags` | `string[]?` | 标签 |
 | `worldInfo` | `WorldInfoEntry[]?` | 世界书条目，结构见[世界书](./专有概念/世界书.md) |
 | `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
+| `presets` | `CharacterPreset[]?` | 随角色卡保存的角色预设，发送时注入 `[角色预设]` |
 | `lastUsedAt` | `number?` | 最近一次成为当前角色的时间戳，决定列表排序 |
 | `pinned` | `boolean?` | 是否置顶；置顶角色排在角色库最前 |
 
@@ -794,6 +796,7 @@ data: [DONE]
 | `name` | `string` | 群聊名称；单聊为空串 |
 | `preview` | `string` | 最后一条可读消息的摘要，最长 60 字 |
 | `pinned` | `boolean` | 是否置顶 |
+| `greetingSelected` | `boolean` | 单聊是否已完成开场白选择；新建空会话时缺省为 `false` |
 | `createdAt` | `number` | 创建时间戳 |
 | `updatedAt` | `number` | 最后更新时间戳，决定排序 |
 | `clonedFrom` | `string` | 克隆来源会话 `id`，非副本为空串 |

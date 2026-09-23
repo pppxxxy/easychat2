@@ -20,6 +20,12 @@ export function listGreetingCandidates(fields) {
 
 // 由「可编辑的草稿数组 + 选中下标」得到要写入角色的开场白字段。
 // selectedIndex < 0 表示不使用开场白（firstMes 置空），其余非空草稿保留为备用开场白。
+export function isGreetingMessage(message, sessionId) {
+  return !!message
+    && message.role === 'assistant'
+    && (message.kind === 'greeting' || message.id === `greeting-${sessionId}`);
+}
+
 export function buildGreetingImport(drafts, selectedIndex) {
   const list = (Array.isArray(drafts) ? drafts : []).map(clean);
   const useNone = !(Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex < list.length);

@@ -230,6 +230,28 @@ test('健康索引首次读取会写入迁移标记，避免旧整库后续复�
   assert.equal(JSON.parse(store.get(MIGRATION_KEY)).ids[0], 'default');
 });
 
+test('新建会话可写入已选择的开场白消息', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-1', {
+    text: '你好，小明',
+    template: '你好，{{user}}',
+  });
+   assert.equal(created.greetingSelected, true);
+   const messages = await storage.getMessagesBySession(created.id);
+   assert.equal(messages.length, 1);
+  assert.equal(messages[0].kind, 'greeting');
+   assert.equal(messages[0].text, '你好，小明');
+   assert.equal(messages[0].greetingTemplate, '你好，{{user}}');
+});
+
+test('空会话可以记录已完成开场白选择', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-1');
+  assert.equal(created.greetingSelected, false);
+  const updated = await storage.setSessionGreetingSelected(created.id);
+  assert.equal(updated.greetingSelected, true);
+});
+
 test('迁移标记存在时保留当前索引，不重新复活已删除角色', async () => {
   const storage = loadStorage();
   seedDefaultItem();

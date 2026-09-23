@@ -14,6 +14,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldLabel, SecondaryButton, TextField } from './ui';
+import { makeCharacterPresetId } from './characterPresets';
 import { useTheme } from './theme/ThemeContext';
 import {
   createGlobalPresetId,
@@ -26,8 +27,15 @@ import {
 } from './storage';
 
 const THRESHOLD_FALLBACK = 40;
+const EMPTY_CHARACTER_PRESETS = [];
 
-export default function PresetPanel({ visible, onClose }) {
+export default function PresetPanel({
+  visible,
+  onClose,
+  scope = 'global',
+  characterPresets = EMPTY_CHARACTER_PRESETS,
+  onCharacterPresetsChange,
+}) {
   const [presets, setPresets] = useState([]);
   const [enabled, setEnabled] = useState({});
   const [memoryEnabled, setMemoryEnabled] = useState(false);
@@ -37,6 +45,7 @@ export default function PresetPanel({ visible, onClose }) {
   const [editingPreset, setEditingPreset] = useState(null);
   const [form, setForm] = useState({ name: '', description: '', prompt: '' });
   const [saving, setSaving] = useState(false);
+  const isCharacterScope = scope === 'character';
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const busyRef = useRef(false);
@@ -44,6 +53,20 @@ export default function PresetPanel({ visible, onClose }) {
   useEffect(() => {
     if (!visible) return undefined;
     let cancelled = false;
+    if (isCharacterScope) {
+      const list = Array.isArray(characterPresets) ? characterPresets : [];
+      setPresets(list);
+      setEnabled(list.reduce((result, item) => {
+        result[item.id] = item.enabled !== false;
+        return result;
+      }, {}));
+      setMemoryEnabled(false);
+      setThreshold(String(THRESHOLD_FALLBACK));
+      setLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
     Promise.all([
       getGlobalPresets(),
       getGlobalPresetSettings(),
@@ -63,10 +86,17 @@ export default function PresetPanel({ visible, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [visible]);
+  }, [visible, isCharacterScope, characterPresets]);
 
   const togglePreset = useCallback(async (id, value) => {
     if (busyRef.current) return;
+    if (isCharacterScope) {
+      const next = presets.map(item => (item.id === id ? { ...item, enabled: value } : item));
+      setPresets(next);
+      setEnabled(current => ({ ...current, [id]: value }));
+      onCharacterPresetsChange?.(next);
+      return;
+    }
     busyRef.current = true;
     try {
       const next = await saveGlobalPresetSettings({ ...enabled, [id]: value });
@@ -76,7 +106,7 @@ export default function PresetPanel({ visible, onClose }) {
     } finally {
       busyRef.current = false;
     }
-  }, [enabled]);
+  }, [enabled, isCharacterScope, onCharacterPresetsChange, presets]);
 
   const openEditor = preset => {
     if (busyRef.current) return;
@@ -100,6 +130,23 @@ export default function PresetPanel({ visible, onClose }) {
     busyRef.current = true;
     setSaving(true);
     try {
+      if (isCharacterScope) {
+        const id = editingPreset?.id || makeCharacterPresetId(presets);
+        const item = {
+          id,
+          name,
+          description: form.description.trim(),
+          prompt,
+          enabled: editingPreset?.enabled !== false,
+        };
+        const list = editingPreset
+          ? presets.map(entry => (entry.id === id ? item : entry))
+          : [...presets, item];
+        setPresets(list);
+        onCharacterPresetsChange?.(list);
+        setModalOpen(false);
+        return;
+      }
       const base = await getGlobalPresets();
       const id = editingPreset?.id || await createGlobalPresetId(base);
       const item = { id, name, description: form.description.trim(), prompt };
@@ -129,6 +176,17 @@ export default function PresetPanel({ visible, onClose }) {
           busyRef.current = true;
           setSaving(true);
           try {
+            if (isCharacterScope) {
+              const list = presets.filter(item => item.id !== preset.id);
+              setPresets(list);
+              setEnabled(current => {
+                const next = { ...current };
+                delete next[preset.id];
+                return next;
+              });
+              onCharacterPresetsChange?.(list);
+              return;
+            }
             const saved = await saveGlobalPresets(
               (await getGlobalPresets()).filter(item => item.id !== preset.id)
             );
@@ -197,7 +255,7 @@ export default function PresetPanel({ visible, onClose }) {
   };
 
   const handleClose = () => {
-    commitThreshold();
+    if (!isCharacterScope) commitThreshold();
     onClose();
   };
 
@@ -214,14 +272,16 @@ export default function PresetPanel({ visible, onClose }) {
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>全局预设</Text>
+            <Text style={styles.title}>{isCharacterScope ? '角色预设' : '全局预设'}</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.listContent}>
             <Text style={styles.fieldHint}>
-              这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。点击条目可编辑。
+              {isCharacterScope
+                ? '这些预设只对当前角色生效，开启后会追加到该角色的系统提示词中。点击条目可编辑。'
+                : '这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。点击条目可编辑。'}
             </Text>
             {presets.map(preset => (
               <View key={preset.id} style={styles.presetRow}>
@@ -263,41 +323,45 @@ export default function PresetPanel({ visible, onClose }) {
               style={styles.secondaryButton}
             />
 
-            <View style={styles.sectionDivider} />
-            <View style={styles.memoryRow}>
-              <View style={styles.memoryText}>
-                <Text style={styles.presetName}>记忆总结</Text>
-                <Text style={styles.presetDesc}>
-                  对话过长时总结历史并写入世界书，阈值为当前会话消息条数。
-                </Text>
-              </View>
-              <Switch
-                value={memoryEnabled}
-                onValueChange={toggleMemory}
-                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                thumbColor={theme.colors.primaryContrast}
-              />
-            </View>
-            <FieldLabel style={styles.label}>触发阈值（消息条数）</FieldLabel>
-            <View style={styles.thresholdRow}>
-              <TextField
-                style={styles.thresholdInput}
-                value={threshold}
-                onChangeText={setThreshold}
-                onEndEditing={commitThreshold}
-                onBlur={commitThreshold}
-                keyboardType="number-pad"
-                placeholder={String(THRESHOLD_FALLBACK)}
-              />
-              <TouchableOpacity
-                style={styles.thresholdConfirm}
-                onPress={confirmThreshold}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="checkmark" size={16} color={theme.colors.primaryContrast} />
-                <Text style={styles.thresholdConfirmText}>确认</Text>
-              </TouchableOpacity>
-            </View>
+            {!isCharacterScope ? (
+              <>
+                <View style={styles.sectionDivider} />
+                <View style={styles.memoryRow}>
+                  <View style={styles.memoryText}>
+                    <Text style={styles.presetName}>记忆总结</Text>
+                    <Text style={styles.presetDesc}>
+                      对话过长时总结历史并写入世界书，阈值为当前会话消息条数。
+                    </Text>
+                  </View>
+                  <Switch
+                    value={memoryEnabled}
+                    onValueChange={toggleMemory}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                    thumbColor={theme.colors.primaryContrast}
+                  />
+                </View>
+                <FieldLabel style={styles.label}>触发阈值（消息条数）</FieldLabel>
+                <View style={styles.thresholdRow}>
+                  <TextField
+                    style={styles.thresholdInput}
+                    value={threshold}
+                    onChangeText={setThreshold}
+                    onEndEditing={commitThreshold}
+                    onBlur={commitThreshold}
+                    keyboardType="number-pad"
+                    placeholder={String(THRESHOLD_FALLBACK)}
+                  />
+                  <TouchableOpacity
+                    style={styles.thresholdConfirm}
+                    onPress={confirmThreshold}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="checkmark" size={16} color={theme.colors.primaryContrast} />
+                    <Text style={styles.thresholdConfirmText}>确认</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
           </ScrollView>
         </View>
       </KeyboardAvoidingView>

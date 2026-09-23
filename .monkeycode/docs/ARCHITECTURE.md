@@ -85,6 +85,7 @@ easychat2/
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── disclaimer.js         # 免责条款文本与弹窗组件
 │   ├── storage.js            # AsyncStorage 读写封装、角色文件分片与旧库恢复
+│   ├── characterPresets.js   # 角色卡预设规范化与扩展字段解析
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
 │       ├── AppContext.js     # 全局角色库与会话状态

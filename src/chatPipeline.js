@@ -101,6 +101,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   if (beforeText) systemContent = `${replaceUser(beforeText)}\n\n${systemContent}`;
   if (afterText) systemContent = `${systemContent}\n\n${replaceUser(afterText)}`;
 
+  const characterPresetText = (Array.isArray(character?.presets) ? character.presets : [])
+    .filter(item => item && item.enabled !== false)
+    .map(item => String(item.prompt || '').trim())
+    .filter(Boolean)
+    .join('\n');
+  if (characterPresetText) {
+    systemContent = `${systemContent}\n\n[角色预设]\n${replaceUser(characterPresetText)}`;
+  }
+
   const presetText = (Array.isArray(globalPresets) ? globalPresets : [])
     .map(item => String(item || '').trim())
     .filter(Boolean)

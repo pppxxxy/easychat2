@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildGreetingImport, listGreetingCandidates } from '../src/cardGreetings.js';
+import { buildGreetingImport, isGreetingMessage, listGreetingCandidates } from '../src/cardGreetings.js';
 
 test('整理候选：firstMes 在前，备用开场白在后，去空去空白', () => {
   const list = listGreetingCandidates({
@@ -42,4 +42,10 @@ test('不使用开场白：firstMes 置空，全部保留为备用', () => {
 test('空草稿被丢弃，选中空草稿时 firstMes 为空', () => {
   assert.deepEqual(buildGreetingImport(['', '  '], 0), { firstMes: '', alternateGreetings: [] });
   assert.deepEqual(buildGreetingImport(['', '  '], -1), { firstMes: '', alternateGreetings: [] });
+});
+
+test('识别新旧开场白消息', () => {
+  assert.equal(isGreetingMessage({ id: 'greeting-session-1', role: 'assistant' }, 'session-1'), true);
+  assert.equal(isGreetingMessage({ id: 'other', role: 'assistant', kind: 'greeting' }, 'session-1'), true);
+  assert.equal(isGreetingMessage({ id: 'other', role: 'assistant' }, 'session-1'), false);
 });

@@ -40,7 +40,7 @@ import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
-import { createGroupSession, deleteMomentsBySessionIds, getMoments, saveCardForge } from './storage';
+import { createGroupSession, deleteMomentsBySessionIds, getMoments, getUserProfile, saveCardForge } from './storage';
 import { countMomentsBySessionIds } from './moments/moments';
 import { createForgeState, draftFromCharacter } from './cardForge/forge';
 import { useTheme } from './theme/ThemeContext';
@@ -109,6 +109,7 @@ function hasCardContent(card) {
   if (card.systemPrompt) return true;
   if (card.worldInfo?.length) return true;
   if (card.regexScripts?.length) return true;
+  if (card.presets?.length) return true;
   const fields = card.fields || {};
   return Boolean(
     fields.description
@@ -140,6 +141,7 @@ function buildCharacterPatch(card) {
     tags: Array.isArray(fields.tags) ? fields.tags : [],
     worldInfo: Array.isArray(card.worldInfo) ? card.worldInfo : [],
     regexScripts: Array.isArray(card.regexScripts) ? card.regexScripts : [],
+    presets: Array.isArray(card.presets) ? card.presets : [],
   };
 }
 
@@ -476,6 +478,7 @@ export default function CharacterScreen() {
   const [mesExample, setMesExample] = useState('');
   const [worldInfo, setWorldInfo] = useState([]);
   const [regexScripts, setRegexScripts] = useState([]);
+  const [characterPresets, setCharacterPresets] = useState([]);
   const [expandedWorld, setExpandedWorld] = useState(false);
   const [expandedRegex, setExpandedRegex] = useState(false);
   const [editingWorldId, setEditingWorldId] = useState(null);
@@ -485,6 +488,7 @@ export default function CharacterScreen() {
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState(null);
   const [pendingImport, setPendingImport] = useState(null);
+  const [characterPresetPanelOpen, setCharacterPresetPanelOpen] = useState(false);
   const [presetPanelOpen, setPresetPanelOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportBusyRef = useRef(false);
@@ -531,6 +535,7 @@ export default function CharacterScreen() {
         'regex'
       )
     );
+    setCharacterPresets(Array.isArray(character.presets) ? character.presets : []);
     setEditingWorldId(null);
     setEditingRegexId(null);
     setAvatarPreview(character.avatarUri || null);
@@ -620,6 +625,7 @@ export default function CharacterScreen() {
       mesExample: mesExample.trim(),
       worldInfo,
       regexScripts,
+      presets: characterPresets,
       avatarUri: avatarPreview || '',
       bgUri: bgPreview || '',
     };
@@ -636,6 +642,7 @@ export default function CharacterScreen() {
       setMesExample(String(next.mesExample || ''));
       setWorldInfo(next.worldInfo);
       setRegexScripts(next.regexScripts);
+      setCharacterPresets(next.presets);
       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
@@ -745,9 +752,13 @@ export default function CharacterScreen() {
     try {
       const created = await addCharacter(next);
       setPendingImport(null);
-      // 新角色必须切到它自己的会话，否则聊天页会继续显示上一个角色的对话
-      // （更糟的是新消息会写进上一个角色的那段会话、进入它的记忆）
-      await ensureCharacterSession(created.id).catch(() => {});
+      const profile = await getUserProfile().catch(() => ({}));
+      const openingTemplate = String(result.firstMes || '');
+      const openingText = openingTemplate.replace(/\{\{user\}\}/g, String(profile.userName || '用户'));
+      await ensureCharacterSession(created.id, {
+        text: openingText,
+        template: openingTemplate,
+      }).catch(() => {});
 
       const session = screenSessionRef.current;
       let imageFailed = false;
@@ -775,6 +786,7 @@ export default function CharacterScreen() {
         `已加载角色：${next.name}`,
         `世界书 ${next.worldInfo.length} 条`,
         `正则 ${next.regexScripts.length} 条`,
+        `预设 ${next.presets.length} 条`,
         next.firstMes ? '含开场白' : '无开场白',
       ].join('，');
       Alert.alert(
@@ -1737,6 +1749,19 @@ export default function CharacterScreen() {
 
           <TouchableOpacity
             style={styles.presetEntryRow}
+            onPress={() => setCharacterPresetPanelOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.presetEntryLeft}>
+              <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.presetEntryText}>预设</Text>
+            </View>
+            <Text style={styles.presetEntryMeta}>{characterPresets.length}</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.presetEntryRow}
             onPress={() => setPresetPanelOpen(true)}
             activeOpacity={0.7}
           >
@@ -1896,6 +1921,14 @@ export default function CharacterScreen() {
       </Modal>
 
       <PresetPanel
+        visible={characterPresetPanelOpen}
+        scope="character"
+        characterPresets={characterPresets}
+        onCharacterPresetsChange={setCharacterPresets}
+        onClose={() => setCharacterPresetPanelOpen(false)}
+      />
+
+      <PresetPanel
         visible={presetPanelOpen}
         onClose={() => setPresetPanelOpen(false)}
       />
@@ -2032,6 +2065,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   presetEntryLeft: { flexDirection: 'row', alignItems: 'center' },
   presetEntryText: { color: theme.colors.textMuted, fontSize: 15, marginLeft: 10 },
+  presetEntryMeta: { color: theme.colors.textFaint, fontSize: 12, marginRight: 8 },
   groupList: { maxHeight: 300, marginTop: 4 },
   groupRow: {
     flexDirection: 'row',

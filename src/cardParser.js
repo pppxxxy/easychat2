@@ -1,6 +1,8 @@
 import { readJsonFromPNG } from 'parsecard';
 import { Buffer } from 'buffer';
 
+import { extractCharacterPresets } from './characterPresets.js';
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 const WORLD_POSITION_LABELS = {
@@ -392,12 +394,14 @@ export function normalizeCard(raw) {
   const fields = extractStandardFields(source, data, extensions);
   const worldInfo = ensureUniqueIds(extractWorldInfo(source, data), 'entry');
   const regexScripts = ensureUniqueIds(extractRegexScripts(source, data), 'regex');
+  const presets = extractCharacterPresets(source, data, extensions);
   return {
     name: fields.name,
     fields,
     systemPrompt: buildSystemPrompt(fields),
     worldInfo,
     regexScripts,
+    presets,
   };
 }
 

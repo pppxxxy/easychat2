@@ -306,7 +306,7 @@ export function AppProvider({ children }) {
     return sorted;
   }, [applySessions, applyActiveSessionId]);
 
-  const ensureCharacterSession = useCallback(async characterId => {
+  const ensureCharacterSession = useCallback(async (characterId, opening = null) => {
     if (!loadedRef.current) {
       throw new Error('会话尚未加载完成');
     }
@@ -321,7 +321,7 @@ export function AppProvider({ children }) {
         return existing;
       }
       try {
-        const created = await startNewSession(targetId);
+        const created = await startNewSession(targetId, opening);
         await refreshSessions();
         return sessionsRef.current.find(session => session.id === created.id) || created;
       } catch (error) {

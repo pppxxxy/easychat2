@@ -33,6 +33,7 @@ import {
   readTextAttachment,
 } from './attachments';
 import { buildRequestMessages } from './chatPipeline';
+import { isGreetingMessage, listGreetingCandidates } from './cardGreetings';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -43,6 +44,7 @@ import {
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
 import CharacterEditForm from './CharacterEditForm';
+import GreetingPickerModal from './GreetingPickerModal';
 import GroupEditForm from './GroupEditForm';
 import DisclaimerModal from './disclaimer';
 import {
@@ -88,6 +90,7 @@ import {
   getMomentsStatus,
   saveMoments,
   saveTtsSettings,
+  setSessionGreetingSelected,
   startNewSession,
   THINKING_DISPLAYS,
   THINKING_LEVELS,
@@ -353,6 +356,8 @@ function buildGreetingMessage(sessionId, firstMes, userName) {
     role: ASSISTANT_ID,
     text: replaced,
     timestamp: Date.now(),
+    kind: 'greeting',
+    greetingTemplate: text,
   };
 }
 
@@ -468,13 +473,14 @@ function renderHighlightedText(text, keyword, styles) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
   const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
   const isUser = message.role === USER_ID;
+  const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
   const [reasoningPinned, setReasoningPinned] = useState(false);
@@ -639,6 +645,16 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           ) : (
             <Markdown style={markdownStyles}>{message.text}</Markdown>
           )}
+          {isGreeting && onReselectGreeting ? (
+            <TouchableOpacity
+              style={styles.greetingReselectButton}
+              onPress={onReselectGreeting}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
+              <Text style={styles.greetingReselectText}>重选</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
         {!isUser && message.inlineImage ? (
           <View style={styles.inlineImageWrap}>
@@ -807,6 +823,10 @@ export default function ChatScreen() {
   const sessionOwnerMissing = !isGroup
     && !!activeSession
     && !characters.some(item => item.id === String(activeSession.characterId || ''));
+  const greetingCandidates = useMemo(
+    () => listGreetingCandidates(character),
+    [character.firstMes, character.alternateGreetings]
+  );
   const characterMap = useMemo(() => {
     const map = new Map();
     (Array.isArray(characters) ? characters : []).forEach(item => {
@@ -845,6 +865,7 @@ export default function ChatScreen() {
   const inputSelectionRef = useRef({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [greetingReady, setGreetingReady] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -870,6 +891,7 @@ export default function ChatScreen() {
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [attachments, setAttachments] = useState([]);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true });
+  const [greetingPicker, setGreetingPicker] = useState(null);
   const [inlineImageSettings, setInlineImageSettings] = useState({
     enabled: false,
     providerId: '',
@@ -1049,16 +1071,15 @@ export default function ChatScreen() {
     if (!activeSessionId) {
       lastSavedSnapshotRef.current = '[]';
       setMessages([]);
+      setGreetingReady(false);
       setReady(true);
       return () => {
         cancelled = true;
         sessionVersionRef.current += 1;
       };
     }
-    let userProfileCache = null;
     const profilePromise = getUserProfile().then(profile => {
       if (cancelled) return;
-      userProfileCache = profile;
       userNameRef.current = String(profile.userName || '').trim();
       setUserAvatar(profile.avatarUri || '');
     }).catch(() => {});
@@ -1071,6 +1092,7 @@ export default function ChatScreen() {
         if (result && result.status === 'corrupt') {
           lastSavedSnapshotRef.current = '[]';
           setMessages([]);
+          setGreetingReady(false);
           Alert.alert(
             '聊天记录读取失败',
             '本次没能读出该会话的消息（可能因数据过大）。原内容已自动备份，未丢失；继续发送会以新记录覆盖原消息。'
@@ -1082,6 +1104,7 @@ export default function ChatScreen() {
           const members = groupCharactersRef.current;
           lastSavedSnapshotRef.current = '[]';
           setMessages([]);
+          setGreetingReady(true);
           if (members.length > 0) {
             const openingSessionId = activeSessionId;
             (async () => {
@@ -1110,16 +1133,21 @@ export default function ChatScreen() {
           }
           return;
         }
-        const greeting = initial.length === 0 && !sessionOwnerMissing
-          ? buildGreetingMessage(activeSessionId, character.firstMes, userProfileCache?.userName)
-          : null;
+        setGreetingReady(
+          isGroupRef.current
+          || initial.length > 0
+          || sessionsRef.current.some(session => (
+            session.id === activeSessionId && session.greetingSelected === true
+          ))
+        );
         lastSavedSnapshotRef.current = JSON.stringify(initial);
-        setMessages(greeting ? [greeting] : initial);
+        setMessages(initial);
       })
       .catch(() => {
         if (cancelled) return;
         lastSavedSnapshotRef.current = '[]';
         setMessages([]);
+        setGreetingReady(false);
         // 读取失败时以前是静默显示空对话，用户很容易误以为记录被清空了。
         // 明确告知：记录还在，只是这次没读出来；且不会覆盖原数据。
         Alert.alert(
@@ -1218,11 +1246,92 @@ export default function ChatScreen() {
         onPress: () => {
           if (!canClear()) return;
           errorRawRef.current = {};
+          if (canClear() && !isGroupRef.current) {
+            setGreetingReady(false);
+            setSessionGreetingSelected(clearSessionId, false)
+              .then(() => refreshSessions())
+              .catch(() => {});
+          }
           setMessages(current => canClear() ? [] : current);
         }
       }
     ]);
-  }, []);
+  }, [refreshSessions]);
+
+  const openGreetingPicker = useCallback((purpose = 'new') => {
+    const current = messages.find(item => isGreetingMessage(item, activeSessionIdRef.current));
+    const template = String((current && (current.greetingTemplate || current.text)) || '');
+    const foundIndex = greetingCandidates.findIndex(item => item.text === template);
+    const initialSelectedIndex = current
+      ? (foundIndex >= 0 ? foundIndex : (greetingCandidates.length > 0 ? 0 : -1))
+      : (greetingCandidates.length > 0 ? 0 : -1);
+    setGreetingPicker({
+      purpose,
+      candidates: greetingCandidates,
+      initialSelectedIndex,
+    });
+  }, [greetingCandidates, messages]);
+
+  const confirmGreeting = useCallback(async result => {
+    const flow = greetingPicker;
+    setGreetingPicker(null);
+    if (!flow) return;
+    const characterId = activeCharacterIdRef.current;
+    const sessionId = activeSessionIdRef.current;
+    try {
+      await updateCharacter({
+        id: characterId,
+        firstMes: result.firstMes,
+        alternateGreetings: result.alternateGreetings,
+      });
+      if (activeCharacterIdRef.current !== characterId) return;
+      if (flow.purpose === 'new') {
+        if (abortRef.current) {
+          abortRef.current.abort();
+          abortRef.current = null;
+        }
+        setIsSending(false);
+        const openingTemplate = String(result.firstMes || '');
+        const openingText = openingTemplate.replace(/\{\{user\}\}/g, userNameRef.current || '用户');
+        await startNewSession(characterId, {
+          text: openingText,
+          template: openingTemplate,
+        });
+        await refreshSessions();
+        errorRawRef.current = {};
+        sessionVersionRef.current += 1;
+        setMessages([]);
+        setAttachments([]);
+        setQuoteTarget(null);
+        setSearchOpen(false);
+        setSearchQuery('');
+        setActiveMatchIndex(0);
+        setFocusedMessageId('');
+        setSelectionText('');
+        setGreetingReady(true);
+        return;
+      }
+      if (activeSessionIdRef.current !== sessionId) return;
+      await setSessionGreetingSelected(sessionId, true);
+      await refreshSessions();
+      const nextGreeting = buildGreetingMessage(sessionId, result.firstMes, userNameRef.current);
+      const hasGreeting = messages.some(item => isGreetingMessage(item, sessionId));
+      if (nextGreeting) {
+        setMessages(current => hasGreeting
+          ? current.map(item => (
+            isGreetingMessage(item, sessionId)
+              ? { ...item, ...nextGreeting, id: item.id, timestamp: item.timestamp }
+              : item
+          ))
+          : [nextGreeting, ...current]);
+      } else {
+        setMessages(current => current.filter(item => !isGreetingMessage(item, sessionId)));
+      }
+      setGreetingReady(true);
+    } catch (error) {
+      Alert.alert('开场白保存失败', '请稍后重试。');
+    }
+  }, [greetingPicker, messages, refreshSessions, updateCharacter]);
 
   const onNewChat = useCallback(() => {
     if (isSending || !ready || abortRef.current) return;
@@ -1230,57 +1339,41 @@ export default function ChatScreen() {
       Alert.alert('角色资料缺失', '这段历史对话可以继续查看，恢复角色资料后才能新建或发送消息。');
       return;
     }
-    if (persistableMessages.length === 0) {
-      Alert.alert('当前对话还没有内容', '发送一条消息后再新建对话。');
+    if (isGroupRef.current && groupCharactersRef.current.length > 0) {
+      Alert.alert('新建对话', '将为当前群聊开启一段新对话，旧对话保留在「记忆」中。', [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '新建',
+          onPress: async () => {
+            if (abortRef.current) {
+              abortRef.current.abort();
+              abortRef.current = null;
+            }
+            setIsSending(false);
+            try {
+              const current = sessionsRef.current.find(item => item.id === activeSessionIdRef.current);
+              await createGroupSession(groupCharactersRef.current, (current && current.name) || '群聊');
+              await refreshSessions();
+              errorRawRef.current = {};
+              sessionVersionRef.current += 1;
+              setMessages([]);
+              setAttachments([]);
+              setQuoteTarget(null);
+              setSearchOpen(false);
+              setSearchQuery('');
+              setActiveMatchIndex(0);
+              setFocusedMessageId('');
+              setSelectionText('');
+            } catch (error) {
+              Alert.alert('新建对话失败', '请稍后重试。');
+            }
+          },
+        },
+      ]);
       return;
     }
-    Alert.alert('新建对话', '将为当前角色开启一段新对话，旧对话保留在「记忆」中。', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '新建',
-        onPress: async () => {
-          if (abortRef.current) {
-            abortRef.current.abort();
-            abortRef.current = null;
-          }
-          setIsSending(false);
-          let step = 'init';
-          try {
-            if (isGroupRef.current && groupCharactersRef.current.length > 0) {
-              step = 'group';
-              const current = sessionsRef.current.find(
-                item => item.id === activeSessionIdRef.current
-              );
-              await createGroupSession(
-                groupCharactersRef.current,
-                (current && current.name) || '群聊'
-              );
-            } else {
-              step = 'single';
-              await startNewSession(activeCharacterIdRef.current);
-            }
-            step = 'refresh';
-            await refreshSessions();
-            errorRawRef.current = {};
-            sessionVersionRef.current += 1;
-            setMessages([]);
-            setAttachments([]);
-            setQuoteTarget(null);
-            setSearchOpen(false);
-            setSearchQuery('');
-            setActiveMatchIndex(0);
-            setFocusedMessageId('');
-            setSelectionText('');
-          } catch (error) {
-            if (__DEV__) {
-              console.error('[onNewChat] failed at', step, error);
-            }
-            Alert.alert('新建对话失败', '请稍后重试。');
-          }
-        },
-      },
-    ]);
-  }, [isSending, persistableMessages.length, ready, refreshSessions, sessionOwnerMissing]);
+    openGreetingPicker('new');
+  }, [isSending, openGreetingPicker, ready, refreshSessions, sessionOwnerMissing]);
 
   const searchMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1974,6 +2067,7 @@ export default function ChatScreen() {
     const text = String(rawText || '').trim();
     const imageAttachments = attachments.filter(item => item.kind === 'image');
     if ((!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
+    if (!isGroupRef.current && !greetingReady) return;
     if (sessionOwnerMissing) {
       Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
       return;
@@ -2002,7 +2096,7 @@ export default function ChatScreen() {
     } else {
       requestReply(payload);
     }
-  }, [attachments, isSending, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing]);
+  }, [attachments, greetingReady, isSending, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing]);
 
   const regenerateMessage = useCallback(targetId => {
     if (isSending || !ready) return;
@@ -2240,9 +2334,13 @@ export default function ChatScreen() {
   const onSend = useCallback(() => {
     const text = input.trim();
     if ((!text && attachments.length === 0) || isSending || !ready || abortRef.current) return;
+    if (!isGroupRef.current && !greetingReady) {
+      openGreetingPicker(activeSessionId ? 'reselect' : 'new');
+      return;
+    }
     setInput('');
     sendText(text);
-  }, [attachments.length, input, isSending, ready, sendText]);
+  }, [activeSessionId, attachments.length, greetingReady, input, isSending, openGreetingPicker, ready, sendText]);
 
   const insertMention = useCallback(name => {
     const label = `${MENTION_PREFIX}${name} `;
@@ -2264,6 +2362,7 @@ export default function ChatScreen() {
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
     : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
+  const inputDisabled = !ready || isSending || sessionOwnerMissing || (!isGroup && !greetingReady);
 
   const recordTurn = useCallback(async (userText, assistantText) => {
     const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
@@ -2460,8 +2559,21 @@ export default function ChatScreen() {
             <Text style={styles.emptyTitle}>开始聊天</Text>
             <Text style={styles.emptyText}>
               当前角色：{sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手')}{'\n'}
-               {sessionOwnerMissing ? '这段历史对话仍可查看，角色资料恢复后才能发送。' : '请先在“设置”里填写 API Key，然后输入消息。'}{'\n'}
+              {sessionOwnerMissing
+                ? '这段历史对话仍可查看，角色资料恢复后才能发送。'
+                : !greetingReady
+                  ? '先选择开场白，再开始发送消息。'
+                  : '请先在“设置”里填写 API Key，然后输入消息。'}{'\n'}
             </Text>
+            {!isGroup && !sessionOwnerMissing ? (
+              <TouchableOpacity
+                style={styles.emptyGreetingButton}
+                onPress={() => openGreetingPicker(activeSessionId ? 'reselect' : 'new')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.emptyGreetingButtonText}>选择开场白</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : (
           renderedMessages.map(message => {
@@ -2513,6 +2625,7 @@ export default function ChatScreen() {
                     isActiveMatch={focusedMessageId === message.id}
                     fullWidth={chatOptions.fullWidth}
                     richHtmlEnabled={chatOptions.richHtml !== false}
+                    onReselectGreeting={sessionOwnerMissing ? undefined : () => openGreetingPicker('reselect')}
                     thinkingDisplay={thinkingDisplay}
                     overlayActions={!!bgUri}
                   />
@@ -2569,7 +2682,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.attachButton}
             onPress={() => setMentionPickerOpen(true)}
-            disabled={!ready || isSending || sessionOwnerMissing}
+            disabled={inputDisabled}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="提及成员"
@@ -2580,7 +2693,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.attachButton}
             onPress={pickAttachmentMenu}
-            disabled={!ready || isSending || sessionOwnerMissing}
+            disabled={inputDisabled}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="添加附件"
@@ -2600,7 +2713,7 @@ export default function ChatScreen() {
           placeholder="输入消息..."
           placeholderTextColor={theme.colors.textFaint}
           multiline
-          editable={!isSending && ready && !sessionOwnerMissing}
+          editable={!inputDisabled}
         />
         <TouchableOpacity
           style={styles.fullScreenButton}
@@ -2608,7 +2721,7 @@ export default function ChatScreen() {
             setFullScreenText(input);
             setFullScreenOpen(true);
           }}
-          disabled={!ready || sessionOwnerMissing}
+          disabled={!ready || sessionOwnerMissing || (!isGroup && !greetingReady)}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="全屏输入"
@@ -2628,10 +2741,10 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={[
               styles.sendButton,
-              ((!input.trim() && attachments.length === 0) || !ready || sessionOwnerMissing) && styles.sendButtonDisabled,
+              (inputDisabled || (!input.trim() && attachments.length === 0)) && styles.sendButtonDisabled,
             ]}
             onPress={onSend}
-            disabled={(!input.trim() && attachments.length === 0) || !ready || sessionOwnerMissing}
+            disabled={inputDisabled || (!input.trim() && attachments.length === 0)}
             accessibilityLabel="发送"
             activeOpacity={0.8}
           >
@@ -3007,6 +3120,15 @@ export default function ChatScreen() {
           refreshSessions().catch(() => {});
           Alert.alert('已保存', '群聊信息已更新。');
         }}
+      />
+
+      <GreetingPickerModal
+        visible={!!greetingPicker}
+        mode="select"
+        candidates={greetingPicker ? greetingPicker.candidates : []}
+        initialSelectedIndex={greetingPicker ? greetingPicker.initialSelectedIndex : undefined}
+        onCancel={() => setGreetingPicker(null)}
+        onConfirm={confirmGreeting}
       />
 
       <DisclaimerModal
@@ -3477,6 +3599,20 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
   },
+  emptyGreetingButton: {
+    marginTop: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 18,
+    backgroundColor: theme.colors.primaryAlpha(0.14),
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  emptyGreetingButtonText: {
+    color: theme.colors.primarySoft,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   messageRow: {
     marginVertical: 5,
     flexDirection: 'row',
@@ -3683,6 +3819,19 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
   },
   messageActionText: {
+    color: theme.colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  greetingReselectButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  greetingReselectText: {
     color: theme.colors.primarySoft,
     fontSize: 12,
     fontWeight: '700',
