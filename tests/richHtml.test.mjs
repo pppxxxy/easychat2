@@ -8,11 +8,14 @@ import {
   stripMarkdownFences,
 } from '../src/richHtml.js';
 
-test('只有含 <style>/<script> 的消息才需要 WebView', () => {
+test('含内置渲染器不支持标签的消息才需要 WebView', () => {
   assert.equal(needsRichHtmlRendering('普通文本'), false);
   assert.equal(needsRichHtmlRendering('<div style="color:red">x</div>'), false);
   assert.equal(needsRichHtmlRendering('<style>.a{}</style>'), true);
   assert.equal(needsRichHtmlRendering('<script>1</script>'), true);
+  // 只有内联样式的卡片也可能用 <details> 做折叠，RenderHtml 会丢弃，必须走 WebView
+  assert.equal(needsRichHtmlRendering('<details><summary>标题</summary>内容</details>'), true);
+  assert.equal(needsRichHtmlRendering('<svg><circle/></svg>'), true);
 });
 
 test('富 HTML 渲染受开关控制，缺省开启', () => {

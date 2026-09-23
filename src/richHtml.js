@@ -1,8 +1,10 @@
 // 富 HTML 消息的判定与文档包装（纯函数，便于单测）。
-// 含 <style> / <script> 的助手消息用 WebView 渲染，才能还原角色卡的样式与交互；
-// 仅内联样式的 HTML 仍交给内置渲染器，避免无谓地启动 WebView。
+// 含 <style> / <script> / <details> 等内置渲染器不支持的标签时用 WebView 渲染，
+// 才能还原角色卡的样式、折叠与交互；其余普通 HTML 仍交给内置渲染器。
 
-const RICH_HTML_TAG_PATTERN = /<(?:script|style)[\s>]/i;
+// 这些标签 react-native-render-html 处理不好或直接丢弃：<style> 被删、<script> 不执行、
+// <details>/<summary> 归为不可翻译标签、SVG 不支持，因此都改用 WebView 渲染。
+const RICH_HTML_TAG_PATTERN = /<(?:script|style|details|summary|svg)[\s>]/i;
 // 角色卡常把 HTML 包在 ```html 围栏里；无论内置渲染还是 WebView 渲染，
 // 围栏都应先去掉，否则会当成正文显示。
 const MARKDOWN_FENCE_LINE_PATTERN = /^[ \t]*```[^\n]*$/gm;

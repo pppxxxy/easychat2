@@ -702,7 +702,7 @@ data: [DONE]
 
 | 函数 | 说明 |
 |------|------|
-| `needsRichHtmlRendering(text)` | 文本是否含 `<style>`/`<script>`，这类消息需要 WebView 才能还原样式与交互 |
+| `needsRichHtmlRendering(text)` | 文本是否含内置渲染器不支持的标签（`<style>`/`<script>`/`<details>`/`<summary>`/`<svg>`），这类消息需要 WebView 才能还原样式、折叠与交互 |
 | `shouldRenderRichHtml(text, enabled)` | 在上者基础上叠加 `richHtml` 开关（缺省开启） |
 | `stripMarkdownFences(text)` | 去掉 ` ```html ` / ` ``` ` 围栏行 |
 | `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily })` | 包装为完整 HTML 文档（含视口与高度回传/命令桥脚本） |
