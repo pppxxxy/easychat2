@@ -31,6 +31,8 @@ import {
 } from './cardParser';
 import { exportCardFile } from './cardExporter';
 import ChapterModal from './ChapterModal';
+import GreetingPickerModal from './GreetingPickerModal';
+import { listGreetingCandidates } from './cardGreetings';
 import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
 import { useApp } from './context/AppContext';
 import { useNavigation } from '@react-navigation/native';
@@ -468,6 +470,7 @@ export default function CharacterScreen() {
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [bgPreview, setBgPreview] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState(null);
   const [presetPanelOpen, setPresetPanelOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportBusyRef = useRef(false);
@@ -682,47 +685,69 @@ export default function CharacterScreen() {
         return;
       }
 
-      const next = buildCharacterPatch(parsed);
-      try {
-        const created = await addCharacter(next);
-        // 新角色必须切到它自己的会话，否则聊天页会继续显示上一个角色的对话
-        // （更糟的是新消息会写进上一个角色的那段会话、进入它的记忆）
-        await ensureCharacterSession(created.id).catch(() => {});
+      const patch = buildCharacterPatch(parsed);
+      // 先让用户选择 / 修改 / 新增开场白，再真正落库
+      setPendingImport({
+        patch,
+        treatAsPng,
+        assetUri: (asset && asset.uri) || '',
+        candidates: listGreetingCandidates(parsed.fields || {}),
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
 
-        const session = screenSessionRef.current;
-        let imageFailed = false;
-        if (treatAsPng && asset?.uri) {
-          try {
-            const avatarDir = `${FileSystem.documentDirectory}avatars/`;
-            await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
-            const dest = `${avatarDir}${created.id}.png`;
-            await FileSystem.copyAsync({ from: asset.uri, to: dest });
-            await updateCharacter({ id: created.id, avatarUri: dest, bgUri: dest });
-            if (screenSessionRef.current === session && session.activeId === created.id) {
-              setAvatarPreview(dest);
-              setBgPreview(dest);
-            }
-          } catch (error) {
-            imageFailed = true;
+  const confirmImport = async result => {
+    const pending = pendingImport;
+    setPendingImport(null);
+    if (!pending) return;
+    const next = {
+      ...pending.patch,
+      firstMes: result.firstMes,
+      alternateGreetings: result.alternateGreetings,
+    };
+    setImporting(true);
+    try {
+      const created = await addCharacter(next);
+      // 新角色必须切到它自己的会话，否则聊天页会继续显示上一个角色的对话
+      // （更糟的是新消息会写进上一个角色的那段会话、进入它的记忆）
+      await ensureCharacterSession(created.id).catch(() => {});
+
+      const session = screenSessionRef.current;
+      let imageFailed = false;
+      if (pending.treatAsPng && pending.assetUri) {
+        try {
+          const avatarDir = `${FileSystem.documentDirectory}avatars/`;
+          await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
+          const dest = `${avatarDir}${created.id}.png`;
+          await FileSystem.copyAsync({ from: pending.assetUri, to: dest });
+          await updateCharacter({ id: created.id, avatarUri: dest, bgUri: dest });
+          if (screenSessionRef.current === session && session.activeId === created.id) {
+            setAvatarPreview(dest);
+            setBgPreview(dest);
           }
+        } catch (error) {
+          imageFailed = true;
         }
-
-        if (screenSessionRef.current === session && session.activeId === created.id) {
-          setExpandedWorld(false);
-          setExpandedRegex(false);
-        }
-        const summary = [
-          `已加载角色：${next.name}`,
-          `世界书 ${next.worldInfo.length} 条`,
-          `正则 ${next.regexScripts.length} 条`,
-        ].join('，');
-        Alert.alert(
-          imageFailed ? '角色已导入，图片保存失败' : '导入成功',
-          imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
-        );
-      } catch (error) {
-        Alert.alert('导入失败', '请检查存储空间或权限。');
       }
+
+      if (screenSessionRef.current === session && session.activeId === created.id) {
+        setExpandedWorld(false);
+        setExpandedRegex(false);
+      }
+      const summary = [
+        `已加载角色：${next.name}`,
+        `世界书 ${next.worldInfo.length} 条`,
+        `正则 ${next.regexScripts.length} 条`,
+        next.firstMes ? '含开场白' : '无开场白',
+      ].join('，');
+      Alert.alert(
+        imageFailed ? '角色已导入，图片保存失败' : '导入成功',
+        imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
+      );
+    } catch (error) {
+      Alert.alert('导入失败', '请检查存储空间或权限。');
     } finally {
       setImporting(false);
     }
@@ -1820,6 +1845,13 @@ export default function CharacterScreen() {
       <PresetPanel
         visible={presetPanelOpen}
         onClose={() => setPresetPanelOpen(false)}
+      />
+
+      <GreetingPickerModal
+        visible={!!pendingImport}
+        candidates={pendingImport ? pendingImport.candidates : []}
+        onCancel={() => setPendingImport(null)}
+        onConfirm={confirmImport}
       />
 
       <ChapterModal
