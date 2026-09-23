@@ -279,8 +279,8 @@
 | `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入按角色隔离的记忆片段索引，写入时过滤非法条目 |
 | `clearVectorIndex` | `(characterId) => Promise<void>` | 清除某角色的记忆片段索引 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
-| `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；库键缺失时迁移旧键并补入默认角色 |
-| `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后写入角色库 |
+| `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；按索引 + 每角色一键读取，缺失索引时迁移旧整库键（读不出则保留原键不覆盖）并补入默认角色；索引损坏时扫描条目键重建 |
+| `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后逐角色写键，最后写索引（提交点）并清理被删角色键 |
 | `getActiveCharacterId` | `() => Promise<string>` | 读取当前角色 `id`（缺失或损坏返回空串） |
 | `setActiveCharacterId` | `(id) => Promise<void>` | 写入当前角色 `id` |
 | `getActiveCharacter` | `() => Promise<Character>` | 组合读取当前角色，无效 `id` 回退默认并修正 |
@@ -306,7 +306,7 @@
 | `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
-| `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 事务性写入角色库与当前 id，第二步失败时回滚角色库；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
+| `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
 | `getMoments` / `getMomentsStatus` | `() => Promise<Moment[]>` / `() => Promise<{ status, moments }>` | 读取动态（按 `createdAt` 降序）；损坏时备份并返回 `corrupt`，调用方不得写回空表 |
 | `saveMoments` | `(moments) => Promise<Moment[]>` | 规范化、过滤无 `id` 项后写入动态 |
 | `getAffinity` / `getAffinityStatus` | `() => Promise<{ [characterId]: State }>` / `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
@@ -348,7 +348,9 @@
 |----|------|
 | `@easychat2_api_configs` | API 多配置 `{ configs, activeId }` |
 | `@easychat2_api_config` | 旧版单条 API 配置（仅迁移读取，保留） |
-| `@easychat2_characters` | 角色库 JSON 数组 |
+| `@easychat2_character_index` | 角色库索引：角色 `id` 字符串数组（新格式） |
+| `@easychat2_character_item::<id>` | 单个角色 JSON（新格式，避免整库超行上限） |
+| `@easychat2_characters` | 旧版整库 JSON 数组（仅迁移读取，保留不覆盖） |
 | `@easychat2_active_character` | 当前角色 `id` |
 | `@easychat2_character` | 旧版单角色 JSON（仅迁移读取，保留） |
 | `@easychat2_sessions` | 会话元数据数组 |

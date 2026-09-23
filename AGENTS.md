@@ -33,6 +33,8 @@ npm run build:apk    # EAS preview APK
 - `AppContext` uses `characterRef`/`loadedRef` to avoid stale closures; `updateCharacter` rejects writes before load completes. Preserve the ref pattern.
 - When switching characters mid-request, the late reply/error is dropped via `activeCharacterIdRef`. Keep the guard.
 - RN's `fetch` has no streamable `response.body`. Streaming goes through the built-in `XMLHttpRequest` `onprogress` + cumulative `responseText` in `api.js`. Do not switch it back to `fetch` or add an SSE library without verifying Metro bundling.
+- AsyncStorage on Android has a 6MB DB cap by default and a ~2MB single-value read limit (CursorWindow). Raise the cap via the local config plugin `plugins/withAsyncStorageDbSize.js` (writes `AsyncStorage_db_size_in_MB`), and keep large collections split across keys (messages per session, characters via `@easychat2_character_index` + `@easychat2_character_item::<id>`). Never store a whole growing collection — or images/base64 — in one key.
+- Character library is stored per character (`@easychat2_character_index` + `@easychat2_character_item::<id>`). The legacy whole-array key `@easychat2_characters` is migration-only and must never be overwritten on read failure. The index is written last as the commit point.
 
 ## Architecture map
 
@@ -45,7 +47,7 @@ npm run build:apk    # EAS preview APK
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.
 
-Storage keys: `@easychat2_api_config`, `@easychat2_character`, `@easychat2_messages::<characterId>` (legacy: `@easychat2_messages`).
+Storage keys: `@easychat2_api_config`, `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_messages::<characterId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`).
 
 ## Conventions
 

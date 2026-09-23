@@ -26,7 +26,11 @@ const ACTIVE_PERSONA_KEY = '@easychat2_active_persona';
 const GLOBAL_PRESETS_KEY = '@easychat2_global_presets';
 const PRESET_LIST_KEY = '@easychat2_preset_list';
 const CHARACTER_KEY = '@easychat2_character';
+// 旧格式：整库数组存一个键（超过约 2MB 会触发 Android SQLite 行读取上限）。
 const CHARACTERS_KEY = '@easychat2_characters';
+// 新格式：只存角色 id 索引，角色本体按 id 拆到 CHARACTER_ITEM_PREFIX 键。
+const CHARACTER_INDEX_KEY = '@easychat2_character_index';
+const CHARACTER_ITEM_PREFIX = '@easychat2_character_item';
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const ONBOARDING_DONE_KEY = '@easychat2_onboarding_done';
@@ -184,45 +188,132 @@ export function sortCharacters(list) {
   });
 }
 
-async function persistLibrary(list) {
-  await AsyncStorage.setItem(CHARACTERS_KEY, JSON.stringify(list));
+function characterItemKey(id) {
+  return `${CHARACTER_ITEM_PREFIX}::${String(id)}`;
 }
 
-export async function getCharacterLibrary() {
-  const stored = await readJsonStatus(CHARACTERS_KEY);
-  let items;
-  let needsPersist = false;
-
+async function readCharacterIndex() {
+  const stored = await readJsonStatus(CHARACTER_INDEX_KEY);
   if (stored.status === 'ok' && Array.isArray(stored.value)) {
-    items = stored.value.map(normalizeCharacter);
-  } else if (stored.status === 'missing') {
-    const legacy = await readJsonStatus(CHARACTER_KEY);
-    if (legacy.status === 'ok' && legacy.value && typeof legacy.value === 'object') {
-      const migrated = normalizeCharacter(legacy.value);
-      items = [migrated];
-      const active = await getActiveCharacterId();
-      if (!active) {
-        try {
-          await setActiveCharacterId(migrated.id);
-        } catch (error) {}
-      }
-    } else {
-      items = [];
-    }
-    needsPersist = true;
-  } else {
-    // 损坏：先备份原始值，再用默认角色重建（此前是直接覆盖，丢失不可逆）
-    await backupCorruptValue(CHARACTERS_KEY);
-    items = [];
-    needsPersist = true;
+    return { ids: stored.value.map(String).filter(Boolean), corrupt: false };
   }
+  const corrupt = stored.status === 'corrupt'
+    || (stored.status === 'ok' && !Array.isArray(stored.value));
+  return { ids: null, corrupt };
+}
 
+// 索引损坏时扫出散落的角色条目键，尽量把角色库拼回来，避免“条目还在、索引没了”。
+async function rebuildCharacterItemsFromKeys() {
+  const allKeys = await AsyncStorage.getAllKeys();
+  const keys = (allKeys || []).filter(key => typeof key === 'string' && key.startsWith(`${CHARACTER_ITEM_PREFIX}::`));
+  const items = [];
+  for (const key of keys) {
+    const stored = await readJsonStatus(key);
+    if (
+      stored.status === 'ok'
+      && stored.value
+      && typeof stored.value === 'object'
+      && !Array.isArray(stored.value)
+    ) {
+      items.push(normalizeCharacter(stored.value));
+    }
+  }
+  return items;
+}
+
+// 角色按 id 拆键存储：整库 JSON 会随卡片增多突破 Android SQLite 的单值读取上限
+// （CursorWindow 约 2MB），消息体当初也是因此按会话拆分。索引键最后写，作为提交点：
+// 中途失败时旧索引仍指向旧的完整数据，不会把角色库写坏。
+async function persistLibrary(list) {
+  const previousIds = (await readCharacterIndex()).ids;
+  const stale = new Set(previousIds || []);
+  const pairs = [];
+  const ids = [];
+  for (const character of list) {
+    const id = String(character.id);
+    ids.push(id);
+    pairs.push([characterItemKey(id), JSON.stringify(character)]);
+    stale.delete(id);
+  }
+  // 角色条目一次性多键写入（比逐个写少一半桥接调用），索引最后写作为提交点。
+  if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
+  await AsyncStorage.setItem(CHARACTER_INDEX_KEY, JSON.stringify(ids));
+  const staleKeys = Array.from(stale).map(characterItemKey);
+  if (staleKeys.length > 0) {
+    try {
+      await AsyncStorage.multiRemove(staleKeys);
+    } catch (error) {}
+  }
+}
+
+async function readCharacterItems(ids) {
+  const items = [];
+  let missing = 0;
+  for (const id of ids) {
+    const stored = await readJsonStatus(characterItemKey(id));
+    if (
+      stored.status === 'ok'
+      && stored.value
+      && typeof stored.value === 'object'
+      && !Array.isArray(stored.value)
+    ) {
+      items.push(normalizeCharacter(stored.value));
+    } else {
+      missing += 1;
+    }
+  }
+  return { items, missing };
+}
+
+function ensureDefaultCharacterOrPersistHint(items) {
   const hadDefault = items.some(item => item.id === DEFAULT_CHARACTER.id);
   const { list: ensured, changed } = ensureDefaultCharacter(items);
   const list = sortCharacters(ensured);
-  // changed 表示这次读取给角色补齐/纠正了 id（空 id 或撞 id）。必须落盘，让 id 从此
-  // 固定下来；否则身份会随每次读取时的排序漂移。
-  if (needsPersist || !hadDefault || changed) {
+  return { list, mustPersist: !hadDefault || changed };
+}
+
+export async function getCharacterLibrary() {
+  const index = await readCharacterIndex();
+  let items;
+  let needsPersist = false;
+
+  if (index.ids) {
+    const { items: loaded, missing } = await readCharacterItems(index.ids);
+    items = loaded;
+    // 有条目读不出（例如被清掉）：重建索引，去掉失效 id
+    if (missing > 0) needsPersist = true;
+  } else if (index.corrupt) {
+    items = await rebuildCharacterItemsFromKeys();
+    needsPersist = true;
+  } else {
+    // 迁移旧格式：整库数组存一个键。旧值可能已超行上限读不出，此时保留原键不覆盖。
+    const stored = await readJsonStatus(CHARACTERS_KEY);
+    if (stored.status === 'ok' && Array.isArray(stored.value)) {
+      items = stored.value.map(normalizeCharacter);
+    } else if (stored.status === 'missing') {
+      const legacy = await readJsonStatus(CHARACTER_KEY);
+      if (legacy.status === 'ok' && legacy.value && typeof legacy.value === 'object') {
+        const migrated = normalizeCharacter(legacy.value);
+        items = [migrated];
+        const active = await getActiveCharacterId();
+        if (!active) {
+          try {
+            await setActiveCharacterId(migrated.id);
+          } catch (error) {}
+        }
+      } else {
+        items = [];
+      }
+    } else {
+      // 读取失败：备份尝试后从空库重建，但绝不覆盖旧键，保留人工恢复的可能。
+      await backupCorruptValue(CHARACTERS_KEY);
+      items = [];
+    }
+    needsPersist = true;
+  }
+
+  const { list, mustPersist } = ensureDefaultCharacterOrPersistHint(items);
+  if (needsPersist || mustPersist) {
     try {
       await persistLibrary(list);
     } catch (error) {}
@@ -238,23 +329,9 @@ export async function saveCharacterLibrary(list) {
 }
 
 export async function saveCharacterState(list, activeId, deletedIds) {
-  const previousList = await AsyncStorage.getItem(CHARACTERS_KEY);
-  let librarySaved = false;
-  try {
-    await saveCharacterLibrary(list);
-    librarySaved = true;
-    await setActiveCharacterId(activeId);
-  } catch (error) {
-    if (librarySaved) {
-      try {
-        if (previousList === null) await AsyncStorage.removeItem(CHARACTERS_KEY);
-        else await AsyncStorage.setItem(CHARACTERS_KEY, previousList);
-      } catch (rollbackError) {
-        throw new Error('角色保存失败，存储回滚失败，请重新打开应用检查。');
-      }
-    }
-    throw error;
-  }
+  // 角色条目先写、索引后写（提交点），因此这里不再需要整库回滚。
+  await saveCharacterLibrary(list);
+  await setActiveCharacterId(activeId);
   const removed = Array.isArray(deletedIds) ? deletedIds : (deletedIds ? [deletedIds] : []);
   for (const id of removed) {
     if (id && id !== DEFAULT_CHARACTER.id) {
