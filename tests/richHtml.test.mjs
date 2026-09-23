@@ -55,4 +55,6 @@ test('包装文档包含视口、正文与高度桥', () => {
   assert.ok(doc.includes('max-height:none'));
   // 展开/收起后重新测量高度
   assert.ok(doc.includes('"toggle"'));
+  assert.ok(doc.includes('getBoundingClientRect'));
+  assert.ok(doc.includes('requestAnimationFrame'));
 });
