@@ -19,11 +19,18 @@ test('含内置渲染器不支持标签的消息才需要 WebView', () => {
   assert.equal(needsRichHtmlRendering('<video controls src="video.mp4"></video>'), true);
 });
 
+test('折叠卡片始终使用 WebView，避免 summary 被内置渲染器丢弃', () => {
+  assert.equal(
+    shouldRenderRichHtml('<details><summary>状态栏</summary><div>正文</div></details>', false),
+    true
+  );
+  assert.equal(shouldRenderRichHtml('<style>.a{}</style>', false), false);
+  assert.equal(shouldRenderRichHtml('<script>1</script>', false), false);
+});
+
 test('富 HTML 渲染受开关控制，缺省开启', () => {
   assert.equal(shouldRenderRichHtml('<style>.a{}</style>', true), true);
   assert.equal(shouldRenderRichHtml('<style>.a{}</style>'), true);
-  assert.equal(shouldRenderRichHtml('<style>.a{}</style>', false), false);
-  assert.equal(shouldRenderRichHtml('<script>1</script>', false), false);
   assert.equal(shouldRenderRichHtml('普通文本', true), false);
 });
 
