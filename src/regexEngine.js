@@ -7,9 +7,8 @@ export const REGEX_PLACEMENT = {
 };
 
 // 正则来自第三方卡片或用户输入，可能是灾难性回溯模式（例如 (a+)+$）。
-// 这里给被匹配文本设长度上限：超长时只对「尾部」执行脚本（聊天里最新的内容在尾部），
-// 头部原样保留，把最坏耗时限制在可控范围内，而不是卡死 JS 线程。
-const MAX_REGEX_INPUT_CHARS = 20000;
+const MAX_REGEX_INPUT_CHARS = 8 * 1024 * 1024;
+const HTML_SEGMENT_PATTERN = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<[^>]+>/gi;
 const COMPILED_CACHE_LIMIT = 300;
 const compiledCache = new Map();
 
@@ -67,6 +66,26 @@ function normalizeReplacement(replacement) {
     .split(DOLLAR_SENTINEL).join('$$');
 }
 
+function replaceVisibleText(input, regex, replacement) {
+  const segments = new RegExp(HTML_SEGMENT_PATTERN.source, 'gi');
+  const replaceSegment = segment => {
+    regex.lastIndex = 0;
+    const result = segment.replace(regex, replacement);
+    regex.lastIndex = 0;
+    return result;
+  };
+  let cursor = 0;
+  let match;
+  let output = '';
+  while ((match = segments.exec(input)) !== null) {
+    output += replaceSegment(input.slice(cursor, match.index));
+    output += match[0];
+    cursor = match.index + match[0].length;
+    if (match[0].length === 0) segments.lastIndex += 1;
+  }
+  return output + replaceSegment(input.slice(cursor));
+}
+
 function withinDepth(script, depth) {
   if (depth === null || depth === undefined) return true;
   if (script.minDepth !== null && script.minDepth !== undefined && depth < script.minDepth) {
@@ -101,7 +120,12 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
       if (mode === 'display' && /^\s*<style\b[^>]*>(?:(?!<\/style>)[\s\S])*<\/style>$/i.test(replacement)) {
         replacement += '\n';
       }
-      output = output.replace(regex, replacement);
+      const hasMarkup = /<[^>]+>/i.test(output);
+      const insertsMarkup = /<[^>]+>/i.test(replacement);
+      const isDocumentReplacement = /<!doctype\s+html\b|<html[\s>]/i.test(replacement);
+      output = mode === 'display' && hasMarkup && insertsMarkup && !isDocumentReplacement
+        ? replaceVisibleText(output, regex, replacement)
+        : output.replace(regex, replacement);
     } catch (error) {
       // 非法正则直接跳过，避免影响整条消息链路
     }

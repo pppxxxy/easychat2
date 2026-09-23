@@ -32,6 +32,13 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '  function send(payload){',
   '    try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(payload)); } catch (e) {}',
   '  }',
+  '  if (typeof window.triggerSlash !== "function") {',
+  '    window.triggerSlash = function(command){',
+  '      var value = String(command || "");',
+  '      if (value.indexOf("/send ") === 0) value = value.slice(7);',
+  '      send({ type: "command", value: value });',
+  '    };',
+  '  }',
   '  function measure(){',
   '    var b = document.body;',
   '    var d = document.documentElement;',
@@ -77,6 +84,47 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '</script>',
 ].join('\n');
 
+function buildRichHtmlLayoutStyle(resetMaxHeight = true) {
+  const rules = [];
+  if (resetMaxHeight) rules.push('body *{max-height:none !important;}');
+  rules.push(
+    'html,body{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;}',
+    'body,body *{overflow-wrap:anywhere!important;word-break:break-word!important;}',
+    'details{display:block!important;width:100%!important;max-width:100%!important;flex:0 0 100%!important;align-self:stretch!important;clear:both!important;}',
+    'details>summary{display:flex!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;}',
+    'details>div{width:100%!important;max-width:100%!important;}'
+  );
+  return rules.join('');
+}
+
+function extractFullHtmlDocument(value) {
+  const start = value.search(/<!doctype\s+html\b|<html[\s>]/i);
+  if (start < 0) return null;
+  const end = value.toLowerCase().lastIndexOf('</html>');
+  if (end < start) return null;
+  return value.slice(start, end + '</html>'.length);
+}
+
+function injectFullDocumentSupport(documentHtml, layoutStyle) {
+  let output = documentHtml;
+  const styleBlock = `<style data-easychat2-runtime="true">${layoutStyle}</style>`;
+  if (/<\/head>/i.test(output)) {
+    output = output.replace(/<\/head>/i, `${styleBlock}</head>`);
+  } else if (/<head\b[^>]*>/i.test(output)) {
+    output = output.replace(/(<head\b[^>]*>)/i, `$1${styleBlock}`);
+  } else if (/<html\b[^>]*>/i.test(output)) {
+    output = output.replace(/(<html\b[^>]*>)/i, `$1<head>${styleBlock}</head>`);
+  } else {
+    return null;
+  }
+  if (/<\/body>/i.test(output)) {
+    output = output.replace(/<\/body>/i, `${RICH_HTML_RESIZE_BRIDGE}</body>`);
+  } else {
+    output += RICH_HTML_RESIZE_BRIDGE;
+  }
+  return output;
+}
+
 export function buildRichHtmlDocument({
   bodyHtml = '',
   textColor = '#e8e8f0',
@@ -84,6 +132,13 @@ export function buildRichHtmlDocument({
   fontSize = 15,
   fontFamily = '',
 } = {}) {
+  const normalizedBody = stripMarkdownFences(bodyHtml).trim();
+  const layoutStyle = buildRichHtmlLayoutStyle();
+  const fullDocument = extractFullHtmlDocument(normalizedBody);
+  if (fullDocument) {
+    const supportedDocument = injectFullDocumentSupport(fullDocument, buildRichHtmlLayoutStyle(false));
+    if (supportedDocument) return supportedDocument;
+  }
   const fontRule = fontFamily ? `font-family:${fontFamily};` : '';
   return (
     '<!DOCTYPE html><html><head>'
@@ -95,10 +150,8 @@ export function buildRichHtmlDocument({
     + 'img{max-width:100%!important;height:auto;}'
     + `a{color:${linkColor};}`
     + '*{box-sizing:border-box;}'
-    // 角色卡常用 max-height + overflow:auto 做折叠滚动区，但 WebView 关闭了自身滚动，
-    // 内层滚动区会卡住、内容被裁。这里解除高度上限，让内容自然撑开，由外层聊天列表滚动。
-    + 'body *{max-height:none !important;}'
+    + layoutStyle
     + '</style></head>'
-    + `<body>${stripMarkdownFences(bodyHtml)}${RICH_HTML_RESIZE_BRIDGE}</body></html>`
+    + `<body>${normalizedBody}${RICH_HTML_RESIZE_BRIDGE}</body></html>`
   );
 }

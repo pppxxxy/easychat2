@@ -25,6 +25,7 @@ export default function RichHtmlMessage({ html, onCommand }) {
     linkColor: theme.colors.primary,
     fontSize: fonts.scaled(15),
   }), [html, theme, fonts]);
+  const source = useMemo(() => ({ html: document }), [document]);
 
   const onMessage = useCallback(event => {
     let payload = null;
@@ -58,7 +59,7 @@ export default function RichHtmlMessage({ html, onCommand }) {
     <View style={styles.container}>
       <WebViewComponent
         originWhitelist={['*']}
-        source={{ html: document }}
+        source={source}
         style={[styles.webview, { height }]}
         containerStyle={styles.webviewContainer}
         javaScriptEnabled

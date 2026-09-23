@@ -70,8 +70,8 @@ test('替换文本中的 $0 视作整段匹配（兼容角色卡写法）', () =
   assert.equal(applyRegexScripts('x', [literal], REGEX_PLACEMENT.AI_OUTPUT), '$0');
 });
 
-test('超长文本：只对尾部执行脚本，头部原样保留（防灾难性回溯拖死主线程）', () => {
-  const head = 'H'.repeat(25000);
+test('大型角色卡文本在上限内完整执行展示正则', () => {
+  const head = 'H'.repeat(6800000);
   const tail = 'foo';
   const output = applyRegexScripts(
     head + tail,
@@ -81,4 +81,21 @@ test('超长文本：只对尾部执行脚本，头部原样保留（防灾难�
   assert.equal(output.length, head.length + tail.length);
   assert.equal(output.slice(0, head.length), head);
   assert.equal(output.slice(-3), 'bar');
+});
+
+test('展示正则只处理 HTML 可见文本，不改写标签、脚本和样式', () => {
+  const highlight = script({
+    findRegex: '/(foo)/g',
+    replaceString: '<strong>$1</strong>',
+  });
+  const output = applyRegexScripts(
+    '<div>foo</div><script>const foo = 1;</script><style>.foo{}</style>',
+    [highlight],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.equal(
+    output,
+    '<div><strong>foo</strong></div><script>const foo = 1;</script><style>.foo{}</style>'
+  );
 });

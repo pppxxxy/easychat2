@@ -714,7 +714,7 @@ data: [DONE]
 ### `RichHtmlMessage`（默认导出）
 **位置**: `src/RichHtmlMessage.js`
 
-用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由桥脚本回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；`onCommand` 接收 `button[data-command]` 的斜杠命令。WebView 开启 `allowsFullscreenVideo` 与多窗口支持，卡内 `<video controls>` 可进入原生全屏，同时拦截新窗口以保持卡片链接留在当前消息内。因关闭了 WebView 自身滚动，`buildRichHtmlDocument` 会注入 `body *{max-height:none !important}`，避免卡片内层 `max-height + overflow` 折叠区被裁切，内容由外层聊天列表滚动。`react-native-webview` 缺失时返回 `null`。
+用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由桥脚本回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；完整 HTML 文档会直接作为 WebView 页面加载，注入宽度约束、换行策略、运行时命令桥与 `window.triggerSlash`，避免完整页面嵌套导致横向溢出、闪烁和局部白屏。`onCommand` 接收 `button[data-command]` 的斜杠命令。WebView 开启 `allowsFullscreenVideo` 与多窗口支持，卡内 `<video controls>` 可进入原生全屏，同时拦截新窗口以保持卡片链接留在当前消息内。因关闭了 WebView 自身滚动，普通片段包装会注入 `body *{max-height:none !important}`，完整页面保留自身滚动与折叠规则。`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`

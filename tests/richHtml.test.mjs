@@ -53,8 +53,22 @@ test('包装文档包含视口、正文与高度桥', () => {
   assert.ok(doc.includes('ResizeObserver'));
   // 解除卡片内层 max-height，避免折叠区在关闭滚动的 WebView 里被裁
   assert.ok(doc.includes('max-height:none'));
+  assert.ok(doc.includes('details{display:block!important'));
+  assert.ok(doc.includes('flex:0 0 100%!important'));
   // 展开/收起后重新测量高度
   assert.ok(doc.includes('"toggle"'));
   assert.ok(doc.includes('getBoundingClientRect'));
   assert.ok(doc.includes('requestAnimationFrame'));
+});
+
+test('完整 HTML 角色卡直接作为 WebView 文档并注入运行时桥', () => {
+  const source = '<div>外层容器<!DOCTYPE html><html><head><title>Card</title></head><body><main>开局</main><script>run()</script></body></html></div>';
+  const doc = buildRichHtmlDocument({ bodyHtml: source });
+  assert.equal((doc.match(/<!DOCTYPE/gi) || []).length, 1);
+  assert.equal((doc.match(/<html[\s>]/gi) || []).length, 1);
+  assert.ok(doc.includes('data-easychat2-runtime'));
+  assert.ok(doc.includes('min-width:0!important'));
+  assert.equal(doc.includes('body *{max-height:none !important;}'), false);
+  assert.ok(doc.includes('window.triggerSlash'));
+  assert.ok(doc.includes('<main>开局</main>'));
 });
