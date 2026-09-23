@@ -560,11 +560,14 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   return (
     <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
       {!isUser ? avatarElement : null}
-      <View style={[styles.messageContent, fullWidth ? styles.messageContentFullWidth : null]}>
+      <View style={[
+        styles.messageContent,
+        (fullWidth || renderRichHtml) ? styles.messageContentFullWidth : null,
+      ]}>
         {!isUser ? <Text style={styles.nameLabel}>{characterName || ''}</Text> : null}
         <View style={[
           styles.bubble,
-          fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded,
+          (fullWidth || renderRichHtml) ? styles.bubbleFullWidth : styles.bubbleBounded,
           isUser ? styles.userBubble : styles.assistantBubble,
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
@@ -3676,7 +3679,9 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   messageContentFullWidth: {
     maxWidth: '100%',
+    minWidth: 0,
     flex: 1,
+    flexBasis: 0,
   },
   inlineImageWrap: {
     marginTop: 6,
@@ -3847,7 +3852,10 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     maxWidth: '95%',
   },
   bubbleFullWidth: {
+    width: '100%',
     maxWidth: '100%',
+    minWidth: 0,
+    flexShrink: 1,
     alignSelf: 'stretch',
   },
   userBubble: {

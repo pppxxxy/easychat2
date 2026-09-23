@@ -77,7 +77,22 @@ export default function RichHtmlMessage({ html, onCommand }) {
 }
 
 const styles = StyleSheet.create({
-  container: { marginTop: 2 },
-  webview: { width: '100%', backgroundColor: 'transparent' },
-  webviewContainer: { backgroundColor: 'transparent' },
+  container: {
+    width: '100%',
+    minWidth: 0,
+    alignSelf: 'stretch',
+    marginTop: 2,
+  },
+  webview: {
+    width: '100%',
+    minWidth: 0,
+    alignSelf: 'stretch',
+    backgroundColor: 'transparent',
+  },
+  webviewContainer: {
+    width: '100%',
+    minWidth: 0,
+    alignSelf: 'stretch',
+    backgroundColor: 'transparent',
+  },
 });

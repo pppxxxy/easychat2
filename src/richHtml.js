@@ -88,11 +88,12 @@ function buildRichHtmlLayoutStyle(resetMaxHeight = true) {
   const rules = [];
   if (resetMaxHeight) rules.push('body *{max-height:none !important;}');
   rules.push(
-    'html,body{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;}',
+    '*,*::before,*::after{box-sizing:border-box!important;}',
+    'html,body{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;padding:0!important;overflow-x:hidden!important;}',
     'body,body *{overflow-wrap:anywhere!important;word-break:break-word!important;}',
-    'details{display:block!important;width:100%!important;max-width:100%!important;flex:0 0 100%!important;align-self:stretch!important;clear:both!important;}',
-    'details>summary{display:flex!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;}',
-    'details>div{width:100%!important;max-width:100%!important;}'
+    'details{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;flex:0 0 100%!important;align-self:stretch!important;clear:both!important;}',
+    'details>summary{display:flex!important;width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}',
+    'details>div{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}'
   );
   return rules.join('');
 }
