@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 
 import GLOBAL_PRESETS from './presets';
 import { isKnownImageProvider } from './imageGen/providers';
@@ -31,6 +32,10 @@ const CHARACTERS_KEY = '@easychat2_characters';
 // 新格式：只存角色 id 索引，角色本体按 id 拆到 CHARACTER_ITEM_PREFIX 键。
 const CHARACTER_INDEX_KEY = '@easychat2_character_index';
 const CHARACTER_ITEM_PREFIX = '@easychat2_character_item';
+const CHARACTER_MIGRATION_KEY = '@easychat2_character_migration';
+const CHARACTER_PAYLOAD_DIRECTORY = 'characters';
+const CHARACTER_PAYLOAD_FILE_VERSION = 1;
+const CHARACTER_INLINE_LIMIT_BYTES = 512 * 1024;
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const ONBOARDING_DONE_KEY = '@easychat2_onboarding_done';
@@ -54,6 +59,8 @@ const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
 const CARD_FORGE_KEY = '@easychat2_card_forge';
+
+let characterLibraryWriteBlocked = false;
 
 const DEFAULT_API_CONFIG = {
   baseUrl: 'https://api.deepseek.com',
@@ -105,12 +112,71 @@ async function readJson(key, fallback) {
   }
 }
 
+let sqliteModule;
+function getSqliteModule() {
+  if (sqliteModule !== undefined) return sqliteModule;
+  try {
+    sqliteModule = require('expo-sqlite');
+  } catch (error) {
+    sqliteModule = null;
+  }
+  return sqliteModule;
+}
+
+async function readLargeAsyncStorageValue(key) {
+  const SQLite = getSqliteModule();
+  if (!SQLite || typeof SQLite.openDatabase !== 'function') return null;
+  const source = `${FileSystem.documentDirectory || ''}../databases/RKStorage`;
+  try {
+    const info = await FileSystem.getInfoAsync(source);
+    if (!info || !info.exists) return null;
+  } catch (error) {
+    return null;
+  }
+  let database = null;
+  try {
+    database = SQLite.openDatabase('../../databases/RKStorage');
+    const lengthResult = await database.execAsync([{
+      sql: 'SELECT length(value) AS total FROM catalystLocalStorage WHERE key = ?',
+      args: [key],
+    }], true);
+    const total = Number(lengthResult?.[0]?.rows?.[0]?.total);
+    if (!Number.isFinite(total) || total <= 0) return null;
+    const chunkSize = 256 * 1024;
+    let value = '';
+    for (let offset = 0; offset < total; offset += chunkSize) {
+      const result = await database.execAsync([{
+        sql: 'SELECT substr(value, ?, ?) AS chunk FROM catalystLocalStorage WHERE key = ?',
+        args: [offset + 1, chunkSize, key],
+      }], true);
+      const chunk = result?.[0]?.rows?.[0]?.chunk;
+      if (chunk == null) return null;
+      value += String(chunk);
+    }
+    return value;
+  } catch (error) {
+    return null;
+  } finally {
+    if (database && typeof database.closeAsync === 'function') {
+      try {
+        await database.closeAsync();
+      } catch (error) {}
+    }
+  }
+}
+
 async function readJsonStatus(key) {
   try {
     const raw = await AsyncStorage.getItem(key);
     if (raw === null || raw === undefined) return { status: 'missing' };
     return { status: 'ok', value: JSON.parse(raw) };
   } catch (error) {
+    const recovered = await readLargeAsyncStorageValue(key);
+    if (recovered !== null) {
+      try {
+        return { status: 'ok', value: JSON.parse(recovered) };
+      } catch (parseError) {}
+    }
     return { status: 'corrupt' };
   }
 }
@@ -192,6 +258,110 @@ function characterItemKey(id) {
   return `${CHARACTER_ITEM_PREFIX}::${String(id)}`;
 }
 
+function characterPayloadDirectory() {
+  return `${FileSystem.documentDirectory || FileSystem.cacheDirectory || ''}${CHARACTER_PAYLOAD_DIRECTORY}/`;
+}
+
+function characterPayloadPath(fileName) {
+  return `${characterPayloadDirectory()}${String(fileName || '')}`;
+}
+
+function characterIdHash(id) {
+  const text = String(id || '');
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function characterPayloadFileName(id) {
+  return `${characterIdHash(id)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.json`;
+}
+
+function utf8ByteLength(text) {
+  const value = String(text || '');
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+function isCharacterPayloadDescriptor(value) {
+  return !!(
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && value.storage === 'file'
+    && value.version === CHARACTER_PAYLOAD_FILE_VERSION
+    && value.id != null
+    && value.fileName
+  );
+}
+
+async function writeCharacterPayload(character) {
+  const serialized = JSON.stringify(character);
+  if (utf8ByteLength(serialized) <= CHARACTER_INLINE_LIMIT_BYTES) {
+    return { value: serialized, fileName: '' };
+  }
+  const fileName = characterPayloadFileName(character.id);
+  await FileSystem.makeDirectoryAsync(characterPayloadDirectory(), { intermediates: true });
+  await FileSystem.writeAsStringAsync(characterPayloadPath(fileName), serialized, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+  return {
+    value: JSON.stringify({
+      storage: 'file',
+      version: CHARACTER_PAYLOAD_FILE_VERSION,
+      id: String(character.id),
+      fileName,
+    }),
+    fileName,
+  };
+}
+
+async function cleanupCharacterPayloadFiles(activeNames) {
+  try {
+    const names = await FileSystem.readDirectoryAsync(characterPayloadDirectory());
+    await Promise.all((names || [])
+      .filter(name => String(name).endsWith('.json') && !activeNames.has(String(name)))
+      .map(name => FileSystem.deleteAsync(characterPayloadPath(name), { idempotent: true })));
+  } catch (error) {}
+}
+
+async function readCharacterPayload(value) {
+  if (!isCharacterPayloadDescriptor(value)) {
+    return { status: 'ok', value };
+  }
+  try {
+    const serialized = await FileSystem.readAsStringAsync(characterPayloadPath(value.fileName), {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    return { status: 'ok', value: JSON.parse(serialized) };
+  } catch (error) {
+    return { status: 'unreadable', value: null };
+  }
+}
+
+export function isCharacterLibraryWriteBlocked() {
+  return characterLibraryWriteBlocked;
+}
+
 async function readCharacterIndex() {
   const stored = await readJsonStatus(CHARACTER_INDEX_KEY);
   if (stored.status === 'ok' && Array.isArray(stored.value)) {
@@ -202,42 +372,98 @@ async function readCharacterIndex() {
   return { ids: null, corrupt };
 }
 
+async function readCharacterMigrationMarker() {
+  const stored = await readJsonStatus(CHARACTER_MIGRATION_KEY);
+  if (stored.status !== 'ok' || !stored.value || typeof stored.value !== 'object') {
+    return null;
+  }
+  return stored.value;
+}
+
+function mergeCharacterItems(primary, fallback) {
+  const merged = new Map();
+  (Array.isArray(fallback) ? fallback : []).forEach(item => {
+    const normalized = normalizeCharacter(item);
+    if (normalized.id) merged.set(normalized.id, normalized);
+  });
+  (Array.isArray(primary) ? primary : []).forEach(item => {
+    const normalized = normalizeCharacter(item);
+    if (normalized.id) merged.set(normalized.id, normalized);
+  });
+  return [...merged.values()];
+}
+
+async function readLegacyCharacterItems() {
+  const stored = await readJsonStatus(CHARACTERS_KEY);
+  if (stored.status === 'ok' && Array.isArray(stored.value)) {
+    return { status: 'ok', items: stored.value.map(normalizeCharacter) };
+  }
+  if (stored.status === 'missing') return { status: 'missing', items: [] };
+  return { status: 'unreadable', items: [] };
+}
+
+async function readLegacySingleCharacter() {
+  const stored = await readJsonStatus(CHARACTER_KEY);
+  if (stored.status === 'ok' && stored.value && typeof stored.value === 'object' && !Array.isArray(stored.value)) {
+    return { status: 'ok', item: normalizeCharacter(stored.value) };
+  }
+  if (stored.status === 'missing') return { status: 'missing', item: null };
+  return { status: 'unreadable', item: null };
+}
+
 // 索引损坏时扫出散落的角色条目键，尽量把角色库拼回来，避免“条目还在、索引没了”。
 async function rebuildCharacterItemsFromKeys() {
   const allKeys = await AsyncStorage.getAllKeys();
   const keys = (allKeys || []).filter(key => typeof key === 'string' && key.startsWith(`${CHARACTER_ITEM_PREFIX}::`));
   const items = [];
+  let failed = 0;
   for (const key of keys) {
     const stored = await readJsonStatus(key);
+    if (stored.status === 'missing') {
+      failed += 1;
+      continue;
+    }
+    const payload = await readCharacterPayload(stored.value);
     if (
-      stored.status === 'ok'
-      && stored.value
-      && typeof stored.value === 'object'
-      && !Array.isArray(stored.value)
+      payload.status === 'ok'
+      && payload.value
+      && typeof payload.value === 'object'
+      && !Array.isArray(payload.value)
     ) {
-      items.push(normalizeCharacter(stored.value));
+      items.push(normalizeCharacter(payload.value));
+    } else {
+      failed += 1;
     }
   }
-  return items;
+  return { items, failed };
 }
 
 // 角色按 id 拆键存储：整库 JSON 会随卡片增多突破 Android SQLite 的单值读取上限
-// （CursorWindow 约 2MB），消息体当初也是因此按会话拆分。索引键最后写，作为提交点：
-// 中途失败时旧索引仍指向旧的完整数据，不会把角色库写坏。
+// （CursorWindow 约 2MB），消息体当初也是因此按会话拆分。大角色正文落到文件，
+// AsyncStorage 只保留小型描述符，索引最后写作为提交点。
 async function persistLibrary(list) {
-  const previousIds = (await readCharacterIndex()).ids;
-  const stale = new Set(previousIds || []);
+  const previousIds = (await readCharacterIndex()).ids || [];
+  const stale = new Set(previousIds);
   const pairs = [];
   const ids = [];
+  const activeFileNames = new Set();
   for (const character of list) {
     const id = String(character.id);
+    const payload = await writeCharacterPayload(character);
     ids.push(id);
-    pairs.push([characterItemKey(id), JSON.stringify(character)]);
+    if (payload.fileName) activeFileNames.add(payload.fileName);
+    pairs.push([characterItemKey(id), payload.value]);
     stale.delete(id);
   }
-  // 角色条目一次性多键写入（比逐个写少一半桥接调用），索引最后写作为提交点。
   if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
   await AsyncStorage.setItem(CHARACTER_INDEX_KEY, JSON.stringify(ids));
+  try {
+    await AsyncStorage.setItem(CHARACTER_MIGRATION_KEY, JSON.stringify({
+      version: CHARACTER_PAYLOAD_FILE_VERSION,
+      ids,
+    }));
+  } catch (error) {}
+  await cleanupCharacterPayloadFiles(activeFileNames);
   const staleKeys = Array.from(stale).map(characterItemKey);
   if (staleKeys.length > 0) {
     try {
@@ -249,20 +475,26 @@ async function persistLibrary(list) {
 async function readCharacterItems(ids) {
   const items = [];
   let missing = 0;
+  let failed = 0;
   for (const id of ids) {
     const stored = await readJsonStatus(characterItemKey(id));
-    if (
-      stored.status === 'ok'
-      && stored.value
-      && typeof stored.value === 'object'
-      && !Array.isArray(stored.value)
-    ) {
-      items.push(normalizeCharacter(stored.value));
-    } else {
+    if (stored.status === 'missing') {
       missing += 1;
+      continue;
+    }
+    const payload = await readCharacterPayload(stored.value);
+    if (
+      payload.status === 'ok'
+      && payload.value
+      && typeof payload.value === 'object'
+      && !Array.isArray(payload.value)
+    ) {
+      items.push(normalizeCharacter(payload.value));
+    } else {
+      failed += 1;
     }
   }
-  return { items, missing };
+  return { items, missing, failed };
 }
 
 function ensureDefaultCharacterOrPersistHint(items) {
@@ -273,55 +505,107 @@ function ensureDefaultCharacterOrPersistHint(items) {
 }
 
 export async function getCharacterLibrary() {
-  const index = await readCharacterIndex();
-  let items;
+  const [index, legacy, marker] = await Promise.all([
+    readCharacterIndex(),
+    readLegacyCharacterItems(),
+    readCharacterMigrationMarker(),
+  ]);
+  let items = [];
   let needsPersist = false;
+  let writeBlocked = false;
 
   if (index.ids) {
-    const { items: loaded, missing } = await readCharacterItems(index.ids);
-    items = loaded;
-    // 有条目读不出（例如被清掉）：重建索引，去掉失效 id
-    if (missing > 0) needsPersist = true;
+    const loaded = await readCharacterItems(index.ids);
+    items = loaded.items;
+    const loadedIds = new Set(items.map(item => item.id));
+    const legacyHasMissing = legacy.status === 'ok'
+      && legacy.items.some(item => item.id && !loadedIds.has(item.id));
+    const legacyOnlyDefaultRecovery = index.ids.length <= 1
+      && !marker
+      && legacy.status === 'ok'
+      && legacy.items.length > items.length;
+
+    if (legacyOnlyDefaultRecovery) {
+      items = legacy.items;
+      needsPersist = true;
+    } else if (legacyHasMissing && (loaded.missing > 0 || loaded.failed > 0)) {
+      items = mergeCharacterItems(items, legacy.items);
+      needsPersist = true;
+    }
+
+    const availableIds = new Set(items.map(item => item.id));
+    const unresolved = index.ids.filter(id => !availableIds.has(id));
+    if (unresolved.length > 0) {
+      writeBlocked = true;
+    }
+    if (
+      !writeBlocked
+      && index.ids.length <= 1
+      && !marker
+      && legacy.status === 'unreadable'
+    ) {
+      writeBlocked = true;
+    }
   } else if (index.corrupt) {
-    items = await rebuildCharacterItemsFromKeys();
+    const rebuilt = await rebuildCharacterItemsFromKeys();
+    items = legacy.status === 'ok'
+      ? mergeCharacterItems(rebuilt.items, legacy.items)
+      : rebuilt.items;
     needsPersist = true;
-  } else {
-    // 迁移旧格式：整库数组存一个键。旧值可能已超行上限读不出，此时保留原键不覆盖。
-    const stored = await readJsonStatus(CHARACTERS_KEY);
-    if (stored.status === 'ok' && Array.isArray(stored.value)) {
-      items = stored.value.map(normalizeCharacter);
-    } else if (stored.status === 'missing') {
-      const legacy = await readJsonStatus(CHARACTER_KEY);
-      if (legacy.status === 'ok' && legacy.value && typeof legacy.value === 'object') {
-        const migrated = normalizeCharacter(legacy.value);
-        items = [migrated];
-        const active = await getActiveCharacterId();
-        if (!active) {
-          try {
-            await setActiveCharacterId(migrated.id);
-          } catch (error) {}
-        }
-      } else {
-        items = [];
+    writeBlocked = rebuilt.failed > 0 || legacy.status === 'unreadable';
+  } else if (legacy.status === 'ok') {
+    items = legacy.items;
+    needsPersist = true;
+  } else if (legacy.status === 'missing') {
+    const single = await readLegacySingleCharacter();
+    if (single.status === 'ok') {
+      items = [single.item];
+      const active = await getActiveCharacterId();
+      if (!active) {
+        try {
+          await setActiveCharacterId(single.item.id);
+        } catch (error) {}
       }
-    } else {
-      // 读取失败：备份尝试后从空库重建，但绝不覆盖旧键，保留人工恢复的可能。
-      await backupCorruptValue(CHARACTERS_KEY);
-      items = [];
+    } else if (single.status === 'unreadable') {
+      writeBlocked = true;
     }
     needsPersist = true;
+  } else {
+    writeBlocked = true;
   }
 
   const { list, mustPersist } = ensureDefaultCharacterOrPersistHint(items);
+  if (writeBlocked) {
+    characterLibraryWriteBlocked = true;
+    return list;
+  }
+
+  characterLibraryWriteBlocked = false;
+  if (index.ids && !marker && !needsPersist && !mustPersist) {
+    try {
+      await AsyncStorage.setItem(CHARACTER_MIGRATION_KEY, JSON.stringify({
+        version: CHARACTER_PAYLOAD_FILE_VERSION,
+        ids: index.ids,
+      }));
+    } catch (error) {
+      characterLibraryWriteBlocked = true;
+      return list;
+    }
+  }
   if (needsPersist || mustPersist) {
     try {
       await persistLibrary(list);
-    } catch (error) {}
+    } catch (error) {
+      characterLibraryWriteBlocked = true;
+    }
   }
   return list;
 }
 
 export async function saveCharacterLibrary(list) {
+  if (characterLibraryWriteBlocked) {
+    throw new Error('角色库仍在恢复中，请稍后重试。');
+  }
   const { list: ensured } = ensureDefaultCharacter(list);
   const next = sortCharacters(ensured);
   await persistLibrary(next);
@@ -365,9 +649,11 @@ export async function getActiveCharacter() {
   if (found) return found;
   const fallback = list.find(character => character.id === DEFAULT_CHARACTER.id)
     || normalizeCharacter(DEFAULT_CHARACTER);
-  try {
-    await setActiveCharacterId(fallback.id);
-  } catch (error) {}
+  if (!characterLibraryWriteBlocked) {
+    try {
+      await setActiveCharacterId(fallback.id);
+    } catch (error) {}
+  }
   return fallback;
 }
 

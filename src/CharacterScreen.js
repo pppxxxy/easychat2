@@ -700,7 +700,6 @@ export default function CharacterScreen() {
 
   const confirmImport = async result => {
     const pending = pendingImport;
-    setPendingImport(null);
     if (!pending) return;
     const next = {
       ...pending.patch,
@@ -710,6 +709,7 @@ export default function CharacterScreen() {
     setImporting(true);
     try {
       const created = await addCharacter(next);
+      setPendingImport(null);
       // 新角色必须切到它自己的会话，否则聊天页会继续显示上一个角色的对话
       // （更糟的是新消息会写进上一个角色的那段会话、进入它的记忆）
       await ensureCharacterSession(created.id).catch(() => {});
@@ -747,7 +747,13 @@ export default function CharacterScreen() {
         imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
       );
     } catch (error) {
-      Alert.alert('导入失败', '请检查存储空间或权限。');
+      const detail = maskSecrets(error?.message || String(error));
+      const message = /角色库仍在恢复中/.test(detail)
+        ? `${detail}\n你编辑的开场白仍会保留。`
+        : /full|disk|空间|容量/i.test(detail)
+          ? '存储空间不足，请释放空间后重试。你编辑的开场白仍会保留。'
+          : '请检查存储空间或权限后重试。你编辑的开场白仍会保留。';
+      Alert.alert('导入失败', message);
     } finally {
       setImporting(false);
     }

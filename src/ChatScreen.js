@@ -804,6 +804,9 @@ export default function ChatScreen() {
   activeSessionRef.current = activeSession;
   const memberProfilesRef = useRef({ sessionId: '', profiles: {} });
   const isGroup = activeSession?.type === 'group';
+  const sessionOwnerMissing = !isGroup
+    && !!activeSession
+    && !characters.some(item => item.id === String(activeSession.characterId || ''));
   const characterMap = useMemo(() => {
     const map = new Map();
     (Array.isArray(characters) ? characters : []).forEach(item => {
@@ -989,7 +992,7 @@ export default function ChatScreen() {
       if (message.role === ASSISTANT_ID) {
         const text = applyRegexScripts(
           hideVariantStatusBar(message.text),
-          character.regexScripts,
+          sessionOwnerMissing ? [] : character.regexScripts,
           REGEX_PLACEMENT.AI_OUTPUT,
           { mode: 'display', depth }
         );
@@ -998,7 +1001,7 @@ export default function ChatScreen() {
       if (message.role === USER_ID) {
         const text = applyRegexScripts(
           message.text,
-          character.regexScripts,
+          sessionOwnerMissing ? [] : character.regexScripts,
           REGEX_PLACEMENT.USER_INPUT,
           { mode: 'display', depth }
         );
@@ -1006,7 +1009,7 @@ export default function ChatScreen() {
       }
       return message;
     }),
-    [messages, character.regexScripts]
+    [messages, character.regexScripts, sessionOwnerMissing]
   );
 
   const regenerableIds = useMemo(() => {
@@ -1107,7 +1110,7 @@ export default function ChatScreen() {
           }
           return;
         }
-        const greeting = initial.length === 0
+        const greeting = initial.length === 0 && !sessionOwnerMissing
           ? buildGreetingMessage(activeSessionId, character.firstMes, userProfileCache?.userName)
           : null;
         lastSavedSnapshotRef.current = JSON.stringify(initial);
@@ -1131,7 +1134,7 @@ export default function ChatScreen() {
       cancelled = true;
       sessionVersionRef.current += 1;
     };
-  }, [activeSessionId, loaded]);
+  }, [activeSessionId, loaded, sessionOwnerMissing]);
 
   // 角色与会话必须成对：导入/新建角色、或历史遗留的错配状态下，只要当前会话不属于当前角色，
   // 就切到该角色自己的会话。否则界面会继续显示上一个角色的对话，新消息还会写进那段会话。
@@ -1139,10 +1142,17 @@ export default function ChatScreen() {
     if (!loaded) return;
     if (isGroup) return;
     if (!activeSessionId || !activeSession) return;
-    if (String(activeSession.characterId || '') === characterId) return;
+    const sessionOwnerId = String(activeSession.characterId || '');
+    if (!characters.some(item => item.id === sessionOwnerId)) return;
+    if (sessionOwnerId === characterId) return;
     if (!characters.some(item => item.id === characterId)) return;
     ensureCharacterSession(characterId).catch(() => {});
   }, [activeSession, activeSessionId, characterId, characters, ensureCharacterSession, isGroup, loaded]);
+
+  useEffect(() => {
+    if (!sessionOwnerMissing) return;
+    Alert.alert('角色资料缺失', '这段历史对话仍在，可以先查看；恢复角色资料后才能继续发送。');
+  }, [sessionOwnerMissing]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1216,6 +1226,10 @@ export default function ChatScreen() {
 
   const onNewChat = useCallback(() => {
     if (isSending || !ready || abortRef.current) return;
+    if (sessionOwnerMissing) {
+      Alert.alert('角色资料缺失', '这段历史对话可以继续查看，恢复角色资料后才能新建或发送消息。');
+      return;
+    }
     if (persistableMessages.length === 0) {
       Alert.alert('当前对话还没有内容', '发送一条消息后再新建对话。');
       return;
@@ -1266,7 +1280,7 @@ export default function ChatScreen() {
         },
       },
     ]);
-  }, [isSending, persistableMessages.length, ready, refreshSessions]);
+  }, [isSending, persistableMessages.length, ready, refreshSessions, sessionOwnerMissing]);
 
   const searchMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1960,6 +1974,10 @@ export default function ChatScreen() {
     const text = String(rawText || '').trim();
     const imageAttachments = attachments.filter(item => item.kind === 'image');
     if ((!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
+    if (sessionOwnerMissing) {
+      Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
+      return;
+    }
     ttsStop().catch(() => {});
     const mergedText = mergeTextAttachments(text, attachments)
       || (imageAttachments.length > 0 ? '（见图片）' : '');
@@ -1984,10 +2002,14 @@ export default function ChatScreen() {
     } else {
       requestReply(payload);
     }
-  }, [attachments, isSending, messages, quoteTarget, ready, requestReply, requestGroupReply]);
+  }, [attachments, isSending, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing]);
 
   const regenerateMessage = useCallback(targetId => {
     if (isSending || !ready) return;
+    if (sessionOwnerMissing) {
+      Alert.alert('角色资料缺失', '恢复角色资料后才能重新生成回复。');
+      return;
+    }
     const index = messages.findIndex(item => item.id === targetId);
     if (index < 0 || messages[index].role !== ASSISTANT_ID) return;
     let userIndex = -1;
@@ -2003,7 +2025,7 @@ export default function ChatScreen() {
       userText: messages[userIndex].text,
       baseMessages: messages.slice(0, index),
     });
-  }, [isSending, messages, ready, requestReply]);
+  }, [isSending, messages, ready, requestReply, sessionOwnerMissing]);
 
   const editUserMessage = useCallback(targetId => {
     if (isSending || !ready || abortRef.current) return;
@@ -2241,7 +2263,7 @@ export default function ChatScreen() {
   const groupAvatarUri = isGroup ? String(activeSession?.avatarUri || '') : '';
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
-    : (character.name || 'EasyChat2 助手');
+    : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
 
   const recordTurn = useCallback(async (userText, assistantText) => {
     const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
@@ -2437,8 +2459,8 @@ export default function ChatScreen() {
             </View>
             <Text style={styles.emptyTitle}>开始聊天</Text>
             <Text style={styles.emptyText}>
-              当前角色：{character.name || 'EasyChat2 助手'}{'\n'}
-              请先在“设置”里填写 API Key，然后输入消息。
+              当前角色：{sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手')}{'\n'}
+               {sessionOwnerMissing ? '这段历史对话仍可查看，角色资料恢复后才能发送。' : '请先在“设置”里填写 API Key，然后输入消息。'}{'\n'}
             </Text>
           </View>
         ) : (
@@ -2462,7 +2484,7 @@ export default function ChatScreen() {
                     characterName={
                       isGroup
                         ? ((speaker && speaker.name) || message.speakerName || displayName)
-                        : ((speaker && speaker.name) || message.speakerName || character.name)
+                        : (sessionOwnerMissing ? '角色资料缺失' : ((speaker && speaker.name) || message.speakerName || character.name))
                     }
                     characterAvatar={
                       isGroup
@@ -2547,7 +2569,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.attachButton}
             onPress={() => setMentionPickerOpen(true)}
-            disabled={!ready || isSending}
+            disabled={!ready || isSending || sessionOwnerMissing}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="提及成员"
@@ -2558,7 +2580,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.attachButton}
             onPress={pickAttachmentMenu}
-            disabled={!ready || isSending}
+            disabled={!ready || isSending || sessionOwnerMissing}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="添加附件"
@@ -2578,7 +2600,7 @@ export default function ChatScreen() {
           placeholder="输入消息..."
           placeholderTextColor={theme.colors.textFaint}
           multiline
-          editable={!isSending && ready}
+          editable={!isSending && ready && !sessionOwnerMissing}
         />
         <TouchableOpacity
           style={styles.fullScreenButton}
@@ -2586,7 +2608,7 @@ export default function ChatScreen() {
             setFullScreenText(input);
             setFullScreenOpen(true);
           }}
-          disabled={!ready}
+          disabled={!ready || sessionOwnerMissing}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="全屏输入"
@@ -2606,10 +2628,10 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={[
               styles.sendButton,
-              ((!input.trim() && attachments.length === 0) || !ready) && styles.sendButtonDisabled,
+              ((!input.trim() && attachments.length === 0) || !ready || sessionOwnerMissing) && styles.sendButtonDisabled,
             ]}
             onPress={onSend}
-            disabled={(!input.trim() && attachments.length === 0) || !ready}
+            disabled={(!input.trim() && attachments.length === 0) || !ready || sessionOwnerMissing}
             accessibilityLabel="发送"
             activeOpacity={0.8}
           >

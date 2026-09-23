@@ -27,6 +27,8 @@ EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应�
 
 **数据存储**
 - `@react-native-async-storage/async-storage`（设备本机键值存储）
+- `expo-file-system`（超大角色正文文件描述符）
+- `expo-sqlite`（Android 旧 AsyncStorage 大行只读分块恢复）
 - 无服务端数据库、无缓存层
 
 **基础设施**
@@ -82,7 +84,7 @@ easychat2/
 │   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── disclaimer.js         # 免责条款文本与弹窗组件
-│   ├── storage.js            # AsyncStorage 读写封装与默认值
+│   ├── storage.js            # AsyncStorage 读写封装、角色文件分片与旧库恢复
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
 │       ├── AppContext.js     # 全局角色库与会话状态
@@ -123,7 +125,7 @@ easychat2/
 **目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本，并把角色导出为标准 V2 卡
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
-**依赖**: `src/cardParser.js`、`src/cardExporter.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
+**依赖**: `src/cardParser.js`、`src/cardExporter.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sqlite`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
 **被依赖**: `App.js`
 
 ### 卡解析与提示管线

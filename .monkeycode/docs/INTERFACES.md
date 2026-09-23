@@ -40,9 +40,9 @@
 - 顶部栏提供「新建」按钮为当前角色开启新会话（群聊则按相同成员新建），旧会话保留在记忆页；空会话时提示且不创建，成功后清空消息、附件、引用与搜索状态
 - 顶部栏常驻元素为：角色头像与名称、播报开关、「新建」与「⋯」更多菜单；「⋯」菜单收纳公告、模型、思考、定位、搜索、总结与设置，点选执行与折叠前一致的操作（定位无消息时禁用、总结进行中禁用、搜索反映开启态），菜单以浮层呈现不改变消息列表滚动位置
 - 「⋯」菜单的「设置」打开聊天设置弹窗，提供「系统设置」（跳转设置页）与「编辑角色」（群聊隐藏并提示）两个入口
-- `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；无可用会话时渲染空列表
+- `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；会话所属角色缺失时仍加载历史消息，界面显示「角色资料缺失」并禁用发送、重生成、附件与新建会话
 - 发送前按会话 `summarizedUpTo` 截断历史，并把摘要作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩；同角色记忆 ≥ 2 时仅用当前会话总结（`buildMemorySummaryText` scoped），否则用世界书总结
-- 角色页切换角色时同步切换会话（`ensureCharacterSession`）；记忆页打开群聊不依赖基础角色存在
+- 角色页切换角色时同步切换会话（`ensureCharacterSession`）；会话的角色引用暂时缺失时，记忆页仍允许打开该会话，聊天页进入只读历史模式；群聊不依赖基础角色存在
 - 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
 - 消息落库后若向量记忆开启，异步增量索引当前角色片段（已存在片段跳过，失败静默）；发送前按用户输入召回若干片段，经 `buildMemoryContext` 生成 `[相关记忆]` 注入请求；未配置或请求失败自动回退本地关键词检索；索引为空时不注入
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
@@ -71,7 +71,7 @@
 - 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter`；若该角色还有会话（记忆），会再询问「仅删角色」或「角色和记忆都删」，后者一并调用 `deleteSessions` 清除会话与消息
 - 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
-- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；随后用 `GreetingPickerModal` 让用户选择/修改/新增开场白，再经 `addCharacter` 加入角色库并设为当前角色（`confirmImport` 落库）
+- `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；随后用 `GreetingPickerModal` 让用户选择/修改/新增开场白，再经 `addCharacter` 加入角色库并设为当前角色；确认落库失败时保留弹窗与开场白草稿，超大角色正文改由文件系统保存
 - PNG 无 `chara`/`ccv3` 文本块时提示「该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。」；解析异常提示脱敏后的错误详情
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
 - 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）与「标签」
@@ -121,7 +121,7 @@
 - 聚焦时调用 `refreshSessions()` 重读会话列表：聊天页保存消息只写存储、不同步 Context，不重读会看到过期的 preview 与更新时间
 - 空 preview 的会话读一次消息体兜底补出摘要；仍为空才显示「（空会话，可删除）」
 - 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标；群聊会话展示叠放成员头像与群名
-- 点击行先 `switchCharacter` 再 `switchSession`，随后 `navigation.navigate('聊天')`
+- 点击行先在角色存在时 `switchCharacter`，再 `switchSession`，随后 `navigation.navigate('聊天')`；角色引用缺失时跳过角色切换，让聊天页以只读方式展示历史
 - 右侧提供置顶、克隆、删除三个按钮；克隆与删除弹二次确认，失败时 `Alert`
 - 顶部「编辑」入口（存在会话时显示）进入编辑模式，每行显示勾选框，底部操作条提供「全选」与「删除（N）」并二次确认，成功后退出编辑模式
 - 编辑模式下点击行切换选中且不打开会话，隐藏行内操作按钮
@@ -208,7 +208,7 @@
 5. 未加载完成时 `switchSession`/`pinSession`/`cloneSession`/`deleteSession` 抛出 `Error('会话尚未加载完成')`
 6. 会话写操作同样乐观更新并在失败时回滚；`switchSession`/`pinSession`/`cloneSession` 对不存在的会话 `id` 抛出 `Error('会话不存在')`
 7. 加载时对无效的当前会话 `id` 回退到排序后的首个会话，回退结果会写回存储
-8. 加载或运行中若 `activeId` 不在角色库内，`character` 解析为默认角色，并把修正后的 `id` 写回存储与状态，保证对外暴露的 `activeId` 恒等于 `character.id`
+8. 加载或运行中若 `activeId` 不在角色库内，`character` 解析为默认角色；角色库处于恢复阻断态时保留原指针且禁止写回，正常状态下将修正后的 `id` 写回存储与状态
 
 ### `characterIdentity` 辅助函数
 **位置**: `src/context/characterIdentity.js`（零依赖纯函数，供 `storage` 与测试使用）
@@ -279,8 +279,8 @@
 | `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入按角色隔离的记忆片段索引，写入时过滤非法条目 |
 | `clearVectorIndex` | `(characterId) => Promise<void>` | 清除某角色的记忆片段索引 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
-| `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；按索引 + 每角色一键读取，缺失索引时迁移旧整库键（读不出则保留原键不覆盖）并补入默认角色；索引损坏时扫描条目键重建 |
-| `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后逐角色写键，最后写索引（提交点）并清理被删角色键 |
+| `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；按索引 + 每角色一键读取，超大角色从文件描述符恢复；缺失索引时迁移旧整库键，Android 读取旧大值失败时通过 SQLite 分块恢复；索引缺项或读取异常时保留原键并进入写入阻断态 |
+| `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后逐角色写键；超过 512 KiB 的角色正文写入 `characters/` 文件，AsyncStorage 保存描述符；最后写索引与迁移标记并清理旧键/旧文件 |
 | `getActiveCharacterId` | `() => Promise<string>` | 读取当前角色 `id`（缺失或损坏返回空串） |
 | `setActiveCharacterId` | `(id) => Promise<void>` | 写入当前角色 `id` |
 | `getActiveCharacter` | `() => Promise<Character>` | 组合读取当前角色，无效 `id` 回退默认并修正 |
@@ -306,7 +306,7 @@
 | `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
-| `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
+| `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
 | `getMoments` / `getMomentsStatus` | `() => Promise<Moment[]>` / `() => Promise<{ status, moments }>` | 读取动态（按 `createdAt` 降序）；损坏时备份并返回 `corrupt`，调用方不得写回空表 |
 | `saveMoments` | `(moments) => Promise<Moment[]>` | 规范化、过滤无 `id` 项后写入动态 |
 | `getAffinity` / `getAffinityStatus` | `() => Promise<{ [characterId]: State }>` / `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
@@ -349,8 +349,9 @@
 | `@easychat2_api_configs` | API 多配置 `{ configs, activeId }` |
 | `@easychat2_api_config` | 旧版单条 API 配置（仅迁移读取，保留） |
 | `@easychat2_character_index` | 角色库索引：角色 `id` 字符串数组（新格式） |
-| `@easychat2_character_item::<id>` | 单个角色 JSON（新格式，避免整库超行上限） |
-| `@easychat2_characters` | 旧版整库 JSON 数组（仅迁移读取，保留不覆盖） |
+| `@easychat2_character_item::<id>` | 单个角色 JSON；超大角色改为 `{ storage: 'file', version, id, fileName }` 描述符，正文位于 `characters/<fileName>` |
+| `@easychat2_character_migration` | 角色库迁移提交标记与当前索引快照，防止旧 legacy 整库在后续启动中复活已删除角色 |
+| `@easychat2_characters` | 旧版整库 JSON 数组（仅迁移读取，保留不覆盖；Android 大行可由 SQLite 分块读取） |
 | `@easychat2_active_character` | 当前角色 `id` |
 | `@easychat2_character` | 旧版单角色 JSON（仅迁移读取，保留） |
 | `@easychat2_sessions` | 会话元数据数组 |

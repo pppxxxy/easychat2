@@ -170,7 +170,7 @@ export default function MemoryScreen({ navigation }) {
 
   const onOpen = useCallback(async session => {
     try {
-      if (session.type !== 'group') {
+      if (session.type !== 'group' && characterMap.has(session.characterId)) {
         await switchCharacter(session.characterId);
       }
       await switchSession(session.id);
@@ -178,7 +178,7 @@ export default function MemoryScreen({ navigation }) {
     } catch (error) {
       Alert.alert('打开失败', '请检查存储空间或权限。');
     }
-  }, [navigation, switchCharacter, switchSession]);
+  }, [characterMap, navigation, switchCharacter, switchSession]);
 
   const onPin = useCallback(async session => {
     try {

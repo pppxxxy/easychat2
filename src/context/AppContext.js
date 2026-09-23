@@ -13,6 +13,7 @@ import {
   saveCharacterState,
   getActiveCharacterId,
   getCharacterLibrary,
+  isCharacterLibraryWriteBlocked,
   saveCharacterLibrary,
   setActiveCharacterId,
   sortCharacters,
@@ -71,18 +72,19 @@ export function AppProvider({ children }) {
           getActiveSessionId(),
         ]);
         if (cancelled) return;
+        const libraryBlocked = isCharacterLibraryWriteBlocked();
         const resolved = resolveActiveId(list, storedActiveId);
         const sortedSessions = sortSessions(sessionList);
         const resolvedSessionId = resolveActiveSessionId(sortedSessions, storedActiveSessionId);
         charactersRef.current = list;
-        activeIdRef.current = resolved;
+        activeIdRef.current = libraryBlocked ? (storedActiveId || resolved) : resolved;
         sessionsRef.current = sortedSessions;
         activeSessionIdRef.current = resolvedSessionId;
         setCharactersState(list);
-        setActiveIdState(resolved);
+        setActiveIdState(libraryBlocked ? (storedActiveId || resolved) : resolved);
         setSessionsState(sortedSessions);
         setActiveSessionIdState(resolvedSessionId);
-        if (resolved !== storedActiveId) {
+        if (!libraryBlocked && resolved !== storedActiveId) {
           setActiveCharacterId(resolved).catch(() => {});
         }
         if (resolvedSessionId !== storedActiveSessionId && resolvedSessionId) {
@@ -439,7 +441,7 @@ export function AppProvider({ children }) {
 
   // activeId 与当前角色不一致时立即修正并落盘，避免失效 id 一直留在存储里。
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || isCharacterLibraryWriteBlocked()) return;
     if (activeIdRef.current === resolvedActiveId) return;
     activeIdRef.current = resolvedActiveId;
     setActiveIdState(resolvedActiveId);
