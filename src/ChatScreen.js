@@ -1064,7 +1064,9 @@ export default function ChatScreen() {
     size: '832*1216',
     maxPromptChars: 400,
   });
-  const inlineImageBusyRef = useRef(false);
+   const inlineImageBusyRef = useRef(false);
+   const inlineImageControllerRef = useRef(null);
+
   const [ttsSettings, setTtsSettings] = useState({ enabled: false, activeProvider: 'system', providers: {} });
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
@@ -1102,8 +1104,9 @@ export default function ChatScreen() {
      sendLockRef.current = null;
      if (abortRef.current) {
        abortRef.current.abort();
-       abortRef.current = null;
      }
+     inlineImageControllerRef.current?.abort();
+
      setIsSending(false);
    }, []);
 
@@ -3246,18 +3249,25 @@ export default function ChatScreen() {
       return;
     }
 
-    inlineImageBusyRef.current = true;
-    setMessages(current => current.map(item => (
+     const controller = new AbortController();
+     const sessionId = activeSessionIdRef.current;
+     inlineImageControllerRef.current = controller;
+     inlineImageBusyRef.current = true;
+     setMessages(current => current.map(item => (
+
       item.id === messageId ? { ...item, inlineImage: { status: 'loading' } } : item
     )));
     try {
       const response = await generateImage({
         provider,
         config: genConfig,
-        prompt,
-        size: settings.size,
-      });
-      const first = response.images[0] || null;
+         prompt,
+         size: settings.size,
+         signal: controller.signal,
+       });
+       if (controller.signal.aborted || activeSessionIdRef.current !== sessionId) return;
+       const first = response.images[0] || null;
+
       setMessages(current => current.map(item => (
         item.id === messageId
           ? {
@@ -3266,14 +3276,20 @@ export default function ChatScreen() {
           }
           : item
       )));
-    } catch (error) {
-      setMessages(current => current.map(item => (
-        item.id === messageId
-          ? { ...item, inlineImage: { status: 'error', message: (error && error.message) || '配图生成失败' } }
-          : item
-      )));
-    } finally {
-      inlineImageBusyRef.current = false;
+     } catch (error) {
+       if (!controller.signal.aborted && activeSessionIdRef.current === sessionId) {
+         setMessages(current => current.map(item => (
+           item.id === messageId
+             ? { ...item, inlineImage: { status: 'error', message: (error && error.message) || '配图生成失败' } }
+             : item
+         )));
+       }
+     } finally {
+       if (inlineImageControllerRef.current === controller) {
+         inlineImageControllerRef.current = null;
+         inlineImageBusyRef.current = false;
+       }
+
     }
   }, [inlineImageSettings]);
 
