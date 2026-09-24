@@ -522,6 +522,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
@@ -581,6 +582,28 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
     }),
     [onSlashCommand]
   );
+
+   const messageActionItems = [
+      isGreeting && onReselectGreeting
+        ? { key: 'reselect', label: '重选', icon: 'refresh-outline', onPress: onReselectGreeting }
+        : null,
+      {
+        key: 'copy',
+        label: copied ? '已复制' : '复制',
+        icon: copied ? 'checkmark-outline' : 'copy-outline',
+        onPress: onCopy,
+      },
+      { key: 'quote', label: '引用', icon: 'chatbubble-ellipses-outline', onPress: () => onQuote?.(message) },
+      { key: 'select', label: '选择文本', icon: 'text-outline', onPress: () => onSelectText?.(plainText) },
+      !isUser && onGenerateImage
+        ? { key: 'image', label: '生成配图', icon: 'image-outline', onPress: () => onGenerateImage(message.id, message.text) }
+        : null,
+      isUser && onEditUserMessage
+        ? { key: 'edit', label: '修改重发', icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
+        : (!isUser && canRegenerate
+          ? { key: 'regenerate', label: '重新生成', icon: 'reload-outline', onPress: () => onRegenerate?.(message.id) }
+          : null),
+    ].filter(Boolean);
 
    const fullWidthAssistant = !isUser && fullWidth;
    const avatarElement = isUser ? (
@@ -768,47 +791,15 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
         ) : null}
         {!message.pending && !selectionMode && !message.image ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
-            {isGreeting && onReselectGreeting ? (
-              <TouchableOpacity
-                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-                onPress={onReselectGreeting}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-              >
-                <Text style={styles.messageActionText}>重选</Text>
-              </TouchableOpacity>
-            ) : null}
             <TouchableOpacity
               style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-              onPress={onCopy}
+              onPress={() => setActionsOpen(true)}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="更多操作"
             >
-              <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
+              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-              onPress={() => onQuote?.(message)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.messageActionText}>引用</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-              onPress={() => onSelectText?.(plainText)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.messageActionText}>选择文本</Text>
-            </TouchableOpacity>
-            {!isUser && onGenerateImage ? (
-              <TouchableOpacity
-                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-                onPress={() => onGenerateImage(message.id, message.text)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.messageActionText}>生成配图</Text>
-              </TouchableOpacity>
-            ) : null}
             {!isUser && onBroadcast ? (
               <TouchableOpacity
                 style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
@@ -818,27 +809,42 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
                 <Text style={styles.messageActionText}>播报</Text>
               </TouchableOpacity>
             ) : null}
-            {isUser && onEditUserMessage ? (
-              <TouchableOpacity
-                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-                onPress={() => onEditUserMessage(message.id)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.messageActionText}>修改重发</Text>
-              </TouchableOpacity>
-            ) : canRegenerate ? (
-              <TouchableOpacity
-                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-                onPress={() => onRegenerate?.(message.id)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.messageActionText}>重新生成</Text>
-              </TouchableOpacity>
-            ) : null}
           </View>
         ) : null}
       </View>
       {isUser ? avatarElement : null}
+      {actionsOpen ? (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setActionsOpen(false)}
+        >
+          <TouchableOpacity
+            style={styles.messageActionsBackdrop}
+            activeOpacity={1}
+            onPress={() => setActionsOpen(false)}
+          >
+            <View style={styles.messageActionsSheet}>
+              <Text style={styles.modalTitle}>消息操作</Text>
+              {messageActionItems.map(item => (
+                <TouchableOpacity
+                  key={item.key}
+                  style={styles.moreRow}
+                  onPress={() => {
+                    if (item.key !== 'copy') setActionsOpen(false);
+                    if (typeof item.onPress === 'function') item.onPress();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={item.icon} size={16} color={theme.colors.primaryMuted} />
+                  <Text style={styles.moreRowText}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      ) : null}
     </View>
   );
 });
@@ -5505,6 +5511,9 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
     marginRight: 6,
     marginTop: tokens.spacing.xs,
+    minWidth: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   messageActionButtonOverlay: {
     backgroundColor: 'rgba(45,45,68,0.30)',
@@ -5515,6 +5524,20 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.primarySoft,
     fontSize: 12,
     fontWeight: '700',
+  },
+  messageActionsBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+    padding: tokens.spacing.md,
+  },
+  messageActionsSheet: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.md + 2,
+    paddingVertical: 6,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    ...tokens.elevation(2, theme),
   },
   markdownCodeScroll: {
     maxWidth: '100%',
