@@ -2612,7 +2612,9 @@ async function deleteSessionInternal(sessionId) {
   if (target && target.type !== 'group') {
     try {
       await removeVectorIndexForSession(target.characterId, sessionId);
-    } catch (error) {}
+    } catch (error) {
+      if (__DEV__) console.warn('[vector] session cleanup failed', error);
+    }
   }
   deletedSessionIds.add(String(sessionId));
   try {
@@ -2643,12 +2645,20 @@ async function deleteSessionsInternal(sessionIds) {
   const idSet = new Set(ids);
   const remaining = sessions.filter(session => !idSet.has(session.id));
   await saveSessionsInternal(remaining);
+  const vectorTargets = new Map();
   for (const id of ids) {
     const target = sessions.find(session => session.id === id);
-    if (target && target.type !== 'group') {
-      try {
-        await removeVectorIndexForSession(target.characterId, id);
-      } catch (error) {}
+    if (!target || target.type === 'group' || !target.characterId) continue;
+    const ownerId = String(target.characterId);
+    const targetIds = vectorTargets.get(ownerId) || [];
+    targetIds.push(id);
+    vectorTargets.set(ownerId, targetIds);
+  }
+  for (const [ownerId, targetIds] of vectorTargets) {
+    try {
+      await removeVectorIndexForSessions(ownerId, targetIds);
+    } catch (error) {
+      if (__DEV__) console.warn('[vector] batch session cleanup failed', error);
     }
   }
   ids.forEach(id => deletedSessionIds.add(String(id)));

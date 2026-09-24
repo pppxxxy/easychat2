@@ -102,30 +102,31 @@ import {
   getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
-   saveMessagesBySession,
-   saveThinkingSettings,
-   resetSessionSummaries,
-   setProtectedChatImageUris,
-   getTtsSettings,
-   getMomentsSettings,
-   getAffinityStatus,
-   saveAffinity,
-   updateMoments,
-   saveSticker,
-
+  saveMessagesBySession,
+  saveThinkingSettings,
+  resetSessionSummaries,
+  setProtectedChatImageUris,
+  getTtsSettings,
+  getMomentsSettings,
+  getAffinityStatus,
+  saveAffinity,
+  updateMoments,
+  saveSticker,
   saveTtsSettings,
-   setSessionGreetingSelected,
-   setSessionSummarizedUpTo,
-   startNewSession,
-
+  setSessionGreetingSelected,
+  setSessionSummarizedUpTo,
+  startNewSession,
   THINKING_DISPLAYS,
   THINKING_LEVELS,
   updateSessionMemberProfiles,
-   getVectorMemoryConfig,
-    getVectorIndex,
-    removeVectorIndexForSession,
-    saveVectorIndex,
+  getVectorMemoryConfig,
+  getVectorIndex,
+  removeVectorIndexForMessage,
+  removeVectorIndexForMessages,
+  removeVectorIndexForSession,
+  updateVectorIndex,
 } from './storage';
+
 import { runPlugins } from './plugins/registry';
 import {
   buildMemoryContext,
@@ -172,6 +173,12 @@ function buildQuotePayload(message, name) {
     text,
   };
 }
+
+function getVectorOwnerId(session, fallback) {
+  if (session && session.type === 'group') return '';
+  return String((session && session.characterId) || fallback || 'default');
+}
+
 const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
 const THINKING_DISPLAY_LABELS = { open: '开启', fold: '折叠', off: '关闭' };
 
@@ -1543,45 +1550,56 @@ export default function ChatScreen() {
     if (!activeSessionId) return;
     if (persistableSnapshot === lastSavedSnapshotRef.current) return;
     lastSavedSnapshotRef.current = persistableSnapshot;
-    const indexedCharacterId = character.id || 'default';
     const messagesToIndex = persistableMessages;
     // 会话条目若已从存储里缺失（历史版本的 startNewSession 会误删），
     // 把归属角色一并传下去，让本次写盘把会话行补回来；群聊没有单一归属角色，跳过。
     const ownerRow = sessionsRef.current.find(item => item.id === activeSessionId);
-     const recoverOwnerId = isGroupRef.current
-       ? ''
-       : String((ownerRow && ownerRow.characterId) || character.id || '');
-     const protectedImageUris = [
-       ...attachmentsRef.current
-         .filter(item => item && item.kind === 'image')
-         .map(item => item.uri),
-       ...pendingAttachmentUrisRef.current,
-     ];
-      saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId, protectedImageUris)
-       .then(savedMessages => {
-         saveFailedRef.current = false;
-         if (
-           !Array.isArray(savedMessages)
-           || savedMessages.length === 0
-           || activeSessionIdRef.current !== activeSessionId
-         ) return;
-         getVectorMemoryConfig()
-          .then(config => getVectorIndex(indexedCharacterId)
-            .then(existing => indexMessages({
-              characterId: indexedCharacterId,
-              messages: messagesToIndex,
-               config,
-               existing,
-               sessionId: activeSessionId,
-             }))
-             .then(next => (
-               activeSessionIdRef.current === activeSessionId
-                 ? saveVectorIndex(indexedCharacterId, next)
-                 : null
-             )))
-          .catch(() => {});
-      })
-      .catch(() => {
+    const indexedCharacterId = getVectorOwnerId(ownerRow, character.id);
+    const recoverOwnerId = isGroupRef.current
+      ? ''
+      : String((ownerRow && ownerRow.characterId) || character.id || '');
+    const indexVersion = sessionVersionRef.current;
+    const protectedImageUris = [
+      ...attachmentsRef.current
+        .filter(item => item && item.kind === 'image')
+        .map(item => item.uri),
+      ...pendingAttachmentUrisRef.current,
+    ];
+    saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId, protectedImageUris)
+      .then(savedMessages => {
+        saveFailedRef.current = false;
+        if (
+          !Array.isArray(savedMessages)
+          || savedMessages.length === 0
+          || activeSessionIdRef.current !== activeSessionId
+          || !indexedCharacterId
+        ) return;
+        getVectorMemoryConfig()
+          .then(config => {
+            if (
+              activeSessionIdRef.current !== activeSessionId
+              || sessionVersionRef.current !== indexVersion
+              || isGroupRef.current
+            ) return null;
+            return updateVectorIndex(indexedCharacterId, current => {
+              if (
+                activeSessionIdRef.current !== activeSessionId
+                || sessionVersionRef.current !== indexVersion
+                || isGroupRef.current
+              ) return undefined;
+              return indexMessages({
+                characterId: indexedCharacterId,
+                messages: messagesToIndex,
+                config,
+                existing: current,
+                sessionId: activeSessionId,
+              });
+            });
+          })
+          .catch(error => {
+            if (__DEV__) console.warn('[vector] indexing failed', error);
+          });
+      }).catch(() => {
         if (!saveFailedRef.current) {
           saveFailedRef.current = true;
           Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
@@ -1603,6 +1621,7 @@ export default function ChatScreen() {
 
   const onClear = useCallback(() => {
     const clearCharacterId = activeCharacterIdRef.current;
+    const clearOwnerId = getVectorOwnerId(activeSessionRef.current, clearCharacterId);
     const clearSessionId = activeSessionIdRef.current;
     const clearSessionVersion = sessionVersionRef.current;
     const canClear = () =>
@@ -1618,15 +1637,18 @@ export default function ChatScreen() {
         onPress: () => {
           if (!canClear()) return;
           errorRawRef.current = {};
-          if (canClear() && !isGroupRef.current) {
-            setGreetingReady(false);
-            setSessionGreetingSelected(clearSessionId, false)
-              .then(() => refreshSessions())
-              .catch(() => {});
-           }
            if (canClear() && !isGroupRef.current) {
-             removeVectorIndexForSession(clearCharacterId, clearSessionId).catch(() => {});
+             setGreetingReady(false);
+             setSessionGreetingSelected(clearSessionId, false)
+               .then(() => refreshSessions())
+               .catch(() => {});
            }
+           if (canClear() && clearOwnerId) {
+             removeVectorIndexForSession(clearOwnerId, clearSessionId).catch(error => {
+               if (__DEV__) console.warn('[vector] clear cleanup failed', error);
+             });
+           }
+
            setMessages(current => canClear() ? [] : current);
         }
       }
@@ -2204,7 +2226,8 @@ export default function ChatScreen() {
       let memorySnippets = '';
       try {
         const vectorConfig = await getVectorMemoryConfig();
-        const index = await getVectorIndex(character.id);
+        const vectorOwnerId = getVectorOwnerId(currentSession, character.id);
+        const index = vectorOwnerId ? await getVectorIndex(vectorOwnerId) : [];
         if (index.length > 0 && String(userText || '').trim()) {
           const hits = await retrieve({
             config: vectorConfig,
@@ -2970,8 +2993,15 @@ export default function ChatScreen() {
         .map(item => String(item.text || ''))
         .filter(Boolean)
         .join('\n');
-       if (!isSessionGuardCurrent(sessionGuard)) return false;
-        await removeVectorIndexForSession(character.id, sessionGuard.sessionId);
+        if (!isSessionGuardCurrent(sessionGuard)) return false;
+        const vectorOwnerId = getVectorOwnerId(
+          sessionsRef.current.find(item => item.id === sessionGuard.sessionId),
+          character.id
+        );
+        if (vectorOwnerId) {
+          await removeVectorIndexForSession(vectorOwnerId, sessionGuard.sessionId);
+        }
+
        const handled = await requestReply({
          historyMessages: messages.slice(0, userStart),
          userText,
@@ -3015,8 +3045,12 @@ export default function ChatScreen() {
             if (!latestPlan) return;
             try {
               await resetSessionSummaries(sessionGuard.sessionId);
-               if (!isGroupRef.current) {
-                 await removeVectorIndexForSession(characterId, sessionGuard.sessionId);
+               const vectorOwnerId = getVectorOwnerId(
+                 sessionsRef.current.find(item => item.id === sessionGuard.sessionId),
+                 characterId
+               );
+               if (vectorOwnerId) {
+                 await removeVectorIndexForSession(vectorOwnerId, sessionGuard.sessionId);
                }
               if (!isSessionGuardCurrent(sessionGuard)) return;
               setMessages(latestPlan.messages);
@@ -3128,8 +3162,11 @@ export default function ChatScreen() {
               sessionVersionRef.current !== sessionVersion
               || activeSessionIdRef.current !== sessionId
             ) return;
-            if (!isGroupRef.current) {
-              removeVectorIndexForSession(characterId, sessionId).catch(() => {});
+            const vectorOwnerId = getVectorOwnerId(session, characterId);
+            if (vectorOwnerId) {
+              removeVectorIndexForMessages(vectorOwnerId, sessionId, ids).catch(error => {
+                if (__DEV__) console.warn('[vector] message cleanup failed', error);
+              });
             }
             setMessages(current => removeMessagesByIds(current, ids));
             ids.forEach(id => {
@@ -3147,7 +3184,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [characterId, isSending, ready, removeVectorIndexForSession, selectedMessageIds, setSessionSummarizedUpTo]);
+  }, [characterId, isSending, ready, removeVectorIndexForMessages, selectedMessageIds, setSessionSummarizedUpTo]);
 
   const toggleBroadcast = useCallback(async () => {
     const next = { ...ttsSettings, enabled: !ttsSettings.enabled };
@@ -3444,15 +3481,23 @@ export default function ChatScreen() {
   const confirmDeleteImageMessage = useCallback(messageId => {
     if (!messageId) return;
     const sessionId = activeSessionIdRef.current;
+    const sessionVersion = sessionVersionRef.current;
+    const session = sessionsRef.current.find(item => item.id === sessionId);
     Alert.alert('删除图片消息', '确定删除这张图片消息吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
         style: 'destructive',
         onPress: () => {
-          if (activeSessionIdRef.current !== sessionId) return;
-          if (!isGroupRef.current) {
-            removeVectorIndexForSession(characterId, sessionId).catch(() => {});
+          if (
+            activeSessionIdRef.current !== sessionId
+            || sessionVersionRef.current !== sessionVersion
+          ) return;
+          const vectorOwnerId = getVectorOwnerId(session, characterId);
+          if (vectorOwnerId) {
+            removeVectorIndexForMessage(vectorOwnerId, sessionId, messageId).catch(error => {
+              if (__DEV__) console.warn('[vector] image cleanup failed', error);
+            });
           }
           setMessages(current => removeMessagesByIds(current, [messageId]));
           setSelectedMessageIds(current => current.filter(id => id !== messageId));
@@ -3460,7 +3505,7 @@ export default function ChatScreen() {
         },
       },
     ]);
-  }, [characterId, removeVectorIndexForSession]);
+  }, [characterId, removeVectorIndexForMessage]);
 
   const confirmStickerName = useCallback(async () => {
     if (stickerSaveLockRef.current) return;
