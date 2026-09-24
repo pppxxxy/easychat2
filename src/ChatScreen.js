@@ -889,6 +889,8 @@ export default function ChatScreen() {
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
   const activeSessionIdRef = useRef(activeSessionId);
+  activeCharacterIdRef.current = characterId;
+  activeSessionIdRef.current = activeSessionId;
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const activeSession = useMemo(
@@ -1618,29 +1620,54 @@ export default function ChatScreen() {
     const flow = greetingPicker;
     setGreetingPicker(null);
     if (!flow) return;
-    const characterId = activeCharacterIdRef.current;
-    const sessionId = activeSessionIdRef.current;
-    try {
+     const characterId = activeCharacterIdRef.current;
+     const sessionId = activeSessionIdRef.current;
+     const transitionToken = flow.purpose === 'new' ? ++switchOperationRef.current : 0;
+     const transitionVersion = sessionVersionRef.current;
+     if (flow.purpose === 'new') setIsSwitching(true);
+     try {
       await updateCharacter({
         id: characterId,
         firstMes: result.firstMes,
         alternateGreetings: result.alternateGreetings,
-      });
-      if (activeCharacterIdRef.current !== characterId) return;
-      if (flow.purpose === 'new') {
+       });
+       if (activeCharacterIdRef.current !== characterId) return;
+       if (
+         flow.purpose === 'new'
+         && (
+           switchOperationRef.current !== transitionToken
+           || sessionVersionRef.current !== transitionVersion
+           || activeSessionIdRef.current !== sessionId
+         )
+       ) return;
+       if (flow.purpose === 'new') {
         if (abortRef.current) {
           abortRef.current.abort();
           abortRef.current = null;
         }
         setIsSending(false);
-        const openingTemplate = String(result.firstMes || '');
-        const openingText = openingTemplate.replace(/\{\{user\}\}/g, userNameRef.current || '用户');
-        await startNewSession(characterId, {
-          text: openingText,
-          template: openingTemplate,
-        });
-        await refreshSessions();
-        errorRawRef.current = {};
+         const openingTemplate = String(result.firstMes || '');
+         const openingText = openingTemplate.replace(/\{\{user\}\}/g, userNameRef.current || '用户');
+         const created = await startNewSession(characterId, {
+           text: openingText,
+           template: openingTemplate,
+         });
+         if (
+           switchOperationRef.current !== transitionToken
+           || activeCharacterIdRef.current !== characterId
+           || (
+             activeSessionIdRef.current !== sessionId
+             && activeSessionIdRef.current !== created.id
+           )
+         ) return;
+         activeSessionIdRef.current = created.id;
+         await refreshSessions();
+         if (
+           switchOperationRef.current !== transitionToken
+           || activeCharacterIdRef.current !== characterId
+           || activeSessionIdRef.current !== created.id
+         ) return;
+         errorRawRef.current = {};
         sessionVersionRef.current += 1;
         setMessages([]);
         setAttachments([]);
@@ -1653,10 +1680,14 @@ export default function ChatScreen() {
         setGreetingReady(true);
         return;
       }
-      if (activeSessionIdRef.current !== sessionId) return;
-      await setSessionGreetingSelected(sessionId, true);
-      await refreshSessions();
-      const nextGreeting = buildGreetingMessage(sessionId, result.firstMes, userNameRef.current);
+       if (activeSessionIdRef.current !== sessionId) return;
+       await setSessionGreetingSelected(sessionId, true);
+       await refreshSessions();
+       if (
+         activeCharacterIdRef.current !== characterId
+         || activeSessionIdRef.current !== sessionId
+       ) return;
+       const nextGreeting = buildGreetingMessage(sessionId, result.firstMes, userNameRef.current);
       const hasGreeting = messages.some(item => isGreetingMessage(item, sessionId));
       if (nextGreeting) {
         setMessages(current => hasGreeting
@@ -1670,10 +1701,26 @@ export default function ChatScreen() {
         setMessages(current => current.filter(item => !isGreetingMessage(item, sessionId)));
       }
       setGreetingReady(true);
-    } catch (error) {
-      Alert.alert('开场白保存失败', '请稍后重试。');
-    }
-  }, [greetingPicker, messages, refreshSessions, updateCharacter]);
+     } catch (error) {
+       if (
+         flow.purpose === 'new'
+         && (
+           switchOperationRef.current !== transitionToken
+           || activeCharacterIdRef.current !== characterId
+           || (
+             activeSessionIdRef.current !== sessionId
+             && activeSessionIdRef.current !== ''
+           )
+         )
+       ) return;
+        Alert.alert('开场白保存失败', '请稍后重试。');
+      } finally {
+        if (
+          flow.purpose === 'new'
+          && switchOperationRef.current === transitionToken
+        ) setIsSwitching(false);
+      }
+   }, [greetingPicker, messages, refreshSessions, updateCharacter]);
 
   const onNewChat = useCallback(() => {
     if (isSending || isSwitching || !ready || sessionTransitionPending || abortRef.current) return;
@@ -1687,16 +1734,34 @@ export default function ChatScreen() {
         {
           text: '新建',
           onPress: async () => {
+            const transitionToken = ++switchOperationRef.current;
+            const previousCharacterId = activeCharacterIdRef.current;
+            const previousSessionId = activeSessionIdRef.current;
+            setIsSwitching(true);
             if (abortRef.current) {
               abortRef.current.abort();
               abortRef.current = null;
             }
             setIsSending(false);
-            try {
-              const current = sessionsRef.current.find(item => item.id === activeSessionIdRef.current);
-              await createGroupSession(groupCharactersRef.current, (current && current.name) || '群聊');
-              await refreshSessions();
-              errorRawRef.current = {};
+             try {
+               const current = sessionsRef.current.find(item => item.id === previousSessionId);
+               const created = await createGroupSession(groupCharactersRef.current, (current && current.name) || '群聊');
+               if (
+                 switchOperationRef.current !== transitionToken
+                 || activeCharacterIdRef.current !== previousCharacterId
+                 || (
+                   activeSessionIdRef.current !== previousSessionId
+                   && activeSessionIdRef.current !== created.id
+                 )
+               ) return;
+               activeSessionIdRef.current = created.id;
+               await refreshSessions();
+               if (
+                 switchOperationRef.current !== transitionToken
+                 || activeCharacterIdRef.current !== previousCharacterId
+                 || activeSessionIdRef.current !== created.id
+               ) return;
+               errorRawRef.current = {};
               sessionVersionRef.current += 1;
               setMessages([]);
               setAttachments([]);
@@ -1706,9 +1771,19 @@ export default function ChatScreen() {
               setActiveMatchIndex(0);
               setFocusedMessageId('');
               setSelectionText('');
-            } catch (error) {
-              Alert.alert('新建对话失败', '请稍后重试。');
-            }
+             } catch (error) {
+               if (
+                 switchOperationRef.current !== transitionToken
+                 || activeCharacterIdRef.current !== previousCharacterId
+                 || (
+                   activeSessionIdRef.current !== previousSessionId
+                   && activeSessionIdRef.current !== ''
+                 )
+               ) return;
+                Alert.alert('新建对话失败', '请稍后重试。');
+              } finally {
+                if (switchOperationRef.current === transitionToken) setIsSwitching(false);
+              }
           },
         },
       ]);
