@@ -59,14 +59,20 @@ export default function MomentsView({ active = true }) {
   // 回复进行中又提交了评论：记下来，等这次回复结束后再补一次，避免第二条评论没有回复。
   const pendingReplyRef = useRef(new Set());
   const requestReplyRef = useRef(null);
+  const mountedRef = useRef(true);
   // 每条动态的回复都挂一个 AbortController，支持用户中途停止，也会在组件卸载时统一中止。
   const replyControllersRef = useRef(new Map());
 
   useEffect(() => {
+    mountedRef.current = true;
     const controllers = replyControllersRef.current;
     return () => {
+      mountedRef.current = false;
+      pendingReplyRef.current.clear();
+      requestReplyRef.current = null;
       controllers.forEach(controller => controller.abort());
       controllers.clear();
+      replyingRef.current.clear();
     };
   }, []);
 
@@ -171,7 +177,7 @@ export default function MomentsView({ active = true }) {
   // 回复只写回动态评论，不写入会话消息，也不进入记忆摘要。
   const requestReply = useCallback(async moment => {
     const momentId = String((moment && moment.id) || '');
-    if (!momentId) return;
+    if (!momentId || !mountedRef.current) return;
     // 已经在回复这条动态：记下来，等这次回复结束再补一次，别把新评论静默丢掉。
     if (replyingRef.current.has(momentId)) {
       pendingReplyRef.current.add(momentId);
@@ -194,7 +200,7 @@ export default function MomentsView({ active = true }) {
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
       ]);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !mountedRef.current) return;
       const charName = String(moment.characterName || character.name || '').trim() || '角色';
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
@@ -224,7 +230,7 @@ export default function MomentsView({ active = true }) {
         quote: null,
       });
       const raw = await sendChatMessage(requestMessages, { stream: false, signal: controller.signal });
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !mountedRef.current) return;
       // 接口空响应会返回占位文本：那不是角色回复，不能写进动态。
       if (String(raw || '').trim() === EMPTY_REPLY_TEXT) {
         throw new Error('没有收到回复内容，请稍后再试。');
@@ -247,11 +253,13 @@ export default function MomentsView({ active = true }) {
       replyControllersRef.current.delete(momentId);
       replyingRef.current.delete(momentId);
       setReplying(current => current.filter(id => id !== momentId));
-      // 回复期间又来了评论：补一次回复（用最新动态，把新评论一并带上）。
-      if (pendingReplyRef.current.has(momentId)) {
-        pendingReplyRef.current.delete(momentId);
-        const latest = momentsRef.current.find(item => item.id === momentId);
-        if (latest && requestReplyRef.current) requestReplyRef.current(latest);
+      if (mountedRef.current) {
+        // 回复期间又来了评论：补一次回复（用最新动态，把新评论一并带上）。
+        if (pendingReplyRef.current.has(momentId)) {
+          pendingReplyRef.current.delete(momentId);
+          const latest = momentsRef.current.find(item => item.id === momentId);
+          if (latest && requestReplyRef.current) requestReplyRef.current(latest);
+        }
       }
     }
   }, [appendComment]);
