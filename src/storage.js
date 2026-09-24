@@ -2214,7 +2214,13 @@ async function saveSessionsInternal(sessions) {
 }
 
 export function saveSessions(sessions) {
-  return enqueueSessionMutation(() => saveSessionsInternal(sessions));
+  return enqueueSessionMutation(async () => {
+    const status = await readSessionsStatus();
+    if (status.status === 'corrupt') {
+      throw new Error('会话记录读取失败，请稍后重试');
+    }
+    return saveSessionsInternal(sessions);
+  });
 }
 
 export async function getActiveSessionId() {
@@ -2328,6 +2334,9 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
   if (deletedSessionIds.has(id)) return [];
   const persistable = (messages || []).filter(item => item && !item.pending);
   const previousStatus = await getMessagesBySessionStatus(sessionId);
+  if (previousStatus.status === 'corrupt') {
+    throw new Error('聊天记录读取失败，请稍后重试');
+  }
   const previousImages = previousStatus.status === 'corrupt'
     ? new Set()
     : imageUrisFromMessages(previousStatus.messages);
@@ -2359,6 +2368,10 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
   if (persistable.length > 0 && ownerId) {
     const activeId = await getActiveSessionId();
     if (activeId === String(sessionId)) {
+      const summaryStatus = await getSessionSummariesStatus(sessionId);
+      if (summaryStatus.status === 'corrupt') {
+        throw new Error('记忆摘要读取失败，请稍后重试');
+      }
       const timestamps = persistable
         .map(item => Number(item.timestamp))
         .filter(value => Number.isFinite(value));
@@ -2370,6 +2383,14 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
         createdAt: timestamps.length ? Math.min(...timestamps) : Date.now(),
         updatedAt: timestamps.length ? Math.max(...timestamps) : Date.now(),
       };
+      const boundary = String(
+        summaryStatus.summaries.length > 0
+          ? summaryStatus.summaries[summaryStatus.summaries.length - 1].boundary
+          : ''
+      );
+      if (boundary && persistable.some(item => String(item.id || '') === boundary)) {
+        restored.summarizedUpTo = boundary;
+      }
       await saveSessionsInternal(sortSessions([...sessions, restored]));
     }
   }
@@ -2884,9 +2905,12 @@ async function restoreSessionInternal(sessionId, characterId) {
   const restored = buildRestoredSession({ sessionId: id, characterId: owner, messages });
   // 会话摘要还在（单独按 sessionId 存）：把总结边界接到最后一条摘要的边界上，
   // 免得下次总结把已经总结过的消息再总结一遍（弹窗承诺“记忆摘要会回来”）。
-  const summaries = await getSessionSummaries(id).catch(() => []);
-  if (summaries.length > 0) {
-    const boundary = String(summaries[summaries.length - 1].boundary || '');
+  const summaryStatus = await getSessionSummariesStatus(id);
+  if (summaryStatus.status === 'corrupt') {
+    throw new Error('记忆摘要读取失败，请稍后重试');
+  }
+  if (summaryStatus.summaries.length > 0) {
+    const boundary = String(summaryStatus.summaries[summaryStatus.summaries.length - 1].boundary || '');
     if (boundary && messages.some(item => item && String(item.id) === boundary)) {
       restored.summarizedUpTo = boundary;
     }

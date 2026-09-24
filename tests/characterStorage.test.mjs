@@ -620,3 +620,96 @@ test('损坏数据备份失败会记录开发警告', async () => {
     console.warn = previousWarn;
   }
 });
+
+test('会话列表损坏时公开保存入口拒绝覆盖', async () => {
+  const storage = loadStorage();
+  const raw = '{broken-session-list';
+  store.set('@easychat2_sessions', raw);
+  await assert.rejects(
+    () => storage.saveSessions([{ id: 'new-session', characterId: 'character-a' }]),
+    /会话记录读取失败/
+  );
+  assert.equal(store.get('@easychat2_sessions'), raw);
+  assert.equal(store.get('@easychat2_sessions__corrupt_backup'), raw);
+});
+
+test('消息体合法 JSON 非数组时标记损坏并拒绝保存', async () => {
+  const storage = loadStorage();
+  const key = '@easychat2_messages::wrong-shape';
+  const raw = JSON.stringify({ messages: [] });
+  store.set(key, raw);
+  const status = await storage.getMessagesBySessionStatus('wrong-shape');
+  assert.equal(status.status, 'corrupt');
+  assert.equal(store.get(`${key}__corrupt_backup`), raw);
+  await assert.rejects(
+    () => storage.saveMessagesBySession('wrong-shape', [{ id: 'm1', role: 'user', text: '覆盖' }]),
+    /聊天记录读取失败/
+  );
+  assert.equal(store.get(key), raw);
+});
+
+test('孤儿会话扫描隔离备份键并跳过单个读取失败', async () => {
+  const storage = loadStorage();
+  await storage.saveCharacterLibrary([{ id: 'legacy-character', name: '旧角色' }]);
+  const known = await storage.startNewSession('character-known');
+  await storage.saveMessagesBySession(known.id, [
+    { id: 'known-1', role: 'user', text: '已知', timestamp: 1 },
+  ]);
+  store.set('@easychat2_messages::orphan-good', JSON.stringify([
+    { id: 'orphan-1', role: 'user', text: '孤儿', timestamp: 2 },
+  ]));
+  store.set('@easychat2_messages::orphan-bad', JSON.stringify([
+    { id: 'orphan-2', role: 'user', text: '坏孤儿', timestamp: 3 },
+  ]));
+  store.set('@easychat2_messages::orphan-backup__corrupt_backup', '[]');
+  store.set('@easychat2_messages::legacy-character', JSON.stringify([
+    { id: 'legacy-1', role: 'user', text: '旧角色键', timestamp: 4 },
+  ]));
+  failedGets.add('@easychat2_messages::orphan-bad');
+  const result = await storage.findOrphanSessions();
+  assert.deepEqual(result.map(item => item.sessionId), ['orphan-good']);
+});
+
+test('恢复会话接入最后摘要边界', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_messages::restore-boundary', JSON.stringify([
+    { id: 'restore-1', role: 'user', text: '第一段', timestamp: 1 },
+    { id: 'restore-2', role: 'assistant', text: '第二段', timestamp: 2 },
+  ]));
+  store.set('@easychat2_session_summaries::restore-boundary', JSON.stringify([
+    { summary: '- 已总结', keywords: [], boundary: 'restore-2', createdAt: 1 },
+  ]));
+  const restored = await storage.restoreSession('restore-boundary', 'character-a');
+  assert.equal(restored.summarizedUpTo, 'restore-2');
+  assert.equal((await storage.getSessions())[0].summarizedUpTo, 'restore-2');
+});
+
+test('恢复会话遇到损坏摘要时拒绝写入会话行', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_messages::restore-corrupt-summary', JSON.stringify([
+    { id: 'restore-1', role: 'user', text: '内容', timestamp: 1 },
+  ]));
+  store.set('@easychat2_session_summaries::restore-corrupt-summary', '{broken');
+  await assert.rejects(
+    () => storage.restoreSession('restore-corrupt-summary', 'character-a'),
+    /记忆摘要读取失败/
+  );
+  assert.deepEqual(await storage.getSessions(), []);
+});
+
+test('活动会话行缺失时消息保存自愈并保留摘要边界', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', '[]');
+  store.set('@easychat2_active_session', JSON.stringify('heal-session'));
+  store.set('@easychat2_session_summaries::heal-session', JSON.stringify([
+    { summary: '- 已总结', keywords: [], boundary: 'heal-2', createdAt: 1 },
+  ]));
+  await storage.saveMessagesBySession('heal-session', [
+    { id: 'heal-1', role: 'user', text: '一', timestamp: 1 },
+    { id: 'heal-2', role: 'assistant', text: '二', timestamp: 2 },
+  ], 'character-heal');
+  const sessions = await storage.getSessions();
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 'heal-session');
+  assert.equal(sessions[0].summarizedUpTo, 'heal-2');
+});
