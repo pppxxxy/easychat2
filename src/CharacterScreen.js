@@ -768,6 +768,8 @@ export default function CharacterScreen() {
           : parseCardFromJson(buffer.toString('utf8'));
       } catch (error) {
         const detail = maskSecrets(error?.message || String(error));
+
+
         console.warn('[角色卡导入] 解析失败：', detail);
         Alert.alert('角色卡解析失败', detail || '请确认文件格式是否正确。');
         return;
@@ -808,12 +810,14 @@ export default function CharacterScreen() {
       alternateGreetings: result.alternateGreetings,
     };
     setImporting(true);
-    setImportStatus({
-      phase: 'saving',
-      large: !!pending.large,
-      size: Number(pending.size) || 0,
-    });
-    try {
+     setImportStatus({
+       phase: 'saving',
+       large: !!pending.large,
+       size: Number(pending.size) || 0,
+     });
+     let importedImageUri = '';
+     try {
+
       const created = await addCharacter(next);
       setPendingImport(null);
       const profile = await getUserProfile().catch(() => ({}));
@@ -824,15 +828,18 @@ export default function CharacterScreen() {
         template: openingTemplate,
       }).catch(() => {});
 
-      const session = screenSessionRef.current;
-      let imageFailed = false;
-      if (pending.treatAsPng && pending.assetUri) {
+     const session = screenSessionRef.current;
+     let imageFailed = false;
+     if (pending.treatAsPng && pending.assetUri) {
+
         try {
           const avatarDir = `${FileSystem.documentDirectory}avatars/`;
           await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
-          const dest = `${avatarDir}${created.id}.png`;
-          await FileSystem.copyAsync({ from: pending.assetUri, to: dest });
-          await updateCharacter({ id: created.id, avatarUri: dest, bgUri: dest });
+           const dest = `${avatarDir}${created.id}.png`;
+           await FileSystem.copyAsync({ from: pending.assetUri, to: dest });
+           importedImageUri = dest;
+           await updateCharacter({ id: created.id, avatarUri: dest, bgUri: dest });
+
           if (screenSessionRef.current === session && session.activeId === created.id) {
             setAvatarPreview(dest);
             setBgPreview(dest);
@@ -853,12 +860,16 @@ export default function CharacterScreen() {
         `预设 ${next.presets.length} 条`,
         next.firstMes ? '含开场白' : '无开场白',
       ].join('，');
-      Alert.alert(
-        imageFailed ? '角色已导入，图片保存失败' : '导入成功',
-        imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
-      );
-    } catch (error) {
-      const detail = maskSecrets(error?.message || String(error));
+       Alert.alert(
+         imageFailed ? '角色已导入，图片保存失败' : '导入成功',
+         imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
+       );
+     } catch (error) {
+       if (importedImageUri) {
+         FileSystem.deleteAsync(importedImageUri, { idempotent: true }).catch(() => {});
+       }
+       const detail = maskSecrets(error?.message || String(error));
+
       const message = /角色库仍在恢复中/.test(detail)
         ? `${detail}\n你编辑的开场白仍会保留。`
         : /full|disk|空间|容量/i.test(detail)
