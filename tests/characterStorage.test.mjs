@@ -24,6 +24,7 @@ const files = new Map();
 const failedGets = new Set();
 const failedSets = new Set();
 const sqliteValues = new Map();
+let setCalls = 0;
 let sqliteEnabled = false;
 
 const AsyncStorage = {
@@ -33,6 +34,7 @@ const AsyncStorage = {
   },
   setItem: async (key, value) => {
     if (failedSets.has(key)) throw new Error(`write failed: ${key}`);
+    setCalls += 1;
     store.set(key, value);
   },
   removeItem: async key => {
@@ -123,6 +125,7 @@ function loadStorage() {
   failedSets.clear();
   sqliteValues.clear();
   sqliteEnabled = false;
+  setCalls = 0;
   const filename = path.resolve('src/storage.test-runtime.cjs');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
@@ -488,5 +491,55 @@ test('动态增量更新串行合并并避免旧快照覆盖', async () => {
   assert.deepEqual(
     (await storage.getMoments()).map(item => item.id),
     ['second', 'first', 'base']
+  );
+});
+
+test('向量索引更新与删除串行，旧快照不会复活会话片段', async () => {
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-atomic', [
+    { id: 'keep-1', sessionId: 'session-keep', messageId: 'keep-1', text: '保留', vector: [1] },
+  ]);
+  let release;
+  let started;
+  const startedPromise = new Promise(resolve => { started = resolve; });
+  const stale = storage.updateVectorIndex('character-atomic', async current => {
+    started();
+    await new Promise(resolve => { release = resolve; });
+    return [...current, { id: 'late-1', sessionId: 'session-remove', messageId: 'late-1', text: '迟到', vector: [2] }];
+  });
+  await startedPromise;
+  const removed = storage.removeVectorIndexForSession('character-atomic', 'session-remove');
+  release();
+  await Promise.all([stale, removed]);
+  assert.deepEqual(
+    (await storage.getVectorIndex('character-atomic')).map(item => item.id),
+    ['keep-1']
+  );
+});
+
+test('批量清理多个会话只写回一次向量索引', async () => {
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-batch', [
+    { id: 'a', sessionId: 'session-a', messageId: 'a', text: '甲', vector: [1] },
+    { id: 'b', sessionId: 'session-b', messageId: 'b', text: '乙', vector: [2] },
+    { id: 'c', sessionId: 'session-c', messageId: 'c', text: '丙', vector: [3] },
+  ]);
+  setCalls = 0;
+  await storage.removeVectorIndexForSessions('character-batch', ['session-a', 'session-b', 'session-c']);
+  assert.equal(setCalls, 1);
+  assert.deepEqual(await storage.getVectorIndex('character-batch'), []);
+});
+
+test('按消息删除只清理目标消息的向量片段', async () => {
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-message-delete', [
+    { id: 'a-1', sessionId: 'session-a', messageId: 'message-a', text: '甲', vector: [1] },
+    { id: 'b-1', sessionId: 'session-a', messageId: 'message-b', text: '乙', vector: [2] },
+    { id: 'c-1', sessionId: 'session-b', messageId: 'message-a', text: '丙', vector: [3] },
+  ]);
+  await storage.removeVectorIndexForMessage('character-message-delete', 'session-a', 'message-a');
+  assert.deepEqual(
+    (await storage.getVectorIndex('character-message-delete')).map(item => item.id),
+    ['b-1', 'c-1']
   );
 });

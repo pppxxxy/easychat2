@@ -888,12 +888,6 @@ function enqueueVectorIndexMutation(characterId, task) {
   return next;
 }
 
-export async function getVectorIndex(characterId) {
-  const stored = await readJson(vectorIndexKey(characterId), []);
-  if (!Array.isArray(stored)) return [];
-  return stored.filter(item => item && item.id && typeof item.text === 'string');
-}
-
 function normalizeVectorIndex(index) {
   return (Array.isArray(index) ? index : [])
     .filter(item => item && item.id && typeof item.text === 'string')
@@ -908,6 +902,26 @@ function normalizeVectorIndex(index) {
     }));
 }
 
+async function readVectorIndexStatus(characterId) {
+  const key = vectorIndexKey(characterId);
+  const stored = await readJsonStatus(key);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    await backupCorruptValue(key);
+    return { status: 'corrupt', index: [] };
+  }
+  if (stored.status === 'missing') return { status: 'missing', index: [] };
+  return { status: 'ok', index: normalizeVectorIndex(stored.value) };
+}
+
+export async function getVectorIndexStatus(characterId) {
+  return readVectorIndexStatus(characterId);
+}
+
+export async function getVectorIndex(characterId) {
+  const { index } = await readVectorIndexStatus(characterId);
+  return index;
+}
+
 async function saveVectorIndexInternal(characterId, index) {
   const list = normalizeVectorIndex(index);
   await AsyncStorage.setItem(vectorIndexKey(characterId), JSON.stringify(list));
@@ -915,19 +929,62 @@ async function saveVectorIndexInternal(characterId, index) {
 }
 
 export function saveVectorIndex(characterId, index) {
-  return enqueueVectorIndexMutation(
-    characterId,
-    () => saveVectorIndexInternal(characterId, index)
+  return enqueueVectorIndexMutation(characterId, async () => {
+    const status = await readVectorIndexStatus(characterId);
+    if (status.status === 'corrupt') {
+      throw new Error('向量记忆索引读取失败，请稍后重试');
+    }
+    return saveVectorIndexInternal(characterId, index);
+  });
+}
+
+export function updateVectorIndex(characterId, updater) {
+  return enqueueVectorIndexMutation(characterId, async () => {
+    const status = await readVectorIndexStatus(characterId);
+    if (status.status === 'corrupt') {
+      throw new Error('向量记忆索引读取失败，请稍后重试');
+    }
+    const next = typeof updater === 'function' ? await updater(status.index) : status.index;
+    if (next === undefined) return status.index;
+    if (next === null) {
+      await AsyncStorage.removeItem(vectorIndexKey(characterId));
+      return [];
+    }
+    return saveVectorIndexInternal(characterId, next);
+  });
+}
+
+export function removeVectorIndexForSessions(characterId, sessionIds) {
+  const ids = new Set(
+    (Array.isArray(sessionIds) ? sessionIds : [sessionIds])
+      .map(id => String(id || ''))
+      .filter(Boolean)
   );
+  return updateVectorIndex(characterId, current => (
+    ids.size === 0 ? current : current.filter(item => !ids.has(String(item.sessionId || '')))
+  ));
 }
 
 export function removeVectorIndexForSession(characterId, sessionId) {
-  return enqueueVectorIndexMutation(characterId, async () => {
-    const current = await getVectorIndex(characterId);
-    const target = String(sessionId || '');
-    const next = current.filter(item => String(item.sessionId || '') !== target);
-    return saveVectorIndexInternal(characterId, next);
-  });
+  return removeVectorIndexForSessions(characterId, [sessionId]);
+}
+
+export function removeVectorIndexForMessages(characterId, sessionId, messageIds) {
+  const targetSession = String(sessionId || '');
+  const ids = new Set(
+    (Array.isArray(messageIds) ? messageIds : [messageIds])
+      .map(id => String(id || ''))
+      .filter(Boolean)
+  );
+  return updateVectorIndex(characterId, current => (
+    ids.size === 0 ? current : current.filter(item => (
+      String(item.sessionId || '') !== targetSession || !ids.has(String(item.messageId || ''))
+    ))
+  ));
+}
+
+export function removeVectorIndexForMessage(characterId, sessionId, messageId) {
+  return removeVectorIndexForMessages(characterId, sessionId, [messageId]);
 }
 
 export function clearVectorIndex(characterId) {
