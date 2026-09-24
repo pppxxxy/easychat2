@@ -247,8 +247,9 @@ export async function indexMessages({ characterId, messages, config, existing, s
   const resolved = normalizeVectorConfig(config);
   const segments = chunkMessages(messages, { maxChars: resolved.maxChars, sessionId });
   const current = Array.isArray(existing) ? existing : [];
-  const byId = new Map(current.map(item => [item && item.id, item]));
-  const added = segments.filter(segment => !byId.has(segment.id));
+  const segmentKey = item => `${String(item && item.sessionId || '')}\u0000${String(item && item.id || '')}`;
+  const byId = new Map(current.map(item => [segmentKey(item), item]));
+  const added = segments.filter(segment => !byId.has(segmentKey(segment)));
 
   if (!resolved.enabled) {
     return [...current, ...added.map(segment => ({ ...segment, vector: [] }))];
@@ -268,9 +269,9 @@ export async function indexMessages({ characterId, messages, config, existing, s
       ...segment,
       vector: vectors[index] || [],
     }));
-    const embeddedById = new Map(embedded.map(item => [item.id, item]));
-    const merged = current.map(item => embeddedById.get(item.id) || item);
-    const fresh = added.map(segment => embeddedById.get(segment.id) || { ...segment, vector: [] });
+    const embeddedById = new Map(embedded.map(item => [segmentKey(item), item]));
+    const merged = current.map(item => embeddedById.get(segmentKey(item)) || item);
+    const fresh = added.map(segment => embeddedById.get(segmentKey(segment)) || { ...segment, vector: [] });
     return [...merged, ...fresh];
   } catch (error) {
     return [...current, ...added.map(segment => ({ ...segment, vector: [] }))];
