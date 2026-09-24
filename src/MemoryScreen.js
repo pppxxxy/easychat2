@@ -176,7 +176,6 @@ export default function MemoryScreen({ navigation }) {
     switchLockRef.current = true;
     const previousCharacterId = activeId;
     const previousSessionId = activeSessionId;
-    const previousSession = sessions.find(item => item.id === previousSessionId);
     try {
       if (session.type !== 'group' && characterMap.has(session.characterId)) {
         await switchCharacter(session.characterId);
@@ -185,12 +184,8 @@ export default function MemoryScreen({ navigation }) {
       navigation.navigate('聊天');
     } catch (error) {
       try {
-        if (previousSession && previousSession.type === 'group') {
-          await switchSession(previousSessionId);
-        } else {
-          await switchCharacter(previousCharacterId);
-          if (previousSessionId) await switchSession(previousSessionId);
-        }
+        await switchCharacter(previousCharacterId);
+        if (previousSessionId) await switchSession(previousSessionId);
       } catch (rollbackError) {}
       Alert.alert('打开失败', '请检查存储空间或权限。');
     } finally {
@@ -280,7 +275,6 @@ export default function MemoryScreen({ navigation }) {
     switchLockRef.current = true;
     const previousCharacterId = activeId;
     const previousSessionId = activeSessionId;
-    const previousSession = sessions.find(session => session.id === previousSessionId);
     try {
       const target = sessions.find(session => session.id === result.sessionId);
       if (!target || target.type !== 'group') {
@@ -292,12 +286,8 @@ export default function MemoryScreen({ navigation }) {
       navigation.navigate('聊天');
     } catch (error) {
       try {
-        if (previousSession && previousSession.type === 'group') {
-          await switchSession(previousSessionId);
-        } else {
-          await switchCharacter(previousCharacterId);
-          if (previousSessionId) await switchSession(previousSessionId);
-        }
+        await switchCharacter(previousCharacterId);
+        if (previousSessionId) await switchSession(previousSessionId);
       } catch (rollbackError) {}
       Alert.alert('打开失败', '请检查存储空间或权限。');
     } finally {

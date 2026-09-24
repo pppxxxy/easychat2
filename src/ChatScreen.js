@@ -1092,9 +1092,8 @@ export default function ChatScreen() {
      if (isSwitching) return;
      setSwitcherOpen(false);
      if (id === activeCharacterIdRef.current && !isGroupRef.current) return;
-      const previousCharacterId = activeCharacterIdRef.current;
-      const previousSessionId = activeSessionIdRef.current;
-      const previousIsGroup = isGroupRef.current;
+       const previousCharacterId = activeCharacterIdRef.current;
+       const previousSessionId = activeSessionIdRef.current;
      const draft = {
        input,
        fullScreenText,
@@ -1137,13 +1136,10 @@ export default function ChatScreen() {
        })
         .catch(async () => {
           if (switchOperationRef.current !== switchToken) return;
-          try {
-            if (previousIsGroup) await switchSession(previousSessionId);
-            else {
-              await switchCharacter(previousCharacterId);
-              if (previousSessionId) await switchSession(previousSessionId);
-            }
-          } catch (error) {}
+           try {
+             await switchCharacter(previousCharacterId);
+             if (previousSessionId) await switchSession(previousSessionId);
+           } catch (error) {}
           setIsSwitching(false);
           activeCharacterIdRef.current = previousCharacterId;
           activeSessionIdRef.current = previousSessionId;
