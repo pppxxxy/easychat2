@@ -1158,10 +1158,12 @@ export default function ChatScreen() {
            if (draft.stickerNamePrompt && draft.stickerNamePrompt.uri) {
              deleteTemporaryImage(draft.stickerNamePrompt.uri);
            }
-           setProtectedChatImageUris([]);
-       })
-        .catch(async () => {
-          if (switchOperationRef.current !== switchToken) return;
+            setProtectedChatImageUris([]);
+            setIsSwitching(false);
+        })
+         .catch(async () => {
+           if (switchOperationRef.current !== switchToken) return;
+
            try {
              await switchCharacter(previousCharacterId);
              if (previousSessionId) await switchSession(previousSessionId);
@@ -1223,10 +1225,12 @@ export default function ChatScreen() {
            if (draft.stickerNamePrompt && draft.stickerNamePrompt.uri) {
              deleteTemporaryImage(draft.stickerNamePrompt.uri);
            }
-           setProtectedChatImageUris([]);
-       })
-        .catch(async () => {
-        if (switchOperationRef.current !== switchToken) return;
+            setProtectedChatImageUris([]);
+            setIsSwitching(false);
+        })
+         .catch(async () => {
+         if (switchOperationRef.current !== switchToken) return;
+
         try {
           await switchSession(previousSessionId);
         } catch (error) {}
@@ -3024,7 +3028,7 @@ export default function ChatScreen() {
     } finally {
       endSendOperation(token);
     }
-  }, [beginSendOperation, captureSessionGuard, endSendOperation, isSending, isSessionGuardCurrent, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending]);
+  }, [beginSendOperation, captureSessionGuard, endSendOperation, isSending, isSessionGuardCurrent, isSwitching, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending]);
 
   const editUserMessage = useCallback(targetId => {
     if (isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;

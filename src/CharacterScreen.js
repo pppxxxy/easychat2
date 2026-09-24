@@ -956,10 +956,14 @@ export default function CharacterScreen() {
   };
 
   const toggleGroupMember = id => {
+    if (!groupSelected.includes(id) && groupSelected.length >= 8) {
+      Alert.alert('成员数量已达上限', '群聊最多选择 8 个角色。');
+      return;
+    }
     setGroupSelected(current => (
       current.includes(id)
         ? current.filter(item => item !== id)
-        : (current.length >= 8 ? current : [...current, id])
+        : [...current, id]
     ));
   };
 
@@ -1002,12 +1006,21 @@ export default function CharacterScreen() {
     try {
       await switchCharacter(id);
       await ensureCharacterSession(id);
-    } catch (error) {
-      try {
-        await switchCharacter(previousCharacterId);
-        if (previousSessionId) await switchSession(previousSessionId);
-      } catch (rollbackError) {}
-      Alert.alert('切换失败', '请检查存储空间或权限。');
+     } catch (error) {
+       let rollbackFailed = false;
+       try {
+         await switchCharacter(previousCharacterId);
+         if (previousSessionId) await switchSession(previousSessionId);
+       } catch (rollbackError) {
+         rollbackFailed = true;
+       }
+       Alert.alert(
+         '切换失败',
+         rollbackFailed
+           ? '切换失败且未能恢复原状态，请重新打开应用后重试。'
+           : '请检查存储空间或权限。'
+       );
+
     } finally {
       switchLockRef.current = false;
     }
@@ -1180,10 +1193,19 @@ export default function CharacterScreen() {
     ));
   };
 
+  const visibleSelectableIds = useMemo(
+    () => visibleCharacters.filter(item => item.id !== 'default').map(item => item.id),
+    [visibleCharacters]
+  );
+  const allVisibleSelected = visibleSelectableIds.length > 0
+    && visibleSelectableIds.every(id => selectedIds.includes(id));
+
+  useEffect(() => {
+    setSelectedIds(current => current.filter(id => visibleSelectableIds.includes(id)));
+  }, [visibleSelectableIds]);
+
   const selectAll = () => {
-    setSelectedIds(
-      characters.filter(item => item.id !== 'default').map(item => item.id)
-    );
+    setSelectedIds(allVisibleSelected ? [] : visibleSelectableIds);
   };
 
   const onTogglePin = item => {
@@ -1508,7 +1530,8 @@ export default function CharacterScreen() {
           {editMode ? (
             <View style={styles.selectBar}>
               <TouchableOpacity onPress={selectAll} activeOpacity={0.8}>
-                <Text style={styles.selectBarText}>全选</Text>
+                 <Text style={styles.selectBarText}>{allVisibleSelected ? '取消全选' : '全选'}</Text>
+
               </TouchableOpacity>
               <Text style={styles.selectBarCount}>{`已选 ${selectedIds.length}`}</Text>
               <TouchableOpacity
