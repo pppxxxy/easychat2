@@ -309,7 +309,7 @@
 | `getSessionSummaryRevision` / `isSessionSummaryRevisionCurrent` | `(sessionId)` / `(sessionId, revision)` | 读取并校验会话摘要版本，重置或删除后立即使旧摘要请求失效 |
 | `appendSessionSummary` | `(sessionId, entry, expectedRevision?) => Promise<Summary[]>` | 在同一存储队列内读取、追加摘要并推进边界，读取损坏或版本过期时拒绝写入 |
 | `collectChatImageFiles` | `(protectedUris?) => Promise<boolean>` | 扫描会话消息引用，清理未被引用的 `documentDirectory/chat-images/` 文件；读取到损坏消息键时保守返回，不执行删除 |
-| `collectStickerImageFiles` / `collectOrphanImageFiles` | `() => Promise<boolean>` | 清理未被分片元数据引用的表情包文件；启动时组合清理聊天图片和表情包孤儿文件 |
+| `collectStickerImageFiles` / `collectAvatarImageFiles` / `collectOrphanImageFiles` | `() => Promise<boolean>` | 清理未被引用的聊天图片、头像背景和表情包文件；启动时组合执行，读取状态异常时保守返回 |
 | `startNewSession` | `(characterId, opening?) => Promise<Session>` | 新建会话并设为当前；传入 `opening` 表示已完成开场白选择，空文本也会记录选择状态，创建时可写入开场白消息 |
 | `setSessionGreetingSelected` | `(sessionId, selected?) => Promise<Session\|null>` | 标记单聊已完成开场白选择；群聊或不存在会话直接返回 |
 | `createGroupSession` | `(members, name, extras?) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前；`extras` 可带 `avatarUri`/`bgUri` |
@@ -323,6 +323,7 @@
 | `saveCharacterState` | `(list, activeId, deletedIds?, clearVectorIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 移除旧消息键，`clearVectorIds` 用于完整删除时清理角色向量索引（仅删角色时保持历史记忆） |
 | `getMoments` / `getMomentsStatus` | `() => Promise<Moment[]>` / `() => Promise<{ status, moments }>` | 读取动态（按 `createdAt` 降序）；损坏时备份并返回 `corrupt`，调用方不得写回空表 |
 | `saveMoments` | `(moments) => Promise<Moment[]>` | 规范化、过滤无 `id` 项后写入动态 |
+| `getCardForgeStatus` / `getCardForge` | `() => Promise<{ status, state }>` / `() => Promise<CardForgeState>` | 读取制卡草稿；损坏时先备份并返回 `corrupt`，保存入口拒绝覆盖损坏主键 |
 | `deleteMomentsForCharacterDeletion` | `(characterIds, sessionIds?) => Promise<string[]>` | 按角色 id 与会话 id 清理关联动态；动态记录损坏时中止并抛出错误 |
 | `getAffinityStatus` | `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
 | `saveAffinity` | `(map) => Promise<StateMap>` | 规范化并写入好感度 |
@@ -504,7 +505,7 @@ data: [DONE]
 | `retrieve({ config, index, query, topK })` | 查询向量化后按相似度取 TopN；未启用或失败回退 `keywordRetrieve` |
 | `keywordRetrieve({ index, query, topK })` | 本地关键词检索（中英文分词计分） |
 | `buildMemoryContext(snippets, { maxTotalChars })` | 拼装 `[相关记忆]` 文本并限制总长，空输入返回空串 |
-| `indexMessages({ characterId, messages, config, existing })` | 增量分片并向量化，已存在片段跳过；未启用或失败时仅存片段（`vector: []`） |
+| `indexMessages({ characterId, messages, config, existing, sessionId })` | 增量分片并向量化，按 `sessionId + fragmentId` 去重；未启用或失败时仅存片段（`vector: []`），实际写回由 storage 角色级队列完成 |
 | `testVectorConnection(config)` | 测试连接，返回向量维度或抛可读错误 |
 
 ## 聊天竞态接口
