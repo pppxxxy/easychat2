@@ -734,18 +734,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           ) : (
              <Markdown style={markdownStyles} rules={markdownRules}>{message.text}</Markdown>
           )}
-          {isGreeting && onReselectGreeting ? (
-            <TouchableOpacity
-              style={styles.greetingReselectButton}
-              onPress={onReselectGreeting}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-            >
-              <Text style={styles.greetingReselectText}>重选</Text>
-            </TouchableOpacity>
-          ) : null}
         </View>
+
         {!isUser && message.inlineImage ? (
+
            <View style={[styles.inlineImageWrap, fullWidth && styles.inlineImageFullWidth]}>
             {message.inlineImage.status === 'loading' ? (
               <View style={[styles.inlineImageBox, styles.inlineImageLoading]}>
@@ -776,9 +768,24 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
         ) : null}
         {!message.pending && !selectionMode && !message.image ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
-            <TouchableOpacity style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]} onPress={onCopy} activeOpacity={0.8}>
+            {isGreeting && onReselectGreeting ? (
+              <TouchableOpacity
+                style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
+                onPress={onReselectGreeting}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+              >
+                <Text style={styles.messageActionText}>重选</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
+              onPress={onCopy}
+              activeOpacity={0.8}
+            >
               <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
               onPress={() => onQuote?.(message)}
@@ -3998,6 +4005,7 @@ export default function ChatScreen() {
         onContentSizeChange={autoScrollToBottom}
         onScroll={onMessagesScroll}
         scrollEventThrottle={16}
+        nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
       >
         {messages.length === 0 ? (
@@ -5504,19 +5512,6 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
   },
   messageActionText: {
-    color: theme.colors.primarySoft,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  greetingReselectButton: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  greetingReselectText: {
     color: theme.colors.primarySoft,
     fontSize: 12,
     fontWeight: '700',
