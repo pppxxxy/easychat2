@@ -524,15 +524,35 @@ export default function CharacterScreen() {
   const characterViewportHeightRef = useRef(0);
   const characterCardOffsetsRef = useRef({});
   const switchLockRef = useRef(false);
+  const pendingImageUrisRef = useRef(new Map());
+  const imageOperationRef = useRef(0);
+  const mountedRef = useRef(true);
   const { height: windowHeight } = useWindowDimensions();
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
     screenSessionRef.current = { activeId };
   }
 
-  useEffect(() => () => {
-    screenSessionRef.current = {};
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      imageOperationRef.current += 1;
+      screenSessionRef.current = {};
+      pendingImageUrisRef.current.forEach(uri => {
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      });
+      pendingImageUrisRef.current.clear();
+    };
   }, []);
+
+  useEffect(() => {
+    imageOperationRef.current += 1;
+    pendingImageUrisRef.current.forEach(uri => {
+      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    });
+    pendingImageUrisRef.current.clear();
+  }, [activeId]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -624,9 +644,12 @@ export default function CharacterScreen() {
         return;
       }
     }
-    const session = screenSessionRef.current;
-    const trimmedPrompt = systemPrompt.trim();
-    const next = {
+     const session = screenSessionRef.current;
+     const previousAvatar = character.avatarUri || '';
+     const previousBg = character.bgUri || '';
+     const trimmedPrompt = systemPrompt.trim();
+     const next = {
+
       id: character.id,
       name: name.trim() || 'EasyChat2 助手',
       systemPrompt: trimmedPrompt || '你是 EasyChat2 的智能助手，回答简洁清晰。',
@@ -651,9 +674,29 @@ export default function CharacterScreen() {
       bgUri: bgPreview || '',
     };
     try {
-      await updateCharacter(next);
-      if (screenSessionRef.current !== session) return;
-      setName(next.name);
+       await updateCharacter(next);
+       if (screenSessionRef.current !== session) return;
+       const nextImageRefs = new Set([next.avatarUri, next.bgUri].filter(Boolean));
+       if (pendingImageUrisRef.current.get('avatar') === next.avatarUri) {
+         pendingImageUrisRef.current.delete('avatar');
+       }
+       if (pendingImageUrisRef.current.get('bg') === next.bgUri) {
+         pendingImageUrisRef.current.delete('bg');
+       }
+       const referencedElsewhere = uri => (
+         characters.some(item => item.id !== character.id && (
+           item.avatarUri === uri || item.bgUri === uri
+         ))
+         || sessions.some(item => item && (item.avatarUri === uri || item.bgUri === uri))
+       );
+       [previousAvatar, previousBg].forEach(uri => {
+         if (!uri || nextImageRefs.has(uri) || referencedElsewhere(uri)) return;
+         FileSystem.deleteAsync(uri, { idempotent: true }).catch(error => {
+           if (__DEV__) console.warn('[character] old image cleanup failed', error);
+         });
+       });
+       setName(next.name);
+
       setSystemPrompt(next.systemPrompt);
       setDescription(next.description);
       setPersonality(next.personality);
@@ -1339,8 +1382,14 @@ export default function CharacterScreen() {
   };
 
   const pickImage = async (setter, fieldName) => {
-    if (!loaded) return;
+    if (!loaded || !mountedRef.current) return;
+    const operation = ++imageOperationRef.current;
     const session = screenSessionRef.current;
+    const isCurrent = () => (
+      mountedRef.current
+      && imageOperationRef.current === operation
+      && screenSessionRef.current === session
+    );
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/png', 'image/jpeg'],
@@ -1348,38 +1397,39 @@ export default function CharacterScreen() {
         multiple: false,
       });
       const asset = getPickedAsset(result);
-      if (!asset?.uri) return;
+      if (!asset?.uri || !isCurrent()) return;
       const dir = `${FileSystem.documentDirectory}avatars/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
+      if (!isCurrent()) return;
+      const mime = String(asset.mimeType || '').toLowerCase();
+      const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
       const dest = `${dir}${character.id}-${fieldName}-${Date.now()}${ext}`;
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
-      // 清理旧文件，避免头像/背景图无限堆积；但群聊的头像与背景是直接引用
-      // 角色图片路径的，必须先确认没有会话还在引用，否则会出现“群聊头像变空白”。
-      // 只清理当前字段自己的旧文件：此前无论改哪个字段都会把 character.avatarUri 也删掉，
-      // 换背景会顺手删掉头像文件（avatarUri === bgUri 共用文件时更严重）。
-      const draftValue = fieldName === 'avatar' ? avatarPreview : bgPreview;
-      const otherFieldValue = fieldName === 'avatar' ? character.bgUri : character.avatarUri;
-      const committedValue = fieldName === 'avatar' ? character.avatarUri : character.bgUri;
-      [committedValue, draftValue].forEach(previous => {
-        if (!previous || previous === dest || !previous.startsWith(dir)) return;
-        // 另一个字段还在用同一文件时不能删
-        if (previous === otherFieldValue) return;
-        const stillReferenced = (sessions || []).some(item => (
-          item && (item.avatarUri === previous || item.bgUri === previous)
-        ));
-        if (!stillReferenced) {
-          FileSystem.deleteAsync(previous, { idempotent: true }).catch(() => {});
-        }
-      });
-      if (screenSessionRef.current === session) setter(dest);
+      if (!isCurrent()) {
+        await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+        return;
+      }
+      const previousPending = pendingImageUrisRef.current.get(fieldName);
+      if (previousPending && previousPending !== dest) {
+        await FileSystem.deleteAsync(previousPending, { idempotent: true }).catch(() => {});
+      }
+      pendingImageUrisRef.current.set(fieldName, dest);
+      setter(dest);
     } catch (error) {
-      Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
     }
   };
 
   const pickAvatar = () => pickImage(setAvatarPreview, 'avatar');
   const pickBg = () => pickImage(setBgPreview, 'bg');
+  const clearImagePreview = (fieldName, setter) => {
+    const pending = pendingImageUrisRef.current.get(fieldName);
+    if (pending) {
+      FileSystem.deleteAsync(pending, { idempotent: true }).catch(() => {});
+      pendingImageUrisRef.current.delete(fieldName);
+    }
+    setter(null);
+  };
 
   const editingWorldIndex = worldInfo.findIndex(item => item.id === editingWorldId);
   const editingWorldEntry = editingWorldIndex >= 0 ? worldInfo[editingWorldIndex] : null;
@@ -1679,7 +1729,7 @@ export default function CharacterScreen() {
                 <Text style={styles.smallButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
               </TouchableOpacity>
               {avatarPreview ? (
-                <TouchableOpacity onPress={() => setAvatarPreview(null)} hitSlop={8}>
+                <TouchableOpacity onPress={() => clearImagePreview('avatar', setAvatarPreview)} hitSlop={8}>
                   <Text style={styles.removeText}>清除</Text>
                 </TouchableOpacity>
               ) : null}
@@ -1696,7 +1746,7 @@ export default function CharacterScreen() {
                 <Text style={styles.smallButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
               </TouchableOpacity>
               {bgPreview ? (
-                <TouchableOpacity onPress={() => setBgPreview(null)} hitSlop={8}>
+                <TouchableOpacity onPress={() => clearImagePreview('bg', setBgPreview)} hitSlop={8}>
                   <Text style={styles.removeText}>清除</Text>
                 </TouchableOpacity>
               ) : null}
