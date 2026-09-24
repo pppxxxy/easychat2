@@ -33,7 +33,7 @@ runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));
 runtimeModule._compile(transformed, filename);
 Module._load = originalLoad;
-const { getConfigFingerprint } = runtimeModule.exports;
+const { getConfigFingerprint, EMPTY_REPLY_TEXT } = runtimeModule.exports;
 
 test('API 配置指纹覆盖地址、模型和密钥变化', () => {
   const base = {
@@ -48,4 +48,8 @@ test('API 配置指纹覆盖地址、模型和密钥变化', () => {
   assert.notEqual(original, getConfigFingerprint({ ...base, apiKey: 'key-b' }));
   assert.notEqual(original, getConfigFingerprint({ ...base, baseUrl: 'https://other.example/v1' }));
   assert.equal(original.includes('key-a'), false);
+});
+
+test('空回复占位文本保持稳定判等', () => {
+  assert.equal(String(` ${EMPTY_REPLY_TEXT} `).trim(), EMPTY_REPLY_TEXT);
 });
