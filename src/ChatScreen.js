@@ -83,7 +83,7 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import RichHtmlMessage from './RichHtmlMessage';
 import { containsHtml, messageCopyText } from './plainText';
-import { shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
+import { isViewportRichHtml, shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import { hideVariantStatusBar, toSpeechText } from './speechText';
@@ -523,6 +523,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const { width } = useWindowDimensions();
   const [copied, setCopied] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [cardFullOpen, setCardFullOpen] = useState(false);
   const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
@@ -534,6 +535,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const richHtmlParts = useMemo(
     () => (renderRichHtml ? splitFullHtmlDocument(message.text) : null),
     [message.text, renderRichHtml]
+  );
+  // 视口型卡是整屏应用，内滚会吃掉手势、把聊天列表卡死；预览不可交互，交互放到全屏。
+  const richHtmlViewport = useMemo(
+    () => (richHtmlParts ? isViewportRichHtml(richHtmlParts.document) : false),
+    [richHtmlParts]
   );
    const plainText = messageCopyText(message.text);
    const availableMediaWidth = Math.max(96, Math.min(220, width - 80));
@@ -773,12 +779,63 @@ const fullWidthAssistant = !isUser && fullWidth;
              richHtmlParts ? (
                <View>
                  {renderAssistantSegment(richHtmlParts.before)}
-                 <RichHtmlMessage
-                   html={richHtmlParts.document}
-                   onCommand={(command, token) => onSlashCommand(command, token, message.id)}
-                   fullWidth={fullWidth}
-                 />
+                 {richHtmlViewport ? (
+                   <View>
+                     <View pointerEvents="none">
+                       <RichHtmlMessage
+                         html={richHtmlParts.document}
+                         fullWidth={fullWidth}
+                       />
+                     </View>
+                     <TouchableOpacity
+                       style={styles.viewportCardOpen}
+                       onPress={() => setCardFullOpen(true)}
+                       activeOpacity={0.85}
+                       accessibilityRole="button"
+                       accessibilityLabel="全屏打开卡片"
+                     >
+                       <Ionicons name="expand-outline" size={15} color={theme.colors.primarySoft} />
+                       <Text style={styles.viewportCardOpenText}>全屏交互</Text>
+                     </TouchableOpacity>
+                   </View>
+                 ) : (
+                   <RichHtmlMessage
+                     html={richHtmlParts.document}
+                     onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                     fullWidth={fullWidth}
+                   />
+                 )}
                  {renderAssistantSegment(richHtmlParts.after)}
+                 {richHtmlViewport && cardFullOpen ? (
+                   <Modal
+                     visible
+                     animationType="slide"
+                     onRequestClose={() => setCardFullOpen(false)}
+                   >
+                     <View style={styles.viewportCardScreen}>
+                       <View style={styles.viewportCardBar}>
+                         <Text style={styles.viewportCardTitle} numberOfLines={1}>
+                           {characterName || '角色面板'}
+                         </Text>
+                         <TouchableOpacity
+                           onPress={() => setCardFullOpen(false)}
+                           hitSlop={10}
+                           accessibilityRole="button"
+                           accessibilityLabel="关闭卡片"
+                         >
+                           <Ionicons name="close" size={20} color={theme.colors.text} />
+                         </TouchableOpacity>
+                       </View>
+                       <View style={styles.viewportCardBody}>
+                         <RichHtmlMessage
+                           html={richHtmlParts.document}
+                           onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                           fullWidth
+                         />
+                       </View>
+                     </View>
+                   </Modal>
+                 ) : null}
                </View>
              ) : (
                <RichHtmlMessage
@@ -5598,6 +5655,46 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     ...tokens.elevation(2, theme),
+  },
+  viewportCardOpen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: tokens.spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: tokens.spacing.xs,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surface,
+  },
+  viewportCardOpenText: {
+    color: theme.colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 6,
+  },
+  viewportCardScreen: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  viewportCardBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.sm,
+    borderBottomWidth: tokens.border.thin,
+    borderBottomColor: theme.colors.divider,
+  },
+  viewportCardTitle: {
+    flex: 1,
+    marginRight: tokens.spacing.sm,
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  viewportCardBody: {
+    flex: 1,
+    justifyContent: 'center',
   },
   markdownCodeScroll: {
     maxWidth: '100%',
