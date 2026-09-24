@@ -547,8 +547,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   // 含 <style>/<script> 的助手消息用 WebView 渲染，才能还原样式与交互。
   const renderRichHtml =
     renderHtml && shouldRenderRichHtml(message.text, richHtmlEnabled);
-  const plainText = messageCopyText(message.text);
-  const mediaWidth = message.image?.stickerId ? 112 : 220;
+   const plainText = messageCopyText(message.text);
+   const availableMediaWidth = Math.max(96, Math.min(220, width - 80));
+   const mediaWidth = message.image?.stickerId
+     ? Math.min(112, availableMediaWidth)
+     : availableMediaWidth;
   const mediaRatio = Number(message.image?.height) > 0 && Number(message.image?.width) > 0
     ? Number(message.image.height) / Number(message.image.width)
     : 0.75;
@@ -2049,18 +2052,28 @@ export default function ChatScreen() {
       const sessionCharacterId = String(session.characterId || character.id || '');
       const sessionCharacter = (Array.isArray(characters) ? characters : [])
         .find(item => item.id === sessionCharacterId) || character;
-      const characterExists = (Array.isArray(characters) ? characters : [])
-        .some(item => item.id === sessionCharacterId);
-      const scoped = !characterExists
-        || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
-      const result = await applySummary({
+       const characterExists = (Array.isArray(characters) ? characters : [])
+         .some(item => item.id === sessionCharacterId);
+       const scoped = !characterExists
+         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
+       let expectedConfigId = '';
+       let expectedConfigFingerprint = '';
+       try {
+         const { configs, activeId } = await getApiConfigs();
+         const current = configs.find(item => item.id === activeId) || configs[0];
+         expectedConfigId = String(current?.id || '');
+         expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
+       } catch (error) {}
+       const result = await applySummary({
         session,
         character: sessionCharacter,
         messages: picked,
         updateCharacter,
-        userName: userProfile.userName,
-        scoped,
-      });
+         userName: userProfile.userName,
+         scoped,
+         expectedConfigId,
+         expectedConfigFingerprint,
+       });
       await refreshSessions().catch(() => {});
       if (result.skipped) {
         if (manual) Alert.alert('总结完成', '本轮没有提取出可保存的新记忆。');
@@ -5250,10 +5263,11 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   userMediaBox: {
     alignItems: 'center',
   },
-  userMessageImage: {
-    borderRadius: tokens.radius.md,
-    backgroundColor: theme.colors.surfaceBorder,
-  },
+   userMessageImage: {
+     maxWidth: '100%',
+     borderRadius: tokens.radius.md,
+     backgroundColor: theme.colors.surfaceBorder,
+   },
   userMediaName: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(10),

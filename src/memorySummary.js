@@ -124,9 +124,19 @@ export function parseSummaryResponse(text) {
   };
 }
 
-export async function generateSummary({ character, messages, userName, memories }) {
+export async function generateSummary({
+  character,
+  messages,
+  userName,
+  memories,
+  expectedConfigId = '',
+  expectedConfigFingerprint = '',
+}) {
   const prompt = buildSummaryPrompt(messages, userName, memories);
-  const text = await sendChatMessage(prompt);
+  const text = await sendChatMessage(prompt, {
+    expectedConfigId,
+    expectedConfigFingerprint,
+  });
   return parseSummaryResponse(text);
 }
 
@@ -179,8 +189,10 @@ export async function applySummary({
   character,
   messages,
   updateCharacter,
-  userName,
-  scoped = false,
+   userName,
+   scoped = false,
+   expectedConfigId = '',
+   expectedConfigFingerprint = '',
 }) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   if (list.length === 0) {
@@ -197,9 +209,11 @@ export async function applySummary({
   const memories = buildMemorySummaryText(character, existingSessionSummaries, scoped);
   const { summary, keywords, skipped } = await generateSummary({
     character,
-    messages: list,
-    userName,
-    memories,
+     messages: list,
+     userName,
+     memories,
+     expectedConfigId,
+     expectedConfigFingerprint,
   });
   if (skipped || !summary.trim()) {
     return { entry: null, boundary: null, summary: '', keywords: [], scoped, skipped: true };
