@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   buildRichHtmlCommandBridge,
   buildRichHtmlDocument,
+  isViewportRichHtml,
   needsRichHtmlRendering,
   shouldRenderRichHtml,
+  splitFullHtmlDocument,
   stripMarkdownFences,
 } from '../src/richHtml.js';
 
@@ -92,4 +94,37 @@ test('完整 HTML 角色卡直接作为 WebView 文档并注入高度桥', () =>
   assert.equal(commandBridge.includes('<script>'), false);
   assert.equal(doc.includes('command-token'), false);
   assert.ok(doc.includes('<main>开局</main>'));
+});
+
+test('完整文档前后的正文被保留进 body', () => {
+  const source = '开场白第一段\n开场白第二段\n<!DOCTYPE html><html><head><title>Card</title></head><body><main>界面</main></body></html>\n结尾补充';
+  const doc = buildRichHtmlDocument({ bodyHtml: source, heightToken: 'height-token' });
+  assert.ok(doc.includes('开场白第一段'));
+  assert.ok(doc.includes('开场白第二段'));
+  assert.ok(doc.includes('结尾补充'));
+  assert.ok(doc.includes('data-easychat2-preamble="before"'));
+  assert.ok(doc.includes('data-easychat2-preamble="after"'));
+  // 前置正文只出现一次，且不再丢掉
+  assert.equal((doc.match(/开场白第一段/g) || []).length, 1);
+});
+
+test('拆分完整文档，保留前置叙事与后置正文', () => {
+  const source = '开场白第一段\n开场白第二段\n<!DOCTYPE html><html><head><style>.app{height:100vh}</style></head><body><main>界面</main></body></html>\n结尾补充';
+  const parts = splitFullHtmlDocument(source);
+  assert.ok(parts);
+  assert.ok(parts.before.includes('开场白第一段'));
+  assert.ok(parts.before.includes('开场白第二段'));
+  assert.ok(parts.document.startsWith('<!DOCTYPE html>'));
+  assert.ok(parts.document.includes('height:100vh'));
+  assert.equal(parts.before.includes('<!DOCTYPE'), false);
+  assert.equal(parts.after.trim(), '结尾补充');
+  assert.equal(splitFullHtmlDocument('只有正文，没有文档'), null);
+});
+
+test('识别视口型文档样式', () => {
+  assert.equal(isViewportRichHtml('<style>.app{height:100vh;overflow:hidden}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>.x{height:100dvh}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>.x{height:200px}</style>'), false);
+  assert.equal(isViewportRichHtml('普通文本没有样式'), false);
 });

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
-import { buildRichHtmlCommandBridge, buildRichHtmlDocument } from './richHtml';
+import { buildRichHtmlCommandBridge, buildRichHtmlDocument, isViewportRichHtml } from './richHtml';
 import { useTheme } from './theme/ThemeContext';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
@@ -38,11 +38,22 @@ function utf8ByteLength(value) {
 // 用 WebView 渲染含 <style>/<script> 的助手消息：动态高度 + 命令按钮桥接。
 export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) {
   const { theme, fonts } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
   const [height, setHeight] = useState(1);
   const [source, setSource] = useState(null);
   const [sourceError, setSourceError] = useState(false);
   const loadedRef = useRef(false);
   const temporaryUriRef = useRef('');
+
+  // 视口型文档：高度由 WebView 视口决定，改用屏幕高度做固定宿主高度，避免测高死锁。
+  const viewportDocument = useMemo(() => isViewportRichHtml(html), [html]);
+  const viewportHeight = useMemo(
+    () => Math.max(
+      320,
+      Math.round((windowHeight || 640) * (fullWidth ? 0.8 : 0.72))
+    ),
+    [fullWidth, windowHeight]
+  );
 
   const commandToken = useMemo(
     () => `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -108,7 +119,7 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
       return;
     }
     if (!payload) return;
-    if (payload.type === 'height' && payload.token === heightToken) {
+    if (payload.type === 'height' && !viewportDocument && payload.token === heightToken) {
        const next = Math.min(
          RICH_HTML_MAX_RENDER_HEIGHT,
          Math.max(1, Math.ceil(Number(payload.value) || 0))
@@ -124,9 +135,10 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
     ) {
       onCommand(String(payload.value), commandToken);
     }
-  }, [commandToken, heightToken, onCommand]);
+  }, [commandToken, heightToken, onCommand, viewportDocument]);
 
   const onContentSizeChange = useCallback(event => {
+    if (viewportDocument) return;
     const next = Number(event && event.nativeEvent && event.nativeEvent.contentSize
       ? event.nativeEvent.contentSize.height
       : 0);
@@ -134,7 +146,7 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
        const bounded = Math.min(RICH_HTML_MAX_RENDER_HEIGHT, Math.ceil(next));
        setHeight(prev => (Math.abs(prev - bounded) > 2 ? bounded : prev));
      }
-  }, []);
+  }, [viewportDocument]);
 
   const onShouldStartLoadWithRequest = useCallback(request => {
     if (loadedRef.current) return false;
@@ -155,14 +167,14 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
       <WebViewComponent
         originWhitelist={source.uri ? ['file://*'] : ['about:blank', 'data:*']}
         source={source}
-        style={[styles.webview, { height }]}
+        style={[styles.webview, { height: viewportDocument ? viewportHeight : height }]}
         containerStyle={styles.webviewContainer}
         javaScriptEnabled
         domStorageEnabled={false}
         allowFileAccess={!!source.uri}
         allowsFullscreenVideo
-        scrollEnabled={false}
-        nestedScrollEnabled={false}
+        scrollEnabled={viewportDocument}
+        nestedScrollEnabled={viewportDocument}
         injectedJavaScriptBeforeContentLoaded={commandBridge}
         onContentSizeChange={onContentSizeChange}
         onMessage={onMessage}

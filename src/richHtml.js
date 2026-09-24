@@ -130,18 +130,40 @@ function buildRichHtmlLayoutStyle(resetMaxHeight = true) {
   return rules.join('');
 }
 
-function extractFullHtmlDocument(value) {
+export function splitFullHtmlDocument(value) {
   const start = value.search(/<!doctype\s+html\b|<html[\s>]/i);
   if (start < 0) return null;
   const end = value.toLowerCase().lastIndexOf('</html>');
   if (end < start) return null;
-  return value.slice(start, end + '</html>'.length);
+  return {
+    before: value.slice(0, start),
+    document: value.slice(start, end + '</html>'.length),
+    after: value.slice(end + '</html>'.length),
+  };
+}
+
+// 视口型文档（100vh / position:fixed）的高度由 WebView 视口决定，
+// 不能再用「先测内容再喂回高度」的闭环，否则会锁死在初始 1px。
+const VIEWPORT_STYLE_PATTERN = /100(?:vh|dvh|svh|lvh)|position\s*:\s*fixed/i;
+
+export function isViewportRichHtml(text) {
+  const styles = String(text || '').match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+  return styles.some(block => VIEWPORT_STYLE_PATTERN.test(block));
+}
+
+// 完整文档之外的正文要保留：包进 body，用 pre-wrap 维持换行。
+function toPreambleHtml(text, position) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  return `<div data-easychat2-preamble="${position}" style="white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;">${value}</div>`;
 }
 
 const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; base-uri \'none\'; form-action \'none\'; frame-src \'none\'; object-src \'none\'; connect-src \'none\'; img-src \'self\' data: blob:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
-function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '') {
+function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '', parts = null) {
   let output = documentHtml;
   const styleBlock = `<style data-easychat2-runtime="true">${layoutStyle}</style>`;
+  const beforeHtml = toPreambleHtml(parts && parts.before, 'before');
+  const afterHtml = toPreambleHtml(parts && parts.after, 'after');
   if (/<head\b[^>]*>/i.test(output)) {
     output = output.replace(/(<head\b[^>]*>)/i, `$1${FULL_DOCUMENT_CSP}`);
   }
@@ -154,10 +176,15 @@ function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '') 
   } else {
     return null;
   }
+  if (/<body\b[^>]*>/i.test(output)) {
+    output = output.replace(/(<body\b[^>]*>)/i, `$1${beforeHtml}`);
+  } else if (beforeHtml) {
+    output = output.replace(/(<html\b[^>]*>)/i, `$1<body>${beforeHtml}</body>`);
+  }
   if (/<\/body>/i.test(output)) {
-    output = output.replace(/<\/body>/i, `${renderRichHtmlBridge(heightToken)}</body>`);
+    output = output.replace(/<\/body>/i, `${afterHtml}${renderRichHtmlBridge(heightToken)}</body>`);
   } else {
-    output += renderRichHtmlBridge(heightToken);
+    output += `${afterHtml}${renderRichHtmlBridge(heightToken)}`;
   }
   return output;
 }
@@ -172,12 +199,13 @@ export function buildRichHtmlDocument({
 } = {}) {
   const normalizedBody = stripMarkdownFences(bodyHtml).trim();
   const layoutStyle = buildRichHtmlLayoutStyle();
-  const fullDocument = extractFullHtmlDocument(normalizedBody);
-  if (fullDocument) {
+  const parts = splitFullHtmlDocument(normalizedBody);
+  if (parts) {
     const supportedDocument = injectFullDocumentSupport(
-      fullDocument,
+      parts.document,
       buildRichHtmlLayoutStyle(false),
-      heightToken
+      heightToken,
+      parts
     );
     if (supportedDocument) return supportedDocument;
   }

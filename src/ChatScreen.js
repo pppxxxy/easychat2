@@ -83,7 +83,7 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import RichHtmlMessage from './RichHtmlMessage';
 import { containsHtml, messageCopyText } from './plainText';
-import { shouldRenderRichHtml, stripMarkdownFences } from './richHtml';
+import { shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import { hideVariantStatusBar, toSpeechText } from './speechText';
@@ -530,6 +530,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   // 含 <style>/<script> 的助手消息用 WebView 渲染，才能还原样式与交互。
   const renderRichHtml =
     renderHtml && shouldRenderRichHtml(message.text, richHtmlEnabled);
+  // 完整 HTML 文档之外的叙事正文拆出来走 Markdown，避免被 WebView 文档分支整段丢弃。
+  const richHtmlParts = useMemo(
+    () => (renderRichHtml ? splitFullHtmlDocument(message.text) : null),
+    [message.text, renderRichHtml]
+  );
    const plainText = messageCopyText(message.text);
    const availableMediaWidth = Math.max(96, Math.min(220, width - 80));
    const mediaWidth = message.image?.stickerId
@@ -737,11 +742,31 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           ) : message.pending && message.waitingForResponse ? (
             <ThinkingIndicator />
           ) : renderRichHtml ? (
-             <RichHtmlMessage
-               html={message.text}
-               onCommand={(command, token) => onSlashCommand(command, token, message.id)}
-               fullWidth={fullWidth}
-             />
+             richHtmlParts ? (
+               <View>
+                 {richHtmlParts.before.trim() ? (
+                   <Markdown style={markdownStyles} rules={markdownRules}>
+                     {richHtmlParts.before.trim()}
+                   </Markdown>
+                 ) : null}
+                 <RichHtmlMessage
+                   html={richHtmlParts.document}
+                   onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                   fullWidth={fullWidth}
+                 />
+                 {richHtmlParts.after.trim() ? (
+                   <Markdown style={markdownStyles} rules={markdownRules}>
+                     {richHtmlParts.after.trim()}
+                   </Markdown>
+                 ) : null}
+               </View>
+             ) : (
+               <RichHtmlMessage
+                 html={message.text}
+                 onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                 fullWidth={fullWidth}
+               />
+             )
           ) : renderHtml ? (
             <RenderHtml
               contentWidth={contentWidth}
