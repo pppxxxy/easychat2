@@ -466,3 +466,27 @@ test('动态记录损坏时删除关联动态拒绝写回', async () => {
   assert.equal(store.get('@easychat2_moments'), raw);
   assert.equal(store.get('@easychat2_moments__corrupt_backup'), raw);
 });
+
+test('动态增量更新串行合并并避免旧快照覆盖', async () => {
+  const storage = loadStorage();
+  await storage.saveMoments([{ id: 'base', text: '基础', createdAt: 1 }]);
+  let release;
+  let started;
+  const startedPromise = new Promise(resolve => { started = resolve; });
+  const first = storage.updateMoments(async list => {
+    started();
+    await new Promise(resolve => { release = resolve; });
+    return [...list, { id: 'first', text: '先开始', createdAt: 2 }];
+  });
+  await startedPromise;
+  const second = storage.updateMoments(list => [
+    ...list,
+    { id: 'second', text: '后开始', createdAt: 3 },
+  ]);
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(
+    (await storage.getMoments()).map(item => item.id),
+    ['second', 'first', 'base']
+  );
+});

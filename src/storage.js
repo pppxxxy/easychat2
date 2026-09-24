@@ -69,6 +69,7 @@ const CARD_FORGE_KEY = '@easychat2_card_forge';
 
 let characterLibraryWriteBlocked = false;
 let stickerWriteQueue = Promise.resolve();
+let momentsMutationQueue = Promise.resolve();
 let sessionMutationQueue = Promise.resolve();
 const deletedSessionIds = new Set();
 const sessionSummaryRevisions = new Map();
@@ -78,6 +79,12 @@ const protectedChatImageUris = new Set();
 function enqueueSessionMutation(task) {
   const next = sessionMutationQueue.then(task, task);
   sessionMutationQueue = next.catch(() => {});
+  return next;
+}
+
+function enqueueMomentsMutation(task) {
+  const next = momentsMutationQueue.then(task, task);
+  momentsMutationQueue = next.catch(() => {});
   return next;
 }
 
@@ -1343,10 +1350,34 @@ export async function getMoments() {
   return moments;
 }
 
-export async function saveMoments(moments) {
+async function readMomentsForMutation() {
+  const { status, moments } = await getMomentsStatus();
+  if (status === 'corrupt') {
+    throw new Error('动态记录读取失败，请稍后重试');
+  }
+  return moments;
+}
+
+async function saveMomentsInternal(moments) {
   const list = Array.isArray(moments) ? moments.map(normalizeMoment).filter(item => item.id) : [];
   await AsyncStorage.setItem(MOMENTS_KEY, JSON.stringify(list));
   return list;
+}
+
+export function saveMoments(moments) {
+  return enqueueMomentsMutation(async () => {
+    await readMomentsForMutation();
+    return saveMomentsInternal(moments);
+  });
+}
+
+export function updateMoments(updater) {
+  return enqueueMomentsMutation(async () => {
+    const current = await readMomentsForMutation();
+    const next = typeof updater === 'function' ? await updater(current) : current;
+    if (next === undefined) return current;
+    return saveMomentsInternal(next);
+  });
 }
 
 function normalizeForgeDraft(raw) {
@@ -1432,30 +1463,26 @@ export async function deleteMomentsBySessionIds(sessionIds) {
     .map(item => String(item || ''))
     .filter(Boolean);
   if (ids.length === 0) return [];
-  const { status, moments: list } = await getMomentsStatus();
-  if (status === 'corrupt') {
-    throw new Error('动态记录读取失败，请稍后重试');
-  }
-  const removedIds = list
-    .filter(item => ids.includes(String(item.sessionId || '')))
-    .map(item => item.id);
-  if (removedIds.length === 0) return [];
-  await saveMoments(removeMomentsBySessionIds(list, ids));
+  let removedIds = [];
+  await updateMoments(list => {
+    removedIds = list
+      .filter(item => ids.includes(String(item.sessionId || '')))
+      .map(item => item.id);
+    return removedIds.length > 0 ? removeMomentsBySessionIds(list, ids) : list;
+  });
   return removedIds;
 }
 
 export async function deleteMomentsForCharacterDeletion(characterIds, sessionIds = []) {
-  const { status, moments } = await getMomentsStatus();
-  if (status === 'corrupt') {
-    throw new Error('动态记录读取失败，请稍后重试');
-  }
-  const next = removeMomentsForCharacterDeletion(moments, characterIds, sessionIds);
-  const removedIds = moments
-    .filter(item => !next.includes(item))
-    .map(item => String(item && item.id || ''))
-    .filter(Boolean);
-  if (removedIds.length === 0) return [];
-  await saveMoments(next);
+  let removedIds = [];
+  await updateMoments(moments => {
+    const next = removeMomentsForCharacterDeletion(moments, characterIds, sessionIds);
+    removedIds = moments
+      .filter(item => !next.includes(item))
+      .map(item => String(item && item.id || ''))
+      .filter(Boolean);
+    return removedIds.length > 0 ? next : moments;
+  });
   return removedIds;
 }
 

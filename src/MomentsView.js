@@ -17,10 +17,9 @@ import {
   getEnabledGlobalPresetPrompts,
   getMessagesBySession,
   getMoments,
-  getMomentsStatus,
   getSessionSummaries,
   getUserProfile,
-  saveMoments,
+  updateMoments,
 } from './storage';
 import {
   buildMomentMemoryText,
@@ -95,22 +94,22 @@ export default function MomentsView({ active = true }) {
   const persist = useCallback(async (list, removedIds = []) => {
     setMoments(list);
     try {
-      const { status, moments: stored } = await getMomentsStatus();
-      // 动态记录读不出时绝不写回：否则空/不完整快照会把整表动态清空。
-      if (status === 'corrupt') {
-        Alert.alert('保存失败', '动态记录读取失败，为避免覆盖已保留原数据，本次改动未保存。');
-        return;
-      }
-      const byId = new Map((Array.isArray(stored) ? stored : []).map(item => [item.id, item]));
-      (Array.isArray(list) ? list : []).forEach(item => {
-        if (item && byId.has(item.id)) byId.set(item.id, item);
+      const merged = await updateMoments(stored => {
+        const byId = new Map((Array.isArray(stored) ? stored : []).map(item => [item.id, item]));
+        (Array.isArray(list) ? list : []).forEach(item => {
+          if (item && byId.has(item.id)) byId.set(item.id, item);
+        });
+        (Array.isArray(removedIds) ? removedIds : []).forEach(id => byId.delete(String(id || '')));
+        return [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       });
-      (Array.isArray(removedIds) ? removedIds : []).forEach(id => byId.delete(String(id || '')));
-      const merged = [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      await saveMoments(merged);
       setMoments(merged);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(
+        '保存失败',
+        String((error && error.message) || '').includes('动态记录读取失败')
+          ? '动态记录读取失败，为避免覆盖已保留原数据，本次改动未保存。'
+          : '请检查存储空间或权限。'
+      );
     }
   }, []);
 

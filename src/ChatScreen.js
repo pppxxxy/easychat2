@@ -104,13 +104,13 @@ import {
    saveThinkingSettings,
    resetSessionSummaries,
    setProtectedChatImageUris,
-  getTtsSettings,
-  getMomentsSettings,
-  getAffinityStatus,
-  saveAffinity,
-  getMomentsStatus,
-  saveMoments,
-  saveSticker,
+   getTtsSettings,
+   getMomentsSettings,
+   getAffinityStatus,
+   saveAffinity,
+   updateMoments,
+   saveSticker,
+
   saveTtsSettings,
   setSessionGreetingSelected,
   startNewSession,
@@ -3756,9 +3756,7 @@ export default function ChatScreen() {
       likes: [],
       comments: [],
     };
-    const momentsStatus = await getMomentsStatus().catch(() => ({ status: 'corrupt', moments: [] }));
-    if (momentsStatus.status === 'corrupt') return;
-    await saveMoments(appendMoment(momentsStatus.moments, moment)).catch(() => {});
+    await updateMoments(moments => appendMoment(moments, moment)).catch(() => {});
   }, []);
   // recordTurn 声明在下方，这里用 ref 暴露给它上面的回调，避免依赖数组引用“后声明”的 const（TDZ）。
   useEffect(() => {
