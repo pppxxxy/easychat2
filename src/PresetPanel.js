@@ -237,7 +237,10 @@ export default function PresetPanel({
   };
 
   const toggleMemory = value => {
-    if (busyRef.current) return;
+    if (busyRef.current) {
+      Alert.alert('正在保存', '请等待当前操作完成。');
+      return;
+    }
     persistMemory(value, threshold);
   };
 
@@ -247,7 +250,11 @@ export default function PresetPanel({
   };
 
   const commitThreshold = async () => {
-    if (busyRef.current || !loaded) return false;
+    if (busyRef.current) {
+      Alert.alert('正在保存', '请等待当前操作完成。');
+      return false;
+    }
+    if (!loaded) return false;
     const raw = String(threshold).trim();
     const parsed = Math.trunc(Number(raw));
     const previous = Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
@@ -263,7 +270,11 @@ export default function PresetPanel({
   };
 
   const confirmThreshold = async () => {
-    if (busyRef.current || !loaded) return;
+    if (busyRef.current) {
+      Alert.alert('正在保存', '请等待当前操作完成。');
+      return;
+    }
+    if (!loaded) return;
     const value = normalizeThreshold();
     setThreshold(String(value));
     const saved = await persistMemory(memoryEnabled, value);
