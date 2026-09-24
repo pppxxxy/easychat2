@@ -754,3 +754,17 @@ test('活动会话行缺失时消息保存自愈并保留摘要边界', async ()
   assert.equal(sessions[0].id, 'heal-session');
   assert.equal(sessions[0].summarizedUpTo, 'heal-2');
 });
+
+test('制卡草稿损坏时状态接口备份并拒绝覆盖', async () => {
+  const storage = loadStorage();
+  const raw = '{broken-forge';
+  store.set('@easychat2_card_forge', raw);
+  const status = await storage.getCardForgeStatus();
+  assert.equal(status.status, 'corrupt');
+  assert.equal(store.get('@easychat2_card_forge__corrupt_backup'), raw);
+  await assert.rejects(
+    () => storage.saveCardForge({ draft: { name: '覆盖' } }),
+    /制卡草稿读取失败/
+  );
+  assert.equal(store.get('@easychat2_card_forge'), raw);
+});

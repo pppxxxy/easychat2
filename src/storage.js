@@ -1522,12 +1522,28 @@ function normalizeCardForgeState(raw) {
   };
 }
 
+export async function getCardForgeStatus() {
+  const stored = await readJsonStatus(CARD_FORGE_KEY);
+  const invalidShape = stored.status === 'ok'
+    && (!stored.value || typeof stored.value !== 'object' || Array.isArray(stored.value));
+  if (stored.status === 'corrupt' || invalidShape) {
+    await backupCorruptValue(CARD_FORGE_KEY);
+    return { status: 'corrupt', state: null };
+  }
+  if (stored.status === 'missing') return { status: 'missing', state: null };
+  return { status: 'ok', state: normalizeCardForgeState(stored.value) };
+}
+
 export async function getCardForge() {
-  const raw = await readJson(CARD_FORGE_KEY, null);
-  return normalizeCardForgeState(raw);
+  const { state } = await getCardForgeStatus();
+  return state;
 }
 
 export async function saveCardForge(state) {
+  const status = await getCardForgeStatus();
+  if (status.status === 'corrupt') {
+    throw new Error('制卡草稿读取失败，请先处理损坏数据');
+  }
   const normalized = normalizeCardForgeState(state);
   if (!normalized) throw new Error('制卡状态无效');
   await AsyncStorage.setItem(CARD_FORGE_KEY, JSON.stringify(normalized));

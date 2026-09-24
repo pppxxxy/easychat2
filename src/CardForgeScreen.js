@@ -29,7 +29,7 @@ import {
   recordAnswer,
   summarizeAnswers,
 } from './cardForge/forge';
-import { clearCardForge, getCardForge, saveCardForge } from './storage';
+import { clearCardForge, getCardForgeStatus, saveCardForge } from './storage';
 import { Chip, PrimaryButton, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
@@ -46,6 +46,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const [freeQuestionId, setFreeQuestionId] = useState('');
   const [busy, setBusy] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const loadErrorRef = useRef(false);
   const stateRef = useRef(null);
   const scrollRef = useRef(null);
   const mountedRef = useRef(true);
@@ -61,6 +62,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, []);
 
   const update = useCallback(next => {
+    if (loadErrorRef.current) return Promise.resolve(false);
     applyState(next);
     return saveCardForge(next).catch(error => {
       if (mountedRef.current) {
@@ -105,13 +107,25 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
-    getCardForge()
-      .then(saved => {
-        if (!cancelled) applyState(saved || createForgeState());
-      })
-      .catch(() => {
-        if (!cancelled) applyState(createForgeState());
-      });
+     getCardForgeStatus()
+       .then(result => {
+         if (cancelled) return;
+         if (result.status === 'corrupt') {
+           loadErrorRef.current = true;
+           applyState(createForgeState());
+           Alert.alert('制卡草稿读取失败', '原始草稿已保留，请使用“重新开始”清理后再编辑。');
+           return;
+         }
+         loadErrorRef.current = false;
+         applyState(result.state || createForgeState());
+       })
+       .catch(() => {
+         if (cancelled) return;
+         loadErrorRef.current = true;
+         applyState(createForgeState());
+         Alert.alert('制卡草稿读取失败', '请稍后重试。');
+       });
+
     return () => {
       cancelled = true;
     };
@@ -128,6 +142,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const submitAnswer = useCallback((question, value) => {
     const text = String(value || '').trim();
     if (!text || busy || !question || !activeRef.current || !mountedRef.current) return;
+    if (loadErrorRef.current) {
+      Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再编辑。');
+      return;
+    }
     setFreeQuestionId('');
     setFreeText('');
     update(recordAnswer(stateRef.current, question.id, text));
@@ -145,6 +163,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const onGenerate = useCallback(() => {
     if (busy || !activeRef.current || !mountedRef.current) return;
+    if (loadErrorRef.current) {
+      Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再生成。');
+      return;
+    }
     const run = async () => {
       if (!activeRef.current || !mountedRef.current) return;
       const token = ++requestTokenRef.current;
@@ -197,6 +219,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
     if (!text || busy || !activeRef.current || !mountedRef.current) return;
+    if (loadErrorRef.current) {
+      Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再发送。');
+      return;
+    }
     const token = ++requestTokenRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
@@ -295,6 +321,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
            try {
              await clearCardForge();
              if (!mountedRef.current || !activeRef.current) return;
+             loadErrorRef.current = false;
              await update(createForgeState());
            } catch (error) {
              if (mountedRef.current) {
