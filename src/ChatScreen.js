@@ -610,9 +610,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           : null),
     ].filter(Boolean);
 
-   const fullWidthAssistant = !isUser && fullWidth;
+const fullWidthAssistant = !isUser && fullWidth;
    const avatarElement = isUser ? (
-    <View style={styles.avatarContainerRight}>
+     <View style={styles.avatarContainerRight}>
       {userAvatarUri ? (
         <Image source={{ uri: userAvatarUri }} style={styles.avatarImage} />
       ) : (
@@ -643,6 +643,30 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
        <Text style={styles.fullWidthNameLabel}>{characterName || ''}</Text>
      </View>
    ) : null;
+
+   // 完整 HTML 文档前/后的正文可能已被展示正则插入标签（高亮 span、容器 div），
+   // 这类内容必须走 HTML 渲染，否则标签会被 Markdown 当纯文本原样显示。
+   const renderAssistantSegment = segment => {
+     const value = String(segment || '').trim();
+     if (!value) return null;
+     if (!containsHtml(value)) {
+       return <Markdown style={markdownStyles} rules={markdownRules}>{value}</Markdown>;
+     }
+     const source = { html: prepareAssistantHtml(value).replace(/\n/g, '<br/>') };
+     return (
+       <RenderHtml
+         contentWidth={contentWidth}
+         source={source}
+         baseStyle={htmlBaseStyle}
+         tagsStyles={htmlTagsStyles}
+         classesStyles={regexClassesStyles}
+         domVisitors={regexDomVisitors}
+         customHTMLElementModels={customHTMLElementModels}
+         renderers={htmlRenderers}
+         defaultTextProps={{ selectable: true }}
+       />
+     );
+   };
 
    return (
      <View style={[
@@ -744,21 +768,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           ) : renderRichHtml ? (
              richHtmlParts ? (
                <View>
-                 {richHtmlParts.before.trim() ? (
-                   <Markdown style={markdownStyles} rules={markdownRules}>
-                     {richHtmlParts.before.trim()}
-                   </Markdown>
-                 ) : null}
+                 {renderAssistantSegment(richHtmlParts.before)}
                  <RichHtmlMessage
                    html={richHtmlParts.document}
                    onCommand={(command, token) => onSlashCommand(command, token, message.id)}
                    fullWidth={fullWidth}
                  />
-                 {richHtmlParts.after.trim() ? (
-                   <Markdown style={markdownStyles} rules={markdownRules}>
-                     {richHtmlParts.after.trim()}
-                   </Markdown>
-                 ) : null}
+                 {renderAssistantSegment(richHtmlParts.after)}
                </View>
              ) : (
                <RichHtmlMessage
