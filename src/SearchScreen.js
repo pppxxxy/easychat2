@@ -145,7 +145,10 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
                 >
                   <View style={styles.itemHeader}>
                     <Text style={styles.itemName} numberOfLines={1}>
-                      {(character && character.name) || '未命名角色'}
+                       {result.sessionType === 'group'
+                         ? (result.sessionName || '群聊')
+                         : ((character && character.name) || '角色资料缺失')}
+
                     </Text>
                     <Text style={styles.itemTime}>{formatTime(result.updatedAt)}</Text>
                   </View>

@@ -278,25 +278,34 @@ export default function MemoryScreen({ navigation }) {
     switchLockRef.current = true;
     const previousCharacterId = activeId;
     const previousSessionId = activeSessionId;
+    const previousSession = sessions.find(session => session.id === previousSessionId);
     try {
-      const target = sessions.find(session => session.id === result.sessionId);
-      if (!target || target.type !== 'group') {
-        await switchCharacter(result.characterId);
+      const latestSessions = await refreshSessions();
+      const target = latestSessions.find(session => session.id === result.sessionId);
+      if (!target) throw new Error('会话已不存在');
+      const characterExists = target.type !== 'group'
+        && characters.some(character => character.id === target.characterId);
+      if (characterExists) {
+        await switchCharacter(target.characterId);
       }
-      await switchSession(result.sessionId);
-      setPendingTarget({ sessionId: result.sessionId, messageId: result.messageId });
+      await switchSession(target.id);
+      setPendingTarget({ sessionId: target.id, messageId: result.messageId });
       setSearchOpen(false);
       navigation.navigate('聊天');
     } catch (error) {
       try {
-        await switchCharacter(previousCharacterId);
-        if (previousSessionId) await switchSession(previousSessionId);
+        if (previousSession?.type === 'group') {
+          if (previousSessionId) await switchSession(previousSessionId);
+        } else {
+          await switchCharacter(previousCharacterId);
+          if (previousSessionId) await switchSession(previousSessionId);
+        }
       } catch (rollbackError) {}
-      Alert.alert('打开失败', '请检查存储空间或权限。');
+      Alert.alert('打开失败', (error && error.message) || '请检查存储空间或权限。');
     } finally {
       switchLockRef.current = false;
     }
-  }, [activeId, activeSessionId, navigation, sessions, setPendingTarget, switchCharacter, switchSession]);
+  }, [activeId, activeSessionId, characters, navigation, refreshSessions, sessions, setPendingTarget, switchCharacter, switchSession]);
 
   const exitEdit = useCallback(() => {
     setEditing(false);

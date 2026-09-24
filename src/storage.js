@@ -2505,9 +2505,12 @@ export async function searchMessages(keyword) {
       );
       if (!text || !text.toLowerCase().includes(needle)) continue;
       results.push({
-        sessionId: session.id,
-        characterId: session.characterId,
-        messageId: message.id,
+         sessionId: session.id,
+         sessionType: session.type || 'single',
+         sessionName: String(session.name || ''),
+         characterId: session.characterId,
+         messageId: message.id,
+
         role: message.role,
         text,
         updatedAt: session.updatedAt || 0,
