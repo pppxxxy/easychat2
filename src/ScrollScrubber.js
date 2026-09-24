@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Modal,
@@ -11,16 +11,13 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from './theme/ThemeContext';
+import { indexFromRatio } from './scrollScrubberMath';
+
+export { getScrollRange, indexFromRatio } from './scrollScrubberMath';
 
 const PREVIEW_THRESHOLD = 30;
 const THUMB_HEIGHT = 44;
 const THUMB_WIDTH = 10;
-
-export function indexFromRatio(ratio, messageCount) {
-  if (!Number.isFinite(messageCount) || messageCount <= 0) return 0;
-  const clamped = Math.min(1, Math.max(0, Number(ratio) || 0));
-  return Math.round(clamped * (messageCount - 1));
-}
 
 export default function ScrollScrubber({
   visible,
@@ -46,6 +43,14 @@ export default function ScrollScrubber({
 
   const usableHeight = () => Math.max(1, trackHeightRef.current - THUMB_HEIGHT);
 
+  useEffect(() => {
+    if (!visible) return;
+    setDragging(false);
+    setRatio(0);
+    previewIndexRef.current = -1;
+    translateY.setValue(0);
+  }, [visible]);
+
   const ratioFromY = y => {
     const usable = usableHeight();
     return Math.min(1, Math.max(0, (y - THUMB_HEIGHT / 2) / usable));
@@ -61,6 +66,16 @@ export default function ScrollScrubber({
       setRatio(next);
     }
     return next;
+  };
+
+  const jumpToStart = () => {
+    applyRatio(0);
+    onToStart?.();
+  };
+
+  const jumpToEnd = () => {
+    applyRatio(1);
+    onToEnd?.();
   };
 
   const panResponder = useRef(
@@ -112,7 +127,7 @@ export default function ScrollScrubber({
         <View style={styles.panel}>
           <TouchableOpacity
             style={[styles.jumpButton, count === 0 && styles.disabled]}
-            onPress={onToStart}
+            onPress={jumpToStart}
             disabled={count === 0}
             activeOpacity={0.8}
           >
@@ -135,7 +150,7 @@ export default function ScrollScrubber({
 
           <TouchableOpacity
             style={[styles.jumpButton, count === 0 && styles.disabled]}
-            onPress={onToEnd}
+            onPress={jumpToEnd}
             disabled={count === 0}
             activeOpacity={0.8}
           >

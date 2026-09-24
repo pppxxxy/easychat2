@@ -65,7 +65,7 @@
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
 **Props**: 无
-**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`presets`、`expandedWorld`、`expandedRegex`、`importing`、`seededIdRef`
+**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`presets`、`expandedWorld`、`expandedRegex`、`characterListExpanded`、`characterScrubberOpen`、`importing`、`seededIdRef`
 **行为**:
 - 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并标「当前」；点选条目调用 `switchCharacter`
 - 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter`；若该角色还有会话（记忆），会再询问「仅删角色」或「角色和记忆都删」，后者一并调用 `deleteSessions` 清除会话与消息
@@ -76,7 +76,8 @@
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
 - 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）与「标签」
 - 角色数据区按「世界书 → 正则脚本 → 预设 → 全局预设」排列；角色预设随角色卡导入、编辑和导出，独立于全局预设
-- 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
+- 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡陈列超过 10 个时默认只显示前 10 个，点击展开后显示完整列表，并打开与聊天一致的右侧定位滑动条：顶部/底部按钮定位到角色卡陈列区顶部/底部，拖动滑块按角色卡顺序定位
+- 角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
@@ -139,10 +140,10 @@
 **位置**: `src/ScrollScrubber.js`
 **Props**: `{ visible, onClose, messageCount, previews, onSeek, onToStart, onToEnd }`
 **行为**:
-- 覆盖层内渲染竖向轨道与滑块，用 `PanResponder` 拖动，按滑动比例映射消息索引（`indexFromRatio`）
+- 覆盖层内渲染竖向轨道与滑块，用 `PanResponder` 拖动，按滑动比例映射消息或角色卡索引（`indexFromRatio`）
 - 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；松手时以映射索引调用 `onSeek`
-- 消息数超过 30 时拖动显示预览卡（时间、发言者、缩略与位置）；无消息时按钮禁用
-**辅助导出**: `indexFromRatio(ratio, messageCount)`
+- 消息数超过 30 时拖动显示预览卡（时间、发言者、缩略与位置）；聊天与角色列表均可复用，无可定位项时按钮禁用；顶部/底部按钮会同步更新滑块位置
+**辅助导出**: `indexFromRatio(ratio, messageCount)`、`getScrollRange({ top, height, viewport })`
 
 ### `PluginPanel`（默认导出）
 **位置**: `src/PluginPanel.js`

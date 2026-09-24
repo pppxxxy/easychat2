@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
@@ -38,6 +39,7 @@ import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
 import { useApp } from './context/AppContext';
 import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
+import ScrollScrubber, { getScrollRange } from './ScrollScrubber';
 import { compileRegex } from './regexEngine';
 import { maskSecrets } from './secrets';
 import { createGroupSession, deleteMomentsBySessionIds, getMoments, getUserProfile, saveCardForge } from './storage';
@@ -48,6 +50,7 @@ import { useTheme } from './theme/ThemeContext';
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
 const LARGE_IMPORT_BYTES = 2 * 1024 * 1024;
+const CHARACTER_LIST_COLLAPSE_LIMIT = 10;
 
 function formatImportSize(bytes) {
   const value = Number(bytes);
@@ -479,6 +482,8 @@ export default function CharacterScreen() {
   const [worldInfo, setWorldInfo] = useState([]);
   const [regexScripts, setRegexScripts] = useState([]);
   const [characterPresets, setCharacterPresets] = useState([]);
+  const [characterListExpanded, setCharacterListExpanded] = useState(false);
+  const [characterScrubberOpen, setCharacterScrubberOpen] = useState(false);
   const [expandedWorld, setExpandedWorld] = useState(false);
   const [expandedRegex, setExpandedRegex] = useState(false);
   const [editingWorldId, setEditingWorldId] = useState(null);
@@ -504,6 +509,14 @@ export default function CharacterScreen() {
   const [tagDraft, setTagDraft] = useState('');
   const [topic, setTopic] = useState(null);
   const seededIdRef = useRef(null);
+  const characterScrollRef = useRef(null);
+  const characterLibraryLayoutRef = useRef({ top: 0 });
+  const characterGridRelativeLayoutRef = useRef({ top: 0, height: 0 });
+  const characterGridLayoutRef = useRef({ top: 0, height: 0 });
+  const characterCardRelativeOffsetsRef = useRef({});
+  const characterViewportHeightRef = useRef(0);
+  const characterCardOffsetsRef = useRef({});
+  const { height: windowHeight } = useWindowDimensions();
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
     screenSessionRef.current = { activeId };
@@ -977,6 +990,113 @@ export default function CharacterScreen() {
     return list.filter(item => groupNameOf(item).toLowerCase().includes(text));
   }, [sessions, query, groupNameOf]);
 
+  const characterDisplayItems = useMemo(() => [
+    ...visibleCharacters.map(item => ({
+      id: item.id,
+      kind: 'character',
+      item,
+    })),
+    ...(editMode ? [] : visibleGroups.map(group => ({
+      id: `group-${group.id}`,
+      kind: 'group',
+      item: group,
+    }))),
+  ], [editMode, visibleCharacters, visibleGroups]);
+  const characterListNeedsCollapse = characterDisplayItems.length > CHARACTER_LIST_COLLAPSE_LIMIT;
+  const displayedCharacterItems = characterListExpanded
+    ? characterDisplayItems
+    : characterDisplayItems.slice(0, CHARACTER_LIST_COLLAPSE_LIMIT);
+  const displayedCharacters = displayedCharacterItems.filter(item => item.kind === 'character').map(item => item.item);
+  const displayedGroups = displayedCharacterItems.filter(item => item.kind === 'group').map(item => item.item);
+  const characterScrubberPreviews = useMemo(() => displayedCharacterItems.map(item => ({
+    label: item.kind === 'group' ? '群聊' : '角色',
+    speaker: item.kind === 'group' ? groupNameOf(item.item) : (item.item.name || '未命名角色'),
+    text: item.kind === 'group'
+      ? `${(item.item.members || []).length} 人群聊`
+      : (item.item.tags || []).map(tag => String(tag || '').trim()).filter(Boolean).slice(0, 3).join('、') || '角色卡',
+  })), [displayedCharacterItems, groupNameOf]);
+
+  useEffect(() => {
+    if (!characterListNeedsCollapse && characterListExpanded) {
+      setCharacterListExpanded(false);
+      setCharacterScrubberOpen(false);
+    }
+  }, [characterListNeedsCollapse, characterListExpanded]);
+
+  useEffect(() => {
+    if (editMode) setCharacterScrubberOpen(false);
+  }, [editMode]);
+
+  useEffect(() => {
+    characterCardOffsetsRef.current = {};
+    characterCardRelativeOffsetsRef.current = {};
+  }, [characterListExpanded, query, visibleCharacters.length, visibleGroups.length]);
+
+  const scrollCharacterTo = useCallback(y => {
+    characterScrollRef.current?.scrollTo?.({ y: Math.max(0, y), animated: true });
+  }, []);
+
+  const updateCharacterCardOffsets = useCallback(() => {
+    const gridTop = characterGridLayoutRef.current.top;
+    Object.entries(characterCardRelativeOffsetsRef.current).forEach(([id, offset]) => {
+      characterCardOffsetsRef.current[id] = gridTop + offset;
+    });
+  }, []);
+
+  const onCharacterLibraryLayout = useCallback(event => {
+    characterLibraryLayoutRef.current = { top: Number(event.nativeEvent.layout.y) || 0 };
+    characterGridLayoutRef.current = {
+      top: characterLibraryLayoutRef.current.top + characterGridRelativeLayoutRef.current.top,
+      height: characterGridRelativeLayoutRef.current.height,
+    };
+    updateCharacterCardOffsets();
+  }, [updateCharacterCardOffsets]);
+
+  const onCharacterGridLayout = useCallback(event => {
+    const { y, height } = event.nativeEvent.layout;
+    characterGridRelativeLayoutRef.current = { top: Number(y) || 0, height: Number(height) || 0 };
+    characterGridLayoutRef.current = {
+      top: characterLibraryLayoutRef.current.top + characterGridRelativeLayoutRef.current.top,
+      height: characterGridRelativeLayoutRef.current.height,
+    };
+    updateCharacterCardOffsets();
+  }, [updateCharacterCardOffsets]);
+
+  const onCharacterItemLayout = useCallback((id, event) => {
+    const offset = Number(event.nativeEvent.layout.y || 0);
+    characterCardRelativeOffsetsRef.current[id] = offset;
+    characterCardOffsetsRef.current[id] = characterGridLayoutRef.current.top + offset;
+  }, []);
+
+  const onCharacterScrubberSeek = useCallback(index => {
+    const target = displayedCharacterItems[index];
+    if (!target) return;
+    const offset = characterCardOffsetsRef.current[target.id];
+    if (typeof offset === 'number') scrollCharacterTo(offset - 8);
+  }, [displayedCharacterItems, scrollCharacterTo]);
+
+  const onCharacterScrubberToStart = useCallback(() => {
+    const { top } = characterGridLayoutRef.current;
+    const viewport = characterViewportHeightRef.current || windowHeight;
+    scrollCharacterTo(getScrollRange({ top, height: 0, viewport }).start);
+  }, [scrollCharacterTo, windowHeight]);
+
+  const onCharacterScrubberToEnd = useCallback(() => {
+    const { top, height } = characterGridLayoutRef.current;
+    const viewport = characterViewportHeightRef.current || windowHeight;
+    scrollCharacterTo(getScrollRange({ top, height, viewport }).end);
+  }, [scrollCharacterTo, windowHeight]);
+
+  const toggleCharacterList = useCallback(() => {
+    const next = !characterListExpanded;
+    setCharacterListExpanded(next);
+    if (next) {
+      requestAnimationFrame(() => setCharacterScrubberOpen(characterListNeedsCollapse));
+    } else {
+      setCharacterScrubberOpen(false);
+    }
+  }, [characterListExpanded, characterListNeedsCollapse]);
+
   const onOpenGroup = useCallback(group => {
     switchSession(group.id)
       .then(() => navigation.navigate('聊天'))
@@ -1262,16 +1382,20 @@ export default function CharacterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={characterScrollRef}
         style={styles.container}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={false}
+        onLayout={event => {
+          characterViewportHeightRef.current = Number(event.nativeEvent.layout.height) || windowHeight;
+        }}
       >
         <View style={styles.pageHeader}>
           <Text style={styles.title}>角色</Text>
           <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
         </View>
 
-        <Card>
+        <Card onLayout={onCharacterLibraryLayout}>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="people-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1331,17 +1455,51 @@ export default function CharacterScreen() {
             placeholder="搜索角色名或标签"
             placeholderTextColor={theme.colors.textFaint}
           />
-          {visibleCharacters.length === 0 && (editMode || visibleGroups.length === 0) ? (
+          {characterListNeedsCollapse ? (
+            <View style={styles.characterListControls}>
+              <TouchableOpacity
+                style={styles.characterListToggle}
+                onPress={toggleCharacterList}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name={characterListExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={15}
+                  color={theme.colors.primarySoft}
+                />
+                <Text style={styles.characterListToggleText}>
+                  {characterListExpanded
+                    ? '折叠角色列表'
+                    : `展开全部角色（${characterDisplayItems.length}）`}
+                </Text>
+              </TouchableOpacity>
+              {characterListExpanded ? (
+                <TouchableOpacity
+                  style={styles.characterListLocate}
+                  onPress={() => setCharacterScrubberOpen(true)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="打开角色列表定位"
+                >
+                  <Ionicons name="options-outline" size={15} color={theme.colors.primarySoft} />
+                  <Text style={styles.characterListLocateText}>定位</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+          {characterDisplayItems.length === 0 ? (
             <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
           ) : null}
-          <View style={styles.characterGrid}>
-            {visibleCharacters.map(item => {
+          <View style={styles.characterGrid} onLayout={onCharacterGridLayout}>
+            {displayedCharacters.map(item => {
               const selected = !activeIsGroup && item.id === activeId;
               const checked = selectedIds.includes(item.id);
               return (
                 <TouchableOpacity
                   key={item.id}
                   style={[styles.characterCard, selected && styles.characterCardActive]}
+                  onLayout={event => onCharacterItemLayout(item.id, event)}
                   onPress={() => (editMode ? (item.id === 'default' ? null : toggleSelect(item.id)) : onSwitch(item.id))}
                   activeOpacity={0.85}
                   accessibilityRole="button"
@@ -1409,12 +1567,13 @@ export default function CharacterScreen() {
                 </TouchableOpacity>
               );
             })}
-            {!editMode && visibleGroups.map(group => {
+            {!editMode && displayedGroups.map(group => {
               const selected = group.id === activeSessionId;
               return (
                 <TouchableOpacity
                   key={`group-${group.id}`}
                   style={[styles.characterCard, selected && styles.characterCardActive]}
+                  onLayout={event => onCharacterItemLayout(`group-${group.id}`, event)}
                   onPress={() => onOpenGroup(group)}
                   activeOpacity={0.85}
                   accessibilityRole="button"
@@ -2035,6 +2194,16 @@ export default function CharacterScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <ScrollScrubber
+        visible={characterScrubberOpen && characterListExpanded && characterListNeedsCollapse}
+        onClose={() => setCharacterScrubberOpen(false)}
+        messageCount={displayedCharacterItems.length}
+        previews={characterScrubberPreviews}
+        onSeek={onCharacterScrubberSeek}
+        onToStart={onCharacterScrubberToStart}
+        onToEnd={onCharacterScrubberToEnd}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -2141,6 +2310,42 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     fontSize: fonts.scaled(13),
     marginTop: 10,
+  },
+  characterListControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  characterListToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderRadius: 10,
+    backgroundColor: theme.colors.primaryAlpha(0.12),
+  },
+  characterListToggleText: {
+    color: theme.colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 5,
+  },
+  characterListLocate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  characterListLocateText: {
+    color: theme.colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 4,
   },
   selectBar: {
     flexDirection: 'row',
