@@ -96,6 +96,11 @@ export default function SettingsScreen() {
     batchSize: 16,
   });
   const vectorMemoryRef = useRef(null);
+  const vectorSaveTimerRef = useRef(null);
+  const vectorSaveQueueRef = useRef(Promise.resolve());
+  const vectorRevisionRef = useRef(0);
+  const lastSavedVectorRef = useRef(null);
+  const vectorMountedRef = useRef(true);
   const [vectorTesting, setVectorTesting] = useState(false);
   const [vectorTopKDraft, setVectorTopKDraft] = useState('5');
   const [vectorMaxCharsDraft, setVectorMaxCharsDraft] = useState('400');
@@ -151,6 +156,10 @@ export default function SettingsScreen() {
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
   const profileSavingRef = useRef(null);
+  const profileWriteQueueRef = useRef(Promise.resolve());
+  const profileRevisionRef = useRef(0);
+  const lastSavedProfileRef = useRef(null);
+  const profileFlushRef = useRef(null);
   const profileMountedRef = useRef(true);
   const profileStateRef = useRef(null);
   profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri };
@@ -158,6 +167,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     profileMountedRef.current = true;
     return () => {
+      profileFlushRef.current?.();
       profileMountedRef.current = false;
       clearTimeout(profileTimerRef.current);
       clearTimeout(profileHintTimerRef.current);
@@ -172,6 +182,22 @@ export default function SettingsScreen() {
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
+
+  useEffect(() => {
+    vectorMountedRef.current = true;
+    return () => {
+      vectorMountedRef.current = false;
+      if (vectorSaveTimerRef.current) {
+        clearTimeout(vectorSaveTimerRef.current);
+        vectorSaveTimerRef.current = null;
+      }
+      const snapshot = vectorMemoryRef.current;
+      if (snapshot) {
+        const task = vectorSaveQueueRef.current.then(() => saveVectorMemoryConfig(snapshot));
+        vectorSaveQueueRef.current = task.catch(() => {});
+      }
+    };
+  }, []);
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const refreshPresetCount = useCallback(() => {
@@ -205,9 +231,11 @@ export default function SettingsScreen() {
       })
       .catch(() => {});
     getVectorMemoryConfig()
-      .then(config => {
-        vectorMemoryRef.current = config;
-        setVectorMemory(config);
+       .then(config => {
+         vectorMemoryRef.current = config;
+         lastSavedVectorRef.current = config;
+         setVectorMemory(config);
+
         setVectorTopKDraft(String(config.topK));
         setVectorMaxCharsDraft(String(config.maxChars));
       })
@@ -292,24 +320,54 @@ export default function SettingsScreen() {
     });
   }, [persistSampling]);
 
-  const updateVectorMemory = useCallback(async patch => {
+  const flushVectorMemory = useCallback(async () => {
+    if (vectorSaveTimerRef.current) {
+      clearTimeout(vectorSaveTimerRef.current);
+      vectorSaveTimerRef.current = null;
+    }
+    const snapshot = vectorMemoryRef.current;
+    if (!snapshot) return true;
+    const revision = vectorRevisionRef.current;
+    const task = vectorSaveQueueRef.current.then(() => saveVectorMemoryConfig(snapshot));
+    vectorSaveQueueRef.current = task.catch(() => {});
+    try {
+      const saved = await task;
+      lastSavedVectorRef.current = saved;
+      if (vectorMountedRef.current && revision === vectorRevisionRef.current) {
+        vectorMemoryRef.current = saved;
+        setVectorMemory(saved);
+      }
+      return true;
+    } catch (error) {
+      if (vectorMountedRef.current && revision === vectorRevisionRef.current) {
+        const previous = lastSavedVectorRef.current;
+        if (previous) {
+          vectorMemoryRef.current = previous;
+          setVectorMemory(previous);
+        }
+        Alert.alert('保存失败', '配置未保存，已恢复到上次成功状态。');
+      }
+      return false;
+    }
+  }, []);
+
+  const updateVectorMemory = useCallback(patch => {
     const base = vectorMemoryRef.current || vectorMemory;
     const next = { ...base, ...patch };
     vectorMemoryRef.current = next;
+    vectorRevisionRef.current += 1;
     setVectorMemory(next);
-    try {
-      const saved = await saveVectorMemoryConfig(next);
-      vectorMemoryRef.current = saved;
-      setVectorMemory(saved);
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, [vectorMemory]);
+    if (vectorSaveTimerRef.current) clearTimeout(vectorSaveTimerRef.current);
+    vectorSaveTimerRef.current = setTimeout(() => {
+      flushVectorMemory();
+    }, 500);
+  }, [flushVectorMemory, vectorMemory]);
 
   const testVector = useCallback(async () => {
     if (vectorTesting) return;
     setVectorTesting(true);
     try {
+      await flushVectorMemory();
       const dims = await testVectorConnection(vectorMemoryRef.current || vectorMemory);
       Alert.alert('连接成功', `向量维度：${dims}`);
     } catch (error) {
@@ -317,7 +375,7 @@ export default function SettingsScreen() {
     } finally {
       setVectorTesting(false);
     }
-  }, [vectorMemory, vectorTesting]);
+  }, [flushVectorMemory, vectorMemory, vectorTesting]);
 
   const updateInlineImage = useCallback(async patch => {
     const next = { ...inlineImageRef.current, ...patch };
@@ -375,11 +433,19 @@ export default function SettingsScreen() {
       .then(id => setActivePersonaIdState(id))
       .catch(() => {});
     getUserProfile()
-      .then(profile => {
-        setUserName(profile.userName);
-        setUserPersona(profile.persona);
-        setUserAvatarUri(profile.avatarUri || '');
-      })
+       .then(profile => {
+         const next = {
+           userName: profile.userName,
+           persona: profile.persona,
+           avatarUri: profile.avatarUri || '',
+         };
+         profileStateRef.current = next;
+         lastSavedProfileRef.current = next;
+         setUserName(next.userName);
+         setUserPersona(next.persona);
+         setUserAvatarUri(next.avatarUri);
+       })
+
       .catch(() => {})
       .finally(() => setUserProfileLoaded(true));
     return () => {
@@ -391,31 +457,52 @@ export default function SettingsScreen() {
     };
   }, []);
 
+  const flushUserProfile = useCallback(async () => {
+    if (profileTimerRef.current) {
+      clearTimeout(profileTimerRef.current);
+      profileTimerRef.current = null;
+    }
+    const snapshot = profileStateRef.current;
+    if (!snapshot) return true;
+    const revision = profileRevisionRef.current;
+    const saving = profileWriteQueueRef.current.then(() => saveUserProfile(snapshot));
+    profileWriteQueueRef.current = saving.catch(() => {});
+    profileSavingRef.current = saving;
+    try {
+      await saving;
+      lastSavedProfileRef.current = snapshot;
+      if (profileMountedRef.current && revision === profileRevisionRef.current) {
+        setUserProfileSaved(true);
+        clearTimeout(profileHintTimerRef.current);
+        profileHintTimerRef.current = setTimeout(() => setUserProfileSaved(false), 2000);
+      }
+      return true;
+    } catch (error) {
+      if (profileMountedRef.current) {
+        Alert.alert('保存失败', '用户资料未保存，当前内容仍保留在界面，请稍后重试。');
+      }
+      return false;
+    } finally {
+      if (profileSavingRef.current === saving) profileSavingRef.current = null;
+    }
+  }, []);
+  profileFlushRef.current = flushUserProfile;
+
   const saveUserProfileDelayed = useMemo(() => {
     return (name, persona, avatar) => {
       profileStateRef.current = {
         userName: name,
         persona,
-        avatarUri: avatar ?? profileStateRef.current.avatarUri,
+        avatarUri: avatar ?? profileStateRef.current?.avatarUri,
       };
+      profileRevisionRef.current += 1;
+      setUserProfileSaved(false);
       if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
-      profileTimerRef.current = setTimeout(async () => {
-        profileTimerRef.current = null;
-        const saving = (async () => {
-          try {
-            await saveUserProfile(profileStateRef.current);
-          } catch (error) {}
-        })();
-        profileSavingRef.current = saving;
-        await saving;
-        if (profileSavingRef.current === saving) profileSavingRef.current = null;
-        if (!profileMountedRef.current) return;
-        setUserProfileSaved(true);
-        clearTimeout(profileHintTimerRef.current);
-        profileHintTimerRef.current = setTimeout(() => setUserProfileSaved(false), 2000);
+      profileTimerRef.current = setTimeout(() => {
+        flushUserProfile();
       }, 600);
     };
-  }, []);
+  }, [flushUserProfile]);
 
   const changeUserAvatar = avatarUri => {
     if (!userProfileLoaded || !profileMountedRef.current) return;
@@ -428,28 +515,38 @@ export default function SettingsScreen() {
     try {
       const list = await getPersonas();
       const id = await getActivePersonaId(list);
-      setPersonas(list);
-      setActivePersonaIdState(id);
-      const active = list.find(item => item.id === id);
-      setUserName(active ? active.userName : '');
-      setUserPersona(active ? active.persona : '');
+       setPersonas(list);
+       setActivePersonaIdState(id);
+       const active = list.find(item => item.id === id);
+       const next = {
+         userName: active ? active.userName : '',
+         persona: active ? active.persona : '',
+         avatarUri: profileStateRef.current?.avatarUri || '',
+       };
+       profileStateRef.current = next;
+       lastSavedProfileRef.current = next;
+       setUserName(next.userName);
+       setUserPersona(next.persona);
+
     } catch (error) {}
   }, []);
 
   const selectPersona = async id => {
     if (id === activePersonaId) return;
-    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    const saved = await flushUserProfile();
+    if (!saved) return;
     try {
       const resolved = await setActivePersonaId(id);
       setActivePersonaIdState(resolved);
       await refreshPersonas();
     } catch (error) {
-      Alert.alert('切换失败', '请重试。');
+      Alert.alert('切换失败', '请稍后重试。');
     }
   };
 
   const addPersona = async () => {
-    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    const saved = await flushUserProfile();
+    if (!saved) return;
     try {
       await createPersona({ userName: '', persona: '' });
       await refreshPersonas();
@@ -468,15 +565,17 @@ export default function SettingsScreen() {
       {
         text: '删除',
         style: 'destructive',
-        onPress: async () => {
-          if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
-          try {
-            await deletePersona(id);
-            await refreshPersonas();
-          } catch (error) {
-            Alert.alert('删除失败', '至少保留一个人设。');
-          }
-        },
+         onPress: async () => {
+           const saved = await flushUserProfile();
+           if (!saved) return;
+           try {
+             await deletePersona(id);
+             await refreshPersonas();
+           } catch (error) {
+             Alert.alert('删除失败', '请检查存储空间或权限。');
+           }
+         },
+
       },
     ]);
   };
@@ -638,9 +737,10 @@ export default function SettingsScreen() {
         item.id === selected.id
           ? {
               ...item,
-              name: item.name.trim() || '未命名配置',
-              baseUrl: item.baseUrl.trim(),
-              apiKey: item.apiKey.trim(),
+               name: String(item.name || '').trim() || '未命名配置',
+               baseUrl: String(item.baseUrl || '').trim(),
+               apiKey: String(item.apiKey || '').trim(),
+
               models: trimmedModels,
               activeModel,
               supportsThinking: caps.supportsThinking === true,
@@ -676,8 +776,17 @@ export default function SettingsScreen() {
       Alert.alert('模型不能为空', '请至少添加一个模型。');
       return;
     }
-    const trimmedBaseUrl = selected.baseUrl.trim();
-    if (/^http:\/\//i.test(trimmedBaseUrl)) {
+     const trimmedBaseUrl = String(selected.baseUrl || '').trim();
+     if (!trimmedBaseUrl) {
+       Alert.alert('地址不能为空', '请填写 API 地址。');
+       return;
+     }
+     if (!/^https?:\/\//i.test(trimmedBaseUrl)) {
+       Alert.alert('地址格式无效', 'API 地址必须以 http:// 或 https:// 开头。');
+       return;
+     }
+     if (/^http:\/\//i.test(trimmedBaseUrl)) {
+
       const confirmed = await new Promise(resolve => {
         Alert.alert(
           '当前使用 HTTP',
@@ -823,18 +932,8 @@ export default function SettingsScreen() {
 
   const saveUserProfileNow = async () => {
     if (!userProfileLoaded) return;
-    clearTimeout(profileTimerRef.current);
-    profileTimerRef.current = null;
-    if (profileSavingRef.current) {
-      profileSavingRef.current.then(() => saveUserProfileNow());
-      return;
-    }
-    try {
-      await saveUserProfile(profileStateRef.current);
-      Alert.alert('已保存', '用户人设已保存到本机。');
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
+    const saved = await flushUserProfile();
+    if (saved) Alert.alert('已保存', '用户人设已保存到本机。');
   };
 
   const openTutorial = () => {
@@ -1450,16 +1549,20 @@ export default function SettingsScreen() {
           <FieldLabel style={styles.label}>接口地址</FieldLabel>
           <TextField
             value={vectorMemory.baseUrl}
-            onChangeText={text => updateVectorMemory({ baseUrl: text })}
-            placeholder="https://api.openai.com/v1"
+             onChangeText={text => updateVectorMemory({ baseUrl: text })}
+             onEndEditing={() => flushVectorMemory()}
+             placeholder="https://api.openai.com/v1"
+
             autoCapitalize="none"
             autoCorrect={false}
           />
           <FieldLabel style={styles.label}>密钥</FieldLabel>
           <TextField
             value={vectorMemory.apiKey}
-            onChangeText={text => updateVectorMemory({ apiKey: text })}
-            placeholder="sk-..."
+             onChangeText={text => updateVectorMemory({ apiKey: text })}
+             onEndEditing={() => flushVectorMemory()}
+             placeholder="sk-..."
+
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
@@ -1467,8 +1570,10 @@ export default function SettingsScreen() {
           <FieldLabel style={styles.label}>模型</FieldLabel>
           <TextField
             value={vectorMemory.model}
-            onChangeText={text => updateVectorMemory({ model: text })}
-            placeholder="text-embedding-3-small"
+             onChangeText={text => updateVectorMemory({ model: text })}
+             onEndEditing={() => flushVectorMemory()}
+             placeholder="text-embedding-3-small"
+
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -1476,10 +1581,14 @@ export default function SettingsScreen() {
           <TextField
             value={vectorTopKDraft}
             onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
-            onEndEditing={event => updateVectorMemory({ topK: event.nativeEvent.text }).then(() => {
-              const saved = vectorMemoryRef.current;
-              if (saved) setVectorTopKDraft(String(saved.topK));
-            })}
+             onEndEditing={event => {
+               updateVectorMemory({ topK: event.nativeEvent.text });
+               flushVectorMemory().then(() => {
+                 const saved = vectorMemoryRef.current;
+                 if (saved) setVectorTopKDraft(String(saved.topK));
+               });
+             }}
+
             keyboardType="number-pad"
             placeholder="5"
           />
@@ -1487,10 +1596,14 @@ export default function SettingsScreen() {
           <TextField
             value={vectorMaxCharsDraft}
             onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
-            onEndEditing={event => updateVectorMemory({ maxChars: event.nativeEvent.text }).then(() => {
-              const saved = vectorMemoryRef.current;
-              if (saved) setVectorMaxCharsDraft(String(saved.maxChars));
-            })}
+             onEndEditing={event => {
+               updateVectorMemory({ maxChars: event.nativeEvent.text });
+               flushVectorMemory().then(() => {
+                 const saved = vectorMemoryRef.current;
+                 if (saved) setVectorMaxCharsDraft(String(saved.maxChars));
+               });
+             }}
+
             keyboardType="number-pad"
             placeholder="400"
           />
