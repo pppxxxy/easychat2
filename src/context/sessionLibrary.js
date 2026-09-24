@@ -81,7 +81,11 @@ export function buildPreview(messages, maxLength = 60) {
     const item = list[index];
     if (!item || item.pending) continue;
     if (item.role !== 'user' && item.role !== 'assistant') continue;
-    const text = String(item.text || '').replace(/\s+/g, ' ').trim();
+    const text = String(
+      item.text
+      || (item.image && (item.image.stickerName || item.image.name))
+      || ''
+    ).replace(/\s+/g, ' ').trim();
     if (!text) continue;
     return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
   }

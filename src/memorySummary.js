@@ -1,8 +1,8 @@
 import { sendChatMessage } from './api';
 import { createWorldEntry } from './cardParser';
 import {
-  appendSessionSummary,
   getSessionSummaries,
+  saveSessionSummaries,
   setSessionSummarizedUpTo,
 } from './storage';
 
@@ -200,17 +200,22 @@ export async function applySummary({
   const boundary = list[list.length - 1].id;
 
   if (scoped) {
-    await appendSessionSummary(session.id, {
-      summary,
-      keywords,
-      boundary,
-      createdAt: Date.now(),
-    });
-    await setSessionSummarizedUpTo(session.id, boundary);
+    const nextSummaries = [
+      ...existingSessionSummaries,
+      { summary, keywords, boundary, createdAt: Date.now() },
+    ];
+    await saveSessionSummaries(session.id, nextSummaries);
+    try {
+      await setSessionSummarizedUpTo(session.id, boundary);
+    } catch (error) {
+      await saveSessionSummaries(session.id, existingSessionSummaries).catch(() => {});
+      throw error;
+    }
     return { entry: null, boundary, summary, keywords, scoped: true, skipped: false };
   }
 
   const worldInfo = Array.isArray(character && character.worldInfo) ? character.worldInfo : [];
+  const previousWorldInfo = worldInfo;
   const count = worldInfo.filter(entry =>
     String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
   ).length;
@@ -225,6 +230,11 @@ export async function applySummary({
     order: 10,
   }, count);
   await updateCharacter({ id: character.id, worldInfo: [...worldInfo, entry] });
-  await setSessionSummarizedUpTo(session.id, boundary);
+  try {
+    await setSessionSummarizedUpTo(session.id, boundary);
+  } catch (error) {
+    await updateCharacter({ id: character.id, worldInfo: previousWorldInfo }).catch(() => {});
+    throw error;
+  }
   return { entry, boundary, summary, keywords, scoped: false, skipped: false };
 }

@@ -20,6 +20,14 @@
         {
           "sizeMB": 1024
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "选择图片发送到聊天或保存为表情包",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
       ]
     ],
     "android": {
@@ -35,8 +43,16 @@
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_IMAGES"
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "选择图片发送到聊天或保存为表情包"
+      }
     },
     "extra": {
       "eas": {

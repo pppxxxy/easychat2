@@ -50,6 +50,9 @@ const IMAGE_GEN_KEY = '@easychat2_image_gen';
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
 const APPEARANCE_KEY = '@easychat2_appearance';
 const INLINE_IMAGE_KEY = '@easychat2_inline_image';
+const STICKERS_KEY = '@easychat2_stickers';
+const STICKER_INDEX_KEY = '@easychat2_sticker_index';
+const STICKER_ITEM_PREFIX = '@easychat2_sticker_item';
 const TTS_KEY = '@easychat2_tts';
 const SAMPLING_KEY = '@easychat2_sampling';
 const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
@@ -65,6 +68,16 @@ const LEGACY_MESSAGES_KEY = '@easychat2_messages';
 const CARD_FORGE_KEY = '@easychat2_card_forge';
 
 let characterLibraryWriteBlocked = false;
+let stickerWriteQueue = Promise.resolve();
+let sessionMutationQueue = Promise.resolve();
+const deletedSessionIds = new Set();
+const protectedChatImageUris = new Set();
+
+function enqueueSessionMutation(task) {
+  const next = sessionMutationQueue.then(task, task);
+  sessionMutationQueue = next.catch(() => {});
+  return next;
+}
 
 const DEFAULT_API_CONFIG = {
   baseUrl: 'https://api.deepseek.com',
@@ -327,9 +340,14 @@ async function writeCharacterPayload(character) {
   }
   const fileName = characterPayloadFileName(character.id);
   await FileSystem.makeDirectoryAsync(characterPayloadDirectory(), { intermediates: true });
-  await FileSystem.writeAsStringAsync(characterPayloadPath(fileName), serialized, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  try {
+    await FileSystem.writeAsStringAsync(characterPayloadPath(fileName), serialized, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+  } catch (error) {
+    await FileSystem.deleteAsync(characterPayloadPath(fileName), { idempotent: true }).catch(() => {});
+    throw error;
+  }
   return {
     value: JSON.stringify({
       storage: 'file',
@@ -450,25 +468,47 @@ async function rebuildCharacterItemsFromKeys() {
 async function persistLibrary(list) {
   const previousIds = (await readCharacterIndex()).ids || [];
   const stale = new Set(previousIds);
-  const pairs = [];
-  const ids = [];
-  const activeFileNames = new Set();
-  for (const character of list) {
-    const id = String(character.id);
-    const payload = await writeCharacterPayload(character);
-    ids.push(id);
-    if (payload.fileName) activeFileNames.add(payload.fileName);
-    pairs.push([characterItemKey(id), payload.value]);
-    stale.delete(id);
+  const ids = list.map(character => String(character.id));
+  const previousValues = new Map();
+  for (const id of new Set([...previousIds, ...ids])) {
+    previousValues.set(id, await AsyncStorage.getItem(characterItemKey(id)));
   }
-  if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
-  await AsyncStorage.setItem(CHARACTER_INDEX_KEY, JSON.stringify(ids));
+  const pairs = [];
+  const activeFileNames = new Set();
+  const writtenFileNames = [];
   try {
-    await AsyncStorage.setItem(CHARACTER_MIGRATION_KEY, JSON.stringify({
-      version: CHARACTER_PAYLOAD_FILE_VERSION,
-      ids,
-    }));
-  } catch (error) {}
+    for (const character of list) {
+      const id = String(character.id);
+      const payload = await writeCharacterPayload(character);
+      if (payload.fileName) {
+        activeFileNames.add(payload.fileName);
+        writtenFileNames.push(payload.fileName);
+      }
+      pairs.push([characterItemKey(id), payload.value]);
+      stale.delete(id);
+    }
+    if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
+    await AsyncStorage.setItem(CHARACTER_INDEX_KEY, JSON.stringify(ids));
+    try {
+      await AsyncStorage.setItem(CHARACTER_MIGRATION_KEY, JSON.stringify({
+        version: CHARACTER_PAYLOAD_FILE_VERSION,
+        ids,
+      }));
+    } catch (error) {}
+  } catch (error) {
+    const restorePairs = [];
+    const removeKeys = [];
+    for (const [id, value] of previousValues) {
+      if (value === null || value === undefined) removeKeys.push(characterItemKey(id));
+      else restorePairs.push([characterItemKey(id), value]);
+    }
+    if (restorePairs.length > 0) await AsyncStorage.multiSet(restorePairs).catch(() => {});
+    if (removeKeys.length > 0) await AsyncStorage.multiRemove(removeKeys).catch(() => {});
+    await Promise.all(writtenFileNames.map(fileName => (
+      FileSystem.deleteAsync(characterPayloadPath(fileName), { idempotent: true }).catch(() => {})
+    )));
+    throw error;
+  }
   await cleanupCharacterPayloadFiles(activeFileNames);
   const staleKeys = Array.from(stale).map(characterItemKey);
   if (staleKeys.length > 0) {
@@ -851,6 +891,10 @@ export async function saveVectorIndex(characterId, index) {
   return list;
 }
 
+export async function clearVectorIndex(characterId) {
+  await AsyncStorage.removeItem(vectorIndexKey(characterId));
+}
+
 function normalizeImageProviderId(value) {
   const id = String(value || '');
   return isKnownImageProvider(id) ? id : '';
@@ -980,6 +1024,142 @@ export async function saveInlineImageSettings(settings) {
   const normalized = normalizeInlineImage(settings);
   await AsyncStorage.setItem(INLINE_IMAGE_KEY, JSON.stringify(normalized));
   return normalized;
+}
+
+function stickerItemKey(id) {
+  return `${STICKER_ITEM_PREFIX}::${String(id || '')}`;
+}
+
+function normalizeSticker(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    id: String(source.id || ''),
+    name: String(source.name || '').trim(),
+    uri: String(source.uri || ''),
+    mime: String(source.mime || 'image/jpeg'),
+    width: Number(source.width) || 0,
+    height: Number(source.height) || 0,
+    createdAt: Number(source.createdAt) || 0,
+  };
+}
+
+async function readStickerIndexStatus() {
+  const stored = await readJsonStatus(STICKER_INDEX_KEY);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    await backupCorruptValue(STICKER_INDEX_KEY);
+    return { status: 'corrupt', ids: [] };
+  }
+  if (stored.status === 'missing') return { status: 'missing', ids: [] };
+  return {
+    status: 'ok',
+    ids: [...new Set((stored.value || []).map(id => String(id || '')).filter(Boolean))],
+  };
+}
+
+function sortStickers(list) {
+  return (Array.isArray(list) ? list : [])
+    .map(normalizeSticker)
+    .filter(item => item.id && item.name && item.uri)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+async function migrateLegacyStickers() {
+  const legacy = await readJsonStatus(STICKERS_KEY);
+  if (legacy.status === 'missing') return { status: 'missing', stickers: [] };
+  if (legacy.status === 'corrupt' || !Array.isArray(legacy.value)) {
+    await backupCorruptValue(STICKERS_KEY);
+    return { status: 'corrupt', stickers: [] };
+  }
+  const normalized = legacy.value.map(normalizeSticker);
+  if (normalized.some(item => !item.id || !item.name || !item.uri)) {
+    await backupCorruptValue(STICKERS_KEY);
+    return { status: 'corrupt', stickers: [] };
+  }
+  const stickers = sortStickers(normalized);
+  const ids = [...new Set(stickers.map(item => item.id))];
+  if (ids.length > 0) {
+    await AsyncStorage.multiSet(stickers.map(item => [stickerItemKey(item.id), JSON.stringify(item)]));
+    await AsyncStorage.setItem(STICKER_INDEX_KEY, JSON.stringify(ids));
+  } else {
+    await AsyncStorage.setItem(STICKER_INDEX_KEY, JSON.stringify([]));
+  }
+  await AsyncStorage.removeItem(STICKERS_KEY);
+  return { status: 'ok', stickers };
+}
+
+async function readStickerStatus() {
+  const index = await readStickerIndexStatus();
+  if (index.status === 'missing') return migrateLegacyStickers();
+  if (index.status !== 'ok') return { status: index.status, stickers: [] };
+  const stickers = [];
+  for (const id of index.ids) {
+    const stored = await readJsonStatus(stickerItemKey(id));
+    if (stored.status === 'missing') {
+      await backupCorruptValue(stickerItemKey(id));
+      return { status: 'corrupt', stickers: [] };
+    }
+    if (stored.status === 'corrupt' || !stored.value || typeof stored.value !== 'object' || Array.isArray(stored.value)) {
+      await backupCorruptValue(stickerItemKey(id));
+      return { status: 'corrupt', stickers: [] };
+    }
+    const normalized = normalizeSticker(stored.value);
+    if (!normalized.id || !normalized.name || !normalized.uri) {
+      await backupCorruptValue(stickerItemKey(id));
+      return { status: 'corrupt', stickers: [] };
+    }
+    stickers.push(normalized);
+  }
+  return { status: 'ok', stickers: sortStickers(stickers) };
+}
+
+async function writeStickerCollection(stickers) {
+  const list = sortStickers(stickers).filter(
+    (item, index, all) => all.findIndex(other => other.id === item.id) === index
+  );
+  const ids = list.map(item => item.id);
+  if (list.length > 0) {
+    await AsyncStorage.multiSet(list.map(item => [stickerItemKey(item.id), JSON.stringify(item)]));
+  }
+  await AsyncStorage.setItem(STICKER_INDEX_KEY, JSON.stringify(ids));
+  await AsyncStorage.removeItem(STICKERS_KEY);
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const activeIds = new Set(ids);
+    const staleKeys = keys.filter(key => (
+      String(key).startsWith(`${STICKER_ITEM_PREFIX}::`)
+      && !activeIds.has(String(key).slice(`${STICKER_ITEM_PREFIX}::`.length))
+    ));
+    if (staleKeys.length > 0) await AsyncStorage.multiRemove(staleKeys);
+  } catch (error) {}
+}
+
+export function getStickers() {
+  const task = stickerWriteQueue.then(async () => {
+    const result = await readStickerStatus();
+    return result.stickers;
+  });
+  stickerWriteQueue = task.catch(() => {});
+  return task;
+}
+
+export function saveSticker(sticker) {
+  const task = stickerWriteQueue.then(async () => {
+    const normalized = normalizeSticker(sticker);
+    if (!normalized.id || !normalized.name || !normalized.uri) {
+      throw new Error('表情包信息不完整');
+    }
+    const result = await readStickerStatus();
+    if (result.status === 'corrupt') {
+      throw new Error('表情包记录读取失败，请稍后重试');
+    }
+    await writeStickerCollection([
+      normalized,
+      ...result.stickers.filter(item => item.id !== normalized.id),
+    ]);
+    return normalized;
+  });
+  stickerWriteQueue = task.catch(() => {});
+  return task;
 }
 
 const DEFAULT_TTS = { enabled: false, activeProvider: 'system', providers: {} };
@@ -1791,12 +1971,16 @@ async function requireSessions() {
   return sessions;
 }
 
-export async function saveSessions(sessions) {
+async function saveSessionsInternal(sessions) {
   const list = ensureUniqueSessionIds(
     (Array.isArray(sessions) ? sessions : []).map(normalizeSession)
   );
   await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(list));
   return list;
+}
+
+export function saveSessions(sessions) {
+  return enqueueSessionMutation(() => saveSessionsInternal(sessions));
 }
 
 export async function getActiveSessionId() {
@@ -1808,8 +1992,81 @@ export async function getActiveSessionId() {
   }
 }
 
-export async function setActiveSessionId(id) {
+async function setActiveSessionIdInternal(id) {
   await AsyncStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(String(id || '')));
+}
+
+export function setActiveSessionId(id) {
+  return enqueueSessionMutation(() => setActiveSessionIdInternal(id));
+}
+
+export function setProtectedChatImageUris(uris) {
+  protectedChatImageUris.clear();
+  (Array.isArray(uris) ? uris : []).forEach(uri => {
+    const value = String(uri || '');
+    if (value.includes('/chat-images/')) protectedChatImageUris.add(value);
+  });
+}
+
+function imageUrisFromMessages(messages) {
+  const result = new Set();
+  (Array.isArray(messages) ? messages : []).forEach(item => {
+    const uri = String(item && item.image && item.image.uri || '');
+    if (uri.includes('/chat-images/')) result.add(uri);
+  });
+  return result;
+}
+
+export async function collectChatImageFiles(protectedUris = []) {
+  let keys = [];
+  try {
+    keys = await AsyncStorage.getAllKeys();
+  } catch (error) {
+    return false;
+  }
+  const messageKeys = keys.filter(key => (
+    key === MESSAGES_KEY_PREFIX || String(key).startsWith(`${MESSAGES_KEY_PREFIX}::`)
+  ));
+  const referenced = new Set([
+    ...protectedChatImageUris,
+    ...(Array.isArray(protectedUris) ? protectedUris : [])
+      .map(uri => String(uri || ''))
+      .filter(uri => uri.includes('/chat-images/')),
+  ]);
+  for (const key of messageKeys) {
+    if (String(key).endsWith(CORRUPT_BACKUP_SUFFIX)) return false;
+    let raw = null;
+    try {
+      raw = await AsyncStorage.getItem(key);
+    } catch (error) {
+      raw = await readLargeAsyncStorageValue(key);
+    }
+    if (raw === null || raw === undefined) return false;
+    if (!raw) continue;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      return false;
+    }
+    if (!Array.isArray(parsed)) return false;
+    imageUrisFromMessages(parsed).forEach(uri => referenced.add(uri));
+  }
+  const directory = `${FileSystem.documentDirectory || ''}chat-images/`;
+  let entries = [];
+  try {
+    entries = await FileSystem.readDirectoryAsync(directory);
+  } catch (error) {
+    return true;
+  }
+  for (const entry of entries) {
+    const uri = `${directory}${entry}`;
+    if (referenced.has(uri)) continue;
+    try {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    } catch (error) {}
+  }
+  return true;
 }
 
 export async function getMessagesBySessionStatus(sessionId) {
@@ -1832,9 +2089,20 @@ export async function getMessagesBySession(sessionId) {
   return messages;
 }
 
-export async function saveMessagesBySession(sessionId, messages, characterId = '') {
+async function saveMessagesBySessionInternal(sessionId, messages, characterId = '', protectedUris = []) {
+  const id = String(sessionId || '');
+  if (deletedSessionIds.has(id)) return [];
   const persistable = (messages || []).filter(item => item && !item.pending);
+  const previousStatus = await getMessagesBySessionStatus(sessionId);
+  const previousImages = previousStatus.status === 'corrupt'
+    ? new Set()
+    : imageUrisFromMessages(previousStatus.messages);
+  const nextImages = imageUrisFromMessages(persistable);
+  const removedImage = [...previousImages].some(uri => !nextImages.has(uri));
   await AsyncStorage.setItem(sessionMessagesKey(sessionId), JSON.stringify(persistable));
+  if (removedImage && previousStatus.status !== 'corrupt') {
+    await collectChatImageFiles(protectedUris);
+  }
   const sessionsStatus = await readSessionsStatus();
   // 会话列表读不出时只保留消息体落盘，绝不用空/部分列表整表覆盖（否则会真丢会话）。
   if (sessionsStatus.status === 'corrupt') return persistable;
@@ -1846,7 +2114,7 @@ export async function saveMessagesBySession(sessionId, messages, characterId = '
         ? { ...session, preview: buildPreview(persistable), updatedAt: Date.now() }
         : session
     );
-    await saveSessions(sortSessions(updated));
+    await saveSessionsInternal(sortSessions(updated));
     return persistable;
   }
   // 会话条目缺失（历史版本的 startNewSession 会误删），但消息体还在：
@@ -1868,18 +2136,25 @@ export async function saveMessagesBySession(sessionId, messages, characterId = '
         createdAt: timestamps.length ? Math.min(...timestamps) : Date.now(),
         updatedAt: timestamps.length ? Math.max(...timestamps) : Date.now(),
       };
-      await saveSessions(sortSessions([...sessions, restored]));
+      await saveSessionsInternal(sortSessions([...sessions, restored]));
     }
   }
   return persistable;
 }
 
-export async function setSessionSummarizedUpTo(sessionId, messageId) {
+async function setSessionSummarizedUpToInternal(sessionId, messageId) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target) throw new Error('会话不存在');
   const nextBoundary = String(messageId || '');
-  if (!nextBoundary) return target;
+  if (!nextBoundary) {
+    if (!target.summarizedUpTo) return target;
+    const updated = { ...target, summarizedUpTo: '' };
+    await saveSessionsInternal(sessions.map(session => (
+      session.id === sessionId ? updated : session
+    )));
+    return updated;
+  }
   const messages = await getMessagesBySession(sessionId);
   const newIndex = messages.findIndex(item => item.id === nextBoundary);
   if (newIndex < 0) throw new Error('总结边界无效');
@@ -1888,8 +2163,12 @@ export async function setSessionSummarizedUpTo(sessionId, messageId) {
     return target;
   }
   const updated = { ...target, summarizedUpTo: nextBoundary };
-  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
   return updated;
+}
+
+export function setSessionSummarizedUpTo(sessionId, messageId) {
+  return enqueueSessionMutation(() => setSessionSummarizedUpToInternal(sessionId, messageId));
 }
 
 function sessionSummariesKey(sessionId) {
@@ -1927,7 +2206,7 @@ export async function getSessionSummaries(sessionId) {
   return summaries;
 }
 
-export async function saveSessionSummaries(sessionId, list) {
+async function saveSessionSummariesInternal(sessionId, list) {
   const normalized = (Array.isArray(list) ? list : [])
     .map(normalizeSessionSummary)
     .filter(item => item.summary.trim().length > 0);
@@ -1935,13 +2214,41 @@ export async function saveSessionSummaries(sessionId, list) {
   return normalized;
 }
 
-export async function appendSessionSummary(sessionId, entry) {
-  const { status, summaries } = await getSessionSummariesStatus(sessionId);
-  // 读不出历史摘要时不能当作空表写回，否则该会话的历史摘要会被压成这一条。
-  if (status === 'corrupt') throw new Error('记忆摘要读取失败，请稍后重试');
-  const next = [...summaries, normalizeSessionSummary(entry)];
-  await saveSessionSummaries(sessionId, next);
-  return next;
+export function saveSessionSummaries(sessionId, list) {
+  return enqueueSessionMutation(() => saveSessionSummariesInternal(sessionId, list));
+}
+
+export function resetSessionSummaries(sessionId) {
+  return enqueueSessionMutation(async () => {
+    const sessions = await requireSessions();
+    const target = sessions.find(session => session.id === sessionId);
+    if (!target) throw new Error('会话不存在');
+    const key = sessionSummariesKey(sessionId);
+    const previous = await AsyncStorage.getItem(key);
+    await AsyncStorage.removeItem(key);
+    try {
+      return await saveSessionsInternal(sessions.map(session => (
+        session.id === sessionId ? { ...session, summarizedUpTo: '' } : session
+      )));
+    } catch (error) {
+      if (previous !== null && previous !== undefined) {
+        await AsyncStorage.setItem(key, previous).catch(() => {});
+      }
+      throw error;
+    }
+  });
+}
+
+export function appendSessionSummary(sessionId, entry) {
+  const task = enqueueSessionMutation(async () => {
+    const { status, summaries } = await getSessionSummariesStatus(sessionId);
+    // 读不出历史摘要时不能当作空表写回，否则该会话的历史摘要会被压成这一条。
+    if (status === 'corrupt') throw new Error('记忆摘要读取失败，请稍后重试');
+    const next = [...summaries, normalizeSessionSummary(entry)];
+    await saveSessionSummariesInternal(sessionId, next);
+    return next;
+  });
+  return task;
 }
 
 export async function searchMessages(keyword) {
@@ -1966,7 +2273,11 @@ export async function searchMessages(keyword) {
     }
     for (const message of stored) {
       if (message.role !== 'user' && message.role !== 'assistant') continue;
-      const text = String(message.text || '');
+      const text = String(
+        message.text
+        || (message.image && (message.image.stickerName || message.image.name))
+        || ''
+      );
       if (!text || !text.toLowerCase().includes(needle)) continue;
       results.push({
         sessionId: session.id,
@@ -1991,7 +2302,7 @@ async function readLegacyMessages(characterId) {
   return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
 }
 
-export async function startNewSession(characterId, opening = null) {
+async function startNewSessionInternal(characterId, opening = null) {
   // 这里以前会先扫描每个会话的消息体，只把“读得到内容”的会话写回列表。
   // 于是任何一次读取失败（例如值过大触发 Android cursor window）都会让该会话
   // 被静默地从会话列表里删除：消息体还在，但会话再也看不见、也删不掉，
@@ -2014,31 +2325,31 @@ export async function startNewSession(characterId, opening = null) {
     await AsyncStorage.setItem(sessionMessagesKey(created.id), JSON.stringify([greeting]));
   }
   const next = sortSessions([...sessions, created]);
-  await saveSessions(next);
-  await setActiveSessionId(created.id);
+  await saveSessionsInternal(next);
+  await setActiveSessionIdInternal(created.id);
   return created;
 }
 
-export async function setSessionGreetingSelected(sessionId, selected = true) {
+async function setSessionGreetingSelectedInternal(sessionId, selected = true) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target || target.type === 'group') return target || null;
   const updated = { ...target, greetingSelected: selected !== false };
   if (updated.greetingSelected === target.greetingSelected) return target;
-  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
   return updated;
 }
 
-export async function createGroupSession(members, name, extras = {}) {
+async function createGroupSessionInternal(members, name, extras = {}) {
   const sessions = await requireSessions();
   const created = buildGroupSession(members, name, sessions, Date.now(), extras);
   const next = sortSessions([...sessions, created]);
-  await saveSessions(next);
-  await setActiveSessionId(created.id);
+  await saveSessionsInternal(next);
+  await setActiveSessionIdInternal(created.id);
   return created;
 }
 
-export async function updateSessionInfo(sessionId, patch = {}) {
+async function updateSessionInfoInternal(sessionId, patch = {}) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target || target.type !== 'group') return target || null;
@@ -2048,11 +2359,11 @@ export async function updateSessionInfo(sessionId, patch = {}) {
   if (source.avatarUri !== undefined) updated.avatarUri = String(source.avatarUri || '');
   if (source.bgUri !== undefined) updated.bgUri = String(source.bgUri || '');
   updated.updatedAt = Date.now();
-  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
   return updated;
 }
 
-export async function updateSessionMemberProfiles(sessionId, memberProfiles) {
+async function updateSessionMemberProfilesInternal(sessionId, memberProfiles) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target || target.type !== 'group') return target || null;
@@ -2068,11 +2379,11 @@ export async function updateSessionMemberProfiles(sessionId, memberProfiles) {
   }
   if (!changed) return target;
   const updated = { ...target, memberProfiles: merged };
-  await saveSessions(sessions.map(session => (session.id === sessionId ? updated : session)));
+  await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
   return updated;
 }
 
-export async function cloneSession(sessionId) {
+async function cloneSessionInternal(sessionId) {
   const sessions = await requireSessions();
   const source = sessions.find(session => session.id === sessionId);
   if (!source) throw new Error('会话不存在');
@@ -2083,33 +2394,35 @@ export async function cloneSession(sessionId) {
     sessionMessagesKey(copy.id),
     JSON.stringify(regenerateMessageIds(messages, now))
   );
-  await saveSessions(sortSessions([...sessions, copy]));
+  await saveSessionsInternal(sortSessions([...sessions, copy]));
   return copy;
 }
 
-export async function deleteSession(sessionId) {
+async function deleteSessionInternal(sessionId) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   const activeId = await getActiveSessionId();
   const remaining = sessions.filter(session => session.id !== sessionId);
-  await saveSessions(remaining);
+  await saveSessionsInternal(remaining);
+  deletedSessionIds.add(String(sessionId));
   try {
     await AsyncStorage.multiRemove([
       sessionMessagesKey(sessionId),
       sessionSummariesKey(sessionId),
     ]);
   } catch (error) {}
+  await collectChatImageFiles();
   if (activeId === sessionId) {
     const created = createEmptySession(target && target.characterId, remaining);
     const next = sortSessions([...remaining, created]);
-    await saveSessions(next);
-    await setActiveSessionId(created.id);
+    await saveSessionsInternal(next);
+    await setActiveSessionIdInternal(created.id);
     return { sessions: next, activeSessionId: created.id, created };
   }
   return { sessions: remaining, activeSessionId: activeId, created: null };
 }
 
-export async function deleteSessions(sessionIds) {
+async function deleteSessionsInternal(sessionIds) {
   const ids = (Array.isArray(sessionIds) ? sessionIds : [])
     .map(id => String(id || ''))
     .filter(Boolean);
@@ -2119,14 +2432,65 @@ export async function deleteSessions(sessionIds) {
   }
   const idSet = new Set(ids);
   const remaining = sessions.filter(session => !idSet.has(session.id));
-  await saveSessions(remaining);
+  await saveSessionsInternal(remaining);
+  ids.forEach(id => deletedSessionIds.add(String(id)));
   try {
     await AsyncStorage.multiRemove(ids.flatMap(id => [
       sessionMessagesKey(id),
       sessionSummariesKey(id),
     ]));
   } catch (error) {}
+  await collectChatImageFiles();
   return { sessions: remaining, activeSessionId: await getActiveSessionId() };
+}
+
+export function saveMessagesBySession(sessionId, messages, characterId = '', protectedUris = []) {
+  return enqueueSessionMutation(() => saveMessagesBySessionInternal(
+    sessionId,
+    messages,
+    characterId,
+    protectedUris
+  ));
+}
+
+export function startNewSession(characterId, opening = null) {
+  return enqueueSessionMutation(() => startNewSessionInternal(characterId, opening));
+}
+
+export function setSessionGreetingSelected(sessionId, selected = true) {
+  return enqueueSessionMutation(() => setSessionGreetingSelectedInternal(sessionId, selected));
+}
+
+export function createGroupSession(members, name, extras = {}) {
+  return enqueueSessionMutation(() => createGroupSessionInternal(members, name, extras));
+}
+
+export function updateSessionInfo(sessionId, patch = {}) {
+  return enqueueSessionMutation(() => updateSessionInfoInternal(sessionId, patch));
+}
+
+export function updateSessionMemberProfiles(sessionId, memberProfiles) {
+  return enqueueSessionMutation(() => updateSessionMemberProfilesInternal(sessionId, memberProfiles));
+}
+
+export function cloneSession(sessionId) {
+  return enqueueSessionMutation(() => cloneSessionInternal(sessionId));
+}
+
+export function deleteSession(sessionId) {
+  return enqueueSessionMutation(() => deleteSessionInternal(sessionId));
+}
+
+export function deleteSessions(sessionIds) {
+  return enqueueSessionMutation(() => deleteSessionsInternal(sessionIds));
+}
+
+export function restoreSession(sessionId, characterId) {
+  return enqueueSessionMutation(() => restoreSessionInternal(sessionId, characterId));
+}
+
+export function migrateLegacyMessages(characters) {
+  return enqueueSessionMutation(() => migrateLegacyMessagesInternal(characters));
 }
 
 // 找出"消息体还在、会话记录却丢了"的孤儿对话。
@@ -2213,7 +2577,7 @@ export async function findOrphanSessions() {
 
 // 把孤儿对话按指定角色补回会话列表，id 沿用原值，消息与已有的记忆摘要都会接上。
 // 群聊（消息里带多个 speakerId）不需要归属角色，会还原成群聊并保留成员。
-export async function restoreSession(sessionId, characterId) {
+async function restoreSessionInternal(sessionId, characterId) {
   const id = String(sessionId || '');
   const owner = String(characterId || '');
   if (!id) throw new Error('恢复参数不完整');
@@ -2233,11 +2597,11 @@ export async function restoreSession(sessionId, characterId) {
       restored.summarizedUpTo = boundary;
     }
   }
-  await saveSessions(sortSessions([...sessions, restored]));
+  await saveSessionsInternal(sortSessions([...sessions, restored]));
   return restored;
 }
 
-export async function migrateLegacyMessages(characters) {
+async function migrateLegacyMessagesInternal(characters) {
   const list = Array.isArray(characters) ? characters : [];
   const sessions = await requireSessions();
   const existingIds = new Set(sessions.map(session => session.id));
@@ -2269,7 +2633,7 @@ export async function migrateLegacyMessages(characters) {
     migrated.push(session);
   }
   if (migrated.length > 0) {
-    await saveSessions(sortSessions([...sessions, ...migrated]));
+    await saveSessionsInternal(sortSessions([...sessions, ...migrated]));
   }
   return migrated;
 }

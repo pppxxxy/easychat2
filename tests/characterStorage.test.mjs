@@ -271,3 +271,86 @@ test('迁移标记存在时保留当前索引，不重新复活已删除角色',
   const list = await storage.getCharacterLibrary();
   assert.deepEqual(list.map(item => item.id), ['default']);
 });
+
+test('表情包元数据迁移到索引与分片键并保持串行写入', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_stickers', JSON.stringify([
+    { id: 'sticker-a', name: '开心', uri: 'file:///stickers/a.jpg', createdAt: 1 },
+    { id: 'sticker-b', name: '生气', uri: 'file:///stickers/b.jpg', createdAt: 2 },
+  ]));
+
+  assert.deepEqual((await storage.getStickers()).map(item => item.id), ['sticker-b', 'sticker-a']);
+  assert.deepEqual(JSON.parse(store.get('@easychat2_sticker_index')), ['sticker-b', 'sticker-a']);
+  assert.equal(store.has('@easychat2_stickers'), false);
+  assert.equal(JSON.parse(store.get('@easychat2_sticker_item::sticker-a')).name, '开心');
+
+  await Promise.all([
+    storage.saveSticker({ id: 'sticker-c', name: '惊讶', uri: 'file:///stickers/c.jpg', createdAt: 3 }),
+    storage.saveSticker({ id: 'sticker-d', name: '思考', uri: 'file:///stickers/d.jpg', createdAt: 4 }),
+  ]);
+  const ids = (await storage.getStickers()).map(item => item.id);
+  assert.deepEqual(ids, ['sticker-d', 'sticker-c', 'sticker-b', 'sticker-a']);
+  assert.equal(JSON.parse(store.get('@easychat2_sticker_item::sticker-c')).name, '惊讶');
+});
+
+test('损坏的旧表情包键只备份不迁移覆盖', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_stickers', JSON.stringify([{ id: 'broken' }]));
+  assert.deepEqual(await storage.getStickers(), []);
+  assert.equal(store.has('@easychat2_stickers'), true);
+  assert.equal(store.has('@easychat2_stickers__corrupt_backup'), true);
+});
+
+test('会话存储队列阻止删除后的迟到消息写回', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-queue');
+  await Promise.all([
+    storage.saveMessagesBySession(created.id, [{ id: 'm1', role: 'user', text: '迟到消息' }]),
+    storage.deleteSession(created.id),
+  ]);
+  assert.deepEqual(await storage.getMessagesBySession(created.id), []);
+
+  const second = await storage.startNewSession('character-queue-2');
+  await storage.deleteSession(second.id);
+  const result = await storage.saveMessagesBySession(second.id, [{ id: 'm2', role: 'user', text: '不应写入' }]);
+  assert.deepEqual(result, []);
+  assert.deepEqual(await storage.getMessagesBySession(second.id), []);
+});
+
+test('大消息键读取失败时通过 SQLite 分块完成图片回收扫描', async () => {
+  const storage = loadStorage();
+  const uri = 'file:///documents/chat-images/large-message.jpg';
+  files.set(uri, 'image');
+  const key = '@easychat2_messages::large-message';
+  sqliteValues.set(key, JSON.stringify([{ role: 'assistant', text: 'x'.repeat(2100000) }]));
+  sqliteEnabled = true;
+  failedGets.add(key);
+
+  await storage.collectChatImageFiles();
+  assert.equal(files.has(uri), false);
+});
+
+test('聊天图片回收保留其他会话和待发送附件的引用', async () => {
+  const storage = loadStorage();
+  const first = 'file:///documents/chat-images/first.jpg';
+  const second = 'file:///documents/chat-images/second.jpg';
+  const draft = 'file:///documents/chat-images/draft.jpg';
+  files.set(first, 'first');
+  files.set(second, 'second');
+  files.set(draft, 'draft');
+  store.set('@easychat2_messages::first', JSON.stringify([{ image: { uri: first } }]));
+  store.set('@easychat2_messages::second', JSON.stringify([{ image: { uri: second } }]));
+
+  storage.setProtectedChatImageUris([draft]);
+  await storage.collectChatImageFiles();
+  assert.equal(files.has(first), true);
+  assert.equal(files.has(second), true);
+  assert.equal(files.has(draft), true);
+
+  store.delete('@easychat2_messages::first');
+  await storage.collectChatImageFiles();
+  assert.equal(files.has(first), false);
+  assert.equal(files.has(second), true);
+  assert.equal(files.has(draft), true);
+  storage.setProtectedChatImageUris([]);
+});

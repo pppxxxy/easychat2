@@ -37,8 +37,10 @@ export default function ScrollScrubber({
   const trackHeightRef = useRef(0);
   const messageCountRef = useRef(messageCount);
   const onSeekRef = useRef(onSeek);
-  const gestureStartRatioRef = useRef(0);
-  messageCountRef.current = messageCount;
+   const gestureStartRatioRef = useRef(0);
+   const gestureMovedRef = useRef(false);
+   const currentRatioRef = useRef(0);
+   messageCountRef.current = messageCount;
   onSeekRef.current = onSeek;
 
   const usableHeight = () => Math.max(1, trackHeightRef.current - THUMB_HEIGHT);
@@ -47,8 +49,10 @@ export default function ScrollScrubber({
     if (!visible) return;
     setDragging(false);
     setRatio(0);
-    previewIndexRef.current = -1;
-    translateY.setValue(0);
+     previewIndexRef.current = -1;
+      gestureMovedRef.current = false;
+      currentRatioRef.current = 0;
+     translateY.setValue(0);
   }, [visible]);
 
   const ratioFromY = y => {
@@ -56,9 +60,10 @@ export default function ScrollScrubber({
     return Math.min(1, Math.max(0, (y - THUMB_HEIGHT / 2) / usable));
   };
 
-  const applyRatio = next => {
-    const usable = usableHeight();
-    translateY.setValue(next * usable);
+   const applyRatio = next => {
+     const usable = usableHeight();
+     currentRatioRef.current = next;
+     translateY.setValue(next * usable);
     const count = messageCountRef.current;
     const index = indexFromRatio(next, count);
     if (index !== previewIndexRef.current) {
@@ -78,33 +83,43 @@ export default function ScrollScrubber({
     onToEnd?.();
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: event => {
-        setDragging(true);
+   const commitRatio = next => {
+     const count = messageCountRef.current;
+     if (count > 0) onSeekRef.current?.(indexFromRatio(next, count));
+   };
+
+   const panResponder = useRef(
+     PanResponder.create({
+        onStartShouldSetPanResponder: () => trackHeightRef.current > THUMB_HEIGHT,
+        onStartShouldSetPanResponderCapture: () => trackHeightRef.current > THUMB_HEIGHT,
+        onMoveShouldSetPanResponder: () => trackHeightRef.current > THUMB_HEIGHT,
+        onMoveShouldSetPanResponderCapture: () => trackHeightRef.current > THUMB_HEIGHT,
+       onPanResponderTerminationRequest: () => false,
+       onPanResponderGrant: event => {
+         gestureMovedRef.current = false;
+         setDragging(true);
         // 按下位置的 locationY 相对轨道视图，是可靠的；用它作为拖拽起点。
         const start = ratioFromY(event.nativeEvent.locationY);
         gestureStartRatioRef.current = start;
         applyRatio(start);
       },
-      onPanResponderMove: (_event, gestureState) => {
-        // 移动过程中不能用 locationY：手指越过滑块后它变成相对滑块的坐标，
-        // 会导致滑块来回跳到顶部。改用累计位移 dy 叠加起始比例。
-        const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
-        applyRatio(next);
-      },
-      onPanResponderRelease: (_event, gestureState) => {
-        const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
-        applyRatio(next);
-        setDragging(false);
-        const count = messageCountRef.current;
-        if (count > 0) {
-          onSeekRef.current?.(indexFromRatio(next, count));
-        }
-      },
-      onPanResponderTerminate: () => setDragging(false),
+       onPanResponderMove: (_event, gestureState) => {
+         if (Math.abs(gestureState.dy) > 2) gestureMovedRef.current = true;
+         // 移动过程中不能用 locationY：手指越过滑块后它变成相对滑块的坐标，
+         // 会导致滑块来回跳到顶部。改用累计位移 dy 叠加起始比例。
+         const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
+         applyRatio(next);
+       },
+        onPanResponderRelease: (_event, gestureState) => {
+          const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
+          applyRatio(next);
+          setDragging(false);
+          if (gestureMovedRef.current) commitRatio(next);
+        },
+        onPanResponderTerminate: () => {
+          setDragging(false);
+          if (gestureMovedRef.current) commitRatio(currentRatioRef.current);
+        },
     })
   ).current;
 
@@ -137,10 +152,12 @@ export default function ScrollScrubber({
 
           <View
             style={styles.track}
-            onLayout={event => {
-              trackHeightRef.current = event.nativeEvent.layout.height;
-            }}
-            {...panResponder.panHandlers}
+             onLayout={event => {
+               trackHeightRef.current = event.nativeEvent.layout.height;
+             }}
+             accessibilityRole="adjustable"
+             accessibilityLabel="内容定位滑块"
+             {...panResponder.panHandlers}
           >
             <Animated.View
               style={[styles.thumb, { transform: [{ translateY }] }]}
@@ -183,8 +200,10 @@ export default function ScrollScrubber({
 const createStyles = (theme, fonts) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: theme.colors.overlay },
   dismiss: { ...StyleSheet.absoluteFillObject },
-  panel: {
-    position: 'absolute',
+   panel: {
+     position: 'absolute',
+     zIndex: 20,
+     elevation: 20,
     right: 18,
     top: 90,
     bottom: 120,
@@ -202,8 +221,10 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingVertical: 4,
   },
   jumpText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(10), fontWeight: '700', marginTop: 2 },
-  track: {
-    flex: 1,
+   track: {
+     zIndex: 30,
+     elevation: 30,
+     flex: 1,
     width: 34,
     marginVertical: 10,
     alignItems: 'center',

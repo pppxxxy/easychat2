@@ -57,7 +57,14 @@ test('包装文档包含视口、正文与高度桥', () => {
   assert.ok(doc.includes('flex:0 0 100%!important'));
   assert.ok(doc.includes('*,*::before,*::after{box-sizing:border-box!important;}'));
   assert.ok(doc.includes('margin:0!important;padding:0!important'));
-  assert.ok(doc.includes('details>div{width:100%!important;max-width:100%!important;min-width:0!important;'));
+  assert.ok(doc.includes('details>div{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}'));
+  assert.ok(doc.includes('overflow-y:auto!important'));
+  assert.ok(doc.includes('main{max-width:100%!important;overflow-x:hidden!important;overflow-y:auto!important;}'));
+  assert.ok(doc.includes('Content-Security-Policy'));
+  assert.ok(doc.includes("connect-src 'none'"));
+  assert.ok(doc.includes('nativePostMessage'));
+  assert.ok(doc.includes('userGestureActive'));
+  assert.ok(doc.includes('ev.isTrusted'));
   // 展开/收起后重新测量高度
   assert.ok(doc.includes('"toggle"'));
   assert.ok(doc.includes('getBoundingClientRect'));
@@ -65,7 +72,7 @@ test('包装文档包含视口、正文与高度桥', () => {
 });
 
 test('完整 HTML 角色卡直接作为 WebView 文档并注入运行时桥', () => {
-  const source = '<div>外层容器<!DOCTYPE html><html><head><title>Card</title></head><body><main>开局</main><script>run()</script></body></html></div>';
+  const source = '<div>外层容器<!DOCTYPE html><html><head><title>Card</title><script>window.__userScriptRan = true;</script></head><body><main>开局</main><script>run()</script></body></html></div>';
   const doc = buildRichHtmlDocument({ bodyHtml: source });
   assert.equal((doc.match(/<!DOCTYPE/gi) || []).length, 1);
   assert.equal((doc.match(/<html[\s>]/gi) || []).length, 1);
@@ -73,5 +80,8 @@ test('完整 HTML 角色卡直接作为 WebView 文档并注入运行时桥', ()
   assert.ok(doc.includes('min-width:0!important'));
   assert.equal(doc.includes('body *{max-height:none !important;}'), false);
   assert.ok(doc.includes('window.triggerSlash'));
+  assert.ok(doc.includes('nativePost'));
+  assert.ok(doc.includes('trustedCommandElement'));
+  assert.ok(doc.indexOf('var bridge = window.ReactNativeWebView') < doc.indexOf('window.__userScriptRan'));
   assert.ok(doc.includes('<main>开局</main>'));
 });

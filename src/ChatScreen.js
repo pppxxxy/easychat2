@@ -19,22 +19,37 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml, { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
-import { isCanceledError, sendChatMessage } from './api';
+import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import {
-  isImage,
+   deleteLocalImage,
+   deleteTemporaryImage,
+   isImage,
   isTextLike,
   mergeTextAttachments,
+  persistImageAttachment,
   pickAttachment,
+  pickStickerImage,
   readImageDataUri,
   readTextAttachment,
+   getImageDimensions,
+   getImageFileInfo,
+   getImageMime,
+   getPendingStickerImage,
+   MAX_IMAGE_ATTACHMENTS,
+   MAX_IMAGE_BASE64_BYTES,
+   validateImageBatch,
+   validateImageSize,
 } from './attachments';
 import { buildRequestMessages } from './chatPipeline';
+import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia';
+import { createStickerImage, deleteStickerImage } from './stickerImages';
 import { isGreetingMessage, listGreetingCandidates } from './cardGreetings';
-import { removeMessagesByIds, toggleMessageSelection } from './messageSelection';
+import { getEditResendPlan, removeMessagesByIds, toggleMessageSelection } from './messageSelection';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -80,26 +95,31 @@ import {
   getMemorySummarySettings,
   getMessagesBySessionStatus,
   getSessionSummaries,
+  getStickers,
   getThinkingSettings,
   getUserProfile,
   saveApiConfigs,
-  saveMessagesBySession,
-  saveThinkingSettings,
+   saveMessagesBySession,
+   saveThinkingSettings,
+   resetSessionSummaries,
+   setProtectedChatImageUris,
   getTtsSettings,
   getMomentsSettings,
   getAffinityStatus,
   saveAffinity,
   getMomentsStatus,
   saveMoments,
+  saveSticker,
   saveTtsSettings,
   setSessionGreetingSelected,
   startNewSession,
   THINKING_DISPLAYS,
   THINKING_LEVELS,
   updateSessionMemberProfiles,
-  getVectorMemoryConfig,
-  getVectorIndex,
-  saveVectorIndex,
+   getVectorMemoryConfig,
+   getVectorIndex,
+   clearVectorIndex,
+   saveVectorIndex,
 } from './storage';
 import { runPlugins } from './plugins/registry';
 import {
@@ -192,7 +212,7 @@ const createMarkdownStyles = (theme, fonts, tokens) => ({
   ordered_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
 });
 
-const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre|audio|video)\b[^>]*>/i;
+const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre|audio|video|style|script|svg|main|form|button|input|textarea|label|select|option|canvas|iframe)\b[^>]*>/i;
 
 const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
 const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
@@ -493,6 +513,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const renderRichHtml =
     renderHtml && shouldRenderRichHtml(message.text, richHtmlEnabled);
   const plainText = messageCopyText(message.text);
+  const mediaWidth = message.image?.stickerId ? 112 : 220;
+  const mediaRatio = Number(message.image?.height) > 0 && Number(message.image?.width) > 0
+    ? Number(message.image.height) / Number(message.image.width)
+    : 0.75;
+  const mediaHeight = message.image?.stickerId
+    ? 112
+    : Math.min(300, Math.max(120, Math.round(mediaWidth * mediaRatio)));
   const onCopy = useCallback(async () => {
     try {
       await Clipboard.setStringAsync(plainText);
@@ -500,7 +527,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
       setTimeout(() => setCopied(false), 1500);
     } catch (error) {}
   }, [plainText]);
-  const contentWidth = Math.max(200, Math.floor((width - 28) * 0.88) - 28);
+  const contentWidth = fullWidth
+    ? Math.max(200, width - 28)
+    : Math.max(200, Math.floor((width - 28) * 0.88) - 28);
   const htmlSource = useMemo(
     () => ({ html: prepareAssistantHtml(message.text) }),
     [message.text]
@@ -533,7 +562,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
     [onSlashCommand]
   );
 
-  const avatarElement = isUser ? (
+   const fullWidthAssistant = !isUser && fullWidth;
+   const avatarElement = isUser ? (
     <View style={styles.avatarContainerRight}>
       {userAvatarUri ? (
         <Image source={{ uri: userAvatarUri }} style={styles.avatarImage} />
@@ -546,7 +576,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
       )}
     </View>
   ) : (
-    <View style={styles.avatarContainer}>
+     <View style={[styles.avatarContainer, fullWidthAssistant && styles.avatarContainerFullWidth]}>
       {characterAvatar ? (
         <Image source={{ uri: characterAvatar }} style={styles.avatarImage} />
       ) : (
@@ -559,18 +589,34 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
     </View>
   );
 
-  return (
-    <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
-      {!isUser ? avatarElement : null}
-      <View style={[
-        styles.messageContent,
-        (fullWidth || renderRichHtml) ? styles.messageContentFullWidth : null,
-      ]}>
-        {!isUser ? <Text style={styles.nameLabel}>{characterName || ''}</Text> : null}
-        <View style={[
+   const assistantHeader = fullWidthAssistant ? (
+     <View style={styles.fullWidthMessageHeader}>
+       {avatarElement}
+       <Text style={styles.fullWidthNameLabel}>{characterName || ''}</Text>
+     </View>
+   ) : null;
+
+   return (
+     <View style={[
+       styles.messageRow,
+       isUser ? styles.messageRowRight : styles.messageRowLeft,
+       fullWidthAssistant ? styles.messageRowFullWidth : null,
+     ]}>
+       {!isUser && !fullWidthAssistant ? avatarElement : null}
+       <View style={[
+         styles.messageContent,
+         fullWidthAssistant
+           ? styles.messageContentFullWidthColumn
+           : ((fullWidth || renderRichHtml) ? styles.messageContentFullWidth : null),
+       ]}>
+         {fullWidthAssistant
+           ? assistantHeader
+           : (!isUser ? <Text style={styles.nameLabel}>{characterName || ''}</Text> : null)}
+         <View style={[
           styles.bubble,
           (fullWidth || renderRichHtml) ? styles.bubbleFullWidth : styles.bubbleBounded,
           isUser ? styles.userBubble : styles.assistantBubble,
+          message.image ? styles.mediaBubble : null,
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
           selected ? styles.bubbleSelected : null,
@@ -628,14 +674,31 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
               );
             })()
           ) : null}
-          {isUser ? (
+          {isUser && message.image?.uri ? (
+            <View style={styles.userMediaBox}>
+              <View>
+                <Image
+                  source={{ uri: message.image.uri }}
+                  style={[styles.userMessageImage, { width: mediaWidth, height: mediaHeight }]}
+                  resizeMode="contain"
+                />
+              </View>
+              {message.image.stickerName ? (
+                <Text style={styles.userMediaName} numberOfLines={1}>{message.image.stickerName}</Text>
+              ) : null}
+            </View>
+          ) : isUser ? (
             <Text style={styles.messageText}>
               {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword, styles) : message.text}
             </Text>
           ) : message.pending && message.waitingForResponse ? (
             <ThinkingIndicator />
           ) : renderRichHtml ? (
-            <RichHtmlMessage html={message.text} onCommand={onSlashCommand} />
+             <RichHtmlMessage
+               html={message.text}
+               onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+               fullWidth={fullWidth}
+             />
           ) : renderHtml ? (
             <RenderHtml
               contentWidth={contentWidth}
@@ -663,7 +726,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           ) : null}
         </View>
         {!isUser && message.inlineImage ? (
-          <View style={styles.inlineImageWrap}>
+           <View style={[styles.inlineImageWrap, fullWidth && styles.inlineImageFullWidth]}>
             {message.inlineImage.status === 'loading' ? (
               <View style={[styles.inlineImageBox, styles.inlineImageLoading]}>
                 <ActivityIndicator color={theme.colors.primary} />
@@ -691,7 +754,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
             )}
           </View>
         ) : null}
-        {!message.pending && !selectionMode ? (
+        {!message.pending && !selectionMode && !message.image ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
             <TouchableOpacity style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]} onPress={onCopy} activeOpacity={0.8}>
               <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
@@ -770,11 +833,14 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth, selectionMode, se
   }, [message.detail, message.text, onCopied, rawError]);
 
   return (
-    <View style={[styles.messageRow, styles.messageRowLeft]}>
+     <View style={[
+       styles.messageRow,
+       fullWidth ? styles.messageRowFullWidth : styles.messageRowLeft,
+     ]}>
       <View style={[
         styles.bubble,
-        fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded,
-        styles.errorBubble,
+         fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded,
+         fullWidth ? styles.errorBubbleFullWidth : styles.errorBubbleBounded,
         selected ? styles.bubbleSelected : null,
       ]}>
         <Text style={styles.errorBadge}>系统报错</Text>
@@ -833,9 +899,12 @@ export default function ChatScreen() {
   activeSessionRef.current = activeSession;
   const memberProfilesRef = useRef({ sessionId: '', profiles: {} });
   const isGroup = activeSession?.type === 'group';
-  const sessionOwnerMissing = !isGroup
-    && !!activeSession
-    && !characters.some(item => item.id === String(activeSession.characterId || ''));
+   const sessionOwnerMissing = !isGroup
+     && !!activeSession
+     && !characters.some(item => item.id === String(activeSession.characterId || ''));
+   const sessionTransitionPending = !isGroup
+     && !!activeSession
+     && String(activeSession.characterId || '') !== String(characterId);
   const greetingCandidates = useMemo(
     () => listGreetingCandidates(character),
     [character.firstMes, character.alternateGreetings]
@@ -872,22 +941,44 @@ export default function ChatScreen() {
   const autoSummaryAttemptRef = useRef({ sessionId: '', signature: '' });
   const messageOffsetsRef = useRef({});
   const atBottomRef = useRef(true);
-  const abortRef = useRef(null);
-  const sessionVersionRef = useRef(0);
+   const abortRef = useRef(null);
+   const sendLockRef = useRef(null);
+   const sourceChangedRef = useRef(false);
+   const sendOperationRef = useRef(0);
+   const switchOperationRef = useRef(0);
+   const openingRequestRef = useRef(0);
+   const openingAbortControllerRef = useRef(null);
+   const sessionVersionRef = useRef(0);
+  const captureSessionGuard = useCallback(() => ({
+    sessionId: activeSessionIdRef.current,
+    characterId: activeCharacterIdRef.current,
+    version: sessionVersionRef.current,
+  }), []);
+  const isSessionGuardCurrent = useCallback(guard => (
+    !guard
+    || (
+      activeSessionIdRef.current === guard.sessionId
+      && activeCharacterIdRef.current === guard.characterId
+      && sessionVersionRef.current === guard.version
+    )
+  ), []);
   const [input, setInput] = useState('');
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const inputSelectionRef = useRef({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+   const [messages, setMessages] = useState([]);
+   const messagesRef = useRef([]);
+   messagesRef.current = messages;
+   const [selectedMessageIds, setSelectedMessageIds] = useState([]);
   const selectedMessageIdSet = useMemo(
     () => new Set(selectedMessageIds),
     [selectedMessageIds]
   );
   const messageSelectionOpen = selectedMessageIds.length > 0;
   const [greetingReady, setGreetingReady] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [ready, setReady] = useState(false);
+   const [isSending, setIsSending] = useState(false);
+   const [isSwitching, setIsSwitching] = useState(false);
+   const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
@@ -909,7 +1000,35 @@ export default function ChatScreen() {
   const [thinkingLevel, setThinkingLevel] = useState('medium');
   const [thinkingSupported, setThinkingSupported] = useState(false);
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
-  const [attachments, setAttachments] = useState([]);
+   const [attachments, setAttachments] = useState([]);
+   const attachmentsRef = useRef([]);
+   attachmentsRef.current = attachments;
+   const attachmentPickerLockRef = useRef(false);
+   const [attachmentLoading, setAttachmentLoading] = useState(false);
+   const pendingAttachmentUrisRef = useRef(new Set());
+   const syncProtectedAttachmentUris = useCallback(() => {
+     setProtectedChatImageUris([
+       ...attachmentsRef.current
+         .filter(item => item && item.kind === 'image')
+         .map(item => item.uri),
+       ...pendingAttachmentUrisRef.current,
+     ]);
+   }, []);
+   useEffect(() => {
+     syncProtectedAttachmentUris();
+   }, [attachments, syncProtectedAttachmentUris]);
+   useEffect(() => () => {
+     setProtectedChatImageUris([]);
+   }, []);
+   const [stickerPanelOpen, setStickerPanelOpen] = useState(false);
+  const [stickers, setStickers] = useState([]);
+  const stickerLoadRef = useRef(0);
+   const [stickerNamePrompt, setStickerNamePrompt] = useState(null);
+   const [stickerNameDraft, setStickerNameDraft] = useState('');
+   const [stickerSaving, setStickerSaving] = useState(false);
+   const stickerSaveLockRef = useRef(false);
+   const stickerPickerLockRef = useRef(false);
+   const pendingStickerResultRef = useRef(null);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true });
   const [greetingPicker, setGreetingPicker] = useState(null);
   const [inlineImageSettings, setInlineImageSettings] = useState({
@@ -926,43 +1045,186 @@ export default function ChatScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
-  const [quoteTarget, setQuoteTarget] = useState(null);
-  const navigation = useNavigation();
+   const [quoteTarget, setQuoteTarget] = useState(null);
+   const navigation = useNavigation();
 
-  const onSwitch = useCallback(id => {
-    setSwitcherOpen(false);
-    // 群聊会话下 activeCharacterIdRef 仍是上次单聊角色，此时点同一角色也要切回其会话。
-    if (id === activeCharacterIdRef.current && !isGroupRef.current) return;
-    activeCharacterIdRef.current = id;
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    setIsSending(false);
-    setQuoteTarget(null);
-    setAttachments([]);
-    switchCharacter(id)
-      .then(() => ensureCharacterSession(id))
-      .catch(() => {
-        activeCharacterIdRef.current = characterId;
-        Alert.alert('切换失败', '请检查存储空间或权限。');
-      });
-  }, [switchCharacter, ensureCharacterSession, characterId]);
+   const beginSendOperation = useCallback(() => {
+     if (sendLockRef.current) return null;
+     const controller = new AbortController();
+     const token = { id: ++sendOperationRef.current, controller };
+     sourceChangedRef.current = false;
+     sendLockRef.current = token;
+     abortRef.current = controller;
+     setIsSending(true);
+     return token;
+   }, []);
 
-  const onSwitchGroup = useCallback(id => {
+   const endSendOperation = useCallback(token => {
+     if (!token || sendLockRef.current !== token) return;
+     if (abortRef.current === token.controller) abortRef.current = null;
+     sendLockRef.current = null;
+     setIsSending(false);
+   }, []);
+
+   const invalidateSessionOperations = useCallback(() => {
+     sessionVersionRef.current += 1;
+     openingRequestRef.current += 1;
+     if (openingAbortControllerRef.current) {
+       openingAbortControllerRef.current.abort();
+       openingAbortControllerRef.current = null;
+     }
+     sendLockRef.current = null;
+     if (abortRef.current) {
+       abortRef.current.abort();
+       abortRef.current = null;
+     }
+     setIsSending(false);
+   }, []);
+
+   const closeStickerNamePrompt = useCallback(() => {
+     const source = stickerNamePrompt;
+     setStickerNamePrompt(null);
+     setStickerNameDraft('');
+     if (source && source.uri) deleteTemporaryImage(source.uri);
+   }, [stickerNamePrompt]);
+
+   const onSwitch = useCallback(id => {
+     if (isSwitching) return;
+     setSwitcherOpen(false);
+     if (id === activeCharacterIdRef.current && !isGroupRef.current) return;
+      const previousCharacterId = activeCharacterIdRef.current;
+      const previousSessionId = activeSessionIdRef.current;
+      const previousIsGroup = isGroupRef.current;
+     const draft = {
+       input,
+       fullScreenText,
+       attachments: [...attachments],
+       quoteTarget,
+       stickerPanelOpen,
+       stickerNamePrompt,
+       stickerNameDraft,
+     };
+     const switchToken = ++switchOperationRef.current;
+     setIsSwitching(true);
+     invalidateSessionOperations();
+     activeCharacterIdRef.current = id;
+     setProtectedChatImageUris(draft.attachments
+       .filter(item => item && item.kind === 'image')
+       .map(item => item.uri));
+     attachmentsRef.current = [];
+     setQuoteTarget(null);
+     setInput('');
+     setFullScreenText('');
+     setAttachments([]);
+     setStickerPanelOpen(false);
+     setStickerNamePrompt(null);
+     setStickerNameDraft('');
+     switchCharacter(id)
+       .then(() => (
+         switchOperationRef.current === switchToken
+           ? ensureCharacterSession(id)
+           : null
+       ))
+       .then(() => {
+           if (switchOperationRef.current !== switchToken) return;
+           draft.attachments.forEach(item => {
+             if (item.kind === 'image') deleteLocalImage(item.uri);
+           });
+           if (draft.stickerNamePrompt && draft.stickerNamePrompt.uri) {
+             deleteTemporaryImage(draft.stickerNamePrompt.uri);
+           }
+           setProtectedChatImageUris([]);
+       })
+        .catch(async () => {
+          if (switchOperationRef.current !== switchToken) return;
+          try {
+            if (previousIsGroup) await switchSession(previousSessionId);
+            else {
+              await switchCharacter(previousCharacterId);
+              if (previousSessionId) await switchSession(previousSessionId);
+            }
+          } catch (error) {}
+          setIsSwitching(false);
+          activeCharacterIdRef.current = previousCharacterId;
+          activeSessionIdRef.current = previousSessionId;
+          sessionVersionRef.current += 1;
+          setInput(draft.input);
+          setFullScreenText(draft.fullScreenText);
+          setAttachments(draft.attachments);
+          attachmentsRef.current = draft.attachments;
+          setQuoteTarget(draft.quoteTarget);
+          setStickerPanelOpen(draft.stickerPanelOpen);
+          setStickerNamePrompt(draft.stickerNamePrompt);
+          setStickerNameDraft(draft.stickerNameDraft);
+          setProtectedChatImageUris(draft.attachments
+            .filter(item => item && item.kind === 'image')
+            .map(item => item.uri));
+          Alert.alert('切换失败', '请检查存储空间或权限。');
+        });
+   }, [attachments, closeStickerNamePrompt, ensureCharacterSession, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchCharacter]);
+
+   const onSwitchGroup = useCallback(id => {
+    if (isSwitching) return;
     setSwitcherOpen(false);
-    if (id === activeSessionIdRef.current) return;
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    setIsSending(false);
-    setQuoteTarget(null);
-    setAttachments([]);
-    switchSession(id).catch(() => {
-      Alert.alert('切换失败', '请检查存储空间或权限。');
-    });
-  }, [switchSession]);
+     if (id === activeSessionIdRef.current) return;
+     const previousSessionId = activeSessionIdRef.current;
+     const draft = {
+       input,
+       fullScreenText,
+       attachments: [...attachments],
+       quoteTarget,
+       stickerPanelOpen,
+       stickerNamePrompt,
+       stickerNameDraft,
+     };
+     const switchToken = ++switchOperationRef.current;
+     setIsSwitching(true);
+     invalidateSessionOperations();
+     activeSessionIdRef.current = id;
+     setProtectedChatImageUris(draft.attachments
+       .filter(item => item && item.kind === 'image')
+       .map(item => item.uri));
+     attachmentsRef.current = [];
+     setQuoteTarget(null);
+     setInput('');
+     setFullScreenText('');
+     setAttachments([]);
+     setStickerPanelOpen(false);
+     setStickerNamePrompt(null);
+     setStickerNameDraft('');
+     switchSession(id)
+       .then(() => {
+           if (switchOperationRef.current !== switchToken) return;
+           draft.attachments.forEach(item => {
+             if (item.kind === 'image') deleteLocalImage(item.uri);
+           });
+           if (draft.stickerNamePrompt && draft.stickerNamePrompt.uri) {
+             deleteTemporaryImage(draft.stickerNamePrompt.uri);
+           }
+           setProtectedChatImageUris([]);
+       })
+        .catch(async () => {
+        if (switchOperationRef.current !== switchToken) return;
+        try {
+          await switchSession(previousSessionId);
+        } catch (error) {}
+        setIsSwitching(false);
+        activeSessionIdRef.current = previousSessionId;
+          sessionVersionRef.current += 1;
+          setInput(draft.input);
+          setFullScreenText(draft.fullScreenText);
+          setAttachments(draft.attachments);
+          attachmentsRef.current = draft.attachments;
+          setQuoteTarget(draft.quoteTarget);
+          setStickerPanelOpen(draft.stickerPanelOpen);
+          setStickerNamePrompt(draft.stickerNamePrompt);
+          setStickerNameDraft(draft.stickerNameDraft);
+          setProtectedChatImageUris(draft.attachments
+            .filter(item => item && item.kind === 'image')
+            .map(item => item.uri));
+          Alert.alert('切换失败', '请检查存储空间或权限。');
+        });
+   }, [attachments, closeStickerNamePrompt, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchSession]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1092,12 +1354,36 @@ export default function ChatScreen() {
   }, [messages]);
 
   useEffect(() => {
-    if (!loaded) return;
-    setSelectedMessageIds([]);
-    activeCharacterIdRef.current = characterId;
-    activeSessionIdRef.current = activeSessionId;
-    let cancelled = false;
-    if (abortRef.current) {
+     if (!loaded) return;
+      const draftAttachments = attachmentsRef.current;
+      draftAttachments.forEach(item => {
+        if (item.kind === 'image') deleteLocalImage(item.uri);
+      });
+      attachmentsRef.current = [];
+      setProtectedChatImageUris([]);
+      setInput('');
+      setFullScreenText('');
+      setQuoteTarget(null);
+      setAttachments([]);
+      setStickerPanelOpen(false);
+      setStickerNamePrompt(current => {
+        if (current && current.uri) deleteTemporaryImage(current.uri);
+        return null;
+      });
+      setStickerNameDraft('');
+      setIsSwitching(false);
+      setSelectedMessageIds([]);
+      activeCharacterIdRef.current = characterId;
+      activeSessionIdRef.current = activeSessionId;
+      sessionVersionRef.current += 1;
+      openingRequestRef.current += 1;
+      if (openingAbortControllerRef.current) {
+        openingAbortControllerRef.current.abort();
+        openingAbortControllerRef.current = null;
+      }
+      sendLockRef.current = null;
+     let cancelled = false;
+     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
@@ -1142,31 +1428,48 @@ export default function ChatScreen() {
           lastSavedSnapshotRef.current = '[]';
           setMessages([]);
           setGreetingReady(true);
-          if (members.length > 0) {
-            const openingSessionId = activeSessionId;
-            (async () => {
-              try {
-                const [profile, presets] = await Promise.all([
-                  getUserProfile().catch(() => null),
-                  getEnabledGlobalPresetPrompts().catch(() => []),
-                ]);
-                const opening = await generateOpening({
-                  characters: members,
-                  userProfile: profile,
-                  globalPresets: presets,
-                });
-                if (cancelled || !opening) return;
-                if (activeSessionIdRef.current !== openingSessionId) return;
-                setMessages([{
-                  id: `${Date.now()}-opening`,
-                  role: ASSISTANT_ID,
-                  text: opening.opening,
-                  speakerId: opening.speakerId,
-                  speakerName: opening.speakerName,
-                  timestamp: Date.now(),
-                }]);
-              } catch (error) {}
-            })();
+           if (members.length > 0) {
+             const openingSessionId = activeSessionId;
+             const openingToken = openingRequestRef.current;
+             const openingController = new AbortController();
+             openingAbortControllerRef.current = openingController;
+              (async () => {
+               try {
+                 const [profile, presets, apiState] = await Promise.all([
+                   getUserProfile().catch(() => null),
+                   getEnabledGlobalPresetPrompts().catch(() => []),
+                   getApiConfigs().catch(() => ({ configs: [], activeId: '' })),
+                 ]);
+                 const currentConfig = (apiState.configs || []).find(
+                   item => item.id === apiState.activeId
+                 ) || (apiState.configs || [])[0];
+                 const opening = await generateOpening({
+                   characters: members,
+                   userProfile: profile,
+                   globalPresets: presets,
+                   expectedConfigId: String(currentConfig && currentConfig.id || ''),
+                   signal: openingController.signal,
+                 });
+                  if (cancelled || !opening) return;
+                  if (openingRequestRef.current !== openingToken) return;
+                  if (activeSessionIdRef.current !== openingSessionId) return;
+                setMessages(current => current.length === 0
+                  ? [{
+                      id: `${Date.now()}-opening`,
+                      role: ASSISTANT_ID,
+                      text: opening.opening,
+                      speakerId: opening.speakerId,
+                      speakerName: opening.speakerName,
+                      timestamp: Date.now(),
+                    }]
+                  : current);
+               } catch (error) {
+               } finally {
+                 if (openingAbortControllerRef.current === openingController) {
+                   openingAbortControllerRef.current = null;
+                 }
+               }
+             })();
           }
           return;
         }
@@ -1229,10 +1532,16 @@ export default function ChatScreen() {
     // 会话条目若已从存储里缺失（历史版本的 startNewSession 会误删），
     // 把归属角色一并传下去，让本次写盘把会话行补回来；群聊没有单一归属角色，跳过。
     const ownerRow = sessionsRef.current.find(item => item.id === activeSessionId);
-    const recoverOwnerId = isGroupRef.current
-      ? ''
-      : String((ownerRow && ownerRow.characterId) || character.id || '');
-    saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId)
+     const recoverOwnerId = isGroupRef.current
+       ? ''
+       : String((ownerRow && ownerRow.characterId) || character.id || '');
+     const protectedImageUris = [
+       ...attachmentsRef.current
+         .filter(item => item && item.kind === 'image')
+         .map(item => item.uri),
+       ...pendingAttachmentUrisRef.current,
+     ];
+     saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId, protectedImageUris)
       .then(() => {
         saveFailedRef.current = false;
         getVectorMemoryConfig()
@@ -1371,7 +1680,7 @@ export default function ChatScreen() {
   }, [greetingPicker, messages, refreshSessions, updateCharacter]);
 
   const onNewChat = useCallback(() => {
-    if (isSending || !ready || abortRef.current) return;
+    if (isSending || isSwitching || !ready || sessionTransitionPending || abortRef.current) return;
     if (sessionOwnerMissing) {
       Alert.alert('角色资料缺失', '这段历史对话可以继续查看，恢复角色资料后才能新建或发送消息。');
       return;
@@ -1410,7 +1719,7 @@ export default function ChatScreen() {
       return;
     }
     openGreetingPicker('new');
-  }, [isSending, openGreetingPicker, ready, refreshSessions, sessionOwnerMissing]);
+  }, [isSending, isSwitching, openGreetingPicker, ready, refreshSessions, sessionOwnerMissing, sessionTransitionPending]);
 
   const searchMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1419,7 +1728,7 @@ export default function ChatScreen() {
       .filter(message => (
         message
         && (message.role === USER_ID || message.role === ASSISTANT_ID)
-        && String(message.text || '').toLowerCase().includes(query)
+        && getMessagePromptText(message).toLowerCase().includes(query)
       ))
       .map(message => message.id);
   }, [messages, searchQuery]);
@@ -1490,6 +1799,12 @@ export default function ChatScreen() {
       getTtsSettings()
         .then(settings => setTtsSettings(settings))
         .catch(() => {});
+      const stickerRequest = ++stickerLoadRef.current;
+      getStickers()
+        .then(list => {
+          if (stickerRequest === stickerLoadRef.current) setStickers(list);
+        })
+        .catch(() => {});
     };
     load();
     const unsubscribe = navigation.addListener('focus', load);
@@ -1518,7 +1833,7 @@ export default function ChatScreen() {
       return {
         label: formatScrubberTime(timestamp),
         speaker: message.role === USER_ID ? '我' : (character.name || '角色'),
-        text: String(message.text || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        text: getMessagePromptText(message).replace(/\s+/g, ' ').trim().slice(0, 60),
       };
     }),
     [scrubberMessages, character.name]
@@ -1544,6 +1859,7 @@ export default function ChatScreen() {
   }, []);
 
   const openModelPanel = useCallback(async () => {
+    if (isSending || sendLockRef.current) return;
     try {
       const { configs: list, activeId: id } = await getApiConfigs();
       setApiConfigs(list);
@@ -1553,9 +1869,10 @@ export default function ChatScreen() {
     } catch (error) {
       Alert.alert('读取失败', '无法读取 API 配置。');
     }
-  }, []);
+  }, [isSending]);
 
   const applyModelSelection = useCallback(async (sourceId, model) => {
+    if (isSending || sendLockRef.current) return;
     const list = apiConfigs.map(item => (
       item.id === sourceId ? { ...item, activeModel: model } : item
     ));
@@ -1568,7 +1885,7 @@ export default function ChatScreen() {
     } catch (error) {
       Alert.alert('切换失败', '请检查存储空间或权限。');
     }
-  }, [apiConfigs]);
+  }, [apiConfigs, isSending]);
 
   const openThinkingPanel = useCallback(async () => {
     try {
@@ -1706,8 +2023,9 @@ export default function ChatScreen() {
     );
   }, [isSending, ready, messages, runSummarize]);
 
-  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, quote }) => {
-    if (isSending || !ready || abortRef.current) return;
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, sessionGuard }) => {
+     if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
+     if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
     const sendCharacterId = activeCharacterIdRef.current;
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
@@ -1721,7 +2039,10 @@ export default function ChatScreen() {
       sessionVersionRef.current === sendSessionVersion
       && !isStaleReply(activeCharacterIdRef.current, sendCharacterId)
       && activeSessionIdRef.current === sendSessionId;
-    const pendingAssistantMessage = {
+     const controller = sendLockRef.current?.controller || new AbortController();
+     abortRef.current = controller;
+     if (controller.signal.aborted) return false;
+     const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
       text: THINKING_PLACEHOLDER,
@@ -1731,21 +2052,24 @@ export default function ChatScreen() {
       timestamp: Date.now(),
     };
 
-    setMessages([...baseMessages, pendingAssistantMessage]);
-    setIsSending(true);
-    atBottomRef.current = true;
-    scrollToBottom();
-
-    const controller = new AbortController();
-    abortRef.current = controller;
+     setMessages([...baseMessages, pendingAssistantMessage]);
+     setIsSending(true);
+     atBottomRef.current = true;
+     scrollToBottom();
 
     try {
-      const [userProfile, globalPresets, enabledPlugins] = await Promise.all([
-        getUserProfile(),
-        getEnabledGlobalPresetPrompts(),
-        getEnabledPlugins(),
-      ]);
-      const pluginContext = await runPlugins({
+       const [userProfile, globalPresets, enabledPlugins] = await Promise.all([
+         getUserProfile(),
+         getEnabledGlobalPresetPrompts(),
+         getEnabledPlugins(),
+       ]);
+       if (controller.signal.aborted) {
+         setMessages(current => (
+           isCurrentSession() ? settlePendingMessage(current, pendingAssistantMessage.id) : current
+         ));
+         return;
+       }
+       const pluginContext = await runPlugins({
         userText,
         plugins: enabledPlugins,
         sessionId: sendSessionId,
@@ -1797,50 +2121,61 @@ export default function ChatScreen() {
       } catch (error) {
         summaryText = '';
       }
-      const requestMessages = buildRequestMessages({
-        character,
-        historyMessages: trimmedHistory,
-        userText,
-        userProfile,
-        globalPresets,
-        summaryText,
-        memorySnippets,
-        pluginContext,
-        images,
-        quote,
-      });
+       const requestMessages = buildRequestMessages({
+         character,
+         historyMessages: trimmedHistory,
+         userText,
+         userProfile,
+         globalPresets,
+         imageMessages,
+         summaryText,
+         memorySnippets,
+         pluginContext,
+         images,
+         quote,
+       });
+       if (!isCurrentSession()) return;
 
-      const reply = await sendChatMessage(
-        requestMessages,
-        {
-          signal: controller.signal,
-          stream: chatOptions.stream,
-          onChunk: fullText => {
-            if (!isCurrentSession() || controller.signal.aborted) return;
-            setMessages(current => {
-              if (!isCurrentSession()) return current;
-              return current.map(item =>
-                item.id === pendingAssistantMessage.id && item.pending
-                  ? { ...item, text: fullText, waitingForResponse: false }
-                  : item
-              );
-            });
-          },
-          onReasoning: fullReasoning => {
-            if (!isCurrentSession() || controller.signal.aborted) return;
-            setMessages(current => {
-              if (!isCurrentSession()) return current;
-              return current.map(item =>
-                item.id === pendingAssistantMessage.id
-                  ? { ...item, reasoning: fullReasoning }
-                  : item
-              );
-            });
-          }
-        }
-      );
+       const reply = await sendChatMessage(
+         requestMessages,
+         {
+           expectedConfigId,
+           signal: controller.signal,
+           stream: chatOptions.stream,
+           onChunk: fullText => {
+             if (!isCurrentSession() || controller.signal.aborted) return;
+             setMessages(current => {
+               if (!isCurrentSession()) return current;
+               return current.map(item =>
+                 item.id === pendingAssistantMessage.id && item.pending
+                   ? { ...item, text: fullText, waitingForResponse: false }
+                   : item
+               );
+             });
+           },
+           onReasoning: fullReasoning => {
+             if (!isCurrentSession() || controller.signal.aborted) return;
+             setMessages(current => {
+               if (!isCurrentSession()) return current;
+               return current.map(item =>
+                 item.id === pendingAssistantMessage.id
+                   ? { ...item, reasoning: fullReasoning }
+                   : item
+               );
+             });
+           }
+         }
+       );
 
-      setMessages(current => {
+       if (controller.signal.aborted) {
+         setMessages(current => (
+           isCurrentSession()
+             ? settlePendingMessage(current, pendingAssistantMessage.id)
+             : current
+         ));
+         return;
+       }
+       setMessages(current => {
         if (!isCurrentSession()) return current;
         return current.map(item =>
           item.id === pendingAssistantMessage.id
@@ -1864,17 +2199,26 @@ export default function ChatScreen() {
         broadcastMessage(reply || '');
         recordTurnRef.current?.(userText, reply || '', senderSnapshot);
       }
-    } catch (error) {
-      if (isCanceledError(error)) {
+     } catch (error) {
+       if (isConfigChangedError(error)) {
+         sourceChangedRef.current = true;
+         setMessages(current => (
+           isCurrentSession()
+             ? current.filter(item => item.id !== pendingAssistantMessage.id)
+             : current
+         ));
+         return false;
+       }
+       if (isCanceledError(error)) {
         // 停止：已有内容（含只生成了思考）就保留并落盘，只有占位符才整条移除
-        setMessages(current => (
-          isCurrentSession()
-            ? settlePendingMessage(current, pendingAssistantMessage.id)
-            : current
-        ));
-        return;
-      }
-      const rawText = buildErrorRawText(error);
+         setMessages(current => (
+           isCurrentSession()
+             ? settlePendingMessage(current, pendingAssistantMessage.id)
+             : current
+         ));
+         return false;
+       }
+       const rawText = buildErrorRawText(error);
       const errorMessage = {
         id: `${pendingAssistantMessage.id}-error`,
         role: SYSTEM_ERROR_ID,
@@ -1903,10 +2247,11 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [autoScrollToBottom, character, characters, isSending, maybeAutoSummarize, ready, scrollToBottom]);
+  }, [autoScrollToBottom, character, characters, chatOptions.stream, isSessionGuardCurrent, maybeAutoSummarize, ready, scrollToBottom]);
 
-  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, quote }) => {
-    if (isSending || !ready || abortRef.current) return;
+  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, imageMessages, quote, expectedConfigId, sessionGuard }) => {
+     if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
+     if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
     const members = groupCharactersRef.current;
     if (members.length === 0) {
       // 输入框在 onSend 里已清空，这里必须给个提示，不能让用户以为发出去又什么都没发生。
@@ -1915,53 +2260,75 @@ export default function ChatScreen() {
     }
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
+    const sendCharacterId = activeCharacterIdRef.current;
     const isCurrent = () =>
       sessionVersionRef.current === sendSessionVersion
-      && activeSessionIdRef.current === sendSessionId;
+      && activeSessionIdRef.current === sendSessionId
+      && !isStaleReply(activeCharacterIdRef.current, sendCharacterId);
 
-    setIsSending(true);
-    atBottomRef.current = true;
-    setMessages(baseMessages);
-    scrollToBottom();
-    const controller = new AbortController();
-    abortRef.current = controller;
+     const controller = sendLockRef.current?.controller || new AbortController();
+     abortRef.current = controller;
+     if (controller.signal.aborted) return false;
+     setIsSending(true);
+     atBottomRef.current = true;
+     setMessages(baseMessages);
+     scrollToBottom();
 
     try {
-      const [userProfile, globalPresets] = await Promise.all([
-        getUserProfile(),
-        getEnabledGlobalPresetPrompts(),
-      ]);
+       const [userProfile, globalPresets] = await Promise.all([
+         getUserProfile(),
+         getEnabledGlobalPresetPrompts(),
+       ]);
+       if (!isCurrent() || controller.signal.aborted) return true;
       const groupSessionId = String(activeSessionRef.current?.id || '');
       const cachedProfiles = memberProfilesRef.current.sessionId === groupSessionId
         ? memberProfilesRef.current.profiles
         : (activeSessionRef.current?.memberProfiles || {});
       let memberProfiles = cachedProfiles;
       try {
-        const ensured = await ensureMemberProfiles({
-          characters: members,
-          profiles: cachedProfiles,
-        });
+         const ensured = await ensureMemberProfiles({
+           characters: members,
+            profiles: cachedProfiles,
+            expectedConfigId,
+            signal: controller.signal,
+          });
         const added = Object.keys(ensured).some(key => !cachedProfiles[key]);
+        if (!isCurrent()) return true;
         memberProfiles = ensured;
         memberProfilesRef.current = { sessionId: groupSessionId, profiles: ensured };
-        if (added && groupSessionId) {
-          await updateSessionMemberProfiles(groupSessionId, ensured);
-        }
-      } catch (error) {}
-      const everyone = hasEveryoneMention(userText);
+         if (added && groupSessionId) {
+           await updateSessionMemberProfiles(groupSessionId, ensured);
+         }
+       } catch (error) {
+         if (isConfigChangedError(error)) throw error;
+       }
+       if (!isCurrent()) return true;
+       const everyone = hasEveryoneMention(userText);
       const mentions = parseMentions(userText, members);
+      const mediaPrompt = (Array.isArray(imageMessages) ? imageMessages : [])
+        .map(getMessagePromptText)
+        .filter(Boolean)
+        .join('\n');
+      const schedulerText = [userText, mediaPrompt].filter(Boolean).join('\n');
+      const currentTurnIds = new Set(
+        (Array.isArray(baseMessages) ? baseMessages.slice(historyMessages.length) : [])
+          .map(item => item && item.id)
+          .filter(Boolean)
+      );
       let working = baseMessages;
 
       const runTurnSpeakers = async () => {
         const speakerIds = await selectSpeakers({
           characters: members,
           history: historyMessages,
-          userText,
-          mentions,
-          everyone,
-        });
-        for (const speakerId of speakerIds) {
-          if (!isCurrent() || controller.signal.aborted) break;
+          userText: schedulerText,
+           expectedConfigId,
+           mentions,
+           everyone,
+           signal: controller.signal,
+         });
+         for (const speakerId of speakerIds) {
+           if (!isCurrent() || controller.signal.aborted) return false;
           const speaker = members.find(item => item.id === speakerId);
           if (!speaker) continue;
           const pendingMessage = {
@@ -1974,13 +2341,14 @@ export default function ChatScreen() {
             speakerName: speaker.name,
             timestamp: Date.now(),
           };
-          const roundHistory = working.filter(
-            (item, index) => item
-              && !item.pending
-              && (item.role === USER_ID || item.role === ASSISTANT_ID)
-              && index < baseMessages.length - 1
-          );
-          working = [...working, pendingMessage];
+          const roundHistory = working.filter(item => (
+            item
+            && !item.pending
+            && (item.role === USER_ID || item.role === ASSISTANT_ID)
+            && !currentTurnIds.has(item.id)
+          ));
+           working = [...working, pendingMessage];
+           if (!isCurrent()) return false;
           setMessages(working);
           scrollToBottom();
           try {
@@ -1993,28 +2361,31 @@ export default function ChatScreen() {
               globalPresets,
               quote,
               profiles: memberProfiles,
+              imageMessages,
             });
             const reply = await sendChatMessage(requestMessages, {
+              expectedConfigId,
               signal: controller.signal,
               stream: chatOptions.stream,
             });
-            if (!isCurrent()) return;
-            working = working.map(item => (
+             if (!isCurrent()) return false;
+             working = working.map(item => (
               item.id === pendingMessage.id
                 ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
                 : item
             ));
             setMessages(working);
-          } catch (error) {
-            if (isCanceledError(error)) {
-              // 停止：结算占位气泡，避免留下永远“正在思考”的僵尸消息
-              setMessages(current => (
-                isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
-              ));
-              break;
-            }
-            if (!isCurrent()) return;
-            working = working.map(item => (
+        } catch (error) {
+          if (isConfigChangedError(error)) throw error;
+          if (isCanceledError(error)) {
+            // 停止：结算占位气泡，避免留下永远“正在思考”的僵尸消息
+            setMessages(current => (
+              isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
+             ));
+             return false;
+           }
+           if (!isCurrent()) return false;
+             working = working.map(item => (
               item.id === pendingMessage.id
                 ? {
                   ...item,
@@ -2024,18 +2395,19 @@ export default function ChatScreen() {
                 }
                 : item
             ));
-            setMessages(working);
-          }
-        }
-      };
+             setMessages(working);
+           }
+         }
+         return true;
+       };
 
       const runEnsemble = async () => {
-        const historyForPrompt = working.filter(
-          (item, index) => item
-            && !item.pending
-            && (item.role === USER_ID || item.role === ASSISTANT_ID)
-            && index < baseMessages.length - 1
-        );
+        const historyForPrompt = working.filter(item => (
+          item
+          && !item.pending
+          && (item.role === USER_ID || item.role === ASSISTANT_ID)
+          && !currentTurnIds.has(item.id)
+        ));
         const requestMessages = buildEnsemblePrompt({
           characters: members,
           historyMessages: historyForPrompt,
@@ -2045,8 +2417,10 @@ export default function ChatScreen() {
           profiles: memberProfiles,
           mentions,
           everyone,
+          imageMessages,
         });
         if (requestMessages.length === 0) return false;
+        if (!isCurrent()) return true;
         const groupName = String(activeSessionRef.current?.name || '').trim()
           || members.map(item => String(item.name || '').trim()).filter(Boolean).join('、')
           || '群聊';
@@ -2060,11 +2434,13 @@ export default function ChatScreen() {
           timestamp: Date.now(),
         };
         working = [...working, pendingMessage];
+        if (!isCurrent()) return true;
         setMessages(working);
         scrollToBottom();
         let reply = '';
         try {
           reply = await sendChatMessage(requestMessages, {
+            expectedConfigId,
             signal: controller.signal,
             stream: chatOptions.stream,
             onChunk: fullText => {
@@ -2076,16 +2452,17 @@ export default function ChatScreen() {
               )));
             },
           });
-        } catch (error) {
-          if (isCanceledError(error)) {
-            // 停止：合议模式的流式增量只写进了 state（局部变量 working 里仍是占位符），
-            // 所以必须按当前 state 结算，否则已生成的部分会被整条丢掉
-            setMessages(current => (
-              isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
-            ));
-            throw error;
-          }
-          working = working.filter(item => item.id !== pendingMessage.id);
+         } catch (error) {
+           if (isConfigChangedError(error)) throw error;
+           if (isCanceledError(error)) {
+             // 停止：合议模式的流式增量只写进了 state（局部变量 working 里仍是占位符），
+             // 所以必须按当前 state 结算，否则已生成的部分会被整条丢掉
+             setMessages(current => (
+               isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
+             ));
+             throw error;
+           }
+           working = working.filter(item => item.id !== pendingMessage.id);
           if (isCurrent()) setMessages(working);
           return false;
         }
@@ -2094,7 +2471,7 @@ export default function ChatScreen() {
         if (segments.length === 0) {
           // 回退：移除临时消息后交给逐角色模式
           working = working.filter(item => item.id !== pendingMessage.id);
-          setMessages(working);
+          if (isCurrent()) setMessages(working);
           return false;
         }
         working = working.filter(item => item.id !== pendingMessage.id);
@@ -2107,6 +2484,7 @@ export default function ChatScreen() {
             speakerName: segment.speakerName || '',
           }];
         });
+        if (!isCurrent()) return true;
         setMessages(working);
         scrollToBottom();
         return true;
@@ -2117,19 +2495,27 @@ export default function ChatScreen() {
       if (groupMode !== 'turn') {
         try {
           handled = await runEnsemble();
-        } catch (error) {
-          if (isCanceledError(error)) return;
-          handled = false;
-        }
+         } catch (error) {
+           if (isConfigChangedError(error)) throw error;
+           if (isCanceledError(error)) return;
+           handled = false;
+         }
       }
-      if (!handled) {
-        await runTurnSpeakers();
-      }
-    } catch (error) {
-      if (isCurrent()) {
-        Alert.alert('群聊回复失败', '请稍后重试。');
-      }
-    } finally {
+       if (!handled) {
+         const turnHandled = await runTurnSpeakers();
+         if (turnHandled === false) return false;
+       }
+     } catch (error) {
+       if (isConfigChangedError(error)) {
+         sourceChangedRef.current = true;
+         if (isCurrent()) setMessages(current => current.filter(item => !item.pending));
+         return false;
+       }
+       if (isCanceledError(error)) return;
+       if (isCurrent()) {
+         Alert.alert('群聊回复失败', '请稍后重试。');
+       }
+     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         if (isCurrent()) {
@@ -2138,73 +2524,341 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [autoScrollToBottom, isSending, ready, scrollToBottom]);
+  }, [autoScrollToBottom, chatOptions.stream, isSessionGuardCurrent, ready, scrollToBottom]);
 
-  const sendText = useCallback(rawText => {
+  const performSendMessage = useCallback(async (rawText, extraAttachments = [], suppliedGuard = null) => {
+    const sessionGuard = suppliedGuard || captureSessionGuard();
+    const sendController = sendLockRef.current?.controller || null;
+    const isCanceled = () => !!(
+      (sendController && sendController.signal.aborted)
+      || (abortRef.current && abortRef.current.signal.aborted)
+    );
     const text = String(rawText || '').trim();
-    const imageAttachments = attachments.filter(item => item.kind === 'image');
-    if (messageSelectionOpen || (!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
-    if (!isGroupRef.current && !greetingReady) return;
-    if (sessionOwnerMissing) {
-      Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
-      return;
+    const baseAttachments = Array.isArray(attachments) ? attachments : [];
+    const allAttachments = [...baseAttachments, ...(Array.isArray(extraAttachments) ? extraAttachments : [])];
+    const imageAttachments = allAttachments.filter(item => (
+      item && (item.kind === 'image' || item.kind === STICKER_MESSAGE_KIND)
+    ));
+    const textAttachments = allAttachments.filter(item => item && item.kind === 'text');
+    if (imageAttachments.length > MAX_IMAGE_ATTACHMENTS) {
+      Alert.alert('图片过多', `一次最多发送 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+      return false;
     }
+    if (!isSessionGuardCurrent(sessionGuard)
+       || messageSelectionOpen
+       || isSwitching
+       || sessionTransitionPending
+       || (!text && imageAttachments.length === 0 && textAttachments.length === 0)
+      || !sendLockRef.current
+       || !ready
+       || (abortRef.current && abortRef.current.signal.aborted)) return false;
+     if (!isGroupRef.current && !greetingReady) return false;
+     if (isGroupRef.current && groupCharactersRef.current.length === 0) {
+       Alert.alert('无法发送', '这个群聊没有可用的角色（成员可能已被删除）。');
+       return false;
+     }
+     if (isGroupRef.current) openingRequestRef.current += 1;
+     if (sessionOwnerMissing) {
+      Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
+      return false;
+    }
+    let visionEnabled = false;
+    let expectedConfigId = '';
+    try {
+       const { configs, activeId } = await getApiConfigs();
+       if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      expectedConfigId = String(current?.id || '');
+      visionEnabled = !!(current && current.supportsVision);
+    } catch (error) {}
+     let sizedImages = [];
+     try {
+       sizedImages = await Promise.all(imageAttachments.map(async item => {
+         const info = await getImageFileInfo(item.uri);
+         if (!info.exists) throw new Error('图片不存在');
+         return { ...item, size: info.size || Number(item.size) || 0 };
+         }));
+         if (isCanceled()) return false;
+         validateImageBatch(sizedImages);
+     } catch (error) {
+       if (error && error.message === '无法读取图片大小') {
+         Alert.alert('图片读取失败', '无法读取图片大小，请重新选择图片。');
+       } else {
+         Alert.alert('图片过大', '一次发送的图片总大小过大，请减少图片后再试。');
+       }
+       return false;
+     }
     ttsStop().catch(() => {});
-    const mergedText = mergeTextAttachments(text, attachments)
-      || (imageAttachments.length > 0 ? '（见图片）' : '');
-    const userMessage = {
-      id: `${Date.now()}-user`,
-      role: USER_ID,
-      text: text || '（图片）',
-      timestamp: Date.now(),
-    };
-    if (quoteTarget) userMessage.quoted = quoteTarget;
+     const now = Date.now();
+     const mediaMessages = [];
+     const imageMessages = [];
+     let totalBase64Bytes = 0;
+    for (let index = 0; index < imageAttachments.length; index += 1) {
+      const item = sizedImages[index];
+      const kind = item.kind === STICKER_MESSAGE_KIND ? STICKER_MESSAGE_KIND : 'image';
+      if (kind === 'image' && !visionEnabled) {
+        Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
+        return false;
+      }
+      let dataUri = '';
+      if (visionEnabled) {
+         try {
+           dataUri = await readImageDataUri(item.uri, item.mime);
+           const separator = dataUri.indexOf(',');
+           const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
+           totalBase64Bytes += Math.ceil(base64Length * 3 / 4);
+             if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+               throw new Error('图片总大小过大');
+             }
+             if (isCanceled()) return false;
+         } catch (error) {
+           if (error && error.message === '图片总大小过大') {
+             Alert.alert('图片过大', '图片总大小过大，请减少图片后再试。');
+           } else {
+             Alert.alert('图片读取失败', '请重新选择图片。');
+           }
+           return false;
+         }
+      }
+      if (!isSessionGuardCurrent(sessionGuard)) return false;
+      const mediaMessage = createMediaMessage({
+        id: `${now}-${kind}-${index}`,
+        kind,
+        uri: item.uri,
+        mime: item.mime,
+        name: item.name || item.stickerName,
+        width: item.width,
+        height: item.height,
+        stickerId: item.stickerId,
+        stickerName: item.stickerName,
+        timestamp: now + index,
+      });
+      mediaMessages.push(mediaMessage);
+      imageMessages.push({
+        ...mediaMessage,
+        dataUri,
+        includeImage: visionEnabled,
+      });
+    }
+     const mergedText = mergeTextAttachments(text, textAttachments);
+     if (!mergedText && mediaMessages.length === 0) return false;
+     const textMessage = mergedText
+      ? {
+          id: `${now}-user-${mediaMessages.length}`,
+          role: USER_ID,
+          text: mergedText,
+          timestamp: now + mediaMessages.length,
+        }
+      : null;
+    const draftQuote = quoteTarget;
+    if (textMessage && draftQuote) textMessage.quoted = draftQuote;
+    const baseMessages = [...messages, ...mediaMessages];
+    if (textMessage) baseMessages.push(textMessage);
     const payload = {
       historyMessages: messages,
       userText: mergedText,
-      baseMessages: [...messages, userMessage],
-      images: imageAttachments.map(item => item.dataUri),
-      quote: quoteTarget,
+      baseMessages,
+      images: imageMessages
+        .filter(item => item.includeImage)
+        .map(item => item.dataUri),
+      imageMessages,
+      quote: textMessage ? draftQuote : null,
+      expectedConfigId,
+      sessionGuard,
     };
-    setAttachments([]);
-    setQuoteTarget(null);
-    if (isGroupRef.current) {
-      requestGroupReply(payload);
-    } else {
-      requestReply(payload);
-    }
-  }, [attachments, greetingReady, isSending, messageSelectionOpen, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing]);
-
-  const regenerateMessage = useCallback(targetId => {
-    if (isSending || !ready) return;
-    if (sessionOwnerMissing) {
-      Alert.alert('角色资料缺失', '恢复角色资料后才能重新生成回复。');
-      return;
-    }
-    const index = messages.findIndex(item => item.id === targetId);
-    if (index < 0 || messages[index].role !== ASSISTANT_ID) return;
-    let userIndex = -1;
-    for (let i = index - 1; i >= 0; i -= 1) {
-      if (messages[i].role === USER_ID) {
-        userIndex = i;
-        break;
-      }
-    }
-    if (userIndex < 0) return;
-    requestReply({
-      historyMessages: messages.slice(0, userIndex),
-      userText: messages[userIndex].text,
-      baseMessages: messages.slice(0, index),
+     if (isCanceled() || !isSessionGuardCurrent(sessionGuard)
+       || (abortRef.current && abortRef.current.signal.aborted)) return false;
+     try {
+       const latest = await getApiConfigs();
+       if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
+       const latestConfig = latest.configs.find(item => item.id === latest.activeId) || latest.configs[0];
+       const latestConfigId = String(latestConfig && latestConfig.id || '');
+       if (expectedConfigId && latestConfigId !== expectedConfigId) {
+         Alert.alert('模型来源已切换', '请重新发送这条消息。');
+         return false;
+       }
+       if (
+         imageAttachments.some(item => item.kind === 'image')
+         && latestConfig
+         && latestConfig.supportsVision !== true
+       ) {
+         Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
+         return false;
+       }
+     } catch (error) {
+       Alert.alert('配置读取失败', '请稍后重试。');
+       return false;
+     }
+     const baseAttachmentIds = baseAttachments.map(item => String(item.id || ''));
+    setInput(current => current === rawText ? '' : current);
+    setAttachments(current => {
+      const currentIds = current.map(item => String(item.id || ''));
+      if (
+        currentIds.length !== baseAttachmentIds.length
+        || currentIds.some((id, index) => id !== baseAttachmentIds[index])
+      ) return current;
+      return [];
     });
-  }, [isSending, messages, ready, requestReply, sessionOwnerMissing]);
+    setQuoteTarget(current => (
+      String(current && current.id || '') === String(draftQuote && draftQuote.id || '')
+        ? null
+        : current
+    ));
+     const handled = isGroupRef.current
+       ? await requestGroupReply(payload)
+       : await requestReply(payload);
+     if (handled === false && sourceChangedRef.current && isSessionGuardCurrent(sessionGuard)) {
+       const originalIds = new Set(messages.map(item => String(item && item.id || '')));
+       setMessages(current => current.filter(item => originalIds.has(String(item && item.id || ''))));
+       const restoredAttachments = allAttachments;
+       attachmentsRef.current = restoredAttachments;
+       setAttachments(restoredAttachments);
+       setInput(rawText);
+       setQuoteTarget(draftQuote);
+       syncProtectedAttachmentUris();
+       Alert.alert('模型来源已切换', '已保留原消息草稿，请重新发送。');
+       return false;
+     }
+     return handled !== false && isSessionGuardCurrent(sessionGuard) && !(abortRef.current && abortRef.current.signal.aborted);
+  }, [attachments, captureSessionGuard, greetingReady, isSessionGuardCurrent, isSwitching, messageSelectionOpen, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing, sessionTransitionPending]);
+
+  const sendMessage = useCallback(async (...args) => {
+    const token = beginSendOperation();
+    if (!token) return false;
+    try {
+      return await performSendMessage(...args);
+    } finally {
+      endSendOperation(token);
+    }
+  }, [beginSendOperation, endSendOperation, performSendMessage]);
+
+  const sendText = useCallback(rawText => sendMessage(rawText), [sendMessage]);
+
+  const regenerateMessage = useCallback(async targetId => {
+     if (isSending || isSwitching || sessionTransitionPending || !ready || sendLockRef.current) return;
+    const token = beginSendOperation();
+    if (!token) return;
+    const sessionGuard = captureSessionGuard();
+    try {
+      if (!isSessionGuardCurrent(sessionGuard)) return false;
+      if (sessionOwnerMissing) {
+        Alert.alert('角色资料缺失', '恢复角色资料后才能重新生成回复。');
+        return false;
+      }
+      const index = messages.findIndex(item => item.id === targetId);
+      if (index < 0 || messages[index].role !== ASSISTANT_ID) return false;
+      let userStart = index - 1;
+      while (userStart >= 0 && messages[userStart].role === USER_ID) {
+        userStart -= 1;
+      }
+      userStart += 1;
+      const userMessages = messages.slice(userStart, index);
+      if (userMessages.length === 0) return false;
+      let includeImage = false;
+      let expectedConfigId = '';
+      try {
+        const { configs, activeId } = await getApiConfigs();
+        const current = configs.find(item => item.id === activeId) || configs[0];
+        expectedConfigId = String(current?.id || '');
+        includeImage = !!(current && current.supportsVision);
+      } catch (error) {}
+      if (!isSessionGuardCurrent(sessionGuard)) return false;
+       const mediaItems = userMessages.filter(item => item && item.image);
+       let sizedMedia = [];
+       try {
+         sizedMedia = await Promise.all(mediaItems.map(async item => {
+           const info = await getImageFileInfo(item.image.uri);
+           if (!info.exists) throw new Error('图片不存在');
+           return {
+             item,
+             size: info.size,
+             width: item.image.width,
+             height: item.image.height,
+           };
+         }));
+         validateImageBatch(sizedMedia);
+       } catch (error) {
+         Alert.alert('图片过大', '重新生成所需的图片大小或数量超限。');
+         return false;
+       }
+       const imageMessages = [];
+       let totalBase64Bytes = 0;
+       for (const { item } of sizedMedia) {
+         let dataUri = '';
+         if (includeImage) {
+           dataUri = await readImageDataUri(item.image.uri, item.image.mime).catch(() => '');
+           const separator = dataUri.indexOf(',');
+           const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
+           totalBase64Bytes += Math.ceil(base64Length * 3 / 4);
+           if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+             Alert.alert('图片过大', '重新生成所需的图片总大小过大。');
+             return false;
+           }
+         }
+         imageMessages.push({
+           ...item.item,
+           dataUri,
+           includeImage,
+         });
+       }
+      const userText = userMessages
+        .filter(item => item && !item.image)
+        .map(item => String(item.text || ''))
+        .filter(Boolean)
+        .join('\n');
+       if (!isSessionGuardCurrent(sessionGuard)) return false;
+       await clearVectorIndex(character.id);
+       const handled = await requestReply({
+         historyMessages: messages.slice(0, userStart),
+         userText,
+         baseMessages: messages.slice(0, index),
+         imageMessages,
+         expectedConfigId,
+         sessionGuard,
+       });
+       if (handled === false && sourceChangedRef.current && isSessionGuardCurrent(sessionGuard)) {
+         setMessages(messages);
+         Alert.alert('模型来源已切换', '已保留原消息，请重新生成。');
+         return false;
+       }
+       return handled !== false && isSessionGuardCurrent(sessionGuard) && !abortRef.current;
+    } finally {
+      endSendOperation(token);
+    }
+  }, [beginSendOperation, captureSessionGuard, clearVectorIndex, endSendOperation, isSending, isSessionGuardCurrent, messages, ready, requestReply, sessionOwnerMissing, sessionTransitionPending]);
 
   const editUserMessage = useCallback(targetId => {
-    if (isSending || !ready || abortRef.current) return;
-    const index = messages.findIndex(item => item.id === targetId);
-    if (index < 0 || messages[index].role !== USER_ID) return;
-    setMessages(messages.slice(0, index));
-    setInput(messages[index].text);
-  }, [isSending, messages, ready]);
+    if (isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
+    const sessionGuard = captureSessionGuard();
+    const plan = getEditResendPlan(messagesRef.current, targetId);
+    if (!plan || !isSessionGuardCurrent(sessionGuard)) return;
+    Alert.alert(
+      '修改重发',
+      '确定撤回这条消息及其后续回复，并将原文字回退到输入框吗？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '撤回并编辑',
+          style: 'destructive',
+          onPress: async () => {
+            if (isSending || isSwitching || !isSessionGuardCurrent(sessionGuard) || abortRef.current) return;
+            const latestPlan = getEditResendPlan(messagesRef.current, targetId);
+            if (!latestPlan) return;
+            try {
+              await resetSessionSummaries(sessionGuard.sessionId);
+              await clearVectorIndex(characterId);
+              if (!isSessionGuardCurrent(sessionGuard)) return;
+              setMessages(latestPlan.messages);
+              setInput(latestPlan.text);
+              setQuoteTarget(null);
+            } catch (error) {
+              Alert.alert('撤回失败', '记忆摘要未能同步重置，请稍后重试。');
+            }
+          },
+        },
+      ]
+    );
+  }, [captureSessionGuard, clearVectorIndex, isSending, isSessionGuardCurrent, isSwitching, ready, resetSessionSummaries, sessionTransitionPending]);
 
   const messageActionsRef = useRef({});
   useEffect(() => {
@@ -2404,57 +3058,167 @@ export default function ChatScreen() {
     sendTextRef.current = sendText;
   }, [sendText]);
 
-  const onSlashCommand = useCallback(command => {
-    sendTextRef.current?.(command);
+  const onSlashCommand = useCallback((command, token, sourceMessageId = '') => {
+    if (
+      sourceMessageId
+      && !messagesRef.current.some(message => String(message && message.id || '') === String(sourceMessageId))
+    ) return;
+    const result = sendTextRef.current?.(String(command || '').replace(/^\/send\s+/, ''));
+    if (result && typeof result.catch === 'function') {
+      result.catch(error => {
+        if (!isConfigChangedError(error)) {
+          Alert.alert('发送失败', (error && error.message) || '请稍后重试。');
+        }
+      });
+    }
   }, []);
 
   const removeAttachment = useCallback(id => {
-    setAttachments(current => current.filter(item => item.id !== id));
-  }, []);
+     if (isSending || sendLockRef.current) return;
+     const target = attachments.find(item => item.id === id);
+     if (target && target.kind === 'image') deleteLocalImage(target.uri);
+     setAttachments(current => {
+       const next = current.filter(item => item.id !== id);
+       attachmentsRef.current = next;
+       return next;
+     });
+     syncProtectedAttachmentUris();
+   }, [attachments, isSending, syncProtectedAttachmentUris]);
 
   const addAttachment = useCallback(async kind => {
+    const sessionGuard = captureSessionGuard();
+    if (
+      !isSessionGuardCurrent(sessionGuard)
+      || isSending
+      || isSwitching
+      || sessionTransitionPending
+      || sendLockRef.current
+      || attachmentLoading
+      || attachmentPickerLockRef.current
+      || !ready
+      || messageSelectionOpen
+    ) return;
+    attachmentPickerLockRef.current = true;
+    setAttachmentLoading(true);
+    let durableUri = '';
+    let picked = null;
     try {
-      const picked = await pickAttachment();
+      picked = await pickAttachment();
       if (!picked) return;
+      if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
       if (kind === 'text') {
         if (!isTextLike(picked.name, picked.mime)) {
+          deleteTemporaryImage(picked.uri);
           Alert.alert('不支持的文件', '当前仅支持纯文本类文档。');
           return;
         }
         const text = await readTextAttachment(picked.uri);
-        setAttachments(current => [...current, {
-          id: `${Date.now()}-${current.length}`,
-          kind: 'text',
-          name: picked.name,
-          text,
-        }]);
+        if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+          deleteTemporaryImage(picked.uri);
+          return;
+        }
+        deleteTemporaryImage(picked.uri);
+        setAttachments(current => {
+          const next = [...current, {
+            id: `${Date.now()}-${current.length}`,
+            kind: 'text',
+            name: picked.name,
+            text,
+          }];
+          attachmentsRef.current = next;
+          return next;
+        });
         return;
       }
       if (!isImage(picked.name, picked.mime)) {
+        deleteTemporaryImage(picked.uri);
         Alert.alert('不支持的文件', '请选择图片文件。');
+        return;
+      }
+      const fileInfo = await getImageFileInfo(picked.uri);
+      if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
+      if (!fileInfo.exists) throw new Error('图片不存在');
+      const size = fileInfo.size || picked.size;
+      validateImageSize({ size });
+      if (isSending || isSwitching || sendLockRef.current) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
+      const dimensions = picked.width && picked.height
+        ? { width: picked.width, height: picked.height }
+        : await getImageDimensions(picked.uri);
+      if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
+      validateImageSize({ size, width: dimensions.width, height: dimensions.height });
+      if (attachmentsRef.current.filter(item => item.kind === 'image').length >= MAX_IMAGE_ATTACHMENTS) {
+        deleteTemporaryImage(picked.uri);
+        Alert.alert('图片过多', `一次最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
         return;
       }
       const { configs, activeId } = await getApiConfigs();
       const current = configs.find(item => item.id === activeId) || configs[0];
       if (!current || current.supportsVision !== true) {
+        deleteTemporaryImage(picked.uri);
         Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
         return;
       }
-      const dataUri = await readImageDataUri(picked.uri, picked.mime);
-      setAttachments(list => [...list, {
-        id: `${Date.now()}-${list.length}`,
-        kind: 'image',
-        name: picked.name,
-        uri: picked.uri,
-        dataUri,
-      }]);
+      if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
+      durableUri = await persistImageAttachment(picked.uri, picked.mime, picked.name);
+      deleteTemporaryImage(picked.uri);
+      pendingAttachmentUrisRef.current.add(durableUri);
+      syncProtectedAttachmentUris();
+      const mime = getImageMime(picked.name, picked.mime);
+      if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+        pendingAttachmentUrisRef.current.delete(durableUri);
+        syncProtectedAttachmentUris();
+        deleteLocalImage(durableUri);
+        return;
+      }
+      setAttachments(list => {
+        const next = [...list, {
+          id: `${Date.now()}-${list.length}`,
+          kind: 'image',
+          name: picked.name,
+          uri: durableUri,
+          mime,
+          size,
+          width: dimensions.width,
+          height: dimensions.height,
+        }];
+        attachmentsRef.current = next;
+        return next;
+      });
+      pendingAttachmentUrisRef.current.delete(durableUri);
+      syncProtectedAttachmentUris();
     } catch (error) {
+      if (durableUri) {
+        pendingAttachmentUrisRef.current.delete(durableUri);
+        syncProtectedAttachmentUris();
+        deleteLocalImage(durableUri);
+      }
+      if (picked && picked.uri) deleteTemporaryImage(picked.uri);
       Alert.alert(
         '文件读取失败',
-        error && error.message === '文件过大' ? '文件过大，请选择更小的文档。' : '请重试。'
-      );
-    }
-  }, []);
+        ['文件过大', '图片过大', '图片分辨率过大', '图片总大小过大'].includes(error && error.message)
+          ? '文件过大，请选择更小的文件。'
+          : '请重试。'
+       );
+     } finally {
+       attachmentPickerLockRef.current = false;
+       setAttachmentLoading(false);
+     }
+   }, [attachmentLoading, captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sessionTransitionPending, syncProtectedAttachmentUris]);
 
   const pickAttachmentMenu = useCallback(() => {
     Alert.alert('添加附件', '选择要上传的内容类型。', [
@@ -2464,16 +3228,260 @@ export default function ChatScreen() {
     ]);
   }, [addAttachment]);
 
-  const onSend = useCallback(() => {
+  const openStickerNamePrompt = useCallback(source => {
+    if (!source || !source.uri) return;
+    setStickerNameDraft('');
+    setStickerNamePrompt({
+      uri: String(source.uri),
+      mime: String(source.mime || 'image/jpeg'),
+      name: String(source.name || ''),
+       width: Number(source.width) || 0,
+       height: Number(source.height) || 0,
+       size: Number(source.size) || 0,
+       sessionId: activeSessionIdRef.current,
+       sessionVersion: sessionVersionRef.current,
+     });
+  }, []);
+
+  const confirmDeleteImageMessage = useCallback(messageId => {
+    if (!messageId) return;
+    Alert.alert('删除图片消息', '确定删除这张图片消息吗？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          setMessages(current => removeMessagesByIds(current, [messageId]));
+          setSelectedMessageIds(current => current.filter(id => id !== messageId));
+          setFocusedMessageId(current => current === messageId ? '' : current);
+        },
+      },
+    ]);
+  }, []);
+
+  const confirmStickerName = useCallback(async () => {
+    if (stickerSaveLockRef.current) return;
+    const source = stickerNamePrompt;
+    const name = String(stickerNameDraft || '').trim();
+     if (!source || !name) {
+       if (source) Alert.alert('请输入名称', '表情包需要一个名称，方便模型理解。');
+       return;
+     }
+     if (
+       String(source.sessionId || '') !== String(activeSessionIdRef.current)
+       || Number(source.sessionVersion) !== Number(sessionVersionRef.current)
+     ) {
+       deleteTemporaryImage(source.uri);
+       setStickerNamePrompt(null);
+       setStickerNameDraft('');
+       return;
+     }
+     stickerSaveLockRef.current = true;
+     setStickerSaving(true);
+     let processedUri = '';
+     let sourceConsumed = false;
+    try {
+       const processed = await createStickerImage(source.uri, source.width, source.height);
+       processedUri = processed.uri;
+       if (
+         String(source.sessionId || '') !== String(activeSessionIdRef.current)
+         || Number(source.sessionVersion) !== Number(sessionVersionRef.current)
+       ) {
+         deleteStickerImage(processedUri);
+         processedUri = '';
+         sourceConsumed = true;
+         return;
+       }
+       const saved = await saveSticker({
+        id: `sticker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        uri: processed.uri,
+        mime: processed.mime,
+        width: processed.width,
+        height: processed.height,
+        createdAt: Date.now(),
+      });
+      stickerLoadRef.current += 1;
+      setStickers(current => [saved, ...current.filter(item => item.id !== saved.id)]);
+       setStickerNamePrompt(null);
+       setStickerNameDraft('');
+       setStickerPanelOpen(true);
+       sourceConsumed = true;
+    } catch (error) {
+      if (processedUri) deleteStickerImage(processedUri);
+      Alert.alert('保存表情包失败', (error && error.message) || '请稍后重试。');
+     } finally {
+       if (sourceConsumed && source && source.uri) deleteTemporaryImage(source.uri);
+       stickerSaveLockRef.current = false;
+       setStickerSaving(false);
+     }
+  }, [deleteStickerImage, deleteTemporaryImage, saveSticker, stickerNameDraft, stickerNamePrompt]);
+
+  const addStickerFromPicker = useCallback(async () => {
+    const sessionGuard = captureSessionGuard();
+    if (!isSessionGuardCurrent(sessionGuard)
+      || stickerSaving
+      || isSending
+      || isSwitching
+      || stickerPickerLockRef.current) return;
+    stickerPickerLockRef.current = true;
+    let picked = null;
+    try {
+       picked = await pickStickerImage();
+       if (!picked) return;
+       if (!isSessionGuardCurrent(sessionGuard) || isSwitching) {
+         deleteTemporaryImage(picked.uri);
+         return;
+       }
+      if (!isImage(picked.name, picked.mime)) {
+        deleteTemporaryImage(picked.uri);
+        Alert.alert('不支持的文件', '请选择一张图片。');
+        return;
+      }
+      const fileInfo = await getImageFileInfo(picked.uri);
+      if (!isSessionGuardCurrent(sessionGuard) || isSwitching) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
+      if (!fileInfo.exists) throw new Error('图片不存在');
+      const size = fileInfo.size || picked.size;
+      validateImageSize({ size });
+      const dimensions = picked.width && picked.height
+        ? { width: picked.width, height: picked.height }
+        : await getImageDimensions(picked.uri);
+      if (!isSessionGuardCurrent(sessionGuard) || isSwitching) {
+        deleteTemporaryImage(picked.uri);
+        return;
+      }
+      validateImageSize({ size, width: dimensions.width, height: dimensions.height });
+      openStickerNamePrompt({
+        uri: picked.uri,
+        mime: picked.mime || 'image/jpeg',
+        name: picked.name,
+        width: dimensions.width,
+        height: dimensions.height,
+        size,
+      });
+    } catch (error) {
+      if (picked && picked.uri) deleteTemporaryImage(picked.uri);
+      Alert.alert('选择图片失败', (error && error.message) || '请重试。');
+    } finally {
+      stickerPickerLockRef.current = false;
+    }
+  }, [captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, openStickerNamePrompt, sessionTransitionPending, stickerSaving]);
+
+  useEffect(() => {
+    if (!ready || stickerSaving || stickerNamePrompt || stickerPickerLockRef.current) return undefined;
+     stickerPickerLockRef.current = true;
+      const sessionGuard = captureSessionGuard();
+      let cancelled = false;
+      let picked = null;
+     (async () => {
+       picked = pendingStickerResultRef.current || await getPendingStickerImage();
+       pendingStickerResultRef.current = null;
+       if (!picked) return;
+       if (cancelled || !isSessionGuardCurrent(sessionGuard) || isSwitching) {
+         pendingStickerResultRef.current = picked;
+         return;
+       }
+        if (!isImage(picked.name, picked.mime)) {
+          deleteTemporaryImage(picked.uri);
+          return;
+        }
+        const fileInfo = await getImageFileInfo(picked.uri);
+        if (!fileInfo.exists) throw new Error('图片不存在');
+        const size = fileInfo.size || picked.size;
+        validateImageSize({ size });
+        const dimensions = picked.width && picked.height
+          ? { width: picked.width, height: picked.height }
+          : await getImageDimensions(picked.uri);
+        if (!isSessionGuardCurrent(sessionGuard) || isSwitching) {
+          deleteTemporaryImage(picked.uri);
+          return;
+        }
+        validateImageSize({ size, width: dimensions.width, height: dimensions.height });
+       if (cancelled || !isSessionGuardCurrent(sessionGuard) || isSwitching) {
+         pendingStickerResultRef.current = picked;
+         return;
+       }
+       openStickerNamePrompt({
+         uri: picked.uri,
+         mime: picked.mime || 'image/jpeg',
+         name: picked.name,
+         width: dimensions.width,
+         height: dimensions.height,
+         size,
+       });
+     })().catch(error => {
+       if (picked && picked.uri) deleteTemporaryImage(picked.uri);
+       if (!cancelled) Alert.alert('选择图片失败', (error && error.message) || '请重试。');
+     }).finally(() => {
+      stickerPickerLockRef.current = false;
+    });
+    return () => {
+      cancelled = true;
+      stickerPickerLockRef.current = false;
+    };
+  }, [captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, openStickerNamePrompt, ready, sessionTransitionPending, stickerNamePrompt, stickerSaving]);
+
+  const saveImage = useCallback(async image => {
+    if (!image || !image.uri) return;
+    try {
+      const available = await Sharing.isAvailableAsync().catch(() => false);
+      if (!available) throw new Error('当前设备不支持保存图片');
+      await Sharing.shareAsync(String(image.uri), {
+        mimeType: String(image.mime || 'image/jpeg'),
+        dialogTitle: '保存图片',
+        UTI: 'public.image',
+      });
+    } catch (error) {
+      Alert.alert('保存图片失败', (error && error.message) || '请稍后重试。');
+    }
+  }, []);
+
+  const openImageActions = useCallback((image, messageId) => {
+    if (!image || !image.uri) return;
+    Alert.alert('图片操作', image.stickerName ? `「${image.stickerName}」` : '选择图片操作', [
+      { text: '取消', style: 'cancel' },
+      { text: '保存', onPress: () => saveImage(image) },
+      { text: '保存为表情包', onPress: () => openStickerNamePrompt(image) },
+      { text: '删除消息', style: 'destructive', onPress: () => confirmDeleteImageMessage(messageId) },
+    ]);
+  }, [confirmDeleteImageMessage, openStickerNamePrompt, saveImage]);
+
+  const sendSticker = useCallback(async sticker => {
+     if (!sticker || messageSelectionOpen || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
+    const sessionGuard = captureSessionGuard();
+    if (!isSessionGuardCurrent(sessionGuard)) return;
+    try {
+      const sent = await sendMessage(input, [{
+        id: `sticker-${Date.now()}`,
+        kind: STICKER_MESSAGE_KIND,
+        name: sticker.name,
+        stickerName: sticker.name,
+        stickerId: sticker.id,
+        uri: sticker.uri,
+        mime: sticker.mime,
+        width: sticker.width,
+        height: sticker.height,
+      }], sessionGuard);
+       if (sent) {
+         setStickerPanelOpen(false);
+       }
+    } catch (error) {
+      Alert.alert('发送表情包失败', (error && error.message) || '请稍后重试。');
+    }
+  }, [captureSessionGuard, input, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending]);
+
+  const onSend = useCallback(async () => {
     const text = input.trim();
-    if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || !ready || abortRef.current) return;
+     if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
     if (!isGroupRef.current && !greetingReady) {
       openGreetingPicker(activeSessionId ? 'reselect' : 'new');
       return;
     }
-    setInput('');
-    sendText(text);
-  }, [activeSessionId, attachments.length, greetingReady, input, isSending, messageSelectionOpen, openGreetingPicker, ready, sendText]);
+     await sendText(input);
+   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, sendText, sessionTransitionPending]);
 
   const insertMention = useCallback(name => {
     const label = `${MENTION_PREFIX}${name} `;
@@ -2495,7 +3503,7 @@ export default function ChatScreen() {
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
     : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
-  const inputDisabled = !ready || isSending || messageSelectionOpen || sessionOwnerMissing || (!isGroup && !greetingReady);
+  const inputDisabled = !ready || isSending || isSwitching || attachmentLoading || messageSelectionOpen || sessionOwnerMissing || sessionTransitionPending || (!isGroup && !greetingReady);
 
   const recordTurn = useCallback(async (userText, assistantText, sender = null) => {
     const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
@@ -2744,7 +3752,10 @@ export default function ChatScreen() {
             return (
               <Pressable
                 key={message.id}
-                onLongPress={!messageSelectionOpen ? () => startMessageSelection(message.id) : undefined}
+                onLongPress={!messageSelectionOpen ? () => {
+                  if (message.image) openImageActions(message.image, message.id);
+                  else startMessageSelection(message.id);
+                } : undefined}
                 onPress={messageSelectionOpen ? () => toggleSelectedMessage(message.id) : undefined}
                 delayLongPress={350}
                 disabled={!ready || isSending || message.pending}
@@ -2817,7 +3828,14 @@ export default function ChatScreen() {
             <Text style={styles.quoteBarName} numberOfLines={1}>{quoteTarget.name || '原文'}</Text>
             <Text style={styles.quoteBarText} numberOfLines={1}>{quoteTarget.text}</Text>
           </View>
-          <TouchableOpacity onPress={() => setQuoteTarget(null)} hitSlop={8} accessibilityLabel="取消引用">
+           <TouchableOpacity
+             onPress={() => {
+               if (!isSending && !sendLockRef.current) setQuoteTarget(null);
+             }}
+             disabled={isSending || !!sendLockRef.current}
+             hitSlop={8}
+             accessibilityLabel="取消引用"
+           >
             <Ionicons name="close" size={16} color={theme.colors.textFaint} />
           </TouchableOpacity>
         </View>
@@ -2832,8 +3850,12 @@ export default function ChatScreen() {
                 <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
               )}
               <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
-              <TouchableOpacity onPress={() => removeAttachment(item.id)} hitSlop={6}>
-                <Ionicons name="close" size={14} color={theme.colors.textFaint} />
+               <TouchableOpacity
+                 onPress={() => removeAttachment(item.id)}
+                 disabled={isSending || !!sendLockRef.current}
+                 hitSlop={6}
+               >
+                 <Ionicons name="close" size={14} color={theme.colors.textFaint} />
               </TouchableOpacity>
             </View>
           ))}
@@ -2854,16 +3876,28 @@ export default function ChatScreen() {
           </TouchableOpacity>
         ) : null}
         {isGroup ? (
-          <TouchableOpacity
-            style={styles.attachButton}
-            onPress={() => setMentionPickerOpen(true)}
-            disabled={inputDisabled}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="提及成员"
-          >
-            <Text style={styles.mentionButtonText}>{MENTION_PREFIX}</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={pickAttachmentMenu}
+              disabled={inputDisabled}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="添加附件"
+            >
+              <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={() => setMentionPickerOpen(true)}
+              disabled={inputDisabled}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="提及成员"
+            >
+              <Text style={styles.mentionButtonText}>{MENTION_PREFIX}</Text>
+            </TouchableOpacity>
+          </>
         ) : (
           <TouchableOpacity
             style={styles.attachButton}
@@ -2886,12 +3920,22 @@ export default function ChatScreen() {
             inputSelectionRef.current = event.nativeEvent.selection;
           }}
           placeholder="输入消息..."
-          placeholderTextColor={theme.colors.textFaint}
-          multiline
-          editable={!inputDisabled}
-        />
-        <TouchableOpacity
-          style={styles.fullScreenButton}
+           placeholderTextColor={theme.colors.textFaint}
+           multiline
+           editable={!inputDisabled}
+         />
+         <TouchableOpacity
+           style={styles.stickerButton}
+           onPress={() => setStickerPanelOpen(true)}
+           disabled={inputDisabled}
+           activeOpacity={0.7}
+           accessibilityRole="button"
+           accessibilityLabel="表情包"
+         >
+           <Ionicons name="happy-outline" size={21} color={theme.colors.primarySoft} />
+         </TouchableOpacity>
+         <TouchableOpacity
+           style={styles.fullScreenButton}
           onPress={() => {
             setFullScreenText(input);
             setFullScreenOpen(true);
@@ -2929,6 +3973,103 @@ export default function ChatScreen() {
       </View>
 
       <Modal
+        visible={stickerPanelOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setStickerPanelOpen(false)}
+      >
+        <View style={styles.stickerBackdrop}>
+          <View style={styles.stickerSheet}>
+            <View style={styles.stickerHeader}>
+              <Text style={styles.stickerTitle}>表情包</Text>
+              <TouchableOpacity
+                onPress={() => setStickerPanelOpen(false)}
+                hitSlop={8}
+                accessibilityLabel="关闭表情包"
+              >
+                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={styles.stickerScroll}
+              contentContainerStyle={styles.stickerGrid}
+              showsVerticalScrollIndicator={false}
+            >
+              <TouchableOpacity
+                style={styles.stickerAddTile}
+                onPress={addStickerFromPicker}
+                disabled={stickerSaving}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="添加表情包"
+              >
+                <Ionicons name="add" size={25} color={theme.colors.primarySoft} />
+                <Text style={styles.stickerAddText}>添加</Text>
+              </TouchableOpacity>
+              {stickers.map(sticker => (
+                <TouchableOpacity
+                  key={sticker.id}
+                  style={styles.stickerTile}
+                  onPress={() => sendSticker(sticker)}
+                  disabled={inputDisabled || stickerSaving}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`发送表情包 ${sticker.name}`}
+                >
+                  <Image source={{ uri: sticker.uri }} style={styles.stickerImage} resizeMode="contain" />
+                  <Text style={styles.stickerName} numberOfLines={1}>{sticker.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!stickerNamePrompt}
+        transparent
+        animationType="fade"
+         onRequestClose={closeStickerNamePrompt}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>保存为表情包</Text>
+            <TextInput
+              style={styles.stickerNameInput}
+              value={stickerNameDraft}
+              onChangeText={setStickerNameDraft}
+              placeholder="请输入表情包名称"
+              placeholderTextColor={theme.colors.textFaint}
+              autoFocus
+              maxLength={40}
+              editable={!stickerSaving}
+            />
+            <View style={styles.stickerNameActions}>
+              <TouchableOpacity
+                style={[styles.selectButton, styles.selectButtonGhost]}
+                 onPress={closeStickerNamePrompt}
+                disabled={stickerSaving}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.selectButton, stickerSaving && styles.sendButtonDisabled]}
+                onPress={confirmStickerName}
+                disabled={stickerSaving}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.selectButtonText}>{stickerSaving ? '保存中' : '保存'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
         visible={fullScreenOpen}
         animationType="slide"
         onRequestClose={() => setFullScreenOpen(false)}
@@ -2959,13 +4100,24 @@ export default function ChatScreen() {
           />
           <TouchableOpacity
             style={[styles.fullScreenSend, !fullScreenText.trim() && styles.sendButtonDisabled]}
-            onPress={() => {
-              const text = fullScreenText.trim();
-              setFullScreenOpen(false);
-              setFullScreenText('');
-              setInput('');
-              if (text) sendText(text);
-            }}
+             onPress={async () => {
+               const text = fullScreenText.trim();
+               const draft = fullScreenText;
+               const sessionGuard = captureSessionGuard();
+               setFullScreenOpen(false);
+               if (!text) {
+                 setFullScreenText('');
+                 return;
+               }
+               const sent = await sendMessage(text, [], sessionGuard);
+               if (!isSessionGuardCurrent(sessionGuard)) return;
+               if (sent) {
+                 setFullScreenText('');
+                 setInput('');
+               } else {
+                 setFullScreenText(draft);
+               }
+             }}
             disabled={!fullScreenText.trim()}
             activeOpacity={0.8}
           >
@@ -3332,9 +4484,10 @@ export default function ChatScreen() {
                   return (
                     <TouchableOpacity
                       key={config.id}
-                      style={[styles.modelSourceChip, selected && styles.modelSourceChipActive]}
-                      onPress={() => setModelSourceId(config.id)}
-                      activeOpacity={0.8}
+                       style={[styles.modelSourceChip, selected && styles.modelSourceChipActive, isSending && styles.actionDisabled]}
+                       onPress={() => setModelSourceId(config.id)}
+                       disabled={isSending}
+                       activeOpacity={0.8}
                     >
                       <Text
                         style={[styles.modelSourceText, selected && styles.modelSourceTextActive]}
@@ -3360,9 +4513,10 @@ export default function ChatScreen() {
                   return (
                     <TouchableOpacity
                       key={model}
-                      style={styles.modelOption}
-                      onPress={() => applyModelSelection(source.id, model)}
-                      activeOpacity={0.8}
+                       style={[styles.modelOption, isSending && styles.actionDisabled]}
+                       onPress={() => applyModelSelection(source.id, model)}
+                       disabled={isSending}
+                       activeOpacity={0.8}
                     >
                       <Text style={styles.modelOptionText} numberOfLines={1}>{model}</Text>
                       {isActive ? (
@@ -3817,10 +4971,15 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginVertical: 5,
     flexDirection: 'row',
   },
-  messageRowLeft: {
-    justifyContent: 'flex-start',
-  },
-  messageRowRight: {
+   messageRowLeft: {
+     justifyContent: 'flex-start',
+   },
+   messageRowFullWidth: {
+     flexDirection: 'column',
+     alignSelf: 'stretch',
+     marginHorizontal: -14,
+   },
+   messageRowRight: {
     justifyContent: 'flex-end',
   },
   avatarContainer: {
@@ -3834,7 +4993,24 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thick,
     borderColor: theme.colors.primaryMutedAlpha(0.35),
   },
-  avatarContainerRight: {
+   avatarContainerFullWidth: {
+     marginTop: 0,
+     marginRight: tokens.spacing.sm,
+   },
+   fullWidthMessageHeader: {
+     width: '100%',
+     flexDirection: 'row',
+     alignItems: 'center',
+     paddingHorizontal: 14,
+     marginBottom: 3,
+   },
+   fullWidthNameLabel: {
+     color: theme.colors.text,
+     fontSize: 11,
+     fontWeight: '700',
+     flexShrink: 1,
+   },
+   avatarContainerRight: {
     width: 36,
     height: 36,
     borderRadius: tokens.radius.pill,
@@ -3874,16 +5050,43 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   messageContent: {
     maxWidth: '92%',
   },
-  messageContentFullWidth: {
+   messageContentFullWidth: {
+     maxWidth: '100%',
+     minWidth: 0,
+     flex: 1,
+     flexBasis: 0,
+   },
+   messageContentFullWidthColumn: {
+     width: '100%',
+     maxWidth: '100%',
+     minWidth: 0,
+     alignSelf: 'stretch',
+   },
+  mediaBubble: {
+    padding: 4,
+    backgroundColor: theme.colors.surface,
+  },
+  userMediaBox: {
+    alignItems: 'center',
+  },
+  userMessageImage: {
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceBorder,
+  },
+  userMediaName: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(10),
+    marginTop: 3,
     maxWidth: '100%',
-    minWidth: 0,
-    flex: 1,
-    flexBasis: 0,
   },
-  inlineImageWrap: {
-    marginTop: 6,
-    maxWidth: '92%',
-  },
+   inlineImageWrap: {
+     marginTop: 6,
+     maxWidth: '92%',
+   },
+   inlineImageFullWidth: {
+     width: '100%',
+     maxWidth: '100%',
+   },
   inlineImageBox: {
     borderRadius: tokens.radius.md,
     alignItems: 'center',
@@ -4108,13 +5311,20 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  errorBubble: {
-    backgroundColor: theme.id === 'light' ? '#fde8e8' : '#3a1719',
-    borderColor: theme.colors.danger,
-    borderWidth: tokens.border.thin,
-    borderBottomLeftRadius: 6,
-    maxWidth: '92%',
-  },
+  errorBubbleBounded: {
+     backgroundColor: theme.id === 'light' ? '#fde8e8' : '#3a1719',
+     borderColor: theme.colors.danger,
+     borderWidth: tokens.border.thin,
+     borderBottomLeftRadius: 6,
+     maxWidth: '92%',
+   },
+   errorBubbleFullWidth: {
+     backgroundColor: theme.id === 'light' ? '#fde8e8' : '#3a1719',
+     borderColor: theme.colors.danger,
+     borderWidth: tokens.border.thin,
+     borderBottomLeftRadius: 6,
+     maxWidth: '100%',
+   },
   errorBadge: {
     color: theme.colors.danger,
     fontSize: 12,
@@ -4178,6 +5388,100 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     maxWidth: 220,
   },
   attachmentThumb: { width: 20, height: 20, borderRadius: tokens.spacing.xs, marginRight: 6 },
+  stickerButton: {
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+  },
+  stickerBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  stickerSheet: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderTopLeftRadius: tokens.radius.lg,
+    borderTopRightRadius: tokens.radius.lg,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+    maxHeight: '72%',
+  },
+  stickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  stickerTitle: {
+    color: theme.colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  stickerScroll: {
+    maxHeight: 360,
+  },
+  stickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  },
+  stickerAddTile: {
+    width: 78,
+    height: 92,
+    marginRight: 10,
+    marginBottom: 10,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primaryAlpha(0.1),
+  },
+  stickerAddText: {
+    color: theme.colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  stickerTile: {
+    width: 78,
+    height: 92,
+    marginRight: 10,
+    marginBottom: 10,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 5,
+  },
+  stickerImage: {
+    width: 62,
+    height: 62,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: theme.colors.surfaceBorder,
+  },
+  stickerName: {
+    color: theme.colors.textFaint,
+    fontSize: 10,
+    maxWidth: 66,
+    marginTop: 3,
+  },
+  stickerNameInput: {
+    minHeight: 44,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.text,
+    paddingHorizontal: 12,
+    fontSize: 15,
+  },
+  stickerNameActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 14,
+  },
   attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
   mentionButtonText: {

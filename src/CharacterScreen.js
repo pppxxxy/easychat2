@@ -523,6 +523,7 @@ export default function CharacterScreen() {
   const characterCardRelativeOffsetsRef = useRef({});
   const characterViewportHeightRef = useRef(0);
   const characterCardOffsetsRef = useRef({});
+  const switchLockRef = useRef(false);
   const { height: windowHeight } = useWindowDimensions();
   const screenSessionRef = useRef({ activeId });
   if (screenSessionRef.current.activeId !== activeId) {
@@ -950,12 +951,28 @@ export default function CharacterScreen() {
     }
   };
 
-  const onSwitch = id => {
-    switchCharacter(id)
-      .then(() => ensureCharacterSession(id))
-      .catch(() => {
-        Alert.alert('切换失败', '请检查存储空间或权限。');
-      });
+  const onSwitch = async id => {
+    if (switchLockRef.current) return;
+    switchLockRef.current = true;
+    const previousCharacterId = activeId;
+    const previousSessionId = activeSessionId;
+    const previousSession = sessions.find(session => session.id === previousSessionId);
+    try {
+      await switchCharacter(id);
+      await ensureCharacterSession(id);
+    } catch (error) {
+      try {
+        if (previousSession && previousSession.type === 'group') {
+          await switchSession(previousSessionId);
+        } else {
+          await switchCharacter(previousCharacterId);
+          if (previousSessionId) await switchSession(previousSessionId);
+        }
+      } catch (rollbackError) {}
+      Alert.alert('切换失败', '请检查存储空间或权限。');
+    } finally {
+      switchLockRef.current = false;
+    }
   };
 
   const visibleCharacters = useMemo(() => {

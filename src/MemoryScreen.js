@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -68,6 +68,8 @@ export default function MemoryScreen({ navigation }) {
     deleteSessions,
     setPendingTarget,
     refreshSessions,
+    activeId,
+    activeSessionId,
   } = useApp();
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -81,6 +83,7 @@ export default function MemoryScreen({ navigation }) {
   const [orphans, setOrphans] = useState([]);
   const [recoverOpen, setRecoverOpen] = useState(false);
   const [userName, setUserName] = useState('');
+  const switchLockRef = useRef(false);
 
   const scanOrphans = useCallback(async () => {
     try {
@@ -169,6 +172,11 @@ export default function MemoryScreen({ navigation }) {
   }, [visibleSessions]);
 
   const onOpen = useCallback(async session => {
+    if (switchLockRef.current) return;
+    switchLockRef.current = true;
+    const previousCharacterId = activeId;
+    const previousSessionId = activeSessionId;
+    const previousSession = sessions.find(item => item.id === previousSessionId);
     try {
       if (session.type !== 'group' && characterMap.has(session.characterId)) {
         await switchCharacter(session.characterId);
@@ -176,9 +184,19 @@ export default function MemoryScreen({ navigation }) {
       await switchSession(session.id);
       navigation.navigate('聊天');
     } catch (error) {
+      try {
+        if (previousSession && previousSession.type === 'group') {
+          await switchSession(previousSessionId);
+        } else {
+          await switchCharacter(previousCharacterId);
+          if (previousSessionId) await switchSession(previousSessionId);
+        }
+      } catch (rollbackError) {}
       Alert.alert('打开失败', '请检查存储空间或权限。');
+    } finally {
+      switchLockRef.current = false;
     }
-  }, [characterMap, navigation, switchCharacter, switchSession]);
+  }, [activeId, activeSessionId, characterMap, navigation, sessions, switchCharacter, switchSession]);
 
   const onPin = useCallback(async session => {
     try {
@@ -258,6 +276,11 @@ export default function MemoryScreen({ navigation }) {
   }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
 
   const onOpenResult = useCallback(async result => {
+    if (switchLockRef.current) return;
+    switchLockRef.current = true;
+    const previousCharacterId = activeId;
+    const previousSessionId = activeSessionId;
+    const previousSession = sessions.find(session => session.id === previousSessionId);
     try {
       const target = sessions.find(session => session.id === result.sessionId);
       if (!target || target.type !== 'group') {
@@ -268,9 +291,19 @@ export default function MemoryScreen({ navigation }) {
       setSearchOpen(false);
       navigation.navigate('聊天');
     } catch (error) {
+      try {
+        if (previousSession && previousSession.type === 'group') {
+          await switchSession(previousSessionId);
+        } else {
+          await switchCharacter(previousCharacterId);
+          if (previousSessionId) await switchSession(previousSessionId);
+        }
+      } catch (rollbackError) {}
       Alert.alert('打开失败', '请检查存储空间或权限。');
+    } finally {
+      switchLockRef.current = false;
     }
-  }, [navigation, sessions, setPendingTarget, switchCharacter, switchSession]);
+  }, [activeId, activeSessionId, navigation, sessions, setPendingTarget, switchCharacter, switchSession]);
 
   const exitEdit = useCallback(() => {
     setEditing(false);

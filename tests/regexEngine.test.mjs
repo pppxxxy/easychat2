@@ -83,6 +83,23 @@ test('大型角色卡文本在上限内完整执行展示正则', () => {
   assert.equal(output.slice(-3), 'bar');
 });
 
+test('大型完整 HTML 替换文本按原长度完整写入', () => {
+  const largeHtml = [
+    '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width"/></head>',
+    '<body><main>',
+    'x'.repeat(6800000),
+    '</main><script>window.triggerSlash("/send ok")</script></body></html>',
+  ].join('');
+  const output = applyRegexScripts(
+    '[代桔出品]',
+    [script({ findRegex: '/\\[代桔出品\\]/g', replaceString: largeHtml })],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.equal(output.length, largeHtml.length);
+  assert.equal(output, largeHtml);
+});
+
 test('展示正则只处理 HTML 可见文本，不改写标签、脚本和样式', () => {
   const highlight = script({
     findRegex: '/(foo)/g',

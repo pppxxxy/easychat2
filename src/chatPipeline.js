@@ -1,4 +1,5 @@
 import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
+import { getMessagePromptText } from './chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
@@ -26,7 +27,7 @@ function buildHistory(historyMessages, scripts) {
     const placement = isUser ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT;
     return {
       role: isUser ? 'user' : 'assistant',
-      content: applyForPrompt(item.text, scripts, placement, total - index),
+      content: applyForPrompt(getMessagePromptText(item), scripts, placement, total - index),
     };
   });
 }
@@ -56,13 +57,18 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote, groupContext, memorySnippets }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
+  const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
+    .map(getMessagePromptText)
+    .filter(Boolean)
+    .join('\n');
+  const activationText = [userText, mediaActivationText].filter(Boolean).join('\n');
   const { before, after, depth } = collectActiveWorldInfo(
     character,
     historyMessages,
-    userText
+    activationText
   );
 
   const userName = String(userProfile?.userName || '').trim();
@@ -146,18 +152,35 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const quoteText = quote && String(quote.text || '').trim()
     ? `[引用${String(quote.name || '').trim() || '对方'}的消息] ${String(quote.text).trim()}\n\n${promptUserText}`
     : promptUserText;
-  const imageList = Array.isArray(images) ? images.filter(Boolean) : [];
-  const userContent = imageList.length > 0
-    ? [
-        { type: 'text', text: quoteText },
-        ...imageList.map(url => ({ type: 'image_url', image_url: { url } })),
-      ]
-    : quoteText;
+  const currentMedia = Array.isArray(imageMessages) && imageMessages.length > 0
+    ? imageMessages
+    : (Array.isArray(images) ? images.filter(Boolean).map(uri => ({
+      kind: 'image',
+      image: { uri },
+      dataUri: uri,
+    })) : []);
+  const mediaMessages = currentMedia
+    .filter(item => item && (item.dataUri || item.image))
+    .map(item => {
+      const text = getMessagePromptText(item);
+      const dataUri = item.includeImage === false ? '' : String(item.dataUri || '');
+      const content = dataUri
+        ? [
+            { type: 'text', text },
+            { type: 'image_url', image_url: { url: dataUri } },
+          ]
+        : text;
+      return { role: 'user', content };
+    });
+  const finalUserMessage = quoteText
+    ? [{ role: 'user', content: quoteText }]
+    : [];
 
   const assembled = [
     { role: 'system', content: systemContent },
     ...history,
-    { role: 'user', content: userContent },
+    ...mediaMessages,
+    ...finalUserMessage,
   ];
   insertDepthEntries(assembled, depth, scripts, replaceUser);
   return assembled;

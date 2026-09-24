@@ -1,5 +1,6 @@
-import { sendChatMessage } from './api';
+import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
+import { getMessagePromptText } from './chatMedia.js';
 
 export const MAX_SPEAKERS = 3;
 export const PROFILE_MIN_CHARS = 30;
@@ -43,26 +44,33 @@ function buildProfilePrompt(character) {
   ];
 }
 
-export async function generateMemberProfile(character) {
+export async function generateMemberProfile(character, expectedConfigId = '', signal = null) {
   if (!character) return null;
   try {
-    const text = await sendChatMessage(buildProfilePrompt(character));
+    const text = await sendChatMessage(buildProfilePrompt(character), { expectedConfigId, signal });
     const profile = String(text || '').replace(/\s+/g, ' ').trim();
     return profile || null;
   } catch (error) {
+    if (isConfigChangedError(error) || isCanceledError(error)) throw error;
     return null;
   }
 }
 
-export async function ensureMemberProfiles({ characters, profiles }) {
+export async function ensureMemberProfiles({ characters, profiles, expectedConfigId = '', signal = null }) {
   const list = Array.isArray(characters) ? characters : [];
   const current = profiles && typeof profiles === 'object' ? profiles : {};
   const next = { ...current };
   for (const character of list) {
+    if (signal && signal.aborted) {
+      const error = new Error('已停止生成。');
+      error.name = 'AbortError';
+      error.canceled = true;
+      throw error;
+    }
     if (!character || !character.id) continue;
     if (next[character.id]) continue;
     if (!needsProfile(character)) continue;
-    const profile = await generateMemberProfile(character);
+    const profile = await generateMemberProfile(character, expectedConfigId, signal);
     if (profile) next[character.id] = profile;
   }
   return next;
@@ -184,7 +192,7 @@ export function parseSpeakerResponse(text, characters) {
   return ids;
 }
 
-export async function selectSpeakers({ characters, history, userText, mentions = [], everyone = false }) {
+export async function selectSpeakers({ characters, history, userText, mentions = [], everyone = false, expectedConfigId = '', signal = null }) {
   const list = Array.isArray(characters) ? characters : [];
   if (list.length === 0) return [];
   if (everyone) return list.map(character => character.id).filter(Boolean);
@@ -192,9 +200,10 @@ export async function selectSpeakers({ characters, history, userText, mentions =
   let picked = [];
   try {
     const prompt = buildSchedulerPrompt(list, history, userText, mentions);
-    const text = await sendChatMessage(prompt);
+    const text = await sendChatMessage(prompt, { expectedConfigId, signal });
     picked = parseSpeakerResponse(text, list);
   } catch (error) {
+    if (isConfigChangedError(error) || isCanceledError(error)) throw error;
     picked = [];
   }
   if (picked.length === 0) {
@@ -209,7 +218,7 @@ export async function selectSpeakers({ characters, history, userText, mentions =
   return merged.slice(0, MAX_SPEAKERS);
 }
 
-export async function generateOpening({ characters, userProfile, globalPresets }) {
+export async function generateOpening({ characters, userProfile, globalPresets, expectedConfigId = '', signal = null }) {
   const list = Array.isArray(characters) ? characters : [];
   if (list.length === 0) return null;
   const roster = list
@@ -225,9 +234,10 @@ export async function generateOpening({ characters, userProfile, globalPresets }
   ];
   let parsed = null;
   try {
-    const text = await sendChatMessage(prompt);
+    const text = await sendChatMessage(prompt, { expectedConfigId, signal });
     parsed = extractJson(text);
   } catch (error) {
+    if (isConfigChangedError(error) || isCanceledError(error)) throw error;
     parsed = null;
   }
   if (!parsed) {
@@ -253,8 +263,9 @@ export async function generateOpening({ characters, userProfile, globalPresets }
 export function buildGroupHistory(messages) {
   return (Array.isArray(messages) ? messages : []).map(item => {
     if (item && item.role === 'assistant' && item.speakerName) {
-      return { ...item, text: `${item.speakerName}：${item.text}` };
+      return { ...item, text: `${item.speakerName}：${getMessagePromptText(item)}` };
     }
+    if (item && item.image) return { ...item, text: getMessagePromptText(item) };
     return item;
   });
 }
@@ -315,7 +326,7 @@ export function buildGroupContext({ speaker, characters, historyMessages, profil
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
-      const text = String(item.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const text = getMessagePromptText(item).replace(/\s+/g, ' ').trim().slice(0, 120);
       return text ? `${label}：${text}` : '';
     })
     .filter(Boolean);
@@ -338,6 +349,7 @@ export function buildGroupRequest({
   summaryText,
   pluginContext,
   profiles,
+  imageMessages,
 }) {
   const groupContext = buildGroupContext({
     speaker,
@@ -355,6 +367,7 @@ export function buildGroupRequest({
     summaryText,
     pluginContext,
     groupContext,
+    imageMessages,
   });
 }
 
@@ -399,6 +412,7 @@ export function buildEnsemblePrompt({
   profiles,
   mentions = [],
   everyone = false,
+  imageMessages = [],
 }) {
   const list = (Array.isArray(characters) ? characters : []).filter(Boolean);
   if (list.length === 0) return [];
@@ -423,7 +437,7 @@ export function buildEnsemblePrompt({
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
-      const text = String(item.text || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      const text = getMessagePromptText(item).replace(/\s+/g, ' ').trim().slice(0, 200);
       return text ? `${label}：${text}` : '';
     })
     .filter(Boolean);
@@ -433,10 +447,26 @@ export function buildEnsemblePrompt({
   const prompt = [
     { role: 'system', content: systemLines.join('\n') },
   ];
+  const mediaMessages = (Array.isArray(imageMessages) ? imageMessages : [])
+    .filter(item => item && (item.dataUri || item.image))
+    .map(item => {
+      const text = getMessagePromptText(item);
+      const dataUri = item.includeImage === false ? '' : String(item.dataUri || '');
+      return {
+        role: 'user',
+        content: dataUri
+          ? [
+              { type: 'text', text },
+              { type: 'image_url', image_url: { url: dataUri } },
+            ]
+          : text,
+      };
+    });
+  prompt.push(...mediaMessages);
   const userContent = String(userText || '').trim();
   if (userContent) {
     prompt.push({ role: 'user', content: userContent });
-  } else {
+  } else if (mediaMessages.length === 0) {
     prompt.push({
       role: 'system',
       content: '（以上是当前场景的旁白，请让需要回应的角色自然发言。）',

@@ -134,3 +134,19 @@ test('生成非空摘要时写入世界书并推进边界', async () => {
   assert.equal(patch.worldInfo.length, 1);
   assert.equal(patch.worldInfo[0].content, '- 约定周末见面');
 });
+
+test('会话摘要边界写入失败时回滚摘要列表', async () => {
+  summaryText = '- 新的约定\n关键词：约定';
+  let summaries = [];
+  storageMock.getSessionSummaries = async () => summaries;
+  storageMock.saveSessionSummaries = async (_sessionId, list) => { summaries = list; };
+  storageMock.setSessionSummarizedUpTo = async () => { throw new Error('boundary failed'); };
+  await assert.rejects(() => memorySummary.applySummary({
+    session: { id: 'session-rollback', summarizedUpTo: '' },
+    character: { id: 'character-rollback', worldInfo: [] },
+    messages: makeMessages(2),
+    scoped: true,
+    updateCharacter: async () => {},
+  }), /boundary failed/);
+  assert.deepEqual(summaries, []);
+});

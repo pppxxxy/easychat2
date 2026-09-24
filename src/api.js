@@ -9,6 +9,11 @@ const IDLE_TIMEOUT_MS = 30000;
 // 接口没有返回内容时的占位文本。调用方可用它区分“真的没回复”，
 // 避免把这段占位当成角色的真实回复（例如写入动态评论）。
 export const EMPTY_REPLY_TEXT = '没有收到回复。';
+export const CONFIG_CHANGED_ERROR = '模型来源已切换，请重新发送';
+
+export function isConfigChangedError(error) {
+  return !!error && error.message === CONFIG_CHANGED_ERROR;
+}
 
 export function buildThinkingParams(config, settings) {
   if (!settings || settings.enabled !== true) return {};
@@ -109,6 +114,9 @@ export async function sendChatMessage(messages, options = {}) {
     throw createAbortError();
   }
   const config = await getActiveApiConfig();
+  if (options && options.expectedConfigId && config.id !== options.expectedConfigId) {
+    throw new Error(CONFIG_CHANGED_ERROR);
+  }
   if (signal && signal.aborted) {
     throw createAbortError();
   }
@@ -136,6 +144,12 @@ export async function sendChatMessage(messages, options = {}) {
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
   const samplingSettings = await getSamplingSettings().catch(() => null);
   const samplingParams = buildSamplingParams(samplingSettings);
+  if (options && options.expectedConfigId) {
+    const latestConfig = await getActiveApiConfig();
+    if (latestConfig.id !== options.expectedConfigId) {
+      throw new Error(CONFIG_CHANGED_ERROR);
+    }
+  }
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

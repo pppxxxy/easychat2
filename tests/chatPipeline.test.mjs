@@ -43,6 +43,62 @@ test('角色预设与全局预设按角色范围注入', () => {
   assert.ok(system.content.indexOf('[角色预设]') < system.content.indexOf('[全局预设]'));
 });
 
+test('图片与文字作为连续两条用户消息发送', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    imageMessages: [{
+      kind: 'image',
+      image: { name: '照片.jpg' },
+      dataUri: 'data:image/jpeg;base64,abc',
+    }],
+    userText: '看看这张图',
+    userProfile: {},
+  });
+  const userMessages = messages.filter(item => item.role === 'user');
+  assert.equal(userMessages.length, 2);
+  assert.equal(userMessages[0].content[1].image_url.url, 'data:image/jpeg;base64,abc');
+  assert.equal(userMessages[1].content, '看看这张图');
+});
+
+test('无识图模型收到表情包名称提示', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    imageMessages: [{
+      kind: 'sticker',
+      image: { stickerId: 's1', stickerName: '开心' },
+      dataUri: 'data:image/jpeg;base64,abc',
+      includeImage: false,
+    }],
+    userText: '',
+    userProfile: {},
+  });
+  const userMessages = messages.filter(item => item.role === 'user');
+  assert.equal(userMessages.length, 1);
+  assert.match(userMessages[0].content, /表情包：开心/);
+  assert.equal(userMessages[0].content.includes('image_url'), false);
+});
+
+test('媒体名称参与世界书关键词激活', () => {
+  const messages = buildRequestMessages({
+    character: {
+      ...character,
+      worldInfo: [{ keys: ['照片.jpg'], content: '图片相关世界设定' }],
+    },
+    historyMessages: [],
+    imageMessages: [{
+      kind: 'image',
+      image: { name: '照片.jpg' },
+      dataUri: '',
+      includeImage: false,
+    }],
+    userText: '',
+    userProfile: {},
+  });
+  assert.ok(messages.find(item => item.role === 'system').content.includes('图片相关世界设定'));
+});
+
 test('全局预设与输出格式指令共存', () => {
   const messages = buildRequestMessages({
     character,

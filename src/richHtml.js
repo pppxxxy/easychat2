@@ -29,16 +29,24 @@ export function shouldRenderRichHtml(text, enabled) {
 export const RICH_HTML_RESIZE_BRIDGE = [
   '<script>',
   '(function(){',
+  '  var commandToken = "__EASYCHAT2_COMMAND_TOKEN__";',
+  '  var userGestureActive = false;',
+  '  function markGesture(event){ if (event && event.isTrusted === false) return; userGestureActive = true; setTimeout(function(){ userGestureActive = false; }, 0); }',
+  '  var nativeBridge = window.ReactNativeWebView;',
+  '  var nativePostMessage = nativeBridge && nativeBridge.postMessage;',
+  '  if (typeof nativePostMessage !== "function") return;',
   '  function send(payload){',
-  '    try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(payload)); } catch (e) {}',
+  '    try { nativePostMessage.call(nativeBridge, JSON.stringify(payload)); } catch (e) {}',
   '  }',
-  '  if (typeof window.triggerSlash !== "function") {',
-  '    window.triggerSlash = function(command){',
-  '      var value = String(command || "");',
-  '      if (value.indexOf("/send ") === 0) value = value.slice(7);',
-  '      send({ type: "command", value: value });',
-  '    };',
-  '  }',
+  '  try { Object.defineProperty(nativeBridge, "postMessage", { value: function(){}, writable: false, configurable: false }); } catch (e) {}',
+  '  try { Object.defineProperty(window, "ReactNativeWebView", { value: { postMessage: function(){} }, writable: false, configurable: false }); } catch (e) {}',
+  '  function sendCommand(value){ send({ type: "command", value: String(value || ""), gesture: true, token: commandToken }); }',
+  '  window.triggerSlash = function(command){',
+  '    if (!userGestureActive) return;',
+  '    var value = String(command || "");',
+  '    if (value.indexOf("/send ") === 0) value = value.slice(7);',
+  '    sendCommand(value);',
+  '  };',
   '  function measure(){',
   '    var b = document.body;',
   '    var d = document.documentElement;',
@@ -67,11 +75,15 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '    }',
   '    document.addEventListener("toggle", schedule, true);',
   '    document.addEventListener("click", schedule, true);',
+  '    document.addEventListener("pointerdown", markGesture, true);',
+  '    document.addEventListener("keydown", markGesture, true);',
   '    document.addEventListener("click", function(ev){',
+  '      markGesture(ev);',
+  '      if (!ev.isTrusted || !userGestureActive) return;',
   '      var el = ev.target;',
   '      while (el && el !== document.body) {',
   '        if (el.tagName === "BUTTON" && el.dataset && el.dataset.command) {',
-  '          send({ type: "command", value: el.dataset.command });',
+  '          sendCommand(el.dataset.command);',
   '          ev.preventDefault();',
   '          return;',
   '        }',
@@ -84,13 +96,20 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '</script>',
 ].join('\n');
 
+function renderRichHtmlBridge(commandToken) {
+  const token = String(commandToken || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return RICH_HTML_RESIZE_BRIDGE.replace('__EASYCHAT2_COMMAND_TOKEN__', () => token);
+}
+
 function buildRichHtmlLayoutStyle(resetMaxHeight = true) {
   const rules = [];
   if (resetMaxHeight) rules.push('body *{max-height:none !important;}');
   rules.push(
-    '*,*::before,*::after{box-sizing:border-box!important;}',
-    'html,body{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;padding:0!important;overflow-x:hidden!important;}',
-    'body,body *{overflow-wrap:anywhere!important;word-break:break-word!important;}',
+     '*,*::before,*::after{box-sizing:border-box!important;}',
+     'html,body{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:100%!important;margin:0!important;padding:0!important;overflow-x:hidden!important;overflow-y:auto!important;}',
+     'body{-webkit-overflow-scrolling:touch!important;}',
+     'body,body *{overflow-wrap:anywhere!important;word-break:break-word!important;}',
+     'main{max-width:100%!important;overflow-x:hidden!important;overflow-y:auto!important;}',
     'details{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;flex:0 0 100%!important;align-self:stretch!important;clear:both!important;}',
     'details>summary{display:flex!important;width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}',
     'details>div{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}'
@@ -106,22 +125,62 @@ function extractFullHtmlDocument(value) {
   return value.slice(start, end + '</html>'.length);
 }
 
-function injectFullDocumentSupport(documentHtml, layoutStyle) {
+const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; connect-src \'none\'; img-src \'self\' data: blob:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
+const NATIVE_BRIDGE_GUARD = [
+  '<script>',
+  '(function(){',
+  '  var bridge = window.ReactNativeWebView;',
+  '  var nativePost = bridge && bridge.postMessage;',
+  '  if (!bridge || typeof nativePost !== "function") return;',
+  '  var trustedCommandElement = false;',
+  '  var parsePayload = JSON.parse;',
+  '  function markGesture(event){',
+  '    if (event && event.isTrusted === false) return;',
+  '    var target = event && event.target;',
+  '    trustedCommandElement = !!(target && (target.tagName === "BUTTON" || (target.dataset && target.dataset.command)));',
+  '    setTimeout(function(){ trustedCommandElement = false; }, 0);',
+  '  }',
+  '  document.addEventListener("pointerdown", markGesture, true);',
+  '  document.addEventListener("keydown", markGesture, true);',
+  '  document.addEventListener("click", markGesture, true);',
+  '  try {',
+  '    Object.defineProperty(bridge, "postMessage", {',
+  '      value: function(raw){',
+  '        var payload = null;',
+  '        try { payload = parsePayload(raw); } catch (e) {}',
+  '        if (payload && payload.type === "command" && (!payload.gesture || !trustedCommandElement)) return;',
+  '        return nativePost.call(bridge, raw);',
+  '      },',
+  '      writable: false,',
+  '      configurable: false',
+  '    });',
+  '  } catch (e) {}',
+  '})();',
+  '</script>',
+].join('');
+
+function injectFullDocumentSupport(documentHtml, layoutStyle, commandToken = '') {
   let output = documentHtml;
   const styleBlock = `<style data-easychat2-runtime="true">${layoutStyle}</style>`;
+  if (/<html\b[^>]*>/i.test(output)) {
+    output = output.replace(/(<html\b[^>]*>)/i, `$1${NATIVE_BRIDGE_GUARD}`);
+  }
+  if (/<head\b[^>]*>/i.test(output)) {
+    output = output.replace(/(<head\b[^>]*>)/i, `$1${FULL_DOCUMENT_CSP}`);
+  }
   if (/<\/head>/i.test(output)) {
     output = output.replace(/<\/head>/i, `${styleBlock}</head>`);
   } else if (/<head\b[^>]*>/i.test(output)) {
     output = output.replace(/(<head\b[^>]*>)/i, `$1${styleBlock}`);
   } else if (/<html\b[^>]*>/i.test(output)) {
-    output = output.replace(/(<html\b[^>]*>)/i, `$1<head>${styleBlock}</head>`);
+    output = output.replace(/(<html\b[^>]*>)/i, `$1<head>${FULL_DOCUMENT_CSP}${styleBlock}</head>`);
   } else {
     return null;
   }
   if (/<\/body>/i.test(output)) {
-    output = output.replace(/<\/body>/i, `${RICH_HTML_RESIZE_BRIDGE}</body>`);
+    output = output.replace(/<\/body>/i, `${renderRichHtmlBridge(commandToken)}</body>`);
   } else {
-    output += RICH_HTML_RESIZE_BRIDGE;
+    output += renderRichHtmlBridge(commandToken);
   }
   return output;
 }
@@ -132,18 +191,25 @@ export function buildRichHtmlDocument({
   linkColor = '#6c63ff',
   fontSize = 15,
   fontFamily = '',
+  commandToken = '',
 } = {}) {
   const normalizedBody = stripMarkdownFences(bodyHtml).trim();
   const layoutStyle = buildRichHtmlLayoutStyle();
   const fullDocument = extractFullHtmlDocument(normalizedBody);
   if (fullDocument) {
-    const supportedDocument = injectFullDocumentSupport(fullDocument, buildRichHtmlLayoutStyle(false));
+    const supportedDocument = injectFullDocumentSupport(
+      fullDocument,
+      buildRichHtmlLayoutStyle(false),
+      commandToken
+    );
     if (supportedDocument) return supportedDocument;
   }
   const fontRule = fontFamily ? `font-family:${fontFamily};` : '';
   return (
     '<!DOCTYPE html><html><head>'
     + '<meta charset="utf-8"/>'
+    + NATIVE_BRIDGE_GUARD
+    + FULL_DOCUMENT_CSP
     + '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>'
     + '<style>'
     + 'html,body{margin:0;padding:0;background:transparent;height:auto;}'
@@ -153,6 +219,6 @@ export function buildRichHtmlDocument({
     + '*{box-sizing:border-box;}'
     + layoutStyle
     + '</style></head>'
-    + `<body>${normalizedBody}${RICH_HTML_RESIZE_BRIDGE}</body></html>`
+    + `<body>${normalizedBody}${renderRichHtmlBridge(commandToken)}</body></html>`
   );
 }
