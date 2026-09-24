@@ -534,6 +534,28 @@ test('批量清理多个会话只写回一次向量索引', async () => {
   assert.deepEqual(await storage.getVectorIndex('character-batch'), []);
 });
 
+test('向量清理失败会记录开发警告且不阻断会话删除', async () => {
+  const storage = loadStorage();
+  const session = await storage.startNewSession('character-cleanup-failure');
+  await storage.saveVectorIndex('character-cleanup-failure', [
+    { id: 'cleanup', sessionId: session.id, messageId: 'm1', text: '待清理', vector: [1] },
+  ]);
+  failedSets.add('@easychat2_vector_index::character-cleanup-failure');
+  const previousDev = globalThis.__DEV__;
+  const previousWarn = console.warn;
+  let warned = false;
+  globalThis.__DEV__ = true;
+  console.warn = () => { warned = true; };
+  try {
+    await storage.deleteSession(session.id);
+    assert.equal(warned, true);
+    assert.equal((await storage.getSessions()).some(item => item.id === session.id), false);
+  } finally {
+    globalThis.__DEV__ = previousDev;
+    console.warn = previousWarn;
+  }
+});
+
 test('批量删除会话清理同角色全部目标向量', async () => {
   const storage = loadStorage();
   const characterId = 'character-batch-delete';
