@@ -132,6 +132,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
   };
 
   const handleClose = () => {
+    if (saving) return;
     sessionRef.current += 1;
     imageOperationRef.current += 1;
     pendingImageUrisRef.current.forEach(uri => {
@@ -243,7 +244,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>编辑角色</Text>
-            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
+            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel="关闭">
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
