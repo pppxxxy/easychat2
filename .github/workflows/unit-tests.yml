@@ -10,6 +10,9 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'plugins/**'
+      - 'assets/**'
+      - 'eas.json'
       - 'package.json'
       - 'package-lock.json'
       - '.npmrc'
