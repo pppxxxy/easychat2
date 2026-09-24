@@ -3801,11 +3801,17 @@ export default function ChatScreen() {
       triggers: next.triggers,
     });
     if (!trigger) {
-      await saveAffinity({ ...map, [characterId]: next }).catch(() => {});
-      return;
+       await saveAffinity({ ...map, [characterId]: next }).catch(error => {
+         if (__DEV__) console.warn('[moments] affinity save failed', error);
+       });
+       return;
+
     }
     next.triggers = [...next.triggers, trigger];
-    await saveAffinity({ ...map, [characterId]: next }).catch(() => {});
+     await saveAffinity({ ...map, [characterId]: next }).catch(error => {
+       if (__DEV__) console.warn('[moments] affinity save failed', error);
+     });
+
     const moment = {
       id: `${Date.now()}-${trigger}`,
       characterId,
@@ -3823,7 +3829,10 @@ export default function ChatScreen() {
       likes: [],
       comments: [],
     };
-    await updateMoments(moments => appendMoment(moments, moment)).catch(() => {});
+     await updateMoments(moments => appendMoment(moments, moment)).catch(error => {
+       if (__DEV__) console.warn('[moments] dynamic save failed', error);
+     });
+
   }, []);
   // recordTurn 声明在下方，这里用 ref 暴露给它上面的回调，避免依赖数组引用“后声明”的 const（TDZ）。
   useEffect(() => {
