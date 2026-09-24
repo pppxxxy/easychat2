@@ -478,7 +478,7 @@ function renderHighlightedText(text, keyword, styles) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, selectionMode, selected }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, onStartSelection, selectionMode, selected }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
    const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -608,6 +608,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
         : (!isUser && canRegenerate
           ? { key: 'regenerate', label: '重新生成', icon: 'reload-outline', onPress: () => onRegenerate?.(message.id) }
           : null),
+      onStartSelection
+        ? { key: 'select-message', label: '选择消息', icon: 'checkmark-circle-outline', onPress: onStartSelection }
+        : null,
     ].filter(Boolean);
 
 const fullWidthAssistant = !isUser && fullWidth;
@@ -647,7 +650,8 @@ const fullWidthAssistant = !isUser && fullWidth;
    // 完整 HTML 文档前/后的正文可能已被展示正则插入标签（高亮 span、容器 div），
    // 这类内容必须走 HTML 渲染，否则标签会被 Markdown 当纯文本原样显示。
    const renderAssistantSegment = segment => {
-     const value = String(segment || '').trim();
+     // 卡片作者常把 /** 说明 **/ 写在 HTML 之外，展示时应剔除，不当作正文。
+     const value = String(segment || '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
      if (!value) return null;
      if (!containsHtml(value)) {
        return <Markdown style={markdownStyles} rules={markdownRules}>{value}</Markdown>;
@@ -4083,20 +4087,15 @@ export default function ChatScreen() {
           renderedMessages.map(message => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
             const selected = selectedMessageIdSet.has(String(message.id || ''));
-            return (
-              <Pressable
-                key={message.id}
-                onLongPress={!messageSelectionOpen ? () => {
-                  if (message.image) openImageActions(message.image, message.id);
-                  else startMessageSelection(message.id);
-                } : undefined}
-                onPress={messageSelectionOpen ? () => toggleSelectedMessage(message.id) : undefined}
-                delayLongPress={350}
-                disabled={!ready || isSending || message.pending}
-                accessibilityRole="button"
-                accessibilityLabel="长按选择消息"
-                accessibilityState={{ selected }}
-              >
+            const richInteractive =
+              message.role !== SYSTEM_ERROR_ID
+              && !message.pending
+              && !message.image
+              && containsHtml(message.text)
+              && shouldRenderRichHtml(message.text, chatOptions.richHtml !== false);
+            // 富 HTML 消息内含 WebView：外层 Pressable 会抢走手势，导致卡片内部滚不动。
+            // 非多选状态下不包 Pressable，多选入口改由三点菜单的「选择消息」提供。
+            const body = (
                 <View onLayout={event => onMessageLayout(message.id, event)}>
                   {message.role === SYSTEM_ERROR_ID ? (
                     <ErrorBubble
@@ -4143,6 +4142,7 @@ export default function ChatScreen() {
                       fullWidth={chatOptions.fullWidth}
                       richHtmlEnabled={chatOptions.richHtml !== false}
                       onReselectGreeting={sessionOwnerMissing ? undefined : () => openGreetingPicker('reselect')}
+                      onStartSelection={richInteractive ? () => startMessageSelection(message.id) : undefined}
                       thinkingDisplay={thinkingDisplay}
                       overlayActions={!!bgUri}
                       selectionMode={messageSelectionOpen}
@@ -4150,6 +4150,25 @@ export default function ChatScreen() {
                     />
                   )}
                 </View>
+            );
+            if (richInteractive && !messageSelectionOpen) {
+              return <View key={message.id}>{body}</View>;
+            }
+            return (
+              <Pressable
+                key={message.id}
+                onLongPress={!messageSelectionOpen ? () => {
+                  if (message.image) openImageActions(message.image, message.id);
+                  else startMessageSelection(message.id);
+                } : undefined}
+                onPress={messageSelectionOpen ? () => toggleSelectedMessage(message.id) : undefined}
+                delayLongPress={350}
+                disabled={!ready || isSending || message.pending}
+                accessibilityRole="button"
+                accessibilityLabel="长按选择消息"
+                accessibilityState={{ selected }}
+              >
+                {body}
               </Pressable>
             );
           })

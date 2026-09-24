@@ -170,7 +170,7 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
         style={[styles.webview, { height: viewportDocument ? viewportHeight : height }]}
         containerStyle={styles.webviewContainer}
         javaScriptEnabled
-        domStorageEnabled={false}
+        domStorageEnabled
         allowFileAccess={!!source.uri}
         allowsFullscreenVideo
         scrollEnabled={viewportDocument}

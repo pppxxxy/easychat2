@@ -69,6 +69,9 @@ test('包装文档包含视口、正文与高度桥', () => {
   assert.ok(doc.includes('Content-Security-Policy'));
   assert.ok(doc.includes("connect-src 'none'"));
   assert.ok(doc.includes("base-uri 'none'"));
+  // 允许卡片自带的远程图片与视频，同时保持脚本无法联网
+  assert.ok(doc.includes("img-src 'self' data: blob: https:"));
+  assert.ok(doc.includes("media-src 'self' data: blob: https:"));
   assert.ok(doc.includes('var heightToken = "height-token"'));
   assert.ok(doc.includes('nativePostMessage'));
   assert.equal(doc.includes('window.triggerSlash'), false);

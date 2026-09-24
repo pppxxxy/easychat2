@@ -158,7 +158,7 @@ function toPreambleHtml(text, position) {
   return `<div data-easychat2-preamble="${position}" style="white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;">${value}</div>`;
 }
 
-const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; base-uri \'none\'; form-action \'none\'; frame-src \'none\'; object-src \'none\'; connect-src \'none\'; img-src \'self\' data: blob:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
+const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; base-uri \'none\'; form-action \'none\'; frame-src \'none\'; object-src \'none\'; connect-src \'none\'; img-src \'self\' data: blob: https:; media-src \'self\' data: blob: https:; font-src \'self\' data: https:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
 function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '', parts = null) {
   let output = documentHtml;
   const styleBlock = `<style data-easychat2-runtime="true">${layoutStyle}</style>`;
