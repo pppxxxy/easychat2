@@ -13,9 +13,10 @@ npm run start        # Expo dev server (primary verification path)
 npm run android      # open on Android
 npm run prebuild     # expo prebuild --clean, regenerates android/
 npm run build:apk    # EAS preview APK
+npm test             # Node unit and regression tests
 ```
 
-- There is **no** lint, typecheck, or test runner in this repo. Do not invent `npm test`/`npm run lint`. Verify by running `npm run start` and exercising the changed path manually, plus `npm ci` for dependency integrity.
+- There is no standalone lint or typecheck setup. Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity.
 - Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run the one-off `npx eslint --config /tmp/eslint.check.mjs App.js src/*.js src/*/*.js` check described in `.monkeycode/docs/DEVELOPER_GUIDE.md`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
 - APK builds are manual `workflow_dispatch` only. Workflows: `build-apk-github.yml` (Gradle, signs release with the debug keystore) and `build-apk.yml` (EAS, needs `EXPO_TOKEN`).
@@ -29,16 +30,16 @@ npm run build:apk    # EAS preview APK
 - Context layers must not present UI. `AppContext.updateCharacter` rolls back state and rethrows; screens catch and show `Alert`. Keep it that way.
 - Pending assistant placeholders (`pending: true`) must never be persisted. Both `storage.js` and `ChatScreen.js` filter them; preserve that in any new persistence path.
 - Persisted error text is masked with `SECRET_PATTERN` (`sk-...` / `Bearer ...`). Unmasked error text lives only in the in-memory `errorRawRef`. Never write raw errors to storage or docs.
-- Message storage is keyed per character: `@easychat2_messages::<characterId>`. The default character reads legacy key `@easychat2_messages` as a fallback. Changing key names needs a migration branch.
+- Message storage is keyed per session: `@easychat2_messages::<sessionId>`. Legacy per-character and single-message keys are migration-only; changing key names needs a migration branch.
 - `AppContext` uses `characterRef`/`loadedRef` to avoid stale closures; `updateCharacter` rejects writes before load completes. Preserve the ref pattern.
 - When switching characters mid-request, the late reply/error is dropped via `activeCharacterIdRef`. Keep the guard.
 - RN's `fetch` has no streamable `response.body`. Streaming goes through the built-in `XMLHttpRequest` `onprogress` + cumulative `responseText` in `api.js`. Do not switch it back to `fetch` or add an SSE library without verifying Metro bundling.
-- AsyncStorage on Android has a 6MB DB cap by default and a ~2MB single-value read limit (CursorWindow). Raise the cap via the local config plugin `plugins/withAsyncStorageDbSize.js` (writes `AsyncStorage_db_size_in_MB`), and keep large collections split across keys (messages per session, characters via `@easychat2_character_index` + `@easychat2_character_item::<id>`). Never store a whole growing collection — or images/base64 — in one key.
+- AsyncStorage on Android has a 6MB DB cap by default and a ~2MB single-value read limit (CursorWindow). Raise the cap via the local config plugin `plugins/withAsyncStorageDbSize.js` (writes `AsyncStorage_db_size_in_MB`), and keep large collections split across keys (messages per session, characters via `@easychat2_character_index` + `@easychat2_character_item::<id>`, stickers via `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>`). Never store a whole growing collection — or images/base64 — in one key.
 - Character library is stored per character (`@easychat2_character_index` + `@easychat2_character_item::<id>`). The legacy whole-array key `@easychat2_characters` is migration-only and must never be overwritten on read failure. The index is written last as the commit point.
 
 ## Architecture map
 
-- `App.js` — real entrypoint (package.json `main` points at Expo's AppEntry). Wraps `AppProvider`, bottom tabs: 聊天 / 角色 / 设置.
+- `App.js` — real entrypoint (package.json `main` points at Expo's AppEntry). Wraps `AppProvider`, bottom tabs: 聊天 / 记忆 / 角色 / 扩展 / 设置.
 - `src/ChatScreen.js` — message list, send flow, Markdown assistant replies, error bubbles.
 - `src/CharacterScreen.js` — character edit + PNG/JSON card import (`parsecard`).
 - `src/SettingsScreen.js` — API `baseUrl` / `model` / `apiKey`; warns before saving `http://`.
@@ -47,7 +48,7 @@ npm run build:apk    # EAS preview APK
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.
 
-Storage keys: `@easychat2_api_config`, `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_messages::<characterId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`).
+Storage keys: `@easychat2_api_config`, `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>`, `@easychat2_messages::<sessionId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`, `@easychat2_stickers`).
 
 ## Conventions
 

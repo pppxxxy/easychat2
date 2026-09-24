@@ -5,7 +5,7 @@
 EasyChat2 是一个单机运行的移动端 AI 聊天应用，让用户用自备的 API Key 与兼容 OpenAI 协议的模型对话，并提供角色人设与角色卡导入能力。
 
 **核心职责**:
-- 提供暗色主题的三页移动端界面：聊天、角色、设置
+- 提供暗色主题的五页移动端界面：聊天、记忆、角色、扩展、设置
 - 将 API 配置、角色库与聊天记录持久化在设备本机
 - 陈列多个角色并支持切换，每个角色对应独立会话
 - 兼容 OpenAI Chat Completions 协议，支持自定义地址与模型
@@ -94,14 +94,20 @@ npm run build:apk
 
 ### 依赖变更与校验
 
-本项目未配置 ESLint、TypeScript 或单元测试。改动后的最低验证方式：
+本项目未配置 TypeScript 或独立 ESLint 规则集，但提供 Node 内置测试与一次性未定义引用检查。改动后的最低验证方式：
 
 ```bash
 # 校验依赖树与 lockfile 一致性（CI 使用）
 npm ci
 
+# 运行纯函数、存储、媒体和聊天管线回归测试
+npm test
+
 # 启动开发服务器，验证界面与热更新
 npm run start
+
+# 验证 Android Metro 打包与 Expo 配置
+npx expo export --platform android
 ```
 
 若改动了会被打包的代码，建议在合并前至少确认 `npm run start` 能正常加载应用，并手动覆盖受影响的功能路径。

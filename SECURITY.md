@@ -4,15 +4,18 @@
 
 ## 1. 数据与隐私：本地优先，不收集
 
-- 本项目没有自建后端、没有账号体系，源码中**唯一的网络请求**是 `src/api.js` 向你自行配置的第三方 API 地址发送聊天请求。
+- 本项目没有自建后端、没有账号体系；网络请求由你配置的第三方服务处理，聊天请求来自 `src/api.js`，生图、向量记忆、TTS、联网搜索和设置页检测也可能在用户主动启用或操作时访问对应服务。
 - 未接入任何分析、广告或遥测 SDK；开发者不接收、不存储、不转售你的任何数据。
 - 所有状态保存在设备本地（AsyncStorage），键名如下：
 
   | 存储键 | 内容 |
   |--------|------|
-  | `@easychat2_api_config` | API 地址、模型名、**API Key（明文）** |
-  | `@easychat2_character` | 当前角色、世界书与正则脚本 |
-  | `@easychat2_messages::<characterId>` | 该角色的聊天记录（默认角色兼容旧键 `@easychat2_messages`） |
+   | `@easychat2_api_config` | 旧版单 API 配置，仅迁移读取 |
+   | `@easychat2_api_configs` | 多套 API 配置（含 API Key，明文存于本机） |
+   | `@easychat2_character_index` + `@easychat2_character_item::<id>` | 角色库、世界书与正则脚本 |
+   | `@easychat2_messages::<sessionId>` | 会话消息（旧的按角色/单会话键仅迁移读取） |
+   | `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>` | 表情包元数据 |
+   | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
 
 - 卸载应用或清除应用数据即可删除上述内容。开发者侧没有可删除的副本。
 - 需要留意的本地风险：
@@ -48,13 +51,14 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 ## 5. Android 权限说明
 
-应用不主动申请任何运行时权限。`app.json` 中的 `android.permissions` 为空，并通过 `android.blockedPermissions` 排除由原生库引入的存储权限：
+应用使用系统文件选择器和系统图片选择器，不主动申请相机、麦克风或传统存储权限。`expo-image-picker` 仅声明图片选择用途文案，Android 的传统读写媒体权限通过 `blockedPermissions` 排除：
 
 | 权限 | 处理 |
 |------|------|
-| `READ_EXTERNAL_STORAGE` | 已排除（角色卡导入走系统文件选择器，无需该权限） |
+| `READ_EXTERNAL_STORAGE` | 已排除，角色卡和附件走系统选择器 |
 | `WRITE_EXTERNAL_STORAGE` | 已排除 |
-| `READ_MEDIA_IMAGES` | 已排除（不读取系统图库） |
+| `READ_MEDIA_IMAGES`、`READ_MEDIA_VIDEO` | 已排除，图片由系统选择器按用户选择返回 |
+| `RECORD_AUDIO`、`MODIFY_AUDIO_SETTINGS` | 已排除，图片/聊天功能不使用录音 |
 
 经 `expo prebuild` 生成后，清单中保留的权限为：
 
@@ -68,7 +72,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - `android:allowBackup="false"`，避免 API Key 等数据进入系统备份。
 - 角色卡导入使用 Storage Access Framework，不需要存储权限。
 - 建议在每次发布前核对 release 包的实际清单，确认没有额外被引入的权限。
-- iOS 侧无自定义权限声明。
+- iOS 侧声明图片库用途文案，用于系统图片选择器；不申请相机或麦克风权限。
 
 ## 6. 依赖与数据行为
 
@@ -90,7 +94,8 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `react-native-gesture-handler`、`react-native-screens`、`react-native-safe-area-context` | 手势、原生屏幕与安全区 |
 | `react-native-markdown-display` | 渲染助手 Markdown 回复 |
 | `react-native-vector-icons` | 图标 |
-| `@babel/core`（devDependency） | 构建转译 |
+| `@babel/core`、`@babel/preset-env`（devDependency） | 构建转译与 Node 测试运行 |
+| `expo-image-picker`、`expo-image-manipulator` | 选择、缩放和处理本地图片/表情包 |
 
 建议定期执行 `npm audit` 并关注上游安全公告。
 

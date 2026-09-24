@@ -31,6 +31,11 @@
 | 卡解析与提示管线 | 角色卡解析、世界书与正则组装请求 | [文档](./模块/卡解析与提示管线.md) |
 | 构建与配置 | 打包、运行时垫片与 CI 流水线 | [文档](./模块/构建与配置.md) |
 
+### 功能规格
+
+- [聊天图片与表情包](../specs/2026-09-24-chat-stickers/requirements.md)：图片消息拆分、表情包面板、修改重发确认与媒体存储。
+- [全宽对话](../specs/2026-09-18-full-width-chat/requirements.md)：全宽消息布局与头像/名字位置。
+
 ---
 
 ## 核心概念
@@ -83,6 +88,7 @@ npm run start        # 启动 Expo 开发服务器
 npm run android      # 在 Android 打开
 npm run build:apk    # EAS 预览 APK
 npm run prebuild     # 生成原生工程
+npm test             # 运行 Node 单元与回归测试
 ```
 
 ### 重要文件

@@ -25,16 +25,21 @@ graph TD
 ### `src/ChatScreen.js`
 
 - 加载设置后把 `fullWidth` 传入 `MessageBubble` 与 `ErrorBubble`。
+- 全宽助手消息使用纵向消息行：头像和名字放在上方同一行，头像位于名字左侧；消息内容独占下一行并横向铺开。
 - 新增样式：
 
 | 样式名 | 说明 |
 |--------|------|
-| `bubbleFullWidth` | `maxWidth: '100%'`、`alignSelf: 'stretch'`，用于全宽模式 |
+| `messageRowFullWidth` | 助手全宽消息的纵向容器，抵消消息列表横向内边距并占满屏幕宽度 |
+| `fullWidthMessageHeader` | 头像与名字的横向头部容器 |
+| `messageContentFullWidthColumn` | 全宽消息内容容器，宽度为 100% |
+| `bubbleFullWidth` | `width/maxWidth: '100%'`、`alignSelf: 'stretch'`，用于全宽模式 |
 | `bubbleBounded` | 保持现有 `maxWidth: '95%'`，用于默认模式 |
 
 - 使用方式：`style={[styles.bubble, fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded, ...]}`。
-- 用户消息容器保持右对齐（`alignItems: 'flex-end'`），助手消息保持左对齐，仅改最大宽度，不改对齐。
-- 消息列表横向内边距保持不变，确保全宽仍留出屏幕边距。
+- 用户消息容器保持右对齐（`alignItems: 'flex-end'`）；助手消息在全宽模式下改为头像/名字头部加下方气泡的纵向结构。
+- 全宽消息行抵消列表的 14px 横向内边距，头部内部保留 14px 视觉内边距；消息列表其他限宽消息不受影响。
+- 大型完整 HTML 文档超过内联源上限时写入本地缓存文件后由 WebView 加载，并限制动态高度，启用内部滚动。
 - 配图容器、引用块与操作行使用 `width: '100%'` 随气泡自适应。
 
 ### `src/SettingsScreen.js`
@@ -50,10 +55,11 @@ graph TD
 ## 正确性属性
 
 1. 默认关闭时布局与当前版本一致。
-2. 开启后气泡占满聊天区域可用宽度，左右对齐关系不变。
+2. 开启后助手头像和名字位于气泡上方，头像在名字左侧，消息气泡占满聊天区域可用宽度；用户消息仍保持右对齐。
 3. 错误气泡、引用块、配图与操作行随宽度自适应。
-4. 切换开关即时生效，无需重启。
-5. 与 `appearance-themes` 的样式工厂改造兼容：宽度差异以独立样式令牌表达，不覆盖主题色。
+4. 大型 HTML 通过本地文件源加载并限制 WebView 高度，避免 Android Binder 超限。
+5. 切换开关即时生效，无需重启。
+6. 与 `appearance-themes` 的样式工厂改造兼容：宽度差异以独立样式令牌表达，不覆盖主题色。
 
 ## 错误处理
 

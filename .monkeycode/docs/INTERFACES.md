@@ -25,16 +25,17 @@
 
 | 组件 | Props | 说明 |
 |------|-------|------|
-| `MessageBubble` | `message` | 用户消息渲染纯文本，助手消息用 `Markdown` 渲染 |
+| `MessageBubble` | `message` | 用户文字消息渲染纯文本，图片/表情包消息渲染本地图片，助手消息用 `Markdown`；全宽模式下助手头像与名字置于气泡上方，头像在名字左侧 |
 | `ErrorBubble` | `message`, `rawError`, `onCopied` | 可展开的系统报错气泡，支持复制原文 |
 
 **状态与副作用**:
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式，`richHtml` 决定含 `<style>`/`<script>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式；全宽助手消息将头像/名字置于气泡上方，`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
+- 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
 - 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；动态保存发起请求时的角色名称与头像快照，角色改名或删除后历史动态身份保持不变；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
@@ -49,13 +50,16 @@
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
 - 输入栏附件入口可选择纯文本类文档或图片：文本文档读取内容并在发送时以 `[附件：名称]` 并入上下文；图片仅当来源支持识图时允许，并以多模态形式发送；已选附件以标签与缩略图展示、可移除
+- 图片附件发送时拆分为连续的媒体消息与文字消息：图片单独展示并持久化到文档目录，文字随后作为第二条用户消息发送；图片长按提供「保存」与「保存为表情包」
+- 输入框右侧提供透明笑脸表情按钮，打开表情包面板；面板首项为添加入口，从相册一次选择一张图片，按原图宽高约一半缩放并要求填写名称；表情包可作为媒体消息发送，无识图模型至少收到 `【表情包：名称】` 提示
+- 图片附件在复制或读取尺寸前先检查文件大小；单文件上限 12 MiB、像素上限 1600 万、单次最多 3 张、总文件大小上限 20 MiB，Base64 请求数据另有 28 MiB 上限；不识图的普通图片在发送前拒绝
 - 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
 - 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
 - 顶部栏「思考」按钮打开思考设置：开关、深度（低/中/高）与思考内容展示（开启/折叠/关闭），按来源声明的字段与格式注入请求；来源不支持思考时禁用；三项保存时合并现有设置，互不覆盖
 - 助手消息保存可选 `reasoning` 与 `inlineImage` 字段；生成中经 `onReasoning` 实时更新。思考内容展示 `open` 为思考阶段自动展开、内容开始输出后自动收缩为一行「思考过程 ˅」；`fold` 默认收缩为一行可点开；`off` 不展示。用户手动点开/收起后不再自动收缩
-- 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动按索引定位，支持回到开头与最新
+- 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动或点击轨道任意位置按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
-- 群聊会话（`type: 'group'`）：顶部展示群名与群头像（未设置头像时回退群图标），聊天背景取会话 `bgUri`；输入栏左侧为 `@` 按钮（替代附件入口），点击弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。群像卡思考阶段的消息显示为群名，不再显示基础角色名；消息头像优先取该成员角色卡的头像，取不到时用群头像。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
+- 群聊会话（`type: 'group'`）：顶部展示群名与群头像（未设置头像时回退群图标），聊天背景取会话 `bgUri`；输入栏同时提供附件按钮和 `@` 提及按钮，点击 `@` 弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。群像卡思考阶段的消息显示为群名，不再显示基础角色名；消息头像优先取该成员角色卡的头像，取不到时用群头像。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
 - 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
@@ -84,7 +88,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索；API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（12 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索；API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（13 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
@@ -142,7 +146,7 @@
 **Props**: `{ visible, onClose, messageCount, previews, onSeek, onToStart, onToEnd }`
 **行为**:
 - 覆盖层内渲染竖向轨道与滑块，用 `PanResponder` 拖动，按滑动比例映射消息或角色卡索引（`indexFromRatio`）
-- 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；松手时以映射索引调用 `onSeek`
+- 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；点击轨道会移动滑块并更新预览，拖动松手时才按映射索引调用 `onSeek`
 - 消息数超过 30 时拖动显示预览卡（时间、发言者、缩略与位置）；聊天与角色列表均可复用，无可定位项时按钮禁用；顶部/底部按钮会同步更新滑块位置
 **辅助导出**: `indexFromRatio(ratio, messageCount)`、`getScrollRange({ top, height, viewport })`
 
@@ -280,6 +284,8 @@
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
 | `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
 | `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入按角色隔离的记忆片段索引，写入时过滤非法条目 |
+| `getStickers` | `() => Promise<Sticker[]>` | 从索引与分片键读取并按创建时间倒序返回表情包元数据 |
+| `saveSticker` | `(sticker) => Promise<Sticker>` | 串行新增或更新表情包分片元数据，元数据不完整时抛出错误 |
 | `clearVectorIndex` | `(characterId) => Promise<void>` | 清除某角色的记忆片段索引 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
 | `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；按索引 + 每角色一键读取，超大角色从文件描述符恢复；缺失索引时迁移旧整库键，Android 读取旧大值失败时通过 SQLite 分块恢复；索引缺项或读取异常时保留原键并进入写入阻断态 |
@@ -299,15 +305,17 @@
 | `setActiveSessionId` | `(id) => Promise<void>` | 写入当前会话 `id` |
 | `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
 | `getMessagesBySessionStatus` | `(sessionId) => Promise<{ status, messages }>` | 带状态的按会话读取；损坏时先备份再返回 `status: 'corrupt'`，调用方不得把读失败当成空会话写回 |
-| `saveMessagesBySession` | `(sessionId, messages) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，并同步会话预览与更新时间 |
+| `saveMessagesBySession` | `(sessionId, messages, characterId?, protectedUris?) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，同步会话预览与更新时间；检测到媒体删除时回收未被其他会话或待发送附件引用的聊天图片 |
+| `setSessionSummarizedUpTo` | `(sessionId, messageId) => Promise<Session>` | 在会话存储队列内更新总结边界 |
+| `collectChatImageFiles` | `(protectedUris?) => Promise<boolean>` | 扫描会话消息引用，清理未被引用的 `documentDirectory/chat-images/` 文件；读取到损坏消息键时保守返回，不执行删除 |
 | `startNewSession` | `(characterId, opening?) => Promise<Session>` | 新建会话并设为当前；传入 `opening` 表示已完成开场白选择，空文本也会记录选择状态，创建时可写入开场白消息 |
 | `setSessionGreetingSelected` | `(sessionId, selected?) => Promise<Session\|null>` | 标记单聊已完成开场白选择；群聊或不存在会话直接返回 |
 | `createGroupSession` | `(members, name, extras?) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前；`extras` 可带 `avatarUri`/`bgUri` |
 | `updateSessionInfo` | `(sessionId, patch) => Promise<Session\|null>` | 更新群聊名称/头像/背景；非群聊返回目标且不改动 |
 | `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
-| `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
-| `deleteSessions` | `(sessionIds, excludedCharacterIds?) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键；可排除待删角色，删除当前群聊时创建有效角色的替代会话 |
+| `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息并回收无引用聊天图片；删除当前会话时新建空会话 |
+| `deleteSessions` | `(sessionIds, excludedCharacterIds?) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键，随后回收无引用聊天图片；可排除待删角色，删除当前群聊时创建有效角色的替代会话 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
@@ -385,6 +393,9 @@
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
+| `@easychat2_sticker_index` | 表情包元数据 ID 索引 |
+| `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
+| `@easychat2_stickers` | 旧版表情包整数组，仅迁移读取 |
 | `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }`（`pink` 显示为「蜜桃」、`crimson` 显示为「薰衣草」） |
 
 **默认 API 配置**:
@@ -537,10 +548,10 @@ data: [DONE]
 **位置**: `src/cardParser.js`
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
-### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, quote })`
+### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets })`
 **位置**: `src/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
-**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）、联网搜索背景资料（`pluginContext`），最后恒定追加 `[输出格式]`（`DEFAULT_OUTPUT_FORMAT_PROMPT`，要求自然分段换行，不受预设开关影响）；`images` 非空时最后一条用户消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，否则为纯文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
+**说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）、联网搜索背景资料（`pluginContext`），最后恒定追加 `[输出格式]`（`DEFAULT_OUTPUT_FORMAT_PROMPT`，要求自然分段换行，不受预设开关影响）；`images` 非空时会先追加独立的媒体用户消息，再追加文字用户消息；媒体消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，无识图时退化为 `【图片：名称】` 或 `【表情包：名称】` 文本；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
 **位置**: `src/groupChat.js`
@@ -550,16 +561,16 @@ data: [DONE]
 | `parseMentions(text, characters)` | 解析消息中的 `@角色名`，返回角色 `id` 列表；`@全体` 返回全部成员 `id` |
 | `hasEveryoneMention(text)` | 消息是否包含 `@全体` |
 | `EVERYONE_MENTION` / `MENTION_PREFIX` | `'全体'` / `'@'` 常量 |
-| `selectSpeakers({ characters, history, userText, mentions, everyone })` | 调用 LLM 选出 1-3 个发言角色；解析失败回退本地规则（`@` 优先、名字命中、轮转）；`@` 角色必定入选；`everyone` 为真时返回全部成员且不受 3 人上限 |
+| `selectSpeakers({ characters, history, userText, mentions, everyone, expectedConfigId, signal })` | 调用 LLM 选出 1-3 个发言角色；解析失败回退本地规则，来源切换或取消信号会中断辅助请求；`@` 角色必定入选；`everyone` 为真时返回全部成员且不受 3 人上限 |
 | `parseSpeakerResponse(text, characters)` | 解析调度返回的 `{ speakers: [...] }`，按角色名映射为 `id` |
-| `generateOpening({ characters, userProfile, globalPresets })` | 生成群场景开场白与首位发言角色，失败回退合成文案 |
+| `generateOpening({ characters, userProfile, globalPresets, expectedConfigId, signal })` | 生成群场景开场白与首位发言角色，失败回退合成文案；来源切换或取消信号会中断请求 |
 | `buildGroupHistory(messages)` | 为助手消息加上 `发言者：` 前缀，供模型区分发言人 |
 | `needsProfile(character)` | `description` + `personality` 去空白后字符数 `< 30` 视为简介不足 |
-| `generateMemberProfile(character)` | 基于完整角色卡调用 LLM 生成 1-2 行第三人称人设卡，失败返回 `null` |
-| `ensureMemberProfiles({ characters, profiles })` | 对简介不足且无缓存的成员生成人设卡，返回新 `profiles`（不重复生成） |
+| `generateMemberProfile(character, expectedConfigId, signal)` | 基于完整角色卡调用 LLM 生成 1-2 行第三人称人设卡，来源切换或取消信号会中断请求，普通失败返回 `null` |
+| `ensureMemberProfiles({ characters, profiles, expectedConfigId, signal })` | 对简介不足且无缓存的成员生成人设卡，返回新 `profiles`（不重复生成） |
 | `buildGroupContext({ speaker, characters, historyMessages, profiles })` | 构造 `[群聊情境]` 文本：多人群聊说明、在场成员名单（含简介与最近发言）、最近对话 |
-| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote, summaryText, pluginContext, profiles })` | 逐角色模式：以发言角色卡设定构造请求，注入群聊情境并透传引用信息 |
-| `buildEnsemblePrompt({ characters, historyMessages, userText, userProfile, globalPresets, profiles, mentions, everyone })` | 群像卡模式：合并全部成员设定为单次调用的提示词，要求按「角色名：」分段并由模型决定发言者与篇幅；`mentions` 注入点名，`everyone` 为真时要求全员发言 |
+| `buildGroupRequest({ speaker, characters, historyMessages, userText, userProfile, globalPresets, quote, summaryText, pluginContext, profiles, imageMessages })` | 逐角色模式：以发言角色卡设定构造请求，注入群聊情境、媒体消息并透传引用信息 |
+| `buildEnsemblePrompt({ characters, historyMessages, userText, userProfile, globalPresets, profiles, mentions, everyone, imageMessages })` | 群像卡模式：合并全部成员设定为单次调用的提示词，要求按「角色名：」分段并由模型决定发言者与篇幅；`mentions` 注入点名，`everyone` 为真时要求全员发言，`imageMessages` 作为当前媒体消息注入 |
 | `parseEnsembleReply(text, characters)` | 解析「角色名：内容」为发言段 `[{ speakerId, speakerName, text }]`，兼容空行、半角冒号、星号包裹、未知角色与多行内容 |
 | `mergeAdjacentSegments(segments)` | 合并同一发言者的连续段，丢弃空文本段 |
 
@@ -573,6 +584,10 @@ data: [DONE]
 | `TEXT_EXTENSIONS` / `IMAGE_EXTENSIONS` | 支持的文档与图片扩展名 |
 | `isTextLike(name, mime)` / `isImage(name, mime)` | 按扩展名与 MIME 判定类型 |
 | `pickAttachment()` | 选取单个文件，返回 `{ uri, name, mime, size }` |
+| `getImageFileInfo(uri)` | 读取本地图片存在状态与字节数，用于解码前大小预检 |
+| `validateImageSize({ size, width, height })` | 校验单文件 12 MiB 与 1600 万像素上限 |
+| `validateImageBatch(items)` | 校验单次最多 3 张、单文件可读大小与总文件大小 20 MiB 上限 |
+| `getPendingStickerImage()` / `pickStickerImage()` | 消费 ImagePicker pending 结果或打开相册，统一返回图片元数据 |
 | `readTextAttachment(uri, maxBytes?)` | 读取为 UTF-8 文本，默认上限 200KB，超限抛「文件过大」 |
 | `readImageDataUri(uri, mime)` | 读取为 `data:` URI |
 | `mergeTextAttachments(userText, attachments)` | 把文本附件以 `[附件：名称]` 追加到用户消息上下文 |
@@ -717,13 +732,13 @@ data: [DONE]
 | `needsRichHtmlRendering(text)` | 文本是否含内置渲染器不支持的标签（`<style>`/`<script>`/`<details>`/`<summary>`/`<svg>`/`<audio>`/`<video>`），这类消息需要 WebView 才能还原样式、折叠、媒体播放与交互 |
 | `shouldRenderRichHtml(text, enabled)` | 在上者基础上叠加 `richHtml` 开关；含 `<details>`/`<summary>` 时始终返回 `true`，确保折叠状态栏标题保留 |
 | `stripMarkdownFences(text)` | 去掉 ` ```html ` / ` ``` ` 围栏行 |
-| `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily })` | 包装为完整 HTML 文档（含视口与高度回传/命令桥脚本） |
-| `RICH_HTML_RESIZE_BRIDGE` | 注入的桥脚本：`ResizeObserver` 回传高度、`button[data-command]` 回传命令 |
+| `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily })` | 包装为完整 HTML 文档（含视口、CSP、宽度/滚动约束与高度回传/命令桥脚本） |
+| `RICH_HTML_RESIZE_BRIDGE` | 注入的桥脚本：`ResizeObserver` 回传高度；仅用户手势触发且带当前文档令牌时，`button[data-command]` / `window.triggerSlash` 才回传命令 |
 
 ### `RichHtmlMessage`（默认导出）
 **位置**: `src/RichHtmlMessage.js`
 
-用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由桥脚本回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；富 HTML 消息的内容容器、气泡和 WebView 强制撑满可用宽度并允许收缩，完整 HTML 文档会直接作为 WebView 页面加载，注入盒模型、宽度约束、换行策略、运行时命令桥与 `window.triggerSlash`，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收 `button[data-command]` 的斜杠命令。WebView 开启 `allowsFullscreenVideo` 与多窗口支持，卡内 `<video controls>` 可进入原生全屏，同时拦截新窗口以保持卡片链接留在当前消息内。因关闭了 WebView 自身滚动，普通片段包装会注入 `body *{max-height:none !important}`，完整页面保留自身滚动与折叠规则。`react-native-webview` 缺失时返回 `null`。
+用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由桥脚本回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档先写入应用缓存文件再以本地 URI 加载，避免 Android Binder 超限。动态高度上限为 24000，完整页面保留自身滚动与折叠规则；文档注入盒模型、宽度约束、CSP、运行时命令桥与 `window.triggerSlash`，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收 `button[data-command]` 的斜杠命令。WebView 开启 `allowsFullscreenVideo` 与多窗口支持，卡内 `<video controls>` 可进入原生全屏，同时拦截新窗口以保持卡片链接留在当前消息内。`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`
@@ -735,7 +750,7 @@ data: [DONE]
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
 **位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`
-**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（12 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, sections?, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`sections` 为结构化条款（免责章取自 `DISCLAIMER_SECTIONS`），经 `ChapterSections` 渲染；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。`ChapterSections`（`src/ChapterSections.js`，默认导出）Props 为 `{ sections: [{ title?, icon?, body?, bullets? }] }`，逐节渲染图标标题、正文与要点，供免责弹窗与免责教学章共用。
+**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（13 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, sections?, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`sections` 为结构化条款（免责章取自 `DISCLAIMER_SECTIONS`），经 `ChapterSections` 渲染；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。`ChapterSections`（`src/ChapterSections.js`，默认导出）Props 为 `{ sections: [{ title?, icon?, body?, bullets? }] }`，逐节渲染图标标题、正文与要点，供免责弹窗与免责教学章共用。
 
 ### `ChapterModal` / `ChapterNotice` / `ChapterImages` / `TutorialModal`
 **位置**: `src/ChapterModal.js` / `src/ChapterNotice.js` / `src/ChapterImages.js` / `src/TutorialModal.js`

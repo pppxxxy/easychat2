@@ -24,6 +24,7 @@ EasyChat2 是一个基于 Expo 与 React Native 构建的移动端 AI 聊天应�
 - 导航：`@react-navigation/native` + `@react-navigation/bottom-tabs`
 - 富文本：`react-native-markdown-display`、`react-native-render-html`、`react-native-webview`（角色卡媒体与交互 HTML）
 - 图标资源：`react-native-vector-icons`
+- 图片处理：`expo-image-picker`、`expo-image-manipulator`、`expo-file-system`
 
 **数据存储**
 - `@react-native-async-storage/async-storage`（设备本机键值存储）
@@ -53,7 +54,9 @@ easychat2/
 ├── .npmrc                    # npm 配置（legacy-peer-deps）
 ├── assets/                   # 图标、自适应图标与启动图
 ├── src/
-│   ├── ChatScreen.js         # 聊天界面：角色切换、消息列表、发送、错误气泡、持久化
+│   ├── ChatScreen.js         # 聊天界面：角色切换、图片/文字消息、表情包、错误气泡、持久化
+│   ├── chatMedia.js          # 图片/表情包消息结构与模型提示
+│   ├── stickerImages.js      # 表情包图片缩小与本地文件保存
 │   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
 │   ├── SearchScreen.js       # 跨会话搜索：关键词检索历史消息并跳转定位
 │   ├── ScrollScrubber.js     # 快速定位滑动条：拖动跳转会话任意位置
@@ -70,7 +73,7 @@ easychat2/
 │   ├── regexEngine.js        # 正则脚本作用范围与应用
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
-│   ├── attachments.js        # 聊天附件：文本类读取、图片 data URI 与合并
+│   ├── attachments.js        # 聊天附件：文本读取、图片预检/持久化、pending 结果与合并
 │   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
 │   ├── games/games.js        # 内嵌 HTML 小游戏清单
 │   ├── theme/                # 五套主题语义色板与字体缩放上下文
@@ -82,6 +85,7 @@ easychat2/
 │   │   ├── registry.js       # 插件注册表：触发词、执行与背景资料格式化
 │   │   └── webSearch.js      # 通用请求器：构造、解析、缓存、重试与限流
 │   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
+│   ├── messageSelection.js   # 消息多选与修改重发撤回计划
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── disclaimer.js         # 免责条款文本与弹窗组件
 │   ├── storage.js            # AsyncStorage 读写封装、角色文件分片与旧库恢复
@@ -109,7 +113,7 @@ easychat2/
 **被依赖**: 全体界面通过导航挂载
 
 ### 聊天界面
-**目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理消息列表、长按多选删除、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
+**目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理图片/文字消息、表情包、长按多选删除、带确认的修改重发、全宽布局与大型 HTML 开场白、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`
 **依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`@expo/vector-icons`、`expo-clipboard`、`react-native-markdown-display`
@@ -193,7 +197,7 @@ easychat2/
 **被依赖**: `ChatScreen`、`CharacterScreen`、`MemoryScreen`
 
 ### 数据持久化
-**目的**: 以稳定键名读写 API 配置、角色库、当前角色、会话列表、当前会话与按会话隔离的消息，并迁移旧版单角色、旧版单 API 配置与旧版按角色存储的消息，屏蔽 `AsyncStorage` 细节
+**目的**: 以稳定键名读写 API 配置、角色库、当前角色、会话列表、当前会话与按会话隔离的消息，并迁移旧版单角色、旧版单 API 配置与旧版按角色存储的消息；聊天图片文件保存在文档目录，消息删除后按所有会话引用安全回收，屏蔽 `AsyncStorage` 细节
 **位置**: `src/storage.js`
 **关键文件**: `src/storage.js`
 **依赖**: `@react-native-async-storage/async-storage`
@@ -322,7 +326,10 @@ stateDiagram-v2
 - **失败保留部分回复**：流式进行中若请求失败且已收到文本，`ChatScreen` 将该部分文本标记为已完成并保留，再追加一条 `system-error`，避免已展示内容被清空；无任何文本时占位直接转为报错。
 - **自动滚动尊重用户**：消息列表仅在用户处于底部附近时随内容增长自动滚到底部，用户上滚查看历史时不会被流式增量反复拽回。
 - **报错原文只留内存**：持久化消息中只保存脱敏后的 `detail`，未脱敏原文保存在仅会话内可见的 `errorRawRef`，防止密钥写入磁盘。
-- **切换角色的竞态防护**：发送期间记录发起时的 `characterId`，若用户中途切换角色，迟到返回的回复或错误会被丢弃。
+- **切换角色的竞态防护**：发送期间记录发起时的 `characterId`、会话 `id` 与版本号，若用户中途切换角色/会话，迟到返回的回复或错误会被丢弃；发送、重新生成和异步附件读取共用单飞锁。
+- **修改重发先确认**：用户点击「修改重发」后先确认，确认后撤回目标用户消息及其后续回复，并把原文字回填输入框；取消确认保持会话不变。
+- **大型 HTML 使用本地文件源**：超过内联阈值的完整富 HTML 文档先写入应用缓存文件，再由 WebView 加载，并注入 CSP、滚动约束和动态高度上限，降低 Android Binder 与 WebView 内存峰值。
+- **聊天图片按引用回收**：图片文件只保存于文档目录，AsyncStorage 保存 URI；消息或会话删除后扫描所有会话消息与待发送附件引用，保留克隆共享文件，清理无引用文件。
 - **请求走 XHR 增量解析 SSE**：RN 的 `fetch` 不暴露 `response.body`，`api.js` 因此使用内置 `XMLHttpRequest` 的 `onprogress` 与累计 `responseText` 解析 `stream: true` 的 SSE，逐片段通过 `onChunk` 回调上抛累计文本，无需新增依赖。超时改为空闲超时，30 秒无数据才判定失败。
 - **请求可取消**：`sendChatMessage` 接受 `AbortSignal`，取消时以 `AbortError` 拒绝并清理监听；`ChatScreen` 为每次发送创建 `AbortController`，在用户点击「停止」、切换角色或组件卸载时中断，已收到的部分文本按失败保留规则处理。
 - **运行时垫片先行**：`Buffer` 垫片置于 `App.js` 首行导入，规避 ES 模块提升导致的求值顺序问题；Metro 全局开启 `unstable_enablePackageExports` 以解析 `parsecard` 的 `exports` 字段。
