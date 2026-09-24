@@ -38,7 +38,6 @@ export default function ScrollScrubber({
   const messageCountRef = useRef(messageCount);
   const onSeekRef = useRef(onSeek);
    const gestureStartRatioRef = useRef(0);
-   const gestureMovedRef = useRef(false);
    const currentRatioRef = useRef(0);
    messageCountRef.current = messageCount;
   onSeekRef.current = onSeek;
@@ -50,8 +49,7 @@ export default function ScrollScrubber({
     setDragging(false);
     setRatio(0);
      previewIndexRef.current = -1;
-      gestureMovedRef.current = false;
-      currentRatioRef.current = 0;
+     currentRatioRef.current = 0;
      translateY.setValue(0);
   }, [visible]);
 
@@ -95,17 +93,15 @@ export default function ScrollScrubber({
         onMoveShouldSetPanResponder: () => trackHeightRef.current > THUMB_HEIGHT,
         onMoveShouldSetPanResponderCapture: () => trackHeightRef.current > THUMB_HEIGHT,
        onPanResponderTerminationRequest: () => false,
-       onPanResponderGrant: event => {
-         gestureMovedRef.current = false;
-         setDragging(true);
+         onPanResponderGrant: event => {
+           setDragging(true);
         // 按下位置的 locationY 相对轨道视图，是可靠的；用它作为拖拽起点。
         const start = ratioFromY(event.nativeEvent.locationY);
         gestureStartRatioRef.current = start;
         applyRatio(start);
       },
-       onPanResponderMove: (_event, gestureState) => {
-         if (Math.abs(gestureState.dy) > 2) gestureMovedRef.current = true;
-         // 移动过程中不能用 locationY：手指越过滑块后它变成相对滑块的坐标，
+        onPanResponderMove: (_event, gestureState) => {
+          // 移动过程中不能用 locationY：手指越过滑块后它变成相对滑块的坐标，
          // 会导致滑块来回跳到顶部。改用累计位移 dy 叠加起始比例。
          const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
          applyRatio(next);
@@ -113,13 +109,13 @@ export default function ScrollScrubber({
         onPanResponderRelease: (_event, gestureState) => {
           const next = Math.min(1, Math.max(0, gestureStartRatioRef.current + gestureState.dy / usableHeight()));
           applyRatio(next);
-          setDragging(false);
-          if (gestureMovedRef.current) commitRatio(next);
-        },
-        onPanResponderTerminate: () => {
-          setDragging(false);
-          if (gestureMovedRef.current) commitRatio(currentRatioRef.current);
-        },
+           setDragging(false);
+           commitRatio(next);
+         },
+         onPanResponderTerminate: () => {
+           setDragging(false);
+           commitRatio(currentRatioRef.current);
+         },
     })
   ).current;
 

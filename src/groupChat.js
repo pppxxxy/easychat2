@@ -45,10 +45,14 @@ function buildProfilePrompt(character) {
   ];
 }
 
-export async function generateMemberProfile(character, expectedConfigId = '', signal = null) {
+export async function generateMemberProfile(character, expectedConfigId = '', expectedConfigFingerprint = '', signal = null) {
   if (!character) return null;
   try {
-    const text = await sendChatMessage(buildProfilePrompt(character), { expectedConfigId, signal });
+    const text = await sendChatMessage(buildProfilePrompt(character), {
+      expectedConfigId,
+      expectedConfigFingerprint,
+      signal,
+    });
     const profile = String(text || '').replace(/\s+/g, ' ').trim();
     return profile || null;
   } catch (error) {
@@ -57,7 +61,7 @@ export async function generateMemberProfile(character, expectedConfigId = '', si
   }
 }
 
-export async function ensureMemberProfiles({ characters, profiles, expectedConfigId = '', signal = null }) {
+export async function ensureMemberProfiles({ characters, profiles, expectedConfigId = '', expectedConfigFingerprint = '', signal = null }) {
   const list = Array.isArray(characters) ? characters : [];
   const current = profiles && typeof profiles === 'object' ? profiles : {};
   const next = { ...current };
@@ -71,7 +75,12 @@ export async function ensureMemberProfiles({ characters, profiles, expectedConfi
     if (!character || !character.id) continue;
     if (next[character.id]) continue;
     if (!needsProfile(character)) continue;
-    const profile = await generateMemberProfile(character, expectedConfigId, signal);
+    const profile = await generateMemberProfile(
+      character,
+      expectedConfigId,
+      expectedConfigFingerprint,
+      signal
+    );
     if (profile) next[character.id] = profile;
   }
   return next;
@@ -193,15 +202,19 @@ export function parseSpeakerResponse(text, characters) {
   return ids;
 }
 
-export async function selectSpeakers({ characters, history, userText, mentions = [], everyone = false, expectedConfigId = '', signal = null }) {
+export async function selectSpeakers({ characters, history, userText, mentions = [], everyone = false, expectedConfigId = '', expectedConfigFingerprint = '', signal = null }) {
   const list = Array.isArray(characters) ? characters : [];
   if (list.length === 0) return [];
   if (everyone) return list.map(character => character.id).filter(Boolean);
   if (mentions.length >= MAX_SPEAKERS) return mentions.slice(0, MAX_SPEAKERS);
   let picked = [];
   try {
-    const prompt = buildSchedulerPrompt(list, history, userText, mentions);
-    const text = await sendChatMessage(prompt, { expectedConfigId, signal });
+     const prompt = buildSchedulerPrompt(list, history, userText, mentions);
+     const text = await sendChatMessage(prompt, {
+       expectedConfigId,
+       expectedConfigFingerprint,
+       signal,
+     });
     picked = parseSpeakerResponse(text, list);
   } catch (error) {
     if (isConfigChangedError(error) || isCanceledError(error)) throw error;
@@ -219,7 +232,7 @@ export async function selectSpeakers({ characters, history, userText, mentions =
   return merged.slice(0, MAX_SPEAKERS);
 }
 
-export async function generateOpening({ characters, userProfile, globalPresets, expectedConfigId = '', signal = null }) {
+export async function generateOpening({ characters, userProfile, globalPresets, expectedConfigId = '', expectedConfigFingerprint = '', signal = null }) {
   const list = Array.isArray(characters) ? characters : [];
   if (list.length === 0) return null;
   const roster = list
@@ -235,7 +248,11 @@ export async function generateOpening({ characters, userProfile, globalPresets, 
   ];
   let parsed = null;
   try {
-    const text = await sendChatMessage(prompt, { expectedConfigId, signal });
+     const text = await sendChatMessage(prompt, {
+       expectedConfigId,
+       expectedConfigFingerprint,
+       signal,
+     });
     parsed = extractJson(text);
   } catch (error) {
     if (isConfigChangedError(error) || isCanceledError(error)) throw error;

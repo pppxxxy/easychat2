@@ -11,6 +11,30 @@ const IDLE_TIMEOUT_MS = 30000;
 export const EMPTY_REPLY_TEXT = '没有收到回复。';
 export const CONFIG_CHANGED_ERROR = '模型来源已切换，请重新发送';
 
+function fingerprint(value) {
+  let hash = 2166136261;
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+export function getConfigFingerprint(config) {
+  const source = config && typeof config === 'object' ? config : {};
+  return fingerprint(JSON.stringify([
+    String(source.id || ''),
+    String(source.baseUrl || ''),
+    String(getActiveModel(source) || ''),
+    String(source.apiKey || ''),
+    String(source.authHeader || 'Authorization'),
+    String(source.authScheme === undefined ? 'Bearer ' : source.authScheme),
+    source.supportsVision === true,
+    source.supportsThinking === true,
+  ]));
+}
+
 export function isConfigChangedError(error) {
   return !!error && error.message === CONFIG_CHANGED_ERROR;
 }
@@ -117,6 +141,13 @@ export async function sendChatMessage(messages, options = {}) {
   if (options && options.expectedConfigId && config.id !== options.expectedConfigId) {
     throw new Error(CONFIG_CHANGED_ERROR);
   }
+  if (
+    options
+    && options.expectedConfigFingerprint
+    && getConfigFingerprint(config) !== options.expectedConfigFingerprint
+  ) {
+    throw new Error(CONFIG_CHANGED_ERROR);
+  }
   if (signal && signal.aborted) {
     throw createAbortError();
   }
@@ -144,9 +175,15 @@ export async function sendChatMessage(messages, options = {}) {
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
   const samplingSettings = await getSamplingSettings().catch(() => null);
   const samplingParams = buildSamplingParams(samplingSettings);
-  if (options && options.expectedConfigId) {
+  if (options && (options.expectedConfigId || options.expectedConfigFingerprint)) {
     const latestConfig = await getActiveApiConfig();
-    if (latestConfig.id !== options.expectedConfigId) {
+    if (
+      (options.expectedConfigId && latestConfig.id !== options.expectedConfigId)
+      || (
+        options.expectedConfigFingerprint
+        && getConfigFingerprint(latestConfig) !== options.expectedConfigFingerprint
+      )
+    ) {
       throw new Error(CONFIG_CHANGED_ERROR);
     }
   }

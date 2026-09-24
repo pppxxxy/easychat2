@@ -24,7 +24,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml, { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
-import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
+import { getConfigFingerprint, isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import {
    deleteLocalImage,
    deleteTemporaryImage,
@@ -1446,8 +1446,9 @@ export default function ChatScreen() {
                    characters: members,
                    userProfile: profile,
                    globalPresets: presets,
-                   expectedConfigId: String(currentConfig && currentConfig.id || ''),
-                   signal: openingController.signal,
+                     expectedConfigId: String(currentConfig && currentConfig.id || ''),
+                     expectedConfigFingerprint: currentConfig ? getConfigFingerprint(currentConfig) : '',
+                     signal: openingController.signal,
                  });
                   if (cancelled || !opening) return;
                   if (openingRequestRef.current !== openingToken) return;
@@ -2105,7 +2106,7 @@ export default function ChatScreen() {
     );
   }, [isSending, ready, messages, runSummarize]);
 
-  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, sessionGuard, restoreOnFailure = false }) => {
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
     const sendCharacterId = activeCharacterIdRef.current;
@@ -2221,8 +2222,9 @@ export default function ChatScreen() {
        const reply = await sendChatMessage(
          requestMessages,
          {
-           expectedConfigId,
-           signal: controller.signal,
+             expectedConfigId,
+             expectedConfigFingerprint,
+             signal: controller.signal,
            stream: chatOptions.stream,
            onChunk: fullText => {
              if (!isCurrentSession() || controller.signal.aborted) return;
@@ -2332,7 +2334,7 @@ export default function ChatScreen() {
     }
   }, [autoScrollToBottom, character, characters, chatOptions.stream, isSessionGuardCurrent, maybeAutoSummarize, ready, scrollToBottom]);
 
-  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, imageMessages, quote, expectedConfigId, sessionGuard }) => {
+  const requestGroupReply = useCallback(async ({ historyMessages, userText, baseMessages, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
     const members = groupCharactersRef.current;
@@ -2372,8 +2374,9 @@ export default function ChatScreen() {
          const ensured = await ensureMemberProfiles({
            characters: members,
             profiles: cachedProfiles,
-            expectedConfigId,
-            signal: controller.signal,
+             expectedConfigId,
+             expectedConfigFingerprint,
+             signal: controller.signal,
           });
         const added = Object.keys(ensured).some(key => !cachedProfiles[key]);
         if (!isCurrent()) return false;
@@ -2405,8 +2408,9 @@ export default function ChatScreen() {
           characters: members,
           history: historyMessages,
           userText: schedulerText,
-           expectedConfigId,
-           mentions,
+            expectedConfigId,
+            expectedConfigFingerprint,
+            mentions,
            everyone,
            signal: controller.signal,
          });
@@ -2447,8 +2451,9 @@ export default function ChatScreen() {
               imageMessages,
             });
             const reply = await sendChatMessage(requestMessages, {
-              expectedConfigId,
-              signal: controller.signal,
+             expectedConfigId,
+             expectedConfigFingerprint,
+             signal: controller.signal,
               stream: chatOptions.stream,
             });
              if (!isCurrent()) return false;
@@ -2522,9 +2527,10 @@ export default function ChatScreen() {
         scrollToBottom();
         let reply = '';
         try {
-          reply = await sendChatMessage(requestMessages, {
-            expectedConfigId,
-            signal: controller.signal,
+           reply = await sendChatMessage(requestMessages, {
+             expectedConfigId,
+             expectedConfigFingerprint,
+             signal: controller.signal,
             stream: chatOptions.stream,
             onChunk: fullText => {
               if (!isCurrent() || controller.signal.aborted) return;
@@ -2647,14 +2653,16 @@ export default function ChatScreen() {
       Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
       return false;
     }
-    let visionEnabled = false;
-    let expectedConfigId = '';
+     let visionEnabled = false;
+     let expectedConfigId = '';
+     let expectedConfigFingerprint = '';
     try {
        const { configs, activeId } = await getApiConfigs();
        if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
       const current = configs.find(item => item.id === activeId) || configs[0];
-      expectedConfigId = String(current?.id || '');
-      visionEnabled = !!(current && current.supportsVision);
+       expectedConfigId = String(current?.id || '');
+       expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
+       visionEnabled = !!(current && current.supportsVision);
     } catch (error) {}
      let sizedImages = [];
      try {
@@ -2758,8 +2766,9 @@ export default function ChatScreen() {
         .map(item => item.dataUri),
       imageMessages,
       quote: textMessage ? draftQuote : null,
-      expectedConfigId,
-      sessionGuard,
+       expectedConfigId,
+       expectedConfigFingerprint,
+       sessionGuard,
     };
      if (isCanceled() || !isSessionGuardCurrent(sessionGuard)
        || (abortRef.current && abortRef.current.signal.aborted)) return false;
@@ -2767,8 +2776,15 @@ export default function ChatScreen() {
        const latest = await getApiConfigs();
        if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
        const latestConfig = latest.configs.find(item => item.id === latest.activeId) || latest.configs[0];
-       const latestConfigId = String(latestConfig && latestConfig.id || '');
-       if (expectedConfigId && latestConfigId !== expectedConfigId) {
+        const latestConfigId = String(latestConfig && latestConfig.id || '');
+        if (
+          (expectedConfigId && latestConfigId !== expectedConfigId)
+          || (
+            expectedConfigFingerprint
+            && latestConfig
+            && getConfigFingerprint(latestConfig) !== expectedConfigFingerprint
+          )
+        ) {
          Alert.alert('模型来源已切换', '请重新发送这条消息。');
          return false;
        }
@@ -2857,13 +2873,15 @@ export default function ChatScreen() {
          .reverse()
          .find(item => item && item.quoted && item.quoted.text)
          ?.quoted || null;
-      let includeImage = false;
-      let expectedConfigId = '';
+       let includeImage = false;
+       let expectedConfigId = '';
+       let expectedConfigFingerprint = '';
       try {
         const { configs, activeId } = await getApiConfigs();
         const current = configs.find(item => item.id === activeId) || configs[0];
-        expectedConfigId = String(current?.id || '');
-        includeImage = !!(current && current.supportsVision);
+         expectedConfigId = String(current?.id || '');
+         expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
+         includeImage = !!(current && current.supportsVision);
       } catch (error) {}
       if (!isSessionGuardCurrent(sessionGuard)) return false;
        const mediaItems = userMessages.filter(item => item && item.image);
@@ -2931,9 +2949,10 @@ export default function ChatScreen() {
            baseMessages: messages.slice(0, index),
            imageMessages,
            quote,
-           expectedConfigId,
-           sessionGuard,
-           restoreOnFailure: true,
+            expectedConfigId,
+            expectedConfigFingerprint,
+            sessionGuard,
+            restoreOnFailure: true,
        });
         if (handled === false && isSessionGuardCurrent(sessionGuard)) {
           setMessages(originalMessages);
