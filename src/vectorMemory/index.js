@@ -55,6 +55,7 @@ export function chunkMessages(messages, options = {}) {
       segments.push({
         id: `${messageKey}-${start}`,
         messageId: String(message.id || ''),
+        sessionId: String(options.sessionId || ''),
         role,
         at: Number(message.timestamp) || 0,
         text: `${base}：${slice}`,
@@ -242,9 +243,9 @@ export function buildMemoryContext(snippets, options = {}) {
   return `[相关记忆]\n${lines.join('\n')}`;
 }
 
-export async function indexMessages({ characterId, messages, config, existing }) {
+export async function indexMessages({ characterId, messages, config, existing, sessionId = '' }) {
   const resolved = normalizeVectorConfig(config);
-  const segments = chunkMessages(messages, { maxChars: resolved.maxChars });
+  const segments = chunkMessages(messages, { maxChars: resolved.maxChars, sessionId });
   const current = Array.isArray(existing) ? existing : [];
   const byId = new Map(current.map(item => [item && item.id, item]));
   const added = segments.filter(segment => !byId.has(segment.id));

@@ -350,6 +350,19 @@ test('会话摘要和边界在同一队列提交，重置后旧版本不能写�
   assert.equal(sessions.find(item => item.id === created.id).summarizedUpTo, '');
 });
 
+test('向量索引按会话清理时保留其他会话片段', async () => {
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-vector', [
+    { id: 'session-a-1', sessionId: 'session-a', text: '甲会话', vector: [1] },
+    { id: 'session-b-1', sessionId: 'session-b', text: '乙会话', vector: [2] },
+    { id: 'legacy-1', text: '旧索引', vector: [3] },
+  ]);
+  await storage.removeVectorIndexForSession('character-vector', 'session-a');
+  const index = await storage.getVectorIndex('character-vector');
+  assert.deepEqual(index.map(item => item.id), ['session-b-1', 'legacy-1']);
+  assert.equal(index.find(item => item.id === 'session-b-1').sessionId, 'session-b');
+});
+
 test('大消息键读取失败时通过 SQLite 分块完成图片回收扫描', async () => {
   const storage = loadStorage();
   const uri = 'file:///documents/chat-images/large-message.jpg';

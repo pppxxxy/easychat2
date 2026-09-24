@@ -72,6 +72,7 @@ let stickerWriteQueue = Promise.resolve();
 let sessionMutationQueue = Promise.resolve();
 const deletedSessionIds = new Set();
 const sessionSummaryRevisions = new Map();
+const vectorIndexWriteQueues = new Map();
 const protectedChatImageUris = new Set();
 
 function enqueueSessionMutation(task) {
@@ -871,29 +872,61 @@ function vectorIndexKey(characterId) {
   return `${VECTOR_INDEX_PREFIX}::${String(characterId || 'default')}`;
 }
 
+function enqueueVectorIndexMutation(characterId, task) {
+  const key = vectorIndexKey(characterId);
+  const previous = vectorIndexWriteQueues.get(key) || Promise.resolve();
+  const next = previous.then(task, task);
+  vectorIndexWriteQueues.set(key, next.catch(() => {}));
+  return next;
+}
+
 export async function getVectorIndex(characterId) {
   const stored = await readJson(vectorIndexKey(characterId), []);
   if (!Array.isArray(stored)) return [];
   return stored.filter(item => item && item.id && typeof item.text === 'string');
 }
 
-export async function saveVectorIndex(characterId, index) {
-  const list = (Array.isArray(index) ? index : [])
+function normalizeVectorIndex(index) {
+  return (Array.isArray(index) ? index : [])
     .filter(item => item && item.id && typeof item.text === 'string')
     .map(item => ({
       id: String(item.id),
       messageId: String(item.messageId || ''),
+      sessionId: String(item.sessionId || ''),
       role: String(item.role || ''),
       at: Number(item.at) || 0,
       text: String(item.text),
       vector: Array.isArray(item.vector) ? item.vector.map(Number) : [],
     }));
+}
+
+async function saveVectorIndexInternal(characterId, index) {
+  const list = normalizeVectorIndex(index);
   await AsyncStorage.setItem(vectorIndexKey(characterId), JSON.stringify(list));
   return list;
 }
 
-export async function clearVectorIndex(characterId) {
-  await AsyncStorage.removeItem(vectorIndexKey(characterId));
+export function saveVectorIndex(characterId, index) {
+  return enqueueVectorIndexMutation(
+    characterId,
+    () => saveVectorIndexInternal(characterId, index)
+  );
+}
+
+export function removeVectorIndexForSession(characterId, sessionId) {
+  return enqueueVectorIndexMutation(characterId, async () => {
+    const current = await getVectorIndex(characterId);
+    const target = String(sessionId || '');
+    const next = current.filter(item => String(item.sessionId || '') !== target);
+    return saveVectorIndexInternal(characterId, next);
+  });
+}
+
+export function clearVectorIndex(characterId) {
+  return enqueueVectorIndexMutation(
+    characterId,
+    () => AsyncStorage.removeItem(vectorIndexKey(characterId))
+  );
 }
 
 function normalizeImageProviderId(value) {

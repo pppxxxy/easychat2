@@ -117,9 +117,9 @@ import {
   THINKING_LEVELS,
   updateSessionMemberProfiles,
    getVectorMemoryConfig,
-   getVectorIndex,
-   clearVectorIndex,
-   saveVectorIndex,
+    getVectorIndex,
+    removeVectorIndexForSession,
+    saveVectorIndex,
 } from './storage';
 import { runPlugins } from './plugins/registry';
 import {
@@ -791,10 +791,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
                 <Text style={styles.messageActionText}>播报</Text>
               </TouchableOpacity>
             ) : null}
-            {isUser ? (
+            {isUser && onEditUserMessage ? (
               <TouchableOpacity
                 style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
-                onPress={() => onEditUserMessage?.(message.id)}
+                onPress={() => onEditUserMessage(message.id)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.messageActionText}>修改重发</Text>
@@ -1539,18 +1539,28 @@ export default function ChatScreen() {
          .map(item => item.uri),
        ...pendingAttachmentUrisRef.current,
      ];
-     saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId, protectedImageUris)
-      .then(() => {
-        saveFailedRef.current = false;
-        getVectorMemoryConfig()
+      saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId, protectedImageUris)
+       .then(savedMessages => {
+         saveFailedRef.current = false;
+         if (
+           !Array.isArray(savedMessages)
+           || savedMessages.length === 0
+           || activeSessionIdRef.current !== activeSessionId
+         ) return;
+         getVectorMemoryConfig()
           .then(config => getVectorIndex(indexedCharacterId)
             .then(existing => indexMessages({
               characterId: indexedCharacterId,
               messages: messagesToIndex,
-              config,
-              existing,
-            }))
-            .then(next => saveVectorIndex(indexedCharacterId, next)))
+               config,
+               existing,
+               sessionId: activeSessionId,
+             }))
+             .then(next => (
+               activeSessionIdRef.current === activeSessionId
+                 ? saveVectorIndex(indexedCharacterId, next)
+                 : null
+             )))
           .catch(() => {});
       })
       .catch(() => {
@@ -2889,7 +2899,7 @@ export default function ChatScreen() {
         .filter(Boolean)
         .join('\n');
        if (!isSessionGuardCurrent(sessionGuard)) return false;
-       await clearVectorIndex(character.id);
+        await removeVectorIndexForSession(character.id, sessionGuard.sessionId);
        const handled = await requestReply({
          historyMessages: messages.slice(0, userStart),
          userText,
@@ -2911,7 +2921,7 @@ export default function ChatScreen() {
     } finally {
       endSendOperation(token);
     }
-  }, [beginSendOperation, captureSessionGuard, clearVectorIndex, endSendOperation, isSending, isSessionGuardCurrent, messages, ready, requestReply, sessionOwnerMissing, sessionTransitionPending]);
+  }, [beginSendOperation, captureSessionGuard, endSendOperation, isSending, isSessionGuardCurrent, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending]);
 
   const editUserMessage = useCallback(targetId => {
     if (isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
@@ -2932,7 +2942,9 @@ export default function ChatScreen() {
             if (!latestPlan) return;
             try {
               await resetSessionSummaries(sessionGuard.sessionId);
-              await clearVectorIndex(characterId);
+               if (!isGroupRef.current) {
+                 await removeVectorIndexForSession(characterId, sessionGuard.sessionId);
+               }
               if (!isSessionGuardCurrent(sessionGuard)) return;
               setMessages(latestPlan.messages);
               setInput(latestPlan.text);
@@ -2944,7 +2956,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [captureSessionGuard, clearVectorIndex, isSending, isSessionGuardCurrent, isSwitching, ready, resetSessionSummaries, sessionTransitionPending]);
+  }, [captureSessionGuard, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, resetSessionSummaries, sessionTransitionPending]);
 
   const messageActionsRef = useRef({});
   useEffect(() => {
@@ -3883,7 +3895,7 @@ export default function ChatScreen() {
                       onSlashCommand={onSlashCommand}
                       canRegenerate={!isGroup && regenerableIds.has(message.id)}
                       onRegenerate={onRegenerateMessage}
-                      onEditUserMessage={onEditUserMessage}
+                       onEditUserMessage={!isGroup ? onEditUserMessage : undefined}
                       onSelectText={onSelectText}
                       onQuote={onQuoteMessage}
                       onPressQuote={onPressQuoteBlock}
