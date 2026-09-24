@@ -25,6 +25,7 @@ const failedGets = new Set();
 const failedSets = new Set();
 const sqliteValues = new Map();
 let setCalls = 0;
+let vectorSetCalls = 0;
 let sqliteEnabled = false;
 
 const AsyncStorage = {
@@ -35,6 +36,7 @@ const AsyncStorage = {
   setItem: async (key, value) => {
     if (failedSets.has(key)) throw new Error(`write failed: ${key}`);
     setCalls += 1;
+    if (String(key).startsWith('@easychat2_vector_index::')) vectorSetCalls += 1;
     store.set(key, value);
   },
   removeItem: async key => {
@@ -126,6 +128,7 @@ function loadStorage() {
   sqliteValues.clear();
   sqliteEnabled = false;
   setCalls = 0;
+  vectorSetCalls = 0;
   const filename = path.resolve('src/storage.test-runtime.cjs');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
@@ -322,14 +325,15 @@ test('损坏的旧表情包键只备份不迁移覆盖', async () => {
 
 test('删除会话只清理对应会话的向量片段', async () => {
   const storage = loadStorage();
-  const first = await storage.startNewSession('character-vector-delete-1');
-  const second = await storage.startNewSession('character-vector-delete-2');
-  await storage.saveVectorIndex('character-vector-delete-1', [
+  const characterId = 'character-vector-delete';
+  const first = await storage.startNewSession(characterId);
+  const second = await storage.startNewSession(characterId);
+  await storage.saveVectorIndex(characterId, [
     { id: 'first', sessionId: first.id, text: '甲', vector: [1] },
     { id: 'second', sessionId: second.id, text: '乙', vector: [2] },
   ]);
   await storage.deleteSession(first.id);
-  const index = await storage.getVectorIndex('character-vector-delete-1');
+  const index = await storage.getVectorIndex(characterId);
   assert.deepEqual(index.map(item => item.id), ['second']);
 });
 
@@ -528,6 +532,21 @@ test('批量清理多个会话只写回一次向量索引', async () => {
   await storage.removeVectorIndexForSessions('character-batch', ['session-a', 'session-b', 'session-c']);
   assert.equal(setCalls, 1);
   assert.deepEqual(await storage.getVectorIndex('character-batch'), []);
+});
+
+test('批量删除会话清理同角色全部目标向量', async () => {
+  const storage = loadStorage();
+  const characterId = 'character-batch-delete';
+  const first = await storage.startNewSession(characterId);
+  const second = await storage.startNewSession(characterId);
+  await storage.saveVectorIndex(characterId, [
+    { id: 'first', sessionId: first.id, messageId: 'm1', text: '甲', vector: [1] },
+    { id: 'second', sessionId: second.id, messageId: 'm2', text: '乙', vector: [2] },
+  ]);
+  vectorSetCalls = 0;
+  await storage.deleteSessions([first.id, second.id]);
+  assert.equal(vectorSetCalls, 1);
+  assert.deepEqual(await storage.getVectorIndex(characterId), []);
 });
 
 test('按消息删除只清理目标消息的向量片段', async () => {
