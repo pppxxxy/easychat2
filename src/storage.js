@@ -10,6 +10,7 @@ import {
 } from './moments/moments';
 import { assignStableCharacterIds } from './context/characterIdentity';
 import { normalizeCharacterPresets } from './characterPresets';
+import { shouldIndexSession } from './vectorMemory/scope';
 import {
   buildClonedSession,
   buildPreview,
@@ -1006,7 +1007,7 @@ export async function reconcileVectorIndexes() {
           const sessionId = String(item.sessionId || '');
           if (!sessionId) return true;
           const session = sessionMap.get(sessionId);
-          return !!session && session.type !== 'group';
+          return shouldIndexSession(session);
         });
         if (next.length === current.length) return undefined;
         return next.length > 0 ? next : null;
@@ -2678,7 +2679,7 @@ async function deleteSessionInternal(sessionId) {
   const activeId = await getActiveSessionId();
   const remaining = sessions.filter(session => session.id !== sessionId);
   await saveSessionsInternal(remaining);
-  if (target && target.type !== 'group') {
+  if (target && shouldIndexSession(target)) {
     try {
       await removeVectorIndexForSession(target.characterId, sessionId);
     } catch (error) {
@@ -2717,7 +2718,7 @@ async function deleteSessionsInternal(sessionIds) {
   const vectorTargets = new Map();
   for (const id of ids) {
     const target = sessions.find(session => session.id === id);
-    if (!target || target.type === 'group' || !target.characterId) continue;
+    if (!target || !shouldIndexSession(target)) continue;
     const ownerId = String(target.characterId);
     const targetIds = vectorTargets.get(ownerId) || [];
     targetIds.push(id);

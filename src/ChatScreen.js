@@ -133,6 +133,7 @@ import {
   indexMessages,
   retrieve,
 } from './vectorMemory';
+import { getVectorOwnerId, shouldIndexSession } from './vectorMemory/scope';
 import { useTheme } from './theme/ThemeContext';
 import { hexToRgba } from './theme/themes';
 import { generateImage } from './imageGen';
@@ -172,11 +173,6 @@ function buildQuotePayload(message, name) {
     role: message.role,
     text,
   };
-}
-
-function getVectorOwnerId(session, fallback) {
-  if (session && session.type === 'group') return '';
-  return String((session && session.characterId) || fallback || 'default');
 }
 
 const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
@@ -1560,8 +1556,10 @@ export default function ChatScreen() {
     const messagesToIndex = persistableMessages;
     // 会话条目若已从存储里缺失（历史版本的 startNewSession 会误删），
     // 把归属角色一并传下去，让本次写盘把会话行补回来；群聊没有单一归属角色，跳过。
-    const ownerRow = sessionsRef.current.find(item => item.id === activeSessionId);
-    const indexedCharacterId = getVectorOwnerId(ownerRow, character.id);
+     const ownerRow = sessionsRef.current.find(item => item.id === activeSessionId);
+     const indexableSession = shouldIndexSession(ownerRow);
+     const indexedCharacterId = getVectorOwnerId(ownerRow, character.id);
+
     const recoverOwnerId = isGroupRef.current
       ? ''
       : String((ownerRow && ownerRow.characterId) || character.id || '');
@@ -1579,21 +1577,25 @@ export default function ChatScreen() {
           !Array.isArray(savedMessages)
           || savedMessages.length === 0
           || activeSessionIdRef.current !== activeSessionId
-          || !indexedCharacterId
+           || !indexableSession
+           || !indexedCharacterId
+
         ) return;
         getVectorMemoryConfig()
           .then(config => {
             if (
               activeSessionIdRef.current !== activeSessionId
               || sessionVersionRef.current !== indexVersion
-              || isGroupRef.current
-            ) return null;
+               || !indexableSession
+             ) return null;
+
             return updateVectorIndex(indexedCharacterId, current => {
               if (
                 activeSessionIdRef.current !== activeSessionId
                 || sessionVersionRef.current !== indexVersion
-                || isGroupRef.current
-              ) return undefined;
+                 || !indexableSession
+               ) return undefined;
+
               return indexMessages({
                 characterId: indexedCharacterId,
                 messages: messagesToIndex,
