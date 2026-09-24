@@ -34,19 +34,44 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
   const [bgUri, setBgUri] = useState('');
   const [saving, setSaving] = useState(false);
   const sessionRef = useRef(0);
+  const imageOperationRef = useRef(0);
+  const pendingImageUrisRef = useRef(new Map());
+  const mountedRef = useRef(true);
   const sessionId = session?.id || '';
 
   useEffect(() => {
-    if (!visible) return;
+    mountedRef.current = true;
     sessionRef.current += 1;
+    imageOperationRef.current += 1;
+    pendingImageUrisRef.current.forEach(uri => {
+      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    });
+    pendingImageUrisRef.current.clear();
+    if (!visible) return undefined;
     setName(String(session?.name || ''));
     setAvatarUri(String(session?.avatarUri || ''));
     setBgUri(String(session?.bgUri || ''));
+    return () => {
+      mountedRef.current = false;
+      sessionRef.current += 1;
+      imageOperationRef.current += 1;
+      pendingImageUrisRef.current.forEach(uri => {
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      });
+      pendingImageUrisRef.current.clear();
+    };
   }, [visible, sessionId]);
 
   const memberList = (Array.isArray(members) ? members : []).filter(item => item && item.id);
 
-  const pickImage = async setter => {
+  const pickImage = async (setter, field) => {
+    const operation = ++imageOperationRef.current;
+    const session = sessionRef.current;
+    const isCurrent = () => (
+      mountedRef.current
+      && imageOperationRef.current === operation
+      && sessionRef.current === session
+    );
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/png', 'image/jpeg'],
@@ -54,16 +79,45 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
         multiple: false,
       });
       const asset = getPickedAsset(result);
-      if (!asset?.uri) return;
+      if (!asset?.uri || !isCurrent()) return;
       const dir = `${FileSystem.documentDirectory}avatars/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
+      const mime = String(asset.mimeType || '').toLowerCase();
+      const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
       const dest = `${dir}${sessionId || 'group'}-group-${Date.now()}${ext}`;
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      if (!isCurrent()) {
+        await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+        return;
+      }
+      const previous = pendingImageUrisRef.current.get(field);
+      if (previous && previous !== dest) {
+        await FileSystem.deleteAsync(previous, { idempotent: true }).catch(() => {});
+      }
+      pendingImageUrisRef.current.set(field, dest);
       setter(dest);
     } catch (error) {
-      Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
     }
+  };
+
+  const clearImage = (field, setter) => {
+    const pending = pendingImageUrisRef.current.get(field);
+    if (pending) {
+      FileSystem.deleteAsync(pending, { idempotent: true }).catch(() => {});
+      pendingImageUrisRef.current.delete(field);
+    }
+    setter('');
+  };
+
+  const handleClose = () => {
+    sessionRef.current += 1;
+    imageOperationRef.current += 1;
+    pendingImageUrisRef.current.forEach(uri => {
+      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    });
+    pendingImageUrisRef.current.clear();
+    onClose();
   };
 
   const save = async () => {
@@ -75,8 +129,17 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
         name: name.trim(),
         avatarUri,
         bgUri,
-      });
-      if (sessionRef.current === stamp && typeof onSaved === 'function') onSaved();
+       });
+       if (sessionRef.current === stamp) {
+         if (pendingImageUrisRef.current.get('avatarUri') === avatarUri) {
+           pendingImageUrisRef.current.delete('avatarUri');
+         }
+         if (pendingImageUrisRef.current.get('bgUri') === bgUri) {
+           pendingImageUrisRef.current.delete('bgUri');
+         }
+         if (typeof onSaved === 'function') onSaved();
+       }
+
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限，已填内容不会丢失。');
     } finally {
@@ -84,7 +147,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
     }
   };
 
-  const renderMemberPicks = (current, setter, label) => (
+  const renderMemberPicks = (current, setter, label, field) => (
     <>
       <FieldLabel style={styles.label}>{label}</FieldLabel>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickRow}>
@@ -96,7 +159,8 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
           <Text style={[styles.pickChipText, !current && styles.pickChipTextActive]}>不使用</Text>
         </TouchableOpacity>
         {memberList.map(item => {
-          const uri = String(item.avatarUri || '');
+           const uri = String(item[field] || '');
+
           const active = current === uri && !!uri;
           return (
             <TouchableOpacity
@@ -131,7 +195,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
       <KeyboardAvoidingView
         style={styles.backdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -139,7 +203,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>群聊设置</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -165,17 +229,17 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
                 )}
               </View>
               <View style={styles.previewActions}>
-                <TouchableOpacity style={styles.smallButton} onPress={() => pickImage(setAvatarUri)} activeOpacity={0.8}>
+                <TouchableOpacity style={styles.smallButton} onPress={() => pickImage(setAvatarUri, 'avatarUri')} activeOpacity={0.8}>
                   <Text style={styles.smallButtonText}>选择图片</Text>
                 </TouchableOpacity>
                 {avatarUri ? (
-                  <TouchableOpacity onPress={() => setAvatarUri('')} hitSlop={8}>
+                  <TouchableOpacity onPress={() => clearImage('avatarUri', setAvatarUri)} hitSlop={8}>
                     <Text style={styles.removeText}>清除</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
             </View>
-            {renderMemberPicks(avatarUri, setAvatarUri, '或用成员头像')}
+            {renderMemberPicks(avatarUri, setAvatarUri, '或用成员头像', 'avatarUri')}
 
             <FieldLabel style={styles.label}>群背景</FieldLabel>
             <View style={styles.previewRow}>
@@ -187,20 +251,20 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
                 )}
               </View>
               <View style={styles.previewActions}>
-                <TouchableOpacity style={styles.smallButton} onPress={() => pickImage(setBgUri)} activeOpacity={0.8}>
+                <TouchableOpacity style={styles.smallButton} onPress={() => pickImage(setBgUri, 'bgUri')} activeOpacity={0.8}>
                   <Text style={styles.smallButtonText}>选择图片</Text>
                 </TouchableOpacity>
                 {bgUri ? (
-                  <TouchableOpacity onPress={() => setBgUri('')} hitSlop={8}>
+                  <TouchableOpacity onPress={() => clearImage('bgUri', setBgUri)} hitSlop={8}>
                     <Text style={styles.removeText}>清除</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
             </View>
-            {renderMemberPicks(bgUri, setBgUri, '或用成员背景')}
+            {renderMemberPicks(bgUri, setBgUri, '或用成员背景', 'bgUri')}
           </ScrollView>
           <View style={styles.footer}>
-            <TouchableOpacity style={styles.footerGhost} onPress={onClose} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.footerGhost} onPress={handleClose} activeOpacity={0.8}>
               <Text style={styles.footerGhostText}>取消</Text>
             </TouchableOpacity>
             <TouchableOpacity
