@@ -4,7 +4,10 @@ import * as FileSystem from 'expo-file-system';
 import GLOBAL_PRESETS from './presets';
 import { isKnownImageProvider } from './imageGen/providers';
 import { FORGE_FIELDS, FORGE_QUESTIONS } from './cardForge/forge';
-import { removeMomentsBySessionIds } from './moments/moments';
+import {
+  removeMomentsForCharacterDeletion,
+  removeMomentsBySessionIds,
+} from './moments/moments';
 import { assignStableCharacterIds } from './context/characterIdentity';
 import { normalizeCharacterPresets } from './characterPresets';
 import {
@@ -1172,6 +1175,21 @@ export async function deleteMomentsBySessionIds(sessionIds) {
     .map(item => item.id);
   if (removedIds.length === 0) return [];
   await saveMoments(removeMomentsBySessionIds(list, ids));
+  return removedIds;
+}
+
+export async function deleteMomentsForCharacterDeletion(characterIds, sessionIds = []) {
+  const { status, moments } = await getMomentsStatus();
+  if (status === 'corrupt') {
+    throw new Error('动态记录读取失败，请稍后重试');
+  }
+  const next = removeMomentsForCharacterDeletion(moments, characterIds, sessionIds);
+  const removedIds = moments
+    .filter(item => !next.includes(item))
+    .map(item => String(item && item.id || ''))
+    .filter(Boolean);
+  if (removedIds.length === 0) return [];
+  await saveMoments(next);
   return removedIds;
 }
 

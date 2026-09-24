@@ -1711,6 +1711,12 @@ export default function ChatScreen() {
     const sendCharacterId = activeCharacterIdRef.current;
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
+    const senderSnapshot = {
+      id: sendCharacterId,
+      sessionId: sendSessionId,
+      name: String(character.name || '').trim(),
+      avatarUri: String(character.avatarUri || ''),
+    };
     const isCurrentSession = () =>
       sessionVersionRef.current === sendSessionVersion
       && !isStaleReply(activeCharacterIdRef.current, sendCharacterId)
@@ -1856,7 +1862,7 @@ export default function ChatScreen() {
           generateInlineImageRef.current?.(pendingAssistantMessage.id, reply || '');
         }
         broadcastMessage(reply || '');
-        recordTurnRef.current?.(userText, reply || '');
+        recordTurnRef.current?.(userText, reply || '', senderSnapshot);
       }
     } catch (error) {
       if (isCanceledError(error)) {
@@ -2491,14 +2497,15 @@ export default function ChatScreen() {
     : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
   const inputDisabled = !ready || isSending || messageSelectionOpen || sessionOwnerMissing || (!isGroup && !greetingReady);
 
-  const recordTurn = useCallback(async (userText, assistantText) => {
+  const recordTurn = useCallback(async (userText, assistantText, sender = null) => {
     const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
     if (!settings.enabled) return;
-    const characterId = activeCharacterIdRef.current;
+    const characterId = String((sender && sender.id) || activeCharacterIdRef.current || '');
     if (!characterId) return;
+    const senderName = String((sender && sender.name) || '').trim() || '角色';
+    const senderAvatarUri = String((sender && sender.avatarUri) || '').trim();
     const { delta, milestone } = evaluateTurn({ userText, assistantText });
     const affinityStatus = await getAffinityStatus().catch(() => ({ status: 'corrupt', map: {} }));
-    // 好感度读不出时不要写回：否则会用空快照把其它角色的好感度清零。
     if (affinityStatus.status === 'corrupt') return;
     const map = affinityStatus.map;
     const current = map[characterId] || { score: 0, turnCount: 0, triggers: [] };
@@ -2519,28 +2526,27 @@ export default function ChatScreen() {
     }
     next.triggers = [...next.triggers, trigger];
     await saveAffinity({ ...map, [characterId]: next }).catch(() => {});
-    const speaker = characters.find(item => item.id === characterId);
-    // 查不到角色就不要用当前活跃角色顶替：那会把名字/头像永久冻进动态，显示成另一个人。
-    if (!speaker) return;
     const moment = {
       id: `${Date.now()}-${trigger}`,
       characterId,
-      characterName: String((speaker && speaker.name) || ''),
-      avatarUri: String((speaker && speaker.avatarUri) || ''),
-      // 记下这条动态来自哪段对话：用户在动态下评论时，角色会依据这段记忆来回复
-      sessionId: String(activeSessionIdRef.current || ''),
+      characterName: senderName,
+      avatarUri: senderAvatarUri,
+      sessionId: String((sender && sender.sessionId) || activeSessionIdRef.current || ''),
       trigger,
-      text: buildMomentText({ trigger, character: speaker, seed: next.turnCount }),
+      text: buildMomentText({
+        trigger,
+        character: { name: senderName },
+        seed: next.turnCount,
+      }),
       createdAt: Date.now(),
       likedByUser: false,
       likes: [],
       comments: [],
     };
     const momentsStatus = await getMomentsStatus().catch(() => ({ status: 'corrupt', moments: [] }));
-    // 动态读不出时不要写回：否则会用空列表把整表动态清掉。
     if (momentsStatus.status === 'corrupt') return;
     await saveMoments(appendMoment(momentsStatus.moments, moment)).catch(() => {});
-  }, [characters]);
+  }, []);
   // recordTurn 声明在下方，这里用 ref 暴露给它上面的回调，避免依赖数组引用“后声明”的 const（TDZ）。
   useEffect(() => {
     recordTurnRef.current = recordTurn;

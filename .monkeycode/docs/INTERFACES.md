@@ -35,7 +35,7 @@
 - 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式，`richHtml` 决定含 `<style>`/`<script>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
-- 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；开关关闭时不生成
+- 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；动态保存发起请求时的角色名称与头像快照，角色改名或删除后历史动态身份保持不变；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏提供「新建」按钮：单聊先打开开场白选择器，选择结果保存为角色默认开场白并用于后续新会话；群聊沿用成员新建逻辑。空会话也允许选择开场白，开场白消息底部提供「重选」
@@ -69,7 +69,7 @@
 **状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`presets`、`expandedWorld`、`expandedRegex`、`characterListExpanded`、`characterScrubberOpen`、`importing`、`seededIdRef`
 **行为**:
 - 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并标「当前」；点选条目调用 `switchCharacter`
-- 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，二次确认后调用 `deleteCharacter`；若该角色还有会话（记忆），会再询问「仅删角色」或「角色和记忆都删」，后者一并调用 `deleteSessions` 清除会话与消息
+- 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，删除前按 `characterId` 与群聊 `members` 匹配关联单聊、群聊，并统计关联动态；有数据时提供「仅删角色」与「角色、记忆和动态都删」选项，后者先清理动态、会话、消息与摘要再删除角色
 - 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts, presets }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；兼容标准卡、扁平卡与织语 `zhiyu_agent_v1` 纯文本 JSON；读取/解析与确认落库阶段均显示不可误触的导入弹层，大卡片显示文件大小与等待提示；随后用 `GreetingPickerModal` 让用户选择/修改/新增开场白，再经 `addCharacter` 加入角色库并设为当前角色；确认落库失败时保留弹窗与开场白草稿，超大角色正文改由文件系统保存
@@ -242,6 +242,7 @@
 | `makeSessionId(now?)` | 生成 `session-<base36 时间戳>-<随机>` 形式的新会话 `id` |
 | `uniqueSessionId(base, list)` | 生成库内唯一会话 `id`，冲突时追加 `-2`、`-3` |
 | `normalizeSession(raw, index?)` | 规范会话字段与类型，缺失补默认 |
+| `selectSessionsForCharacters(list, characterIds)` | 匹配单聊 `characterId` 与群聊 `members`，返回角色关联会话 |
 | `sortSessions(list)` | 置顶优先、其次 `updatedAt` 降序、并列 `id` 升序 |
 | `buildPreview(messages, maxLength?)` | 取最后一条可读消息生成摘要，默认截断 60 字 |
 | `regenerateMessageIds(messages, now?)` | 重新生成消息 `id`，用于克隆 |
@@ -306,12 +307,13 @@
 | `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息；删除当前会话时新建空会话 |
-| `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键 |
+| `deleteSessions` | `(sessionIds, excludedCharacterIds?) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键；可排除待删角色，删除当前群聊时创建有效角色的替代会话 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
 | `getMoments` / `getMomentsStatus` | `() => Promise<Moment[]>` / `() => Promise<{ status, moments }>` | 读取动态（按 `createdAt` 降序）；损坏时备份并返回 `corrupt`，调用方不得写回空表 |
 | `saveMoments` | `(moments) => Promise<Moment[]>` | 规范化、过滤无 `id` 项后写入动态 |
+| `deleteMomentsForCharacterDeletion` | `(characterIds, sessionIds?) => Promise<string[]>` | 按角色 id 与会话 id 清理关联动态；动态记录损坏时中止并抛出错误 |
 | `getAffinity` / `getAffinityStatus` | `() => Promise<{ [characterId]: State }>` / `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
 | `saveAffinity` | `(map) => Promise<StateMap>` | 规范化并写入好感度 |
 | `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入当前人设（用户名、人设）+ 全局头像 |
@@ -623,8 +625,10 @@ data: [DONE]
 | `shouldTrigger({ affinity, turnCount, milestone, triggers })` | 依次判定好感上限/下限、`turns-50`/`turns-100`、`milestone-*`，已存在 `triggers` 中则不重复 |
 | `buildMomentText({ trigger, character, seed })` | 按触发类型从固定模板生成文本，包含角色名 |
 | `appendMoment(list, moment)` | 追加并按 `MAX_MOMENTS`（200）淘汰最旧 |
+| `countMomentsForCharacterDeletion(list, characterIds, sessionIds)` | 统计角色或关联会话产生的动态 |
+| `removeMomentsForCharacterDeletion(list, characterIds, sessionIds)` | 过滤角色或关联会话产生的动态 |
 
-**说明**: 全部为本地纯逻辑，无模型调用与网络请求。
+**说明**: 全部为本地纯逻辑，无模型调用与网络请求。动态记录保存发动态时的 `characterName` 与 `avatarUri` 快照，角色改名或删除不会改写历史动态名称。
 
 ### 语音播报接口
 **位置**: `src/tts/providers.js`、`src/tts/index.js`

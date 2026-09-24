@@ -6,6 +6,7 @@ import {
   collectMessageSpeakers,
   guessCharacterIdForMessages,
   isMessageGroup,
+  selectSessionsForCharacters,
 } from '../src/context/sessionLibrary.js';
 
 test('恢复会话沿用原 id，时间取消息时间戳', () => {
@@ -92,6 +93,19 @@ test('恢复群聊：按消息里的 speakerId 还原成员，忽略传入的角
   assert.deepEqual(session.members, ['c1', 'c2']);
   assert.deepEqual(session.memberProfiles, { c1: '小明', c2: '小红' });
   assert.equal(session.groupMode, 'ensemble');
+});
+
+test('选择角色关联会话时同时匹配单聊归属与群聊成员', () => {
+  const sessions = [
+    { id: 's1', type: 'single', characterId: 'c1', members: [] },
+    { id: 'g1', type: 'group', characterId: '', members: ['c1', 'c2'] },
+    { id: 'g2', type: 'group', characterId: '', members: ['c2'] },
+  ];
+  assert.deepEqual(
+    selectSessionsForCharacters(sessions, ['c1']).map(session => session.id),
+    ['s1', 'g1']
+  );
+  assert.deepEqual(selectSessionsForCharacters(sessions, []), []);
 });
 
 test('单聊（无 speakerId）仍按 characterId 恢复', () => {

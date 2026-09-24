@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   appendMoment,
+  buildMomentText,
+  countMomentsForCharacterDeletion,
   countMomentsBySessionIds,
+  removeMomentsForCharacterDeletion,
   removeMomentsBySessionIds,
   selectMomentIdsBySessionIds,
   shouldTrigger,
@@ -37,6 +40,20 @@ test('按会话计数与删除：非目标会话原样保留', () => {
   assert.deepEqual(untouched.map(item => item.id), ['m1', 'm2', 'm3', 'm4']);
 });
 
+test('按角色与会话删除动态：覆盖角色快照和群聊来源', () => {
+  const moments = [
+    { id: 'm1', characterId: 'c1', sessionId: 's1', text: '角色动态' },
+    { id: 'm2', characterId: 'c2', sessionId: 'g1', text: '群聊动态' },
+    { id: 'm3', characterId: 'c3', sessionId: 's3', text: '其他角色' },
+  ];
+  assert.equal(countMomentsForCharacterDeletion(moments, ['c1'], ['g1']), 2);
+  assert.deepEqual(
+    removeMomentsForCharacterDeletion(moments, ['c1'], ['g1']).map(item => item.id),
+    ['m3']
+  );
+  assert.equal(moments.length, 3);
+});
+
 test('appendMoment 超过上限时保留最新的', () => {
   let list = [];
   for (let i = 0; i < 205; i += 1) {
@@ -55,6 +72,16 @@ test('appendMoment 传入降序列表时按 createdAt 保最新，不误删次�
   assert.ok(next.some(item => item.id === 'newest'));
   // 原降序列表里最新的那条必须保留，不能被按位置截断误删
   assert.ok(next.some(item => item.id === descending[0].id));
+});
+
+test('动态文本使用发动态时的角色名称快照', () => {
+  assert.match(
+    buildMomentText({
+      trigger: 'milestone-test',
+      character: { name: '固定名称' },
+    }),
+    /固定名称/
+  );
 });
 
 test('好感度与回合阈值去重后触发', () => {

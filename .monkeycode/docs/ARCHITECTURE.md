@@ -172,7 +172,7 @@ easychat2/
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`
 
 ### 动态
-**目的**: 基于本地关键词启发式评估好感与对话轮次，在重要节点生成角色动态；提供全局时间线与点赞、评论、删除
+**目的**: 基于本地关键词启发式评估好感与对话轮次，在重要节点生成角色动态；动态保存发送者身份快照，角色改名或删除后保持历史名称；提供全局时间线与点赞、评论、删除
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/MomentsView.js`
 **关键文件**: `src/moments/moments.js`
 **依赖**: `src/storage.js`

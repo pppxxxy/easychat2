@@ -398,13 +398,18 @@ export function AppProvider({ children }) {
     });
   }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
 
-  const deleteSessions = useCallback(async ids => {
+  const deleteSessions = useCallback(async (ids, excludedCharacterIds = []) => {
     if (!loadedRef.current) {
       throw new Error('会话尚未加载完成');
     }
     const targets = (Array.isArray(ids) ? ids : [])
       .map(id => String(id || ''))
       .filter(Boolean);
+    const excluded = new Set(
+      (Array.isArray(excludedCharacterIds) ? excludedCharacterIds : [])
+        .map(id => String(id || ''))
+        .filter(Boolean)
+    );
     if (targets.length === 0) return sessionsRef.current;
     return enqueueMutation(async () => {
       const snapshot = snapshotSessions();
@@ -413,7 +418,19 @@ export function AppProvider({ children }) {
           const current = snapshot.sessions.find(
             session => session.id === snapshot.activeSessionId
           );
-          await startNewSession(current ? current.characterId : '');
+          const available = charactersRef.current.filter(item => !excluded.has(String(item.id || '')));
+          const currentOwner = current && current.type !== 'group'
+            ? String(current.characterId || '')
+            : '';
+          const activeOwner = String(activeIdRef.current || '');
+          const fallbackCharacterId = (
+            (currentOwner && available.some(item => item.id === currentOwner) && currentOwner)
+            || (available.some(item => item.id === activeOwner) && activeOwner)
+            || (available.find(item => item.id === DEFAULT_CHARACTER.id) || {}).id
+            || (available[0] || {}).id
+            || ''
+          );
+          await startNewSession(fallbackCharacterId);
         }
         const result = await deleteSessionsStorage(targets);
         const sorted = applySessions(result.sessions);

@@ -51,6 +51,21 @@ export function normalizeSession(raw, index = 0) {
   };
 }
 
+export function selectSessionsForCharacters(list, characterIds) {
+  const ids = new Set(
+    (Array.isArray(characterIds) ? characterIds : [])
+      .map(id => String(id || ''))
+      .filter(Boolean)
+  );
+  return (Array.isArray(list) ? list : []).filter(session => {
+    if (!session) return false;
+    if (ids.has(String(session.characterId || ''))) return true;
+    return session.type === 'group'
+      && Array.isArray(session.members)
+      && session.members.some(member => ids.has(String(member || '')));
+  });
+}
+
 export function sortSessions(list) {
   return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;

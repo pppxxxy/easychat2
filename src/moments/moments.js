@@ -75,6 +75,35 @@ function sessionIdSet(sessionIds) {
   );
 }
 
+function characterIdSet(characterIds) {
+  return new Set(
+    (Array.isArray(characterIds) ? characterIds : [])
+      .map(id => String(id || ''))
+      .filter(Boolean)
+  );
+}
+
+function isMomentLinkedToCharacterDeletion(moment, characterIds, sessionIds) {
+  const characters = characterIdSet(characterIds);
+  const sessions = sessionIdSet(sessionIds);
+  if (characters.size === 0 && sessions.size === 0) return false;
+  return !!moment && (
+    characters.has(String(moment.characterId || ''))
+    || sessions.has(String(moment.sessionId || ''))
+  );
+}
+
+export function countMomentsForCharacterDeletion(list, characterIds, sessionIds = []) {
+  return (Array.isArray(list) ? list : [])
+    .filter(moment => isMomentLinkedToCharacterDeletion(moment, characterIds, sessionIds))
+    .length;
+}
+
+export function removeMomentsForCharacterDeletion(list, characterIds, sessionIds = []) {
+  return (Array.isArray(list) ? list : [])
+    .filter(moment => !isMomentLinkedToCharacterDeletion(moment, characterIds, sessionIds));
+}
+
 // 删除记忆（会话）时用于联动清理锚定在这些会话上的动态。动态的 sessionId 为
 // 空串时（老数据或不来自对话）不参与匹配。
 export function selectMomentIdsBySessionIds(list, sessionIds) {

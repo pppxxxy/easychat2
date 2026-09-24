@@ -196,7 +196,7 @@ export default function MomentsView({ active = true }) {
         getEnabledGlobalPresetPrompts().catch(() => []),
       ]);
       if (controller.signal.aborted) return;
-      const charName = String(character.name || moment.characterName || '').trim() || '角色';
+      const charName = String(moment.characterName || character.name || '').trim() || '角色';
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
       // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
@@ -292,11 +292,8 @@ export default function MomentsView({ active = true }) {
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
-    // 名字/头像按 characterId 实时解析：角色改名后卡片跟着变；角色被删才退回创建时的快照并标注。
-    const live = charactersRef.current.find(character => character.id === item.characterId) || null;
-    const deleted = !live && !!item.characterId;
-    const displayName = (live && live.name) || item.characterName || '角色';
-    const avatarUri = (live && live.avatarUri) || item.avatarUri || '';
+    const displayName = String(item.characterName || '').trim() || '角色';
+    const avatarUri = String(item.avatarUri || '').trim();
     return (
       <Card>
         <View style={styles.cardHeader}>
@@ -313,10 +310,7 @@ export default function MomentsView({ active = true }) {
           </View>
           <View style={styles.cardTitleWrap}>
             <Text style={styles.cardName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.cardTime}>
-              {deleted ? '角色已删除 · ' : ''}
-              {formatTime(item.createdAt)}
-            </Text>
+            <Text style={styles.cardTime}>{formatTime(item.createdAt)}</Text>
           </View>
           <TouchableOpacity
             onPress={() => removeMoment(item)}
@@ -400,7 +394,7 @@ export default function MomentsView({ active = true }) {
         </View>
       </Card>
     );
-  }, [cancelReply, characters, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
+  }, [cancelReply, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
