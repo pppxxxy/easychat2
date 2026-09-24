@@ -1540,7 +1540,8 @@ export default function CharacterScreen() {
           </View>
           {editMode ? (
             <View style={styles.selectBar}>
-              <TouchableOpacity onPress={selectAll} activeOpacity={0.8}>
+                 <TouchableOpacity style={styles.selectBarAction} onPress={selectAll} activeOpacity={0.8}>
+
                  <Text style={styles.selectBarText}>{allVisibleSelected ? '取消全选' : '全选'}</Text>
 
               </TouchableOpacity>
@@ -2458,16 +2459,24 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 44,
     marginTop: 10,
     paddingHorizontal: 4,
+  },
+  selectBarAction: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   selectBarText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
   selectBarCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
   selectBarDelete: {
+    minHeight: 44,
     backgroundColor: theme.colors.danger,
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 8,
+    justifyContent: 'center',
   },
   selectBarDeleteText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700' },
   emptyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: 12, textAlign: 'center' },
@@ -2489,9 +2498,10 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     position: 'absolute',
     bottom: 6,
     right: 6,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+     width: 40,
+     height: 40,
+     borderRadius: 20,
+
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
