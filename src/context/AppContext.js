@@ -25,8 +25,10 @@ import {
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
   deleteSessions as deleteSessionsStorage,
-  collectOrphanImageFiles,
-} from '../storage';
+   collectOrphanImageFiles,
+   reconcileVectorIndexes,
+ } from '../storage';
+
 import {
   resolveActiveId,
   runWithRollback,
@@ -105,6 +107,9 @@ export function AppProvider({ children }) {
         if (!cancelled) {
           loadedRef.current = true;
           setLoaded(true);
+          reconcileVectorIndexes().catch(error => {
+            if (__DEV__) console.warn('[vector] startup reconciliation failed', error);
+          });
           collectOrphanImageFiles().catch(() => {});
         }
       }

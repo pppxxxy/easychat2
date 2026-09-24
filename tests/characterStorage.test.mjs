@@ -566,3 +566,37 @@ test('角色完整删除清理向量，仅删角色保留历史向量', async ()
   await storage.saveCharacterState([second], second.id, first.id, []);
   assert.equal((await storage.getVectorIndex(first.id)).length, 1);
 });
+
+test('向量对账清理群聊和已删除会话，保留合法旧条目', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([
+    { id: 'session-valid', characterId: 'character-a', type: 'single', preview: '有效' },
+    { id: 'session-group', type: 'group', members: ['a', 'b'], preview: '群聊' },
+  ]));
+  store.set('@easychat2_vector_index::character-a', JSON.stringify([
+    { id: 'valid', sessionId: 'session-valid', messageId: 'm1', text: '保留', vector: [1] },
+    { id: 'group', sessionId: 'session-group', messageId: 'm2', text: '群聊', vector: [2] },
+    { id: 'missing', sessionId: 'session-missing', messageId: 'm3', text: '孤儿', vector: [3] },
+    { id: 'legacy', messageId: 'm4', text: '旧角色记忆', vector: [4] },
+  ]));
+
+  const report = await storage.reconcileVectorIndexes();
+  assert.equal(report.removed, 2);
+  assert.equal(report.legacyRetained, 1);
+  assert.deepEqual(
+    (await storage.getVectorIndex('character-a')).map(item => item.id),
+    ['valid', 'legacy']
+  );
+});
+
+test('会话列表损坏时向量对账拒绝改写索引', async () => {
+  const storage = loadStorage();
+  const raw = '{broken-sessions';
+  store.set('@easychat2_sessions', raw);
+  store.set('@easychat2_vector_index::character-a', JSON.stringify([
+    { id: 'legacy', messageId: 'm1', text: '保留', vector: [1] },
+  ]));
+  const vectorRaw = store.get('@easychat2_vector_index::character-a');
+  await assert.rejects(() => storage.reconcileVectorIndexes(), /会话列表读取失败/);
+  assert.equal(store.get('@easychat2_vector_index::character-a'), vectorRaw);
+});

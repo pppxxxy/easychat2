@@ -1001,6 +1001,59 @@ export function clearVectorIndex(characterId) {
   );
 }
 
+export async function reconcileVectorIndexes() {
+  const sessionsStatus = await readSessionsStatus();
+  if (sessionsStatus.status === 'corrupt') {
+    throw new Error('会话列表读取失败，请稍后重试');
+  }
+  const sessionMap = new Map(
+    sessionsStatus.sessions.map(session => [String(session.id || ''), session])
+  );
+  let keys = [];
+  try {
+    keys = await AsyncStorage.getAllKeys();
+  } catch (error) {
+    throw new Error('向量索引列表读取失败，请稍后重试');
+  }
+  const prefix = `${VECTOR_INDEX_PREFIX}::`;
+  const vectorKeys = (Array.isArray(keys) ? keys : [])
+    .filter(key => typeof key === 'string' && key.startsWith(prefix));
+  const report = {
+    scannedKeys: vectorKeys.length,
+    removed: 0,
+    legacyRetained: 0,
+    failedKeys: [],
+  };
+  for (const key of vectorKeys) {
+    const characterId = key.slice(prefix.length);
+    if (!characterId) continue;
+    const status = await readVectorIndexStatus(characterId);
+    if (status.status === 'missing') continue;
+    if (status.status === 'corrupt') {
+      report.failedKeys.push(key);
+      continue;
+    }
+    report.legacyRetained += status.index.filter(item => !String(item.sessionId || '')).length;
+    try {
+      const result = await updateVectorIndex(characterId, current => {
+        const next = current.filter(item => {
+          const sessionId = String(item.sessionId || '');
+          if (!sessionId) return true;
+          const session = sessionMap.get(sessionId);
+          return !!session && session.type !== 'group';
+        });
+        if (next.length === current.length) return undefined;
+        return next.length > 0 ? next : null;
+      });
+      report.removed += Math.max(0, status.index.length - result.length);
+    } catch (error) {
+      report.failedKeys.push(key);
+      if (__DEV__) console.warn('[vector] reconciliation failed', error);
+    }
+  }
+  return report;
+}
+
 function normalizeImageProviderId(value) {
   const id = String(value || '');
   return isKnownImageProvider(id) ? id : '';
