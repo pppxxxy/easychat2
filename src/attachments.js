@@ -10,6 +10,7 @@ export const TEXT_EXTENSIONS = [
 ];
 
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'heic', 'heif', 'avif'];
+export const VISION_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
 export const MAX_TEXT_BYTES = 200 * 1024;
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -54,6 +55,8 @@ export function isImage(name, mime) {
 
 export function getImageMime(name, mime = '') {
   const type = String(mime || '').toLowerCase();
+  if (type === 'image/jpg' || type === 'image/pjpeg') return 'image/jpeg';
+  if (type === 'image/x-png') return 'image/png';
   if (type.startsWith('image/')) return type;
   const value = String(name || '').toLowerCase();
   if (value.endsWith('.png')) return 'image/png';
@@ -66,26 +69,39 @@ export function getImageMime(name, mime = '') {
   return 'image/jpeg';
 }
 
-export function validateImageSize({ size = 0, width = 0, height = 0 } = {}) {
+export function isVisionImage(name, mime = '') {
+  return VISION_IMAGE_MIME_TYPES.includes(getImageMime(name, mime));
+}
+
+export function validateImageDimensions({ width = 0, height = 0 } = {}) {
+  const pixelWidth = Number(width);
+  const pixelHeight = Number(height);
+  if (
+    !Number.isFinite(pixelWidth)
+    || !Number.isFinite(pixelHeight)
+    || pixelWidth <= 0
+    || pixelHeight <= 0
+  ) {
+    throw new Error('图片尺寸无效');
+  }
+  if (pixelWidth * pixelHeight > MAX_IMAGE_PIXELS) {
+    throw new Error('图片分辨率过大');
+  }
+  return { width: pixelWidth, height: pixelHeight };
+}
+
+export function validateImageSize({ size = 0, width, height } = {}) {
   const bytes = Number(size);
   if (Number.isFinite(bytes) && bytes > MAX_IMAGE_BYTES) {
     throw new Error('图片过大');
   }
-  const pixelWidth = Number(width);
-  const pixelHeight = Number(height);
-  if (
-    Number.isFinite(pixelWidth)
-    && Number.isFinite(pixelHeight)
-    && pixelWidth > 0
-    && pixelHeight > 0
-    && pixelWidth * pixelHeight > MAX_IMAGE_PIXELS
-  ) {
-    throw new Error('图片分辨率过大');
+  if (width !== undefined || height !== undefined) {
+    validateImageDimensions({ width, height });
   }
   return true;
 }
 
-export function validateImageBatch(items) {
+export function validateImageBatch(items, { requireDimensions = false } = {}) {
   const list = Array.isArray(items) ? items : [];
   if (list.length > MAX_IMAGE_ATTACHMENTS) {
     throw new Error('图片过多');
@@ -96,7 +112,10 @@ export function validateImageBatch(items) {
   })) {
     throw new Error('无法读取图片大小');
   }
-  list.forEach(item => validateImageSize(item));
+  list.forEach(item => {
+    validateImageSize(item);
+    if (requireDimensions) validateImageDimensions(item);
+  });
   const total = list.reduce((sum, item) => sum + Number(item.size), 0);
   if (total > MAX_IMAGE_TOTAL_BYTES) {
     throw new Error('图片总大小过大');
@@ -231,14 +250,9 @@ export async function deleteLocalImage(uri) {
 }
 
 export async function readTextAttachment(uri, maxBytes = MAX_TEXT_BYTES) {
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    if (info && Number(info.size) > maxBytes) {
-      throw new Error('文件过大');
-    }
-  } catch (error) {
-    if (error && error.message === '文件过大') throw error;
-  }
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info || info.exists === false) throw new Error('文件不存在');
+  if (Number(info.size) > maxBytes) throw new Error('文件过大');
   return FileSystem.readAsStringAsync(uri);
 }
 

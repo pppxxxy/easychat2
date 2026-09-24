@@ -61,6 +61,7 @@ const attachments = runtimeModule.exports;
 test('图片大小、像素和批量总大小限制生效', () => {
   assert.equal(attachments.validateImageSize({ size: attachments.MAX_IMAGE_BYTES }), true);
   assert.throws(() => attachments.validateImageSize({ size: attachments.MAX_IMAGE_BYTES + 1 }), /图片过大/);
+  assert.throws(() => attachments.validateImageSize({ size: 1, width: 0, height: 0 }), /图片尺寸无效/);
   assert.throws(() => attachments.validateImageSize({ width: 5000, height: 5000 }), /图片分辨率过大/);
   assert.equal(attachments.validateImageBatch([
     { size: attachments.MAX_IMAGE_TOTAL_BYTES / 2 },
@@ -70,10 +71,14 @@ test('图片大小、像素和批量总大小限制生效', () => {
   assert.throws(() => attachments.validateImageBatch([
     { size: attachments.MAX_IMAGE_BYTES + 1 },
   ]), /图片过大/);
-  assert.throws(() => attachments.validateImageBatch([
-    { size: 1, width: 5000, height: 5000 },
-  ]), /图片分辨率过大/);
-  assert.throws(() => attachments.validateImageBatch(
+   assert.throws(() => attachments.validateImageBatch([
+     { size: 1, width: 5000, height: 5000 },
+   ]), /图片分辨率过大/);
+   assert.throws(() => attachments.validateImageBatch(
+     [{ size: 1, width: 0, height: 0 }],
+     { requireDimensions: true },
+   ), /图片尺寸无效/);
+   assert.throws(() => attachments.validateImageBatch(
     Array.from({ length: attachments.MAX_IMAGE_ATTACHMENTS + 1 }, () => ({ size: 1 }))
   ), /图片过多/);
   assert.throws(() => attachments.validateImageBatch([
@@ -84,6 +89,9 @@ test('图片大小、像素和批量总大小限制生效', () => {
 
 test('图片 MIME 和 pending 表情包结果可以规范化', async () => {
   assert.equal(attachments.getImageMime('photo.HEIC', ''), 'image/heic');
+  assert.equal(attachments.getImageMime('photo.jpg', 'image/jpg'), 'image/jpeg');
+  assert.equal(attachments.isVisionImage('photo.jpg', 'image/jpg'), true);
+  assert.equal(attachments.isVisionImage('photo.heic', 'image/heic'), false);
   assert.equal(attachments.isTemporaryImageUri('file:///cache/photo.jpg'), true);
   assert.equal(attachments.isTemporaryImageUri('file:///documents/chat-images/photo.jpg'), false);
   pendingResults = [{

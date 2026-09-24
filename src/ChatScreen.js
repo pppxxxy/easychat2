@@ -28,8 +28,9 @@ import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import {
    deleteLocalImage,
    deleteTemporaryImage,
-   isImage,
-  isTextLike,
+    isImage,
+    isTextLike,
+    isVisionImage,
   mergeTextAttachments,
   persistImageAttachment,
   pickAttachment,
@@ -2663,7 +2664,7 @@ export default function ChatScreen() {
          return { ...item, size: info.size || Number(item.size) || 0 };
          }));
          if (isCanceled()) return false;
-         validateImageBatch(sizedImages);
+         validateImageBatch(sizedImages, { requireDimensions: true });
      } catch (error) {
        if (error && error.message === '无法读取图片大小') {
          Alert.alert('图片读取失败', '无法读取图片大小，请重新选择图片。');
@@ -2684,18 +2685,28 @@ export default function ChatScreen() {
         Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
         return false;
       }
-      let dataUri = '';
-      if (visionEnabled) {
-         try {
-           dataUri = await readImageDataUri(item.uri, item.mime);
-           const separator = dataUri.indexOf(',');
-           const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
-           totalBase64Bytes += Math.ceil(base64Length * 3 / 4);
-             if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
-               throw new Error('图片总大小过大');
-             }
-             if (isCanceled()) return false;
-         } catch (error) {
+       let dataUri = '';
+       if (visionEnabled) {
+          const estimatedBase64Bytes = Math.ceil(Number(item.size || 0) * 4 / 3);
+          if (totalBase64Bytes + estimatedBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+            Alert.alert('图片过大', '图片总大小过大，请减少图片后再试。');
+            return false;
+          }
+          totalBase64Bytes += estimatedBase64Bytes;
+          try {
+            dataUri = await readImageDataUri(item.uri, item.mime);
+            const separator = dataUri.indexOf(',');
+            const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
+            const actualBase64Bytes = Math.ceil(base64Length * 3 / 4);
+            totalBase64Bytes = Math.max(
+              totalBase64Bytes,
+              totalBase64Bytes - estimatedBase64Bytes + actualBase64Bytes
+            );
+              if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+                throw new Error('图片总大小过大');
+              }
+              if (isCanceled()) return false;
+          } catch (error) {
            if (error && error.message === '图片总大小过大') {
              Alert.alert('图片过大', '图片总大小过大，请减少图片后再试。');
            } else {
@@ -2861,38 +2872,52 @@ export default function ChatScreen() {
          sizedMedia = await Promise.all(mediaItems.map(async item => {
            const info = await getImageFileInfo(item.image.uri);
            if (!info.exists) throw new Error('图片不存在');
-           return {
-             item,
-             size: info.size,
-             width: item.image.width,
-             height: item.image.height,
-           };
+             const dimensions = item.image.width > 0 && item.image.height > 0
+               ? { width: item.image.width, height: item.image.height }
+               : await getImageDimensions(item.image.uri);
+             return {
+               item,
+               size: info.size,
+               width: dimensions.width,
+               height: dimensions.height,
+             };
          }));
-         validateImageBatch(sizedMedia);
+           validateImageBatch(sizedMedia, { requireDimensions: true });
        } catch (error) {
          Alert.alert('图片过大', '重新生成所需的图片大小或数量超限。');
          return false;
        }
-       const imageMessages = [];
-       let totalBase64Bytes = 0;
-       for (const { item } of sizedMedia) {
-         let dataUri = '';
-         if (includeImage) {
-           dataUri = await readImageDataUri(item.image.uri, item.image.mime).catch(() => '');
-           const separator = dataUri.indexOf(',');
-           const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
-           totalBase64Bytes += Math.ceil(base64Length * 3 / 4);
-           if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
-             Alert.alert('图片过大', '重新生成所需的图片总大小过大。');
-             return false;
-           }
-         }
-         imageMessages.push({
-           ...item.item,
-           dataUri,
-           includeImage,
-         });
-       }
+        const imageMessages = [];
+        let totalBase64Bytes = 0;
+        for (const media of sizedMedia) {
+          const { item } = media;
+          let dataUri = '';
+          if (includeImage) {
+            const estimatedBase64Bytes = Math.ceil(Number(media.size || 0) * 4 / 3);
+            if (totalBase64Bytes + estimatedBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+              Alert.alert('图片过大', '重新生成所需的图片总大小过大。');
+              return false;
+            }
+            totalBase64Bytes += estimatedBase64Bytes;
+            dataUri = await readImageDataUri(item.image.uri, item.image.mime).catch(() => '');
+            const separator = dataUri.indexOf(',');
+            const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
+            const actualBase64Bytes = Math.ceil(base64Length * 3 / 4);
+            totalBase64Bytes = Math.max(
+              totalBase64Bytes,
+              totalBase64Bytes - estimatedBase64Bytes + actualBase64Bytes
+            );
+            if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+              Alert.alert('图片过大', '重新生成所需的图片总大小过大。');
+              return false;
+            }
+          }
+          imageMessages.push({
+            ...item.item,
+            dataUri,
+            includeImage,
+          });
+        }
       const userText = userMessages
         .filter(item => item && !item.image)
         .map(item => String(item.text || ''))
@@ -3231,12 +3256,17 @@ export default function ChatScreen() {
         });
         return;
       }
-      if (!isImage(picked.name, picked.mime)) {
-        deleteTemporaryImage(picked.uri);
-        Alert.alert('不支持的文件', '请选择图片文件。');
-        return;
-      }
-      const fileInfo = await getImageFileInfo(picked.uri);
+       if (!isImage(picked.name, picked.mime)) {
+         deleteTemporaryImage(picked.uri);
+         Alert.alert('不支持的文件', '请选择图片文件。');
+         return;
+       }
+       if (!isVisionImage(picked.name, picked.mime)) {
+         deleteTemporaryImage(picked.uri);
+         Alert.alert('不支持的图片格式', '请选择 PNG、JPEG、WebP 或 GIF 图片。');
+         return;
+       }
+       const fileInfo = await getImageFileInfo(picked.uri);
       if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
         deleteTemporaryImage(picked.uri);
         return;
