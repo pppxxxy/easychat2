@@ -51,7 +51,12 @@ export default function PresetPanel({
   const busyRef = useRef(false);
 
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible) {
+      setLoaded(false);
+      setModalOpen(false);
+      setEditingPreset(null);
+      return undefined;
+    }
     let cancelled = false;
     if (isCharacterScope) {
       const list = Array.isArray(characterPresets) ? characterPresets : [];
@@ -89,7 +94,10 @@ export default function PresetPanel({
   }, [visible, isCharacterScope, characterPresets]);
 
   const togglePreset = useCallback(async (id, value) => {
-    if (busyRef.current) return;
+    if (busyRef.current) {
+      Alert.alert('正在保存', '请等待当前操作完成。');
+      return;
+    }
     if (isCharacterScope) {
       const next = presets.map(item => (item.id === id ? { ...item, enabled: value } : item));
       setPresets(next);
@@ -109,7 +117,10 @@ export default function PresetPanel({
   }, [enabled, isCharacterScope, onCharacterPresetsChange, presets]);
 
   const openEditor = preset => {
-    if (busyRef.current) return;
+    if (busyRef.current) {
+      Alert.alert('正在保存', '请等待当前操作完成。');
+      return;
+    }
     setEditingPreset(preset);
     setForm({
       name: preset?.name || '',
@@ -235,17 +246,20 @@ export default function PresetPanel({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
   };
 
-  const commitThreshold = () => {
-    if (busyRef.current || !loaded) return;
-    const previous = Number(threshold);
+  const commitThreshold = async () => {
+    if (busyRef.current || !loaded) return false;
+    const raw = String(threshold).trim();
+    const parsed = Math.trunc(Number(raw));
+    const previous = Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
     const value = normalizeThreshold();
     if (value !== Math.trunc(Number(String(threshold).trim()))) {
       Alert.alert('阈值无效', `请输入大于 0 的整数，已改为 ${THRESHOLD_FALLBACK}。`);
     }
     setThreshold(String(value));
     if (previous !== value) {
-      persistMemory(memoryEnabled, value);
+      return persistMemory(memoryEnabled, value);
     }
+    return true;
   };
 
   const confirmThreshold = async () => {
@@ -256,8 +270,11 @@ export default function PresetPanel({
     if (saved) Alert.alert('已保存', `自动总结阈值已设为 ${value} 条可总结消息。`);
   };
 
-  const handleClose = () => {
-    if (!isCharacterScope) commitThreshold();
+  const handleClose = async () => {
+    if (!isCharacterScope) {
+      const saved = await commitThreshold();
+      if (!saved) return;
+    }
     onClose();
   };
 
@@ -301,8 +318,10 @@ export default function PresetPanel({
                   value={enabled[preset.id] === true}
                   onValueChange={value => togglePreset(preset.id, value)}
                   trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                  thumbColor={theme.colors.primaryContrast}
-                />
+                   thumbColor={theme.colors.primaryContrast}
+                   disabled={saving}
+                 />
+
                 <TouchableOpacity
                   style={styles.presetDelete}
                   hitSlop={8}
@@ -337,10 +356,11 @@ export default function PresetPanel({
                   </View>
                   <Switch
                     value={memoryEnabled}
-                    onValueChange={toggleMemory}
-                    disabled={!loaded || saving}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
+                     onValueChange={toggleMemory}
+                     trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                     thumbColor={theme.colors.primaryContrast}
+                     disabled={saving}
+
                   />
                 </View>
                 <FieldLabel style={styles.label}>自动总结阈值（可总结消息条数）</FieldLabel>
