@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Alert,
   FlatList,
@@ -76,7 +77,7 @@ export default function MomentsView({ active = true }) {
     };
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (!active) return undefined;
     let cancelled = false;
     getMoments()
@@ -92,7 +93,7 @@ export default function MomentsView({ active = true }) {
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [active]));
 
   // 写回时以“存储里的最新列表”为基准做增量：只更新仍然存在的动态、只删除
   // 明确要删的 id。这样别处（如记忆页连带删除）已经删掉的动态不会被本页的
