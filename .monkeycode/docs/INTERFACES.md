@@ -283,9 +283,11 @@
 | `getSamplingSettings` | `() => Promise<Sampling>` | 读取生成采样设置，缺省四项均关闭（maxTokens 8024 / temperature 1 / topP 1 / topK 0） |
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
 | `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
-| `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入带 `sessionId` 的记忆片段索引，写入队列避免并发覆盖 |
-| `removeVectorIndexForSession` | `(characterId, sessionId) => Promise<Segment[]>` | 只清理指定会话片段，保留同角色其他会话记忆 |
-| `clearVectorIndex` | `(characterId) => Promise<void>` | 清除角色全部向量索引 |
+| `getVectorIndex` / `getVectorIndexStatus` | `(characterId) => Promise<Segment[]>` / `(characterId) => Promise<{ status, index }>` | 读取角色级向量索引；损坏时先备份并返回 `corrupt`，群聊不建立索引 |
+| `saveVectorIndex` / `updateVectorIndex` | `(characterId, index)` / `(characterId, updater)` | 在角色级写队列中保存或原子更新索引；`updater` 返回 `undefined` 时跳过写回 |
+| `removeVectorIndexForSession` / `removeVectorIndexForSessions` | `(characterId, sessionId(s))` | 按会话清理向量片段，批量入口按角色一次读改写 |
+| `removeVectorIndexForMessage` / `removeVectorIndexForMessages` | `(characterId, sessionId, messageId(s))` | 只清理指定会话中的指定消息片段 |
+| `reconcileVectorIndexes` | `() => Promise<{ scannedKeys, removed, legacyRetained, failedKeys }>` | 启动时清理已删除会话和群聊误写片段；无会话归属的旧角色级条目保留 |
 | `getStickers` | `() => Promise<Sticker[]>` | 从索引与分片键读取并按创建时间倒序返回表情包元数据 |
 | `saveSticker` | `(sticker) => Promise<Sticker>` | 串行新增或更新表情包分片元数据，元数据不完整时抛出错误 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
@@ -293,11 +295,7 @@
 | `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后逐角色写键；超过 512 KiB 的角色正文写入 `characters/` 文件，AsyncStorage 保存描述符；最后写索引与迁移标记并清理旧键/旧文件 |
 | `getActiveCharacterId` | `() => Promise<string>` | 读取当前角色 `id`（缺失或损坏返回空串） |
 | `setActiveCharacterId` | `(id) => Promise<void>` | 写入当前角色 `id` |
-| `getActiveCharacter` | `() => Promise<Character>` | 组合读取当前角色，无效 `id` 回退默认并修正 |
-| `upsertCharacter` | `(character) => Promise<Character[]>` | 按 `id` 新增或替换一个角色 |
-| `deleteCharacter` | `(characterId) => Promise<Character[]>` | 删除非默认角色并移除其消息键 |
 | `sortCharacters` | `(list) => Character[]` | 置顶优先，其次 `lastUsedAt` 降序、并列按 `id` 升序 |
-| `getCharacter` / `saveCharacter` | 见下 | 过渡包装：`getActiveCharacter` / `upsertCharacter` + 设为当前 |
 | `getMessages` | `(characterId?) => Promise<Message[]>` | 读取指定角色消息，过滤 `pending`（旧接口，过渡期保留） |
 | `saveMessages` | `(characterId, messages) => Promise<void>` | 写入指定角色消息，过滤 `pending`（旧接口，过渡期保留） |
 | `getSessions` | `() => Promise<Session[]>` | 读取会话列表，规范化并去重 `id` |
@@ -322,11 +320,11 @@
 | `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 存储层批量移除会话元数据、消息键和摘要键，随后回收无引用聊天图片；`useApp().deleteSessions(ids, excludedCharacterIds?)` 负责 Context 层排除角色与替代会话逻辑 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
-| `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
+| `saveCharacterState` | `(list, activeId, deletedIds?, clearVectorIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 移除旧消息键，`clearVectorIds` 用于完整删除时清理角色向量索引（仅删角色时保持历史记忆） |
 | `getMoments` / `getMomentsStatus` | `() => Promise<Moment[]>` / `() => Promise<{ status, moments }>` | 读取动态（按 `createdAt` 降序）；损坏时备份并返回 `corrupt`，调用方不得写回空表 |
 | `saveMoments` | `(moments) => Promise<Moment[]>` | 规范化、过滤无 `id` 项后写入动态 |
 | `deleteMomentsForCharacterDeletion` | `(characterIds, sessionIds?) => Promise<string[]>` | 按角色 id 与会话 id 清理关联动态；动态记录损坏时中止并抛出错误 |
-| `getAffinity` / `getAffinityStatus` | `() => Promise<{ [characterId]: State }>` / `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
+| `getAffinityStatus` | `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
 | `saveAffinity` | `(map) => Promise<StateMap>` | 规范化并写入好感度 |
 | `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入当前人设（用户名、人设）+ 全局头像 |
 | `getPersonas` | `() => Promise<Persona[]>` | 读取人设列表；为空时把旧 `@easychat2_user_profile` 迁移为 `default` 一项并写入；损坏时不覆盖原数据，返回默认人设 |
@@ -335,7 +333,6 @@
 | `setActivePersonaId` | `(id) => Promise<string>` | 写入当前人设 id；非法 id 回退列表首项 |
 | `getActivePersona` | `() => Promise<Persona>` | 返回当前人设对象 |
 | `createPersona` | `(partial?) => Promise<Persona>` | 新建人设并设为当前 |
-| `updatePersona` | `(id, patch) => Promise<Persona>` | 更新指定人设的名称/描述 |
 | `deletePersona` | `(id) => Promise<{ personas, activeId }>` | 删除人设；少于 1 个抛错，删除当前时切到剩余首项 |
 | `getGlobalPresets` | `() => Promise<Preset[]>` | 读取预设列表；键缺失时由内置预设播种 |
 | `saveGlobalPresets` | `(presets) => Promise<Preset[]>` | 校验并写入预设列表（ID/名称/提示词非空、ID 不重复） |
@@ -344,7 +341,6 @@
 | `saveGlobalPresetSettings` | `(enabled) => Promise<Record<string, boolean>>` | 归一化并写入开关映射 |
 | `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
 | `getSessionSummaries` / `getSessionSummariesStatus` | `(sessionId) => Promise<SessionSummary[]>` / `(sessionId) => Promise<{ status, summaries }>` | 读取会话级记忆总结（按会话隔离）；带状态版本在损坏时备份并返回 `corrupt` |
-| `saveSessionSummaries` | `(sessionId, list) => Promise<SessionSummary[]>` | 写入会话级记忆总结 |
 | `appendSessionSummary` | `(sessionId, entry, expectedRevision?) => Promise<SessionSummary[]>` | 在存储队列内追加会话级总结并推进边界；历史摘要损坏或版本过期时抛错 |
 | `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取独立的记忆总结开关与可总结消息阈值，缺失时默认 `{ enabled: true, threshold: 40 }` |
 | `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入独立记忆总结设置，阈值非法时回退 40 |

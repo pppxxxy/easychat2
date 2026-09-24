@@ -708,44 +708,6 @@ export async function setActiveCharacterId(id) {
   );
 }
 
-export async function getActiveCharacter() {
-  const list = await getCharacterLibrary();
-  const activeId = await getActiveCharacterId();
-  const found = activeId ? list.find(character => character.id === activeId) : null;
-  if (found) return found;
-  const fallback = list.find(character => character.id === DEFAULT_CHARACTER.id)
-    || normalizeCharacter(DEFAULT_CHARACTER);
-  if (!characterLibraryWriteBlocked) {
-    try {
-      await setActiveCharacterId(fallback.id);
-    } catch (error) {}
-  }
-  return fallback;
-}
-
-export async function upsertCharacter(character) {
-  const list = await getCharacterLibrary();
-  const normalized = normalizeCharacter(character);
-  const exists = list.some(item => item.id === normalized.id);
-  const next = exists
-    ? list.map(item => (item.id === normalized.id ? normalized : item))
-    : [...list, normalized];
-  return saveCharacterLibrary(next);
-}
-
-export async function deleteCharacter(characterId) {
-  const list = await getCharacterLibrary();
-  const next = list.filter(item => item.id !== characterId);
-  const saved = await saveCharacterLibrary(next);
-  if (characterId && characterId !== DEFAULT_CHARACTER.id) {
-    try {
-      await AsyncStorage.removeItem(messagesKey(characterId));
-      await clearVectorIndex(characterId);
-    } catch (error) {}
-  }
-  return saved;
-}
-
 function makeApiConfigId() {
   return `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -998,7 +960,7 @@ export function removeVectorIndexForMessage(characterId, sessionId, messageId) {
   return removeVectorIndexForMessages(characterId, sessionId, [messageId]);
 }
 
-export function clearVectorIndex(characterId) {
+function clearVectorIndex(characterId) {
   return enqueueVectorIndexMutation(
     characterId,
     () => AsyncStorage.removeItem(vectorIndexKey(characterId))
@@ -1635,11 +1597,6 @@ export async function getAffinityStatus() {
   return { status: 'ok', map: normalizeAffinityState(stored.value) };
 }
 
-export async function getAffinity() {
-  const { map } = await getAffinityStatus();
-  return map;
-}
-
 export async function saveAffinity(map) {
   const normalized = normalizeAffinityState(map);
   await AsyncStorage.setItem(AFFINITY_KEY, JSON.stringify(normalized));
@@ -1834,24 +1791,6 @@ export async function createPersona(partial = {}) {
   await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
   await setActivePersonaId(created.id);
   return created;
-}
-
-export async function updatePersona(id, patch = {}) {
-  const personas = await getPersonas();
-  if (!personas.some(item => item.id === id)) throw new Error('人设不存在');
-  const now = Date.now();
-  const next = personas.map(item => (
-    item.id === id
-      ? {
-        ...item,
-        userName: patch.userName != null ? String(patch.userName) : item.userName,
-        persona: patch.persona != null ? String(patch.persona) : item.persona,
-        updatedAt: now,
-      }
-      : item
-  ));
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
-  return next.find(item => item.id === id);
 }
 
 export async function deletePersona(id) {
@@ -2487,10 +2426,6 @@ async function saveSessionSummariesInternal(sessionId, list) {
     .filter(item => item.summary.trim().length > 0);
   await AsyncStorage.setItem(sessionSummariesKey(sessionId), JSON.stringify(normalized));
   return normalized;
-}
-
-export function saveSessionSummaries(sessionId, list) {
-  return enqueueSessionMutation(() => saveSessionSummariesInternal(sessionId, list));
 }
 
 export function resetSessionSummaries(sessionId) {
