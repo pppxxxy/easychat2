@@ -81,6 +81,7 @@ import {
 } from './groupChat';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import RichHtmlMessage from './RichHtmlMessage';
+import { containsHtml, messageCopyText } from './plainText';
 import { shouldRenderRichHtml, stripMarkdownFences } from './richHtml';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
@@ -213,8 +214,6 @@ const createMarkdownStyles = (theme, fonts, tokens) => ({
   ordered_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
 });
 
-const HTML_TAG_PATTERN = /<\/?(?:div|span|blockquote|q|section|article|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|p|h[1-6]|hr|br|b|i|u|strong|em|font|img|a|code|pre|audio|video|style|script|svg|main|form|button|input|textarea|label|select|option|canvas|iframe)\b[^>]*>/i;
-
 const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
 const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
 const ONCLICK_ATTRIBUTE_PATTERN = /onclick\s*=\s*("[^"]*"|'[^']*')/i;
@@ -286,10 +285,6 @@ const customHTMLElementModels = {
   }),
 };
 
-function containsHtml(text) {
-  return HTML_TAG_PATTERN.test(String(text || ''));
-}
-
 function extractSendCommand(onclick) {
   const match = String(onclick || '').match(SLASH_SEND_PATTERN);
   return match ? match[1].trim() : '';
@@ -300,25 +295,6 @@ function collectTNodeText(node) {
   if (node.type === 'text') return node.data || '';
   if (Array.isArray(node.children)) return node.children.map(collectTNodeText).join('');
   return '';
-}
-
-function toPlainText(text) {
-  let out = String(text || '');
-  out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
-  out = out.replace(/<!--[\s\S]*?-->/g, '');
-  out = out.replace(/<br\s*\/?>/gi, '\n');
-  out = out.replace(/<\/(?:p|div|h[1-6]|li|tr|section|article)>/gi, '\n');
-  out = out.replace(/<[^>]+>/g, '');
-  out = out.replace(/&nbsp;/gi, ' ');
-  out = out.replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
-  out = out.replace(/&quot;/gi, '"').replace(/&#39;/gi, "'");
-  out = out.replace(/&amp;/gi, '&');
-  out = out.replace(/\n{3,}/g, '\n\n');
-  return out.trim();
-}
-
-function messageCopyText(text) {
-  return containsHtml(text) ? toPlainText(text) : String(text || '');
 }
 
 function solidColorFromGradient(stops) {

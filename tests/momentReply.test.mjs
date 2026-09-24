@@ -40,6 +40,13 @@ test('记忆正文在无摘要无消息时为空串', () => {
   assert.equal(buildMomentMemoryText({ messages: [{ role: 'system', text: 'x' }] }), '');
 });
 
+test('退化记忆会移除富文本标签和样式', () => {
+  const text = buildMomentMemoryText({
+    messages: [{ role: 'assistant', text: '<style>.x{color:red}</style><p>你好 &amp; 朋友</p>' }],
+  });
+  assert.equal(text, '角色：你好 & 朋友');
+});
+
 test('评论串按说话人渲染', () => {
   const thread = buildMomentThread(
     [

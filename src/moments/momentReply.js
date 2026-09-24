@@ -2,9 +2,10 @@
 //
 // 设计约束：
 // - 动态下的评论交流是一次“不进记忆的对话”：这里只负责构造提示词，绝不写回会话消息或记忆；
-// - 模块保持零依赖（不 import storage/api），便于单测与在纯 Node 环境下运行。
+// - 模块只依赖纯文本处理工具，便于单测与在纯 Node 环境下运行。
 
-// 仅本模块内部使用，不对外导出（避免留下没人引用的公共 API）
+import { messageCopyText } from '../plainText.js';
+
 const MOMENT_REPLY_MAX_CHARS = 200;
 const FALLBACK_MESSAGE_COUNT = 8;
 // 提示词输入上限：避免几十条记忆/一长串评论把请求撑爆。
@@ -48,7 +49,7 @@ export function buildMomentMemoryText({
   const list = (Array.isArray(messages) ? messages : [])
     .filter(item => item
       && (item.role === 'user' || item.role === 'assistant')
-      && clean(item.text));
+      && clean(messageCopyText(item.text)));
   if (list.length === 0) return '';
 
   const limit = limited(maxMessages, FALLBACK_MESSAGE_COUNT, 40);
@@ -57,7 +58,7 @@ export function buildMomentMemoryText({
   return capped(
     list
       .slice(-limit)
-      .map(item => `${item.role === 'user' ? nameForUser : nameForChar}：${clean(item.text)}`)
+      .map(item => `${item.role === 'user' ? nameForUser : nameForChar}：${clean(messageCopyText(item.text))}`)
       .join('\n'),
     MAX_MEMORY_CHARS
   );
