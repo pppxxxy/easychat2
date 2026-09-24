@@ -17,9 +17,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-           # 与项目开发环境保持一致，使用 Node 20。
-           # 测试直接导入 src/*.js，Node 20 的模块语法检测行为稳定。
-           node-version: 20
+            # 与项目开发环境保持一致，使用 Node 22。
+            # 测试直接导入 src/*.js，Node 22 的模块语法检测行为稳定。
+            node-version: 22
 
       - name: Install dependencies
         run: npm ci --ignore-scripts

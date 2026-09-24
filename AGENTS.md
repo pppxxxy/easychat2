@@ -2,7 +2,7 @@
 
 ## Project
 
-EasyChat2: single-device Expo SDK 50 / React Native 0.73 AI chat app. No backend. Talks to any OpenAI-compatible Chat Completions endpoint. All state lives in on-device AsyncStorage.
+EasyChat2: single-device Expo SDK 50 / React Native 0.73 AI chat app. No backend. Talks to any OpenAI-compatible Chat Completions endpoint. Metadata and settings live in on-device AsyncStorage; chat images, stickers, and large character payloads use on-device files.
 
 ## Commands
 
@@ -20,7 +20,7 @@ npm test             # Node unit and regression tests
 - Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run the one-off `npx eslint --config /tmp/eslint.check.mjs App.js src/*.js src/*/*.js` check described in `.monkeycode/docs/DEVELOPER_GUIDE.md`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
 - APK builds are manual `workflow_dispatch` only. Workflows: `build-apk-github.yml` (Gradle, signs release with the debug keystore) and `build-apk.yml` (EAS, needs `EXPO_TOKEN`).
-- CI uses Node 20 and Java 17.
+- CI uses Node 22 and Java 17.
 
 ## Non-obvious constraints
 
@@ -48,7 +48,7 @@ npm test             # Node unit and regression tests
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.
 
-Storage keys: `@easychat2_api_config`, `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>`, `@easychat2_messages::<sessionId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`, `@easychat2_stickers`).
+Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>`, `@easychat2_messages::<sessionId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`, `@easychat2_stickers`). Media files live under `documentDirectory/chat-images/` and `documentDirectory/stickers/`.
 
 ## Conventions
 

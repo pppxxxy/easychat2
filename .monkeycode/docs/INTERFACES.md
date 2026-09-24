@@ -50,7 +50,7 @@
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
 - 输入栏附件入口可选择纯文本类文档或图片：文本文档读取内容并在发送时以 `[附件：名称]` 并入上下文；图片仅当来源支持识图时允许，并以多模态形式发送；已选附件以标签与缩略图展示、可移除
-- 图片附件发送时拆分为连续的媒体消息与文字消息：图片单独展示并持久化到文档目录，文字随后作为第二条用户消息发送；图片长按提供「保存」与「保存为表情包」
+- 图片附件发送时拆分为连续的媒体消息与文字消息：图片单独展示并持久化到文档目录，文字随后作为第二条用户消息发送；媒体名称会经过用户输入正则处理；旧媒体消息缺少 `kind` 时仍能生成名称提示
 - 输入框右侧提供透明笑脸表情按钮，打开表情包面板；面板首项为添加入口，从相册一次选择一张图片，按原图宽高约一半缩放并要求填写名称；表情包可作为媒体消息发送，无识图模型至少收到 `【表情包：名称】` 提示
 - 图片附件在复制或读取尺寸前先检查文件大小；单文件上限 12 MiB、像素上限 1600 万、单次最多 3 张、总文件大小上限 20 MiB，Base64 请求数据另有 28 MiB 上限；不识图的普通图片在发送前拒绝
 - 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
@@ -146,7 +146,7 @@
 **Props**: `{ visible, onClose, messageCount, previews, onSeek, onToStart, onToEnd }`
 **行为**:
 - 覆盖层内渲染竖向轨道与滑块，用 `PanResponder` 拖动，按滑动比例映射消息或角色卡索引（`indexFromRatio`）
-- 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；点击轨道会移动滑块并更新预览，拖动松手时才按映射索引调用 `onSeek`
+- 轨道上方「回到开头」、下方「回到最新」分别调用 `onToStart` / `onToEnd`；点击轨道或拖动松手都会按映射索引调用 `onSeek` 并更新预览
 - 消息数超过 30 时拖动显示预览卡（时间、发言者、缩略与位置）；聊天与角色列表均可复用，无可定位项时按钮禁用；顶部/底部按钮会同步更新滑块位置
 **辅助导出**: `indexFromRatio(ratio, messageCount)`、`getScrollRange({ top, height, viewport })`
 
@@ -283,10 +283,11 @@
 | `getSamplingSettings` | `() => Promise<Sampling>` | 读取生成采样设置，缺省四项均关闭（maxTokens 8024 / temperature 1 / topP 1 / topK 0） |
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
 | `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
-| `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入按角色隔离的记忆片段索引，写入时过滤非法条目 |
+| `getVectorIndex` / `saveVectorIndex` | `(characterId, index?) => Promise<Segment[]>` | 读取/写入带 `sessionId` 的记忆片段索引，写入队列避免并发覆盖 |
+| `removeVectorIndexForSession` | `(characterId, sessionId) => Promise<Segment[]>` | 只清理指定会话片段，保留同角色其他会话记忆 |
+| `clearVectorIndex` | `(characterId) => Promise<void>` | 清除角色全部向量索引 |
 | `getStickers` | `() => Promise<Sticker[]>` | 从索引与分片键读取并按创建时间倒序返回表情包元数据 |
 | `saveSticker` | `(sticker) => Promise<Sticker>` | 串行新增或更新表情包分片元数据，元数据不完整时抛出错误 |
-| `clearVectorIndex` | `(characterId) => Promise<void>` | 清除某角色的记忆片段索引 |
 | `createApiConfig` | `(partial) => ApiConfig` | 创建一条标准化配置（含唯一 id） |
 | `getCharacterLibrary` | `() => Promise<Character[]>` | 读取并排序角色库；按索引 + 每角色一键读取，超大角色从文件描述符恢复；缺失索引时迁移旧整库键，Android 读取旧大值失败时通过 SQLite 分块恢复；索引缺项或读取异常时保留原键并进入写入阻断态 |
 | `saveCharacterLibrary` | `(list) => Promise<Character[]>` | 排序、补默认角色后逐角色写键；超过 512 KiB 的角色正文写入 `characters/` 文件，AsyncStorage 保存描述符；最后写索引与迁移标记并清理旧键/旧文件 |
@@ -306,8 +307,11 @@
 | `getMessagesBySession` | `(sessionId) => Promise<Message[]>` | 按会话读取消息，过滤 `pending` |
 | `getMessagesBySessionStatus` | `(sessionId) => Promise<{ status, messages }>` | 带状态的按会话读取；损坏时先备份再返回 `status: 'corrupt'`，调用方不得把读失败当成空会话写回 |
 | `saveMessagesBySession` | `(sessionId, messages, characterId?, protectedUris?) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，同步会话预览与更新时间；检测到媒体删除时回收未被其他会话或待发送附件引用的聊天图片 |
-| `setSessionSummarizedUpTo` | `(sessionId, messageId) => Promise<Session>` | 在会话存储队列内更新总结边界 |
+| `setSessionSummarizedUpTo` | `(sessionId, messageId, expectedRevision?) => Promise<Session>` | 在会话存储队列内更新总结边界；传入版本时可拒绝过期写入 |
+| `getSessionSummaryRevision` / `isSessionSummaryRevisionCurrent` | `(sessionId)` / `(sessionId, revision)` | 读取并校验会话摘要版本，重置或删除后立即使旧摘要请求失效 |
+| `appendSessionSummary` | `(sessionId, entry, expectedRevision?) => Promise<Summary[]>` | 在同一存储队列内读取、追加摘要并推进边界，读取损坏或版本过期时拒绝写入 |
 | `collectChatImageFiles` | `(protectedUris?) => Promise<boolean>` | 扫描会话消息引用，清理未被引用的 `documentDirectory/chat-images/` 文件；读取到损坏消息键时保守返回，不执行删除 |
+| `collectStickerImageFiles` / `collectOrphanImageFiles` | `() => Promise<boolean>` | 清理未被分片元数据引用的表情包文件；启动时组合清理聊天图片和表情包孤儿文件 |
 | `startNewSession` | `(characterId, opening?) => Promise<Session>` | 新建会话并设为当前；传入 `opening` 表示已完成开场白选择，空文本也会记录选择状态，创建时可写入开场白消息 |
 | `setSessionGreetingSelected` | `(sessionId, selected?) => Promise<Session\|null>` | 标记单聊已完成开场白选择；群聊或不存在会话直接返回 |
 | `createGroupSession` | `(members, name, extras?) => Promise<Session>` | 新建群聊会话（`type: 'group'`）并设为当前；`extras` 可带 `avatarUri`/`bgUri` |
@@ -315,7 +319,7 @@
 | `updateSessionMemberProfiles` | `(sessionId, memberProfiles) => Promise<Session\|null>` | 合并群聊成员人设卡缓存（已有键不覆盖），非群聊返回目标或 `null` |
 | `cloneSession` | `(sessionId) => Promise<Session>` | 复制会话元数据与消息，消息 `id` 重新生成，副本未置顶 |
 | `deleteSession` | `(sessionId) => Promise<{ sessions, activeSessionId, created }>` | 删除会话与消息并回收无引用聊天图片；删除当前会话时新建空会话 |
-| `deleteSessions` | `(sessionIds, excludedCharacterIds?) => Promise<{ sessions, activeSessionId }>` | 批量移除多个会话的元数据并 `multiRemove` 其消息键，随后回收无引用聊天图片；可排除待删角色，删除当前群聊时创建有效角色的替代会话 |
+| `deleteSessions` | `(sessionIds) => Promise<{ sessions, activeSessionId }>` | 存储层批量移除会话元数据、消息键和摘要键，随后回收无引用聊天图片；`useApp().deleteSessions(ids, excludedCharacterIds?)` 负责 Context 层排除角色与替代会话逻辑 |
 | `migrateLegacyMessages` | `(characters) => Promise<Session[]>` | 将旧键消息迁移为历史会话，幂等 |
 | `searchMessages` | `(keyword) => Promise<SearchHit[]>` | 跨全部会话做不区分大小写的子串匹配，按会话 `updatedAt` 倒序返回命中 |
 | `saveCharacterState` | `(list, activeId, deletedIds?) => Promise<void>` | 逐角色写库（大角色使用文件描述符，索引为提交点）后写入当前 id；`deletedIds` 为单个 id 或 id 数组，逐个移除其消息键（默认角色跳过） |
@@ -341,7 +345,7 @@
 | `getEnabledGlobalPresetPrompts` | `() => Promise<string[]>` | 返回已开启预设的提示词，供请求组装 |
 | `getSessionSummaries` / `getSessionSummariesStatus` | `(sessionId) => Promise<SessionSummary[]>` / `(sessionId) => Promise<{ status, summaries }>` | 读取会话级记忆总结（按会话隔离）；带状态版本在损坏时备份并返回 `corrupt` |
 | `saveSessionSummaries` | `(sessionId, list) => Promise<SessionSummary[]>` | 写入会话级记忆总结 |
-| `appendSessionSummary` | `(sessionId, entry) => Promise<SessionSummary[]>` | 追加一条会话级总结；历史摘要读取失败时抛错，不覆盖原数据 |
+| `appendSessionSummary` | `(sessionId, entry, expectedRevision?) => Promise<SessionSummary[]>` | 在存储队列内追加会话级总结并推进边界；历史摘要损坏或版本过期时抛错 |
 | `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取独立的记忆总结开关与可总结消息阈值，缺失时默认 `{ enabled: true, threshold: 40 }` |
 | `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入独立记忆总结设置，阈值非法时回退 40 |
 | `getPlugins` | `() => Promise<Plugin[]>` | 读取联网搜索列表并规范化，内置项缺失时补入；损坏时先备份再返回默认且不落盘 |
@@ -385,7 +389,7 @@
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_sampling` | 生成采样设置 `{ maxTokens, temperature, topP, topK }`，每项 `{ enabled, value }`，默认全关闭 |
 | `@easychat2_vector_memory` | 向量记忆配置 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }` |
-| `@easychat2_vector_index::<characterId>` | 按角色隔离的记忆片段索引 `[{ id, messageId, role, at, text, vector }]` |
+| `@easychat2_vector_index::<characterId>` | 角色级记忆片段索引 `[{ id, messageId, sessionId, role, at, text, vector }]`；清理按 `sessionId` 分片 |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true }` |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
@@ -418,10 +422,14 @@
 | `options.signal` | `AbortSignal?` | 传入后可通过 `abort()` 取消请求；取消时 Promise 以 `AbortError` 拒绝，并移除监听 |
 | `options.stream` | `boolean?` | 默认 `true`；为 `false` 时请求体 `stream: false` 并跳过增量解析，改走整包 JSON 分支 |
 | `options.onReasoning` | `(fullReasoning: string) => void?` | 每解析出增量思考内容后触发；入参为截至当前的累计思考文本，兼容 `reasoning_content` 与 `reasoning` |
+| `options.expectedConfigId` | `string?` | 请求期间配置 ID 发生变化时抛出 `CONFIG_CHANGED_ERROR` |
+| `options.expectedConfigFingerprint` | `string?` | 请求期间地址、模型、密钥、鉴权或能力标记变化时抛出 `CONFIG_CHANGED_ERROR` |
 
 **返回**: `Promise<string>` - 流式累计文本；服务端忽略流式而返回整包 JSON 时取 `choices[0].message.content`；空响应返回 `'没有收到回复。'`
 
 **辅助导出**: `isCanceledError(error): boolean` - 判断错误是否来自主动取消（`error.canceled === true` 或 `error.name === 'AbortError'`）。
+
+**辅助导出**: `getConfigFingerprint(config): string` - 对配置 ID、地址、模型、密钥、鉴权字段和能力标记生成不暴露原文的请求指纹。
 
 **辅助导出**: `buildThinkingParams(config, settings)` - 按来源的 `thinking` 声明与思考设置构造请求体思考参数；未开启或来源不支持时返回空对象。
 
@@ -582,13 +590,14 @@ data: [DONE]
 | 函数 | 说明 |
 |------|------|
 | `TEXT_EXTENSIONS` / `IMAGE_EXTENSIONS` | 支持的文档与图片扩展名 |
-| `isTextLike(name, mime)` / `isImage(name, mime)` | 按扩展名与 MIME 判定类型 |
+| `isTextLike(name, mime)` / `isImage(name, mime)` | 按扩展名与 MIME 判定类型；聊天识图使用 `isVisionImage` 限制为 PNG/JPEG/WebP/GIF |
+| `getImageMime(name, mime)` / `isVisionImage(name, mime)` | 归一化 `image/jpg`、`image/x-png` 等别名并判断识图兼容格式 |
 | `pickAttachment()` | 选取单个文件，返回 `{ uri, name, mime, size }` |
 | `getImageFileInfo(uri)` | 读取本地图片存在状态与字节数，用于解码前大小预检 |
-| `validateImageSize({ size, width, height })` | 校验单文件 12 MiB 与 1600 万像素上限 |
-| `validateImageBatch(items)` | 校验单次最多 3 张、单文件可读大小与总文件大小 20 MiB 上限 |
+| `validateImageSize({ size, width, height })` | 校验单文件 12 MiB 与 1600 万像素上限；提供尺寸时拒绝零值、负值和非有限值 |
+| `validateImageBatch(items, { requireDimensions? })` | 校验单次最多 3 张、单文件可读大小与总文件大小 20 MiB；要求尺寸时拒绝未知尺寸 |
 | `getPendingStickerImage()` / `pickStickerImage()` | 消费 ImagePicker pending 结果或打开相册，统一返回图片元数据 |
-| `readTextAttachment(uri, maxBytes?)` | 读取为 UTF-8 文本，默认上限 200KB，超限抛「文件过大」 |
+| `readTextAttachment(uri, maxBytes?)` | 先确认文件存在与大小，再读取为 UTF-8 文本，默认上限 200KB，超限或读取失败时抛错 |
 | `readImageDataUri(uri, mime)` | 读取为 `data:` URI |
 | `mergeTextAttachments(userText, attachments)` | 把文本附件以 `[附件：名称]` 追加到用户消息上下文 |
 
@@ -732,13 +741,14 @@ data: [DONE]
 | `needsRichHtmlRendering(text)` | 文本是否含内置渲染器不支持的标签（`<style>`/`<script>`/`<details>`/`<summary>`/`<svg>`/`<audio>`/`<video>`），这类消息需要 WebView 才能还原样式、折叠、媒体播放与交互 |
 | `shouldRenderRichHtml(text, enabled)` | 在上者基础上叠加 `richHtml` 开关；含 `<details>`/`<summary>` 时始终返回 `true`，确保折叠状态栏标题保留 |
 | `stripMarkdownFences(text)` | 去掉 ` ```html ` / ` ``` ` 围栏行 |
-| `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily })` | 包装为完整 HTML 文档（含视口、CSP、宽度/滚动约束与高度回传/命令桥脚本） |
-| `RICH_HTML_RESIZE_BRIDGE` | 注入的桥脚本：`ResizeObserver` 回传高度；仅用户手势触发且带当前文档令牌时，`button[data-command]` / `window.triggerSlash` 才回传命令 |
+| `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily, heightToken })` | 包装为完整 HTML 文档（含视口、CSP、宽度/滚动约束与带令牌的高度回传桥） |
+| `RICH_HTML_RESIZE_BRIDGE` | 注入 HTML 的高度桥：`ResizeObserver` 通过 `ResizeObserver` 和多组定时/页面事件回传带 `heightToken` 的高度消息 |
+| `buildRichHtmlCommandBridge(commandToken)` | 注入 WebView 的命令桥：令牌保留在注入脚本闭包中；可信用户手势触发 `button[data-command]` 或 `window.triggerSlash` 时回传命令，限制命令长度 |
 
 ### `RichHtmlMessage`（默认导出）
 **位置**: `src/RichHtmlMessage.js`
 
-用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由桥脚本回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档先写入应用缓存文件再以本地 URI 加载，避免 Android Binder 超限。动态高度上限为 24000，完整页面保留自身滚动与折叠规则；文档注入盒模型、宽度约束、CSP、运行时命令桥与 `window.triggerSlash`，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收 `button[data-command]` 的斜杠命令。WebView 开启 `allowsFullscreenVideo` 与多窗口支持，卡内 `<video controls>` 可进入原生全屏，同时拦截新窗口以保持卡片链接留在当前消息内。`react-native-webview` 缺失时返回 `null`。
+用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由带文档令牌的高度桥回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档先写入应用缓存文件再以本地 URI 加载，避免 Android Binder 超限。动态高度上限为 24000，完整页面保留自身滚动与折叠规则；文档注入盒模型、宽度约束、CSP 与 `injectedJavaScriptBeforeContentLoaded` 命令桥，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收可信用户手势触发的斜杠命令。WebView 仅允许当前内联/本地源，拒绝后续导航和新窗口；`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`
@@ -787,7 +797,10 @@ data: [DONE]
 |------|------|------|
 | `id` | `string` | 消息标识，形如 `<时间戳>-user` / `<时间戳>-assistant` |
 | `role` | `'user' \| 'assistant' \| 'system-error'` | 消息角色 |
-| `text` | `string` | 展示文本 |
+| `text` | `string` | 展示文本；媒体消息为空字符串 |
+| `kind` | `'image' \| 'sticker' \| 'greeting'?` | 媒体或开场白类型；旧媒体消息缺少该字段时按 `image` 兼容推断 |
+| `image` | `{ uri, mime, name, width, height, stickerId?, stickerName? }?` | 聊天图片或表情包元数据 |
+| `timestamp` | `number?` | 消息创建时间 |
 | `detail` | `string?` | 系统报错消息的脱敏详情 |
 | `pending` | `boolean?` | 占位消息标记，为真时不持久化 |
 

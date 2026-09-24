@@ -39,7 +39,7 @@ onPanResponderMove → translateY.setValue(ratio * usable)
 | 颜色 | `theme.colors.primary`，边缘 `theme.colors.primarySoft` |
 
 - 轨道：`backgroundColor: 'transparent'`，宽度居中，两侧保留「回到开头」「回到最新」按钮。
-- 点击轨道：外层 `Pressable` 记录 `locationY`，调用与拖动相同的比例换算并更新滑块与预览，不触发 `onSeek`（仅拖动松手触发），避免误跳。
+- 点击轨道：外层 `PanResponder` 记录 `locationY`，调用与拖动相同的比例换算，释放时按映射索引触发 `onSeek` 并更新预览。
 - 边界裁剪：`usable = trackHeight - THUMB_HEIGHT`，`translateY` 限制在 `[0, usable]`。
 
 ### 性能约束
@@ -57,7 +57,7 @@ onPanResponderMove → translateY.setValue(ratio * usable)
 2. 拖动过程仅一处轻量 state 更新（预览索引）。
 3. 松手仅一次定位回调。
 4. 轨道透明，滑块为长椭条。
-5. 点击轨道不触发定位（仅移动滑块与预览）。
+5. 点击轨道会按点击位置触发一次定位。
 
 ## 错误处理
 

@@ -23,7 +23,7 @@ EasyChat2 是一个单机运行的移动端 AI 聊天应用，让用户用自备
 
 ### 前置条件
 
-- Node.js 20（与 CI 一致）
+- Node.js 22（与 CI 一致）
 - npm（仓库使用 `npm ci` 与 lockfile）
 - 真机上的 Expo Go，或 Android 原生构建环境（Java 17 + Android SDK）
 - 可选：全局 `eas-cli` 用于云构建
@@ -66,7 +66,7 @@ npm run web
 
 触发仓库的 **Build APK on GitHub** 工作流（`workflow_dispatch`）。该流程会：
 
-1. 安装 Node 20、Java 17 与 Android SDK
+1. 安装 Node 22、Java 17 与 Android SDK
 2. `npm ci` 安装依赖
 3. `npx expo prebuild --platform android --clean` 生成原生工程
 4. 将 release 构建签名临时指向 debug keystore，并写入 Gradle JVM 参数
