@@ -6,8 +6,25 @@ export const TRIGGER_KEYWORDS = [
 ];
 
 const SEARCH_COOLDOWN_MS = 30000;
+const SESSION_STATE_MAX_ENTRIES = 200;
+const SESSION_STATE_TTL_MS = SEARCH_COOLDOWN_MS * 20;
 const lastSearchAt = new Map();
-const reportedFailures = new Set();
+const reportedFailureAt = new Map();
+
+function pruneSessionState(now = Date.now()) {
+  for (const [sessionId, timestamp] of lastSearchAt) {
+    if (now - timestamp > SESSION_STATE_TTL_MS) lastSearchAt.delete(sessionId);
+  }
+  for (const [sessionId, timestamp] of reportedFailureAt) {
+    if (now - timestamp > SESSION_STATE_TTL_MS) reportedFailureAt.delete(sessionId);
+  }
+  while (lastSearchAt.size > SESSION_STATE_MAX_ENTRIES) {
+    lastSearchAt.delete(lastSearchAt.keys().next().value);
+  }
+  while (reportedFailureAt.size > SESSION_STATE_MAX_ENTRIES) {
+    reportedFailureAt.delete(reportedFailureAt.keys().next().value);
+  }
+}
 
 export function hasTrigger(userText, keywords = TRIGGER_KEYWORDS) {
   const text = String(userText || '');
@@ -33,6 +50,7 @@ export function formatContext(results, now = Date.now()) {
 }
 
 export function shouldSearch({ userText, plugin, sessionId, now = Date.now() }) {
+  pruneSessionState(now);
   if (!plugin || plugin.enabled !== true) return false;
   if (plugin.type !== 'web-search') return false;
   if (!hasTrigger(userText)) return false;
@@ -51,16 +69,20 @@ export async function runPlugins({ userText, plugins, sessionId, now = Date.now(
         maxResults: plugin.config && plugin.config.maxResults,
       });
       lastSearchAt.set(sessionId, Date.now());
+      reportedFailureAt.delete(String(sessionId || ''));
+      pruneSessionState(Date.now());
       return formatContext(results, Date.now());
     } catch (error) {
-      lastSearchAt.set(sessionId, Date.now());
-      // 静默失败最误导人：用户以为联网搜索开着，其实一直在失败。
-      // 每个会话只上报一次，避免每条消息都打扰。
-      const failureKey = String(sessionId || '');
-      if (typeof onError === 'function' && !reportedFailures.has(failureKey)) {
-        reportedFailures.add(failureKey);
-        onError(error);
-      }
+       lastSearchAt.set(sessionId, Date.now());
+       // 每个会话只上报一次，避免每条消息都打扰；成功后会清除失败标记。
+       const failureKey = String(sessionId || '');
+       const now = Date.now();
+       if (typeof onError === 'function' && !reportedFailureAt.has(failureKey)) {
+         reportedFailureAt.set(failureKey, now);
+         onError(error);
+       }
+       pruneSessionState(now);
+
       return '';
     }
   }
