@@ -2094,7 +2094,7 @@ export default function ChatScreen() {
     );
   }, [isSending, ready, messages, runSummarize]);
 
-  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, sessionGuard }) => {
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, sessionGuard, restoreOnFailure = false }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
     const sendCharacterId = activeCharacterIdRef.current;
@@ -2308,8 +2308,9 @@ export default function ChatScreen() {
         return current.map(item => (
           item.id === pendingAssistantMessage.id ? errorMessage : item
         ));
-      });
-    } finally {
+       });
+       if (restoreOnFailure) return false;
+     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         if (isCurrentSession()) {
@@ -2327,7 +2328,7 @@ export default function ChatScreen() {
     if (members.length === 0) {
       // 输入框在 onSend 里已清空，这里必须给个提示，不能让用户以为发出去又什么都没发生。
       Alert.alert('无法发送', '这个群聊没有可用的角色（成员可能已被删除）。');
-      return;
+      return false;
     }
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
@@ -2350,7 +2351,7 @@ export default function ChatScreen() {
          getUserProfile(),
          getEnabledGlobalPresetPrompts(),
        ]);
-       if (!isCurrent() || controller.signal.aborted) return true;
+       if (!isCurrent() || controller.signal.aborted) return false;
       const groupSessionId = String(activeSessionRef.current?.id || '');
       const cachedProfiles = memberProfilesRef.current.sessionId === groupSessionId
         ? memberProfilesRef.current.profiles
@@ -2364,7 +2365,7 @@ export default function ChatScreen() {
             signal: controller.signal,
           });
         const added = Object.keys(ensured).some(key => !cachedProfiles[key]);
-        if (!isCurrent()) return true;
+        if (!isCurrent()) return false;
         memberProfiles = ensured;
         memberProfilesRef.current = { sessionId: groupSessionId, profiles: ensured };
          if (added && groupSessionId) {
@@ -2373,7 +2374,7 @@ export default function ChatScreen() {
        } catch (error) {
          if (isConfigChangedError(error)) throw error;
        }
-       if (!isCurrent()) return true;
+       if (!isCurrent()) return false;
        const everyone = hasEveryoneMention(userText);
       const mentions = parseMentions(userText, members);
       const mediaPrompt = (Array.isArray(imageMessages) ? imageMessages : [])
@@ -2491,7 +2492,7 @@ export default function ChatScreen() {
           imageMessages,
         });
         if (requestMessages.length === 0) return false;
-        if (!isCurrent()) return true;
+        if (!isCurrent()) return false;
         const groupName = String(activeSessionRef.current?.name || '').trim()
           || members.map(item => String(item.name || '').trim()).filter(Boolean).join('、')
           || '群聊';
@@ -2505,7 +2506,7 @@ export default function ChatScreen() {
           timestamp: Date.now(),
         };
         working = [...working, pendingMessage];
-        if (!isCurrent()) return true;
+        if (!isCurrent()) return false;
         setMessages(working);
         scrollToBottom();
         let reply = '';
@@ -2537,7 +2538,7 @@ export default function ChatScreen() {
           if (isCurrent()) setMessages(working);
           return false;
         }
-        if (!isCurrent()) return true;
+        if (!isCurrent()) return false;
         const segments = mergeAdjacentSegments(parseEnsembleReply(reply, members));
         if (segments.length === 0) {
           // 回退：移除临时消息后交给逐角色模式
@@ -2555,7 +2556,7 @@ export default function ChatScreen() {
             speakerName: segment.speakerName || '',
           }];
         });
-        if (!isCurrent()) return true;
+        if (!isCurrent()) return false;
         setMessages(working);
         scrollToBottom();
         return true;
@@ -2568,25 +2569,27 @@ export default function ChatScreen() {
           handled = await runEnsemble();
          } catch (error) {
            if (isConfigChangedError(error)) throw error;
-           if (isCanceledError(error)) return;
+           if (isCanceledError(error)) return false;
            handled = false;
          }
       }
-       if (!handled) {
-         const turnHandled = await runTurnSpeakers();
-         if (turnHandled === false) return false;
-       }
-     } catch (error) {
+        if (!handled) {
+          const turnHandled = await runTurnSpeakers();
+          if (turnHandled === false) return false;
+        }
+        return true;
+      } catch (error) {
        if (isConfigChangedError(error)) {
          sourceChangedRef.current = true;
          if (isCurrent()) setMessages(current => current.filter(item => !item.pending));
          return false;
        }
-       if (isCanceledError(error)) return;
-       if (isCurrent()) {
-         Alert.alert('群聊回复失败', '请稍后重试。');
-       }
-     } finally {
+       if (isCanceledError(error)) return false;
+        if (isCurrent()) {
+          Alert.alert('群聊回复失败', '请稍后重试。');
+        }
+        return false;
+      } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         if (isCurrent()) {
@@ -2775,23 +2778,25 @@ export default function ChatScreen() {
         ? null
         : current
     ));
-     const handled = isGroupRef.current
-       ? await requestGroupReply(payload)
-       : await requestReply(payload);
-     if (handled === false && sourceChangedRef.current && isSessionGuardCurrent(sessionGuard)) {
-       const originalIds = new Set(messages.map(item => String(item && item.id || '')));
-       setMessages(current => current.filter(item => originalIds.has(String(item && item.id || ''))));
-       const restoredAttachments = allAttachments;
-       attachmentsRef.current = restoredAttachments;
-       setAttachments(restoredAttachments);
-       setInput(rawText);
-       setQuoteTarget(draftQuote);
-       syncProtectedAttachmentUris();
-       Alert.alert('模型来源已切换', '已保留原消息草稿，请重新发送。');
-       return false;
-     }
-     return handled !== false && isSessionGuardCurrent(sessionGuard) && !(abortRef.current && abortRef.current.signal.aborted);
-  }, [attachments, captureSessionGuard, greetingReady, isSessionGuardCurrent, isSwitching, messageSelectionOpen, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing, sessionTransitionPending]);
+      const handled = isGroupRef.current
+        ? await requestGroupReply(payload)
+        : await requestReply(payload);
+      if (handled === false && isSessionGuardCurrent(sessionGuard)) {
+        const originalIds = new Set(messages.map(item => String(item && item.id || '')));
+        setMessages(current => current.filter(item => originalIds.has(String(item && item.id || ''))));
+        const restoredAttachments = allAttachments;
+        attachmentsRef.current = restoredAttachments;
+        setAttachments(restoredAttachments);
+        setInput(rawText);
+        setQuoteTarget(draftQuote);
+        syncProtectedAttachmentUris();
+        if (sourceChangedRef.current) {
+          Alert.alert('模型来源已切换', '已保留原消息草稿，请重新发送。');
+        }
+        return false;
+      }
+      return handled !== false && isSessionGuardCurrent(sessionGuard) && !(abortRef.current && abortRef.current.signal.aborted);
+  }, [attachments, captureSessionGuard, greetingReady, isSessionGuardCurrent, isSwitching, messageSelectionOpen, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing, sessionTransitionPending, syncProtectedAttachmentUris]);
 
   const sendMessage = useCallback(async (...args) => {
     const token = beginSendOperation();
@@ -2810,9 +2815,10 @@ export default function ChatScreen() {
     const token = beginSendOperation();
     if (!token) return;
     const sessionGuard = captureSessionGuard();
-    try {
-      if (!isSessionGuardCurrent(sessionGuard)) return false;
-      if (sessionOwnerMissing) {
+     try {
+       if (!isSessionGuardCurrent(sessionGuard)) return false;
+       const originalMessages = messages;
+       if (sessionOwnerMissing) {
         Alert.alert('角色资料缺失', '恢复角色资料后才能重新生成回复。');
         return false;
       }
@@ -2823,8 +2829,13 @@ export default function ChatScreen() {
         userStart -= 1;
       }
       userStart += 1;
-      const userMessages = messages.slice(userStart, index);
-      if (userMessages.length === 0) return false;
+       const userMessages = messages.slice(userStart, index);
+       if (userMessages.length === 0) return false;
+       const quote = userMessages
+         .slice()
+         .reverse()
+         .find(item => item && item.quoted && item.quoted.text)
+         ?.quoted || null;
       let includeImage = false;
       let expectedConfigId = '';
       try {
@@ -2882,17 +2893,21 @@ export default function ChatScreen() {
        const handled = await requestReply({
          historyMessages: messages.slice(0, userStart),
          userText,
-         baseMessages: messages.slice(0, index),
-         imageMessages,
-         expectedConfigId,
-         sessionGuard,
+           baseMessages: messages.slice(0, index),
+           imageMessages,
+           quote,
+           expectedConfigId,
+           sessionGuard,
+           restoreOnFailure: true,
        });
-       if (handled === false && sourceChangedRef.current && isSessionGuardCurrent(sessionGuard)) {
-         setMessages(messages);
-         Alert.alert('模型来源已切换', '已保留原消息，请重新生成。');
-         return false;
-       }
-       return handled !== false && isSessionGuardCurrent(sessionGuard) && !abortRef.current;
+        if (handled === false && isSessionGuardCurrent(sessionGuard)) {
+          setMessages(originalMessages);
+          if (sourceChangedRef.current) {
+            Alert.alert('模型来源已切换', '已保留原消息，请重新生成。');
+          }
+          return false;
+        }
+        return handled !== false && isSessionGuardCurrent(sessionGuard) && !abortRef.current;
     } finally {
       endSendOperation(token);
     }
