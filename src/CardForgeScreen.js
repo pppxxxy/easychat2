@@ -48,6 +48,11 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const stateRef = useRef(null);
   const scrollRef = useRef(null);
+  const mountedRef = useRef(true);
+  const activeRef = useRef(active);
+  const requestControllerRef = useRef(null);
+  const requestTokenRef = useRef(0);
+  activeRef.current = active;
   stateRef.current = state;
 
   const applyState = useCallback(next => {
@@ -57,8 +62,41 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const update = useCallback(next => {
     applyState(next);
-    saveCardForge(next).catch(() => {});
+    return saveCardForge(next).catch(error => {
+      if (mountedRef.current) {
+        Alert.alert('草稿保存失败', '当前内容已保留在界面，请检查存储空间或权限。');
+      }
+      return false;
+    });
   }, [applyState]);
+
+  const isRequestCurrent = useCallback((token, controller) => (
+    mountedRef.current
+    && activeRef.current
+    && requestTokenRef.current === token
+    && requestControllerRef.current === controller
+    && !controller.signal.aborted
+  ), []);
+
+  useEffect(() => {
+    if (active) return;
+    requestTokenRef.current += 1;
+    const controller = requestControllerRef.current;
+    requestControllerRef.current = null;
+    controller?.abort();
+    if (mountedRef.current) setBusy(false);
+  }, [active]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestTokenRef.current += 1;
+      const controller = requestControllerRef.current;
+      requestControllerRef.current = null;
+      controller?.abort();
+    };
+  }, []);
 
   // 每次切到「制卡」都从存储重读：角色页的「导入到制卡」会改写存储草稿，
   // 而扩展页的各个模块是一直挂载的，不回读就会看到旧内容。
@@ -79,17 +117,17 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     };
   }, [active, refreshKey, applyState]);
 
-  const askModel = useCallback(async prompt => {
+  const askModel = useCallback(async (prompt, signal) => {
     const raw = await sendChatMessage([
       { role: 'system', content: FORGE_SYSTEM },
       { role: 'user', content: prompt },
-    ], { stream: false });
+    ], { stream: false, signal });
     return parseCardPatch(raw);
   }, []);
 
   const submitAnswer = useCallback((question, value) => {
     const text = String(value || '').trim();
-    if (!text || busy || !question) return;
+    if (!text || busy || !question || !activeRef.current || !mountedRef.current) return;
     setFreeQuestionId('');
     setFreeText('');
     update(recordAnswer(stateRef.current, question.id, text));
@@ -106,35 +144,44 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, [busy, submitAnswer]);
 
   const onGenerate = useCallback(() => {
-    if (busy) return;
+    if (busy || !activeRef.current || !mountedRef.current) return;
     const run = async () => {
+      if (!activeRef.current || !mountedRef.current) return;
+      const token = ++requestTokenRef.current;
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
       setBusy(true);
+      const base = stateRef.current;
       try {
-        const base = stateRef.current;
-        const patch = await askModel(buildGeneratePrompt(base));
+        const patch = await askModel(buildGeneratePrompt(base), controller.signal);
+        if (!isRequestCurrent(token, controller)) return;
         if (!patch) {
-          update(appendTranscript(stateRef.current, {
+          await update(appendTranscript(stateRef.current, {
             role: 'note',
             text: '生成失败：模型没有返回可用的 JSON，再试一次。',
           }));
           return;
         }
-        const { draft, changed } = mergeDraft(base.draft, patch);
-        let next = { ...base, draft, updatedAt: Date.now() };
+        const latest = stateRef.current || base;
+        const { draft, changed } = mergeDraft(latest.draft, patch);
+        let next = { ...latest, draft, updatedAt: Date.now() };
         next = appendTranscript(next, {
           role: 'ai',
           text: changed.length > 0
             ? `已生成/更新：${changed.join('、')}。点「卡片」查看，或继续说修改要求。`
             : '生成结果与当前内容一致。',
         });
-        update(next);
-        setEditorOpen(true);
+        const saved = await update(next);
+        if (saved && isRequestCurrent(token, controller)) setEditorOpen(true);
       } catch (error) {
-        if (!isCanceledError(error)) {
+        if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
           Alert.alert('生成失败', (error && error.message) || '请稍后重试。');
         }
       } finally {
-        setBusy(false);
+        if (isRequestCurrent(token, controller)) {
+          requestControllerRef.current = null;
+          setBusy(false);
+        }
       }
     };
     if (hasCardContent(stateRef.current && stateRef.current.draft)) {
@@ -145,47 +192,62 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       return;
     }
     run();
-  }, [askModel, busy, update]);
+  }, [askModel, busy, isRequestCurrent, update]);
 
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
-    if (!text || busy) return;
+    if (!text || busy || !activeRef.current || !mountedRef.current) return;
+    const token = ++requestTokenRef.current;
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setInput('');
-    const base = stateRef.current;
-    update(appendTranscript(base, { id: `u-${Date.now()}`, role: 'user', text }));
     setBusy(true);
+    const base = stateRef.current;
     try {
-      const patch = await askModel(buildEditPrompt({
-        draft: base.draft,
-        request: text,
-        answers: summarizeAnswers(base),
+      const transcriptSaved = await update(appendTranscript(base, {
+        id: `u-${Date.now()}`,
+        role: 'user',
+        text,
       }));
+      if (!transcriptSaved || !isRequestCurrent(token, controller)) return;
+      const latest = stateRef.current || base;
+      const patch = await askModel(buildEditPrompt({
+        draft: latest.draft,
+        request: text,
+        answers: summarizeAnswers(latest),
+      }), controller.signal);
+      if (!isRequestCurrent(token, controller)) return;
       if (!patch) {
-        update(appendTranscript(stateRef.current, {
+        await update(appendTranscript(stateRef.current, {
           role: 'note',
           text: '这次没解析出可用的卡片内容，换个说法再试（例如「把性格改得更冷淡」）。',
         }));
         return;
       }
-      const { draft, changed } = mergeDraft(stateRef.current.draft, patch);
-      let next = { ...stateRef.current, draft, updatedAt: Date.now() };
+      const current = stateRef.current;
+      const { draft, changed } = mergeDraft(current.draft, patch);
+      let next = { ...current, draft, updatedAt: Date.now() };
       next = appendTranscript(next, {
         role: 'ai',
         text: changed.length > 0
           ? `已更新：${changed.join('、')}。`
           : '内容没有变化，可以说得更具体些。',
       });
-      update(next);
+      await update(next);
     } catch (error) {
-      if (!isCanceledError(error)) {
+      if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
         Alert.alert('制卡失败', (error && error.message) || '请稍后重试。');
       }
     } finally {
-      setBusy(false);
+      if (isRequestCurrent(token, controller)) {
+        requestControllerRef.current = null;
+        setBusy(false);
+      }
     }
-  }, [askModel, busy, input, update]);
+  }, [askModel, busy, input, isRequestCurrent, update]);
 
   const onSaveDraft = useCallback(nextDraft => {
+    if (!mountedRef.current || !activeRef.current) return;
     setEditorOpen(false);
     update({ ...stateRef.current, draft: nextDraft, updatedAt: Date.now() });
   }, [update]);
@@ -206,9 +268,12 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         postHistoryInstructions: draft.postHistoryInstructions,
       });
       const patch = draftToCharacterPatch(draft, { composedPrompt });
-      const created = await addCharacter(patch);
-      await ensureCharacterSession(created.id).catch(() => {});
-      update(appendTranscript(stateRef.current, {
+       const created = await addCharacter(patch);
+       if (!mountedRef.current || !activeRef.current) return;
+       await ensureCharacterSession(created.id).catch(() => {});
+       if (!mountedRef.current || !activeRef.current) return;
+       update(appendTranscript(stateRef.current, {
+
         role: 'note',
         text: `已导入角色库：${created.name}。可以去「角色」页查看，或继续修改后再次导入。`,
       }));
@@ -225,10 +290,19 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       {
         text: '清空',
         style: 'destructive',
-        onPress: () => {
-          clearCardForge().catch(() => {});
-          update(createForgeState());
-        },
+         onPress: async () => {
+           if (!mountedRef.current || !activeRef.current) return;
+           try {
+             await clearCardForge();
+             if (!mountedRef.current || !activeRef.current) return;
+             await update(createForgeState());
+           } catch (error) {
+             if (mountedRef.current) {
+               Alert.alert('清空失败', '请检查存储空间或权限。');
+             }
+           }
+         },
+
       },
     ]);
   }, [busy, update]);
