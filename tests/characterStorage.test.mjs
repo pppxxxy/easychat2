@@ -317,6 +317,39 @@ test('会话存储队列阻止删除后的迟到消息写回', async () => {
   assert.deepEqual(await storage.getMessagesBySession(second.id), []);
 });
 
+test('会话摘要和边界在同一队列提交，重置后旧版本不能写回', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-summary');
+  await storage.saveMessagesBySession(created.id, [
+    { id: 'summary-user', role: 'user', text: '记住约定' },
+    { id: 'summary-assistant', role: 'assistant', text: '好的' },
+  ]);
+  const revision = storage.getSessionSummaryRevision(created.id);
+  await storage.appendSessionSummary(created.id, {
+    summary: '- 新的约定',
+    keywords: ['约定'],
+    boundary: 'summary-assistant',
+    createdAt: 1,
+  }, revision);
+  let sessions = await storage.getSessions();
+  assert.equal(sessions.find(item => item.id === created.id).summarizedUpTo, 'summary-assistant');
+
+  const staleRevision = storage.getSessionSummaryRevision(created.id);
+  await storage.resetSessionSummaries(created.id);
+  await assert.rejects(
+    () => storage.appendSessionSummary(created.id, {
+      summary: '- 过期摘要',
+      keywords: ['过期'],
+      boundary: 'summary-assistant',
+      createdAt: 2,
+    }, staleRevision),
+    /会话摘要已重置/
+  );
+  assert.deepEqual(await storage.getSessionSummaries(created.id), []);
+  sessions = await storage.getSessions();
+  assert.equal(sessions.find(item => item.id === created.id).summarizedUpTo, '');
+});
+
 test('大消息键读取失败时通过 SQLite 分块完成图片回收扫描', async () => {
   const storage = loadStorage();
   const uri = 'file:///documents/chat-images/large-message.jpg';

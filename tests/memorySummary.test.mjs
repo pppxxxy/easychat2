@@ -18,9 +18,15 @@ const transformed = babel.transformSync(sourceCode, {
 }).code;
 
 let summaryText = '';
+let summaryRevision = 0;
 const storageMock = {
-  appendSessionSummary: async () => [],
-  getSessionSummaries: async () => [],
+  appendSessionSummary: async (_sessionId, entry, expectedRevision) => {
+    if (expectedRevision !== summaryRevision) throw new Error('会话摘要已重置');
+    return [entry];
+  },
+  getSessionSummariesStatus: async () => ({ status: 'ok', summaries: [] }),
+  getSessionSummaryRevision: () => summaryRevision,
+  isSessionSummaryRevisionCurrent: (_sessionId, revision) => revision === summaryRevision,
   setSessionSummarizedUpTo: async () => {},
 };
 const originalLoad = Module._load;
@@ -135,18 +141,34 @@ test('生成非空摘要时写入世界书并推进边界', async () => {
   assert.equal(patch.worldInfo[0].content, '- 约定周末见面');
 });
 
-test('会话摘要边界写入失败时回滚摘要列表', async () => {
+test('会话摘要损坏时拒绝覆盖历史数据', async () => {
   summaryText = '- 新的约定\n关键词：约定';
-  let summaries = [];
-  storageMock.getSessionSummaries = async () => summaries;
-  storageMock.saveSessionSummaries = async (_sessionId, list) => { summaries = list; };
-  storageMock.setSessionSummarizedUpTo = async () => { throw new Error('boundary failed'); };
+  storageMock.getSessionSummariesStatus = async () => ({ status: 'corrupt', summaries: [] });
+  await assert.rejects(() => memorySummary.applySummary({
+    session: { id: 'session-corrupt', summarizedUpTo: '' },
+    character: { id: 'character-corrupt', worldInfo: [] },
+    messages: makeMessages(2),
+    scoped: true,
+    updateCharacter: async () => {},
+  }), /记忆摘要读取失败/);
+  storageMock.getSessionSummariesStatus = async () => ({ status: 'ok', summaries: [] });
+});
+
+test('会话摘要版本变化后拒绝写回', async () => {
+  summaryText = '- 新的约定\n关键词：约定';
+  let appended = false;
+  storageMock.isSessionSummaryRevisionCurrent = () => false;
+  storageMock.appendSessionSummary = async () => {
+    appended = true;
+    return [];
+  };
   await assert.rejects(() => memorySummary.applySummary({
     session: { id: 'session-rollback', summarizedUpTo: '' },
     character: { id: 'character-rollback', worldInfo: [] },
     messages: makeMessages(2),
     scoped: true,
     updateCharacter: async () => {},
-  }), /boundary failed/);
-  assert.deepEqual(summaries, []);
+  }), /会话摘要已重置/);
+  assert.equal(appended, false);
+  storageMock.isSessionSummaryRevisionCurrent = (_sessionId, revision) => revision === summaryRevision;
 });

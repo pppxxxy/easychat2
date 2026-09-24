@@ -71,6 +71,7 @@ let characterLibraryWriteBlocked = false;
 let stickerWriteQueue = Promise.resolve();
 let sessionMutationQueue = Promise.resolve();
 const deletedSessionIds = new Set();
+const sessionSummaryRevisions = new Map();
 const protectedChatImageUris = new Set();
 
 function enqueueSessionMutation(task) {
@@ -2167,12 +2168,32 @@ async function setSessionSummarizedUpToInternal(sessionId, messageId) {
   return updated;
 }
 
-export function setSessionSummarizedUpTo(sessionId, messageId) {
-  return enqueueSessionMutation(() => setSessionSummarizedUpToInternal(sessionId, messageId));
+export function setSessionSummarizedUpTo(sessionId, messageId, expectedRevision = null) {
+  return enqueueSessionMutation(() => {
+    if (expectedRevision !== null && !isSessionSummaryRevisionCurrent(sessionId, expectedRevision)) {
+      throw new Error('会话摘要已重置');
+    }
+    return setSessionSummarizedUpToInternal(sessionId, messageId);
+  });
 }
 
 function sessionSummariesKey(sessionId) {
   return `${SESSION_SUMMARIES_PREFIX}::${String(sessionId || '')}`;
+}
+
+function bumpSessionSummaryRevision(sessionId) {
+  const id = String(sessionId || '');
+  const next = (sessionSummaryRevisions.get(id) || 0) + 1;
+  sessionSummaryRevisions.set(id, next);
+  return next;
+}
+
+export function getSessionSummaryRevision(sessionId) {
+  return sessionSummaryRevisions.get(String(sessionId || '')) || 0;
+}
+
+export function isSessionSummaryRevisionCurrent(sessionId, revision) {
+  return getSessionSummaryRevision(sessionId) === Number(revision || 0);
 }
 
 function normalizeSessionSummary(raw) {
@@ -2219,6 +2240,7 @@ export function saveSessionSummaries(sessionId, list) {
 }
 
 export function resetSessionSummaries(sessionId) {
+  bumpSessionSummaryRevision(sessionId);
   return enqueueSessionMutation(async () => {
     const sessions = await requireSessions();
     const target = sessions.find(session => session.id === sessionId);
@@ -2239,13 +2261,27 @@ export function resetSessionSummaries(sessionId) {
   });
 }
 
-export function appendSessionSummary(sessionId, entry) {
+export function appendSessionSummary(sessionId, entry, expectedRevision = null) {
   const task = enqueueSessionMutation(async () => {
+    if (expectedRevision !== null && !isSessionSummaryRevisionCurrent(sessionId, expectedRevision)) {
+      throw new Error('会话摘要已重置');
+    }
     const { status, summaries } = await getSessionSummariesStatus(sessionId);
-    // 读不出历史摘要时不能当作空表写回，否则该会话的历史摘要会被压成这一条。
     if (status === 'corrupt') throw new Error('记忆摘要读取失败，请稍后重试');
-    const next = [...summaries, normalizeSessionSummary(entry)];
+    const normalizedEntry = normalizeSessionSummary(entry);
+    const next = [...summaries, normalizedEntry];
     await saveSessionSummariesInternal(sessionId, next);
+    try {
+      await setSessionSummarizedUpToInternal(sessionId, normalizedEntry.boundary);
+    } catch (error) {
+      if (
+        expectedRevision === null
+        || isSessionSummaryRevisionCurrent(sessionId, expectedRevision)
+      ) {
+        await saveSessionSummariesInternal(sessionId, summaries).catch(() => {});
+      }
+      throw error;
+    }
     return next;
   });
   return task;
@@ -2478,10 +2514,12 @@ export function cloneSession(sessionId) {
 }
 
 export function deleteSession(sessionId) {
+  bumpSessionSummaryRevision(sessionId);
   return enqueueSessionMutation(() => deleteSessionInternal(sessionId));
 }
 
 export function deleteSessions(sessionIds) {
+  (Array.isArray(sessionIds) ? sessionIds : []).forEach(id => bumpSessionSummaryRevision(id));
   return enqueueSessionMutation(() => deleteSessionsInternal(sessionIds));
 }
 

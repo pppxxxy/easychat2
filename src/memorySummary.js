@@ -1,8 +1,10 @@
 import { sendChatMessage } from './api';
 import { createWorldEntry } from './cardParser';
 import {
-  getSessionSummaries,
-  saveSessionSummaries,
+  appendSessionSummary,
+  getSessionSummariesStatus,
+  getSessionSummaryRevision,
+  isSessionSummaryRevisionCurrent,
   setSessionSummarizedUpTo,
 } from './storage';
 
@@ -184,9 +186,14 @@ export async function applySummary({
   if (list.length === 0) {
     throw new Error('没有可总结的消息');
   }
-  const existingSessionSummaries = scoped
-    ? await getSessionSummaries(session.id)
-    : [];
+  const summaryRevision = getSessionSummaryRevision(session.id);
+  const summaryState = scoped
+    ? await getSessionSummariesStatus(session.id)
+    : { status: 'ok', summaries: [] };
+  if (scoped && summaryState.status === 'corrupt') {
+    throw new Error('记忆摘要读取失败，请稍后重试');
+  }
+  const existingSessionSummaries = summaryState.summaries || [];
   const memories = buildMemorySummaryText(character, existingSessionSummaries, scoped);
   const { summary, keywords, skipped } = await generateSummary({
     character,
@@ -197,20 +204,18 @@ export async function applySummary({
   if (skipped || !summary.trim()) {
     return { entry: null, boundary: null, summary: '', keywords: [], scoped, skipped: true };
   }
+  if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
+    throw new Error('会话摘要已重置');
+  }
   const boundary = list[list.length - 1].id;
 
   if (scoped) {
-    const nextSummaries = [
-      ...existingSessionSummaries,
-      { summary, keywords, boundary, createdAt: Date.now() },
-    ];
-    await saveSessionSummaries(session.id, nextSummaries);
-    try {
-      await setSessionSummarizedUpTo(session.id, boundary);
-    } catch (error) {
-      await saveSessionSummaries(session.id, existingSessionSummaries).catch(() => {});
-      throw error;
-    }
+    await appendSessionSummary(session.id, {
+      summary,
+      keywords,
+      boundary,
+      createdAt: Date.now(),
+    }, summaryRevision);
     return { entry: null, boundary, summary, keywords, scoped: true, skipped: false };
   }
 
@@ -229,11 +234,20 @@ export async function applySummary({
     position: 0,
     order: 10,
   }, count);
+  if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
+    throw new Error('会话摘要已重置');
+  }
   await updateCharacter({ id: character.id, worldInfo: [...worldInfo, entry] });
-  try {
-    await setSessionSummarizedUpTo(session.id, boundary);
-  } catch (error) {
+  if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
     await updateCharacter({ id: character.id, worldInfo: previousWorldInfo }).catch(() => {});
+    throw new Error('会话摘要已重置');
+  }
+  try {
+    await setSessionSummarizedUpTo(session.id, boundary, summaryRevision);
+  } catch (error) {
+    if (isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
+      await updateCharacter({ id: character.id, worldInfo: previousWorldInfo }).catch(() => {});
+    }
     throw error;
   }
   return { entry, boundary, summary, keywords, scoped: false, skipped: false };
