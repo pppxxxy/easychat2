@@ -95,22 +95,11 @@ export default function MomentsView({ active = true }) {
     };
   }, [active]));
 
-  // 写回时以“存储里的最新列表”为基准做增量：只更新仍然存在的动态、只删除
-  // 明确要删的 id。这样别处（如记忆页连带删除）已经删掉的动态不会被本页的
-  // 陈旧快照重新写回（复活）。
-  const persist = useCallback(async (list, removedIds = []) => {
-    setMoments(list);
-    try {
-      const merged = await updateMoments(stored => {
-        const byId = new Map((Array.isArray(stored) ? stored : []).map(item => [item.id, item]));
-        (Array.isArray(list) ? list : []).forEach(item => {
-          if (item && byId.has(item.id)) byId.set(item.id, item);
-        });
-        (Array.isArray(removedIds) ? removedIds : []).forEach(id => byId.delete(String(id || '')));
-        return [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      });
-      setMoments(merged);
-    } catch (error) {
+  const mutateMoments = useCallback(updater => updateMoments(updater).then(next => {
+    if (mountedRef.current) setMoments(next);
+    return next;
+  }).catch(error => {
+    if (mountedRef.current) {
       Alert.alert(
         '保存失败',
         String((error && error.message) || '').includes('动态记录读取失败')
@@ -118,10 +107,11 @@ export default function MomentsView({ active = true }) {
           : '请检查存储空间或权限。'
       );
     }
-  }, []);
+    return null;
+  }), []);
 
   const toggleLike = useCallback(moment => {
-    const next = moments.map(item => {
+    mutateMoments(list => list.map(item => {
       if (item.id !== moment.id) return item;
       const likes = Array.isArray(item.likes) ? item.likes : [];
       if (item.likedByUser) {
@@ -137,9 +127,8 @@ export default function MomentsView({ active = true }) {
         likedByUser: true,
         likes: [...likes, { id: `user-${Date.now()}`, by: 'user', name: '我', createdAt: Date.now() }],
       };
-    });
-    persist(next);
-  }, [moments, persist]);
+    }));
+  }, [mutateMoments]);
 
   // 停止某条动态正在进行的角色回复：中止请求，后续回包会被 isCanceledError 丢弃。
   const cancelReply = useCallback(momentId => {
@@ -157,22 +146,20 @@ export default function MomentsView({ active = true }) {
         text: '删除',
         style: 'destructive',
         onPress: () => {
-          // 动态都删了，正在进行的回复也没必要继续
           cancelReply(moment.id);
-          persist(moments.filter(item => item.id !== moment.id), [moment.id]);
+          mutateMoments(list => list.filter(item => item.id !== moment.id));
         },
       },
     ]);
-  }, [cancelReply, moments, persist]);
+  }, [cancelReply, moments, mutateMoments]);
 
   const appendComment = useCallback((momentId, comment) => {
-    const next = momentsRef.current.map(item => (
+    mutateMoments(list => list.map(item => (
       item.id === momentId
         ? { ...item, comments: [...(Array.isArray(item.comments) ? item.comments : []), comment] }
         : item
-    ));
-    persist(next);
-  }, [persist]);
+    )));
+  }, [mutateMoments]);
 
   // 动态下的评论相当于一次“不写进记忆的对话”：角色依据这条动态来源的那段记忆来回复。
   // 回复只写回动态评论，不写入会话消息，也不进入记忆摘要。
@@ -268,11 +255,9 @@ export default function MomentsView({ active = true }) {
   }, [appendComment]);
   requestReplyRef.current = requestReply;
 
-  const submitComment = useCallback(moment => {
+  const submitComment = useCallback(async moment => {
     const text = String(commentDrafts[moment.id] || '').trim();
     if (!text) return;
-    const comments = Array.isArray(moment.comments) ? moment.comments : [];
-    const hasUserComment = comments.some(comment => comment.by === 'user');
     const comment = {
       id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       by: 'user',
@@ -281,24 +266,24 @@ export default function MomentsView({ active = true }) {
       createdAt: Date.now(),
       likedByCharacter: false,
     };
-    const next = moments.map(item => {
+    setCommentDrafts(current => ({ ...current, [moment.id]: '' }));
+    const next = await mutateMoments(list => list.map(item => {
       if (item.id !== moment.id) return item;
-      const list = Array.isArray(item.comments) ? item.comments : [];
-      const updated = [...list, comment];
-      if (!hasUserComment) {
-        return {
-          ...item,
-          comments: updated.map(entry => (
+      const comments = Array.isArray(item.comments) ? item.comments : [];
+      const hasUserComment = comments.some(entry => entry.by === 'user');
+      const updated = [...comments, comment];
+      return {
+        ...item,
+        comments: hasUserComment
+          ? updated
+          : updated.map(entry => (
             entry.id === comment.id ? { ...entry, likedByCharacter: true } : entry
           )),
-        };
-      }
-      return { ...item, comments: updated };
-    });
-    setCommentDrafts(current => ({ ...current, [moment.id]: '' }));
-    persist(next);
-    requestReply(moment);
-  }, [commentDrafts, moments, persist, requestReply]);
+      };
+    }));
+    const latest = next && next.find(item => item.id === moment.id);
+    if (latest) requestReply(latest);
+  }, [commentDrafts, mutateMoments, requestReply]);
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
