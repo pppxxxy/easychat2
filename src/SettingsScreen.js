@@ -230,16 +230,19 @@ export default function SettingsScreen() {
         setSampling(settings);
       })
       .catch(() => {});
-    getVectorMemoryConfig()
+     getVectorMemoryConfig()
        .then(config => {
-         vectorMemoryRef.current = config;
          lastSavedVectorRef.current = config;
-         setVectorMemory(config);
-
-        setVectorTopKDraft(String(config.topK));
-        setVectorMaxCharsDraft(String(config.maxChars));
-      })
+         const next = vectorRevisionRef.current > 0 && vectorMemoryRef.current
+           ? { ...config, ...vectorMemoryRef.current }
+           : config;
+         vectorMemoryRef.current = next;
+         setVectorMemory(next);
+         setVectorTopKDraft(String(next.topK));
+         setVectorMaxCharsDraft(String(next.maxChars));
+       })
       .catch(() => {});
+
     getInlineImageSettings()
       .then(settings => {
         inlineImageRef.current = settings;
@@ -469,8 +472,18 @@ export default function SettingsScreen() {
     profileWriteQueueRef.current = saving.catch(() => {});
     profileSavingRef.current = saving;
     try {
-      await saving;
-      lastSavedProfileRef.current = snapshot;
+       await saving;
+       const previous = lastSavedProfileRef.current;
+       lastSavedProfileRef.current = snapshot;
+       if (
+         previous
+         && previous.avatarUri
+         && previous.avatarUri !== snapshot.avatarUri
+         && String(previous.avatarUri).includes('/user-avatar-')
+       ) {
+         FileSystem.deleteAsync(previous.avatarUri, { idempotent: true }).catch(() => {});
+       }
+
       if (profileMountedRef.current && revision === profileRevisionRef.current) {
         setUserProfileSaved(true);
         clearTimeout(profileHintTimerRef.current);
@@ -592,8 +605,10 @@ export default function SettingsScreen() {
       if (!asset?.uri) return;
       const dir = `${FileSystem.documentDirectory}avatars/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
-      const dest = `${dir}user-avatar${ext}`;
+       const mime = String(asset.mimeType || '').toLowerCase();
+       const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
+       const dest = `${dir}user-avatar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       changeUserAvatar(dest);
     } catch (error) {
