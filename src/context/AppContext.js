@@ -191,7 +191,7 @@ export function AppProvider({ children }) {
     });
   }, [applyList, restore, snapshotState, enqueueMutation]);
 
-  const deleteCharacter = useCallback(async id => {
+  const deleteCharacter = useCallback(async (id, options = {}) => {
     if (!loadedRef.current) {
       throw new Error('角色尚未加载完成');
     }
@@ -208,7 +208,12 @@ export function AppProvider({ children }) {
       activeIdRef.current = result.activeId;
       setActiveIdState(result.activeId);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(result.list, result.activeId, id)
+        saveCharacterState(
+          result.list,
+          result.activeId,
+          id,
+          options.clearVectorIds || []
+        )
       );
       return result.list;
     });
@@ -232,7 +237,7 @@ export function AppProvider({ children }) {
     });
   }, [applyList, restore, snapshotState, enqueueMutation]);
 
-  const deleteCharacters = useCallback(async ids => {
+  const deleteCharacters = useCallback(async (ids, options = {}) => {
     if (!loadedRef.current) {
       throw new Error('角色尚未加载完成');
     }
@@ -252,7 +257,12 @@ export function AppProvider({ children }) {
       activeIdRef.current = result.activeId;
       setActiveIdState(result.activeId);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(result.list, result.activeId, list)
+        saveCharacterState(
+          result.list,
+          result.activeId,
+          list,
+          options.clearVectorIds || []
+        )
       );
       return result.list;
     });

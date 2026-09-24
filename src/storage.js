@@ -667,8 +667,15 @@ export async function saveCharacterLibrary(list) {
   return next;
 }
 
-export async function saveCharacterState(list, activeId, deletedIds) {
-  // 角色条目先写、索引后写（提交点），因此这里不再需要整库回滚。
+export async function saveCharacterState(list, activeId, deletedIds, clearVectorIds = []) {
+  const vectorIds = Array.isArray(clearVectorIds)
+    ? clearVectorIds
+    : (clearVectorIds ? [clearVectorIds] : []);
+  for (const id of vectorIds) {
+    if (id && id !== DEFAULT_CHARACTER.id) {
+      await clearVectorIndex(id);
+    }
+  }
   await saveCharacterLibrary(list);
   await setActiveCharacterId(activeId);
   const removed = Array.isArray(deletedIds) ? deletedIds : (deletedIds ? [deletedIds] : []);

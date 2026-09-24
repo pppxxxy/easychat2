@@ -1182,9 +1182,10 @@ export default function CharacterScreen() {
     };
     Promise.resolve(beforeCharacterDelete())
       .then(() => (
-        targetIds.length === 1
-          ? deleteCharacter(targetIds[0])
-          : deleteCharacters(targetIds)
+         targetIds.length === 1
+           ? deleteCharacter(targetIds[0], { clearVectorIds: deleteMemories ? targetIds : [] })
+           : deleteCharacters(targetIds, { clearVectorIds: deleteMemories ? targetIds : [] })
+
       ))
       .then(() => {
         setSelectedIds([]);

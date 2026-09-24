@@ -543,3 +543,26 @@ test('按消息删除只清理目标消息的向量片段', async () => {
     ['b-1', 'c-1']
   );
 });
+
+test('角色完整删除清理向量，仅删角色保留历史向量', async () => {
+  const storage = loadStorage();
+  const first = { id: 'character-delete-1', name: '一号' };
+  const second = { id: 'character-delete-2', name: '二号' };
+  await storage.saveCharacterLibrary([first, second]);
+  await storage.saveVectorIndex(first.id, [
+    { id: 'first-vector', sessionId: 'session-first', messageId: 'm1', text: '一号记忆', vector: [1] },
+  ]);
+  await storage.saveVectorIndex(second.id, [
+    { id: 'second-vector', sessionId: 'session-second', messageId: 'm2', text: '二号记忆', vector: [2] },
+  ]);
+
+  await storage.saveCharacterState([second], second.id, first.id, [first.id]);
+  assert.equal(store.has('@easychat2_vector_index::character-delete-1'), false);
+  assert.equal((await storage.getVectorIndex(second.id)).length, 1);
+
+  await storage.saveVectorIndex(first.id, [
+    { id: 'first-vector-restored', sessionId: 'session-first', messageId: 'm1', text: '一号记忆', vector: [1] },
+  ]);
+  await storage.saveCharacterState([second], second.id, first.id, []);
+  assert.equal((await storage.getVectorIndex(first.id)).length, 1);
+});
