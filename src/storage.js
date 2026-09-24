@@ -1143,6 +1143,25 @@ async function readStickerStatus() {
     }
     stickers.push(normalized);
   }
+  const legacy = await readJsonStatus(STICKERS_KEY);
+  if (legacy.status !== 'missing') {
+    if (legacy.status === 'corrupt' || !Array.isArray(legacy.value)) {
+      await backupCorruptValue(STICKERS_KEY);
+      return { status: 'ok', stickers: sortStickers(stickers) };
+    }
+    const normalizedLegacy = legacy.value.map(normalizeSticker);
+    if (normalizedLegacy.some(item => !item.id || !item.name || !item.uri)) {
+      await backupCorruptValue(STICKERS_KEY);
+      return { status: 'ok', stickers: sortStickers(stickers) };
+    }
+    const byId = new Map(stickers.map(item => [item.id, item]));
+    normalizedLegacy.forEach(item => {
+      if (!byId.has(item.id)) byId.set(item.id, item);
+    });
+    const merged = sortStickers([...byId.values()]);
+    await writeStickerCollection(merged);
+    return { status: 'ok', stickers: merged };
+  }
   return { status: 'ok', stickers: sortStickers(stickers) };
 }
 
@@ -1174,6 +1193,35 @@ export function getStickers() {
   });
   stickerWriteQueue = task.catch(() => {});
   return task;
+}
+
+export async function collectStickerImageFiles() {
+  const status = await readStickerStatus();
+  if (status.status !== 'ok') return false;
+  const referenced = new Set(status.stickers.map(item => String(item.uri || '')).filter(Boolean));
+  const directory = `${FileSystem.documentDirectory || ''}stickers/`;
+  let entries = [];
+  try {
+    entries = await FileSystem.readDirectoryAsync(directory);
+  } catch (error) {
+    return true;
+  }
+  for (const entry of entries) {
+    const uri = `${directory}${entry}`;
+    if (referenced.has(uri)) continue;
+    try {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    } catch (error) {}
+  }
+  return true;
+}
+
+export async function collectOrphanImageFiles() {
+  const [chatResult, stickerResult] = await Promise.all([
+    collectChatImageFiles(),
+    collectStickerImageFiles(),
+  ]);
+  return chatResult !== false && stickerResult !== false;
 }
 
 export function saveSticker(sticker) {

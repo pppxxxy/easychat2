@@ -25,6 +25,7 @@ import {
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
   deleteSessions as deleteSessionsStorage,
+  collectOrphanImageFiles,
 } from '../storage';
 import {
   resolveActiveId,
@@ -104,6 +105,7 @@ export function AppProvider({ children }) {
         if (!cancelled) {
           loadedRef.current = true;
           setLoaded(true);
+          collectOrphanImageFiles().catch(() => {});
         }
       }
     };

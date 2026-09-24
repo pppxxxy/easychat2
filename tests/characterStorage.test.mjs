@@ -293,12 +293,53 @@ test('表情包元数据迁移到索引与分片键并保持串行写入', async
   assert.equal(JSON.parse(store.get('@easychat2_sticker_item::sticker-c')).name, '惊讶');
 });
 
+test('索引已部分写入时继续合并旧表情包记录', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sticker_index', JSON.stringify(['sticker-a']));
+  store.set('@easychat2_sticker_item::sticker-a', JSON.stringify({
+    id: 'sticker-a', name: '开心', uri: 'file:///stickers/a.jpg', createdAt: 1,
+  }));
+  store.set('@easychat2_stickers', JSON.stringify([
+    { id: 'sticker-a', name: '开心', uri: 'file:///stickers/a.jpg', createdAt: 1 },
+    { id: 'sticker-b', name: '生气', uri: 'file:///stickers/b.jpg', createdAt: 2 },
+  ]));
+
+  const stickers = await storage.getStickers();
+  assert.deepEqual(stickers.map(item => item.id).sort(), ['sticker-a', 'sticker-b']);
+  assert.equal(store.has('@easychat2_stickers'), false);
+});
+
 test('损坏的旧表情包键只备份不迁移覆盖', async () => {
   const storage = loadStorage();
   store.set('@easychat2_stickers', JSON.stringify([{ id: 'broken' }]));
   assert.deepEqual(await storage.getStickers(), []);
   assert.equal(store.has('@easychat2_stickers'), true);
   assert.equal(store.has('@easychat2_stickers__corrupt_backup'), true);
+});
+
+test('启动清理未引用的聊天图片和表情包文件', async () => {
+  const storage = loadStorage();
+  const chatUri = 'file:///documents/chat-images/orphan.jpg';
+  const keptChatUri = 'file:///documents/chat-images/kept.jpg';
+  const stickerUri = 'file:///documents/stickers/orphan.jpg';
+  const keptStickerUri = 'file:///documents/stickers/kept.jpg';
+  files.set(chatUri, 'chat');
+  files.set(keptChatUri, 'chat');
+  files.set(stickerUri, 'sticker');
+  files.set(keptStickerUri, 'sticker');
+  store.set('@easychat2_messages::kept', JSON.stringify([{ image: { uri: keptChatUri } }]));
+  store.set('@easychat2_sticker_index', JSON.stringify(['kept-sticker']));
+  store.set('@easychat2_sticker_item::kept-sticker', JSON.stringify({
+    id: 'kept-sticker',
+    name: '保留',
+    uri: keptStickerUri,
+  }));
+
+  assert.equal(await storage.collectOrphanImageFiles(), true);
+  assert.equal(files.has(chatUri), false);
+  assert.equal(files.has(keptChatUri), true);
+  assert.equal(files.has(stickerUri), false);
+  assert.equal(files.has(keptStickerUri), true);
 });
 
 test('会话存储队列阻止删除后的迟到消息写回', async () => {
