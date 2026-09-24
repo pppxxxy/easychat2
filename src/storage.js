@@ -876,6 +876,10 @@ function normalizeVectorIndex(index) {
     }));
 }
 
+function vectorSegmentKey(item) {
+  return `${String(item && item.sessionId || '')}\u0000${String(item && item.id || '')}`;
+}
+
 async function readVectorIndexStatus(characterId) {
   const key = vectorIndexKey(characterId);
   const stored = await readJsonStatus(key);
@@ -908,7 +912,9 @@ export function saveVectorIndex(characterId, index) {
     if (status.status === 'corrupt') {
       throw new Error('向量记忆索引读取失败，请稍后重试');
     }
-    return saveVectorIndexInternal(characterId, index);
+    const byKey = new Map(status.index.map(item => [vectorSegmentKey(item), item]));
+    normalizeVectorIndex(index).forEach(item => byKey.set(vectorSegmentKey(item), item));
+    return saveVectorIndexInternal(characterId, [...byKey.values()]);
   });
 }
 

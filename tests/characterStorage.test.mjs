@@ -584,6 +584,20 @@ test('批量删除会话清理同角色全部目标向量', async () => {
   assert.deepEqual(await storage.getVectorIndex(characterId), []);
 });
 
+test('向量保存入口执行增量合并，不覆盖其他会话片段', async () => {
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-upsert', [
+    { id: 'first', sessionId: 'session-a', messageId: 'm1', text: '甲', vector: [1] },
+  ]);
+  await storage.saveVectorIndex('character-upsert', [
+    { id: 'second', sessionId: 'session-b', messageId: 'm2', text: '乙', vector: [2] },
+  ]);
+  assert.deepEqual(
+    (await storage.getVectorIndex('character-upsert')).map(item => item.id),
+    ['first', 'second']
+  );
+});
+
 test('按消息删除只清理目标消息的向量片段', async () => {
   const storage = loadStorage();
   await storage.saveVectorIndex('character-message-delete', [

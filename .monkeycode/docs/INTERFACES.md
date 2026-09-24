@@ -284,7 +284,7 @@
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
 | `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
 | `getVectorIndex` / `getVectorIndexStatus` | `(characterId) => Promise<Segment[]>` / `(characterId) => Promise<{ status, index }>` | 读取角色级向量索引；损坏时先备份并返回 `corrupt`，群聊不建立索引 |
-| `saveVectorIndex` / `updateVectorIndex` | `(characterId, index)` / `(characterId, updater)` | 在角色级写队列中保存或原子更新索引；`updater` 返回 `undefined` 时跳过写回 |
+| `saveVectorIndex` / `updateVectorIndex` | `(characterId, index)` / `(characterId, updater)` | 在角色级写队列中执行增量 upsert 或原子更新；`updater` 返回 `undefined` 时跳过写回，删除使用专用清理入口 |
 | `removeVectorIndexForSession` / `removeVectorIndexForSessions` | `(characterId, sessionId(s))` | 按会话清理向量片段，批量入口按角色一次读改写 |
 | `removeVectorIndexForMessage` / `removeVectorIndexForMessages` | `(characterId, sessionId, messageId(s))` | 只清理指定会话中的指定消息片段 |
 | `reconcileVectorIndexes` | `() => Promise<{ scannedKeys, removed, legacyRetained, failedKeys }>` | 启动时清理已删除会话和群聊误写片段；无会话归属的旧角色级条目保留 |
