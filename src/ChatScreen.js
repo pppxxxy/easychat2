@@ -1636,20 +1636,20 @@ export default function ChatScreen() {
         style: 'destructive',
         onPress: () => {
           if (!canClear()) return;
+          sessionVersionRef.current += 1;
           errorRawRef.current = {};
-           if (canClear() && !isGroupRef.current) {
-             setGreetingReady(false);
-             setSessionGreetingSelected(clearSessionId, false)
-               .then(() => refreshSessions())
-               .catch(() => {});
-           }
-           if (canClear() && clearOwnerId) {
-             removeVectorIndexForSession(clearOwnerId, clearSessionId).catch(error => {
-               if (__DEV__) console.warn('[vector] clear cleanup failed', error);
-             });
-           }
-
-           setMessages(current => canClear() ? [] : current);
+          if (!isGroupRef.current) {
+            setGreetingReady(false);
+            setSessionGreetingSelected(clearSessionId, false)
+              .then(() => refreshSessions())
+              .catch(() => {});
+          }
+          if (clearOwnerId) {
+            removeVectorIndexForSession(clearOwnerId, clearSessionId).catch(error => {
+              if (__DEV__) console.warn('[vector] clear cleanup failed', error);
+            });
+          }
+          setMessages([]);
         }
       }
     ]);
@@ -3162,6 +3162,7 @@ export default function ChatScreen() {
               sessionVersionRef.current !== sessionVersion
               || activeSessionIdRef.current !== sessionId
             ) return;
+            sessionVersionRef.current += 1;
             const vectorOwnerId = getVectorOwnerId(session, characterId);
             if (vectorOwnerId) {
               removeVectorIndexForMessages(vectorOwnerId, sessionId, ids).catch(error => {
@@ -3493,6 +3494,7 @@ export default function ChatScreen() {
             activeSessionIdRef.current !== sessionId
             || sessionVersionRef.current !== sessionVersion
           ) return;
+          sessionVersionRef.current += 1;
           const vectorOwnerId = getVectorOwnerId(session, characterId);
           if (vectorOwnerId) {
             removeVectorIndexForMessage(vectorOwnerId, sessionId, messageId).catch(error => {
