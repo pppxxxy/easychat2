@@ -2,7 +2,7 @@ import { getImageProvider } from './providers';
 import { registerSecretValues } from '../secrets';
 
 const DEFAULT_TIMEOUT_MS = 60000;
-const DEFAULT_RETRIES = 1;
+const DEFAULT_RETRIES = 0;
 
 export function getByPath(source, path) {
   if (path === undefined || path === null || path === '') return undefined;
@@ -278,7 +278,7 @@ export function parseModelList(data) {
   return [];
 }
 
-export async function listModels({ provider, config }) {
+export async function listModels({ provider, config, signal }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
   const resolvedConfig = normalizeConfig(resolvedProvider, config);
   const url = listUrlFor(resolvedProvider, resolvedConfig.baseUrl);
@@ -295,14 +295,16 @@ export async function listModels({ provider, config }) {
     url,
     headers,
     body: null,
-    timeoutMs: Math.min(resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS, 30000),
-  });
+     timeoutMs: Math.min(resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS, 30000),
+     signal,
+   });
+
   return parseModelList(data);
 }
 
-export async function detectImageProvider({ provider, config, model }) {
+export async function detectImageProvider({ provider, config, model, signal }) {
   try {
-    const models = await listModels({ provider, config });
+    const models = await listModels({ provider, config, signal });
     const normalizedModel = String(model || '').trim();
     if (normalizedModel && models.length > 0) {
       const hit = models.some(item => item === normalizedModel || item.includes(normalizedModel));
@@ -326,7 +328,7 @@ export async function detectImageProvider({ provider, config, model }) {
   }
 }
 
-export async function probeImageProvider({ provider, config, model, prompt }) {
+export async function probeImageProvider({ provider, config, model, prompt, signal }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的生图服务');
   const result = await generateImage({
@@ -335,29 +337,70 @@ export async function probeImageProvider({ provider, config, model, prompt }) {
     prompt: String(prompt || '').trim() || 'a small red dot',
     model,
     // 探测用最小尺寸，压低试生成费用
-    size: resolvedProvider.probeSize || '512x512',
-  });
+     size: resolvedProvider.probeSize || '512x512',
+     signal,
+   });
+
   return { images: Array.isArray(result.images) ? result.images.length : 0 };
 }
 
-function xhrRequest({ method, url, headers, body, timeoutMs }) {
+function createAbortError() {
+  const error = new Error('生成已中断');
+  error.name = 'AbortError';
+  error.canceled = true;
+  return error;
+}
+
+function createHttpError(status) {
+  const error = new Error(mapHttpError(status));
+  error.status = status;
+  error.retryable = status === 429;
+  return error;
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function xhrRequest({ method, url, headers, body, timeoutMs, signal }) {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(createAbortError());
+      return;
+    }
     const xhr = new XMLHttpRequest();
     let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(new Error('生成超时，请稍后重试'));
-    }, timeoutMs || DEFAULT_TIMEOUT_MS);
+    let canceled = false;
+    let removeAbortListener = null;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (removeAbortListener) {
+        removeAbortListener();
+        removeAbortListener = null;
+      }
       fn(value);
     };
+    const timer = setTimeout(() => {
+      finish(reject, new Error('生成超时，请稍后重试'));
+      try {
+        xhr.abort();
+      } catch (error) {}
+    }, timeoutMs || DEFAULT_TIMEOUT_MS);
+    if (signal) {
+      const onAbort = () => {
+        canceled = true;
+        finish(reject, createAbortError());
+        try {
+          xhr.abort();
+        } catch (error) {}
+      };
+      signal.addEventListener('abort', onAbort);
+      removeAbortListener = () => signal.removeEventListener('abort', onAbort);
+      if (signal.aborted) onAbort();
+      if (settled) return;
+    }
     xhr.open(method || 'POST', url);
     Object.entries(headers || {}).forEach(([key, value]) => {
       try {
@@ -366,7 +409,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs }) {
     });
     xhr.onload = () => {
       if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, new Error(mapHttpError(xhr.status)));
+        finish(reject, createHttpError(xhr.status));
         return;
       }
       let parsed = null;
@@ -379,7 +422,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs }) {
       finish(resolve, parsed);
     };
     xhr.onerror = () => finish(reject, new Error('生成网络请求失败'));
-    xhr.onabort = () => finish(reject, new Error('生成已中断'));
+    xhr.onabort = () => finish(reject, canceled ? createAbortError() : new Error('生成已中断'));
     try {
       xhr.send(body || null);
     } catch (error) {
@@ -388,7 +431,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs }) {
   });
 }
 
-export async function generateImage({ provider, prompt, imageFile, imageUrl, imageUri, image, model, size, seed, extra, config, imageMime }) {
+export async function generateImage({ provider, prompt, imageFile, imageUrl, imageUri, image, model, size, seed, extra, config, imageMime, signal }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的生图服务');
   const resolvedConfig = config || extra && extra.config || {};
@@ -420,22 +463,27 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
   });
   if (!request) throw new Error('请求配置不完整');
 
-  const retries = Number.isInteger(resolvedProvider.retries) ? resolvedProvider.retries : DEFAULT_RETRIES;
+  const configuredRetries = Number.isInteger(resolvedProvider.retries)
+    ? resolvedProvider.retries
+    : DEFAULT_RETRIES;
+  const retries = resolvedProvider.allowAutomaticRetries === true
+    ? Math.max(0, configuredRetries)
+    : 0;
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
       const data = await xhrRequest({
         ...request,
         timeoutMs: resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS,
+        signal,
       });
       const images = parseImages(resolvedProvider, data);
       if (images.length === 0) throw new Error('未从响应中解析到图片');
       return { images, raw: data };
     } catch (error) {
       lastError = error;
-      // 生图接口按次计费：超时或网络中断时服务端可能已经受理并计费，
-      // 重试会造成重复扣费，所以这类失败一律不再重试（只重试确定未受理的失败）。
-      if (error && /密钥无效|过于频繁|请先填写|提示词|无法解析|未从响应|超时|网络|中断/.test(error.message || '')) throw error;
+      if (attempt >= retries || !error || error.retryable !== true) throw error;
+      await wait(Math.min(2000, 250 * (attempt + 1)));
     }
   }
   throw lastError || new Error('生成失败');

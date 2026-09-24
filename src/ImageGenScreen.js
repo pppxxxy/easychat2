@@ -67,14 +67,18 @@ export default function ImageGenScreen({ embedded = false }) {
   const [detecting, setDetecting] = useState(false);
   const [topic, setTopic] = useState(null);
   const mountedRef = useRef(true);
+  const generationControllerRef = useRef(null);
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
+     return () => {
+       mountedRef.current = false;
+       generationControllerRef.current?.abort();
+       generationControllerRef.current = null;
+     };
+
   }, []);
 
   useEffect(() => {
@@ -287,8 +291,11 @@ export default function ImageGenScreen({ embedded = false }) {
       Alert.alert('不支持图生图', '当前服务只支持文生图，请移除输入图片。');
       return;
     }
-    setGenerating(true);
-    try {
+     const controller = new AbortController();
+     generationControllerRef.current = controller;
+     setGenerating(true);
+     try {
+
       let imageFile = '';
       if (imageUri) {
         const base64 = await FileSystem.readAsStringAsync(imageUri, {
@@ -306,14 +313,22 @@ export default function ImageGenScreen({ embedded = false }) {
         imageMime,
         model: model || undefined,
         size,
-        seed: Number.isFinite(seedValue) ? seedValue : undefined,
-      });
-      if (!mountedRef.current) return;
-      setResults(current => [...response.images, ...current].slice(0, 30));
-    } catch (error) {
-      Alert.alert('生成失败', (error && error.message) || '请稍后重试。');
-    } finally {
-      if (mountedRef.current) setGenerating(false);
+         seed: Number.isFinite(seedValue) ? seedValue : undefined,
+         signal: controller.signal,
+       });
+
+       if (!mountedRef.current || controller.signal.aborted) return;
+       setResults(current => [...response.images, ...current].slice(0, 30));
+     } catch (error) {
+       if (mountedRef.current && !controller.signal.aborted) {
+         Alert.alert('生成失败', (error && error.message) || '请稍后重试。');
+       }
+     } finally {
+       if (generationControllerRef.current === controller) {
+         generationControllerRef.current = null;
+         if (mountedRef.current) setGenerating(false);
+       }
+
     }
   }, [generating, imageMime, imageUri, model, prompt, provider, providerConfig, seed, size]);
 
