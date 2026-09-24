@@ -1173,26 +1173,38 @@ export default function CharacterScreen() {
       .filter(Boolean);
     if (targetIds.length === 0) return;
     const memoryIds = sessionsOfCharacters(targetIds);
-    const beforeCharacterDelete = () => {
-      if (!deleteMemories) return null;
-      return removeMomentsOfCharacterData(targetIds, memoryIds)
-        .then(() => (
-          memoryIds.length > 0 ? deleteSessions(memoryIds, targetIds) : null
-        ));
+    let momentsDeleted = false;
+    let sessionsDeleted = false;
+    const beforeCharacterDelete = async () => {
+      if (!deleteMemories) return;
+      await removeMomentsOfCharacterData(targetIds, memoryIds);
+      momentsDeleted = true;
+      if (memoryIds.length > 0) {
+        await deleteSessions(memoryIds, targetIds);
+      }
+      sessionsDeleted = true;
     };
-    Promise.resolve(beforeCharacterDelete())
+    Promise.resolve()
+      .then(beforeCharacterDelete)
       .then(() => (
-         targetIds.length === 1
-           ? deleteCharacter(targetIds[0], { clearVectorIds: deleteMemories ? targetIds : [] })
-           : deleteCharacters(targetIds, { clearVectorIds: deleteMemories ? targetIds : [] })
-
+        targetIds.length === 1
+          ? deleteCharacter(targetIds[0], { clearVectorIds: deleteMemories ? targetIds : [] })
+          : deleteCharacters(targetIds, { clearVectorIds: deleteMemories ? targetIds : [] })
       ))
       .then(() => {
         setSelectedIds([]);
         setEditMode(false);
       })
       .catch(error => {
-        Alert.alert('删除失败', (error && error.message) || '请检查存储空间或权限。');
+        let message = (error && error.message) || '请检查存储空间或权限。';
+        if (deleteMemories && momentsDeleted && sessionsDeleted) {
+          message = '关联动态和记忆已删除，但角色删除失败，请重试。';
+        } else if (deleteMemories && momentsDeleted) {
+          message = '关联动态已删除，但记忆删除失败，角色未删除，请重试。';
+        } else if (deleteMemories) {
+          message = '关联动态删除失败，角色未删除，请重试。';
+        }
+        Alert.alert('删除失败', message);
       });
   };
 
