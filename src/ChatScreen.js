@@ -1644,12 +1644,15 @@ export default function ChatScreen() {
             setSessionGreetingSelected(clearSessionId, false)
               .then(() => refreshSessions())
               .catch(() => {});
-          }
-          setMessages(current => canClear() ? [] : current);
+           }
+           if (canClear() && !isGroupRef.current) {
+             removeVectorIndexForSession(clearCharacterId, clearSessionId).catch(() => {});
+           }
+           setMessages(current => canClear() ? [] : current);
         }
       }
     ]);
-  }, [refreshSessions]);
+  }, [refreshSessions, removeVectorIndexForSession]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     const current = messages.find(item => isGreetingMessage(item, activeSessionIdRef.current));
@@ -3126,8 +3129,11 @@ export default function ChatScreen() {
             if (
               sessionVersionRef.current !== sessionVersion
               || activeSessionIdRef.current !== sessionId
-            ) return;
-            setMessages(current => removeMessagesByIds(current, ids));
+             ) return;
+             if (!isGroupRef.current) {
+               removeVectorIndexForSession(characterId, sessionId).catch(() => {});
+             }
+             setMessages(current => removeMessagesByIds(current, ids));
             ids.forEach(id => {
               delete errorRawRef.current[id];
               delete messageOffsetsRef.current[id];
@@ -3143,7 +3149,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [isSending, ready, selectedMessageIds]);
+  }, [characterId, isSending, ready, removeVectorIndexForSession, selectedMessageIds]);
 
   const toggleBroadcast = useCallback(async () => {
     const next = { ...ttsSettings, enabled: !ttsSettings.enabled };
@@ -3439,19 +3445,24 @@ export default function ChatScreen() {
 
   const confirmDeleteImageMessage = useCallback(messageId => {
     if (!messageId) return;
+    const sessionId = activeSessionIdRef.current;
     Alert.alert('删除图片消息', '确定删除这张图片消息吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
         style: 'destructive',
         onPress: () => {
+          if (activeSessionIdRef.current !== sessionId) return;
+          if (!isGroupRef.current) {
+            removeVectorIndexForSession(characterId, sessionId).catch(() => {});
+          }
           setMessages(current => removeMessagesByIds(current, [messageId]));
           setSelectedMessageIds(current => current.filter(id => id !== messageId));
           setFocusedMessageId(current => current === messageId ? '' : current);
         },
       },
     ]);
-  }, []);
+  }, [characterId, removeVectorIndexForSession]);
 
   const confirmStickerName = useCallback(async () => {
     if (stickerSaveLockRef.current) return;

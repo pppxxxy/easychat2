@@ -722,6 +722,7 @@ export async function deleteCharacter(characterId) {
   if (characterId && characterId !== DEFAULT_CHARACTER.id) {
     try {
       await AsyncStorage.removeItem(messagesKey(characterId));
+      await clearVectorIndex(characterId);
     } catch (error) {}
   }
   return saved;
@@ -2521,6 +2522,11 @@ async function deleteSessionInternal(sessionId) {
   const activeId = await getActiveSessionId();
   const remaining = sessions.filter(session => session.id !== sessionId);
   await saveSessionsInternal(remaining);
+  if (target && target.type !== 'group') {
+    try {
+      await removeVectorIndexForSession(target.characterId, sessionId);
+    } catch (error) {}
+  }
   deletedSessionIds.add(String(sessionId));
   try {
     await AsyncStorage.multiRemove([
@@ -2550,6 +2556,14 @@ async function deleteSessionsInternal(sessionIds) {
   const idSet = new Set(ids);
   const remaining = sessions.filter(session => !idSet.has(session.id));
   await saveSessionsInternal(remaining);
+  for (const id of ids) {
+    const target = sessions.find(session => session.id === id);
+    if (target && target.type !== 'group') {
+      try {
+        await removeVectorIndexForSession(target.characterId, id);
+      } catch (error) {}
+    }
+  }
   ids.forEach(id => deletedSessionIds.add(String(id)));
   try {
     await AsyncStorage.multiRemove(ids.flatMap(id => [

@@ -317,6 +317,19 @@ test('损坏的旧表情包键只备份不迁移覆盖', async () => {
   assert.equal(store.has('@easychat2_stickers__corrupt_backup'), true);
 });
 
+test('删除会话只清理对应会话的向量片段', async () => {
+  const storage = loadStorage();
+  const first = await storage.startNewSession('character-vector-delete-1');
+  const second = await storage.startNewSession('character-vector-delete-2');
+  await storage.saveVectorIndex('character-vector-delete-1', [
+    { id: 'first', sessionId: first.id, text: '甲', vector: [1] },
+    { id: 'second', sessionId: second.id, text: '乙', vector: [2] },
+  ]);
+  await storage.deleteSession(first.id);
+  const index = await storage.getVectorIndex('character-vector-delete-1');
+  assert.deepEqual(index.map(item => item.id), ['second']);
+});
+
 test('启动清理未引用的聊天图片和表情包文件', async () => {
   const storage = loadStorage();
   const chatUri = 'file:///documents/chat-images/orphan.jpg';
