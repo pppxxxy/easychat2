@@ -378,7 +378,7 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         style={[styles.contentInput, styles.codeInput]}
         value={script.findRegex}
         onChangeText={findRegex => onChange({ findRegex })}
-        placeholder="例如：\\bfoo\\b"
+        placeholder={'例如：\\bfoo\\b'}
         multiline
         textAlignVertical="top"
       />

@@ -54,7 +54,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave }) {
 
   const save = () => {
     const tags = tagText
-      .split(/[、,，\s]+/)
+      .split(/[、,，]+/)
       .map(item => item.trim())
       .filter(Boolean)
       .slice(0, 10);
