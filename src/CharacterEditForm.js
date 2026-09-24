@@ -53,13 +53,31 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
   const [tagDraft, setTagDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const sessionRef = useRef(0);
+  const imageOperationRef = useRef(0);
+  const pendingImageUrisRef = useRef(new Map());
+  const mountedRef = useRef(true);
   const characterId = character?.id || '';
 
   useEffect(() => {
-    if (!visible) return;
+    mountedRef.current = true;
     sessionRef.current += 1;
+    imageOperationRef.current += 1;
+    pendingImageUrisRef.current.forEach(uri => {
+      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    });
+    pendingImageUrisRef.current.clear();
+    if (!visible) return undefined;
     setDraft(emptyDraft(character));
     setTagDraft('');
+    return () => {
+      mountedRef.current = false;
+      sessionRef.current += 1;
+      imageOperationRef.current += 1;
+      pendingImageUrisRef.current.forEach(uri => {
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      });
+      pendingImageUrisRef.current.clear();
+    };
   }, [visible, characterId]);
 
   const patch = useMemo(() => (key, value) => {
@@ -67,6 +85,13 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
   }, []);
 
   const pickImage = async key => {
+    const operation = ++imageOperationRef.current;
+    const session = sessionRef.current;
+    const isCurrent = () => (
+      mountedRef.current
+      && imageOperationRef.current === operation
+      && sessionRef.current === session
+    );
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/png', 'image/jpeg'],
@@ -74,46 +99,86 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
         multiple: false,
       });
       const asset = getPickedAsset(result);
-      if (!asset?.uri) return;
+      if (!asset?.uri || !isCurrent()) return;
       const dir = `${FileSystem.documentDirectory}avatars/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      const ext = asset.uri.endsWith('.png') ? '.png' : '.jpg';
+      if (!isCurrent()) return;
+      const mime = String(asset.mimeType || '').toLowerCase();
+      const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
       const dest = `${dir}${characterId || 'chat'}-${key}-${Date.now()}${ext}`;
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      if (!isCurrent()) {
+        await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+        return;
+      }
+      const previous = pendingImageUrisRef.current.get(key);
+      if (previous && previous !== dest) {
+        await FileSystem.deleteAsync(previous, { idempotent: true }).catch(() => {});
+      }
+      pendingImageUrisRef.current.set(key, dest);
       patch(key, dest);
     } catch (error) {
-      Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
     }
+  };
+
+  const clearImage = key => {
+    const pending = pendingImageUrisRef.current.get(key);
+    if (pending) {
+      FileSystem.deleteAsync(pending, { idempotent: true }).catch(() => {});
+      pendingImageUrisRef.current.delete(key);
+    }
+    patch(key, '');
+  };
+
+  const handleClose = () => {
+    sessionRef.current += 1;
+    imageOperationRef.current += 1;
+    pendingImageUrisRef.current.forEach(uri => {
+      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    });
+    pendingImageUrisRef.current.clear();
+    onClose();
   };
 
   const addTag = () => {
     const tag = tagDraft.trim();
     if (!tag) return;
-    if ((draft.tags || []).includes(tag)) {
-      setTagDraft('');
-      return;
-    }
-    patch('tags', [...draft.tags, tag]);
+    setDraft(current => {
+      if ((current.tags || []).includes(tag)) return current;
+      return { ...current, tags: [...(current.tags || []), tag] };
+    });
     setTagDraft('');
   };
 
   const removeTag = tag => {
-    patch('tags', draft.tags.filter(item => item !== tag));
+    setDraft(current => ({
+      ...current,
+      tags: (current.tags || []).filter(item => item !== tag),
+    }));
   };
 
   const addGreeting = () => {
-    patch('alternateGreetings', [...draft.alternateGreetings, '']);
+    setDraft(current => ({
+      ...current,
+      alternateGreetings: [...(current.alternateGreetings || []), ''],
+    }));
   };
 
   const updateGreeting = (index, value) => {
-    patch(
-      'alternateGreetings',
-      draft.alternateGreetings.map((item, i) => (i === index ? value : item))
-    );
+    setDraft(current => ({
+      ...current,
+      alternateGreetings: (current.alternateGreetings || []).map((item, i) => (
+        i === index ? value : item
+      )),
+    }));
   };
 
   const removeGreeting = index => {
-    patch('alternateGreetings', draft.alternateGreetings.filter((_, i) => i !== index));
+    setDraft(current => ({
+      ...current,
+      alternateGreetings: (current.alternateGreetings || []).filter((_, i) => i !== index),
+    }));
   };
 
   const save = async () => {
@@ -145,10 +210,17 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
     };
     setSaving(true);
     try {
-      await updateCharacter(next);
-      if (sessionRef.current === session) {
-        if (typeof onSaved === 'function') onSaved(next);
-      }
+       await updateCharacter(next);
+       if (sessionRef.current === session) {
+         if (pendingImageUrisRef.current.get('avatarUri') === next.avatarUri) {
+           pendingImageUrisRef.current.delete('avatarUri');
+         }
+         if (pendingImageUrisRef.current.get('bgUri') === next.bgUri) {
+           pendingImageUrisRef.current.delete('bgUri');
+         }
+         if (typeof onSaved === 'function') onSaved(next);
+       }
+
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限，已填内容不会丢失。');
     } finally {
@@ -161,7 +233,8 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={onClose}
+       onRequestClose={handleClose}
+
     >
       <KeyboardAvoidingView
         style={styles.backdrop}
@@ -170,7 +243,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>编辑角色</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -208,7 +281,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
                   <Text style={styles.smallButtonText}>{draft.avatarUri ? '更换' : '选择头像'}</Text>
                 </TouchableOpacity>
                 {draft.avatarUri ? (
-                  <TouchableOpacity onPress={() => patch('avatarUri', '')} hitSlop={8}>
+                  <TouchableOpacity onPress={() => clearImage('avatarUri')} hitSlop={8}>
                     <Text style={styles.removeText}>清除</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -229,7 +302,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
                   <Text style={styles.smallButtonText}>{draft.bgUri ? '更换' : '选择背景'}</Text>
                 </TouchableOpacity>
                 {draft.bgUri ? (
-                  <TouchableOpacity onPress={() => patch('bgUri', '')} hitSlop={8}>
+                  <TouchableOpacity onPress={() => clearImage('bgUri')} hitSlop={8}>
                     <Text style={styles.removeText}>清除</Text>
                   </TouchableOpacity>
                 ) : null}
