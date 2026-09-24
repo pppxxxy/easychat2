@@ -247,13 +247,15 @@ export default function MomentsView({ active = true }) {
         likedByCharacter: false,
       });
     } catch (error) {
-      if (!isCanceledError(error)) {
+      if (!isCanceledError(error) && mountedRef.current) {
         Alert.alert('角色没有回复', (error && error.message) || '请稍后再试。');
       }
     } finally {
       replyControllersRef.current.delete(momentId);
       replyingRef.current.delete(momentId);
-      setReplying(current => current.filter(id => id !== momentId));
+      if (mountedRef.current) {
+        setReplying(current => current.filter(id => id !== momentId));
+      }
       if (mountedRef.current) {
         // 回复期间又来了评论：补一次回复（用最新动态，把新评论一并带上）。
         if (pendingReplyRef.current.has(momentId)) {
