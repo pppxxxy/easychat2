@@ -499,8 +499,42 @@ function renderHighlightedText(text, keyword, styles) {
 const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, selectionMode, selected }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
+   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+   const markdownRules = useMemo(() => {
+     const codeRule = (node, children, parent, ruleStyles, inheritedStyles, styleKey) => {
+       let content = typeof node.content === 'string' ? node.content : '';
+       if (content.endsWith('\n')) content = content.slice(0, -1);
+       return (
+         <ScrollView
+           key={node.key}
+           horizontal
+           showsHorizontalScrollIndicator={false}
+           style={styles.markdownCodeScroll}
+         >
+           <Text style={[inheritedStyles, ruleStyles[styleKey]]}>{content}</Text>
+         </ScrollView>
+       );
+     };
+     return {
+       code_block: (node, children, parent, ruleStyles, inheritedStyles) => (
+         codeRule(node, children, parent, ruleStyles, inheritedStyles, 'code_block')
+       ),
+       fence: (node, children, parent, ruleStyles, inheritedStyles) => (
+         codeRule(node, children, parent, ruleStyles, inheritedStyles, 'fence')
+       ),
+       table: (node, children, parent, ruleStyles) => (
+         <ScrollView
+           key={node.key}
+           horizontal
+           showsHorizontalScrollIndicator={false}
+           style={styles.markdownTableScroll}
+         >
+           <View style={ruleStyles._VIEW_SAFE_table}>{children}</View>
+         </ScrollView>
+       ),
+     };
+   }, [styles.markdownCodeScroll, styles.markdownTableScroll]);
+   const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
   const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
   const isUser = message.role === USER_ID;
   const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
@@ -713,7 +747,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
               defaultTextProps={{ selectable: true }}
             />
           ) : (
-            <Markdown style={markdownStyles}>{message.text}</Markdown>
+             <Markdown style={markdownStyles} rules={markdownRules}>{message.text}</Markdown>
           )}
           {isGreeting && onReselectGreeting ? (
             <TouchableOpacity
@@ -5387,6 +5421,12 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.primarySoft,
     fontSize: 12,
     fontWeight: '700',
+  },
+  markdownCodeScroll: {
+    maxWidth: '100%',
+  },
+  markdownTableScroll: {
+    maxWidth: '100%',
   },
   bubble: {
     maxWidth: '95%',
