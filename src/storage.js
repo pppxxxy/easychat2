@@ -1307,12 +1307,42 @@ export async function collectStickerImageFiles() {
   return true;
 }
 
+export async function collectAvatarImageFiles() {
+  const [characters, sessionsStatus, profile] = await Promise.all([
+    getCharacterLibrary().catch(() => null),
+    readSessionsStatus(),
+    getUserProfile().catch(() => null),
+  ]);
+  if (!characters || !profile || sessionsStatus.status === 'corrupt') return false;
+  const referenced = new Set([
+    profile.avatarUri,
+    ...characters.flatMap(item => [item.avatarUri, item.bgUri]),
+    ...sessionsStatus.sessions.flatMap(item => [item.avatarUri, item.bgUri]),
+  ].map(value => String(value || '')).filter(Boolean));
+  const directory = `${FileSystem.documentDirectory || ''}avatars/`;
+  let entries = [];
+  try {
+    entries = await FileSystem.readDirectoryAsync(directory);
+  } catch (error) {
+    return true;
+  }
+  for (const entry of entries) {
+    const uri = `${directory}${entry}`;
+    if (referenced.has(uri)) continue;
+    try {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    } catch (error) {}
+  }
+  return true;
+}
+
 export async function collectOrphanImageFiles() {
-  const [chatResult, stickerResult] = await Promise.all([
+  const [chatResult, stickerResult, avatarResult] = await Promise.all([
     collectChatImageFiles(),
     collectStickerImageFiles(),
+    collectAvatarImageFiles(),
   ]);
-  return chatResult !== false && stickerResult !== false;
+  return chatResult !== false && stickerResult !== false && avatarResult !== false;
 }
 
 export function saveSticker(sticker) {

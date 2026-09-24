@@ -362,6 +362,19 @@ test('启动清理未引用的聊天图片和表情包文件', async () => {
   assert.equal(files.has(keptStickerUri), true);
 });
 
+test('启动清理未引用的头像背景文件并保留角色引用', async () => {
+  const storage = loadStorage();
+  const kept = 'file:///documents/avatars/kept.jpg';
+  const orphan = 'file:///documents/avatars/orphan.jpg';
+  files.set(kept, 'avatar');
+  files.set(orphan, 'avatar');
+  store.set('@easychat2_sticker_index', '[]');
+  await storage.saveCharacterLibrary([{ id: 'character-avatar', name: '头像角色', avatarUri: kept }]);
+  assert.equal(await storage.collectOrphanImageFiles(), true);
+  assert.equal(files.has(kept), true);
+  assert.equal(files.has(orphan), false);
+});
+
 test('会话存储队列阻止删除后的迟到消息写回', async () => {
   const storage = loadStorage();
   const created = await storage.startNewSession('character-queue');
