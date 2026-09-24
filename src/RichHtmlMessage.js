@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
-import { buildRichHtmlDocument } from './richHtml';
+import { buildRichHtmlCommandBridge, buildRichHtmlDocument } from './richHtml';
 import { useTheme } from './theme/ThemeContext';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
@@ -46,15 +46,23 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
 
   const commandToken = useMemo(
     () => `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    [html]
+    [html, theme, fonts]
+  );
+  const heightToken = useMemo(
+    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    [html, theme, fonts]
   );
   const document = useMemo(() => buildRichHtmlDocument({
     bodyHtml: html,
     textColor: theme.colors.bubbleAssistantText,
     linkColor: theme.colors.primary,
     fontSize: fonts.scaled(15),
-    commandToken,
-  }), [commandToken, html, theme, fonts]);
+    heightToken,
+  }), [heightToken, html, theme, fonts]);
+  const commandBridge = useMemo(
+    () => buildRichHtmlCommandBridge(commandToken),
+    [commandToken]
+  );
   const largeDocument = utf8ByteLength(document) > RICH_HTML_INLINE_SOURCE_LIMIT;
 
   useEffect(() => {
@@ -100,7 +108,7 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
       return;
     }
     if (!payload) return;
-    if (payload.type === 'height') {
+    if (payload.type === 'height' && payload.token === heightToken) {
        const next = Math.min(
          RICH_HTML_MAX_RENDER_HEIGHT,
          Math.max(1, Math.ceil(Number(payload.value) || 0))
@@ -111,11 +119,12 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
       && payload.gesture === true
       && payload.token === commandToken
       && payload.value
+      && String(payload.value).length <= 500
       && typeof onCommand === 'function'
     ) {
       onCommand(String(payload.value), commandToken);
     }
-  }, [commandToken, onCommand]);
+  }, [commandToken, heightToken, onCommand]);
 
   const onContentSizeChange = useCallback(event => {
     const next = Number(event && event.nativeEvent && event.nativeEvent.contentSize
@@ -127,15 +136,13 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
      }
   }, []);
 
-  // 只允许首次加载，拦截卡片里的链接跳转，避免 WebView 被导航到外部页面。
-  const onShouldStartLoadWithRequest = useCallback(() => {
-    if (!loadedRef.current) {
-      loadedRef.current = true;
-      return true;
-    }
-    return false;
-  }, []);
-  const onOpenWindow = useCallback(() => {}, []);
+  const onShouldStartLoadWithRequest = useCallback(request => {
+    if (loadedRef.current) return false;
+    loadedRef.current = true;
+    const url = String(request && request.url || '');
+    if (source && source.uri) return !url || url === source.uri;
+    return !url || url === 'about:blank' || url.startsWith('data:');
+  }, [source]);
 
   if (!WebViewComponent) return null;
   if (sourceError) {
@@ -146,20 +153,19 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
   return (
     <View style={styles.container}>
       <WebViewComponent
-        originWhitelist={['*']}
+        originWhitelist={source.uri ? ['file://*'] : ['about:blank', 'data:*']}
         source={source}
         style={[styles.webview, { height }]}
         containerStyle={styles.webviewContainer}
         javaScriptEnabled
         domStorageEnabled={false}
-         allowFileAccess={!!source.uri}
-         allowsFullscreenVideo
-         setSupportMultipleWindows
-         scrollEnabled={fullWidth || largeDocument}
-         nestedScrollEnabled={fullWidth || largeDocument}
-         onContentSizeChange={onContentSizeChange}
-         onMessage={onMessage}
-        onOpenWindow={onOpenWindow}
+        allowFileAccess={!!source.uri}
+        allowsFullscreenVideo
+        scrollEnabled={fullWidth || largeDocument}
+        nestedScrollEnabled={fullWidth || largeDocument}
+        injectedJavaScriptBeforeContentLoaded={commandBridge}
+        onContentSizeChange={onContentSizeChange}
+        onMessage={onMessage}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
       />
     </View>

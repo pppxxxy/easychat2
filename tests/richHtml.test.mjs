@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildRichHtmlCommandBridge,
   buildRichHtmlDocument,
   needsRichHtmlRendering,
   shouldRenderRichHtml,
@@ -44,7 +45,10 @@ test('剥离 ```html 围栏行，保留正文', () => {
 });
 
 test('包装文档包含视口、正文与高度桥', () => {
-  const doc = buildRichHtmlDocument({ bodyHtml: '```html\n<div class="x">hi</div>\n```' });
+  const doc = buildRichHtmlDocument({
+    bodyHtml: '```html\n<div class="x">hi</div>\n```',
+    heightToken: 'height-token',
+  });
   assert.ok(doc.startsWith('<!DOCTYPE html>'));
   assert.ok(doc.includes('viewport'));
   assert.ok(doc.includes('<div class="x">hi</div>'));
@@ -62,26 +66,30 @@ test('包装文档包含视口、正文与高度桥', () => {
   assert.ok(doc.includes('main{max-width:100%!important;overflow-x:hidden!important;overflow-y:auto!important;}'));
   assert.ok(doc.includes('Content-Security-Policy'));
   assert.ok(doc.includes("connect-src 'none'"));
+  assert.ok(doc.includes("base-uri 'none'"));
+  assert.ok(doc.includes('var heightToken = "height-token"'));
   assert.ok(doc.includes('nativePostMessage'));
-  assert.ok(doc.includes('userGestureActive'));
-  assert.ok(doc.includes('ev.isTrusted'));
+  assert.equal(doc.includes('window.triggerSlash'), false);
   // 展开/收起后重新测量高度
   assert.ok(doc.includes('"toggle"'));
   assert.ok(doc.includes('getBoundingClientRect'));
   assert.ok(doc.includes('requestAnimationFrame'));
 });
 
-test('完整 HTML 角色卡直接作为 WebView 文档并注入运行时桥', () => {
+test('完整 HTML 角色卡直接作为 WebView 文档并注入高度桥', () => {
   const source = '<div>外层容器<!DOCTYPE html><html><head><title>Card</title><script>window.__userScriptRan = true;</script></head><body><main>开局</main><script>run()</script></body></html></div>';
-  const doc = buildRichHtmlDocument({ bodyHtml: source });
+  const doc = buildRichHtmlDocument({ bodyHtml: source, heightToken: 'height-token' });
+  const commandBridge = buildRichHtmlCommandBridge('command-token');
   assert.equal((doc.match(/<!DOCTYPE/gi) || []).length, 1);
   assert.equal((doc.match(/<html[\s>]/gi) || []).length, 1);
   assert.ok(doc.includes('data-easychat2-runtime'));
   assert.ok(doc.includes('min-width:0!important'));
   assert.equal(doc.includes('body *{max-height:none !important;}'), false);
-  assert.ok(doc.includes('window.triggerSlash'));
-  assert.ok(doc.includes('nativePost'));
-  assert.ok(doc.includes('trustedCommandElement'));
-  assert.ok(doc.indexOf('var bridge = window.ReactNativeWebView') < doc.indexOf('window.__userScriptRan'));
+  assert.ok(doc.includes('var heightToken = "height-token"'));
+  assert.ok(commandBridge.includes('var commandToken = "command-token"'));
+  assert.ok(commandBridge.includes('event.isTrusted'));
+  assert.ok(commandBridge.includes('nativePostMessage'));
+  assert.equal(commandBridge.includes('<script>'), false);
+  assert.equal(doc.includes('command-token'), false);
   assert.ok(doc.includes('<main>开局</main>'));
 });

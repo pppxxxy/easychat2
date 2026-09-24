@@ -29,24 +29,13 @@ export function shouldRenderRichHtml(text, enabled) {
 export const RICH_HTML_RESIZE_BRIDGE = [
   '<script>',
   '(function(){',
-  '  var commandToken = "__EASYCHAT2_COMMAND_TOKEN__";',
-  '  var userGestureActive = false;',
-  '  function markGesture(event){ if (event && event.isTrusted === false) return; userGestureActive = true; setTimeout(function(){ userGestureActive = false; }, 0); }',
+  '  var heightToken = __EASYCHAT2_HEIGHT_TOKEN__;',
   '  var nativeBridge = window.ReactNativeWebView;',
   '  var nativePostMessage = nativeBridge && nativeBridge.postMessage;',
   '  if (typeof nativePostMessage !== "function") return;',
   '  function send(payload){',
   '    try { nativePostMessage.call(nativeBridge, JSON.stringify(payload)); } catch (e) {}',
   '  }',
-  '  try { Object.defineProperty(nativeBridge, "postMessage", { value: function(){}, writable: false, configurable: false }); } catch (e) {}',
-  '  try { Object.defineProperty(window, "ReactNativeWebView", { value: { postMessage: function(){} }, writable: false, configurable: false }); } catch (e) {}',
-  '  function sendCommand(value){ send({ type: "command", value: String(value || ""), gesture: true, token: commandToken }); }',
-  '  window.triggerSlash = function(command){',
-  '    if (!userGestureActive) return;',
-  '    var value = String(command || "");',
-  '    if (value.indexOf("/send ") === 0) value = value.slice(7);',
-  '    sendCommand(value);',
-  '  };',
   '  function measure(){',
   '    var b = document.body;',
   '    var d = document.documentElement;',
@@ -57,7 +46,7 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '      r ? r.height : 0,',
   '      b ? 0 : (d ? d.scrollHeight : 0)',
   '    );',
-  '    send({ type: "height", value: h });',
+  '    send({ type: "height", value: h, token: heightToken });',
   '  }',
   '  function init(){',
   '    measure();',
@@ -75,30 +64,54 @@ export const RICH_HTML_RESIZE_BRIDGE = [
   '    }',
   '    document.addEventListener("toggle", schedule, true);',
   '    document.addEventListener("click", schedule, true);',
-  '    document.addEventListener("pointerdown", markGesture, true);',
-  '    document.addEventListener("keydown", markGesture, true);',
-  '    document.addEventListener("click", function(ev){',
-  '      markGesture(ev);',
-  '      if (!ev.isTrusted || !userGestureActive) return;',
-  '      var el = ev.target;',
-  '      while (el && el !== document.body) {',
-  '        if (el.tagName === "BUTTON" && el.dataset && el.dataset.command) {',
-  '          sendCommand(el.dataset.command);',
-  '          ev.preventDefault();',
-  '          return;',
-  '        }',
-  '        el = el.parentElement;',
-  '      }',
-  '    }, true);',
   '  }',
   '  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); } else { init(); }',
   '})();',
   '</script>',
 ].join('\n');
 
-function renderRichHtmlBridge(commandToken) {
-  const token = String(commandToken || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return RICH_HTML_RESIZE_BRIDGE.replace('__EASYCHAT2_COMMAND_TOKEN__', () => token);
+function renderRichHtmlBridge(heightToken) {
+  const token = JSON.stringify(String(heightToken || ''));
+  return RICH_HTML_RESIZE_BRIDGE.replace('__EASYCHAT2_HEIGHT_TOKEN__', () => token);
+}
+
+export function buildRichHtmlCommandBridge(commandToken = '') {
+  const token = JSON.stringify(String(commandToken || ''));
+  return [
+    '(function(){',
+    `  var commandToken = ${token};`,
+    '  var nativeBridge = window.ReactNativeWebView;',
+    '  var nativePostMessage = nativeBridge && nativeBridge.postMessage;',
+    '  if (typeof nativePostMessage !== "function") return;',
+    '  var userGestureActive = false;',
+    '  function markGesture(event){ if (event && event.isTrusted === false) return; userGestureActive = true; setTimeout(function(){ userGestureActive = false; }, 0); }',
+    '  function sendCommand(value){',
+    '    var text = String(value || "").trim();',
+    '    if (!text || text.length > 500) return;',
+    '    try { nativePostMessage.call(nativeBridge, JSON.stringify({ type: "command", value: text, gesture: true, token: commandToken })); } catch (e) {}',
+    '  }',
+    '  window.triggerSlash = function(command){',
+    '    if (!userGestureActive) return;',
+    '    var value = String(command || "");',
+    '    if (value.indexOf("/send ") === 0) value = value.slice(7);',
+    '    sendCommand(value);',
+    '  };',
+    '  document.addEventListener("pointerdown", markGesture, true);',
+    '  document.addEventListener("keydown", markGesture, true);',
+    '  document.addEventListener("click", function(ev){',
+    '    if (!ev.isTrusted || !userGestureActive) return;',
+    '    var el = ev.target;',
+    '    while (el && el !== document.body) {',
+    '      if (el.tagName === "BUTTON" && el.dataset && typeof el.dataset.command === "string" && el.dataset.command.trim()) {',
+    '        sendCommand(el.dataset.command);',
+    '        ev.preventDefault();',
+    '        return;',
+    '      }',
+    '      el = el.parentElement;',
+    '    }',
+    '  }, true);',
+    '})();',
+  ].join('\n');
 }
 
 function buildRichHtmlLayoutStyle(resetMaxHeight = true) {
@@ -125,46 +138,10 @@ function extractFullHtmlDocument(value) {
   return value.slice(start, end + '</html>'.length);
 }
 
-const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; connect-src \'none\'; img-src \'self\' data: blob:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
-const NATIVE_BRIDGE_GUARD = [
-  '<script>',
-  '(function(){',
-  '  var bridge = window.ReactNativeWebView;',
-  '  var nativePost = bridge && bridge.postMessage;',
-  '  if (!bridge || typeof nativePost !== "function") return;',
-  '  var trustedCommandElement = false;',
-  '  var parsePayload = JSON.parse;',
-  '  function markGesture(event){',
-  '    if (event && event.isTrusted === false) return;',
-  '    var target = event && event.target;',
-  '    trustedCommandElement = !!(target && (target.tagName === "BUTTON" || (target.dataset && target.dataset.command)));',
-  '    setTimeout(function(){ trustedCommandElement = false; }, 0);',
-  '  }',
-  '  document.addEventListener("pointerdown", markGesture, true);',
-  '  document.addEventListener("keydown", markGesture, true);',
-  '  document.addEventListener("click", markGesture, true);',
-  '  try {',
-  '    Object.defineProperty(bridge, "postMessage", {',
-  '      value: function(raw){',
-  '        var payload = null;',
-  '        try { payload = parsePayload(raw); } catch (e) {}',
-  '        if (payload && payload.type === "command" && (!payload.gesture || !trustedCommandElement)) return;',
-  '        return nativePost.call(bridge, raw);',
-  '      },',
-  '      writable: false,',
-  '      configurable: false',
-  '    });',
-  '  } catch (e) {}',
-  '})();',
-  '</script>',
-].join('');
-
-function injectFullDocumentSupport(documentHtml, layoutStyle, commandToken = '') {
+const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; base-uri \'none\'; form-action \'none\'; frame-src \'none\'; object-src \'none\'; connect-src \'none\'; img-src \'self\' data: blob:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
+function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '') {
   let output = documentHtml;
   const styleBlock = `<style data-easychat2-runtime="true">${layoutStyle}</style>`;
-  if (/<html\b[^>]*>/i.test(output)) {
-    output = output.replace(/(<html\b[^>]*>)/i, `$1${NATIVE_BRIDGE_GUARD}`);
-  }
   if (/<head\b[^>]*>/i.test(output)) {
     output = output.replace(/(<head\b[^>]*>)/i, `$1${FULL_DOCUMENT_CSP}`);
   }
@@ -178,9 +155,9 @@ function injectFullDocumentSupport(documentHtml, layoutStyle, commandToken = '')
     return null;
   }
   if (/<\/body>/i.test(output)) {
-    output = output.replace(/<\/body>/i, `${renderRichHtmlBridge(commandToken)}</body>`);
+    output = output.replace(/<\/body>/i, `${renderRichHtmlBridge(heightToken)}</body>`);
   } else {
-    output += renderRichHtmlBridge(commandToken);
+    output += renderRichHtmlBridge(heightToken);
   }
   return output;
 }
@@ -191,7 +168,7 @@ export function buildRichHtmlDocument({
   linkColor = '#6c63ff',
   fontSize = 15,
   fontFamily = '',
-  commandToken = '',
+  heightToken = '',
 } = {}) {
   const normalizedBody = stripMarkdownFences(bodyHtml).trim();
   const layoutStyle = buildRichHtmlLayoutStyle();
@@ -200,7 +177,7 @@ export function buildRichHtmlDocument({
     const supportedDocument = injectFullDocumentSupport(
       fullDocument,
       buildRichHtmlLayoutStyle(false),
-      commandToken
+      heightToken
     );
     if (supportedDocument) return supportedDocument;
   }
@@ -208,7 +185,6 @@ export function buildRichHtmlDocument({
   return (
     '<!DOCTYPE html><html><head>'
     + '<meta charset="utf-8"/>'
-    + NATIVE_BRIDGE_GUARD
     + FULL_DOCUMENT_CSP
     + '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>'
     + '<style>'
@@ -219,6 +195,6 @@ export function buildRichHtmlDocument({
     + '*{box-sizing:border-box;}'
     + layoutStyle
     + '</style></head>'
-    + `<body>${normalizedBody}${renderRichHtmlBridge(commandToken)}</body></html>`
+    + `<body>${normalizedBody}${renderRichHtmlBridge(heightToken)}</body></html>`
   );
 }
