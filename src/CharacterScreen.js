@@ -1767,7 +1767,7 @@ export default function CharacterScreen() {
           >
             <View style={styles.presetEntryLeft}>
               <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.presetEntryText}>全局预设</Text>
+              <Text style={styles.presetEntryText}>全局预设 / 记忆总结</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>

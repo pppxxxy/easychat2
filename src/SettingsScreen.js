@@ -1272,11 +1272,11 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>全局预设</Text>
+              <Text style={styles.linkText}>全局预设 / 记忆总结</Text>
             </View>
             <View style={styles.linkRight}>
               <Text style={styles.linkValue}>
-                {enabledPresetCount > 0 ? `已开启 ${enabledPresetCount} 项` : '未开启'}
+                {enabledPresetCount > 0 ? `文本预设 ${enabledPresetCount} 项` : '文本预设未开启'}
               </Text>
               <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
             </View>

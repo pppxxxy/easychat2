@@ -23,7 +23,7 @@ const SUMMARY_INSTRUCTION = [
   '- 只记录对话中明确出现的信息，不猜测，不提取思考过程，不把假设或计划写成已发生的事实。',
   '- 跳过已有记忆和无关紧要的细节。明确的纠正或状态变化应作为新记忆记录，说明变化。',
   '- 每条记忆应能独立理解，写清涉及的人物，保留必要的时间、地点和因果。',
-  '- 只输出新增记忆，每行一条，以“- ”开头。无新增信息时不输出任何内容。',
+  '- 只输出新增记忆，每行一条，以“- ”开头。无新增信息时不要输出记忆行，可在最后保留关键词行。',
   '',
   '关键词：',
   '- 在最后单独输出一行，以“关键词：”开头，后接顿号分隔的关键词。',
@@ -39,26 +39,37 @@ function isConversational(message) {
     && String(message.text || '').trim().length > 0;
 }
 
+function getBoundaryStart(list, summarizedUpTo) {
+  if (!summarizedUpTo) return 0;
+  const index = list.findIndex(item => item.id === summarizedUpTo);
+  return index >= 0 ? index + 1 : 0;
+}
+
 export function selectSummarizable(messages, summarizedUpTo, keepRecent = KEEP_RECENT) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   if (list.length === 0) return [];
-  let start = 0;
-  if (summarizedUpTo) {
-    const index = list.findIndex(item => item.id === summarizedUpTo);
-    start = index >= 0 ? index + 1 : 0;
-  }
+  const start = getBoundaryStart(list, summarizedUpTo);
   const end = list.length - Math.max(0, keepRecent);
   if (end <= start) return [];
   return list.slice(start, end);
 }
 
-export function shouldSummarize({ session, messages, settings, force = false } = {}) {
-  if (!force && (!settings || settings.enabled !== true)) return false;
+export function selectManualSummarizable(messages, summarizedUpTo) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
-  const threshold = Number(settings && settings.threshold);
+  if (list.length === 0) return [];
+  const start = getBoundaryStart(list, summarizedUpTo);
+  const remaining = list.slice(start);
+  return remaining.length > 0 ? remaining : list;
+}
+
+export function shouldSummarize({ session, messages, settings, force = false } = {}) {
+  const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
+  const candidates = selectSummarizable(list, session && session.summarizedUpTo);
+  if (force) return candidates.length > 0;
+  if (!settings || settings.enabled !== true) return false;
+  const threshold = Number(settings.threshold);
   const limit = Number.isFinite(threshold) && threshold > 0 ? threshold : DEFAULT_THRESHOLD;
-  if (list.length < limit) return false;
-  return selectSummarizable(list, session && session.summarizedUpTo).length > 0;
+  return candidates.length >= limit;
 }
 
 export function buildSummaryPrompt(messages, userName, memories = '') {
@@ -99,14 +110,15 @@ export function parseMemoryLines(text) {
 export function parseSummaryResponse(text) {
   const lines = parseMemoryLines(text);
   const keywords = parseKeywordsLine(text);
-  if (lines.length === 0 && keywords.length === 0) {
-    throw new Error('记忆总结内容为空');
+  if (lines.length === 0) {
+    return { summary: '', lines: [], keywords: [], skipped: true };
   }
   const summary = lines.map(line => `- ${line}`).join('\n');
   return {
     summary,
     lines,
     keywords: keywords.length ? keywords : [...FALLBACK_KEYWORDS],
+    skipped: false,
   };
 }
 
@@ -176,12 +188,15 @@ export async function applySummary({
     ? await getSessionSummaries(session.id)
     : [];
   const memories = buildMemorySummaryText(character, existingSessionSummaries, scoped);
-  const { summary, keywords } = await generateSummary({
+  const { summary, keywords, skipped } = await generateSummary({
     character,
     messages: list,
     userName,
     memories,
   });
+  if (skipped || !summary.trim()) {
+    return { entry: null, boundary: null, summary: '', keywords: [], scoped, skipped: true };
+  }
   const boundary = list[list.length - 1].id;
 
   if (scoped) {
@@ -192,7 +207,7 @@ export async function applySummary({
       createdAt: Date.now(),
     });
     await setSessionSummarizedUpTo(session.id, boundary);
-    return { entry: null, boundary, summary, keywords, scoped: true };
+    return { entry: null, boundary, summary, keywords, scoped: true, skipped: false };
   }
 
   const worldInfo = Array.isArray(character && character.worldInfo) ? character.worldInfo : [];
@@ -211,5 +226,5 @@ export async function applySummary({
   }, count);
   await updateCharacter({ id: character.id, worldInfo: [...worldInfo, entry] });
   await setSessionSummarizedUpTo(session.id, boundary);
-  return { entry, boundary, summary, keywords, scoped: false };
+  return { entry, boundary, summary, keywords, scoped: false, skipped: false };
 }

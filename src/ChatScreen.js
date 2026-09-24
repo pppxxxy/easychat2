@@ -38,6 +38,7 @@ import {
   applySummary,
   buildMemorySummaryText,
   isSessionScopedMemory,
+  selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
 } from './memorySummary';
@@ -859,6 +860,7 @@ export default function ChatScreen() {
   const isGroupRef = useRef(isGroup);
   isGroupRef.current = isGroup;
   const summarizingRef = useRef(false);
+  const autoSummaryAttemptRef = useRef({ sessionId: '', signature: '' });
   const messageOffsetsRef = useRef({});
   const atBottomRef = useRef(true);
   const abortRef = useRef(null);
@@ -1057,6 +1059,10 @@ export default function ChatScreen() {
   useEffect(() => {
     activeCharacterIdRef.current = characterId;
   }, [characterId]);
+
+  useEffect(() => {
+    autoSummaryAttemptRef.current = { sessionId: '', signature: '' };
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -1567,9 +1573,11 @@ export default function ChatScreen() {
 
   const runSummarize = useCallback(async (session, list, manual) => {
     if (summarizingRef.current) return;
-    const picked = selectSummarizable(list, session.summarizedUpTo);
+    const picked = manual
+      ? selectManualSummarizable(list, session.summarizedUpTo)
+      : selectSummarizable(list, session.summarizedUpTo);
     if (picked.length === 0) {
-      if (manual) Alert.alert('无法总结', '当前没有可总结的消息。');
+      if (manual) Alert.alert('无法总结', '当前没有新的可总结消息。');
       return;
     }
     summarizingRef.current = true;
@@ -1577,19 +1585,25 @@ export default function ChatScreen() {
     try {
       const userProfile = await getUserProfile();
       const sessionCharacterId = String(session.characterId || character.id || '');
+      const sessionCharacter = (Array.isArray(characters) ? characters : [])
+        .find(item => item.id === sessionCharacterId) || character;
       const characterExists = (Array.isArray(characters) ? characters : [])
         .some(item => item.id === sessionCharacterId);
       const scoped = !characterExists
         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
       const result = await applySummary({
         session,
-        character,
+        character: sessionCharacter,
         messages: picked,
         updateCharacter,
         userName: userProfile.userName,
         scoped,
       });
       await refreshSessions().catch(() => {});
+      if (result.skipped) {
+        if (manual) Alert.alert('总结完成', '本轮没有提取出可保存的新记忆。');
+        return;
+      }
       if (manual) {
         Alert.alert(
           '已完成',
@@ -1599,7 +1613,11 @@ export default function ChatScreen() {
         );
       }
     } catch (error) {
-      Alert.alert('记忆总结失败', '请稍后重试。');
+      if (manual) {
+        Alert.alert('记忆总结失败', '请稍后重试。');
+      } else if (__DEV__) {
+        console.warn('[memorySummary] automatic summary failed', error);
+      }
     } finally {
       summarizingRef.current = false;
       setSummarizing(false);
@@ -1619,6 +1637,13 @@ export default function ChatScreen() {
       return;
     }
     if (!shouldSummarize({ session, messages: list, settings })) return;
+    const candidates = selectSummarizable(list, session.summarizedUpTo);
+    const signature = `${session.id}:${settings.enabled}:${settings.threshold}:${candidates.map(item => item.id).join('|')}`;
+    if (
+      autoSummaryAttemptRef.current.sessionId === session.id
+      && autoSummaryAttemptRef.current.signature === signature
+    ) return;
+    autoSummaryAttemptRef.current = { sessionId: session.id, signature };
     await runSummarize(session, list, false);
   }, [runSummarize]);
 
@@ -1635,7 +1660,22 @@ export default function ChatScreen() {
       Alert.alert('无法总结', '当前没有可总结的会话。');
       return;
     }
-    runSummarize(session, messages, true);
+    const picked = selectManualSummarizable(messages, session.summarizedUpTo);
+    if (picked.length === 0) {
+      Alert.alert('无法总结', '当前没有新的可总结消息。');
+      return;
+    }
+    Alert.alert(
+      '开始记忆总结？',
+      `将总结当前会话的 ${picked.length} 条消息，本次操作不受自动开关和阈值限制。`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '开始总结',
+          onPress: () => runSummarize(session, messages, true),
+        },
+      ]
+    );
   }, [isSending, ready, messages, runSummarize]);
 
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, quote }) => {

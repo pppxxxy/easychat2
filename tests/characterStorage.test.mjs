@@ -230,6 +230,13 @@ test('健康索引首次读取会写入迁移标记，避免旧整库后续复�
   assert.equal(JSON.parse(store.get(MIGRATION_KEY)).ids[0], 'default');
 });
 
+test('记忆总结设置独立保存并可读取', async () => {
+  const storage = loadStorage();
+  const saved = await storage.saveMemorySummarySettings({ enabled: true, threshold: 8 });
+  assert.deepEqual(saved, { enabled: true, threshold: 8 });
+  assert.deepEqual(await storage.getMemorySummarySettings(), { enabled: true, threshold: 8 });
+});
+
 test('新建会话可写入已选择的开场白消息', async () => {
   const storage = loadStorage();
   const created = await storage.startNewSession('character-1', {

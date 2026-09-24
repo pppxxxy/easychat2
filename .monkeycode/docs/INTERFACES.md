@@ -43,7 +43,7 @@
 - `activeSessionId` 变化时按会话加载消息（`getMessagesBySession`），并在加载期间禁用输入与发送；会话所属角色缺失时仍加载历史消息，界面显示「角色资料缺失」并禁用发送、重生成、附件与新建会话
 - 发送前按会话 `summarizedUpTo` 截断历史，并把摘要作为 `summaryText` 传入 `buildRequestMessages`，实现请求压缩；同角色记忆 ≥ 2 时仅用当前会话总结（`buildMemorySummaryText` scoped），否则用世界书总结
 - 角色页切换角色时同步切换会话（`ensureCharacterSession`）；会话的角色引用暂时缺失时，记忆页仍允许打开该会话，聊天页进入只读历史模式；群聊不依赖基础角色存在
-- 顶部栏提供「总结」按钮手动触发记忆总结（忽略开关，进行中禁用）；收到回复后若开关开启且达到阈值则自动总结一次，失败时 `Alert` 且不更新边界
+- 顶部栏提供「总结」按钮：单聊点击后先弹出开始确认，手动总结包含当前边界后的全部消息，不受自动阈值与开关限制；收到回复后若独立记忆总结开关开启且可总结消息达到阈值则自动总结一次，自动总结无新增记忆时保留边界，手动总结会明确反馈结果
 - 消息落库后若向量记忆开启，异步增量索引当前角色片段（已存在片段跳过，失败静默）；发送前按用户输入召回若干片段，经 `buildMemoryContext` 生成 `[相关记忆]` 注入请求；未配置或请求失败自动回退本地关键词检索；索引为空时不注入
 - 顶部栏「搜索」按钮展开会话内搜索条：标记全部命中、显示第 x/n 条并支持上一个/下一个滚动定位；关闭时清除高亮
 - 记录每条消息的布局偏移；消费 `pendingTarget` 后滚动定位并高亮目标消息，目标不存在时不定位
@@ -107,11 +107,11 @@
 **位置**: `src/PresetPanel.js`
 **Props**: `{ visible, onClose, scope = 'global', characterPresets, onCharacterPresetsChange }`
 **行为**:
-- `scope='global'` 时读取全局预设、开关映射与记忆总结设置；`scope='character'` 时读取当前角色草稿预设并通过 `onCharacterPresetsChange` 回写
+- `scope='global'` 时读取全局文本预设、开关映射与独立的记忆总结设置；`scope='character'` 时读取当前角色草稿预设并通过 `onCharacterPresetsChange` 回写
 - 列出全部预设（名称、描述、启用开关），开关切换即时保存；点击条目打开编辑弹窗
 - 提供新增与编辑（名称、描述、提示词）以及删除二次确认，删除同时移除其开关记录
-- 全局作用域额外提供「记忆总结」开关与触发阈值；角色作用域隐藏该区域
-- 设置页与角色页共用该组件；角色页顺序为世界书、正则脚本、预设、全局预设
+- 全局作用域额外提供独立的「记忆总结」开关与可总结消息阈值；角色作用域隐藏该区域
+- 设置页与角色页共用该组件；全局面板中的记忆总结配置不会混入文本预设列表，角色页顺序为世界书、正则脚本、预设、全局预设
 
 ### `MemoryScreen`（默认导出）
 **位置**: `src/MemoryScreen.js`
@@ -330,8 +330,8 @@
 | `getSessionSummaries` / `getSessionSummariesStatus` | `(sessionId) => Promise<SessionSummary[]>` / `(sessionId) => Promise<{ status, summaries }>` | 读取会话级记忆总结（按会话隔离）；带状态版本在损坏时备份并返回 `corrupt` |
 | `saveSessionSummaries` | `(sessionId, list) => Promise<SessionSummary[]>` | 写入会话级记忆总结 |
 | `appendSessionSummary` | `(sessionId, entry) => Promise<SessionSummary[]>` | 追加一条会话级总结；历史摘要读取失败时抛错，不覆盖原数据 |
-| `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取记忆总结开关与阈值，缺失时默认 `{ enabled: false, threshold: 40 }` |
-| `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入记忆总结设置，阈值非法时回退 40 |
+| `getMemorySummarySettings` | `() => Promise<{ enabled, threshold }>` | 读取独立的记忆总结开关与可总结消息阈值，缺失时默认 `{ enabled: true, threshold: 40 }` |
+| `saveMemorySummarySettings` | `({ enabled, threshold }) => Promise<{ enabled, threshold }>` | 归一化并写入独立记忆总结设置，阈值非法时回退 40 |
 | `getPlugins` | `() => Promise<Plugin[]>` | 读取联网搜索列表并规范化，内置项缺失时补入；损坏时先备份再返回默认且不落盘 |
 | `savePlugins` | `(plugins) => Promise<Plugin[]>` | 规范化并写入联网搜索列表，确保内置项存在 |
 | `getEnabledPlugins` | `() => Promise<Plugin[]>` | 返回已开启插件 |
@@ -367,7 +367,7 @@
 | `@easychat2_global_presets` | 预设开关映射 `{ [presetId]: boolean }` |
 | `@easychat2_disclaimer_ack` | 免责条款已读标记（`'true'`） |
 | `@easychat2_onboarding_done` | 新手教学完成标记（`'true'`） |
-| `@easychat2_memory_summary` | 记忆总结 `{ enabled, threshold }`，默认 `{ enabled: true, threshold: 40 }` |
+| `@easychat2_memory_summary` | 独立的记忆总结设置 `{ enabled, threshold }`，默认 `{ enabled: true, threshold: 40 }`，不属于全局文本预设 |
 | `@easychat2_session_summaries::<sessionId>` | 会话级记忆总结 `[{ summary, keywords, boundary, createdAt }]`（同角色记忆 ≥2 时启用） |
 | `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
@@ -667,13 +667,14 @@ data: [DONE]
 | 函数 | 说明 |
 |------|------|
 | `selectSummarizable(messages, summarizedUpTo, keepRecent?)` | 返回边界之后、且保留最近若干条（默认 6）以外的可总结消息 |
-| `shouldSummarize({ session, messages, settings, force? })` | 自动触发需开关开启且消息数达到阈值且有可总结消息；`force` 用于手动触发 |
+| `selectManualSummarizable(messages, summarizedUpTo)` | 返回边界之后的全部可对话消息，包含保留的最近消息；边界后为空时回退到完整列表，供手动总结绕过阈值并修复旧空边界 |
+| `shouldSummarize({ session, messages, settings, force? })` | 自动触发要求独立开关开启且可总结消息达到阈值；`force` 只要求存在自动候选 |
 | `buildSummaryPrompt(messages, userName?, memories?)` | 组装「只提取新增记忆、每行一条 `- `，并在末行输出尽量多、覆盖主要事件的关键词」的提示词，并把已有记忆注入 `<memories>` 区块 |
 | `parseMemoryLines(text)` | 按行提取记忆，排除关键词行，去掉 `-`/`*`/`•` 前缀与空行 |
 | `parseKeywordsLine(text)` | 从「关键词：」行解析顿号/逗号分隔的关键词，兼容中英文标点 |
-| `parseSummaryResponse(text)` | 解析纯文本行式输出，规范化为 `- ` 行并提取关键词；无关键词回退占位，全空抛错 |
+| `parseSummaryResponse(text)` | 解析纯文本行式输出，规范化为 `- ` 行并提取关键词；只有关键词而无记忆正文时返回 `skipped`，不推进总结边界 |
 | `generateSummary({ character, messages, userName?, memories? })` | 调用 `sendChatMessage` 生成新增记忆行 |
-| `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：`scoped` 为真时写入会话级总结（不写世界书），否则写入角色世界书（`记忆总结 N`，`position 0`、`order 10` 以排在靠前，关键词来自 LLM 输出）；两者都更新会话边界 |
+| `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：无记忆正文时返回 `skipped` 且不写盘；有内容时 `scoped` 为真写会话级总结，否则写角色世界书（`记忆总结 N`），两者都更新会话边界 |
 | `countCharacterMemories(sessions, characterId)` | 统计该角色在记忆页可见的会话数（单聊、`preview` 非空） |
 | `isSessionScopedMemory(sessions, characterId)` | 记忆数 ≥ 2 时返回 `true`，启用按会话作用域 |
 | `buildWorldSummaryText(character)` | 拼接世界书中「记忆总结」条目内容 |
@@ -830,7 +831,7 @@ data: [DONE]
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `enabled` | `boolean` | 是否开启记忆总结 |
-| `threshold` | `number` | 触发阈值（当前会话消息条数），大于 0 的整数，默认 40 |
+| `threshold` | `number` | 自动总结阈值（可总结消息条数），大于 0 的整数，默认 40；手动总结绕过此阈值 |
 
 ### `Plugin`
 

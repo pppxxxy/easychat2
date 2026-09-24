@@ -216,8 +216,10 @@ export default function PresetPanel({
       });
       setMemoryEnabled(saved.enabled);
       setThreshold(String(saved.threshold));
+      return true;
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
+      return false;
     } finally {
       busyRef.current = false;
     }
@@ -234,7 +236,7 @@ export default function PresetPanel({
   };
 
   const commitThreshold = () => {
-    if (busyRef.current) return;
+    if (busyRef.current || !loaded) return;
     const previous = Number(threshold);
     const value = normalizeThreshold();
     if (value !== Math.trunc(Number(String(threshold).trim()))) {
@@ -247,11 +249,11 @@ export default function PresetPanel({
   };
 
   const confirmThreshold = async () => {
-    if (busyRef.current) return;
+    if (busyRef.current || !loaded) return;
     const value = normalizeThreshold();
     setThreshold(String(value));
-    await persistMemory(memoryEnabled, value);
-    Alert.alert('已保存', `触发阈值已设为 ${value} 条消息。`);
+    const saved = await persistMemory(memoryEnabled, value);
+    if (saved) Alert.alert('已保存', `自动总结阈值已设为 ${value} 条可总结消息。`);
   };
 
   const handleClose = () => {
@@ -272,7 +274,7 @@ export default function PresetPanel({
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>{isCharacterScope ? '角色预设' : '全局预设'}</Text>
+            <Text style={styles.title}>{isCharacterScope ? '角色预设' : '全局文本预设'}</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
@@ -330,21 +332,23 @@ export default function PresetPanel({
                   <View style={styles.memoryText}>
                     <Text style={styles.presetName}>记忆总结</Text>
                     <Text style={styles.presetDesc}>
-                      对话过长时总结历史并写入世界书，阈值为当前会话消息条数。
+                      独立的全局记忆总结设置，不属于文本预设；达到可总结消息阈值后自动执行。
                     </Text>
                   </View>
                   <Switch
                     value={memoryEnabled}
                     onValueChange={toggleMemory}
+                    disabled={!loaded || saving}
                     trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
                     thumbColor={theme.colors.primaryContrast}
                   />
                 </View>
-                <FieldLabel style={styles.label}>触发阈值（消息条数）</FieldLabel>
+                <FieldLabel style={styles.label}>自动总结阈值（可总结消息条数）</FieldLabel>
                 <View style={styles.thresholdRow}>
                   <TextField
                     style={styles.thresholdInput}
                     value={threshold}
+                    editable={loaded && !saving}
                     onChangeText={setThreshold}
                     onEndEditing={commitThreshold}
                     onBlur={commitThreshold}
@@ -354,6 +358,7 @@ export default function PresetPanel({
                   <TouchableOpacity
                     style={styles.thresholdConfirm}
                     onPress={confirmThreshold}
+                    disabled={!loaded || saving}
                     activeOpacity={0.8}
                   >
                     <Ionicons name="checkmark" size={16} color={theme.colors.primaryContrast} />
