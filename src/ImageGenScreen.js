@@ -68,6 +68,7 @@ export default function ImageGenScreen({ embedded = false }) {
   const [topic, setTopic] = useState(null);
   const mountedRef = useRef(true);
   const generationControllerRef = useRef(null);
+  const detectionControllerRef = useRef(null);
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -77,6 +78,8 @@ export default function ImageGenScreen({ embedded = false }) {
        mountedRef.current = false;
        generationControllerRef.current?.abort();
        generationControllerRef.current = null;
+       detectionControllerRef.current?.abort();
+       detectionControllerRef.current = null;
      };
 
   }, []);
@@ -151,9 +154,13 @@ export default function ImageGenScreen({ embedded = false }) {
         { text: '取消', style: 'cancel' },
         {
           text: '试生成 1 张',
-          onPress: async () => {
-            if (mountedRef.current) setDetecting(true);
-            try {
+           onPress: async () => {
+             if (!mountedRef.current) return;
+             const controller = new AbortController();
+             detectionControllerRef.current = controller;
+             setDetecting(true);
+             try {
+
               const probe = await probeImageProvider({
                 provider,
                 config: {
@@ -162,13 +169,21 @@ export default function ImageGenScreen({ embedded = false }) {
                   model: draftModel.trim() || provider.defaultModel || '',
                 },
                 model: draftModel.trim() || provider.defaultModel || '',
-                prompt: prompt.trim(),
-              });
-              Alert.alert('检测成功', `已连通，试生成 ${probe.images} 张小图（可能产生费用）`);
-            } catch (error) {
-              Alert.alert('检测失败', (error && error.message) || '生成接口不可用');
-            } finally {
-              if (mountedRef.current) setDetecting(false);
+                 prompt: prompt.trim(),
+                 signal: controller.signal,
+               });
+               if (!mountedRef.current || controller.signal.aborted) return;
+               Alert.alert('检测成功', `已连通，试生成 ${probe.images} 张小图（可能产生费用）`);
+             } catch (error) {
+               if (mountedRef.current && !controller.signal.aborted) {
+                 Alert.alert('检测失败', (error && error.message) || '生成接口不可用');
+               }
+             } finally {
+               if (detectionControllerRef.current === controller) {
+                 detectionControllerRef.current = null;
+                 if (mountedRef.current) setDetecting(false);
+               }
+
             }
           },
         },
@@ -178,6 +193,8 @@ export default function ImageGenScreen({ embedded = false }) {
 
   const detectProvider = useCallback(async () => {
     if (detecting) return;
+    const controller = new AbortController();
+    detectionControllerRef.current = controller;
     setDetecting(true);
     try {
       const result = await detectImageProvider({
@@ -187,23 +204,35 @@ export default function ImageGenScreen({ embedded = false }) {
           apiKey: draftApiKey.trim(),
           model: draftModel.trim() || provider.defaultModel || '',
         },
-        model: draftModel.trim() || provider.defaultModel || '',
-      });
-      if (result.ok) {
+         model: draftModel.trim() || provider.defaultModel || '',
+         signal: controller.signal,
+       });
+       if (!mountedRef.current || controller.signal.aborted) return;
+       if (result.ok) {
+
         const extra = result.modelFound === false
           ? '\n（模型名可能不正确，但接口已连通）'
           : '';
         Alert.alert('检测成功', `${result.message}${extra}`);
-      } else if (result.needsProbe) {
-        if (mountedRef.current) setDetecting(false);
-        confirmProbe();
-        return;
-      } else {
-        Alert.alert('检测失败', result.error || '无法连接');
-      }
-    } finally {
-      if (mountedRef.current) setDetecting(false);
-    }
+       } else if (result.needsProbe) {
+         detectionControllerRef.current = null;
+         if (mountedRef.current) setDetecting(false);
+         confirmProbe();
+         return;
+       } else {
+         Alert.alert('检测失败', result.error || '无法连接');
+       }
+     } catch (error) {
+       if (mountedRef.current && !controller.signal.aborted) {
+         Alert.alert('检测失败', (error && error.message) || '无法连接');
+       }
+     } finally {
+       if (detectionControllerRef.current === controller) {
+         detectionControllerRef.current = null;
+         if (mountedRef.current) setDetecting(false);
+       }
+     }
+
   }, [confirmProbe, detecting, draftApiKey, draftBaseUrl, draftModel, provider]);
 
   const openApiKeyUrl = useCallback(async () => {
