@@ -116,3 +116,44 @@ test('展示正则只处理 HTML 可见文本，不改写标签、脚本和样�
     '<div><strong>foo</strong></div><script>const foo = 1;</script><style>.foo{}</style>'
   );
 });
+
+test('展示正则保留整条消息的 $ 锚点，不再逐段复制或错序', () => {
+  const status = script({ findRegex: '/$/g', replaceString: '<div id="status">状态</div>' });
+  const video = script({ findRegex: '/$/g', replaceString: '<video controls></video>' });
+
+  const plain = applyRegexScripts(
+    '第一段。第二段。',
+    [status, video],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.equal((plain.match(/id="status"/g) || []).length, 1);
+  assert.equal((plain.match(/<video/g) || []).length, 1);
+  assert.ok(plain.indexOf('id="status"') < plain.indexOf('<video'));
+
+  // 行内标签把正文切段时，仍然只各追加一次
+  const withTag = applyRegexScripts(
+    '第一段<br>第二段',
+    [status, video],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.equal((withTag.match(/id="status"/g) || []).length, 1);
+  assert.equal((withTag.match(/<video/g) || []).length, 1);
+  assert.ok(withTag.indexOf('id="status"') < withTag.indexOf('<video'));
+  assert.ok(withTag.includes('<br>'));
+});
+
+test('展示正则还原哨兵后标签与脚本逐字保留', () => {
+  const append = script({ findRegex: '/$/g', replaceString: '<b>尾</b>' });
+  const output = applyRegexScripts(
+    '<div>文</div><script>const x = 1;</script>',
+    [append],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.ok(output.includes('<div>文</div>'));
+  assert.ok(output.includes('<script>const x = 1;</script>'));
+  assert.ok(output.endsWith('<b>尾</b>'));
+  assert.equal((output.match(/<b>尾<\/b>/g) || []).length, 1);
+});

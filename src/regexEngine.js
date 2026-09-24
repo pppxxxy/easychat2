@@ -66,24 +66,52 @@ function normalizeReplacement(replacement) {
     .split(DOLLAR_SENTINEL).join('$$');
 }
 
+// 展示正则需要在「不改写标签/脚本/样式」的前提下保留整条消息的锚点语义。
+// 做法：把受保护片段换成私有区哨兵，在整串上跑一次正则，再把哨兵还原。
+// 逐段替换会把 `$`/`^` 降级成单个文本段的边界，导致错序和成倍复制。
+const SENTINEL_START = '\uE000';
+const SENTINEL_END = '\uE001';
+const SENTINEL_DIGIT_BASE = 0xE010;
+const SENTINEL_PATTERN = /\uE000[\uE010-\uE019]+\uE001/g;
+
+function encodeSentinelIndex(index) {
+  return String(index)
+    .split('')
+    .map(digit => String.fromCharCode(SENTINEL_DIGIT_BASE + (digit.charCodeAt(0) - 48)))
+    .join('');
+}
+
+function decodeSentinelIndex(token) {
+  return Number(token.slice(1, -1)
+    .split('')
+    .map(char => String(char.charCodeAt(0) - SENTINEL_DIGIT_BASE))
+    .join(''));
+}
+
 function replaceVisibleText(input, regex, replacement) {
   const segments = new RegExp(HTML_SEGMENT_PATTERN.source, 'gi');
-  const replaceSegment = segment => {
-    regex.lastIndex = 0;
-    const result = segment.replace(regex, replacement);
-    regex.lastIndex = 0;
-    return result;
-  };
+  const protectedValues = [];
+  let tokenized = '';
   let cursor = 0;
   let match;
-  let output = '';
   while ((match = segments.exec(input)) !== null) {
-    output += replaceSegment(input.slice(cursor, match.index));
-    output += match[0];
+    tokenized += input.slice(cursor, match.index);
+    tokenized += `${SENTINEL_START}${encodeSentinelIndex(protectedValues.length)}${SENTINEL_END}`;
+    protectedValues.push(match[0]);
     cursor = match.index + match[0].length;
     if (match[0].length === 0) segments.lastIndex += 1;
   }
-  return output + replaceSegment(input.slice(cursor));
+  tokenized += input.slice(cursor);
+
+  regex.lastIndex = 0;
+  const replaced = tokenized.replace(regex, replacement);
+  regex.lastIndex = 0;
+
+  const restore = new RegExp(SENTINEL_PATTERN.source, 'g');
+  return replaced.replace(restore, token => {
+    const original = protectedValues[decodeSentinelIndex(token)];
+    return original === undefined ? token : original;
+  });
 }
 
 function withinDepth(script, depth) {
