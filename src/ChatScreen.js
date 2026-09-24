@@ -823,7 +823,7 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth, selectionMode, se
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
-    const payload = rawError || message.detail || message.text || '';
+    const payload = maskSecrets(rawError || message.detail || message.text || '');
     try {
       await Clipboard.setStringAsync(payload);
       setCopied(true);
