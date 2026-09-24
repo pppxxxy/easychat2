@@ -15,7 +15,7 @@ import {
   deleteMomentsBySessionIds,
   findOrphanSessions,
   getMessagesBySession,
-  getMoments,
+  getMomentsStatus,
   getUserProfile,
   restoreSession,
 } from './storage';
@@ -217,8 +217,11 @@ export default function MemoryScreen({ navigation }) {
 
   // 动态可能锚定在某段对话（记忆）上：删除记忆时，提示是否连带删除对应动态。
   const countLinkedMoments = useCallback(async sessionIds => {
-    const list = await getMoments();
-    return countMomentsBySessionIds(list, sessionIds);
+    const { status, moments } = await getMomentsStatus();
+    if (status === 'corrupt') {
+      throw new Error('动态记录读取失败，请稍后重试');
+    }
+    return countMomentsBySessionIds(moments, sessionIds);
   }, []);
 
   // 先删动态再删会话：读不出动态时直接抛错中止，绝不在“动态删除没成功”的情况下

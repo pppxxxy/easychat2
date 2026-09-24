@@ -1432,7 +1432,10 @@ export async function deleteMomentsBySessionIds(sessionIds) {
     .map(item => String(item || ''))
     .filter(Boolean);
   if (ids.length === 0) return [];
-  const list = await getMoments();
+  const { status, moments: list } = await getMomentsStatus();
+  if (status === 'corrupt') {
+    throw new Error('动态记录读取失败，请稍后重试');
+  }
   const removedIds = list
     .filter(item => ids.includes(String(item.sessionId || '')))
     .map(item => item.id);

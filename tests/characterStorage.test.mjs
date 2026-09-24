@@ -454,3 +454,15 @@ test('聊天图片回收保留其他会话和待发送附件的引用', async ()
   assert.equal(files.has(draft), true);
   storage.setProtectedChatImageUris([]);
 });
+
+test('动态记录损坏时删除关联动态拒绝写回', async () => {
+  const storage = loadStorage();
+  const raw = '{broken-json';
+  store.set('@easychat2_moments', raw);
+  await assert.rejects(
+    () => storage.deleteMomentsBySessionIds(['session-corrupt']),
+    /动态记录读取失败/
+  );
+  assert.equal(store.get('@easychat2_moments'), raw);
+  assert.equal(store.get('@easychat2_moments__corrupt_backup'), raw);
+});
