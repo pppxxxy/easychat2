@@ -600,3 +600,23 @@ test('会话列表损坏时向量对账拒绝改写索引', async () => {
   await assert.rejects(() => storage.reconcileVectorIndexes(), /会话列表读取失败/);
   assert.equal(store.get('@easychat2_vector_index::character-a'), vectorRaw);
 });
+
+test('损坏数据备份失败会记录开发警告', async () => {
+  const storage = loadStorage();
+  const key = '@easychat2_messages::backup-failed';
+  store.set(key, '{broken');
+  failedSets.add(key);
+  const previousDev = globalThis.__DEV__;
+  const previousWarn = console.warn;
+  let warned = false;
+  globalThis.__DEV__ = true;
+  console.warn = () => { warned = true; };
+  try {
+    const result = await storage.getMessagesBySessionStatus('backup-failed');
+    assert.equal(result.status, 'corrupt');
+    assert.equal(warned, true);
+  } finally {
+    globalThis.__DEV__ = previousDev;
+    console.warn = previousWarn;
+  }
+});

@@ -1440,7 +1440,7 @@ export default function ChatScreen() {
           setGreetingReady(false);
           Alert.alert(
             '聊天记录读取失败',
-            '本次没能读出该会话的消息（可能因数据过大）。原内容已自动备份，未丢失；继续发送会以新记录覆盖原消息。'
+            '本次没能读出该会话的消息（可能因数据过大）。系统已停止本次自动写回；继续发送会生成新记录，请先保留设备数据后再操作。'
           );
           return;
         }

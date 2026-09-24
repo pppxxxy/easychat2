@@ -215,12 +215,16 @@ const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
 async function backupCorruptValue(key) {
   try {
     const raw = await AsyncStorage.getItem(key);
-    if (!raw) return;
+    if (!raw) return false;
     await AsyncStorage.setItem(`${key}${CORRUPT_BACKUP_SUFFIX}`, raw);
     if (__DEV__) {
       console.warn(`[storage] ${key} 读取失败或结构异常，已备份到 ${key}${CORRUPT_BACKUP_SUFFIX}`);
     }
-  } catch (error) {}
+    return true;
+  } catch (error) {
+    if (__DEV__) console.warn(`[storage] ${key} 损坏数据备份失败`, error);
+    return false;
+  }
 }
 
 function normalizeCharacter(raw) {
