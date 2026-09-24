@@ -28,4 +28,8 @@ test('媒体消息保留空正文并生成名称提示', () => {
     image: { ...sticker.image, name: '原始文件.jpg' },
   };
   assert.match(getMessagePromptText(renamedSticker), /表情包：开心/);
+  assert.match(
+    getMessagePromptText({ role: 'user', image: { name: '旧图片.jpg' } }),
+    /图片：旧图片\.jpg/
+  );
 });

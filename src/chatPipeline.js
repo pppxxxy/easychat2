@@ -61,7 +61,12 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
-    .map(getMessagePromptText)
+    .map(item => applyForPrompt(
+      getMessagePromptText(item),
+      scripts,
+      REGEX_PLACEMENT.USER_INPUT,
+      0
+    ))
     .filter(Boolean)
     .join('\n');
   const activationText = [userText, mediaActivationText].filter(Boolean).join('\n');
@@ -162,7 +167,12 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const mediaMessages = currentMedia
     .filter(item => item && (item.dataUri || item.image))
     .map(item => {
-      const text = getMessagePromptText(item);
+      const text = applyForPrompt(
+        getMessagePromptText(item),
+        scripts,
+        REGEX_PLACEMENT.USER_INPUT,
+        0
+      );
       const dataUri = item.includeImage === false ? '' : String(item.dataUri || '');
       const content = dataUri
         ? [

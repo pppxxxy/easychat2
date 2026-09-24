@@ -3,7 +3,8 @@ export const STICKER_MESSAGE_KIND = 'sticker';
 
 export function isMediaMessage(message) {
   return !!(message && message.image && (
-    message.kind === IMAGE_MESSAGE_KIND
+    !message.kind
+    || message.kind === IMAGE_MESSAGE_KIND
     || message.kind === STICKER_MESSAGE_KIND
   ));
 }

@@ -80,6 +80,33 @@ test('无识图模型收到表情包名称提示', () => {
   assert.equal(userMessages[0].content.includes('image_url'), false);
 });
 
+test('当前媒体名称经过用户输入正则处理', () => {
+  const messages = buildRequestMessages({
+    character: {
+      ...character,
+      regexScripts: [{
+        id: 'redact-media',
+        findRegex: '秘密',
+        replaceString: '[已脱敏]',
+        placement: [1],
+        enabled: true,
+        useRegex: false,
+      }],
+    },
+    historyMessages: [],
+    imageMessages: [{
+      kind: 'image',
+      image: { name: '秘密.jpg' },
+      dataUri: 'data:image/jpeg;base64,abc',
+    }],
+    userText: '',
+    userProfile: {},
+  });
+  const media = messages.find(item => Array.isArray(item.content));
+  assert.match(media.content[0].text, /\[已脱敏\]/);
+  assert.equal(media.content[0].text.includes('秘密'), false);
+});
+
 test('媒体名称参与世界书关键词激活', () => {
   const messages = buildRequestMessages({
     character: {

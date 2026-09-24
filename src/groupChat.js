@@ -1,6 +1,7 @@
 import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
 import { getMessagePromptText } from './chatMedia.js';
+import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 
 export const MAX_SPEAKERS = 3;
 export const PROFILE_MIN_CHARS = 30;
@@ -326,7 +327,7 @@ export function buildGroupContext({ speaker, characters, historyMessages, profil
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
-      const text = getMessagePromptText(item).replace(/\s+/g, ' ').trim().slice(0, 120);
+       const text = buildGroupMediaPrompt(item, list).replace(/\s+/g, ' ').trim().slice(0, 120);
       return text ? `${label}：${text}` : '';
     })
     .filter(Boolean);
@@ -403,6 +404,19 @@ function ensembleRoster(characters, profiles) {
     .join('\n');
 }
 
+function buildGroupMediaPrompt(item, characters) {
+  const scripts = (Array.isArray(characters) ? characters : [])
+    .flatMap(character => Array.isArray(character && character.regexScripts)
+      ? character.regexScripts
+      : []);
+  return applyRegexScripts(
+    getMessagePromptText(item),
+    scripts,
+    REGEX_PLACEMENT.USER_INPUT,
+    { mode: 'prompt', depth: 0 }
+  );
+}
+
 export function buildEnsemblePrompt({
   characters,
   historyMessages,
@@ -437,7 +451,7 @@ export function buildEnsemblePrompt({
     .slice(-GROUP_RECENT_LINES)
     .map(item => {
       const label = speakerLabel(list, item);
-      const text = getMessagePromptText(item).replace(/\s+/g, ' ').trim().slice(0, 200);
+       const text = buildGroupMediaPrompt(item, list).replace(/\s+/g, ' ').trim().slice(0, 200);
       return text ? `${label}：${text}` : '';
     })
     .filter(Boolean);
@@ -450,7 +464,7 @@ export function buildEnsemblePrompt({
   const mediaMessages = (Array.isArray(imageMessages) ? imageMessages : [])
     .filter(item => item && (item.dataUri || item.image))
     .map(item => {
-      const text = getMessagePromptText(item);
+      const text = buildGroupMediaPrompt(item, list);
       const dataUri = item.includeImage === false ? '' : String(item.dataUri || '');
       return {
         role: 'user',
