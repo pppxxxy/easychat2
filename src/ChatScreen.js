@@ -34,6 +34,7 @@ import {
 } from './attachments';
 import { buildRequestMessages } from './chatPipeline';
 import { isGreetingMessage, listGreetingCandidates } from './cardGreetings';
+import { removeMessagesByIds, toggleMessageSelection } from './messageSelection';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -474,7 +475,7 @@ function renderHighlightedText(text, keyword, styles) {
   return parts;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, selectionMode, selected }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -572,6 +573,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           isUser ? styles.userBubble : styles.assistantBubble,
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
+          selected ? styles.bubbleSelected : null,
         ]}>
           {message.quoted && message.quoted.text ? (
             <TouchableOpacity
@@ -689,7 +691,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
             )}
           </View>
         ) : null}
-        {!message.pending ? (
+        {!message.pending && !selectionMode ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
             <TouchableOpacity style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]} onPress={onCopy} activeOpacity={0.8}>
               <Text style={styles.messageActionText}>{copied ? '已复制' : '复制'}</Text>
@@ -751,7 +753,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   );
 });
 
-function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
+function ErrorBubble({ message, rawError, onCopied, fullWidth, selectionMode, selected }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [expanded, setExpanded] = useState(false);
@@ -769,7 +771,12 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
 
   return (
     <View style={[styles.messageRow, styles.messageRowLeft]}>
-      <View style={[styles.bubble, fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded, styles.errorBubble]}>
+      <View style={[
+        styles.bubble,
+        fullWidth ? styles.bubbleFullWidth : styles.bubbleBounded,
+        styles.errorBubble,
+        selected ? styles.bubbleSelected : null,
+      ]}>
         <Text style={styles.errorBadge}>系统报错</Text>
         <TouchableOpacity onPress={() => setExpanded(current => !current)} activeOpacity={0.8}>
           <Text style={styles.errorSummary}>请求失败，点击查看详情</Text>
@@ -779,11 +786,13 @@ function ErrorBubble({ message, rawError, onCopied, fullWidth }) {
             {maskSecrets(message.detail || message.text || '')}
           </Text>
         ) : null}
-        <View style={styles.errorActions}>
-          <TouchableOpacity style={styles.copyButton} onPress={onCopy}>
-            <Text style={styles.copyButtonText}>{copied ? '已复制' : '复制报错'}</Text>
-          </TouchableOpacity>
-        </View>
+        {!selectionMode ? (
+          <View style={styles.errorActions}>
+            <TouchableOpacity style={styles.copyButton} onPress={onCopy}>
+              <Text style={styles.copyButtonText}>{copied ? '已复制' : '复制报错'}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -870,6 +879,12 @@ export default function ChatScreen() {
   const inputSelectionRef = useRef({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const selectedMessageIdSet = useMemo(
+    () => new Set(selectedMessageIds),
+    [selectedMessageIds]
+  );
+  const messageSelectionOpen = selectedMessageIds.length > 0;
   const [greetingReady, setGreetingReady] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [ready, setReady] = useState(false);
@@ -1065,7 +1080,20 @@ export default function ChatScreen() {
   }, [activeSessionId]);
 
   useEffect(() => {
+    const available = new Set(
+      (Array.isArray(messages) ? messages : [])
+        .map(message => String(message && message.id || ''))
+        .filter(Boolean)
+    );
+    setSelectedMessageIds(current => {
+      const next = current.filter(id => available.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [messages]);
+
+  useEffect(() => {
     if (!loaded) return;
+    setSelectedMessageIds([]);
     activeCharacterIdRef.current = characterId;
     activeSessionIdRef.current = activeSessionId;
     let cancelled = false;
@@ -2109,7 +2137,7 @@ export default function ChatScreen() {
   const sendText = useCallback(rawText => {
     const text = String(rawText || '').trim();
     const imageAttachments = attachments.filter(item => item.kind === 'image');
-    if ((!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
+    if (messageSelectionOpen || (!text && imageAttachments.length === 0) || isSending || !ready || abortRef.current) return;
     if (!isGroupRef.current && !greetingReady) return;
     if (sessionOwnerMissing) {
       Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
@@ -2139,7 +2167,7 @@ export default function ChatScreen() {
     } else {
       requestReply(payload);
     }
-  }, [attachments, greetingReady, isSending, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing]);
+  }, [attachments, greetingReady, isSending, messageSelectionOpen, messages, quoteTarget, ready, requestReply, requestGroupReply, sessionOwnerMissing]);
 
   const regenerateMessage = useCallback(targetId => {
     if (isSending || !ready) return;
@@ -2211,6 +2239,62 @@ export default function ChatScreen() {
     setFocusedMessageId(quote.id);
     scrollToMessage(quote.id);
   }, [messages, scrollToMessage]);
+
+  const startMessageSelection = useCallback(messageId => {
+    if (!messageId || !ready || isSending) return;
+    setSelectedMessageIds(current => {
+      const id = String(messageId);
+      if (current.includes(id)) return current;
+      return current.length > 0 ? [...current, id] : [id];
+    });
+    setSearchOpen(false);
+    setMoreOpen(false);
+  }, [isSending, ready]);
+
+  const toggleSelectedMessage = useCallback(messageId => {
+    if (!messageId || !ready || isSending) return;
+    setSelectedMessageIds(current => toggleMessageSelection(current, messageId));
+  }, [isSending, ready]);
+
+  const cancelMessageSelection = useCallback(() => {
+    setSelectedMessageIds([]);
+  }, []);
+
+  const confirmDeleteSelectedMessages = useCallback(() => {
+    const ids = selectedMessageIds.slice();
+    if (ids.length === 0 || !ready || isSending) return;
+    const sessionId = activeSessionIdRef.current;
+    const sessionVersion = sessionVersionRef.current;
+    Alert.alert(
+      '删除消息',
+      `确定删除选中的 ${ids.length} 条消息吗？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            if (
+              sessionVersionRef.current !== sessionVersion
+              || activeSessionIdRef.current !== sessionId
+            ) return;
+            setMessages(current => removeMessagesByIds(current, ids));
+            ids.forEach(id => {
+              delete errorRawRef.current[id];
+              delete messageOffsetsRef.current[id];
+            });
+            setSelectedMessageIds([]);
+            setFocusedMessageId(current => (
+              ids.includes(current) ? '' : current
+            ));
+            setQuoteTarget(current => (
+              current && ids.includes(String(current.id || '')) ? null : current
+            ));
+          },
+        },
+      ]
+    );
+  }, [isSending, ready, selectedMessageIds]);
 
   const toggleBroadcast = useCallback(async () => {
     const next = { ...ttsSettings, enabled: !ttsSettings.enabled };
@@ -2376,14 +2460,14 @@ export default function ChatScreen() {
 
   const onSend = useCallback(() => {
     const text = input.trim();
-    if ((!text && attachments.length === 0) || isSending || !ready || abortRef.current) return;
+    if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || !ready || abortRef.current) return;
     if (!isGroupRef.current && !greetingReady) {
       openGreetingPicker(activeSessionId ? 'reselect' : 'new');
       return;
     }
     setInput('');
     sendText(text);
-  }, [activeSessionId, attachments.length, greetingReady, input, isSending, openGreetingPicker, ready, sendText]);
+  }, [activeSessionId, attachments.length, greetingReady, input, isSending, messageSelectionOpen, openGreetingPicker, ready, sendText]);
 
   const insertMention = useCallback(name => {
     const label = `${MENTION_PREFIX}${name} `;
@@ -2405,7 +2489,7 @@ export default function ChatScreen() {
   const displayName = isGroup
     ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
     : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
-  const inputDisabled = !ready || isSending || sessionOwnerMissing || (!isGroup && !greetingReady);
+  const inputDisabled = !ready || isSending || messageSelectionOpen || sessionOwnerMissing || (!isGroup && !greetingReady);
 
   const recordTurn = useCallback(async (userText, assistantText) => {
     const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
@@ -2472,70 +2556,99 @@ export default function ChatScreen() {
         <Image key={bgUri} source={{ uri: bgUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" pointerEvents="none" />
       ) : null}
       <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.characterChip}
-          onPress={() => setSwitcherOpen(true)}
-          disabled={!loaded}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={isGroup ? '切换群聊' : '切换角色'}
-          accessibilityState={{ disabled: !loaded }}
-        >
-          {isGroup ? (
-            groupAvatarUri ? (
-              <Image source={{ uri: groupAvatarUri }} style={styles.characterAvatar} />
-            ) : (
-              <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-                <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
-              </View>
-            )
-          ) : character.avatarUri ? (
-            <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
-          ) : (
-            <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-              <Ionicons name="person" size={13} color={theme.colors.primarySoft} />
-            </View>
-          )}
-          <Text style={styles.characterName} numberOfLines={1}>
-            {displayName}
-          </Text>
-          <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.noticeButton, (isSending || !ready) && styles.actionDisabled]}
-          onPress={onNewChat}
-          disabled={isSending || !ready}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="新建对话"
-          accessibilityState={{ disabled: isSending || !ready }}
-        >
-          <Ionicons name="add-circle-outline" size={13} color={theme.colors.primarySoft} />
-          <Text style={styles.noticeButtonText}>新建</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.noticeButton, !ttsSettings.enabled && styles.actionDisabled]}
-          onPress={toggleBroadcast}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={ttsSettings.enabled ? '关闭语音播报' : '开启语音播报'}
-        >
-          <Ionicons
-            name={ttsSettings.enabled ? 'volume-high-outline' : 'volume-mute-outline'}
-            size={13}
-            color={theme.colors.primarySoft}
-          />
-          <Text style={styles.noticeButtonText}>{ttsSettings.enabled ? '播报开' : '播报关'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.noticeButton}
-          onPress={() => setMoreOpen(true)}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="更多功能"
-        >
-          <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
-        </TouchableOpacity>
+        {messageSelectionOpen ? (
+          <>
+            <TouchableOpacity
+              style={styles.selectionAction}
+              onPress={cancelMessageSelection}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="取消选择消息"
+            >
+              <Ionicons name="close" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.selectionActionText}>取消</Text>
+            </TouchableOpacity>
+            <Text style={styles.selectionCount}>已选择 {selectedMessageIds.length} 条</Text>
+            <TouchableOpacity
+              style={[styles.selectionAction, isSending && styles.actionDisabled]}
+              onPress={confirmDeleteSelectedMessages}
+              disabled={isSending}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="删除选中消息"
+            >
+              <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+              <Text style={[styles.selectionActionText, styles.selectionDeleteText]}>删除</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.characterChip}
+              onPress={() => setSwitcherOpen(true)}
+              disabled={!loaded}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={isGroup ? '切换群聊' : '切换角色'}
+              accessibilityState={{ disabled: !loaded }}
+            >
+              {isGroup ? (
+                groupAvatarUri ? (
+                  <Image source={{ uri: groupAvatarUri }} style={styles.characterAvatar} />
+                ) : (
+                  <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
+                    <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
+                  </View>
+                )
+              ) : character.avatarUri ? (
+                <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
+              ) : (
+                <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
+                  <Ionicons name="person" size={13} color={theme.colors.primarySoft} />
+                </View>
+              )}
+              <Text style={styles.characterName} numberOfLines={1}>
+                {displayName}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.noticeButton, (isSending || !ready) && styles.actionDisabled]}
+              onPress={onNewChat}
+              disabled={isSending || !ready}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="新建对话"
+              accessibilityState={{ disabled: isSending || !ready }}
+            >
+              <Ionicons name="add-circle-outline" size={13} color={theme.colors.primarySoft} />
+              <Text style={styles.noticeButtonText}>新建</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.noticeButton, !ttsSettings.enabled && styles.actionDisabled]}
+              onPress={toggleBroadcast}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={ttsSettings.enabled ? '关闭语音播报' : '开启语音播报'}
+            >
+              <Ionicons
+                name={ttsSettings.enabled ? 'volume-high-outline' : 'volume-mute-outline'}
+                size={13}
+                color={theme.colors.primarySoft}
+              />
+              <Text style={styles.noticeButtonText}>{ttsSettings.enabled ? '播报开' : '播报关'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.noticeButton}
+              onPress={() => setMoreOpen(true)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="更多功能"
+            >
+              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
       <View style={styles.aiNoticeBar} pointerEvents="none">
         <Text style={styles.aiNoticeText}>{AI_DISCLAIMER_TEXT}</Text>
@@ -2621,59 +2734,72 @@ export default function ChatScreen() {
         ) : (
           renderedMessages.map(message => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
+            const selected = selectedMessageIdSet.has(String(message.id || ''));
             return (
-              <View
+              <Pressable
                 key={message.id}
-                onLayout={event => onMessageLayout(message.id, event)}
+                onLongPress={!messageSelectionOpen ? () => startMessageSelection(message.id) : undefined}
+                onPress={messageSelectionOpen ? () => toggleSelectedMessage(message.id) : undefined}
+                delayLongPress={350}
+                disabled={!ready || isSending || message.pending}
+                accessibilityRole="button"
+                accessibilityLabel="长按选择消息"
+                accessibilityState={{ selected }}
               >
-                {message.role === SYSTEM_ERROR_ID ? (
-                  <ErrorBubble
-                    message={message}
-                    rawError={errorRawRef.current[message.id]}
-                    fullWidth={chatOptions.fullWidth}
-                  />
-                ) : (
-                  <MessageBubble
-                    message={message}
-                    rawText={rawTextById.get(message.id)}
-                    characterName={
-                      isGroup
-                        ? ((speaker && speaker.name) || message.speakerName || displayName)
-                        : (sessionOwnerMissing ? '角色资料缺失' : ((speaker && speaker.name) || message.speakerName || character.name))
-                    }
-                    characterAvatar={
-                      isGroup
-                        ? (
-                          (speaker && speaker.avatarUri)
-                          || (message.speakerName
-                            ? (groupCharacters.find(item => item.name === message.speakerName) || {}).avatarUri
-                            : '')
-                          || groupAvatarUri
-                          || ''
-                        )
-                        : (speaker ? (speaker.avatarUri || '') : (message.speakerId ? '' : character.avatarUri))
-                    }
-                    userAvatarUri={userAvatar}
-                    onSlashCommand={onSlashCommand}
-                    canRegenerate={!isGroup && regenerableIds.has(message.id)}
-                    onRegenerate={onRegenerateMessage}
-                    onEditUserMessage={onEditUserMessage}
-                    onSelectText={onSelectText}
-                    onQuote={onQuoteMessage}
-                    onPressQuote={onPressQuoteBlock}
-                    onGenerateImage={generateInlineImage}
-                    onBroadcast={broadcastMessage}
-                    highlightKeyword={searchQuery.trim()}
-                    isMatch={searchMatches.includes(message.id)}
-                    isActiveMatch={focusedMessageId === message.id}
-                    fullWidth={chatOptions.fullWidth}
-                    richHtmlEnabled={chatOptions.richHtml !== false}
-                    onReselectGreeting={sessionOwnerMissing ? undefined : () => openGreetingPicker('reselect')}
-                    thinkingDisplay={thinkingDisplay}
-                    overlayActions={!!bgUri}
-                  />
-                )}
-              </View>
+                <View onLayout={event => onMessageLayout(message.id, event)}>
+                  {message.role === SYSTEM_ERROR_ID ? (
+                    <ErrorBubble
+                      message={message}
+                      rawError={errorRawRef.current[message.id]}
+                      fullWidth={chatOptions.fullWidth}
+                      selectionMode={messageSelectionOpen}
+                      selected={selected}
+                    />
+                  ) : (
+                    <MessageBubble
+                      message={message}
+                      rawText={rawTextById.get(message.id)}
+                      characterName={
+                        isGroup
+                          ? ((speaker && speaker.name) || message.speakerName || displayName)
+                          : (sessionOwnerMissing ? '角色资料缺失' : ((speaker && speaker.name) || message.speakerName || character.name))
+                      }
+                      characterAvatar={
+                        isGroup
+                          ? (
+                            (speaker && speaker.avatarUri)
+                            || (message.speakerName
+                              ? (groupCharacters.find(item => item.name === message.speakerName) || {}).avatarUri
+                              : '')
+                            || groupAvatarUri
+                            || ''
+                          )
+                          : (speaker ? (speaker.avatarUri || '') : (message.speakerId ? '' : character.avatarUri))
+                      }
+                      userAvatarUri={userAvatar}
+                      onSlashCommand={onSlashCommand}
+                      canRegenerate={!isGroup && regenerableIds.has(message.id)}
+                      onRegenerate={onRegenerateMessage}
+                      onEditUserMessage={onEditUserMessage}
+                      onSelectText={onSelectText}
+                      onQuote={onQuoteMessage}
+                      onPressQuote={onPressQuoteBlock}
+                      onGenerateImage={generateInlineImage}
+                      onBroadcast={broadcastMessage}
+                      highlightKeyword={searchQuery.trim()}
+                      isMatch={searchMatches.includes(message.id)}
+                      isActiveMatch={focusedMessageId === message.id}
+                      fullWidth={chatOptions.fullWidth}
+                      richHtmlEnabled={chatOptions.richHtml !== false}
+                      onReselectGreeting={sessionOwnerMissing ? undefined : () => openGreetingPicker('reselect')}
+                      thinkingDisplay={thinkingDisplay}
+                      overlayActions={!!bgUri}
+                      selectionMode={messageSelectionOpen}
+                      selected={selected}
+                    />
+                  )}
+                </View>
+              </Pressable>
             );
           })
         )}
@@ -2708,7 +2834,7 @@ export default function ChatScreen() {
         </View>
       ) : null}
       <View style={[styles.inputBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
-        {messages.length > 0 ? (
+        {messages.length > 0 && !messageSelectionOpen ? (
           <TouchableOpacity
             style={[styles.clearButton, isSending && styles.clearButtonDisabled]}
             onPress={onClear}
@@ -3384,6 +3510,31 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: tokens.spacing.md,
     paddingVertical: tokens.spacing.sm,
   },
+  selectionAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 62,
+    paddingVertical: 6,
+    paddingHorizontal: tokens.spacing.sm,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.primaryAlpha(0.12),
+  },
+  selectionActionText: {
+    color: theme.colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 4,
+  },
+  selectionDeleteText: {
+    color: theme.colors.danger,
+  },
+  selectionCount: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
   characterChip: {
     flex: 1,
     flexDirection: 'row',
@@ -3913,6 +4064,10 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleActiveMatch: {
     borderWidth: 2,
     borderColor: '#ff8c42',
+  },
+  bubbleSelected: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
   },
   thinkingIndicator: {
     flexDirection: 'row',
