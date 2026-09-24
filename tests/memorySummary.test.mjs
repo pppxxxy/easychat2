@@ -108,6 +108,30 @@ test('手动总结包含保留的最近消息且绕过自动候选限制', () =>
   );
 });
 
+test('删除总结边界后回退到最近仍存在的消息', () => {
+  const messages = makeMessages(4);
+  assert.equal(
+    memorySummary.summarizeBoundaryAfterDeletion(messages, 'message-6', ['message-6']),
+    'message-5'
+  );
+  assert.equal(
+    memorySummary.summarizeBoundaryAfterDeletion(messages, 'message-6', ['message-5', 'message-6']),
+    'message-4'
+  );
+  assert.equal(
+    memorySummary.summarizeBoundaryAfterDeletion(
+      messages,
+      'message-6',
+      ['message-1', 'message-2', 'message-3', 'message-4', 'message-5', 'message-6']
+    ),
+    ''
+  );
+  assert.equal(
+    memorySummary.summarizeBoundaryAfterDeletion(messages, 'message-6', ['message-1']),
+    'message-6'
+  );
+});
+
 test('关键词-only 总结不会推进边界', async () => {
   summaryText = '关键词：小明、会面';
   let updated = false;

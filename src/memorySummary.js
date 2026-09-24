@@ -64,6 +64,23 @@ export function selectManualSummarizable(messages, summarizedUpTo) {
   return remaining.length > 0 ? remaining : list;
 }
 
+export function summarizeBoundaryAfterDeletion(messages, summarizedUpTo, removedIds) {
+  const boundary = String(summarizedUpTo || '');
+  if (!boundary) return '';
+  const removed = new Set(
+    (Array.isArray(removedIds) ? removedIds : []).map(id => String(id || '')).filter(Boolean)
+  );
+  const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
+  const boundaryIndex = list.findIndex(item => String(item.id || '') === boundary);
+  if (boundaryIndex < 0) return '';
+  if (!removed.has(boundary)) return boundary;
+  for (let index = boundaryIndex - 1; index >= 0; index -= 1) {
+    const id = String(list[index].id || '');
+    if (id && !removed.has(id)) return id;
+  }
+  return '';
+}
+
 export function shouldSummarize({ session, messages, settings, force = false } = {}) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   const candidates = selectSummarizable(list, session && session.summarizedUpTo);

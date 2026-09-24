@@ -58,6 +58,7 @@ import {
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
+  summarizeBoundaryAfterDeletion,
 } from './memorySummary';
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
@@ -113,8 +114,10 @@ import {
    saveSticker,
 
   saveTtsSettings,
-  setSessionGreetingSelected,
-  startNewSession,
+   setSessionGreetingSelected,
+   setSessionSummarizedUpTo,
+   startNewSession,
+
   THINKING_DISPLAYS,
   THINKING_LEVELS,
   updateSessionMemberProfiles,
@@ -3093,6 +3096,13 @@ export default function ChatScreen() {
     if (ids.length === 0 || !ready || isSending) return;
     const sessionId = activeSessionIdRef.current;
     const sessionVersion = sessionVersionRef.current;
+    const session = sessionsRef.current.find(item => item.id === sessionId);
+    const currentBoundary = String((session && session.summarizedUpTo) || '');
+    const nextBoundary = summarizeBoundaryAfterDeletion(
+      messagesRef.current,
+      currentBoundary,
+      ids
+    );
     Alert.alert(
       '删除消息',
       `确定删除选中的 ${ids.length} 条消息吗？`,
@@ -3101,15 +3111,27 @@ export default function ChatScreen() {
         {
           text: '删除',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             if (
               sessionVersionRef.current !== sessionVersion
               || activeSessionIdRef.current !== sessionId
-             ) return;
-             if (!isGroupRef.current) {
-               removeVectorIndexForSession(characterId, sessionId).catch(() => {});
-             }
-             setMessages(current => removeMessagesByIds(current, ids));
+            ) return;
+            try {
+              if (session && nextBoundary !== currentBoundary) {
+                await setSessionSummarizedUpTo(sessionId, nextBoundary);
+              }
+            } catch (error) {
+              Alert.alert('删除失败', '总结边界未能同步，请稍后重试。');
+              return;
+            }
+            if (
+              sessionVersionRef.current !== sessionVersion
+              || activeSessionIdRef.current !== sessionId
+            ) return;
+            if (!isGroupRef.current) {
+              removeVectorIndexForSession(characterId, sessionId).catch(() => {});
+            }
+            setMessages(current => removeMessagesByIds(current, ids));
             ids.forEach(id => {
               delete errorRawRef.current[id];
               delete messageOffsetsRef.current[id];
@@ -3125,7 +3147,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [characterId, isSending, ready, removeVectorIndexForSession, selectedMessageIds]);
+  }, [characterId, isSending, ready, removeVectorIndexForSession, selectedMessageIds, setSessionSummarizedUpTo]);
 
   const toggleBroadcast = useCallback(async () => {
     const next = { ...ttsSettings, enabled: !ttsSettings.enabled };
