@@ -39,3 +39,10 @@ Entries discovered by the Agent during task execution should follow this format:
   - 无测试框架时用 Node 脚本做回归验证：Babel 转换 src/*.js（storage.js 等用 commonjs + async 插件；含 JSX 的 SettingsScreen/CharacterScreen 需额外加 @babel/plugin-syntax-jsx），配合 AsyncStorage mock 在 vm 中执行
   - 并发/竞态验证用 fixture 模式：失败注入（failures.get/set）与写入挂起（hold/release）模拟落盘窗口
   - 上述脚本是会话临时产物，生成在 /tmp/opencode，不入库；需要时按上述方式重建
+
+[User Instruction Summary]
+- Date: 2026-09-24
+- Context: 接收 easychat2 代码审核建议并继续修复
+- Instructions:
+  - 独立核验每条审核建议，确认问题真实存在后再实施。
+  - 采纳综合判断后必要的修复，保持一个主题一个提交并完成对应回归测试。
