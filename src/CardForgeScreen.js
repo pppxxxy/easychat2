@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { isCanceledError, sendChatMessage } from './api';
+import { getConfigFingerprint, isCanceledError, sendChatMessage } from './api';
 import { buildSystemPrompt } from './cardParser';
 import { useApp } from './context/AppContext';
 import CardForgeEditor from './CardForgeEditor';
@@ -29,7 +29,8 @@ import {
   recordAnswer,
   summarizeAnswers,
 } from './cardForge/forge';
-import { clearCardForge, getCardForgeStatus, saveCardForge } from './storage';
+import { clearCardForge, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage';
+import { maskSecrets } from './secrets';
 import { Chip, PrimaryButton, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
@@ -46,7 +47,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const [freeQuestionId, setFreeQuestionId] = useState('');
   const [busy, setBusy] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const importingRef = useRef(false);
+  const busyRef = useRef(false);
   const loadErrorRef = useRef(false);
+  const draftRevisionRef = useRef(0);
   const stateRef = useRef(null);
   const scrollRef = useRef(null);
   const mountedRef = useRef(true);
@@ -63,6 +67,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const update = useCallback(next => {
     if (loadErrorRef.current) return Promise.resolve(false);
+    draftRevisionRef.current += 1;
     applyState(next);
     return saveCardForge(next).catch(error => {
       if (mountedRef.current) {
@@ -86,6 +91,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     const controller = requestControllerRef.current;
     requestControllerRef.current = null;
     controller?.abort();
+    importingRef.current = false;
+    busyRef.current = false;
     if (mountedRef.current) setBusy(false);
   }, [active]);
 
@@ -95,9 +102,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       mountedRef.current = false;
       requestTokenRef.current += 1;
       const controller = requestControllerRef.current;
-      requestControllerRef.current = null;
-      controller?.abort();
-    };
+       requestControllerRef.current = null;
+       controller?.abort();
+       busyRef.current = false;
+     };
   }, []);
 
   // 每次切到「制卡」都从存储重读：角色页的「导入到制卡」会改写存储草稿，
@@ -107,9 +115,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
-     getCardForgeStatus()
-       .then(result => {
-         if (cancelled) return;
+    const revisionAtStart = draftRevisionRef.current;
+    getCardForgeStatus()
+.then(result => {
+          if (cancelled || revisionAtStart !== draftRevisionRef.current) return;
          if (result.status === 'corrupt') {
            loadErrorRef.current = true;
            applyState(createForgeState());
@@ -119,8 +128,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
          loadErrorRef.current = false;
          applyState(result.state || createForgeState());
        })
-       .catch(() => {
-         if (cancelled) return;
+      .catch(() => {
+        if (cancelled || revisionAtStart !== draftRevisionRef.current) return;
          loadErrorRef.current = true;
          applyState(createForgeState());
          Alert.alert('制卡草稿读取失败', '请稍后重试。');
@@ -132,10 +141,17 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, [active, refreshKey, applyState]);
 
   const askModel = useCallback(async (prompt, signal) => {
+    const { configs, activeId } = await getApiConfigs();
+    const current = configs.find(item => item.id === activeId) || configs[0];
     const raw = await sendChatMessage([
       { role: 'system', content: FORGE_SYSTEM },
       { role: 'user', content: prompt },
-    ], { stream: false, signal });
+    ], {
+      stream: false,
+      signal,
+      expectedConfigId: String(current && current.id || ''),
+      expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+    });
     return parseCardPatch(raw);
   }, []);
 
@@ -162,13 +178,14 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, [busy, submitAnswer]);
 
   const onGenerate = useCallback(() => {
-    if (busy || !activeRef.current || !mountedRef.current) return;
+    if (busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
       Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再生成。');
       return;
     }
     const run = async () => {
-      if (!activeRef.current || !mountedRef.current) return;
+      if (!activeRef.current || !mountedRef.current || busyRef.current) return;
+      busyRef.current = true;
       const token = ++requestTokenRef.current;
       const controller = new AbortController();
       requestControllerRef.current = controller;
@@ -197,9 +214,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         if (saved && isRequestCurrent(token, controller)) setEditorOpen(true);
       } catch (error) {
         if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
-          Alert.alert('生成失败', (error && error.message) || '请稍后重试。');
+          Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
         }
       } finally {
+        if (requestTokenRef.current === token) busyRef.current = false;
         if (isRequestCurrent(token, controller)) {
           requestControllerRef.current = null;
           setBusy(false);
@@ -218,15 +236,15 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
-    if (!text || busy || !activeRef.current || !mountedRef.current) return;
+    if (!text || busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
       Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再发送。');
       return;
     }
+    busyRef.current = true;
     const token = ++requestTokenRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
-    setInput('');
     setBusy(true);
     const base = stateRef.current;
     try {
@@ -235,7 +253,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         role: 'user',
         text,
       }));
-      if (!transcriptSaved || !isRequestCurrent(token, controller)) return;
+      if (!transcriptSaved) return;
+      setInput('');
+      if (!isRequestCurrent(token, controller)) return;
       const latest = stateRef.current || base;
       const patch = await askModel(buildEditPrompt({
         draft: latest.draft,
@@ -262,9 +282,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       await update(next);
     } catch (error) {
       if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
-        Alert.alert('制卡失败', (error && error.message) || '请稍后重试。');
+        Alert.alert('制卡失败', maskSecrets((error && error.message) || '请稍后重试。'));
       }
     } finally {
+      if (requestTokenRef.current === token) busyRef.current = false;
       if (isRequestCurrent(token, controller)) {
         requestControllerRef.current = null;
         setBusy(false);
@@ -273,18 +294,22 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, [askModel, busy, input, isRequestCurrent, update]);
 
   const onSaveDraft = useCallback(nextDraft => {
-    if (!mountedRef.current || !activeRef.current) return;
+    if (!mountedRef.current || !activeRef.current || busyRef.current) return;
     setEditorOpen(false);
     update({ ...stateRef.current, draft: nextDraft, updatedAt: Date.now() });
   }, [update]);
 
   const onImport = useCallback(async () => {
-    if (busy) return;
+    if (busy || busyRef.current || importingRef.current) return;
     const draft = stateRef.current && stateRef.current.draft;
     if (!hasCardContent(draft)) {
       Alert.alert('卡片还是空的', '先回答问题后点「生成」，或直接输入你的要求。');
       return;
     }
+    importingRef.current = true;
+    busyRef.current = true;
+    const importToken = ++requestTokenRef.current;
+    setBusy(true);
     try {
       const composedPrompt = buildSystemPrompt({
         description: draft.description,
@@ -305,7 +330,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       }));
       Alert.alert('已导入', `角色「${created.name}」已加入角色库，并已为它准备好新会话。`);
     } catch (error) {
-      Alert.alert('导入失败', (error && error.message) || '请检查存储空间或权限。');
+      Alert.alert('导入失败', maskSecrets((error && error.message) || '请检查存储空间或权限。'));
+    } finally {
+      if (requestTokenRef.current === importToken) {
+        importingRef.current = false;
+        busyRef.current = false;
+        if (mountedRef.current) setBusy(false);
+      }
     }
   }, [addCharacter, busy, ensureCharacterSession, update]);
 
@@ -317,18 +348,26 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         text: '清空',
         style: 'destructive',
          onPress: async () => {
-           if (!mountedRef.current || !activeRef.current) return;
+           if (!mountedRef.current || !activeRef.current || busyRef.current) return;
+           busyRef.current = true;
+           setBusy(true);
+           const resetToken = ++requestTokenRef.current;
            try {
              await clearCardForge();
              if (!mountedRef.current || !activeRef.current) return;
              loadErrorRef.current = false;
              await update(createForgeState());
-           } catch (error) {
-             if (mountedRef.current) {
-               Alert.alert('清空失败', '请检查存储空间或权限。');
+             } catch (error) {
+               if (mountedRef.current) {
+                 Alert.alert('清空失败', '请检查存储空间或权限。');
+               }
+             } finally {
+               if (requestTokenRef.current === resetToken) {
+                 busyRef.current = false;
+                 if (mountedRef.current) setBusy(false);
+               }
              }
-           }
-         },
+          },
 
       },
     ]);
@@ -386,8 +425,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         <Text style={styles.title}>制卡</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
-            style={styles.action}
-            onPress={() => setEditorOpen(true)}
+            style={[styles.action, busy && styles.actionDisabled]}
+            onPress={() => { if (!busy) setEditorOpen(true); }}
+            disabled={busy}
             activeOpacity={0.8}
             accessibilityLabel="查看当前角色卡"
           >

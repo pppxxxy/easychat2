@@ -15,7 +15,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { updateSessionInfo } from './storage';
+import { markMediaWrite, updateSessionInfo } from './storage';
 import { FieldLabel, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
@@ -84,8 +84,9 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       const mime = String(asset.mimeType || '').toLowerCase();
       const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
-      const dest = `${dir}${sessionId || 'group'}-group-${Date.now()}${ext}`;
-      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+       const dest = `${dir}${sessionId || 'group'}-group-${Date.now()}${ext}`;
+       markMediaWrite(dest);
+       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       if (!isCurrent()) {
         await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
         return;
@@ -151,7 +152,13 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
   const renderMemberPicks = (current, setter, label, field) => (
     <>
       <FieldLabel style={styles.label}>{label}</FieldLabel>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.pickRow}
+        scrollEnabled={!saving}
+        pointerEvents={saving ? 'none' : 'auto'}
+      >
         <TouchableOpacity
           style={[styles.pickChip, !current && styles.pickChipActive]}
           onPress={() => setter('')}
@@ -212,6 +219,8 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            scrollEnabled={!saving}
+            pointerEvents={saving ? 'none' : 'auto'}
           >
             <FieldLabel style={styles.label}>群名</FieldLabel>
             <TextField

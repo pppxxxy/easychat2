@@ -65,6 +65,15 @@ function firstString(sources, keys) {
   return '';
 }
 
+function toStringList(value) {
+  if (Array.isArray(value)) return toStringArray(value);
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? [text] : [];
+  }
+  return [];
+}
+
 function toStringArray(value) {
   if (Array.isArray(value)) {
     return value.map(item => String(item ?? '').trim()).filter(Boolean);
@@ -188,7 +197,13 @@ function normalizeWorldEntry(entry, index) {
       : toBool(source.enabled, true),
     useRegex: toBool(source.use_regex ?? source.useRegex, false),
     caseSensitive: toBool(source.caseSensitive ?? source.case_sensitive, false),
-    matchWholeWords: toBool(source.matchWholeWords ?? source.match_whole_words, false),
+    matchWholeWords: toBool(
+      source.matchWholeWords
+      ?? source.match_whole_words
+      ?? extensions.matchWholeWords
+      ?? extensions.match_whole_words,
+      false
+    ),
     position,
     positionLabel,
     role: normalizeWorldRole(source.role ?? extensions.role),
@@ -199,8 +214,15 @@ function normalizeWorldEntry(entry, index) {
     ),
     depth,
     probability,
-    useProbability: toBool(source.useProbability ?? source.use_probability, true),
+    useProbability: toBool(
+      source.useProbability
+      ?? source.use_probability
+      ?? extensions.useProbability
+      ?? extensions.use_probability,
+      true
+    ),
     scanDepth,
+    boundary: String(source.boundary ?? extensions.boundary ?? ''),
   };
 }
 
@@ -451,7 +473,7 @@ function extractStandardFields(root, data, extensions) {
     [data, root],
     ['first_mes', 'firstMes', 'first_message']
   );
-  const standardAlternates = toStringArray(
+  const standardAlternates = toStringList(
     data?.alternate_greetings ?? root?.alternate_greetings ?? data?.alternateGreetings
   );
   const standardSystemPrompt = firstString([data, root], ['system_prompt', 'systemPrompt']);
@@ -545,7 +567,63 @@ export function normalizeCard(raw) {
     worldInfo,
     regexScripts,
     presets,
+    // 应用能识别的是上面这些字段；其余第三方扩展与顶层字段原样带回，
+    // 导出时再写回，避免 card forge / 重新导出把作者信息、talkativeness 等丢掉。
+    extensions: collectPassthroughExtensions(extensions),
+    extra: collectPassthroughExtra(isPlainObject(source.data) ? source.data : source),
   };
+}
+
+const CONSUMED_EXTENSION_KEYS = new Set([
+  'regex_scripts',
+  'regexScripts',
+  'worldInfo',
+  'worldbook',
+  'character_book',
+  'easychat2',
+]);
+
+const KNOWN_CARD_DATA_KEYS = new Set([
+  'spec',
+  'spec_version',
+  'data',
+  'avatar',
+  'chat',
+  'json',
+  'name',
+  'description',
+  'personality',
+  'scenario',
+  'first_mes',
+  'alternate_greetings',
+  'mes_example',
+  'creator_notes',
+  'system_prompt',
+  'post_history_instructions',
+  'tags',
+  'character_book',
+  'extensions',
+  'group_only_greetings',
+]);
+
+function collectPassthroughExtensions(extensions) {
+  const output = {};
+  if (!isPlainObject(extensions)) return output;
+  Object.keys(extensions).forEach(key => {
+    if (CONSUMED_EXTENSION_KEYS.has(key)) return;
+    output[key] = extensions[key];
+  });
+  return output;
+}
+
+function collectPassthroughExtra(base) {
+  const output = {};
+  if (!isPlainObject(base)) return output;
+  Object.keys(base).forEach(key => {
+    if (KNOWN_CARD_DATA_KEYS.has(key)) return;
+    output[key] = base[key];
+  });
+  return output;
 }
 
 function normalizeJsonText(text) {

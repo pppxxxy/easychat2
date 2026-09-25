@@ -47,9 +47,11 @@ import {
   createGroupSession,
   deleteMomentsForCharacterDeletion,
   getMomentsStatus,
+  markMediaWrite,
   getUserProfile,
   saveCardForge,
 } from './storage';
+import { isRecentMediaUri } from './mediaProtection';
 import { countMomentsForCharacterDeletion } from './moments/moments';
 import { createForgeState, draftFromCharacter } from './cardForge/forge';
 import { useTheme } from './theme/ThemeContext';
@@ -57,6 +59,7 @@ import { useTheme } from './theme/ThemeContext';
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
 const LARGE_IMPORT_BYTES = 2 * 1024 * 1024;
+const MAX_IMPORT_BYTES = 32 * 1024 * 1024;
 const CHARACTER_LIST_COLLAPSE_LIMIT = 10;
 
 function formatImportSize(bytes) {
@@ -152,6 +155,12 @@ function buildCharacterPatch(card) {
     worldInfo: Array.isArray(card.worldInfo) ? card.worldInfo : [],
     regexScripts: Array.isArray(card.regexScripts) ? card.regexScripts : [],
     presets: Array.isArray(card.presets) ? card.presets : [],
+    cardExtensions: card.extensions && typeof card.extensions === 'object' && !Array.isArray(card.extensions)
+      ? card.extensions
+      : {},
+    cardExtra: card.extra && typeof card.extra === 'object' && !Array.isArray(card.extra)
+      ? card.extra
+      : {},
   };
 }
 
@@ -428,6 +437,46 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
   );
 }
 
+function buildCharacterFormState(character) {
+  const source = character && typeof character === 'object' ? character : {};
+  return {
+    name: String(source.name || ''),
+    tags: Array.isArray(source.tags) ? source.tags : [],
+    systemPrompt: String(source.systemPrompt || ''),
+    description: String(source.description || ''),
+    personality: String(source.personality || ''),
+    scenario: String(source.scenario || ''),
+    firstMes: String(source.firstMes || ''),
+    alternateGreetings: Array.isArray(source.alternateGreetings) ? source.alternateGreetings : [],
+    mesExample: String(source.mesExample || ''),
+    worldInfo: ensureUniqueIds(Array.isArray(source.worldInfo) ? source.worldInfo : [], 'entry'),
+    regexScripts: ensureUniqueIds(Array.isArray(source.regexScripts) ? source.regexScripts : [], 'regex'),
+    presets: Array.isArray(source.presets) ? source.presets : [],
+    avatarUri: String(source.avatarUri || ''),
+    bgUri: String(source.bgUri || ''),
+  };
+}
+
+function characterFormSignature(character) {
+  return JSON.stringify(buildCharacterFormState(character));
+}
+
+function characterWithFormState(character, form) {
+  const source = character && typeof character === 'object' ? character : {};
+  const state = form || buildCharacterFormState(source);
+  return {
+    ...source,
+    ...state,
+    systemPromptComposed: buildSystemPrompt({
+      description: state.description,
+      personality: state.personality,
+      scenario: state.scenario,
+      systemPrompt: state.systemPrompt,
+      postHistoryInstructions: source.postHistoryInstructions,
+    }),
+  };
+}
+
 function worldEntryMeta(entry) {
   if (entry.constant) return '常驻';
   const keys = Array.isArray(entry.keys) ? entry.keys.filter(Boolean) : [];
@@ -514,8 +563,19 @@ export default function CharacterScreen() {
   const [editMode, setEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [tagDraft, setTagDraft] = useState('');
+  const [formReady, setFormReady] = useState(false);
+  const [switchAuthorization, setSwitchAuthorization] = useState(0);
   const [topic, setTopic] = useState(null);
   const seededIdRef = useRef(null);
+  const seededFormSignatureRef = useRef('');
+  const seededCharacterSignatureRef = useRef('');
+  const externalConflictRef = useRef(false);
+  const formDirtyRef = useRef(false);
+  const formSignatureRef = useRef('');
+  const formOwnerIdRef = useRef(activeId);
+  const formSessionIdRef = useRef(activeSessionId);
+  const revertingToRef = useRef('');
+  const authorizedActiveIdRef = useRef('');
   const characterScrollRef = useRef(null);
   const characterLibraryLayoutRef = useRef({ top: 0 });
   const characterGridRelativeLayoutRef = useRef({ top: 0, height: 0 });
@@ -529,6 +589,56 @@ export default function CharacterScreen() {
   const mountedRef = useRef(true);
   const { height: windowHeight } = useWindowDimensions();
   const screenSessionRef = useRef({ activeId });
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const charactersRef = useRef(characters);
+  charactersRef.current = characters;
+  const currentFormState = useMemo(() => ({
+    name,
+    tags,
+    systemPrompt,
+    description,
+    personality,
+    scenario,
+    firstMes,
+    alternateGreetings,
+    mesExample,
+    worldInfo,
+    regexScripts,
+    presets: characterPresets,
+    avatarUri: avatarPreview || '',
+    bgUri: bgPreview || '',
+  }), [
+    name,
+    tags,
+    systemPrompt,
+    description,
+    personality,
+    scenario,
+    firstMes,
+    alternateGreetings,
+    mesExample,
+    worldInfo,
+    regexScripts,
+    characterPresets,
+    avatarPreview,
+    bgPreview,
+  ]);
+  const currentFormSignature = useMemo(
+    () => JSON.stringify(currentFormState),
+    [currentFormState]
+  );
+  const savedFormSignature = useMemo(
+    () => characterFormSignature(character),
+    [character]
+  );
+  const formDirty = currentFormSignature !== savedFormSignature;
+  formDirtyRef.current = formDirty;
+  formSignatureRef.current = currentFormSignature;
+  const editedCharacter = useMemo(
+    () => characterWithFormState(character, currentFormState),
+    [character, currentFormState]
+  );
   if (screenSessionRef.current.activeId !== activeId) {
     screenSessionRef.current = { activeId };
   }
@@ -547,6 +657,7 @@ export default function CharacterScreen() {
   }, []);
 
   useEffect(() => {
+    if (formDirtyRef.current) return;
     imageOperationRef.current += 1;
     pendingImageUrisRef.current.forEach(uri => {
       FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
@@ -556,32 +667,77 @@ export default function CharacterScreen() {
 
   useEffect(() => {
     if (!loaded) return;
-    if (seededIdRef.current === activeId) return;
+    const characterSignature = characterFormSignature(character);
+    const sameCharacter = seededIdRef.current === activeId;
+    const externalChanged = seededCharacterSignatureRef.current !== characterSignature;
+    const authorized = authorizedActiveIdRef.current === activeId;
+    if (
+      seededIdRef.current
+      && !sameCharacter
+      && formDirtyRef.current
+      && !authorized
+      && !revertingToRef.current
+    ) {
+      const previousId = seededIdRef.current;
+      const previousSessionId = formSessionIdRef.current;
+      const revert = () => {
+        if (!previousId || previousId === activeId) return;
+        revertingToRef.current = previousId;
+        switchCharacter(previousId)
+          .then(() => (previousSessionId ? switchSession(previousSessionId) : null))
+          .catch(() => {
+            if (mountedRef.current) Alert.alert('角色切换失败', '未能恢复原来的会话，请重新打开应用。');
+          })
+          .finally(() => {
+            if (revertingToRef.current === previousId) revertingToRef.current = '';
+          });
+      };
+      Alert.alert('有未保存的编辑', '角色发生切换，请选择取消并保留编辑，或放弃修改后继续。', [
+        { text: '取消', style: 'cancel', onPress: revert },
+        {
+          text: '放弃并切换',
+          style: 'destructive',
+          onPress: () => {
+            authorizedActiveIdRef.current = activeId;
+            setSwitchAuthorization(value => value + 1);
+          },
+        },
+      ]);
+      return;
+    }
+    if (authorized) authorizedActiveIdRef.current = '';
+    if (sameCharacter && !externalChanged) return;
+    if (sameCharacter && currentFormSignature !== seededFormSignatureRef.current) {
+      seededCharacterSignatureRef.current = characterSignature;
+      externalConflictRef.current = true;
+      return;
+    }
+    const next = buildCharacterFormState(character);
+    setFormReady(false);
     seededIdRef.current = activeId;
-    setName(character.name || '');
-    setSystemPrompt(character.systemPrompt || '');
-    setDescription(character.description || '');
-    setPersonality(character.personality || '');
-    setTags(Array.isArray(character.tags) ? character.tags : []);
-    setScenario(character.scenario || '');
-    setFirstMes(character.firstMes || '');
-    setAlternateGreetings(Array.isArray(character.alternateGreetings) ? character.alternateGreetings : []);
-    setMesExample(String(character.mesExample || ''));
-    setWorldInfo(
-      ensureUniqueIds(Array.isArray(character.worldInfo) ? character.worldInfo : [], 'entry')
-    );
-    setRegexScripts(
-      ensureUniqueIds(
-        Array.isArray(character.regexScripts) ? character.regexScripts : [],
-        'regex'
-      )
-    );
-    setCharacterPresets(Array.isArray(character.presets) ? character.presets : []);
+    formOwnerIdRef.current = activeId;
+    formSessionIdRef.current = activeSessionId;
+    seededFormSignatureRef.current = JSON.stringify(next);
+    seededCharacterSignatureRef.current = characterSignature;
+    externalConflictRef.current = false;
+    setName(next.name);
+    setSystemPrompt(next.systemPrompt);
+    setDescription(next.description);
+    setPersonality(next.personality);
+    setTags(next.tags);
+    setScenario(next.scenario);
+    setFirstMes(next.firstMes);
+    setAlternateGreetings(next.alternateGreetings);
+    setMesExample(next.mesExample);
+    setWorldInfo(next.worldInfo);
+    setRegexScripts(next.regexScripts);
+    setCharacterPresets(next.presets);
     setEditingWorldId(null);
     setEditingRegexId(null);
-    setAvatarPreview(character.avatarUri || null);
-    setBgPreview(character.bgUri || null);
-  }, [loaded, activeId, character]);
+    setAvatarPreview(next.avatarUri || null);
+    setBgPreview(next.bgUri || null);
+    setFormReady(true);
+  }, [loaded, activeId, character, currentFormSignature, switchAuthorization, switchCharacter]);
 
   const updateWorldEntry = (id, patch) => {
     setWorldInfo(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
@@ -625,9 +781,28 @@ export default function CharacterScreen() {
     setEditingRegexId(id);
   };
 
-  const save = async () => {
+  const save = async (options = {}) => {
     if (!loaded) {
       Alert.alert('角色加载中', '请稍候再保存。');
+      return;
+    }
+    if (!seededFormSignatureRef.current) {
+      Alert.alert('角色加载中', '请稍候再保存。');
+      return;
+    }
+    if (formOwnerIdRef.current !== String(character.id || '')) {
+      Alert.alert('角色已切换', '请先处理角色切换，再保存当前编辑。');
+      return;
+    }
+    if (externalConflictRef.current && options.force !== true) {
+      Alert.alert(
+        '角色已在其他页面更新',
+        '继续保存会覆盖其他页面中的修改。',
+        [
+          { text: '取消', style: 'cancel' },
+          { text: '覆盖保存', style: 'destructive', onPress: () => save({ force: true }) },
+        ]
+      );
       return;
     }
     for (const [index, script] of regexScripts.entries()) {
@@ -670,12 +845,31 @@ export default function CharacterScreen() {
       worldInfo,
       regexScripts,
       presets: characterPresets,
-      avatarUri: avatarPreview || '',
-      bgUri: bgPreview || '',
-    };
-    try {
-       await updateCharacter(next);
+       avatarUri: avatarPreview || '',
+       bgUri: bgPreview || '',
+     };
+     const saveFormSignature = currentFormSignature;
+     const expectedCharacterSignature = characterFormSignature(character);
+     try {
+       const savePatch = current => {
+         if (characterFormSignature(current) !== expectedCharacterSignature) {
+           const conflict = new Error('角色已被其他页面更新');
+           conflict.code = 'CHARACTER_CONFLICT';
+           throw conflict;
+         }
+         return next;
+       };
+       savePatch.id = character.id;
+       await updateCharacter(savePatch);
        if (screenSessionRef.current !== session) return;
+       const persistedFormState = buildCharacterFormState(next);
+       const persistedFormSignature = JSON.stringify(persistedFormState);
+       seededFormSignatureRef.current = persistedFormSignature;
+       seededCharacterSignatureRef.current = persistedFormSignature;
+       formOwnerIdRef.current = next.id;
+       formSessionIdRef.current = activeSessionId;
+       externalConflictRef.current = false;
+       if (formSignatureRef.current !== saveFormSignature) return;
        const nextImageRefs = new Set([next.avatarUri, next.bgUri].filter(Boolean));
        if (pendingImageUrisRef.current.get('avatar') === next.avatarUri) {
          pendingImageUrisRef.current.delete('avatar');
@@ -683,18 +877,24 @@ export default function CharacterScreen() {
        if (pendingImageUrisRef.current.get('bg') === next.bgUri) {
          pendingImageUrisRef.current.delete('bg');
        }
-       const referencedElsewhere = uri => (
-         characters.some(item => item.id !== character.id && (
-           item.avatarUri === uri || item.bgUri === uri
-         ))
-         || sessions.some(item => item && (item.avatarUri === uri || item.bgUri === uri))
-       );
-       [previousAvatar, previousBg].forEach(uri => {
-         if (!uri || nextImageRefs.has(uri) || referencedElsewhere(uri)) return;
-         FileSystem.deleteAsync(uri, { idempotent: true }).catch(error => {
-           if (__DEV__) console.warn('[character] old image cleanup failed', error);
-         });
-       });
+         const momentsStatus = await getMomentsStatus().catch(() => ({ status: 'corrupt', moments: [] }));
+         if (screenSessionRef.current !== session || formSignatureRef.current !== saveFormSignature) return;
+        const referencedElsewhere = uri => (
+          charactersRef.current.some(item => item.id !== character.id && (
+            item.avatarUri === uri || item.bgUri === uri
+          ))
+          || sessionsRef.current.some(item => item && (item.avatarUri === uri || item.bgUri === uri))
+          || (momentsStatus.status === 'ok'
+            && momentsStatus.moments.some(item => item && item.avatarUri === uri))
+        );
+        if (momentsStatus.status === 'ok') {
+          [previousAvatar, previousBg].forEach(uri => {
+            if (!uri || nextImageRefs.has(uri) || isRecentMediaUri(uri) || referencedElsewhere(uri)) return;
+            FileSystem.deleteAsync(uri, { idempotent: true }).catch(error => {
+              if (__DEV__) console.warn('[character] old image cleanup failed', error);
+            });
+          });
+        }
        setName(next.name);
 
       setSystemPrompt(next.systemPrompt);
@@ -704,14 +904,26 @@ export default function CharacterScreen() {
       setFirstMes(next.firstMes);
       setAlternateGreetings(Array.isArray(next.alternateGreetings) ? next.alternateGreetings : []);
       setMesExample(String(next.mesExample || ''));
-      setWorldInfo(next.worldInfo);
-      setRegexScripts(next.regexScripts);
-      setCharacterPresets(next.presets);
-      Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  };
+setWorldInfo(next.worldInfo);
+       setRegexScripts(next.regexScripts);
+       setCharacterPresets(next.presets);
+       const savedFormState = buildCharacterFormState(next);
+       const savedFormSignatureValue = JSON.stringify(savedFormState);
+       seededIdRef.current = next.id;
+       formOwnerIdRef.current = next.id;
+       seededFormSignatureRef.current = savedFormSignatureValue;
+       seededCharacterSignatureRef.current = savedFormSignatureValue;
+       externalConflictRef.current = false;
+       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
+     } catch (error) {
+       Alert.alert(
+         error && error.code === 'CHARACTER_CONFLICT' ? '角色已更新' : '保存失败',
+         error && error.code === 'CHARACTER_CONFLICT'
+           ? '其他页面已修改该角色，请重新加载后再保存。'
+           : '请检查存储空间或权限。'
+       );
+     }
+   };
 
   const importCard = async () => {
     if (importing || !loaded) return;
@@ -733,7 +945,15 @@ export default function CharacterScreen() {
 
       const asset = getPickedAsset(result);
       if (!asset?.uri) return;
-      const assetSize = Number(asset.size) > 0 ? Number(asset.size) : 0;
+      let assetSize = Number(asset.size) > 0 ? Number(asset.size) : 0;
+      if (assetSize <= 0) {
+        const info = await FileSystem.getInfoAsync(asset.uri).catch(() => null);
+        assetSize = Number(info && info.size) > 0 ? Number(info.size) : 0;
+      }
+      if (assetSize > MAX_IMPORT_BYTES) {
+        Alert.alert('角色卡文件过大', `请选择不超过 ${formatImportSize(MAX_IMPORT_BYTES)} 的文件。`);
+        return;
+      }
       setImportStatus({
         phase: 'reading',
         large: isLargeImport(assetSize),
@@ -746,6 +966,10 @@ export default function CharacterScreen() {
           encoding: FileSystem.EncodingType.Base64,
         });
         buffer = Buffer.from(base64, 'base64');
+        if (buffer.length > MAX_IMPORT_BYTES) {
+          Alert.alert('角色卡文件过大', `请选择不超过 ${formatImportSize(MAX_IMPORT_BYTES)} 的文件。`);
+          return;
+        }
         const importSize = assetSize || buffer.length;
         setImportStatus({
           phase: 'reading',
@@ -836,6 +1060,7 @@ export default function CharacterScreen() {
           const avatarDir = `${FileSystem.documentDirectory}avatars/`;
           await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
            const dest = `${avatarDir}${created.id}.png`;
+           markMediaWrite(dest);
            await FileSystem.copyAsync({ from: pending.assetUri, to: dest });
            importedImageUri = dest;
            await updateCharacter({ id: created.id, avatarUri: dest, bgUri: dest });
@@ -845,6 +1070,10 @@ export default function CharacterScreen() {
             setBgPreview(dest);
           }
         } catch (error) {
+          if (importedImageUri) {
+            FileSystem.deleteAsync(importedImageUri, { idempotent: true }).catch(() => {});
+            importedImageUri = '';
+          }
           imageFailed = true;
         }
       }
@@ -884,18 +1113,18 @@ export default function CharacterScreen() {
 
   // 反向导入：把当前角色读进制卡草稿，跳到「扩展 → 制卡」用 AI 继续改
   const onImportToForge = () => {
-    if (!character) return;
+    if (!editedCharacter) return;
     const apply = () => {
       const fresh = createForgeState();
       saveCardForge({
         ...fresh,
-        draft: draftFromCharacter(character),
+        draft: draftFromCharacter(editedCharacter),
         // 保留首题，方便载入后继续点选项；引导语换成"从角色载入"的说明
         transcript: [
           {
             id: `forge-${Date.now()}-from-character`,
             role: 'note',
-            text: `已载入角色「${character.name || '未命名'}」的设定。直接说修改要求（例如「把性格改得更冷淡」），或继续回答下面的问题。`,
+            text: `已载入角色「${editedCharacter.name || '未命名'}」的设定。直接说修改要求（例如「把性格改得更冷淡」），或继续回答下面的问题。`,
             createdAt: Date.now(),
           },
           ...fresh.transcript.slice(1),
@@ -907,7 +1136,9 @@ export default function CharacterScreen() {
     };
     Alert.alert(
       '导入到制卡',
-      '会把当前角色的设定载入制卡草稿（原角色不受影响），继续吗？',
+      formDirty
+        ? '会把当前界面中的角色设定载入制卡草稿，包含尚未保存的编辑。原角色不受影响。'
+        : '会把当前角色的设定载入制卡草稿，原角色不受影响。继续吗？',
       [
         { text: '取消', style: 'cancel' },
         { text: '继续', onPress: apply },
@@ -915,8 +1146,7 @@ export default function CharacterScreen() {
     );
   };
 
-  const readAvatarBytes = async () => {
-    const uri = character && character.avatarUri;
+  const readAvatarBytes = async uri => {
     if (!uri) return null;
     try {
       const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -933,8 +1163,8 @@ export default function CharacterScreen() {
     exportBusyRef.current = true;
     setExporting(true);
     try {
-      const avatarBytes = format === 'png' ? await readAvatarBytes() : null;
-      const uri = await exportCardFile(character, format, avatarBytes);
+      const avatarBytes = format === 'png' ? await readAvatarBytes(editedCharacter.avatarUri) : null;
+      const uri = await exportCardFile(editedCharacter, format, avatarBytes);
       const available = await Sharing.isAvailableAsync().catch(() => false);
       if (available) {
         await Sharing.shareAsync(uri, {
@@ -945,7 +1175,7 @@ export default function CharacterScreen() {
         Alert.alert('导出完成', `文件已生成：\n${uri}`);
       }
     } catch (error) {
-      Alert.alert('导出失败', '请稍后重试。');
+      Alert.alert('导出失败', maskSecrets((error && error.message) || '请稍后重试。'));
     } finally {
       exportBusyRef.current = false;
       setExporting(false);
@@ -954,10 +1184,11 @@ export default function CharacterScreen() {
 
   const onExport = () => {
     if (exportBusyRef.current || !loaded) return;
-    const dirty = String(name || '').trim() !== String((character && character.name) || '').trim();
     Alert.alert(
       '导出角色卡',
-      dirty ? '当前有未保存的编辑，将导出已保存的内容。请选择格式。' : '请选择导出格式。',
+      formDirty
+        ? '将导出当前界面中的内容，包含尚未保存的编辑。请选择格式。'
+        : '请选择导出格式。',
       [
         { text: '取消', style: 'cancel' },
         { text: 'PNG 图片', onPress: () => runExport('png') },
@@ -991,17 +1222,22 @@ export default function CharacterScreen() {
         .filter(item => members.includes(item.id))
         .map(item => item.name || '未命名角色')
         .join('、');
-      await createGroupSession(members, groupName.trim() || fallbackName, {
-        avatarUri: groupAvatarUri,
-        bgUri: groupBgUri,
-      });
-      await refreshSessions();
-      setGroupPanelOpen(false);
-      setGroupSelected([]);
-      setGroupName('');
-      setGroupAvatarUri('');
-      setGroupBgUri('');
-      navigation.navigate('聊天');
+       await createGroupSession(members, groupName.trim() || fallbackName, {
+         avatarUri: groupAvatarUri,
+         bgUri: groupBgUri,
+       });
+       try {
+         await refreshSessions();
+       } catch (error) {
+         Alert.alert('群聊已创建', '会话列表刷新失败，请重新进入应用后查看。');
+         return;
+       }
+       setGroupPanelOpen(false);
+       setGroupSelected([]);
+       setGroupName('');
+       setGroupAvatarUri('');
+       setGroupBgUri('');
+       navigation.navigate('聊天');
     } catch (error) {
       Alert.alert('创建失败', '请检查存储空间或权限。');
     } finally {
@@ -1011,30 +1247,50 @@ export default function CharacterScreen() {
 
   const onSwitch = async id => {
     if (switchLockRef.current) return;
-    switchLockRef.current = true;
-    const previousCharacterId = activeId;
-    const previousSessionId = activeSessionId;
-    try {
-      await switchCharacter(id);
-      await ensureCharacterSession(id);
-     } catch (error) {
-       let rollbackFailed = false;
-       try {
-         await switchCharacter(previousCharacterId);
-         if (previousSessionId) await switchSession(previousSessionId);
-       } catch (rollbackError) {
-         rollbackFailed = true;
-       }
-       Alert.alert(
-         '切换失败',
-         rollbackFailed
-           ? '切换失败且未能恢复原状态，请重新打开应用后重试。'
-           : '请检查存储空间或权限。'
-       );
-
-    } finally {
-      switchLockRef.current = false;
+    const performSwitch = async () => {
+      if (switchLockRef.current) return;
+      switchLockRef.current = true;
+      const previousCharacterId = activeId;
+      const previousSessionId = activeSessionId;
+      try {
+        await switchCharacter(id);
+        await ensureCharacterSession(id);
+      } catch (error) {
+        let rollbackFailed = false;
+        try {
+          authorizedActiveIdRef.current = previousCharacterId;
+          setSwitchAuthorization(value => value + 1);
+          await switchCharacter(previousCharacterId);
+          if (previousSessionId) await switchSession(previousSessionId);
+        } catch (rollbackError) {
+          rollbackFailed = true;
+        }
+        Alert.alert(
+          '切换失败',
+          rollbackFailed
+            ? '切换失败且未能恢复原状态，请重新打开应用后重试。'
+            : '请检查存储空间或权限。'
+        );
+      } finally {
+        switchLockRef.current = false;
+      }
+    };
+    if (id !== activeId && formDirtyRef.current) {
+      Alert.alert('有未保存的编辑', '切换角色会放弃当前界面中的修改。', [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '放弃并切换',
+          style: 'destructive',
+          onPress: () => {
+            authorizedActiveIdRef.current = id;
+            setSwitchAuthorization(value => value + 1);
+            performSwitch();
+          },
+        },
+      ]);
+      return;
     }
+    await performSwitch();
   };
 
   const visibleCharacters = useMemo(() => {
@@ -1436,8 +1692,9 @@ export default function CharacterScreen() {
       if (!isCurrent()) return;
       const mime = String(asset.mimeType || '').toLowerCase();
       const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
-      const dest = `${dir}${character.id}-${fieldName}-${Date.now()}${ext}`;
-      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+       const dest = `${dir}${character.id}-${fieldName}-${Date.now()}${ext}`;
+       markMediaWrite(dest);
+       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       if (!isCurrent()) {
         await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
         return;
@@ -1490,6 +1747,7 @@ export default function CharacterScreen() {
       <ScrollView
         ref={characterScrollRef}
         style={styles.container}
+        pointerEvents={formReady ? 'auto' : 'none'}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={false}
         onLayout={event => {

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
-import { readJsonFromPNG, writeJsonToPNG } from 'parsecard';
+import { readJsonFromPNG, WorldBookEntry, writeJsonToPNG } from 'parsecard';
 
 import { parseCardFromJson } from '../src/cardParser.js';
 
@@ -34,6 +34,50 @@ function loadExporter() {
   return runtimeModule.exports;
 }
 
+test('导出体积超过应用导入上限时明确拒绝', () => {
+  const exporter = loadExporter();
+  exporter.assertCardFileSize(exporter.MAX_CARD_FILE_BYTES, 'json');
+  assert.throws(
+    () => exporter.assertCardFileSize(exporter.MAX_CARD_FILE_BYTES + 1, 'png'),
+    /超过应用/
+  );
+});
+
+test('PNG 导出时非 PNG 头像不再静默替换为占位图', () => {
+  const exporter = loadExporter();
+  assert.throws(
+    () => exporter.cardToPng({ name: '角色' }, Uint8Array.from([1, 2, 3])),
+    /头像不是合法的 PNG/
+  );
+  assert.ok(exporter.cardToPng({ name: '角色' }, null).length > 0);
+});
+
+test('导出会写回第三方扩展与顶层透传字段', () => {
+  const exporter = loadExporter();
+  const card = exporter.buildCardV2({
+    name: '作者卡',
+    regexScripts: [],
+    presets: [],
+    cardExtensions: { talkativeness: 0.8, fav: true },
+    cardExtra: { creator: '某作者', character_version: '3.1' },
+  });
+  assert.equal(card.data.extensions.talkativeness, 0.8);
+  assert.equal(card.data.extensions.fav, true);
+  assert.equal(card.data.creator, '某作者');
+  assert.equal(card.data.character_version, '3.1');
+  assert.equal(card.data.name, '作者卡');
+});
+
+test('空原始 systemPrompt 导出时不被组合提示覆盖', () => {
+  const exporter = loadExporter();
+  const raw = JSON.parse(exporter.cardToJson({
+    name: '角色',
+    systemPrompt: '',
+    systemPromptComposed: '派生提示',
+  }));
+  assert.equal(raw.data.system_prompt, '');
+});
+
 test('导出会移除原图里的旧 ccv3/chara chunk，重新导入得到新数据', () => {
   const exporter = loadExporter();
   const avatar = exporter.createPlaceholderPng();
@@ -62,6 +106,9 @@ test('世界书导出保留 role、depth、probability、scan_depth 并可重新
       depth: 7,
       probability: 35,
       scanDepth: 9,
+      matchWholeWords: true,
+      useProbability: false,
+      boundary: 'message-boundary',
     }],
   });
   const parsed = parseCardFromJson(json);
@@ -70,4 +117,13 @@ test('世界书导出保留 role、depth、probability、scan_depth 并可重新
   assert.equal(entry.depth, 7);
   assert.equal(entry.probability, 35);
   assert.equal(entry.scanDepth, 9);
+  assert.equal(entry.matchWholeWords, true);
+   assert.equal(entry.useProbability, false);
+   assert.equal(entry.boundary, 'message-boundary');
+
+  const raw = JSON.parse(json);
+  const external = WorldBookEntry.fromEmbeddedJSON(raw.data.character_book.entries[0]);
+  assert.equal(external.role, 2);
+  assert.equal(external.matchWholeWords, true);
+  assert.equal(external.useProbability, false);
 });

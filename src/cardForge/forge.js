@@ -130,6 +130,8 @@ export const FORGE_QUESTIONS = [
 ];
 
 const MAX_FIELD_TEXT = 4000;
+export const MAX_PRESERVED_TEXT = 500000;
+export const MAX_PRESERVED_ITEMS = 2000;
 const MAX_TRANSCRIPT = 200;
 const MAX_TAG_COUNT = 10;
 const ROLE_SET = new Set(['ai', 'user', 'note']);
@@ -137,6 +139,11 @@ const ROLE_SET = new Set(['ai', 'user', 'note']);
 function clean(value, max = MAX_FIELD_TEXT) {
   if (value === null || value === undefined) return '';
   return String(value).trim().slice(0, max);
+}
+
+function preserveText(value, max = MAX_PRESERVED_TEXT) {
+  if (value === null || value === undefined) return '';
+  return String(value).slice(0, max);
 }
 
 export function createForgeDraft() {
@@ -210,13 +217,16 @@ export function summarizeAnswers(state) {
 // 记录一道题的答案并推进到下一题（供界面点击选项 / 输入"其它"时调用）
 export function recordAnswer(state, questionId, answer, now = Date.now()) {
   const base = state && typeof state === 'object' ? state : createForgeState(now);
+  const step = Math.max(0, Math.trunc(Number(base.step)) || 0);
+  const current = FORGE_QUESTIONS[step] || null;
+  if (!questionId || !current || String(current.id) !== String(questionId)) return base;
   const value = clean(answer, 600);
   const answers = { ...(base.answers || {}) };
   if (questionId) answers[questionId] = value;
-  const step = Math.min((Math.trunc(Number(base.step)) || 0) + 1, FORGE_QUESTIONS.length);
-  const answered = { ...base, answers, step, updatedAt: now };
+  const nextStep = Math.min(step + 1, FORGE_QUESTIONS.length);
+  const answered = { ...base, answers, step: nextStep, updatedAt: now };
   let next = appendTranscript(answered, { id: `a-${now}`, role: 'user', text: value }, now);
-  const question = FORGE_QUESTIONS[step] || null;
+  const question = FORGE_QUESTIONS[nextStep] || null;
   if (question) {
     next = appendTranscript(
       next,
@@ -243,7 +253,7 @@ export function recordAnswer(state, questionId, answer, now = Date.now()) {
 export function projectForgeDraft(draft) {
   const source = draft && typeof draft === 'object' ? draft : {};
   const projected = {};
-  FORGE_FIELDS.forEach(key => { projected[key] = clean(source[key]); });
+  FORGE_FIELDS.forEach(key => { projected[key] = preserveText(source[key]); });
   projected.tags = Array.isArray(source.tags)
     ? source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT)
     : [];
@@ -295,7 +305,7 @@ export function buildEditPrompt({ draft, request, answers } = {}) {
 
 // 从模型回复里抠出 JSON（容忍代码块包裹与前后多余文字），只取白名单字段
 export function parseCardPatch(text) {
-  const raw = clean(text, 20000);
+  const raw = String(text || '').trim().slice(0, MAX_PRESERVED_TEXT);
   if (!raw) return null;
   const candidates = [];
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -335,14 +345,14 @@ export function mergeDraft(draft, patch, now = Date.now()) {
   const changed = [];
   FORGE_FIELDS.forEach(key => {
     if (typeof source[key] !== 'string') return;
-    const value = clean(source[key]);
-    if (!value || value === clean(base[key])) return;
+    const value = clean(source[key], MAX_PRESERVED_TEXT);
+    if (value === clean(base[key], MAX_PRESERVED_TEXT)) return;
     next[key] = value;
     changed.push(FIELD_LABELS[key] || key);
   });
   if (Array.isArray(source.tags)) {
     const tags = source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT);
-    if (tags.length > 0 && tags.join('|') !== (Array.isArray(base.tags) ? base.tags.join('|') : '')) {
+    if (tags.join('|') !== (Array.isArray(base.tags) ? base.tags.join('|') : '')) {
       next.tags = tags;
       changed.push('标签');
     }
@@ -354,23 +364,22 @@ export function mergeDraft(draft, patch, now = Date.now()) {
 export function draftFromCharacter(character) {
   const source = character && typeof character === 'object' ? character : {};
   const draft = createForgeDraft();
-  FORGE_FIELDS.forEach(key => { draft[key] = clean(source[key]); });
+  FORGE_FIELDS.forEach(key => { draft[key] = preserveText(source[key]); });
   draft.tags = Array.isArray(source.tags)
-    ? source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT)
+    ? source.tags.map(item => preserveText(item, 40)).filter(Boolean).slice(0, MAX_PRESERVED_ITEMS)
     : [];
-  // 原样带走这些字段，保证往返不丢内容
-  draft.systemPrompt = clean(source.systemPrompt, 12000);
+  draft.systemPrompt = preserveText(source.systemPrompt);
   draft.alternateGreetings = Array.isArray(source.alternateGreetings)
-    ? source.alternateGreetings.map(item => clean(item)).filter(Boolean).slice(0, 20)
+    ? source.alternateGreetings.map(item => preserveText(item)).filter(item => item.trim()).slice(0, MAX_PRESERVED_ITEMS)
     : [];
   draft.worldInfo = Array.isArray(source.worldInfo)
-    ? source.worldInfo.filter(item => item && typeof item === 'object').slice(0, 100)
+    ? source.worldInfo.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
   draft.regexScripts = Array.isArray(source.regexScripts)
-    ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, 100)
+    ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
   draft.presets = Array.isArray(source.presets)
-    ? source.presets.filter(item => item && typeof item === 'object').slice(0, 100)
+    ? source.presets.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
   return draft;
 }
@@ -379,26 +388,26 @@ export function draftFromCharacter(character) {
 // composedPrompt 由调用方用 cardParser 的 buildSystemPrompt 生成（这里保持零依赖）。
 export function draftToCharacterPatch(draft, { composedPrompt = '', now = Date.now() } = {}) {
   const source = draft && typeof draft === 'object' ? draft : {};
-  const ownPrompt = clean(source.systemPrompt, 12000);
+  const ownPrompt = preserveText(source.systemPrompt);
   return {
     id: `forge-${now.toString(36)}`,
-    name: clean(source.name, 60) || '新角色',
+    name: preserveText(source.name, 60) || '新角色',
     systemPrompt: ownPrompt,
-    systemPromptComposed: clean(composedPrompt, 12000) || ownPrompt,
-    description: clean(source.description),
-    personality: clean(source.personality),
-    scenario: clean(source.scenario),
-    firstMes: clean(source.firstMes),
+    systemPromptComposed: preserveText(composedPrompt) || ownPrompt,
+    description: preserveText(source.description),
+    personality: preserveText(source.personality),
+    scenario: preserveText(source.scenario),
+    firstMes: preserveText(source.firstMes),
     alternateGreetings: Array.isArray(source.alternateGreetings)
-      ? source.alternateGreetings.slice(0, 20)
+      ? source.alternateGreetings.slice(0, MAX_PRESERVED_ITEMS)
       : [],
-    mesExample: clean(source.mesExample),
-    creatorNotes: clean(source.creatorNotes),
-    postHistoryInstructions: clean(source.postHistoryInstructions),
-    tags: Array.isArray(source.tags) ? source.tags.map(item => clean(item, 40)).filter(Boolean) : [],
-    worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, 100) : [],
-    regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, 100) : [],
-    presets: Array.isArray(source.presets) ? source.presets.slice(0, 100) : [],
+    mesExample: preserveText(source.mesExample),
+    creatorNotes: preserveText(source.creatorNotes),
+    postHistoryInstructions: preserveText(source.postHistoryInstructions),
+    tags: Array.isArray(source.tags) ? source.tags.map(item => preserveText(item, 40)).filter(Boolean) : [],
+    worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, MAX_PRESERVED_ITEMS) : [],
+    regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, MAX_PRESERVED_ITEMS) : [],
+    presets: Array.isArray(source.presets) ? source.presets.slice(0, MAX_PRESERVED_ITEMS) : [],
   };
 }
 

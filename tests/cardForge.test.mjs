@@ -29,6 +29,23 @@ test('新会话包含引导与第一题', () => {
   assert.equal(hasCardContent(state.draft), false);
 });
 
+test('重复提交旧问题不会跳过当前问题', () => {
+  let state = createForgeState(1000);
+  state = recordAnswer(state, 'name', '晚星', 2000);
+  const repeated = recordAnswer(state, 'name', '再次点击', 2001);
+  assert.equal(repeated.step, 1);
+  assert.equal(repeated.answers.name, '晚星');
+});
+
+test('大字段在制卡投影和 AI 合并中保持完整', () => {
+  const firstMes = '开'.repeat(5000);
+  const base = { ...createForgeDraft(), firstMes };
+  const projected = projectForgeDraft(base);
+  assert.equal(projected.firstMes, firstMes);
+  const { draft } = mergeDraft(base, { personality: '温柔' });
+  assert.equal(draft.firstMes, firstMes);
+});
+
 test('记录答案会推进到下一题，答完给出提示', () => {
   let state = createForgeState(1000);
   state = recordAnswer(state, 'name', '晚星', 2000);
@@ -81,6 +98,24 @@ test('合并草稿只记有变化的字段', () => {
   assert.deepEqual(changed, ['性格', '标签']);
 });
 
+test('AI 可以显式清空文本字段和标签', () => {
+  const base = {
+    ...createForgeDraft(),
+    description: '旧描述',
+    personality: '旧性格',
+    tags: ['旧标签'],
+  };
+  const { draft, changed } = mergeDraft(base, {
+    description: '',
+    personality: '   ',
+    tags: [],
+  });
+  assert.equal(draft.description, '');
+  assert.equal(draft.personality, '');
+  assert.deepEqual(draft.tags, []);
+  assert.deepEqual(changed, ['角色描述', '性格', '标签']);
+});
+
 test('对话记录有上限，不会无限增长', () => {
   let state = createForgeState(1000);
   for (let index = 0; index < 260; index += 1) {
@@ -120,6 +155,36 @@ test('角色 → 草稿 → 角色 往返保留内容', () => {
   assert.deepEqual(patch.worldInfo, [{ id: 'w1' }]);
   assert.deepEqual(patch.regexScripts, [{ id: 'r1' }]);
   assert.ok(patch.id.startsWith('forge-'));
+});
+
+test('大角色卡载入制卡后保留长文本和完整集合', () => {
+  const character = {
+    name: '大卡',
+    description: '描'.repeat(5000),
+    systemPrompt: '系'.repeat(13000),
+    alternateGreetings: Array.from({ length: 25 }, (_, index) => `开场${index}`),
+    worldInfo: Array.from({ length: 120 }, (_, index) => ({ id: `w${index}` })),
+    regexScripts: Array.from({ length: 120 }, (_, index) => ({ id: `r${index}` })),
+    presets: Array.from({ length: 60 }, (_, index) => ({
+      id: `p${index}`,
+      name: `预设${index}`,
+      prompt: `提示${index}`,
+    })),
+  };
+  const draft = draftFromCharacter(character);
+  const patch = draftToCharacterPatch(draft, { composedPrompt: '组合提示' });
+  assert.equal(draft.description.length, 5000);
+  assert.equal(draft.systemPrompt.length, 13000);
+  assert.equal(draft.alternateGreetings.length, 25);
+  assert.equal(draft.worldInfo.length, 120);
+  assert.equal(draft.regexScripts.length, 120);
+  assert.equal(draft.presets.length, 60);
+  assert.equal(patch.description.length, 5000);
+  assert.equal(patch.systemPrompt.length, 13000);
+  assert.equal(patch.alternateGreetings.length, 25);
+  assert.equal(patch.worldInfo.length, 120);
+  assert.equal(patch.regexScripts.length, 120);
+  assert.equal(patch.presets.length, 60);
 });
 
 test('草稿为空时给角色名兜底，且 hasCardContent 为假', () => {

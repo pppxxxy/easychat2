@@ -15,6 +15,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { markMediaWrite } from './mediaProtection';
 import { buildSystemPrompt } from './cardParser';
 import { useApp } from './context/AppContext';
 import { FieldHint, FieldLabel, TextField } from './ui';
@@ -105,8 +106,9 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       if (!isCurrent()) return;
       const mime = String(asset.mimeType || '').toLowerCase();
       const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
-      const dest = `${dir}${characterId || 'chat'}-${key}-${Date.now()}${ext}`;
-      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+       const dest = `${dir}${characterId || 'chat'}-${key}-${Date.now()}${ext}`;
+       markMediaWrite(dest);
+       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       if (!isCurrent()) {
         await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
         return;
@@ -252,6 +254,8 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            scrollEnabled={!saving}
+            pointerEvents={saving ? 'none' : 'auto'}
           >
             <FieldLabel style={styles.label}>角色名</FieldLabel>
             <TextField
@@ -424,8 +428,9 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
           </ScrollView>
           <View style={styles.footer}>
             <TouchableOpacity
-              style={styles.footerGhost}
-              onPress={onClose}
+              style={[styles.footerGhost, saving && styles.footerDisabled]}
+              onPress={handleClose}
+              disabled={saving}
               activeOpacity={0.8}
             >
               <Text style={styles.footerGhostText}>取消</Text>

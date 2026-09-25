@@ -20,7 +20,8 @@ export function uniqueId(base, list) {
 
 export function withUpdatedCharacter(list, activeId, patch) {
   const active = list.find(character => character.id === activeId) || DEFAULT_CHARACTER;
-  const merged = { ...active, ...patch, id: active.id };
+  const resolvedPatch = typeof patch === 'function' ? patch(active) : patch;
+  const merged = { ...active, ...(resolvedPatch || {}), id: active.id };
   const next = sortCharacters(
     list.map(character => (character.id === merged.id ? merged : character))
   );

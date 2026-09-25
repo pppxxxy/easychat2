@@ -2,6 +2,26 @@ import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+export const MAX_CARD_FILE_BYTES = 32 * 1024 * 1024;
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return '0 MB';
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function assertCardFileSize(bytes, format) {
+  const length = Number(bytes);
+  if (Number.isFinite(length) && length > MAX_CARD_FILE_BYTES) {
+    throw new Error(
+      `角色卡导出后为 ${formatFileSize(length)}，超过应用 ${formatFileSize(MAX_CARD_FILE_BYTES)} 的导入上限，请精简内容${format === 'png' ? '或改用 JSON 导出' : ''}。`
+    );
+  }
+}
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -216,15 +236,22 @@ function mapWorldEntry(entry) {
     role: source.role === 'user' || source.role === 'assistant' ? source.role : 'system',
     insertion_order: Number.isFinite(Number(source.order)) ? Number(source.order) : 100,
     case_sensitive: source.caseSensitive === true,
+    match_whole_words: source.matchWholeWords === true,
     use_regex: source.useRegex !== false,
+    use_probability: source.useProbability !== false,
     extensions: {
       position: Number.isFinite(Number(source.position)) ? Number(source.position) : 0,
+      role: source.role === 'user' ? 1 : source.role === 'assistant' ? 2 : 0,
       depth: Number.isFinite(Number(source.depth)) ? Number(source.depth) : 4,
       probability: Number.isFinite(Number(source.probability)) ? Number(source.probability) : 100,
       useProbability: source.useProbability !== false,
-      scan_depth: Number.isFinite(Number(source.scanDepth)) ? Number(source.scanDepth) : null,
-    },
-  };
+      match_whole_words: source.matchWholeWords === true,
+      case_sensitive: source.caseSensitive === true,
+     scan_depth: Number.isFinite(Number(source.scanDepth)) ? Number(source.scanDepth) : null,
+       boundary: source.boundary ? String(source.boundary) : '',
+     },
+     boundary: source.boundary ? String(source.boundary) : '',
+   };
 }
 
 function mapRegexScript(script) {
@@ -258,7 +285,10 @@ function mapCharacterPreset(preset) {
 export function buildCardV2(character) {
   const source = character || {};
   const presets = (Array.isArray(source.presets) ? source.presets : []).map(mapCharacterPreset);
+  const passthroughExtra = isPlainObject(source.cardExtra) ? source.cardExtra : {};
+  const passthroughExtensions = isPlainObject(source.cardExtensions) ? source.cardExtensions : {};
   const data = {
+    ...passthroughExtra,
     name: String(source.name || ''),
     description: String(source.description || ''),
     personality: String(source.personality || ''),
@@ -269,13 +299,14 @@ export function buildCardV2(character) {
       : [],
     mes_example: String(source.mesExample || ''),
     creator_notes: String(source.creatorNotes || ''),
-    system_prompt: String(source.systemPrompt || source.systemPromptComposed || ''),
+     system_prompt: String(source.systemPrompt ?? source.systemPromptComposed ?? ''),
     post_history_instructions: String(source.postHistoryInstructions || ''),
     tags: Array.isArray(source.tags) ? source.tags.map(String) : [],
     character_book: {
       entries: (Array.isArray(source.worldInfo) ? source.worldInfo : []).map(mapWorldEntry),
     },
     extensions: {
+      ...passthroughExtensions,
       regex_scripts: (Array.isArray(source.regexScripts) ? source.regexScripts : [])
         .map(mapRegexScript),
       easychat2: {
@@ -316,7 +347,9 @@ export function cardToPng(character, avatarBytes) {
   if (avatar && avatar.length > 0) {
     try {
       return injectCharaChunk(avatar, jsonText);
-    } catch (error) {}
+    } catch (error) {
+      throw new Error('头像不是合法的 PNG 文件，无法写入 PNG 角色卡；请改用 PNG 头像或导出 JSON。');
+    }
   }
   return injectCharaChunk(createPlaceholderPng(), jsonText);
 }
@@ -334,13 +367,16 @@ export async function exportCardFile(character, format, avatarBytes) {
   const name = safeFileName(character);
   if (format === 'png') {
     const bytes = cardToPng(character, avatarBytes);
+    assertCardFileSize(bytes.length, 'png');
     const uri = `${dir}${name}.png`;
     await FileSystem.writeAsStringAsync(uri, Buffer.from(bytes).toString('base64'), {
       encoding: FileSystem.EncodingType.Base64,
     });
     return uri;
   }
+  const json = cardToJson(character);
+  assertCardFileSize(Buffer.byteLength(json, 'utf8'), 'json');
   const uri = `${dir}${name}.json`;
-  await FileSystem.writeAsStringAsync(uri, cardToJson(character));
+  await FileSystem.writeAsStringAsync(uri, json);
   return uri;
 }
