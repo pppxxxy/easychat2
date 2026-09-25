@@ -2,6 +2,14 @@ import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
 import { getMessagePromptText } from './chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
+import {
+  EVERYONE_MENTION,
+  MENTION_PREFIX,
+  hasEveryoneMention,
+  parseMentions,
+} from './groupMentions';
+
+export { EVERYONE_MENTION, MENTION_PREFIX, hasEveryoneMention, parseMentions };
 
 export const MAX_SPEAKERS = 3;
 export const PROFILE_MIN_CHARS = 30;
@@ -84,30 +92,6 @@ export async function ensureMemberProfiles({ characters, profiles, expectedConfi
     if (profile) next[character.id] = profile;
   }
   return next;
-}
-
-export const EVERYONE_MENTION = '全体';
-export const MENTION_PREFIX = '@';
-
-export function hasEveryoneMention(text) {
-  return String(text || '').includes(`${MENTION_PREFIX}${EVERYONE_MENTION}`);
-}
-
-export function parseMentions(text, characters) {
-  const source = String(text || '');
-  const list = Array.isArray(characters) ? characters : [];
-  if (hasEveryoneMention(source)) {
-    return list.map(character => character.id).filter(Boolean);
-  }
-  const ids = [];
-  list.forEach(character => {
-    const name = String(character.name || '').trim();
-    if (!name) return;
-    if (source.includes(`@${name}`) && !ids.includes(character.id)) {
-      ids.push(character.id);
-    }
-  });
-  return ids;
 }
 
 function nameOf(characters, id) {
