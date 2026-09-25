@@ -28,6 +28,7 @@ export default function GreetingPickerModal({
   const source = Array.isArray(candidates) ? candidates : [];
   const [drafts, setDrafts] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -64,18 +65,29 @@ export default function GreetingPickerModal({
     });
   };
 
-  const confirm = () => {
+  const confirm = async () => {
+    if (saving) return;
     const result = buildGreetingImport(drafts, selectedIndex);
-    onConfirm(result);
+    setSaving(true);
+    try {
+      await onConfirm(result);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { if (!saving) onCancel(); }}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>选择开场白</Text>
-            <TouchableOpacity onPress={onCancel} hitSlop={8} accessibilityLabel="关闭">
+            <TouchableOpacity
+              onPress={() => { if (!saving) onCancel(); }}
+              disabled={saving}
+              hitSlop={8}
+              accessibilityLabel="关闭"
+            >
               <Ionicons name="close" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -153,11 +165,21 @@ export default function GreetingPickerModal({
           ) : null}
 
           <View style={styles.actions}>
-            <TouchableOpacity style={[styles.button, styles.ghost]} onPress={onCancel} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[styles.button, styles.ghost, saving && styles.disabled]}
+              onPress={() => { if (!saving) onCancel(); }}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
               <Text style={styles.ghostText}>取消</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.button, styles.primary]} onPress={confirm} activeOpacity={0.85}>
-              <Text style={styles.primaryText}>{mode === 'select' ? '使用此开场白' : '导入'}</Text>
+            <TouchableOpacity
+              style={[styles.button, styles.primary, saving && styles.disabled]}
+              onPress={confirm}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.primaryText}>{saving ? '保存中...' : (mode === 'select' ? '使用此开场白' : '导入')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -219,6 +241,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   editInput: { minHeight: 96, maxHeight: 160, paddingTop: 10 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
   button: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: tokens.radius.md, marginLeft: 10 },
+  disabled: { opacity: 0.6 },
   ghost: { backgroundColor: theme.colors.surfaceAlt },
   ghostText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: fonts.scaled(13) },
   primary: { backgroundColor: theme.colors.primary },

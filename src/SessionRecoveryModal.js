@@ -59,6 +59,7 @@ export default function SessionRecoveryModal({
   }, [characters, guessedId]);
 
   const closeAll = () => {
+    if (busy) return;
     setPicked(null);
     onClose();
   };
@@ -67,8 +68,8 @@ export default function SessionRecoveryModal({
     if (busy || !picked) return;
     setBusy(true);
     try {
-      await onRecover(picked, characterId);
-      setPicked(null);
+      const recovered = await onRecover(picked, characterId);
+      if (recovered !== false) setPicked(null);
     } finally {
       setBusy(false);
     }
@@ -89,7 +90,8 @@ export default function SessionRecoveryModal({
             <>
               <TouchableOpacity
                 style={styles.backRow}
-                onPress={() => setPicked(null)}
+                onPress={() => { if (!busy) setPicked(null); }}
+                  disabled={busy}
                 activeOpacity={0.8}
                 accessibilityLabel="返回列表"
               >

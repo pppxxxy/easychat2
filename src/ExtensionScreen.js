@@ -100,7 +100,7 @@ function GamesView() {
             source={{ html: activeGame.html }}
             style={styles.webview}
             javaScriptEnabled
-            domStorageEnabled={false}
+            domStorageEnabled
             setSupportMultipleWindows={false}
             onError={() => setFailed(true)}
             onHttpError={() => setFailed(true)}
@@ -167,6 +167,10 @@ export default function ExtensionScreen({ route }) {
     [momentsEnabled]
   );
 
+  useEffect(() => {
+    if (!momentsEnabled && segment === 'moments') setSegment('games');
+  }, [momentsEnabled, segment]);
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.segmentRow}>
@@ -200,7 +204,7 @@ export default function ExtensionScreen({ route }) {
           style={[styles.pane, segment === 'image' ? styles.paneVisible : styles.paneHidden]}
           pointerEvents={segment === 'image' ? 'auto' : 'none'}
         >
-          <ImageGenScreen embedded />
+          <ImageGenScreen embedded active={segment === 'image'} />
         </View>
         <View
           style={[styles.pane, segment === 'forge' ? styles.paneVisible : styles.paneHidden]}

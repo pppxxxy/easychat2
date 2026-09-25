@@ -49,6 +49,8 @@ export default function PresetPanel({
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const busyRef = useRef(false);
+  const savedThresholdRef = useRef(THRESHOLD_FALLBACK);
+  const thresholdCommitRef = useRef(false);
 
   useEffect(() => {
     if (!visible) {
@@ -67,6 +69,7 @@ export default function PresetPanel({
       }, {}));
       setMemoryEnabled(false);
       setThreshold(String(THRESHOLD_FALLBACK));
+      savedThresholdRef.current = THRESHOLD_FALLBACK;
       setLoaded(true);
       return () => {
         cancelled = true;
@@ -81,8 +84,9 @@ export default function PresetPanel({
         if (cancelled) return;
         setPresets(list);
         setEnabled(map);
-        setMemoryEnabled(memory.enabled === true);
-        setThreshold(String(memory.threshold));
+setMemoryEnabled(memory.enabled === true);
+         setThreshold(String(memory.threshold));
+         savedThresholdRef.current = Number(memory.threshold) || THRESHOLD_FALLBACK;
         setLoaded(true);
       })
       .catch(() => {
@@ -227,6 +231,7 @@ export default function PresetPanel({
       });
       setMemoryEnabled(saved.enabled);
       setThreshold(String(saved.threshold));
+      savedThresholdRef.current = Number(saved.threshold) || THRESHOLD_FALLBACK;
       return true;
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
@@ -237,6 +242,7 @@ export default function PresetPanel({
   };
 
   const toggleMemory = value => {
+    if (!loaded) return;
     if (busyRef.current) {
       Alert.alert('正在保存', '请等待当前操作完成。');
       return;
@@ -250,23 +256,28 @@ export default function PresetPanel({
   };
 
   const commitThreshold = async () => {
+    if (thresholdCommitRef.current) return false;
     if (busyRef.current) {
       Alert.alert('正在保存', '请等待当前操作完成。');
       return false;
     }
     if (!loaded) return false;
+    thresholdCommitRef.current = true;
     const raw = String(threshold).trim();
     const parsed = Math.trunc(Number(raw));
-    const previous = Number.isFinite(parsed) && parsed > 0 ? parsed : THRESHOLD_FALLBACK;
     const value = normalizeThreshold();
-    if (value !== Math.trunc(Number(String(threshold).trim()))) {
+    if (value !== parsed) {
       Alert.alert('阈值无效', `请输入大于 0 的整数，已改为 ${THRESHOLD_FALLBACK}。`);
     }
     setThreshold(String(value));
-    if (previous !== value) {
-      return persistMemory(memoryEnabled, value);
+    try {
+      if (value !== savedThresholdRef.current) {
+        return await persistMemory(memoryEnabled, value);
+      }
+      return true;
+    } finally {
+      thresholdCommitRef.current = false;
     }
-    return true;
   };
 
   const confirmThreshold = async () => {
@@ -370,7 +381,7 @@ export default function PresetPanel({
                      onValueChange={toggleMemory}
                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
                      thumbColor={theme.colors.primaryContrast}
-                     disabled={saving}
+                     disabled={!loaded || saving}
 
                   />
                 </View>
@@ -382,7 +393,6 @@ export default function PresetPanel({
                     editable={loaded && !saving}
                     onChangeText={setThreshold}
                     onEndEditing={commitThreshold}
-                    onBlur={commitThreshold}
                     keyboardType="number-pad"
                     placeholder={String(THRESHOLD_FALLBACK)}
                   />

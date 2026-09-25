@@ -19,7 +19,7 @@ const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));
 runtimeModule._compile(transformed, filename);
-const { generateImage } = runtimeModule.exports;
+const { detectImageProvider, generateImage } = runtimeModule.exports;
 
 const provider = {
   id: 'test',
@@ -72,6 +72,22 @@ test('生图默认不自动重试付费请求', async () => {
     /HTTP 500/
   );
   assert.equal(FakeXHR.instances.length, 1);
+});
+
+test('模型列表检测取消时不会进入付费试生成', async () => {
+  FakeXHR.instances = [];
+  FakeXHR.status = 0;
+  globalThis.XMLHttpRequest = FakeXHR;
+  const controller = new AbortController();
+  const pending = detectImageProvider({
+    provider,
+    config: { apiKey: 'key' },
+    model: 'model',
+    signal: controller.signal,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(pending, error => error && error.name === 'AbortError');
 });
 
 test('生图请求响应取消信号', async () => {

@@ -81,10 +81,25 @@ export default function ScrollScrubber({
     onToEnd?.();
   };
 
-   const commitRatio = next => {
-     const count = messageCountRef.current;
-     if (count > 0) onSeekRef.current?.(indexFromRatio(next, count));
-   };
+  const commitRatio = next => {
+    const count = messageCountRef.current;
+    if (count > 0) onSeekRef.current?.(indexFromRatio(next, count));
+  };
+
+  const adjustRatio = direction => {
+    const count = messageCountRef.current;
+    if (count <= 1) return;
+    const step = direction > 0 ? 1 / (count - 1) : -1 / (count - 1);
+    const next = Math.min(1, Math.max(0, currentRatioRef.current + step));
+    applyRatio(next);
+    commitRatio(next);
+  };
+
+  const onAccessibilityAction = event => {
+    const action = event && event.nativeEvent && event.nativeEvent.actionName;
+    if (action === 'increment') adjustRatio(1);
+    if (action === 'decrement') adjustRatio(-1);
+  };
 
    const panResponder = useRef(
      PanResponder.create({
@@ -151,8 +166,19 @@ export default function ScrollScrubber({
              onLayout={event => {
                trackHeightRef.current = event.nativeEvent.layout.height;
              }}
-             accessibilityRole="adjustable"
-             accessibilityLabel="内容定位滑块"
+              accessibilityRole="adjustable"
+              accessibilityLabel="内容定位滑块"
+              accessibilityValue={{
+                min: 0,
+                max: Math.max(count - 1, 0),
+                now: previewIndex,
+                text: count > 0 ? `${previewIndex + 1} / ${count}` : '无消息',
+              }}
+              accessibilityActions={[
+                { name: 'increment', label: '下一条' },
+                { name: 'decrement', label: '上一条' },
+              ]}
+              onAccessibilityAction={onAccessibilityAction}
              {...panResponder.panHandlers}
           >
             <Animated.View

@@ -53,6 +53,7 @@ import {
   SAMPLING_FIELDS,
   THINKING_DISPLAYS,
 } from './storage';
+import { markMediaWrite } from './mediaProtection';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
@@ -609,7 +610,8 @@ export default function SettingsScreen() {
        const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
        const dest = `${dir}user-avatar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
 
-      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+       markMediaWrite(dest);
+       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       changeUserAvatar(dest);
     } catch (error) {
       Alert.alert('图片读取失败', '请重试。');

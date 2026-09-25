@@ -318,6 +318,7 @@ export async function detectImageProvider({ provider, config, model, signal }) {
     }
     return { ok: true, mode: 'list', models, message: '已连通' };
   } catch (listError) {
+    if (listError && listError.name === 'AbortError') throw listError;
     const listMessage = (listError && listError.message) || '列表接口不可用';
     if (/密钥无效|未授权/.test(listMessage)) {
       return { ok: false, error: listMessage, authFailed: true };

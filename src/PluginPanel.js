@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -24,17 +24,27 @@ export default function PluginPanel({ visible, onClose }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState({});
+  const pluginsRef = useRef([]);
+  const lastSavedPluginsRef = useRef([]);
+  const persistVersionRef = useRef(0);
+  const persistQueueRef = useRef(Promise.resolve());
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
 
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible) {
+      setLoaded(false);
+      setShowKey({});
+      return undefined;
+    }
     let cancelled = false;
     getPlugins()
       .then(list => {
-        if (cancelled) return;
-        setPlugins(list);
-        setLoaded(true);
+         if (cancelled) return;
+         pluginsRef.current = list;
+         lastSavedPluginsRef.current = list;
+         setPlugins(list);
+         setLoaded(true);
       })
       .catch(() => {
         if (!cancelled) Alert.alert('联网搜索读取失败', '请重新打开后重试。');
@@ -45,23 +55,39 @@ export default function PluginPanel({ visible, onClose }) {
   }, [visible]);
 
   const updatePlugin = useCallback((id, updater) => {
-    setPlugins(current =>
-      current.map(plugin => (plugin.id === id ? updater(plugin) : plugin))
-    );
+    const current = Array.isArray(pluginsRef.current) ? pluginsRef.current : [];
+    const next = current.map(plugin => (plugin.id === id ? updater(plugin) : plugin));
+    pluginsRef.current = next;
+    setPlugins(next);
+    return next;
   }, []);
 
-  const persist = useCallback(async list => {
-    setSaving(true);
-    try {
-      const saved = await savePlugins(list);
-      setPlugins(saved);
-      return saved;
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-      return null;
-    } finally {
-      setSaving(false);
-    }
+  const persist = useCallback(list => {
+    const version = ++persistVersionRef.current;
+    const task = persistQueueRef.current.then(async () => {
+      setSaving(true);
+      try {
+        const saved = await savePlugins(list);
+        lastSavedPluginsRef.current = saved;
+        if (version === persistVersionRef.current) {
+          pluginsRef.current = saved;
+          setPlugins(saved);
+        }
+        return saved;
+      } catch (error) {
+        if (version === persistVersionRef.current) {
+          const fallback = lastSavedPluginsRef.current;
+          pluginsRef.current = fallback;
+          setPlugins(fallback);
+        }
+        Alert.alert('保存失败', '请检查存储空间或权限。');
+        return null;
+      } finally {
+        if (version === persistVersionRef.current) setSaving(false);
+      }
+    });
+    persistQueueRef.current = task.catch(() => null);
+    return task;
   }, []);
 
   const togglePlugin = useCallback(async (plugin, value) => {
@@ -70,7 +96,8 @@ export default function PluginPanel({ visible, onClose }) {
       const provider = PROVIDERS.find(item => item.id === config.provider) || PROVIDERS[0];
       let missing = false;
       if (provider.custom) {
-        missing = !String(config.customBaseUrl || '').trim();
+        missing = !String(config.customBaseUrl || '').trim()
+          || !String(config.apiKey || '').trim();
       } else if ((provider.secretFields || []).includes('apiKey')) {
         missing = !String(config.apiKey || '').trim();
       }
@@ -82,9 +109,9 @@ export default function PluginPanel({ visible, onClose }) {
         return;
       }
     }
-    updatePlugin(plugin.id, item => ({ ...item, enabled: value }));
-    await persist(plugins.map(item => (item.id === plugin.id ? { ...item, enabled: value } : item)));
-  }, [plugins, persist, updatePlugin]);
+    const next = updatePlugin(plugin.id, item => ({ ...item, enabled: value }));
+    await persist(next);
+  }, [persist, updatePlugin]);
 
   const openKeyUrl = useCallback(async url => {
     if (!url) return;
@@ -108,11 +135,16 @@ export default function PluginPanel({ visible, onClose }) {
   }, [updatePlugin]);
 
   const onSave = useCallback(() => {
-    persist(plugins);
-  }, [plugins, persist]);
+    if (!loaded) return;
+    persist(pluginsRef.current);
+  }, [loaded, persist]);
 
   const handleClose = () => {
-    persist(plugins).then(saved => {
+    if (!loaded) {
+      onClose();
+      return;
+    }
+    persist(pluginsRef.current).then(saved => {
       if (saved) onClose();
     });
   };

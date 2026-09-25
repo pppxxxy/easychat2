@@ -23,21 +23,31 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
 import { generateImage, detectImageProvider, probeImageProvider } from './imageGen';
 import { getImageGenSettings, saveImageGenSettings } from './storage';
+import { resolveImageFormat } from './imageResultFormat';
 import ChapterModal from './ChapterModal';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
+import { maskSecrets } from './secrets';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
+const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_REFERENCE_IMAGE_PIXELS = 20000000;
 const DEFAULT_PROVIDER = IMAGE_PROVIDERS[0].id;
 
 // 结果身份标识：以前直接把整串 base64 存进 state 做比较，
 // 每次渲染都要比对 MB 级字符串；这里改成一个短标识。
 function resultToken(result) {
   if (!result) return '';
+  if (result.id) return `id:${result.id}`;
   if (result.url) return `url:${result.url}`;
   const base64 = String(result.base64 || '');
   if (!base64) return 'result';
   return `b64:${base64.length}:${base64.slice(0, 16)}`;
+}
+
+export function normalizeModelList(value, fallback = '') {
+  const source = String(value || fallback || '');
+  return [...new Set(source.split(/[\n,]/).map(item => item.trim()).filter(Boolean))];
 }
 
 function isImageLike(name, mime) {
@@ -46,7 +56,13 @@ function isImageLike(name, mime) {
   return /\.(png|jpe?g|webp|bmp|gif)$/i.test(String(name || ''));
 }
 
-export default function ImageGenScreen({ embedded = false }) {
+function getImageDimensions(uri) {
+  return new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
+  });
+}
+
+export default function ImageGenScreen({ embedded = false, active = true }) {
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState({ activeProvider: DEFAULT_PROVIDER, providers: {} });
   const [providerOpen, setProviderOpen] = useState(false);
@@ -69,6 +85,11 @@ export default function ImageGenScreen({ embedded = false }) {
   const mountedRef = useRef(true);
   const generationControllerRef = useRef(null);
   const detectionControllerRef = useRef(null);
+  const settingsRef = useRef(settings);
+  const settingsSaveQueueRef = useRef(Promise.resolve());
+  const settingsRevisionRef = useRef(0);
+  const lastSavedSettingsRef = useRef(settings);
+  settingsRef.current = settings;
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -85,11 +106,25 @@ export default function ImageGenScreen({ embedded = false }) {
   }, []);
 
   useEffect(() => {
+    if (active) return;
+    generationControllerRef.current?.abort();
+    generationControllerRef.current = null;
+    detectionControllerRef.current?.abort();
+    detectionControllerRef.current = null;
+    if (mountedRef.current) {
+      setGenerating(false);
+      setDetecting(false);
+    }
+  }, [active]);
+
+  useEffect(() => {
     (async () => {
       try {
         const stored = await getImageGenSettings();
         if (!mountedRef.current) return;
-        setSettings(stored.activeProvider ? stored : { ...stored, activeProvider: DEFAULT_PROVIDER });
+        const normalized = stored.activeProvider ? stored : { ...stored, activeProvider: DEFAULT_PROVIDER };
+        lastSavedSettingsRef.current = normalized;
+        setSettings(normalized);
       } catch (error) {
         if (mountedRef.current) Alert.alert('读取配置失败', '请重新打开应用后重试。');
       } finally {
@@ -101,49 +136,64 @@ export default function ImageGenScreen({ embedded = false }) {
   const providerId = settings.activeProvider || DEFAULT_PROVIDER;
   const provider = useMemo(() => getImageProvider(providerId), [providerId]);
   const providerConfig = settings.providers[providerId] || {};
-  const model = String(providerConfig.model || provider.defaultModel || '').trim();
   const modelList = useMemo(
-    () => model
-      .split(/[\n,]/)
-      .map(item => item.trim())
-      .filter(Boolean),
-    [model]
+    () => normalizeModelList(providerConfig.model, provider.defaultModel),
+    [provider.defaultModel, providerConfig.model]
   );
+  const model = modelList[0] || '';
 
-  const persistProvider = useCallback(async (id, patch) => {
+  const persistSettings = useCallback(next => {
+    if (!loaded) return Promise.resolve(false);
+    const version = ++settingsRevisionRef.current;
+    settingsRef.current = next;
+    setSettings(next);
+    const task = settingsSaveQueueRef.current.then(async () => {
+      try {
+        await saveImageGenSettings(next);
+        lastSavedSettingsRef.current = next;
+        return true;
+      } catch (error) {
+        if (version === settingsRevisionRef.current) {
+          settingsRef.current = lastSavedSettingsRef.current;
+          setSettings(lastSavedSettingsRef.current);
+        }
+        if (mountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
+        return false;
+      }
+    });
+    settingsSaveQueueRef.current = task.catch(() => false);
+    return task;
+  }, [loaded]);
+
+  const persistProvider = useCallback((id, patch) => {
+    if (!loaded) return Promise.resolve(false);
+    generationControllerRef.current?.abort();
+    generationControllerRef.current = null;
+    const base = settingsRef.current;
     const next = {
-      ...settings,
+      ...base,
       providers: {
-        ...settings.providers,
-        [id]: { ...(settings.providers[id] || {}), ...patch },
+        ...base.providers,
+        [id]: { ...(base.providers[id] || {}), ...patch },
       },
     };
-    setSettings(next);
-    try {
-      await saveImageGenSettings(next);
-    } catch (error) {
-      if (mountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, [settings]);
+    return persistSettings(next);
+  }, [loaded, persistSettings]);
 
-  const pickProvider = useCallback(async id => {
+  const pickProvider = useCallback(id => {
+    if (!loaded) return Promise.resolve(false);
     setProviderOpen(false);
-    const next = { ...settings, activeProvider: id };
-    setSettings(next);
-    try {
-      await saveImageGenSettings(next);
-    } catch (error) {
-      if (mountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, [settings]);
+    return persistSettings({ ...settingsRef.current, activeProvider: id });
+  }, [loaded, persistSettings]);
 
   const openSettings = useCallback(() => {
+    if (!loaded) return;
     setDraftBaseUrl(String(providerConfig.baseUrl || provider.baseUrl || ''));
     setDraftApiKey(String(providerConfig.apiKey || ''));
     setDraftModel(String(providerConfig.model || provider.defaultModel || ''));
     setDraftExtra(providerConfig.extra ? JSON.stringify(providerConfig.extra) : '');
     setSettingsOpen(true);
-  }, [provider.baseUrl, provider.defaultModel, providerConfig]);
+  }, [loaded, provider.baseUrl, provider.defaultModel, providerConfig]);
 
   // 列表接口不可用时，不再自动试生成：先问过用户再决定是否花这笔钱。
   const confirmProbe = useCallback(() => {
@@ -166,9 +216,9 @@ export default function ImageGenScreen({ embedded = false }) {
                 config: {
                   baseUrl: draftBaseUrl.trim() || provider.baseUrl || '',
                   apiKey: draftApiKey.trim(),
-                  model: draftModel.trim() || provider.defaultModel || '',
-                },
-                model: draftModel.trim() || provider.defaultModel || '',
+                   model: normalizeModelList(draftModel, provider.defaultModel)[0] || provider.defaultModel || '',
+                 },
+                 model: normalizeModelList(draftModel, provider.defaultModel)[0] || provider.defaultModel || '',
                  prompt: prompt.trim(),
                  signal: controller.signal,
                });
@@ -176,7 +226,7 @@ export default function ImageGenScreen({ embedded = false }) {
                Alert.alert('检测成功', `已连通，试生成 ${probe.images} 张小图（可能产生费用）`);
              } catch (error) {
                if (mountedRef.current && !controller.signal.aborted) {
-                 Alert.alert('检测失败', (error && error.message) || '生成接口不可用');
+                 Alert.alert('检测失败', maskSecrets((error && error.message) || '生成接口不可用'));
                }
              } finally {
                if (detectionControllerRef.current === controller) {
@@ -202,9 +252,9 @@ export default function ImageGenScreen({ embedded = false }) {
         config: {
           baseUrl: draftBaseUrl.trim() || provider.baseUrl || '',
           apiKey: draftApiKey.trim(),
-          model: draftModel.trim() || provider.defaultModel || '',
-        },
-         model: draftModel.trim() || provider.defaultModel || '',
+           model: normalizeModelList(draftModel, provider.defaultModel)[0] || provider.defaultModel || '',
+         },
+          model: normalizeModelList(draftModel, provider.defaultModel)[0] || provider.defaultModel || '',
          signal: controller.signal,
        });
        if (!mountedRef.current || controller.signal.aborted) return;
@@ -224,7 +274,7 @@ export default function ImageGenScreen({ embedded = false }) {
        }
      } catch (error) {
        if (mountedRef.current && !controller.signal.aborted) {
-         Alert.alert('检测失败', (error && error.message) || '无法连接');
+         Alert.alert('检测失败', maskSecrets((error && error.message) || '无法连接'));
        }
      } finally {
        if (detectionControllerRef.current === controller) {
@@ -268,13 +318,13 @@ export default function ImageGenScreen({ embedded = false }) {
         return;
       }
     }
-    setSettingsOpen(false);
-    await persistProvider(providerId, {
-      baseUrl: draftBaseUrl.trim(),
-      apiKey: draftApiKey.trim(),
-      model: draftModel.trim(),
-      extra,
-    });
+     const saved = await persistProvider(providerId, {
+       baseUrl: draftBaseUrl.trim(),
+       apiKey: draftApiKey.trim(),
+       model: draftModel.trim(),
+       extra,
+     });
+     if (saved) setSettingsOpen(false);
   }, [draftApiKey, draftBaseUrl, draftExtra, draftModel, persistProvider, providerId]);
 
   const pickImage = useCallback(async () => {
@@ -287,6 +337,17 @@ export default function ImageGenScreen({ embedded = false }) {
       const asset = picked.assets[0];
       if (!isImageLike(asset.name, asset.mimeType)) {
         Alert.alert('不支持的文件', '请选择图片文件。');
+        return;
+      }
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      const size = Number(asset.size || info.size || 0);
+      if (size > MAX_REFERENCE_IMAGE_BYTES) {
+        Alert.alert('图片过大', '参考图片不能超过 20 MB。');
+        return;
+      }
+      const dimensions = await getImageDimensions(asset.uri);
+      if (dimensions.width * dimensions.height > MAX_REFERENCE_IMAGE_PIXELS) {
+        Alert.alert('图片分辨率过高', '参考图片不能超过 2000 万像素。');
         return;
       }
       setImageUri(asset.uri);
@@ -302,7 +363,7 @@ export default function ImageGenScreen({ embedded = false }) {
   }, []);
 
   const onGenerate = useCallback(async () => {
-    if (generating) return;
+    if (!loaded || generating) return;
     const text = prompt.trim();
     if (!text && !imageUri) {
       Alert.alert('请输入提示词', '需要提示词才能生成图片。');
@@ -321,6 +382,7 @@ export default function ImageGenScreen({ embedded = false }) {
       return;
     }
      const controller = new AbortController();
+     const requestRevision = settingsRevisionRef.current;
      generationControllerRef.current = controller;
      setGenerating(true);
      try {
@@ -346,11 +408,17 @@ export default function ImageGenScreen({ embedded = false }) {
          signal: controller.signal,
        });
 
-       if (!mountedRef.current || controller.signal.aborted) return;
-       setResults(current => [...response.images, ...current].slice(0, 30));
+        if (!mountedRef.current || controller.signal.aborted) return;
+        if (settingsRevisionRef.current !== requestRevision) return;
+        const generatedAt = Date.now();
+       const normalizedResults = response.images.map((image, index) => ({
+         ...image,
+         id: image.id || `generated-${generatedAt}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+       }));
+       setResults(current => [...normalizedResults, ...current].slice(0, 30));
      } catch (error) {
        if (mountedRef.current && !controller.signal.aborted) {
-         Alert.alert('生成失败', (error && error.message) || '请稍后重试。');
+         Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
        }
      } finally {
        if (generationControllerRef.current === controller) {
@@ -359,32 +427,36 @@ export default function ImageGenScreen({ embedded = false }) {
        }
 
     }
-  }, [generating, imageMime, imageUri, model, prompt, provider, providerConfig, seed, size]);
+  }, [generating, imageMime, imageUri, loaded, model, prompt, provider, providerConfig, seed, size]);
 
   const saveResult = useCallback(async result => {
     if (busyResult) return;
     setBusyResult(resultToken(result));
     try {
+      const format = resolveImageFormat(result);
       let uri = '';
+      const dir = `${FileSystem.cacheDirectory}image-gen/`;
+      const info = await FileSystem.getInfoAsync(dir);
+      if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       if (result.base64) {
-        const dir = `${FileSystem.cacheDirectory}image-gen/`;
-        const info = await FileSystem.getInfoAsync(dir);
-        if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-        uri = `${dir}generated-${Date.now()}.png`;
+        uri = `${dir}generated-${Date.now()}.${format.ext}`;
         await FileSystem.writeAsStringAsync(uri, result.base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
       } else if (result.url) {
-        const dir = `${FileSystem.cacheDirectory}image-gen/`;
-        const info = await FileSystem.getInfoAsync(dir);
-        if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-        uri = `${dir}generated-${Date.now()}.png`;
-        const downloaded = await FileSystem.downloadAsync(result.url, uri);
+        uri = `${dir}generated-${Date.now()}.${format.ext}`;
+        // downloadAsync 没有超时参数，用 Promise.race 兜底，避免结果下载永久挂起。
+        const downloaded = await Promise.race([
+          FileSystem.downloadAsync(result.url, uri),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('图片下载超时')), 60000);
+          }),
+        ]);
         uri = downloaded.uri;
       }
       const available = await Sharing.isAvailableAsync().catch(() => false);
       if (available && uri) {
-        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: '保存图片' });
+        await Sharing.shareAsync(uri, { mimeType: format.mime, dialogTitle: '保存图片' });
       } else if (uri) {
         Alert.alert('已保存', `文件已生成：\n${uri}`);
       } else {
@@ -518,7 +590,7 @@ export default function ImageGenScreen({ embedded = false }) {
           title="生成"
           icon="sparkles"
           onPress={onGenerate}
-          disabled={generating}
+          disabled={!loaded || generating}
           loading={generating}
           style={styles.generateButton}
         />
@@ -530,7 +602,7 @@ export default function ImageGenScreen({ embedded = false }) {
             <View style={styles.gallery}>
               {results.map((result, index) => {
                 const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
-                const key = result.url || `${index}-${result.base64 ? result.base64.slice(0, 16) : ''}`;
+                const key = `${resultToken(result)}:${index}`;
                 return (
                   <TouchableOpacity
                     key={key}

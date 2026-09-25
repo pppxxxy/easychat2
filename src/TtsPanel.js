@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -23,15 +23,25 @@ export default function TtsPanel({ visible, onClose }) {
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [settings, setSettings] = useState({ enabled: false, activeProvider: 'system', providers: {} });
   const [loaded, setLoaded] = useState(false);
+  const persistVersionRef = useRef(0);
+  const persistQueueRef = useRef(Promise.resolve());
+  const settingsRef = useRef(settings);
+  const lastSavedSettingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible) {
+      setLoaded(false);
+      return undefined;
+    }
     let cancelled = false;
     getTtsSettings()
       .then(stored => {
-        if (cancelled) return;
-        setSettings(stored);
-        setLoaded(true);
+         if (cancelled) return;
+         settingsRef.current = stored;
+         lastSavedSettingsRef.current = stored;
+         setSettings(stored);
+         setLoaded(true);
       })
       .catch(() => {
         if (!cancelled) Alert.alert('读取失败', '无法读取语音播报设置。');
@@ -41,29 +51,47 @@ export default function TtsPanel({ visible, onClose }) {
     };
   }, [visible]);
 
-  const persist = useCallback(async next => {
-    setSettings(next);
-    try {
-      await saveTtsSettings(next);
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, []);
+  const persist = useCallback(next => {
+    const version = ++persistVersionRef.current;
+    const task = persistQueueRef.current.then(async () => {
+      if (!loaded) return false;
+      const previous = lastSavedSettingsRef.current;
+      settingsRef.current = next;
+      setSettings(next);
+      try {
+        await saveTtsSettings(next);
+        lastSavedSettingsRef.current = next;
+        return true;
+      } catch (error) {
+        if (version === persistVersionRef.current) {
+          settingsRef.current = previous;
+          setSettings(previous);
+        }
+        Alert.alert('保存失败', '请检查存储空间或权限。');
+        return false;
+      }
+    });
+    persistQueueRef.current = task.catch(() => false);
+    return task;
+  }, [loaded]);
 
   const provider = getTtsProvider(settings.activeProvider);
   const providerConfig = (settings.providers && settings.providers[provider.id]) || {};
 
   const setField = useCallback((key, value) => {
-    const current = settings.providers || {};
+    persistVersionRef.current += 1;
+    const currentSettings = settingsRef.current;
+    const current = currentSettings.providers || {};
     const next = {
-      ...settings,
+      ...currentSettings,
       providers: {
         ...current,
         [provider.id]: { ...(current[provider.id] || {}), [key]: value },
       },
     };
+    settingsRef.current = next;
     setSettings(next);
-  }, [provider.id, settings]);
+  }, [provider.id]);
 
   const openKeyUrl = useCallback(async () => {
     const url = provider.apiKeyUrl;
@@ -81,14 +109,18 @@ export default function TtsPanel({ visible, onClose }) {
   }, [provider.apiKeyUrl]);
 
   const onSave = useCallback(() => {
+    const currentSettings = settingsRef.current;
+    const currentProviderConfig = currentSettings.providers?.[provider.id] || {};
     persist({
-      ...settings,
+      ...currentSettings,
       providers: {
-        ...(settings.providers || {}),
-        [provider.id]: { ...providerConfig },
+        ...(currentSettings.providers || {}),
+        [provider.id]: { ...currentProviderConfig },
       },
-    }).then(() => onClose());
-  }, [onClose, persist, provider.id, providerConfig, settings]);
+    }).then(saved => {
+      if (saved) onClose();
+    });
+  }, [onClose, persist, provider.id]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -113,7 +145,7 @@ export default function TtsPanel({ visible, onClose }) {
                   <TouchableOpacity
                     key={item.id}
                     style={[styles.providerChip, active && styles.providerChipActive]}
-                    onPress={() => persist({ ...settings, activeProvider: item.id })}
+                     onPress={() => persist({ ...settingsRef.current, activeProvider: item.id })}
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.providerText, active && styles.providerTextActive]}>

@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { PixelRatio } from 'react-native';
+import { Alert, PixelRatio, useWindowDimensions } from 'react-native';
 
 import {
   DEFAULT_FONT_SCALE_ID,
@@ -30,12 +30,22 @@ export function ThemeProvider({ children }) {
   const [themeId, setThemeId] = useState(DEFAULT_THEME_ID);
   const [fontScaleId, setFontScaleId] = useState(DEFAULT_FONT_SCALE_ID);
   const mountedRef = useRef(true);
+  const themeIdRef = useRef(DEFAULT_THEME_ID);
+  const fontScaleIdRef = useRef(DEFAULT_FONT_SCALE_ID);
+  const lastSavedRef = useRef(null);
+  const saveQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
     mountedRef.current = true;
     getAppearanceSettings()
       .then(settings => {
         if (!mountedRef.current) return;
+        themeIdRef.current = settings.themeId;
+        fontScaleIdRef.current = settings.fontScaleId;
+        lastSavedRef.current = {
+          themeId: settings.themeId,
+          fontScaleId: settings.fontScaleId,
+        };
         setThemeId(settings.themeId);
         setFontScaleId(settings.fontScaleId);
       })
@@ -46,24 +56,44 @@ export function ThemeProvider({ children }) {
   }, []);
 
   const persist = useCallback(next => {
-    saveAppearanceSettings(next).catch(() => {});
+    const run = saveQueueRef.current
+      .catch(() => {})
+      .then(() => saveAppearanceSettings(next));
+    saveQueueRef.current = run;
+    run
+      .then(() => {
+        lastSavedRef.current = next;
+      })
+      .catch(() => {
+        const fallback = lastSavedRef.current;
+        if (fallback && mountedRef.current) {
+          themeIdRef.current = fallback.themeId;
+          fontScaleIdRef.current = fallback.fontScaleId;
+          setThemeId(fallback.themeId);
+          setFontScaleId(fallback.fontScaleId);
+        }
+        Alert.alert('外观设置保存失败', '请检查存储空间或权限。');
+      });
   }, []);
 
   const changeTheme = useCallback(id => {
     const resolved = getTheme(id).id;
+    themeIdRef.current = resolved;
     setThemeId(resolved);
-    persist({ themeId: resolved, fontScaleId });
-  }, [fontScaleId, persist]);
+    persist({ themeId: resolved, fontScaleId: fontScaleIdRef.current });
+  }, [persist]);
 
   const changeFontScale = useCallback(id => {
     const resolved = getFontOption(id).id;
+    fontScaleIdRef.current = resolved;
     setFontScaleId(resolved);
-    persist({ themeId, fontScaleId: resolved });
-  }, [persist, themeId]);
+    persist({ themeId: themeIdRef.current, fontScaleId: resolved });
+  }, [persist]);
 
   const theme = useMemo(() => getTheme(themeId), [themeId]);
 
-  const systemScale = PixelRatio.getFontScale();
+  const { fontScale: windowFontScale } = useWindowDimensions();
+  const systemScale = windowFontScale || PixelRatio.getFontScale();
 
   const value = useMemo(() => {
     const scale = resolveFontScale(fontScaleId, systemScale);

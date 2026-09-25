@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Modal,
   ScrollView,
@@ -23,6 +23,10 @@ export default function OnboardingModal({ visible, onFinish }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const chapters = Array.isArray(ONBOARDING_CHAPTERS) ? ONBOARDING_CHAPTERS : [];
   const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (visible) setIndex(0);
+  }, [visible]);
 
   const total = chapters.length;
   const chapter = chapters[Math.min(index, Math.max(total - 1, 0))];
