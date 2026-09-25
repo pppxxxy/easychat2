@@ -13,11 +13,12 @@ npm run start        # Expo dev server (primary verification path)
 npm run android      # open on Android
 npm run prebuild     # expo prebuild --clean, regenerates android/
 npm run build:apk    # EAS preview APK
+npm run lint         # eslint App.js src
 npm test             # Node unit and regression tests
 ```
 
-- There is no standalone lint or typecheck setup. Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity.
-- Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run the one-off `npx eslint --config /tmp/eslint.check.mjs App.js src/*.js src/*/*.js` check described in `.monkeycode/docs/DEVELOPER_GUIDE.md`; it must print nothing.
+- Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity.
+- Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run `npm run lint`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
 - APK builds are manual `workflow_dispatch` only. Workflows: `build-apk-github.yml` (Gradle, signs release with the debug keystore) and `build-apk.yml` (EAS, needs `EXPO_TOKEN`).
 - CI uses Node 22 and Java 17.

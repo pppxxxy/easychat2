@@ -8,6 +8,7 @@ on:
     branches:
       - main
     paths:
+      - 'App.js'
       - 'src/**'
       - 'tests/**'
       - 'plugins/**'
@@ -15,6 +16,7 @@ on:
       - 'eas.json'
       - 'package.json'
       - 'package-lock.json'
+      - 'eslint.config.mjs'
       - '.npmrc'
       - '.github/**'
       - 'app.json'
@@ -45,3 +47,9 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Run static checks
+        run: npm run lint
+
+      - name: Export Android bundle
+        run: npx expo export --platform android --output-dir /tmp/easychat2-ci-export
