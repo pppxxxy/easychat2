@@ -744,6 +744,16 @@ data: [DONE]
 **位置**: `src/lorebook.js`
 **返回**: `{ before, after, depth }` 三组已激活条目，各组按 `order` 升序
 
+### `getUnsafeWorldEntryKeys(entry)`
+**位置**: `src/lorebook.js`
+**返回**: `string[]` - 该条目中会触发灾难性回溯防护、运行时被跳过的关键词（仅检查 `useRegex` 开启或 `/pattern/` 写法的键）
+**用途**: 世界书编辑页与列表据此显示“疑似回溯，运行时会跳过”提示，避免条目静默失效
+
+### `isUnsafeRegexPattern(findRegex)`
+**位置**: `src/regexEngine.js`
+**返回**: `boolean` - 是否为嵌套无界量词的疑似灾难性回溯模式
+**用途**: `applyRegexScripts` 与世界书键匹配命中即跳过；正则脚本编辑页与列表据此显示跳过提示
+
 ### `applyRegexScripts(text, scripts, placement, options?)`
 **位置**: `src/regexEngine.js`
 
@@ -754,7 +764,7 @@ data: [DONE]
 | `options.mode` | `'prompt' \| 'display' \| 'both'` | 决定跳过 `markdownOnly` 或 `promptOnly` |
 | `options.depth` | `number?` | 用于 `minDepth`/`maxDepth` 过滤 |
 
-**辅助导出**: `REGEX_PLACEMENT`。
+**辅助导出**: `REGEX_PLACEMENT`、`isUnsafeRegexPattern`（见下节）。
 
 **替换语法**: 替换文本走 JS `String.replace` 语义（`$1`/`$&`/`$$`），并把 `$0` 兼容为整段匹配（映射为 `$&`），以兼容角色卡常见写法。
 
@@ -769,11 +779,17 @@ data: [DONE]
 | `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily, heightToken })` | 包装为完整 HTML 文档（含视口、CSP、宽度/滚动约束与带令牌的高度回传桥） |
 | `RICH_HTML_RESIZE_BRIDGE` | 注入 HTML 的高度桥：`ResizeObserver` 通过 `ResizeObserver` 和多组定时/页面事件回传带 `heightToken` 的高度消息 |
 | `buildRichHtmlCommandBridge(commandToken)` | 注入 WebView 的命令桥：令牌保留在注入脚本闭包中；可信用户手势触发 `button[data-command]` 或 `window.triggerSlash` 时回传命令，限制命令长度 |
+| `resolveViewportCardHeight({ windowHeight, fullWidth, hostHeight })` | 视口卡片高度解析：`hostHeight > 0`（Modal 实测）时直接采用；否则按屏幕比例（全宽 0.8 / 限宽 0.72）估算并统一封顶 520，保底 320 |
+| `RICH_HTML_MAX_RENDER_HEIGHT` | WebView 实测内容的渲染上限（24000），超过不再放大 |
+| `RICH_HTML_SCROLL_THRESHOLD` | 普通富 HTML 的滚动阈值（6000）：实测高度超过该值时卡片收成固定预览高度并允许内部滚动 |
+| `RICH_HTML_SCROLL_PREVIEW_HEIGHT` | 超过滚动阈值后卡片的固定展示高度（480） |
+| `RICH_HTML_LIST_PREVIEW_MAX_HEIGHT` | 列表内视口卡片估算高度的硬上限（520），避免长屏手机挤占聊天区 |
 
 ### `RichHtmlMessage`（默认导出）
 **位置**: `src/RichHtmlMessage.js`
+**Props**: `{ html, onCommand?, fullWidth?, allowFullscreenVideo?, hostHeight? }`
 
-用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由带文档令牌的高度桥回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档先写入应用缓存文件再以本地 URI 加载，避免 Android Binder 超限。动态高度上限为 24000，完整页面保留自身滚动与折叠规则；文档注入盒模型、宽度约束、CSP 与 `injectedJavaScriptBeforeContentLoaded` 命令桥，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收可信用户手势触发的斜杠命令。WebView 仅允许当前内联/本地源，拒绝后续导航和新窗口；`react-native-webview` 缺失时返回 `null`。
+用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由带文档令牌的高度桥回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档先写入应用缓存文件再以本地 URI 加载，避免 Android Binder 超限。动态高度上限为 24000；普通富 HTML 实测高度超过 6000 时收成 480 固定高度并允许内部滚动，不再整块撑满聊天列表；视口型卡片高度改由 `resolveViewportCardHeight` 决定——`hostHeight` 为宿主（全屏 Modal）实测高度，未传时按屏幕比例估算并封顶。`allowFullscreenVideo` 控制原生视频全屏按钮，仅全屏 Modal 传 `true`，列表预览默认关闭。文档注入盒模型、宽度约束、CSP 与 `injectedJavaScriptBeforeContentLoaded` 命令桥，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收可信用户手势触发的斜杠命令。WebView 仅允许当前内联/本地源，拒绝后续导航和新窗口；`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`

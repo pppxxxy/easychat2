@@ -243,3 +243,25 @@ export function buildRichHtmlDocument({
     + `<body>${normalizedBody}${renderRichHtmlBridge(heightToken)}</body></html>`
   );
 }
+
+// ---- 视口卡片高度与滚动阈值（纯函数，便于单测） ----
+
+// WebView 实测内容的渲染上限：超过该高度不再放大，防止超长文档把列表撑爆。
+export const RICH_HTML_MAX_RENDER_HEIGHT = 24000;
+// 滚动阈值：普通富 HTML 实测高度超过该值时，卡片改为固定预览高度并允许内部滚动。
+// 24000 作为阈值过于极端——8000px 的长图/长表格仍会整块撑满聊天列表且不可滚。
+export const RICH_HTML_SCROLL_THRESHOLD = 6000;
+// 超过滚动阈值后卡片展示的固定高度。
+export const RICH_HTML_SCROLL_PREVIEW_HEIGHT = 480;
+// 列表内视口卡片的高度硬上限：长屏手机上 0.72 * 屏高可能超过 700px，会挤占聊天区。
+export const RICH_HTML_LIST_PREVIEW_MAX_HEIGHT = 520;
+
+// 视口型卡片高度解析：宿主能实测（Modal）就信宿主；列表预览按屏幕比例估算并加硬上限。
+// 估算路径一律封顶：全屏 Modal 首帧用估算过渡，onLayout 实测后立即切到真实高度。
+export function resolveViewportCardHeight({ windowHeight = 0, fullWidth = false, hostHeight = 0 } = {}) {
+  if (Number.isFinite(hostHeight) && hostHeight > 0) {
+    return Math.max(320, Math.round(hostHeight));
+  }
+  const estimated = Math.round((Number(windowHeight) || 640) * (fullWidth ? 0.8 : 0.72));
+  return Math.min(RICH_HTML_LIST_PREVIEW_MAX_HEIGHT, Math.max(320, estimated));
+}

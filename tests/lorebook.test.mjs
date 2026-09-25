@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { collectActiveWorldInfo, isEntryActive } from '../src/lorebook.js';
+import { collectActiveWorldInfo, getUnsafeWorldEntryKeys, isEntryActive } from '../src/lorebook.js';
 
 const entry = (patch = {}) => ({
   id: 'e1',
@@ -89,4 +89,18 @@ test('collectActiveWorldInfo 按 position 分组并保留顺序', () => {
   assert.deepEqual(result.before.map(item => item.content), ['before-1', 'before-2']);
   assert.deepEqual(result.after.map(item => item.content), ['after']);
   assert.deepEqual(result.depth.map(item => item.content), ['depth']);
+});
+
+test('getUnsafeWorldEntryKeys 只标记会触发正则防护的关键词', () => {
+  // useRegex 默认关闭：裸表达式按普通文本处理，只有 /pattern/ 写法才走正则防护
+  const slashOnly = entry({ keys: ['(a+)+$', '安全词', '/(\\w+)*$/g'] });
+  assert.deepEqual(getUnsafeWorldEntryKeys(slashOnly), ['/(\\w+)*$/g']);
+
+  // useRegex 开启时，裸表达式也会被检查
+  const regexEntry = entry({ keys: ['(a+)+$'], useRegex: true });
+  assert.deepEqual(getUnsafeWorldEntryKeys(regexEntry), ['(a+)+$']);
+
+  // 常规正则不误报
+  const safe = entry({ keys: ['\\bword\\b', '/foo/g'], useRegex: true });
+  assert.deepEqual(getUnsafeWorldEntryKeys(safe), []);
 });

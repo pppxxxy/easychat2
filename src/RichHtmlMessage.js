@@ -2,7 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
-import { buildRichHtmlCommandBridge, buildRichHtmlDocument, isViewportRichHtml } from './richHtml';
+import {
+  RICH_HTML_MAX_RENDER_HEIGHT,
+  RICH_HTML_SCROLL_PREVIEW_HEIGHT,
+  RICH_HTML_SCROLL_THRESHOLD,
+  buildRichHtmlCommandBridge,
+  buildRichHtmlDocument,
+  isViewportRichHtml,
+  resolveViewportCardHeight,
+} from './richHtml';
 import { useTheme } from './theme/ThemeContext';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
@@ -15,7 +23,7 @@ try {
 }
 
 export const RICH_HTML_INLINE_SOURCE_LIMIT = 512 * 1024;
-export const RICH_HTML_MAX_RENDER_HEIGHT = 24000;
+export { RICH_HTML_MAX_RENDER_HEIGHT, RICH_HTML_SCROLL_THRESHOLD };
 
 function utf8ByteLength(value) {
   const text = String(value || '');
@@ -36,7 +44,15 @@ function utf8ByteLength(value) {
 }
 
 // 用 WebView 渲染含 <style>/<script> 的助手消息：动态高度 + 命令按钮桥接。
-export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) {
+// allowFullscreenVideo：仅全屏 Modal 场景开启，列表预览不允许视频跳出聊天上下文。
+// hostHeight：宿主实测可用高度（Modal 传入）；列表预览不传，按屏幕比例估算并加硬上限。
+export default function RichHtmlMessage({
+  html,
+  onCommand,
+  fullWidth = false,
+  allowFullscreenVideo = false,
+  hostHeight = 0,
+}) {
   const { theme, fonts } = useTheme();
   const { height: windowHeight } = useWindowDimensions();
   const [height, setHeight] = useState(1);
@@ -48,11 +64,8 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
   // 视口型文档：高度由 WebView 视口决定，改用屏幕高度做固定宿主高度，避免测高死锁。
   const viewportDocument = useMemo(() => isViewportRichHtml(html), [html]);
   const viewportHeight = useMemo(
-    () => Math.max(
-      320,
-      Math.round((windowHeight || 640) * (fullWidth ? 0.8 : 0.72))
-    ),
-    [fullWidth, windowHeight]
+    () => resolveViewportCardHeight({ windowHeight, fullWidth, hostHeight }),
+    [fullWidth, hostHeight, windowHeight]
   );
 
   const commandToken = useMemo(
@@ -162,21 +175,28 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
   }
   if (!source) return <View style={styles.container} />;
 
+  // 普通富 HTML 实测高度超过滚动阈值时不再整块撑满列表：
+  // 卡片收成固定预览高度并允许内部滚动，用户可以在卡片内滚完再回到聊天。
+  const contentScrollable = viewportDocument || height >= RICH_HTML_SCROLL_THRESHOLD;
+  const displayHeight = viewportDocument
+    ? viewportHeight
+    : (height >= RICH_HTML_SCROLL_THRESHOLD ? RICH_HTML_SCROLL_PREVIEW_HEIGHT : height);
+
   return (
     <View style={styles.container}>
       <WebViewComponent
         originWhitelist={source.uri ? ['file://*'] : ['about:blank', 'data:*']}
         source={source}
-        style={[styles.webview, { height: viewportDocument ? viewportHeight : height }]}
+        style={[styles.webview, { height: displayHeight }]}
         containerStyle={styles.webviewContainer}
         javaScriptEnabled
         domStorageEnabled
         allowFileAccess={!!source.uri}
-        allowsFullscreenVideo
+        allowsFullscreenVideo={allowFullscreenVideo}
         setSupportMultipleWindows={false}
         onOpenWindow={() => {}}
-        scrollEnabled={viewportDocument || height >= RICH_HTML_MAX_RENDER_HEIGHT}
-        nestedScrollEnabled={viewportDocument || height >= RICH_HTML_MAX_RENDER_HEIGHT}
+        scrollEnabled={contentScrollable}
+        nestedScrollEnabled={contentScrollable}
         injectedJavaScriptBeforeContentLoaded={commandBridge}
         onContentSizeChange={onContentSizeChange}
         onMessage={onMessage}

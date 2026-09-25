@@ -41,7 +41,8 @@ import { selectSessionsForCharacters } from './context/sessionLibrary';
 import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel';
 import ScrollScrubber, { getScrollRange } from './ScrollScrubber';
-import { compileRegex } from './regexEngine';
+import { compileRegex, isUnsafeRegexPattern } from './regexEngine';
+import { getUnsafeWorldEntryKeys } from './lorebook';
 import { maskSecrets } from './secrets';
 import {
   createGroupSession,
@@ -273,6 +274,7 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const keys = Array.isArray(entry.keys) ? entry.keys : [];
+  const unsafeKeys = getUnsafeWorldEntryKeys(entry);
   const position = WORLD_POSITION_LABELS[entry.position] ? entry.position : 0;
   const cyclePosition = () => {
     const current = WORLD_POSITION_KEYS.indexOf(position);
@@ -308,6 +310,11 @@ function WorldEntryEditor({ entry, index, onChange, onRemove }) {
         onChangeText={text => onChange({ keys: splitKeywords(text) })}
         placeholder="关键词一, 关键词二"
       />
+      {unsafeKeys.length > 0 ? (
+        <Text style={styles.regexUnsafeHint}>
+          {`以下关键词存在嵌套无界量词，疑似灾难性回溯，运行时会跳过：${unsafeKeys.join('、')}`}
+        </Text>
+      ) : null}
       <Text style={styles.fieldLabel}>内容</Text>
       <TextField
         style={styles.contentInput}
@@ -391,6 +398,11 @@ function RegexEntryEditor({ script, index, onChange, onRemove }) {
         multiline
         textAlignVertical="top"
       />
+      {isUnsafeRegexPattern(script.findRegex) ? (
+        <Text style={styles.regexUnsafeHint}>
+          该表达式存在嵌套无界量词，疑似灾难性回溯；为避免卡死界面，运行时会跳过此脚本。
+        </Text>
+      ) : null}
       <Text style={styles.fieldLabel}>替换为</Text>
       <TextField
         style={[styles.contentInput, styles.codeInput]}
@@ -2236,15 +2248,21 @@ setWorldInfo(next.worldInfo);
             {worldInfo.length === 0 ? (
               <Text style={styles.dataEmpty}>暂无世界书条目。</Text>
             ) : (
-              worldInfo.map((entry, index) => (
-                <SummaryRow
-                  key={entry.id}
-                  title={entry.comment || `条目 ${index + 1}`}
-                  meta={worldEntryMeta(entry)}
-                  enabled={entry.enabled}
-                  onPress={() => setEditingWorldId(entry.id)}
-                />
-              ))
+              worldInfo.map((entry, index) => {
+                const unsafeKeys = getUnsafeWorldEntryKeys(entry);
+                return (
+                  <SummaryRow
+                    key={entry.id}
+                    title={entry.comment || `条目 ${index + 1}`}
+                    meta={[
+                      worldEntryMeta(entry),
+                      unsafeKeys.length > 0 ? `${unsafeKeys.length} 个关键词疑似回溯，已跳过` : '',
+                    ].filter(Boolean).join('｜')}
+                    enabled={entry.enabled}
+                    onPress={() => setEditingWorldId(entry.id)}
+                  />
+                );
+              })
             )}
           </CollapsibleSection>
 
@@ -2264,7 +2282,10 @@ setWorldInfo(next.worldInfo);
                 <SummaryRow
                   key={script.id}
                   title={script.name || `正则 ${index + 1}`}
-                  meta={script.placementLabel || ''}
+                  meta={[
+                    script.placementLabel || '',
+                    isUnsafeRegexPattern(script.findRegex) ? '疑似回溯，运行时已跳过' : '',
+                  ].filter(Boolean).join('｜')}
                   enabled={script.enabled}
                   onPress={() => setEditingRegexId(script.id)}
                 />
@@ -3071,6 +3092,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   dataFieldValue: { color: theme.colors.text, fontSize: 14, lineHeight: 20 },
   dataEmpty: { color: theme.colors.textFaint, fontSize: 13, paddingVertical: 6 },
   dataMeta: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 18 },
+  regexUnsafeHint: {
+    color: theme.colors.warning || '#f2a516',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
 
   entryCard: {
     backgroundColor: theme.colors.surfaceAlt,

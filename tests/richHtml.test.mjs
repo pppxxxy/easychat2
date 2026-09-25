@@ -6,10 +6,34 @@ import {
   buildRichHtmlDocument,
   isViewportRichHtml,
   needsRichHtmlRendering,
+  resolveViewportCardHeight,
   shouldRenderRichHtml,
   splitFullHtmlDocument,
   stripMarkdownFences,
+  RICH_HTML_LIST_PREVIEW_MAX_HEIGHT,
+  RICH_HTML_SCROLL_PREVIEW_HEIGHT,
+  RICH_HTML_SCROLL_THRESHOLD,
 } from '../src/richHtml.js';
+
+test('视口卡片高度：宿主实测优先，估算一律封顶', () => {
+  // Modal 场景：信宿主实测高度
+  assert.equal(resolveViewportCardHeight({ windowHeight: 800, fullWidth: true, hostHeight: 645 }), 645);
+  // 宿主高度过小时仍保底 320
+  assert.equal(resolveViewportCardHeight({ windowHeight: 800, fullWidth: true, hostHeight: 100 }), 320);
+  // 列表预览：0.72 * 屏高，低于上限时按比例
+  assert.equal(resolveViewportCardHeight({ windowHeight: 640, fullWidth: false }), 461);
+  // 估算路径无论是否全宽都封顶，避免长屏手机把聊天区挤没
+  assert.equal(resolveViewportCardHeight({ windowHeight: 1000, fullWidth: false }), RICH_HTML_LIST_PREVIEW_MAX_HEIGHT);
+  assert.equal(resolveViewportCardHeight({ windowHeight: 1000, fullWidth: true }), RICH_HTML_LIST_PREVIEW_MAX_HEIGHT);
+  // 窗口高度未知时按 640 估算
+  assert.equal(resolveViewportCardHeight({ windowHeight: 0, fullWidth: false }), 461);
+});
+
+test('滚动阈值与固定预览高度分离', () => {
+  assert.ok(RICH_HTML_SCROLL_THRESHOLD < 24000);
+  assert.ok(RICH_HTML_SCROLL_THRESHOLD > RICH_HTML_SCROLL_PREVIEW_HEIGHT);
+  assert.equal(RICH_HTML_SCROLL_PREVIEW_HEIGHT, 480);
+});
 
 test('含内置渲染器不支持标签的消息才需要 WebView', () => {
   assert.equal(needsRichHtmlRendering('普通文本'), false);

@@ -85,7 +85,8 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import RichHtmlMessage from './RichHtmlMessage';
 import { containsHtml, messageCopyText } from './plainText';
-import { isViewportRichHtml, shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
+import { isViewportRichHtml, resolveViewportCardHeight, shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import { hideVariantStatusBar, toSpeechText } from './speechText';
@@ -520,10 +521,16 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
   const isUser = message.role === USER_ID;
   const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [cardFullOpen, setCardFullOpen] = useState(false);
+  const [cardFullHostHeight, setCardFullHostHeight] = useState(0);
+  const previewViewportHeight = useMemo(
+    () => resolveViewportCardHeight({ windowHeight, fullWidth }),
+    [windowHeight, fullWidth]
+  );
   const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
@@ -783,12 +790,28 @@ const fullWidthAssistant = !isUser && fullWidth;
                  {renderAssistantSegment(richHtmlParts.before)}
                  {richHtmlViewport ? (
                    <View>
-                     <View pointerEvents="none">
-                       <RichHtmlMessage
-                         html={richHtmlParts.document}
-                         fullWidth={fullWidth}
-                       />
-                     </View>
+                     {cardFullOpen ? (
+                       // 全屏 Modal 打开期间列表内不再保留第二份 WebView：
+                       // 同一张卡双 WebView 会让内存、定时器与后台 JS 翻倍。
+                       // 占位保持原高度，关闭后原位重建，列表不跳动。
+                       <View style={[styles.viewportCardPlaceholder, { height: previewViewportHeight }]}>
+                         <Text style={styles.viewportCardPlaceholderText}>卡片已全屏打开</Text>
+                       </View>
+                     ) : (
+                       <View style={{ height: previewViewportHeight }}>
+                         <RichHtmlMessage
+                           html={richHtmlParts.document}
+                           fullWidth={fullWidth}
+                         />
+                         {/* 透明覆盖层把整块卡片变成“点按进全屏”；WebView 本体不接收手势。 */}
+                         <Pressable
+                           style={styles.viewportCardTapOverlay}
+                           onPress={() => setCardFullOpen(true)}
+                           accessibilityRole="button"
+                           accessibilityLabel="全屏打开卡片"
+                         />
+                       </View>
+                     )}
                      <TouchableOpacity
                        style={styles.viewportCardOpen}
                        onPress={() => setCardFullOpen(true)}
@@ -813,9 +836,11 @@ const fullWidthAssistant = !isUser && fullWidth;
                      visible
                      animationType="slide"
                      onRequestClose={() => setCardFullOpen(false)}
+                     statusBarTranslucent
+                     presentationStyle="fullScreen"
                    >
                      <View style={styles.viewportCardScreen}>
-                       <View style={styles.viewportCardBar}>
+                       <View style={[styles.viewportCardBar, { paddingTop: Math.max(insets.top, 8) }]}>
                          <Text style={styles.viewportCardTitle} numberOfLines={1}>
                            {characterName || '角色面板'}
                          </Text>
@@ -828,11 +853,25 @@ const fullWidthAssistant = !isUser && fullWidth;
                            <Ionicons name="close" size={20} color={theme.colors.text} />
                          </TouchableOpacity>
                        </View>
-                       <View style={styles.viewportCardBody}>
+                       <View
+                         style={styles.viewportCardBody}
+                         onLayout={event => {
+                           const next = Number(
+                             event && event.nativeEvent && event.nativeEvent.layout
+                               ? event.nativeEvent.layout.height
+                               : 0
+                           );
+                           if (next > 0 && Math.abs(next - cardFullHostHeight) > 1) {
+                             setCardFullHostHeight(next);
+                           }
+                         }}
+                       >
                          <RichHtmlMessage
                            html={richHtmlParts.document}
                            onCommand={(command, token) => onSlashCommand(command, token, message.id)}
                            fullWidth
+                           allowFullscreenVideo
+                           hostHeight={cardFullHostHeight}
                          />
                        </View>
                      </View>
@@ -5907,7 +5946,25 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   viewportCardBody: {
     flex: 1,
+  },
+  viewportCardTapOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  viewportCardPlaceholder: {
+    alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+  },
+  viewportCardPlaceholderText: {
+    color: theme.colors.textFaint,
+    fontSize: 13,
   },
   markdownCodeScroll: {
     maxWidth: '100%',

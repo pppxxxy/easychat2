@@ -69,6 +69,16 @@ function matchesAnyKeyword(keys, haystack, entry) {
   return keys.some(key => keywordMatches(key, haystack, entry));
 }
 
+// 运行时会被灾难性回溯防护跳过的关键词：世界书编辑页据此提示用户，
+// 避免条目静默失效被误以为“没命中”。
+export function getUnsafeWorldEntryKeys(entry) {
+  const source = entry && typeof entry === 'object' ? entry : {};
+  const keys = Array.isArray(source.keys) ? source.keys : [];
+  return keys.filter(key => (
+    (source.useRegex || keyLooksLikeRegex(key)) && isUnsafeRegexPattern(key)
+  ));
+}
+
 function buildScanText(entry, messageTexts) {
   const depth = Number.isFinite(entry.scanDepth)
     ? Math.max(1, entry.scanDepth)
