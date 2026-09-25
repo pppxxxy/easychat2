@@ -11,6 +11,14 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// JS 的 \b 按 ASCII 单词字符判断边界，中文关键词会被整体判为无边界。
+// 含 CJK 字符时退回子串匹配，保持“整词”开关可用。
+const CJK_PATTERN = /[\u2e80-\u2fff\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/;
+
+function hasCjk(text) {
+  return CJK_PATTERN.test(String(text || ''));
+}
+
 function regexScope(haystack) {
   return haystack.length > MAX_REGEX_INPUT_CHARS
     ? haystack.slice(-MAX_REGEX_INPUT_CHARS)
@@ -30,7 +38,7 @@ function keywordMatches(keyword, haystack, entry) {
   const slashRegex = keyLooksLikeRegex(keyword);
   if (entry.useRegex || slashRegex) {
     try {
-      const source = entry.matchWholeWords && !slashRegex
+      const source = entry.matchWholeWords && !slashRegex && !hasCjk(keyword)
         ? `\\b(?:${keyword})\\b`
         : keyword;
       return compileRegexCached(source, flags).test(regexScope(haystack));
@@ -39,6 +47,11 @@ function keywordMatches(keyword, haystack, entry) {
     }
   }
   if (entry.matchWholeWords) {
+    if (hasCjk(keyword)) {
+      const source = caseSensitive ? haystack : haystack.toLowerCase();
+      const needle = caseSensitive ? keyword : keyword.toLowerCase();
+      return source.includes(needle);
+    }
     try {
       const re = compileRegexCached(`\\b${escapeRegExp(keyword)}\\b`, flags);
       return re.test(regexScope(haystack));

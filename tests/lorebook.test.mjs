@@ -68,6 +68,14 @@ test('matchWholeWords 不会把单词内部误命中', () => {
   assert.equal(isEntryActive(whole, ['apple']), false);
 });
 
+test('matchWholeWords 对中文关键词仍能命中', () => {
+  const whole = entry({ keys: ['房间'], matchWholeWords: true });
+  assert.equal(isEntryActive(whole, ['这是房间']), true);
+  assert.equal(isEntryActive(whole, ['这是房']), false);
+  const partial = entry({ keys: ['房间'], matchWholeWords: false });
+  assert.equal(isEntryActive(partial, ['这是房间']), true);
+});
+
 test('collectActiveWorldInfo 按 position 分组并保留顺序', () => {
   const character = {
     worldInfo: [
