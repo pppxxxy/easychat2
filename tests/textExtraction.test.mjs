@@ -26,4 +26,5 @@ test('toSpeechText 不朗读脚本、样式与 HTML 注释', () => {
   assert.equal(speech.includes('隐藏'), false);
   assert.equal(speech.includes('你好'), true);
   assert.equal(speech.includes('世界'), true);
+  assert.equal(toSpeechText('正文<script>未闭合内容').includes('未闭合内容'), false);
 });

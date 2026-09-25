@@ -1,5 +1,5 @@
-import { getProvider } from './providers';
-import { registerSecretValues } from '../secrets';
+import { getProvider } from './providers.js';
+import { registerSecretValues } from '../secrets.js';
 
 const SEARCH_TIMEOUT_MS = 10000;
 const CACHE_TTL_MS = 60000;
@@ -33,14 +33,51 @@ function isRateLimited(now) {
   return callTimes.length >= RATE_LIMIT_PER_MINUTE;
 }
 
-function cacheKey(providerId, query, limit) {
-  return `${providerId}::${query}::${limit}`;
+function hashText(value) {
+  let hash = 2166136261;
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
-function xhrRequest({ method, url, headers, body }) {
+function cacheKey(providerId, query, limit, source) {
+  const config = source || {};
+  const fingerprint = hashText(JSON.stringify({
+    apiKey: config.apiKey || '',
+    cx: config.cx || '',
+    customBaseUrl: config.customBaseUrl || '',
+    extra: config.extra || '',
+  }));
+  return `${providerId}:${fingerprint}::${query}::${limit}`;
+}
+
+function createAbortError() {
+  const error = new Error('搜索已中断');
+  error.name = 'AbortError';
+  error.canceled = true;
+  return error;
+}
+
+function xhrRequest({ method, url, headers, body, signal, timeoutMs = SEARCH_TIMEOUT_MS }) {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(createAbortError());
+      return;
+    }
     const xhr = new XMLHttpRequest();
     let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        xhr.abort();
+      } catch (error) {}
+      reject(createAbortError());
+    };
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -48,13 +85,19 @@ function xhrRequest({ method, url, headers, body }) {
         xhr.abort();
       } catch (error) {}
       reject(new Error('搜索超时'));
-    }, SEARCH_TIMEOUT_MS);
+    }, Math.max(1, Number(timeoutMs) || SEARCH_TIMEOUT_MS));
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort);
+      }
       fn(value);
     };
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     xhr.open(method || 'GET', url);
     Object.entries(headers || {}).forEach(([key, value]) => {
       try {
@@ -87,6 +130,9 @@ export function buildRequest(provider, config, query, limit) {
     ? String(config.customBaseUrl || '').trim()
     : provider.baseUrl;
   if (!base) return null;
+  if (!/^https?:\/\/[^/\s]+/i.test(base)) {
+    throw new Error('搜索服务地址无效');
+  }
   const params = { ...(provider.extra || {}) };
   (provider.extraFields || []).forEach(field => {
     if (config[field] !== undefined && config[field] !== '') {
@@ -141,9 +187,10 @@ export function parseResults(provider, data, limit) {
     .slice(0, limit);
 }
 
-export async function runWebSearch({ query, config, maxResults }) {
+export async function runWebSearch({ query, config, maxResults, signal = null }) {
   const text = String(query || '').trim().slice(0, 200);
   if (!text) return [];
+  if (signal && signal.aborted) throw createAbortError();
   const source = config || {};
   // 登记搜索密钥：报错文本可能带出裸 Key
   registerSecretValues([source.apiKey]);
@@ -161,7 +208,7 @@ export async function runWebSearch({ query, config, maxResults }) {
     return [];
   }
 
-  const key = cacheKey(provider.id, text, limit);
+  const key = cacheKey(provider.id, text, limit, source);
   const now = Date.now();
   const cached = cache.get(key);
   if (cached && now - cached.at < CACHE_TTL_MS) return cached.results;
@@ -173,14 +220,23 @@ export async function runWebSearch({ query, config, maxResults }) {
   if (!request) return [];
 
   let lastError = null;
+  const deadline = Date.now() + SEARCH_TIMEOUT_MS;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    if (signal && signal.aborted) throw createAbortError();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
-      const data = await xhrRequest(request);
+      const data = await xhrRequest({
+        ...request,
+        signal,
+        timeoutMs: Math.min(SEARCH_TIMEOUT_MS, remaining),
+      });
       const results = parseResults(provider, data, limit);
       callTimes.push(Date.now());
       cache.set(key, { at: Date.now(), results });
       return results;
     } catch (error) {
+      if (error && error.name === 'AbortError') throw error;
       lastError = error;
       // 4xx 是确定性失败（密钥/权限/配额），重试没有意义，还会触发风控
       if (error && /HTTP 4\d\d/.test(error.message || '')) {
@@ -191,5 +247,5 @@ export async function runWebSearch({ query, config, maxResults }) {
   }
   // 失败的尝试也计入限流，避免配置错误时反复冲击服务商
   callTimes.push(Date.now());
-  throw lastError || new Error('搜索失败');
+  throw lastError || new Error('搜索超时');
 }

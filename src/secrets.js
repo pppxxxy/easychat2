@@ -21,10 +21,12 @@ export function clearRegisteredSecrets() {
 export function maskSecrets(text) {
   let output = String(text === null || text === undefined ? '' : text);
   if (!output) return output;
-  registeredSecrets.forEach(secret => {
-    if (secret && output.includes(secret)) {
-      output = output.split(secret).join('[API_KEY已隐藏]');
-    }
-  });
+  [...registeredSecrets]
+    .sort((left, right) => right.length - left.length)
+    .forEach(secret => {
+      if (secret && output.includes(secret)) {
+        output = output.split(secret).join('[API_KEY已隐藏]');
+      }
+    });
   return output.replace(SECRET_PATTERN, '[API_KEY已隐藏]');
 }

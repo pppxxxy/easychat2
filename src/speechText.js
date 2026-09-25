@@ -10,8 +10,8 @@ export function hideVariantStatusBar(text) {
 }
 
 const SPEECH_FENCE_PATTERN = /```[\s\S]*?```/g;
-const SPEECH_SCRIPT_PATTERN = /<script\b[^>]*>[\s\S]*?<\/script>/gi;
-const SPEECH_STYLE_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+const SPEECH_SCRIPT_PATTERN = /<script\b[^>]*>[\s\S]*?(?:<\/script>|$)/gi;
+const SPEECH_STYLE_PATTERN = /<style\b[^>]*>[\s\S]*?(?:<\/style>|$)/gi;
 const SPEECH_COMMENT_PATTERN = /<!--[\s\S]*?-->/g;
 const SPEECH_HTML_TAG_PATTERN = /<[^>]*>/g;
 const SPEECH_IMAGE_PATTERN = /!\[[^\]]*\]\([^)]*\)/g;

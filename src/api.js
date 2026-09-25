@@ -95,12 +95,25 @@ function formatApiError(text, status) {
   return trimmed.slice(0, 300);
 }
 
+export function normalizeAssistantContent(value) {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return '';
+  return value
+    .map(part => {
+      if (typeof part === 'string') return part;
+      if (part && typeof part.text === 'string') return part.text;
+      if (part && typeof part.content === 'string') return part.content;
+      return '';
+    })
+    .join('');
+}
+
 function extractDeltaContent(payload) {
   const choice = payload?.choices?.[0];
   const delta = choice?.delta?.content;
-  if (typeof delta === 'string') return delta;
+  if (delta !== undefined && delta !== null) return normalizeAssistantContent(delta);
   const message = choice?.message?.content;
-  return typeof message === 'string' ? message : '';
+  return message === undefined || message === null ? '' : normalizeAssistantContent(message);
 }
 
 function extractReasoningDelta(payload) {
@@ -171,6 +184,9 @@ export async function sendChatMessage(messages, options = {}) {
   }
 
   const url = normalizeChatUrl(config.baseUrl);
+  if (!/^https?:\/\/[^/\s]+/i.test(url)) {
+    throw new Error('请填写有效的 HTTP(S) API 地址。');
+  }
   const thinkingSettings = await getThinkingSettings().catch(() => null);
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
   const samplingSettings = await getSamplingSettings().catch(() => null);
@@ -218,17 +234,51 @@ export async function sendChatMessage(messages, options = {}) {
     };
     const succeed = value => settle(resolve, value);
     const fail = error => settle(reject, error);
+    let configCheckInFlight = false;
+    const checkCurrentConfig = async () => {
+      if (!options || (!options.expectedConfigId && !options.expectedConfigFingerprint)) return;
+      const latestConfig = await getActiveApiConfig();
+      if (
+        (options.expectedConfigId && latestConfig.id !== options.expectedConfigId)
+        || (
+          options.expectedConfigFingerprint
+          && getConfigFingerprint(latestConfig) !== options.expectedConfigFingerprint
+        )
+      ) {
+        throw new Error(CONFIG_CHANGED_ERROR);
+      }
+    };
+    const finishWithConfig = callback => {
+      if (settled || configCheckInFlight) return;
+      configCheckInFlight = true;
+      checkCurrentConfig()
+        .then(callback)
+        .catch(error => {
+          fail(error);
+          try {
+            xhr.abort();
+          } catch (abortError) {}
+        })
+        .finally(() => {
+          configCheckInFlight = false;
+        });
+    };
 
     const finishFromStream = () => {
-      if (fullText) {
-        succeed(fullText);
-        return;
-      }
-      if (!sawPayloadData && parseFailures > 0) {
-        fail(new Error('接口返回了无法解析的内容。'));
-        return;
-      }
-      succeed(EMPTY_REPLY_TEXT);
+      finishWithConfig(() => {
+        if (fullText) {
+          succeed(fullText);
+          xhr.abort();
+          return;
+        }
+        if (!sawPayloadData && parseFailures > 0) {
+          fail(new Error('接口返回了无法解析的内容。'));
+          xhr.abort();
+          return;
+        }
+        succeed(EMPTY_REPLY_TEXT);
+        xhr.abort();
+      });
     };
 
     const armIdleTimer = () => {
@@ -253,7 +303,6 @@ export async function sendChatMessage(messages, options = {}) {
       sawSse = true;
       if (payloadText === '[DONE]') {
         finishFromStream();
-        xhr.abort();
         return;
       }
 
@@ -346,7 +395,7 @@ export async function sendChatMessage(messages, options = {}) {
 
       if (settled) return;
       if (fullText) {
-        succeed(fullText);
+        finishWithConfig(() => succeed(fullText));
         return;
       }
 
@@ -357,7 +406,7 @@ export async function sendChatMessage(messages, options = {}) {
 
       const body = (xhr.responseText || '').trim();
       if (!body) {
-        succeed(EMPTY_REPLY_TEXT);
+        finishWithConfig(() => succeed(EMPTY_REPLY_TEXT));
         return;
       }
       try {
@@ -374,7 +423,8 @@ export async function sendChatMessage(messages, options = {}) {
           ? message.reasoning_content
           : (typeof message.reasoning === 'string' ? message.reasoning : '');
         if (reasoning && onReasoning) onReasoning(reasoning);
-        succeed(message.content || EMPTY_REPLY_TEXT);
+         const content = normalizeAssistantContent(message.content);
+         finishWithConfig(() => succeed(content || EMPTY_REPLY_TEXT));
       } catch (error) {
         fail(new Error('接口返回了无法解析的内容。'));
       }

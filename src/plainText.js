@@ -6,8 +6,8 @@ export function containsHtml(text) {
 
 export function toPlainText(text) {
   let out = String(text || '');
-  out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
-  out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+  out = out.replace(/<script\b[^>]*>[\s\S]*?(?:<\/script>|$)/gi, '');
+  out = out.replace(/<style\b[^>]*>[\s\S]*?(?:<\/style>|$)/gi, '');
   out = out.replace(/<!--[\s\S]*?-->/g, '');
   out = out.replace(/<br\s*\/?>/gi, '\n');
   out = out.replace(/<\/(?:p|div|h[1-6]|li|tr|section|article)>/gi, '\n');

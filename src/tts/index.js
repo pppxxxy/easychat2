@@ -1,3 +1,5 @@
+import { Buffer } from 'buffer';
+
 import { TTS_MAX_CHARS, getTtsProvider } from './providers';
 import { registerSecretValues } from '../secrets';
 
@@ -33,6 +35,9 @@ function getAudioModule() {
 }
 
 let currentSound = null;
+let speakGeneration = 0;
+let speakRequestId = 0;
+let activeRequestController = null;
 const tokenCache = new Map();
 
 export function truncateText(text, maxChars = TTS_MAX_CHARS) {
@@ -87,6 +92,9 @@ export function buildTtsRequest(provider, config, text, token) {
   const method = provider.method || 'POST';
   let url = String(config.baseUrl || provider.baseUrl || '').trim();
   if (!url) return null;
+  if (!/^(?:https?|wss?):\/\/[^/\s]+/i.test(url)) {
+    throw new Error('请填写有效的语音服务地址');
+  }
   const payload = {};
   if (provider.textField) setByPath(payload, provider.textField, text);
   if (provider.voiceField && config.voice) setByPath(payload, provider.voiceField, config.voice);
@@ -134,7 +142,7 @@ export function buildTtsRequest(provider, config, text, token) {
   };
 }
 
-export async function resolveToken(provider, config, { now = Date.now() } = {}) {
+export async function resolveToken(provider, config, { now = Date.now(), signal = null } = {}) {
   const auth = provider.auth || {};
   if (auth.type !== 'token' || !auth.tokenUrl) return '';
   // 缓存键要带上凭据指纹：只按 provider.id 缓存，用户换了 Key/Secret 之后
@@ -158,6 +166,7 @@ export async function resolveToken(provider, config, { now = Date.now() } = {}) 
     url: auth.tokenUrl,
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: queryString,
+    signal,
   });
   const token = String(getByPath(data, auth.tokenPath || 'access_token') || '');
   if (!token) throw new Error('令牌获取失败');
@@ -169,10 +178,47 @@ export async function resolveToken(provider, config, { now = Date.now() } = {}) 
   return token;
 }
 
-function xhrJson({ method, url, headers, body, timeoutMs }) {
+function createTtsAbortError() {
+  const error = new Error('播报已中断');
+  error.name = 'AbortError';
+  error.canceled = true;
+  return error;
+}
+
+function arrayBufferToBase64(value) {
+  const bytes = value instanceof ArrayBuffer
+    ? new Uint8Array(value)
+    : new Uint8Array(value || 0);
+  const parts = [];
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    let binary = '';
+    for (let index = 0; index < chunk.length; index += 1) {
+      binary += String.fromCharCode(chunk[index]);
+    }
+    parts.push(binary);
+  }
+  return Buffer.from(parts.join(''), 'binary').toString('base64');
+}
+
+function xhrJson({ method, url, headers, body, timeoutMs, signal }) {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(createTtsAbortError());
+      return;
+    }
     const xhr = new XMLHttpRequest();
     let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        xhr.abort();
+      } catch (error) {}
+      reject(createTtsAbortError());
+    };
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -185,8 +231,14 @@ function xhrJson({ method, url, headers, body, timeoutMs }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort);
+      }
       fn(value);
     };
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     xhr.open(method || 'POST', url);
     Object.entries(headers || {}).forEach(([key, value]) => {
       try {
@@ -214,10 +266,23 @@ function xhrJson({ method, url, headers, body, timeoutMs }) {
   });
 }
 
-function xhrAudio({ method, url, headers, body, timeoutMs, mode, path }) {
+function xhrAudio({ method, url, headers, body, timeoutMs, mode, path, signal }) {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(createTtsAbortError());
+      return;
+    }
     const xhr = new XMLHttpRequest();
     let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        xhr.abort();
+      } catch (error) {}
+      reject(createTtsAbortError());
+    };
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -230,9 +295,20 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort);
+      }
       fn(value);
     };
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     xhr.open(method || 'POST', url);
+    if (mode !== 'base64') {
+      try {
+        xhr.responseType = 'arraybuffer';
+      } catch (error) {}
+    }
     Object.entries(headers || {}).forEach(([key, value]) => {
       try {
         xhr.setRequestHeader(key, value);
@@ -243,11 +319,10 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path }) {
         finish(reject, new Error(mapHttpError(xhr.status)));
         return;
       }
-      const raw = xhr.responseText || '';
       if (mode === 'base64') {
         let base64 = '';
         try {
-          const parsed = JSON.parse(raw);
+          const parsed = JSON.parse(xhr.responseText || '{}');
           base64 = String(getByPath(parsed, path) || '');
         } catch (error) {
           base64 = '';
@@ -259,11 +334,16 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path }) {
         finish(resolve, { base64 });
         return;
       }
-      if (!raw) {
+      const response = xhr.response;
+      if (!response || (typeof response === 'string' && !response)) {
         finish(reject, new Error('未获取到音频数据'));
         return;
       }
-      finish(resolve, { base64: raw });
+      try {
+        finish(resolve, { base64: arrayBufferToBase64(response) });
+      } catch (error) {
+        finish(reject, new Error('音频数据无法解码'));
+      }
     };
     xhr.onerror = () => finish(reject, new Error('播报网络请求失败'));
     xhr.onabort = () => finish(reject, new Error('播报已中断'));
@@ -275,7 +355,7 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path }) {
   });
 }
 
-export async function synthesize({ provider, config = {}, text }) {
+export async function synthesize({ provider, config = {}, text, signal = null }) {
   const resolvedProvider = typeof provider === 'string' ? getTtsProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的播报服务');
   // 登记播报密钥：报错文本可能带出裸 Key/Secret
@@ -283,7 +363,10 @@ export async function synthesize({ provider, config = {}, text }) {
   const content = truncateText(text);
   if (!content) throw new Error('没有可播报的内容');
   if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };
-  const token = await resolveToken(resolvedProvider, config).catch(() => '');
+  const token = await resolveToken(resolvedProvider, config, { signal }).catch(error => {
+    if (error && error.name === 'AbortError') throw error;
+    return '';
+  });
   const request = buildTtsRequest(resolvedProvider, config, content, token);
   if (!request) throw new Error('播报服务未配置接口地址');
   const response = resolvedProvider.response || {};
@@ -292,11 +375,19 @@ export async function synthesize({ provider, config = {}, text }) {
     timeoutMs: resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS,
     mode: response.mode === 'base64' ? 'base64' : 'binary',
     path: response.path,
+    signal,
   });
   return { mode: 'audio', base64: audio.base64 };
 }
 
-export async function stop() {
+async function stopPlayback() {
+  const controller = activeRequestController;
+  activeRequestController = null;
+  if (controller) {
+    try {
+      controller.abort();
+    } catch (error) {}
+  }
   const speech = getSpeechModule();
   if (speech && typeof speech.stop === 'function') {
     try {
@@ -313,9 +404,21 @@ export async function stop() {
   }
 }
 
+export async function stop() {
+  speakRequestId += 1;
+  speakGeneration += 1;
+  return stopPlayback();
+}
+
 export async function speak({ provider, config = {}, text, onDone, onError }) {
   const resolvedProvider = typeof provider === 'string' ? getTtsProvider(provider) : provider;
-  await stop();
+  const requestId = ++speakRequestId;
+  speakGeneration += 1;
+  await stopPlayback();
+  if (requestId !== speakRequestId) return;
+  const token = speakGeneration;
+  const controller = new AbortController();
+  activeRequestController = controller;
   try {
     if (isSystemProvider(resolvedProvider)) {
       const speech = getSpeechModule();
@@ -330,33 +433,45 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
       if (Number.isFinite(speed) && speed > 0) options.rate = speed;
       speech.speak(content, {
         ...options,
-        onDone: () => onDone && onDone(),
+        onDone: () => {
+          if (token === speakGeneration && onDone) onDone();
+        },
         onError: error => {
-          if (onError) onError(error);
+          if (token === speakGeneration && onError) onError(error);
         },
       });
       return;
     }
-    const result = await synthesize({ provider: resolvedProvider, config, text });
+    const result = await synthesize({ provider: resolvedProvider, config, text, signal: controller.signal });
+    if (token !== speakGeneration) return;
     const audio = getAudioModule();
     if (!audio || !audio.Audio || typeof audio.Audio.Sound === 'undefined') {
       throw new Error('当前设备不支持音频播放');
     }
     const uri = `data:audio/mp3;base64,${result.base64}`;
     const { sound } = await audio.Audio.Sound.createAsync({ uri });
+    if (token !== speakGeneration) {
+      try {
+        await sound.unloadAsync();
+      } catch (error) {}
+      return;
+    }
     currentSound = sound;
     sound.setOnPlaybackStatusUpdate(status => {
       if (status && status.didJustFinish) {
-        // 期间可能已经在播放新音频，只有自己仍是“当前音频”时才停止，
-        // 否则会把新播放的音频一起停掉。
-        if (currentSound === sound) stop();
-        if (onDone) onDone();
+        if (token === speakGeneration && currentSound === sound) {
+          if (onDone) onDone();
+          stop();
+        }
       }
     });
     await sound.playAsync();
   } catch (error) {
+    if (token !== speakGeneration || (error && error.name === 'AbortError')) return;
     await stop();
     if (onError) onError(error);
     else throw error;
+  } finally {
+    if (activeRequestController === controller) activeRequestController = null;
   }
 }

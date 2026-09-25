@@ -31,6 +31,13 @@ test('过短的值不纳入登记，避免把普通文本也遮掉', () => {
   clearRegisteredSecrets();
 });
 
+test('重叠密钥按最长值优先完整遮蔽', () => {
+  clearRegisteredSecrets();
+  registerSecretValues(['abcdefgh', 'abcdefghijkl']);
+  assert.equal(maskSecrets('key=abcdefghijkl'), `key=${MASK}`);
+  clearRegisteredSecrets();
+});
+
 test('空输入与 null 安全', () => {
   assert.equal(maskSecrets(''), '');
   assert.equal(maskSecrets(null), '');
