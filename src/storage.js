@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system';
 
 import GLOBAL_PRESETS from './presets';
 import { isKnownImageProvider } from './imageGen/providers';
-import { FORGE_FIELDS, FORGE_QUESTIONS } from './cardForge/forge';
+import { FORGE_FIELDS, FORGE_QUESTIONS, MAX_PRESERVED_ITEMS, MAX_PRESERVED_TEXT } from './cardForge/forge';
 import {
   removeMomentsForCharacterDeletion,
   removeMomentsBySessionIds,
@@ -11,6 +11,13 @@ import {
 import { assignStableCharacterIds } from './context/characterIdentity';
 import { normalizeCharacterPresets } from './characterPresets';
 import { shouldIndexSession } from './vectorMemory/scope';
+import {
+  getMediaWriteRevision,
+  getNextRecentMediaExpiry,
+  isMediaWriteRevisionCurrent,
+  isRecentMediaUri,
+  markMediaWrite,
+} from './mediaProtection';
 import {
   buildClonedSession,
   buildPreview,
@@ -23,6 +30,8 @@ import {
   regenerateMessageIds,
   sortSessions,
 } from './context/sessionLibrary';
+
+export { markMediaWrite } from './mediaProtection';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
@@ -62,16 +71,21 @@ const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
 const MOMENTS_KEY = '@easychat2_moments';
 const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
+const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
 const SESSION_SUMMARIES_PREFIX = '@easychat2_session_summaries';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
 const CARD_FORGE_KEY = '@easychat2_card_forge';
+const CARD_FORGE_PAYLOAD_DIRECTORY = 'card-forge';
+const CARD_FORGE_PAYLOAD_VERSION = 1;
+const CARD_FORGE_INLINE_LIMIT_BYTES = 512 * 1024;
 
 let characterLibraryWriteBlocked = false;
 let stickerWriteQueue = Promise.resolve();
 let momentsMutationQueue = Promise.resolve();
 let sessionMutationQueue = Promise.resolve();
+let cardForgeWriteQueue = Promise.resolve();
 const deletedSessionIds = new Set();
 const sessionSummaryRevisions = new Map();
 const vectorIndexWriteQueues = new Map();
@@ -252,9 +266,9 @@ function normalizeCharacter(raw) {
 
 function isInitialCard(character) {
   if (character && character.builtin === true) return true;
-  // 旧数据没有 builtin：退化用「名字 + 系统提示」比对，尽量在首次读取时把真初始卡认出来并补标记。
-  return String(character.name || '') === String(DEFAULT_CHARACTER.name || '')
-    && String(character.systemPrompt || '') === String(DEFAULT_CHARACTER.systemPrompt || '');
+  // 旧数据没有 builtin：退化用"名字 + 系统提示"比对，尽量在首次读取时把真初始卡认出来并补标记。
+  return String(character && character.name || '') === String(DEFAULT_CHARACTER.name || '')
+    && String(character && character.systemPrompt || '') === String(DEFAULT_CHARACTER.systemPrompt || '');
 }
 
 function ensureDefaultCharacter(list, now = Date.now()) {
@@ -265,10 +279,20 @@ function ensureDefaultCharacter(list, now = Date.now()) {
     now,
   });
   // 补 builtin 标记：初始卡改名 / 改系统提示后仍能被识别，避免身份判定再次失效。
-  const marked = items.map(item => (
-    item.id === DEFAULT_CHARACTER.id && item.builtin !== true ? { ...item, builtin: true } : item
-  ));
-  const builtinChanged = marked.some((item, index) => item !== items[index]);
+  // 同时只允许 default 持有 builtin：历史数据里可能残留多个 builtin，会让身份判定二义。
+  let builtinChanged = false;
+  const marked = items.map(item => {
+    if (item.id === DEFAULT_CHARACTER.id) {
+      if (item.builtin === true) return item;
+      builtinChanged = true;
+      return { ...item, builtin: true };
+    }
+    if (item.builtin === true) {
+      builtinChanged = true;
+      return { ...item, builtin: false };
+    }
+    return item;
+  });
   let changedNow = changed || builtinChanged;
   if (!marked.some(item => item.id === DEFAULT_CHARACTER.id)) {
     marked.unshift(normalizeCharacter(DEFAULT_CHARACTER));
@@ -673,16 +697,32 @@ export async function saveCharacterLibrary(list) {
 }
 
 export async function saveCharacterState(list, activeId, deletedIds, clearVectorIds = []) {
+  const previousList = await getCharacterLibrary().catch(() => null);
+  const previousActiveId = await getActiveCharacterId().catch(() => '');
+  for (const item of Array.isArray(list) ? list : []) {
+    markMediaWrite(item && item.avatarUri);
+    markMediaWrite(item && item.bgUri);
+  }
+  await saveCharacterLibrary(list);
+  try {
+    await setActiveCharacterId(activeId);
+  } catch (error) {
+    if (previousList) await saveCharacterLibrary(previousList).catch(() => {});
+    if (previousActiveId) await setActiveCharacterId(previousActiveId).catch(() => {});
+    throw error;
+  }
   const vectorIds = Array.isArray(clearVectorIds)
     ? clearVectorIds
     : (clearVectorIds ? [clearVectorIds] : []);
   for (const id of vectorIds) {
     if (id && id !== DEFAULT_CHARACTER.id) {
-      await clearVectorIndex(id);
+      try {
+        await clearVectorIndex(id);
+      } catch (error) {
+        if (__DEV__) console.warn('[vector] character cleanup failed', error);
+      }
     }
   }
-  await saveCharacterLibrary(list);
-  await setActiveCharacterId(activeId);
   const removed = Array.isArray(deletedIds) ? deletedIds : (deletedIds ? [deletedIds] : []);
   for (const id of removed) {
     if (id && id !== DEFAULT_CHARACTER.id) {
@@ -873,6 +913,7 @@ function normalizeVectorIndex(index) {
       at: Number(item.at) || 0,
       text: String(item.text),
       vector: Array.isArray(item.vector) ? item.vector.map(Number) : [],
+      signature: String(item.signature || ''),
     }));
 }
 
@@ -1293,9 +1334,32 @@ export function getStickers() {
   return task;
 }
 
+function isStickerReferenceBackupKey(key) {
+  return String(key) === `${STICKER_INDEX_KEY}${CORRUPT_BACKUP_SUFFIX}`;
+}
+
+function isAvatarReferenceBackupKey(key) {
+  const value = String(key);
+  if (value === `${USER_PROFILE_KEY}${CORRUPT_BACKUP_SUFFIX}`) return true;
+  if (value === `${SESSIONS_KEY}${CORRUPT_BACKUP_SUFFIX}`) return true;
+  if (value === `${MOMENTS_KEY}${CORRUPT_BACKUP_SUFFIX}`) return true;
+  return value.startsWith(`${CHARACTER_ITEM_PREFIX}::`) && value.endsWith(CORRUPT_BACKUP_SUFFIX);
+}
+
+async function hasReferenceBackupKey(check) {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    return (Array.isArray(keys) ? keys : []).some(key => check(key));
+  } catch (error) {
+    return true;
+  }
+}
+
 export async function collectStickerImageFiles() {
+  const revision = getMediaWriteRevision();
+  if (await hasReferenceBackupKey(isStickerReferenceBackupKey)) return false;
   const status = await readStickerStatus();
-  if (status.status !== 'ok') return false;
+  if (status.status !== 'ok' || !isMediaWriteRevisionCurrent(revision)) return false;
   const referenced = new Set(status.stickers.map(item => String(item.uri || '')).filter(Boolean));
   const directory = `${FileSystem.documentDirectory || ''}stickers/`;
   let entries = [];
@@ -1305,7 +1369,9 @@ export async function collectStickerImageFiles() {
     return true;
   }
   for (const entry of entries) {
+    if (!isMediaWriteRevisionCurrent(revision)) return false;
     const uri = `${directory}${entry}`;
+    if (isRecentMediaUri(uri)) continue;
     if (referenced.has(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
@@ -1315,16 +1381,28 @@ export async function collectStickerImageFiles() {
 }
 
 export async function collectAvatarImageFiles() {
-  const [characters, sessionsStatus, profile] = await Promise.all([
-    getCharacterLibrary().catch(() => null),
+  const revision = getMediaWriteRevision();
+  if (await hasReferenceBackupKey(isAvatarReferenceBackupKey)) return false;
+  const characters = await getCharacterLibrary().catch(() => null);
+  if (!characters || isCharacterLibraryWriteBlocked()) return false;
+  const [sessionsStatus, profileStatus, momentsStatus] = await Promise.all([
     readSessionsStatus(),
-    getUserProfile().catch(() => null),
+    getUserProfileStatus().catch(() => ({ status: 'corrupt', profile: null })),
+    getMomentsStatus().catch(() => ({ status: 'corrupt', moments: [] })),
   ]);
-  if (!characters || !profile || sessionsStatus.status === 'corrupt') return false;
+  if (
+    !profileStatus
+    || profileStatus.status === 'corrupt'
+    || !profileStatus.profile
+    || sessionsStatus.status === 'corrupt'
+    || momentsStatus.status === 'corrupt'
+    || !isMediaWriteRevisionCurrent(revision)
+  ) return false;
   const referenced = new Set([
-    profile.avatarUri,
+    profileStatus.profile.avatarUri,
     ...characters.flatMap(item => [item.avatarUri, item.bgUri]),
     ...sessionsStatus.sessions.flatMap(item => [item.avatarUri, item.bgUri]),
+    ...momentsStatus.moments.map(item => item.avatarUri),
   ].map(value => String(value || '')).filter(Boolean));
   const directory = `${FileSystem.documentDirectory || ''}avatars/`;
   let entries = [];
@@ -1334,7 +1412,9 @@ export async function collectAvatarImageFiles() {
     return true;
   }
   for (const entry of entries) {
+    if (!isMediaWriteRevisionCurrent(revision)) return false;
     const uri = `${directory}${entry}`;
+    if (isRecentMediaUri(uri)) continue;
     if (referenced.has(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
@@ -1358,6 +1438,7 @@ export function saveSticker(sticker) {
     if (!normalized.id || !normalized.name || !normalized.uri) {
       throw new Error('表情包信息不完整');
     }
+    markMediaWrite(normalized.uri);
     const result = await readStickerStatus();
     if (result.status === 'corrupt') {
       throw new Error('表情包记录读取失败，请稍后重试');
@@ -1500,27 +1581,89 @@ export function updateMoments(updater) {
   });
 }
 
+function cardForgePayloadDirectory() {
+  return `${FileSystem.documentDirectory || FileSystem.cacheDirectory || ''}${CARD_FORGE_PAYLOAD_DIRECTORY}/`;
+}
+
+function cardForgePayloadPath(fileName) {
+  return `${cardForgePayloadDirectory()}${String(fileName || '')}`;
+}
+
+function isCardForgePayloadDescriptor(value) {
+  return !!(
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && value.storage === 'file'
+    && value.version === CARD_FORGE_PAYLOAD_VERSION
+    && value.fileName
+  );
+}
+
+async function writeCardForgePayload(state) {
+  const serialized = JSON.stringify(state);
+  if (utf8ByteLength(serialized) <= CARD_FORGE_INLINE_LIMIT_BYTES) {
+    return { value: serialized, fileName: '' };
+  }
+  const fileName = `forge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.json`;
+  await FileSystem.makeDirectoryAsync(cardForgePayloadDirectory(), { intermediates: true });
+  const uri = cardForgePayloadPath(fileName);
+  try {
+    await FileSystem.writeAsStringAsync(uri, serialized, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+  } catch (error) {
+    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    throw error;
+  }
+  return {
+    value: JSON.stringify({
+      storage: 'file',
+      version: CARD_FORGE_PAYLOAD_VERSION,
+      fileName,
+    }),
+    fileName,
+  };
+}
+
+async function readCardForgePayload(value) {
+  if (!isCardForgePayloadDescriptor(value)) {
+    return { status: 'ok', value };
+  }
+  try {
+    const serialized = await FileSystem.readAsStringAsync(cardForgePayloadPath(value.fileName));
+    return { status: 'ok', value: JSON.parse(serialized) };
+  } catch (error) {
+    return { status: 'corrupt', value: null };
+  }
+}
+
+async function deleteCardForgePayload(fileName) {
+  if (!fileName) return;
+  await FileSystem.deleteAsync(cardForgePayloadPath(fileName), { idempotent: true }).catch(() => {});
+}
+
 function normalizeForgeDraft(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const draft = {};
   FORGE_FIELDS.forEach(key => {
-    draft[key] = String(source[key] || '').slice(0, 4000);
+    draft[key] = String(source[key] || '').slice(0, MAX_PRESERVED_TEXT);
   });
   draft.tags = Array.isArray(source.tags)
-    ? source.tags.map(item => String(item || '').trim()).filter(Boolean).slice(0, 10)
+    ? source.tags.map(item => String(item || '').trim()).filter(Boolean).slice(0, MAX_PRESERVED_ITEMS)
     : [];
   // 这几个字段不参与 AI 改写，但要随草稿一起持久化，保证「角色 → 制卡 → 角色」往返不丢内容
-  draft.systemPrompt = String(source.systemPrompt || '').slice(0, 12000);
+  draft.systemPrompt = String(source.systemPrompt || '').slice(0, MAX_PRESERVED_TEXT);
   draft.alternateGreetings = Array.isArray(source.alternateGreetings)
-    ? source.alternateGreetings.map(item => String(item || '')).filter(Boolean).slice(0, 20)
+    ? source.alternateGreetings.map(item => String(item || '')).filter(item => item.trim()).slice(0, MAX_PRESERVED_ITEMS)
     : [];
   draft.worldInfo = Array.isArray(source.worldInfo)
-    ? source.worldInfo.filter(item => item && typeof item === 'object').slice(0, 100)
+    ? source.worldInfo.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
   draft.regexScripts = Array.isArray(source.regexScripts)
-    ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, 100)
+    ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
-  draft.presets = normalizeCharacterPresets(source.presets).slice(0, 50);
+  draft.presets = normalizeCharacterPresets(source.presets).slice(0, MAX_PRESERVED_ITEMS);
   return draft;
 }
 
@@ -1560,16 +1703,28 @@ function normalizeCardForgeState(raw) {
   };
 }
 
-export async function getCardForgeStatus() {
+async function getCardForgeStatusInternal() {
   const stored = await readJsonStatus(CARD_FORGE_KEY);
-  const invalidShape = stored.status === 'ok'
-    && (!stored.value || typeof stored.value !== 'object' || Array.isArray(stored.value));
-  if (stored.status === 'corrupt' || invalidShape) {
+  if (stored.status === 'missing') return { status: 'missing', state: null };
+  const payload = await readCardForgePayload(stored.value);
+  if (payload.status === 'corrupt') {
     await backupCorruptValue(CARD_FORGE_KEY);
     return { status: 'corrupt', state: null };
   }
-  if (stored.status === 'missing') return { status: 'missing', state: null };
-  return { status: 'ok', state: normalizeCardForgeState(stored.value) };
+  const invalidShape = !payload.value
+    || typeof payload.value !== 'object'
+    || Array.isArray(payload.value);
+  if (invalidShape) {
+    await backupCorruptValue(CARD_FORGE_KEY);
+    return { status: 'corrupt', state: null };
+  }
+  return { status: 'ok', state: normalizeCardForgeState(payload.value) };
+}
+
+export function getCardForgeStatus() {
+  const task = cardForgeWriteQueue.then(() => getCardForgeStatusInternal());
+  cardForgeWriteQueue = task.then(() => undefined, () => undefined);
+  return task;
 }
 
 export async function getCardForge() {
@@ -1577,21 +1732,57 @@ export async function getCardForge() {
   return state;
 }
 
-export async function saveCardForge(state) {
-  const status = await getCardForgeStatus();
+async function saveCardForgeInternal(state) {
+  const status = await getCardForgeStatusInternal();
   if (status.status === 'corrupt') {
     throw new Error('制卡草稿读取失败，请先处理损坏数据');
   }
   const normalized = normalizeCardForgeState(state);
   if (!normalized) throw new Error('制卡状态无效');
-  await AsyncStorage.setItem(CARD_FORGE_KEY, JSON.stringify(normalized));
+  let previousFileName = '';
+  try {
+    const previousRaw = await AsyncStorage.getItem(CARD_FORGE_KEY);
+    const previous = previousRaw ? JSON.parse(previousRaw) : null;
+    if (isCardForgePayloadDescriptor(previous)) previousFileName = String(previous.fileName || '');
+  } catch (error) {}
+  const payload = await writeCardForgePayload(normalized);
+  try {
+    await AsyncStorage.setItem(CARD_FORGE_KEY, payload.value);
+  } catch (error) {
+    await deleteCardForgePayload(payload.fileName);
+    throw error;
+  }
+  if (previousFileName && previousFileName !== payload.fileName) {
+    await deleteCardForgePayload(previousFileName);
+  }
   return normalized;
 }
 
-export async function clearCardForge() {
+export function saveCardForge(state) {
+  const task = cardForgeWriteQueue.then(() => saveCardForgeInternal(state));
+  cardForgeWriteQueue = task.catch(() => {});
+  return task;
+}
+
+async function clearCardForgeInternal() {
+  await AsyncStorage.removeItem(CARD_FORGE_KEY);
+  let names = [];
   try {
-    await AsyncStorage.removeItem(CARD_FORGE_KEY);
-  } catch (error) {}
+    names = await FileSystem.readDirectoryAsync(cardForgePayloadDirectory());
+  } catch (error) {
+    return;
+  }
+  await Promise.all((names || [])
+    .filter(name => String(name).endsWith('.json'))
+    .map(name => FileSystem.deleteAsync(cardForgePayloadPath(name), { idempotent: true }).catch(error => {
+      if (__DEV__) console.warn('[cardForge] payload cleanup failed', error);
+    })));
+}
+
+export function clearCardForge() {
+  const task = cardForgeWriteQueue.then(() => clearCardForgeInternal());
+  cardForgeWriteQueue = task.catch(() => {});
+  return task;
 }
 
 // 删除锚定在这些会话（记忆）上的动态。返回被删除的动态 id，便于调用方提示结果。
@@ -1872,6 +2063,34 @@ export async function getUserProfile() {
   };
 }
 
+export async function getUserProfileStatus() {
+  const stored = await readJsonStatus(USER_PROFILE_KEY);
+  if (stored.status === 'missing') {
+    return { status: 'missing', profile: { ...DEFAULT_USER_PROFILE, avatarUri: '' } };
+  }
+  if (
+    stored.status !== 'ok'
+    || !stored.value
+    || typeof stored.value !== 'object'
+    || Array.isArray(stored.value)
+  ) {
+    await backupCorruptValue(USER_PROFILE_KEY);
+    return { status: 'corrupt', profile: null };
+  }
+  const meta = readGlobalProfileMeta(stored.value);
+  const personas = await getPersonas();
+  const activeId = await getActivePersonaId(personas);
+  const active = personas.find(item => item.id === activeId) || personas[0];
+  return {
+    status: 'ok',
+    profile: {
+      userName: String(active?.userName || ''),
+      persona: String(active?.persona || ''),
+      avatarUri: String(meta.avatarUri || ''),
+    },
+  };
+}
+
 export async function saveUserProfile(profile) {
   const personas = await getPersonas();
   const activeId = await getActivePersonaId(personas);
@@ -1887,6 +2106,10 @@ export async function saveUserProfile(profile) {
       : item
   ));
   await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
+  const profileStatus = await readJsonStatus(USER_PROFILE_KEY);
+  if (profileStatus.status === 'corrupt') {
+    await backupCorruptValue(USER_PROFILE_KEY);
+  }
   const global = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
   const meta = readGlobalProfileMeta(global);
   await AsyncStorage.setItem(
@@ -2151,31 +2374,51 @@ export async function completeOnboarding() {
 }
 
 function ensureUniqueSessionIds(list) {
+  // 消息体按会话 id 存键。若把重复 id 重命名成一个新 id，新 id 下没有消息，
+  // 等于凭空孤立一份聊天记录；而消息键仍挂在原 id 上。所以这里保留首次出现的条目，
+  // 丢弃重复条目，保证 id 与消息键始终一一对应。
   const seen = new Set();
-  return list.map((item, index) => {
-    let id = String(item.id);
-    if (seen.has(id)) {
-      let candidate = `${id}-${index}`;
-      let bump = index;
-      while (seen.has(candidate)) {
-        bump += 1;
-        candidate = `${id}-${index}-${bump}`;
-      }
-      id = candidate;
-    }
+  const result = [];
+  for (const item of list) {
+    const id = String(item.id);
+    if (seen.has(id)) continue;
     seen.add(id);
-    return id === item.id ? item : { ...item, id };
-  });
+    result.push(item);
+  }
+  return result;
 }
 
 // 会话列表的读取状态：损坏时先备份原始值再当作空列表，避免调用方
 // 用空列表把“暂时读不出”的真实数据整表覆盖掉（Android cursor window 等）。
+async function readRollbackBackup() {
+  try {
+    const raw = await AsyncStorage.getItem(SESSION_ROLLBACK_BACKUP_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 async function readSessionsStatus() {
   const stored = await readJsonStatus(SESSIONS_KEY);
-  if (stored.status === 'missing') return { status: 'missing', sessions: [] };
-  if (stored.status === 'corrupt' || !Array.isArray(stored.value)) {
-    await backupCorruptValue(SESSIONS_KEY);
-    return { status: 'corrupt', sessions: [] };
+  const backup = await readRollbackBackup();
+  if (stored.status === 'missing' || stored.status === 'corrupt' || !Array.isArray(stored.value)) {
+    if (stored.status === 'corrupt') await backupCorruptValue(SESSIONS_KEY);
+    if (backup.length > 0) {
+      // 上次回滚写盘再次失败时留了备份，启动时用它恢复，避免会话列表永久丢失。
+      await saveSessionsInternal(backup);
+      await AsyncStorage.removeItem(SESSION_ROLLBACK_BACKUP_KEY).catch(() => {});
+      return { status: 'ok', sessions: ensureUniqueSessionIds(backup.map(normalizeSession)) };
+    }
+    return stored.status === 'missing'
+      ? { status: 'missing', sessions: [] }
+      : { status: 'corrupt', sessions: [] };
+  }
+  if (backup.length > 0) {
+    // 主列表可读，说明之前要么回滚成功、要么已不需要备份，清掉陈旧副本。
+    await AsyncStorage.removeItem(SESSION_ROLLBACK_BACKUP_KEY).catch(() => {});
   }
   return {
     status: 'ok',
@@ -2250,7 +2493,8 @@ function imageUrisFromMessages(messages) {
   return result;
 }
 
-export async function collectChatImageFiles(protectedUris = []) {
+async function collectChatImageFilesInternal(protectedUris = []) {
+  const revision = getMediaWriteRevision();
   let keys = [];
   try {
     keys = await AsyncStorage.getAllKeys();
@@ -2292,14 +2536,46 @@ export async function collectChatImageFiles(protectedUris = []) {
   } catch (error) {
     return true;
   }
+  let skippedRecent = false;
   for (const entry of entries) {
+    if (!isMediaWriteRevisionCurrent(revision)) return false;
     const uri = `${directory}${entry}`;
+    if (isRecentMediaUri(uri)) {
+      skippedRecent = true;
+      continue;
+    }
     if (referenced.has(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (error) {}
   }
+  if (skippedRecent) scheduleMediaCollectRetry();
   return true;
+}
+
+let mediaCollectRetryTimer = null;
+
+function scheduleMediaCollectRetry() {
+  const expiry = getNextRecentMediaExpiry();
+  if (!expiry) return;
+  const delay = Math.max(1000, expiry - Date.now() + 50);
+  if (mediaCollectRetryTimer) clearTimeout(mediaCollectRetryTimer);
+  mediaCollectRetryTimer = setTimeout(() => {
+    mediaCollectRetryTimer = null;
+    collectChatImageFiles().catch(() => {});
+  }, delay);
+}
+
+// 回收会读取全部会话消息并删文件；与新媒体写入或另一轮回收并发时容易交错。
+// 统一排进同一 promise 队列，保证任意时刻只有一次回收在跑。
+let mediaCollectQueue = Promise.resolve();
+
+export function collectChatImageFiles(protectedUris = []) {
+  const run = mediaCollectQueue
+    .catch(() => {})
+    .then(() => collectChatImageFilesInternal(protectedUris));
+  mediaCollectQueue = run.catch(() => {});
+  return run;
 }
 
 export async function getMessagesBySessionStatus(sessionId) {
@@ -2326,6 +2602,8 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
   const id = String(sessionId || '');
   if (deletedSessionIds.has(id)) return [];
   const persistable = (messages || []).filter(item => item && !item.pending);
+  const imageUris = imageUrisFromMessages(persistable);
+  imageUris.forEach(markMediaWrite);
   const previousStatus = await getMessagesBySessionStatus(sessionId);
   if (previousStatus.status === 'corrupt') {
     throw new Error('聊天记录读取失败，请稍后重试');
@@ -2390,7 +2668,7 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
   return persistable;
 }
 
-async function setSessionSummarizedUpToInternal(sessionId, messageId) {
+async function setSessionSummarizedUpToInternal(sessionId, messageId, options = {}) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
   if (!target) throw new Error('会话不存在');
@@ -2407,7 +2685,12 @@ async function setSessionSummarizedUpToInternal(sessionId, messageId) {
   const newIndex = messages.findIndex(item => item.id === nextBoundary);
   if (newIndex < 0) throw new Error('总结边界无效');
   const oldIndex = messages.findIndex(item => item.id === target.summarizedUpTo);
-  if (target.summarizedUpTo && oldIndex >= 0 && newIndex <= oldIndex) {
+  if (
+    options.allowBackward !== true
+    && target.summarizedUpTo
+    && oldIndex >= 0
+    && newIndex <= oldIndex
+  ) {
     return target;
   }
   const updated = { ...target, summarizedUpTo: nextBoundary };
@@ -2489,18 +2772,45 @@ export function resetSessionSummaries(sessionId) {
     const target = sessions.find(session => session.id === sessionId);
     if (!target) throw new Error('会话不存在');
     const key = sessionSummariesKey(sessionId);
-    const previous = await AsyncStorage.getItem(key);
-    await AsyncStorage.removeItem(key);
+    const cleared = sessions.map(session => (
+      session.id === sessionId ? { ...session, summarizedUpTo: '' } : session
+    ));
+    await saveSessionsInternal(cleared);
     try {
-      return await saveSessionsInternal(sessions.map(session => (
-        session.id === sessionId ? { ...session, summarizedUpTo: '' } : session
-      )));
+      await AsyncStorage.removeItem(key);
     } catch (error) {
-      if (previous !== null && previous !== undefined) {
-        await AsyncStorage.setItem(key, previous).catch(() => {});
-      }
+      await saveSessionsInternal(sessions).catch(restoreError => {
+        if (__DEV__) console.warn('[storage] summary boundary restore failed', restoreError);
+      });
       throw error;
     }
+    return cleared;
+  });
+}
+
+export function invalidateSessionSummaries(sessionId, keepSummaries = [], nextBoundary = '') {
+  bumpSessionSummaryRevision(sessionId);
+  return enqueueSessionMutation(async () => {
+    const sessions = await requireSessions();
+    const target = sessions.find(session => session.id === sessionId);
+    if (!target) throw new Error('会话不存在');
+    const previousStatus = await getSessionSummariesStatus(sessionId);
+    if (previousStatus.status === 'corrupt') {
+      throw new Error('记忆摘要读取失败，请稍后重试');
+    }
+    const kept = (Array.isArray(keepSummaries) ? keepSummaries : [])
+      .map(normalizeSessionSummary)
+      .filter(item => item.summary.trim().length > 0);
+    await saveSessionSummariesInternal(sessionId, kept);
+    try {
+      await setSessionSummarizedUpToInternal(sessionId, nextBoundary, { allowBackward: true });
+    } catch (error) {
+      await saveSessionSummariesInternal(sessionId, previousStatus.summaries).catch(restoreError => {
+        if (__DEV__) console.warn('[storage] summary rollback failed', restoreError);
+      });
+      throw error;
+    }
+    return kept;
   });
 }
 
@@ -2530,45 +2840,55 @@ export function appendSessionSummary(sessionId, entry, expectedRevision = null) 
   return task;
 }
 
-export async function searchMessages(keyword) {
+export async function searchMessages(keyword, options = {}) {
+  const signal = options && options.signal ? options.signal : null;
+  const throwIfAborted = () => {
+    if (signal && signal.aborted) {
+      const error = new Error('搜索已取消');
+      error.name = 'AbortError';
+      throw error;
+    }
+  };
+  throwIfAborted();
   const query = String(keyword || '').trim();
   if (!query) return [];
   const sessions = await getSessions();
+  throwIfAborted();
   if (sessions.length === 0) return [];
   const needle = query.toLowerCase();
-  const pairs = await AsyncStorage.multiGet(
-    sessions.map(session => sessionMessagesKey(session.id))
-  );
-  const byKey = new Map(pairs);
   const results = [];
-  for (const session of sessions) {
-    const raw = byKey.get(sessionMessagesKey(session.id));
-    let stored = [];
-    try {
-      const parsed = raw ? JSON.parse(raw) : [];
-      stored = Array.isArray(parsed) ? parsed.filter(item => item && !item.pending) : [];
-    } catch (error) {
-      stored = [];
-    }
-    for (const message of stored) {
-      if (message.role !== 'user' && message.role !== 'assistant') continue;
-      const text = String(
-        message.text
-        || (message.image && (message.image.stickerName || message.image.name))
-        || ''
-      );
-      if (!text || !text.toLowerCase().includes(needle)) continue;
-      results.push({
-         sessionId: session.id,
-         sessionType: session.type || 'single',
-         sessionName: String(session.name || ''),
-         characterId: session.characterId,
-         messageId: message.id,
-
-        role: message.role,
-        text,
-        updatedAt: session.updatedAt || 0,
-      });
+  for (let offset = 0; offset < sessions.length; offset += 8) {
+    throwIfAborted();
+    const batch = sessions.slice(offset, offset + 8);
+    const states = await Promise.all(batch.map(async session => ({
+      session,
+      state: await getMessagesBySessionStatus(session.id).catch(() => ({
+        status: 'corrupt',
+        messages: [],
+      })),
+    })));
+    throwIfAborted();
+    for (const { session, state } of states) {
+      if (!state || state.status !== 'ok') continue;
+      for (const message of state.messages) {
+        if (message.role !== 'user' && message.role !== 'assistant') continue;
+        const text = String(
+          message.text
+          || (message.image && (message.image.stickerName || message.image.name))
+          || ''
+        );
+        if (!text || !text.toLowerCase().includes(needle)) continue;
+        results.push({
+          sessionId: session.id,
+          sessionType: session.type || 'single',
+          sessionName: String(session.name || ''),
+          characterId: session.characterId,
+          messageId: message.id,
+          role: message.role,
+          text,
+          updatedAt: session.updatedAt || 0,
+        });
+      }
     }
   }
   results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -2590,26 +2910,46 @@ async function startNewSessionInternal(characterId, opening = null) {
   // 被静默地从会话列表里删除：消息体还在，但会话再也看不见、也删不掉，
   // 只有下次扫描恰好成功时才会“复活”。新建对话无权删掉别的会话。
   const sessions = await requireSessions();
+  const previousActiveId = await getActiveSessionId().catch(() => '');
   const created = createEmptySession(characterId, sessions);
   created.greetingSelected = opening !== null && opening !== undefined;
   const openingText = String(opening && opening.text || '').trim();
   const openingTemplate = String(opening && opening.template || openingText).trim();
-  if (openingText) {
-    const greeting = {
-      id: `greeting-${created.id}`,
-      role: 'assistant',
-      text: openingText,
-      timestamp: Date.now(),
-      kind: 'greeting',
-      greetingTemplate: openingTemplate,
-    };
-    created.preview = buildPreview([greeting]);
-    await AsyncStorage.setItem(sessionMessagesKey(created.id), JSON.stringify([greeting]));
+  const messageKey = sessionMessagesKey(created.id);
+  try {
+    if (openingText) {
+      const greeting = {
+        id: `greeting-${created.id}`,
+        role: 'assistant',
+        text: openingText,
+        timestamp: Date.now(),
+        kind: 'greeting',
+        greetingTemplate: openingTemplate,
+      };
+      created.preview = buildPreview([greeting]);
+      await AsyncStorage.setItem(messageKey, JSON.stringify([greeting]));
+    }
+    const next = sortSessions([...sessions, created]);
+    await saveSessionsInternal(next);
+    await setActiveSessionIdInternal(created.id);
+    return created;
+  } catch (error) {
+    const existingRollback = await AsyncStorage.getItem(SESSION_ROLLBACK_BACKUP_KEY).catch(() => null);
+    if (!existingRollback) {
+      await AsyncStorage.setItem(
+        SESSION_ROLLBACK_BACKUP_KEY,
+        JSON.stringify(sessions)
+      ).catch(() => {});
+    }
+    let restored = true;
+    await saveSessionsInternal(sessions).catch(() => { restored = false; });
+    if (restored) await AsyncStorage.removeItem(SESSION_ROLLBACK_BACKUP_KEY).catch(() => {});
+    if (openingText) await AsyncStorage.removeItem(messageKey).catch(() => {});
+    if (previousActiveId) {
+      await AsyncStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(previousActiveId)).catch(() => {});
+    }
+    throw error;
   }
-  const next = sortSessions([...sessions, created]);
-  await saveSessionsInternal(next);
-  await setActiveSessionIdInternal(created.id);
-  return created;
 }
 
 async function setSessionGreetingSelectedInternal(sessionId, selected = true) {
@@ -2624,11 +2964,20 @@ async function setSessionGreetingSelectedInternal(sessionId, selected = true) {
 
 async function createGroupSessionInternal(members, name, extras = {}) {
   const sessions = await requireSessions();
+  const previousActiveId = await getActiveSessionId().catch(() => '');
   const created = buildGroupSession(members, name, sessions, Date.now(), extras);
   const next = sortSessions([...sessions, created]);
-  await saveSessionsInternal(next);
-  await setActiveSessionIdInternal(created.id);
-  return created;
+  try {
+    await saveSessionsInternal(next);
+    await setActiveSessionIdInternal(created.id);
+    return created;
+  } catch (error) {
+    await saveSessionsInternal(sessions).catch(() => {});
+    if (previousActiveId) {
+      await AsyncStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(previousActiveId)).catch(() => {});
+    }
+    throw error;
+  }
 }
 
 async function updateSessionInfoInternal(sessionId, patch = {}) {
@@ -2641,6 +2990,8 @@ async function updateSessionInfoInternal(sessionId, patch = {}) {
   if (source.avatarUri !== undefined) updated.avatarUri = String(source.avatarUri || '');
   if (source.bgUri !== undefined) updated.bgUri = String(source.bgUri || '');
   updated.updatedAt = Date.now();
+  markMediaWrite(updated.avatarUri);
+  markMediaWrite(updated.bgUri);
   await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
   return updated;
 }
@@ -2669,14 +3020,24 @@ async function cloneSessionInternal(sessionId) {
   const sessions = await requireSessions();
   const source = sessions.find(session => session.id === sessionId);
   if (!source) throw new Error('会话不存在');
-  const messages = await getMessagesBySession(sessionId);
+  const messageState = await getMessagesBySessionStatus(sessionId);
+  if (messageState.status === 'corrupt') {
+    throw new Error('聊天记录读取失败，无法克隆');
+  }
+  const messages = messageState.messages;
   const now = Date.now();
   const copy = buildClonedSession(sessions, source, messages, now);
+  const copyKey = sessionMessagesKey(copy.id);
   await AsyncStorage.setItem(
-    sessionMessagesKey(copy.id),
+    copyKey,
     JSON.stringify(regenerateMessageIds(messages, now))
   );
-  await saveSessionsInternal(sortSessions([...sessions, copy]));
+  try {
+    await saveSessionsInternal(sortSessions([...sessions, copy]));
+  } catch (error) {
+    await AsyncStorage.removeItem(copyKey).catch(() => {});
+    throw error;
+  }
   return copy;
 }
 
@@ -2702,7 +3063,15 @@ async function deleteSessionInternal(sessionId) {
   } catch (error) {}
   await collectChatImageFiles();
   if (activeId === sessionId) {
-    const created = createEmptySession(target && target.characterId, remaining);
+    const nextActive = remaining[0] || null;
+    if (nextActive) {
+      await setActiveSessionIdInternal(nextActive.id);
+      return { sessions: remaining, activeSessionId: nextActive.id, created: null };
+    }
+    const ownerId = target && target.type !== 'group'
+      ? String(target.characterId || DEFAULT_CHARACTER.id)
+      : DEFAULT_CHARACTER.id;
+    const created = createEmptySession(ownerId, remaining);
     const next = sortSessions([...remaining, created]);
     await saveSessionsInternal(next);
     await setActiveSessionIdInternal(created.id);
@@ -2722,6 +3091,14 @@ async function deleteSessionsInternal(sessionIds) {
   const idSet = new Set(ids);
   const remaining = sessions.filter(session => !idSet.has(session.id));
   await saveSessionsInternal(remaining);
+  // 批量删除也要同步持久化的活动会话指针：删除的正好是当前会话时，
+  // 内存里 AppContext 会重算，但存储若继续指向已删除 id，下次启动会读到悬空指针。
+  const activeBefore = await getActiveSessionId();
+  let activeSessionId = activeBefore;
+  if (idSet.has(String(activeBefore))) {
+    activeSessionId = remaining[0] ? remaining[0].id : '';
+    await setActiveSessionIdInternal(activeSessionId);
+  }
   const vectorTargets = new Map();
   for (const id of ids) {
     const target = sessions.find(session => session.id === id);
@@ -2746,7 +3123,7 @@ async function deleteSessionsInternal(sessionIds) {
     ]));
   } catch (error) {}
   await collectChatImageFiles();
-  return { sessions: remaining, activeSessionId: await getActiveSessionId() };
+  return { sessions: remaining, activeSessionId };
 }
 
 export function saveMessagesBySession(sessionId, messages, characterId = '', protectedUris = []) {
@@ -2833,31 +3210,24 @@ export async function findOrphanSessions() {
   const candidates = ids.filter(id => !known.has(id) && !characterIds.has(id));
   if (candidates.length === 0) return [];
 
-  // 逐个读取：单个消息体过大触发读取失败时只跳过它，不能让整批孤儿陪葬
-  // （最需要这个功能的就是“消息过大”的场景）。
-  const entries = await Promise.all(candidates.map(async sessionId => {
-    try {
-      const raw = await AsyncStorage.getItem(sessionMessagesKey(sessionId));
-      return { sessionId, raw };
-    } catch (error) {
-      return { sessionId, raw: null };
-    }
-  }));
+  // 逐批读取，最多同时打开 4 个消息体。Android 的 CursorWindow 对单个值有读取上限，
+  // 大库一次性并发打开全部键会显著提高读取失败概率，这里用有界并发换取稳定性。
+  const entries = [];
+  for (let offset = 0; offset < candidates.length; offset += 4) {
+    const batch = candidates.slice(offset, offset + 4);
+    const batchEntries = await Promise.all(batch.map(async sessionId => {
+      const state = await getMessagesBySessionStatus(sessionId);
+      return { sessionId, state };
+    }));
+    entries.push(...batchEntries);
+  }
 
   const orphans = [];
   for (const entry of entries) {
     const sessionId = entry && entry.sessionId;
-    const raw = entry && entry.raw;
-    if (!sessionId || !raw) continue;
-    let parsed = [];
-    try {
-      const value = JSON.parse(raw);
-      parsed = Array.isArray(value) ? value.filter(item => item && !item.pending) : [];
-    } catch (error) {
-      // 解析不了的消息体不参与恢复，避免把坏数据当成一段对话
-      continue;
-    }
-    const messages = parsed.filter(item => (
+    const state = entry && entry.state;
+    if (!sessionId || !state || state.status !== 'ok') continue;
+    const messages = state.messages.filter(item => (
       item && (item.role === 'user' || item.role === 'assistant')
     ));
     if (messages.length === 0) continue;
@@ -2890,7 +3260,10 @@ async function restoreSessionInternal(sessionId, characterId) {
   if (!id) throw new Error('恢复参数不完整');
   const sessions = await requireSessions();
   const existing = sessions.find(session => session.id === id);
-  if (existing) return existing;
+  if (existing) {
+    deletedSessionIds.delete(id);
+    return existing;
+  }
   const messages = await getMessagesBySession(id);
   if (messages.length === 0) throw new Error('这段对话没有可恢复的消息');
   if (!isMessageGroup(messages) && !owner) throw new Error('恢复参数不完整');
@@ -2908,6 +3281,7 @@ async function restoreSessionInternal(sessionId, characterId) {
     }
   }
   await saveSessionsInternal(sortSessions([...sessions, restored]));
+  deletedSessionIds.delete(id);
   return restored;
 }
 

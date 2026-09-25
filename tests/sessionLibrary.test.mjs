@@ -6,6 +6,7 @@ import {
   collectMessageSpeakers,
   guessCharacterIdForMessages,
   isMessageGroup,
+  regenerateMessageIds,
   selectSessionsForCharacters,
 } from '../src/context/sessionLibrary.js';
 
@@ -130,4 +131,20 @@ test('collectMessageSpeakers/isMessageGroup 只统计 assistant 的 speakerId', 
   ]);
   assert.equal(isMessageGroup(messages), true);
   assert.equal(isMessageGroup([{ role: 'assistant', speakerId: 'c1' }]), false);
+});
+
+test('克隆消息 ID 时同步重写 quoted 引用', () => {
+  const cloned = regenerateMessageIds([
+    { id: 'u1', role: 'user', text: '原文' },
+    { id: 'a1', role: 'assistant', text: '回复', quoted: { id: 'u1', text: '原文' } },
+    { id: 'a2', role: 'assistant', text: '外部引用', quoted: { id: 'not-in-list' } },
+  ], 1000);
+  assert.deepEqual(cloned.map(item => item.id), [
+    '1000-clone-0',
+    '1000-clone-1',
+    '1000-clone-2',
+  ]);
+  assert.equal(cloned[1].quoted.id, '1000-clone-0');
+  assert.equal(cloned[1].quoted.text, '原文');
+  assert.equal(cloned[2].quoted.id, 'not-in-list');
 });

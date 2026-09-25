@@ -12,10 +12,11 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EMPTY_REPLY_TEXT, isCanceledError, sendChatMessage } from './api';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api';
 import { buildRequestMessages } from './chatPipeline';
 import {
   getEnabledGlobalPresetPrompts,
+  getApiConfigs,
   getMessagesBySession,
   getMoments,
   getSessionSummaries,
@@ -32,6 +33,7 @@ import { useApp } from './context/AppContext';
 import ChapterModal from './ChapterModal';
 import { Card, EmptyState, TopicButton } from './ui';
 import { useTheme } from './theme/ThemeContext';
+import { maskSecrets } from './secrets';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);
@@ -76,6 +78,16 @@ export default function MomentsView({ active = true }) {
       replyingRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (active) return;
+    pendingReplyRef.current.clear();
+    requestReplyRef.current = null;
+    replyControllersRef.current.forEach(controller => controller.abort());
+    replyControllersRef.current.clear();
+    replyingRef.current.clear();
+    if (mountedRef.current) setReplying([]);
+  }, [active]);
 
   useFocusEffect(useCallback(() => {
     if (!active) return undefined;
@@ -182,11 +194,12 @@ export default function MomentsView({ active = true }) {
     setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
     try {
       const sessionId = String(moment.sessionId || '');
-      const [summaries, messages, profile, presets] = await Promise.all([
+      const [summaries, messages, profile, presets, apiConfig] = await Promise.all([
         sessionId ? getSessionSummaries(sessionId).catch(() => []) : [],
         sessionId ? getMessagesBySession(sessionId).catch(() => []) : [],
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
+        getApiConfigs(),
       ]);
       if (controller.signal.aborted || !mountedRef.current) return;
       const charName = String(moment.characterName || character.name || '').trim() || '角色';
@@ -217,7 +230,13 @@ export default function MomentsView({ active = true }) {
         images: [],
         quote: null,
       });
-      const raw = await sendChatMessage(requestMessages, { stream: false, signal: controller.signal });
+       const activeConfig = apiConfig.configs.find(item => item.id === apiConfig.activeId) || apiConfig.configs[0];
+       const raw = await sendChatMessage(requestMessages, {
+         stream: false,
+         signal: controller.signal,
+         expectedConfigId: String(activeConfig && activeConfig.id || ''),
+         expectedConfigFingerprint: activeConfig ? getConfigFingerprint(activeConfig) : '',
+       });
       if (controller.signal.aborted || !mountedRef.current) return;
       // 接口空响应会返回占位文本：那不是角色回复，不能写进动态。
       if (String(raw || '').trim() === EMPTY_REPLY_TEXT) {
@@ -235,10 +254,13 @@ export default function MomentsView({ active = true }) {
       });
     } catch (error) {
       if (!isCanceledError(error) && mountedRef.current) {
-        Alert.alert('角色没有回复', (error && error.message) || '请稍后再试。');
+        Alert.alert('角色没有回复', maskSecrets((error && error.message) || '请稍后再试。'));
       }
     } finally {
-      replyControllersRef.current.delete(momentId);
+      // 只清理自己注册的控制器：重启同一动态回复时，新请求的 controller 不能被旧请求删掉。
+      if (replyControllersRef.current.get(momentId) === controller) {
+        replyControllersRef.current.delete(momentId);
+      }
       replyingRef.current.delete(momentId);
       if (mountedRef.current) {
         setReplying(current => current.filter(id => id !== momentId));
@@ -266,23 +288,32 @@ export default function MomentsView({ active = true }) {
       createdAt: Date.now(),
       likedByCharacter: false,
     };
-    setCommentDrafts(current => ({ ...current, [moment.id]: '' }));
-    const next = await mutateMoments(list => list.map(item => {
-      if (item.id !== moment.id) return item;
-      const comments = Array.isArray(item.comments) ? item.comments : [];
-      const hasUserComment = comments.some(entry => entry.by === 'user');
-      const updated = [...comments, comment];
-      return {
-        ...item,
-        comments: hasUserComment
-          ? updated
-          : updated.map(entry => (
-            entry.id === comment.id ? { ...entry, likedByCharacter: true } : entry
-          )),
-      };
-    }));
-    const latest = next && next.find(item => item.id === moment.id);
-    if (latest) requestReply(latest);
+    try {
+      const next = await mutateMoments(list => list.map(item => {
+        if (item.id !== moment.id) return item;
+        const comments = Array.isArray(item.comments) ? item.comments : [];
+        const hasUserComment = comments.some(entry => entry.by === 'user');
+        const updated = [...comments, comment];
+        return {
+          ...item,
+          comments: hasUserComment
+            ? updated
+            : updated.map(entry => (
+              entry.id === comment.id ? { ...entry, likedByCharacter: true } : entry
+            )),
+        };
+      }));
+      if (!next) throw new Error('动态保存失败');
+      // 保存期间用户可能已经输入了新草稿，只有内容仍是本次提交的文本时才清空。
+      setCommentDrafts(current => {
+        if (String(current[moment.id] || '').trim() !== text) return current;
+        return { ...current, [moment.id]: '' };
+      });
+      const latest = next.find(item => item.id === moment.id);
+      if (latest) requestReply(latest);
+    } catch (error) {
+      Alert.alert('评论保存失败', '评论仍保留在输入框中，请稍后重试。');
+    }
   }, [commentDrafts, mutateMoments, requestReply]);
 
   const renderItem = useCallback(({ item }) => {

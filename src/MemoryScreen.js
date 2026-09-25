@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  FlatList,
   Image,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -125,10 +125,12 @@ export default function MemoryScreen({ navigation }) {
       await refreshSessions();
       setOrphans(current => current.filter(item => item.sessionId !== orphan.sessionId));
       Alert.alert('已恢复', '这段对话已回到列表，它的记忆摘要也会一起生效。');
+      return true;
     } catch (error) {
       Alert.alert('恢复失败', (error && error.message) || '请稍后重试。');
+      return false;
     }
-  }, [refreshSessions]);
+  }, [refreshSessions, restoreSession]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -431,11 +433,12 @@ export default function MemoryScreen({ navigation }) {
           description="去聊天页开始一段新的对话吧。"
         />
       ) : (
-        <ScrollView
+        <FlatList
+          data={visibleSessions}
+          keyExtractor={session => String(session.id)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-        >
-          {visibleSessions.map(session => {
+          renderItem={({ item: session }) => {
             const character = characterMap.get(session.characterId);
             const isGroup = session.type === 'group';
             const groupMembers = isGroup
@@ -542,8 +545,8 @@ export default function MemoryScreen({ navigation }) {
                 )}
               </Card>
             );
-          })}
-        </ScrollView>
+          }}
+        />
       )}
 
       {editing ? (

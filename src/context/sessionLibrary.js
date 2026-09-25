@@ -93,10 +93,24 @@ export function buildPreview(messages, maxLength = 60) {
 }
 
 export function regenerateMessageIds(messages, now = Date.now()) {
-  return (Array.isArray(messages) ? messages : []).map((item, index) => ({
-    ...item,
-    id: `${now}-clone-${index}`,
-  }));
+  const list = Array.isArray(messages) ? messages : [];
+  const idMap = new Map();
+  list.forEach((item, index) => {
+    if (!item || item.id === null || item.id === undefined) return;
+    const oldId = String(item.id);
+    if (!idMap.has(oldId)) idMap.set(oldId, `${now}-clone-${index}`);
+  });
+  return list.map((item, index) => {
+    const next = { ...item, id: `${now}-clone-${index}` };
+    if (next.quoted && typeof next.quoted === 'object') {
+      const oldQuotedId = next.quoted.id;
+      const mapped = oldQuotedId === null || oldQuotedId === undefined
+        ? ''
+        : idMap.get(String(oldQuotedId));
+      if (mapped) next.quoted = { ...next.quoted, id: mapped };
+    }
+    return next;
+  });
 }
 
 export function resolveActiveSessionId(sessions, activeId) {

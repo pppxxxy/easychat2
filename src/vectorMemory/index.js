@@ -33,6 +33,16 @@ export function normalizeVectorConfig(raw) {
   };
 }
 
+export function vectorSignature(raw) {
+  const resolved = normalizeVectorConfig(raw);
+  return [
+    resolved.providerId,
+    resolved.baseUrl,
+    resolved.model,
+    String(resolved.maxChars),
+  ].join('\u0000');
+}
+
 export function chunkMessages(messages, options = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const maxChars = Number.isFinite(options.maxChars) && options.maxChars > 0
@@ -65,10 +75,30 @@ export function chunkMessages(messages, options = {}) {
   return segments;
 }
 
-function xhrPostJson({ url, headers, body, timeoutMs }) {
+function createVectorAbortError() {
+  const error = new Error('向量请求已中断');
+  error.name = 'AbortError';
+  error.canceled = true;
+  return error;
+}
+
+function xhrPostJson({ url, headers, body, timeoutMs, signal = null }) {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(createVectorAbortError());
+      return;
+    }
     const xhr = new XMLHttpRequest();
     let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        xhr.abort();
+      } catch (error) {}
+      reject(createVectorAbortError());
+    };
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -81,8 +111,14 @@ function xhrPostJson({ url, headers, body, timeoutMs }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort);
+      }
       fn(value);
     };
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     xhr.open('POST', url);
     Object.entries(headers || {}).forEach(([key, value]) => {
       try {
@@ -122,15 +158,19 @@ function extractVectors(data, expected) {
     });
 }
 
-export async function embedTexts({ config, texts }) {
+export async function embedTexts({ config, texts, signal = null }) {
   const resolved = normalizeVectorConfig(config);
   // 登记向量服务密钥：报错文本可能带出裸 Key
   registerSecretValues([resolved.apiKey]);
   const url = buildEmbeddingUrl(resolved.baseUrl);
   if (!url) throw new Error('请先填写向量服务地址');
+  if (!/^https?:\/\/[^/\s]+/i.test(url)) {
+    throw new Error('请填写有效的 HTTP(S) 向量服务地址');
+  }
   if (!resolved.apiKey) throw new Error('请先填写向量服务密钥');
   const list = (Array.isArray(texts) ? texts : []).map(text => String(text || ''));
   if (list.length === 0) return [];
+  if (signal && signal.aborted) throw createVectorAbortError();
   if (!resolved.model) throw new Error('请先填写向量模型');
   const provider = getVectorProvider(resolved.providerId);
   const headers = { 'Content-Type': 'application/json' };
@@ -144,6 +184,7 @@ export async function embedTexts({ config, texts }) {
       url,
       headers,
       timeoutMs: resolved.timeoutMs,
+      signal,
       body: { model: resolved.model, input: batch },
     });
     vectors.push(...extractVectors(data, batch.length));
@@ -154,7 +195,8 @@ export async function embedTexts({ config, texts }) {
 export function cosineSimilarity(a, b) {
   const left = Array.isArray(a) ? a : [];
   const right = Array.isArray(b) ? b : [];
-  const length = Math.min(left.length, right.length);
+  if (left.length === 0 || left.length !== right.length) return 0;
+  const length = left.length;
   if (length === 0) return 0;
   let dot = 0;
   let normA = 0;
@@ -205,21 +247,29 @@ export function keywordRetrieve({ index, query, topK }) {
   return scored.slice(0, limit).map(entry => entry.item);
 }
 
-export async function retrieve({ config, index, query, topK }) {
+export async function retrieve({ config, index, query, topK, signal = null }) {
   const resolved = normalizeVectorConfig(config);
   const list = Array.isArray(index) ? index : [];
   const limit = Number.isFinite(topK) && topK > 0 ? topK : resolved.topK;
   if (list.length === 0) return [];
   if (!resolved.enabled) return keywordRetrieve({ index: list, query, topK: limit });
   try {
-    const [queryVector] = await embedTexts({ config: resolved, texts: [query] });
+    const [queryVector] = await embedTexts({ config: resolved, texts: [query], signal });
+    const signature = vectorSignature(resolved);
     const scored = list
-      .filter(item => item && Array.isArray(item.vector) && item.vector.length > 0)
-      .map(item => ({ item, score: cosineSimilarity(queryVector, item.vector) }));
+      .filter(item => (
+        item
+        && Array.isArray(item.vector)
+        && item.vector.length > 0
+        && item.signature === signature
+      ))
+      .map(item => ({ item, score: cosineSimilarity(queryVector, item.vector) }))
+      .filter(entry => entry.score > 0);
     if (scored.length === 0) return keywordRetrieve({ index: list, query, topK: limit });
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, limit).map(entry => entry.item);
   } catch (error) {
+    if (error && error.name === 'AbortError') throw error;
     return keywordRetrieve({ index: list, query, topK: limit });
   }
 }
@@ -235,28 +285,41 @@ export function buildMemoryContext(snippets, options = {}) {
   const lines = [];
   let total = 0;
   for (const text of list) {
-    if (total + text.length > maxTotal && lines.length > 0) break;
-    lines.push(`- ${text}`);
-    total += text.length;
+    const remaining = maxTotal - total;
+    if (remaining <= 0) break;
+    const value = text.length > remaining ? text.slice(0, remaining) : text;
+    if (!value) break;
+    lines.push(`- ${value}`);
+    total += value.length;
   }
   if (lines.length === 0) return '';
   return `[相关记忆]\n${lines.join('\n')}`;
 }
 
-export async function indexMessages({ characterId, messages, config, existing, sessionId = '' }) {
+export async function indexMessages({ characterId, messages, config, existing, sessionId = '', signal = null }) {
   const resolved = normalizeVectorConfig(config);
   const segments = chunkMessages(messages, { maxChars: resolved.maxChars, sessionId });
   const current = Array.isArray(existing) ? existing : [];
   const segmentKey = item => `${String(item && item.sessionId || '')}\u0000${String(item && item.id || '')}`;
   const byId = new Map(current.map(item => [segmentKey(item), item]));
   const added = segments.filter(segment => !byId.has(segmentKey(segment)));
+  const signature = vectorSignature(resolved);
 
   if (!resolved.enabled) {
-    return [...current, ...added.map(segment => ({ ...segment, vector: [] }))];
+    return [
+      ...current,
+      ...added.map(segment => ({ ...segment, signature, vector: [] })),
+    ];
   }
 
   const emptyVectors = current.filter(item => (
-    item && item.text && (!Array.isArray(item.vector) || item.vector.length === 0)
+    item
+    && item.text
+    && (
+      !Array.isArray(item.vector)
+      || item.vector.length === 0
+      || item.signature !== signature
+    )
   ));
   const pending = [...emptyVectors, ...added];
   if (pending.length === 0) return current;
@@ -264,17 +327,20 @@ export async function indexMessages({ characterId, messages, config, existing, s
     const vectors = await embedTexts({
       config: resolved,
       texts: pending.map(segment => segment.text),
+      signal,
     });
     const embedded = pending.map((segment, index) => ({
       ...segment,
+      signature,
       vector: vectors[index] || [],
     }));
     const embeddedById = new Map(embedded.map(item => [segmentKey(item), item]));
     const merged = current.map(item => embeddedById.get(segmentKey(item)) || item);
-    const fresh = added.map(segment => embeddedById.get(segmentKey(segment)) || { ...segment, vector: [] });
+    const fresh = added.map(segment => embeddedById.get(segmentKey(segment)) || { ...segment, signature, vector: [] });
     return [...merged, ...fresh];
   } catch (error) {
-    return [...current, ...added.map(segment => ({ ...segment, vector: [] }))];
+    if (error && error.name === 'AbortError') throw error;
+    return [...current, ...added.map(segment => ({ ...segment, signature, vector: [] }))];
   }
 }
 

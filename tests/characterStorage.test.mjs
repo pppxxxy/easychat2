@@ -23,6 +23,8 @@ const store = new Map();
 const files = new Map();
 const failedGets = new Set();
 const failedSets = new Set();
+const failedRemoves = new Set();
+const failedDeletes = new Set();
 const sqliteValues = new Map();
 let setCalls = 0;
 let vectorSetCalls = 0;
@@ -40,6 +42,7 @@ const AsyncStorage = {
     store.set(key, value);
   },
   removeItem: async key => {
+    if (failedRemoves.has(key)) throw new Error(`remove failed: ${key}`);
     store.delete(key);
   },
   multiSet: async pairs => {
@@ -49,7 +52,10 @@ const AsyncStorage = {
     }
   },
   multiRemove: async keys => {
-    keys.forEach(key => store.delete(key));
+    for (const key of keys) {
+      if (failedRemoves.has(key)) throw new Error(`remove failed: ${key}`);
+      store.delete(key);
+    }
   },
   getAllKeys: async () => [...store.keys()],
 };
@@ -71,6 +77,7 @@ const FileSystem = {
     .filter(uri => uri.startsWith(directory))
     .map(uri => uri.slice(directory.length)),
   deleteAsync: async uri => {
+    if (failedDeletes.has(uri)) throw new Error(`delete failed: ${uri}`);
     files.delete(uri);
   },
 };
@@ -104,7 +111,13 @@ Module._load = function patchedLoad(request, parent, isMain) {
     return { __esModule: true, isKnownImageProvider: () => true };
   }
   if (request.endsWith('/cardForge/forge') || request === './cardForge/forge') {
-    return { __esModule: true, FORGE_FIELDS: [], FORGE_QUESTIONS: [] };
+    return {
+      __esModule: true,
+      FORGE_FIELDS: ['description'],
+      FORGE_QUESTIONS: [],
+      MAX_PRESERVED_TEXT: 500000,
+      MAX_PRESERVED_ITEMS: 2000,
+    };
   }
   if (request.endsWith('/moments/moments') || request === './moments/moments') {
     return { __esModule: true, removeMomentsBySessionIds: async () => {} };
@@ -125,6 +138,8 @@ function loadStorage() {
   files.clear();
   failedGets.clear();
   failedSets.clear();
+  failedRemoves.clear();
+  failedDeletes.clear();
   sqliteValues.clear();
   sqliteEnabled = false;
   setCalls = 0;
@@ -181,6 +196,43 @@ test('默认索引是升级回归产物时，从仍可读的 legacy 整库恢复
   const index = JSON.parse(store.get(CHARACTER_INDEX_KEY));
   assert.deepEqual(index.sort(), ['default', 'legacy-card']);
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
+});
+
+test('重复会话 id 保留首条而不是重命名，避免孤立消息键', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([
+    { id: 'dup-session', type: 'single', characterId: 'c1', updatedAt: 2 },
+    { id: 'dup-session', type: 'single', characterId: 'c2', updatedAt: 1 },
+  ]));
+  store.set('@easychat2_messages::dup-session', JSON.stringify([
+    { id: 'm1', role: 'user', text: '还在' },
+  ]));
+  const sessions = await storage.getSessions();
+  assert.deepEqual(sessions.map(item => item.id), ['dup-session']);
+  const messages = await storage.getMessagesBySession('dup-session');
+  assert.equal(messages.length, 1);
+});
+
+test('多个 builtin 标记只会保留 default 一个，避免身份二义', async () => {
+  const storage = loadStorage();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default', 'impostor']));
+  store.set(`${CHARACTER_ITEM_PREFIX}::default`, JSON.stringify({
+    id: 'default',
+    builtin: true,
+    name: 'EasyChat2 助手',
+  }));
+  store.set(`${CHARACTER_ITEM_PREFIX}::impostor`, JSON.stringify({
+    id: 'impostor',
+    builtin: true,
+    name: '冒名初始卡',
+  }));
+  const list = await storage.getCharacterLibrary();
+  assert.deepEqual(
+    list.filter(item => item.builtin === true).map(item => item.id),
+    ['default']
+  );
+  assert.equal(list.find(item => item.id === 'impostor').builtin, false);
+  assert.deepEqual(JSON.parse(store.get(CHARACTER_INDEX_KEY)).sort(), ['default', 'impostor']);
 });
 
 test('索引缺项且 legacy 可读时合并恢复，不删除失效引用', async () => {
@@ -323,6 +375,25 @@ test('损坏的旧表情包键只备份不迁移覆盖', async () => {
   assert.equal(store.has('@easychat2_stickers__corrupt_backup'), true);
 });
 
+test('角色库与 activeId 部分提交失败时恢复磁盘角色库', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  store.set('@easychat2_active_character', JSON.stringify('default'));
+  failedSets.add('@easychat2_active_character');
+  await assert.rejects(
+    () => storage.saveCharacterState([
+      { id: 'default', builtin: true, name: '新默认' },
+      { id: 'new-card', name: '新角色' },
+    ], 'new-card'),
+    /write failed/,
+  );
+  failedSets.delete('@easychat2_active_character');
+  const list = await storage.getCharacterLibrary();
+  assert.equal(list.some(item => item.id === 'new-card'), false);
+  assert.equal(list[0].name, 'EasyChat2 助手');
+});
+
 test('删除会话只清理对应会话的向量片段', async () => {
   const storage = loadStorage();
   const characterId = 'character-vector-delete';
@@ -375,6 +446,25 @@ test('启动清理未引用的头像背景文件并保留角色引用', async ()
   assert.equal(files.has(orphan), false);
 });
 
+test('用户资料损坏时头像回收整体跳过并保留备份', async () => {
+  const storage = loadStorage();
+  const uri = 'file:///documents/avatars/user-corrupt.jpg';
+  files.set(uri, 'avatar');
+  store.set('@easychat2_user_profile', '{broken-profile');
+  assert.equal(await storage.collectAvatarImageFiles(), false);
+  assert.equal(files.has(uri), true);
+  assert.equal(store.get('@easychat2_user_profile__corrupt_backup'), '{broken-profile');
+});
+
+test('存在引用源损坏备份键时头像回收整体跳过', async () => {
+  const storage = loadStorage();
+  const uri = 'file:///documents/avatars/backup-guard.jpg';
+  files.set(uri, 'avatar');
+  store.set('@easychat2_sessions__corrupt_backup', '[]');
+  assert.equal(await storage.collectAvatarImageFiles(), false);
+  assert.equal(files.has(uri), true);
+});
+
 test('会话存储队列阻止删除后的迟到消息写回', async () => {
   const storage = loadStorage();
   const created = await storage.startNewSession('character-queue');
@@ -389,6 +479,54 @@ test('会话存储队列阻止删除后的迟到消息写回', async () => {
   const result = await storage.saveMessagesBySession(second.id, [{ id: 'm2', role: 'user', text: '不应写入' }]);
   assert.deepEqual(result, []);
   assert.deepEqual(await storage.getMessagesBySession(second.id), []);
+});
+
+test('群聊 activeId 写失败时回滚会话列表和活动指针', async () => {
+  const storage = loadStorage();
+  const existing = await storage.startNewSession('character-group-rollback');
+  failedSets.add('@easychat2_active_session');
+  await assert.rejects(
+    () => storage.createGroupSession(['c1', 'c2'], '回滚群聊'),
+    /write failed/,
+  );
+  failedSets.delete('@easychat2_active_session');
+  const sessions = await storage.getSessions();
+  assert.deepEqual(sessions.map(session => session.id), [existing.id]);
+  assert.equal(await storage.getActiveSessionId(), existing.id);
+});
+
+test('删除当前群聊后切到剩余会话，不再创建无角色单聊', async () => {
+  const storage = loadStorage();
+  const single = await storage.startNewSession('character-a');
+  const group = await storage.createGroupSession(['c1', 'c2'], '测试群');
+  const result = await storage.deleteSession(group.id);
+  assert.equal(result.activeSessionId, single.id);
+  assert.equal(result.created, null);
+  const sessions = await storage.getSessions();
+  assert.equal(sessions.some(session => session.id === group.id), false);
+  assert.equal(await storage.getActiveSessionId(), single.id);
+});
+
+test('删除消息体失败后恢复会话仍可继续写入新消息', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-restore');
+  await storage.saveMessagesBySession(created.id, [
+    { id: 'm1', role: 'user', text: '旧消息' },
+  ], 'character-restore');
+  failedRemoves.add(`@easychat2_messages::${created.id}`);
+  await storage.deleteSession(created.id);
+  failedRemoves.clear();
+
+  const orphans = await storage.findOrphanSessions();
+  assert.ok(orphans.some(item => item.sessionId === created.id));
+  await storage.restoreSession(created.id, 'character-restore');
+
+  const saved = await storage.saveMessagesBySession(created.id, [
+    { id: 'm2', role: 'user', text: '恢复后的新消息' },
+  ], 'character-restore');
+  assert.equal(saved.length, 1);
+  const messages = await storage.getMessagesBySession(created.id);
+  assert.equal(messages.some(item => item.id === 'm2'), true);
 });
 
 test('会话摘要和边界在同一队列提交，重置后旧版本不能写回', async () => {
@@ -422,6 +560,60 @@ test('会话摘要和边界在同一队列提交，重置后旧版本不能写�
   assert.deepEqual(await storage.getSessionSummaries(created.id), []);
   sessions = await storage.getSessions();
   assert.equal(sessions.find(item => item.id === created.id).summarizedUpTo, '');
+});
+
+test('重置摘要删除失败时回滚边界且摘要内容保留', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-summary-rollback');
+  await storage.saveMessagesBySession(created.id, [
+    { id: 'rollback-user', role: 'user', text: '记住约定' },
+    { id: 'rollback-assistant', role: 'assistant', text: '好的' },
+  ]);
+  const revision = storage.getSessionSummaryRevision(created.id);
+  await storage.appendSessionSummary(created.id, {
+    summary: '- 新的约定',
+    keywords: ['约定'],
+    boundary: 'rollback-assistant',
+    createdAt: 1,
+  }, revision);
+  failedRemoves.add(`@easychat2_session_summaries::${created.id}`);
+  await assert.rejects(() => storage.resetSessionSummaries(created.id), /remove failed/);
+  failedRemoves.clear();
+  const sessions = await storage.getSessions();
+  assert.equal(sessions.find(item => item.id === created.id).summarizedUpTo, 'rollback-assistant');
+  assert.equal((await storage.getSessionSummaries(created.id)).length, 1);
+});
+
+test('失效摘要保留幸存条目并推进到新边界', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-summary-invalidate');
+  await storage.saveMessagesBySession(created.id, [
+    { id: 'inv-1', role: 'user', text: '一' },
+    { id: 'inv-2', role: 'assistant', text: '二' },
+    { id: 'inv-3', role: 'user', text: '三' },
+    { id: 'inv-4', role: 'assistant', text: '四' },
+  ]);
+  let revision = storage.getSessionSummaryRevision(created.id);
+  await storage.appendSessionSummary(created.id, {
+    summary: '- 第一段',
+    keywords: ['一'],
+    boundary: 'inv-2',
+    createdAt: 1,
+  }, revision);
+  revision = storage.getSessionSummaryRevision(created.id);
+  await storage.appendSessionSummary(created.id, {
+    summary: '- 第二段',
+    keywords: ['二'],
+    boundary: 'inv-4',
+    createdAt: 2,
+  }, revision);
+  await storage.invalidateSessionSummaries(created.id, [
+    { summary: '- 第一段', keywords: ['一'], boundary: 'inv-2', createdAt: 1 },
+  ], 'inv-2');
+  const summaries = await storage.getSessionSummaries(created.id);
+  assert.deepEqual(summaries.map(item => item.boundary), ['inv-2']);
+  const sessions = await storage.getSessions();
+  assert.equal(sessions.find(item => item.id === created.id).summarizedUpTo, 'inv-2');
 });
 
 test('向量索引按会话清理时保留其他会话片段', async () => {
@@ -582,6 +774,16 @@ test('批量删除会话清理同角色全部目标向量', async () => {
   await storage.deleteSessions([first.id, second.id]);
   assert.equal(vectorSetCalls, 1);
   assert.deepEqual(await storage.getVectorIndex(characterId), []);
+});
+
+test('批量删除当前会话时同步持久化活动会话指针', async () => {
+  const storage = loadStorage();
+  const first = await storage.startNewSession('character-batch-active');
+  const second = await storage.startNewSession('character-batch-active');
+  await storage.setActiveSessionId(first.id);
+  const result = await storage.deleteSessions([first.id]);
+  assert.equal(result.activeSessionId, second.id);
+  assert.equal(await storage.getActiveSessionId(), second.id);
 });
 
 test('向量保存入口执行增量合并，不覆盖其他会话片段', async () => {
@@ -765,6 +967,35 @@ test('恢复会话遇到损坏摘要时拒绝写入会话行', async () => {
   assert.deepEqual(await storage.getSessions(), []);
 });
 
+test('新建开场白会话在 activeId 写失败时回滚会话和消息体', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions__corrupt_backup', 'existing-corrupt-backup');
+  failedSets.add('@easychat2_active_session');
+  await assert.rejects(
+    () => storage.startNewSession('character-opening', { text: '你好', template: '你好' }),
+    /write failed/,
+  );
+  failedSets.delete('@easychat2_active_session');
+  assert.deepEqual(await storage.getSessions(), []);
+  assert.equal(store.get('@easychat2_sessions__corrupt_backup'), 'existing-corrupt-backup');
+  assert.equal(store.get('@easychat2_sessions__rollback_backup'), undefined);
+  const messageKeys = [...store.keys()].filter(key => key.startsWith('@easychat2_messages::'));
+  assert.deepEqual(messageKeys, []);
+});
+
+test('会话列表损坏时启动读取会用回滚备份恢复', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', '{broken-json');
+  store.set('@easychat2_sessions__rollback_backup', JSON.stringify([
+    { id: 'backup-session', type: 'single', characterId: 'c1', updatedAt: 1 },
+  ]));
+  const sessions = await storage.getSessions();
+  assert.deepEqual(sessions.map(item => item.id), ['backup-session']);
+  assert.equal(store.get('@easychat2_sessions__rollback_backup'), undefined);
+  assert.ok(store.get('@easychat2_sessions__corrupt_backup'));
+  assert.deepEqual(JSON.parse(store.get('@easychat2_sessions')).map(item => item.id), ['backup-session']);
+});
+
 test('活动会话行缺失时消息保存自愈并保留摘要边界', async () => {
   const storage = loadStorage();
   store.set('@easychat2_sessions', '[]');
@@ -803,17 +1034,149 @@ test('制卡草稿持久化保留角色预设，关闭重开后不丢失', async
     answers: {},
     transcript: [],
     draft: {
-      presets: [{
-        id: 'preset-1',
-        name: '语气预设',
+      presets: Array.from({ length: 60 }, (_, index) => ({
+        id: `preset-${index}`,
+        name: `预设${index}`,
         description: '说明',
-        prompt: '保持简洁',
+        prompt: `提示${index}`,
         enabled: true,
-      }],
+      })),
     },
   });
   const state = await storage.getCardForge();
-  assert.equal(state.draft.presets.length, 1);
-  assert.equal(state.draft.presets[0].id, 'preset-1');
-  assert.equal(state.draft.presets[0].prompt, '保持简洁');
+  assert.equal(state.draft.presets.length, 60);
+  assert.equal(state.draft.presets[0].id, 'preset-0');
+  assert.equal(state.draft.presets[0].prompt, '提示0');
+});
+
+test('制卡草稿连续保存按调用顺序落盘', async () => {
+  const storage = loadStorage();
+  await Promise.all([
+    storage.saveCardForge({ draft: { description: 'first' } }),
+    storage.saveCardForge({ draft: { description: 'second' } }),
+  ]);
+  const state = await storage.getCardForge();
+  assert.equal(state.draft.description, 'second');
+});
+
+test('制卡清空以索引删除为提交点，载荷清理失败不恢复旧草稿', async () => {
+  const storage = loadStorage();
+  await storage.saveCardForge({
+    step: 0,
+    answers: {},
+    transcript: [],
+    draft: { description: '大'.repeat(600000) },
+  });
+  const descriptor = JSON.parse(store.get('@easychat2_card_forge'));
+  assert.equal(descriptor.storage, 'file');
+  failedDeletes.add(`file:///cache/card-forge/${descriptor.fileName}`);
+  await storage.clearCardForge();
+  assert.equal(store.get('@easychat2_card_forge'), undefined);
+  failedDeletes.clear();
+});
+
+test('大型制卡草稿写入文件载荷并可完整读回', async () => {
+  const storage = loadStorage();
+  const description = '长'.repeat(500000);
+  await storage.saveCardForge({
+    step: 0,
+    answers: {},
+    transcript: [],
+    draft: { description },
+  });
+  const descriptor = JSON.parse(store.get('@easychat2_card_forge'));
+  assert.equal(descriptor.storage, 'file');
+  assert.ok(descriptor.fileName);
+  const state = await storage.getCardForge();
+  assert.equal(state.draft.description.length, description.length);
+});
+
+test('克隆遇到损坏消息体时拒绝创建空会话', async () => {
+  const storage = loadStorage();
+  const source = await storage.startNewSession('character-clone-corrupt');
+  store.set(`@easychat2_messages::${source.id}`, '{broken');
+  await assert.rejects(() => storage.cloneSession(source.id), /聊天记录读取失败/);
+  assert.equal((await storage.getSessions()).length, 1);
+});
+
+test('克隆会话元数据写入失败时清理已写入的克隆消息体', async () => {
+  const storage = loadStorage();
+  const source = await storage.startNewSession('character-clone-failure');
+  await storage.saveMessagesBySession(source.id, [
+    { id: 'source-message', role: 'user', text: '原文' },
+  ], 'character-clone-failure');
+  failedSets.add('@easychat2_sessions');
+  await assert.rejects(() => storage.cloneSession(source.id));
+  failedSets.delete('@easychat2_sessions');
+  const messageKeys = [...store.keys()].filter(key => key.startsWith('@easychat2_messages::'));
+  assert.deepEqual(messageKeys, [`@easychat2_messages::${source.id}`]);
+});
+
+test('孤儿会话扫描通过 SQLite 分块恢复大消息键', async () => {
+  const storage = loadStorage();
+  await storage.saveCharacterLibrary([{ id: 'legacy-card', name: '旧角色' }]);
+  const key = '@easychat2_messages::orphan-large';
+  const raw = JSON.stringify([{ id: 'large-message', role: 'user', text: '大消息', timestamp: 1 }]);
+  store.set(key, raw);
+  failedGets.add(key);
+  sqliteValues.set(key, raw);
+  sqliteEnabled = true;
+  const result = await storage.findOrphanSessions();
+  assert.ok(result.some(item => item.sessionId === 'orphan-large'));
+});
+
+test('消息搜索遇到大消息键时继续返回其它会话结果', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([
+    { id: 'search-large', type: 'single', characterId: 'c1', updatedAt: 2 },
+    { id: 'search-small', type: 'single', characterId: 'c2', updatedAt: 1 },
+  ]));
+  const largeKey = '@easychat2_messages::search-large';
+  const smallKey = '@easychat2_messages::search-small';
+  const largeRaw = JSON.stringify([{ id: 'large-message', role: 'user', text: '大消息命中' }]);
+  store.set(largeKey, largeRaw);
+  store.set(smallKey, JSON.stringify([{ id: 'small-message', role: 'user', text: '小消息命中' }]));
+  failedGets.add(largeKey);
+  sqliteValues.set(largeKey, largeRaw);
+  sqliteEnabled = true;
+  const results = await storage.searchMessages('命中');
+  assert.equal(results.length, 2);
+  assert.deepEqual(results.map(item => item.messageId).sort(), ['large-message', 'small-message']);
+});
+
+test('消息搜索在取消后拒绝继续读取消息体', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([
+    { id: 'search-abort', type: 'single', characterId: 'c1', updatedAt: 1 },
+  ]));
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => storage.searchMessages('命中', { signal: controller.signal }),
+    error => error && error.name === 'AbortError'
+  );
+});
+
+test('角色库阻断时跳过头像清理，动态头像引用也会保留', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default', 'broken-card']));
+  const blockedAvatar = 'file:///documents/avatars/blocked.jpg';
+  const momentAvatar = 'file:///documents/avatars/moment.jpg';
+  files.set(blockedAvatar, 'blocked');
+  files.set(momentAvatar, 'moment');
+  store.set('@easychat2_moments', JSON.stringify([{
+    id: 'moment-1',
+    characterId: 'default',
+    avatarUri: momentAvatar,
+    text: '动态',
+  }]));
+  const result = await storage.collectOrphanImageFiles();
+  assert.equal(result, false);
+  assert.equal(files.has(blockedAvatar), true);
+  assert.equal(files.has(momentAvatar), true);
+
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  await storage.collectAvatarImageFiles();
+  assert.equal(files.has(momentAvatar), true);
 });

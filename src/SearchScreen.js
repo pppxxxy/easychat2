@@ -1,11 +1,11 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -41,6 +41,8 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const searchRequestRef = useRef(0);
+  const searchControllerRef = useRef(null);
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -52,26 +54,56 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
     return map;
   }, [characters]);
 
+  const abortSearch = useCallback(() => {
+    if (searchControllerRef.current) {
+      searchControllerRef.current.abort();
+      searchControllerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => abortSearch(), [abortSearch]);
+
   const runSearch = useCallback(async () => {
     const query = keyword.trim();
+    const requestId = ++searchRequestRef.current;
+    abortSearch();
     if (!query) {
       setResults([]);
       setSearched(false);
+      setSearching(false);
       return;
     }
+    const controller = new AbortController();
+    searchControllerRef.current = controller;
     setSearching(true);
     try {
-      const list = await searchMessages(query);
+      const list = await searchMessages(query, { signal: controller.signal });
+      if (controller.signal.aborted || requestId !== searchRequestRef.current) return;
       setResults(list);
       setSearched(true);
     } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      if (requestId !== searchRequestRef.current) return;
       Alert.alert('搜索失败', '请稍后重试。');
     } finally {
-      setSearching(false);
+      if (searchControllerRef.current === controller) searchControllerRef.current = null;
+      if (requestId === searchRequestRef.current) setSearching(false);
     }
-  }, [keyword]);
+  }, [abortSearch, keyword]);
+
+  const handleKeywordChange = value => {
+    searchRequestRef.current += 1;
+    abortSearch();
+    setSearching(false);
+    setResults([]);
+    setSearched(false);
+    setKeyword(value);
+  };
 
   const handleClose = () => {
+    searchRequestRef.current += 1;
+    abortSearch();
+    setSearching(false);
     setKeyword('');
     setResults([]);
     setSearched(false);
@@ -79,6 +111,8 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   };
 
   const onPick = result => {
+    searchRequestRef.current += 1;
+    abortSearch();
     onOpenResult(result);
     setKeyword('');
     setResults([]);
@@ -97,7 +131,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             <TextInput
               style={styles.input}
               value={keyword}
-              onChangeText={setKeyword}
+              onChangeText={handleKeywordChange}
               onSubmitEditing={runSearch}
               returnKeyType="search"
               placeholder="搜索历史聊天记录"
@@ -105,7 +139,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
               autoFocus
             />
             {keyword ? (
-              <TouchableOpacity onPress={() => setKeyword('')} hitSlop={8}>
+              <TouchableOpacity onPress={() => handleKeywordChange('')} hitSlop={8}>
                 <Ionicons name="close-circle" size={16} color={theme.colors.textFaint} />
               </TouchableOpacity>
             ) : null}
@@ -128,27 +162,26 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             <ActivityIndicator color={theme.colors.primary} />
           </View>
         ) : results.length > 0 ? (
-          <ScrollView
+          <FlatList
+            data={results}
+            keyExtractor={(result, index) => `${result.sessionId}-${result.messageId || 'message'}-${index}`}
             style={styles.list}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.listContent}
-          >
-            <Text style={styles.count}>{`找到 ${results.length} 条记录`}</Text>
-            {results.map(result => {
+            ListHeaderComponent={<Text style={styles.count}>{`找到 ${results.length} 条记录`}</Text>}
+            renderItem={({ item: result }) => {
               const character = characterMap.get(result.characterId);
               return (
                 <TouchableOpacity
-                  key={`${result.sessionId}-${result.messageId}`}
                   style={styles.item}
                   activeOpacity={0.75}
                   onPress={() => onPick(result)}
                 >
                   <View style={styles.itemHeader}>
                     <Text style={styles.itemName} numberOfLines={1}>
-                       {result.sessionType === 'group'
-                         ? (result.sessionName || '群聊')
-                         : ((character && character.name) || '角色资料缺失')}
-
+                      {result.sessionType === 'group'
+                        ? (result.sessionName || '群聊')
+                        : ((character && character.name) || '角色资料缺失')}
                     </Text>
                     <Text style={styles.itemTime}>{formatTime(result.updatedAt)}</Text>
                   </View>
@@ -157,8 +190,8 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
                   </Text>
                 </TouchableOpacity>
               );
-            })}
-          </ScrollView>
+            }}
+          />
         ) : (
           <EmptyState
             icon={searched ? 'search-outline' : 'chatbubbles-outline'}

@@ -312,7 +312,7 @@ export function AppProvider({ children }) {
     return value;
   }, []);
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessionsDirect = useCallback(async () => {
     const [sessionList, storedActiveSessionId] = await Promise.all([
       getSessions(),
       getActiveSessionId(),
@@ -322,6 +322,12 @@ export function AppProvider({ children }) {
     applyActiveSessionId(resolved);
     return sorted;
   }, [applySessions, applyActiveSessionId]);
+
+  // 外部刷新也要进 mutation 队列：否则迁移/写入进行中的刷新可能用旧快照覆盖新 Context。
+  const refreshSessions = useCallback(
+    () => enqueueMutation(() => refreshSessionsDirect()),
+    [enqueueMutation, refreshSessionsDirect]
+  );
 
   const ensureCharacterSession = useCallback(async (characterId, opening = null) => {
     if (!loadedRef.current) {
@@ -339,14 +345,14 @@ export function AppProvider({ children }) {
       }
       try {
         const created = await startNewSession(targetId, opening);
-        await refreshSessions();
+        await refreshSessionsDirect();
         return sessionsRef.current.find(session => session.id === created.id) || created;
       } catch (error) {
-        await refreshSessions().catch(() => {});
+        await refreshSessionsDirect().catch(() => {});
         throw error;
       }
     });
-  }, [applyActiveSessionId, refreshSessions, enqueueMutation]);
+  }, [applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
 
   const switchSession = useCallback(async id => {
     if (!loadedRef.current) {
@@ -409,11 +415,11 @@ export function AppProvider({ children }) {
         applyActiveSessionId(result.activeSessionId);
         return result;
       } catch (error) {
-        await refreshSessions().catch(() => {});
+        await refreshSessionsDirect().catch(() => {});
         throw error;
       }
     });
-  }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
+  }, [applySessions, applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
 
   const deleteSessions = useCallback(async (ids, excludedCharacterIds = []) => {
     if (!loadedRef.current) {
@@ -431,7 +437,10 @@ export function AppProvider({ children }) {
     return enqueueMutation(async () => {
       const snapshot = snapshotSessions();
       try {
-        if (targets.includes(snapshot.activeSessionId)) {
+        const result = await deleteSessionsStorage(targets);
+        let sorted = applySessions(result.sessions);
+        let resolved = resolveActiveSessionId(sorted, result.activeSessionId);
+        if (targets.includes(snapshot.activeSessionId) && sorted.length === 0) {
           const current = snapshot.sessions.find(
             session => session.id === snapshot.activeSessionId
           );
@@ -448,18 +457,17 @@ export function AppProvider({ children }) {
             || ''
           );
           await startNewSession(fallbackCharacterId);
+          sorted = await refreshSessionsDirect();
+          resolved = resolveActiveSessionId(sorted, activeSessionIdRef.current);
         }
-        const result = await deleteSessionsStorage(targets);
-        const sorted = applySessions(result.sessions);
-        const resolved = resolveActiveSessionId(sorted, result.activeSessionId);
         applyActiveSessionId(resolved);
         return sorted;
       } catch (error) {
-        await refreshSessions().catch(() => {});
+        await refreshSessionsDirect().catch(() => {});
         throw error;
       }
     });
-  }, [applySessions, applyActiveSessionId, refreshSessions, enqueueMutation]);
+  }, [applySessions, applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
 
   // activeId 失效（存储损坏 / 角色被外部删除）时界面角色会退回初始卡。若同时继续对外
   // 暴露失效的 activeId，就会造成“高亮的角色”和“当前角色”不是同一个的身份错位，后续

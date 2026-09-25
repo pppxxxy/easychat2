@@ -4,6 +4,7 @@ import {
   appendSessionSummary,
   getSessionSummariesStatus,
   getSessionSummaryRevision,
+  invalidateSessionSummaries,
   isSessionSummaryRevisionCurrent,
   setSessionSummarizedUpTo,
 } from './storage';
@@ -73,7 +74,10 @@ export function summarizeBoundaryAfterDeletion(messages, summarizedUpTo, removed
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   const boundaryIndex = list.findIndex(item => String(item.id || '') === boundary);
   if (boundaryIndex < 0) return '';
-  if (!removed.has(boundary)) return boundary;
+  const removedBeforeOrAtBoundary = list.some((item, index) => (
+    index <= boundaryIndex && removed.has(String(item.id || ''))
+  ));
+  if (!removedBeforeOrAtBoundary) return boundary;
   for (let index = boundaryIndex - 1; index >= 0; index -= 1) {
     const id = String(list[index].id || '');
     if (id && !removed.has(id)) return id;
@@ -159,19 +163,166 @@ export async function generateSummary({
 
 export const MEMORY_SCOPE_THRESHOLD = 2;
 
-export function countCharacterMemories(sessions, characterId) {
+export function countCharacterMemories(sessions, characterId, activeSession = null, activeMessages = []) {
   const id = String(characterId || '');
   if (!id) return 0;
+  const activeId = String((activeSession && activeSession.id) || '');
+  const activeHasMessages = (Array.isArray(activeMessages) ? activeMessages : [])
+    .some(isConversational);
   return (Array.isArray(sessions) ? sessions : []).filter(session => (
     session
     && session.type !== 'group'
     && String(session.characterId || '') === id
-    && String(session.preview || '').trim().length > 0
+    && (
+      String(session.preview || '').trim().length > 0
+      || String(session.summarizedUpTo || '').length > 0
+      || (activeId && String(session.id || '') === activeId && activeHasMessages)
+    )
   )).length;
 }
 
-export function isSessionScopedMemory(sessions, characterId) {
-  return countCharacterMemories(sessions, characterId) >= MEMORY_SCOPE_THRESHOLD;
+export function isSessionScopedMemory(
+  sessions,
+  characterId,
+  activeSession = null,
+  activeMessages = []
+) {
+  return countCharacterMemories(sessions, characterId, activeSession, activeMessages)
+    >= MEMORY_SCOPE_THRESHOLD;
+}
+
+export function shouldInvalidateWorldSummary(entry, messages, removedIds) {
+  const comment = String((entry && entry.comment) || '').trim();
+  if (!comment.startsWith(MEMORY_SUMMARY_PREFIX)) return false;
+  const boundary = String((entry && entry.boundary) || '');
+  if (!boundary) return true;
+  const list = (Array.isArray(messages) ? messages : [])
+    .filter(item => item && (item.role === 'user' || item.role === 'assistant'));
+  const boundaryIndex = list.findIndex(item => String(item.id || '') === boundary);
+  if (boundaryIndex < 0) return true;
+  const removed = new Set(
+    (Array.isArray(removedIds) ? removedIds : []).map(id => String(id || ''))
+  );
+  return list.some((item, index) => index <= boundaryIndex && removed.has(String(item.id || '')));
+}
+
+export function planSummaryInvalidation({ messages, summarizedUpTo, removedIds }) {
+  const boundary = String(summarizedUpTo || '');
+  if (!boundary) return { touched: false, nextBoundary: '' };
+  const nextBoundary = summarizeBoundaryAfterDeletion(messages, boundary, removedIds);
+  return {
+    touched: nextBoundary !== boundary,
+    nextBoundary,
+  };
+}
+
+export function selectSurvivingSessionSummaries(summaries, messages, removedIds) {
+  const list = (Array.isArray(messages) ? messages : [])
+    .filter(item => item && (item.role === 'user' || item.role === 'assistant'));
+  const removed = new Set(
+    (Array.isArray(removedIds) ? removedIds : []).map(id => String(id || ''))
+  );
+  return (Array.isArray(summaries) ? summaries : []).filter(summary => {
+    const boundary = String((summary && summary.boundary) || '');
+    if (!boundary) return true;
+    const boundaryIndex = list.findIndex(item => String(item.id || '') === boundary);
+    if (boundaryIndex < 0) return false;
+    return !list.some((item, index) => (
+      index <= boundaryIndex && removed.has(String(item.id || ''))
+    ));
+  });
+}
+
+export async function invalidateHistorySummaries({
+  session,
+  messages,
+  removedIds,
+  scoped = false,
+  character,
+  updateCharacter,
+}) {
+  const targetSession = session && typeof session === 'object' ? session : null;
+  if (!targetSession || !targetSession.id) return;
+  const plan = planSummaryInvalidation({
+    messages,
+    summarizedUpTo: targetSession.summarizedUpTo,
+    removedIds,
+  });
+  const summaryState = await getSessionSummariesStatus(targetSession.id);
+  if (summaryState.status === 'corrupt') {
+    throw new Error('记忆摘要读取失败，请稍后重试');
+  }
+  const survivingSummaries = selectSurvivingSessionSummaries(
+    summaryState.summaries,
+    messages,
+    removedIds
+  );
+  if (!plan.touched && survivingSummaries.length === summaryState.summaries.length) return;
+
+  const staleIds = [];
+  const originalWorldStates = new Map();
+  if (!scoped && plan.touched) {
+    const worldInfo = Array.isArray(character && character.worldInfo)
+      ? character.worldInfo
+      : [];
+    worldInfo.forEach(entry => {
+      if (shouldInvalidateWorldSummary(entry, messages, removedIds)) {
+        staleIds.push(String((entry && entry.id) || ''));
+      }
+    });
+    if (staleIds.length > 0) {
+      await updateCharacter(current => {
+        const latestWorldInfo = Array.isArray(current && current.worldInfo)
+          ? current.worldInfo
+          : [];
+        latestWorldInfo.forEach(entry => {
+          const id = String((entry && entry.id) || '');
+          if (staleIds.includes(id) && !originalWorldStates.has(id)) {
+            originalWorldStates.set(id, {
+              enabled: entry.enabled !== false,
+              stale: entry.stale === true,
+            });
+          }
+        });
+        return {
+          id: current.id,
+          worldInfo: latestWorldInfo.map(entry => (
+            staleIds.includes(String((entry && entry.id) || ''))
+              ? { ...entry, enabled: false, stale: true }
+              : entry
+          )),
+        };
+      });
+    }
+  }
+
+  try {
+    await invalidateSessionSummaries(targetSession.id, survivingSummaries, plan.nextBoundary);
+  } catch (error) {
+    if (staleIds.length > 0) {
+      await updateCharacter(current => {
+        const latestWorldInfo = Array.isArray(current && current.worldInfo)
+          ? current.worldInfo
+          : [];
+        return {
+          id: current.id,
+          worldInfo: latestWorldInfo.map(entry => {
+            const id = String((entry && entry.id) || '');
+            if (!staleIds.includes(id)) return entry;
+            const original = originalWorldStates.get(id);
+            return {
+              ...entry,
+              enabled: original ? original.enabled : true,
+              stale: original ? original.stale : false,
+            };
+          }),
+        };
+      }).catch(restoreError => {
+        if (__DEV__) console.warn('[memorySummary] summary restore failed', restoreError);
+      });
+    }
+    throw error;
+  }
 }
 
 function summaryIndex(comment) {
@@ -197,8 +348,10 @@ export function buildSessionSummaryText(sessionSummaries) {
 }
 
 export function buildMemorySummaryText(character, sessionSummaries, scoped = false) {
-  if (scoped) return buildSessionSummaryText(sessionSummaries);
-  return buildWorldSummaryText(character);
+  const worldText = buildWorldSummaryText(character);
+  const sessionText = buildSessionSummaryText(sessionSummaries);
+  if (scoped) return sessionText;
+  return [worldText, sessionText].filter(Boolean).join('\n\n');
 }
 
 export async function applySummary({
@@ -210,7 +363,9 @@ export async function applySummary({
    scoped = false,
    expectedConfigId = '',
    expectedConfigFingerprint = '',
-}) {
+   getCurrentCharacter = null,
+   getCurrentScope = null,
+ }) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   if (list.length === 0) {
     throw new Error('没有可总结的消息');
@@ -239,6 +394,14 @@ export async function applySummary({
     throw new Error('会话摘要已重置');
   }
   const boundary = list[list.length - 1].id;
+  const effectiveScoped = typeof getCurrentScope === 'function'
+    ? Boolean(getCurrentScope())
+    : scoped;
+  if (effectiveScoped !== scoped) {
+    const error = new Error('记忆作用域已变化');
+    error.canceled = true;
+    throw error;
+  }
 
   if (scoped) {
     await appendSessionSummary(session.id, {
@@ -250,13 +413,26 @@ export async function applySummary({
     return { entry: null, boundary, summary, keywords, scoped: true, skipped: false };
   }
 
-  const worldInfo = Array.isArray(character && character.worldInfo) ? character.worldInfo : [];
-  const previousWorldInfo = worldInfo;
+  const currentCharacter = typeof getCurrentCharacter === 'function'
+    ? await getCurrentCharacter()
+    : character;
+  if (
+    currentCharacter
+    && JSON.stringify(currentCharacter.worldInfo || [])
+      !== JSON.stringify(character.worldInfo || [])
+  ) {
+    const error = new Error('角色已在总结期间更新');
+    error.canceled = true;
+    throw error;
+  }
+  const worldInfo = Array.isArray(currentCharacter && currentCharacter.worldInfo)
+    ? currentCharacter.worldInfo
+    : [];
   const count = worldInfo.filter(entry =>
     String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
   ).length;
   const entry = createWorldEntry({
-    id: `memory-summary-${Date.now()}`,
+    id: `memory-summary-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     comment: `${MEMORY_SUMMARY_PREFIX} ${count + 1}`,
     keys: keywords,
     content: summary,
@@ -265,20 +441,38 @@ export async function applySummary({
     position: 0,
     order: 10,
   }, count);
+  entry.boundary = boundary;
   if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
     throw new Error('会话摘要已重置');
   }
-  await updateCharacter({ id: character.id, worldInfo: [...worldInfo, entry] });
-  if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
-    await updateCharacter({ id: character.id, worldInfo: previousWorldInfo }).catch(() => {});
-    throw new Error('会话摘要已重置');
-  }
+  const appendSummary = current => {
+    const latestWorldInfo = Array.isArray(current && current.worldInfo) ? current.worldInfo : [];
+    const latestCount = latestWorldInfo.filter(item =>
+      String((item && item.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
+    ).length;
+    return {
+      id: current.id,
+      worldInfo: [
+        ...latestWorldInfo,
+        { ...entry, comment: `${MEMORY_SUMMARY_PREFIX} ${latestCount + 1}` },
+      ],
+    };
+  };
+  appendSummary.id = character.id;
+  await updateCharacter(appendSummary);
   try {
+    if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
+      throw new Error('会话摘要已重置');
+    }
     await setSessionSummarizedUpTo(session.id, boundary, summaryRevision);
   } catch (error) {
-    if (isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
-      await updateCharacter({ id: character.id, worldInfo: previousWorldInfo }).catch(() => {});
-    }
+    await updateCharacter(current => ({
+      id: current.id,
+      worldInfo: (Array.isArray(current && current.worldInfo) ? current.worldInfo : [])
+        .filter(item => String((item && item.id) || '') !== entry.id),
+    })).catch(restoreError => {
+      if (__DEV__) console.warn('[memorySummary] boundary rollback failed', restoreError);
+    });
     throw error;
   }
   return { entry, boundary, summary, keywords, scoped: false, skipped: false };

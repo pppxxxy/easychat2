@@ -2,7 +2,7 @@ import './src/polyfills';
 import 'react-native-gesture-handler';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -26,6 +26,7 @@ import {
 } from './src/storage';
 import { AppProvider, useApp } from './src/context/AppContext';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { maskSecrets } from './src/secrets';
 
 const Tab = createBottomTabNavigator();
 
@@ -40,7 +41,11 @@ class StartupErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    console.log('StartupErrorBoundary', error, info);
+    console.log(
+      'StartupErrorBoundary',
+      maskSecrets(error && error.message),
+      maskSecrets(info && info.componentStack)
+    );
   }
 
   render() {
@@ -51,9 +56,9 @@ class StartupErrorBoundary extends React.Component {
           <Text style={styles.crashHint}>请把以下内容截图反馈：</Text>
           <ScrollView style={styles.crashScroll}>
             <Text style={styles.crashText} selectable>
-              {String(this.state.error && this.state.error.message)}
+              {maskSecrets(String(this.state.error && this.state.error.message))}
               {'\n\n'}
-              {String(this.state.error && this.state.error.stack)}
+              {maskSecrets(String(this.state.error && this.state.error.stack))}
             </Text>
           </ScrollView>
         </View>
@@ -93,8 +98,12 @@ function Header() {
   );
 }
 
-function StartupFlow() {
+function StartupFlow({ onReady }) {
   const [stage, setStage] = useState('loading');
+
+  useEffect(() => {
+    if (stage === 'done' && typeof onReady === 'function') onReady();
+  }, [onReady, stage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,16 +127,23 @@ function StartupFlow() {
     };
   }, []);
 
-  const onDisclaimerClose = useCallback(() => {
-    acknowledgeDisclaimer().catch(() => {});
-    isOnboardingDone()
-      .then(done => setStage(done ? 'done' : 'onboarding'))
-      .catch(() => setStage('done'));
+  const onDisclaimerClose = useCallback(async () => {
+    try {
+      await acknowledgeDisclaimer();
+      const done = await isOnboardingDone();
+      setStage(done ? 'done' : 'onboarding');
+    } catch (error) {
+      Alert.alert('保存失败', '完成状态保存失败，请重试。');
+    }
   }, []);
 
-  const onOnboardingFinish = useCallback(() => {
-    completeOnboarding().catch(() => {});
-    setStage('done');
+  const onOnboardingFinish = useCallback(async () => {
+    try {
+      await completeOnboarding();
+      setStage('done');
+    } catch (error) {
+      Alert.alert('保存失败', '完成状态保存失败，请重试。');
+    }
   }, []);
 
   return (
@@ -140,20 +156,57 @@ function StartupFlow() {
 
 function StartupSession() {
   const { characters, loaded, refreshSessions } = useApp();
+  const [retry, setRetry] = useState(0);
+  const charactersRef = useRef(characters);
+  charactersRef.current = characters;
   const startedRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const retryTimerRef = useRef(null);
+  const retryAttemptsRef = useRef(0);
 
   useEffect(() => {
-    if (!loaded || startedRef.current) return;
-    startedRef.current = true;
+    if (!loaded || startedRef.current || inFlightRef.current) return undefined;
+    let cancelled = false;
+    inFlightRef.current = true;
     (async () => {
+      let failed = false;
       try {
-        await migrateLegacyMessages(characters);
-      } catch (error) {}
+        await migrateLegacyMessages(charactersRef.current);
+      } catch (error) {
+        failed = true;
+      }
       try {
         await refreshSessions();
-      } catch (error) {}
+      } catch (error) {
+        failed = true;
+      }
+      if (!cancelled) {
+        if (failed) {
+          retryAttemptsRef.current += 1;
+          if (retryAttemptsRef.current >= 5) {
+            // 迁移反复失败不能无限静默重试：停下并明确告知，避免每次启动都空转。
+            startedRef.current = true;
+            Alert.alert('启动迁移失败', '旧聊天记录整理未能完成，请检查存储空间后重启应用。');
+          } else {
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              setRetry(value => value + 1);
+            }, 3000);
+          }
+        } else {
+          startedRef.current = true;
+        }
+      }
+      inFlightRef.current = false;
     })();
-  }, [loaded, characters, refreshSessions]);
+    return () => {
+      cancelled = true;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [loaded, retry, refreshSessions]);
 
   return null;
 }
@@ -209,15 +262,18 @@ function AppShell() {
 }
 
 export default function App() {
+  const [startupReady, setStartupReady] = useState(false);
+  const handleStartupReady = useCallback(() => setStartupReady(true), []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StartupErrorBoundary>
           <ThemeProvider>
             <AppProvider>
-              <AppShell />
-              <StartupSession />
-              <StartupFlow />
+              {startupReady ? <AppShell /> : null}
+              {startupReady ? <StartupSession /> : null}
+              <StartupFlow onReady={handleStartupReady} />
             </AppProvider>
           </ThemeProvider>
         </StartupErrorBoundary>
