@@ -49,16 +49,18 @@ import {
 import { buildRequestMessages } from './chatPipeline';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia';
 import { createStickerImage, deleteStickerImage } from './stickerImages';
+import { getCachedDisplayText } from './displayTextCache';
 import { isGreetingMessage, listGreetingCandidates } from './cardGreetings';
 import { getEditResendPlan, removeMessagesByIds, toggleMessageSelection } from './messageSelection';
 import {
   applySummary,
   buildMemorySummaryText,
+  invalidateHistorySummaries,
   isSessionScopedMemory,
+  MEMORY_SUMMARY_PREFIX,
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
-  summarizeBoundaryAfterDeletion,
 } from './memorySummary';
 import { isStaleReply } from './chatRace';
 import { useApp } from './context/AppContext';
@@ -104,7 +106,6 @@ import {
   saveApiConfigs,
   saveMessagesBySession,
   saveThinkingSettings,
-  resetSessionSummaries,
   setProtectedChatImageUris,
   getTtsSettings,
   getMomentsSettings,
@@ -114,7 +115,6 @@ import {
   saveSticker,
   saveTtsSettings,
   setSessionGreetingSelected,
-  setSessionSummarizedUpTo,
   startNewSession,
   THINKING_DISPLAYS,
   THINKING_LEVELS,
@@ -577,7 +577,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           command = encoded;
         }
         const label = collectTNodeText(tnode).trim();
-        const onPress = command && onSlashCommand ? () => onSlashCommand(command) : undefined;
+        const onPress = command && onSlashCommand
+      ? () => onSlashCommand(command, '', message && message.id)
+      : undefined;
         return (
           <Pressable
             onPress={onPress}
@@ -1006,6 +1008,11 @@ export default function ChatScreen() {
   const errorRawRef = useRef({});
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
+  const saveInFlightSnapshotRef = useRef(null);
+  const saveQueueRef = useRef(Promise.resolve());
+  const saveRetryTimerRef = useRef(null);
+  const saveRetryAttemptsRef = useRef(0);
+  const [saveRetryTick, setSaveRetryTick] = useState(0);
   const {
     character,
     characters,
@@ -1027,6 +1034,8 @@ export default function ChatScreen() {
   activeCharacterIdRef.current = characterId;
   activeSessionIdRef.current = activeSessionId;
   const sessionsRef = useRef(sessions);
+  const charactersRef = useRef(characters);
+  charactersRef.current = characters;
   sessionsRef.current = sessions;
   const activeSession = useMemo(
     () => sessions.find(session => session.id === activeSessionId) || null,
@@ -1434,26 +1443,43 @@ export default function ChatScreen() {
       }
       const depth = messages.length - 1 - index;
       if (message.role === ASSISTANT_ID) {
-        const text = applyRegexScripts(
-          hideVariantStatusBar(message.text),
-          sessionOwnerMissing ? [] : character.regexScripts,
+        const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
+        const scripts = sessionOwnerMissing
+          ? []
+          : speaker?.regexScripts || character.regexScripts;
+        const text = getCachedDisplayText(
+          message,
+          scripts,
           REGEX_PLACEMENT.AI_OUTPUT,
-          { mode: 'display', depth }
+          depth,
+          () => applyRegexScripts(
+            hideVariantStatusBar(message.text),
+            scripts,
+            REGEX_PLACEMENT.AI_OUTPUT,
+            { mode: 'display', depth }
+          )
         );
         return text === message.text ? message : { ...message, text };
       }
       if (message.role === USER_ID) {
-        const text = applyRegexScripts(
-          message.text,
-          sessionOwnerMissing ? [] : character.regexScripts,
+        const scripts = sessionOwnerMissing ? [] : character.regexScripts;
+        const text = getCachedDisplayText(
+          message,
+          scripts,
           REGEX_PLACEMENT.USER_INPUT,
-          { mode: 'display', depth }
+          depth,
+          () => applyRegexScripts(
+            message.text,
+            scripts,
+            REGEX_PLACEMENT.USER_INPUT,
+            { mode: 'display', depth }
+          )
         );
         return text === message.text ? message : { ...message, text };
       }
       return message;
     }),
-    [messages, character.regexScripts, sessionOwnerMissing]
+    [messages, character.regexScripts, characterMap, sessionOwnerMissing]
   );
 
   const regenerableIds = useMemo(() => {
@@ -1667,7 +1693,17 @@ export default function ChatScreen() {
     if (!ready) return;
     if (!activeSessionId) return;
     if (persistableSnapshot === lastSavedSnapshotRef.current) return;
-    lastSavedSnapshotRef.current = persistableSnapshot;
+    if (persistableSnapshot === saveInFlightSnapshotRef.current) return;
+    saveInFlightSnapshotRef.current = persistableSnapshot;
+    const snapshotBeingSaved = persistableSnapshot;
+    const indexController = typeof AbortController === 'function' ? new AbortController() : null;
+    const scheduleSaveRetry = () => {
+      if (saveRetryTimerRef.current) clearTimeout(saveRetryTimerRef.current);
+      if (saveRetryAttemptsRef.current >= 5) return;
+      saveRetryAttemptsRef.current += 1;
+      const delay = Math.min(3000 * (2 ** (saveRetryAttemptsRef.current - 1)), 60000);
+      saveRetryTimerRef.current = setTimeout(() => setSaveRetryTick(tick => tick + 1), delay);
+    };
     const messagesToIndex = persistableMessages;
     // 会话条目若已从存储里缺失（历史版本的 startNewSession 会误删），
     // 把归属角色一并传下去，让本次写盘把会话行补回来；群聊没有单一归属角色，跳过。
@@ -1685,8 +1721,28 @@ export default function ChatScreen() {
         .map(item => item.uri),
       ...pendingAttachmentUrisRef.current,
     ];
-    saveMessagesBySession(activeSessionId, persistableMessages, recoverOwnerId, protectedImageUris)
+    // 写盘串行化：同会话连续快照若并行写，旧快照可能在新快照之后落盘，
+    // 让持久化结果回退。用 promise 队列保证顺序，后到的快照总是最后写入。
+    const savePromise = saveQueueRef.current
+      .catch(() => {})
+      .then(() => saveMessagesBySession(
+        activeSessionId,
+        persistableMessages,
+        recoverOwnerId,
+        protectedImageUris
+      ));
+    saveQueueRef.current = savePromise;
+    savePromise
       .then(savedMessages => {
+        if (saveInFlightSnapshotRef.current === snapshotBeingSaved) {
+          saveInFlightSnapshotRef.current = null;
+        }
+        saveRetryAttemptsRef.current = 0;
+        if (saveRetryTimerRef.current) {
+          clearTimeout(saveRetryTimerRef.current);
+          saveRetryTimerRef.current = null;
+        }
+        lastSavedSnapshotRef.current = snapshotBeingSaved;
         saveFailedRef.current = false;
         if (
           !Array.isArray(savedMessages)
@@ -1717,6 +1773,7 @@ export default function ChatScreen() {
                 config,
                 existing: current,
                 sessionId: activeSessionId,
+                signal: indexController ? indexController.signal : null,
               });
             });
           })
@@ -1724,16 +1781,28 @@ export default function ChatScreen() {
             if (__DEV__) console.warn('[vector] indexing failed', error);
           });
       }).catch(() => {
+        if (saveInFlightSnapshotRef.current === snapshotBeingSaved) {
+          saveInFlightSnapshotRef.current = null;
+        }
+        scheduleSaveRetry();
         if (!saveFailedRef.current) {
           saveFailedRef.current = true;
           Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
         }
       });
-  }, [activeSessionId, persistableSnapshot, ready, character.id]);
+    return () => {
+      // 切会话/卸载或下一次保存到来时，终止仍在进行的向量嵌入，避免无谓网络与写入。
+      if (indexController) indexController.abort();
+    };
+  }, [activeSessionId, persistableSnapshot, ready, character.id, saveRetryTick]);
 
   useEffect(() => () => {
     if (abortRef.current) {
       abortRef.current.abort();
+    }
+    if (saveRetryTimerRef.current) {
+      clearTimeout(saveRetryTimerRef.current);
+      saveRetryTimerRef.current = null;
     }
   }, []);
 
@@ -1758,7 +1827,31 @@ export default function ChatScreen() {
       {
         text: '清空',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
+          if (!canClear()) return;
+          if (!isGroupRef.current) {
+            const session = activeSessionRef.current;
+            try {
+              if (session) {
+                const sessionCharacterId = String(session.characterId || '');
+                const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+                  .some(item => item.id === sessionCharacterId);
+                const scoped = !characterExists
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, messagesRef.current);
+                await invalidateHistorySummaries({
+                  session,
+                  messages: [],
+                  removedIds: messagesRef.current.map(item => String(item && item.id || '')),
+                  scoped,
+                  character,
+                  updateCharacter,
+                });
+              }
+            } catch (error) {
+              Alert.alert('清空失败', '记忆摘要未能同步清理，请稍后重试。');
+              return;
+            }
+          }
           if (!canClear()) return;
           sessionVersionRef.current += 1;
           errorRawRef.current = {};
@@ -1777,7 +1870,7 @@ export default function ChatScreen() {
         }
       }
     ]);
-  }, [refreshSessions, removeVectorIndexForSession]);
+  }, [character, refreshSessions, removeVectorIndexForSession, updateCharacter]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     const current = messages.find(item => isGreetingMessage(item, activeSessionIdRef.current));
@@ -1794,9 +1887,8 @@ export default function ChatScreen() {
   }, [greetingCandidates, messages]);
 
   const confirmGreeting = useCallback(async result => {
-    const flow = greetingPicker;
-    setGreetingPicker(null);
-    if (!flow) return;
+     const flow = greetingPicker;
+     if (!flow) return false;
      const characterId = activeCharacterIdRef.current;
      const sessionId = activeSessionIdRef.current;
      const transitionToken = flow.purpose === 'new' ? ++switchOperationRef.current : 0;
@@ -1808,15 +1900,15 @@ export default function ChatScreen() {
         firstMes: result.firstMes,
         alternateGreetings: result.alternateGreetings,
        });
-       if (activeCharacterIdRef.current !== characterId) return;
+       if (activeCharacterIdRef.current !== characterId) return false;
        if (
          flow.purpose === 'new'
          && (
            switchOperationRef.current !== transitionToken
            || sessionVersionRef.current !== transitionVersion
-           || activeSessionIdRef.current !== sessionId
-         )
-       ) return;
+            || activeSessionIdRef.current !== sessionId
+          )
+        ) return false;
        if (flow.purpose === 'new') {
         if (abortRef.current) {
           abortRef.current.abort();
@@ -1834,16 +1926,16 @@ export default function ChatScreen() {
            || activeCharacterIdRef.current !== characterId
            || (
              activeSessionIdRef.current !== sessionId
-             && activeSessionIdRef.current !== created.id
-           )
-         ) return;
+              && activeSessionIdRef.current !== created.id
+            )
+          ) return false;
          activeSessionIdRef.current = created.id;
          await refreshSessions();
          if (
            switchOperationRef.current !== transitionToken
            || activeCharacterIdRef.current !== characterId
-           || activeSessionIdRef.current !== created.id
-         ) return;
+            || activeSessionIdRef.current !== created.id
+          ) return false;
          errorRawRef.current = {};
         sessionVersionRef.current += 1;
         setMessages([]);
@@ -1854,16 +1946,17 @@ export default function ChatScreen() {
         setActiveMatchIndex(0);
         setFocusedMessageId('');
         setSelectionText('');
-        setGreetingReady(true);
-        return;
+         setGreetingReady(true);
+         setGreetingPicker(null);
+         return true;
       }
-       if (activeSessionIdRef.current !== sessionId) return;
+        if (activeSessionIdRef.current !== sessionId) return false;
        await setSessionGreetingSelected(sessionId, true);
        await refreshSessions();
        if (
          activeCharacterIdRef.current !== characterId
-         || activeSessionIdRef.current !== sessionId
-       ) return;
+          || activeSessionIdRef.current !== sessionId
+        ) return false;
        const nextGreeting = buildGreetingMessage(sessionId, result.firstMes, userNameRef.current);
       const hasGreeting = messages.some(item => isGreetingMessage(item, sessionId));
       if (nextGreeting) {
@@ -1877,8 +1970,10 @@ export default function ChatScreen() {
       } else {
         setMessages(current => current.filter(item => !isGreetingMessage(item, sessionId)));
       }
-      setGreetingReady(true);
-     } catch (error) {
+       setGreetingReady(true);
+       setGreetingPicker(null);
+       return true;
+      } catch (error) {
        if (
          flow.purpose === 'new'
          && (
@@ -1886,12 +1981,13 @@ export default function ChatScreen() {
            || activeCharacterIdRef.current !== characterId
            || (
              activeSessionIdRef.current !== sessionId
-             && activeSessionIdRef.current !== ''
-           )
-         )
-       ) return;
-        Alert.alert('开场白保存失败', '请稍后重试。');
-      } finally {
+              && activeSessionIdRef.current !== ''
+            )
+          )
+        ) return false;
+         Alert.alert('开场白保存失败', '请稍后重试。');
+         return false;
+       } finally {
         if (
           flow.purpose === 'new'
           && switchOperationRef.current === transitionToken
@@ -2183,7 +2279,7 @@ export default function ChatScreen() {
        const characterExists = (Array.isArray(characters) ? characters : [])
          .some(item => item.id === sessionCharacterId);
        const scoped = !characterExists
-         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
+         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list);
        let expectedConfigId = '';
        let expectedConfigFingerprint = '';
        try {
@@ -2200,8 +2296,17 @@ export default function ChatScreen() {
          userName: userProfile.userName,
          scoped,
          expectedConfigId,
-         expectedConfigFingerprint,
-       });
+          expectedConfigFingerprint,
+          getCurrentCharacter: () => charactersRef.current.find(
+            item => item.id === sessionCharacterId
+          ) || sessionCharacter,
+          getCurrentScope: () => {
+            const latestCharacterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+              .some(item => item.id === sessionCharacterId);
+             return !latestCharacterExists
+               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list);
+          },
+        });
       await refreshSessions().catch(() => {});
       if (result.skipped) {
         if (manual) Alert.alert('总结完成', '本轮没有提取出可保存的新记忆。');
@@ -2329,12 +2434,13 @@ export default function ChatScreen() {
        }
        const pluginContext = await runPlugins({
         userText,
-        plugins: enabledPlugins,
-        sessionId: sendSessionId,
-        onError: error => {
-          if (__DEV__) console.warn('[webSearch] failed', error);
+         plugins: enabledPlugins,
+         sessionId: sendSessionId,
+         signal: controller.signal,
+         onError: error => {
+          if (__DEV__) console.warn('[webSearch] failed', maskSecrets(error?.message || String(error)));
           // registry 内部已按会话去重，这里不会每条消息都弹
-          Alert.alert('联网搜索失败', (error && error.message) || '请检查搜索服务配置。');
+          Alert.alert('联网搜索失败', maskSecrets((error && error.message) || '请检查搜索服务配置。'));
         },
       });
       const currentSession = sessionsRef.current.find(
@@ -2358,6 +2464,7 @@ export default function ChatScreen() {
             index,
             query: userText,
             topK: vectorConfig.topK,
+            signal: controller.signal,
           });
           memorySnippets = buildMemoryContext(hits);
         }
@@ -2372,10 +2479,8 @@ export default function ChatScreen() {
         const characterExists = (Array.isArray(characters) ? characters : [])
           .some(item => item.id === sessionCharacterId);
         const scoped = !characterExists
-          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
-        const sessionSummaries = scoped
-          ? await getSessionSummaries(sendSessionId)
-          : [];
+          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, currentSession, historyMessages);
+        const sessionSummaries = await getSessionSummaries(sendSessionId);
         summaryText = buildMemorySummaryText(character, sessionSummaries, scoped);
       } catch (error) {
         summaryText = '';
@@ -2536,12 +2641,32 @@ export default function ChatScreen() {
      scrollToBottom();
 
     try {
-       const [userProfile, globalPresets] = await Promise.all([
-         getUserProfile(),
-         getEnabledGlobalPresetPrompts(),
-       ]);
+const [userProfile, globalPresets, enabledPlugins] = await Promise.all([
+          getUserProfile(),
+          getEnabledGlobalPresetPrompts(),
+          getEnabledPlugins(),
+        ]);
+if (!isCurrent() || controller.signal.aborted) return false;
+       const pluginContext = await runPlugins({
+         userText,
+         plugins: enabledPlugins,
+         sessionId: sendSessionId,
+         signal: controller.signal,
+         onError: error => {
+           if (__DEV__) console.warn('[webSearch] failed', maskSecrets(error?.message || String(error)));
+           Alert.alert('联网搜索失败', maskSecrets((error && error.message) || '请检查搜索服务配置。'));
+         },
+       });
        if (!isCurrent() || controller.signal.aborted) return false;
-      const groupSessionId = String(activeSessionRef.current?.id || '');
+       let summaryText = '';
+       try {
+         const summaries = await getSessionSummaries(sendSessionId);
+         summaryText = buildMemorySummaryText({}, summaries, true);
+       } catch (error) {
+         summaryText = '';
+       }
+       if (!isCurrent() || controller.signal.aborted) return false;
+       const groupSessionId = String(activeSessionRef.current?.id || '');
       const cachedProfiles = memberProfilesRef.current.sessionId === groupSessionId
         ? memberProfilesRef.current.profiles
         : (activeSessionRef.current?.memberProfiles || {});
@@ -2622,9 +2747,11 @@ export default function ChatScreen() {
               userText,
               userProfile,
               globalPresets,
-              quote,
-              profiles: memberProfiles,
-              imageMessages,
+               quote,
+               summaryText,
+               pluginContext,
+               profiles: memberProfiles,
+               imageMessages,
             });
             const reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
@@ -2676,9 +2803,12 @@ export default function ChatScreen() {
           characters: members,
           historyMessages: historyForPrompt,
           userText,
-          userProfile,
-          globalPresets,
-          profiles: memberProfiles,
+           userProfile,
+           globalPresets,
+           quote,
+           summaryText,
+           pluginContext,
+           profiles: memberProfiles,
           mentions,
           everyone,
           imageMessages,
@@ -3144,11 +3274,33 @@ export default function ChatScreen() {
           }
           return false;
         }
+        if (handled !== false && isSessionGuardCurrent(sessionGuard) && !abortRef.current) {
+          const session = sessionsRef.current.find(item => item.id === sessionGuard.sessionId);
+          if (session) {
+            const sessionCharacterId = String(session.characterId || '');
+            const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+              .some(item => item.id === sessionCharacterId);
+            const scoped = !characterExists
+              || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, originalMessages);
+            try {
+              await invalidateHistorySummaries({
+                session,
+                messages: originalMessages.slice(0, index),
+                removedIds: originalMessages.slice(index).map(item => String(item && item.id || '')),
+                scoped,
+                character,
+                updateCharacter,
+              });
+            } catch (error) {
+              if (__DEV__) console.warn('[memorySummary] regenerate invalidation failed', error);
+            }
+          }
+        }
         return handled !== false && isSessionGuardCurrent(sessionGuard) && !abortRef.current;
     } finally {
       endSendOperation(token);
     }
-  }, [beginSendOperation, captureSessionGuard, endSendOperation, isSending, isSessionGuardCurrent, isSwitching, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending]);
+  }, [beginSendOperation, captureSessionGuard, character, endSendOperation, isSending, isSessionGuardCurrent, isSwitching, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending, updateCharacter]);
 
   const editUserMessage = useCallback(targetId => {
     if (isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
@@ -3168,9 +3320,28 @@ export default function ChatScreen() {
             const latestPlan = getEditResendPlan(messagesRef.current, targetId);
             if (!latestPlan) return;
             try {
-              await resetSessionSummaries(sessionGuard.sessionId);
+              const session = sessionsRef.current.find(item => item.id === sessionGuard.sessionId);
+              const keptIds = new Set(latestPlan.messages.map(item => String(item && item.id || '')));
+              const removedIds = messagesRef.current
+                .map(item => String(item && item.id || ''))
+                .filter(id => id && !keptIds.has(id));
+              if (session) {
+                const sessionCharacterId = String(session.characterId || '');
+                const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+                  .some(item => item.id === sessionCharacterId);
+                const scoped = !characterExists
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, messagesRef.current);
+                await invalidateHistorySummaries({
+                  session,
+                  messages: latestPlan.messages,
+                  removedIds,
+                  scoped,
+                  character,
+                  updateCharacter,
+                });
+              }
                const vectorOwnerId = getVectorOwnerId(
-                 sessionsRef.current.find(item => item.id === sessionGuard.sessionId),
+                 session,
                  characterId
                );
                if (vectorOwnerId) {
@@ -3187,7 +3358,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [captureSessionGuard, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, resetSessionSummaries, sessionTransitionPending]);
+  }, [captureSessionGuard, character, characterId, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, sessionTransitionPending, updateCharacter]);
 
   const messageActionsRef = useRef({});
   useEffect(() => {
@@ -3255,12 +3426,7 @@ export default function ChatScreen() {
     const sessionId = activeSessionIdRef.current;
     const sessionVersion = sessionVersionRef.current;
     const session = sessionsRef.current.find(item => item.id === sessionId);
-    const currentBoundary = String((session && session.summarizedUpTo) || '');
-    const nextBoundary = summarizeBoundaryAfterDeletion(
-      messagesRef.current,
-      currentBoundary,
-      ids
-    );
+    const messagesAfter = removeMessagesByIds(messagesRef.current, ids);
     Alert.alert(
       '删除消息',
       `确定删除选中的 ${ids.length} 条消息吗？`,
@@ -3275,11 +3441,25 @@ export default function ChatScreen() {
               || activeSessionIdRef.current !== sessionId
             ) return;
             try {
-              if (session && nextBoundary !== currentBoundary) {
-                await setSessionSummarizedUpTo(sessionId, nextBoundary);
+              if (session) {
+                const sessionCharacterId = String(session.characterId || '');
+                const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
+                const characterExists = latestCharacters.some(item => item.id === sessionCharacterId);
+                const scoped = !characterExists
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, messagesRef.current);
+                const latestCharacter = latestCharacters.find(item => item.id === sessionCharacterId)
+                  || character;
+                await invalidateHistorySummaries({
+                  session,
+                  messages: messagesAfter,
+                  removedIds: ids,
+                  scoped,
+                  character: latestCharacter,
+                  updateCharacter,
+                });
               }
             } catch (error) {
-              Alert.alert('删除失败', '总结边界未能同步，请稍后重试。');
+              Alert.alert('删除失败', '总结数据未能同步，请稍后重试。');
               return;
             }
             if (
@@ -3309,10 +3489,11 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [characterId, isSending, ready, removeVectorIndexForMessages, selectedMessageIds, setSessionSummarizedUpTo]);
+  }, [character, characterId, characters, isSending, ready, removeVectorIndexForMessages, selectedMessageIds, updateCharacter]);
 
   const toggleBroadcast = useCallback(async () => {
-    const next = { ...ttsSettings, enabled: !ttsSettings.enabled };
+    const previous = ttsRef.current;
+    const next = { ...previous, enabled: !previous.enabled };
     setTtsSettings(next);
     ttsRef.current = next;
     if (!next.enabled) {
@@ -3321,9 +3502,13 @@ export default function ChatScreen() {
     try {
       await saveTtsSettings(next);
     } catch (error) {
+      if (ttsRef.current === next) {
+        ttsRef.current = previous;
+        setTtsSettings(previous);
+      }
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
-  }, [ttsSettings]);
+  }, []);
 
   const broadcastMessage = useCallback(async text => {
     const settings = ttsRef.current;
@@ -3335,7 +3520,7 @@ export default function ChatScreen() {
     try {
       await ttsSpeak({ provider, config, text: content });
     } catch (error) {
-      Alert.alert('播报失败', (error && error.message) || '请稍后重试。');
+      Alert.alert('播报失败', maskSecrets((error && error.message) || '请稍后重试。'));
     }
   }, []);
 
@@ -3415,6 +3600,7 @@ export default function ChatScreen() {
   const inlineImageEnabledRef = useRef(false);
   const ttsRef = useRef({ enabled: false, activeProvider: 'system', providers: {} });
   const recordTurnRef = useRef(null);
+  const recordTurnQueueRef = useRef(Promise.resolve());
   useEffect(() => {
     generateInlineImageRef.current = generateInlineImage;
     inlineImageEnabledRef.current = inlineImageSettings.enabled;
@@ -3431,14 +3617,32 @@ export default function ChatScreen() {
       sourceMessageId
       && !messagesRef.current.some(message => String(message && message.id || '') === String(sourceMessageId))
     ) return;
-    const result = sendTextRef.current?.(String(command || '').replace(/^\/send\s+/, ''));
-    if (result && typeof result.catch === 'function') {
-      result.catch(error => {
-        if (!isConfigChangedError(error)) {
-          Alert.alert('发送失败', (error && error.message) || '请稍后重试。');
-        }
-      });
+    const execute = () => {
+      if (
+        sourceMessageId
+        && !messagesRef.current.some(message => String(message && message.id || '') === String(sourceMessageId))
+      ) return;
+      const result = sendTextRef.current?.(String(command || '').replace(/^\/send\s+/, ''));
+      if (result && typeof result.catch === 'function') {
+        result.catch(error => {
+          if (!isConfigChangedError(error)) {
+            Alert.alert('发送失败', maskSecrets((error && error.message) || '请稍后重试。'));
+          }
+        });
+      }
+    };
+    if (!sourceMessageId) {
+      execute();
+      return;
     }
+    Alert.alert(
+      '确认卡片操作',
+      `将发送：${maskSecrets(String(command || '').slice(0, 500))}`,
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '发送', onPress: execute },
+      ],
+    );
   }, []);
 
   const removeAttachment = useCallback(id => {
@@ -3892,7 +4096,7 @@ export default function ChatScreen() {
     : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
   const inputDisabled = !ready || isSending || isSwitching || attachmentLoading || messageSelectionOpen || sessionOwnerMissing || sessionTransitionPending || (!isGroup && !greetingReady);
 
-  const recordTurn = useCallback(async (userText, assistantText, sender = null) => {
+  const runRecordTurn = useCallback(async (userText, assistantText, sender = null) => {
     const settings = await getMomentsSettings().catch(() => ({ enabled: true }));
     if (!settings.enabled) return;
     const characterId = String((sender && sender.id) || activeCharacterIdRef.current || '');
@@ -3949,6 +4153,15 @@ export default function ChatScreen() {
      });
 
   }, []);
+  // affinity 是读-改-写：连续两次回复若并行读取同一份 map，后写会覆盖先写的增量。
+  // 用 promise 队列把 recordTurn 串行化，保证每次基于上一次结果累加。
+  const recordTurn = useCallback((userText, assistantText, sender = null) => {
+    const task = recordTurnQueueRef.current
+      .catch(() => {})
+      .then(() => runRecordTurn(userText, assistantText, sender));
+    recordTurnQueueRef.current = task;
+    return task;
+  }, [runRecordTurn]);
   // recordTurn 声明在下方，这里用 ref 暴露给它上面的回调，避免依赖数组引用“后声明”的 const（TDZ）。
   useEffect(() => {
     recordTurnRef.current = recordTurn;

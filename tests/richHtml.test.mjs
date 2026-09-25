@@ -46,6 +46,13 @@ test('剥离 ```html 围栏行，保留正文', () => {
   assert.ok(output.includes('后记'));
 });
 
+test('剥离围栏时保留 pre/code 内部代码围栏', () => {
+  const input = '```html\n<pre><code>```js\nconst x = 1;\n```</code></pre>\n```';
+  const output = stripMarkdownFences(input);
+  assert.ok(output.includes('```js'));
+  assert.equal((output.match(/```/g) || []).length, 2);
+});
+
 test('包装文档包含视口、正文与高度桥', () => {
   const doc = buildRichHtmlDocument({
     bodyHtml: '```html\n<div class="x">hi</div>\n```',
@@ -128,6 +135,18 @@ test('识别视口型文档样式', () => {
   assert.equal(isViewportRichHtml('<style>.app{height:100vh;overflow:hidden}</style>'), true);
   assert.equal(isViewportRichHtml('<style>.x{height:100dvh}</style>'), true);
   assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0}</style>'), true);
+  assert.equal(isViewportRichHtml('<div style="height:100vh"></div>'), true);
+  assert.equal(isViewportRichHtml('<!-- <style>.x{height:100vh}</style> -->'), false);
+  assert.equal(isViewportRichHtml('<script>const demo = "<div style=\\"height:100vh\\"></div>";</script>'), false);
   assert.equal(isViewportRichHtml('<style>.x{height:200px}</style>'), false);
-  assert.equal(isViewportRichHtml('普通文本没有样式'), false);
+   assert.equal(isViewportRichHtml('普通文本没有样式'), false);
+   assert.equal(isViewportRichHtml('<pre>&lt;div style="height:100vh"&gt;</pre>'), false);
+   assert.equal(isViewportRichHtml('<div data-style="height:100vh"></div>'), false);
+});
+
+test('完整文档缺少 viewport meta 时自动补齐', () => {
+  const doc = buildRichHtmlDocument({
+    bodyHtml: '<!DOCTYPE html><html><head><title>Card</title></head><body>内容</body></html>',
+  });
+  assert.equal((doc.match(/name="viewport"/g) || []).length, 1);
 });

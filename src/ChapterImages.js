@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from './theme/ThemeContext';
@@ -9,6 +9,12 @@ export default function ChapterImages({ images = [], height = 200, style }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    setIndex(0);
+    scrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [images.length, images[0] && images[0].source]);
 
   if (!images || images.length === 0) return null;
   const safeIndex = Math.min(Math.max(index, 0), images.length - 1);
@@ -27,6 +33,7 @@ export default function ChapterImages({ images = [], height = 200, style }) {
       >
         {width > 0 ? (
           <ScrollView
+            ref={scrollRef}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}

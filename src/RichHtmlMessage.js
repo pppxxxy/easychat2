@@ -173,8 +173,10 @@ export default function RichHtmlMessage({ html, onCommand, fullWidth = false }) 
         domStorageEnabled
         allowFileAccess={!!source.uri}
         allowsFullscreenVideo
-        scrollEnabled={viewportDocument}
-        nestedScrollEnabled={viewportDocument}
+        setSupportMultipleWindows={false}
+        onOpenWindow={() => {}}
+        scrollEnabled={viewportDocument || height >= RICH_HTML_MAX_RENDER_HEIGHT}
+        nestedScrollEnabled={viewportDocument || height >= RICH_HTML_MAX_RENDER_HEIGHT}
         injectedJavaScriptBeforeContentLoaded={commandBridge}
         onContentSizeChange={onContentSizeChange}
         onMessage={onMessage}

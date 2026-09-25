@@ -7,6 +7,81 @@ export const REGEX_PLACEMENT = {
 };
 
 // 正则来自第三方卡片或用户输入，可能是灾难性回溯模式（例如 (a+)+$）。
+// JS 主线程无法抢占正在执行的正则，这里用嵌套量词启发式识别会挂死的模式并跳过。
+// 只在「分组体内含未限定量词，且分组本身又被 * 或 + 重复」时判定，避免误伤 (a{2})+ 这类有界写法。
+export function isUnsafeRegexPattern(findRegex) {
+  let pattern = String(findRegex ?? '');
+  if (pattern.startsWith('/')) {
+    let escaped = false;
+    let inClass = false;
+    for (let index = 1; index < pattern.length; index += 1) {
+      const char = pattern[index];
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '[') inClass = true;
+      else if (char === ']') inClass = false;
+      else if (char === '/' && !inClass) {
+        pattern = pattern.slice(1, index);
+        break;
+      }
+    }
+  }
+  const stack = [];
+  let escaped = false;
+  let inClass = false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (inClass) {
+      if (char === ']') inClass = false;
+      continue;
+    }
+    if (char === '[') {
+      inClass = true;
+      continue;
+    }
+    if (char === '(') {
+      stack.push(index);
+      continue;
+    }
+    if (char !== ')' || stack.length === 0) continue;
+    const start = stack.pop();
+    const outerQuantifier = pattern[index + 1];
+    if (outerQuantifier !== '*' && outerQuantifier !== '+') continue;
+    const body = pattern.slice(start + 1, index);
+    let bodyEscaped = false;
+    let bodyInClass = false;
+    for (let cursor = 0; cursor < body.length; cursor += 1) {
+      const bodyChar = body[cursor];
+      if (bodyEscaped) {
+        bodyEscaped = false;
+        continue;
+      }
+      if (bodyChar === '\\') {
+        bodyEscaped = true;
+        continue;
+      }
+      if (bodyInClass) {
+        if (bodyChar === ']') bodyInClass = false;
+        continue;
+      }
+      if (bodyChar === '[') {
+        bodyInClass = true;
+        continue;
+      }
+      if (bodyChar === '*' || bodyChar === '+') return true;
+    }
+  }
+  return false;
+}
+
 const MAX_REGEX_INPUT_CHARS = 8 * 1024 * 1024;
 const HTML_SEGMENT_PATTERN = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<[^>]+>/gi;
 const COMPILED_CACHE_LIMIT = 300;
@@ -141,6 +216,7 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
     if (mode === 'prompt' && script.markdownOnly && !script.promptOnly) continue;
     if (mode === 'display' && script.promptOnly && !script.markdownOnly) continue;
     if (!script.findRegex) continue;
+    if (isUnsafeRegexPattern(script.findRegex)) continue;
     if (!withinDepth(script, options.depth)) continue;
     try {
       const regex = compileRegexCached(script.findRegex, script.flags);
@@ -149,9 +225,8 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
         replacement += '\n';
       }
       const hasMarkup = /<[^>]+>/i.test(output);
-      const insertsMarkup = /<[^>]+>/i.test(replacement);
       const isDocumentReplacement = /<!doctype\s+html\b|<html[\s>]/i.test(replacement);
-      output = mode === 'display' && hasMarkup && insertsMarkup && !isDocumentReplacement
+      output = mode === 'display' && hasMarkup && !isDocumentReplacement
         ? replaceVisibleText(output, regex, replacement)
         : output.replace(regex, replacement);
     } catch (error) {

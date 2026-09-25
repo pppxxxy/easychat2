@@ -2,6 +2,7 @@ import { Image } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { markMediaWrite } from './mediaProtection';
 
 export const TEXT_EXTENSIONS = [
   'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
@@ -13,6 +14,7 @@ export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'he
 export const VISION_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
 export const MAX_TEXT_BYTES = 200 * 1024;
+
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 export const MAX_IMAGE_BASE64_BYTES = 28 * 1024 * 1024;
@@ -232,6 +234,7 @@ export async function persistImageAttachment(uri, mime = '', name = '') {
                 ? 'bmp'
                 : 'jpg';
   const destination = `${directory}image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+  markMediaWrite(destination);
   try {
     await FileSystem.copyAsync({ from: sourceUri, to: destination });
     return destination;

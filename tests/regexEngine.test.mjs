@@ -6,6 +6,7 @@ import {
   applyRegexScripts,
   compileRegex,
   compileRegexCached,
+  isUnsafeRegexPattern,
 } from '../src/regexEngine.js';
 
 const script = (patch = {}) => ({
@@ -117,6 +118,32 @@ test('展示正则只处理 HTML 可见文本，不改写标签、脚本和样�
   );
 });
 
+test('展示正则的纯文本替换和删除不会修改脚本、样式与标签', () => {
+  const replace = script({ findRegex: '/foo/g', replaceString: 'bar' });
+  const replaced = applyRegexScripts(
+    '<div>foo</div><script>const foo = 1;</script><style>.foo{}</style>',
+    [replace],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.equal(
+    replaced,
+    '<div>bar</div><script>const foo = 1;</script><style>.foo{}</style>'
+  );
+
+  const remove = script({ findRegex: '/foo/g', replaceString: '' });
+  const removed = applyRegexScripts(
+    '<div>foo</div><script>const foo = 1;</script><style>.foo{}</style>',
+    [remove],
+    REGEX_PLACEMENT.AI_OUTPUT,
+    { mode: 'display' }
+  );
+  assert.equal(
+    removed,
+    '<div></div><script>const foo = 1;</script><style>.foo{}</style>'
+  );
+});
+
 test('展示正则保留整条消息的 $ 锚点，不再逐段复制或错序', () => {
   const status = script({ findRegex: '/$/g', replaceString: '<div id="status">状态</div>' });
   const video = script({ findRegex: '/$/g', replaceString: '<video controls></video>' });
@@ -156,4 +183,20 @@ test('展示正则还原哨兵后标签与脚本逐字保留', () => {
   assert.ok(output.includes('<script>const x = 1;</script>'));
   assert.ok(output.endsWith('<b>尾</b>'));
   assert.equal((output.match(/<b>尾<\/b>/g) || []).length, 1);
+});
+
+test('嵌套无界量词会被识别为潜在灾难性回溯', () => {
+  assert.equal(isUnsafeRegexPattern('(a+)+'), true);
+  assert.equal(isUnsafeRegexPattern('/(\\w+)*$/g'), true);
+  assert.equal(isUnsafeRegexPattern('(?:a*)+'), true);
+  assert.equal(isUnsafeRegexPattern('(a{2,3})+'), false);
+  assert.equal(isUnsafeRegexPattern('(.*?)'), false);
+  assert.equal(isUnsafeRegexPattern('a(b+c)d'), false);
+});
+
+test('潜在灾难性回溯脚本被跳过而不是挂起主线程', () => {
+  const unsafe = script({ findRegex: '/(a+)+$/g', replaceString: 'x' });
+  const input = 'a'.repeat(40);
+  const output = applyRegexScripts(input, [unsafe], REGEX_PLACEMENT.AI_OUTPUT, { mode: 'display' });
+  assert.equal(output, input);
 });

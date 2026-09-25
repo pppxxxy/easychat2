@@ -2,6 +2,7 @@ import { Image } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { validateImageSize } from './attachments';
+import { markMediaWrite } from './mediaProtection';
 
 const STICKER_SCALE = 0.5;
 
@@ -41,6 +42,7 @@ export async function createStickerImage(uri, sourceWidth = 0, sourceHeight = 0)
     }
   );
   const destination = `${directory}sticker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  markMediaWrite(destination);
   try {
     await FileSystem.copyAsync({ from: result.uri, to: destination });
   } catch (error) {

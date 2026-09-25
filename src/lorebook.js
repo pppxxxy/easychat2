@@ -1,5 +1,5 @@
 // 显式带 .js 扩展名：Metro 与 Node ESM 都能解析，便于对世界书匹配逻辑做单测
-import { compileRegexCached } from './regexEngine.js';
+import { compileRegexCached, isUnsafeRegexPattern } from './regexEngine.js';
 
 const DEFAULT_SCAN_DEPTH = 4;
 
@@ -37,6 +37,7 @@ function keywordMatches(keyword, haystack, entry) {
   const flags = caseSensitive ? '' : 'i';
   const slashRegex = keyLooksLikeRegex(keyword);
   if (entry.useRegex || slashRegex) {
+    if (isUnsafeRegexPattern(keyword)) return false;
     try {
       const source = entry.matchWholeWords && !slashRegex && !hasCjk(keyword)
         ? `\\b(?:${keyword})\\b`

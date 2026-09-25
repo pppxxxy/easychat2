@@ -11,7 +11,17 @@ const COLLAPSIBLE_HTML_TAG_PATTERN = /<(?:details|summary)[\s>]/i;
 const MARKDOWN_FENCE_LINE_PATTERN = /^[ \t]*```[^\n]*$/gm;
 
 export function stripMarkdownFences(text) {
-  return String(text || '').replace(MARKDOWN_FENCE_LINE_PATTERN, '');
+  const source = String(text || '');
+  const protectedBlocks = [];
+  const protectedText = source.replace(/<(pre|code)\b[\s\S]*?<\/\1\s*>/gi, block => {
+    const token = `\uE000RICHHTML${protectedBlocks.length}\uE001`;
+    protectedBlocks.push(block);
+    return token;
+  });
+  const stripped = protectedText.replace(MARKDOWN_FENCE_LINE_PATTERN, '');
+  return stripped.replace(/\uE000RICHHTML(\d+)\uE001/g, (match, index) => (
+    protectedBlocks[Number(index)] || ''
+  ));
 }
 
 export function needsRichHtmlRendering(text) {
@@ -145,10 +155,15 @@ export function splitFullHtmlDocument(value) {
 // 视口型文档（100vh / position:fixed）的高度由 WebView 视口决定，
 // 不能再用「先测内容再喂回高度」的闭环，否则会锁死在初始 1px。
 const VIEWPORT_STYLE_PATTERN = /100(?:vh|dvh|svh|lvh)|position\s*:\s*fixed/i;
+const VIEWPORT_META_PATTERN = /<meta\b[^>]*name\s*=\s*["']viewport["'][^>]*>/i;
 
 export function isViewportRichHtml(text) {
-  const styles = String(text || '').match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
-  return styles.some(block => VIEWPORT_STYLE_PATTERN.test(block));
+  const source = String(text || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script>|$)/gi, '');
+  const blocks = source.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+  const inlineStyles = source.match(/<[a-z][^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [];
+  return [...blocks, ...inlineStyles].some(block => VIEWPORT_STYLE_PATTERN.test(block));
 }
 
 // 完整文档之外的正文要保留：包进 body，用 pre-wrap 维持换行。
@@ -159,20 +174,22 @@ function toPreambleHtml(text, position) {
 }
 
 const FULL_DOCUMENT_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' data: blob:; base-uri \'none\'; form-action \'none\'; frame-src \'none\'; object-src \'none\'; connect-src \'none\'; img-src \'self\' data: blob: https:; media-src \'self\' data: blob: https:; font-src \'self\' data: https:; style-src \'unsafe-inline\' \'self\' data:; script-src \'unsafe-inline\' \'unsafe-eval\';">';
+const FULL_DOCUMENT_VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>';
 function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '', parts = null) {
   let output = documentHtml;
   const styleBlock = `<style data-easychat2-runtime="true">${layoutStyle}</style>`;
   const beforeHtml = toPreambleHtml(parts && parts.before, 'before');
   const afterHtml = toPreambleHtml(parts && parts.after, 'after');
+  const viewportMeta = VIEWPORT_META_PATTERN.test(output) ? '' : FULL_DOCUMENT_VIEWPORT;
   if (/<head\b[^>]*>/i.test(output)) {
-    output = output.replace(/(<head\b[^>]*>)/i, `$1${FULL_DOCUMENT_CSP}`);
+    output = output.replace(/(<head\b[^>]*>)/i, `$1${FULL_DOCUMENT_CSP}${viewportMeta}`);
   }
   if (/<\/head>/i.test(output)) {
     output = output.replace(/<\/head>/i, `${styleBlock}</head>`);
   } else if (/<head\b[^>]*>/i.test(output)) {
     output = output.replace(/(<head\b[^>]*>)/i, `$1${styleBlock}`);
   } else if (/<html\b[^>]*>/i.test(output)) {
-    output = output.replace(/(<html\b[^>]*>)/i, `$1<head>${FULL_DOCUMENT_CSP}${styleBlock}</head>`);
+    output = output.replace(/(<html\b[^>]*>)/i, `$1<head>${FULL_DOCUMENT_CSP}${viewportMeta}${styleBlock}</head>`);
   } else {
     return null;
   }
