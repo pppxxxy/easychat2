@@ -397,7 +397,7 @@ export const ONBOARDING_CHAPTERS = [
     summary: '使用前请完整阅读并理解。',
     sections: DISCLAIMER_SECTIONS,
     steps: [
-      '本应用仅供学习交流使用，面向成年人。',
+      '本应用仅供学习交流使用，适用人群与法律合规详见下方声明。',
       'API 端点与密钥由你自行配置，聊天内容直发到你指定的服务地址。',
       '请遵守所在地法律法规与所选平台的使用条款。',
     ],
