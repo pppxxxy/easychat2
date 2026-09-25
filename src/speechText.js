@@ -10,6 +10,9 @@ export function hideVariantStatusBar(text) {
 }
 
 const SPEECH_FENCE_PATTERN = /```[\s\S]*?```/g;
+const SPEECH_SCRIPT_PATTERN = /<script\b[^>]*>[\s\S]*?<\/script>/gi;
+const SPEECH_STYLE_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+const SPEECH_COMMENT_PATTERN = /<!--[\s\S]*?-->/g;
 const SPEECH_HTML_TAG_PATTERN = /<[^>]*>/g;
 const SPEECH_IMAGE_PATTERN = /!\[[^\]]*\]\([^)]*\)/g;
 const SPEECH_LINK_PATTERN = /\[([^\]]*)\]\([^)]*\)/g;
@@ -24,6 +27,9 @@ const SPEECH_EMPHASIS_PATTERN = /(\*\*|__|~~|\*|_)/g;
 export function toSpeechText(text) {
   let out = hideVariantStatusBar(text);
   out = out.replace(SPEECH_FENCE_PATTERN, ' ');
+  out = out.replace(SPEECH_SCRIPT_PATTERN, ' ');
+  out = out.replace(SPEECH_STYLE_PATTERN, ' ');
+  out = out.replace(SPEECH_COMMENT_PATTERN, ' ');
   out = out.replace(SPEECH_HTML_TAG_PATTERN, ' ');
   out = out.replace(SPEECH_IMAGE_PATTERN, '');
   out = out.replace(SPEECH_LINK_PATTERN, '$1');
