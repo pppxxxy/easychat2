@@ -163,6 +163,13 @@ function normalizeWorldEntry(entry, index) {
     source.position ?? extensions.position
   );
   const rawId = source.uid ?? source.id ?? source.displayIndex;
+  // SillyTavern 把 depth / probability / scan_depth 放在 extensions 里，
+  // 只读顶层会把这些值静默重置为默认值。
+  const depth = firstNumber([source, extensions], ['depth'], 4);
+  const probability = firstNumber([source, extensions], ['probability'], 100);
+  const scanDepth = numberOrNull(
+    source.scanDepth ?? source.scan_depth ?? extensions.scanDepth ?? extensions.scan_depth
+  );
   return {
     id: rawId === null || rawId === undefined ? `entry-${index}` : String(rawId),
     comment: comment || `世界书条目 ${index + 1}`,
@@ -190,10 +197,10 @@ function normalizeWorldEntry(entry, index) {
       ['insertion_order', 'insertionOrder', 'order'],
       100
     ),
-    depth: firstNumber([source], ['depth'], 4),
-    probability: firstNumber([source], ['probability'], 100),
+    depth,
+    probability,
     useProbability: toBool(source.useProbability ?? source.use_probability, true),
-    scanDepth: numberOrNull(source.scanDepth ?? source.scan_depth),
+    scanDepth,
   };
 }
 

@@ -146,6 +146,21 @@ export function createPlaceholderPng(width = 2, height = 2) {
   ]);
 }
 
+function textChunkKeyword(bytes, dataStart, dataEnd) {
+  for (let index = dataStart; index < dataEnd; index += 1) {
+    if (bytes[index] === 0) {
+      let keyword = '';
+      for (let cursor = dataStart; cursor < index; cursor += 1) {
+        keyword += String.fromCharCode(bytes[cursor]);
+      }
+      return keyword;
+    }
+  }
+  return '';
+}
+
+// 导出时先移除原图里已有的角色卡 tEXt chunk，否则 parsecard 读取时
+// 仍会优先命中旧 ccv3/chara，导致编辑后的内容被旧卡覆盖。
 export function injectCharaChunk(pngBytes, jsonText) {
   const bytes = toUint8Array(pngBytes);
   if (!isPng(bytes)) {
@@ -165,11 +180,18 @@ export function injectCharaChunk(pngBytes, jsonText) {
       bytes[offset + 7]
     );
     const total = 12 + length;
+    let isCharacterCardChunk = false;
+    if (type === 'tEXt') {
+      const keyword = textChunkKeyword(bytes, offset + 8, offset + 8 + length);
+      isCharacterCardChunk = keyword === 'chara' || keyword === 'ccv3';
+    }
     if (type === 'IDAT' && !inserted) {
       parts.push(textChunk);
       inserted = true;
     }
-    parts.push(bytes.slice(offset, offset + total));
+    if (!isCharacterCardChunk) {
+      parts.push(bytes.slice(offset, offset + total));
+    }
     offset += total;
     if (type === 'IEND') break;
   }
@@ -191,6 +213,7 @@ function mapWorldEntry(entry) {
     selective: source.selective !== false,
     enabled: source.enabled !== false,
     position: Number.isFinite(Number(source.position)) ? Number(source.position) : 0,
+    role: source.role === 'user' || source.role === 'assistant' ? source.role : 'system',
     insertion_order: Number.isFinite(Number(source.order)) ? Number(source.order) : 100,
     case_sensitive: source.caseSensitive === true,
     use_regex: source.useRegex !== false,

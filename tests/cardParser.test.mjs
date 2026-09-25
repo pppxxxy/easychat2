@@ -45,3 +45,27 @@ test('解析 BOM、全角空白和代码围栏包裹的 JSON', () => {
   assert.equal(card.name, '角色');
   assert.equal(card.fields.firstMes, '你好');
 });
+
+test('世界书的 depth、probability、scan_depth 和 role 兼容 extensions 写法', () => {
+  const card = parseCardFromJson(JSON.stringify({
+    name: '角色',
+    character_book: {
+      entries: [{
+        comment: '条目',
+        keys: ['关键词'],
+        content: '设定',
+        role: 'assistant',
+        extensions: {
+          depth: 7,
+          probability: 35,
+          scan_depth: 9,
+        },
+      }],
+    },
+  }));
+  const entry = card.worldInfo[0];
+  assert.equal(entry.depth, 7);
+  assert.equal(entry.probability, 35);
+  assert.equal(entry.scanDepth, 9);
+  assert.equal(entry.role, 'assistant');
+});
