@@ -795,3 +795,25 @@ test('制卡草稿损坏时状态接口备份并拒绝覆盖', async () => {
   );
   assert.equal(store.get('@easychat2_card_forge'), raw);
 });
+
+test('制卡草稿持久化保留角色预设，关闭重开后不丢失', async () => {
+  const storage = loadStorage();
+  await storage.saveCardForge({
+    step: 0,
+    answers: {},
+    transcript: [],
+    draft: {
+      presets: [{
+        id: 'preset-1',
+        name: '语气预设',
+        description: '说明',
+        prompt: '保持简洁',
+        enabled: true,
+      }],
+    },
+  });
+  const state = await storage.getCardForge();
+  assert.equal(state.draft.presets.length, 1);
+  assert.equal(state.draft.presets[0].id, 'preset-1');
+  assert.equal(state.draft.presets[0].prompt, '保持简洁');
+});

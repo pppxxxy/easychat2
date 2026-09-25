@@ -1520,6 +1520,7 @@ function normalizeForgeDraft(raw) {
   draft.regexScripts = Array.isArray(source.regexScripts)
     ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, 100)
     : [];
+  draft.presets = normalizeCharacterPresets(source.presets).slice(0, 50);
   return draft;
 }
 
