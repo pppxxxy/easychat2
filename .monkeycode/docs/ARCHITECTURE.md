@@ -70,11 +70,13 @@ easychat2/
 │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
 │   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
 │   ├── lorebook.js           # 世界书条目激活判定
-│   ├── regexEngine.js        # 正则脚本作用范围与应用
+│   ├── regexEngine.js        # 正则脚本作用范围、应用与灾难性回溯模式拦截
+│   ├── displayTextCache.js   # 展示正则结果按消息对象缓存，减少流式重算
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
 │   ├── attachments.js        # 聊天附件：文本读取、图片预检/持久化、pending 结果与合并
 │   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
+│   ├── imageResultFormat.js  # 生图结果扩展名/MIME 解析
 │   ├── games/games.js        # 内嵌 HTML 小游戏清单
 │   ├── theme/                # 五套主题语义色板与字体缩放上下文
 │   ├── tts/                  # 声明式语音播报 Provider 与统一适配层
@@ -86,6 +88,7 @@ easychat2/
 │   │   └── webSearch.js      # 通用请求器：构造、解析、缓存、重试与限流
 │   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
 │   ├── messageSelection.js   # 消息多选与修改重发撤回计划
+│   ├── mediaProtection.js    # 媒体写入 revision 与最近 URI 保护、回收重试时点
 │   ├── secrets.js            # 共享密钥脱敏
 │   ├── disclaimer.js         # 免责条款文本与弹窗组件
 │   ├── storage.js            # AsyncStorage 读写封装、角色文件分片与旧库恢复

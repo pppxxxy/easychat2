@@ -499,13 +499,14 @@ data: [DONE]
 | `buildEmbeddingUrl(baseUrl)` | 归一化 `/embeddings` 结尾 |
 | `mapEmbeddingError(status)` | 401/403、429 与其他的可读错误映射 |
 | `normalizeVectorConfig(raw)` | 规范化配置并夹取范围 |
+| `vectorSignature(raw)` | 由 provider/baseUrl/model/maxChars 生成配置指纹，用于判断旧向量是否需要重嵌 |
 | `chunkMessages(messages, { maxChars })` | 按消息边界与长度切分片段，附 `id`/`messageId`/`role`/`at`，文本前缀标注说话者 |
 | `embedTexts({ config, texts })` | 调用 `/embeddings` 批量向量化，返回向量数组 |
 | `cosineSimilarity(a, b)` | 余弦相似度 |
 | `retrieve({ config, index, query, topK })` | 查询向量化后按相似度取 TopN；未启用或失败回退 `keywordRetrieve` |
 | `keywordRetrieve({ index, query, topK })` | 本地关键词检索（中英文分词计分） |
 | `buildMemoryContext(snippets, { maxTotalChars })` | 拼装 `[相关记忆]` 文本并限制总长，空输入返回空串 |
-| `indexMessages({ characterId, messages, config, existing, sessionId })` | 增量分片并向量化，按 `sessionId + fragmentId` 去重；未启用或失败时仅存片段（`vector: []`），实际写回由 storage 角色级队列完成 |
+| `indexMessages({ characterId, messages, config, existing, sessionId, signal })` | 增量分片并向量化，按 `sessionId + fragmentId` 去重；给片段写入 `signature` 指纹，配置变化时旧向量会被重嵌；未启用或失败时仅存片段（`vector: []`），实际写回由 storage 角色级队列完成 |
 | `testVectorConnection(config)` | 测试连接，返回向量维度或抛可读错误 |
 
 ## 聊天竞态接口
@@ -515,12 +516,28 @@ data: [DONE]
 **返回**: `boolean` - 当前角色与发起请求时的角色不同时返回 `true`
 **用途**: `ChatScreen` 在 `onChunk`、`setMessages` 与错误原文写入处据此丢弃切换角色后的迟到回复
 
+## 渲染性能与摘要接口
+
+### `getCachedDisplayText(message, scripts, placement, depth, compute)`
+**位置**: `src/displayTextCache.js`
+**返回**: `string` - 展示正则处理后的文本
+**说明**: 以消息对象为键缓存结果；仅当 `scripts` 引用、`placement` 或 `depth` 变化时重算，避免每个流式 token 重跑全部历史消息的展示正则
+
+### `invalidateHistorySummaries({ session, messages, removedIds, scoped, character, updateCharacter })`
+**位置**: `src/memorySummary.js`
+**说明**: 删除/替换历史后统一失效摘要：按 boundary 精确保留幸存会话摘要、写出新边界；非会话隔离模式下同时禁用受影响的世界书总结条目；会话摘要写失败时按记录的原始开关状态精确回滚
+
+### `getNextRecentMediaExpiry()`
+**位置**: `src/mediaProtection.js`
+**返回**: 最早一条“最近写入”媒体的保护过期时间戳（无则 `0`）
+**用途**: `collectChatImageFiles` 跳过近期文件后，据此在保护窗口结束时安排一次回收重试
+
 ## 卡解析与提示管线接口
 
 ### `parseCardFromJson(text)`
 **位置**: `src/cardParser.js`
-**返回**: 标准化角色卡 `{ name, fields, systemPrompt, worldInfo, regexScripts, presets }`
-**说明**: 兼容标准 V2/V3、扁平结构、织语 `zhiyu_agent_v1`，并对纯文本 JSON 的 BOM、围栏、全角空白和字符串换行做容错
+**返回**: 标准化角色卡 `{ name, fields, systemPrompt, worldInfo, regexScripts, presets, extensions, extra }`
+**说明**: 兼容标准 V2/V3、扁平结构、织语 `zhiyu_agent_v1`，并对纯文本 JSON 的 BOM、围栏、全角空白和字符串换行做容错；`extensions`/`extra` 是未知第三方扩展与顶层字段的透传桶，导出时原样写回
 **异常**: JSON 语法错误时抛出 `Error('JSON 语法错误：...')`
 
 ### `parseCardFromPng(bytes)`
@@ -537,10 +554,11 @@ data: [DONE]
 
 | 函数 | 说明 |
 |------|------|
-| `buildCardV2(character)` | 构造 `chara_card_v2`（V2 `data` + V1 平铺字段），映射 `character_book` 与 `extensions.regex_scripts` |
+| `buildCardV2(character)` | 构造 `chara_card_v2`（V2 `data` + V1 平铺字段），映射 `character_book` 与 `extensions.regex_scripts`；`cardExtensions`/`cardExtra` 会合并回 `data.extensions`/`data`，保留第三方字段 |
 | `cardToJson(character)` | 返回格式化 JSON 字符串 |
-| `cardToPng(character, avatarBytes?)` | 返回含 `chara` 文本块的 PNG 字节；头像缺失或非法时回退占位 PNG |
-| `exportCardFile(character, format, avatarBytes?)` | 写入缓存目录并返回文件 uri；`format` 为 `'png'` 或 `'json'` |
+| `cardToPng(character, avatarBytes?)` | 返回含 `chara` 文本块的 PNG 字节；非 PNG 头像抛错，头像缺失时回退占位 PNG |
+| `exportCardFile(character, format, avatarBytes?)` | 写入缓存目录并返回文件 uri；`format` 为 `'png'` 或 `'json'`；超过 `MAX_CARD_FILE_BYTES`（32 MiB）抛错 |
+| `assertCardFileSize(bytes, format)` | 校验导出体积是否超过应用导入上限 |
 | `createPlaceholderPng(width?, height?)` | 生成最小 RGB 占位 PNG（deflate stored + 自实现 CRC32/Adler32） |
 | `injectCharaChunk(pngBytes, jsonText)` | 在 `IHDR` 之后、`IDAT` 之前插入 `chara` 文本块 |
 
@@ -613,6 +631,16 @@ data: [DONE]
 | `checkConnectivity({ provider, config })` | 调用 `listModels`，区分 401/403（密钥无效）与网络类错误并返回 `{ ok, models?, error?, authFailed?, networkFailed? }` |
 | `detectImageProvider({ provider, config, model, prompt })` | 先尝试模型列表并比对模型名；列表不可用时回退到一次真实生成探测，返回 `{ ok, mode, message, modelFound?, models? }` |
 | `generateImage({ provider, prompt, imageFile?, imageUrl?, imageUri?, image?, model?, size?, seed?, extra?, config?, imageMime? })` | 统一生成入口，返回 `Promise<{ images: [{ url?, base64? }], raw }>`；含超时与按 `retries` 重试 |
+
+### `resolveImageFormat(result)`
+**位置**: `src/imageResultFormat.js`
+**返回**: `{ ext, mime }` - 按结果 `mimeType` 优先、其次 URL 后缀解析图片格式，未知时回退 `png`
+**用途**: `ImageGenScreen.saveResult` 据此决定落盘扩展名、分享 MIME，并配合 60 秒下载超时避免结果永久挂起
+
+### `normalizeModelList(value, fallback?)`
+**位置**: `src/ImageGenScreen.js`
+**返回**: `string[]` - 把逗号/换行分隔的模型值去重并保留顺序
+**用途**: 检测、试生成与正式生成统一取首个模型，避免把多模型整串发给接口
 
 **说明**: 密钥仅存本机 AsyncStorage；未填地址或密钥时直接抛错不发起请求；`extra.params` 与 Provider 的 `params` 映射按点号路径写入请求体；`sizeSplit` 把 `宽*高` 拆为 width/height；图生图必须携带图片。个性化配置中已下线的旧平台 id 会在读取时被规范化为空，界面回退到首个平台。
 

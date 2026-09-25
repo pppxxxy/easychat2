@@ -46,3 +46,12 @@ Entries discovered by the Agent during task execution should follow this format:
 - Instructions:
   - 独立核验每条审核建议，确认问题真实存在后再实施。
   - 采纳综合判断后必要的修复，保持一个主题一个提交并完成对应回归测试。
+
+[User Instruction Summary]
+- Date: 2026-09-25
+- Context: 继续进行 EasyChat2 全仓库逐行审查与修复
+- Instructions:
+  - 在用户明确授权前禁止执行 git commit 与 git push。
+  - 按逻辑问题、未命名变量或其他调用错误、修复回归、大角色卡运行与渲染、其他 Bug 五类逐文件逐行检查。
+  - 检查结果必须有代码证据或可重复验证，确认后补充到 `.monkeycode/docs/审查待办.md`。
+  - 按依赖关系逐项修复，每次修复补充对应回归测试，完成全部门禁后汇报并等待用户检查。
