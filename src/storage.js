@@ -2278,7 +2278,9 @@ const DEFAULT_PLUGINS = [
   },
 ];
 
-const PLUGIN_PROVIDERS = ['serpapi', 'google-cse', 'bing', 'brave', 'tavily', 'custom'];
+// Bing Search API 已于 2025-08-11 停服（微软 2025-05 公告），不再列入供应商：
+// 存量 bing 配置会被规范化回该插件的默认 provider。
+const PLUGIN_PROVIDERS = ['serpapi', 'google-cse', 'brave', 'tavily', 'custom'];
 
 function normalizePlugin(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};

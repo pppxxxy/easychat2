@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FIELD_LABELS, FORGE_FIELDS, createForgeDraft } from './cardForge/forge';
+import { FIELD_LABELS, FORGE_FIELDS, MAX_FORGE_TAG_COUNT, createForgeDraft } from './cardForge/forge';
 import { FieldGroup, PrimaryButton, SecondaryButton, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
 
@@ -57,7 +57,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave }) {
       .split(/[、,，]+/)
       .map(item => item.trim())
       .filter(Boolean)
-      .slice(0, 10);
+      .slice(0, MAX_FORGE_TAG_COUNT);
     onSave({ ...form, tags });
   };
 
@@ -99,7 +99,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave }) {
               multiline
             />
           </FieldGroup>
-          <FieldGroup label="标签" hint="用顿号或逗号分隔，最多 10 个">
+          <FieldGroup label="标签" hint={`用顿号或逗号分隔，最多 ${MAX_FORGE_TAG_COUNT} 个`}>
             <TextField value={tagText} onChangeText={setTagText} placeholder="例如：治愈、日常" />
           </FieldGroup>
           {greetings + worldCount + regexCount > 0 ? (

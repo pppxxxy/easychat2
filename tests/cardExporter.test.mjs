@@ -127,3 +127,68 @@ test('世界书导出保留 role、depth、probability、scan_depth 并可重新
   assert.equal(external.matchWholeWords, true);
   assert.equal(external.useProbability, false);
 });
+test('导出会移除 iTXt 里的旧 chara 块，不再携带双份卡数据', () => {
+  const exporter = loadExporter();
+
+  const crcTable = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  const crc32 = bytes => bytes.reduce((c, b) => crcTable[(c ^ b) & 0xff] ^ (c >>> 8), 0) >>> 0;
+  const makeChunk = (type, data) => {
+    const length = new Uint8Array([(data.length >>> 24) & 0xff, (data.length >>> 16) & 0xff, (data.length >>> 8) & 0xff, data.length & 0xff]);
+    const typeBytes = Buffer.from(type, 'latin1');
+    const body = Buffer.concat([typeBytes, Buffer.from(data)]);
+    const crc = new Uint8Array([
+      (c => (c >>> 24) & 0xff)(crc32(body)),
+      (c => (c >>> 16) & 0xff)(crc32(body)),
+      (c => (c >>> 8) & 0xff)(crc32(body)),
+      (c => c & 0xff)(crc32(body)),
+    ]);
+    return new Uint8Array([...length, ...body, ...crc]);
+  };
+  // iTXt 布局：keyword\0 压缩标志 压缩方法 language\0 translatedKeyword\0 text
+  const makeItxt = (keyword, text) => makeChunk('iTXt', Buffer.concat([
+    Buffer.from(keyword, 'latin1'), Buffer.from([0, 0, 0, 0, 0]),
+    Buffer.from(text, 'utf8'),
+  ]));
+  const insertAfterIhdr = (png, chunk) => {
+    const bytes = Buffer.from(png);
+    return new Uint8Array([...bytes.subarray(0, 33), ...chunk, ...bytes.subarray(33)]);
+  };
+  const itxtKeywords = png => {
+    const bytes = Buffer.from(png);
+    const found = [];
+    let offset = 8;
+    while (offset + 8 <= bytes.length) {
+      const length = bytes.readUInt32BE(offset);
+      const type = bytes.toString('latin1', offset + 4, offset + 8);
+      if (type === 'iTXt') {
+        const dataEnd = offset + 8 + length;
+        let end = offset + 8;
+        while (end < dataEnd && bytes[end] !== 0) end += 1;
+        found.push(bytes.toString('latin1', offset + 8, end));
+      }
+      offset += 12 + length;
+      if (type === 'IEND') break;
+    }
+    return found;
+  };
+
+  const oldCard = JSON.stringify({ name: '旧角色' });
+  const withOldItxt = insertAfterIhdr(
+    exporter.createPlaceholderPng(),
+    makeItxt('chara', Buffer.from(oldCard).toString('base64'))
+  );
+  assert.deepEqual(itxtKeywords(withOldItxt), ['chara']);
+
+  const exported = exporter.injectCharaChunk(withOldItxt, JSON.stringify({ name: '新角色' }));
+  assert.deepEqual(itxtKeywords(exported), []);
+  const parsed = JSON.parse(readJsonFromPNG(exported));
+  assert.equal(parsed.name, '新角色');
+});

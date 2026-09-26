@@ -133,9 +133,9 @@ const MAX_FIELD_TEXT = 4000;
 export const MAX_PRESERVED_TEXT = 500000;
 export const MAX_PRESERVED_ITEMS = 2000;
 const MAX_TRANSCRIPT = 200;
-// 标签上限全流程统一：草稿导入、提示词投影、模型补丁解析与合并共用同一常量，
+// 标签上限全流程统一：草稿导入、提示词投影、模型补丁解析、合并与编辑器 UI 共用同一常量，
 // 避免导入时保留 2000 个、AI 往返却静默截断到 10 个的往返丢失。
-const MAX_FORGE_TAG_COUNT = 100;
+export const MAX_FORGE_TAG_COUNT = 100;
 const ROLE_SET = new Set(['ai', 'user', 'note']);
 
 function clean(value, max = MAX_FIELD_TEXT) {

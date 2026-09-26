@@ -25,15 +25,26 @@ export const TTS_PROVIDERS = [
     id: 'xiaomi-mimo',
     label: '小米 MiMo',
     apiKeyUrl: 'https://platform.xiaomimimo.com',
-    baseUrl: 'https://api.xiaomi.com/v1/audio/speech',
+    // 官方 API 域名为 api.xiaomimimo.com（平台首页 platform.xiaomimimo.com 已核实）。
+    // /v1/audio/speech 为官方兼容端点（推荐走 /v1/chat/completions，但本引擎为
+    // 声明式 audio/speech 形态，选兼容端点零引擎改动）。
+    baseUrl: 'https://api.xiaomimimo.com/v1/audio/speech',
     method: 'POST',
-    auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
+    // MiMo 鉴权用 api-key 请求头，不是 OpenAI 风格的 Authorization: Bearer。
+    auth: { type: 'header', keyName: 'api-key' },
     textField: 'input',
     voiceField: 'voice',
     speedField: 'speed',
     formatField: 'response_format',
-    response: { mode: 'binary' },
-    fields: BEARER_FIELDS,
+    // 兼容端点返回 JSON，音频 base64 位于 message.audio.data，不是音频二进制流。
+    response: { mode: 'base64', path: 'message.audio.data' },
+    fields: [
+      { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.xiaomimimo.com/v1/audio/speech' },
+      { key: 'apiKey', label: 'API Key', secret: true, placeholder: '在开放平台控制台获取' },
+      { key: 'model', label: '模型名', optional: true, placeholder: '以官方文档为准' },
+      { key: 'voice', label: '音色', optional: true, placeholder: '以官方音色列表为准' },
+      { key: 'speed', label: '语速', optional: true, placeholder: '1.0' },
+    ],
     timeoutMs: 30000,
     retries: 1,
     custom: true,
@@ -128,6 +139,8 @@ export const TTS_PROVIDERS = [
     baseUrl: 'https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts',
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
+    // 阿里云 NLS 网关要求 appkey 作为查询参数；原声明收集了 AppKey 却从不发送。
+    queryFields: [{ name: 'appkey', from: 'appId' }],
     textField: 'text',
     voiceField: 'voice',
     speedField: 'speech_rate',
@@ -194,7 +207,9 @@ export const TTS_PROVIDERS = [
     apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
     baseUrl: 'https://api.minimax.chat/v1/t2a_v2',
     method: 'POST',
-    auth: { type: 'query', keyName: 'GroupId' },
+    // MiniMax 同时需要两种凭据：GroupId 进查询串，API Key 进 Bearer 头。
+    // 原声明只有 query 认证，导致用户填的 API Key 从不发送、请求必然 401。
+    auth: { type: 'query', keyName: 'GroupId', bearer: true },
     textField: 'text',
     voiceField: 'voice_setting.voice_id',
     speedField: 'voice_setting.speed',

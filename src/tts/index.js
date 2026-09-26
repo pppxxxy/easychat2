@@ -85,6 +85,11 @@ function buildHeaders(provider, config) {
     const prefix = auth.prefix === undefined ? '' : auth.prefix;
     headers[auth.keyName] = `${prefix}${config.apiKey || ''}`;
   }
+  // query 认证（如 MiniMax 的 GroupId）之外仍需 Bearer 密钥头的平台。
+  // 没有这行，apiKey 会被收集却从不发送。
+  if (auth.bearer && config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
+  }
   return headers;
 }
 
@@ -94,6 +99,17 @@ export function buildTtsRequest(provider, config, text, token) {
   if (!url) return null;
   if (!/^(?:https?|wss?):\/\/[^/\s]+/i.test(url)) {
     throw new Error('请填写有效的语音服务地址');
+  }
+  // XHR 无法打开 WebSocket 连接：wss 端点（如讯飞）直接明确失败，
+  // 不要让用户面对一个难以理解的 XHR 网络错误。
+  if (/^wss:/i.test(url)) {
+    throw new Error('该语音服务使用 WebSocket 协议（wss），当前引擎暂不支持，请改用其他引擎或 HTTP 端点');
+  }
+  // 腾讯云需要 TC3-HMAC-SHA256 签名，当前引擎未实现：
+  // 绝不把 SecretKey 当明文 Authorization 头发送（必然 401 且密钥暴露在头里），
+  // 明确失败优于静默泄露。
+  if (provider.signer === 'tencent') {
+    throw new Error('腾讯云语音签名（TC3-HMAC-SHA256）尚未实现，暂时无法使用该引擎');
   }
   const payload = {};
   if (provider.textField) setByPath(payload, provider.textField, text);
@@ -117,6 +133,14 @@ export function buildTtsRequest(provider, config, text, token) {
     url = `${url}${join}${encodeURIComponent(auth.keyName)}=${encodeURIComponent(token || '')}`;
   }
   if (auth.type === 'body' && auth.keyName) setByPath(payload, auth.keyName, config.apiKey || '');
+  // 平台声明的额外查询参数（如阿里云 NLS 的 appkey）：
+  // 只装配有值的字段，避免拼出 appkey= 的空参数。
+  (provider.queryFields || []).forEach(field => {
+    const raw = config[field.from];
+    if (raw === undefined || raw === null || String(raw) === '') return;
+    const join = url.includes('?') ? '&' : '?';
+    url = `${url}${join}${encodeURIComponent(field.name)}=${encodeURIComponent(String(raw))}`;
+  });
 
   if (provider.signer === 'iflytek') {
     if (config.appId) setByPath(payload, 'common.app_id', config.appId);

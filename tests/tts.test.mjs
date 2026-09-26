@@ -129,3 +129,81 @@ test('二进制 TTS 响应按 ArrayBuffer 转为 Base64', async () => {
     globalThis.XMLHttpRequest = originalXHR;
   }
 });
+test('MiniMax 请求同时携带 GroupId 查询参数与 Bearer 密钥头', () => {
+  const tts = loadTts();
+  const request = tts.buildTtsRequest({
+    id: 'minimax',
+    method: 'POST',
+    baseUrl: 'https://api.minimax.chat/v1/t2a_v2',
+    auth: { type: 'query', keyName: 'GroupId', bearer: true },
+    textField: 'text',
+  }, { appId: 'group-1', apiKey: 'key-1' }, '你好');
+  assert.match(request.url, /GroupId=group-1$/);
+  assert.equal(request.headers.Authorization, 'Bearer key-1');
+  assert.equal(JSON.parse(request.body).text, '你好');
+});
+
+test('阿里云请求把 AppKey 拼进 appkey 查询参数', () => {
+  const tts = loadTts();
+  const request = tts.buildTtsRequest({
+    id: 'aliyun',
+    method: 'POST',
+    baseUrl: 'https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts',
+    auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
+    queryFields: [{ name: 'appkey', from: 'appId' }],
+    textField: 'text',
+  }, { apiKey: 'token-1', appId: 'app-1' }, '你好');
+  assert.equal(request.headers.Authorization, 'Bearer token-1');
+  assert.match(request.url, /appkey=app-1$/);
+});
+
+test('queryFields 未填值时不拼空参数', () => {
+  const tts = loadTts();
+  const request = tts.buildTtsRequest({
+    id: 'aliyun',
+    method: 'POST',
+    baseUrl: 'https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts',
+    auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
+    queryFields: [{ name: 'appkey', from: 'appId' }],
+    textField: 'text',
+  }, { apiKey: 'token-1' }, '你好');
+  assert.equal(request.url.includes('appkey='), false);
+});
+
+test('腾讯云签名未实现时明确失败且绝不发送 SecretKey', () => {
+  const tts = loadTts();
+  assert.throws(() => tts.buildTtsRequest({
+    id: 'tencent-cloud',
+    method: 'POST',
+    baseUrl: 'https://tts.tencentcloudapi.com',
+    auth: { type: 'header', keyName: 'Authorization' },
+    signer: 'tencent',
+    textField: 'Text',
+  }, { apiKey: 'secret-key' }, '你好'), /尚未实现/);
+});
+
+test('wss 语音地址明确提示当前引擎不支持', () => {
+  const tts = loadTts();
+  assert.throws(() => tts.buildTtsRequest({
+    id: 'iflytek-spark',
+    method: 'POST',
+    baseUrl: 'wss://tts-api.xfyun.cn/v2/tts',
+    signer: 'iflytek',
+    textField: 'text',
+  }, {}, '你好'), /WebSocket/);
+});
+
+test('TTS 声明表的小米 MiMo 配置与官方端点一致', async () => {
+  // 直接导入真实 providers.js（纯数据模块），防止域名/鉴权回退到错误版本
+  const { getTtsProvider } = await import('../src/tts/providers.js');
+  const mimo = getTtsProvider('xiaomi-mimo');
+  assert.equal(mimo.baseUrl, 'https://api.xiaomimimo.com/v1/audio/speech');
+  assert.equal(mimo.auth.keyName, 'api-key');
+  assert.equal(mimo.auth.prefix, undefined);
+  assert.equal(mimo.response.mode, 'base64');
+  assert.equal(mimo.response.path, 'message.audio.data');
+  const minimax = getTtsProvider('minimax');
+  assert.equal(minimax.auth.bearer, true);
+  const aliyun = getTtsProvider('aliyun');
+  assert.deepEqual(aliyun.queryFields, [{ name: 'appkey', from: 'appId' }]);
+});

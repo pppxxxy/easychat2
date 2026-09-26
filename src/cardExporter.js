@@ -201,7 +201,10 @@ export function injectCharaChunk(pngBytes, jsonText) {
     );
     const total = 12 + length;
     let isCharacterCardChunk = false;
-    if (type === 'tEXt') {
+    // 三种文本块的关键词都是“首个 null 前的字符串”，可用同一提取器。
+    // 只清 tEXt 会漏掉 iTXt/zTXt 里的旧卡数据：导出后 PNG 同时携带新旧两份
+    // chara/ccv3 载荷，偏好 iTXt 的读取方（含部分第三方工具）会读到旧卡。
+    if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
       const keyword = textChunkKeyword(bytes, offset + 8, offset + 8 + length);
       isCharacterCardChunk = keyword === 'chara' || keyword === 'ccv3';
     }
