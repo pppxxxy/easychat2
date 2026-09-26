@@ -36,10 +36,21 @@ const {
 } = runtimeModule.exports;
 
 test('新手教程包含图片、表情包与大角色卡章节', () => {
-  assert.equal(ONBOARDING_CHAPTERS.length, 13);
+  assert.equal(ONBOARDING_CHAPTERS.length, 16);
   const chapter = getOnboardingChapters(['chat-media'])[0];
   assert.equal(getOnboardingChapter('chat-media'), chapter);
   assert.equal(chapter.id, 'chat-media');
   assert.match(chapter.intro, /HTML/);
   assert.ok(chapter.items.some(item => item.name === '修改重发'));
+});
+
+test('新手教程包含世界书、正则脚本与预设章节', () => {
+  for (const id of ['lorebook', 'regex', 'presets']) {
+    const chapter = getOnboardingChapter(id);
+    assert.ok(chapter, `缺少章节 ${id}`);
+    assert.ok(chapter.steps.length > 0, `${id} 缺少步骤`);
+    assert.ok(chapter.items.length > 0, `${id} 缺少速查项`);
+  }
+  assert.match(getOnboardingChapter('lorebook').intro, /关键词/);
+  assert.match(getOnboardingChapter('presets').intro, /系统提示词/);
 });
