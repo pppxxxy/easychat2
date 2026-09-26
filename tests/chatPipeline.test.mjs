@@ -1,12 +1,58 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 import {
   DEFAULT_OUTPUT_FORMAT_PROMPT,
+  DEFAULT_SYSTEM_PROMPT,
   buildRequestMessages,
 } from '../src/chatPipeline.js';
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');
+const CHARACTER_EDIT_FORM_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterEditForm.js'), 'utf8');
+
 const character = { name: '测试角色', systemPrompt: '你是测试角色。', regexScripts: [] };
+
+test('角色人设保存时不被强制回退为默认文案', () => {
+  // 「空白人设被覆写成默认提示语」是双层 bug：
+  // CharacterScreen 角色页保存 + CharacterEditForm 编辑弹窗保存。
+  // 断言这两条路径都不再兜底默认值。
+  assert.equal(
+    CHARACTER_SCREEN_SOURCE.includes(`trimmedPrompt || '你是 EasyChat2`),
+    false
+  );
+  assert.equal(
+    CHARACTER_EDIT_FORM_SOURCE.includes(`trimmedPrompt || '你是 EasyChat2`),
+    false
+  );
+  // 同时确认写入时直接保存空格（防未来用其他兜底方式）
+  assert.equal(
+    CHARACTER_SCREEN_SOURCE.includes('systemPrompt: trimmedPrompt,'),
+    true
+  );
+  assert.equal(
+    CHARACTER_EDIT_FORM_SOURCE.includes('systemPrompt: trimmedPrompt,'),
+    true
+  );
+});
+
+test('角色人设空白时对话请求兜底默认系统提示', () => {
+  // 人设允许留空；UI 保存不再覆写默认值，
+  // 空值必须落在 chatPipeline 的发送侧兜底。
+  const messages = buildRequestMessages({
+    character: { name: '', systemPrompt: '', systemPromptComposed: '', regexScripts: [] },
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: [],
+  });
+  const system = messages.find(item => item.role === 'system');
+  assert.ok(system);
+  assert.ok(system.content.includes(DEFAULT_SYSTEM_PROMPT));
+});
 
 test('始终附带输出格式指令，不依赖预设开关', () => {
   const messages = buildRequestMessages({

@@ -191,7 +191,9 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
     const next = {
       id: characterId || 'default',
       name: draft.name.trim() || 'EasyChat2 助手',
-      systemPrompt: trimmedPrompt || '你是 EasyChat2 的智能助手，回答简洁清晰。',
+      // 「人设/系统提示」允许并保持空白：默认值仅在 chatPipeline 发送时兜底，
+      // 用户主动留空的人设不能被覆写成默认卡文案。
+      systemPrompt: trimmedPrompt,
       systemPromptComposed: buildSystemPrompt({
         description: draft.description.trim(),
         personality: draft.personality.trim(),

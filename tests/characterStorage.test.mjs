@@ -183,6 +183,26 @@ test('大角色卡使用文件描述符，保存后可以完整读回', async ()
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
 });
 
+test('空白人设读取时不覆写为默认值', async () => {
+  // UI 保存角色编辑后人设可能为空串；normalizeCharacter 扩展源字段
+  // 后会把 '' 覆盖到默认卡文案上，存储层不能再覆写回去。
+  const storage = loadStorage();
+  store.clear();
+  const character = {
+    id: 'blank-persona',
+    name: '空人设角色',
+    systemPrompt: '',
+    systemPromptComposed: '',
+  };
+  await storage.saveCharacterLibrary([character]);
+  const restored = await storage.getCharacterLibrary();
+  const item = restored.find(entry => entry.id === 'blank-persona');
+  assert.equal(item.systemPrompt, '');
+  assert.equal(item.systemPromptComposed, '');
+  // 同时确保身份判定不受空人设影响（不是默认卡）
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
+});
+
 test('默认索引是升级回归产物时，从仍可读的 legacy 整库恢复角色', async () => {
   const storage = loadStorage();
   seedDefaultItem();
