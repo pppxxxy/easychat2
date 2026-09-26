@@ -133,7 +133,9 @@ const MAX_FIELD_TEXT = 4000;
 export const MAX_PRESERVED_TEXT = 500000;
 export const MAX_PRESERVED_ITEMS = 2000;
 const MAX_TRANSCRIPT = 200;
-const MAX_TAG_COUNT = 10;
+// 标签上限全流程统一：草稿导入、提示词投影、模型补丁解析与合并共用同一常量，
+// 避免导入时保留 2000 个、AI 往返却静默截断到 10 个的往返丢失。
+const MAX_FORGE_TAG_COUNT = 100;
 const ROLE_SET = new Set(['ai', 'user', 'note']);
 
 function clean(value, max = MAX_FIELD_TEXT) {
@@ -255,7 +257,7 @@ export function projectForgeDraft(draft) {
   const projected = {};
   FORGE_FIELDS.forEach(key => { projected[key] = preserveText(source[key]); });
   projected.tags = Array.isArray(source.tags)
-    ? source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT)
+    ? source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_FORGE_TAG_COUNT)
     : [];
   return projected;
 }
@@ -281,6 +283,7 @@ export function buildGeneratePrompt(state) {
     '- mesExample：1-2 组对话示例，格式为「{{user}}：…」与「角色名：…」逐行交替。',
     '- creatorNotes：给用户的使用建议（可留空）；postHistoryInstructions：给模型的持续要求（可留空）。',
     '- tags：3-6 个简短中文标签组成的数组。',
+    '- 要清空某个字段或全部标签时，把该字段（或 tags）的值写成 null；不要用空字符串或空数组表示清空。',
     '- 全部使用中文。',
   ].join('\n');
 }
@@ -299,6 +302,8 @@ export function buildEditPrompt({ draft, request, answers } = {}) {
     '输出要求：',
     '- 只输出修改后的完整 JSON 对象，不要任何解释或代码块标记。',
     '- 字段与结构保持不变，不要新增或删除字段。',
+    '- 未修改的字段必须原样完整复制，不要留空。',
+    '- 要清空某个字段或全部标签时，把该字段（或 tags）的值写成 null；空字符串和空数组不会被视为清空。',
     '- 全部使用中文。',
   ].filter(Boolean).join('\n');
 }
@@ -325,13 +330,17 @@ export function parseCardPatch(text) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
     const patch = {};
     FORGE_FIELDS.forEach(key => {
+      // null 是唯一的显式清空指令；字符串（含空串）只按普通值处理。
       if (typeof parsed[key] === 'string') patch[key] = parsed[key];
+      else if (parsed[key] === null) patch[key] = null;
     });
-    if (Array.isArray(parsed.tags)) {
+    if (parsed.tags === null) {
+      patch.tags = null;
+    } else if (Array.isArray(parsed.tags)) {
       patch.tags = parsed.tags
         .map(item => clean(item, 40))
         .filter(Boolean)
-        .slice(0, MAX_TAG_COUNT);
+        .slice(0, MAX_FORGE_TAG_COUNT);
     }
     if (Object.keys(patch).length > 0) return patch;
   }
@@ -344,15 +353,31 @@ export function mergeDraft(draft, patch, now = Date.now()) {
   const next = { ...base };
   const changed = [];
   FORGE_FIELDS.forEach(key => {
+    // 显式清空只认 null 哨兵。提示词要求模型回全量 JSON，模型给未改字段填空串
+    // 是常见偷懒行为——空串若被当成清空指令，用户已写好的长字段会被一次性抹掉。
+    if (source[key] === null) {
+      if (clean(base[key], MAX_PRESERVED_TEXT) === '') return;
+      next[key] = '';
+      changed.push(`${FIELD_LABELS[key] || key}（已清空）`);
+      return;
+    }
     if (typeof source[key] !== 'string') return;
     const value = clean(source[key], MAX_PRESERVED_TEXT);
+    if (!value) return;
     if (value === clean(base[key], MAX_PRESERVED_TEXT)) return;
     next[key] = value;
     changed.push(FIELD_LABELS[key] || key);
   });
-  if (Array.isArray(source.tags)) {
-    const tags = source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_TAG_COUNT);
-    if (tags.join('|') !== (Array.isArray(base.tags) ? base.tags.join('|') : '')) {
+  if (source.tags === null) {
+    const baseTags = Array.isArray(base.tags) ? base.tags : [];
+    if (baseTags.length > 0) {
+      next.tags = [];
+      changed.push('标签（已清空）');
+    }
+  } else if (Array.isArray(source.tags)) {
+    const tags = source.tags.map(item => clean(item, 40)).filter(Boolean).slice(0, MAX_FORGE_TAG_COUNT);
+    // 空数组同样不构成清空指令（理由同上）；只有显式 null 才清空标签。
+    if (tags.length > 0 && tags.join('|') !== (Array.isArray(base.tags) ? base.tags.join('|') : '')) {
       next.tags = tags;
       changed.push('标签');
     }

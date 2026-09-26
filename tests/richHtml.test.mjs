@@ -156,16 +156,32 @@ test('拆分完整文档，保留前置叙事与后置正文', () => {
 });
 
 test('识别视口型文档样式', () => {
-  assert.equal(isViewportRichHtml('<style>.app{height:100vh;overflow:hidden}</style>'), true);
-  assert.equal(isViewportRichHtml('<style>.x{height:100dvh}</style>'), true);
-  assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0}</style>'), true);
-  assert.equal(isViewportRichHtml('<div style="height:100vh"></div>'), true);
-  assert.equal(isViewportRichHtml('<!-- <style>.x{height:100vh}</style> -->'), false);
-  assert.equal(isViewportRichHtml('<script>const demo = "<div style=\\"height:100vh\\"></div>";</script>'), false);
-  assert.equal(isViewportRichHtml('<style>.x{height:200px}</style>'), false);
-   assert.equal(isViewportRichHtml('普通文本没有样式'), false);
-   assert.equal(isViewportRichHtml('<pre>&lt;div style="height:100vh"&gt;</pre>'), false);
-   assert.equal(isViewportRichHtml('<div data-style="height:100vh"></div>'), false);
+   assert.equal(isViewportRichHtml('<style>.app{height:100vh;overflow:hidden}</style>'), true);
+   assert.equal(isViewportRichHtml('<style>.x{height:100dvh}</style>'), true);
+  // 根级 position:fixed 是视口型；子元素上的 fixed 挂件/角标不是
+   assert.equal(isViewportRichHtml('<style>body{position:fixed;inset:0}</style>'), true);
+   assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0}</style>'), false);
+   assert.equal(isViewportRichHtml('<div style="height:100vh"></div>'), true);
+   assert.equal(isViewportRichHtml('<!-- <style>.x{height:100vh}</style> -->'), false);
+   assert.equal(isViewportRichHtml('<script>const demo = "<div style=\\"height:100vh\\"></div>";</script>'), false);
+   assert.equal(isViewportRichHtml('<style>.x{height:200px}</style>'), false);
+    assert.equal(isViewportRichHtml('普通文本没有样式'), false);
+    assert.equal(isViewportRichHtml('<pre>&lt;div style="height:100vh"&gt;</pre>'), false);
+    assert.equal(isViewportRichHtml('<div data-style="height:100vh"></div>'), false);
+ });
+
+test('含 fixed 子元素的普通卡片不判为视口型文档', () => {
+  // 悬浮角标/挂件：整卡不应因此失去直接交互、被推入全屏 Modal 路径
+  assert.equal(
+    isViewportRichHtml('<div>正文按钮区</div><span style="position:fixed;top:0;right:0">角标</span>'),
+    false
+  );
+  assert.equal(
+    isViewportRichHtml('<style>.badge{position:fixed;top:8px;right:8px}</style><div>卡片内容</div>'),
+    false
+  );
+  // 但 html/body 内联 fixed 仍算视口型
+  assert.equal(isViewportRichHtml('<body style="position:fixed">面板</body>'), true);
 });
 
 test('完整文档缺少 viewport meta 时自动补齐', () => {

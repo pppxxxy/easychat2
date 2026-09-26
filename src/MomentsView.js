@@ -206,8 +206,12 @@ export default function MomentsView({ active = true }) {
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
       // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
-      // 只有会话摘要、世界书都为空时才退化成最近几条原始消息。
-      const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+      // 作用域判定必须带上动态来源会话与它的消息——会话行的 preview 可能尚未同步，
+      // 少传这两参会让动态页与聊天页得到不同的 scoped 结论，记忆写入通道分叉。
+      const momentSession = sessionId
+        ? (sessionsRef.current.find(item => item && item.id === sessionId) || null)
+        : null;
+      const scoped = isSessionScopedMemory(sessionsRef.current, character.id, momentSession, messages);
       const memoryText = buildMemorySummaryText(character, summaries, scoped)
         || buildMomentMemoryText({ summaries, messages, charName, userName });
       const prompt = buildMomentReplyPrompt({
@@ -257,15 +261,18 @@ export default function MomentsView({ active = true }) {
         Alert.alert('角色没有回复', maskSecrets((error && error.message) || '请稍后再试。'));
       }
     } finally {
-      // 只清理自己注册的控制器：重启同一动态回复时，新请求的 controller 不能被旧请求删掉。
-      if (replyControllersRef.current.get(momentId) === controller) {
+      // 请求簿记必须同源同判：controller、replyingRef 与“正在回复”状态是同一次请求的三份记录。
+      // 只清理自己注册的那一次——旧请求的 finally 晚到时，新请求的标记不能被删掉，
+      // 否则 requestReply 开头的去重失效，同一动态会并发发起重复回复（重复扣费）。
+      const isLatestReply = replyControllersRef.current.get(momentId) === controller;
+      if (isLatestReply) {
         replyControllersRef.current.delete(momentId);
+        replyingRef.current.delete(momentId);
+        if (mountedRef.current) {
+          setReplying(current => current.filter(id => id !== momentId));
+        }
       }
-      replyingRef.current.delete(momentId);
-      if (mountedRef.current) {
-        setReplying(current => current.filter(id => id !== momentId));
-      }
-      if (mountedRef.current) {
+      if (isLatestReply && mountedRef.current) {
         // 回复期间又来了评论：补一次回复（用最新动态，把新评论一并带上）。
         if (pendingReplyRef.current.has(momentId)) {
           pendingReplyRef.current.delete(momentId);

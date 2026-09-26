@@ -55,16 +55,24 @@ export function ThemeProvider({ children }) {
     };
   }, []);
 
+  const persistRevisionRef = useRef(0);
+
   const persist = useCallback(next => {
+    const revision = ++persistRevisionRef.current;
     const run = saveQueueRef.current
       .catch(() => {})
       .then(() => saveAppearanceSettings(next));
     saveQueueRef.current = run;
     run
       .then(() => {
+        // 队列已保证成功按顺序结算：无条件推进“最后成功”快照，
+        // 它必须始终等于磁盘上真实存在的值，回滚时才不会出现状态与存储分叉。
         lastSavedRef.current = next;
       })
       .catch(() => {
+        // 旧失败晚到不得回滚新选择：A 失败、B 成功时，A 的回滚会把界面拉回旧主题，
+        // 而磁盘里已经是 B。只有这次仍是最新一次选择时才回滚到最后成功值。
+        if (revision !== persistRevisionRef.current) return;
         const fallback = lastSavedRef.current;
         if (fallback && mountedRef.current) {
           themeIdRef.current = fallback.themeId;

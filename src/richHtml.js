@@ -152,10 +152,21 @@ export function splitFullHtmlDocument(value) {
   };
 }
 
-// 视口型文档（100vh / position:fixed）的高度由 WebView 视口决定，
+// 视口型文档（100vh / 根级 position:fixed）的高度由 WebView 视口决定，
 // 不能再用「先测内容再喂回高度」的闭环，否则会锁死在初始 1px。
-const VIEWPORT_STYLE_PATTERN = /100(?:vh|dvh|svh|lvh)|position\s*:\s*fixed/i;
+const VIEWPORT_UNIT_PATTERN = /100(?:vh|dvh|svh|lvh)/i;
 const VIEWPORT_META_PATTERN = /<meta\b[^>]*name\s*=\s*["']viewport["'][^>]*>/i;
+// position:fixed 只有作用于根元素（html/body/:root 规则）才算视口型文档：
+// 普通卡片里 fixed 定位的悬浮挂件/角标很常见，若因此判为视口型，
+// 整条消息会被推入「不可交互预览 + 全屏 Modal」路径，卡片内按钮直接失效。
+const ROOT_SELECTOR_PATTERN = /(?:^|[^.\w#-])(?:html|body|:root)\b/i;
+
+function styleBlockHasRootFixed(block) {
+  const rules = block.match(/[^{}]+\{[^{}]*\}/g) || [];
+  return rules.some(rule => (
+    /position\s*:\s*fixed/i.test(rule) && ROOT_SELECTOR_PATTERN.test(rule)
+  ));
+}
 
 export function isViewportRichHtml(text) {
   const source = String(text || '')
@@ -163,7 +174,12 @@ export function isViewportRichHtml(text) {
     .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script>|$)/gi, '');
   const blocks = source.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
   const inlineStyles = source.match(/<[a-z][^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [];
-  return [...blocks, ...inlineStyles].some(block => VIEWPORT_STYLE_PATTERN.test(block));
+  // 视口单位出现在任意元素上都说明文档依赖视口高度，保持强信号。
+  if ([...blocks, ...inlineStyles].some(block => VIEWPORT_UNIT_PATTERN.test(block))) return true;
+  if (blocks.some(styleBlockHasRootFixed)) return true;
+  // 内联 position:fixed 只认 <html>/<body> 标签上的写法。
+  const rootInline = source.match(/<(?:html|body)\b[^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [];
+  return rootInline.some(block => /position\s*:\s*fixed/i.test(block));
 }
 
 // 完整文档之外的正文要保留：包进 body，用 pre-wrap 维持换行。

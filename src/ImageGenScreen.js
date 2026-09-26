@@ -339,16 +339,22 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         Alert.alert('不支持的文件', '请选择图片文件。');
         return;
       }
-      const info = await FileSystem.getInfoAsync(asset.uri);
-      const size = Number(asset.size || info.size || 0);
-      if (size > MAX_REFERENCE_IMAGE_BYTES) {
-        Alert.alert('图片过大', '参考图片不能超过 20 MB。');
-        return;
-      }
-      const dimensions = await getImageDimensions(asset.uri);
-      if (dimensions.width * dimensions.height > MAX_REFERENCE_IMAGE_PIXELS) {
-        Alert.alert('图片分辨率过高', '参考图片不能超过 2000 万像素。');
-        return;
+      // 尺寸/大小校验单独隔离：getInfoAsync / Image.getSize 在 content://、
+      // ph:// 或 HEIC 上可能抛错，校验失败只降级为跳过，不阻断选图本身。
+      try {
+        const info = await FileSystem.getInfoAsync(asset.uri);
+        const size = Number(asset.size || info.size || 0);
+        if (size > MAX_REFERENCE_IMAGE_BYTES) {
+          Alert.alert('图片过大', '参考图片不能超过 20 MB。');
+          return;
+        }
+        const dimensions = await getImageDimensions(asset.uri);
+        if (dimensions.width * dimensions.height > MAX_REFERENCE_IMAGE_PIXELS) {
+          Alert.alert('图片分辨率过高', '参考图片不能超过 2000 万像素。');
+          return;
+        }
+      } catch (error) {
+        if (__DEV__) console.warn('[image-gen] reference validation skipped', error);
       }
       setImageUri(asset.uri);
       setImageMime(asset.mimeType || 'image/png');
@@ -409,7 +415,14 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
        });
 
         if (!mountedRef.current || controller.signal.aborted) return;
-        if (settingsRevisionRef.current !== requestRevision) return;
+        if (settingsRevisionRef.current !== requestRevision) {
+          // 这张图已经花过一次生成额度：结果因配置变更作废时必须明确告知，
+          // 不能静默丢弃——用户会以为生成失败或结果凭空消失。
+          if (mountedRef.current) {
+            Alert.alert('生成结果已作废', '生成期间图源设置已变更，本次结果不再保留。');
+          }
+          return;
+        }
         const generatedAt = Date.now();
        const normalizedResults = response.images.map((image, index) => ({
          ...image,

@@ -776,6 +776,7 @@ data: [DONE]
 | `needsRichHtmlRendering(text)` | 文本是否含内置渲染器不支持的标签（`<style>`/`<script>`/`<details>`/`<summary>`/`<svg>`/`<audio>`/`<video>`），这类消息需要 WebView 才能还原样式、折叠、媒体播放与交互 |
 | `shouldRenderRichHtml(text, enabled)` | 在上者基础上叠加 `richHtml` 开关；含 `<details>`/`<summary>` 时始终返回 `true`，确保折叠状态栏标题保留 |
 | `stripMarkdownFences(text)` | 去掉 ` ```html ` / ` ``` ` 围栏行 |
+| `isViewportRichHtml(text)` | 判定是否为视口型文档：视口单位（`100vh/dvh/svh/lvh`，任意元素）为强信号；`position: fixed` 仅在根级规则（`html`/`body`/`:root` 选择器或根标签内联）生效，普通卡片 fixed 挂件/角标不误判 |
 | `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily, heightToken })` | 包装为完整 HTML 文档（含视口、CSP、宽度/滚动约束与带令牌的高度回传桥） |
 | `RICH_HTML_RESIZE_BRIDGE` | 注入 HTML 的高度桥：`ResizeObserver` 通过 `ResizeObserver` 和多组定时/页面事件回传带 `heightToken` 的高度消息 |
 | `buildRichHtmlCommandBridge(commandToken)` | 注入 WebView 的命令桥：令牌保留在注入脚本闭包中；可信用户手势触发 `button[data-command]` 或 `window.triggerSlash` 时回传命令，限制命令长度 |

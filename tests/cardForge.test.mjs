@@ -98,7 +98,7 @@ test('合并草稿只记有变化的字段', () => {
   assert.deepEqual(changed, ['性格', '标签']);
 });
 
-test('AI 可以显式清空文本字段和标签', () => {
+test('AI 可以用 null 哨兵显式清空文本字段和标签', () => {
   const base = {
     ...createForgeDraft(),
     description: '旧描述',
@@ -106,14 +106,39 @@ test('AI 可以显式清空文本字段和标签', () => {
     tags: ['旧标签'],
   };
   const { draft, changed } = mergeDraft(base, {
-    description: '',
-    personality: '   ',
-    tags: [],
+    description: null,
+    personality: null,
+    tags: null,
   });
   assert.equal(draft.description, '');
   assert.equal(draft.personality, '');
   assert.deepEqual(draft.tags, []);
-  assert.deepEqual(changed, ['角色描述', '性格', '标签']);
+  assert.deepEqual(changed, ['角色描述（已清空）', '性格（已清空）', '标签（已清空）']);
+  // 已是空值的字段重复发 null 不再重复报告变更
+  const again = mergeDraft(draft, { description: null, tags: null });
+  assert.deepEqual(again.changed, []);
+});
+
+test('模型回全量空串 schema 不得清空已有字段', () => {
+  const base = {
+    ...createForgeDraft(),
+    description: '用户辛苦写的长描述',
+    personality: '旧性格',
+    tags: ['治愈', '日常'],
+  };
+  const patch = parseCardPatch(JSON.stringify({
+    name: '晚星',
+    description: '',
+    personality: '   ',
+    scenario: '',
+    tags: [],
+  }));
+  assert.ok(patch);
+  const { draft, changed } = mergeDraft(base, patch);
+  assert.equal(draft.description, '用户辛苦写的长描述');
+  assert.equal(draft.personality, '旧性格');
+  assert.deepEqual(draft.tags, ['治愈', '日常']);
+  assert.deepEqual(changed, ['角色名']);
 });
 
 test('对话记录有上限，不会无限增长', () => {
@@ -148,10 +173,9 @@ test('角色 → 草稿 → 角色 往返保留内容', () => {
 
   const patch = draftToCharacterPatch(draft, { composedPrompt: '[角色描述]\n描述内容', now: 1 });
   assert.equal(patch.name, '晚星');
-  assert.equal(patch.mesExample, '{{user}}：在吗\n晚星：在的');
+  assert.equal(draft.mesExample, '{{user}}：在吗\n晚星：在的');
   assert.equal(patch.systemPromptComposed, '[角色描述]\n描述内容');
-  assert.deepEqual(patch.tags, ['治愈', '日常']);
-  // 世界书/正则现在会原样带走，避免"用制卡改一遍角色就把内容丢了"
+  assert.deepEqual(patch.tags, ['治愈', '日常']);  // 世界书/正则现在会原样带走，避免"用制卡改一遍角色就把内容丢了"
   assert.deepEqual(patch.worldInfo, [{ id: 'w1' }]);
   assert.deepEqual(patch.regexScripts, [{ id: 'r1' }]);
   assert.ok(patch.id.startsWith('forge-'));
@@ -272,4 +296,23 @@ test('提示词只带可改写字段，不泄露保留字段', () => {
     assert.equal(prompt.includes('世界书正文'), false);
     assert.equal(prompt.includes('机密正则'), false);
   }
+});
+
+test('超过 10 个标签导入制卡草稿后 AI 往返不截断', () => {
+  const manyTags = Array.from({ length: 20 }, (_, index) => `标签${index + 1}`);
+  const draft = draftFromCharacter({ name: '多标签角色', tags: manyTags });
+  assert.equal(draft.tags.length, 20);
+
+  // AI 只改名字、未提及 tags 时，标签必须原样保留
+  const { draft: merged } = mergeDraft(draft, { name: '新名字' });
+  assert.equal(merged.name, '新名字');
+  assert.deepEqual(merged.tags, manyTags);
+
+  // 提示词投影同样不截断（上限统一为 100）
+  const projected = projectForgeDraft(draft);
+  assert.equal(projected.tags.length, 20);
+
+  // 模型原样回传标签也不截断
+  const patch = parseCardPatch(JSON.stringify({ name: '新名字', tags: manyTags }));
+  assert.equal(patch.tags.length, 20);
 });
