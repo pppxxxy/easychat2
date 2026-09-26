@@ -32,7 +32,7 @@
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式；全宽助手消息将头像/名字置于气泡上方，`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
 - 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
@@ -651,7 +651,7 @@ data: [DONE]
 ### `ExtensionScreen`（默认导出）
 **位置**: `src/ExtensionScreen.js`
 **Props**: 无（由导航注入）
-**说明**: 分段控件切换「游戏」与「生图」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；两视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留生图已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。
+**说明**: 分段控件切换「游戏」「生图」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；两视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留生图已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动）：动态开启后作为入口切到独立面板，「互动」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` 编辑。
 
 ### 游戏清单
 **位置**: `src/games/games.js`

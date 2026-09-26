@@ -139,7 +139,8 @@ function GamesView() {
 function WorldView({ momentsEnabled, onOpenMoments }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const [openSection, setOpenSection] = useState('interactive');
+  // 互动分组初始保持折叠：进入页面先看到分组列表，不默认展开编辑面板。
+  const [openSection, setOpenSection] = useState('');
 
   const sections = useMemo(() => {
     const list = [];

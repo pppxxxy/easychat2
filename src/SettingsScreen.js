@@ -1416,7 +1416,22 @@ export default function SettingsScreen() {
             </View>
             <Switch
               value={chatOptions.fullWidth}
-              onValueChange={value => updateChatOption('fullWidth', value)}
+              onValueChange={value => {
+                // 开启前提醒：全宽气泡下部分角色卡的排版会引发横向滑动/滚动手势异常，
+                // 用户确认后才落盘；关闭不需要确认。
+                if (!value) {
+                  updateChatOption('fullWidth', false);
+                  return;
+                }
+                Alert.alert(
+                  '开启全宽对话',
+                  '全宽模式下部分角色卡可能出现屏幕滑动问题。',
+                  [
+                    { text: '取消', style: 'cancel' },
+                    { text: '仍然开启', onPress: () => updateChatOption('fullWidth', true) },
+                  ]
+                );
+              }}
               trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
               thumbColor={theme.colors.primaryContrast}
             />
