@@ -385,6 +385,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const draft = state.draft || {};
   const draftName = String(draft.name || '').trim();
   const tagLine = Array.isArray(draft.tags) && draft.tags.length > 0 ? ` · ${draft.tags.join('、')}` : '';
+  // 生成的高级内容在这里给出可见计数，否则用户不知道世界书 / 正则 / 预设有没有一起生成
+  const advancedParts = [
+    [Array.isArray(draft.worldInfo) ? draft.worldInfo.length : 0, '世界书'],
+    [Array.isArray(draft.regexScripts) ? draft.regexScripts.length : 0, '正则'],
+    [Array.isArray(draft.presets) ? draft.presets.length : 0, '预设'],
+  ].filter(item => item[0] > 0).map(item => `${item[1]} ${item[0]}`);
+  const advancedLine = advancedParts.length > 0 ? ` · ${advancedParts.join(' / ')}` : '';
 
   const renderOptions = currentQ => (
     <View style={styles.options}>
@@ -459,7 +466,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
       <Text style={styles.draftLine} numberOfLines={1}>
         {hasCardContent(draft)
-          ? `草稿：${draftName || '未命名'}${tagLine}`
+          ? `草稿：${draftName || '未命名'}${tagLine}${advancedLine}`
           : '还没有内容：先回答问题，或直接在下面说要求'}
       </Text>
 

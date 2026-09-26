@@ -127,7 +127,187 @@ export const FORGE_QUESTIONS = [
     ],
     freeHint: '输入补充要求',
   },
+  {
+    id: 'advanced',
+    prompt: '要一起生成世界书、正则脚本或文本预设吗？',
+    options: [
+      { id: 'none', label: '暂时不要' },
+      { id: 'world', label: '生成世界书' },
+      { id: 'regex', label: '生成正则脚本' },
+      { id: 'presets', label: '生成文本预设' },
+      { id: 'all', label: '全部生成' },
+    ],
+    freeHint: '也可以直接说明要生成哪些',
+  },
 ];
+
+// 高级内容的分段标识：与界面选项标签对应，解析答案时按包含关系匹配。
+const ADVANCED_SECTION_LABELS = {
+  world: '世界书',
+  regex: '正则脚本',
+  presets: '文本预设',
+};
+
+export function requestedAdvancedSections(state) {
+  const answer = clean((state && state.answers && state.answers.advanced) || '', 200);
+  if (!answer) return [];
+  if (answer.includes('全部')) return ['world', 'regex', 'presets'];
+  return Object.keys(ADVANCED_SECTION_LABELS)
+    .filter(key => answer.includes(ADVANCED_SECTION_LABELS[key]));
+}
+
+// ---- 高级内容的本地清洗：forge 保持零依赖，不引入 cardParser，仅产出与
+// normalizeWorldEntry / normalizeRegexScript / characterPresets 一致的结构 ----
+
+const WORLD_POSITION_LABELS = {
+  0: '角色定义之前',
+  1: '角色定义之后',
+  2: '作者注释之前',
+  3: '作者注释之后',
+  4: '按深度插入',
+  5: '示例消息前',
+  6: '示例消息后',
+  7: '锚点',
+};
+
+const WORLD_POSITION_ALIASES = {
+  before_char: 0,
+  beforechar: 0,
+  after_char: 1,
+  afterchar: 1,
+  before_author_note: 2,
+  before_an: 2,
+  after_author_note: 3,
+  after_an: 3,
+  at_depth: 4,
+  atdepth: 4,
+  before_example_messages: 5,
+  before_em: 5,
+  after_example_messages: 6,
+  after_em: 6,
+  outlet: 7,
+};
+
+const REGEX_PLACEMENT_LABELS = {
+  1: '用户输入',
+  2: 'AI 输出',
+  3: '快捷命令',
+  5: '世界信息',
+  6: '推理',
+};
+
+function toStringList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => clean(item, 200)).filter(Boolean).slice(0, 50);
+  }
+  if (value === null || value === undefined) return [];
+  return String(value)
+    .split(/[,，\n]/)
+    .map(item => clean(item, 200))
+    .filter(Boolean)
+    .slice(0, 50);
+}
+
+function normalizeWorldPositionValue(value) {
+  let numeric = null;
+  if (typeof value === 'number' && Number.isFinite(value)) numeric = value;
+  else if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (WORLD_POSITION_ALIASES[lowered] !== undefined) numeric = WORLD_POSITION_ALIASES[lowered];
+    else {
+      const parsed = Number(lowered);
+      if (Number.isFinite(parsed)) numeric = parsed;
+    }
+  }
+  if (numeric === null || WORLD_POSITION_LABELS[numeric] === undefined) numeric = 0;
+  return numeric;
+}
+
+function sanitizeWorldEntry(item, index) {
+  const source = item && typeof item === 'object' ? item : { content: String(item == null ? '' : item) };
+  const keys = toStringList(source.keys ?? source.key ?? source.keywords ?? source.keyword);
+  const content = preserveText(source.content ?? source.value ?? source.text ?? '');
+  const position = normalizeWorldPositionValue(source.position);
+  const depthValue = Math.trunc(Number(source.depth));
+  return {
+    id: `forge-entry-${index + 1}`,
+    comment: clean(source.comment ?? source.name ?? source.title, 120) || `世界书条目 ${index + 1}`,
+    keys,
+    secondaryKeys: toStringList(source.secondaryKeys ?? source.secondary_keys),
+    content,
+    constant: source.constant === true,
+    selective: source.selective === true,
+    enabled: source.enabled !== false,
+    useRegex: source.useRegex === true,
+    caseSensitive: source.caseSensitive === true,
+    matchWholeWords: source.matchWholeWords === true,
+    position,
+    positionLabel: WORLD_POSITION_LABELS[position],
+    role: ['system', 'user', 'assistant'].includes(source.role) ? source.role : 'system',
+    order: 100,
+    depth: Number.isFinite(depthValue) ? depthValue : 4,
+    probability: 100,
+    useProbability: true,
+    scanDepth: null,
+    boundary: '',
+  };
+}
+
+function sanitizeRegexPlacement(value) {
+  const aliases = { user: 1, input: 1, ai: 2, output: 2, world: 5, world_info: 5, reasoning: 6 };
+  const list = Array.isArray(value) ? value : (value === null || value === undefined ? [] : [value]);
+  const placement = list
+    .map(item => {
+      const key = String(item || '').trim().toLowerCase();
+      return aliases[key] ?? (key ? Number(item) : NaN);
+    })
+    .filter(item => Number.isFinite(item) && REGEX_PLACEMENT_LABELS[item] !== undefined);
+  if (placement.length === 0) return [1, 2];
+  return Array.from(new Set(placement));
+}
+
+function sanitizeRegexScript(item, index) {
+  const source = item && typeof item === 'object' ? item : { findRegex: String(item == null ? '' : item) };
+  const placement = sanitizeRegexPlacement(source.placement ?? source.placements ?? source.scope);
+  return {
+    id: `forge-regex-${index + 1}`,
+    name: clean(source.name ?? source.title, 120) || `正则脚本 ${index + 1}`,
+    findRegex: preserveText(source.findRegex ?? source.regex ?? source.pattern ?? ''),
+    replaceString: preserveText(source.replaceString ?? source.replacement ?? source.replace ?? ''),
+    flags: clean(source.flags, 10) || 'g',
+    placement,
+    placementLabel: placement.map(key => REGEX_PLACEMENT_LABELS[key]).join('、'),
+    enabled: source.enabled !== false,
+    markdownOnly: source.markdownOnly === true,
+    promptOnly: source.promptOnly === true,
+    minDepth: null,
+    maxDepth: null,
+  };
+}
+
+function sanitizePreset(item, index) {
+  const source = typeof item === 'string'
+    ? { prompt: item }
+    : (item && typeof item === 'object' ? item : {});
+  const prompt = preserveText(source.prompt ?? source.content ?? source.text ?? '');
+  if (!prompt.trim()) return null;
+  return {
+    id: `forge-preset-${index + 1}`,
+    name: clean(source.name ?? source.title, 120) || `预设 ${index + 1}`,
+    description: clean(source.description ?? source.note, 300),
+    prompt,
+    enabled: source.enabled !== false,
+  };
+}
+
+function sanitizeAdvancedArray(value, sanitizer) {
+  if (!Array.isArray(value)) return null;
+  const list = value
+    .map((item, index) => sanitizer(item, index))
+    .filter(Boolean)
+    .slice(0, MAX_PRESERVED_ITEMS);
+  return list.length > 0 ? list : null;
+}
 
 const MAX_FIELD_TEXT = 4000;
 export const MAX_PRESERVED_TEXT = 500000;
@@ -265,6 +445,23 @@ export function projectForgeDraft(draft) {
 export function buildGeneratePrompt(state) {
   const answers = summarizeAnswers(state);
   const draft = JSON.stringify(projectForgeDraft(state && state.draft), null, 0);
+  const sections = requestedAdvancedSections(state);
+  const advancedLines = [];
+  if (sections.includes('world')) {
+    advancedLines.push(
+      '- worldInfo：世界书条目数组，每项 {keys:[字符串数组,2-4 个触发关键词], content:字符串, position:0-7 的数字（0 角色定义之前/1 角色定义之后/4 按深度插入）, depth:数字, enabled:true}，写 3-6 条世界观、地点或人物设定。'
+    );
+  }
+  if (sections.includes('regex')) {
+    advancedLines.push(
+      '- regexScripts：正则脚本数组，每项 {name:字符串, findRegex:字符串（JS 正则,不含斜杠）, replaceString:字符串, placement:数组（1=用户输入,2=AI输出）, enabled:true}，只在确有需要时给 1-3 条。'
+    );
+  }
+  if (sections.includes('presets')) {
+    advancedLines.push(
+      '- presets：文本预设数组，每项 {name:字符串, prompt:字符串（会被追加到系统提示词）, enabled:true}，写 1-3 条。'
+    );
+  }
   return [
     '你是角色卡（SillyTavern 风格）撰写助手。请根据下面的问答结果和当前草稿，写出一张完整的角色卡。',
     '',
@@ -277,6 +474,12 @@ export function buildGeneratePrompt(state) {
     '输出要求：',
     '- 只输出一个 JSON 对象，不要任何解释、前后缀或代码块标记。',
     '- 字段固定为：name, description, personality, scenario, firstMes, mesExample, creatorNotes, postHistoryInstructions, tags。',
+    ...(advancedLines.length > 0
+      ? [
+        '- 本次还需要在同一个 JSON 里追加以下高级字段（未要求的字段不要输出）：',
+        ...advancedLines,
+      ]
+      : []),
     '- name：角色名（2-8 字）；description：外貌、身份、背景（150-400 字）；personality：性格与说话方式（80-200 字）。',
     '- scenario：故事背景以及角色与用户的关系（50-200 字）。',
     '- firstMes：角色主动说的第一条消息，第一人称，1-3 句，不要替用户说话。',
@@ -342,6 +545,14 @@ export function parseCardPatch(text) {
         .filter(Boolean)
         .slice(0, MAX_FORGE_TAG_COUNT);
     }
+    // 高级字段只在模型确实给出非空数组时采纳：空数组不做清空语义，
+    // 避免一次「没生成」把用户已有的世界书 / 正则 / 预设抹掉。
+    const worldInfo = sanitizeAdvancedArray(parsed.worldInfo, sanitizeWorldEntry);
+    if (worldInfo) patch.worldInfo = worldInfo;
+    const regexScripts = sanitizeAdvancedArray(parsed.regexScripts, sanitizeRegexScript);
+    if (regexScripts) patch.regexScripts = regexScripts;
+    const presets = sanitizeAdvancedArray(parsed.presets, sanitizePreset);
+    if (presets) patch.presets = presets;
     if (Object.keys(patch).length > 0) return patch;
   }
   return null;
@@ -382,6 +593,19 @@ export function mergeDraft(draft, patch, now = Date.now()) {
       changed.push('标签');
     }
   }
+  // 高级内容：模型给了非空数组就整体替换（生成的是新角色卡内容），
+  // 没给则保留草稿里原有条目（导入已有角色时不至于被生成覆盖掉）。
+  const advanced = [
+    ['worldInfo', '世界书', sanitizeWorldEntry],
+    ['regexScripts', '正则脚本', sanitizeRegexScript],
+    ['presets', '文本预设', sanitizePreset],
+  ];
+  advanced.forEach(([key, label, sanitizer]) => {
+    const list = sanitizeAdvancedArray(source[key], sanitizer);
+    if (!list) return;
+    next[key] = list;
+    changed.push(`${label}（${list.length} 条）`);
+  });
   return { draft: next, changed, updatedAt: now };
 }
 
@@ -440,5 +664,7 @@ export function hasCardContent(draft) {
   const source = draft && typeof draft === 'object' ? draft : {};
   return FORGE_FIELDS.some(key => clean(source[key]).length > 0)
     || clean(source.systemPrompt).length > 0
+    || (Array.isArray(source.worldInfo) && source.worldInfo.length > 0)
+    || (Array.isArray(source.regexScripts) && source.regexScripts.length > 0)
     || (Array.isArray(source.presets) && source.presets.length > 0);
 }

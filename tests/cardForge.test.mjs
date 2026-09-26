@@ -16,6 +16,7 @@ import {
   parseCardPatch,
   projectForgeDraft,
   recordAnswer,
+  requestedAdvancedSections,
   summarizeAnswers,
 } from '../src/cardForge/forge.js';
 
@@ -315,4 +316,97 @@ test('超过 10 个标签导入制卡草稿后 AI 往返不截断', () => {
   // 模型原样回传标签也不截断
   const patch = parseCardPatch(JSON.stringify({ name: '新名字', tags: manyTags }));
   assert.equal(patch.tags.length, 20);
+});
+
+test('高级内容选项决定要生成的世界书 / 正则 / 预设', () => {
+  const build = answer => {
+    let state = createForgeState(1);
+    state = { ...state, answers: { ...state.answers, advanced: answer } };
+    return requestedAdvancedSections(state);
+  };
+  assert.deepEqual(build(''), []);
+  assert.deepEqual(build('暂时不要'), []);
+  assert.deepEqual(build('生成世界书'), ['world']);
+  assert.deepEqual(build('生成正则脚本'), ['regex']);
+  assert.deepEqual(build('生成文本预设'), ['presets']);
+  assert.deepEqual(build('全部生成'), ['world', 'regex', 'presets']);
+});
+
+test('要求生成时提示词包含对应高级字段的 schema', () => {
+  let state = createForgeState(1);
+  state = { ...state, answers: { ...state.answers, advanced: '生成世界书' } };
+  const worldPrompt = buildGeneratePrompt(state);
+  assert.ok(worldPrompt.includes('worldInfo'));
+  assert.equal(worldPrompt.includes('regexScripts'), false);
+  assert.equal(worldPrompt.includes('presets'), false);
+
+  state = { ...state, answers: { ...state.answers, advanced: '全部生成' } };
+  const allPrompt = buildGeneratePrompt(state);
+  assert.ok(allPrompt.includes('worldInfo'));
+  assert.ok(allPrompt.includes('regexScripts'));
+  assert.ok(allPrompt.includes('presets'));
+});
+
+test('模型返回的世界书 / 正则 / 预设被清洗成完整结构', () => {
+  const patch = parseCardPatch(JSON.stringify({
+    name: '晚星',
+    worldInfo: [{ keys: '月亮, 夜晚', content: '月亮的设定', position: 'at_depth', depth: 3 }],
+    regexScripts: [{ name: '隐藏心声', findRegex: '<心声>(.*?)</心声>', replaceString: '$1', placement: ['ai'] }],
+    presets: [{ name: '语气', prompt: '保持温柔', enabled: false }, { prompt: '' }],
+  }));
+  assert.equal(patch.worldInfo.length, 1);
+  const entry = patch.worldInfo[0];
+  assert.deepEqual(entry.keys, ['月亮', '夜晚']);
+  assert.equal(entry.content, '月亮的设定');
+  assert.equal(entry.position, 4);
+  assert.equal(entry.positionLabel, '按深度插入');
+  assert.equal(entry.depth, 3);
+  assert.equal(entry.enabled, true);
+
+  assert.equal(patch.regexScripts.length, 1);
+  assert.deepEqual(patch.regexScripts[0].placement, [2]);
+  assert.equal(patch.regexScripts[0].placementLabel, 'AI 输出');
+
+  // 空 prompt 的预设被丢弃
+  assert.equal(patch.presets.length, 1);
+  assert.equal(patch.presets[0].name, '语气');
+  assert.equal(patch.presets[0].enabled, false);
+});
+
+test('生成结果合并进草稿；模型未给出时不覆盖已有条目', () => {
+  const base = {
+    ...createForgeDraft(),
+    worldInfo: [{ id: 'old', content: '旧条目' }],
+  };
+  const generated = mergeDraft(base, {
+    name: '晚星',
+    worldInfo: [{ keys: ['月'], content: '新条目' }],
+  });
+  assert.equal(generated.draft.worldInfo.length, 1);
+  assert.equal(generated.draft.worldInfo[0].content, '新条目');
+  assert.ok(generated.changed.some(item => item.includes('世界书')));
+
+  // 模型没给 worldInfo 时，既有条目原样保留
+  const untouched = mergeDraft(base, { name: '晚星' });
+  assert.deepEqual(untouched.draft.worldInfo, [{ id: 'old', content: '旧条目' }]);
+  // 空数组同样不构成清空
+  const empty = mergeDraft(base, { worldInfo: [] });
+  assert.deepEqual(empty.draft.worldInfo, [{ id: 'old', content: '旧条目' }]);
+});
+
+test('生成的世界书 / 正则 / 预设能进入角色结构', () => {
+  let state = createForgeState(1);
+  state = { ...state, answers: { ...state.answers, advanced: '全部生成' } };
+  const patch = parseCardPatch(JSON.stringify({
+    name: '晚星',
+    worldInfo: [{ keys: ['月'], content: '月亮的设定' }],
+    regexScripts: [{ name: '净化', findRegex: 'x', replaceString: 'y' }],
+    presets: [{ name: '语气', prompt: '保持温柔' }],
+  }));
+  const { draft } = mergeDraft(state.draft, patch);
+  const character = draftToCharacterPatch(draft, { composedPrompt: '组合提示' });
+  assert.equal(character.worldInfo.length, 1);
+  assert.equal(character.regexScripts.length, 1);
+  assert.equal(character.presets.length, 1);
+  assert.equal(character.name, '晚星');
 });
