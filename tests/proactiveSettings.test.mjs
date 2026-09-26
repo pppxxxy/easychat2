@@ -1,0 +1,160 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import Module from 'node:module';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const babel = require('@babel/core');
+const presetEnv = require.resolve('@babel/preset-env');
+const sourcePath = path.resolve('src/storage.js');
+const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
+  babelrc: false,
+  configFile: false,
+  filename: sourcePath,
+  presets: [[presetEnv, { targets: { node: 'current' }, modules: 'commonjs' }]],
+}).code;
+
+const store = new Map();
+const AsyncStorage = {
+  getItem: async key => (store.has(key) ? store.get(key) : null),
+  setItem: async (key, value) => {
+    store.set(key, value);
+  },
+  removeItem: async key => {
+    store.delete(key);
+  },
+  multiSet: async pairs => {
+    for (const [key, value] of pairs) store.set(key, value);
+  },
+  multiRemove: async keys => {
+    for (const key of keys) store.delete(key);
+  },
+  getAllKeys: async () => [...store.keys()],
+};
+
+const FileSystem = {
+  documentDirectory: 'file:///documents/',
+  cacheDirectory: 'file:///cache/',
+  EncodingType: { Base64: 'base64', UTF8: 'utf8' },
+  getInfoAsync: async () => ({ exists: false }),
+  makeDirectoryAsync: async () => {},
+  writeAsStringAsync: async () => {},
+  readAsStringAsync: async () => '',
+  readDirectoryAsync: async () => [],
+  deleteAsync: async () => {},
+};
+
+const SQLite = { openDatabase: () => ({ execAsync: async () => [], closeAsync: async () => {} }) };
+
+const originalLoad = Module._load;
+Module._load = function patchedLoad(request, parent, isMain) {
+  if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
+  if (request === 'expo-file-system') return FileSystem;
+  if (request === 'expo-sqlite') return SQLite;
+  if (request.endsWith('/presets') || request === './presets') {
+    return { __esModule: true, default: [] };
+  }
+  if (request.endsWith('/imageGen/providers') || request === './imageGen/providers') {
+    return { __esModule: true, isKnownImageProvider: () => true };
+  }
+  if (request.endsWith('/cardForge/forge') || request === './cardForge/forge') {
+    return {
+      __esModule: true,
+      FORGE_FIELDS: ['description'],
+      FORGE_QUESTIONS: [],
+      MAX_PRESERVED_TEXT: 500000,
+      MAX_PRESERVED_ITEMS: 2000,
+    };
+  }
+  if (request.endsWith('/moments/moments') || request === './moments/moments') {
+    return { __esModule: true, removeMomentsBySessionIds: async () => {} };
+  }
+  if (request.endsWith('/context/characterIdentity') || request === './context/characterIdentity') {
+    return { __esModule: true };
+  }
+  if (request.endsWith('/context/sessionLibrary') || request === './context/sessionLibrary') {
+    return { __esModule: true };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+globalThis.__DEV__ = false;
+
+const filename = path.resolve('src/storage.proactive-runtime.cjs');
+const runtimeModule = new Module(filename);
+runtimeModule.filename = filename;
+runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));
+runtimeModule._compile(transformed, filename);
+Module._load = originalLoad;
+
+const {
+  getProactiveSettings,
+  saveProactiveSettings,
+  makeProactiveSlotId,
+  PROACTIVE_MODES,
+} = runtimeModule.exports;
+
+const KEY = '@easychat2_proactive_settings';
+
+test.beforeEach(() => store.clear());
+
+test('同一角色可保存多个时间槽', async () => {
+  const saved = await saveProactiveSettings({
+    apiConfigId: 'cfg-1',
+    model: 'model-a',
+    slots: [
+      { slotId: 's1', roleId: 'role-a', hour: 8, minute: 0, mode: 'WORK' },
+      { slotId: 's2', roleId: 'role-a', hour: 21, minute: 30, mode: 'EXACT' },
+    ],
+  });
+  assert.equal(saved.slots.length, 2);
+  assert.deepEqual(saved.slots.map(item => item.hour), [8, 21]);
+  const loaded = await getProactiveSettings();
+  assert.equal(loaded.slots.length, 2);
+  assert.equal(loaded.apiConfigId, 'cfg-1');
+  assert.equal(loaded.model, 'model-a');
+  assert.equal(loaded.slots[1].mode, 'EXACT');
+});
+
+test('缺失字段回退默认值且非法值被纠正', async () => {
+  const saved = await saveProactiveSettings({
+    slots: [
+      { roleId: 'role-a', hour: 99, minute: -3, mode: 'NOPE' },
+      { roleId: '', hour: 9, minute: 10 },
+    ],
+  });
+  // roleId 为空的槽被丢弃
+  assert.equal(saved.slots.length, 1);
+  const slot = saved.slots[0];
+  assert.equal(slot.hour, 8);
+  assert.equal(slot.minute, 0);
+  assert.ok(PROACTIVE_MODES.includes(slot.mode));
+  assert.equal(slot.mode, 'WORK');
+  assert.equal(slot.enabled, true);
+});
+
+test('slotId 缺省时稳定派生，显式值被保留', async () => {
+  const saved = await saveProactiveSettings({
+    slots: [
+      { roleId: 'role-a', hour: 7, minute: 5 },
+      { slotId: 'keep-me', roleId: 'role-b', hour: 7, minute: 6 },
+    ],
+  });
+  assert.equal(saved.slots[0].slotId, 'slot-0-role-a-7-5');
+  assert.equal(saved.slots[1].slotId, 'keep-me');
+});
+
+test('损坏数据先备份再返回空设置，不静默覆盖', async () => {
+  store.set(KEY, '{not-json');
+  const loaded = await getProactiveSettings();
+  assert.deepEqual(loaded.slots, []);
+  assert.equal(store.get(`${KEY}__corrupt_backup`), '{not-json');
+  // 备份存在时原值未被默认值覆盖
+  assert.equal(store.get(KEY), '{not-json');
+});
+
+test('makeProactiveSlotId 生成的 id 唯一', () => {
+  assert.notEqual(makeProactiveSlotId(), makeProactiveSlotId());
+});

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import CardForgeScreen from './CardForgeScreen';
 import ImageGenScreen from './ImageGenScreen';
 import MomentsView from './MomentsView';
+import ProactivePanel from './ProactivePanel';
 import { GAMES } from './games/games';
 import { getMomentsSettings } from './storage';
 import { EmptyState, PrimaryButton } from './ui';
@@ -32,7 +34,8 @@ const SEGMENTS = [
   { id: 'forge', label: '制卡', icon: 'id-card-outline' },
 ];
 
-const MOMENTS_SEGMENT = { id: 'moments', label: '动态', icon: 'planet-outline' };
+// 「世界」把赋予角色生命力的扩展收拢在一处：动态、互动，后续新增也归到这里。
+const WORLD_SEGMENT = { id: 'world', label: '世界', icon: 'earth-outline' };
 
 function GamesView() {
   const [activeGameId, setActiveGameId] = useState('');
@@ -131,6 +134,65 @@ function GamesView() {
   );
 }
 
+// 「世界」折叠分组：赋予角色生命力的扩展都收拢在这里。
+// 互动在分组内就地展开编辑；动态是虚拟化长列表，展开会切到独立面板（避免 FlatList 嵌套滚动）。
+function WorldView({ momentsEnabled, onOpenMoments }) {
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const [openSection, setOpenSection] = useState('interactive');
+
+  const sections = useMemo(() => {
+    const list = [];
+    if (momentsEnabled) {
+      list.push({ id: 'moments', label: '动态', icon: 'planet-outline', description: '角色会随时间生成自己的动态' });
+    }
+    list.push({ id: 'interactive', label: '互动', icon: 'chatbubbles-outline', description: '角色在指定时间主动发来消息' });
+    return list;
+  }, [momentsEnabled]);
+
+  return (
+    <ScrollView contentContainerStyle={styles.listContent}>
+      {sections.map(section => {
+        const expanded = openSection === section.id;
+        const isMoments = section.id === 'moments';
+        return (
+          <View key={section.id} style={styles.worldGroup}>
+            <TouchableOpacity
+              style={styles.worldHeader}
+              onPress={() => {
+                if (isMoments) {
+                  onOpenMoments();
+                  return;
+                }
+                setOpenSection(expanded ? '' : section.id);
+              }}
+              activeOpacity={0.85}
+            >
+              <View style={styles.worldIcon}>
+                <Ionicons name={section.icon} size={18} color={theme.colors.primaryContrast} />
+              </View>
+              <View style={styles.gameText}>
+                <Text style={styles.gameName}>{section.label}</Text>
+                <Text style={styles.gameDescription}>{section.description}</Text>
+              </View>
+              <Ionicons
+                name={isMoments ? 'chevron-forward' : (expanded ? 'chevron-down' : 'chevron-forward')}
+                size={18}
+                color={theme.colors.textFaint}
+              />
+            </TouchableOpacity>
+            {!isMoments && expanded ? (
+              <View style={styles.worldBody}>
+                <ProactivePanel embedded />
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 export default function ExtensionScreen({ route }) {
   const [segment, setSegment] = useState('games');
   const [momentsEnabled, setMomentsEnabled] = useState(false);
@@ -159,16 +221,16 @@ export default function ExtensionScreen({ route }) {
   // 角色页会带参数跳过来（例如「导入到制卡」），按参数切到对应模块
   useEffect(() => {
     const params = route && route.params;
-    if (params && params.segment) setSegment(params.segment);
+    if (!params || !params.segment) return;
+    // 旧入口的 'moments' 现在归到「世界」分组下
+    setSegment(params.segment === 'moments' ? 'world' : params.segment);
   }, [route && route.params]);
 
-  const segments = useMemo(
-    () => (momentsEnabled ? [...SEGMENTS, MOMENTS_SEGMENT] : SEGMENTS),
-    [momentsEnabled]
-  );
+  const segments = useMemo(() => [...SEGMENTS, WORLD_SEGMENT], []);
 
+  // 动态被关闭时不能停留在动态面板上
   useEffect(() => {
-    if (!momentsEnabled && segment === 'moments') setSegment('games');
+    if (!momentsEnabled && segment === 'moments') setSegment('world');
   }, [momentsEnabled, segment]);
 
   return (
@@ -215,11 +277,31 @@ export default function ExtensionScreen({ route }) {
             refreshKey={route && route.params ? route.params.ts : 0}
           />
         </View>
+        <View
+          style={[styles.pane, segment === 'world' ? styles.paneVisible : styles.paneHidden]}
+          pointerEvents={segment === 'world' ? 'auto' : 'none'}
+        >
+          <WorldView
+            momentsEnabled={momentsEnabled}
+            onOpenMoments={() => setSegment('moments')}
+          />
+        </View>
         {momentsEnabled ? (
           <View
             style={[styles.pane, segment === 'moments' ? styles.paneVisible : styles.paneHidden]}
             pointerEvents={segment === 'moments' ? 'auto' : 'none'}
           >
+            <View style={styles.gameBar}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => setSegment('world')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
+                <Text style={styles.backButtonText}>世界</Text>
+              </TouchableOpacity>
+              <Text style={styles.gameBarTitle}>动态</Text>
+            </View>
             <MomentsView active={segment === 'moments'} />
           </View>
         ) : null}
@@ -296,4 +378,32 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 10,
   },
   retryButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700' },
+  worldGroup: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.metrics.cardRadius,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    marginBottom: tokens.metrics.cardGap,
+    overflow: 'hidden',
+  },
+  worldHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: tokens.metrics.cardPadding,
+  },
+  worldIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  worldBody: {
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.surfaceBorder,
+    paddingBottom: tokens.metrics.cardPadding,
+    minHeight: 320,
+  },
 });

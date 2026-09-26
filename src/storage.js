@@ -68,6 +68,7 @@ const SAMPLING_KEY = '@easychat2_sampling';
 const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
 const VECTOR_INDEX_PREFIX = '@easychat2_vector_index';
 const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
+const PROACTIVE_SETTINGS_KEY = '@easychat2_proactive_settings';
 const MOMENTS_KEY = '@easychat2_moments';
 const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
@@ -1515,6 +1516,68 @@ export async function getMomentsSettings() {
 export async function saveMomentsSettings(settings) {
   const normalized = normalizeMomentsSettings(settings);
   await AsyncStorage.setItem(MOMENTS_SETTINGS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+// 互动（定时主动消息）：每个角色可有多个时间槽，槽的唯一标识是 slotId。
+// 这里只负责 JS 侧的展示与编辑数据；原生侧另存一份供后台发送使用。
+export const PROACTIVE_MODES = ['WORK', 'EXACT'];
+
+export function makeProactiveSlotId() {
+  return `slot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeProactiveSlot(raw, index = 0) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const hourValue = Math.trunc(Number(source.hour));
+  const minuteValue = Math.trunc(Number(source.minute));
+  const hour = Number.isFinite(hourValue) && hourValue >= 0 && hourValue <= 23 ? hourValue : 8;
+  const minute = Number.isFinite(minuteValue) && minuteValue >= 0 && minuteValue <= 59 ? minuteValue : 0;
+  const roleId = String(source.roleId || '');
+  return {
+    slotId: String(source.slotId || `slot-${index}-${roleId}-${hour}-${minute}`),
+    roleId,
+    roleName: String(source.roleName || ''),
+    persona: String(source.persona || ''),
+    hour,
+    minute,
+    mode: PROACTIVE_MODES.includes(source.mode) ? source.mode : 'WORK',
+    enabled: source.enabled !== false,
+    apiConfigId: String(source.apiConfigId || ''),
+    model: String(source.model || ''),
+    revision: String(source.revision || ''),
+  };
+}
+
+function normalizeProactiveSettings(raw) {
+  if (raw === null || raw === undefined) return { slots: [], apiConfigId: '', model: '' };
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const slots = Array.isArray(source.slots)
+    ? source.slots
+      .map((item, index) => normalizeProactiveSlot(item, index))
+      .filter(item => item.roleId)
+    : [];
+  return {
+    slots,
+    // 互动复用一个 API 配置与模型，从设置页已有配置里选，避免二次填写密钥
+    apiConfigId: String(source.apiConfigId || ''),
+    model: String(source.model || ''),
+  };
+}
+
+export async function getProactiveSettings() {
+  const stored = await readJsonStatus(PROACTIVE_SETTINGS_KEY);
+  if (stored.status === 'corrupt') {
+    // 与其它集合一致：损坏先备份，不静默覆盖用户的时间设置
+    await backupCorruptValue(PROACTIVE_SETTINGS_KEY);
+    return { slots: [], apiConfigId: '', model: '' };
+  }
+  return normalizeProactiveSettings(stored.status === 'ok' ? stored.value : null);
+}
+
+export async function saveProactiveSettings(settings) {
+  const normalized = normalizeProactiveSettings(settings);
+  await AsyncStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(normalized));
   return normalized;
 }
 
