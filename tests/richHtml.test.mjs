@@ -158,9 +158,13 @@ test('拆分完整文档，保留前置叙事与后置正文', () => {
 test('识别视口型文档样式', () => {
    assert.equal(isViewportRichHtml('<style>.app{height:100vh;overflow:hidden}</style>'), true);
    assert.equal(isViewportRichHtml('<style>.x{height:100dvh}</style>'), true);
-  // 根级 position:fixed 是视口型；子元素上的 fixed 挂件/角标不是
+  // 根级 position:fixed 是视口型；四边钉死的 fixed 承载容器（如 #app 整屏卡）也是
    assert.equal(isViewportRichHtml('<style>body{position:fixed;inset:0}</style>'), true);
-   assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0}</style>'), false);
+   assert.equal(isViewportRichHtml('<style>html{position:fixed}</style>'), true);
+   assert.equal(isViewportRichHtml('<style>:root{position:fixed}</style>'), true);
+   assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0}</style>'), true);
+   assert.equal(isViewportRichHtml('<style>#app{position:fixed;top:0;right:0;bottom:0;left:0}</style>'), true);
+   assert.equal(isViewportRichHtml('<div style="position:fixed;inset:0"></div>'), true);
    assert.equal(isViewportRichHtml('<div style="height:100vh"></div>'), true);
    assert.equal(isViewportRichHtml('<!-- <style>.x{height:100vh}</style> -->'), false);
    assert.equal(isViewportRichHtml('<script>const demo = "<div style=\\"height:100vh\\"></div>";</script>'), false);
@@ -169,6 +173,34 @@ test('识别视口型文档样式', () => {
     assert.equal(isViewportRichHtml('<pre>&lt;div style="height:100vh"&gt;</pre>'), false);
     assert.equal(isViewportRichHtml('<div data-style="height:100vh"></div>'), false);
  });
+
+test('含 fixed 子元素的普通卡片不判为视口型文档', () => {
+  // 悬浮角标/挂件：整卡不应因此失去直接交互、被推入全屏 Modal 路径
+  assert.equal(
+    isViewportRichHtml('<div>正文按钮区</div><span style="position:fixed;top:0;right:0">角标</span>'),
+    false
+  );
+  assert.equal(
+    isViewportRichHtml('<style>.badge{position:fixed;top:8px;right:8px}</style><div>卡片内容</div>'),
+    false
+  );
+  // 声明值里的裸词 body/html 不构成根选择器：根匹配只打在选择器部分
+  assert.equal(
+    isViewportRichHtml('<style>.banner{position:fixed;background:url(/body.png)}</style>'),
+    false
+  );
+  assert.equal(
+    isViewportRichHtml('<style>.panel{position:fixed;font-family:"My body Font";top:12px;right:12px}</style>'),
+    false
+  );
+  // 非根类名含 body 也不误判
+  assert.equal(
+    isViewportRichHtml('<style>.body-wrap{position:fixed;top:0}</style>'),
+    false
+  );
+  // 但 <body> 内联 fixed 仍算视口型
+  assert.equal(isViewportRichHtml('<body style="position:fixed">面板</body>'), true);
+});
 
 test('含 fixed 子元素的普通卡片不判为视口型文档', () => {
   // 悬浮角标/挂件：整卡不应因此失去直接交互、被推入全屏 Modal 路径

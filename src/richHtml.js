@@ -152,19 +152,36 @@ export function splitFullHtmlDocument(value) {
   };
 }
 
-// 视口型文档（100vh / 根级 position:fixed）的高度由 WebView 视口决定，
-// 不能再用「先测内容再喂回高度」的闭环，否则会锁死在初始 1px。
+// 视口型文档（视口单位 / 根级 position:fixed / 四边钉死的 fixed 承载容器）的高度由
+// WebView 视口决定，不能再用「先测内容再喂回高度」的闭环，否则会锁死在初始 1px。
 const VIEWPORT_UNIT_PATTERN = /100(?:vh|dvh|svh|lvh)/i;
 const VIEWPORT_META_PATTERN = /<meta\b[^>]*name\s*=\s*["']viewport["'][^>]*>/i;
-// position:fixed 只有作用于根元素（html/body/:root 规则）才算视口型文档：
-// 普通卡片里 fixed 定位的悬浮挂件/角标很常见，若因此判为视口型，
-// 整条消息会被推入「不可交互预览 + 全屏 Modal」路径，卡片内按钮直接失效。
+// 根元素匹配只允许打在选择器部分：声明值里的裸词（url(/body.png)、
+// 字体名 "My body Font"）不能把整条规则误判成根级 fixed。
 const ROOT_SELECTOR_PATTERN = /(?:^|[^.\w#-])(?:html|body|:root)\b/i;
 
-function styleBlockHasRootFixed(block) {
+function selectorOfRule(rule) {
+  const braceIndex = String(rule).indexOf('{');
+  return braceIndex >= 0 ? String(rule).slice(0, braceIndex) : String(rule);
+}
+
+// 四边钉死的 fixed 容器（inset:0 或 top/right/bottom/left 全为 0）：
+// 无论选择器是什么，都是按视口定位的整屏承载容器（如 #app{position:fixed;inset:0}），
+// 是视口型强信号——漏判会让整屏卡回退测高闭环重新出现高度锁死。
+// 只钉两三边、带偏移的悬浮挂件（top:8px;right:8px）不算。
+// 值终止符兼容三种载体：样式块里的 ;/}、内联 style 的收尾引号、字符串结尾。
+function isViewportPinned(rule) {
+  if (/\binset\s*:\s*0(?:px|%)?\s*(?:;|}|["']|$)/i.test(rule)) return true;
+  return ['top', 'right', 'bottom', 'left'].every(
+    edge => new RegExp(`\\b${edge}\\s*:\\s*0(?:px|%)?\\s*(?:;|}|["']|$)`, 'i').test(rule)
+  );
+}
+
+function styleBlockHasViewportFixed(block) {
   const rules = block.match(/[^{}]+\{[^{}]*\}/g) || [];
   return rules.some(rule => (
-    /position\s*:\s*fixed/i.test(rule) && ROOT_SELECTOR_PATTERN.test(rule)
+    /position\s*:\s*fixed/i.test(rule)
+    && (isViewportPinned(rule) || ROOT_SELECTOR_PATTERN.test(selectorOfRule(rule)))
   ));
 }
 
@@ -176,8 +193,12 @@ export function isViewportRichHtml(text) {
   const inlineStyles = source.match(/<[a-z][^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [];
   // 视口单位出现在任意元素上都说明文档依赖视口高度，保持强信号。
   if ([...blocks, ...inlineStyles].some(block => VIEWPORT_UNIT_PATTERN.test(block))) return true;
-  if (blocks.some(styleBlockHasRootFixed)) return true;
-  // 内联 position:fixed 只认 <html>/<body> 标签上的写法。
+  if (blocks.some(styleBlockHasViewportFixed)) return true;
+  // 内联 fixed：四边钉死的承载容器同样是视口型；普通 fixed 小挂件不算。
+  if (inlineStyles.some(style => (
+    /position\s*:\s*fixed/i.test(style) && isViewportPinned(style)
+  ))) return true;
+  // 非钉死的内联 fixed 只认 <html>/<body> 标签上的写法。
   const rootInline = source.match(/<(?:html|body)\b[^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [];
   return rootInline.some(block => /position\s*:\s*fixed/i.test(block));
 }

@@ -34,12 +34,17 @@ export function ThemeProvider({ children }) {
   const fontScaleIdRef = useRef(DEFAULT_FONT_SCALE_ID);
   const lastSavedRef = useRef(null);
   const saveQueueRef = useRef(Promise.resolve());
+  const persistRevisionRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
+    const revisionAtLoad = persistRevisionRef.current;
     getAppearanceSettings()
       .then(settings => {
         if (!mountedRef.current) return;
+        // 加载期间用户已经改过外观（且已把新值写盘）：晚到的旧磁盘回填
+        // 不得把界面拉回旧值——跳过回填，让界面停留在用户的新选择上。
+        if (persistRevisionRef.current !== revisionAtLoad) return;
         themeIdRef.current = settings.themeId;
         fontScaleIdRef.current = settings.fontScaleId;
         lastSavedRef.current = {
@@ -54,8 +59,6 @@ export function ThemeProvider({ children }) {
       mountedRef.current = false;
     };
   }, []);
-
-  const persistRevisionRef = useRef(0);
 
   const persist = useCallback(next => {
     const revision = ++persistRevisionRef.current;
