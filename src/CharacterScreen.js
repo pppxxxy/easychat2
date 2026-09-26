@@ -1383,10 +1383,11 @@ setWorldInfo(next.worldInfo);
     if (editMode) setCharacterScrubberOpen(false);
   }, [editMode]);
 
-  useEffect(() => {
-    characterCardOffsetsRef.current = {};
-    characterCardRelativeOffsetsRef.current = {};
-  }, [characterListExpanded, query, visibleCharacters.length, visibleGroups.length]);
+  // 不要在列表变化时清空卡片偏移缓存再指望 onLayout 回填：布局未变的卡片
+  // 不触发 onLayout（如展开列表时折叠态就存在的前 10 张卡），会导致定位滑块
+  // 指向它们时 offset 缺失、静默不滚动。位置变化的卡片由 onLayout 自然覆盖，
+  // grid 位移由 updateCharacterCardOffsets 用 relative 缓存重建，已删除条目
+  // 的残留偏移不会被查询——保留旧值是安全的。
 
   const scrollCharacterTo = useCallback(y => {
     characterScrollRef.current?.scrollTo?.({ y: Math.max(0, y), animated: true });
