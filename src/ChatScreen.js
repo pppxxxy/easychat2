@@ -85,7 +85,7 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import RichHtmlMessage from './RichHtmlMessage';
 import { containsHtml, messageCopyText } from './plainText';
-import { isViewportRichHtml, resolveViewportCardHeight, shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
+import { isViewportRichHtml, shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
@@ -521,16 +521,12 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
   const isUser = message.role === USER_ID;
   const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
-  const { width, height: windowHeight } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [cardFullOpen, setCardFullOpen] = useState(false);
   const [cardFullHostHeight, setCardFullHostHeight] = useState(0);
-  const previewViewportHeight = useMemo(
-    () => resolveViewportCardHeight({ windowHeight, fullWidth }),
-    [windowHeight, fullWidth]
-  );
   const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
@@ -788,32 +784,10 @@ const fullWidthAssistant = !isUser && fullWidth;
              richHtmlParts ? (
                <View>
                  {renderAssistantSegment(richHtmlParts.before)}
-                 {richHtmlViewport ? (
-                   <View>
-                     {cardFullOpen ? (
-                       // 全屏 Modal 打开期间列表内不再保留第二份 WebView：
-                       // 同一张卡双 WebView 会让内存、定时器与后台 JS 翻倍。
-                       // 占位保持原高度，关闭后原位重建，列表不跳动。
-                       <View style={[styles.viewportCardPlaceholder, { height: previewViewportHeight }]}>
-                         <Text style={styles.viewportCardPlaceholderText}>卡片已全屏打开</Text>
-                       </View>
-                     ) : (
-                       <View style={{ height: previewViewportHeight }}>
-                         <RichHtmlMessage
-                           html={richHtmlParts.document}
-                           fullWidth={fullWidth}
-                         />
-                         {/* 透明覆盖层把整块卡片变成“点按进全屏”；WebView 本体不接收手势。 */}
-                         <Pressable
-                           style={styles.viewportCardTapOverlay}
-                           onPress={() => setCardFullOpen(true)}
-                           accessibilityRole="button"
-                           accessibilityLabel="全屏打开卡片"
-                         />
-                       </View>
-                      )}
-                    </View>
-                 ) : (
+                 {/* 视口型卡是整屏应用：固定高度的列表预览在部分机型上
+                     100vh 解析异常导致整块空白，且不可交互。
+                     改为全屏优先——列表里不创建 WebView，只留气泡下方的入口行。 */}
+                 {richHtmlViewport ? null : (
                    <RichHtmlMessage
                      html={richHtmlParts.document}
                      onCommand={(command, token) => onSlashCommand(command, token, message.id)}
@@ -892,18 +866,25 @@ const fullWidthAssistant = !isUser && fullWidth;
           )}
         </View>
 
-        {/* 「全屏交互」放在气泡下方：它是卡片之外的操作入口，塞进气泡里既不美观，
-            也会让气泡高度随按钮变化。 */}
+        {/* 视口型卡的唯一入口：列表里不渲染 WebView，点击直接进全屏。 */}
         {!isUser && renderRichHtml && richHtmlViewport && richHtmlParts ? (
           <TouchableOpacity
-            style={styles.viewportCardOpen}
+            style={styles.viewportCardEntry}
             onPress={() => setCardFullOpen(true)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="全屏打开卡片"
+            accessibilityLabel="全屏打开互动卡片"
           >
-            <Ionicons name="expand-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.viewportCardOpenText}>全屏交互</Text>
+            <View style={styles.viewportCardEntryIcon}>
+              <Ionicons name="expand-outline" size={15} color={theme.colors.primaryContrast} />
+            </View>
+            <View style={styles.viewportCardEntryText}>
+              <Text style={styles.viewportCardEntryTitle}>互动卡片</Text>
+              <Text style={styles.viewportCardEntryHint} numberOfLines={1}>
+                点击全屏打开，可交互
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
           </TouchableOpacity>
         ) : null}
 
@@ -5913,21 +5894,40 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     ...tokens.elevation(2, theme),
   },
-  viewportCardOpen: {
+  viewportCardEntry: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     marginTop: tokens.spacing.xs,
-    paddingHorizontal: 10,
-    paddingVertical: tokens.spacing.xs,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: tokens.radius.md,
     backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
   },
-  viewportCardOpenText: {
-    color: theme.colors.primarySoft,
-    fontSize: 12,
+  viewportCardEntryIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    marginRight: 10,
+  },
+  viewportCardEntryText: {
+    flex: 0,
+    marginRight: 12,
+  },
+  viewportCardEntryTitle: {
+    color: theme.colors.text,
+    fontSize: 13,
     fontWeight: '700',
-    marginLeft: 6,
+  },
+  viewportCardEntryHint: {
+    color: theme.colors.textFaint,
+    fontSize: 11,
+    marginTop: 2,
   },
   viewportCardScreen: {
     flex: 1,
@@ -5951,25 +5951,6 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   viewportCardBody: {
     flex: 1,
-  },
-  viewportCardTapOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  viewportCardPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: tokens.radius.md,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    backgroundColor: theme.colors.surface,
-  },
-  viewportCardPlaceholderText: {
-    color: theme.colors.textFaint,
-    fontSize: 13,
   },
   markdownCodeScroll: {
     maxWidth: '100%',

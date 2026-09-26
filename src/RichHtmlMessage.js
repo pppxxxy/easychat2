@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
 import {
@@ -61,6 +61,8 @@ export default function RichHtmlMessage({
   // 大卡要走「写临时文件 → WebView 加载」的路径，期间若没有任何提示，
   // 用户在全屏 Modal 里只会看到一整屏空白。用 loading 明确反馈加载中。
   const [loading, setLoading] = useState(true);
+  // 加载/渲染失败后的重试开关：改变 reloadKey 会让来源 effect 重新跑一遍。
+  const [reloadKey, setReloadKey] = useState(0);
   const loadedRef = useRef(false);
   const temporaryUriRef = useRef('');
 
@@ -91,6 +93,10 @@ export default function RichHtmlMessage({
     [commandToken]
   );
   const largeDocument = utf8ByteLength(document) > RICH_HTML_INLINE_SOURCE_LIMIT;
+  // 视口型文档统一走 file://：内联 loadDataWithBaseURL 的不透明源下，
+  // 100vh / 视口单位在部分机型的首帧会解析异常（塌成 0），整卡只剩背景色。
+  // file:// 的行为与浏览器一致，也与超 512KB 大文档共用同一条路径。
+  const useFileSource = largeDocument || viewportDocument;
 
   useEffect(() => {
     let cancelled = false;
@@ -98,7 +104,7 @@ export default function RichHtmlMessage({
     setSourceError(false);
     setLoading(true);
     loadedRef.current = false;
-    if (!largeDocument) {
+    if (!useFileSource) {
       setSource({ html: document });
       return () => {
         cancelled = true;
@@ -126,7 +132,7 @@ export default function RichHtmlMessage({
       temporaryUriRef.current = '';
       if (temporaryUri) FileSystem.deleteAsync(temporaryUri, { idempotent: true }).catch(() => {});
     };
-  }, [document, largeDocument]);
+  }, [document, useFileSource, reloadKey]);
 
   const onMessage = useCallback(event => {
     let payload = null;
@@ -175,7 +181,23 @@ export default function RichHtmlMessage({
 
   if (!WebViewComponent) return null;
   if (sourceError) {
-    return <View style={styles.container}><Text style={styles.errorText}>HTML 内容加载失败</Text></View>;
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>HTML 内容加载失败</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            setSourceError(false);
+            setReloadKey(value => value + 1);
+          }}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="重新加载卡片"
+        >
+          <Text style={styles.retryButtonText}>重试</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
   if (!source) {
     // 占位高度与真实卡片一致，避免加载完成后列表跳动
@@ -219,6 +241,12 @@ export default function RichHtmlMessage({
           setLoading(false);
           setSourceError(true);
         }}
+        // Android 渲染进程崩溃（重渐变/多层阴影的卡在部分机型会触发）表现为
+        // WebView 静默空白，且不会触发 onError——必须单独接住才有恢复机会。
+        onRenderProcessGone={() => {
+          setLoading(false);
+          setSourceError(true);
+        }}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
       />
       {loading ? (
@@ -248,6 +276,19 @@ const styles = StyleSheet.create({
      color: '#b84a62',
      fontSize: 12,
      paddingVertical: 8,
+   },
+   retryButton: {
+     alignSelf: 'flex-start',
+     paddingHorizontal: 12,
+     paddingVertical: 6,
+     borderRadius: 8,
+     backgroundColor: '#2d2d44',
+     marginBottom: 8,
+   },
+   retryButtonText: {
+     color: '#e8e8f0',
+     fontSize: 12,
+     fontWeight: '700',
    },
    loadingBox: {
      alignItems: 'center',
