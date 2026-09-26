@@ -811,18 +811,8 @@ const fullWidthAssistant = !isUser && fullWidth;
                            accessibilityLabel="全屏打开卡片"
                          />
                        </View>
-                     )}
-                     <TouchableOpacity
-                       style={styles.viewportCardOpen}
-                       onPress={() => setCardFullOpen(true)}
-                       activeOpacity={0.85}
-                       accessibilityRole="button"
-                       accessibilityLabel="全屏打开卡片"
-                     >
-                       <Ionicons name="expand-outline" size={15} color={theme.colors.primarySoft} />
-                       <Text style={styles.viewportCardOpenText}>全屏交互</Text>
-                     </TouchableOpacity>
-                   </View>
+                      )}
+                    </View>
                  ) : (
                    <RichHtmlMessage
                      html={richHtmlParts.document}
@@ -901,6 +891,21 @@ const fullWidthAssistant = !isUser && fullWidth;
              <Markdown style={markdownStyles} rules={markdownRules}>{message.text}</Markdown>
           )}
         </View>
+
+        {/* 「全屏交互」放在气泡下方：它是卡片之外的操作入口，塞进气泡里既不美观，
+            也会让气泡高度随按钮变化。 */}
+        {!isUser && renderRichHtml && richHtmlViewport && richHtmlParts ? (
+          <TouchableOpacity
+            style={styles.viewportCardOpen}
+            onPress={() => setCardFullOpen(true)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="全屏打开卡片"
+          >
+            <Ionicons name="expand-outline" size={15} color={theme.colors.primarySoft} />
+            <Text style={styles.viewportCardOpenText}>全屏交互</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {!isUser && message.inlineImage ? (
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
 import {
@@ -58,6 +58,9 @@ export default function RichHtmlMessage({
   const [height, setHeight] = useState(1);
   const [source, setSource] = useState(null);
   const [sourceError, setSourceError] = useState(false);
+  // 大卡要走「写临时文件 → WebView 加载」的路径，期间若没有任何提示，
+  // 用户在全屏 Modal 里只会看到一整屏空白。用 loading 明确反馈加载中。
+  const [loading, setLoading] = useState(true);
   const loadedRef = useRef(false);
   const temporaryUriRef = useRef('');
 
@@ -93,6 +96,7 @@ export default function RichHtmlMessage({
     let cancelled = false;
     setHeight(1);
     setSourceError(false);
+    setLoading(true);
     loadedRef.current = false;
     if (!largeDocument) {
       setSource({ html: document });
@@ -173,7 +177,16 @@ export default function RichHtmlMessage({
   if (sourceError) {
     return <View style={styles.container}><Text style={styles.errorText}>HTML 内容加载失败</Text></View>;
   }
-  if (!source) return <View style={styles.container} />;
+  if (!source) {
+    // 占位高度与真实卡片一致，避免加载完成后列表跳动
+    const placeholderHeight = viewportDocument ? viewportHeight : 160;
+    return (
+      <View style={[styles.container, styles.loadingBox, { height: placeholderHeight }]}>
+        <ActivityIndicator color={theme.colors.primary} />
+        <Text style={styles.loadingText}>卡片加载中…</Text>
+      </View>
+    );
+  }
 
   // 普通富 HTML 实测高度超过滚动阈值时不再整块撑满列表：
   // 卡片收成固定预览高度并允许内部滚动，用户可以在卡片内滚完再回到聊天。
@@ -200,8 +213,20 @@ export default function RichHtmlMessage({
         injectedJavaScriptBeforeContentLoaded={commandBridge}
         onContentSizeChange={onContentSizeChange}
         onMessage={onMessage}
+        // 之前没有 onLoadEnd / onError：加载失败时页面静默空白，无从判断。
+        onLoadEnd={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setSourceError(true);
+        }}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
       />
+      {loading ? (
+        <View style={styles.loadingOverlay} pointerEvents="none">
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={styles.loadingText}>卡片加载中…</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -223,6 +248,20 @@ const styles = StyleSheet.create({
      color: '#b84a62',
      fontSize: 12,
      paddingVertical: 8,
+   },
+   loadingBox: {
+     alignItems: 'center',
+     justifyContent: 'center',
+   },
+   loadingOverlay: {
+     ...StyleSheet.absoluteFillObject,
+     alignItems: 'center',
+     justifyContent: 'center',
+   },
+   loadingText: {
+     color: '#9d9db8',
+     fontSize: 12,
+     marginTop: 8,
    },
    webviewContainer: {
      width: '100%',
