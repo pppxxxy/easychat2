@@ -21,6 +21,7 @@
           "sizeMB": 1024
         }
       ],
+      "./plugins/withProactiveMessage",
       [
         "expo-image-picker",
         {

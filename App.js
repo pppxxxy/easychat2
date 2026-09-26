@@ -6,7 +6,7 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,6 +25,11 @@ import {
   migrateLegacyMessages,
 } from './src/storage';
 import { AppProvider, useApp } from './src/context/AppContext';
+import {
+  addOpenRoleListener,
+  consumeInitialRole,
+  isProactiveMessageAvailable,
+} from './src/proactiveMessage';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { maskSecrets } from './src/secrets';
 
@@ -211,6 +216,44 @@ function StartupSession() {
   return null;
 }
 
+// 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
+// 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
+function ProactiveMessageBridge() {
+  const navigation = useNavigation();
+  const { loaded, switchCharacter } = useApp();
+
+  useEffect(() => {
+    if (!isProactiveMessageAvailable()) return undefined;
+    let cancelled = false;
+    const openRole = async roleId => {
+      if (!roleId || cancelled) return;
+      try {
+        await switchCharacter(roleId);
+        navigation.navigate('聊天');
+      } catch (error) {
+        Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
+      }
+    };
+    if (loaded) {
+      (async () => {
+        try {
+          const roleId = await consumeInitialRole();
+          if (roleId) await openRole(roleId);
+        } catch (error) {
+          // 原生模块读取失败时静默，不影响主流程
+        }
+      })();
+    }
+    const unsubscribe = addOpenRoleListener(openRole);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [loaded, navigation, switchCharacter]);
+
+  return null;
+}
+
 function AppShell() {
   const { theme: palette, tokens } = useTheme();
   const navTheme = {
@@ -227,6 +270,7 @@ function AppShell() {
   return (
     <NavigationContainer theme={navTheme}>
       <StatusBar style={palette.id === 'light' ? 'dark' : 'light'} />
+      <ProactiveMessageBridge />
       <Header />
       <Tab.Navigator
         screenOptions={({ route }) => ({
