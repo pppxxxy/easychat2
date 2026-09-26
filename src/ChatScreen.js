@@ -782,6 +782,7 @@ const fullWidthAssistant = !isUser && fullWidth;
                    html={richHtmlParts.document}
                    onCommand={(command, token) => onSlashCommand(command, token, message.id)}
                    fullWidth={fullWidth}
+                   allowFullscreenVideo
                  />
                  {renderAssistantSegment(richHtmlParts.after)}
                </View>
@@ -790,6 +791,7 @@ const fullWidthAssistant = !isUser && fullWidth;
                  html={message.text}
                  onCommand={(command, token) => onSlashCommand(command, token, message.id)}
                  fullWidth={fullWidth}
+                 allowFullscreenVideo
                />
              )
           ) : renderHtml ? (

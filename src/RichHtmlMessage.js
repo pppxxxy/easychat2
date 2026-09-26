@@ -44,7 +44,8 @@ function utf8ByteLength(value) {
 }
 
 // 用 WebView 渲染含 <style>/<script> 的助手消息：动态高度 + 命令按钮桥接。
-// allowFullscreenVideo：仅全屏 Modal 场景开启，列表预览不允许视频跳出聊天上下文。
+// allowFullscreenVideo：聊天内富 HTML 卡片开启原生视频全屏按钮——
+// 全屏由用户主动点击视频控件触发，退出即回到聊天上下文。
 // hostHeight：宿主实测可用高度（Modal 传入）；列表预览不传，按屏幕比例估算并加硬上限。
 export default function RichHtmlMessage({
   html,

@@ -272,4 +272,8 @@ test('全屏交互机制已移除：视口卡在列表内直接渲染', () => {
   assert.equal(CHAT_SCREEN_SOURCE.includes('richHtmlViewport'), false);
   // 删掉机制后视口判定收敛在 RichHtmlMessage 内部（file:// 源 + 固定高度 + 内滚）
   assert.equal(CHAT_SCREEN_SOURCE.includes('isViewportRichHtml'), false);
+  // 聊天内两处 RichHtmlMessage 调用都开启原生视频全屏按钮：
+  // 删除全屏 Modal 后若无人传 allowFullscreenVideo，Android WebView 的
+  // <video controls> 全屏按钮会点击无反应
+  assert.ok((CHAT_SCREEN_SOURCE.match(/allowFullscreenVideo/g) || []).length >= 2);
 });
