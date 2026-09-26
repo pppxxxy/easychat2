@@ -1180,3 +1180,12 @@ test('角色库阻断时跳过头像清理，动态头像引用也会保留', as
   await storage.collectAvatarImageFiles();
   assert.equal(files.has(momentAvatar), true);
 });
+
+test('TTS 设置损坏时先备份再抛错，不回落默认值覆盖', async () => {
+  const storage = loadStorage();
+  const raw = '{broken-tts';
+  store.set('@easychat2_tts', raw);
+  await assert.rejects(() => storage.getTtsSettings(), /语音播报设置读取失败/);
+  assert.equal(store.get('@easychat2_tts__corrupt_backup'), raw);
+  assert.equal(store.get('@easychat2_tts'), raw);
+});

@@ -148,8 +148,14 @@ export function buildTtsRequest(provider, config, text, token) {
     url = `${url}${join}${encodeURIComponent(auth.keyName)}=${encodeURIComponent(config.appId || '')}`;
   }
   if (auth.type === 'token' && auth.keyName) {
-    const join = url.includes('?') ? '&' : '?';
-    url = `${url}${join}${encodeURIComponent(auth.keyName)}=${encodeURIComponent(token || '')}`;
+    if (auth.tokenInBody) {
+      // 百度官方 SDK 明确把令牌从查询串移进表单体（data['tok']=token 并删除
+      // 查询参数）：令牌进 URL 会落入服务端与代理日志。
+      setByPath(payload, auth.keyName, token || '');
+    } else {
+      const join = url.includes('?') ? '&' : '?';
+      url = `${url}${join}${encodeURIComponent(auth.keyName)}=${encodeURIComponent(token || '')}`;
+    }
   }
   if (auth.type === 'body' && auth.keyName) setByPath(payload, auth.keyName, config.apiKey || '');
   // 平台声明的额外查询参数（如阿里云 NLS 的 appkey）：
@@ -484,8 +490,7 @@ export async function synthesize({ provider, config = {}, text, signal = null })
     ? Math.trunc(Number(resolvedProvider.maxChars))
     : TTS_MAX_CHARS);
   if (!content) throw new Error('没有可播报的内容');
-  if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };
-  const token = await resolveToken(resolvedProvider, config, { signal }).catch(error => {
+  if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };  const token = await resolveToken(resolvedProvider, config, { signal }).catch(error => {
     if (error && error.name === 'AbortError') throw error;
     // 令牌拿不到还发空令牌请求，只会得到难懂的 401/403：直接抛清楚原因。
     throw new Error(error && error.message ? error.message : '令牌获取失败');
@@ -500,7 +505,13 @@ export async function synthesize({ provider, config = {}, text, signal = null })
     path: response.path,
     signal,
   });
-  return { mode: 'audio', base64: audio.base64 };
+  return {
+    mode: 'audio',
+    base64: audio.base64,
+    // 播放端按声明表的 responseMime 传给 expo-av；默认 mp3 与各家的
+    // 显式格式请求（audio.format/format/encoding/aue）保持配套。
+    mime: resolvedProvider.responseMime || 'audio/mp3',
+  };
 }
 
 async function stopPlayback() {
@@ -571,7 +582,7 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
     if (!audio || !audio.Audio || typeof audio.Audio.Sound === 'undefined') {
       throw new Error('当前设备不支持音频播放');
     }
-    const uri = `data:audio/mp3;base64,${result.base64}`;
+    const uri = `data:${result.mime || 'audio/mp3'};base64,${result.base64}`;
     const { sound } = await audio.Audio.Sound.createAsync({ uri });
     if (token !== speakGeneration) {
       try {

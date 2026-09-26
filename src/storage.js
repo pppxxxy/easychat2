@@ -1481,8 +1481,18 @@ function normalizeTts(raw) {
 }
 
 export async function getTtsSettings() {
-  const raw = await readJson(TTS_KEY, null);
-  return normalizeTts(raw);
+  // 损坏保护与同仓其他模块一致：先备份原始值再抛错。
+  // 直接回落默认值会让面板保存时用默认覆盖损坏数据，属不可逆丢失。
+  const stored = await readJsonStatus(TTS_KEY);
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok' && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
+  ) {
+    await backupCorruptValue(TTS_KEY);
+    throw new Error('语音播报设置读取失败');
+  }
+  if (stored.status === 'missing') return normalizeTts(null);
+  return normalizeTts(stored.value);
 }
 
 export async function saveTtsSettings(settings) {

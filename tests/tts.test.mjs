@@ -222,11 +222,13 @@ test('TTS 声明表与官方端点逐家一致', async () => {
   assert.equal(volcano.speedField, 'audio.speed_ratio');
   assert.equal(volcano.formatField, 'audio.encoding');
   assert.deepEqual(volcano.payloadDefaults, { audio: { encoding: 'mp3' } });
-  // 阿里云：X-NLS-Token 头（非 Bearer）+ appkey 查询参数 + format 默认 mp3
+  // 阿里云：官方确认的凭据写法是查询参数 token（X-NLS-Token 头未在官方页命中，不采用）
   const aliyun = getTtsProvider('aliyun');
-  assert.equal(aliyun.auth.keyName, 'X-NLS-Token');
-  assert.equal(aliyun.auth.prefix, undefined);
-  assert.deepEqual(aliyun.queryFields, [{ name: 'appkey', from: 'appId' }]);
+  assert.deepEqual(aliyun.auth, {});
+  assert.deepEqual(aliyun.queryFields, [
+    { name: 'appkey', from: 'appId' },
+    { name: 'token', from: 'apiKey' },
+  ]);
   assert.deepEqual(aliyun.payloadDefaults, { format: 'mp3' });
   // 讯飞/腾讯云：声明为暂不支持
   assert.equal(getTtsProvider('iflytek-spark').unsupported, true);
@@ -464,4 +466,68 @@ test('百度 60 字上限生效且超出部分截断', () => {
   assert.equal(tts.truncateText('一'.repeat(100), 60).length, 60);
   assert.equal(tts.truncateText('一'.repeat(30), 60).length, 30);
   assert.equal(tts.truncateText('一'.repeat(900)).length, 800);
+});
+
+test('真实声明表驱动五家请求体逐家断言', async () => {
+  // 直接导入真实 providers.js，用引擎真实实现构建请求：
+  // 防止"合成 provider 测试通过、真实声明表却配错"的缺口。
+  const { TTS_PROVIDERS } = await import('../src/tts/providers.js');
+  const tts = loadTts();
+  const find = id => TTS_PROVIDERS.find(item => item.id === id);
+
+  // 小米：chat 模式 + audio.format=mp3 显式请求 + api-key 头
+  const mimo = tts.buildTtsRequest(find('xiaomi-mimo'), {
+    apiKey: 'mimo-key', model: 'MiMo-V2.5-TTS',
+  }, '你好');
+  const mimoBody = JSON.parse(mimo.body);
+  assert.equal(mimo.headers['api-key'], 'mimo-key');
+  assert.deepEqual(mimoBody.messages, [{ role: 'assistant', content: '你好' }]);
+  assert.equal(mimoBody.audio.format, 'mp3');
+  assert.equal(mimoBody.model, 'MiMo-V2.5-TTS');
+
+  // MiniMax：GroupId 查询 + Bearer 头 + hex 响应声明
+  const minimax = tts.buildTtsRequest(find('minimax'), {
+    apiKey: 'mm-key', appId: 'group-1', model: 'speech-2.8-hd',
+  }, '你好');
+  assert.match(minimax.url, /GroupId=group-1$/);
+  assert.equal(minimax.headers.Authorization, 'Bearer mm-key');
+  assert.equal(find('minimax').response.mode, 'hex');
+
+  // 百度：表单编码 + tok 在表单体（不在查询串）+ ctp/lan/cuid/aue 默认值
+  const baidu = tts.buildTtsRequest(find('baidu'), {
+    apiKey: 'ak', appSecretKey: 'sk', voice: '0',
+  }, '你好', 'oauth-token');
+  assert.equal(baidu.headers['Content-Type'], 'application/x-www-form-urlencoded');
+  assert.equal(baidu.url.includes('tok='), false);
+  const baiduForm = new URLSearchParams(baidu.body);
+  assert.equal(baiduForm.get('tok'), 'oauth-token');
+  assert.equal(baiduForm.get('tex'), '你好');
+  assert.equal(baiduForm.get('ctp'), '1');
+  assert.equal(baiduForm.get('lan'), 'zh');
+  assert.equal(baiduForm.get('cuid'), 'easychat2');
+  assert.equal(baiduForm.get('aue'), '3');
+  assert.equal(baiduForm.get('per'), '0');
+
+  // 火山：嵌套载荷 + signer 必填 + Bearer; 头
+  const volcano = tts.buildTtsRequest(find('volcano'), {
+    appId: 'vol-app', apiKey: 'vol-token', voice: 'BV001_streaming',
+  }, '你好');
+  assert.equal(volcano.headers.Authorization, 'Bearer;vol-token');
+  const volcanoBody = JSON.parse(volcano.body);
+  assert.equal(volcanoBody.request.text, '你好');
+  assert.equal(volcanoBody.request.operation, 'query');
+  assert.ok(volcanoBody.request.reqid);
+  assert.equal(volcanoBody.app.cluster, 'volcano_tts');
+  assert.equal(volcanoBody.user.uid, 'easychat2');
+  assert.equal(volcanoBody.audio.voice_type, 'BV001_streaming');
+  assert.equal(volcanoBody.audio.encoding, 'mp3');
+
+  // 阿里云：appkey+token 查询参数、format 默认 mp3、无 Authorization 头
+  const aliyun = tts.buildTtsRequest(find('aliyun'), {
+    apiKey: 'nls-token', appId: 'appkey-1',
+  }, '你好');
+  assert.equal(aliyun.headers.Authorization, undefined);
+  assert.match(aliyun.url, /appkey=appkey-1/);
+  assert.match(aliyun.url, /token=nls-token/);
+  assert.equal(JSON.parse(aliyun.body).format, 'mp3');
 });

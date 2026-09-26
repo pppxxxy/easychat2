@@ -25,6 +25,9 @@ export const TTS_PROVIDERS = [
     requestMode: 'chat',
     // MiMo 鉴权用 api-key 请求头（官方也支持 Authorization: Bearer）。
     auth: { type: 'header', keyName: 'api-key' },
+    // 官方 audio.format 默认 wav；播放端按 mp3 解会坏音频/无声，显式请求 mp3。
+    payloadDefaults: { audio: { format: 'mp3' } },
+    responseMime: 'audio/mp3',
     response: { mode: 'base64', path: 'choices.0.message.audio.data' },
     fields: [
       { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.xiaomimimo.com/v1/chat/completions' },
@@ -142,15 +145,19 @@ export const TTS_PROVIDERS = [
     apiKeyUrl: 'https://nls-portal.console.aliyun.com/',
     baseUrl: 'https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts',
     method: 'POST',
-    // 官方鉴权：X-NLS-Token 请求头（或 token 查询参数），不支持 Authorization: Bearer。
-    auth: { type: 'header', keyName: 'X-NLS-Token' },
+    // 官方确认的凭据写法：token 走查询参数（或 JSON 请求体内 header.token）；
+    // X-NLS-Token 头形式未在官方文档命中，不采用。
+    auth: {},
+    queryFields: [
+      { name: 'appkey', from: 'appId' },
+      { name: 'token', from: 'apiKey' },
+    ],
     textField: 'text',
     voiceField: 'voice',
     speedField: 'speech_rate',
     formatField: 'format',
     // 官方默认 format=pcm 会与播放端 mp3 假设冲突，显式取 mp3。
     payloadDefaults: { format: 'mp3' },
-    queryFields: [{ name: 'appkey', from: 'appId' }],
     response: { mode: 'binary' },
     fields: [
       { key: 'apiKey', label: '访问令牌', secret: true, placeholder: '智能语音交互控制台获取' },
@@ -171,7 +178,8 @@ export const TTS_PROVIDERS = [
     // 百度短文本合成要求表单提交，令牌参数名是 tok（不是 access_token），
     // ctp=1 / lan=zh 为官方必填。
     requestFormat: 'form',
-    auth: { type: 'token', keyName: 'tok', tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token', tokenFields: { grant_type: 'client_credentials' }, tokenPath: 'access_token', tokenTtlSec: 2592000 },
+    // 官方 SDK 把令牌写进表单体 data['tok'] 并从查询串删除：tokenInBody 对齐此行为。
+    auth: { type: 'token', keyName: 'tok', tokenInBody: true, tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token', tokenFields: { grant_type: 'client_credentials' }, tokenPath: 'access_token', tokenTtlSec: 2592000 },
     payloadDefaults: { ctp: 1, lan: 'zh', cuid: 'easychat2', aue: 3 },
     textField: 'tex',
     voiceField: 'per',
@@ -233,6 +241,7 @@ export const TTS_PROVIDERS = [
     // 官方默认 output_format=hex：data.audio 是 hex 编码，按 base64 解会得到坏音频。
     response: { mode: 'hex', path: 'data.audio' },
     fields: [
+      { key: 'baseUrl', label: '接口地址', optional: true, placeholder: '国内 api.minimaxi.com；国际账号改 api.minimax.io' },
       { key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Bearer Token' },
       { key: 'appId', label: 'GroupId', placeholder: 'GroupId' },
       { key: 'model', label: '模型名', placeholder: 'speech-2.8-hd' },
