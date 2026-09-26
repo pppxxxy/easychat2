@@ -7,7 +7,6 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -33,24 +32,25 @@ class DailyMessageWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val roleId = inputData.getString(KEY_ROLE_ID)
-            ?: return Result.failure().also { Log.w("DailyWorker", "缺少 roleId") }
+        val slotId = inputData.getString(KEY_SLOT_ID)
+            ?: return Result.failure().also { Log.w("DailyWorker", "缺少 slotId") }
         val revision = inputData.getString(KEY_REVISION) ?: ""
-        ProactiveMessageSender.send(applicationContext, roleId, revision)
+        ProactiveMessageSender.send(applicationContext, slotId, revision)
         // 发送逻辑内部已做降级与去重，重试只会骚扰用户，统一返回 success
         return Result.success()
     }
 
     companion object {
-        const val KEY_ROLE_ID = "role_id"
+        const val KEY_SLOT_ID = "slot_id"
         const val KEY_REVISION = "revision"
-        fun uniqueName(roleId: String) = "daily_message_$roleId"
+        fun uniqueName(slotId: String) = "daily_message_$slotId"
     }
 }
 
 object DailyWorkScheduler {
 
     fun schedule(context: Context, schedule: RoleSchedule) {
+        val slotId = schedule.resolvedSlotId
         val now = System.currentTimeMillis()
         val initialDelayMs = (MessageClock.nextTarget(schedule) - now).coerceAtLeast(0)
 
@@ -64,24 +64,22 @@ object DailyWorkScheduler {
             .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
             .setInputData(
                 workDataOf(
-                    DailyMessageWorker.KEY_ROLE_ID to schedule.roleId,
+                    DailyMessageWorker.KEY_SLOT_ID to slotId,
                     DailyMessageWorker.KEY_REVISION to schedule.revision
                 )
             )
             .build()
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            DailyMessageWorker.uniqueName(schedule.roleId),
+            DailyMessageWorker.uniqueName(slotId),
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
     }
 
-    fun cancel(context: Context, roleId: String) {
-        WorkManager.getInstance(context).cancelUniqueWork(DailyWorkWorkerName(roleId))
+    fun cancel(context: Context, slotId: String) {
+        WorkManager.getInstance(context).cancelUniqueWork(DailyMessageWorker.uniqueName(slotId))
     }
-
-    private fun DailyWorkWorkerName(roleId: String) = DailyMessageWorker.uniqueName(roleId)
 
     fun rescheduleAll(context: Context) {
         MessageStore(context).loadSchedules()
@@ -95,7 +93,7 @@ object DailyWorkScheduler {
 object AlarmScheduler {
 
     fun canScheduleExactAlarms(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
         } else true
     }
@@ -112,22 +110,31 @@ object AlarmScheduler {
                 MessageClock.nextTarget(schedule),
                 buildPendingIntent(context, schedule)
             )
-        Log.i("AlarmScheduler", "已设置精确闹钟: ${schedule.roleId}")
+        Log.i("AlarmScheduler", "已设置精确闹钟: slot=${schedule.resolvedSlotId}")
     }
 
-    fun cancel(context: Context, roleId: String) {
-        context.getSystemService(AlarmManager::class.java)
-            .cancel(buildPendingIntent(context, RoleSchedule(roleId, "", "", 0, 0, ScheduleMode.EXACT)))
+    fun cancel(context: Context, slotId: String) {
+        // 取消只需 action + requestCode 匹配（PendingIntent 相等性不含 extras，
+        // 也不依赖配置是否还存在），因此不必构造 RoleSchedule。
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_FIRE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, slotId.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        context.getSystemService(AlarmManager::class.java).cancel(pendingIntent)
+        pendingIntent.cancel()
     }
 
     private fun buildPendingIntent(context: Context, schedule: RoleSchedule): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = AlarmReceiver.ACTION_FIRE
-            putExtra(AlarmReceiver.EXTRA_ROLE_ID, schedule.roleId)
+            putExtra(AlarmReceiver.EXTRA_SLOT_ID, schedule.resolvedSlotId)
             putExtra(AlarmReceiver.EXTRA_REVISION, schedule.revision)
         }
         return PendingIntent.getBroadcast(
-            context, schedule.roleId.hashCode(), intent,
+            context, schedule.resolvedSlotId.hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
@@ -138,15 +145,15 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_FIRE) return
-        val roleId = intent.getStringExtra(EXTRA_ROLE_ID) ?: return
+        val slotId = intent.getStringExtra(EXTRA_SLOT_ID) ?: return
         val revision = intent.getStringExtra(EXTRA_REVISION) ?: ""
 
-        MessageStore(context).findSchedule(roleId)?.let { schedule ->
+        MessageStore(context).findScheduleBySlot(slotId)?.let { schedule ->
             if (schedule.enabled) AlarmScheduler.schedule(context, schedule)
         }
 
         val serviceIntent = Intent(context, MessageForegroundService::class.java).apply {
-            putExtra(MessageForegroundService.EXTRA_ROLE_ID, roleId)
+            putExtra(MessageForegroundService.EXTRA_SLOT_ID, slotId)
             putExtra(MessageForegroundService.EXTRA_REVISION, revision)
         }
         ContextCompat.startForegroundService(context, serviceIntent)
@@ -154,7 +161,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_FIRE = "com.pppxxxy.easychat2.proactive.ALARM_FIRE"
-        const val EXTRA_ROLE_ID = "role_id"
+        const val EXTRA_SLOT_ID = "slot_id"
         const val EXTRA_REVISION = "revision"
     }
 }
@@ -166,20 +173,20 @@ class MessageForegroundService : Service() {
 
     // 必须显式声明返回 Int，表达式体否则会被推断为 Unit
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val roleId = intent?.getStringExtra(EXTRA_ROLE_ID)
+        val slotId = intent?.getStringExtra(EXTRA_SLOT_ID)
         val revision = intent?.getStringExtra(EXTRA_REVISION) ?: ""
 
         // 必须立刻 startForeground；通知权限被拒也要调用（系统规则要求）
         Notifier.ensureChannel(this)
         startForeground(FOREGROUND_NOTIFICATION_ID, buildServiceNotification())
 
-        if (roleId.isNullOrBlank()) {
+        if (slotId.isNullOrBlank()) {
             stopSelf()
             return START_NOT_STICKY
         }
         scope.launch {
             try {
-                ProactiveMessageSender.send(applicationContext, roleId, revision)
+                ProactiveMessageSender.send(applicationContext, slotId, revision)
             } catch (e: Exception) {
                 Log.e("MessageFgService", "发送异常", e)
             } finally {
@@ -206,7 +213,7 @@ class MessageForegroundService : Service() {
     }
 
     companion object {
-        const val EXTRA_ROLE_ID = "role_id"
+        const val EXTRA_SLOT_ID = "slot_id"
         const val EXTRA_REVISION = "revision"
         const val FOREGROUND_NOTIFICATION_ID = 9001
     }

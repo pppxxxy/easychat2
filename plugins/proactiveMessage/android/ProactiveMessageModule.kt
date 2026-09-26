@@ -102,7 +102,9 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                 hour = config.getInt("hour"),
                 minute = config.getInt("minute"),
                 mode = ScheduleMode.valueOf(config.getString("mode") ?: "WORK"),
-                enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else true
+                enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else true,
+                revision = config.getString("revision") ?: java.util.UUID.randomUUID().toString(),
+                slotId = config.getString("slotId") ?: ""
             )
             val store = MessageStore(reactContext)
             store.upsertSchedule(schedule)
@@ -110,21 +112,39 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                 ScheduleMode.WORK -> DailyWorkScheduler.schedule(reactContext, schedule)
                 ScheduleMode.EXACT -> AlarmScheduler.schedule(reactContext, schedule)
             }
-            promise.resolve(true)
+            promise.resolve(schedule.resolvedSlotId)
         } catch (e: Exception) {
             promise.reject("ERR_SCHEDULE", e.message, e)
         }
     }
 
+    /** 取消单个时间槽 */
     @ReactMethod
-    fun cancel(roleId: String, promise: Promise) {
+    fun cancel(slotId: String, promise: Promise) {
         try {
-            MessageStore(reactContext).removeSchedule(roleId)
-            DailyWorkScheduler.cancel(reactContext, roleId)
-            AlarmScheduler.cancel(reactContext, roleId)
+            MessageStore(reactContext).removeScheduleBySlot(slotId)
+            DailyWorkScheduler.cancel(reactContext, slotId)
+            AlarmScheduler.cancel(reactContext, slotId)
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("ERR_CANCEL", e.message, e)
+        }
+    }
+
+    /** 取消某角色的全部时间槽 */
+    @ReactMethod
+    fun cancelRole(roleId: String, promise: Promise) {
+        try {
+            val store = MessageStore(reactContext)
+            // 用全量列表：已停用的槽也可能残留旧闹钟/任务
+            store.loadSchedules().filter { it.roleId == roleId }.forEach { schedule ->
+                DailyWorkScheduler.cancel(reactContext, schedule.resolvedSlotId)
+                AlarmScheduler.cancel(reactContext, schedule.resolvedSlotId)
+            }
+            store.removeSchedulesByRole(roleId)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_CANCEL_ROLE", e.message, e)
         }
     }
 
@@ -173,6 +193,59 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
             // 不存在 ACTION_BATTERY_OPTIMIZATION_SETTINGS
             reactContext.startActivity(
                 Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_OPEN_SETTINGS", e.message, e)
+        }
+    }
+
+    /** 厂商自启动/后台运行设置页。均属厂商私有 action，逐个尝试，失败落回应用详情。 */
+    @ReactMethod
+    fun openAutostartSettings(promise: Promise) {
+        try {
+            val manufacturer = Build.MANUFACTURER.lowercase()
+            val candidates = when {
+                manufacturer.contains("xiaomi") || manufacturer.contains("redmi") -> listOf(
+                    "com.miui.securitycenter" to
+                        "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                )
+                manufacturer.contains("huawei") || manufacturer.contains("honor") -> listOf(
+                    "com.huawei.systemmanager" to
+                        "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+                    "com.huawei.systemmanager" to
+                        "com.huawei.systemmanager.optimize.process.ProtectActivity"
+                )
+                manufacturer.contains("oppo") -> listOf(
+                    "com.coloros.safecenter" to
+                        "com.coloros.privacypermissionsentry.PermissionTopActivity",
+                    "com.coloros.safecenter" to
+                        "com.coloros.safecenter.startupapp.StartupAppListActivity"
+                )
+                manufacturer.contains("vivo") -> listOf(
+                    "com.iqoo.secure" to
+                        "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity",
+                    "com.vivo.permissionmanager" to
+                        "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+                )
+                else -> emptyList()
+            }
+            for ((pkg, cls) in candidates) {
+                try {
+                    reactContext.startActivity(
+                        Intent().setClassName(pkg, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    promise.resolve(true)
+                    return
+                } catch (e: Exception) {
+                    // 该厂商机型没有这个页面，继续尝试下一个
+                }
+            }
+            reactContext.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${reactContext.packageName}")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )

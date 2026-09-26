@@ -15,13 +15,20 @@ export function isProactiveMessageAvailable() {
   return !!native;
 }
 
-// config: { roleId, roleName, persona, hour, minute, mode: 'WORK'|'EXACT', enabled }
+// config: { slotId, roleId, roleName, persona, hour, minute, mode: 'WORK'|'EXACT', enabled, revision }
+// 返回原生确认的 slotId；同一角色可排多个时间槽。
 export async function scheduleDailyMessage(config) {
   return requireNative().schedule(config);
 }
 
-export async function cancelDailyMessage(roleId) {
-  return requireNative().cancel(roleId);
+// 取消单个时间槽
+export async function cancelDailySchedule(slotId) {
+  return requireNative().cancel(slotId);
+}
+
+// 取消某角色的全部时间槽
+export async function cancelRoleSchedules(roleId) {
+  return requireNative().cancelRole(roleId);
 }
 
 // apiKey 来自用户自己在设置页填写的值
@@ -39,6 +46,10 @@ export async function openExactAlarmSettings() {
 
 export async function openBatteryOptimizationSettings() {
   return requireNative().openBatteryOptimizationSettings();
+}
+
+export async function openAutostartSettings() {
+  return requireNative().openAutostartSettings();
 }
 
 // Android 13+ 通知运行时权限，用 RN 内置 API 申请

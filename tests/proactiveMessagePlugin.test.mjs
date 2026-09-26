@@ -110,6 +110,18 @@ test('Kotlin 源码不使用不存在的系统 action 常量', () => {
   assert.ok(source.includes('Intent.ACTION_TIME_CHANGED'));
 });
 
+test('同一角色多时间以 slotId 为唯一标识，不按 roleId 覆盖', () => {
+  const source = readAllKotlin();
+  // 去重、WorkManager 唯一名、闹钟 requestCode 都必须按槽区分
+  assert.ok(source.includes('resolvedSlotId'));
+  assert.ok(source.includes('isSlotSentToday'));
+  assert.match(source, /uniqueName\(slotId: String\)/);
+  assert.ok(source.includes('cancelRole'));
+  // roleId 级别去重会让多时间槽只剩第一个能发，禁止出现
+  assert.ok(!source.includes('isSentToday(roleId)'));
+  assert.ok(!source.includes('markSentToday(roleId)'));
+});
+
 test('前台服务 onStartCommand 显式返回 Int', () => {
   const source = readAllKotlin();
   assert.match(source, /onStartCommand\([^)]*\): Int\s*\{/);

@@ -33,6 +33,11 @@ import java.util.concurrent.TimeUnit
 
 enum class ScheduleMode { WORK, EXACT }
 
+/**
+ * 一个"时间槽"：某角色在某个时刻的一条定时任务。
+ * 同一角色可以配置多个槽（早 8:00、晚 21:00…），因此唯一标识用 slotId，
+ * 而不是 roleId —— 否则多个槽会在 WorkManager/闹钟/去重记录上互相覆盖。
+ */
 data class RoleSchedule(
     val roleId: String,
     val roleName: String,
@@ -42,13 +47,19 @@ data class RoleSchedule(
     val mode: ScheduleMode,
     val enabled: Boolean = true,
     // 配置每次变更重新生成；队列里的旧任务凭 revision 不匹配自动放弃
-    val revision: String = UUID.randomUUID().toString()
+    val revision: String = UUID.randomUUID().toString(),
+    // 时间槽标识，由 JS 生成并在排定/取消时保持一致
+    val slotId: String = ""
 ) {
     init {
         require(roleId.isNotBlank())
         require(hour in 0..23)
         require(minute in 0..59)
     }
+
+    /** 兜底：老数据没有 slotId 时按角色+时刻派生，保证同一槽稳定 */
+    val resolvedSlotId: String
+        get() = slotId.ifBlank { "$roleId-$hour-$minute" }
 
     fun toJson(): JSONObject = JSONObject()
         .put("roleId", roleId)
@@ -59,6 +70,7 @@ data class RoleSchedule(
         .put("mode", mode.name)
         .put("enabled", enabled)
         .put("revision", revision)
+        .put("slotId", resolvedSlotId)
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -69,12 +81,13 @@ data class RoleSchedule(
             minute = json.getInt("minute"),
             mode = ScheduleMode.valueOf(json.optString("mode", "WORK")),
             enabled = json.optBoolean("enabled", true),
-            revision = json.optString("revision", UUID.randomUUID().toString())
+            revision = json.optString("revision", UUID.randomUUID().toString()),
+            slotId = json.optString("slotId", "")
         )
     }
 }
 
-// apiKey 只能来自用户在设置页输入并保存的值，代码里永远只允许占位
+// apiKey 只能来自用户在设置页已有的 API 配置，代码里永远只允许占位
 data class ApiSettings(val endpoint: String, val model: String, val apiKey: String)
 
 object MessageClock {
@@ -104,7 +117,7 @@ object MessageClock {
         val diff = nowMillis - todayTarget(config)
         val expired = diff > MAX_LATENESS_MS
         if (expired) {
-            Log.w("MessageClock", "任务过期跳过: role=${config.roleId} 偏差=${diff}ms")
+            Log.w("MessageClock", "任务过期跳过: slot=${config.resolvedSlotId} 偏差=${diff}ms")
         }
         return expired
     }
@@ -121,12 +134,17 @@ class MessageStore(context: Context) {
     }
 
     fun upsertSchedule(schedule: RoleSchedule) {
-        val list = loadSchedules().filterNot { it.roleId == schedule.roleId } + schedule
+        val list = loadSchedules().filterNot { it.resolvedSlotId == schedule.resolvedSlotId } + schedule
         saveSchedules(list)
     }
 
-    fun removeSchedule(roleId: String) {
+    /** 取消某角色的全部时间槽 */
+    fun removeSchedulesByRole(roleId: String) {
         saveSchedules(loadSchedules().filterNot { it.roleId == roleId })
+    }
+
+    fun removeScheduleBySlot(slotId: String) {
+        saveSchedules(loadSchedules().filterNot { it.resolvedSlotId == slotId })
     }
 
     fun loadSchedules(): List<RoleSchedule> {
@@ -140,8 +158,11 @@ class MessageStore(context: Context) {
         }
     }
 
-    fun findSchedule(roleId: String): RoleSchedule? =
-        loadSchedules().firstOrNull { it.roleId == roleId }
+    fun findScheduleBySlot(slotId: String): RoleSchedule? =
+        loadSchedules().firstOrNull { it.resolvedSlotId == slotId }
+
+    fun findSchedulesByRole(roleId: String): List<RoleSchedule> =
+        loadSchedules().filter { it.roleId == roleId && it.enabled }
 
     fun saveApiSettings(settings: ApiSettings) {
         prefs.edit()
@@ -158,16 +179,20 @@ class MessageStore(context: Context) {
         return ApiSettings(endpoint, model, prefs.getString(KEY_API_KEY, "") ?: "")
     }
 
+    /**
+     * 每个时间槽每日一条：按 slotId + 日期去重。
+     * 若仍按 roleId 去重，一个角色配了多个时间时只有第一个能发出。
+     */
+    fun lastSentDate(slotId: String): String? = prefs.getString("$KEY_LAST_SENT$slotId", null)
+
+    fun isSlotSentToday(slotId: String): Boolean = lastSentDate(slotId) == today()
+
+    fun markSlotSentToday(slotId: String) {
+        prefs.edit().putString("$KEY_LAST_SENT$slotId", today()).apply()
+    }
+
     private fun today(): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().time)
-
-    fun lastSentDate(roleId: String): String? = prefs.getString("$KEY_LAST_SENT$roleId", null)
-
-    fun isSentToday(roleId: String): Boolean = lastSentDate(roleId) == today()
-
-    fun markSentToday(roleId: String) {
-        prefs.edit().putString("$KEY_LAST_SENT$roleId", today()).apply()
-    }
 
     companion object {
         private const val PREFS = "proactive_message_prefs"
@@ -285,7 +310,7 @@ object Notifier {
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID, "角色主动消息", NotificationManager.IMPORTANCE_HIGH
-        ).apply { description = "AI 角色的每日主动问候" }
+        ).apply { description = "AI 角色的定时主动问候" }
         context.getSystemService(NotificationManager::class.java)
             .createNotificationChannel(channel)
     }
@@ -300,7 +325,7 @@ object Notifier {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
-    fun sendRoleMessage(context: Context, roleId: String, roleName: String, text: String) {
+    fun sendRoleMessage(context: Context, slotId: String, roleId: String, roleName: String, text: String) {
         ensureChannel(context)
         if (!canNotify(context)) {
             Log.w("Notifier", "通知未授权或被关闭，跳过展示")
@@ -318,7 +343,7 @@ object Notifier {
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
-            context, roleId.hashCode(), launchIntent,
+            context, slotId.hashCode(), launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -332,7 +357,7 @@ object Notifier {
             .build()
 
         try {
-            NotificationManagerCompat.from(context).notify(roleId.hashCode(), notification)
+            NotificationManagerCompat.from(context).notify(slotId.hashCode(), notification)
         } catch (e: SecurityException) {
             Log.w("Notifier", "通知权限在运行中被撤销", e)
         }
@@ -342,38 +367,41 @@ object Notifier {
 /**
  * 两套调度方案共用的发送核心：去重、过期检查、AI 生成与本地降级都在这一处，
  * Worker / 前台服务只做最薄的调度包装，避免行为分叉。
+ * 入参是 slotId（时间槽），因为同一角色可能配多个时间。
  */
 object ProactiveMessageSender {
 
     private const val TAG = "ProactiveSender"
 
-    suspend fun send(context: Context, roleId: String, revision: String) {
+    suspend fun send(context: Context, slotId: String, revision: String) {
         val store = MessageStore(context)
-        val schedule = store.findSchedule(roleId)
+        val schedule = store.findScheduleBySlot(slotId)
 
         if (schedule == null || !schedule.enabled) {
-            Log.i(TAG, "配置已停用/删除: $roleId"); return
+            Log.i(TAG, "配置已停用/删除: slot=$slotId"); return
         }
         if (schedule.revision != revision) {
-            Log.i(TAG, "revision 不匹配，放弃旧任务: $roleId"); return
+            Log.i(TAG, "revision 不匹配，放弃旧任务: slot=$slotId"); return
         }
-        if (store.isSentToday(roleId)) {
-            Log.i(TAG, "今天已发送，跳过: $roleId"); return
+        if (store.isSlotSentToday(slotId)) {
+            Log.i(TAG, "该时间槽今天已发送，跳过: slot=$slotId"); return
         }
         if (MessageClock.isExpired(schedule, System.currentTimeMillis())) return
 
         val generated = store.loadApiSettings()
             ?.let { AiApiClient().generateProactiveMessage(it, schedule) }
         val text = generated ?: FallbackMessages.random().also {
-            Log.i(TAG, "AI 生成失败，使用本地降级文案: $roleId")
+            Log.i(TAG, "AI 生成失败，使用本地降级文案: slot=$slotId")
         }
 
         // 网络请求可能耗时较久，发送前复检
-        if (MessageClock.isExpired(schedule, System.currentTimeMillis()) || store.isSentToday(roleId)) return
+        if (MessageClock.isExpired(schedule, System.currentTimeMillis()) || store.isSlotSentToday(slotId)) return
 
-        Notifier.sendRoleMessage(context, schedule.roleId, schedule.roleName, text)
+        Notifier.sendRoleMessage(
+            context, slotId, schedule.roleId, schedule.roleName, text
+        )
         // 通知权限被拒时也标记已发送，避免反复尝试变成骚扰
-        store.markSentToday(roleId)
-        Log.i(TAG, "主动消息完成: role=$roleId ai=${generated != null}")
+        store.markSlotSentToday(slotId)
+        Log.i(TAG, "主动消息完成: slot=$slotId ai=${generated != null}")
     }
 }
