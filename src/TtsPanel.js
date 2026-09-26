@@ -19,8 +19,8 @@ import { TTS_PROVIDERS, getTtsProvider } from './tts/providers';
 import { useTheme } from './theme/ThemeContext';
 
 export default function TtsPanel({ visible, onClose }) {
-  const { theme, fonts } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [settings, setSettings] = useState({ enabled: false, activeProvider: 'system', providers: {} });
   const [loaded, setLoaded] = useState(false);
   const persistVersionRef = useRef(0);
@@ -38,6 +38,19 @@ export default function TtsPanel({ visible, onClose }) {
     getTtsSettings()
       .then(stored => {
          if (cancelled) return;
+         // 存量播报源已下线/移除：显式迁移回系统引擎并给出可见提示，
+         // 不做静默换源——用户需要知道为什么引擎变了。
+         const known = TTS_PROVIDERS.some(item => item.id === stored.activeProvider);
+         if (!known) {
+           const migrated = { ...stored, activeProvider: 'system' };
+           settingsRef.current = migrated;
+           lastSavedSettingsRef.current = migrated;
+           setSettings(migrated);
+           setLoaded(true);
+           saveTtsSettings(migrated).catch(() => {});
+           Alert.alert('播报引擎已更新', '原先选择的播报引擎已下线或不可用，已切换为系统引擎，请在下方重新选择。');
+           return;
+         }
          settingsRef.current = stored;
          lastSavedSettingsRef.current = stored;
          setSettings(stored);
@@ -141,20 +154,44 @@ export default function TtsPanel({ visible, onClose }) {
             <View style={styles.providerRow}>
               {TTS_PROVIDERS.map(item => {
                 const active = item.id === provider.id;
+                const unavailable = item.unsupported === true;
                 return (
                   <TouchableOpacity
                     key={item.id}
-                    style={[styles.providerChip, active && styles.providerChipActive]}
-                     onPress={() => persist({ ...settingsRef.current, activeProvider: item.id })}
-                    activeOpacity={0.85}
+                    style={[
+                      styles.providerChip,
+                      active && styles.providerChipActive,
+                      unavailable && styles.providerChipUnsupported,
+                    ]}
+                     onPress={() => {
+                      if (unavailable) {
+                        Alert.alert('暂不支持', `${item.label}：${item.unsupportedNote || '当前引擎暂不支持该服务'}。`);
+                        return;
+                      }
+                      persist({ ...settingsRef.current, activeProvider: item.id });
+                    }}
+                     activeOpacity={0.85}
+                    accessibilityLabel={unavailable ? `${item.label}，暂不支持` : item.label}
                   >
-                    <Text style={[styles.providerText, active && styles.providerTextActive]}>
-                      {item.label}
+                    <Text
+                      style={[
+                        styles.providerText,
+                        active && styles.providerTextActive,
+                        unavailable && styles.providerTextUnsupported,
+                      ]}
+                    >
+                      {unavailable ? `${item.label}·暂不支持` : item.label}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
-            </View>
+             </View>
+
+            {provider.unsupported ? (
+              <FieldHint style={styles.hint}>
+                {`当前引擎暂不支持：${provider.unsupportedNote || '该服务暂不可用'}。播报会失败，请选择其他引擎。`}
+              </FieldHint>
+            ) : null}
 
             {loaded ? provider.fields.map(field => (
               <View key={field.key}>
@@ -184,9 +221,9 @@ export default function TtsPanel({ visible, onClose }) {
               </TouchableOpacity>
             ) : null}
 
-            {provider.engine !== 'system' && provider.signer ? (
+            {provider.engine !== 'system' && provider.signer === 'volcano' ? (
               <Text style={styles.fieldHint}>
-                该服务使用{provider.signer === 'iflytek' ? '讯飞' : provider.signer === 'tencent' ? '腾讯云' : '火山引擎'}签名，若签名校验失败可改用服务商提供的预生成令牌。
+                火山引擎使用 Bearer; 签名头，请在语音控制台获取 Access Token 与 AppID。
               </Text>
             ) : null}
 
@@ -200,7 +237,7 @@ export default function TtsPanel({ visible, onClose }) {
   );
 }
 
-const createStyles = (theme, fonts) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: theme.colors.surfaceAlt,
@@ -232,6 +269,11 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   providerChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   providerTextActive: { color: theme.colors.primarySoft },
+  providerChipUnsupported: {
+    opacity: tokens.opacity.disabled,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  providerTextUnsupported: { color: theme.colors.textFaint },
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 10 },
   keyLink: {
     flexDirection: 'row',

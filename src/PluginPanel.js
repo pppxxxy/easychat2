@@ -41,10 +41,30 @@ export default function PluginPanel({ visible, onClose }) {
     getPlugins()
       .then(list => {
          if (cancelled) return;
-         pluginsRef.current = list;
-         lastSavedPluginsRef.current = list;
-         setPlugins(list);
+         // 存量停服供应商（如 Bing）被规范化换源时带 providerMigrated 标记：
+         // 这里给出一次性可见提示并落盘清除标记，避免无痕静默换源。
+         const migratedFrom = (Array.isArray(list) ? list : [])
+           .filter(plugin => plugin && plugin.type === 'web-search')
+           .map(plugin => plugin.config && plugin.config.providerMigrated)
+           .find(Boolean);
+         const cleaned = (Array.isArray(list) ? list : []).map(plugin => {
+           if (plugin && plugin.config && plugin.config.providerMigrated) {
+             const { providerMigrated, ...restConfig } = plugin.config;
+             return { ...plugin, config: restConfig };
+           }
+           return plugin;
+         });
+         pluginsRef.current = cleaned;
+         lastSavedPluginsRef.current = cleaned;
+         setPlugins(cleaned);
          setLoaded(true);
+         if (migratedFrom) {
+           Alert.alert(
+             '搜索引擎已更新',
+             `原先选择的搜索服务（${migratedFrom}）已停服或不可用，已切换为默认服务，请重新检查密钥设置。`
+           );
+           savePlugins(cleaned).catch(() => {});
+         }
       })
       .catch(() => {
         if (!cancelled) Alert.alert('联网搜索读取失败', '请重新打开后重试。');

@@ -202,23 +202,31 @@ test('含 fixed 子元素的普通卡片不判为视口型文档', () => {
   assert.equal(isViewportRichHtml('<body style="position:fixed">面板</body>'), true);
 });
 
-test('含 fixed 子元素的普通卡片不判为视口型文档', () => {
-  // 悬浮角标/挂件：整卡不应因此失去直接交互、被推入全屏 Modal 路径
-  assert.equal(
-    isViewportRichHtml('<div>正文按钮区</div><span style="position:fixed;top:0;right:0">角标</span>'),
-    false
-  );
-  assert.equal(
-    isViewportRichHtml('<style>.badge{position:fixed;top:8px;right:8px}</style><div>卡片内容</div>'),
-    false
-  );
-  // 但 html/body 内联 fixed 仍算视口型
-  assert.equal(isViewportRichHtml('<body style="position:fixed">面板</body>'), true);
-});
-
 test('完整文档缺少 viewport meta 时自动补齐', () => {
   const doc = buildRichHtmlDocument({
     bodyHtml: '<!DOCTYPE html><html><head><title>Card</title></head><body>内容</body></html>',
   });
   assert.equal((doc.match(/name="viewport"/g) || []).length, 1);
+});
+
+test('钉死判定兼容 !important、四值简写、小数与 CSS 注释', () => {
+  // 漏判回归：这些写法都是整屏承载容器
+  assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0 !important}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0 0 0 0}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>.x{position:fixed;inset:0.0}</style>'), true);
+  assert.equal(isViewportRichHtml('<div style="position:fixed;inset:0 !important"></div>'), true);
+  assert.equal(isViewportRichHtml('<div style="position:fixed;top:0;right:0;bottom:0;left:0 !important"></div>'), true);
+  // 误判回归：CSS 注释里的内容不参与判定
+  assert.equal(isViewportRichHtml('<style>/* .x{position:fixed;inset:0} */</style>'), false);
+  assert.equal(isViewportRichHtml('<style>/* height:100vh */</style>'), false);
+  // 注释剥离不影响真实声明的识别
+  assert.equal(
+    isViewportRichHtml('<style>.app{height:100vh} /* .demo{position:fixed;inset:0} */</style>'),
+    true
+  );
+  // margin-top 等带前缀属性不构成四边钉死
+  assert.equal(
+    isViewportRichHtml('<style>.badge{position:fixed;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;top:8px}</style>'),
+    false
+  );
 });

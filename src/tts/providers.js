@@ -1,13 +1,5 @@
 export const TTS_MAX_CHARS = 800;
 
-const BEARER_FIELDS = [
-  { key: 'baseUrl', label: '接口地址', placeholder: 'https://example.com/v1/audio/speech' },
-  { key: 'apiKey', label: 'API Key', secret: true, placeholder: 'sk-...' },
-  { key: 'model', label: '模型名', optional: true, placeholder: 'tts-1' },
-  { key: 'voice', label: '音色', optional: true, placeholder: 'alloy' },
-  { key: 'speed', label: '语速', optional: true, placeholder: '1.0' },
-];
-
 export const TTS_PROVIDERS = [
   {
     id: 'system',
@@ -25,25 +17,19 @@ export const TTS_PROVIDERS = [
     id: 'xiaomi-mimo',
     label: '小米 MiMo',
     apiKeyUrl: 'https://platform.xiaomimimo.com',
-    // 官方 API 域名为 api.xiaomimimo.com（平台首页 platform.xiaomimimo.com 已核实）。
-    // /v1/audio/speech 为官方兼容端点（推荐走 /v1/chat/completions，但本引擎为
-    // 声明式 audio/speech 形态，选兼容端点零引擎改动）。
-    baseUrl: 'https://api.xiaomimimo.com/v1/audio/speech',
+    // 官方仅有 /v1/chat/completions 端点（实测 GET 返回 405 = 路由存在）；
+    // /v1/audio/speech 不存在（实测 404）。TTS 走 chat 形态：合成文本作为
+    // assistant 消息，音频 base64 返回在 choices[0].message.audio.data。
+    baseUrl: 'https://api.xiaomimimo.com/v1/chat/completions',
     method: 'POST',
-    // MiMo 鉴权用 api-key 请求头，不是 OpenAI 风格的 Authorization: Bearer。
+    requestMode: 'chat',
+    // MiMo 鉴权用 api-key 请求头（官方也支持 Authorization: Bearer）。
     auth: { type: 'header', keyName: 'api-key' },
-    textField: 'input',
-    voiceField: 'voice',
-    speedField: 'speed',
-    formatField: 'response_format',
-    // 兼容端点返回 JSON，音频 base64 位于 message.audio.data，不是音频二进制流。
-    response: { mode: 'base64', path: 'message.audio.data' },
+    response: { mode: 'base64', path: 'choices.0.message.audio.data' },
     fields: [
-      { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.xiaomimimo.com/v1/audio/speech' },
+      { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.xiaomimimo.com/v1/chat/completions' },
       { key: 'apiKey', label: 'API Key', secret: true, placeholder: '在开放平台控制台获取' },
-      { key: 'model', label: '模型名', optional: true, placeholder: '以官方文档为准' },
-      { key: 'voice', label: '音色', optional: true, placeholder: '以官方音色列表为准' },
-      { key: 'speed', label: '语速', optional: true, placeholder: '1.0' },
+      { key: 'model', label: '模型名', placeholder: 'MiMo-V2.5-TTS' },
     ],
     timeoutMs: 30000,
     retries: 1,
@@ -61,7 +47,13 @@ export const TTS_PROVIDERS = [
     speedField: 'speed',
     formatField: 'response_format',
     response: { mode: 'binary' },
-    fields: BEARER_FIELDS,
+    fields: [
+      { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.siliconflow.cn/v1/audio/speech' },
+      { key: 'apiKey', label: 'API Key', secret: true, placeholder: 'sk-...' },
+      { key: 'model', label: '模型名', placeholder: 'FunAudioLLM/CosyVoice2-0.5B' },
+      { key: 'voice', label: '音色', optional: true, placeholder: 'FunAudioLLM/CosyVoice2-0.5B:alex' },
+      { key: 'speed', label: '语速', optional: true, placeholder: '1.0' },
+    ],
     voices: ['FunAudioLLM/CosyVoice2-0.5B:alex', 'FunAudioLLM/CosyVoice2-0.5B:anna'],
     timeoutMs: 30000,
     retries: 1,
@@ -89,6 +81,8 @@ export const TTS_PROVIDERS = [
     ],
     timeoutMs: 30000,
     retries: 0,
+    unsupported: true,
+    unsupportedNote: '讯飞语音走 WebSocket（wss）协议，当前引擎暂不支持',
   },
   {
     id: 'stepfun',
@@ -102,7 +96,13 @@ export const TTS_PROVIDERS = [
     speedField: 'speed',
     formatField: 'response_format',
     response: { mode: 'binary' },
-    fields: BEARER_FIELDS,
+    fields: [
+      { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.stepfun.com/v1/audio/speech' },
+      { key: 'apiKey', label: 'API Key', secret: true, placeholder: 'sk-...' },
+      { key: 'model', label: '模型名', placeholder: 'stepaudio-3-tts' },
+      { key: 'voice', label: '音色', optional: true, placeholder: '以官方音色列表为准' },
+      { key: 'speed', label: '语速', optional: true, placeholder: '1.0' },
+    ],
     voices: ['cixingnansheng', 'zhaixiaowai'],
     timeoutMs: 30000,
     retries: 1,
@@ -131,24 +131,30 @@ export const TTS_PROVIDERS = [
     timeoutMs: 30000,
     retries: 1,
     custom: true,
+    unsupported: true,
+    unsupportedNote: '腾讯云需要 TC3-HMAC-SHA256 签名，尚未实现',
   },
   {
     id: 'aliyun',
-    label: '阿里云百炼',
-    apiKeyUrl: 'https://bailian.console.aliyun.com/',
+    // 端点是智能语音交互 NLS 网关（不是百炼 DashScope）：
+    // 令牌必须来自智能语音交互控制台，百炼密钥打不通这个端点。
+    label: '阿里云智能语音',
+    apiKeyUrl: 'https://nls-portal.console.aliyun.com/',
     baseUrl: 'https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts',
     method: 'POST',
-    auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
-    // 阿里云 NLS 网关要求 appkey 作为查询参数；原声明收集了 AppKey 却从不发送。
-    queryFields: [{ name: 'appkey', from: 'appId' }],
+    // 官方鉴权：X-NLS-Token 请求头（或 token 查询参数），不支持 Authorization: Bearer。
+    auth: { type: 'header', keyName: 'X-NLS-Token' },
     textField: 'text',
     voiceField: 'voice',
     speedField: 'speech_rate',
     formatField: 'format',
+    // 官方默认 format=pcm 会与播放端 mp3 假设冲突，显式取 mp3。
+    payloadDefaults: { format: 'mp3' },
+    queryFields: [{ name: 'appkey', from: 'appId' }],
     response: { mode: 'binary' },
     fields: [
-      { key: 'apiKey', label: 'Token', secret: true, placeholder: '访问令牌' },
-      { key: 'appId', label: 'AppKey', optional: true, placeholder: '应用 AppKey' },
+      { key: 'apiKey', label: '访问令牌', secret: true, placeholder: '智能语音交互控制台获取' },
+      { key: 'appId', label: 'AppKey', placeholder: '应用 AppKey' },
       { key: 'voice', label: '音色', optional: true, placeholder: 'xiaoyun' },
       { key: 'speed', label: '语速', optional: true, placeholder: '0' },
     ],
@@ -162,12 +168,18 @@ export const TTS_PROVIDERS = [
     apiKeyUrl: 'https://console.bce.baidu.com/ai-engine/old/#/ai/speech/app/list',
     baseUrl: 'https://tsn.baidu.com/text2audio',
     method: 'POST',
-    auth: { type: 'token', keyName: 'access_token', tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token', tokenFields: { grant_type: 'client_credentials' }, tokenPath: 'access_token', tokenTtlSec: 2592000 },
+    // 百度短文本合成要求表单提交，令牌参数名是 tok（不是 access_token），
+    // ctp=1 / lan=zh 为官方必填。
+    requestFormat: 'form',
+    auth: { type: 'token', keyName: 'tok', tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token', tokenFields: { grant_type: 'client_credentials' }, tokenPath: 'access_token', tokenTtlSec: 2592000 },
+    payloadDefaults: { ctp: 1, lan: 'zh', cuid: 'easychat2', aue: 3 },
     textField: 'tex',
     voiceField: 'per',
     speedField: 'spd',
     formatField: 'aue',
     response: { mode: 'binary' },
+    // 官方短文本上限约 60 汉字（默认 800 会被服务端拒绝）。
+    maxChars: 60,
     fields: [
       { key: 'apiKey', label: 'API Key', secret: true, placeholder: 'API Key' },
       { key: 'appSecretKey', label: 'Secret Key', secret: true, placeholder: 'Secret Key' },
@@ -186,10 +198,14 @@ export const TTS_PROVIDERS = [
     method: 'POST',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer;' },
     signer: 'volcano',
-    textField: 'text',
-    voiceField: 'voice_type',
-    speedField: 'speed_ratio',
-    formatField: 'encoding',
+    // 火山官方载荷嵌套：request.text / audio.voice_type / audio.speed_ratio / audio.encoding，
+    // app.cluster、user.uid、request.reqid、request.operation 由引擎 signer 分支补齐。
+    textField: 'request.text',
+    voiceField: 'audio.voice_type',
+    speedField: 'audio.speed_ratio',
+    formatField: 'audio.encoding',
+    // 官方默认 encoding=pcm 会与播放端 mp3 假设冲突，显式取 mp3。
+    payloadDefaults: { audio: { encoding: 'mp3' } },
     response: { mode: 'base64', path: 'data' },
     fields: [
       { key: 'appId', label: 'AppID', placeholder: '应用 ID' },
@@ -204,22 +220,23 @@ export const TTS_PROVIDERS = [
   {
     id: 'minimax',
     label: 'MiniMax',
-    apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
-    baseUrl: 'https://api.minimax.chat/v1/t2a_v2',
+    apiKeyUrl: 'https://platform.minimaxi.com/',
+    // 官方现行域名：国际 api.minimax.io / 国内 api.minimaxi.com；旧的 api.minimax.chat 已弃用。
+    baseUrl: 'https://api.minimaxi.com/v1/t2a_v2',
     method: 'POST',
     // MiniMax 同时需要两种凭据：GroupId 进查询串，API Key 进 Bearer 头。
-    // 原声明只有 query 认证，导致用户填的 API Key 从不发送、请求必然 401。
     auth: { type: 'query', keyName: 'GroupId', bearer: true },
     textField: 'text',
     voiceField: 'voice_setting.voice_id',
     speedField: 'voice_setting.speed',
     formatField: 'audio_setting.format',
-    response: { mode: 'base64', path: 'data.audio' },
+    // 官方默认 output_format=hex：data.audio 是 hex 编码，按 base64 解会得到坏音频。
+    response: { mode: 'hex', path: 'data.audio' },
     fields: [
       { key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Bearer Token' },
       { key: 'appId', label: 'GroupId', placeholder: 'GroupId' },
-      { key: 'model', label: '模型名', optional: true, placeholder: 'speech-01-turbo' },
-      { key: 'voice', label: '音色', optional: true, placeholder: 'male-qn-qingse' },
+      { key: 'model', label: '模型名', placeholder: 'speech-2.8-hd' },
+      { key: 'voice', label: '音色', optional: true, placeholder: '以官方音色列表为准' },
       { key: 'speed', label: '语速', optional: true, placeholder: '1.0' },
     ],
     timeoutMs: 30000,

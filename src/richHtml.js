@@ -165,16 +165,45 @@ function selectorOfRule(rule) {
   return braceIndex >= 0 ? String(rule).slice(0, braceIndex) : String(rule);
 }
 
+// CSS 注释里的内容不参与判定：/* .x{position:fixed;inset:0} */ 不应把
+// 普通卡推入全屏 Modal 路径，/* 100vh */ 也不构成视口单位信号。
+const CSS_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
+
+function stripCssComments(text) {
+  return String(text || '').replace(CSS_COMMENT_PATTERN, '');
+}
+
+// 零值判定：inset:0 / 0 0 0 0 / 0px / 0.0 均按 0 处理，允许 !important 后缀。
+function isZeroValue(value) {
+  const tokens = String(value || '')
+    .replace(/!important/gi, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return tokens.length > 0 && tokens.every(token => /^0+(?:\.0+)?(?:px|%)?$/i.test(token));
+}
+
 // 四边钉死的 fixed 容器（inset:0 或 top/right/bottom/left 全为 0）：
 // 无论选择器是什么，都是按视口定位的整屏承载容器（如 #app{position:fixed;inset:0}），
 // 是视口型强信号——漏判会让整屏卡回退测高闭环重新出现高度锁死。
 // 只钉两三边、带偏移的悬浮挂件（top:8px;right:8px）不算。
 // 值终止符兼容三种载体：样式块里的 ;/}、内联 style 的收尾引号、字符串结尾。
 function isViewportPinned(rule) {
-  if (/\binset\s*:\s*0(?:px|%)?\s*(?:;|}|["']|$)/i.test(rule)) return true;
-  return ['top', 'right', 'bottom', 'left'].every(
-    edge => new RegExp(`\\b${edge}\\s*:\\s*0(?:px|%)?\\s*(?:;|}|["']|$)`, 'i').test(rule)
-  );
+  const declarations = String(rule || '').split(';');
+  const readValue = property => {
+    const pattern = new RegExp(`^\\s*${property}\\s*:\\s*(.*)$`, 'i');
+    for (const declaration of declarations) {
+      const match = declaration.match(pattern);
+      if (match) return match[1].replace(/["'}\s]+$/, '').trim();
+    }
+    return null;
+  };
+  const inset = readValue('inset');
+  if (inset !== null && isZeroValue(inset)) return true;
+  return ['top', 'right', 'bottom', 'left'].every(edge => {
+    const value = readValue(edge);
+    return value !== null && isZeroValue(value);
+  });
 }
 
 function styleBlockHasViewportFixed(block) {
@@ -186,11 +215,12 @@ function styleBlockHasViewportFixed(block) {
 }
 
 export function isViewportRichHtml(text) {
-  const source = String(text || '')
+  const source = stripCssComments(String(text || ''))
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script>|$)/gi, '');
-  const blocks = source.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
-  const inlineStyles = source.match(/<[a-z][^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [];
+  const blocks = (source.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || []).map(stripCssComments);
+  const inlineStyles = (source.match(/<[a-z][^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [])
+    .map(stripCssComments);
   // 视口单位出现在任意元素上都说明文档依赖视口高度，保持强信号。
   if ([...blocks, ...inlineStyles].some(block => VIEWPORT_UNIT_PATTERN.test(block))) return true;
   if (blocks.some(styleBlockHasViewportFixed)) return true;

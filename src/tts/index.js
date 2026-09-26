@@ -49,6 +49,8 @@ export function truncateText(text, maxChars = TTS_MAX_CHARS) {
 export function mapHttpError(status) {
   if (status === 401 || status === 403) return '密钥无效或未授权';
   if (status === 429) return '请求过于频繁，请稍后重试';
+  if (status === 404) return '接口地址不存在（404），请核对官方文档端点与服务地址';
+  if (status === 400) return '请求被服务拒绝（400），请检查模型名与必填参数';
   return `播报失败（HTTP ${status}）`;
 }
 
@@ -111,8 +113,25 @@ export function buildTtsRequest(provider, config, text, token) {
   if (provider.signer === 'tencent') {
     throw new Error('腾讯云语音签名（TC3-HMAC-SHA256）尚未实现，暂时无法使用该引擎');
   }
-  const payload = {};
-  if (provider.textField) setByPath(payload, provider.textField, text);
+  // 凭据前置校验：声明表按 optional 标注必填项，缺参直接本地报错——
+  // 发出去只会得到服务端难懂的 401/400，用户无从知道缺哪个字段。
+  (provider.fields || []).forEach(field => {
+    if (!field || !field.key || field.key === 'baseUrl' || field.optional) return;
+    const value = config[field.key];
+    if (value === undefined || value === null || String(value).trim() === '') {
+      throw new Error(`请先填写${field.label || field.key}`);
+    }
+  });
+  // payloadDefaults 深拷贝后作为载荷基底：浅拷贝会让 setByPath 写穿到
+  // 声明表本体（写入共享的嵌套对象），污染 TTS_PROVIDERS 常量。
+  const payload = JSON.parse(JSON.stringify(provider.payloadDefaults || {}));
+  if (provider.requestMode === 'chat') {
+    // MiMo 等平台把 TTS 挂在 chat/completions 上：合成文本作为 assistant 消息，
+    // 音频以 base64 返回在 choices[0].message.audio.data。
+    setByPath(payload, 'messages', [{ role: 'assistant', content: text }]);
+  } else if (provider.textField) {
+    setByPath(payload, provider.textField, text);
+  }
   if (provider.voiceField && config.voice) setByPath(payload, provider.voiceField, config.voice);
   if (provider.speedField && config.speed !== undefined && config.speed !== '') {
     const numeric = Number(config.speed);
@@ -151,11 +170,30 @@ export function buildTtsRequest(provider, config, text, token) {
     if (config.region) setByPath(payload, 'Region', config.region);
   } else if (provider.signer === 'volcano') {
     if (config.appId) setByPath(payload, 'app.appid', config.appId);
-    if (config.apiKey) {
-      try {
-        setByPath(payload, 'app.token', config.apiKey);
-      } catch (error) {}
+    if (config.apiKey) setByPath(payload, 'app.token', config.apiKey);
+    // 火山官方必填：cluster 固定 volcano_tts，user.uid 与 request.reqid/operation 缺一不可，
+    // 否则服务端直接拒绝。
+    setByPath(payload, 'app.cluster', 'volcano_tts');
+    setByPath(payload, 'user.uid', 'easychat2');
+    setByPath(payload, 'request.reqid', `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+    setByPath(payload, 'request.operation', 'query');
+    if (getByPath(payload, 'request.text_type') === undefined) {
+      setByPath(payload, 'request.text_type', 'plain');
     }
+  }
+
+  // 百度等平台要求表单提交：JSON 会被服务端按表单解析失败。
+  if (provider.requestFormat === 'form') {
+    const formBody = Object.entries(payload)
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+      .join('&');
+    return {
+      method,
+      url,
+      headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formBody,
+    };
   }
 
   return {
@@ -191,6 +229,11 @@ export async function resolveToken(provider, config, { now = Date.now(), signal 
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: queryString,
     signal,
+  }).catch(error => {
+    if (error && error.name === 'AbortError') throw error;
+    // 令牌端点的 401/403 意味着密钥错误，400 意味着参数/密钥格式问题：
+    // 用专属文案替代通用 mapHttpError（它会给"请检查模型名"这类无关建议）。
+    throw new Error('令牌获取失败，请检查 API Key 与 Secret Key 是否正确');
   });
   const token = String(getByPath(data, auth.tokenPath || 'access_token') || '');
   if (!token) throw new Error('令牌获取失败');
@@ -224,6 +267,38 @@ function arrayBufferToBase64(value) {
     parts.push(binary);
   }
   return Buffer.from(parts.join(''), 'binary').toString('base64');
+}
+
+// 部分服务（如百度）失败时仍返回 HTTP 200 + JSON 错误体。
+// 从常见错误字段里提取真实原因，避免"音频数据无法解码"这类不可诊断的报错。
+function extractServiceError(parsed) {
+  if (!parsed || typeof parsed !== 'object') return '';
+  const messageCandidates = [
+    parsed.err_msg,
+    parsed.error_msg,
+    parsed.msg,
+    parsed.message,
+    parsed.base_resp && parsed.base_resp.status_msg,
+    parsed.error && parsed.error.message,
+    parsed.Error && parsed.Error.Message,
+  ];
+  for (const candidate of messageCandidates) {
+    const text = String(candidate || '').trim();
+    if (text) return `服务返回错误：${text.slice(0, 200)}`;
+  }
+  const codeCandidates = [
+    parsed.err_no,
+    parsed.errcode,
+    parsed.code,
+    parsed.base_resp && parsed.base_resp.status,
+    parsed.Error && parsed.Error.Code,
+  ];
+  for (const candidate of codeCandidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate) !== '') {
+      return `服务返回错误码：${String(candidate).slice(0, 100)}`;
+    }
+  }
+  return '';
 }
 
 function xhrJson({ method, url, headers, body, timeoutMs, signal }) {
@@ -343,19 +418,27 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path, signal })
         finish(reject, new Error(mapHttpError(xhr.status)));
         return;
       }
-      if (mode === 'base64') {
-        let base64 = '';
+      if (mode === 'base64' || mode === 'hex') {
+        let raw = '';
+        let parsed = null;
         try {
-          const parsed = JSON.parse(xhr.responseText || '{}');
-          base64 = String(getByPath(parsed, path) || '');
+          parsed = JSON.parse(xhr.responseText || '{}');
+          raw = String(getByPath(parsed, path) || '');
         } catch (error) {
-          base64 = '';
+          raw = '';
+          parsed = null;
         }
-        if (!base64) {
-          finish(reject, new Error('未获取到音频数据'));
+        if (!raw) {
+          const serviceError = extractServiceError(parsed);
+          finish(reject, new Error(serviceError || '未获取到音频数据'));
           return;
         }
-        finish(resolve, { base64 });
+        // MiniMax 等平台的 audio 是 hex 编码（官方默认），按 base64 解会得到坏音频。
+        if (mode === 'hex') {
+          finish(resolve, { base64: Buffer.from(raw, 'hex').toString('base64') });
+          return;
+        }
+        finish(resolve, { base64: raw });
         return;
       }
       const response = xhr.response;
@@ -363,6 +446,19 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path, signal })
         finish(reject, new Error('未获取到音频数据'));
         return;
       }
+      // HTTP 200 但实际是 JSON 错误体（百度常见）：音频二进制不会以 '{' 开头，
+      // 命中则解析出真实错误，不再报"音频数据无法解码"。
+      try {
+        const bytes = response instanceof ArrayBuffer ? new Uint8Array(response) : null;
+        if (bytes && bytes.length > 0 && bytes[0] === 0x7b) {
+          const parsed = JSON.parse(Buffer.from(bytes).toString('utf8'));
+          const serviceError = extractServiceError(parsed);
+          if (serviceError) {
+            finish(reject, new Error(serviceError));
+            return;
+          }
+        }
+      } catch (error) {}
       try {
         finish(resolve, { base64: arrayBufferToBase64(response) });
       } catch (error) {
@@ -384,12 +480,15 @@ export async function synthesize({ provider, config = {}, text, signal = null })
   if (!resolvedProvider) throw new Error('未知的播报服务');
   // 登记播报密钥：报错文本可能带出裸 Key/Secret
   registerSecretValues([config.apiKey, config.appSecretKey]);
-  const content = truncateText(text);
+  const content = truncateText(text, Number(resolvedProvider.maxChars) > 0
+    ? Math.trunc(Number(resolvedProvider.maxChars))
+    : TTS_MAX_CHARS);
   if (!content) throw new Error('没有可播报的内容');
   if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };
   const token = await resolveToken(resolvedProvider, config, { signal }).catch(error => {
     if (error && error.name === 'AbortError') throw error;
-    return '';
+    // 令牌拿不到还发空令牌请求，只会得到难懂的 401/403：直接抛清楚原因。
+    throw new Error(error && error.message ? error.message : '令牌获取失败');
   });
   const request = buildTtsRequest(resolvedProvider, config, content, token);
   if (!request) throw new Error('播报服务未配置接口地址');
@@ -397,7 +496,7 @@ export async function synthesize({ provider, config = {}, text, signal = null })
   const audio = await xhrAudio({
     ...request,
     timeoutMs: resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS,
-    mode: response.mode === 'base64' ? 'base64' : 'binary',
+    mode: response.mode === 'base64' || response.mode === 'hex' ? response.mode : 'binary',
     path: response.path,
     signal,
   });

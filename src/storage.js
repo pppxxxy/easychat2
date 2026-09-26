@@ -2289,9 +2289,15 @@ function normalizePlugin(raw, index = 0) {
   const config = source.config && typeof source.config === 'object' && !Array.isArray(source.config)
     ? source.config
     : {};
-  const provider = PLUGIN_PROVIDERS.includes(config.provider)
-    ? config.provider
+  const rawProvider = String(config.provider || '').trim();
+  const provider = PLUGIN_PROVIDERS.includes(rawProvider)
+    ? rawProvider
     : (defaultConfig.provider || 'serpapi');
+  // 存量供应商已停服/移除（如 Bing，2025-08 停服）被换源时留下迁移标记，
+  // 由设置面板读取后给出一次性可见提示——不做无痕静默换源。
+  const providerMigrated = rawProvider && !PLUGIN_PROVIDERS.includes(rawProvider)
+    ? rawProvider
+    : '';
   const maxResults = Math.trunc(Number(config.maxResults));
   return {
     id: String(source.id || `plugin-${index}`),
@@ -2307,6 +2313,7 @@ function normalizePlugin(raw, index = 0) {
       maxResults: Number.isFinite(maxResults) && maxResults > 0
         ? Math.min(maxResults, 10)
         : 5,
+      ...(providerMigrated ? { providerMigrated } : {}),
     },
   };
 }
