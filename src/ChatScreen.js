@@ -85,8 +85,7 @@ import {
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
 import RichHtmlMessage from './RichHtmlMessage';
 import { containsHtml, messageCopyText } from './plainText';
-import { isViewportRichHtml, shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { shouldRenderRichHtml, splitFullHtmlDocument, stripMarkdownFences } from './richHtml';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
 import { hideVariantStatusBar, toSpeechText } from './speechText';
@@ -522,11 +521,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const isUser = message.role === USER_ID;
   const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [cardFullOpen, setCardFullOpen] = useState(false);
-  const [cardFullHostHeight, setCardFullHostHeight] = useState(0);
   const [reasoningPinned, setReasoningPinned] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const renderHtml =
@@ -538,11 +534,6 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const richHtmlParts = useMemo(
     () => (renderRichHtml ? splitFullHtmlDocument(message.text) : null),
     [message.text, renderRichHtml]
-  );
-  // 视口型卡是整屏应用，内滚会吃掉手势、把聊天列表卡死；预览不可交互，交互放到全屏。
-  const richHtmlViewport = useMemo(
-    () => (richHtmlParts ? isViewportRichHtml(richHtmlParts.document) : false),
-    [richHtmlParts]
   );
    const plainText = messageCopyText(message.text);
    const availableMediaWidth = Math.max(96, Math.min(220, width - 80));
@@ -784,63 +775,15 @@ const fullWidthAssistant = !isUser && fullWidth;
              richHtmlParts ? (
                <View>
                  {renderAssistantSegment(richHtmlParts.before)}
-                 {/* 视口型卡是整屏应用：固定高度的列表预览在部分机型上
-                     100vh 解析异常导致整块空白，且不可交互。
-                     改为全屏优先——列表里不创建 WebView，只留气泡下方的入口行。 */}
-                 {richHtmlViewport ? null : (
-                   <RichHtmlMessage
-                     html={richHtmlParts.document}
-                     onCommand={(command, token) => onSlashCommand(command, token, message.id)}
-                     fullWidth={fullWidth}
-                   />
-                 )}
+                 {/* 视口型卡与普通富 HTML 同一条渲染路径：视口判定收敛在
+                     RichHtmlMessage 内部（file:// 源、固定高度、内滚），
+                     列表内直接渲染、按钮直接可交互，不再提供全屏入口。 */}
+                 <RichHtmlMessage
+                   html={richHtmlParts.document}
+                   onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                   fullWidth={fullWidth}
+                 />
                  {renderAssistantSegment(richHtmlParts.after)}
-                 {richHtmlViewport && cardFullOpen ? (
-                   <Modal
-                     visible
-                     animationType="slide"
-                     onRequestClose={() => setCardFullOpen(false)}
-                     statusBarTranslucent
-                     presentationStyle="fullScreen"
-                   >
-                     <View style={styles.viewportCardScreen}>
-                       <View style={[styles.viewportCardBar, { paddingTop: Math.max(insets.top, 8) }]}>
-                         <Text style={styles.viewportCardTitle} numberOfLines={1}>
-                           {characterName || '角色面板'}
-                         </Text>
-                         <TouchableOpacity
-                           onPress={() => setCardFullOpen(false)}
-                           hitSlop={10}
-                           accessibilityRole="button"
-                           accessibilityLabel="关闭卡片"
-                         >
-                           <Ionicons name="close" size={20} color={theme.colors.text} />
-                         </TouchableOpacity>
-                       </View>
-                       <View
-                         style={styles.viewportCardBody}
-                         onLayout={event => {
-                           const next = Number(
-                             event && event.nativeEvent && event.nativeEvent.layout
-                               ? event.nativeEvent.layout.height
-                               : 0
-                           );
-                           if (next > 0 && Math.abs(next - cardFullHostHeight) > 1) {
-                             setCardFullHostHeight(next);
-                           }
-                         }}
-                       >
-                         <RichHtmlMessage
-                           html={richHtmlParts.document}
-                           onCommand={(command, token) => onSlashCommand(command, token, message.id)}
-                           fullWidth
-                           allowFullscreenVideo
-                           hostHeight={cardFullHostHeight}
-                         />
-                       </View>
-                     </View>
-                   </Modal>
-                 ) : null}
                </View>
              ) : (
                <RichHtmlMessage
@@ -865,28 +808,6 @@ const fullWidthAssistant = !isUser && fullWidth;
              <Markdown style={markdownStyles} rules={markdownRules}>{message.text}</Markdown>
           )}
         </View>
-
-        {/* 视口型卡的唯一入口：列表里不渲染 WebView，点击直接进全屏。 */}
-        {!isUser && renderRichHtml && richHtmlViewport && richHtmlParts ? (
-          <TouchableOpacity
-            style={styles.viewportCardEntry}
-            onPress={() => setCardFullOpen(true)}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="全屏打开互动卡片"
-          >
-            <View style={styles.viewportCardEntryIcon}>
-              <Ionicons name="expand-outline" size={15} color={theme.colors.primaryContrast} />
-            </View>
-            <View style={styles.viewportCardEntryText}>
-              <Text style={styles.viewportCardEntryTitle}>互动卡片</Text>
-              <Text style={styles.viewportCardEntryHint} numberOfLines={1}>
-                点击全屏打开，可交互
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
-          </TouchableOpacity>
-        ) : null}
 
         {!isUser && message.inlineImage ? (
 
@@ -5893,64 +5814,6 @@ const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
     ...tokens.elevation(2, theme),
-  },
-  viewportCardEntry: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: tokens.spacing.xs,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: tokens.radius.md,
-    backgroundColor: theme.colors.surface,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  viewportCardEntryIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
-    marginRight: 10,
-  },
-  viewportCardEntryText: {
-    flex: 0,
-    marginRight: 12,
-  },
-  viewportCardEntryTitle: {
-    color: theme.colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  viewportCardEntryHint: {
-    color: theme.colors.textFaint,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  viewportCardScreen: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  viewportCardBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.sm,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  viewportCardTitle: {
-    flex: 1,
-    marginRight: tokens.spacing.sm,
-    color: theme.colors.text,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  viewportCardBody: {
-    flex: 1,
   },
   markdownCodeScroll: {
     maxWidth: '100%',

@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 import {
   buildRichHtmlCommandBridge,
@@ -14,6 +17,9 @@ import {
   RICH_HTML_SCROLL_PREVIEW_HEIGHT,
   RICH_HTML_SCROLL_THRESHOLD,
 } from '../src/richHtml.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 
 test('视口卡片高度：宿主实测优先，估算一律封顶', () => {
   // Modal 场景：信宿主实测高度
@@ -198,6 +204,25 @@ test('含 fixed 子元素的普通卡片不判为视口型文档', () => {
     isViewportRichHtml('<style>.body-wrap{position:fixed;top:0}</style>'),
     false
   );
+  // 后代/子代选择器里的 body 只是普通 fixed 按钮/底栏的常见写法，
+  // 误判成视口型会让整卡在列表里不渲染——正是「按钮被固定住、部分情况无法渲染」的根因
+  assert.equal(
+    isViewportRichHtml('<style>body .fab{position:fixed;right:12px;bottom:12px}</style><div>卡片内容</div>'),
+    false
+  );
+  assert.equal(
+    isViewportRichHtml('<style>body > .btn-bar{position:fixed;bottom:0;left:0}</style>'),
+    false
+  );
+  assert.equal(
+    isViewportRichHtml('<style>body .btn, .btn{position:fixed}</style>'),
+    false
+  );
+  // 根元素带 class/伪类/属性修饰，或逗号分支里含根选择器，仍是根级 fixed
+  assert.equal(isViewportRichHtml('<style>body.app{position:fixed}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>body:hover{position:fixed}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>.btn, body{position:fixed}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>body[data-x="a b"]{position:fixed}</style>'), true);
   // 但 <body> 内联 fixed 仍算视口型
   assert.equal(isViewportRichHtml('<body style="position:fixed">面板</body>'), true);
 });
@@ -229,4 +254,22 @@ test('钉死判定兼容 !important、四值简写、小数与 CSS 注释', () =
     isViewportRichHtml('<style>.badge{position:fixed;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;top:8px}</style>'),
     false
   );
+});
+
+test('全屏交互机制已移除：视口卡在列表内直接渲染', () => {
+  // 入口按钮（原「全屏交互」，后改名「互动卡片」）删除
+  assert.equal(CHAT_SCREEN_SOURCE.includes('viewportCardEntry'), false);
+  assert.equal(CHAT_SCREEN_SOURCE.includes('互动卡片'), false);
+  assert.equal(CHAT_SCREEN_SOURCE.includes('全屏打开互动卡片'), false);
+  // 全屏 Modal 与其宿主高度实测一并删除
+  assert.equal(CHAT_SCREEN_SOURCE.includes('cardFullOpen'), false);
+  assert.equal(CHAT_SCREEN_SOURCE.includes('cardFullHostHeight'), false);
+  assert.equal(CHAT_SCREEN_SOURCE.includes('viewportCardScreen'), false);
+  assert.equal(CHAT_SCREEN_SOURCE.includes('presentationStyle="fullScreen"'), false);
+  // 透明覆盖层（旧版把整卡手势吞成「点按进全屏」的元凶）不得回潮
+  assert.equal(CHAT_SCREEN_SOURCE.includes('viewportCardTapOverlay'), false);
+  // 视口/普通富 HTML 统一渲染路径：ChatScreen 不再按视口型分流
+  assert.equal(CHAT_SCREEN_SOURCE.includes('richHtmlViewport'), false);
+  // 删掉机制后视口判定收敛在 RichHtmlMessage 内部（file:// 源 + 固定高度 + 内滚）
+  assert.equal(CHAT_SCREEN_SOURCE.includes('isViewportRichHtml'), false);
 });

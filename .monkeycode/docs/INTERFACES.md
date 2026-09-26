@@ -776,7 +776,7 @@ data: [DONE]
 | `needsRichHtmlRendering(text)` | 文本是否含内置渲染器不支持的标签（`<style>`/`<script>`/`<details>`/`<summary>`/`<svg>`/`<audio>`/`<video>`），这类消息需要 WebView 才能还原样式、折叠、媒体播放与交互 |
 | `shouldRenderRichHtml(text, enabled)` | 在上者基础上叠加 `richHtml` 开关；含 `<details>`/`<summary>` 时始终返回 `true`，确保折叠状态栏标题保留 |
 | `stripMarkdownFences(text)` | 去掉 ` ```html ` / ` ``` ` 围栏行 |
-| `isViewportRichHtml(text)` | 判定是否为视口型文档：视口单位（`100vh/dvh/svh/lvh`，任意元素）为强信号；`position: fixed` 仅在根级规则（`html`/`body`/`:root` 选择器或根标签内联）生效，普通卡片 fixed 挂件/角标不误判 |
+| `isViewportRichHtml(text)` | 判定是否为视口型文档：视口单位（`100vh/dvh/svh/lvh`，任意元素）为强信号；`position: fixed` 仅在根级规则生效——选择器本身就是 `html`/`body`/`:root`（允许 class/伪类/属性修饰，逗号分支含根选择器亦算）或四边钉死的 fixed 承载容器；`body .btn`、`body > .bar` 等后代/子代组合选择器的普通 fixed 按钮/挂件不误判 |
 | `buildRichHtmlDocument({ bodyHtml, textColor, linkColor, fontSize, fontFamily, heightToken })` | 包装为完整 HTML 文档（含视口、CSP、宽度/滚动约束与带令牌的高度回传桥） |
 | `RICH_HTML_RESIZE_BRIDGE` | 注入 HTML 的高度桥：`ResizeObserver` 通过 `ResizeObserver` 和多组定时/页面事件回传带 `heightToken` 的高度消息 |
 | `buildRichHtmlCommandBridge(commandToken)` | 注入 WebView 的命令桥：令牌保留在注入脚本闭包中；可信用户手势触发 `button[data-command]` 或 `window.triggerSlash` 时回传命令，限制命令长度 |
@@ -790,7 +790,7 @@ data: [DONE]
 **位置**: `src/RichHtmlMessage.js`
 **Props**: `{ html, onCommand?, fullWidth?, allowFullscreenVideo?, hostHeight? }`
 
-用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由带文档令牌的高度桥回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档与全部视口型文档先写入应用缓存文件再以本地 URI 加载——内联 `loadDataWithBaseURL` 的不透明源下视口单位（`100vh` 等）在部分机型首帧解析异常，`file://` 行为与浏览器一致，也避免 Android Binder 超限。动态高度上限为 24000；普通富 HTML 实测高度超过 6000 时收成 480 固定高度并允许内部滚动，不再整块撑满聊天列表；视口型卡片高度改由 `resolveViewportCardHeight` 决定——`hostHeight` 为宿主（全屏 Modal）实测高度，未传时按屏幕比例估算并封顶。`allowFullscreenVideo` 控制原生视频全屏按钮，仅全屏 Modal 传 `true`。视口型卡片在聊天列表内不创建 WebView：叙述正文照常渲染，卡片区域只保留「互动卡片」入口行，点击进入全屏 Modal 渲染（列表与全屏不再共存两个 WebView 实例）。加载失败或 Android 渲染进程崩溃（`onRenderProcessGone`）时显示错误提示与「重试」。文档注入盒模型、宽度约束、CSP 与 `injectedJavaScriptBeforeContentLoaded` 命令桥，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收可信用户手势触发的斜杠命令。WebView 仅允许当前内联/本地源，拒绝后续导航和新窗口；`react-native-webview` 缺失时返回 `null`。
+用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由带文档令牌的高度桥回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档与全部视口型文档先写入应用缓存文件再以本地 URI 加载——内联 `loadDataWithBaseURL` 的不透明源下视口单位（`100vh` 等）在部分机型首帧解析异常，`file://` 行为与浏览器一致，也避免 Android Binder 超限。动态高度上限为 24000；普通富 HTML 实测高度超过 6000 时收成 480 固定高度并允许内部滚动，不再整块撑满聊天列表；视口型卡片高度改由 `resolveViewportCardHeight` 决定——按屏幕比例估算并封顶 520（`hostHeight` 参数保留给未来宿主实测场景，当前无调用方传入）。视口型与普通富 HTML 在聊天列表内走同一条渲染路径：卡片直接在气泡内渲染、内部可滚（`nestedScrollEnabled`）、按钮直接可交互，`file://` 源保证视口单位正常；「全屏交互」入口行、透明覆盖层与全屏 Modal 已整体移除，`allowFullscreenVideo` 当前无调用方传 `true`（列表预览默认关闭原生视频全屏）。加载失败或 Android 渲染进程崩溃（`onRenderProcessGone`）时显示错误提示与「重试」。文档注入盒模型、宽度约束、CSP 与 `injectedJavaScriptBeforeContentLoaded` 命令桥，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收可信用户手势触发的斜杠命令。WebView 仅允许当前内联/本地源，拒绝后续导航和新窗口；`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
 **位置**: `src/secrets.js`

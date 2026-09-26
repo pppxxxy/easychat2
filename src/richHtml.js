@@ -156,13 +156,33 @@ export function splitFullHtmlDocument(value) {
 // WebView 视口决定，不能再用「先测内容再喂回高度」的闭环，否则会锁死在初始 1px。
 const VIEWPORT_UNIT_PATTERN = /100(?:vh|dvh|svh|lvh)/i;
 const VIEWPORT_META_PATTERN = /<meta\b[^>]*name\s*=\s*["']viewport["'][^>]*>/i;
-// 根元素匹配只允许打在选择器部分：声明值里的裸词（url(/body.png)、
-// 字体名 "My body Font"）不能把整条规则误判成根级 fixed。
-const ROOT_SELECTOR_PATTERN = /(?:^|[^.\w#-])(?:html|body|:root)\b/i;
 
 function selectorOfRule(rule) {
   const braceIndex = String(rule).indexOf('{');
   return braceIndex >= 0 ? String(rule).slice(0, braceIndex) : String(rule);
+}
+
+// 根级选择器：选择器本身就是 html/body/:root（允许 .app / :hover / [attr] 等修饰）。
+// 声明值里的裸词（url(/body.png)、字体名 "My body Font"）不参与判定。
+// `body .fab`、`body > .bar` 这类带组合符的普通 fixed 挂件/按钮不是根级——
+// 误判成视口型会让整张卡在列表里失去直接渲染与交互。
+const ROOT_SELECTOR_BRANCH_PATTERN = /^(?:html|body)(?=$|[:.#\[])|^:root(?=$|[:.#\[])/i;
+const SELECTOR_COMBINATOR_PATTERN = /[\s>+~]/;
+
+function isRootSelectorBranch(branch) {
+  const value = String(branch || '')
+    // 引号内内容不参与组合符判定：body[data-x="a b"] 仍是根选择器。
+    .replace(/"[^"]*"|'[^']*'/g, '""')
+    .trim();
+  if (!value || SELECTOR_COMBINATOR_PATTERN.test(value)) return false;
+  return ROOT_SELECTOR_BRANCH_PATTERN.test(value);
+}
+
+function selectorIsRoot(selector) {
+  // 逗号分隔的任一分支命中根元素，规则就对根生效。
+  return String(selector || '')
+    .split(',')
+    .some(isRootSelectorBranch);
 }
 
 // CSS 注释里的内容不参与判定：/* .x{position:fixed;inset:0} */ 不应把
@@ -207,10 +227,15 @@ function isViewportPinned(rule) {
 }
 
 function styleBlockHasViewportFixed(block) {
-  const rules = block.match(/[^{}]+\{[^{}]*\}/g) || [];
+  // 调用方传入的是整个 <style>...</style> 块：先剥掉标签再切规则，
+  // 否则第一条规则的选择器会带上 <style> 前缀，根级判定永远失配。
+  const css = String(block || '')
+    .replace(/^<style\b[^>]*>/i, '')
+    .replace(/<\/style\s*>\s*$/i, '');
+  const rules = css.match(/[^{}]+\{[^{}]*\}/g) || [];
   return rules.some(rule => (
     /position\s*:\s*fixed/i.test(rule)
-    && (isViewportPinned(rule) || ROOT_SELECTOR_PATTERN.test(selectorOfRule(rule)))
+      && (isViewportPinned(rule) || selectorIsRoot(selectorOfRule(rule)))
   ));
 }
 
