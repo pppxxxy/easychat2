@@ -6,7 +6,7 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,6 +34,11 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { maskSecrets } from './src/secrets';
 
 const Tab = createBottomTabNavigator();
+
+// 通知点击可能在导航容器挂载完成前到达；用容器 ref + isReady 守卫，
+// 未就绪时先把角色入队，onReady 后再消费，避免 navigate 抛
+// "navigation object hasn't been initialized yet"。
+const navigationRef = createNavigationContainerRef();
 
 class StartupErrorBoundary extends React.Component {
   constructor(props) {
@@ -218,22 +223,35 @@ function StartupSession() {
 
 // 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
 // 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
-function ProactiveMessageBridge() {
-  const navigation = useNavigation();
+function ProactiveMessageBridge({ navigationReady }) {
   const { loaded, switchCharacter } = useApp();
+  const pendingRoleRef = useRef(null);
+
+  const openRole = useCallback(async roleId => {
+    if (!roleId) return;
+    // 导航容器未就绪时先入队，避免在挂载完成前调用 navigate。
+    if (!navigationReady || !navigationRef.isReady()) {
+      pendingRoleRef.current = roleId;
+      return;
+    }
+    try {
+      await switchCharacter(roleId);
+      navigationRef.navigate('聊天');
+    } catch (error) {
+      Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
+    }
+  }, [navigationReady, switchCharacter]);
+
+  // 导航就绪后消费排队中的角色。
+  useEffect(() => {
+    if (!navigationReady || !pendingRoleRef.current) return;
+    const roleId = pendingRoleRef.current;
+    pendingRoleRef.current = null;
+    openRole(roleId);
+  }, [navigationReady, openRole]);
 
   useEffect(() => {
     if (!isProactiveMessageAvailable()) return undefined;
-    let cancelled = false;
-    const openRole = async roleId => {
-      if (!roleId || cancelled) return;
-      try {
-        await switchCharacter(roleId);
-        navigation.navigate('聊天');
-      } catch (error) {
-        Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
-      }
-    };
     if (loaded) {
       (async () => {
         try {
@@ -245,17 +263,15 @@ function ProactiveMessageBridge() {
       })();
     }
     const unsubscribe = addOpenRoleListener(openRole);
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [loaded, navigation, switchCharacter]);
+    return () => unsubscribe();
+  }, [loaded, openRole]);
 
   return null;
 }
 
 function AppShell() {
   const { theme: palette, tokens } = useTheme();
+  const [navigationReady, setNavigationReady] = useState(false);
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -268,9 +284,13 @@ function AppShell() {
     },
   };
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      onReady={() => setNavigationReady(true)}
+    >
       <StatusBar style={palette.id === 'light' ? 'dark' : 'light'} />
-      <ProactiveMessageBridge />
+      <ProactiveMessageBridge navigationReady={navigationReady} />
       <Header />
       <Tab.Navigator
         screenOptions={({ route }) => ({
