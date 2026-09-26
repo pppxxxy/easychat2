@@ -164,7 +164,8 @@ class MessageForegroundService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) {
+    // 必须显式声明返回 Int，表达式体否则会被推断为 Unit
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val roleId = intent?.getStringExtra(EXTRA_ROLE_ID)
         val revision = intent?.getStringExtra(EXTRA_REVISION) ?: ""
 
@@ -174,7 +175,7 @@ class MessageForegroundService : Service() {
 
         if (roleId.isNullOrBlank()) {
             stopSelf()
-            return
+            return START_NOT_STICKY
         }
         scope.launch {
             try {
@@ -185,6 +186,7 @@ class MessageForegroundService : Service() {
                 stopSelf()
             }
         }
+        return START_NOT_STICKY
     }
 
     private fun buildServiceNotification(): Notification {
@@ -218,7 +220,8 @@ class BootReceiver : BroadcastReceiver() {
 
     private val rebuildActions = setOf(
         Intent.ACTION_BOOT_COMPLETED,
-        Intent.ACTION_TIME_SET,
+        // 时间设置变化的正确常量是 ACTION_TIME_CHANGED（不存在 ACTION_TIME_SET）
+        Intent.ACTION_TIME_CHANGED,
         Intent.ACTION_TIMEZONE_CHANGED,
         Intent.ACTION_MY_PACKAGE_REPLACED,
         "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"

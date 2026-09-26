@@ -169,8 +169,10 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun openBatteryOptimizationSettings(promise: Promise) {
         try {
+            // 注意：常量名是 IGNORE_BATTERY_OPTIMIZATION_SETTINGS，
+            // 不存在 ACTION_BATTERY_OPTIMIZATION_SETTINGS
             reactContext.startActivity(
-                Intent(Settings.ACTION_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )

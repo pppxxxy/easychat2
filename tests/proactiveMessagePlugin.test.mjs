@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const KOTLIN_DIR = path.join(HERE, '..', 'plugins', 'proactiveMessage', 'android');
+
+function readAllKotlin() {
+  return readdirSync(KOTLIN_DIR)
+    .filter(f => f.endsWith('.kt'))
+    .map(f => readFileSync(path.join(KOTLIN_DIR, f), 'utf8'))
+    .join('\n');
+}
 const plugin = require('../plugins/withProactiveMessage.js');
 const {
   PERMISSIONS,
@@ -86,4 +98,20 @@ test('MainApplication 补丁注册 ProactiveMessagePackage 且幂等', () => {
 test('插件本体返回 config 对象', () => {
   const config = { name: 'x' };
   assert.equal(typeof plugin(config), 'object');
+});
+
+test('Kotlin 源码不使用不存在的系统 action 常量', () => {
+  const source = readAllKotlin();
+  // 这两个标识符在 Android SDK 中不存在，曾是真实的编译失败原因
+  assert.ok(!source.includes('Settings.ACTION_BATTERY_OPTIMIZATION_SETTINGS'));
+  assert.ok(!source.includes('Intent.ACTION_TIME_SET'));
+  // 对应的正确常量必须存在
+  assert.ok(source.includes('Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS'));
+  assert.ok(source.includes('Intent.ACTION_TIME_CHANGED'));
+});
+
+test('前台服务 onStartCommand 显式返回 Int', () => {
+  const source = readAllKotlin();
+  assert.match(source, /onStartCommand\([^)]*\): Int\s*\{/);
+  assert.ok(source.includes('START_NOT_STICKY'));
 });
