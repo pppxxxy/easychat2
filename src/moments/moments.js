@@ -1,5 +1,10 @@
 export const MAX_MOMENTS = 200;
 
+// 好感触发阈值：不要求顶到 ±100，累计到 ±30 就各发一次动态。
+// 分数本身仍夹在 [-100, 100]（见 affinity.js 的 clampAffinity）。
+export const AFFINITY_HIGH_THRESHOLD = 30;
+export const AFFINITY_LOW_THRESHOLD = -30;
+
 const TURN_THRESHOLDS = [50, 100];
 
 const TEMPLATES = {
@@ -33,8 +38,8 @@ function pick(list, seed) {
 export function shouldTrigger({ affinity = 0, turnCount = 0, milestone = null, triggers = [] } = {}) {
   const seen = Array.isArray(triggers) ? triggers : [];
   const score = Number(affinity);
-  if (Number.isFinite(score) && score >= 100 && !seen.includes('affinity-best')) return 'affinity-best';
-  if (Number.isFinite(score) && score <= -100 && !seen.includes('affinity-worst')) return 'affinity-worst';
+  if (Number.isFinite(score) && score >= AFFINITY_HIGH_THRESHOLD && !seen.includes('affinity-best')) return 'affinity-best';
+  if (Number.isFinite(score) && score <= AFFINITY_LOW_THRESHOLD && !seen.includes('affinity-worst')) return 'affinity-worst';
   const turns = Number(turnCount);
   if (Number.isFinite(turns)) {
     for (const threshold of TURN_THRESHOLDS) {

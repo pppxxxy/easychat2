@@ -36,7 +36,7 @@
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
 - 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
-- 助手回复完成后本地评估好感与轮次（无额外网络请求），命中好感上下限、50/100 轮或特殊大事且未触发过时生成一条动态；动态保存发起请求时的角色名称与头像快照，角色改名或删除后历史动态身份保持不变；开关关闭时不生成
+- 助手回复完成后本地评估好感与轮次（无额外网络请求），好感累计到 ±30（`AFFINITY_HIGH_THRESHOLD`/`AFFINITY_LOW_THRESHOLD`）、50/100 轮或特殊大事且未触发过时生成一条动态；动态保存发起请求时的角色名称与头像快照，角色改名或删除后历史动态身份保持不变；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏提供「新建」按钮：单聊先打开开场白选择器，选择结果保存为角色默认开场白并用于后续新会话；群聊沿用成员新建逻辑。空会话也允许选择开场白，开场白消息底部提供「重选」
@@ -680,7 +680,7 @@ data: [DONE]
 | `evaluateTurn({ userText, assistantText })` | 本地关键词启发式，返回 `{ delta, milestone }`，`delta` 绝对值不超过 5 |
 | `detectMilestone(text)` | 命中表白/生日/永别/约定等事件时返回事件 id |
 | `clampAffinity(score)` | 好感夹在 `[-100, 100]` |
-| `shouldTrigger({ affinity, turnCount, milestone, triggers })` | 依次判定好感上限/下限、`turns-50`/`turns-100`、`milestone-*`，已存在 `triggers` 中则不重复 |
+| `shouldTrigger({ affinity, turnCount, milestone, triggers })` | 依次判定好感上限/下限（`affinity ≥ 30` / `affinity ≤ -30`）、`turns-50`/`turns-100`、`milestone-*`，对应的 `affinity-best`/`affinity-worst` 等触发标记已存在 `triggers` 中则不重复 |
 | `buildMomentText({ trigger, character, seed })` | 按触发类型从固定模板生成文本，包含角色名 |
 | `appendMoment(list, moment)` | 追加并按 `MAX_MOMENTS`（200）淘汰最旧 |
 | `countMomentsForCharacterDeletion(list, characterIds, sessionIds)` | 统计角色或关联会话产生的动态 |

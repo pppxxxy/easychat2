@@ -85,7 +85,15 @@ test('动态文本使用发动态时的角色名称快照', () => {
 });
 
 test('好感度与回合阈值去重后触发', () => {
+  // 好感到 ±30 即触发，不必顶到 ±100
+  assert.equal(shouldTrigger({ affinity: 30 }), 'affinity-best');
   assert.equal(shouldTrigger({ affinity: 120 }), 'affinity-best');
+  assert.equal(shouldTrigger({ affinity: -30 }), 'affinity-worst');
+  assert.equal(shouldTrigger({ affinity: -80 }), 'affinity-worst');
+  assert.equal(shouldTrigger({ affinity: 29 }), null);
+  assert.equal(shouldTrigger({ affinity: -29 }), null);
+  // 同类只触发一次
   assert.equal(shouldTrigger({ affinity: 120, triggers: ['affinity-best'] }), null);
+  assert.equal(shouldTrigger({ affinity: -120, triggers: ['affinity-worst'] }), null);
   assert.equal(shouldTrigger({ turnCount: 50, triggers: ['affinity-best'] }), 'turns-50');
 });
