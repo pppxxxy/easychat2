@@ -13,7 +13,7 @@
 | `聊天` | `ChatScreen` | 对话与消息列表 |
 | `记忆` | `MemoryScreen` | 历史会话列表与操作 |
 | `角色` | `CharacterScreen` | 角色编辑与角色卡导入 |
-| `扩展` | `ExtensionScreen` | 内嵌小游戏与生图 |
+| `扩展` | `ExtensionScreen` | 内嵌小游戏、生图与制卡（`CardForgeScreen embedded`） |
 | `设置` | `SettingsScreen` | API 配置 |
 
 导航主题在 `App.js` 内由当前语义色板扩展 `DefaultTheme` 生成，Header、状态栏与底部标签栏颜色均取自 `useTheme()`。`Header` 组件使用 `useSafeAreaInsets` 计算顶部内边距。
@@ -324,6 +324,7 @@
 | `getMoments` / `getMomentsStatus` | `() => Promise<Moment[]>` / `() => Promise<{ status, moments }>` | 读取动态（按 `createdAt` 降序）；损坏时备份并返回 `corrupt`，调用方不得写回空表 |
 | `saveMoments` | `(moments) => Promise<Moment[]>` | 规范化、过滤无 `id` 项后写入动态 |
 | `getCardForgeStatus` / `getCardForge` | `() => Promise<{ status, state }>` / `() => Promise<CardForgeState>` | 读取制卡草稿；损坏时先备份并返回 `corrupt`，保存入口拒绝覆盖损坏主键 |
+| `saveCharacterEditDraft` / `takeCharacterEditDraft` / `clearCharacterEditDraft` | `(id, formState, signature) / (id) / (id)` | 角色页表单草稿暂存/读即取走/清理（`@easychat2_character_edit_draft::<id>`），供未保存编辑防丢恢复 |
 | `deleteMomentsForCharacterDeletion` | `(characterIds, sessionIds?) => Promise<string[]>` | 按角色 id 与会话 id 清理关联动态；动态记录损坏时中止并抛出错误 |
 | `getAffinityStatus` | `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
 | `saveAffinity` | `(map) => Promise<StateMap>` | 规范化并写入好感度 |
@@ -651,7 +652,7 @@ data: [DONE]
 ### `ExtensionScreen`（默认导出）
 **位置**: `src/ExtensionScreen.js`
 **Props**: 无（由导航注入）
-**说明**: 分段控件切换「游戏」「生图」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；两视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留生图已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动）：动态开启后作为入口切到独立面板，「互动」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` 编辑。
+**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），每个文本字段旁的「辅助生成」按钮弹出描述框，按用户描述调用当前 API 配置让 AI 改写该字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议，不经过 JSON 补丁解析）；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动）：动态开启后作为入口切到独立面板，「互动」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` 编辑。
 
 ### 游戏清单
 **位置**: `src/games/games.js`

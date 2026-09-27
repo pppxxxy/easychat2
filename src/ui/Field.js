@@ -29,11 +29,17 @@ export function TextField({ style, multiline = false, ...props }) {
   );
 }
 
-export function FieldGroup({ label, hint, children, style }) {
-  const { tokens } = useTheme();
+export function FieldGroup({ label, hint, children, style, action }) {
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={[{ marginBottom: tokens.spacing.md }, style]}>
-      {label ? <FieldLabel>{label}</FieldLabel> : null}
+      {label ? (
+        <View style={styles.labelRow}>
+          <FieldLabel>{label}</FieldLabel>
+          {action || null}
+        </View>
+      ) : null}
       {children}
       {hint ? <FieldHint>{hint}</FieldHint> : null}
     </View>
@@ -46,6 +52,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(13),
     fontWeight: '700',
     marginBottom: tokens.spacing.xs + 2,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   hint: {
     color: theme.colors.textFaint,

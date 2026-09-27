@@ -23,6 +23,7 @@ import {
   createForgeState,
   currentQuestion,
   draftToCharacterPatch,
+  FIELD_ASSIST_SYSTEM,
   hasCardContent,
   mergeDraft,
   parseCardPatch,
@@ -153,6 +154,22 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
     });
     return parseCardPatch(raw);
+  }, []);
+
+  // 单字段辅助生成：编辑器组装好的提示词直接发模型，返回原始文本
+  //（不经过 parseCardPatch——这不是 JSON 协议，而是单字段纯文本改写）。
+  const sendAssistPrompt = useCallback(async (prompt, signal) => {
+    const { configs, activeId } = await getApiConfigs();
+    const current = configs.find(item => item.id === activeId) || configs[0];
+    return sendChatMessage([
+      { role: 'system', content: FIELD_ASSIST_SYSTEM },
+      { role: 'user', content: prompt },
+    ], {
+      stream: false,
+      signal,
+      expectedConfigId: String(current && current.id || ''),
+      expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+    });
   }, []);
 
   const submitAnswer = useCallback((question, value) => {
@@ -539,6 +556,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         draft={draft}
         onClose={() => setEditorOpen(false)}
         onSave={onSaveDraft}
+        onAssistPrompt={sendAssistPrompt}
       />
     </KeyboardAvoidingView>
   );

@@ -11,14 +11,24 @@ import {
   currentQuestion,
   draftFromCharacter,
   draftToCharacterPatch,
+  buildFieldAssistPrompt,
+  FIELD_ASSIST_SYSTEM,
   hasCardContent,
   mergeDraft,
   parseCardPatch,
+  parseFieldAssistText,
   projectForgeDraft,
   recordAnswer,
   requestedAdvancedSections,
   summarizeAnswers,
 } from '../src/cardForge/forge.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const FORGE_EDITOR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeEditor.js'), 'utf8');
+const FORGE_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeScreen.js'), 'utf8');
 
 test('新会话包含引导与第一题', () => {
   const state = createForgeState(1000);
@@ -409,4 +419,60 @@ test('生成的世界书 / 正则 / 预设能进入角色结构', () => {
   assert.equal(character.regexScripts.length, 1);
   assert.equal(character.presets.length, 1);
   assert.equal(character.name, '晚星');
+});
+
+test('辅助生成提示词包含当前值与要求，输出协议为纯文本', () => {
+  const prompt = buildFieldAssistPrompt({
+    fieldLabel: '角色名',
+    currentValue: '晚星',
+    request: '改成更古风一点的名字',
+  });
+  assert.ok(prompt.includes('当前「角色名」内容'));
+  assert.ok(prompt.includes('晚星'));
+  assert.ok(prompt.includes('用户要求：改成更古风一点的名字'));
+  // 输出协议：不是 JSON，只要纯文本
+  assert.ok(prompt.includes('不要任何解释、前后缀或代码块标记，不要输出 JSON'));
+  assert.ok(FIELD_ASSIST_SYSTEM.includes('只输出改写后的字段内容本身'));
+});
+
+test('辅助生成回复解析：剥代码块围栏、限长、空文本为 null', () => {
+  assert.equal(parseFieldAssistText('  \n'), null);
+  assert.equal(parseFieldAssistText(''), null);
+  assert.equal(parseFieldAssistText('直接的新内容'), '直接的新内容');
+  assert.equal(parseFieldAssistText('```\n围栏里的新内容\n```'), '围栏里的新内容');
+  assert.equal(parseFieldAssistText('```json\n{"name":"x"}\n```'), '{"name":"x"}');
+  const long = 'x'.repeat(600000);
+  assert.equal(parseFieldAssistText(long).length, 500000);
+});
+
+test('制卡编辑器支持世界书/正则/预设的增删改', () => {
+  // 三个集合都有编辑区与添加入口
+  ['世界书条目', '正则脚本', '角色预设'].forEach(label => {
+    assert.ok(FORGE_EDITOR_SOURCE.includes(`label="${label}"`), label);
+  });
+  assert.ok(FORGE_EDITOR_SOURCE.includes("addWorldEntry"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("addRegexScript"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("addPreset"));
+  // 删除与编辑单条（keys/内容/启用开关）
+  assert.ok(FORGE_EDITOR_SOURCE.includes("removeEntry('worldInfo', index)"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("removeEntry('regexScripts', index)"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("removeEntry('presets', index)"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('触发关键词（逗号分隔）'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('命中后注入的内容'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('预设内容（注入提示词）'));
+});
+
+test('制卡编辑器每个字段提供辅助生成', () => {
+  // 字段旁的辅助生成按钮 + 描述弹窗 + 生成动作
+  assert.ok(FORGE_EDITOR_SOURCE.includes('辅助生成'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('openAssist'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('submitAssist'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('描述想修改的地方'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("title=\"生成\""));
+  // 生成走 Screen 提供的发送通道（含 API 配置指纹保护），结果写回对应字段
+  assert.ok(FORGE_EDITOR_SOURCE.includes('onAssistPrompt(prompt, controller.signal)'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('[appliedKey]: nextValue'));
+  assert.ok(FORGE_SCREEN_SOURCE.includes('sendAssistPrompt'));
+  assert.ok(FORGE_SCREEN_SOURCE.includes('FIELD_ASSIST_SYSTEM'));
+  assert.ok(FORGE_SCREEN_SOURCE.includes('onAssistPrompt={sendAssistPrompt}'));
 });

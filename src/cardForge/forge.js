@@ -668,3 +668,33 @@ export function hasCardContent(draft) {
     || (Array.isArray(source.regexScripts) && source.regexScripts.length > 0)
     || (Array.isArray(source.presets) && source.presets.length > 0);
 }
+
+// ---- 单字段辅助生成（问题 2）----
+// 制卡编辑器每个字段旁的「辅助生成」：用户描述想改的地方，模型只改写这一个字段。
+export const FIELD_ASSIST_SYSTEM = '你是中文角色卡字段编辑助手，只输出改写后的字段内容本身，不输出任何解释、前后缀或代码块标记。';
+
+export function buildFieldAssistPrompt({ fieldLabel = '', currentValue = '', request = '' } = {}) {
+  const value = clean(currentValue, MAX_PRESERVED_TEXT);
+  return [
+    `请改写角色卡「${String(fieldLabel || '指定')}」字段的内容。`,
+    '',
+    `当前「${String(fieldLabel || '字段')}」内容：`,
+    value || '（空）',
+    '',
+    `用户要求：${clean(request, 800) || '（空）'}`,
+    '',
+    '输出要求：',
+    '- 只输出改写后的完整字段内容本身。',
+    '- 不要任何解释、前后缀或代码块标记，不要输出 JSON。',
+    '- 延续角色卡原有的设定、风格与语言。',
+    '- 用户未提到的部分尽量保持原样。',
+  ].filter(Boolean).join('\n');
+}
+
+export function parseFieldAssistText(raw) {
+  const text = String(raw || '').trim().slice(0, MAX_PRESERVED_TEXT);
+  if (!text) return null;
+  const fenced = text.match(/```[^\n]*\n([\s\S]*?)```/);
+  const stripped = String(fenced ? fenced[1] : text).trim();
+  return stripped || null;
+}
