@@ -208,7 +208,8 @@ test('启动执行器：过一天的首次启动、按所选 API、静默失败'
 
 test('世界分组新增日记入口并复用折叠容器', () => {
   assert.ok(EXTENSION_SOURCE.includes("id: 'diary', label: '日记'"));
-  assert.ok(EXTENSION_SOURCE.includes("section.id === 'diary' ? <DiaryPanel embedded />"));
+  assert.ok(EXTENSION_SOURCE.includes("section.id === 'diary'"));
+  assert.ok(EXTENSION_SOURCE.includes('<DiaryPanel embedded />'));
   assert.ok(EXTENSION_SOURCE.includes("import DiaryPanel from './DiaryPanel'"));
 });
 

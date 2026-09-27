@@ -331,6 +331,9 @@
 | `getDiaries` / `getDiariesStatus` | `() => Promise<Diary[]>` / `() => Promise<{ status, diaries }>` | 读取日记（索引 + 单条分键 `@easychat2_diary_item::<id>`）；损坏先备份并返回 `corrupt`，调用方不得写回空表 |
 | `updateDiaries` / `saveDiaries` | `(updater) / (list) => Promise<Diary[]>` | 串行读写日记集合，索引最后写为提交点，并清理索引外的旧条目 |
 | `deleteDiariesForCharacterDeletion` | `(characterIds) => Promise<number>` | 角色删除时清理其日记条目（在 `saveCharacterState` 内联动调用） |
+| `getWorldMap` / `getWorldMapStatus` | `() => Promise<MapHouse[]>` / `() => Promise<{ status, houses }>` | 读取世界地图；损坏时先备份并返回 `corrupt`，调用方不得写回空表 |
+| `updateWorldMap` | `(updater) => Promise<MapHouse[]>` | 串行读改写地图（单键 `@easychat2_world_map`），规范化为「一格一房」后写入 |
+| `detachCharacterFromWorldMap` | `(characterIds) => Promise<MapHouse[]>` | 角色删除时摘除其屋主归属（降级为自己）并从所有房子住户里移除（在 `saveCharacterState` 内联动调用） |
 | `getAffinityStatus` | `() => Promise<{ status, map }>` | 读取好感度；损坏或结构非法时备份并返回 `corrupt`，调用方不得写回空快照 |
 | `saveAffinity` | `(map) => Promise<StateMap>` | 规范化并写入好感度 |
 | `getUserProfile` / `saveUserProfile` | 见下 | 读取/写入当前人设（用户名、人设）+ 全局头像 |
@@ -400,6 +403,7 @@
 | `@easychat2_diary_settings` | 日记设置 `{ roles: { [characterId]: { enabled, roleName, lastDiaryDate } }, apiConfigId, model, lastRunDate }` |
 | `@easychat2_diary_index` | 日记条目 ID 索引（提交点，最后写） |
 | `@easychat2_diary_item::<id>` | 单篇日记 `{ id, characterId, characterName, date, text, createdAt }` |
+| `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
@@ -660,7 +664,7 @@ data: [DONE]
 ### `ExtensionScreen`（默认导出）
 **位置**: `src/ExtensionScreen.js`
 **Props**: 无（由导航注入）
-**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），集合条目默认折叠、点标题展开编辑（可同时展开多条，新增条目自动展开，折叠态显示关键词/查找替换/内容摘要）；「辅助生成」覆盖三类目标——文本字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议）、标签（`buildTagsAssistPrompt`，顿号分隔纯文本，最多 `MAX_FORGE_TAG_COUNT` 个）、集合条目（`buildEntryAssistPrompt`/`parseEntryAssistPatch`/`mergeEntryAssistPatch` JSON 协议，提示词只投影条目白名单字段，合并时仅接受白名单字段、空值不覆盖、位置/深度/开关等保留原值），全部经 `CardForgeScreen` 的 `sendAssistPrompt`（API 配置指纹保护 + AbortSignal）调用当前模型改写，成功后更新 `aigcMeta` 生成标识；卡片右上角「预览」按钮打开 `CardPreviewModal`——只读展示当前草稿（带头像占位的名称/标签/高级内容计数 + 描述/性格/场景/系统提示/对话示例分区），并以开场白作为第一条消息、用真实模型多轮模拟对话（`CardForgeScreen.simulateChat` 经 `chatPipeline.buildRequestMessages` 组装，含世界书激活与正则，继承 API 配置指纹），支持清空，对话仅存内存、关闭即重置、不写入角色库或聊天记录（`cardForge/preview.js` 提供展示分区、开场轮次与历史上限纯函数）；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动/日记）：动态开启后作为入口切到独立面板，「互动」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` 编辑，「日记」分组同样就地展开 `DiaryPanel embedded`（角色选择 + 每角色单独开关「自动写日记」 + 全局写日记 API 选择 + 按角色查看日记）。
+**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），集合条目默认折叠、点标题展开编辑（可同时展开多条，新增条目自动展开，折叠态显示关键词/查找替换/内容摘要）；「辅助生成」覆盖三类目标——文本字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议）、标签（`buildTagsAssistPrompt`，顿号分隔纯文本，最多 `MAX_FORGE_TAG_COUNT` 个）、集合条目（`buildEntryAssistPrompt`/`parseEntryAssistPatch`/`mergeEntryAssistPatch` JSON 协议，提示词只投影条目白名单字段，合并时仅接受白名单字段、空值不覆盖、位置/深度/开关等保留原值），全部经 `CardForgeScreen` 的 `sendAssistPrompt`（API 配置指纹保护 + AbortSignal）调用当前模型改写，成功后更新 `aigcMeta` 生成标识；卡片右上角「预览」按钮打开 `CardPreviewModal`——只读展示当前草稿（带头像占位的名称/标签/高级内容计数 + 描述/性格/场景/系统提示/对话示例分区），并以开场白作为第一条消息、用真实模型多轮模拟对话（`CardForgeScreen.simulateChat` 经 `chatPipeline.buildRequestMessages` 组装，含世界书激活与正则，继承 API 配置指纹），支持清空，对话仅存内存、关闭即重置、不写入角色库或聊天记录（`cardForge/preview.js` 提供展示分区、开场轮次与历史上限纯函数）；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动/日记/地图）：动态开启后作为入口切到独立面板，「互动」「日记」「地图」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` / `DiaryPanel embedded` / `MapPanel embedded`（角色选择 + 每角色单独开关「自动写日记」 + 全局写日记 API 选择 + 按角色查看日记 / 40×40 网格上为自己与角色放置房子）。
 
 ### 游戏清单
 **位置**: `src/games/games.js`
@@ -704,6 +708,19 @@ data: [DONE]
 | `runDiaryForNewDay({ now })` | 启动执行器：跨天闸门 → 选角色 → 逐会话读昨天消息 → 用所选 API（`sendChatMessage({ configId, model })`）生成 → `appendDiary` 落库并标记；单角色失败静默跳过，整体 try/catch 兜底 |
 
 **说明**: 写日记用所选 `apiConfigId`/`model`（未选则回退当前激活配置），通过 `api.js` 的 `resolveChatConfig` 覆盖，不改动全局激活项。执行器在 App 启动（`DiaryStartup`，`loaded` 后）触发一次，不弹 UI、失败静默。`DiaryPanel` 挂在「世界 → 日记」折叠分组内。
+
+### 世界地图接口
+**位置**: `src/worldMap/map.js`、`src/MapPanel.js`
+
+| 函数 | 说明 |
+|------|------|
+| `MAP_GRID_SIZE` / `isValidCell(x, y)` | 固定 40×40 网格；坐标取整并限制在 `[0, 40)` |
+| `normalizeMapHouse` / `normalizeMapHouses` | 单房规范化（住户去重、越界坐标丢弃）；列表化为「一格一房」（同格后写覆盖） |
+| `houseAtCell(houses, x, y)` / `placeHouse(houses, house)` / `removeHouseAtCell(houses, x, y)` | 查找 / 放置或覆盖（越界不生效）/ 删除 |
+| `detachCharacterFromMap(houses, characterIds)` | 角色删除时：不再作为屋主（降级为自己）、并从所有房子住户里移除；房子本身保留 |
+| `countHousesForCharacter` / `describeHouseOwner` / `houseResidentNames` | 统计相关房子、屋主描述（`我的房子` / `<名>的房子`）、住户名解析 |
+
+**说明**: 地图数据量小，整体存单键 `@easychat2_world_map`，`updateWorldMap` 串行读改写；房子可容纳任意多住户（屋主与住户都可包含用户自己与角色）。`MapPanel` 点格子弹面板编辑屋主/住户/名称，挂在「世界 → 地图」折叠分组内。
 
 ### 语音播报接口
 **位置**: `src/tts/providers.js`、`src/tts/index.js`

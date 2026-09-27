@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import CardForgeScreen from './CardForgeScreen';
 import DiaryPanel from './DiaryPanel';
 import ImageGenScreen from './ImageGenScreen';
+import MapPanel from './MapPanel';
 import MomentsView from './MomentsView';
 import ProactivePanel from './ProactivePanel';
 import { GAMES } from './games/games';
@@ -150,6 +151,7 @@ function WorldView({ momentsEnabled, onOpenMoments }) {
     }
     list.push({ id: 'interactive', label: '互动', icon: 'chatbubbles-outline', description: '角色在指定时间主动发来消息' });
     list.push({ id: 'diary', label: '日记', icon: 'book-outline', description: '角色为你和它的对话写日记' });
+    list.push({ id: 'map', label: '地图', icon: 'map-outline', description: '在网格地图上为自己和角色安家' });
     return list;
   }, [momentsEnabled]);
 
@@ -186,7 +188,9 @@ function WorldView({ momentsEnabled, onOpenMoments }) {
             </TouchableOpacity>
             {!isMoments && expanded ? (
               <View style={styles.worldBody}>
-                {section.id === 'diary' ? <DiaryPanel embedded /> : <ProactivePanel embedded />}
+                {section.id === 'diary'
+                  ? <DiaryPanel embedded />
+                  : (section.id === 'map' ? <MapPanel embedded /> : <ProactivePanel embedded />)}
               </View>
             ) : null}
           </View>

@@ -14,6 +14,10 @@ import {
   removeDiariesForCharacter,
   removeRolesFromDiarySettings,
 } from './diary/diary';
+import {
+  detachCharacterFromMap,
+  normalizeMapHouses,
+} from './worldMap/map';
 import { assignStableCharacterIds } from './context/characterIdentity';
 import { normalizeCharacterPresets } from './characterPresets';
 import { shouldIndexSession } from './vectorMemory/scope';
@@ -79,6 +83,7 @@ const MOMENTS_KEY = '@easychat2_moments';
 const DIARY_SETTINGS_KEY = '@easychat2_diary_settings';
 const DIARY_INDEX_KEY = '@easychat2_diary_index';
 const DIARY_ITEM_PREFIX = '@easychat2_diary_item';
+const WORLD_MAP_KEY = '@easychat2_world_map';
 const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
 const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
@@ -117,6 +122,14 @@ function enqueueMomentsMutation(task) {
 function enqueueDiaryMutation(task) {
   const next = diaryMutationQueue.then(task, task);
   diaryMutationQueue = next.catch(() => {});
+  return next;
+}
+
+let worldMapWriteQueue = Promise.resolve();
+
+function enqueueWorldMapMutation(task) {
+  const next = worldMapWriteQueue.then(task, task);
+  worldMapWriteQueue = next.catch(() => {});
   return next;
 }
 
@@ -761,6 +774,12 @@ export async function saveCharacterState(list, activeId, deletedIds, clearVector
       await saveDiarySettings(removeRolesFromDiarySettings(settings, removedCharacters));
     } catch (error) {
       if (__DEV__) console.warn('[diary] settings cleanup failed', error);
+    }
+    // 角色删除后从地图里摘掉它：不再作为屋主，也不再是任何房子的住户。
+    try {
+      await detachCharacterFromWorldMap(removedCharacters);
+    } catch (error) {
+      if (__DEV__) console.warn('[map] character cleanup failed', error);
     }
   }
 }
@@ -1860,6 +1879,42 @@ export async function deleteDiariesForCharacterDeletion(characterIds) {
     return removed > 0 ? next : list;
   });
   return removed;
+}
+
+// ---- 世界地图 ----
+// 地图是「40×40 网格上的房子」列表，数据量小，整体存一个键；损坏时先备份。
+
+export async function getWorldMapStatus() {
+  const stored = await readJsonStatus(WORLD_MAP_KEY);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    await backupCorruptValue(WORLD_MAP_KEY);
+    return { status: 'corrupt', houses: [] };
+  }
+  if (stored.status === 'missing') return { status: 'missing', houses: [] };
+  return { status: 'ok', houses: normalizeMapHouses(stored.value) };
+}
+
+export async function getWorldMap() {
+  const { houses } = await getWorldMapStatus();
+  return houses;
+}
+
+export function updateWorldMap(updater) {
+  return enqueueWorldMapMutation(async () => {
+    const { status, houses } = await getWorldMapStatus();
+    // 读失败就抛错中止：绝不用空列表覆盖已有地图。
+    if (status === 'corrupt') {
+      throw new Error('地图读取失败，请稍后重试');
+    }
+    const next = typeof updater === 'function' ? await updater(houses) : houses;
+    const normalized = normalizeMapHouses(next === undefined ? houses : next);
+    await AsyncStorage.setItem(WORLD_MAP_KEY, JSON.stringify(normalized));
+    return normalized;
+  });
+}
+
+export async function detachCharacterFromWorldMap(characterIds) {
+  return updateWorldMap(houses => detachCharacterFromMap(houses, characterIds));
 }
 
 function cardForgePayloadDirectory() {
