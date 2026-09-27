@@ -406,7 +406,7 @@
 | `@easychat2_diary_settings` | 日记设置 `{ roles: { [characterId]: { enabled, roleName, lastDiaryDate, apiConfigId } }, apiConfigId, model, lastRunDate }` |
 | `@easychat2_diary_index` | 日记条目 ID 索引（提交点，最后写） |
 | `@easychat2_diary_item::<id>` | 单篇日记 `{ id, characterId, characterName, date, text, createdAt }` |
-| `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房） |
+| `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
@@ -667,7 +667,7 @@ data: [DONE]
 ### `ExtensionScreen`（默认导出）
 **位置**: `src/ExtensionScreen.js`
 **Props**: 无（由导航注入）
-**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），集合条目默认折叠、点标题展开编辑（可同时展开多条，新增条目自动展开，折叠态显示关键词/查找替换/内容摘要）；「辅助生成」覆盖三类目标——文本字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议）、标签（`buildTagsAssistPrompt`，顿号分隔纯文本，最多 `MAX_FORGE_TAG_COUNT` 个）、集合条目（`buildEntryAssistPrompt`/`parseEntryAssistPatch`/`mergeEntryAssistPatch` JSON 协议，提示词只投影条目白名单字段，合并时仅接受白名单字段、空值不覆盖、位置/深度/开关等保留原值）， 全部经 `CardForgeScreen` 的 `sendAssistPrompt`（API 配置指纹保护 + AbortSignal）调用当前模型改写，成功后更新 `aigcMeta` 生成标识（正则条目的辅助生成弹窗额外显示「AI 能力有限、不建议用正则」的醒目提示）；卡片右上角「预览」按钮打开 `CardPreviewModal`——只读展示当前草稿（带头像占位的名称/标签/高级内容计数 + 描述/性格/场景/系统提示/对话示例分区），并以开场白作为第一条消息、用真实模型多轮模拟对话（`CardForgeScreen.simulateChat` 经 `chatPipeline.buildRequestMessages` 组装，含世界书激活与正则，继承 API 配置指纹），预览正文的应用展示正则（`applyPreviewDisplay`：角色消息按 AI 输出、用户消息按用户输入，`mode:'display'`；缺 `placement` 视为 `[1,2]`、`enabled` 缺省视为开启，避免条目缺字段时静默不生效）后交 `AssistantMessageBody` 渲染 Markdown/HTML（复用 `assistantRender` 的聊天页同款配置，含富 HTML WebView 分支），支持清空，对话仅存内存、关闭即重置、不写入角色库或聊天记录（`cardForge/preview.js` 提供展示分区、开场轮次、历史上限与展示正则纯函数）；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动/日记/地图）：动态开启后作为入口切到独立面板，「互动」「日记」「地图」分组初始保持折叠、点按就地展开——`ProactivePanel embedded`（API 来源 / 具体模型 / 选择角色均为折叠选择器，避免一次罗列大量选项；「必要权限」按 1-4 编号列出通知 / 精确闹钟 / 电池优化 / 自启动，状态用勾/叉/问号三态：`getPermissionStatus` 可判定的给布尔，自启动白名单无公开 API 记 null→问号，返回应用时自动刷新）/ `DiaryPanel embedded`（折叠选角色 + 每角色独立设置：开关与该角色专属写日记 API（不选则用默认/当前激活配置）+ 左右滑动按日期翻阅该角色日记，生成提示词要求第一人称、只输出正文、150-400 字）/ `MapPanel embedded`（40×40 网格上为自己与角色放置房子，整块网格单 Pressable 按触点换算坐标，内层 `pointerEvents="none"` 避免恒选左上角）。
+**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），集合条目默认折叠、点标题展开编辑（可同时展开多条，新增条目自动展开，折叠态显示关键词/查找替换/内容摘要）；「辅助生成」覆盖三类目标——文本字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议）、标签（`buildTagsAssistPrompt`，顿号分隔纯文本，最多 `MAX_FORGE_TAG_COUNT` 个）、集合条目（`buildEntryAssistPrompt`/`parseEntryAssistPatch`/`mergeEntryAssistPatch` JSON 协议，提示词只投影条目白名单字段，合并时仅接受白名单字段、空值不覆盖、位置/深度/开关等保留原值）， 全部经 `CardForgeScreen` 的 `sendAssistPrompt`（API 配置指纹保护 + AbortSignal）调用当前模型改写，成功后更新 `aigcMeta` 生成标识（正则条目的辅助生成弹窗额外显示「AI 能力有限、不建议用正则」的醒目提示）；卡片右上角「预览」按钮打开 `CardPreviewModal`——只读展示当前草稿（带头像占位的名称/标签/高级内容计数 + 描述/性格/场景/系统提示/对话示例分区），并以开场白作为第一条消息、用真实模型多轮模拟对话（`CardForgeScreen.simulateChat` 经 `chatPipeline.buildRequestMessages` 组装，含世界书激活与正则，继承 API 配置指纹），预览正文的应用展示正则（`applyPreviewDisplay`：角色消息按 AI 输出、用户消息按用户输入，`mode:'display'`；缺 `placement` 视为 `[1,2]`、`enabled` 缺省视为开启，避免条目缺字段时静默不生效）后交 `AssistantMessageBody` 渲染 Markdown/HTML（复用 `assistantRender` 的聊天页同款配置，含富 HTML WebView 分支），支持清空，对话仅存内存、关闭即重置、不写入角色库或聊天记录（`cardForge/preview.js` 提供展示分区、开场轮次、历史上限与展示正则纯函数）；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动/日记/地图）：动态开启后作为入口切到独立面板，「互动」「日记」「地图」分组初始保持折叠、点按就地展开——`ProactivePanel embedded`（API 来源 / 具体模型 / 选择角色均为折叠选择器，避免一次罗列大量选项；「必要权限」按 1-4 编号列出通知 / 精确闹钟 / 电池优化 / 自启动，状态用勾/叉/问号三态：`getPermissionStatus` 可判定的给布尔，自启动白名单无公开 API 记 null→问号，返回应用时自动刷新）/ `DiaryPanel embedded`（折叠选角色 + 每角色独立设置：开关与该角色专属写日记 API（不选则用默认/当前激活配置）+ 左右滑动按日期翻阅该角色日记，生成提示词要求第一人称、只输出正文、150-400 字）/ `MapPanel embedded`（40×40 网格上为自己与角色放置房子；自己固定住 000 号房、其余按 001… 编号；每人最多拥有 1 栋、每角色最多住 1 栋，转让/入住冲突时提示既有房号；顶部「查看」展开房子列表，点房子看房主与住户，屋主与住户都用折叠选择器转让/增删；整块网格单 Pressable 按触点换算坐标，内层 `pointerEvents="none"` 避免恒选左上角）。
 
 ### 游戏清单
 **位置**: `src/games/games.js`
@@ -680,7 +680,7 @@ data: [DONE]
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
 
 ### 动态接口
-**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/MomentsView.js`
+**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/MomentsView.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -692,8 +692,13 @@ data: [DONE]
 | `appendMoment(list, moment)` | 追加并按 `MAX_MOMENTS`（200）淘汰最旧 |
 | `countMomentsForCharacterDeletion(list, characterIds, sessionIds)` | 统计角色或关联会话产生的动态 |
 | `removeMomentsForCharacterDeletion(list, characterIds, sessionIds)` | 过滤角色或关联会话产生的动态 |
+| `buildHousemateReactionPrompt({ moment, reactor, posterName, sameHouseLabel, charName })` | 同住角色反应的提示词：把发帖人、动态正文、同住房号与反应者性格拼进提示词，要求严格输出「点赞：是/否」+「评论：…」两行 |
+| `parseHousemateReaction(text)` | 解析模型输出的点赞与评论（容错前缀/JSON/无评论），返回 `{ like, comment }` |
+| `selectReactingHousemates({ reactors, moment, max })` | 选出待反应的同住角色：排除发帖人自己、已点赞或已评论过的角色，默认上限 8 |
+| `mergeReactionIntoMoments(list, momentId, reaction)` | 把某角色的点赞/评论不可变地并入动态；同角色已反应过则跳过 |
+| `runHousemateReactions({ momentId, signal })` | 执行器：读动态/角色/地图/API → 求同住角色 → 逐角色串行调模型 → 合并进动态；失败静默、已反应者不重复调用 |
 
-**说明**: 全部为本地纯逻辑，无模型调用与网络请求。动态记录保存发动态时的 `characterName` 与 `avatarUri` 快照，角色改名或删除不会改写历史动态名称。
+**说明**: 好感与轮次评估全为本地纯逻辑，无模型调用。动态记录保存发动态时的 `characterName` 与 `avatarUri` 快照，角色改名或删除不会改写历史动态名称。发动态后由 `ChatScreen` 异步触发 `runHousemateReactions`：同一栋房子（屋主 + 住户）里的其他角色会对这条动态点赞、评论，逐角色串行调用模型、失败静默，且不写回会话消息或记忆。
 
 ### 角色日记接口
 **位置**: `src/diary/diary.js`、`src/diary/runDiary.js`、`src/DiaryPanel.js`
@@ -720,11 +725,15 @@ data: [DONE]
 |------|------|
 | `MAP_GRID_SIZE` / `isValidCell(x, y)` | 固定 40×40 网格；坐标取整并限制在 `[0, 40)` |
 | `normalizeMapHouse` / `normalizeMapHouses` | 单房规范化（住户去重、越界坐标丢弃）；列表化为「一格一房」（同格后写覆盖） |
-| `houseAtCell(houses, x, y)` / `placeHouse(houses, house)` / `removeHouseAtCell(houses, x, y)` | 查找 / 放置或覆盖（越界不生效）/ 删除 |
+| `houseAtCell(houses, x, y)` / `placeHouse(houses, house)` / `removeHouseAtCell(houses, x, y)` | 查找 / 放置或覆盖（越界不生效，放置会把本房住户从其它房子移除，保证「最多住 1 栋」）/ 删除 |
+| `assignHouseNumbers(houses)` / `houseNumberLabel(house, houses)` | 房子编号：自己的固定 `000`，其余从 `001` 起按顺序补零到 3 位；返回 `{ house, number, label }` |
+| `housesByOwner(houses)` / `canAssignOwner(houses, owner, houseId)` | 每人最多拥有 1 栋：前者返回 ownerId → 房子，后者校验转让是否与既有房子冲突，返回 `{ ok, conflict }` |
+| `houseResidedBy(houses, characterId)` / `canAddResident(houses, characterId, houseId)` | 每个角色最多住 1 栋：前者查该角色当前住户所在房，后者校验入住是否冲突 |
+| `housemateCharacterIds(houses, characterId)` | 同一栋房子（屋主 + 住户）里的其他角色 id（排除自己），用于动态联动的同住判定 |
 | `detachCharacterFromMap(houses, characterIds)` | 角色删除时：不再作为屋主（降级为自己）、并从所有房子住户里移除；房子本身保留 |
-| `countHousesForCharacter` / `describeHouseOwner` / `houseResidentNames` | 统计相关房子、屋主描述（`我的房子` / `<名>的房子`）、住户名解析 |
+| `describeHouseOwner` / `houseResidentNames` | 屋主描述（`我的房子` / `<名>的房子`）、住户名解析 |
 
-**说明**: 地图数据量小，整体存单键 `@easychat2_world_map`，`updateWorldMap` 串行读改写；房子可容纳任意多住户（屋主与住户都可包含用户自己与角色）。`MapPanel` 点格子弹面板编辑屋主/住户/名称，挂在「世界 → 地图」折叠分组内。
+**说明**: 地图数据量小，整体存单键 `@easychat2_world_map`，`updateWorldMap` 串行读改写。规则：自己固定住 `000` 号房；每个人（自己与角色）最多拥有 1 栋房子（角色可在拥有自己房子的同时住进别人家的一栋）；每个角色最多住 1 栋房子（用户不占住户名额）。`MapPanel` 点格子弹面板编辑屋主/住户/名称，顶部「查看」展开房子列表（`000` 起连续编号），点房子可看房主与住户并转让/增删；屋主与住户都用 `CollapsibleSelect` 折叠选择。挂在「世界 → 地图」折叠分组内。
 
 ### 语音播报接口
 **位置**: `src/tts/providers.js`、`src/tts/index.js`

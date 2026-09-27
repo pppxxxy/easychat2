@@ -5,6 +5,8 @@ export const MAP_GRID_SIZE = 40;
 export const MAP_CELL_COUNT = MAP_GRID_SIZE * MAP_GRID_SIZE;
 export const MAP_OWNER_SELF = 'self';
 export const MAP_HOUSE_NAME_MAX = 24;
+// 房子编号固定补零到 3 位：自己的房子是 000，其余从 001 起。
+export const MAP_HOUSE_NUMBER_PAD = 3;
 
 const clean = (value, max = 0) => {
   const text = String(value == null ? '' : value).trim();
@@ -86,15 +88,27 @@ export function houseAtCell(houses, x, y) {
 }
 
 // 放置/覆盖一格：同格已有房子则替换（编辑走这条），其余保留。
+// 同时保证「每人最多住 1 栋」：本房住户会从其它房子的住户名单里移除（搬迁）。
+// 必须在原位置替换（而非删了再追加）：编号按列表顺序生成，位置一变房号就变。
 export function placeHouse(houses, house) {
   const next = normalizeMapHouse(house);
   if (!next.id || !isValidCell(next.x, next.y)) {
     return normalizeMapHouses(houses);
   }
-  const rest = normalizeMapHouses(houses).filter(
-    item => !(item.x === next.x && item.y === next.y)
-  );
-  return [...rest, next];
+  const residents = new Set(next.residents);
+  const existing = normalizeMapHouses(houses);
+  const isSamePlace = item => item.id === next.id || (item.x === next.x && item.y === next.y);
+  const replaceIndex = existing.findIndex(isSamePlace);
+  const rest = existing
+    .filter(item => !isSamePlace(item))
+    .map(item => {
+      const remaining = item.residents.filter(id => !residents.has(id));
+      return remaining.length === item.residents.length ? item : { ...item, residents: remaining };
+    });
+  if (replaceIndex < 0) return [...rest, next];
+  const result = [...rest];
+  result.splice(Math.min(replaceIndex, result.length), 0, next);
+  return result;
 }
 
 export function removeHouseAtCell(houses, x, y) {
@@ -141,4 +155,87 @@ export function houseResidentNames(house, characters = []) {
   return (Array.isArray(house.residents) ? house.residents : [])
     .map(id => map.get(id) || '已删除角色')
     .filter(Boolean);
+}
+
+// 房子编号：自己的房子固定 000，其余按给定顺序（调用方先排序）从 001 起补零。
+// 返回 [{ house, number, label }]，number 为数字，label 为 3 位字符串。
+export function assignHouseNumbers(houses) {
+  const list = normalizeMapHouses(houses);
+  let index = 1;
+  return list.map(house => {
+    const isSelf = house.ownerType === MAP_OWNER_SELF;
+    const number = isSelf ? 0 : index;
+    if (!isSelf) index += 1;
+    return {
+      house,
+      number,
+      label: String(number).padStart(MAP_HOUSE_NUMBER_PAD, '0'),
+    };
+  });
+}
+
+export function houseNumberLabel(house, houses) {
+  const target = house && house.id;
+  const found = assignHouseNumbers(houses).find(item => item.house.id === target);
+  return found ? found.label : '';
+}
+
+// 每个人（自己或角色）最多拥有 1 栋房子。返回 ownerId → 已拥有的房子。
+// 自己用 MAP_OWNER_SELF 作为 ownerId，避免与角色 id 混淆。
+export function housesByOwner(houses) {
+  const map = new Map();
+  normalizeMapHouses(houses).forEach(house => {
+    const key = house.ownerType === MAP_OWNER_SELF ? MAP_OWNER_SELF : house.ownerId;
+    if (key && !map.has(key)) map.set(key, house);
+  });
+  return map;
+}
+
+// 校验能不能把某栋房子的屋主设为 owner（自己或角色）。返回 { ok, conflict }。
+// 冲突指该 owner 已经拥有另一栋房子：只允许改「自己这一栋」，不允许再占第二栋。
+export function canAssignOwner(houses, owner, houseId) {
+  const key = owner && owner.type === 'character' ? clean(owner.id, 80) : MAP_OWNER_SELF;
+  if (owner && owner.type === 'character' && !key) return { ok: false, conflict: null };
+  const conflict = normalizeMapHouses(houses).find(house => {
+    if (houseId && house.id === houseId) return false;
+    const existingKey = house.ownerType === MAP_OWNER_SELF ? MAP_OWNER_SELF : house.ownerId;
+    return existingKey === key;
+  }) || null;
+  return { ok: !conflict, conflict };
+}
+
+// 一个角色最多住 1 栋房子：返回它当前作为「住户」所在的房子（不含它自己拥有的房）。
+export function houseResidedBy(houses, characterId) {
+  const id = clean(characterId, 80);
+  if (!id) return null;
+  return normalizeMapHouses(houses).find(
+    house => Array.isArray(house.residents) && house.residents.includes(id)
+  ) || null;
+}
+
+// 校验能不能让某角色住进某栋房子（住户名额 1 个）。返回 { ok, conflict }。
+// 自己（用户）不占住户名额，只能靠拥有 000 号房来「住」。
+export function canAddResident(houses, characterId, houseId) {
+  const id = clean(characterId, 80);
+  if (!id) return { ok: false, conflict: null };
+  const current = houseResidedBy(houses, id);
+  if (!current || current.id === houseId) return { ok: true, conflict: null };
+  return { ok: false, conflict: current };
+}
+
+// 同一栋房子里的全部角色：屋主（若为角色）+ 住户，去重。用于动态联动的同住判定。
+export function housemateCharacterIds(houses, characterId) {
+  const id = clean(characterId, 80);
+  if (!id) return [];
+  const house = normalizeMapHouses(houses).find(houseItem => (
+    (houseItem.ownerType === 'character' && houseItem.ownerId === id)
+    || (Array.isArray(houseItem.residents) && houseItem.residents.includes(id))
+  ));
+  if (!house) return [];
+  const ids = [];
+  if (house.ownerType === 'character' && house.ownerId) ids.push(house.ownerId);
+  (Array.isArray(house.residents) ? house.residents : []).forEach(residentId => {
+    if (residentId) ids.push(residentId);
+  });
+  return [...new Set(ids)].filter(item => item !== id);
 }

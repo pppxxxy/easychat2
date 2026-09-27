@@ -152,6 +152,7 @@ import { speak as ttsSpeak, stop as ttsStop } from './tts';
 import { getTtsProvider } from './tts/providers';
 import { evaluateTurn, clampAffinity } from './moments/affinity';
 import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments';
+import { runHousemateReactions } from './moments/runHousemateReactions';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -3952,6 +3953,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
      await updateMoments(moments => appendMoment(moments, moment)).catch(error => {
        if (__DEV__) console.warn('[moments] dynamic save failed', error);
      });
+    // 同住角色的点赞 / 评论：异步、失败静默，不阻塞发动态主流程。
+    runHousemateReactions({ momentId: moment.id }).catch(error => {
+      if (__DEV__) console.warn('[moments] housemate reactions failed', error);
+    });
 
   }, []);
   // affinity 是读-改-写：连续两次回复若并行读取同一份 map，后写会覆盖先写的增量。

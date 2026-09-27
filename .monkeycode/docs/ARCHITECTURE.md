@@ -180,11 +180,18 @@ easychat2/
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`
 
 ### 动态
-**目的**: 基于本地关键词启发式评估好感与对话轮次，在重要节点生成角色动态；动态保存发送者身份快照，角色改名或删除后保持历史名称；提供全局时间线与点赞、评论、删除
-**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/MomentsView.js`
-**关键文件**: `src/moments/moments.js`
-**依赖**: `src/storage.js`
+**目的**: 基于本地关键词启发式评估好感与对话轮次，在重要节点生成角色动态；动态保存发送者身份快照，角色改名或删除后保持历史名称；提供全局时间线与点赞、评论、删除；同一栋房子的其他角色会对动态自动点赞、评论
+**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/MomentsView.js`
+**关键文件**: `src/moments/moments.js`、`src/moments/runHousemateReactions.js`
+**依赖**: `src/storage.js`、`src/api.js`、`src/worldMap/map.js`
 **被依赖**: `src/ChatScreen.js`、`src/ExtensionScreen.js`、`src/SettingsScreen.js`
+
+### 世界地图
+**目的**: 40×40 网格上为自己与角色安家；自己固定住 000 号房，其余按 001… 编号；每人最多拥有 1 栋房子、每个角色最多住 1 栋（可同时拥有自己的房并住在别人家）；同一栋房子的角色在动态联动里互相点赞、评论
+**位置**: `src/worldMap/map.js`、`src/MapPanel.js`
+**关键文件**: `src/worldMap/map.js`
+**依赖**: `src/storage.js`、`src/ui`
+**被依赖**: `src/ExtensionScreen.js`（世界 → 地图）、`src/moments/runHousemateReactions.js`
 
 ### 免责条款与公告
 **目的**: 集中维护免责条款文本；首次启动时弹出一次并要求确认，聊天页右上角「公告」可随时再次查看
