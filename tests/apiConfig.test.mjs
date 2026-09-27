@@ -27,7 +27,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === './secrets' || request.endsWith('/secrets')) return { registerSecretValues: () => {} };
   return originalLoad.call(this, request, parent, isMain);
 };
-const filename = path.resolve('src/api.test-runtime.cjs');
+const filename = path.resolve('src/api.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

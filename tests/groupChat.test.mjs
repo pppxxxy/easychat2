@@ -53,7 +53,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadGroupChat() {
-  const filename = path.resolve('src/groupChat.test-runtime.cjs');
+  const filename = path.resolve('src/groupChat.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

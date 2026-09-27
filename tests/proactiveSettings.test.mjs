@@ -82,7 +82,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 globalThis.__DEV__ = false;
 
-const filename = path.resolve('src/storage.proactive-runtime.cjs');
+const filename = path.resolve('src/storage.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

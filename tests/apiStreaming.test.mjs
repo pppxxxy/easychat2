@@ -40,7 +40,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadApi() {
-  const filename = path.resolve('src/api.test-runtime.cjs');
+  const filename = path.resolve('src/api.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

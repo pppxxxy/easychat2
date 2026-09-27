@@ -144,7 +144,7 @@ function loadStorage() {
   sqliteEnabled = false;
   setCalls = 0;
   vectorSetCalls = 0;
-  const filename = path.resolve('src/storage.test-runtime.cjs');
+  const filename = path.resolve('src/storage.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

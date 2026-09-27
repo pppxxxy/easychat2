@@ -47,7 +47,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const filename = path.resolve('src/memorySummary.test-runtime.cjs');
+const filename = path.resolve('src/memorySummary.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

@@ -32,7 +32,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadModule() {
-  const filename = path.resolve('src/secretStore.test-runtime.cjs');
+  const filename = path.resolve('src/secretStore.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

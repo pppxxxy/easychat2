@@ -26,7 +26,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadExporter() {
-  const filename = path.resolve('src/cardExporter.test-runtime.cjs');
+  const filename = path.resolve('src/cardExporter.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

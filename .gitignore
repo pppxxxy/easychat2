@@ -3,6 +3,7 @@ node_modules/
 .expo-shared/
 dist/
 web-build/
+coverage/
 android/
 ios/
 # 预构建插件内保存的 Kotlin 源码不是生成产物，必须入库

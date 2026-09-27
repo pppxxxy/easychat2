@@ -14,7 +14,7 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   filename: sourcePath,
   presets: [[require.resolve('@babel/preset-env'), { targets: { node: 'current' }, modules: 'commonjs' }]],
 }).code;
-const filename = path.resolve('src/imageGen/index.test-runtime.cjs');
+const filename = path.resolve('src/imageGen/index.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

@@ -45,8 +45,8 @@ jobs:
       - name: Validate Expo config
         run: npx expo config --type public > /dev/null
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage gate
+        run: npm run test:coverage
 
       - name: Run static checks
         run: npm run lint

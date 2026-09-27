@@ -15,9 +15,11 @@ npm run prebuild     # expo prebuild --clean, regenerates android/
 npm run build:apk    # EAS preview APK
 npm run lint         # eslint App.js src
 npm test             # Node unit and regression tests
+npm run test:coverage # tests + c8 coverage gate (40% floor)
 ```
 
 - Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity. Enabled rules: `no-undef`, `react-hooks/rules-of-hooks`, `no-unused-vars` (catch 参数与默认导入 `React` 忽略)。`react-hooks/exhaustive-deps` 尚未启用——存量 37 处多为刻意省略依赖（改错会改变 effect 触发时机），需逐条人工判断后再单独开启。
+- 覆盖率门禁是 `npm run test:coverage`（`c8` + `.c8rc.json`）：只统计可在纯 Node 测试里加载的模块，RN UI 层（`react-native`/`@expo/vector-icons` 等）排除在外；当前为 40% 的「只升不降」地板，实际行覆盖约 80%。测试脚手架用 `Module._compile` 加载源码时必须传**真实源码路径**（如 `src/storage.js`），用合成文件名（`*.test-runtime.cjs`）会让 V8 覆盖率记到假路径、真实文件显示 0%。
 - Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run `npm run lint`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
 - APK builds are manual `workflow_dispatch` only. Workflows: `build-apk-github.yml` (Gradle, signs release with the debug keystore) and `build-apk.yml` (EAS, needs `EXPO_TOKEN`).

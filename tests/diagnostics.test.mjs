@@ -33,7 +33,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadModule() {
-  const filename = path.resolve('src/diagnostics.test-runtime.cjs');
+  const filename = path.resolve('src/diagnostics.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

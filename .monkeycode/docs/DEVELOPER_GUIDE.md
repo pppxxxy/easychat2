@@ -94,7 +94,7 @@ npm run build:apk
 
 ### 依赖变更与校验
 
-本项目未配置 TypeScript 或独立 ESLint 规则集，但提供 Node 内置测试与一次性未定义引用检查。改动后的最低验证方式：
+本项目提供 Node 内置测试与仓库内 ESLint 配置。改动后的最低验证方式：
 
 ```bash
 # 校验依赖树与 lockfile 一致性（CI 使用）
@@ -102,6 +102,12 @@ npm ci
 
 # 运行纯函数、存储、媒体和聊天管线回归测试
 npm test
+
+# 带覆盖率门禁的测试（c8 + .c8rc.json，40% 地板）
+npm run test:coverage
+
+# 静态检查（no-undef / rules-of-hooks / no-unused-vars）
+npm run lint
 
 # 启动开发服务器，验证界面与热更新
 npm run start
@@ -112,41 +118,26 @@ npx expo export --platform android
 
 若改动了会被打包的代码，建议在合并前至少确认 `npm run start` 能正常加载应用，并手动覆盖受影响的功能路径。
 
+### 覆盖率门禁
+
+`npm run test:coverage`（`c8` + `.c8rc.json`）在跑完测试后校验覆盖率。口径：只统计**能在纯 Node 测试里加载**的模块，RN UI 层（`src/ui/**`、各 `*Screen.js`/`*Panel.js`/`*Modal.js` 等，以及 `ThemeContext`/`AppContext`）排除在外——它们在 Node 里 `require('react-native')` 会失败。当前阈值为 40%，是「只升不降」的地板，实际行覆盖约 80%；补了测试后应把阈值同步上调。
+
+两条容易踩的坑：
+
+1. 用 `Module._compile` 加载源码做测试时，**必须传真实源码路径**（如 `src/storage.js`）。传合成文件名（`src/storage.test-runtime.cjs`）会让 V8 把覆盖率记到假路径上，真实文件在报告里显示 0%，门禁形同虚设。
+2. 新增可测的纯逻辑模块后，若它落在 `.c8rc.json` 的 `include` 里却几乎没被加载，会拉低全局比例——要么补测试，要么确认它属于不可测的 UI 层并加入 `exclude`。
+
 ### 未定义引用检查（重要）
 
 Metro/Babel **不做未定义变量检查**，只做语法与模块解析。因此「调用了某个函数/组件但忘记 import」或「模块级函数引用了组件作用域内的变量」这类错误**能顺利打包**，却在运行时抛 `ReferenceError` 并导致白屏闪退。历史上曾因此出现启动即崩的回归。
 
-改动界面代码后，务必运行一次未定义引用检查：
+改动界面代码后，直接运行仓库内的 lint 即可：
 
 ```bash
-# 生成一次性 flat config（不写入仓库）
-cat > /tmp/eslint.check.mjs <<'EOF'
-export default [
-  {
-    files: ['**/*.js'],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      parserOptions: { ecmaFeatures: { jsx: true } },
-      globals: {
-        React: 'readonly', global: 'readonly', Promise: 'readonly', require: 'readonly',
-        module: 'readonly', exports: 'readonly', process: 'readonly', console: 'readonly',
-        setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly',
-        clearInterval: 'readonly', fetch: 'readonly', FormData: 'readonly',
-        XMLHttpRequest: 'readonly', AbortController: 'readonly', Buffer: 'readonly',
-        requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', alert: 'readonly',
-        __DEV__: 'readonly',
-      },
-    },
-    rules: { 'no-undef': 'error' },
-  },
-];
-EOF
-
-npx eslint --config /tmp/eslint.check.mjs App.js src/*.js src/*/*.js
+npm run lint
 ```
 
-输出为空即通过；任何 `no-undef` 都必须修复后才能提交。
+输出为空即通过；任何 `no-undef` / `rules-of-hooks` / `no-unused-vars` 报错都必须修复后才能提交。
 
 **高频踩坑点**：
 

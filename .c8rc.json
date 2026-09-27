@@ -1,0 +1,30 @@
+{
+  "all": true,
+  "include": ["src/**/*.js"],
+  "exclude": [
+    "src/ui/**",
+    "src/*Screen.js",
+    "src/*Panel.js",
+    "src/*Modal.js",
+    "src/*Form.js",
+    "src/*View.js",
+    "src/*Editor.js",
+    "src/Chapter*.js",
+    "src/AssistantMessageBody.js",
+    "src/RichHtmlMessage.js",
+    "src/ScrollScrubber.js",
+    "src/assistantRender.js",
+    "src/disclaimer.js",
+    "src/proactiveMessage.js",
+    "src/stickerImages.js",
+    "src/theme/ThemeContext.js",
+    "src/theme/tokens.js",
+    "src/context/AppContext.js"
+  ],
+  "reporter": ["text-summary"],
+  "check-coverage": true,
+  "lines": 40,
+  "statements": 40,
+  "functions": 40,
+  "branches": 40
+}
