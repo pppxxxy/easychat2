@@ -454,7 +454,14 @@ export function buildGeneratePrompt(state) {
   }
   if (sections.includes('regex')) {
     advancedLines.push(
-      '- regexScripts：正则脚本数组，每项 {name:字符串, findRegex:字符串（JS 正则,不含斜杠）, replaceString:字符串, placement:数组（1=用户输入,2=AI输出）, enabled:true}，只在确有需要时给 1-3 条。'
+      [
+        '- regexScripts：正则脚本数组，每项 {name:字符串, findRegex:字符串, replaceString:字符串, flags:字符串（默认 "g"）, placement:数组（1=用户输入,2=AI输出）, markdownOnly:布尔, promptOnly:布尔, enabled:true}。只在确有需要时给 1-3 条。写法要求：',
+        '  · findRegex 是 JavaScript 正则的「源码」，不要带首尾斜杠和 /g 之类的修饰符（修饰符放 flags）；匹配分组用括号，替换里用 $1、$2 引用，整段匹配用 $&。',
+        '  · 需要转义的正则元字符要写双反斜杠，例如匹配星号写成 \\*、匹配反斜杠写成 \\\\。',
+        '  · 常见用途：markdownOnly:true（仅影响展示）——把 *动作* 或 （旁白）转成样式、高亮关键词、去掉状态栏；promptOnly:true（仅影响发给模型的内容）——替换 {{user}}、清理占位符。二者不要同时为 true。',
+        '  · placement 决定作用对象：用户输入用 [1]、AI 输出用 [2]，只处理展示时也应包含对应项。',
+        '  · replaceString 可以用 HTML 标签（如 <span style="color:#c7254e">$&</span>）做高亮；不需要替换时留空字符串表示删除匹配内容。',
+      ].join('\n')
     );
   }
   if (sections.includes('presets')) {
@@ -748,7 +755,7 @@ function projectEntryFields(entry, fields) {
 export function buildEntryAssistPrompt({ kind = '', currentEntry = {}, request = '' } = {}) {
   const fields = ENTRY_ASSIST_FIELDS[kind] || [];
   const label = ENTRY_ASSIST_LABELS[kind] || '条目';
-  return [
+  const lines = [
     `请按用户要求改写下面的${label}，只改需要改的字段。`,
     '',
     '当前条目 JSON：',
@@ -761,8 +768,17 @@ export function buildEntryAssistPrompt({ kind = '', currentEntry = {}, request =
     `- 只包含这些字段：${fields.join('、')}；不要新增或删除字段。`,
     '- 未修改的字段原样完整复制，不要留空。',
     '- keys 是字符串数组，其余字段是字符串。',
-    '- 全部使用中文。',
-  ].filter(Boolean).join('\n');
+  ];
+  // 正则条目单独给写法约定：否则模型常给带斜杠/修饰符或转义错误的表达式，导入后跑不通。
+  if (kind === 'regexScripts') {
+    lines.push(
+      '- findRegex 是 JavaScript 正则的源码，不要带首尾斜杠与修饰符（如 /foo/g 应写成 findRegex:"foo"）。',
+      '- 正则元字符要正确转义（双反斜杠），分组用括号、替换用 $1/$2，整段匹配用 $&。',
+      '- replaceString 可用 HTML 标签做高亮，留空字符串表示删除匹配内容。'
+    );
+  }
+  lines.push('- 全部使用中文。');
+  return lines.filter(Boolean).join('\n');
 }
 
 // 宽松解析条目辅助生成结果：容忍代码块包裹与前后多余文字，返回对象或 null

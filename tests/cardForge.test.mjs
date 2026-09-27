@@ -27,8 +27,10 @@ import {
   summarizeAnswers,
 } from '../src/cardForge/forge.js';
 import {
+  buildPreviewDisplayTurns,
   buildPreviewOpeningTurns,
   buildPreviewSections,
+  applyPreviewDisplay,
   capPreviewHistory,
   previewAdvancedCounts,
 } from '../src/cardForge/preview.js';
@@ -620,4 +622,70 @@ test('模拟对话经真实聊天管道组装并受配置指纹保护', () => {
   assert.ok(FORGE_SCREEN_SOURCE.includes('const character = draftToCharacterPatch(draft, { composedPrompt })'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('onSimulateChat={simulateChat}'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('expectedConfigFingerprint'));
+});
+
+test('预览应用展示正则：角色走 AI 输出、用户走用户输入', () => {
+  const scripts = [
+    { name: '高亮', findRegex: '秘密', replaceString: '<b>$&</b>', flags: 'g', placement: [2], enabled: true },
+    { name: '去括号', findRegex: '（[^）]*）', replaceString: '', flags: 'g', placement: [1], enabled: true },
+  ];
+  // AI 输出：placement 2 生效
+  assert.equal(applyPreviewDisplay('这是秘密', scripts, 'assistant'), '这是<b>秘密</b>');
+  // 用户输入：placement 1 生效，placement 2 不生效
+  assert.equal(applyPreviewDisplay('（小声）你好', scripts, 'user'), '你好');
+  assert.equal(applyPreviewDisplay('这是秘密', scripts, 'user'), '这是秘密');
+  // 未启用脚本跳过
+  assert.equal(
+    applyPreviewDisplay('秘密', [{ findRegex: '秘密', replaceString: 'X', placement: [2], enabled: false }], 'assistant'),
+    '秘密'
+  );
+  // 灾难性回溯模式被引擎跳过，不影响整条链路
+  assert.equal(
+    applyPreviewDisplay('aaaa', [{ findRegex: '(a+)+$', replaceString: 'X', placement: [2], enabled: true }], 'assistant'),
+    'aaaa'
+  );
+});
+
+test('预览轮次批量套用展示正则', () => {
+  const draft = {
+    regexScripts: [
+      { findRegex: '星', replaceString: '★', flags: 'g', placement: [1, 2], enabled: true },
+    ],
+  };
+  const turns = [
+    { id: 'a', role: 'assistant', text: '晚星' },
+    { id: 'b', role: 'user', text: '星你好' },
+  ];
+  const rendered = buildPreviewDisplayTurns(turns, draft);
+  assert.equal(rendered[0].display, '晚★');
+  assert.equal(rendered[1].display, '★你好');
+  // 原文保留，便于继续作为对话历史
+  assert.equal(rendered[0].text, '晚星');
+});
+
+test('预览弹窗用共享渲染管线呈现正则效果', () => {
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('AssistantMessageBody'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('buildPreviewDisplayTurns'));
+});
+
+test('生成与条目辅助提示词给出可用的正则写法约定', () => {
+  // 直接构造带「高级内容=全部」的问答结果（requestedAdvancedSections 读 answers.advanced）
+  const state = { ...createForgeState(1000), answers: { advanced: '全部' } };
+  const prompt = buildGeneratePrompt(state);
+  assert.ok(prompt.includes('regexScripts'));
+  // 关键约定：不带斜杠/修饰符、$1/$&、转义、markdownOnly/promptOnly、placement
+  assert.ok(prompt.includes('不要带首尾斜杠'));
+  assert.ok(prompt.includes('$1'));
+  assert.ok(prompt.includes('markdownOnly'));
+  assert.ok(prompt.includes('promptOnly'));
+  assert.ok(prompt.includes('placement'));
+
+  const entryPrompt = buildEntryAssistPrompt({
+    kind: 'regexScripts',
+    currentEntry: { name: '高亮', findRegex: 'foo', replaceString: 'bar' },
+    request: '把重点词高亮',
+  });
+  assert.ok(entryPrompt.includes('JavaScript 正则的源码'));
+  assert.ok(entryPrompt.includes('不要带首尾斜杠'));
+  assert.ok(entryPrompt.includes('$1'));
 });

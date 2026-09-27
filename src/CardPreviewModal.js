@@ -14,7 +14,9 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { isCanceledError } from './api';
+import AssistantMessageBody from './AssistantMessageBody';
 import {
+  buildPreviewDisplayTurns,
   buildPreviewOpeningTurns,
   buildPreviewSections,
   capPreviewHistory,
@@ -72,6 +74,11 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
 
   const sections = useMemo(() => buildPreviewSections(draft), [draft]);
   const counts = useMemo(() => previewAdvancedCounts(draft), [draft]);
+  // 展示正则与聊天页同一口径：预览里就能看到正则应用后的效果。
+  const displayTurns = useMemo(
+    () => buildPreviewDisplayTurns(turns, draft),
+    [turns, draft]
+  );
   const name = String((draft && draft.name) || '').trim() || '未命名';
   const tags = Array.isArray(draft && draft.tags) ? draft.tags : [];
 
@@ -174,12 +181,16 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
 
           {turns.length === 0 ? (
             <Text style={styles.emptyHint}>这张卡还没有开场白，直接发一句话开始模拟。</Text>
-          ) : turns.map(turn => {
+          ) : displayTurns.map(turn => {
             const isUser = turn.role === 'user';
             return (
               <View key={turn.id} style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
                 <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-                  <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{turn.text}</Text>
+                  {isUser ? (
+                    <Text style={[styles.bubbleText, styles.bubbleTextUser]}>{turn.display}</Text>
+                  ) : (
+                    <AssistantMessageBody text={turn.display} fullWidth />
+                  )}
                 </View>
               </View>
             );
