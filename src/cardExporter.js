@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
+import { appendExportNotice, isValidAigcMeta } from './aigc/attribution';
 
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 export const MAX_CARD_FILE_BYTES = 32 * 1024 * 1024;
@@ -290,6 +291,9 @@ export function buildCardV2(character) {
   const presets = (Array.isArray(source.presets) ? source.presets : []).map(mapCharacterPreset);
   const passthroughExtra = isPlainObject(source.cardExtra) ? source.cardExtra : {};
   const passthroughExtensions = isPlainObject(source.cardExtensions) ? source.cardExtensions : {};
+  // AI 生成的卡（aigcMeta 存在）导出时：隐式标识进元数据（可识别追溯），
+  // 显式标识追加在 creator_notes 尾部（卡查看器界面可见）。
+  const aigcMeta = isValidAigcMeta(source.aigcMeta) ? source.aigcMeta : null;
   const data = {
     ...passthroughExtra,
     name: String(source.name || ''),
@@ -301,7 +305,9 @@ export function buildCardV2(character) {
       ? source.alternateGreetings.map(item => String(item || ''))
       : [],
     mes_example: String(source.mesExample || ''),
-    creator_notes: String(source.creatorNotes || ''),
+    creator_notes: aigcMeta
+      ? appendExportNotice(String(source.creatorNotes || ''))
+      : String(source.creatorNotes || ''),
      system_prompt: String(source.systemPrompt ?? source.systemPromptComposed ?? ''),
     post_history_instructions: String(source.postHistoryInstructions || ''),
     tags: Array.isArray(source.tags) ? source.tags.map(String) : [],
@@ -315,6 +321,7 @@ export function buildCardV2(character) {
       easychat2: {
         version: 1,
         character_presets: presets,
+        ...(aigcMeta ? { aigc_meta: aigcMeta } : null),
       },
     },
   };

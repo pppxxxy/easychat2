@@ -192,3 +192,39 @@ test('导出会移除 iTXt 里的旧 chara 块，不再携带双份卡数据', (
   const parsed = JSON.parse(readJsonFromPNG(exported));
   assert.equal(parsed.name, '新角色');
 });
+
+test('AI 生成卡导出时写入隐式标识与显式标识行', () => {
+  const exporter = loadExporter();
+  const aigcMeta = {
+    label: '本内容由 AI 生成',
+    producer: 'EasyChat2',
+    producerCode: 'easychat2',
+    source: 'easychat2-card-forge',
+    model: 'deepseek-chat',
+    contentCode: 'AIGC-TEST-0001',
+    generatedAt: 1700000000000,
+  };
+  const card = exporter.buildCardV2({
+    name: 'AI 卡',
+    creatorNotes: '作者备注',
+    regexScripts: [],
+    presets: [],
+    aigcMeta,
+  });
+  // 隐式标识：extensions.easychat2.aigc_meta 全量保留
+  assert.deepEqual(card.data.extensions.easychat2.aigc_meta, aigcMeta);
+  // 显式标识：creator_notes 尾部追加标识行
+  assert.ok(card.data.creator_notes.includes('作者备注'));
+  assert.ok(card.data.creator_notes.includes('本卡片内容由 AI 生成'));
+  assert.ok(card.data.creator_notes.endsWith('—— 本卡片内容由 AI 生成（EasyChat2 制卡）'));
+
+  // 非生成卡（无 aigcMeta）不注入标识，用户手动卡不受污染
+  const manual = exporter.buildCardV2({
+    name: '手动卡',
+    creatorNotes: '作者备注',
+    regexScripts: [],
+    presets: [],
+  });
+  assert.equal(manual.data.extensions.easychat2.aigc_meta, undefined);
+  assert.equal(manual.data.creator_notes, '作者备注');
+});

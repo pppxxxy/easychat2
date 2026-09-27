@@ -657,6 +657,7 @@ export function draftToCharacterPatch(draft, { composedPrompt = '', now = Date.n
     worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, MAX_PRESERVED_ITEMS) : [],
     regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, MAX_PRESERVED_ITEMS) : [],
     presets: Array.isArray(source.presets) ? source.presets.slice(0, MAX_PRESERVED_ITEMS) : [],
+    aigcMeta: source.aigcMeta && typeof source.aigcMeta === 'object' ? source.aigcMeta : null,
   };
 }
 

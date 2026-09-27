@@ -455,6 +455,10 @@ export default function MomentsView({ active = true }) {
         data={moments}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={(
+          // 动态由 AI 生成：显式标识常驻列表头部（与聊天页提示行同口径）
+          <Text style={styles.aigcHint}>动态与回复由 AI 生成，可能有误。</Text>
+        )}
         renderItem={renderItem}
       />
       <ChapterModal
@@ -491,6 +495,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
+  aigcHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    marginBottom: 10,
+  },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   avatarWrap: { marginRight: 10 },
   avatar: { width: 40, height: 40, borderRadius: tokens.radius.pill, backgroundColor: theme.colors.surfaceBorder },

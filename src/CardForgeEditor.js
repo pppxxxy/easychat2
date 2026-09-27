@@ -22,6 +22,7 @@ import {
 } from './cardForge/forge';
 import { createRegexScript, createWorldEntry } from './cardParser';
 import { makeCharacterPresetId } from './characterPresets';
+import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution';
 import { isCanceledError } from './api';
 import { maskSecrets } from './secrets';
 import { FieldGroup, PrimaryButton, SecondaryButton, TextField } from './ui';
@@ -196,7 +197,12 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         return;
       }
       const appliedKey = target.key;
-      setForm(current => ({ ...current, [appliedKey]: nextValue }));
+      setForm(current => ({
+        ...current,
+        [appliedKey]: nextValue,
+        // 字段级 AI 改写同样是生成内容：更新标识（source 区分整卡生成与字段辅助）
+        [AIGC_META_FIELD]: buildAigcMeta({ source: 'easychat2-field-assist' }),
+      }));
       closeAssist();
     } catch (error) {
       if (isCanceledError(error)) return;
@@ -226,6 +232,10 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.hint}>直接在这里改也可以，保存后会写回制卡草稿。字段旁的「辅助生成」可以按你的描述让 AI 改写。</Text>
+          <Text style={styles.aigcNotice}>{`· ${AIGC_NOTICE_TEXT}：AI 生成/改写的卡片内容会随导出文件携带生成标识。`}</Text>
+          {isValidAigcMeta(form[AIGC_META_FIELD]) ? (
+            <Text style={styles.aigcBadge}>{`本卡由 AI 生成 · 内容编号 ${form[AIGC_META_FIELD].contentCode || ''}`}</Text>
+          ) : null}
           {FORGE_FIELDS.map(key => (
             <FieldGroup
               key={key}
@@ -487,6 +497,18 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),
     lineHeight: fonts.scaled(18),
+    marginBottom: tokens.spacing.md,
+  },
+  aigcNotice: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    lineHeight: fonts.scaled(18),
+    marginBottom: tokens.spacing.xs,
+  },
+  aigcBadge: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(11),
+    fontWeight: '700',
     marginBottom: tokens.spacing.md,
   },
   assistButton: {

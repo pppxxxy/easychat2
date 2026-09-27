@@ -799,7 +799,11 @@ data: [DONE]
 
 ### `DISCLAIMER_TEXT` / `DISCLAIMER_SECTIONS` / `DisclaimerModal`
 **位置**: `src/disclaimer.js`
-**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DISCLAIMER_SECTIONS` 为同源的分节结构 `[{ title?, icon?, body?, bullets? }]`；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, sections?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`、`sections` 缺省为 `DISCLAIMER_SECTIONS`（传入 `content` 时以文本渲染），用于启动弹窗与聊天「公告」
+**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DISCLAIMER_SECTIONS` 为同源的分节结构 `[{ title?, icon?, body?, bullets? }]`；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, sections?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`、`sections` 缺省为 `DISCLAIMER_SECTIONS`（传入 `content` 时以文本渲染），用于启动弹窗与聊天「公告」。条款含 AI 生成内容标识约定（不得删标传播、仅供个人创作测试用途）、技术局限告知与生成内容责任归属；确认状态按 `DISCLAIMER_VERSION`（`src/storage.js`，当前 2）比对——版本升级后存量用户需重新确认
+
+### AI 生成内容标识
+**位置**: `src/aigc/attribution.js`
+**说明**: `AIGC_NOTICE_TEXT`（显式标识文案「本内容由 AI 生成」）、`AIGC_META_FIELD`（角色卡上的字段名 `aigcMeta`）；`buildAigcMeta({ model?, generatedAt?, contentCode?, source? })` 构造隐式标识元数据（producer=EasyChat2 生成工具、内容编号、生成时间，`source` 区分整卡生成 `easychat2-card-forge` 与字段辅助生成 `easychat2-field-assist`）；`isValidAigcMeta` 校验；`appendExportNotice(creatorNotes)` 在导出卡 `creator_notes` 尾部追加显式标识行（不重复叠加）；`findIpKeywords(texts)` 扫描知名 IP 黑名单（命中返回去重词条）、`ipKeywordNotice(hits)` 生成提示文案（提醒不阻断）。制卡的两条整卡 AI 路径与字段辅助生成均写 `aigcMeta`，导入角色库随卡保存，导出 PNG/JSON 时经 `cardExporter.buildCardV2` 注入 `extensions.easychat2.aigc_meta` 与 `creator_notes` 标识行；角色页对带标识的卡显示「本卡由 AI 生成 · 内容编号」徽标
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
 **位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`

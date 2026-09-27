@@ -1239,3 +1239,15 @@ test('角色编辑草稿：无 id 与损坏数据按无草稿处理', async () =
   // clear 对不存在的键静默成功
   await storage.clearCharacterEditDraft('missing-char');
 });
+
+test('免责声明按版本确认：条款更新后存量用户需重新确认', async () => {
+  const storage = loadStorage();
+  store.clear();
+  assert.equal(await storage.isDisclaimerAcknowledged(), false);
+  // 旧版确认值（'true'）在版本 bump 后视为未确认——新条款对全部用户生效
+  store.set('@easychat2_disclaimer_ack', 'true');
+  assert.equal(await storage.isDisclaimerAcknowledged(), false);
+  await storage.acknowledgeDisclaimer();
+  assert.equal(await storage.isDisclaimerAcknowledged(), true);
+  assert.equal(store.get('@easychat2_disclaimer_ack'), String(storage.DISCLAIMER_VERSION));
+});

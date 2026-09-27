@@ -59,6 +59,7 @@ import { isRecentMediaUri } from './mediaProtection';
 import { countMomentsForCharacterDeletion } from './moments/moments';
 import { createForgeState, draftFromCharacter } from './cardForge/forge';
 import { setCharacterEditGuard } from './characterEditGuard';
+import { isValidAigcMeta } from './aigc/attribution';
 import { useTheme } from './theme/ThemeContext';
 
 const NO_CARD_DATA_MESSAGE =
@@ -1841,6 +1842,9 @@ setWorldInfo(next.worldInfo);
         <View style={styles.pageHeader}>
           <Text style={styles.title}>角色</Text>
           <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
+          {isValidAigcMeta(character && character.aigcMeta) ? (
+            <Text style={styles.aigcBadge}>{`本卡由 AI 生成 · 内容编号 ${character.aigcMeta.contentCode || ''}`}</Text>
+          ) : null}
         </View>
 
         <Card onLayout={onCharacterLibraryLayout}>
@@ -2673,6 +2677,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   pageHeader: { marginTop: 4, marginBottom: 14 },
   title: { color: theme.colors.text, fontSize: 24, fontWeight: '800', marginBottom: 6 },
   hint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: 19 },
+  aigcBadge: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', marginTop: 2 },
 
   cardHeader: {
     flexDirection: 'row',

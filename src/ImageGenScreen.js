@@ -612,6 +612,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         {results.length > 0 ? (
           <>
             <FieldLabel style={styles.label}>结果画廊</FieldLabel>
+            <Text style={styles.aigcHint}>画廊中的图片由 AI 生成，可能不准确或与既有作品相似。</Text>
             <View style={styles.gallery}>
               {results.map((result, index) => {
                 const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
@@ -869,6 +870,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   generatingHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), textAlign: 'center', marginTop: 10 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap' },
+  aigcHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    marginBottom: tokens.spacing.sm,
+  },
   galleryItem: {
     width: '48%',
     aspectRatio: 1,

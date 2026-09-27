@@ -31,6 +31,7 @@ import {
   summarizeAnswers,
 } from './cardForge/forge';
 import { clearCardForge, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage';
+import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution';
 import { maskSecrets } from './secrets';
 import { Chip, PrimaryButton, TextField } from './ui';
 import { useTheme } from './theme/ThemeContext';
@@ -172,6 +173,30 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     });
   }, []);
 
+  // 与 askModel 同源的模型选择：aigcMeta 里记录实际使用的模型名。
+  const activeForgeModel = useCallback(async () => {
+    const { configs, activeId } = await getApiConfigs();
+    const current = configs.find(item => item.id === activeId) || configs[0];
+    return String(current && current.model || '');
+  }, []);
+
+  // AI 生成/改写后统一处理：给草稿打生成标识（随卡入库与导出），
+  // 并对文本做知名 IP 关键词提示——命中只提醒不阻断，责任约定见免责条款。
+  const applyAigcAttribution = useCallback((draft, model) => {
+    const stamped = { ...draft, [AIGC_META_FIELD]: buildAigcMeta({ model }) };
+    const worldTexts = (Array.isArray(stamped.worldInfo) ? stamped.worldInfo : [])
+      .map(entry => `${(entry && entry.comment) || ''} ${(entry && Array.isArray(entry.keys) ? entry.keys.join(' ') : '')} ${(entry && entry.content) || ''}`);
+    const hits = findIpKeywords([
+      stamped.name, stamped.description, stamped.personality, stamped.scenario,
+      stamped.firstMes, stamped.mesExample, ...(Array.isArray(stamped.tags) ? stamped.tags : []),
+      ...worldTexts,
+    ]);
+    if (hits.length > 0 && mountedRef.current) {
+      Alert.alert('版权风险提示', ipKeywordNotice(hits));
+    }
+    return stamped;
+  }, []);
+
   const submitAnswer = useCallback((question, value) => {
     const text = String(value || '').trim();
     if (!text || busy || !question || !activeRef.current || !mountedRef.current) return;
@@ -220,7 +245,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         }
         const latest = stateRef.current || base;
         const { draft, changed } = mergeDraft(latest.draft, patch);
-        let next = { ...latest, draft, updatedAt: Date.now() };
+        const model = await activeForgeModel();
+        const stampedDraft = applyAigcAttribution(draft, model);
+        let next = { ...latest, draft: stampedDraft, updatedAt: Date.now() };
         next = appendTranscript(next, {
           role: 'ai',
           text: changed.length > 0
@@ -249,7 +276,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       return;
     }
     run();
-  }, [askModel, busy, isRequestCurrent, update]);
+  }, [activeForgeModel, applyAigcAttribution, askModel, busy, isRequestCurrent, update]);
 
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
@@ -289,7 +316,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       }
       const current = stateRef.current;
       const { draft, changed } = mergeDraft(current.draft, patch);
-      let next = { ...current, draft, updatedAt: Date.now() };
+      const model = await activeForgeModel();
+      const stampedDraft = applyAigcAttribution(draft, model);
+      let next = { ...current, draft: stampedDraft, updatedAt: Date.now() };
       next = appendTranscript(next, {
         role: 'ai',
         text: changed.length > 0
@@ -308,7 +337,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         setBusy(false);
       }
     }
-  }, [askModel, busy, input, isRequestCurrent, update]);
+  }, [activeForgeModel, applyAigcAttribution, askModel, busy, input, isRequestCurrent, update]);
 
   const onSaveDraft = useCallback(nextDraft => {
     if (!mountedRef.current || !activeRef.current || busyRef.current) return;
