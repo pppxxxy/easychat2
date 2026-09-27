@@ -128,8 +128,11 @@ test('README 披露功能与风险、提供投诉与 DMCA 声明', () => {
   assert.ok(README.includes('github.com/pppxxxy/easychat2/issues'));
   assert.ok(README.includes('DMCA'));
   assert.ok(README.includes('避风港'));
-  // LICENSE 存在且为 AGPL
+  // 许可证已由 AGPL-3.0 变更为 Apache-2.0：LICENSE 为 Apache 2.0 全文，
+  // README 保留变更声明（历史版本仍受 AGPL-3.0 约束）。
   const license = readSource(['LICENSE']);
-  assert.ok(license.includes('GNU Affero General Public License v3.0'));
-  assert.ok(license.includes('AGPL-3.0-or-later'));
+  assert.ok(license.includes('Apache License'));
+  assert.ok(license.includes('Version 2.0, January 2004'));
+  assert.ok(README.includes('License Change Notice'));
+  assert.ok(README.includes('Apache-2.0'));
 });

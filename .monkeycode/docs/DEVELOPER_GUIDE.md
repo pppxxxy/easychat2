@@ -17,7 +17,7 @@ EasyChat2 是一个单机运行的移动端 AI 聊天应用，让用户用自备
 - `parsecard` - 解析角色卡文件
 - EAS Build / GitHub Actions - 产出 Android APK
 
-**许可**: AGPL-3.0-or-later
+**许可**: Apache-2.0
 
 ## 环境搭建
 
