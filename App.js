@@ -25,6 +25,7 @@ import {
   migrateLegacyMessages,
 } from './src/storage';
 import { AppProvider, useApp } from './src/context/AppContext';
+import { runDiaryForNewDay } from './src/diary/runDiary';
 import {
   addOpenRoleListener,
   consumeInitialRole,
@@ -222,6 +223,21 @@ function StartupSession() {
   return null;
 }
 
+// 角色日记：过了一天之后的第一次启动，为开启日记的角色补写前一天的日记。
+// 纯后台任务，失败静默（日记是增值功能，不影响启动与聊天）。
+function DiaryStartup() {
+  const { loaded } = useApp();
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (!loaded || startedRef.current) return;
+    startedRef.current = true;
+    runDiaryForNewDay().catch(() => {});
+  }, [loaded]);
+
+  return null;
+}
+
 // 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
 // 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
 function ProactiveMessageBridge({ navigationReady }) {
@@ -368,6 +384,7 @@ export default function App() {
             <AppProvider>
               {startupReady ? <AppShell /> : null}
               {startupReady ? <StartupSession /> : null}
+              {startupReady ? <DiaryStartup /> : null}
               <StartupFlow onReady={handleStartupReady} />
             </AppProvider>
           </ThemeProvider>

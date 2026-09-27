@@ -1,4 +1,4 @@
-import { getActiveApiConfig, getActiveModel, getSamplingSettings, getThinkingSettings } from './storage';
+import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from './storage';
 import { registerSecretValues } from './secrets';
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
@@ -142,6 +142,20 @@ export function isCanceledError(error) {
   return !!error && (error.canceled === true || error.name === 'AbortError');
 }
 
+// 默认用激活配置；调用方（如角色日记）可显式指定 configId 与 model 覆盖，
+// 这样不必改动全局激活项就能用另一套模型发请求。
+async function resolveChatConfig(options = {}) {
+  const configId = String((options && options.configId) || '').trim();
+  if (!configId) return getActiveApiConfig();
+  const { configs } = await getApiConfigs();
+  const config = (Array.isArray(configs) ? configs : []).find(item => item.id === configId);
+  if (!config) {
+    throw new Error('所选 API 配置不存在，请重新选择。');
+  }
+  const model = String((options && options.model) || '').trim();
+  return model ? { ...config, activeModel: model } : config;
+}
+
 export async function sendChatMessage(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
   const onReasoning = options && typeof options.onReasoning === 'function' ? options.onReasoning : null;
@@ -150,7 +164,10 @@ export async function sendChatMessage(messages, options = {}) {
   if (signal && signal.aborted) {
     throw createAbortError();
   }
-  const config = await getActiveApiConfig();
+  const config = await resolveChatConfig(options);
+  if (!config) {
+    throw new Error(CONFIG_CHANGED_ERROR);
+  }
   if (options && options.expectedConfigId && config.id !== options.expectedConfigId) {
     throw new Error(CONFIG_CHANGED_ERROR);
   }

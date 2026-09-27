@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import CardForgeScreen from './CardForgeScreen';
+import DiaryPanel from './DiaryPanel';
 import ImageGenScreen from './ImageGenScreen';
 import MomentsView from './MomentsView';
 import ProactivePanel from './ProactivePanel';
@@ -148,6 +149,7 @@ function WorldView({ momentsEnabled, onOpenMoments }) {
       list.push({ id: 'moments', label: '动态', icon: 'planet-outline', description: '角色会随时间生成自己的动态' });
     }
     list.push({ id: 'interactive', label: '互动', icon: 'chatbubbles-outline', description: '角色在指定时间主动发来消息' });
+    list.push({ id: 'diary', label: '日记', icon: 'book-outline', description: '角色为你和它的对话写日记' });
     return list;
   }, [momentsEnabled]);
 
@@ -184,7 +186,7 @@ function WorldView({ momentsEnabled, onOpenMoments }) {
             </TouchableOpacity>
             {!isMoments && expanded ? (
               <View style={styles.worldBody}>
-                <ProactivePanel embedded />
+                {section.id === 'diary' ? <DiaryPanel embedded /> : <ProactivePanel embedded />}
               </View>
             ) : null}
           </View>
