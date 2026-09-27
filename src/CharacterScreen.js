@@ -650,7 +650,11 @@ export default function CharacterScreen() {
     () => characterFormSignature(character),
     [character]
   );
-  const formDirty = currentFormSignature !== savedFormSignature;
+  // 脏判定对齐「表单 vs 本角色 seed 时的表单快照」，而不是「表单 vs 角色当前内容」：
+  // 角色内容会被记忆摘要写入世界书、其他页面保存等后台更新，拿后者当参照会让
+  // 没动过表单的用户被误判为有未保存修改（切换角色与切 Tab 都会误弹窗）。
+  // 外部更新由 seed effect 的 externalConflict 机制处理；formReady 闸门避免 seed 期间误报。
+  const formDirty = formReady && currentFormSignature !== seededFormSignatureRef.current;
   formDirtyRef.current = formDirty;
   formSignatureRef.current = currentFormSignature;
   const editedCharacter = useMemo(

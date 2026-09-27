@@ -81,3 +81,18 @@ test('编辑草稿防丢链路完整接线', () => {
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(character.id).catch(() => {});"));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(activeId).catch(() => {});"));
 });
+
+test('脏判定以 seed 快照为基准，不因角色后台更新误报', () => {
+  // 根因：旧口径「表单 vs 角色当前内容」——角色内容会被记忆摘要写入世界书、
+  // 其他页面保存等后台更新，导致用户没动表单也被判为有未保存修改。
+  // 新口径「表单 vs seed 快照」才直接反映「用户改了没保存」。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes(
+    'const formDirty = formReady && currentFormSignature !== seededFormSignatureRef.current;'
+  ));
+  assert.equal(
+    CHARACTER_SCREEN_SOURCE.includes('const formDirty = currentFormSignature !== savedFormSignature;'),
+    false
+  );
+  // formReady 闸门避免 seed 期间误报
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('const formDirty = formReady &&'));
+});
