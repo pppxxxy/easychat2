@@ -29,7 +29,8 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "android": {
       "package": "com.pppxxxy.easychat2",

@@ -11,7 +11,7 @@
   | 存储键 | 内容 |
   |--------|------|
    | `@easychat2_api_config` | 旧版单 API 配置，仅迁移读取 |
-   | `@easychat2_api_configs` | 多套 API 配置（含 API Key，明文存于本机） |
+   | `@easychat2_api_configs` | 多套 API 配置（API Key 存于系统安全存储，本键只留引用） |
    | `@easychat2_character_index` + `@easychat2_character_item::<id>` | 角色库、世界书与正则脚本 |
    | `@easychat2_messages::<sessionId>` | 会话消息（旧的按角色/单会话键仅迁移读取） |
    | `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>` | 表情包元数据 |
@@ -19,7 +19,7 @@
 
 - 卸载应用或清除应用数据即可删除上述内容。开发者侧没有可删除的副本。
 - 需要留意的本地风险：
-  - API Key 以明文 JSON 存在 AsyncStorage，未做额外加密。Android 的应用私有目录受系统沙箱保护，但 root / 越狱设备、或调试工具仍可能读取。
+  - API Key 存于系统安全存储（Android Keystore / iOS Keychain，`expo-secure-store`），AsyncStorage 只保留引用 `secure:v1:<id>`，不再明文保存。安全存储不可用的旧设备（如未配置锁屏的模拟器）会透明降级为明文，此时应用私有目录受系统沙箱保护，但 root / 越狱设备、或调试工具仍可能读取。
   - 应用已设置 `android:allowBackup="false"`，系统云备份不会包含应用数据（含 API Key）。
 
 ## 2. 第三方 API 披露

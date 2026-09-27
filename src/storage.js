@@ -41,6 +41,7 @@ import {
   regenerateMessageIds,
   sortSessions,
 } from './context/sessionLibrary';
+import { hydrateSecrets, protectSecrets } from './secretStore';
 
 export { markMediaWrite } from './mediaProtection';
 
@@ -191,6 +192,24 @@ async function readJson(key, fallback) {
   } catch (error) {
     return fallback;
   }
+}
+
+// 含密钥的配置统一走这两个入口：写盘前把密钥搬进安全存储并落引用，
+// 读盘后把引用回填为明文。命名空间用存储键，保证同一字段位置稳定。
+async function setJsonWithSecrets(key, payload) {
+  const protectedPayload = await protectSecrets(key, payload);
+  await AsyncStorage.setItem(key, JSON.stringify(protectedPayload));
+}
+
+async function readJsonWithSecrets(key, fallback) {
+  const value = await readJson(key, fallback);
+  return hydrateSecrets(key, value);
+}
+
+async function readJsonStatusWithSecrets(key) {
+  const stored = await readJsonStatus(key);
+  if (stored.status !== 'ok') return stored;
+  return { status: 'ok', value: await hydrateSecrets(key, stored.value) };
 }
 
 let sqliteModule;
@@ -1043,9 +1062,10 @@ export async function saveVectorMemoryConfig(config) {
 
 // 读取完整多配置载荷（设置页用）。
 async function readVectorMemoryPayload() {
-  const stored = await readJson(VECTOR_MEMORY_CONFIGS_KEY, null);
+  const stored = await readJsonWithSecrets(VECTOR_MEMORY_CONFIGS_KEY, null);
   if (stored) return normalizeVectorMemoryPayload(stored);
-  const legacy = await readJson(VECTOR_MEMORY_KEY, null);
+  // 旧单配置键：迁移前可能是明文，也走 hydrate 以防已转引用。
+  const legacy = await readJsonWithSecrets(VECTOR_MEMORY_KEY, null);
   return normalizeVectorMemoryPayload(legacy);
 }
 
@@ -1057,7 +1077,7 @@ export async function getVectorMemorySettings() {
 // 保存完整多配置载荷：{ enabled, configs, activeId }。
 export async function saveVectorMemorySettings(payload) {
   const normalized = normalizeVectorMemoryPayload(payload);
-  await AsyncStorage.setItem(VECTOR_MEMORY_CONFIGS_KEY, JSON.stringify(normalized));
+  await setJsonWithSecrets(VECTOR_MEMORY_CONFIGS_KEY, normalized);
   return normalized;
 }
 
@@ -1285,13 +1305,13 @@ function normalizeImageGenSettings(raw) {
 }
 
 export async function getImageGenSettings() {
-  const raw = await readJson(IMAGE_GEN_KEY, null);
+  const raw = await readJsonWithSecrets(IMAGE_GEN_KEY, null);
   return normalizeImageGenSettings(raw);
 }
 
 export async function saveImageGenSettings(settings) {
   const normalized = normalizeImageGenSettings(settings);
-  await AsyncStorage.setItem(IMAGE_GEN_KEY, JSON.stringify(normalized));
+  await setJsonWithSecrets(IMAGE_GEN_KEY, normalized);
   return normalized;
 }
 
@@ -1666,7 +1686,7 @@ function normalizeTts(raw) {
 export async function getTtsSettings() {
   // 损坏保护与同仓其他模块一致：先备份原始值再抛错。
   // 直接回落默认值会让面板保存时用默认覆盖损坏数据，属不可逆丢失。
-  const stored = await readJsonStatus(TTS_KEY);
+  const stored = await readJsonStatusWithSecrets(TTS_KEY);
   if (
     stored.status === 'corrupt'
     || (stored.status === 'ok' && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
@@ -1680,7 +1700,7 @@ export async function getTtsSettings() {
 
 export async function saveTtsSettings(settings) {
   const normalized = normalizeTts(settings);
-  await AsyncStorage.setItem(TTS_KEY, JSON.stringify(normalized));
+  await setJsonWithSecrets(TTS_KEY, normalized);
   return normalized;
 }
 
@@ -2281,14 +2301,11 @@ function ensureUniqueApiConfigIds(list) {
 }
 
 async function persistApiConfigs(configs, activeId) {
-  await AsyncStorage.setItem(
-    API_CONFIGS_KEY,
-    JSON.stringify({ configs, activeId })
-  );
+  await setJsonWithSecrets(API_CONFIGS_KEY, { configs, activeId });
 }
 
 export async function getApiConfigs() {
-  const stored = await readJsonStatus(API_CONFIGS_KEY);
+  const stored = await readJsonStatusWithSecrets(API_CONFIGS_KEY);
   let payload = stored.status === 'ok' ? stored.value : null;
   const shapeInvalid = payload !== null
     && (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray(payload.configs));
@@ -2306,7 +2323,8 @@ export async function getApiConfigs() {
     configs = ensureUniqueApiConfigIds(payload.configs.map(normalizeApiConfig));
     activeId = String(payload.activeId || '');
   } else {
-    const legacy = await readJsonStatus(API_CONFIG_KEY);
+    // 旧单配置键：仅迁移用，读失败绝不覆盖；密钥可能为明文，hydrate 后随新结构一并转引用。
+    const legacy = await readJsonStatusWithSecrets(API_CONFIG_KEY);
     if (legacy.status === 'corrupt') await backupCorruptValue(API_CONFIG_KEY);
     const legacyValue = legacy.status === 'ok'
       && legacy.value && typeof legacy.value === 'object' && !Array.isArray(legacy.value)
@@ -2737,7 +2755,7 @@ function buildDefaultPlugins() {
 }
 
 export async function getPlugins() {
-  const stored = await readJsonStatus(PLUGINS_KEY);
+  const stored = await readJsonStatusWithSecrets(PLUGINS_KEY);
   if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
     // 插件配置此前读失败会直接用默认值整表覆盖。先备份原值再返回默认，且本次不落盘，
     // 避免把用户填过的密钥 / 开关不可逆地冲掉。
@@ -2754,7 +2772,7 @@ export async function getPlugins() {
   });
   if (changed) {
     try {
-      await AsyncStorage.setItem(PLUGINS_KEY, JSON.stringify(list));
+      await setJsonWithSecrets(PLUGINS_KEY, list);
     } catch (error) {}
   }
   return list;
@@ -2767,7 +2785,7 @@ export async function savePlugins(plugins) {
       list.push(normalizePlugin(preset));
     }
   });
-  await AsyncStorage.setItem(PLUGINS_KEY, JSON.stringify(list));
+  await setJsonWithSecrets(PLUGINS_KEY, list);
   return list;
 }
 

@@ -369,9 +369,12 @@
 
 **AsyncStorage 键约定**:
 
+> 安全存储：含密钥的配置（`@easychat2_api_configs`、`@easychat2_vector_memory_configs`、`@easychat2_image_gen`、`@easychat2_tts`、`@easychat2_plugins`）写盘前由 `src/secretStore.js` 把 `apiKey` / `appSecretKey` / `secretKey` 抽到系统安全存储（`expo-secure-store`，键 `easychat2_secret_<namespace>_<path>`），AsyncStorage 中只留引用 `secure:v1:<id>`；读取时回填明文供内存使用。密钥 id 由「存储键命名空间 + 字段路径」确定性推导（数组优先用条目自身 `id`），重复保存覆盖同一条、不产生孤儿。旧明文数据读取原样返回、下次保存自动转引用；SecureStore 不可用或写入失败时透明降级为明文，不丢密钥、不阻断保存。
+
+
 | 键 | 内容 |
 |----|------|
-| `@easychat2_api_configs` | API 多配置 `{ configs, activeId }` |
+| `@easychat2_api_configs` | API 多配置 `{ configs, activeId }`；`configs[].apiKey` 落盘为安全存储引用 `secure:v1:<id>` |
 | `@easychat2_api_config` | 旧版单条 API 配置（仅迁移读取，保留） |
 | `@easychat2_character_index` | 角色库索引：角色 `id` 字符串数组（新格式） |
 | `@easychat2_character_item::<id>` | 单个角色 JSON；超大角色改为 `{ storage: 'file', version, id, fileName }` 描述符，正文位于 `characters/<fileName>` |
@@ -393,13 +396,13 @@
 | `@easychat2_onboarding_done` | 新手教学完成标记（`'true'`） |
 | `@easychat2_memory_summary` | 独立的记忆总结设置 `{ enabled, threshold }`，默认 `{ enabled: true, threshold: 40 }`，不属于全局文本预设 |
 | `@easychat2_session_summaries::<sessionId>` | 会话级记忆总结 `[{ summary, keywords, boundary, createdAt }]`（同角色记忆 ≥2 时启用） |
-| `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`） |
+| `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`）；`config.apiKey` 落盘为安全存储引用 |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_sampling` | 生成采样设置 `{ maxTokens, temperature, topP, topK }`，每项 `{ enabled, value }`，默认全关闭 |
-| `@easychat2_vector_memory_configs` | 向量记忆多配置 `{ enabled, configs: [{ id, name, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }], activeId }`；旧键迁移用 |
+| `@easychat2_vector_memory_configs` | 向量记忆多配置 `{ enabled, configs: [{ id, name, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }], activeId }`；旧键迁移用；`configs[].apiKey` 落盘为安全存储引用 |
 | `@easychat2_vector_memory`（legacy） | 旧的单条向量配置对象 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }`，读取时迁为多配置首条，不再写入 |
 | `@easychat2_vector_index::<characterId>` | 角色级记忆片段索引 `[{ id, messageId, sessionId, role, at, text, vector }]`；清理按 `sessionId` 分片 |
-| `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
+| `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }`；`providers[].apiKey` 落盘为安全存储引用 |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true }` |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
@@ -408,7 +411,7 @@
 | `@easychat2_diary_item::<id>` | 单篇日记 `{ id, characterId, characterName, date, text, createdAt }` |
 | `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
-| `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast` |
+| `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast`；`providers[].apiKey` / `.appSecretKey` 落盘为安全存储引用 |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars, imagePosition }`；`imagePosition` 为 `start` / `middle` / `end`（默认 `end`），决定从本轮回复取哪一段配图 |
 | `@easychat2_sticker_index` | 表情包元数据 ID 索引 |
 | `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
