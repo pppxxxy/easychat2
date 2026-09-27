@@ -5,8 +5,6 @@ export const MAX_DIARIES_PER_CHARACTER = 365;
 export const DIARY_TEXT_MAX = 4000;
 export const DIARY_SOURCE_MESSAGE_LIMIT = 200;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 function clean(value, max = 0) {
   const text = String(value == null ? '' : value).trim();
   if (!max || text.length <= max) return text;
@@ -29,12 +27,14 @@ export function isNewDay(lastRunDate, now = Date.now()) {
   return last !== localDateKey(now);
 }
 
-// 昨天的 [00:00, 24:00) 时间窗：日记内容是“一整天”的对话。
+// 昨天的 [00:00, 24:00) 时间窗。用本地日历日构造两端，而不是 start + 24h：
+// 夏令时切换当天可能只有 23 或 25 小时，固定加一天会把窗口算偏。
 export function yesterdayRange(now = Date.now()) {
   const value = Number(now);
   const base = new Date(Number.isFinite(value) ? value : Date.now());
-  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime() - DAY_MS;
-  return { start, end: start + DAY_MS };
+  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate() - 1).getTime();
+  const end = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime();
+  return { start, end };
 }
 
 export function normalizeDiarySettings(raw) {
@@ -198,13 +198,14 @@ function isConversationTurn(message) {
 
 function messageTimestamp(message) {
   const value = Number(message && message.timestamp);
-  return Number.isFinite(value) ? value : 0;
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-// 无时间戳的旧消息按窗口内处理：宁可多带进上下文，也不要漏掉昨天真正的对话。
+// 只纳入能确认落在昨天窗口内的消息。无时间戳的旧消息不纳入：无法判断它是不是
+// 昨天的对话，强行带上会把历史内容当「前一天的对话」发给模型，与界面说明不符。
 function inWindow(message, start, end) {
   const timestamp = messageTimestamp(message);
-  if (timestamp <= 0) return true;
+  if (timestamp <= 0) return false;
   return timestamp >= start && timestamp < end;
 }
 

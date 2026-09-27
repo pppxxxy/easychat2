@@ -5,7 +5,6 @@ export const MAP_GRID_SIZE = 40;
 export const MAP_CELL_COUNT = MAP_GRID_SIZE * MAP_GRID_SIZE;
 export const MAP_OWNER_SELF = 'self';
 export const MAP_HOUSE_NAME_MAX = 24;
-export const MAP_RESIDENT_LIMIT = 200;
 
 const clean = (value, max = 0) => {
   const text = String(value == null ? '' : value).trim();
@@ -28,13 +27,15 @@ export function normalizeMapHouse(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const x = Math.trunc(Number(source.x));
   const y = Math.trunc(Number(source.y));
-  const ownerType = source.ownerType === 'character' ? 'character' : MAP_OWNER_SELF;
+  const rawOwnerId = clean(source.ownerId, 80);
+  // 屋主是角色但 ownerId 为空属于坏数据（幽灵屋主）：没有可指的角色，
+  // 降级为「我的房子」，避免渲染出没有归属的角色房子。
+  const ownerType = source.ownerType === 'character' && rawOwnerId ? 'character' : MAP_OWNER_SELF;
   const residents = Array.isArray(source.residents)
     ? source.residents
       .map(item => clean(item, 80))
       .filter(Boolean)
       .filter((id, index, all) => all.indexOf(id) === index)
-      .slice(0, MAP_RESIDENT_LIMIT)
     : [];
   const createdAt = Number(source.createdAt);
   return {
@@ -44,8 +45,8 @@ export function normalizeMapHouse(raw) {
     name: clean(source.name, MAP_HOUSE_NAME_MAX),
     ownerType,
     // ownerId 为空表示“自己”；ownerType==='character' 时记角色 id
-    ownerId: ownerType === 'character' ? clean(source.ownerId, 80) : '',
-    ownerName: clean(source.ownerName, 80),
+    ownerId: ownerType === 'character' ? rawOwnerId : '',
+    ownerName: ownerType === 'character' ? clean(source.ownerName, 80) : '',
     residents,
     createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0,
   };
@@ -106,16 +107,6 @@ export function detachCharacterFromMap(houses, characterIds) {
       residents,
     };
   });
-}
-
-// 统计与某角色相关的房子数（屋主或住户），用于展示/删除提示。
-export function countHousesForCharacter(houses, characterId) {
-  const id = clean(characterId, 80);
-  if (!id) return 0;
-  return (Array.isArray(houses) ? houses : []).filter(house => house && (
-    (house.ownerType === 'character' && house.ownerId === id)
-    || (Array.isArray(house.residents) && house.residents.includes(id))
-  )).length;
 }
 
 export function describeHouseOwner(house, characters = []) {

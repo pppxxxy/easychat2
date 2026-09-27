@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,7 +14,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getWorldMap, updateWorldMap } from './storage';
 import {
-  describeHouseOwner,
   houseAtCell,
   houseResidentNames,
   makeMapHouseId,
@@ -81,6 +81,15 @@ export default function MapPanel({ embedded = false }) {
     setEditing({ x, y, house });
   }, [houses]);
 
+  // 整块网格只用这一个点击处理器：按触点相对网格的原点换算行列。
+  const onGridPress = useCallback(event => {
+    const { locationX, locationY } = event.nativeEvent || {};
+    const x = Math.floor(Number(locationX) / CELL_SIZE);
+    const y = Math.floor(Number(locationY) / CELL_SIZE);
+    if (!(x >= 0 && x < MAP_GRID_SIZE && y >= 0 && y < MAP_GRID_SIZE)) return;
+    openCell(x, y);
+  }, [openCell]);
+
   const closeEditor = useCallback(() => {
     setEditing(null);
   }, []);
@@ -142,6 +151,14 @@ export default function MapPanel({ embedded = false }) {
     }
   }, [closeEditor, editing, houses, persist]);
 
+  const confirmDeleteHouse = useCallback(() => {
+    if (!editing || !editing.house) return;
+    Alert.alert('删除房子', `确定删除（${editing.x}, ${editing.y}）的房子吗？`, [
+      { text: '取消', style: 'cancel' },
+      { text: '删除', style: 'destructive', onPress: () => { deleteHouse(); } },
+    ]);
+  }, [deleteHouse, editing]);
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -170,25 +187,26 @@ export default function MapPanel({ embedded = false }) {
         contentContainerStyle={styles.gridScrollContent}
         showsHorizontalScrollIndicator
       >
-        <View style={styles.grid}>
+        {/* 用一整块 Pressable 承接点击、按触点坐标换算格子：避免在 40×40 网格里
+            渲染 1600 个 TouchableOpacity，低端机上会明显掉帧。 */}
+        <Pressable
+          onPress={onGridPress}
+          style={styles.grid}
+          accessibilityLabel="地图网格，点格子放置或编辑房子"
+        >
           {Array.from({ length: MAP_GRID_SIZE }).map((_, y) => (
             <View key={y} style={styles.gridRow}>
               {Array.from({ length: MAP_GRID_SIZE }).map((_, x) => {
                 const house = houseLookup.get(`${x}:${y}`) || null;
                 const isRoleHouse = !!house && house.ownerType === 'character';
                 return (
-                  <TouchableOpacity
+                  <View
                     key={x}
                     style={[
                       styles.cell,
                       house && styles.cellHouse,
                       house && (isRoleHouse ? styles.cellRole : styles.cellSelf),
                     ]}
-                    onPress={() => openCell(x, y)}
-                    activeOpacity={0.7}
-                    accessibilityLabel={house
-                      ? `${x},${y} ${describeHouseOwner(house, characters)}`
-                      : `空格子 ${x},${y}`}
                   >
                     {house ? (
                       <Ionicons
@@ -197,12 +215,12 @@ export default function MapPanel({ embedded = false }) {
                         color={isRoleHouse ? theme.colors.star : theme.colors.primaryContrast}
                       />
                     ) : null}
-                  </TouchableOpacity>
+                  </View>
                 );
               })}
             </View>
           ))}
-        </View>
+        </Pressable>
       </ScrollView>
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
@@ -258,7 +276,7 @@ export default function MapPanel({ embedded = false }) {
                 </View>
               </FieldGroup>
 
-              <FieldGroup label="住户" hint="可多选，一个房子住多少人都不限">
+              <FieldGroup label="住户" hint="可多选，一个房子住多少人都可以">
                 {characters.length === 0 ? (
                   <Text style={styles.hint}>还没有角色，先到「角色」页添加后可让角色入住。</Text>
                 ) : (
@@ -292,7 +310,7 @@ export default function MapPanel({ embedded = false }) {
             <View style={styles.editorActions}>
               <SecondaryButton title="取消" onPress={closeEditor} style={styles.editorButton} />
               {editing && editing.house ? (
-                <SecondaryButton title="删除" onPress={deleteHouse} disabled={saving} style={styles.editorButton} />
+                <SecondaryButton title="删除" onPress={confirmDeleteHouse} disabled={saving} style={styles.editorButton} />
               ) : null}
               <PrimaryButton
                 title={editing && editing.house ? '保存' : '放置'}

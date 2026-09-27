@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import {
-  countHousesForCharacter,
   describeHouseOwner,
   detachCharacterFromMap,
   houseAtCell,
@@ -45,9 +44,10 @@ test('房子规范化：非法坐标丢弃，住户去重', () => {
   assert.deepEqual(house.residents, ['a', 'b']);
 
   const self = normalizeMapHouse({ x: 1, y: 1, ownerType: 'character', ownerId: '' });
-  // 屋主类型 character 但 ownerId 为空 → 仍按 character，但 id 为空
-  assert.equal(self.ownerType, 'character');
+  // 幽灵屋主（character 但 ownerId 为空）降级为「我的房子」，避免渲染出没有归属的角色房
+  assert.equal(self.ownerType, MAP_OWNER_SELF);
   assert.equal(self.ownerId, '');
+  assert.equal(self.ownerName, '');
 
   const list = normalizeMapHouses([
     { id: 'a', x: 0, y: 0, name: 'A' },
@@ -86,10 +86,10 @@ test('放置 / 查找 / 删除', () => {
   assert.equal(houses.length, 0);
 });
 
-test('房子可住任意多角色（无上限）', () => {
-  const residents = Array.from({ length: 50 }, (_, i) => `c${i}`);
+test('房子可住任意多角色（不设人数上限）', () => {
+  const residents = Array.from({ length: 300 }, (_, i) => `c${i}`);
   const house = normalizeMapHouse({ id: 'h', x: 0, y: 0, residents });
-  assert.equal(house.residents.length, 50);
+  assert.equal(house.residents.length, 300);
 });
 
 test('角色删除：屋主降级为自己，住户被移除', () => {
@@ -115,7 +115,7 @@ test('角色删除：屋主降级为自己，住户被移除', () => {
   assert.equal(next.length, 3);
 });
 
-test('展示辅助：屋主描述、住户名、相关房子计数', () => {
+test('展示辅助：屋主描述、住户名', () => {
   const characters = [{ id: 'c1', name: '晚星' }, { id: 'c2', name: '晨曦' }];
   assert.equal(describeHouseOwner({ ownerType: MAP_OWNER_SELF }, characters), '我的房子');
   assert.equal(
@@ -129,15 +129,6 @@ test('展示辅助：屋主描述、住户名、相关房子计数', () => {
   );
   assert.deepEqual(houseResidentNames({ residents: ['c1', 'c2'] }, characters), ['晚星', '晨曦']);
   assert.deepEqual(houseResidentNames({ residents: ['gone'] }, characters), ['已删除角色']);
-
-  const houses = [
-    { id: 'h1', x: 0, y: 0, ownerType: 'character', ownerId: 'c1', residents: [] },
-    { id: 'h2', x: 1, y: 0, ownerType: MAP_OWNER_SELF, residents: ['c1'] },
-    { id: 'h3', x: 2, y: 0, ownerType: MAP_OWNER_SELF, residents: ['c2'] },
-  ];
-  assert.equal(countHousesForCharacter(houses, 'c1'), 2);
-  assert.equal(countHousesForCharacter(houses, 'c2'), 1);
-  assert.equal(countHousesForCharacter(houses, ''), 0);
 });
 
 test('地图 id 生成唯一', () => {
@@ -167,8 +158,12 @@ test('世界分组新增地图入口并就地展开', () => {
 test('地图面板：网格、放置、编辑、屋主与住户', () => {
   assert.ok(PANEL_SOURCE.includes('MAP_GRID_SIZE'));
   assert.ok(PANEL_SOURCE.includes('openCell'));
+  assert.ok(PANEL_SOURCE.includes('onGridPress'));
   assert.ok(PANEL_SOURCE.includes('placeHouse'));
   assert.ok(PANEL_SOURCE.includes('removeHouseAtCell'));
+  // 删除需二次确认
+  assert.ok(PANEL_SOURCE.includes('confirmDeleteHouse'));
+  assert.ok(PANEL_SOURCE.includes('确定删除'));
   assert.ok(PANEL_SOURCE.includes('屋主'));
   assert.ok(PANEL_SOURCE.includes('住户'));
   assert.ok(PANEL_SOURCE.includes('我自己'));

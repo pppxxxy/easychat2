@@ -31,7 +31,7 @@ import {
   recordAnswer,
   summarizeAnswers,
 } from './cardForge/forge';
-import { clearCardForge, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage';
+import { clearCardForge, getActiveModel, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage';
 import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution';
 import { maskSecrets } from './secrets';
 import { Chip, PrimaryButton, TextField } from './ui';
@@ -198,10 +198,12 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, []);
 
   // 与 askModel 同源的模型选择：aigcMeta 里记录实际使用的模型名。
+  // 必须用 storage.getActiveModel 的同一口径（activeModel → models[0] → model），
+  // 否则实际请求的模型与记录进 aigcMeta 的模型名会对不上。
   const activeForgeModel = useCallback(async () => {
     const { configs, activeId } = await getApiConfigs();
     const current = configs.find(item => item.id === activeId) || configs[0];
-    return String(current && current.model || '');
+    return getActiveModel(current);
   }, []);
 
   // AI 生成/改写后统一处理：给草稿打生成标识（随卡入库与导出），

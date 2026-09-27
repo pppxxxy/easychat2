@@ -96,4 +96,7 @@ test('记忆界面接入分组折叠与展开全部', () => {
   assert.ok(SCREEN_SOURCE.includes('折叠全部'));
   // 编辑模式强制展开，保证折叠里的会话可被点选
   assert.ok(SCREEN_SOURCE.includes('editing ? new Set(groups.map(group => group.id))'));
+  // 首屏默认展开第一组，避免只剩标题的回归（且只自动展开一次）
+  assert.ok(SCREEN_SOURCE.includes('autoExpandedRef'));
+  assert.ok(SCREEN_SOURCE.includes('setExpandedGroups(new Set([groups[0].id]))'));
 });

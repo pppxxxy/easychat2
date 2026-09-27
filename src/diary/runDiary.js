@@ -52,8 +52,7 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
       || configs.find(item => item.id === activeId)
       || configs[0];
     if (!config) {
-      // 没有可用配置就只记录日期，避免每次启动都重扫。
-      await saveDiarySettings(setDiaryLastRunDate(settings, dayKey));
+      // 没有可用配置：不推进全局日期，等用户配好 API 后同日再启动仍可补写。
       return 0;
     }
 
@@ -61,6 +60,7 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
     const userName = String((profile && profile.userName) || '').trim() || '用户';
 
     let nextSettings = settings;
+    let hadFailure = false;
     for (const role of roles) {
       const character = role.character;
       // 逐会话读取，只保留昨天窗口内的对话；没有对话就不写。
@@ -84,12 +84,19 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
           model: String(settings.model || '').trim() || undefined,
         });
       } catch (error) {
-        // 单个角色失败不影响其它角色，也不重试（下次启动会再试）。
+        // 单个角色失败不影响其它角色；标记失败以便同日再次启动重试该角色。
+        hadFailure = true;
         continue;
       }
-      if (!raw || String(raw).trim() === EMPTY_REPLY_TEXT) continue;
+      if (!raw || String(raw).trim() === EMPTY_REPLY_TEXT) {
+        hadFailure = true;
+        continue;
+      }
       const text = normalizeDiaryText(raw);
-      if (!text) continue;
+      if (!text) {
+        hadFailure = true;
+        continue;
+      }
       const entry = {
         id: `diary-${character.id}-${role.date}`,
         characterId: character.id,
@@ -103,7 +110,12 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
       written += 1;
     }
 
-    await saveDiarySettings(setDiaryLastRunDate(nextSettings, dayKey));
+    // 有角色失败就不推进「上次运行日期」：同日再次启动会重扫，已成功的角色由各自
+    // 的 lastDiaryDate 跳过，失败的角色得以补写；否则跨天后窗口前移就永久缺失。
+    const finalSettings = hadFailure
+      ? nextSettings
+      : setDiaryLastRunDate(nextSettings, dayKey);
+    await saveDiarySettings(finalSettings);
     return written;
   } catch (error) {
     // 静默失败：日记是增值功能，不能影响启动。

@@ -140,7 +140,7 @@ test('启动候选：仅开启且昨天未写过的角色，排除群聊', () =>
   assert.equal(roles.length, 0);
 });
 
-test('昨天的消息窗口收集：过滤、排序、无时间戳兜底', () => {
+test('昨天的消息窗口收集：只纳入能确认在窗口内的消息', () => {
   const inWindow = new Date(2026, 8, 26, 20, 0, 0).getTime();
   const outOfWindow = new Date(2026, 8, 25, 20, 0, 0).getTime();
   const bySession = {
@@ -154,8 +154,8 @@ test('昨天的消息窗口收集：过滤、排序、无时间戳兜底', () =>
     ],
   };
   const result = collectWindowMessages(bySession, ['s1'], NOW);
-  // 无时间戳旧消息按窗口内处理并排在最前（timestamp 0），随后是按时间戳升序的昨天消息
-  assert.deepEqual(result.map(item => item.text), ['无时间戳旧消息', '昨天的话', '昨天的回复']);
+  // 无时间戳旧消息无法确认是否属于昨天，不再纳入；其余按时间戳升序
+  assert.deepEqual(result.map(item => item.text), ['昨天的话', '昨天的回复']);
 });
 
 test('日记提示词与文本规范化', () => {
@@ -204,6 +204,28 @@ test('启动执行器：过一天的首次启动、按所选 API、静默失败'
   // 启动时挂载
   assert.ok(APP_SOURCE.includes("import { runDiaryForNewDay } from './src/diary/runDiary'"));
   assert.ok(APP_SOURCE.includes('<DiaryStartup />'));
+});
+
+test('启动执行器：有失败不推进全局日期，同日可重扫补写', () => {
+  // 回归：单角色失败后仍提交 lastRunDate=今天，会让该角色当天日记永久缺失
+  //（同日不再重扫、次日窗口已前移）。失败时保留 nextSettings（不设 lastRunDate）。
+  assert.ok(RUNNER_SOURCE.includes('let hadFailure = false;'));
+  assert.ok(RUNNER_SOURCE.includes('hadFailure = true;'));
+  assert.ok(RUNNER_SOURCE.includes('const finalSettings = hadFailure'));
+  assert.ok(RUNNER_SOURCE.includes('? nextSettings'));
+  assert.ok(RUNNER_SOURCE.includes(': setDiaryLastRunDate(nextSettings, dayKey)'));
+  // 已成功角色通过各自 lastDiaryDate 跳过，只补失败的
+  assert.ok(RUNNER_SOURCE.includes('markRoleDiaryDate(nextSettings, character.id, role.date)'));
+});
+
+test('昨天时间窗用本地日历日两端，避免夏令时偏移', () => {
+  // 3 月 9 日（美国夏令时切换日）的“昨天”应是 3 月 8 日 00:00 到 3 月 9 日 00:00，
+  // 而不是用 start + 24h 硬算。
+  const now = new Date(2026, 2, 9, 10, 0, 0).getTime();
+  const { start, end } = yesterdayRange(now);
+  assert.equal(localDateKey(start), '2026-03-08');
+  assert.equal(localDateKey(end), '2026-03-09');
+  assert.equal(localDateKey(new Date(end - 1).getTime()), '2026-03-08');
 });
 
 test('世界分组新增日记入口并复用折叠容器', () => {

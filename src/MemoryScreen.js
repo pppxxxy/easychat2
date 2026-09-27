@@ -174,10 +174,19 @@ export default function MemoryScreen({ navigation }) {
     };
   }, [visibleSessions]);
 
-  // 按时间分档 + 置顶单独成组；分组默认折叠，点组标题展开该组全部记忆。
+  // 按时间分档 + 置顶单独成组；默认展开最新的一个分组（通常是「置顶」或「最近」），
+  // 让首屏直接看到会话，而不是只剩标题、还要多点一次；其余分组保持折叠。
   // 编辑模式下强制全部展开：折叠里的会话无法被逐条点选。
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const groups = useMemo(() => groupSessionsByAge(visibleSessions), [visibleSessions]);
+  // 仅在「首次拿到非空分组」时自动展开第一组；之后用户手动折叠/展开由用户决定，
+  // 不因新增会话等分组变化再次弹出。
+  const autoExpandedRef = useRef(false);
+  useEffect(() => {
+    if (autoExpandedRef.current || groups.length === 0) return;
+    autoExpandedRef.current = true;
+    setExpandedGroups(new Set([groups[0].id]));
+  }, [groups]);
   const effectiveExpanded = useMemo(() => (
     editing ? new Set(groups.map(group => group.id)) : expandedGroups
   ), [editing, groups, expandedGroups]);
