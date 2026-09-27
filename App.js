@@ -34,6 +34,7 @@ import {
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { maskSecrets } from './src/secrets';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard';
+import { recordDiagnostic } from './src/diagnostics';
 
 const Tab = createBottomTabNavigator();
 
@@ -41,6 +42,20 @@ const Tab = createBottomTabNavigator();
 // 未就绪时先把角色入队，onReady 后再消费，避免 navigate 抛
 // "navigation object hasn't been initialized yet"。
 const navigationRef = createNavigationContainerRef();
+
+// 未捕获的 JS 异常：记录到本地诊断日志（脱敏）后交给原处理器，
+// 保留 RN 自身的红屏/崩溃行为，只增加可追溯性。
+if (global.ErrorUtils && typeof global.ErrorUtils.setGlobalHandler === 'function') {
+  const previousHandler = global.ErrorUtils.getGlobalHandler
+    ? global.ErrorUtils.getGlobalHandler()
+    : null;
+  global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+    try {
+      recordDiagnostic('unhandled', error, isFatal ? 'fatal' : 'non-fatal');
+    } catch (recordError) {}
+    if (typeof previousHandler === 'function') previousHandler(error, isFatal);
+  });
+}
 
 class StartupErrorBoundary extends React.Component {
   constructor(props) {
@@ -53,6 +68,7 @@ class StartupErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
+    recordDiagnostic('startup', error, maskSecrets(String(info && info.componentStack || '')));
     console.log(
       'StartupErrorBoundary',
       maskSecrets(error && error.message),

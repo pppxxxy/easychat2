@@ -12,6 +12,7 @@ import {
   resolveViewportCardHeight,
 } from './richHtml';
 import { useTheme } from './theme/ThemeContext';
+import { recordDiagnostic } from './diagnostics';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
 let WebViewComponent = null;
@@ -241,12 +242,14 @@ export default function RichHtmlMessage({
         onError={() => {
           setLoading(false);
           setSourceError(true);
+          recordDiagnostic('webview', new Error('富 HTML 卡片加载失败'), 'onError');
         }}
         // Android 渲染进程崩溃（重渐变/多层阴影的卡在部分机型会触发）表现为
         // WebView 静默空白，且不会触发 onError——必须单独接住才有恢复机会。
         onRenderProcessGone={() => {
           setLoading(false);
           setSourceError(true);
+          recordDiagnostic('webview', new Error('富 HTML 卡片渲染进程崩溃'), 'onRenderProcessGone');
         }}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
       />

@@ -47,10 +47,12 @@ npm test             # Node unit and regression tests
 - `src/SettingsScreen.js` — API `baseUrl` / `model` / `apiKey`; warns before saving `http://`.
 - `src/api.js` — `sendChatMessage`, URL normalization, streaming via `XMLHttpRequest` SSE parsing (`onChunk`), 30s idle timeout.
 - `src/storage.js` — all AsyncStorage access and defaults.
+- `src/secretStore.js` — 把配置里的密钥抽到 `expo-secure-store`、AsyncStorage 只留 `secure:v1:<id>` 引用（`setJsonWithSecrets` / `readJsonWithSecrets`）。
+- `src/diagnostics.js` — 本地脱敏异常日志（存储损坏 / 接口失败 / WebView 异常 / 未捕获 / 启动），不联网上报；查看入口在「设置 → 关于 → 诊断日志」。
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.
 
-Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>`, `@easychat2_messages::<sessionId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`, `@easychat2_stickers`). Media files live under `documentDirectory/chat-images/` and `documentDirectory/stickers/`.
+Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easychat2_character_index` + `@easychat2_character_item::<id>`, `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>`, `@easychat2_messages::<sessionId>` (legacy: `@easychat2_character`, `@easychat2_characters`, `@easychat2_messages`, `@easychat2_stickers`), `@easychat2_diagnostics`. Media files live under `documentDirectory/chat-images/` and `documentDirectory/stickers/`.
 
 ## Conventions
 

@@ -1,5 +1,6 @@
 import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from './storage';
 import { registerSecretValues } from './secrets';
+import { recordDiagnostic } from './diagnostics';
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
 // 用同一个 30s 阈值会误报“请求超时”。
@@ -250,7 +251,14 @@ export async function sendChatMessage(messages, options = {}) {
       fn(value);
     };
     const succeed = value => settle(resolve, value);
-    const fail = error => settle(reject, error);
+    const fail = error => {
+      // 中止与配置切换是预期的控制流，不进诊断日志；其余失败记录一次（脱敏）。
+      const message = String((error && error.message) || '');
+      if (message !== CONFIG_CHANGED_ERROR && !isCanceledError(error)) {
+        recordDiagnostic('api', error, '聊天接口请求失败');
+      }
+      return settle(reject, error);
+    };
     let configCheckInFlight = false;
     const checkCurrentConfig = async () => {
       if (!options || (!options.expectedConfigId && !options.expectedConfigFingerprint)) return;

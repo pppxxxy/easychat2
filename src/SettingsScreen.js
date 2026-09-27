@@ -74,6 +74,7 @@ import {
 } from './ui';
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
+import DiagnosticsModal from './DiagnosticsModal';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', label: '开头', meta: '取回复首段' },
@@ -192,6 +193,7 @@ export default function SettingsScreen() {
   const [apiSaving, setApiSaving] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
 
   useEffect(() => {
@@ -1921,6 +1923,17 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => setDiagnosticsOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="bug-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>诊断日志</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
         </Card>
       </ScrollView>
 
@@ -2111,6 +2124,11 @@ export default function SettingsScreen() {
       <TutorialModal
         visible={tutorialOpen}
         onClose={() => setTutorialOpen(false)}
+      />
+
+      <DiagnosticsModal
+        visible={diagnosticsOpen}
+        onClose={() => setDiagnosticsOpen(false)}
       />
 
       <ChapterModal
