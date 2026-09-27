@@ -1,21 +1,10 @@
 # EasyChat2
 
-**公开稳定版：v1.0.0（正式版）**
-**当前测试版：v1.0.1（测试版 / Pre-release）**
+**当前版本：v1.0.0（测试版）**
 
-v1.0.1 为内部测试版，仅向受邀测试者单独发放，不在仓库公开下载。收到安装包后请先阅读测试免责声明。
+v1.0.0 为测试版，仅向受邀测试者单独发放，不在仓库公开下载。收到安装包后请先阅读测试免责声明。
 
 EasyChat2 是一个基于 Expo + React Native 的移动端 AI 聊天应用。它没有自建后端，直接连接任意兼容 OpenAI Chat Completions 协议的接口，所有配置、角色与聊天记录都保存在设备本地。
-
-## 下载安装
-
-正式版 1.0.0 安装包（Android，约 60 MB）：
-
-**[下载 EasyChat2-v1.0.0.apk](https://github.com/pppxxxy/easychat2/releases/download/v1.0.0/EasyChat2-v1.0.0.apk)**
-
-v1.0.1 为内部测试版，仅向受邀测试者单独发放，不在仓库公开下载。
-
-历史版本与更新说明见 [Releases](https://github.com/pppxxxy/easychat2/releases)。安装时系统可能提示「未知来源」，允许安装该来源即可。
 
 ## 功能特性
 
