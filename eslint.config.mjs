@@ -1,3 +1,5 @@
+import reactHooks from 'eslint-plugin-react-hooks';
+
 export default [
   {
     files: ['**/*.js'],
@@ -16,6 +18,18 @@ export default [
         __DEV__: 'readonly',
       },
     },
-    rules: { 'no-undef': 'error' },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'no-undef': 'error',
+      // 真实规则违规会让 hooks 调用顺序错乱，按错误处理。
+      'react-hooks/rules-of-hooks': 'error',
+      // 未使用的变量/导入/参数：抓死代码。catch 参数与 React 默认导入按惯例忽略。
+      'no-unused-vars': ['error', {
+        args: 'after-used',
+        ignoreRestSiblings: true,
+        caughtErrors: 'none',
+        varsIgnorePattern: '^React$',
+      }],
+    },
   },
 ];

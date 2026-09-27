@@ -72,7 +72,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     if (loadErrorRef.current) return Promise.resolve(false);
     draftRevisionRef.current += 1;
     applyState(next);
-    return saveCardForge(next).catch(error => {
+    return saveCardForge(next).catch(() => {
       if (mountedRef.current) {
         Alert.alert('草稿保存失败', '当前内容已保留在界面，请检查存储空间或权限。');
       }

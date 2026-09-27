@@ -296,7 +296,7 @@ export function buildMemoryContext(snippets, options = {}) {
   return `[相关记忆]\n${lines.join('\n')}`;
 }
 
-export async function indexMessages({ characterId, messages, config, existing, sessionId = '', signal = null }) {
+export async function indexMessages({ messages, config, existing, sessionId = '', signal = null }) {
   const resolved = normalizeVectorConfig(config);
   const segments = chunkMessages(messages, { maxChars: resolved.maxChars, sessionId });
   const current = Array.isArray(existing) ? existing : [];

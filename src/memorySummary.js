@@ -146,7 +146,6 @@ export function parseSummaryResponse(text) {
 }
 
 export async function generateSummary({
-  character,
   messages,
   userName,
   memories,
@@ -380,7 +379,6 @@ export async function applySummary({
   const existingSessionSummaries = summaryState.summaries || [];
   const memories = buildMemorySummaryText(character, existingSessionSummaries, scoped);
   const { summary, keywords, skipped } = await generateSummary({
-    character,
      messages: list,
      userName,
      memories,

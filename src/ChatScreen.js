@@ -57,7 +57,6 @@ import {
   buildMemorySummaryText,
   invalidateHistorySummaries,
   isSessionScopedMemory,
-  MEMORY_SUMMARY_PREFIX,
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
@@ -947,7 +946,6 @@ export default function ChatScreen() {
   const [scrubberOpen, setScrubberOpen] = useState(false);
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   const [apiConfigs, setApiConfigs] = useState([]);
-  const [apiActiveId, setApiActiveId] = useState('');
   const [modelSourceId, setModelSourceId] = useState('');
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
@@ -1577,7 +1575,6 @@ export default function ChatScreen() {
                ) return undefined;
 
               return indexMessages({
-                characterId: indexedCharacterId,
                 messages: messagesToIndex,
                 config,
                 existing: current,
@@ -2016,7 +2013,6 @@ export default function ChatScreen() {
     try {
       const { configs: list, activeId: id } = await getApiConfigs();
       setApiConfigs(list);
-      setApiActiveId(id);
       setModelSourceId(id);
       setModelPanelOpen(true);
     } catch (error) {
@@ -2032,7 +2028,6 @@ export default function ChatScreen() {
     try {
       const saved = await saveApiConfigs(list, sourceId);
       setApiConfigs(saved.configs);
-      setApiActiveId(saved.activeId);
       setModelSourceId(sourceId);
       setModelPanelOpen(false);
     } catch (error) {

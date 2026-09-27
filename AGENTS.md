@@ -17,7 +17,7 @@ npm run lint         # eslint App.js src
 npm test             # Node unit and regression tests
 ```
 
-- Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity.
+- Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity. Enabled rules: `no-undef`, `react-hooks/rules-of-hooks`, `no-unused-vars` (catch 参数与默认导入 `React` 忽略)。`react-hooks/exhaustive-deps` 尚未启用——存量 37 处多为刻意省略依赖（改错会改变 effect 触发时机），需逐条人工判断后再单独开启。
 - Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run `npm run lint`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
 - APK builds are manual `workflow_dispatch` only. Workflows: `build-apk-github.yml` (Gradle, signs release with the debug keystore) and `build-apk.yml` (EAS, needs `EXPO_TOKEN`).

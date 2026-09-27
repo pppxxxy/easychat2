@@ -525,7 +525,7 @@ data: [DONE]
 | `retrieve({ config, index, query, topK })` | 查询向量化后按相似度取 TopN；未启用或失败回退 `keywordRetrieve` |
 | `keywordRetrieve({ index, query, topK })` | 本地关键词检索（中英文分词计分） |
 | `buildMemoryContext(snippets, { maxTotalChars })` | 拼装 `[相关记忆]` 文本并限制总长，空输入返回空串 |
-| `indexMessages({ characterId, messages, config, existing, sessionId, signal })` | 增量分片并向量化，按 `sessionId + fragmentId` 去重；给片段写入 `signature` 指纹，配置变化时旧向量会被重嵌；未启用或失败时仅存片段（`vector: []`），实际写回由 storage 角色级队列完成 |
+| `indexMessages({ messages, config, existing, sessionId, signal })` | 增量分片并向量化，按 `sessionId + fragmentId` 去重；给片段写入 `signature` 指纹，配置变化时旧向量会被重嵌；未启用或失败时仅存片段（`vector: []`），实际写回由 storage 角色级队列完成 |
 | `testVectorConnection(config)` | 测试连接，返回向量维度或抛可读错误 |
 
 ## 聊天竞态接口

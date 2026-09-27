@@ -127,7 +127,6 @@ export default function DiaryPanel({ embedded = false }) {
 
   const roleName = (activeRole && activeRole.name) || '该角色';
   const roleApiName = (configs.find(item => item.id === roleSetting.apiConfigId) || {}).name || '';
-  const currentDiary = roleDiaries[diaryIndex] || null;
 
   return (
     <Container {...containerProps}>
