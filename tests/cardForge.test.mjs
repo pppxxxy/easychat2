@@ -26,6 +26,12 @@ import {
   requestedAdvancedSections,
   summarizeAnswers,
 } from '../src/cardForge/forge.js';
+import {
+  buildPreviewOpeningTurns,
+  buildPreviewSections,
+  capPreviewHistory,
+  previewAdvancedCounts,
+} from '../src/cardForge/preview.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -33,6 +39,7 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FORGE_EDITOR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeEditor.js'), 'utf8');
 const FORGE_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeScreen.js'), 'utf8');
+const PREVIEW_MODAL_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardPreviewModal.js'), 'utf8');
 
 test('新会话包含引导与第一题', () => {
   const state = createForgeState(1000);
@@ -549,4 +556,68 @@ test('标签与集合条目的辅助生成协议纯函数', () => {
   const kept = mergeEntryAssistPatch({ comment: '旧', content: '旧内容' }, 'worldInfo', { comment: '', content: '  ' });
   assert.equal(kept.comment, '旧');
   assert.equal(kept.content, '旧内容');
+});
+
+test('预览展示分区过滤空字段并保留顺序', () => {
+  const sections = buildPreviewSections({
+    name: '晚星',
+    description: '  来自北境  ',
+    personality: '',
+    scenario: '雪山',
+    systemPrompt: '   ',
+    mesExample: '{{user}}：在吗\n晚星：在的',
+  });
+  assert.deepEqual(sections.map(item => item.label), ['描述', '场景', '对话示例']);
+  assert.equal(sections[0].text, '来自北境');
+  assert.equal(buildPreviewSections(null).length, 0);
+});
+
+test('预览开场轮次来自开场白，历史上限生效', () => {
+  assert.deepEqual(buildPreviewOpeningTurns({ firstMes: '' }), []);
+  const opening = buildPreviewOpeningTurns({ firstMes: '你好呀' }, 500);
+  assert.equal(opening.length, 1);
+  assert.equal(opening[0].role, 'assistant');
+  assert.equal(opening[0].text, '你好呀');
+  assert.equal(opening[0].id, 'preview-open-500');
+
+  // 只保留最近 N 轮，且过滤非对话角色
+  const turns = [];
+  for (let i = 0; i < 40; i += 1) turns.push({ id: `t${i}`, role: i % 2 ? 'assistant' : 'user', text: `${i}` });
+  turns.push({ id: 'note', role: 'note', text: '忽略' });
+  const capped = capPreviewHistory(turns, 5);
+  assert.equal(capped.length, 5);
+  assert.equal(capped[capped.length - 1].text, '39');
+});
+
+test('预览显示高级内容计数', () => {
+  assert.deepEqual(previewAdvancedCounts({}), []);
+  assert.deepEqual(
+    previewAdvancedCounts({ worldInfo: [{}, {}], regexScripts: [{}], presets: [{}, {}, {}] }),
+    ['世界书 2', '正则 1', '预设 3']
+  );
+});
+
+test('制卡编辑器卡片里有预览按钮并接入模拟对话', () => {
+  assert.ok(FORGE_EDITOR_SOURCE.includes('previewActionText}>预览'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('<CardPreviewModal'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('onSendTurn={handlePreviewTurn}'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('onSimulateChat'));
+  // 用 ref 取当前表单，避免回调里读到旧快照
+  assert.ok(FORGE_EDITOR_SOURCE.includes('formRef.current = form'));
+});
+
+test('预览弹窗支持多轮模拟对话、清空且不落库', () => {
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('buildPreviewOpeningTurns'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('capPreviewHistory'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('onSendTurn(history, text, controller.signal)'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('清空模拟对话'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('不会写入角色库或聊天记录'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes('abort'));
+});
+
+test('模拟对话经真实聊天管道组装并受配置指纹保护', () => {
+  assert.ok(FORGE_SCREEN_SOURCE.includes('buildRequestMessages'));
+  assert.ok(FORGE_SCREEN_SOURCE.includes('const character = draftToCharacterPatch(draft, { composedPrompt })'));
+  assert.ok(FORGE_SCREEN_SOURCE.includes('onSimulateChat={simulateChat}'));
+  assert.ok(FORGE_SCREEN_SOURCE.includes('expectedConfigFingerprint'));
 });

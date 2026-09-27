@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from './api';
 import { buildSystemPrompt } from './cardParser';
+import { buildRequestMessages } from './chatPipeline';
 import { useApp } from './context/AppContext';
 import CardForgeEditor from './CardForgeEditor';
 import {
@@ -166,6 +167,29 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       { role: 'system', content: FIELD_ASSIST_SYSTEM },
       { role: 'user', content: prompt },
     ], {
+      stream: false,
+      signal,
+      expectedConfigId: String(current && current.id || ''),
+      expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+    });
+  }, []);
+
+  // 制卡预览的模拟对话：把当前草稿组装成角色结构，走真实聊天管道请求模型。
+  // 纯内存测试——不写会话、不落草稿、不影响角色库。
+  const simulateChat = useCallback(async ({ draft: source, historyMessages, userText, signal }) => {
+    const draft = source && typeof source === 'object' ? source : {};
+    const { configs, activeId } = await getApiConfigs();
+    const current = configs.find(item => item.id === activeId) || configs[0];
+    const composedPrompt = buildSystemPrompt({
+      description: draft.description,
+      personality: draft.personality,
+      scenario: draft.scenario,
+      systemPrompt: draft.systemPrompt || '',
+      postHistoryInstructions: draft.postHistoryInstructions,
+    });
+    const character = draftToCharacterPatch(draft, { composedPrompt });
+    const messages = buildRequestMessages({ character, historyMessages, userText });
+    return sendChatMessage(messages, {
       stream: false,
       signal,
       expectedConfigId: String(current && current.id || ''),
@@ -586,6 +610,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         onClose={() => setEditorOpen(false)}
         onSave={onSaveDraft}
         onAssistPrompt={sendAssistPrompt}
+        onSimulateChat={simulateChat}
       />
     </KeyboardAvoidingView>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ import {
   parseFieldAssistText,
 } from './cardForge/forge';
 import { createRegexScript, createWorldEntry } from './cardParser';
+import CardPreviewModal from './CardPreviewModal';
 import { makeCharacterPresetId } from './characterPresets';
 import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution';
 import { isCanceledError } from './api';
@@ -78,7 +79,7 @@ function AssistButton({ onPress, label }) {
   );
 }
 
-export default function CardForgeEditor({ visible, draft, onClose, onSave, onAssistPrompt }) {
+export default function CardForgeEditor({ visible, draft, onClose, onSave, onAssistPrompt, onSimulateChat }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [form, setForm] = useState(() => ({ ...createForgeDraft(), ...(draft || {}) }));
@@ -86,10 +87,14 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   const [assistTarget, setAssistTarget] = useState(null);
   const [assistText, setAssistText] = useState('');
   const [assistBusy, setAssistBusy] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   // 集合条目默认折叠，点标题展开（可同时展开多条）；新增条目自动展开。
   const [expandedEntries, setExpandedEntries] = useState(() => new Set());
   const wasVisibleRef = useRef(false);
   const assistAbortRef = useRef(null);
+  // 预览要拿"当前表单"（含未保存的改动），用 ref 避免回调里读到旧快照。
+  const formRef = useRef(form);
+  formRef.current = form;
 
   // 只在"打开的那一刻"用最新草稿填充：弹窗开着时草稿若被 AI 回复更新，
   // 不能把用户正在输入的内容冲掉。
@@ -116,6 +121,14 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
       .slice(0, MAX_FORGE_TAG_COUNT);
     onSave({ ...form, tags });
   };
+
+  // 预览的每一轮都把当前表单当作草稿交给上层，由上层组装角色并请求模型。
+  const handlePreviewTurn = useCallback((historyMessages, userText, signal) => {
+    if (typeof onSimulateChat !== 'function') {
+      return Promise.reject(new Error('当前没有可用的模型配置。'));
+    }
+    return onSimulateChat({ draft: formRef.current, historyMessages, userText, signal });
+  }, [onSimulateChat]);
 
   // ---- 集合编辑：世界书 / 正则 / 预设 ----
   const patchList = (key, updater) => {
@@ -316,14 +329,33 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     return [entry.name, entry.prompt].filter(Boolean).join('　');
   })();
 
+  // 预览用与保存同源的标签拆分，避免预览里显示的是尚未同步的旧标签。
+  const previewDraft = useMemo(() => ({
+    ...form,
+    tags: splitKeywords(tagText).slice(0, MAX_FORGE_TAG_COUNT),
+  }), [form, tagText]);
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>当前角色卡</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
-            <Ionicons name="close" size={22} color={theme.colors.textMuted} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.previewAction}
+              onPress={() => setPreviewOpen(true)}
+              hitSlop={8}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="预览角色卡并模拟对话"
+            >
+              <Ionicons name="eye-outline" size={15} color={theme.colors.primarySoft} />
+              <Text style={styles.previewActionText}>预览</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
         </View>
         <ScrollView
           style={styles.scroll}
@@ -652,6 +684,13 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           </View>
         </View>
       </Modal>
+
+      <CardPreviewModal
+        visible={previewOpen}
+        draft={previewDraft}
+        onClose={() => setPreviewOpen(false)}
+        onSendTurn={handlePreviewTurn}
+      />
     </Modal>
   );
 }
@@ -668,6 +707,19 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderBottomColor: theme.colors.divider,
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  previewAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginRight: 12,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  previewActionText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
   hint: {
