@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import {
+  cellFromPoint,
   describeHouseOwner,
   detachCharacterFromMap,
   houseAtCell,
@@ -32,6 +33,24 @@ test('坐标合法性限制在 40×40 内', () => {
   assert.equal(isValidCell(40, 0), false);
   assert.equal(isValidCell(-1, 0), false);
   assert.equal(isValidCell(1.9, 2.9), true); // 取整后合法
+});
+
+test('触点坐标换算格子：不同位置得到不同格子，越界返回 null', () => {
+  const CELL = 26;
+  // 回归：以前内层单元格抢走触摸，locationX/Y 恒在 0..26，永远解析成左上角。
+  assert.deepEqual(cellFromPoint(1, 1, CELL), { x: 0, y: 0 });
+  assert.deepEqual(cellFromPoint(27, 27, CELL), { x: 1, y: 1 });
+  assert.deepEqual(cellFromPoint(CELL * 10 + 5, CELL * 20 + 5, CELL), { x: 10, y: 20 });
+  // 不同位置必须给出不同格子（防「恒为左上角」回归）
+  assert.notDeepEqual(
+    cellFromPoint(CELL * 10 + 5, CELL * 20 + 5, CELL),
+    cellFromPoint(5, 5, CELL)
+  );
+  // 越界 → null
+  assert.equal(cellFromPoint(CELL * 40, 0, CELL), null);
+  assert.equal(cellFromPoint(-1, 0, CELL), null);
+  assert.equal(cellFromPoint(NaN, 0, CELL), null);
+  assert.equal(cellFromPoint(0, 0, 0), null);
 });
 
 test('房子规范化：非法坐标丢弃，住户去重', () => {
@@ -159,6 +178,9 @@ test('地图面板：网格、放置、编辑、屋主与住户', () => {
   assert.ok(PANEL_SOURCE.includes('MAP_GRID_SIZE'));
   assert.ok(PANEL_SOURCE.includes('openCell'));
   assert.ok(PANEL_SOURCE.includes('onGridPress'));
+  // 整块可点，内层 pointerEvents="none"，避免恒选左上角
+  assert.ok(PANEL_SOURCE.includes('cellFromPoint'));
+  assert.ok(PANEL_SOURCE.includes('pointerEvents="none"'));
   assert.ok(PANEL_SOURCE.includes('placeHouse'));
   assert.ok(PANEL_SOURCE.includes('removeHouseAtCell'));
   // 删除需二次确认

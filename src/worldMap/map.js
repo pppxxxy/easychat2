@@ -19,6 +19,20 @@ export function isValidCell(x, y, size = MAP_GRID_SIZE) {
     && gx >= 0 && gx < size && gy >= 0 && gy < size;
 }
 
+// 把触点相对整块网格的像素坐标换算成格坐标；越界返回 null。
+// 必须用「相对整块网格」的坐标：若触摸目标落在某个单元格上，locationX/Y 会相对
+// 小格（恒在 0..CELL_SIZE），换算出来永远是左上角——纯函数化便于回归测试。
+export function cellFromPoint(x, y, cellSize, size = MAP_GRID_SIZE) {
+  const px = Number(x);
+  const py = Number(y);
+  const cell = Number(cellSize);
+  if (!Number.isFinite(px) || !Number.isFinite(py) || !(cell > 0)) return null;
+  const gx = Math.floor(px / cell);
+  const gy = Math.floor(py / cell);
+  if (!isValidCell(gx, gy, size)) return null;
+  return { x: gx, y: gy };
+}
+
 export function makeMapHouseId(now = Date.now()) {
   return `house-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

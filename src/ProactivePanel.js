@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   ScrollView,
   StyleSheet,
   Switch,
@@ -21,6 +22,7 @@ import {
 import {
   cancelDailySchedule,
   canScheduleExactAlarms,
+  getPermissionStatus,
   isProactiveMessageAvailable,
   openAutostartSettings,
   openBatteryOptimizationSettings,
@@ -39,6 +41,50 @@ function rolePersona(character) {
     .map(item => String(item || '').trim())
     .filter(Boolean);
   return parts.join('；');
+}
+
+// 折叠选择器：避免把一大堆 API / 模型 / 角色一次性罗列出来，先展示当前选择项，
+// 点开才展开候选列表，选中后自动收起。
+function CollapsibleSelect({ label, value, options, onSelect, emptyHint, styles, theme }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.collapsible}>
+      <TouchableOpacity
+        style={styles.collapsibleHead}
+        onPress={() => setOpen(v => !v)}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+      >
+        <Text style={styles.collapsibleLabel}>{label}</Text>
+        <Text style={styles.collapsibleValue} numberOfLines={1}>{value || '未选择'}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textFaint} />
+      </TouchableOpacity>
+      {open ? (
+        options.length === 0 ? (
+          <Text style={styles.hint}>{emptyHint || '暂无可选项'}</Text>
+        ) : (
+          <View style={styles.collapsibleBody}>
+            {options.map(option => {
+              const active = option.value === value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[styles.optionRow, active && styles.optionRowActive]}
+                  onPress={() => { onSelect(option.value); setOpen(false); }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.optionText, active && styles.optionTextActive]} numberOfLines={1}>
+                    {option.label}
+                  </Text>
+                  {active ? <Ionicons name="checkmark" size={16} color={theme.colors.primary} /> : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )
+      ) : null}
+    </View>
+  );
 }
 
 function TimeField({ value, onCommit, theme, styles }) {
@@ -73,10 +119,19 @@ export default function ProactivePanel({ embedded = false }) {
   const [configId, setConfigId] = useState('');
   const [model, setModel] = useState('');
   const [selectedRoleId, setSelectedRoleId] = useState('');
-  const [exactAlarmAllowed, setExactAlarmAllowed] = useState(true);
+  // 权限状态：true=已取得、false=未取得、null=未知（显示勾 / 叉 / 问号）
+  const [permissionStatus, setPermissionStatus] = useState({
+    notification: null, exactAlarm: null, battery: null, autostart: null,
+  });
   const [notice, setNotice] = useState('');
   // 已持久化的槽 id：保存时用于取消被删除的槽
   const persistedSlotIdsRef = useRef([]);
+
+  const refreshPermissions = useCallback(async () => {
+    const status = await getPermissionStatus();
+    setPermissionStatus(status);
+    return status;
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,14 +149,13 @@ export default function ProactivePanel({ embedded = false }) {
       setModel(settings.model && models.includes(settings.model)
         ? settings.model
         : ((active && active.activeModel) || models[0] || ''));
-      if (await canScheduleExactAlarms()) setExactAlarmAllowed(true);
-      else setExactAlarmAllowed(false);
+      await refreshPermissions();
     } catch (error) {
       setNotice('读取互动设置失败，请重试。');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshPermissions]);
 
   useEffect(() => {
     load().catch(() => {});
@@ -220,18 +274,38 @@ export default function ProactivePanel({ embedded = false }) {
 
   const requestNotification = useCallback(async () => {
     const granted = await requestNotificationPermission();
+    await refreshPermissions();
     setNotice(granted ? '通知权限已开启' : '未获得通知权限，通知将无法展示');
-  }, []);
+  }, [refreshPermissions]);
 
   const enableExactAlarm = useCallback(async () => {
     if (await canScheduleExactAlarms()) {
-      setExactAlarmAllowed(true);
+      await refreshPermissions();
       setNotice('精确闹钟权限已可用');
       return;
     }
     await openExactAlarmSettings();
     setNotice('请在系统设置中允许「闹钟和提醒」，返回后可再次保存。');
+  }, [refreshPermissions]);
+
+  const openBatterySettings = useCallback(async () => {
+    await openBatteryOptimizationSettings();
+    setNotice('请在系统设置中把本应用加入电池优化白名单，返回后会自动刷新状态。');
   }, []);
+
+  const openAutostart = useCallback(async () => {
+    await openAutostartSettings();
+    setNotice('请在系统设置中允许自启动/后台运行，返回后会自动刷新状态。');
+  }, []);
+
+  // 从系统设置返回时刷新权限状态（点按打开设置后用户可能已授权）
+  useEffect(() => {
+    if (loading) return undefined;
+    const subscription = AppState.addEventListener('change', next => {
+      if (next === 'active') refreshPermissions().catch(() => {});
+    });
+    return () => subscription.remove();
+  }, [loading, refreshPermissions]);
 
   if (loading) {
     return (
@@ -252,57 +326,33 @@ export default function ProactivePanel({ embedded = false }) {
         需要精确到分钟时，把某个时间设为「精确」并授予精确闹钟权限。
       </Text>
 
-      <Text style={styles.sectionTitle}>消息来源</Text>
-      {configs.length === 0 ? (
-        <Text style={styles.hint}>还没有 API 配置，请先到设置页添加。</Text>
-      ) : (
-        <View style={styles.chipWrap}>
-          {configs.map(item => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.chip, item.id === configId && styles.chipActive]}
-              onPress={() => chooseConfig(item.id)}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.chipText, item.id === configId && styles.chipTextActive]}>
-                {item.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-      {models.length > 0 ? (
-        <View style={styles.chipWrap}>
-          {models.map(item => (
-            <TouchableOpacity
-              key={item}
-              style={[styles.chip, item === model && styles.chipActive]}
-              onPress={() => setModel(item)}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.chipText, item === model && styles.chipTextActive]}>
-                {item}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      ) : null}
-
-      <Text style={styles.sectionTitle}>选择角色</Text>
-      <View style={styles.chipWrap}>
-        {characters.map(item => (
-          <TouchableOpacity
-            key={item.id}
-            style={[styles.chip, item.id === activeRoleId && styles.chipActive]}
-            onPress={() => setSelectedRoleId(item.id)}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.chipText, item.id === activeRoleId && styles.chipTextActive]}>
-              {item.name || '未命名'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <CollapsibleSelect
+        label="消息来源（API）"
+        value={(configs.find(item => item.id === configId) || {}).name || ''}
+        options={configs.map(item => ({ value: item.id, label: item.name || '未命名配置' }))}
+        onSelect={id => chooseConfig(id)}
+        emptyHint="还没有 API 配置，请先到设置页添加。"
+        styles={styles}
+        theme={theme}
+      />
+      <CollapsibleSelect
+        label="具体模型"
+        value={model}
+        options={models.map(item => ({ value: item, label: item }))}
+        onSelect={value => setModel(value)}
+        emptyHint="该 API 配置还没有模型，请先到设置页添加。"
+        styles={styles}
+        theme={theme}
+      />
+      <CollapsibleSelect
+        label="选择角色"
+        value={(characters.find(item => item.id === activeRoleId) || {}).name || ''}
+        options={characters.map(item => ({ value: item.id, label: item.name || '未命名' }))}
+        onSelect={id => setSelectedRoleId(id)}
+        emptyHint="还没有角色，请先到角色页添加。"
+        styles={styles}
+        theme={theme}
+      />
 
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>时间（可多个）</Text>
@@ -377,32 +427,55 @@ export default function ProactivePanel({ embedded = false }) {
       ))}
 
       <Text style={styles.sectionTitle}>必要权限</Text>
-      <View style={styles.chipWrap}>
-        <TouchableOpacity style={styles.chip} onPress={requestNotification} activeOpacity={0.85}>
-          <Text style={styles.chipText}>通知权限</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.chip} onPress={enableExactAlarm} activeOpacity={0.85}>
-          <Text style={styles.chipText}>
-            {exactAlarmAllowed ? '精确闹钟（已授权）' : '精确闹钟授权'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.chip}
-          onPress={() => openBatteryOptimizationSettings()}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.chipText}>电池优化白名单</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.chip}
-          onPress={() => openAutostartSettings()}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.chipText}>自启动设置</Text>
-        </TouchableOpacity>
-      </View>
+      {[
+        {
+          key: 'notification',
+          title: '通知权限',
+          hint: '用于展示角色发来的消息通知',
+          onPress: requestNotification,
+        },
+        {
+          key: 'exactAlarm',
+          title: '精确闹钟权限',
+          hint: '仅「精确」模式需要，可让消息准点触发',
+          onPress: enableExactAlarm,
+        },
+        {
+          key: 'battery',
+          title: '电池优化白名单',
+          hint: '避免系统在后台限制应用导致不触发',
+          onPress: openBatterySettings,
+        },
+        {
+          key: 'autostart',
+          title: '自启动设置',
+          hint: '厂商系统需手动允许后台运行与自启动',
+          onPress: openAutostart,
+        },
+      ].map((item, index) => {
+        const status = permissionStatus[item.key];
+        const icon = status === true ? 'checkmark-circle' : (status === false ? 'close-circle' : 'help-circle');
+        const color = status === true
+          ? theme.colors.primary
+          : (status === false ? theme.colors.danger : theme.colors.textFaint);
+        return (
+          <TouchableOpacity
+            key={item.key}
+            style={styles.permissionRow}
+            onPress={item.onPress}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.permissionIndex}>{index + 1}</Text>
+            <View style={styles.permissionText}>
+              <Text style={styles.permissionTitle}>{item.title}</Text>
+              <Text style={styles.permissionHint}>{item.hint}</Text>
+            </View>
+            <Ionicons name={icon} size={20} color={color} />
+          </TouchableOpacity>
+        );
+      })}
       <Text style={styles.hint}>
-        厂商系统需要手动允许后台运行、自启动，并在最近任务中锁定应用，否则定时消息可能不触发。
+        勾=已取得、叉=未取得、问号=无法自动判断（如厂商自启动白名单），点按对应行去系统设置。
       </Text>
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
@@ -474,6 +547,55 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   slotActions: { flexDirection: 'row', alignItems: 'center' },
   deleteButton: { marginLeft: 10, padding: 6 },
   notice: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 14 },
+  collapsible: {
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  collapsibleHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  collapsibleLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
+  collapsibleValue: { flex: 1, textAlign: 'right', marginLeft: 10, marginRight: 8, color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
+  collapsibleBody: { borderTopWidth: 1, borderTopColor: theme.colors.surfaceBorder, paddingVertical: 4 },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  optionRowActive: { backgroundColor: theme.colors.surfaceAlt },
+  optionText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13) },
+  optionTextActive: { color: theme.colors.primary, fontWeight: '700' },
+  permissionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  permissionIndex: {
+    width: 22,
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(14),
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  permissionText: { flex: 1, marginLeft: 8, marginRight: 8 },
+  permissionTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
+  permissionHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
   saveButton: {
     marginTop: 22,
     backgroundColor: theme.colors.primary,

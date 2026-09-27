@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   getCharacterEditGuard,
+  isFormDirty,
   resolveTabName,
   setCharacterEditGuard,
   shouldConfirmTabLeave,
@@ -120,14 +121,33 @@ test('编辑草稿防丢链路完整接线', () => {
 test('脏判定以 seed 快照为基准，不因角色后台更新误报', () => {
   // 根因：旧口径「表单 vs 角色当前内容」——角色内容会被记忆摘要写入世界书、
   // 其他页面保存等后台更新，导致用户没动表单也被判为有未保存修改。
-  // 新口径「表单 vs seed 快照」才直接反映「用户改了没保存」。
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes(
-    'const formDirty = formReady && currentFormSignature !== seededFormSignatureRef.current;'
-  ));
+  // 新口径以 seed 快照为主基准，才直接反映「用户改了没保存」。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('isFormDirty({'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('seededSignature: seededFormSignatureRef.current'));
+  // 旧口径（把「表单 vs 角色内容」直接当判词）不得回潮
   assert.equal(
     CHARACTER_SCREEN_SOURCE.includes('const formDirty = currentFormSignature !== savedFormSignature;'),
     false
   );
-  // formReady 闸门避免 seed 期间误报
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes('const formDirty = formReady &&'));
+  // formReady 闸门由 isFormDirty 内部处理
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './characterEditGuard'"));
+});
+
+test('保存后表单等于已保存内容即视为干净（规范化不致误报未保存）', () => {
+  // 存储层保存时会规范化字段（id 去重、presets 补默认名等），回读内容可能与
+  // save() 当时推进的 seed 基准逐字不同；若只比 seed，用户「明明保存了还弹未保存」。
+  // 兜底：表单与当前已保存角色完全一致时判干净（只用于判干净，不会把后台更新误判为脏）。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('isFormDirty({'));
+
+  // 纯函数逐场景验证
+  // 1) 未编辑：表单 == seed 基准 → 干净
+  assert.equal(isFormDirty({ formReady: true, currentSignature: 'A', seededSignature: 'A', savedSignature: 'B' }), false);
+  // 2) 保存后存储规范化：表单 == 已保存内容（但 != seed 基准）→ 干净，不误报
+  assert.equal(isFormDirty({ formReady: true, currentSignature: 'B', seededSignature: 'A', savedSignature: 'B' }), false);
+  // 3) 后台更新：表单 == seed 基准，角色内容变了 → 干净
+  assert.equal(isFormDirty({ formReady: true, currentSignature: 'A', seededSignature: 'A', savedSignature: 'C' }), false);
+  // 4) 真正改了未保存：三个都不相等 → 脏
+  assert.equal(isFormDirty({ formReady: true, currentSignature: 'D', seededSignature: 'A', savedSignature: 'B' }), true);
+  // 5) seed 未完成 → 一律不脏（闸门）
+  assert.equal(isFormDirty({ formReady: false, currentSignature: 'D', seededSignature: 'A', savedSignature: 'B' }), false);
 });

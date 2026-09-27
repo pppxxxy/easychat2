@@ -21,8 +21,10 @@ import {
   removeRolesFromDiarySettings,
   selectDiariesForCharacter,
   selectDiaryRoles,
+  resolveRoleDiaryConfigId,
   setDiaryLastRunDate,
   setRoleDiaryEnabled,
+  setRoleDiarySetting,
   yesterdayRange,
   MAX_DIARIES_PER_CHARACTER,
 } from '../src/diary/diary.js';
@@ -78,6 +80,28 @@ test('日记设置规范化与按角色开关', () => {
 
   const cleaned = removeRolesFromDiarySettings(settings, ['c1']);
   assert.equal(getRoleDiarySetting(cleaned, 'c1').enabled, false);
+});
+
+test('每角色专属写日记 API 与回退', () => {
+  let settings = normalizeDiarySettings({ apiConfigId: 'global-cfg' });
+  // 未单独指定时，解析回退到全局
+  assert.equal(resolveRoleDiaryConfigId(settings, 'c1'), 'global-cfg');
+  settings = setRoleDiarySetting(settings, 'c1', { enabled: true, roleName: '晚星', apiConfigId: 'role-cfg' });
+  assert.equal(getRoleDiarySetting(settings, 'c1').apiConfigId, 'role-cfg');
+  assert.equal(resolveRoleDiaryConfigId(settings, 'c1'), 'role-cfg');
+  // 清空角色专属 → 回退全局
+  settings = setRoleDiarySetting(settings, 'c1', { apiConfigId: '' });
+  assert.equal(resolveRoleDiaryConfigId(settings, 'c1'), 'global-cfg');
+  // 全局也没有 → 空串（由调用方回退当前激活配置）
+  assert.equal(resolveRoleDiaryConfigId(normalizeDiarySettings(null), 'c2'), '');
+});
+
+test('日记提示词要求格式与内容（无标题/署名、第一人称、150-400 字）', () => {
+  const prompt = buildDiaryPrompt({ charName: '晚星', userName: '我', transcript: '我：在吗', date: '2026-09-26' });
+  assert.ok(prompt.includes('只输出日记正文本身'));
+  assert.ok(prompt.includes('不要标题、日期行、署名'));
+  assert.ok(prompt.includes('第一人称'));
+  assert.ok(prompt.includes('150-400'));
 });
 
 test('同一角色同一天只保留一篇且有条数上限', () => {
@@ -235,11 +259,17 @@ test('世界分组新增日记入口并复用折叠容器', () => {
   assert.ok(EXTENSION_SOURCE.includes("import DiaryPanel from './DiaryPanel'"));
 });
 
-test('日记面板：角色选择、单角色开关、API 选择与查看', () => {
+test('日记面板：折叠选角色、单角色开关、专属 API 与左右滑动查看', () => {
   assert.ok(PANEL_SOURCE.includes('DiaryPanel'));
   assert.ok(PANEL_SOURCE.includes('选择角色'));
-  assert.ok(PANEL_SOURCE.includes('写日记的模型'));
-  assert.ok(PANEL_SOURCE.includes('setRoleDiaryEnabled'));
+  // 折叠选择角色/API（不一次性罗列所有角色卡）
+  assert.ok(PANEL_SOURCE.includes('rolePickerOpen'));
+  assert.ok(PANEL_SOURCE.includes('apiPickerOpen'));
+  assert.ok(PANEL_SOURCE.includes('setRoleDiarySetting'));
   assert.ok(PANEL_SOURCE.includes('selectDiariesForCharacter'));
   assert.ok(PANEL_SOURCE.includes('saveDiarySettings'));
+  // 左右滑动翻阅日记 + 分页
+  assert.ok(PANEL_SOURCE.includes('pagingEnabled'));
+  assert.ok(PANEL_SOURCE.includes('diaryIndex'));
+  assert.ok(PANEL_SOURCE.includes('onMomentumScrollEnd'));
 });

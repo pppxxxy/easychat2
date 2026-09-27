@@ -51,6 +51,8 @@ export function normalizeDiarySettings(raw) {
       enabled: entry.enabled === true,
       roleName: clean(entry.roleName, 80),
       lastDiaryDate: clean(entry.lastDiaryDate, 10),
+      // 每角色可单独指定写日记用的 API；留空则回退到全局/当前激活配置。
+      apiConfigId: clean(entry.apiConfigId, 80),
     };
   });
   // 迁移旧版可能的全局 enabled 字段：老数据没有 roles 时，视为未开启。
@@ -73,25 +75,31 @@ export function setDiaryLastRunDate(settings, dateKey) {
 export function getRoleDiarySetting(settings, characterId) {
   const normalized = normalizeDiarySettings(settings);
   const id = clean(characterId, 80);
-  return normalized.roles[id] || { enabled: false, roleName: '', lastDiaryDate: '' };
+  return normalized.roles[id] || { enabled: false, roleName: '', lastDiaryDate: '', apiConfigId: '' };
 }
 
-export function setRoleDiaryEnabled(settings, characterId, enabled, roleName = '') {
+// 每个角色单独设置：开关、角色名、写日记用的 API。
+export function setRoleDiarySetting(settings, characterId, patch = {}) {
   const normalized = normalizeDiarySettings(settings);
   const id = clean(characterId, 80);
   if (!id) return normalized;
-  const current = normalized.roles[id] || { enabled: false, roleName: '', lastDiaryDate: '' };
-  return {
-    ...normalized,
-    roles: {
-      ...normalized.roles,
-      [id]: {
-        ...current,
-        enabled: enabled === true,
-        roleName: clean(roleName, 80) || current.roleName,
-      },
-    },
-  };
+  const current = normalized.roles[id] || { enabled: false, roleName: '', lastDiaryDate: '', apiConfigId: '' };
+  const next = { ...current };
+  if (patch.enabled !== undefined) next.enabled = patch.enabled === true;
+  if (patch.roleName !== undefined) next.roleName = clean(patch.roleName, 80) || current.roleName;
+  if (patch.apiConfigId !== undefined) next.apiConfigId = clean(patch.apiConfigId, 80);
+  return { ...normalized, roles: { ...normalized.roles, [id]: next } };
+}
+
+export function setRoleDiaryEnabled(settings, characterId, enabled, roleName = '') {
+  return setRoleDiarySetting(settings, characterId, { enabled, roleName });
+}
+
+// 解析某角色实际使用的写日记 API：角色自带 → 全局 → 回退（由调用方给激活配置）。
+export function resolveRoleDiaryConfigId(settings, characterId) {
+  const role = getRoleDiarySetting(settings, characterId);
+  if (role.apiConfigId) return role.apiConfigId;
+  return normalizeDiarySettings(settings).apiConfigId || '';
 }
 
 export function markRoleDiaryDate(settings, characterId, dateKey) {
@@ -258,10 +266,11 @@ export function buildDiaryPrompt({ charName = '角色', userName = '用户', tra
   lines.push(
     '',
     '要求：',
+    '- 只输出日记正文本身，不要标题、日期行、署名、引号或任何前后缀。',
     '- 用第一人称，像真的在写私密日记，可以有场景、动作与内心活动。',
-    '- 只写这一篇，不要写成对话，不要重复逐句复述聊天内容。',
-    '- 不要出现“记忆”“摘要”“提示词”“系统”这类词，也不要署名或加引号。',
-    '- 长度 150-400 字。'
+    '- 写清楚今天发生了什么、你当时的感受、以及你最想记下来的那件事或那句话。',
+    '- 不要写成对话，不要逐句复述聊天记录，也不要出现“记忆”“摘要”“提示词”“系统”这类词。',
+    '- 长度 150-400 字的连续段落，可分 1-3 段。'
   );
   return lines.join('\n');
 }

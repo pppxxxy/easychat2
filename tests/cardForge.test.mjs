@@ -504,6 +504,13 @@ test('标签/世界书/正则/预设都能辅助生成', () => {
   assert.ok(FORGE_EDITOR_SOURCE.includes('mergeEntryAssistPatch'));
 });
 
+test('正则条目的辅助生成有「AI 能力有限、不建议用正则」提示', () => {
+  assert.ok(FORGE_EDITOR_SOURCE.includes('isRegexAssist'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("assistTarget.listKey === 'regexScripts'"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('不建议依赖 AI 编写正则'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('assistWarning'));
+});
+
 test('集合条目可折叠：默认折叠、点标题展开、新增自动展开', () => {
   assert.ok(FORGE_EDITOR_SOURCE.includes('const [expandedEntries, setExpandedEntries] = useState(() => new Set())'));
   assert.ok(FORGE_EDITOR_SOURCE.includes('toggleEntry'));
@@ -661,6 +668,25 @@ test('预览轮次批量套用展示正则', () => {
   assert.equal(rendered[1].display, '★你好');
   // 原文保留，便于继续作为对话历史
   assert.equal(rendered[0].text, '晚星');
+});
+
+test('预览正则兜底：缺 placement 视为 1/2、enabled 缺省视为开启', () => {
+  // 编辑器没有 placement 编辑入口，条目可能缺 placement 数组（AI 辅助合并、旧卡、手改）；
+  // applyRegexScripts 遇到非数组会整条跳过，预览里就永远看不到效果。这里必须兜底。
+  assert.equal(
+    applyPreviewDisplay('这是秘密', [{ findRegex: '秘密', replaceString: '<b>$&</b>', flags: 'g' }], 'assistant'),
+    '这是<b>秘密</b>'
+  );
+  // placement: [] 同样视为默认 1/2
+  assert.equal(
+    applyPreviewDisplay('秘密', [{ findRegex: '秘密', replaceString: 'X', flags: 'g', placement: [] }], 'assistant'),
+    'X'
+  );
+  // enabled 缺省视为开启
+  assert.equal(
+    applyPreviewDisplay('秘密', [{ findRegex: '秘密', replaceString: 'X', flags: 'g', placement: [2] }], 'assistant'),
+    'X'
+  );
 });
 
 test('预览弹窗用共享渲染管线呈现正则效果', () => {

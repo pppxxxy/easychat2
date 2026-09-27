@@ -45,8 +45,20 @@ export function previewAdvancedCounts(draft) {
 
 // 预览里的展示正则：与聊天页同一口径（mode: 'display'）。角色消息按 AI 输出、
 // 用户消息按用户输入应用，让作者在预览里就能看到正则实际效果（高亮、去格式等）。
+//
+// 兜底：编辑器没有 placement 编辑入口，条目可能缺 placement 数组（AI 辅助合并、
+// 旧卡、手改）——applyRegexScripts 遇到非数组会整条跳过，预览里就永远看不到效果。
+// 这里补默认 [1,2] 并把 enabled 缺省视为开启，保证「写了正则就能在预览里看到」。
+function normalizePreviewScript(script) {
+  const source = script && typeof script === 'object' ? script : {};
+  const placement = Array.isArray(source.placement) && source.placement.length > 0
+    ? source.placement
+    : [1, 2];
+  return { ...source, placement, enabled: source.enabled !== false };
+}
+
 export function applyPreviewDisplay(text, regexScripts, role) {
-  const scripts = Array.isArray(regexScripts) ? regexScripts : [];
+  const scripts = (Array.isArray(regexScripts) ? regexScripts : []).map(normalizePreviewScript);
   const placement = role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT;
   try {
     return applyRegexScripts(trim(text), scripts, placement, { mode: 'display', depth: 0 });

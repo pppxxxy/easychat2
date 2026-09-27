@@ -20,6 +20,7 @@ import {
   localDateKey,
   markRoleDiaryDate,
   normalizeDiaryText,
+  resolveRoleDiaryConfigId,
   selectDiaryRoles,
   setDiaryLastRunDate,
 } from './diary';
@@ -48,13 +49,13 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
     }
 
     const { configs, activeId } = await getApiConfigs();
-    const config = configs.find(item => item.id === settings.apiConfigId)
-      || configs.find(item => item.id === activeId)
-      || configs[0];
-    if (!config) {
+    if (configs.length === 0) {
       // 没有可用配置：不推进全局日期，等用户配好 API 后同日再启动仍可补写。
       return 0;
     }
+    const defaultConfig = configs.find(item => item.id === settings.apiConfigId)
+      || configs.find(item => item.id === activeId)
+      || configs[0];
 
     const profile = await getUserProfile().catch(() => null);
     const userName = String((profile && profile.userName) || '').trim() || '用户';
@@ -70,6 +71,9 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
       }
       const windowMessages = collectWindowMessages(bySession, role.sessionIds, now);
       if (windowMessages.length === 0) continue;
+      // 每角色可单独指定写日记的 API；未指定时回退全局/当前激活配置。
+      const roleConfigId = resolveRoleDiaryConfigId(settings, character.id);
+      const config = configs.find(item => item.id === roleConfigId) || defaultConfig;
       const charName = String(character.name || '').trim() || '角色';
       const transcript = buildDiaryTranscript(windowMessages, { charName, userName });
       const prompt = buildDiaryPrompt({ charName, userName, transcript, date: role.date });

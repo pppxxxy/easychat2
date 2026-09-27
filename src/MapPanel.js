@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { getWorldMap, updateWorldMap } from './storage';
 import {
+  cellFromPoint,
   houseAtCell,
   houseResidentNames,
   makeMapHouseId,
@@ -84,10 +85,9 @@ export default function MapPanel({ embedded = false }) {
   // 整块网格只用这一个点击处理器：按触点相对网格的原点换算行列。
   const onGridPress = useCallback(event => {
     const { locationX, locationY } = event.nativeEvent || {};
-    const x = Math.floor(Number(locationX) / CELL_SIZE);
-    const y = Math.floor(Number(locationY) / CELL_SIZE);
-    if (!(x >= 0 && x < MAP_GRID_SIZE && y >= 0 && y < MAP_GRID_SIZE)) return;
-    openCell(x, y);
+    const cell = cellFromPoint(locationX, locationY, CELL_SIZE, MAP_GRID_SIZE);
+    if (!cell) return;
+    openCell(cell.x, cell.y);
   }, [openCell]);
 
   const closeEditor = useCallback(() => {
@@ -188,38 +188,42 @@ export default function MapPanel({ embedded = false }) {
         showsHorizontalScrollIndicator
       >
         {/* 用一整块 Pressable 承接点击、按触点坐标换算格子：避免在 40×40 网格里
-            渲染 1600 个 TouchableOpacity，低端机上会明显掉帧。 */}
+            渲染 1600 个 TouchableOpacity，低端机上会明显掉帧。
+            内层整体 pointerEvents="none"：否则触摸目标会落到某个单元格上，
+            locationX/locationY 变成相对小格（恒为个位数），换算出来永远是左上角。 */}
         <Pressable
           onPress={onGridPress}
           style={styles.grid}
           accessibilityLabel="地图网格，点格子放置或编辑房子"
         >
-          {Array.from({ length: MAP_GRID_SIZE }).map((_, y) => (
-            <View key={y} style={styles.gridRow}>
-              {Array.from({ length: MAP_GRID_SIZE }).map((_, x) => {
-                const house = houseLookup.get(`${x}:${y}`) || null;
-                const isRoleHouse = !!house && house.ownerType === 'character';
-                return (
-                  <View
-                    key={x}
-                    style={[
-                      styles.cell,
-                      house && styles.cellHouse,
-                      house && (isRoleHouse ? styles.cellRole : styles.cellSelf),
-                    ]}
-                  >
-                    {house ? (
-                      <Ionicons
-                        name="home"
-                        size={12}
-                        color={isRoleHouse ? theme.colors.star : theme.colors.primaryContrast}
-                      />
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          ))}
+          <View pointerEvents="none">
+            {Array.from({ length: MAP_GRID_SIZE }).map((_, y) => (
+              <View key={y} style={styles.gridRow}>
+                {Array.from({ length: MAP_GRID_SIZE }).map((_, x) => {
+                  const house = houseLookup.get(`${x}:${y}`) || null;
+                  const isRoleHouse = !!house && house.ownerType === 'character';
+                  return (
+                    <View
+                      key={x}
+                      style={[
+                        styles.cell,
+                        house && styles.cellHouse,
+                        house && (isRoleHouse ? styles.cellRole : styles.cellSelf),
+                      ]}
+                    >
+                      {house ? (
+                        <Ionicons
+                          name="home"
+                          size={12}
+                          color={isRoleHouse ? theme.colors.star : theme.colors.primaryContrast}
+                        />
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
         </Pressable>
       </ScrollView>
 

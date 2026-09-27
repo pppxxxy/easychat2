@@ -15,6 +15,27 @@ export function isProactiveMessageAvailable() {
   return !!native;
 }
 
+// 权限状态：{ notification, exactAlarm, battery, autostart }。
+// 能判定的返回 boolean；无法判定（自启动白名单无公开 API）为 null（JS 侧显示问号）。
+// 原生未就绪或旧版本无此方法时返回全 null，交由界面显示未知。
+export async function getPermissionStatus() {
+  if (!native || typeof native.getPermissionStatus !== 'function') {
+    return { notification: null, exactAlarm: null, battery: null, autostart: null };
+  }
+  try {
+    const raw = await native.getPermissionStatus();
+    const pick = key => (typeof raw[key] === 'boolean' ? raw[key] : null);
+    return {
+      notification: pick('notification'),
+      exactAlarm: pick('exactAlarm'),
+      battery: pick('battery'),
+      autostart: pick('autostart'),
+    };
+  } catch (error) {
+    return { notification: null, exactAlarm: null, battery: null, autostart: null };
+  }
+}
+
 // config: { slotId, roleId, roleName, persona, hour, minute, mode: 'WORK'|'EXACT', enabled, revision }
 // 返回原生确认的 slotId；同一角色可排多个时间槽。
 export async function scheduleDailyMessage(config) {

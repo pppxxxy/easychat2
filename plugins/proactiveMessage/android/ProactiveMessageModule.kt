@@ -169,6 +169,28 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
         promise.resolve(AlarmScheduler.canScheduleExactAlarms(reactContext))
     }
 
+    /**
+     * 权限状态查询：返回可判定的布尔值；无法判定（如厂商自启动白名单无公开 API）用 null。
+     * JS 侧据此展示打勾 / 叉 / 问号。
+     */
+    @ReactMethod
+    fun getPermissionStatus(promise: Promise) {
+        try {
+            val result = Arguments.createMap()
+            result.putBoolean("notification", Notifier.canNotify(reactContext))
+            result.putBoolean("exactAlarm", AlarmScheduler.canScheduleExactAlarms(reactContext))
+            val power = reactContext.getSystemService(PowerManager::class.java)
+            val ignoring = power != null &&
+                power.isIgnoringBatteryOptimizations(reactContext.packageName)
+            result.putBoolean("battery", ignoring)
+            // 自启动白名单没有公开可读接口：厂商实现各异，只能 null（未知）
+            result.putNull("autostart")
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("ERR_PERMISSION_STATUS", e.message, e)
+        }
+    }
+
     @ReactMethod
     fun openExactAlarmSettings(promise: Promise) {
         try {

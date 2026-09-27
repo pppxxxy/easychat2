@@ -304,6 +304,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     }
   };
 
+  // 正则条目的辅助生成风险提示：AI 生成的正则常不可用/有隐患，弹窗里明确告知。
+  const isRegexAssist = !!assistTarget
+    && assistTarget.kind === 'entry'
+    && assistTarget.listKey === 'regexScripts';
+
   const assistLabel = (() => {
     const target = assistTarget;
     if (!target) return '';
@@ -658,6 +663,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         <View style={styles.assistOverlay}>
           <View style={styles.assistCard}>
             <Text style={styles.assistTitle}>{`辅助生成「${assistLabel}」`}</Text>
+            {isRegexAssist ? (
+              <Text style={styles.assistWarning}>
+                正则表达式对 AI 来说较难正确生成，生成结果常不可用或存在隐患，不建议依赖 AI 编写正则；建议手动核对与测试后再启用。
+              </Text>
+            ) : null}
             {assistTarget ? (
               <Text style={styles.assistCurrent} numberOfLines={3}>
                 {`当前内容：${assistPreview.trim() || '（空）'}`}
@@ -861,6 +871,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),
     lineHeight: fonts.scaled(17),
+    marginBottom: tokens.spacing.sm,
+  },
+  assistWarning: {
+    color: theme.colors.danger,
+    fontSize: fonts.scaled(12),
+    lineHeight: fonts.scaled(17),
+    marginTop: tokens.spacing.xs,
     marginBottom: tokens.spacing.sm,
   },
   assistInput: {

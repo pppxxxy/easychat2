@@ -158,3 +158,18 @@ test('损坏数据先备份再返回空设置，不静默覆盖', async () => {
 test('makeProactiveSlotId 生成的 id 唯一', () => {
   assert.notEqual(makeProactiveSlotId(), makeProactiveSlotId());
 });
+
+test('互动面板：折叠选择 API/模型/角色 + 权限状态勾叉问号', () => {
+  const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  // 折叠选择器，避免一次性罗列大量 API/模型/角色
+  assert.ok(panel.includes('CollapsibleSelect'));
+  assert.ok(panel.includes('消息来源（API）'));
+  assert.ok(panel.includes('具体模型'));
+  assert.ok(panel.includes('选择角色'));
+  // 权限状态：勾/叉/问号三态
+  assert.ok(panel.includes('getPermissionStatus'));
+  assert.ok(panel.includes("'checkmark-circle'"));
+  assert.ok(panel.includes("'close-circle'"));
+  assert.ok(panel.includes("'help-circle'"));
+  assert.ok(panel.includes('permissionRow'));
+});

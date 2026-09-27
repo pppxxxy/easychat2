@@ -58,7 +58,7 @@ import {
 import { isRecentMediaUri } from './mediaProtection';
 import { countMomentsForCharacterDeletion } from './moments/moments';
 import { createForgeState, draftFromCharacter } from './cardForge/forge';
-import { setCharacterEditGuard } from './characterEditGuard';
+import { isFormDirty, setCharacterEditGuard } from './characterEditGuard';
 import { isValidAigcMeta } from './aigc/attribution';
 import { useTheme } from './theme/ThemeContext';
 
@@ -654,7 +654,16 @@ export default function CharacterScreen() {
   // 角色内容会被记忆摘要写入世界书、其他页面保存等后台更新，拿后者当参照会让
   // 没动过表单的用户被误判为有未保存修改（切换角色与切 Tab 都会误弹窗）。
   // 外部更新由 seed effect 的 externalConflict 机制处理；formReady 闸门避免 seed 期间误报。
-  const formDirty = formReady && currentFormSignature !== seededFormSignatureRef.current;
+  //
+  // 额外兜底「表单内容与当前已保存角色完全一致 → 必然没有未保存修改」：保存后存储层
+  // 可能对字段做规范化（id 去重、presets 补默认名等），使回读的角色内容与 save() 当时
+  // 推进的 seed 基准逐字不同；只比 seed 会让用户「明明保存了还弹未保存」。
+  const formDirty = isFormDirty({
+    formReady,
+    currentSignature: currentFormSignature,
+    seededSignature: seededFormSignatureRef.current,
+    savedSignature: savedFormSignature,
+  });
   formDirtyRef.current = formDirty;
   formSignatureRef.current = currentFormSignature;
   const editedCharacter = useMemo(

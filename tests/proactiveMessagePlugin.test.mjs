@@ -127,3 +127,11 @@ test('前台服务 onStartCommand 显式返回 Int', () => {
   assert.match(source, /onStartCommand\([^)]*\): Int\s*\{/);
   assert.ok(source.includes('START_NOT_STICKY'));
 });
+
+test('原生暴露权限状态查询（勾/叉/问号数据源）', () => {
+  const module = readAllKotlin();
+  assert.ok(module.includes('fun getPermissionStatus(promise: Promise)'));
+  assert.ok(module.includes('Notifier.canNotify(reactContext)'));
+  // 自启动白名单无公开可读接口 → null（JS 侧显示问号）
+  assert.ok(module.includes('result.putNull("autostart")'));
+});
