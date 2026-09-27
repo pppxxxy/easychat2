@@ -183,6 +183,16 @@ test('大角色卡使用文件描述符，保存后可以完整读回', async ()
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
 });
 
+test('whenSessionMutationsSettled 会等待会话写入排空', async () => {
+  const storage = loadStorage();
+  const order = [];
+  // 入队一个慢写入：settle 钩子必须等它完成
+  const pending = storage.saveSessions([]).then(() => order.push('save'));
+  const settled = storage.whenSessionMutationsSettled().then(() => order.push('settled'));
+  await Promise.all([pending, settled]);
+  assert.deepEqual(order, ['save', 'settled']);
+});
+
 test('空白人设读取时不覆写为默认值', async () => {
   // UI 保存角色编辑后人设可能为空串；normalizeCharacter 扩展源字段
   // 后会把 '' 覆盖到默认卡文案上，存储层不能再覆写回去。

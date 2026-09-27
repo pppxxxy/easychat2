@@ -113,6 +113,13 @@ function enqueueSessionMutation(task) {
   return next;
 }
 
+// 等待当前挂起的会话写入全部落定。迁移（migrateLegacyMessages）也在 sessionMutationQueue
+// 里，但会话列表读取（getSessions）不经过队列；外部刷新若在迁移写盘中途读取，会拿到中间态。
+// 刷新前 await 这个钩子即可保证读到迁移完成后的最终状态。
+export function whenSessionMutationsSettled() {
+  return sessionMutationQueue.catch(() => {});
+}
+
 function enqueueMomentsMutation(task) {
   const next = momentsMutationQueue.then(task, task);
   momentsMutationQueue = next.catch(() => {});

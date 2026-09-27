@@ -19,6 +19,7 @@ import {
   sortCharacters,
   getSessions,
   getActiveSessionId,
+  whenSessionMutationsSettled,
   setActiveSessionId,
   saveSessions,
   startNewSession,
@@ -313,6 +314,9 @@ export function AppProvider({ children }) {
   }, []);
 
   const refreshSessionsDirect = useCallback(async () => {
+    // 先等存储层会话写入（含旧消息迁移）排空：迁移在 storage 的队列里，
+    // 与这里的 mutation 队列不是同一个；不等待会在迁移写盘中途读到中间态。
+    await whenSessionMutationsSettled();
     const [sessionList, storedActiveSessionId] = await Promise.all([
       getSessions(),
       getActiveSessionId(),
