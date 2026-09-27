@@ -51,10 +51,14 @@ import {
   markMediaWrite,
   getUserProfile,
   saveCardForge,
+  saveCharacterEditDraft,
+  takeCharacterEditDraft,
+  clearCharacterEditDraft,
 } from './storage';
 import { isRecentMediaUri } from './mediaProtection';
 import { countMomentsForCharacterDeletion } from './moments/moments';
 import { createForgeState, draftFromCharacter } from './cardForge/forge';
+import { setCharacterEditGuard } from './characterEditGuard';
 import { useTheme } from './theme/ThemeContext';
 
 const NO_CARD_DATA_MESSAGE =
@@ -584,6 +588,7 @@ export default function CharacterScreen() {
   const externalConflictRef = useRef(false);
   const formDirtyRef = useRef(false);
   const formSignatureRef = useRef('');
+  const draftTimerRef = useRef(null);
   const formOwnerIdRef = useRef(activeId);
   const formSessionIdRef = useRef(activeSessionId);
   const revertingToRef = useRef('');
@@ -677,6 +682,36 @@ export default function CharacterScreen() {
     pendingImageUrisRef.current.clear();
   }, [activeId]);
 
+  // Tab 切换拦截信箱：角色页未保存时，AppShell 的 tabPress 监听弹确认框。
+  // save 每次渲染都是新引用，这里靠 effect 在提交后同步；cleanup 保证
+  // 卸载或表单态变化时信箱立即回落到安全默认值。
+  useEffect(() => {
+    setCharacterEditGuard({ dirty: formReady && formDirty, save });
+    return () => setCharacterEditGuard(null);
+  }, [formReady, formDirty, save]);
+
+  // 编辑草稿防抖暂存：切走或杀 App 后回来可恢复未保存的修改。
+  // 表单与角色一致（含保存后 seed 回一致）时清草稿，避免下次误弹恢复框。
+  useEffect(() => {
+    clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = null;
+    if (!loaded || !formReady) return undefined;
+    const characterId = String(character.id || '');
+    if (!characterId) return undefined;
+    if (!formDirty) {
+      clearCharacterEditDraft(characterId).catch(() => {});
+      return undefined;
+    }
+    const formState = currentFormState;
+    draftTimerRef.current = setTimeout(() => {
+      saveCharacterEditDraft(characterId, formState, savedFormSignature).catch(() => {});
+    }, 800);
+    return () => {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    };
+  }, [loaded, formReady, formDirty, currentFormState, character, savedFormSignature]);
+
   useEffect(() => {
     if (!loaded) return;
     const characterSignature = characterFormSignature(character);
@@ -732,24 +767,32 @@ export default function CharacterScreen() {
     seededFormSignatureRef.current = JSON.stringify(next);
     seededCharacterSignatureRef.current = characterSignature;
     externalConflictRef.current = false;
-    setName(next.name);
-    setSystemPrompt(next.systemPrompt);
-    setDescription(next.description);
-    setPersonality(next.personality);
-    setTags(next.tags);
-    setScenario(next.scenario);
-    setFirstMes(next.firstMes);
-    setAlternateGreetings(next.alternateGreetings);
-    setMesExample(next.mesExample);
-    setWorldInfo(next.worldInfo);
-    setRegexScripts(next.regexScripts);
-    setCharacterPresets(next.presets);
+    applyDraftFormState(next);
     setEditingWorldId(null);
     setEditingRegexId(null);
-    setAvatarPreview(next.avatarUri || null);
-    setBgPreview(next.bgUri || null);
     setFormReady(true);
-  }, [loaded, activeId, character, currentFormSignature, switchAuthorization, switchCharacter]);
+    // seed 完成后检测编辑草稿：切走/杀 App 留下的未保存编辑在这里问一次。
+    // takeCharacterEditDraft 读即取走，同一份草稿不会重复弹框。
+    const draftOwnerId = activeId;
+    takeCharacterEditDraft(draftOwnerId).then(draft => {
+      if (!draft || !mountedRef.current) return;
+      // seed 可能已经再次变化（角色又切换/外部更新）：草稿只恢复到仍属于它的表单。
+      if (formOwnerIdRef.current !== draftOwnerId || seededIdRef.current !== draftOwnerId) return;
+      Alert.alert(
+        '检测到未保存的编辑',
+        '上次编辑的内容尚未保存，恢复后可以继续修改。',
+        [
+          { text: '丢弃', style: 'destructive' },
+          {
+            text: '恢复',
+            // 用 buildCharacterFormState 规范化：旧版本草稿可能缺字段，
+            // 直接入表单会把 undefined 塞进 TextInput。
+            onPress: () => applyDraftFormState(buildCharacterFormState(draft.formState)),
+          },
+        ]
+      );
+    }).catch(() => {});
+  }, [loaded, activeId, character, currentFormSignature, switchAuthorization, switchCharacter, applyDraftFormState]);
 
   const updateWorldEntry = (id, patch) => {
     setWorldInfo(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
@@ -793,18 +836,20 @@ export default function CharacterScreen() {
     setEditingRegexId(id);
   };
 
+  // 返回布尔：true = 已落库（UI 同步可跳过不算失败）；false = 未保存。
+  // 供 Tab 切换拦截的「保存并离开」判断是否切换。
   const save = async (options = {}) => {
     if (!loaded) {
       Alert.alert('角色加载中', '请稍候再保存。');
-      return;
+      return false;
     }
     if (!seededFormSignatureRef.current) {
       Alert.alert('角色加载中', '请稍候再保存。');
-      return;
+      return false;
     }
     if (formOwnerIdRef.current !== String(character.id || '')) {
       Alert.alert('角色已切换', '请先处理角色切换，再保存当前编辑。');
-      return;
+      return false;
     }
     if (externalConflictRef.current && options.force !== true) {
       Alert.alert(
@@ -815,7 +860,7 @@ export default function CharacterScreen() {
           { text: '覆盖保存', style: 'destructive', onPress: () => save({ force: true }) },
         ]
       );
-      return;
+      return false;
     }
     for (const [index, script] of regexScripts.entries()) {
       if (script.enabled === false) continue;
@@ -828,7 +873,7 @@ export default function CharacterScreen() {
           '正则脚本无效',
           maskSecrets(`第 ${index + 1} 条「${script.name || '未命名'}」：${error.message}`)
         );
-        return;
+        return false;
       }
     }
      const session = screenSessionRef.current;
@@ -873,17 +918,19 @@ export default function CharacterScreen() {
          }
          return next;
        };
-       savePatch.id = character.id;
-       await updateCharacter(savePatch);
-       if (screenSessionRef.current !== session) return;
-       const persistedFormState = buildCharacterFormState(next);
-       const persistedFormSignature = JSON.stringify(persistedFormState);
-       seededFormSignatureRef.current = persistedFormSignature;
-       seededCharacterSignatureRef.current = persistedFormSignature;
-       formOwnerIdRef.current = next.id;
-       formSessionIdRef.current = activeSessionId;
-       externalConflictRef.current = false;
-       if (formSignatureRef.current !== saveFormSignature) return;
+        savePatch.id = character.id;
+        await updateCharacter(savePatch);
+        // 已落库：编辑草稿不再需要，清掉避免下次回来误弹恢复框。
+        clearCharacterEditDraft(character.id).catch(() => {});
+        if (screenSessionRef.current !== session) return true;
+        const persistedFormState = buildCharacterFormState(next);
+        const persistedFormSignature = JSON.stringify(persistedFormState);
+        seededFormSignatureRef.current = persistedFormSignature;
+        seededCharacterSignatureRef.current = persistedFormSignature;
+        formOwnerIdRef.current = next.id;
+        formSessionIdRef.current = activeSessionId;
+        externalConflictRef.current = false;
+        if (formSignatureRef.current !== saveFormSignature) return true;
        const nextImageRefs = new Set([next.avatarUri, next.bgUri].filter(Boolean));
        if (pendingImageUrisRef.current.get('avatar') === next.avatarUri) {
          pendingImageUrisRef.current.delete('avatar');
@@ -892,7 +939,7 @@ export default function CharacterScreen() {
          pendingImageUrisRef.current.delete('bg');
        }
          const momentsStatus = await getMomentsStatus().catch(() => ({ status: 'corrupt', moments: [] }));
-         if (screenSessionRef.current !== session || formSignatureRef.current !== saveFormSignature) return;
+         if (screenSessionRef.current !== session || formSignatureRef.current !== saveFormSignature) return true;
         const referencedElsewhere = uri => (
           charactersRef.current.some(item => item.id !== character.id && (
             item.avatarUri === uri || item.bgUri === uri
@@ -929,6 +976,7 @@ setWorldInfo(next.worldInfo);
        seededCharacterSignatureRef.current = savedFormSignatureValue;
        externalConflictRef.current = false;
        Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
+       return true;
      } catch (error) {
        Alert.alert(
          error && error.code === 'CHARACTER_CONFLICT' ? '角色已更新' : '保存失败',
@@ -936,6 +984,7 @@ setWorldInfo(next.worldInfo);
            ? '其他页面已修改该角色，请重新加载后再保存。'
            : '请检查存储空间或权限。'
        );
+       return false;
      }
    };
 
@@ -1296,6 +1345,8 @@ setWorldInfo(next.worldInfo);
           text: '放弃并切换',
           style: 'destructive',
           onPress: () => {
+            // 用户明确放弃：清掉编辑草稿，切回来时不再弹「恢复编辑」。
+            clearCharacterEditDraft(activeId).catch(() => {});
             authorizedActiveIdRef.current = id;
             setSwitchAuthorization(value => value + 1);
             performSwitch();
@@ -1388,6 +1439,24 @@ setWorldInfo(next.worldInfo);
   // 指向它们时 offset 缺失、静默不滚动。位置变化的卡片由 onLayout 自然覆盖，
   // grid 位移由 updateCharacterCardOffsets 用 relative 缓存重建，已删除条目
   // 的残留偏移不会被查询——保留旧值是安全的。
+
+  // seed 与草稿恢复共用的表单写入序列：把一份 formState 应用到表单 state。
+  const applyDraftFormState = useCallback(next => {
+    setName(next.name);
+    setSystemPrompt(next.systemPrompt);
+    setDescription(next.description);
+    setPersonality(next.personality);
+    setTags(next.tags);
+    setScenario(next.scenario);
+    setFirstMes(next.firstMes);
+    setAlternateGreetings(next.alternateGreetings);
+    setMesExample(next.mesExample);
+    setWorldInfo(next.worldInfo);
+    setRegexScripts(next.regexScripts);
+    setCharacterPresets(next.presets);
+    setAvatarPreview(next.avatarUri || null);
+    setBgPreview(next.bgUri || null);
+  }, []);
 
   const scrollCharacterTo = useCallback(y => {
     characterScrollRef.current?.scrollTo?.({ y: Math.max(0, y), animated: true });

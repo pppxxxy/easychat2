@@ -1209,3 +1209,33 @@ test('TTS 设置损坏时先备份再抛错，不回落默认值覆盖', async (
   assert.equal(store.get('@easychat2_tts__corrupt_backup'), raw);
   assert.equal(store.get('@easychat2_tts'), raw);
 });
+
+test('角色编辑草稿：写入、读即取走与清理', async () => {
+  const storage = loadStorage();
+  store.clear();
+  const formState = { name: '草稿角色', systemPrompt: '未保存的提示', worldInfo: [] };
+  await storage.saveCharacterEditDraft('draft-char', formState, 'sig-1');
+  const key = '@easychat2_character_edit_draft::draft-char';
+  assert.ok(store.has(key));
+  // 读即取走：第一次返回草稿并删除
+  const draft = await storage.takeCharacterEditDraft('draft-char');
+  assert.equal(draft.formState.name, '草稿角色');
+  assert.equal(draft.characterSignature, 'sig-1');
+  assert.equal(store.has(key), false);
+  // 第二次读不到
+  assert.equal(await storage.takeCharacterEditDraft('draft-char'), null);
+});
+
+test('角色编辑草稿：无 id 与损坏数据按无草稿处理', async () => {
+  const storage = loadStorage();
+  store.clear();
+  assert.equal(await storage.takeCharacterEditDraft(''), null);
+  await assert.rejects(() => storage.saveCharacterEditDraft('', {}), /缺少角色 id/);
+  // 损坏数据不炸、按无草稿处理并清理键
+  const key = '@easychat2_character_edit_draft::broken-char';
+  store.set(key, '{broken-draft');
+  assert.equal(await storage.takeCharacterEditDraft('broken-char'), null);
+  assert.equal(store.has(key), false);
+  // clear 对不存在的键静默成功
+  await storage.clearCharacterEditDraft('missing-char');
+});

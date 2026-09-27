@@ -750,6 +750,60 @@ export async function setActiveCharacterId(id) {
   );
 }
 
+// ---- 角色编辑草稿 ----
+// 角色页表单防抖暂存：切走/杀 App 后回来可恢复未保存的编辑。
+// 草稿是辅助数据，读失败一律按“没有草稿”处理，不阻塞角色页正常流程。
+const CHARACTER_EDIT_DRAFT_PREFIX = '@easychat2_character_edit_draft';
+
+function characterEditDraftKey(id) {
+  return `${CHARACTER_EDIT_DRAFT_PREFIX}::${String(id)}`;
+}
+
+export async function saveCharacterEditDraft(characterId, formState, characterSignature = '') {
+  const id = String(characterId || '');
+  if (!id) throw new Error('草稿缺少角色 id');
+  await AsyncStorage.setItem(characterEditDraftKey(id), JSON.stringify({
+    formState,
+    characterSignature: String(characterSignature || ''),
+    savedAt: Date.now(),
+  }));
+}
+
+// 读即取走：返回草稿并立即删除，保证恢复确认框对同一份草稿只弹一次。
+export async function takeCharacterEditDraft(characterId) {
+  const id = String(characterId || '');
+  if (!id) return null;
+  const key = characterEditDraftKey(id);
+  let draft = null;
+  let raw = null;
+  try {
+    raw = await AsyncStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.formState && typeof parsed.formState === 'object') {
+      draft = parsed;
+    }
+  } catch (error) {
+    draft = null;
+  }
+  try {
+    if (raw) await AsyncStorage.removeItem(key);
+  } catch (error) {
+    // 删除失败不影响返回，下次读取仍会取走
+  }
+  return draft;
+}
+
+export async function clearCharacterEditDraft(characterId) {
+  const id = String(characterId || '');
+  if (!id) return;
+  try {
+    await AsyncStorage.removeItem(characterEditDraftKey(id));
+  } catch (error) {
+    // 清理失败可忽略：草稿下次被读取或覆盖时自然处理
+  }
+}
+
 function makeApiConfigId() {
   return `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

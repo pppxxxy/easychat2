@@ -32,6 +32,7 @@ import {
 } from './src/proactiveMessage';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { maskSecrets } from './src/secrets';
+import { getCharacterEditGuard } from './src/characterEditGuard';
 
 const Tab = createBottomTabNavigator();
 
@@ -283,6 +284,35 @@ function AppShell() {
       primary: palette.colors.primary,
     },
   };
+  // 角色页有未保存编辑时拦截 Tab 切换：底部 Tab 页面保持挂载、切走不丢表单，
+  // 但用户容易忘记保存导致修改不生效；确认框把「离开」变成顺手保存的入口。
+  const handleTabPress = useCallback(event => {
+    const target = event && event.target;
+    const guard = getCharacterEditGuard();
+    let currentName = '';
+    try {
+      currentName = String(navigationRef.current?.getCurrentRoute()?.name || '');
+    } catch (error) {
+      currentName = '';
+    }
+    if (!guard.dirty || currentName !== '角色' || !target || target === '角色') return;
+    event.preventDefault();
+    Alert.alert(
+      '未保存的修改',
+      '角色编辑尚未保存，修改不会在聊天中生效。切换标签不会丢失编辑，退出应用会丢失。',
+      [
+        { text: '留下编辑', style: 'cancel' },
+        { text: '直接离开', onPress: () => navigationRef.navigate(target) },
+        {
+          text: '保存并离开',
+          onPress: async () => {
+            const saved = await guard.save();
+            if (saved) navigationRef.navigate(target);
+          },
+        },
+      ]
+    );
+  }, []);
   return (
     <NavigationContainer
       ref={navigationRef}
@@ -293,6 +323,7 @@ function AppShell() {
       <ProactiveMessageBridge navigationReady={navigationReady} />
       <Header />
       <Tab.Navigator
+        screenListeners={{ tabPress: handleTabPress }}
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarStyle: [styles.tabBar, {
