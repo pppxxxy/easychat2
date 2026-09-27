@@ -6,7 +6,9 @@ import path from 'node:path';
 
 import {
   getCharacterEditGuard,
+  resolveTabName,
   setCharacterEditGuard,
+  shouldConfirmTabLeave,
 } from '../src/characterEditGuard.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -50,9 +52,42 @@ test('Tab 切换拦截：确认框提供保存并离开', () => {
   assert.ok(APP_SOURCE.includes("text: '留下编辑'"));
   // 保存成功才切换；失败留在角色页由 save 内部弹错误
   assert.ok(APP_SOURCE.includes('const saved = await guard.save();'));
-  assert.ok(APP_SOURCE.includes('if (saved) navigationRef.navigate(target);'));
-  // 只拦截「从角色页离开」：目标仍是角色页或当前不在角色页时放行
-  assert.ok(APP_SOURCE.includes("currentName !== '角色' || !target || target === '角色'"));
+  assert.ok(APP_SOURCE.includes('if (saved) navigationRef.navigate(targetName);'));
+  // 只拦截「从角色页离开」：判定收敛到 shouldConfirmTabLeave 纯函数
+  assert.ok(APP_SOURCE.includes('shouldConfirmTabLeave({ dirty: guard.dirty, currentName, targetName })'));
+});
+
+test('tabPress 的 target 是路由 key，必须先解析成路由名再导航', () => {
+  // 回归：target 是 key（形如 聊天-xxxx），直接交给 navigate 会被当路由名而静默 no-op，
+  // 导致「直接离开 / 保存并离开」都跳不走、点当前 tab 也误弹窗。
+  assert.ok(APP_SOURCE.includes('resolveTabName(navigationRef.getRootState(), event && event.target)'));
+  assert.ok(APP_SOURCE.includes('navigationRef.navigate(targetName)'));
+  // 不得再直接把 key 当名字传给 navigate
+  assert.equal(APP_SOURCE.includes('navigationRef.navigate(target)'), false);
+});
+
+test('resolveTabName：把路由 key 解析成路由名，认不出返回空', () => {
+  const rootState = { routes: [ { key: '聊天-abc', name: '聊天' }, { key: '角色-xyz', name: '角色' } ] };
+  assert.equal(resolveTabName(rootState, '聊天-abc'), '聊天');
+  assert.equal(resolveTabName(rootState, '角色-xyz'), '角色');
+  // 关键回归：key 本身不是路由名，不能原样返回
+  assert.equal(resolveTabName(rootState, '聊天-abc') === '聊天-abc', false);
+  assert.equal(resolveTabName(rootState, '不存在'), '');
+  assert.equal(resolveTabName(null, '聊天-abc'), '');
+  assert.equal(resolveTabName(rootState, ''), '');
+});
+
+test('shouldConfirmTabLeave：只有角色页有脏编辑且目标是别的 tab 才拦', () => {
+  // 正常应拦：角色页 + 脏 + 切到聊天
+  assert.equal(shouldConfirmTabLeave({ dirty: true, currentName: '角色', targetName: '聊天' }), true);
+  // 没脏不拦
+  assert.equal(shouldConfirmTabLeave({ dirty: false, currentName: '角色', targetName: '聊天' }), false);
+  // 不在角色页不拦
+  assert.equal(shouldConfirmTabLeave({ dirty: true, currentName: '聊天', targetName: '设置' }), false);
+  // 目标是角色页本身（点当前 tab）不拦
+  assert.equal(shouldConfirmTabLeave({ dirty: true, currentName: '角色', targetName: '角色' }), false);
+  // target 解析不出来（key 未解析/导航未就绪）不拦，绝不误拦
+  assert.equal(shouldConfirmTabLeave({ dirty: true, currentName: '角色', targetName: '' }), false);
 });
 
 test('save 返回布尔且角色页注册信箱', () => {

@@ -33,7 +33,7 @@ import {
 } from './src/proactiveMessage';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { maskSecrets } from './src/secrets';
-import { getCharacterEditGuard } from './src/characterEditGuard';
+import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard';
 
 const Tab = createBottomTabNavigator();
 
@@ -302,8 +302,12 @@ function AppShell() {
   };
   // 角色页有未保存编辑时拦截 Tab 切换：底部 Tab 页面保持挂载、切走不丢表单，
   // 但用户容易忘记保存导致修改不生效；确认框把「离开」变成顺手保存的入口。
+  //
+  // tabPress 事件的 target 是「路由 key」（形如 聊天-xxxx），不是路由名；
+  // 而 navigationRef.navigate 只认路由名——直接把 key 传进去会静默 no-op，
+  // 表现为点了「直接离开 / 保存并离开」都跳不走、每次切 Tab 又弹一次。
+  // 因此先用根状态把 key 解析回路由名，再做比较与导航。
   const handleTabPress = useCallback(event => {
-    const target = event && event.target;
     const guard = getCharacterEditGuard();
     let currentName = '';
     try {
@@ -311,19 +315,25 @@ function AppShell() {
     } catch (error) {
       currentName = '';
     }
-    if (!guard.dirty || currentName !== '角色' || !target || target === '角色') return;
+    let targetName = '';
+    try {
+      targetName = resolveTabName(navigationRef.getRootState(), event && event.target);
+    } catch (error) {
+      targetName = '';
+    }
+    if (!shouldConfirmTabLeave({ dirty: guard.dirty, currentName, targetName })) return;
     event.preventDefault();
     Alert.alert(
       '未保存的修改',
       '角色编辑尚未保存，修改不会在聊天中生效。切换标签不会丢失编辑，退出应用会丢失。',
       [
         { text: '留下编辑', style: 'cancel' },
-        { text: '直接离开', onPress: () => navigationRef.navigate(target) },
+        { text: '直接离开', onPress: () => navigationRef.navigate(targetName) },
         {
           text: '保存并离开',
           onPress: async () => {
             const saved = await guard.save();
-            if (saved) navigationRef.navigate(target);
+            if (saved) navigationRef.navigate(targetName);
           },
         },
       ]
