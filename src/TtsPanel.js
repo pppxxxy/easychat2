@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -21,7 +22,7 @@ import { useTheme } from './theme/ThemeContext';
 export default function TtsPanel({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const [settings, setSettings] = useState({ enabled: false, activeProvider: 'system', providers: {} });
+  const [settings, setSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   const [loaded, setLoaded] = useState(false);
   const persistVersionRef = useRef(0);
   const persistQueueRef = useRef(Promise.resolve());
@@ -150,6 +151,18 @@ export default function TtsPanel({ visible, onClose }) {
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <FieldHint style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</FieldHint>
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={styles.switchTitle}>自动播报</Text>
+                <Text style={styles.switchHint}>开启后，角色回复完成会自动朗读；手动点消息下方「播报」不受此开关影响。</Text>
+              </View>
+              <Switch
+                value={settings.autoBroadcast === true}
+                onValueChange={value => persist({ ...settingsRef.current, autoBroadcast: value })}
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
+              />
+            </View>
             <FieldLabel style={styles.label}>播报源</FieldLabel>
             <View style={styles.providerRow}>
               {TTS_PROVIDERS.map(item => {
@@ -255,6 +268,17 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   content: { paddingBottom: 16 },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 10 },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.divider,
+  },
+  switchTextWrap: { flex: 1, marginRight: 12 },
+  switchTitle: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
+  switchHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 3 },
   label: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 10, marginBottom: 6 },
   providerRow: { flexDirection: 'row', flexWrap: 'wrap' },
   providerChip: {

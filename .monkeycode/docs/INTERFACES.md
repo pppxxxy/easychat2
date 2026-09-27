@@ -408,7 +408,7 @@
 | `@easychat2_diary_item::<id>` | 单篇日记 `{ id, characterId, characterName, date, text, createdAt }` |
 | `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
-| `@easychat2_tts` | 语音播报设置 `{ enabled, activeProvider, providers: { [id]: { ...fields } } }` |
+| `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast` |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
 | `@easychat2_sticker_index` | 表情包元数据 ID 索引 |
 | `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
@@ -739,6 +739,8 @@ data: [DONE]
 **位置**: `src/tts/providers.js`、`src/tts/index.js`
 
 `TTS_PROVIDERS` 为声明式配置表，内置 `system` 与 `xiaomi-mimo`、`siliconflow`、`iflytek-spark`、`stepfun`、`tencent-cloud`、`aliyun`、`baidu`、`volcano`、`minimax`；`getTtsProvider(id)` 按 id 取配置并回退系统引擎。除 `system` 外的每个服务商带 `apiKeyUrl`（各厂商控制台的密钥申请地址），`TtsPanel` 据此渲染「获取 API Key / 密钥」外链入口。
+
+`autoBroadcast` 是唯一的播报开关：开启后角色回复完成会自动朗读；手动点消息下方「播报」始终可用、不受该开关限制，关闭 `autoBroadcast` 只中止「自动触发」的那次播报，不打断用户手动触发的播报。聊天页右上角按钮即该开关（文案「自动播报开/关」）；设置页「全局配置 → 语音播报」面板顶部也有同一开关。
 
 | 函数 | 说明 |
 |------|------|

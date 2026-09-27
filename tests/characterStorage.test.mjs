@@ -1316,3 +1316,18 @@ test('向量记忆多配置：空 payload 兜底一条默认配置', async () =>
   assert.equal(payload.enabled, false);
   assert.equal(payload.activeId, payload.configs[0].id);
 });
+
+test('TTS 设置：旧 enabled 迁移为 autoBroadcast，手动播报不再依赖开关', async () => {
+  const storage = loadStorage();
+  store.clear();
+  // 旧结构只有 enabled（语义为自动播报）
+  store.set('@easychat2_tts', JSON.stringify({ enabled: true, activeProvider: 'system', providers: {} }));
+  const migrated = await storage.getTtsSettings();
+  assert.equal(migrated.autoBroadcast, true);
+  assert.equal(migrated.enabled, undefined);
+  // 新结构优先取 autoBroadcast
+  const saved = await storage.saveTtsSettings({ autoBroadcast: false, activeProvider: 'system', providers: {} });
+  assert.equal(saved.autoBroadcast, false);
+  const reloaded = await storage.getTtsSettings();
+  assert.equal(reloaded.autoBroadcast, false);
+});

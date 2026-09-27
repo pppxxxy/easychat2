@@ -1627,7 +1627,7 @@ export function saveSticker(sticker) {
   return task;
 }
 
-const DEFAULT_TTS = { enabled: false, activeProvider: 'system', providers: {} };
+const DEFAULT_TTS = { autoBroadcast: false, activeProvider: 'system', providers: {} };
 
 function normalizeTtsProvider(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -1647,8 +1647,13 @@ function normalizeTts(raw) {
   Object.entries(list).forEach(([id, value]) => {
     providers[String(id)] = normalizeTtsProvider(value);
   });
+  // 历史字段 enabled 语义是「自动播报开关」，迁移到 autoBroadcast；
+  // 手动播报不再受该开关限制，因此这里只保留自动播报这一个开关。
+  const autoBroadcast = source.autoBroadcast !== undefined
+    ? source.autoBroadcast === true
+    : source.enabled === true;
   return {
-    enabled: source.enabled === true,
+    autoBroadcast,
     activeProvider: String(source.activeProvider || DEFAULT_TTS.activeProvider),
     providers,
   };

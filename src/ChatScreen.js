@@ -989,7 +989,7 @@ export default function ChatScreen() {
    const inlineImageBusyRef = useRef(false);
    const inlineImageControllerRef = useRef(null);
 
-  const [ttsSettings, setTtsSettings] = useState({ enabled: false, activeProvider: 'system', providers: {} });
+  const [ttsSettings, setTtsSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2363,7 +2363,7 @@ export default function ChatScreen() {
         if (inlineImageEnabledRef.current) {
           generateInlineImageRef.current?.(pendingAssistantMessage.id, reply || '');
         }
-        broadcastMessage(reply || '');
+        autoBroadcastMessage(reply || '');
         recordTurnRef.current?.(userText, reply || '', senderSnapshot);
       }
      } catch (error) {
@@ -3295,10 +3295,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
 
   const toggleBroadcast = useCallback(async () => {
     const previous = ttsRef.current;
-    const next = { ...previous, enabled: !previous.enabled };
+    const next = { ...previous, autoBroadcast: previous.autoBroadcast !== true };
     setTtsSettings(next);
     ttsRef.current = next;
-    if (!next.enabled) {
+    // 关闭自动播报：只停掉「自动触发」的那次播报，不打断用户手动点的播报。
+    if (!next.autoBroadcast && playbackSourceRef.current === 'auto') {
       ttsStop().catch(() => {});
     }
     try {
@@ -3312,19 +3313,27 @@ if (!isCurrent() || controller.signal.aborted) return false;
     }
   }, []);
 
-  const broadcastMessage = useCallback(async text => {
-    const settings = ttsRef.current;
-    if (!settings || !settings.enabled) return;
+  // 手动播报：点消息下方的「播报」始终可用，不受顶部自动播报开关限制。
+  const broadcastMessage = useCallback(async (text, source = 'manual') => {
+    const settings = ttsRef.current || {};
     const content = toSpeechText(text);
     if (!content) return;
     const provider = getTtsProvider(settings.activeProvider);
     const config = (settings.providers && settings.providers[provider.id]) || {};
+    playbackSourceRef.current = source;
     try {
       await ttsSpeak({ provider, config, text: content });
     } catch (error) {
       Alert.alert('播报失败', maskSecrets((error && error.message) || '请稍后重试。'));
     }
   }, []);
+
+  // 自动播报：仅当自动播报开关开启时才在回复完成后朗读。
+  const autoBroadcastMessage = useCallback(async text => {
+    const settings = ttsRef.current;
+    if (!settings || settings.autoBroadcast !== true) return;
+    return broadcastMessage(text, 'auto');
+  }, [broadcastMessage]);
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
@@ -3400,7 +3409,9 @@ if (!isCurrent() || controller.signal.aborted) return false;
   const sendTextRef = useRef(sendText);
   const generateInlineImageRef = useRef(null);
   const inlineImageEnabledRef = useRef(false);
-  const ttsRef = useRef({ enabled: false, activeProvider: 'system', providers: {} });
+  const ttsRef = useRef({ autoBroadcast: false, activeProvider: 'system', providers: {} });
+  // 当前播报是「自动」还是「手动」触发：关闭自动播报只停自动那次，不打断手动播报。
+  const playbackSourceRef = useRef(null);
   const recordTurnRef = useRef(null);
   const recordTurnQueueRef = useRef(Promise.resolve());
   useEffect(() => {
@@ -4052,18 +4063,18 @@ if (!isCurrent() || controller.signal.aborted) return false;
               <Text style={styles.noticeButtonText}>新建</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.noticeButton, !ttsSettings.enabled && styles.actionDisabled]}
+              style={[styles.noticeButton, !ttsSettings.autoBroadcast && styles.actionDisabled]}
               onPress={toggleBroadcast}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel={ttsSettings.enabled ? '关闭语音播报' : '开启语音播报'}
+              accessibilityLabel={ttsSettings.autoBroadcast ? '关闭自动播报' : '开启自动播报'}
             >
               <Ionicons
-                name={ttsSettings.enabled ? 'volume-high-outline' : 'volume-mute-outline'}
+                name={ttsSettings.autoBroadcast ? 'volume-high-outline' : 'volume-mute-outline'}
                 size={13}
                 color={theme.colors.primarySoft}
               />
-              <Text style={styles.noticeButtonText}>{ttsSettings.enabled ? '播报开' : '播报关'}</Text>
+              <Text style={styles.noticeButtonText}>{ttsSettings.autoBroadcast ? '自动播报开' : '自动播报关'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.noticeButton}
