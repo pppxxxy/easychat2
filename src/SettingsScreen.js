@@ -75,6 +75,12 @@ import {
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
 
+const INLINE_IMAGE_POSITION_OPTIONS = [
+  { value: 'start', label: '开头', meta: '取回复首段' },
+  { value: 'middle', label: '高潮（正中）', meta: '取回复中段' },
+  { value: 'end', label: '结尾（默认）', meta: '取回复末段' },
+];
+
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
   if (Array.isArray(result.assets) && result.assets[0]) return result.assets[0];
@@ -142,6 +148,7 @@ export default function SettingsScreen() {
     stylePrefix: '',
     size: '832*1216',
     maxPromptChars: 400,
+    imagePosition: 'end',
   });
   const [inlineImageProviders, setInlineImageProviders] = useState([]);
   // 生图服务商各自的配置（来自 @easychat2_image_gen），对话配图面板里可就地编辑。
@@ -155,6 +162,7 @@ export default function SettingsScreen() {
     stylePrefix: '',
     size: '832*1216',
     maxPromptChars: 400,
+    imagePosition: 'end',
   });
   const profileTimerRef = useRef(null);
   const profileHintTimerRef = useRef(null);
@@ -1512,6 +1520,17 @@ export default function SettingsScreen() {
               ) : null}
             </View>
           ) : null}
+          <FieldLabel style={styles.label}>配图位置</FieldLabel>
+          <CollapsibleSelect
+            label="取回复的哪一段"
+            value={inlineImage.imagePosition}
+            options={INLINE_IMAGE_POSITION_OPTIONS}
+            onSelect={value => updateInlineImage({ imagePosition: value })}
+            placeholder="结尾"
+          />
+          <FieldHint style={styles.hint}>
+            自动配图会先请模型把该段对话转写成「角色说完这段话后所处的画面」再出图；开头 / 高潮（正中）/ 结尾指从本轮回复里取哪一段。
+          </FieldHint>
           <FieldLabel style={styles.label}>风格前缀（可选）</FieldLabel>
           <TextField
             value={inlineImage.stylePrefix}

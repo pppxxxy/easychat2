@@ -38,7 +38,7 @@
 - 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
 - 助手回复完成后本地评估好感与轮次（无额外网络请求），好感累计到 ±30（`AFFINITY_HIGH_THRESHOLD`/`AFFINITY_LOW_THRESHOLD`）、50/100 轮或特殊大事且未触发过时生成一条动态；动态保存发起请求时的角色名称与头像快照，角色改名或删除后历史动态身份保持不变；开关关闭时不生成
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
-- 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
+- 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成前先按设置里的「配图位置」（`start`/`middle`/`end`，默认结尾）从本轮回复取对应段落，再用模型把该段对话转写成一句「角色说完这段话后所处的画面」描述作为生图提示词（转写失败回退用该段原文），拼上风格前缀后出图；生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏提供「新建」按钮：单聊先打开开场白选择器，选择结果保存为角色默认开场白并用于后续新会话；群聊沿用成员新建逻辑。空会话也允许选择开场白，开场白消息底部提供「重选」
 - 顶部栏常驻元素为：角色头像与名称、播报开关、「新建」与「⋯」更多菜单；「⋯」菜单收纳公告、模型、思考、定位、搜索、总结与设置，点选执行与折叠前一致的操作（定位无消息时禁用、总结进行中禁用、搜索反映开启态），菜单以浮层呈现不改变消息列表滚动位置
 - 「⋯」菜单的「设置」打开聊天设置弹窗，提供「系统设置」（跳转设置页）与「编辑角色」（群聊隐藏并提示）两个入口
@@ -409,7 +409,7 @@
 | `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast` |
-| `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars }` |
+| `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars, imagePosition }`；`imagePosition` 为 `start` / `middle` / `end`（默认 `end`），决定从本轮回复取哪一段配图 |
 | `@easychat2_sticker_index` | 表情包元数据 ID 索引 |
 | `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
 | `@easychat2_stickers` | 旧版表情包整数组，仅迁移读取 |

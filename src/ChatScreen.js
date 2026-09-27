@@ -24,7 +24,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml from 'react-native-render-html';
 
-import { getConfigFingerprint, isCanceledError, isConfigChangedError, sendChatMessage } from './api';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, isConfigChangedError, sendChatMessage } from './api';
 import {
    deleteLocalImage,
    deleteTemporaryImage,
@@ -153,6 +153,11 @@ import { getTtsProvider } from './tts/providers';
 import { evaluateTurn, clampAffinity } from './moments/affinity';
 import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments';
 import { runHousemateReactions } from './moments/runHousemateReactions';
+import {
+  buildScenePrompt,
+  normalizeScenePrompt,
+  selectReplySegment,
+} from './inlineImagePrompt';
 
 const USER_ID = 'user';
 const ASSISTANT_ID = 'assistant';
@@ -163,8 +168,9 @@ const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
 const QUOTE_TEXT_MAX = 200;
 const INLINE_IMAGE_PROMPT_MAX = 400;
 
-function buildInlineImagePrompt(text, stylePrefix, maxChars) {
-  const source = String(text || '').replace(/\s+/g, ' ').trim();
+// 拼生图提示词：风格前缀 + 场景描述（场景描述由模型转写或本地兜底得到）。
+function buildInlineImagePrompt(sceneText, stylePrefix, maxChars) {
+  const source = String(sceneText || '').replace(/\s+/g, ' ').trim();
   const limit = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : INLINE_IMAGE_PROMPT_MAX;
   const clipped = source.length > limit ? source.slice(0, limit) : source;
   const prefix = String(stylePrefix || '').trim();
@@ -985,6 +991,7 @@ export default function ChatScreen() {
     stylePrefix: '',
     size: '832*1216',
     maxPromptChars: 400,
+    imagePosition: 'end',
   });
    const inlineImageBusyRef = useRef(false);
    const inlineImageControllerRef = useRef(null);
@@ -3335,6 +3342,52 @@ if (!isCurrent() || controller.signal.aborted) return false;
     return broadcastMessage(text, 'auto');
   }, [broadcastMessage]);
 
+  // 生成配图用的场景描述：取回复对应位置的段落，交给模型转写成一句画面描述。
+  // 转写失败（无配置 / 请求错误 / 空结果）时回退用该段原文，保证配图流程不中断。
+  const resolveInlineImageScene = useCallback(async ({ messageId, replyText, position, signal }) => {
+    const segment = selectReplySegment(replyText, position);
+    if (!segment) return '';
+    const sceneCharacter = charactersRef.current.find(
+      item => String(item && item.id || '') === activeCharacterIdRef.current
+    );
+    const charName = String((sceneCharacter && sceneCharacter.name) || '').trim() || '角色';
+    const userName = String(userNameRef.current || '').trim() || '用户';
+    // 找到这条助手消息之前最近的一条用户消息，作为转写的上下文。
+    const list = Array.isArray(messagesRef.current) ? messagesRef.current : [];
+    const assistantIndex = list.findIndex(item => String(item && item.id || '') === String(messageId || ''));
+    const before = assistantIndex >= 0 ? list.slice(0, assistantIndex) : list;
+    let userText = '';
+    for (let index = before.length - 1; index >= 0; index -= 1) {
+      const item = before[index];
+      if (item && item.role === 'user' && String(item.text || '').trim()) {
+        userText = String(item.text || '').trim();
+        break;
+      }
+    }
+    try {
+      const { configs, activeId } = await getApiConfigs();
+      const config = configs.find(item => item.id === activeId) || configs[0];
+      if (!config) return segment;
+      const raw = await sendChatMessage([
+        { role: 'system', content: '你负责把一段角色对话转写成一句画面描述，只输出描述本身。' },
+        { role: 'user', content: buildScenePrompt({ segment, userText, charName, userName }) },
+      ], {
+        stream: false,
+        signal,
+        expectedConfigId: String(config.id || ''),
+        expectedConfigFingerprint: getConfigFingerprint(config),
+      });
+      if (signal && signal.aborted) return segment;
+      // 空响应返回的是占位文本，不是画面：直接用原文兜底。
+      if (!raw || String(raw).trim() === EMPTY_REPLY_TEXT) return segment;
+      const scene = normalizeScenePrompt(raw);
+      return scene || segment;
+    } catch (error) {
+      // 场景转写是增值步骤：失败就用原文兜底，不打断配图。
+      return segment;
+    }
+  }, []);
+
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
       Alert.alert('配图生成中', '请稍后重试。');
@@ -3347,8 +3400,6 @@ if (!isCurrent() || controller.signal.aborted) return false;
       return;
     }
     const provider = getImageProvider(providerId);
-    const prompt = buildInlineImagePrompt(sourceText, settings.stylePrefix, settings.maxPromptChars);
-    if (!prompt) return;
 
     let genConfig = null;
     try {
@@ -3371,6 +3422,22 @@ if (!isCurrent() || controller.signal.aborted) return false;
       item.id === messageId ? { ...item, inlineImage: { status: 'loading' } } : item
     )));
     try {
+      // 先把「角色说完这段话后所处的画面」转写成生图提示词；失败回退用回复段落本身。
+      const sceneText = await resolveInlineImageScene({
+        messageId,
+        replyText: sourceText,
+        position: settings.imagePosition,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || activeSessionIdRef.current !== sessionId) return;
+      const prompt = buildInlineImagePrompt(
+        sceneText,
+        settings.stylePrefix,
+        settings.maxPromptChars
+      );
+      if (!prompt) {
+        throw new Error('没有可用的配图提示词');
+      }
       const response = await generateImage({
         provider,
         config: genConfig,
@@ -3404,7 +3471,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        }
 
     }
-  }, [inlineImageSettings]);
+  }, [inlineImageSettings, resolveInlineImageScene]);
 
   const sendTextRef = useRef(sendText);
   const generateInlineImageRef = useRef(null);

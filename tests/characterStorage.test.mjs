@@ -1331,3 +1331,25 @@ test('TTS 设置：旧 enabled 迁移为 autoBroadcast，手动播报不再依�
   const reloaded = await storage.getTtsSettings();
   assert.equal(reloaded.autoBroadcast, false);
 });
+
+test('对话配图设置：imagePosition 默认结尾并夹取合法值', async () => {
+  const storage = loadStorage();
+  store.clear();
+  // 旧数据没有 imagePosition → 默认结尾
+  store.set('@easychat2_inline_image', JSON.stringify({ enabled: true, providerId: '' }));
+  const legacy = await storage.getInlineImageSettings();
+  assert.equal(legacy.imagePosition, 'end');
+  // 合法值保留
+  const saved = await storage.saveInlineImageSettings({
+    enabled: true,
+    providerId: '',
+    stylePrefix: '',
+    size: '832*1216',
+    maxPromptChars: 400,
+    imagePosition: 'middle',
+  });
+  assert.equal(saved.imagePosition, 'middle');
+  // 非法值回退结尾
+  const invalid = await storage.saveInlineImageSettings({ imagePosition: '高潮' });
+  assert.equal(invalid.imagePosition, 'end');
+});

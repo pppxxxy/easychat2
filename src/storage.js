@@ -19,6 +19,7 @@ import {
   normalizeMapHouses,
 } from './worldMap/map';
 import { assignStableCharacterIds } from './context/characterIdentity';
+import { normalizeImagePosition } from './inlineImagePrompt';
 import { normalizeCharacterPresets } from './characterPresets';
 import { shouldIndexSession } from './vectorMemory/scope';
 import {
@@ -1346,6 +1347,7 @@ const DEFAULT_INLINE_IMAGE = {
   stylePrefix: '',
   size: '832*1216',
   maxPromptChars: 400,
+  imagePosition: 'end',
 };
 
 function normalizeInlineImage(raw) {
@@ -1359,6 +1361,8 @@ function normalizeInlineImage(raw) {
     maxPromptChars: Number.isFinite(maxPromptChars) && maxPromptChars > 0
       ? Math.min(Math.round(maxPromptChars), 2000)
       : DEFAULT_INLINE_IMAGE.maxPromptChars,
+    // 配图取「回复的哪一段」：开头 / 高潮正中间 / 结尾（默认结尾）。
+    imagePosition: normalizeImagePosition(source.imagePosition),
   };
 }
 
