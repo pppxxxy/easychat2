@@ -21,6 +21,7 @@ import {
 } from './storage';
 import { buildPreview } from './context/sessionLibrary';
 import { countMomentsBySessionIds } from './moments/moments';
+import { buildMemoryListData, groupSessionsByAge } from './memoryBuckets';
 import ChapterModal from './ChapterModal';
 import SessionRecoveryModal from './SessionRecoveryModal';
 import { Card, EmptyState, TopicButton } from './ui';
@@ -172,6 +173,36 @@ export default function MemoryScreen({ navigation }) {
       cancelled = true;
     };
   }, [visibleSessions]);
+
+  // 按时间分档 + 置顶单独成组；分组默认折叠，点组标题展开该组全部记忆。
+  // 编辑模式下强制全部展开：折叠里的会话无法被逐条点选。
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const groups = useMemo(() => groupSessionsByAge(visibleSessions), [visibleSessions]);
+  const effectiveExpanded = useMemo(() => (
+    editing ? new Set(groups.map(group => group.id)) : expandedGroups
+  ), [editing, groups, expandedGroups]);
+  const listData = useMemo(
+    () => buildMemoryListData(groups, effectiveExpanded),
+    [groups, effectiveExpanded]
+  );
+  const allExpanded = groups.length > 0 && groups.every(group => expandedGroups.has(group.id));
+
+  const toggleGroup = useCallback(groupId => {
+    setExpandedGroups(current => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }, []);
+
+  // 一键展开/收起所有分组：满足「展开所有的记忆」。
+  const toggleAllGroups = useCallback(() => {
+    setExpandedGroups(current => {
+      const allOpen = groups.length > 0 && groups.every(group => current.has(group.id));
+      return allOpen ? new Set() : new Set(groups.map(group => group.id));
+    });
+  }, [groups]);
 
   const onOpen = useCallback(async session => {
     if (switchLockRef.current) return;
@@ -401,6 +432,16 @@ export default function MemoryScreen({ navigation }) {
               <Text style={styles.editButtonText}>{editing ? '完成' : '编辑'}</Text>
             </TouchableOpacity>
           ) : null}
+          {loaded && visibleSessions.length > 0 && !editing ? (
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={toggleAllGroups}
+              activeOpacity={0.7}
+              accessibilityLabel={allExpanded ? '折叠所有记忆' : '展开所有记忆'}
+            >
+              <Text style={styles.editButtonText}>{allExpanded ? '折叠全部' : '展开全部'}</Text>
+            </TouchableOpacity>
+          ) : null}
           {editing ? null : (
             <TouchableOpacity
               style={styles.searchButton}
@@ -434,11 +475,33 @@ export default function MemoryScreen({ navigation }) {
         />
       ) : (
         <FlatList
-          data={visibleSessions}
-          keyExtractor={session => String(session.id)}
+          data={listData}
+          keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item: session }) => {
+          renderItem={({ item }) => {
+            if (item.kind === 'header') {
+              const expanded = effectiveExpanded.has(item.groupId);
+              return (
+                <TouchableOpacity
+                  style={styles.groupHeader}
+                  onPress={() => toggleGroup(item.groupId)}
+                  disabled={editing}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${expanded ? '折叠' : '展开'}${item.label}`}
+                >
+                  <Ionicons
+                    name={expanded ? 'chevron-down' : 'chevron-forward'}
+                    size={16}
+                    color={theme.colors.textFaint}
+                  />
+                  <Text style={styles.groupLabel}>{item.label}</Text>
+                  <Text style={styles.groupCount}>{item.count}</Text>
+                </TouchableOpacity>
+              );
+            }
+            const session = item.session;
             const character = characterMap.get(session.characterId);
             const isGroup = session.type === 'group';
             const groupMembers = isGroup
@@ -651,6 +714,23 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
   checkbox: { marginRight: 10 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginTop: 6,
+  },
+  groupLabel: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(13),
+    fontWeight: '800',
+    marginLeft: 6,
+  },
+  groupCount: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    marginLeft: 8,
+  },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
