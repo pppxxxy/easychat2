@@ -11,7 +11,11 @@ import {
   currentQuestion,
   draftFromCharacter,
   draftToCharacterPatch,
+  buildEntryAssistPrompt,
   buildFieldAssistPrompt,
+  buildTagsAssistPrompt,
+  mergeEntryAssistPatch,
+  parseEntryAssistPatch,
   FIELD_ASSIST_SYSTEM,
   hasCardContent,
   mergeDraft,
@@ -471,8 +475,78 @@ test('制卡编辑器每个字段提供辅助生成', () => {
   assert.ok(FORGE_EDITOR_SOURCE.includes("title=\"生成\""));
   // 生成走 Screen 提供的发送通道（含 API 配置指纹保护），结果写回对应字段
   assert.ok(FORGE_EDITOR_SOURCE.includes('onAssistPrompt(prompt, controller.signal)'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('[appliedKey]: nextValue'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('[appliedKey]: text'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('sendAssistPrompt'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('FIELD_ASSIST_SYSTEM'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('onAssistPrompt={sendAssistPrompt}'));
+});
+
+test('标签/世界书/正则/预设都能辅助生成', () => {
+  // 标签：文本协议 → 顿号拆分
+  assert.ok(FORGE_EDITOR_SOURCE.includes("openAssist({ kind: 'tags', label: '标签' })"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('buildTagsAssistPrompt'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("setTagText(list.join('、'))"));
+  // 三个集合条目：JSON 协议 + 白名单合并，每类都有按钮
+  assert.ok(FORGE_EDITOR_SOURCE.includes("kind: 'entry', listKey: 'worldInfo'"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("kind: 'entry', listKey: 'regexScripts'"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("kind: 'entry', listKey: 'presets'"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('buildEntryAssistPrompt'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('parseEntryAssistPatch'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('mergeEntryAssistPatch'));
+});
+
+test('集合条目可折叠：默认折叠、点标题展开、新增自动展开', () => {
+  assert.ok(FORGE_EDITOR_SOURCE.includes('const [expandedEntries, setExpandedEntries] = useState(() => new Set())'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('toggleEntry'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("expandEntry(`worldInfo:${id}`)"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("expandEntry(`regexScripts:${id}`)"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("expandEntry(`presets:${id}`)"));
+  // 折叠时显示摘要行（世界书关键词/正则查找替换/预设内容）
+  assert.ok(FORGE_EDITOR_SOURCE.includes('entrySummary'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('关键词：'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes('查找：'));
+});
+
+test('标签与集合条目的辅助生成协议纯函数', () => {
+  const tagsPrompt = buildTagsAssistPrompt({ currentTags: ['治愈', '日常'], request: '更偏奇幻' });
+  assert.ok(tagsPrompt.includes('当前标签：治愈、日常'));
+  assert.ok(tagsPrompt.includes('用户要求：更偏奇幻'));
+  assert.ok(tagsPrompt.includes('只输出标签本身，用顿号分隔'));
+
+  const entryPrompt = buildEntryAssistPrompt({
+    kind: 'worldInfo',
+    currentEntry: { comment: '旧名', keys: ['a'], content: '旧内容', position: 4, depth: 2 },
+    request: '改得更神秘',
+  });
+  assert.ok(entryPrompt.includes('世界书条目'));
+  assert.ok(entryPrompt.includes('旧名'));
+  // 只投影白名单字段：位置/深度不出现在提示词里（保留不改）
+  assert.ok(entryPrompt.includes('"keys"'));
+  assert.equal(entryPrompt.includes('"position"'), false);
+  assert.equal(entryPrompt.includes('"depth"'), false);
+  assert.ok(entryPrompt.includes('只包含这些字段：comment、keys、content'));
+
+  // 宽松解析：代码块/前后文字容错
+  assert.deepEqual(parseEntryAssistPatch('```json\n{"comment":"新名"}\n```'), { comment: '新名' });
+  assert.deepEqual(parseEntryAssistPatch('说明文字 {"name":"新预设","prompt":"内容"} 结尾'), { name: '新预设', prompt: '内容' });
+  assert.equal(parseEntryAssistPatch('不是 JSON'), null);
+  assert.equal(parseEntryAssistPatch(''), null);
+
+  // 白名单合并：非白名单字段被忽略，空值不覆盖，keys 支持字符串拆分
+  const merged = mergeEntryAssistPatch(
+    { id: 'w1', comment: '旧', keys: ['a'], content: '旧内容', position: 4, enabled: false },
+    'worldInfo',
+    { comment: '新', keys: 'b、c', content: '新内容', position: 99, enabled: true, extra: 'x' }
+  );
+  assert.equal(merged.comment, '新');
+  assert.deepEqual(merged.keys, ['b', 'c']);
+  assert.equal(merged.content, '新内容');
+  assert.equal(merged.position, 4);      // 非白名单保留原值
+  assert.equal(merged.enabled, false);   // AI 不参与开关
+  assert.equal(merged.id, 'w1');
+  assert.equal(merged.extra, undefined);
+  // 空串不清空已有字段
+  const kept = mergeEntryAssistPatch({ comment: '旧', content: '旧内容' }, 'worldInfo', { comment: '', content: '  ' });
+  assert.equal(kept.comment, '旧');
+  assert.equal(kept.content, '旧内容');
 });

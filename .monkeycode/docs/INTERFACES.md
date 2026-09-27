@@ -652,7 +652,7 @@ data: [DONE]
 ### `ExtensionScreen`（默认导出）
 **位置**: `src/ExtensionScreen.js`
 **Props**: 无（由导航注入）
-**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），每个文本字段旁的「辅助生成」按钮弹出描述框，按用户描述调用当前 API 配置让 AI 改写该字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议，不经过 JSON 补丁解析）；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动）：动态开启后作为入口切到独立面板，「互动」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` 编辑。
+**说明**: 分段控件切换「游戏」「生图」「制卡」与「世界」；游戏区从 `GAMES` 列列表，选中后用 `WebView` 加载内嵌 HTML，顶部返回列表，加载失败提供重试；生图区内联渲染 `ImageGenScreen embedded`；制卡区内联渲染 `CardForgeScreen embedded`——「卡片」编辑弹窗（`CardForgeEditor`）支持文本字段与标签手动编辑、世界书/正则脚本/角色预设三个集合的逐条增删改（名称、关键词、内容、启用等基础属性），集合条目默认折叠、点标题展开编辑（可同时展开多条，新增条目自动展开，折叠态显示关键词/查找替换/内容摘要）；「辅助生成」覆盖三类目标——文本字段（`buildFieldAssistPrompt`/`parseFieldAssistText` 纯文本协议）、标签（`buildTagsAssistPrompt`，顿号分隔纯文本，最多 `MAX_FORGE_TAG_COUNT` 个）、集合条目（`buildEntryAssistPrompt`/`parseEntryAssistPatch`/`mergeEntryAssistPatch` JSON 协议，提示词只投影条目白名单字段，合并时仅接受白名单字段、空值不覆盖、位置/深度/开关等保留原值），全部经 `CardForgeScreen` 的 `sendAssistPrompt`（API 配置指纹保护 + AbortSignal）调用当前模型改写，成功后更新 `aigcMeta` 生成标识；各视图同时挂载、以透明度与 `pointerEvents` 控制显隐，切换分段保留已填内容；`react-native-webview` 不可用时隐藏游戏入口并提示。「世界」分组收拢扩展（动态/互动）：动态开启后作为入口切到独立面板，「互动」分组初始保持折叠、点按就地展开 `ProactivePanel embedded` 编辑。
 
 ### 游戏清单
 **位置**: `src/games/games.js`

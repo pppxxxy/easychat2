@@ -699,3 +699,116 @@ export function parseFieldAssistText(raw) {
   const stripped = String(fenced ? fenced[1] : text).trim();
   return stripped || null;
 }
+
+// ---- 集合与标签的辅助生成（问题：标签/世界书/正则/预设也要能 AI 改写）----
+
+// 标签：纯文本输出协议（顿号分隔），沿用 parseFieldAssistText 解析
+export function buildTagsAssistPrompt({ currentTags = [], request = '' } = {}) {
+  const current = (Array.isArray(currentTags) ? currentTags : []).map(item => String(item || '')).filter(Boolean).join('、');
+  return [
+    '请按用户要求改写下面角色卡的标签。',
+    '',
+    `当前标签：${current || '（空）'}`,
+    '',
+    `用户要求：${clean(request, 800) || '（空）'}`,
+    '',
+    '输出要求：',
+    '- 只输出标签本身，用顿号分隔，2 到 6 个。',
+    '- 不要编号、解释、前后缀或代码块标记，不要输出 JSON。',
+    '- 全部使用中文。',
+  ].filter(Boolean).join('\n');
+}
+
+// 集合条目的可见字段白名单：辅助生成只改这些字段，其余（位置/深度/概率等）保留
+const ENTRY_ASSIST_FIELDS = {
+  worldInfo: ['comment', 'keys', 'content'],
+  regexScripts: ['name', 'findRegex', 'replaceString'],
+  presets: ['name', 'prompt'],
+};
+
+const ENTRY_ASSIST_LABELS = {
+  worldInfo: '世界书条目',
+  regexScripts: '正则脚本',
+  presets: '角色预设',
+};
+
+function projectEntryFields(entry, fields) {
+  const source = entry && typeof entry === 'object' ? entry : {};
+  const projected = {};
+  fields.forEach(field => {
+    if (field === 'keys') {
+      projected.keys = Array.isArray(source.keys) ? source.keys.map(item => String(item || '')) : [];
+    } else {
+      projected[field] = String(source[field] || '');
+    }
+  });
+  return projected;
+}
+
+export function buildEntryAssistPrompt({ kind = '', currentEntry = {}, request = '' } = {}) {
+  const fields = ENTRY_ASSIST_FIELDS[kind] || [];
+  const label = ENTRY_ASSIST_LABELS[kind] || '条目';
+  return [
+    `请按用户要求改写下面的${label}，只改需要改的字段。`,
+    '',
+    '当前条目 JSON：',
+    JSON.stringify(projectEntryFields(currentEntry, fields)),
+    '',
+    `用户要求：${clean(request, 800) || '（空）'}`,
+    '',
+    '输出要求：',
+    '- 只输出修改后的完整 JSON 对象，不要任何解释或代码块标记。',
+    `- 只包含这些字段：${fields.join('、')}；不要新增或删除字段。`,
+    '- 未修改的字段原样完整复制，不要留空。',
+    '- keys 是字符串数组，其余字段是字符串。',
+    '- 全部使用中文。',
+  ].filter(Boolean).join('\n');
+}
+
+// 宽松解析条目辅助生成结果：容忍代码块包裹与前后多余文字，返回对象或 null
+export function parseEntryAssistPatch(raw) {
+  const text = String(raw || '').trim().slice(0, MAX_PRESERVED_TEXT);
+  if (!text) return null;
+  const candidates = [];
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidates.push(fenced[1]);
+  candidates.push(text);
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch (error) {
+      // 尝试下一个候选
+    }
+  }
+  return null;
+}
+
+// 把解析结果按白名单合并进条目：只接受声明的字段（keys 过滤为字符串数组）
+export function mergeEntryAssistPatch(entry, kind, patch) {
+  const base = entry && typeof entry === 'object' ? entry : {};
+  const fields = ENTRY_ASSIST_FIELDS[kind] || [];
+  const source = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
+  const next = { ...base };
+  fields.forEach(field => {
+    if (field === 'keys') {
+      const keys = Array.isArray(source.keys)
+        ? source.keys.map(item => clean(item, 60)).filter(Boolean)
+        : splitAssistList(source.keys);
+      if (keys.length > 0) next.keys = keys;
+    } else if (typeof source[field] === 'string' && source[field].trim()) {
+      next[field] = clean(source[field], MAX_PRESERVED_TEXT);
+    }
+  });
+  return next;
+}
+
+function splitAssistList(value) {
+  return String(value || '')
+    .split(/[、,，]+/)
+    .map(item => clean(item, 60))
+    .filter(Boolean);
+}

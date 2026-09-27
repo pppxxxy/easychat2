@@ -16,8 +16,12 @@ import {
   FIELD_LABELS,
   FORGE_FIELDS,
   MAX_FORGE_TAG_COUNT,
+  buildEntryAssistPrompt,
   buildFieldAssistPrompt,
+  buildTagsAssistPrompt,
   createForgeDraft,
+  mergeEntryAssistPatch,
+  parseEntryAssistPatch,
   parseFieldAssistText,
 } from './cardForge/forge';
 import { createRegexScript, createWorldEntry } from './cardParser';
@@ -48,9 +52,6 @@ const PLACEHOLDERS = {
   creatorNotes: '给用户的使用建议…',
   postHistoryInstructions: '给模型的持续要求…',
 };
-
-// 辅助生成可用的文本字段：AI 改写的基本盘 + 手动保留的系统提示。
-const ASSIST_FIELDS = new Set([...FORGE_FIELDS, 'systemPrompt']);
 
 function splitKeywords(text) {
   return String(text || '')
@@ -85,6 +86,8 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   const [assistTarget, setAssistTarget] = useState(null);
   const [assistText, setAssistText] = useState('');
   const [assistBusy, setAssistBusy] = useState(false);
+  // 集合条目默认折叠，点标题展开（可同时展开多条）；新增条目自动展开。
+  const [expandedEntries, setExpandedEntries] = useState(() => new Set());
   const wasVisibleRef = useRef(false);
   const assistAbortRef = useRef(null);
 
@@ -97,6 +100,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const next = { ...createForgeDraft(), ...(draft || {}) };
     setForm(next);
     setTagText(Array.isArray(next.tags) ? next.tags.join('、') : '');
+    setExpandedEntries(new Set());
   }, [draft, visible]);
 
   // 卸载时中止挂着的辅助生成请求，避免写回已卸载的表单。
@@ -126,37 +130,52 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     patchList(key, list => list.filter((_, i) => i !== index));
   };
 
+  // 折叠控制：条目 key 用列表名 + 稳定 id（无 id 时退回序号）
+  const entryKeyOf = (listKey, entry, index) => `${listKey}:${(entry && entry.id) || index}`;
+  const toggleEntry = entryKey => setExpandedEntries(current => {
+    const next = new Set(current);
+    if (next.has(entryKey)) next.delete(entryKey); else next.add(entryKey);
+    return next;
+  });
+  const expandEntry = entryKey => setExpandedEntries(current => new Set(current).add(entryKey));
+
   const worldInfo = Array.isArray(form.worldInfo) ? form.worldInfo : [];
   const regexScripts = Array.isArray(form.regexScripts) ? form.regexScripts : [];
   const presets = Array.isArray(form.presets) ? form.presets : [];
 
   const addWorldEntry = () => {
+    const id = `entry-${Date.now().toString(36)}`;
     patchList('worldInfo', list => [...list, createWorldEntry({
-      id: `entry-${Date.now().toString(36)}`,
+      id,
       comment: `世界书条目 ${list.length + 1}`,
     })]);
+    expandEntry(`worldInfo:${id}`);
   };
 
   const addRegexScript = () => {
+    const id = `regex-${Date.now().toString(36)}`;
     patchList('regexScripts', list => [...list, createRegexScript({
-      id: `regex-${Date.now().toString(36)}`,
+      id,
       name: `正则脚本 ${list.length + 1}`,
     })]);
+    expandEntry(`regexScripts:${id}`);
   };
 
   const addPreset = () => {
+    const id = makeCharacterPresetId(presets);
     patchList('presets', list => [...list, {
-      id: makeCharacterPresetId(list),
+      id,
       name: `预设 ${list.length + 1}`,
       prompt: '',
       enabled: true,
     }]);
+    expandEntry(`presets:${id}`);
   };
 
-  // ---- 单字段辅助生成 ----
-  const openAssist = key => {
+  // ---- 辅助生成：文本字段 / 标签 / 集合条目 ----
+  const openAssist = target => {
     if (assistBusy) return;
-    setAssistTarget({ key, label: FIELD_LABELS[key] || key });
+    setAssistTarget(target);
     setAssistText('');
   };
 
@@ -169,6 +188,19 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     setAssistTarget(null);
     setAssistText('');
   };
+
+  const currentAssistEntry = () => {
+    const target = assistTarget;
+    if (!target || target.kind !== 'entry') return null;
+    const list = Array.isArray(form[target.listKey]) ? form[target.listKey] : [];
+    return list[target.index] || null;
+  };
+
+  const applyAigcStamp = current => ({
+    ...current,
+    // 字段/标签/条目的 AI 改写同样是生成内容：更新标识（source 区分整卡生成与辅助改写）
+    [AIGC_META_FIELD]: buildAigcMeta({ source: 'easychat2-field-assist' }),
+  });
 
   const submitAssist = async () => {
     const target = assistTarget;
@@ -185,24 +217,68 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     assistAbortRef.current = controller;
     setAssistBusy(true);
     try {
-      const prompt = buildFieldAssistPrompt({
-        fieldLabel: target.label,
-        currentValue: form[target.key],
-        request,
-      });
+      // 按目标组装提示词
+      let prompt;
+      if (target.kind === 'field') {
+        prompt = buildFieldAssistPrompt({
+          fieldLabel: target.label,
+          currentValue: form[target.key],
+          request,
+        });
+      } else if (target.kind === 'tags') {
+        prompt = buildTagsAssistPrompt({ currentTags: splitKeywords(tagText), request });
+      } else {
+        prompt = buildEntryAssistPrompt({
+          kind: target.listKey,
+          currentEntry: currentAssistEntry() || {},
+          request,
+        });
+      }
       const raw = await onAssistPrompt(prompt, controller.signal);
-      const nextValue = parseFieldAssistText(raw);
-      if (nextValue === null) {
+
+      // 集合条目：JSON 协议，按白名单字段合并
+      if (target.kind === 'entry') {
+        const patch = parseEntryAssistPatch(raw);
+        if (!patch) {
+          Alert.alert('生成失败', 'AI 没有返回有效的 JSON，请重试。');
+          return;
+        }
+        const listKey = target.listKey;
+        const index = target.index;
+        setForm(current => {
+          const list = Array.isArray(current[listKey]) ? current[listKey] : [];
+          const merged = mergeEntryAssistPatch(list[index], listKey, patch);
+          return applyAigcStamp({
+            ...current,
+            [listKey]: list.map((item, i) => (i === index ? merged : item)),
+          });
+        });
+        closeAssist();
+        return;
+      }
+
+      // 文本字段与标签：纯文本协议
+      const text = parseFieldAssistText(raw);
+      if (text === null) {
         Alert.alert('生成失败', 'AI 没有返回有效内容，请重试。');
         return;
       }
-      const appliedKey = target.key;
-      setForm(current => ({
-        ...current,
-        [appliedKey]: nextValue,
-        // 字段级 AI 改写同样是生成内容：更新标识（source 区分整卡生成与字段辅助）
-        [AIGC_META_FIELD]: buildAigcMeta({ source: 'easychat2-field-assist' }),
-      }));
+      if (target.kind === 'tags') {
+        const list = text
+          .split(/[、,，]+/)
+          .map(item => item.trim())
+          .filter(Boolean)
+          .slice(0, MAX_FORGE_TAG_COUNT);
+        if (list.length === 0) {
+          Alert.alert('生成失败', 'AI 没有返回有效标签，请重试。');
+          return;
+        }
+        setTagText(list.join('、'));
+        setForm(current => applyAigcStamp({ ...current, tags: list }));
+      } else {
+        const appliedKey = target.key;
+        setForm(current => applyAigcStamp({ ...current, [appliedKey]: text }));
+      }
       closeAssist();
     } catch (error) {
       if (isCanceledError(error)) return;
@@ -215,7 +291,30 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     }
   };
 
-  const assistLabel = assistTarget ? (FIELD_LABELS[assistTarget.key] || assistTarget.label) : '';
+  const assistLabel = (() => {
+    const target = assistTarget;
+    if (!target) return '';
+    if (target.kind === 'field') return FIELD_LABELS[target.key] || target.label;
+    if (target.kind === 'tags') return '标签';
+    return target.label || '条目';
+  })();
+
+  const assistPreview = (() => {
+    const target = assistTarget;
+    if (!target) return '';
+    if (target.kind === 'field') return String(form[target.key] || '');
+    if (target.kind === 'tags') return tagText;
+    const entry = currentAssistEntry() || {};
+    if (target.listKey === 'worldInfo') {
+      return [entry.comment, Array.isArray(entry.keys) ? entry.keys.join('、') : '', entry.content]
+        .filter(Boolean).join('　');
+    }
+    if (target.listKey === 'regexScripts') {
+      return [entry.name, entry.findRegex ? `${entry.findRegex} → ${entry.replaceString || ''}` : '']
+        .filter(Boolean).join('　');
+    }
+    return [entry.name, entry.prompt].filter(Boolean).join('　');
+  })();
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -240,7 +339,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
             <FieldGroup
               key={key}
               label={FIELD_LABELS[key] || key}
-              action={ASSIST_FIELDS.has(key) ? <AssistButton label={FIELD_LABELS[key] || key} onPress={() => openAssist(key)} /> : null}
+              action={<AssistButton label={FIELD_LABELS[key] || key} onPress={() => openAssist({ kind: 'field', key, label: FIELD_LABELS[key] || key })} />}
             >
               <TextField
                 value={String(form[key] || '')}
@@ -253,7 +352,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           <FieldGroup
             label="系统提示"
             hint="原样保留，AI 不会改写它；需要时可以在这里手动调整"
-            action={<AssistButton label="系统提示" onPress={() => openAssist('systemPrompt')} />}
+            action={<AssistButton label="系统提示" onPress={() => openAssist({ kind: 'field', key: 'systemPrompt', label: '系统提示' })} />}
           >
             <TextField
               value={String(form.systemPrompt || '')}
@@ -262,165 +361,249 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               multiline
             />
           </FieldGroup>
-          <FieldGroup label="标签" hint={`用顿号或逗号分隔，最多 ${MAX_FORGE_TAG_COUNT} 个`}>
+          <FieldGroup
+            label="标签"
+            hint={`用顿号或逗号分隔，最多 ${MAX_FORGE_TAG_COUNT} 个`}
+            action={<AssistButton label="标签" onPress={() => openAssist({ kind: 'tags', label: '标签' })} />}
+          >
             <TextField value={tagText} onChangeText={setTagText} placeholder="例如：治愈、日常" />
           </FieldGroup>
 
-          <FieldGroup label="世界书条目" hint="命中关键词后注入提示词">
+          <FieldGroup label="世界书条目" hint="命中关键词后注入提示词，点条目标题展开编辑">
             {worldInfo.length === 0 ? (
               <Text style={styles.emptyText}>还没有世界书条目。</Text>
-            ) : worldInfo.map((entry, index) => (
-              <View key={entry.id || `world-${index}`} style={styles.entryCard}>
-                <View style={styles.entryHeader}>
-                  <Text style={styles.entryTitle} numberOfLines={1}>
-                    {entry.comment || `条目 ${index + 1}`}
-                  </Text>
-                  <TouchableOpacity onPress={() => removeEntry('worldInfo', index)} hitSlop={8} accessibilityLabel="删除世界书条目">
-                    <Text style={styles.removeText}>删除</Text>
-                  </TouchableOpacity>
+            ) : worldInfo.map((entry, index) => {
+              const entryKey = entryKeyOf('worldInfo', entry, index);
+              const expanded = expandedEntries.has(entryKey);
+              const summary = [
+                Array.isArray(entry.keys) && entry.keys.length ? `关键词：${entry.keys.join('、')}` : '',
+                String(entry.content || '').replace(/\s+/g, ' ').trim(),
+              ].filter(Boolean).join('　');
+              return (
+                <View key={entryKey} style={styles.entryCard}>
+                  <View style={styles.entryHeader}>
+                    <TouchableOpacity
+                      style={styles.entryToggle}
+                      onPress={() => toggleEntry(entryKey)}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`展开世界书条目 ${index + 1}`}
+                    >
+                      <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
+                      <Text style={styles.entryTitle} numberOfLines={1}>{entry.comment || `条目 ${index + 1}`}</Text>
+                      {entry.enabled === false ? <Text style={styles.entryDisabled}>已停用</Text> : null}
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeEntry('worldInfo', index)} hitSlop={8} accessibilityLabel="删除世界书条目">
+                      <Text style={styles.removeText}>删除</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {expanded ? (
+                    <View style={styles.entryBody}>
+                      <View style={styles.entryActions}>
+                        <AssistButton
+                          label="世界书条目"
+                          onPress={() => openAssist({ kind: 'entry', listKey: 'worldInfo', index, label: '世界书条目' })}
+                        />
+                      </View>
+                      <TextField
+                        style={styles.entryInput}
+                        value={String(entry.comment || '')}
+                        onChangeText={comment => updateEntry('worldInfo', index, { comment })}
+                        placeholder="条目名称"
+                      />
+                      <TextField
+                        style={styles.entryInput}
+                        value={(Array.isArray(entry.keys) ? entry.keys : []).join(', ')}
+                        onChangeText={text => updateEntry('worldInfo', index, { keys: splitKeywords(text) })}
+                        placeholder="触发关键词（逗号分隔）"
+                      />
+                      <TextField
+                        style={styles.entryContent}
+                        value={String(entry.content || '')}
+                        onChangeText={content => updateEntry('worldInfo', index, { content })}
+                        placeholder="命中后注入的内容"
+                        multiline
+                      />
+                      <View style={styles.switchRow}>
+                        <Text style={styles.switchLabel}>常驻（无需关键词）</Text>
+                        <Switch
+                          value={entry.constant === true}
+                          onValueChange={constant => updateEntry('worldInfo', index, { constant })}
+                          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                          thumbColor={theme.colors.primaryContrast}
+                        />
+                      </View>
+                      <View style={styles.switchRow}>
+                        <Text style={styles.switchLabel}>启用</Text>
+                        <Switch
+                          value={entry.enabled !== false}
+                          onValueChange={enabled => updateEntry('worldInfo', index, { enabled })}
+                          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                          thumbColor={theme.colors.primaryContrast}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.entrySummary} numberOfLines={2}>{summary || '未设置内容'}</Text>
+                  )}
                 </View>
-                <TextField
-                  style={styles.entryInput}
-                  value={String(entry.comment || '')}
-                  onChangeText={comment => updateEntry('worldInfo', index, { comment })}
-                  placeholder="条目名称"
-                />
-                <TextField
-                  style={styles.entryInput}
-                  value={(Array.isArray(entry.keys) ? entry.keys : []).join(', ')}
-                  onChangeText={text => updateEntry('worldInfo', index, { keys: splitKeywords(text) })}
-                  placeholder="触发关键词（逗号分隔）"
-                />
-                <TextField
-                  style={styles.entryContent}
-                  value={String(entry.content || '')}
-                  onChangeText={content => updateEntry('worldInfo', index, { content })}
-                  placeholder="命中后注入的内容"
-                  multiline
-                />
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>常驻（无需关键词）</Text>
-                  <Switch
-                    value={entry.constant === true}
-                    onValueChange={constant => updateEntry('worldInfo', index, { constant })}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>启用</Text>
-                  <Switch
-                    value={entry.enabled !== false}
-                    onValueChange={enabled => updateEntry('worldInfo', index, { enabled })}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-              </View>
-            ))}
+              );
+            })}
             <SecondaryButton title="添加世界书条目" onPress={addWorldEntry} small />
           </FieldGroup>
 
-          <FieldGroup label="正则脚本" hint="对展示文本或发送提示词做替换">
+          <FieldGroup label="正则脚本" hint="对展示文本或发送提示词做替换，点条目标题展开编辑">
             {regexScripts.length === 0 ? (
               <Text style={styles.emptyText}>还没有正则脚本。</Text>
-            ) : regexScripts.map((script, index) => (
-              <View key={script.id || `regex-${index}`} style={styles.entryCard}>
-                <View style={styles.entryHeader}>
-                  <Text style={styles.entryTitle} numberOfLines={1}>
-                    {script.name || `脚本 ${index + 1}`}
-                  </Text>
-                  <TouchableOpacity onPress={() => removeEntry('regexScripts', index)} hitSlop={8} accessibilityLabel="删除正则脚本">
-                    <Text style={styles.removeText}>删除</Text>
-                  </TouchableOpacity>
+            ) : regexScripts.map((script, index) => {
+              const entryKey = entryKeyOf('regexScripts', script, index);
+              const expanded = expandedEntries.has(entryKey);
+              const summary = String(script.findRegex || '').trim()
+                ? `查找：${script.findRegex} → 替换：${script.replaceString || '（空）'}`
+                : '未设置查找内容';
+              return (
+                <View key={entryKey} style={styles.entryCard}>
+                  <View style={styles.entryHeader}>
+                    <TouchableOpacity
+                      style={styles.entryToggle}
+                      onPress={() => toggleEntry(entryKey)}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`展开正则脚本 ${index + 1}`}
+                    >
+                      <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
+                      <Text style={styles.entryTitle} numberOfLines={1}>{script.name || `脚本 ${index + 1}`}</Text>
+                      {script.enabled === false ? <Text style={styles.entryDisabled}>已停用</Text> : null}
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeEntry('regexScripts', index)} hitSlop={8} accessibilityLabel="删除正则脚本">
+                      <Text style={styles.removeText}>删除</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {expanded ? (
+                    <View style={styles.entryBody}>
+                      <View style={styles.entryActions}>
+                        <AssistButton
+                          label="正则脚本"
+                          onPress={() => openAssist({ kind: 'entry', listKey: 'regexScripts', index, label: '正则脚本' })}
+                        />
+                      </View>
+                      <TextField
+                        style={styles.entryInput}
+                        value={String(script.name || '')}
+                        onChangeText={name => updateEntry('regexScripts', index, { name })}
+                        placeholder="脚本名称"
+                      />
+                      <TextField
+                        style={styles.entryInput}
+                        value={String(script.findRegex || '')}
+                        onChangeText={findRegex => updateEntry('regexScripts', index, { findRegex })}
+                        placeholder="查找内容（或 /正则/ 标记）"
+                      />
+                      <TextField
+                        style={styles.entryInput}
+                        value={String(script.replaceString || '')}
+                        onChangeText={replaceString => updateEntry('regexScripts', index, { replaceString })}
+                        placeholder="替换为"
+                      />
+                      <View style={styles.switchRow}>
+                        <Text style={styles.switchLabel}>仅替换展示</Text>
+                        <Switch
+                          value={script.markdownOnly === true}
+                          onValueChange={markdownOnly => updateEntry('regexScripts', index, { markdownOnly })}
+                          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                          thumbColor={theme.colors.primaryContrast}
+                        />
+                      </View>
+                      <View style={styles.switchRow}>
+                        <Text style={styles.switchLabel}>仅用于发送提示词</Text>
+                        <Switch
+                          value={script.promptOnly === true}
+                          onValueChange={promptOnly => updateEntry('regexScripts', index, { promptOnly })}
+                          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                          thumbColor={theme.colors.primaryContrast}
+                        />
+                      </View>
+                      <View style={styles.switchRow}>
+                        <Text style={styles.switchLabel}>启用</Text>
+                        <Switch
+                          value={script.enabled !== false}
+                          onValueChange={enabled => updateEntry('regexScripts', index, { enabled })}
+                          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                          thumbColor={theme.colors.primaryContrast}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.entrySummary} numberOfLines={2}>{summary}</Text>
+                  )}
                 </View>
-                <TextField
-                  style={styles.entryInput}
-                  value={String(script.name || '')}
-                  onChangeText={name => updateEntry('regexScripts', index, { name })}
-                  placeholder="脚本名称"
-                />
-                <TextField
-                  style={styles.entryInput}
-                  value={String(script.findRegex || '')}
-                  onChangeText={findRegex => updateEntry('regexScripts', index, { findRegex })}
-                  placeholder="查找内容（或 /正则/ 标记）"
-                />
-                <TextField
-                  style={styles.entryInput}
-                  value={String(script.replaceString || '')}
-                  onChangeText={replaceString => updateEntry('regexScripts', index, { replaceString })}
-                  placeholder="替换为"
-                />
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>仅替换展示</Text>
-                  <Switch
-                    value={script.markdownOnly === true}
-                    onValueChange={markdownOnly => updateEntry('regexScripts', index, { markdownOnly })}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>仅用于发送提示词</Text>
-                  <Switch
-                    value={script.promptOnly === true}
-                    onValueChange={promptOnly => updateEntry('regexScripts', index, { promptOnly })}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>启用</Text>
-                  <Switch
-                    value={script.enabled !== false}
-                    onValueChange={enabled => updateEntry('regexScripts', index, { enabled })}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-              </View>
-            ))}
+              );
+            })}
             <SecondaryButton title="添加正则脚本" onPress={addRegexScript} small />
           </FieldGroup>
 
-          <FieldGroup label="角色预设" hint="随提示词注入的文本预设">
+          <FieldGroup label="角色预设" hint="随提示词注入的文本预设，点条目标题展开编辑">
             {presets.length === 0 ? (
               <Text style={styles.emptyText}>还没有预设。</Text>
-            ) : presets.map((preset, index) => (
-              <View key={preset.id || `preset-${index}`} style={styles.entryCard}>
-                <View style={styles.entryHeader}>
-                  <Text style={styles.entryTitle} numberOfLines={1}>
-                    {preset.name || `预设 ${index + 1}`}
-                  </Text>
-                  <TouchableOpacity onPress={() => removeEntry('presets', index)} hitSlop={8} accessibilityLabel="删除预设">
-                    <Text style={styles.removeText}>删除</Text>
-                  </TouchableOpacity>
+            ) : presets.map((preset, index) => {
+              const entryKey = entryKeyOf('presets', preset, index);
+              const expanded = expandedEntries.has(entryKey);
+              const summary = String(preset.prompt || '').replace(/\s+/g, ' ').trim();
+              return (
+                <View key={entryKey} style={styles.entryCard}>
+                  <View style={styles.entryHeader}>
+                    <TouchableOpacity
+                      style={styles.entryToggle}
+                      onPress={() => toggleEntry(entryKey)}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`展开预设 ${index + 1}`}
+                    >
+                      <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
+                      <Text style={styles.entryTitle} numberOfLines={1}>{preset.name || `预设 ${index + 1}`}</Text>
+                      {preset.enabled === false ? <Text style={styles.entryDisabled}>已停用</Text> : null}
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeEntry('presets', index)} hitSlop={8} accessibilityLabel="删除预设">
+                      <Text style={styles.removeText}>删除</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {expanded ? (
+                    <View style={styles.entryBody}>
+                      <View style={styles.entryActions}>
+                        <AssistButton
+                          label="角色预设"
+                          onPress={() => openAssist({ kind: 'entry', listKey: 'presets', index, label: '角色预设' })}
+                        />
+                      </View>
+                      <TextField
+                        style={styles.entryInput}
+                        value={String(preset.name || '')}
+                        onChangeText={name => updateEntry('presets', index, { name })}
+                        placeholder="预设名称"
+                      />
+                      <TextField
+                        style={styles.entryContent}
+                        value={String(preset.prompt || '')}
+                        onChangeText={prompt => updateEntry('presets', index, { prompt })}
+                        placeholder="预设内容（注入提示词）"
+                        multiline
+                      />
+                      <View style={styles.switchRow}>
+                        <Text style={styles.switchLabel}>启用</Text>
+                        <Switch
+                          value={preset.enabled !== false}
+                          onValueChange={enabled => updateEntry('presets', index, { enabled })}
+                          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                          thumbColor={theme.colors.primaryContrast}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.entrySummary} numberOfLines={2}>{summary || '未设置内容'}</Text>
+                  )}
                 </View>
-                <TextField
-                  style={styles.entryInput}
-                  value={String(preset.name || '')}
-                  onChangeText={name => updateEntry('presets', index, { name })}
-                  placeholder="预设名称"
-                />
-                <TextField
-                  style={styles.entryContent}
-                  value={String(preset.prompt || '')}
-                  onChangeText={prompt => updateEntry('presets', index, { prompt })}
-                  placeholder="预设内容（注入提示词）"
-                  multiline
-                />
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>启用</Text>
-                  <Switch
-                    value={preset.enabled !== false}
-                    onValueChange={enabled => updateEntry('presets', index, { enabled })}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-              </View>
-            ))}
+              );
+            })}
             <SecondaryButton title="添加预设" onPress={addPreset} small />
           </FieldGroup>
 
@@ -445,7 +628,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
             <Text style={styles.assistTitle}>{`辅助生成「${assistLabel}」`}</Text>
             {assistTarget ? (
               <Text style={styles.assistCurrent} numberOfLines={3}>
-                {`当前内容：${String(form[assistTarget.key] || '').trim() || '（空）'}`}
+                {`当前内容：${assistPreview.trim() || '（空）'}`}
               </Text>
             ) : null}
             <TextField
@@ -546,6 +729,30 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: tokens.spacing.sm,
+  },
+  entryToggle: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: tokens.spacing.sm,
+  },
+  entryDisabled: {
+    marginLeft: 6,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
+  entryBody: {
+    marginTop: 2,
+  },
+  entryActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: tokens.spacing.sm,
+  },
+  entrySummary: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
   },
   entryTitle: {
     flex: 1,
