@@ -36,7 +36,8 @@ import {
   saveMomentsSettings,
   getThinkingSettings,
   getSamplingSettings,
-  getVectorMemoryConfig,
+  getVectorMemorySettings,
+  createVectorConfig,
   getUserProfile,
   getPersonas,
   getActivePersonaId,
@@ -46,15 +47,17 @@ import {
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
+  saveImageGenSettings,
   saveSamplingSettings,
   saveThinkingSettings,
   saveUserProfile,
-  saveVectorMemoryConfig,
+  saveVectorMemorySettings,
   SAMPLING_FIELDS,
   THINKING_DISPLAYS,
 } from './storage';
 import { markMediaWrite } from './mediaProtection';
 import { IMAGE_PROVIDERS } from './imageGen/providers';
+import { detectImageProvider } from './imageGen';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
 import { testVectorConnection } from './vectorMemory';
 import {
@@ -66,6 +69,8 @@ import {
   SecondaryButton,
   TextField,
   TopicButton,
+  CollapsibleSection,
+  CollapsibleSelect,
 } from './ui';
 import ChapterModal from './ChapterModal';
 import TutorialModal from './TutorialModal';
@@ -87,16 +92,8 @@ export default function SettingsScreen() {
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaIdState] = useState('');
-  const [vectorMemory, setVectorMemory] = useState({
-    enabled: false,
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-    model: 'text-embedding-3-small',
-    topK: 5,
-    maxChars: 400,
-    batchSize: 16,
-  });
-  const vectorMemoryRef = useRef(null);
+  const [vectorPayload, setVectorPayload] = useState({ enabled: false, configs: [], activeId: '' });
+  const vectorRef = useRef(null);
   const vectorSaveTimerRef = useRef(null);
   const vectorSaveQueueRef = useRef(Promise.resolve());
   const vectorRevisionRef = useRef(0);
@@ -147,6 +144,11 @@ export default function SettingsScreen() {
     maxPromptChars: 400,
   });
   const [inlineImageProviders, setInlineImageProviders] = useState([]);
+  // 生图服务商各自的配置（来自 @easychat2_image_gen），对话配图面板里可就地编辑。
+  const [imageGenProviders, setImageGenProviders] = useState({});
+  const [imageGenTesting, setImageGenTesting] = useState('');
+  const imageGenRef = useRef({});
+  const imageGenActiveRef = useRef('');
   const inlineImageRef = useRef({
     enabled: false,
     providerId: '',
@@ -192,9 +194,9 @@ export default function SettingsScreen() {
         clearTimeout(vectorSaveTimerRef.current);
         vectorSaveTimerRef.current = null;
       }
-      const snapshot = vectorMemoryRef.current;
+      const snapshot = vectorRef.current;
       if (snapshot) {
-        const task = vectorSaveQueueRef.current.then(() => saveVectorMemoryConfig(snapshot));
+        const task = vectorSaveQueueRef.current.then(() => saveVectorMemorySettings(snapshot));
         vectorSaveQueueRef.current = task.catch(() => {});
       }
     };
@@ -231,16 +233,19 @@ export default function SettingsScreen() {
         setSampling(settings);
       })
       .catch(() => {});
-     getVectorMemoryConfig()
-       .then(config => {
-         lastSavedVectorRef.current = config;
-         const next = vectorRevisionRef.current > 0 && vectorMemoryRef.current
-           ? { ...config, ...vectorMemoryRef.current }
-           : config;
-         vectorMemoryRef.current = next;
-         setVectorMemory(next);
-         setVectorTopKDraft(String(next.topK));
-         setVectorMaxCharsDraft(String(next.maxChars));
+     getVectorMemorySettings()
+       .then(payload => {
+         lastSavedVectorRef.current = payload;
+         const next = vectorRevisionRef.current > 0 && vectorRef.current
+           ? vectorRef.current
+           : payload;
+         vectorRef.current = next;
+         setVectorPayload(next);
+         const active = next.configs.find(item => item.id === next.activeId) || next.configs[0];
+         if (active) {
+           setVectorTopKDraft(String(active.topK));
+           setVectorMaxCharsDraft(String(active.maxChars));
+         }
        })
       .catch(() => {});
 
@@ -256,6 +261,9 @@ export default function SettingsScreen() {
     getImageGenSettings()
       .then(settings => {
         const active = settings.activeProvider || (IMAGE_PROVIDERS[0] && IMAGE_PROVIDERS[0].id) || '';
+        imageGenActiveRef.current = settings.activeProvider || '';
+        setImageGenProviders(settings.providers || {});
+        imageGenRef.current = settings.providers || {};
         setInlineImageProviders(Object.keys(settings.providers || {}));
         setInlineImage(current => {
           const next = {
@@ -329,25 +337,25 @@ export default function SettingsScreen() {
       clearTimeout(vectorSaveTimerRef.current);
       vectorSaveTimerRef.current = null;
     }
-    const snapshot = vectorMemoryRef.current;
+    const snapshot = vectorRef.current;
     if (!snapshot) return true;
     const revision = vectorRevisionRef.current;
-    const task = vectorSaveQueueRef.current.then(() => saveVectorMemoryConfig(snapshot));
+    const task = vectorSaveQueueRef.current.then(() => saveVectorMemorySettings(snapshot));
     vectorSaveQueueRef.current = task.catch(() => {});
     try {
       const saved = await task;
       lastSavedVectorRef.current = saved;
       if (vectorMountedRef.current && revision === vectorRevisionRef.current) {
-        vectorMemoryRef.current = saved;
-        setVectorMemory(saved);
+        vectorRef.current = saved;
+        setVectorPayload(saved);
       }
       return true;
     } catch (error) {
       if (vectorMountedRef.current && revision === vectorRevisionRef.current) {
         const previous = lastSavedVectorRef.current;
         if (previous) {
-          vectorMemoryRef.current = previous;
-          setVectorMemory(previous);
+          vectorRef.current = previous;
+          setVectorPayload(previous);
         }
         Alert.alert('保存失败', '配置未保存，已恢复到上次成功状态。');
       }
@@ -355,31 +363,97 @@ export default function SettingsScreen() {
     }
   }, []);
 
-  const updateVectorMemory = useCallback(patch => {
-    const base = vectorMemoryRef.current || vectorMemory;
-    const next = { ...base, ...patch };
-    vectorMemoryRef.current = next;
+  // 把补丁应用到「当前激活的向量配置」，其余配置保持不变。
+  const updateVectorConfig = useCallback(patch => {
+    const base = vectorRef.current || vectorPayload;
+    const configs = base.configs.map(item => (
+      item.id === base.activeId ? { ...item, ...patch } : item
+    ));
+    const next = { ...base, configs };
+    vectorRef.current = next;
     vectorRevisionRef.current += 1;
-    setVectorMemory(next);
+    setVectorPayload(next);
     if (vectorSaveTimerRef.current) clearTimeout(vectorSaveTimerRef.current);
     vectorSaveTimerRef.current = setTimeout(() => {
       flushVectorMemory();
     }, 500);
-  }, [flushVectorMemory, vectorMemory]);
+  }, [flushVectorMemory, vectorPayload]);
+
+  const currentVectorConfig = useMemo(() => {
+    const list = vectorPayload.configs || [];
+    return list.find(item => item.id === vectorPayload.activeId) || list[0] || null;
+  }, [vectorPayload]);
+
+  const activeImageProvider = useMemo(
+    () => IMAGE_PROVIDERS.find(item => item.id === inlineImage.providerId) || null,
+    [inlineImage.providerId]
+  );
+
+  // 直接落盘一个完整的向量载荷（新增/删除/切换激活项时用，立即保存）。
+  const persistVectorPayload = useCallback(async next => {
+    vectorRef.current = next;
+    vectorRevisionRef.current += 1;
+    setVectorPayload(next);
+    try {
+      const saved = await saveVectorMemorySettings(next);
+      lastSavedVectorRef.current = saved;
+      vectorRef.current = saved;
+      if (vectorMountedRef.current) setVectorPayload(saved);
+      return true;
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+      return false;
+    }
+  }, []);
+
+  const addVectorConfig = useCallback(() => {
+    const base = vectorRef.current || vectorPayload;
+    const created = createVectorConfig({ name: `向量配置 ${base.configs.length + 1}` });
+    return persistVectorPayload({ ...base, configs: [...base.configs, created], activeId: created.id });
+  }, [persistVectorPayload, vectorPayload]);
+
+  const selectVectorConfig = useCallback(id => {
+    const base = vectorRef.current || vectorPayload;
+    if (!base.configs.some(item => item.id === id)) return;
+    return persistVectorPayload({ ...base, activeId: id });
+  }, [persistVectorPayload, vectorPayload]);
+
+  const removeVectorConfig = useCallback(() => {
+    const base = vectorRef.current || vectorPayload;
+    if (base.configs.length <= 1) {
+      Alert.alert('无法删除', '至少保留一个向量配置。');
+      return;
+    }
+    Alert.alert('删除向量配置', '确定删除当前向量配置吗？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          const latest = vectorRef.current || vectorPayload;
+          const configs = latest.configs.filter(item => item.id !== latest.activeId);
+          return persistVectorPayload({ ...latest, configs, activeId: configs[0].id });
+        },
+      },
+    ]);
+  }, [persistVectorPayload, vectorPayload]);
 
   const testVector = useCallback(async () => {
     if (vectorTesting) return;
     setVectorTesting(true);
     try {
       await flushVectorMemory();
-      const dims = await testVectorConnection(vectorMemoryRef.current || vectorMemory);
+      const active = (vectorRef.current || vectorPayload).configs.find(
+        item => item.id === (vectorRef.current || vectorPayload).activeId
+      ) || (vectorRef.current || vectorPayload).configs[0];
+      const dims = await testVectorConnection(active);
       Alert.alert('连接成功', `向量维度：${dims}`);
     } catch (error) {
       Alert.alert('连接失败', error?.message || '请检查地址、密钥与模型。');
     } finally {
       setVectorTesting(false);
     }
-  }, [flushVectorMemory, vectorMemory, vectorTesting]);
+  }, [flushVectorMemory, vectorPayload, vectorTesting]);
 
   const updateInlineImage = useCallback(async patch => {
     const next = { ...inlineImageRef.current, ...patch };
@@ -393,6 +467,61 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
+
+  // 就地编辑某个生图服务商的配置（地址/Key/模型/额外参数），立即落盘 @easychat2_image_gen。
+  const updateImageGenProvider = useCallback(async (providerId, patch) => {
+    const providers = {
+      ...(imageGenRef.current || {}),
+      [providerId]: { ...((imageGenRef.current || {})[providerId] || {}), ...patch },
+    };
+    imageGenRef.current = providers;
+    setImageGenProviders(providers);
+    try {
+      // 保留原有的 activeProvider，避免只写 providers 时把它重置掉。
+      const saved = await saveImageGenSettings({
+        activeProvider: imageGenActiveRef.current,
+        providers,
+      });
+      const list = saved.providers || {};
+      imageGenRef.current = list;
+      setImageGenProviders(list);
+      setInlineImageProviders(Object.keys(list));
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
+
+  const testImageGenProvider = useCallback(async provider => {
+    if (imageGenTesting) return;
+    setImageGenTesting(provider.id);
+    try {
+      const config = (imageGenRef.current || {})[provider.id] || {};
+      const models = [...new Set(String(config.model || provider.defaultModel || '')
+        .split(/[\n,]/).map(item => item.trim()).filter(Boolean))];
+      const result = await detectImageProvider({
+        provider,
+        config: {
+          baseUrl: String(config.baseUrl || provider.baseUrl || '').trim(),
+          apiKey: String(config.apiKey || '').trim(),
+          model: models[0] || provider.defaultModel || '',
+        },
+        model: models[0] || provider.defaultModel || '',
+      });
+      if (result.ok) {
+        Alert.alert('检测成功', result.modelFound === false
+          ? `${result.message}\n（模型名可能不正确，但接口已连通）`
+          : result.message);
+      } else if (result.needsProbe) {
+        Alert.alert('列表接口不可用', '该服务的模型列表接口无法访问，请在「扩展 → 生图」中试生成验证。');
+      } else {
+        Alert.alert('检测失败', result.error || '无法连接');
+      }
+    } catch (error) {
+      Alert.alert('检测失败', (error && error.message) || '无法连接');
+    } finally {
+      setImageGenTesting('');
+    }
+  }, [imageGenTesting]);
 
   const toggleMoments = useCallback(async () => {
     const next = !momentsEnabled;
@@ -1012,36 +1141,19 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          {configs.map(item => {
-            const selected = item.id === activeId;
-            return (
-              <TouchableOpacity
-                key={item.id}
-                style={[styles.configRow, selected && styles.configRowActive]}
-                onPress={() => selectConfig(item.id)}
-                disabled={!loaded || apiSaving}
-                activeOpacity={0.8}
-              >
-                <View style={styles.configInfo}>
-                  <Text
-                    style={[styles.configName, selected && styles.configNameActive]}
-                    numberOfLines={1}
-                  >
-                    {item.name || '未命名配置'}
-                  </Text>
-                  <Text style={styles.configMeta} numberOfLines={1}>
-                    {item.baseUrl || '未填写地址'} · {item.activeModel || '未填写模型'}
-                  </Text>
-                </View>
-                {selected ? (
-                  <View style={styles.currentBadge}>
-                    <Ionicons name="checkmark" size={11} color={theme.colors.primarySoft} />
-                    <Text style={styles.currentBadgeText}>当前</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            );
-          })}
+          <CollapsibleSelect
+            label="当前配置"
+            value={activeId}
+            options={configs.map(item => ({
+              value: item.id,
+              label: item.name || '未命名配置',
+              meta: `${item.baseUrl || '未填写地址'} · ${item.activeModel || '未填写模型'}`,
+            }))}
+            onSelect={id => selectConfig(id)}
+            placeholder="未选择配置"
+            emptyHint="暂无配置，点右上角「新建」"
+            style={styles.configSelect}
+          />
 
           {active ? (
             <>
@@ -1177,37 +1289,33 @@ export default function SettingsScreen() {
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像为全部人设共用。
           </Text>
           <FieldLabel style={styles.label}>我的身份</FieldLabel>
-          <View style={styles.personaList}>
-            {personas.map(item => {
-              const active = item.id === activePersonaId;
-              const label = String(item.userName || '').trim() || '未命名人设';
-              return (
-                <View key={item.id} style={[styles.personaChip, active && styles.personaChipActive]}>
-                  <TouchableOpacity
-                    style={styles.personaChipMain}
-                    onPress={() => selectPersona(item.id)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.personaChipText, active && styles.personaChipTextActive]}>
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                  {personas.length > 1 ? (
-                    <TouchableOpacity
-                      style={styles.personaChipRemove}
-                      onPress={() => removePersona(item.id)}
-                      hitSlop={6}
-                    >
-                      <Ionicons name="close" size={14} color={theme.colors.textFaint} />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              );
-            })}
+          <CollapsibleSelect
+            label="当前人设"
+            value={activePersonaId}
+            valueMeta={userPersona ? userPersona.slice(0, 40) : '未填写描述'}
+            options={personas.map(item => ({
+              value: item.id,
+              label: String(item.userName || '').trim() || '未命名人设',
+              meta: String(item.persona || '').trim().slice(0, 40) || '未填写描述',
+            }))}
+            onSelect={id => selectPersona(id)}
+            placeholder="未选择人设"
+          />
+          <View style={styles.personaActions}>
             <TouchableOpacity style={styles.personaAddChip} onPress={addPersona} activeOpacity={0.8}>
               <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.personaAddText}>新增</Text>
+              <Text style={styles.personaAddText}>新增人设</Text>
             </TouchableOpacity>
+            {personas.length > 1 ? (
+              <TouchableOpacity
+                style={styles.personaAddChip}
+                onPress={() => removePersona(activePersonaId)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
+                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           <View style={styles.avatarRow}>
             <View style={styles.avatarBox}>
@@ -1263,49 +1371,51 @@ export default function SettingsScreen() {
         </Card>
 
         <Card>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="color-palette-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>外观</Text>
-          </View>
-          <View style={styles.appearanceRow}>
-            {themes.map(item => {
-              const active = item.id === themeId;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.themeChip, active && { borderColor: item.colors.primary }]}
-                  onPress={() => setThemeId(item.id)}
-                  activeOpacity={0.85}
-                  accessibilityLabel={`切换到${item.label}主题`}
-                >
-                  <View style={[styles.themeSwatch, { backgroundColor: item.colors.background }]}>
-                    <View style={[styles.themeSwatchDot, { backgroundColor: item.colors.primary }]} />
-                  </View>
-                  <Text style={[styles.themeChipText, active && { color: item.colors.primary, fontWeight: '800' }]}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <FieldLabel style={styles.label}>字体大小</FieldLabel>
-          <View style={styles.fontRow}>
-            {fontScales.map(item => {
-              const active = item.id === fontScaleId;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.fontChip, active && styles.fontChipActive]}
-                  onPress={() => setFontScaleId(item.id)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <CollapsibleSection
+            title="外观"
+            icon="color-palette-outline"
+            right={<Text style={styles.collapseSummary}>{`${(themes.find(t => t.id === themeId) || {}).label || ''}`}</Text>}
+          >
+            <View style={styles.appearanceRow}>
+              {themes.map(item => {
+                const active = item.id === themeId;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.themeChip, active && { borderColor: item.colors.primary }]}
+                    onPress={() => setThemeId(item.id)}
+                    activeOpacity={0.85}
+                    accessibilityLabel={`切换到${item.label}主题`}
+                  >
+                    <View style={[styles.themeSwatch, { backgroundColor: item.colors.background }]}>
+                      <View style={[styles.themeSwatchDot, { backgroundColor: item.colors.primary }]} />
+                    </View>
+                    <Text style={[styles.themeChipText, active && { color: item.colors.primary, fontWeight: '800' }]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <FieldLabel style={styles.label}>字体大小</FieldLabel>
+            <View style={styles.fontRow}>
+              {fontScales.map(item => {
+                const active = item.id === fontScaleId;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.fontChip, active && styles.fontChipActive]}
+                    onPress={() => setFontScaleId(item.id)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </CollapsibleSection>
         </Card>
 
         <Card>
@@ -1332,24 +1442,76 @@ export default function SettingsScreen() {
             />
           </View>
           <FieldLabel style={styles.label}>生图服务</FieldLabel>
-          <View style={styles.fontRow}>
-            {IMAGE_PROVIDERS.map(provider => {
-              const active = inlineImage.providerId === provider.id;
-              const configured = inlineImageProviders.includes(provider.id);
-              return (
+          <CollapsibleSelect
+            label="当前服务"
+            value={inlineImage.providerId}
+            options={IMAGE_PROVIDERS.map(provider => ({
+              value: provider.id,
+              label: provider.label,
+              meta: inlineImageProviders.includes(provider.id)
+                ? `已配置 · ${String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || '默认模型'}`
+                : '未配置密钥',
+            }))}
+            onSelect={id => updateInlineImage({ providerId: id })}
+            placeholder="未选择服务"
+          />
+          {activeImageProvider ? (
+            <View style={styles.providerEditor}>
+              <Text style={styles.providerEditorTitle}>{activeImageProvider.label} 配置</Text>
+              {activeImageProvider.keyHint ? (
+                <FieldHint style={styles.hint}>密钥：{activeImageProvider.keyHint}</FieldHint>
+              ) : null}
+              <FieldLabel style={styles.label}>API 地址</FieldLabel>
+              <TextField
+                value={String((imageGenProviders[activeImageProvider.id] || {}).baseUrl || '')}
+                onChangeText={text => updateImageGenProvider(activeImageProvider.id, { baseUrl: text })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={activeImageProvider.baseUrlPlaceholder || activeImageProvider.baseUrl || 'https://example.com/v1/images/generations'}
+              />
+              <FieldLabel style={styles.label}>API Key</FieldLabel>
+              <TextField
+                value={String((imageGenProviders[activeImageProvider.id] || {}).apiKey || '')}
+                onChangeText={text => updateImageGenProvider(activeImageProvider.id, { apiKey: text })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                placeholder="sk-..."
+              />
+              {activeImageProvider.apiKeyUrl ? (
                 <TouchableOpacity
-                  key={provider.id}
-                  style={[styles.fontChip, active && styles.fontChipActive]}
-                  onPress={() => updateInlineImage({ providerId: provider.id })}
-                  activeOpacity={0.85}
+                  style={styles.apiKeyLinkRow}
+                  onPress={() => openApiKeyUrl(activeImageProvider.apiKeyUrl)}
+                  activeOpacity={0.7}
+                  accessibilityRole="link"
                 >
-                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                    {configured ? provider.label : `${provider.label}（未配置）`}
-                  </Text>
+                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
+              ) : null}
+              <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
+              <TextField
+                value={String((imageGenProviders[activeImageProvider.id] || {}).model || '')}
+                onChangeText={text => updateImageGenProvider(activeImageProvider.id, { model: text })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={activeImageProvider.defaultModel || '模型名'}
+              />
+              <TouchableOpacity
+                style={[styles.detectButton, imageGenTesting === activeImageProvider.id && styles.buttonDisabled]}
+                onPress={() => testImageGenProvider(activeImageProvider)}
+                disabled={imageGenTesting === activeImageProvider.id}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
+                <Text style={styles.detectButtonText}>
+                  {imageGenTesting === activeImageProvider.id ? '检测中...' : '检测连通性'}
+                </Text>
+              </TouchableOpacity>
+              {activeImageProvider.networkNote ? (
+                <FieldHint style={styles.hint}>{activeImageProvider.networkNote}</FieldHint>
+              ) : null}
+            </View>
+          ) : null}
           <FieldLabel style={styles.label}>风格前缀（可选）</FieldLabel>
           <TextField
             value={inlineImage.stylePrefix}
@@ -1373,7 +1535,7 @@ export default function SettingsScreen() {
             keyboardType="number-pad"
             placeholder="400"
           />
-          <Text style={styles.fieldHint}>生图密钥请在「扩展 → 生图」中配置。</Text>
+          <Text style={styles.fieldHint}>密钥仅保存在本机，与「扩展 → 生图」共用同一份配置。</Text>
         </Card>
 
         <Card>
@@ -1510,50 +1672,56 @@ export default function SettingsScreen() {
         </Card>
 
         <Card>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="analytics-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>生成参数</Text>
-          </View>
-          {[
-            { name: 'maxTokens', label: '最大回复令牌', keyboard: 'number-pad', hint: '1 - 128000' },
-            { name: 'temperature', label: '温度', keyboard: 'decimal-pad', hint: '0 - 2' },
-            { name: 'topP', label: 'top-p', keyboard: 'decimal-pad', hint: '0 - 1' },
-            { name: 'topK', label: 'top-k', keyboard: 'number-pad', hint: '0 - 50' },
-          ].map(item => {
-            const field = sampling[item.name] || {};
-            return (
-              <View key={item.name} style={styles.capabilityRow}>
-                <View style={styles.linkLeft}>
-                  <Text style={styles.linkText}>{item.label}</Text>
+          <CollapsibleSection
+            title="生成参数"
+            icon="analytics-outline"
+            right={<Text style={styles.collapseSummary}>
+              {Object.values(sampling).filter(f => f && f.enabled === true).length > 0
+                ? `${Object.values(sampling).filter(f => f && f.enabled === true).length} 项已启用`
+                : '使用服务端默认'}
+            </Text>}
+          >
+            {[
+              { name: 'maxTokens', label: '最大回复令牌', keyboard: 'number-pad', hint: '1 - 128000' },
+              { name: 'temperature', label: '温度', keyboard: 'decimal-pad', hint: '0 - 2' },
+              { name: 'topP', label: 'top-p', keyboard: 'decimal-pad', hint: '0 - 1' },
+              { name: 'topK', label: 'top-k', keyboard: 'number-pad', hint: '0 - 50' },
+            ].map(item => {
+              const field = sampling[item.name] || {};
+              return (
+                <View key={item.name} style={styles.capabilityRow}>
+                  <View style={styles.linkLeft}>
+                    <Text style={styles.linkText}>{item.label}</Text>
+                  </View>
+                  <View style={styles.samplingRight}>
+                    <TextField
+                      style={styles.samplingInput}
+                      value={String(field.value == null ? '' : field.value)}
+                      onChangeText={text => {
+                        const current = samplingRef.current;
+                        const next = {
+                          ...current,
+                          [item.name]: { ...(current[item.name] || {}), value: text },
+                        };
+                        samplingRef.current = next;
+                        setSampling(next);
+                      }}
+                      onEndEditing={event => commitSamplingValue(item.name, event.nativeEvent.text)}
+                      keyboardType={item.keyboard}
+                      placeholder={item.hint}
+                    />
+                    <Switch
+                      value={field.enabled === true}
+                      onValueChange={() => toggleSamplingField(item.name)}
+                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                      thumbColor={theme.colors.primaryContrast}
+                    />
+                  </View>
                 </View>
-                <View style={styles.samplingRight}>
-                  <TextField
-                    style={styles.samplingInput}
-                    value={String(field.value == null ? '' : field.value)}
-                    onChangeText={text => {
-                      const current = samplingRef.current;
-                      const next = {
-                        ...current,
-                        [item.name]: { ...(current[item.name] || {}), value: text },
-                      };
-                      samplingRef.current = next;
-                      setSampling(next);
-                    }}
-                    onEndEditing={event => commitSamplingValue(item.name, event.nativeEvent.text)}
-                    keyboardType={item.keyboard}
-                    placeholder={item.hint}
-                  />
-                  <Switch
-                    value={field.enabled === true}
-                    onValueChange={() => toggleSamplingField(item.name)}
-                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                    thumbColor={theme.colors.primaryContrast}
-                  />
-                </View>
-              </View>
-            );
-          })}
-          <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
+              );
+            })}
+            <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
+          </CollapsibleSection>
         </Card>
 
         <Card>
@@ -1572,80 +1740,112 @@ export default function SettingsScreen() {
               <Text style={styles.linkText}>启用向量检索</Text>
             </View>
             <Switch
-              value={vectorMemory.enabled === true}
-              onValueChange={value => updateVectorMemory({ enabled: value })}
+              value={vectorPayload.enabled === true}
+              onValueChange={value => persistVectorPayload({ ...(vectorRef.current || vectorPayload), enabled: value })}
               trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <FieldLabel style={styles.label}>接口地址</FieldLabel>
-          <TextField
-            value={vectorMemory.baseUrl}
-             onChangeText={text => updateVectorMemory({ baseUrl: text })}
-             onEndEditing={() => flushVectorMemory()}
-             placeholder="https://api.openai.com/v1"
-
-            autoCapitalize="none"
-            autoCorrect={false}
+          <FieldLabel style={styles.label}>向量配置</FieldLabel>
+          <CollapsibleSelect
+            label="当前配置"
+            value={vectorPayload.activeId}
+            options={(vectorPayload.configs || []).map(item => ({
+              value: item.id,
+              label: item.name || '未命名配置',
+              meta: `${item.baseUrl || '未填写地址'} · ${item.model || '未填写模型'}`,
+            }))}
+            onSelect={id => selectVectorConfig(id)}
+            placeholder="未选择配置"
           />
-          <FieldLabel style={styles.label}>密钥</FieldLabel>
-          <TextField
-            value={vectorMemory.apiKey}
-             onChangeText={text => updateVectorMemory({ apiKey: text })}
-             onEndEditing={() => flushVectorMemory()}
-             placeholder="sk-..."
-
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-          />
-          <FieldLabel style={styles.label}>模型</FieldLabel>
-          <TextField
-            value={vectorMemory.model}
-             onChangeText={text => updateVectorMemory({ model: text })}
-             onEndEditing={() => flushVectorMemory()}
-             placeholder="text-embedding-3-small"
-
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FieldLabel style={styles.label}>召回条数（1 - 20）</FieldLabel>
-          <TextField
-            value={vectorTopKDraft}
-            onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
-             onEndEditing={event => {
-               updateVectorMemory({ topK: event.nativeEvent.text });
-               flushVectorMemory().then(() => {
-                 const saved = vectorMemoryRef.current;
-                 if (saved) setVectorTopKDraft(String(saved.topK));
-               });
-             }}
-
-            keyboardType="number-pad"
-            placeholder="5"
-          />
-          <FieldLabel style={styles.label}>分片长度（字符，1 - 2000）</FieldLabel>
-          <TextField
-            value={vectorMaxCharsDraft}
-            onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
-             onEndEditing={event => {
-               updateVectorMemory({ maxChars: event.nativeEvent.text });
-               flushVectorMemory().then(() => {
-                 const saved = vectorMemoryRef.current;
-                 if (saved) setVectorMaxCharsDraft(String(saved.maxChars));
-               });
-             }}
-
-            keyboardType="number-pad"
-            placeholder="400"
-          />
-          <SecondaryButton
-            title={vectorTesting ? '测试中...' : '测试连接'}
-            icon="pulse-outline"
-            onPress={testVector}
-            loading={vectorTesting}
-            style={styles.actionBtn}
-          />
+          <View style={styles.personaActions}>
+            <TouchableOpacity style={styles.personaAddChip} onPress={addVectorConfig} activeOpacity={0.8}>
+              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+              <Text style={styles.personaAddText}>新增配置</Text>
+            </TouchableOpacity>
+            {(vectorPayload.configs || []).length > 1 ? (
+              <TouchableOpacity style={styles.personaAddChip} onPress={removeVectorConfig} activeOpacity={0.8}>
+                <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
+                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {currentVectorConfig ? (
+            <>
+              <FieldLabel style={styles.label}>配置名称</FieldLabel>
+              <TextField
+                value={currentVectorConfig.name}
+                onChangeText={text => updateVectorConfig({ name: text })}
+                onEndEditing={() => flushVectorMemory()}
+                placeholder="例如：OpenAI Embeddings"
+              />
+              <FieldLabel style={styles.label}>接口地址</FieldLabel>
+              <TextField
+                value={currentVectorConfig.baseUrl}
+                onChangeText={text => updateVectorConfig({ baseUrl: text })}
+                onEndEditing={() => flushVectorMemory()}
+                placeholder="https://api.openai.com/v1"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <FieldLabel style={styles.label}>密钥</FieldLabel>
+              <TextField
+                value={currentVectorConfig.apiKey}
+                onChangeText={text => updateVectorConfig({ apiKey: text })}
+                onEndEditing={() => flushVectorMemory()}
+                placeholder="sk-..."
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+              />
+              <FieldLabel style={styles.label}>模型</FieldLabel>
+              <TextField
+                value={currentVectorConfig.model}
+                onChangeText={text => updateVectorConfig({ model: text })}
+                onEndEditing={() => flushVectorMemory()}
+                placeholder="text-embedding-3-small"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <FieldLabel style={styles.label}>召回条数（1 - 20）</FieldLabel>
+              <TextField
+                value={vectorTopKDraft}
+                onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
+                onEndEditing={event => {
+                  updateVectorConfig({ topK: event.nativeEvent.text });
+                  flushVectorMemory().then(() => {
+                    const base = vectorRef.current;
+                    const active = base && base.configs.find(item => item.id === base.activeId);
+                    if (active) setVectorTopKDraft(String(active.topK));
+                  });
+                }}
+                keyboardType="number-pad"
+                placeholder="5"
+              />
+              <FieldLabel style={styles.label}>分片长度（字符，1 - 2000）</FieldLabel>
+              <TextField
+                value={vectorMaxCharsDraft}
+                onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
+                onEndEditing={event => {
+                  updateVectorConfig({ maxChars: event.nativeEvent.text });
+                  flushVectorMemory().then(() => {
+                    const base = vectorRef.current;
+                    const active = base && base.configs.find(item => item.id === base.activeId);
+                    if (active) setVectorMaxCharsDraft(String(active.maxChars));
+                  });
+                }}
+                keyboardType="number-pad"
+                placeholder="400"
+              />
+              <SecondaryButton
+                title={vectorTesting ? '测试中...' : '测试连接'}
+                icon="pulse-outline"
+                onPress={testVector}
+                loading={vectorTesting}
+                style={styles.actionBtn}
+              />
+            </>
+          ) : null}
           <Text style={styles.fieldHint}>
             未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
           </Text>
@@ -1921,6 +2121,15 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
+  collapseSummary: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 6 },
+  configSelect: { marginTop: 6 },
+  providerEditor: {
+    marginTop: tokens.spacing.sm,
+    paddingTop: tokens.spacing.sm,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.divider,
+  },
+  providerEditorTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700', marginTop: tokens.spacing.xs },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   topicButtonSpaced: { marginRight: 8 },
   appearanceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
@@ -1975,34 +2184,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 4 },
 
-  configRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md,
-    paddingVertical: tokens.spacing.sm + 2,
-    paddingHorizontal: tokens.spacing.md,
-    marginTop: tokens.spacing.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: 'transparent',
-  },
-  configRowActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.14) },
-  configInfo: { flex: 1, marginRight: 8 },
-  configName: { color: theme.colors.textMuted, fontSize: fonts.scaled(14) },
-  configNameActive: { color: theme.colors.text, fontWeight: '700' },
-  configMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2 },
-  currentBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.primaryAlpha(0.2),
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primaryMutedAlpha(0.35),
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: tokens.spacing.sm,
-    paddingVertical: 2,
-  },
-  currentBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 3 },
-
   label: { color: theme.colors.text, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: fonts.scaled(13) },
   multilineInput: { minHeight: 100, paddingTop: 12 },
   modelRow: { flexDirection: 'row', alignItems: 'center' },
@@ -2053,33 +2234,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.divider,
   },
-  personaList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  personaChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: 16,
-    marginRight: 8,
-    marginBottom: 8,
-    paddingLeft: 12,
-    paddingRight: 6,
-    paddingVertical: 6,
-  },
-  personaChipActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.primarySoft,
-  },
-  personaChipMain: { paddingRight: 4 },
-  personaChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
-  personaChipTextActive: { color: theme.colors.primaryContrast },
-  personaChipRemove: { paddingHorizontal: 2, paddingVertical: 2 },
+  personaActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: tokens.spacing.sm },
   personaAddChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2087,6 +2242,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     borderStyle: 'dashed',
     borderRadius: 16,
+    marginRight: 8,
     marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,

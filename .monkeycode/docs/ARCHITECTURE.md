@@ -143,19 +143,20 @@ easychat2/
 **依赖**: `parsecard`、`buffer`
 **被依赖**: `ChatScreen`、`CharacterScreen`
 
-### API 配置界面
-**目的**: 管理多套 API 来源（接口地址、模型列表与密钥），支持创建、切换、编辑、删除；每个来源可保存多个模型并标记是否支持思考与识图，当前来源由 `getActiveApiConfig` 读取、当前模型由 `getActiveModel` 读取
+### 设置界面（API 配置 / 人设 / 外观 / 对话配图 / 生成参数 / 向量记忆）
+**目的**: 集中管理 API 来源（接口地址、模型列表与密钥）、用户人设、外观、对话配图、生成参数与向量记忆，支持创建、折叠选择、切换、编辑、删除；当前来源由 `getActiveApiConfig` 读取、当前模型由 `getActiveModel` 读取
 **位置**: `src/SettingsScreen.js`
-**关键文件**: `src/SettingsScreen.js`
-**依赖**: `src/storage.js`
+**关键文件**: `src/SettingsScreen.js`、`src/ui/Collapsible.js`
+**依赖**: `src/storage.js`、`src/ui`、`src/imageGen`
 **被依赖**: `App.js`
+**说明**: 为减少一屏选项密度，大量区块改用 `CollapsibleSelect`（折叠选择：先显示当前项，点开才列候选）与 `CollapsibleSection`（折叠分组：点击标题展开，右侧可显示摘要）。API 配置 / 用户人设 / 生图服务 / 向量配置均为「一个选项一个编辑界面」；外观与生成参数整卡折叠；生图服务与「扩展 → 生图」共用 `@easychat2_image_gen`；向量记忆为多配置模型（`@easychat2_vector_memory_configs`，旧单配置键自动迁移）。
 
 ### 生图模块
 **目的**: 以声明式 Provider 描述各生图平台并统一适配调用，支持文生图与图生图；提供设置面板（地址、密钥、模型、额外参数）、连通性检测与结果画廊
 **位置**: `src/imageGen/providers.js`、`src/imageGen/index.js`、`src/ImageGenScreen.js`
 **关键文件**: `src/imageGen/index.js`、`src/ImageGenScreen.js`
 **依赖**: `expo-document-picker`、`expo-file-system`、`expo-clipboard`、`expo-sharing`、`src/storage.js`
-**被依赖**: `src/ExtensionScreen.js`
+**被依赖**: `src/ExtensionScreen.js`、`src/SettingsScreen.js`（对话配图就地编辑同一份 `@easychat2_image_gen`）
 
 ### 扩展页与小游戏
 **目的**: 在底部导航提供「扩展」入口，以分段控件切换内嵌小游戏与生图界面；小游戏为纯前端 HTML，经 `WebView` 在应用内运行、无需联网

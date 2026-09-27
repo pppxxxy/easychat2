@@ -1261,3 +1261,58 @@ test('免责声明按版本确认：条款更新后存量用户需重新确认',
   assert.equal(await storage.isDisclaimerAcknowledged(), true);
   assert.equal(store.get('@easychat2_disclaimer_ack'), String(storage.DISCLAIMER_VERSION));
 });
+
+test('向量记忆多配置：旧单配置对象迁移为第一条并保留启用状态', async () => {
+  const storage = loadStorage();
+  store.clear();
+  // 旧结构：单配置对象，含 enabled 与地址密钥
+  store.set('@easychat2_vector_memory', JSON.stringify({
+    enabled: true,
+    baseUrl: 'https://legacy.example/v1',
+    apiKey: 'sk-legacy',
+    model: 'legacy-embed',
+    topK: 8,
+    maxChars: 512,
+  }));
+  const payload = await storage.getVectorMemorySettings();
+  assert.equal(payload.enabled, true);
+  assert.equal(payload.configs.length, 1);
+  assert.equal(payload.configs[0].id, 'default');
+  assert.equal(payload.configs[0].baseUrl, 'https://legacy.example/v1');
+  assert.equal(payload.configs[0].topK, 8);
+  assert.equal(payload.activeId, 'default');
+  // 兼容旧调用：getVectorMemoryConfig 返回激活配置并带 enabled
+  const active = await storage.getVectorMemoryConfig();
+  assert.equal(active.enabled, true);
+  assert.equal(active.baseUrl, 'https://legacy.example/v1');
+});
+
+test('向量记忆多配置：保存多条后按 activeId 取用且旧配置键不再被覆盖', async () => {
+  const storage = loadStorage();
+  store.clear();
+  const a = storage.createVectorConfig({ name: 'A', baseUrl: 'https://a.example/v1', model: 'ma' });
+  const b = storage.createVectorConfig({ name: 'B', baseUrl: 'https://b.example/v1', model: 'mb' });
+  await storage.saveVectorMemorySettings({ enabled: false, configs: [a, b], activeId: b.id });
+  const payload = await storage.getVectorMemorySettings();
+  assert.equal(payload.configs.length, 2);
+  assert.equal(payload.activeId, b.id);
+  const active = await storage.getVectorMemoryConfig();
+  assert.equal(active.id, b.id);
+  assert.equal(active.baseUrl, 'https://b.example/v1');
+  // 旧调用 saveVectorMemoryConfig 只更新同 id 项，不丢另一条
+  await storage.saveVectorMemoryConfig({ ...b, enabled: true, topK: 9 });
+  const after = await storage.getVectorMemorySettings();
+  assert.equal(after.configs.length, 2);
+  assert.equal(after.enabled, true);
+  assert.equal(after.configs.find(item => item.id === b.id).topK, 9);
+  assert.equal(after.configs.find(item => item.id === a.id).model, 'ma');
+});
+
+test('向量记忆多配置：空 payload 兜底一条默认配置', async () => {
+  const storage = loadStorage();
+  store.clear();
+  const payload = await storage.getVectorMemorySettings();
+  assert.equal(payload.configs.length, 1);
+  assert.equal(payload.enabled, false);
+  assert.equal(payload.activeId, payload.configs[0].id);
+});

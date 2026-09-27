@@ -87,8 +87,8 @@
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
-**状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`；可新建、删除、点选切换配置；每个来源维护模型列表（输入添加、点击设为当前、可删除，至少保留一个），「检测模型」结果加入列表；保存前对 HTTP 明文地址与方法能力（支持思考 / 支持识图）分别确认；增删改都立即持久化整套配置列表。「全局配置」卡片提供「全局预设」入口（副标题显示已开启数量或「未开启」），点击打开 `PresetPanel`，关闭时刷新计数。另有「生成参数」卡片：最大回复令牌 / 温度 / top-p / top-k 四项，每项含独立开关与数值输入，输入失焦时夹取到范围并在越界时提示，仅开启项随请求发送。「用户人设」卡片管理多人设：以 chip 列表展示，点击切换当前人设，`+ 新增` 创建并设为当前，逐个可删除（至少保留一个，删除当前时自动切到剩余首项）；名字与人设描述编辑当前人设，头像为全局共用。「向量记忆」卡片提供开关、接口地址、密钥（密文）、模型、召回条数、分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索；API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（13 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
+**状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`、`vectorPayload`（`{ enabled, configs, activeId }`）、`imageGenProviders`
+**行为**: 挂载时读取多配置列表与当前活跃 `id`。为避免一次性罗列大量选项，设置页大量改用 `ui/Collapsible` 的折叠选择器 `CollapsibleSelect` 与折叠分组 `CollapsibleSection`：`CollapsibleSelect` 先显示当前项、点开才列候选、选中自动收起（API 配置、用户人设、生图服务、向量配置都用它）；`CollapsibleSection` 是可点击展开/收起的标题分组，右侧可显示一行摘要（外观显示当前主题，生成参数显示已启用项数）。**API 配置**卡：`CollapsibleSelect` 选择当前配置（副标题为地址·模型），选中后下方只编辑这一份的名称、地址、模型列表（输入添加、点击设为当前、可删除，至少保留一个）、「检测模型」、API Key、「保存配置」（保存前对 HTTP 明文地址与方法能力分别确认）与「删除当前配置」；右上角「新建」经厂商选择弹窗创建。「用户人设」卡：`CollapsibleSelect` 选当前人设（副标题为人设描述），「新增人设」创建并设为当前，多人设时可「删除当前」（自动切到剩余首项）；人设名称与描述编辑当前人设，头像全局共用。「外观」卡为折叠分组（摘要显示当前主题），内含主题与字体大小。「对话配图」卡：开启开关后，`CollapsibleSelect` 选生图服务（候选带「已配置/未配置密钥」标识），选中后就地编辑该服务商的地址 / Key / 模型 / 额外参数与「检测连通性」，与「扩展 → 生图」共用 `@easychat2_image_gen`；另含风格前缀、尺寸、提示词长度。「全局配置」卡提供「全局预设」入口（副标题显示已开启数量或「未开启」）、流式输出 / 全宽 / 富 HTML / 思考展示 / 联网搜索 / 语音播报 / 动态开关。「生成参数」卡为折叠分组（摘要显示已启用项数），最大回复令牌 / 温度 / top-p / top-k 四项各有独立开关与数值输入，失焦夹取范围，仅开启项随请求发送。「向量记忆」卡：启用开关 + `CollapsibleSelect` 选向量配置 + 「新增配置 / 删除当前」+ 就地编辑该配置的名称 / 接口地址 / 密钥（密文）/ 模型 / 召回条数 / 分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（13 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
@@ -283,7 +283,9 @@
 | `saveThinkingSettings` | `({ enabled, level, display }) => Promise<{ enabled, level, display }>` | 归一化并写入思考设置（`level` 为 `low`/`medium`/`high`，`display` 为 `open`/`fold`/`off`；未传字段回落到默认值，调用方应先合并现有设置） |
 | `getSamplingSettings` | `() => Promise<Sampling>` | 读取生成采样设置，缺省四项均关闭（maxTokens 8024 / temperature 1 / topP 1 / topK 0） |
 | `saveSamplingSettings` | `(Sampling) => Promise<Sampling>` | 夹取范围并整数化后写入采样设置 |
-| `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 读取/写入向量记忆配置，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
+| `getVectorMemoryConfig` / `saveVectorMemoryConfig` | `(config?) => Promise<VectorConfig>` | 兼容旧调用的单配置入口：`get` 返回当前激活配置（含 `enabled`），`save` 按 `id` 更新同项或追加后写回整份载荷。读取时兼容旧单配置键 `@easychat2_vector_memory`，夹取范围（topK ≤ 20、maxChars ≤ 2000、batchSize ≤ 64） |
+| `getVectorMemorySettings` / `saveVectorMemorySettings` | `() => Promise<{ enabled, configs, activeId }>` / `(payload) => Promise<同>` | 多配置载荷入口：每配置含 `id` / `name` / 地址 / 密钥 / 模型等；旧单配置对象自动迁移为第一条并保留 `enabled`。键 `@easychat2_vector_memory_configs` 为主，空时回退旧键 |
+| `createVectorConfig` | `(partial?) => VectorConfig` | 生成带唯一 `id` 的向量配置，供设置页「新增配置」 |
 | `getVectorIndex` / `getVectorIndexStatus` | `(characterId) => Promise<Segment[]>` / `(characterId) => Promise<{ status, index }>` | 读取角色级向量索引；损坏时先备份并返回 `corrupt`，群聊不建立索引 |
 | `saveVectorIndex` / `updateVectorIndex` | `(characterId, index)` / `(characterId, updater)` | 在角色级写队列中执行增量 upsert 或原子更新；`updater` 返回 `undefined` 时跳过写回，删除使用专用清理入口 |
 | `removeVectorIndexForSession` / `removeVectorIndexForSessions` | `(characterId, sessionId(s))` | 按会话清理向量片段，批量入口按角色一次读改写 |
@@ -394,7 +396,8 @@
 | `@easychat2_plugins` | 联网搜索配置数组（内置 `web-search`） |
 | `@easychat2_thinking` | 思考设置 `{ enabled: boolean, level: 'low' \| 'medium' \| 'high', display: 'open' \| 'fold' \| 'off' }` |
 | `@easychat2_sampling` | 生成采样设置 `{ maxTokens, temperature, topP, topK }`，每项 `{ enabled, value }`，默认全关闭 |
-| `@easychat2_vector_memory` | 向量记忆配置 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }` |
+| `@easychat2_vector_memory_configs` | 向量记忆多配置 `{ enabled, configs: [{ id, name, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }], activeId }`；旧键迁移用 |
+| `@easychat2_vector_memory`（legacy） | 旧的单条向量配置对象 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }`，读取时迁为多配置首条，不再写入 |
 | `@easychat2_vector_index::<characterId>` | 角色级记忆片段索引 `[{ id, messageId, sessionId, role, at, text, vector }]`；清理按 `sessionId` 分片 |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }` |
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true }` |
