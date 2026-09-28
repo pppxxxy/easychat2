@@ -28,6 +28,8 @@
     "src/chat/MentionPickerModal.js",
     "src/chat/ModelPanelModal.js",
     "src/chat/ThinkingPanelModal.js",
+    "src/chat/StickerPanelModal.js",
+    "src/chat/StickerNamePromptModal.js",
     "src/chat/useScrollScrubber.js",
     "src/chat/useChatSearch.js",
     "src/chat/useChatTts.js",

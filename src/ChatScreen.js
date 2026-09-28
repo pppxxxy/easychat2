@@ -159,6 +159,8 @@ import SwitcherModal from './chat/SwitcherModal';
 import MentionPickerModal from './chat/MentionPickerModal';
 import ModelPanelModal from './chat/ModelPanelModal';
 import ThinkingPanelModal from './chat/ThinkingPanelModal';
+import StickerPanelModal from './chat/StickerPanelModal';
+import StickerNamePromptModal from './chat/StickerNamePromptModal';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3678,102 +3680,24 @@ if (!isCurrent() || controller.signal.aborted) return false;
         )}
       </View>
 
-      <Modal
+      <StickerPanelModal
         visible={stickerPanelOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setStickerPanelOpen(false)}
-      >
-        <View style={styles.stickerBackdrop}>
-          <View style={styles.stickerSheet}>
-            <View style={styles.stickerHeader}>
-              <Text style={styles.stickerTitle}>表情包</Text>
-              <TouchableOpacity
-                onPress={() => setStickerPanelOpen(false)}
-                hitSlop={8}
-                accessibilityLabel="关闭表情包"
-              >
-                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              style={styles.stickerScroll}
-              contentContainerStyle={styles.stickerGrid}
-              showsVerticalScrollIndicator={false}
-            >
-              <TouchableOpacity
-                style={styles.stickerAddTile}
-                onPress={addStickerFromPicker}
-                disabled={stickerSaving}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="添加表情包"
-              >
-                <Ionicons name="add" size={25} color={theme.colors.primarySoft} />
-                <Text style={styles.stickerAddText}>添加</Text>
-              </TouchableOpacity>
-              {stickers.map(sticker => (
-                <TouchableOpacity
-                  key={sticker.id}
-                  style={styles.stickerTile}
-                  onPress={() => sendSticker(sticker)}
-                  disabled={inputDisabled || stickerSaving}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={`发送表情包 ${sticker.name}`}
-                >
-                  <Image source={{ uri: sticker.uri }} style={styles.stickerImage} resizeMode="contain" />
-                  <Text style={styles.stickerName} numberOfLines={1}>{sticker.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setStickerPanelOpen(false)}
+        stickers={stickers}
+        stickerSaving={stickerSaving}
+        addStickerFromPicker={addStickerFromPicker}
+        sendSticker={sendSticker}
+        inputDisabled={inputDisabled}
+      />
 
-      <Modal
+      <StickerNamePromptModal
         visible={!!stickerNamePrompt}
-        transparent
-        animationType="fade"
-         onRequestClose={closeStickerNamePrompt}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>保存为表情包</Text>
-            <TextInput
-              style={styles.stickerNameInput}
-              value={stickerNameDraft}
-              onChangeText={setStickerNameDraft}
-              placeholder="请输入表情包名称"
-              placeholderTextColor={theme.colors.textFaint}
-              autoFocus
-              maxLength={40}
-              editable={!stickerSaving}
-            />
-            <View style={styles.stickerNameActions}>
-              <TouchableOpacity
-                style={[styles.selectButton, styles.selectButtonGhost]}
-                 onPress={closeStickerNamePrompt}
-                disabled={stickerSaving}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.selectButtonText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.selectButton, stickerSaving && styles.sendButtonDisabled]}
-                onPress={confirmStickerName}
-                disabled={stickerSaving}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.selectButtonText}>{stickerSaving ? '保存中' : '保存'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={closeStickerNamePrompt}
+        draft={stickerNameDraft}
+        onChangeDraft={setStickerNameDraft}
+        confirmStickerName={confirmStickerName}
+        stickerSaving={stickerSaving}
+      />
 
       <Modal
         visible={fullScreenOpen}
