@@ -163,6 +163,7 @@ import StickerNamePromptModal from './chat/StickerNamePromptModal';
 import MoreMenuModal from './chat/MoreMenuModal';
 import ChatSettingsModal from './chat/ChatSettingsModal';
 import FullScreenInputModal from './chat/FullScreenInputModal';
+import ChatSearchBar from './chat/ChatSearchBar';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3361,51 +3362,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
       <View style={styles.aiNoticeBar} pointerEvents="none">
         <Text style={styles.aiNoticeText}>{AI_DISCLAIMER_TEXT}</Text>
       </View>
-      {searchOpen ? (
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={15} color={theme.colors.textFaint} />
-          <TextInput
-            style={styles.searchInput}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="在本对话中搜索"
-            placeholderTextColor={theme.colors.textFaint}
-            autoFocus
-            returnKeyType="search"
-            onSubmitEditing={() => goToMatch(1)}
-          />
-          <Text style={styles.searchCount}>
-            {searchMatches.length ? `${activeMatchIndex + 1}/${searchMatches.length}` : '0/0'}
-          </Text>
-          <TouchableOpacity
-            onPress={() => goToMatch(-1)}
-            disabled={searchMatches.length === 0}
-            hitSlop={6}
-            style={styles.searchNav}
-          >
-            <Ionicons
-              name="chevron-up"
-              size={18}
-              color={searchMatches.length ? theme.colors.primarySoft : theme.colors.textFaint}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => goToMatch(1)}
-            disabled={searchMatches.length === 0}
-            hitSlop={6}
-            style={styles.searchNav}
-          >
-            <Ionicons
-              name="chevron-down"
-              size={18}
-              color={searchMatches.length ? theme.colors.primarySoft : theme.colors.textFaint}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={closeSearch} hitSlop={6} style={styles.searchNav}>
-            <Ionicons name="close" size={18} color={theme.colors.primarySoft} />
-          </TouchableOpacity>
-        </View>
-      ) : null}
+      <ChatSearchBar
+        visible={searchOpen}
+        query={searchQuery}
+        onChangeQuery={setSearchQuery}
+        matchCount={searchMatches.length}
+        activeMatchIndex={activeMatchIndex}
+        onPrev={() => goToMatch(-1)}
+        onNext={() => goToMatch(1)}
+        onClose={closeSearch}
+      />
       <ScrollView
         ref={scrollRef}
         style={styles.messages}

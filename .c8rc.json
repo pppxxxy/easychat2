@@ -33,6 +33,7 @@
     "src/chat/MoreMenuModal.js",
     "src/chat/ChatSettingsModal.js",
     "src/chat/FullScreenInputModal.js",
+    "src/chat/ChatSearchBar.js",
     "src/chat/useScrollScrubber.js",
     "src/chat/useChatSearch.js",
     "src/chat/useChatTts.js",
