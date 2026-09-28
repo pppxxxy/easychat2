@@ -66,7 +66,6 @@ import {
   buildGroupRequest,
   ENSEMBLE_MODE,
   ensureMemberProfiles,
-  EVERYONE_MENTION,
   generateOpening,
   hasEveryoneMention,
   mergeAdjacentSegments,
@@ -162,6 +161,7 @@ import MessageBubble from './chat/MessageBubble';
 import ErrorBubble from './chat/ErrorBubble';
 import SelectionTextModal from './chat/SelectionTextModal';
 import SwitcherModal from './chat/SwitcherModal';
+import MentionPickerModal from './chat/MentionPickerModal';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3849,61 +3849,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
         groupSessionName={groupSessionName}
       />
 
-      <Modal
+      <MentionPickerModal
         visible={mentionPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMentionPickerOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setMentionPickerOpen(false)}
-        >
-          <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
-            <Text style={styles.modalTitle}>提及成员</Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity
-                style={styles.modalRow}
-                onPress={() => {
-                  setMentionPickerOpen(false);
-                  insertMention(EVERYONE_MENTION);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.modalRowAvatarFallback}>
-                  <Ionicons name="people" size={14} color={theme.colors.primarySoft} />
-                </View>
-                <Text style={styles.modalRowText}>@{EVERYONE_MENTION}</Text>
-              </TouchableOpacity>
-              {groupCharacters.map(item => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.modalRow}
-                  onPress={() => {
-                    setMentionPickerOpen(false);
-                    insertMention(String(item.name || '').trim());
-                  }}
-                  activeOpacity={0.7}
-                >
-                  {item.avatarUri ? (
-                    <Image source={{ uri: item.avatarUri }} style={styles.modalRowAvatar} />
-                  ) : (
-                    <View style={styles.modalRowAvatarFallback}>
-                      <Text style={styles.modalRowAvatarText}>
-                        {(item.name || '?').charAt(0)}
-                      </Text>
-                    </View>
-                  )}
-                  <Text style={styles.modalRowText} numberOfLines={1}>
-                    {item.name || '未命名角色'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setMentionPickerOpen(false)}
+        groupCharacters={groupCharacters}
+        insertMention={insertMention}
+      />
 
       <SelectionTextModal text={selectionText} onClose={() => setSelectionText('')} />
 
