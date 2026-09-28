@@ -2,7 +2,7 @@
 
 Feature Name: chat-screen-split
 Updated: 2026-09-27
-状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 进行中（已完成 SelectionTextModal）
+状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 进行中（已完成 SelectionTextModal、SwitcherModal）
 
 ## 实施记录
 
@@ -12,6 +12,7 @@ Updated: 2026-09-27
 - 2026-09-27 PR2 阶段 C 第 3 个 hook 完成：`src/chat/useChatTts.js`（语音播报设置 + 手动/自动播报）。完全自包含（只依赖 storage/tts/speechText 与自身 state/ref），不触碰会话竞态守卫；hook 调用点放在原 `ttsSettings` 声明处（所有 tts 引用之前），消除前向引用。核验：3 个关键逻辑块逐字搬运。`.c8rc.json` 排除该 hook。`ChatScreen.js` 4446 → 4403 行。
 - 2026-09-27 PR2 阶段 C 第 4 个 hook 完成：`src/chat/useChatModelThinking.js`（模型来源 + 思考设置面板）。依赖注入 `isSending`/`sendLockRef` 两个发送守卫锚点（唯一的跨功能耦合，用于「发送中禁止切换模型」），不碰会话竞态守卫。核验：4 个关键逻辑块逐字搬运；组件内移除不再用的 `saveApiConfigs`/`saveThinkingSettings` import。`.c8rc.json` 排除该 hook。`ChatScreen.js` 4403 → 4356 行。
 - 2026-09-27 PR3 阶段 D 第 1 个 Modal 完成：`src/chat/SelectionTextModal.js`（选择文本弹窗，props `text`/`onClose`，自建 styles）。核验：整块 markup 逐字搬运，仅把 `visible={!!selectionText}` 改为 `visible={!!text}`、两处 `setSelectionText('')` 改为 `onClose`、`Clipboard.setStringAsync(selectionText)` 改为 `Clipboard.setStringAsync(text)`。组件内移除不再用的 `expo-clipboard` import。`.c8rc.json` 排除该文件。`ChatScreen.js` 4356 → 4326 行。
+- 2026-09-27 PR3 阶段 D 第 2 个 Modal 完成：`src/chat/SwitcherModal.js`（角色/群聊切换弹窗）。props 收 `visible`/`onClose`/`characters`/`isGroup`/`activeId`/`onSwitch`/`groupSessions`/`activeSessionId`/`onSwitchGroup`/`groupSessionName`；`visible` 与回调仍留在 ChatScreen。核验：markup 逐字搬运，仅 `setSwitcherOpen(false)` → `onClose`。`.c8rc.json` 排除该文件。`ChatScreen.js` 4326 → 4257 行。
 
 ### 阶段 C 候选评估（2026-09-27）
 
