@@ -48,6 +48,26 @@ const FileSystem = {
 
 const SQLite = { openDatabase: () => ({ execAsync: async () => [], closeAsync: async () => {} }) };
 
+const STORAGE_DIR = path.resolve('src/storage');
+
+// storage.js 会 require 拆出的 src/storage/*.js；这些模块是 ESM，若走 require(esm)
+// 其内部依赖会绕过 Module._load 打桩。这里按需把它们转成 CJS 再加载。
+function loadStorageModule(absPath) {
+  const cached = Module._cache[absPath];
+  if (cached) return cached.exports;
+  const code = babel.transformSync(fs.readFileSync(absPath, 'utf8'), {
+    babelrc: false,
+    configFile: false,
+    filename: absPath,
+    presets: [[presetEnv, { targets: { node: 'current' }, modules: 'commonjs' }]],
+  }).code;
+  const mod = new Module(absPath);
+  mod.filename = absPath;
+  mod.paths = Module._nodeModulePaths(path.dirname(absPath));
+  mod._compile(code, absPath);
+  return mod.exports;
+}
+
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
@@ -77,25 +97,16 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request.endsWith('/context/sessionLibrary') || request === './context/sessionLibrary') {
     return { __esModule: true };
   }
+  if (parent && parent.filename && request.startsWith('.')) {
+    const resolved = path.resolve(path.dirname(parent.filename), request);
+    if (resolved.startsWith(`${STORAGE_DIR}${path.sep}`) && fs.existsSync(resolved)) {
+      return loadStorageModule(resolved);
+    }
+  }
   return originalLoad.call(this, request, parent, isMain);
 };
 
 globalThis.__DEV__ = false;
-
-// storage.js 依赖拆出的 src/storage/io.js；本测试只把 storage.js 转成 CJS 加载，
-// 若不预先把 io.js 也转成 CJS 注册进缓存，require(esm) 会绕过上面的 Module._load 打桩。
-const ioPath = path.resolve('src/storage/io.js');
-const ioTransformed = babel.transformSync(fs.readFileSync(ioPath, 'utf8'), {
-  babelrc: false,
-  configFile: false,
-  filename: ioPath,
-  presets: [[presetEnv, { targets: { node: 'current' }, modules: 'commonjs' }]],
-}).code;
-const ioModule = new Module(ioPath);
-ioModule.filename = ioPath;
-ioModule.paths = Module._nodeModulePaths(path.dirname(ioPath));
-ioModule._compile(ioTransformed, ioPath);
-Module._cache[ioPath] = ioModule;
 
 const filename = path.resolve('src/storage.js');
 const runtimeModule = new Module(filename);

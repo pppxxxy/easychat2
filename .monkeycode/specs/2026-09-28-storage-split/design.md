@@ -2,7 +2,12 @@
 
 Feature Name: storage-split
 Updated: 2026-09-28
-状态: 进行中（已完成共享 I/O 层 `src/storage/io.js`）
+状态: 进行中（已完成共享 I/O 层 `src/storage/io.js`、`src/storage/worldMap.js`）
+
+## 实施记录
+
+- 2026-09-28 阶段 0 完成：新建 `src/storage/io.js`（`readJson`/`setJsonWithSecrets`/`readJsonWithSecrets`/`readJsonStatusWithSecrets`/`getSqliteModule`/`readLargeAsyncStorageValue`/`readJsonStatus`/`backupCorruptValue`/`CORRUPT_BACKUP_SUFFIX`）；`storage.js` 改为 import 且删除本地定义（不再直接 import `secretStore`/`diagnostics`）。`tests/characterStorage.test.mjs`、`tests/proactiveSettings.test.mjs` 增加「`Module._load` 拦截 `src/storage/*`，按需 Babel 转 CJS」的加载器。核验：lint 无输出、446/446、覆盖率 ≥40%、Metro 打包成功。`storage.js` 3771 → 3662 行。
+- 2026-09-28 阶段 1 完成：新建 `src/storage/worldMap.js`（`WORLD_MAP_KEY` + `enqueueWorldMapMutation` + `getWorldMapStatus`/`getWorldMap`/`updateWorldMap`/`detachCharacterFromWorldMap`）；`storage.js` 删除实现、改为 import + re-export（`detachCharacterFromWorldMap` 仍被角色删除逻辑内部调用）。`tests/worldMap.test.mjs` 源码断言改读 `storage/worldMap.js`（角色删除联动那句仍断言 barrel）。核验同上。`storage.js` 3662 → 3623 行。
 
 ## 目标
 
@@ -32,7 +37,7 @@ Updated: 2026-09-28
 
 建议顺序（由依赖少到多）：
 
-1. `worldMap.js`（`@easychat2_world_map` + `enqueueWorldMapMutation`）
+1. `worldMap.js`（`@easychat2_world_map` + `enqueueWorldMapMutation`）——**已完成**
 2. `diary.js`（`@easychat2_diary_*` + `enqueueDiaryMutation`）
 3. `moments.js`（**含 设置 + 集合 + 按角色/会话删除**：`MOMENTS_SETTINGS_KEY`/`MOMENTS_KEY`/`PROACTIVE_SETTINGS_KEY` + `enqueueMomentsMutation`）
 4. `stickers.js`（`@easychat2_sticker_*` + `stickerWriteQueue` + 表情包文件收集）

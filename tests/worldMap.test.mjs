@@ -30,6 +30,7 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
 const STORAGE_SOURCE = read('storage.js');
+const STORAGE_WORLD_MAP_SOURCE = read('storage/worldMap.js');
 const PANEL_SOURCE = read('MapPanel.js');
 const EXTENSION_SOURCE = read('ExtensionScreen.js');
 
@@ -165,13 +166,13 @@ test('地图 id 生成唯一', () => {
 });
 
 test('地图存储：单键读写、损坏备份、删除联动', () => {
-  assert.ok(STORAGE_SOURCE.includes("const WORLD_MAP_KEY = '@easychat2_world_map'"));
-  assert.ok(STORAGE_SOURCE.includes('export async function getWorldMapStatus'));
-  assert.ok(STORAGE_SOURCE.includes('export function updateWorldMap'));
-  assert.ok(STORAGE_SOURCE.includes('backupCorruptValue(WORLD_MAP_KEY)'));
-  assert.ok(STORAGE_SOURCE.includes('detachCharacterFromWorldMap'));
-  assert.ok(STORAGE_SOURCE.includes('enqueueWorldMapMutation'));
-  // 角色删除时联动
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes("const WORLD_MAP_KEY = '@easychat2_world_map'"));
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('export async function getWorldMapStatus'));
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('export function updateWorldMap'));
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('backupCorruptValue(WORLD_MAP_KEY)'));
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('detachCharacterFromWorldMap'));
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('enqueueWorldMapMutation'));
+  // 角色删除时联动（barrel storage.js 调用拆分后的模块）
   assert.ok(STORAGE_SOURCE.includes('await detachCharacterFromWorldMap(removedCharacters)'));
 });
 
