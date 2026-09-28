@@ -161,6 +161,8 @@ import ModelPanelModal from './chat/ModelPanelModal';
 import ThinkingPanelModal from './chat/ThinkingPanelModal';
 import StickerPanelModal from './chat/StickerPanelModal';
 import StickerNamePromptModal from './chat/StickerNamePromptModal';
+import MoreMenuModal from './chat/MoreMenuModal';
+import ChatSettingsModal from './chat/ChatSettingsModal';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3779,134 +3781,68 @@ if (!isCurrent() || controller.signal.aborted) return false;
 
       <SelectionTextModal text={selectionText} onClose={() => setSelectionText('')} />
 
-      <Modal
+      <MoreMenuModal
         visible={moreOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMoreOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.moreBackdrop}
-          activeOpacity={1}
-          onPress={() => setMoreOpen(false)}
-        >
-          <View style={styles.moreSheet}>
-            {[
-              {
-                key: 'notice',
-                label: '公告',
-                icon: 'megaphone-outline',
-                onPress: () => setNoticeOpen(true),
-              },
-              {
-                key: 'model',
-                label: '模型',
-                icon: 'cube-outline',
-                onPress: openModelPanel,
-              },
-              {
-                key: 'thinking',
-                label: '思考',
-                icon: 'bulb-outline',
-                onPress: openThinkingPanel,
-              },
-              {
-                key: 'scrubber',
-                label: '定位',
-                icon: 'options-outline',
-                disabled: scrubberMessages.length === 0,
-                onPress: () => setScrubberOpen(true),
-              },
-              {
-                key: 'search',
-                label: '搜索',
-                icon: 'search',
-                active: searchOpen,
-                onPress: () => (searchOpen ? closeSearch() : setSearchOpen(true)),
-              },
-              {
-                key: 'summary',
-                label: summarizing ? '总结中' : '总结',
-                icon: 'book-outline',
-                disabled: summarizing || !ready,
-                onPress: onSummarize,
-              },
-              {
-                key: 'settings',
-                label: '设置',
-                icon: 'settings-outline',
-                onPress: () => setChatSettingsOpen(true),
-              },
-            ].map(item => (
-              <TouchableOpacity
-                key={item.key}
-                style={[styles.moreRow, item.disabled && styles.actionDisabled]}
-                disabled={item.disabled}
-                onPress={() => {
-                  setMoreOpen(false);
-                  if (typeof item.onPress === 'function') item.onPress();
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name={item.icon}
-                  size={16}
-                  color={item.active ? theme.colors.primary : theme.colors.primaryMuted}
-                />
-                <Text style={[styles.moreRowText, item.active && styles.moreRowTextActive]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setMoreOpen(false)}
+        items={[
+          {
+            key: 'notice',
+            label: '公告',
+            icon: 'megaphone-outline',
+            onPress: () => setNoticeOpen(true),
+          },
+          {
+            key: 'model',
+            label: '模型',
+            icon: 'cube-outline',
+            onPress: openModelPanel,
+          },
+          {
+            key: 'thinking',
+            label: '思考',
+            icon: 'bulb-outline',
+            onPress: openThinkingPanel,
+          },
+          {
+            key: 'scrubber',
+            label: '定位',
+            icon: 'options-outline',
+            disabled: scrubberMessages.length === 0,
+            onPress: () => setScrubberOpen(true),
+          },
+          {
+            key: 'search',
+            label: '搜索',
+            icon: 'search',
+            active: searchOpen,
+            onPress: () => (searchOpen ? closeSearch() : setSearchOpen(true)),
+          },
+          {
+            key: 'summary',
+            label: summarizing ? '总结中' : '总结',
+            icon: 'book-outline',
+            disabled: summarizing || !ready,
+            onPress: onSummarize,
+          },
+          {
+            key: 'settings',
+            label: '设置',
+            icon: 'settings-outline',
+            onPress: () => setChatSettingsOpen(true),
+          },
+        ]}
+      />
 
-      <Modal
+      <ChatSettingsModal
         visible={chatSettingsOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setChatSettingsOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setChatSettingsOpen(false)}
-        >
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>聊天设置</Text>
-            <TouchableOpacity
-              style={styles.linkRow}
-              onPress={() => {
-                setChatSettingsOpen(false);
-                if (navigation) navigation.navigate('设置');
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.linkLeft}>
-                <Ionicons name="settings-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.chatSettingsText}>系统设置</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.linkRow}
-              onPress={() => {
-                setChatSettingsOpen(false);
-                if (isGroup) setGroupEditOpen(true);
-                else setCharacterEditOpen(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.linkLeft}>
-                <Ionicons name="create-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.chatSettingsText}>{isGroup ? '编辑群聊' : '编辑角色'}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setChatSettingsOpen(false)}
+        onOpenSystemSettings={() => { if (navigation) navigation.navigate('设置'); }}
+        editLabel={isGroup ? '编辑群聊' : '编辑角色'}
+        onOpenEditor={() => {
+          if (isGroup) setGroupEditOpen(true);
+          else setCharacterEditOpen(true);
+        }}
+      />
 
       <CharacterEditForm
         visible={characterEditOpen}

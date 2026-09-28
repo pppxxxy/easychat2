@@ -30,6 +30,8 @@
     "src/chat/ThinkingPanelModal.js",
     "src/chat/StickerPanelModal.js",
     "src/chat/StickerNamePromptModal.js",
+    "src/chat/MoreMenuModal.js",
+    "src/chat/ChatSettingsModal.js",
     "src/chat/useScrollScrubber.js",
     "src/chat/useChatSearch.js",
     "src/chat/useChatTts.js",
