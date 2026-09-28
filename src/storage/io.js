@@ -9,6 +9,29 @@ import { recordDiagnostic } from '../diagnostics.js';
 
 export const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
 
+// 序列化后的 UTF-8 字节数。角色卡与制卡草稿都按「超过阈值则落文件」处理，共用此纯函数。
+export function utf8ByteLength(text) {
+  const value = String(text || '');
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
 export async function readJson(key, fallback) {
   try {
     const raw = await AsyncStorage.getItem(key);

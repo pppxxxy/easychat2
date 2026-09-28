@@ -2,7 +2,7 @@
 
 Feature Name: storage-split
 Updated: 2026-09-28
-状态: 进行中（已完成 `io`、`worldMap`、`diary`、`moments`、`stickers`、`settings`、`apiConfigs`、`personas`、`globalPresets`、`vector`（`reconcileVectorIndexes` 待并入）、`affinity`）
+状态: 进行中（已完成 `io`、`worldMap`、`diary`、`moments`、`stickers`、`settings`、`apiConfigs`、`personas`、`globalPresets`、`vector`（`reconcileVectorIndexes` 待并入）、`affinity`、`cardForge`）
 
 ## 实施记录
 
@@ -15,6 +15,7 @@ Updated: 2026-09-28
 - 2026-09-28 阶段 6 完成：新建 `src/storage/apiConfigs.js`（API 配置 + `getActiveModel` + `DEFAULT_API_CONFIG`，含密钥走 `*WithSecrets`）、`src/storage/personas.js`（人设 + 用户全局资料；导出 `USER_PROFILE_KEY` 供媒体清理判断备份键）、`src/storage/globalPresets.js`（全局预设列表与开关）。`storage.js` 删除实现并 re-export；为媒体清理 import `USER_PROFILE_KEY`/`getUserProfileStatus`；移除不再用的 `GLOBAL_PRESETS` 与 `readJsonStatusWithSecrets` import。核验同上。`storage.js` 2785 → 2361 行。
 - 2026-09-28 阶段 7 完成：新建 `src/storage/vector.js`（多配置载荷 + 按角色向量索引 CRUD + `clearVectorIndex`）。**例外**：`reconcileVectorIndexes` 依赖会话列表读取（`readSessionsStatus`，仍属会话领域），本次暂留 `storage.js` barrel；为此 vector.js 导出 `readVectorIndexStatus`/`VECTOR_INDEX_PREFIX` 供其使用，待 sessions 领域抽出后再并入。`storage.js` 删除实现并 re-export；内部 import `clearVectorIndex`（角色删除）、`removeVectorIndexForSession(s)`（会话删除）、`readVectorIndexStatus`/`updateVectorIndex`/`VECTOR_INDEX_PREFIX`（reconcile）；移除不再用的 `readJsonWithSecrets`/`setJsonWithSecrets` import。核验同上。`storage.js` 2361 → 2165 行。
 - 2026-09-29 阶段 8 完成：新建 `src/storage/affinity.js`（好感度 `@easychat2_affinity` + `getAffinityStatus`/`saveAffinity` + `normalizeAffinityState`）。`storage.js` 删除实现并 re-export；移除 `AFFINITY_KEY`。核验同上。`storage.js` 2165 → 2133 行。
+- 2026-09-29 阶段 9 完成：新建 `src/storage/cardForge.js`（制卡草稿：内联/文件描述符读写、`normalizeCardForgeState`、`getCardForgeStatus`/`getCardForge`/`saveCardForge`/`clearCardForge` + `cardForgeWriteQueue`）。共享纯函数 `utf8ByteLength` 提到 `src/storage/io.js`（角色卡与制卡共用）。`storage.js` 删除实现并 re-export；移除 `CARD_FORGE_*` 键/队列/`FORGE_*` import。核验同上。`storage.js` 2133 → 1908 行。
 
 ## 工程加固（2026-09-29，独立于拆分）
 
@@ -59,7 +60,7 @@ Updated: 2026-09-28
 6. `apiConfigs.js` / `personas.js` / `userProfile.js` / `globalPresets.js`（含密钥读写，走 `io.js` 的 `*WithSecrets`）——**已完成**（userProfile 并入 `personas.js`）
 7. `vector.js`（vector memory config/index + `vectorIndexWriteQueues`）——**已完成**（`reconcileVectorIndexes` 待 sessions 抽出后并入）
 8. `affinity.js`——**已完成**
-9. `cardForge.js`（含 payload 文件写入）
+9. `cardForge.js`（含 payload 文件写入）——**已完成**
 10. `characters.js`（角色库索引+条目文件、迁移、默认角色、`characterLibraryWriteBlocked`）
 11. `sessions.js`（sessions + messages + summaries + searchMessages + 迁移 + `enqueueSessionMutation` + 图片文件收集）——最大、最后做
 
