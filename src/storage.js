@@ -8,12 +8,7 @@ import {
   removeMomentsForCharacterDeletion,
   removeMomentsBySessionIds,
 } from './moments/moments';
-import {
-  normalizeDiaryEntry,
-  normalizeDiarySettings,
-  removeDiariesForCharacter,
-  removeRolesFromDiarySettings,
-} from './diary/diary';
+import { removeRolesFromDiarySettings } from './diary/diary';
 import { assignStableCharacterIds } from './context/characterIdentity';
 import { normalizeImagePosition } from './inlineImagePrompt';
 import { normalizeCharacterPresets } from './characterPresets';
@@ -53,9 +48,27 @@ import {
   getWorldMapStatus,
   updateWorldMap,
 } from './storage/worldMap.js';
+import {
+  deleteDiariesForCharacterDeletion,
+  getDiaries,
+  getDiariesStatus,
+  getDiarySettings,
+  saveDiaries,
+  saveDiarySettings,
+  updateDiaries,
+} from './storage/diary.js';
 
 export { markMediaWrite } from './mediaProtection';
 export { detachCharacterFromWorldMap, getWorldMap, getWorldMapStatus, updateWorldMap };
+export {
+  deleteDiariesForCharacterDeletion,
+  getDiaries,
+  getDiariesStatus,
+  getDiarySettings,
+  saveDiaries,
+  saveDiarySettings,
+  updateDiaries,
+};
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
@@ -95,9 +108,6 @@ const VECTOR_INDEX_PREFIX = '@easychat2_vector_index';
 const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
 const PROACTIVE_SETTINGS_KEY = '@easychat2_proactive_settings';
 const MOMENTS_KEY = '@easychat2_moments';
-const DIARY_SETTINGS_KEY = '@easychat2_diary_settings';
-const DIARY_INDEX_KEY = '@easychat2_diary_index';
-const DIARY_ITEM_PREFIX = '@easychat2_diary_item';
 const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
 const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
@@ -113,7 +123,6 @@ const CARD_FORGE_INLINE_LIMIT_BYTES = 512 * 1024;
 let characterLibraryWriteBlocked = false;
 let stickerWriteQueue = Promise.resolve();
 let momentsMutationQueue = Promise.resolve();
-let diaryMutationQueue = Promise.resolve();
 let sessionMutationQueue = Promise.resolve();
 let cardForgeWriteQueue = Promise.resolve();
 const deletedSessionIds = new Set();
@@ -137,12 +146,6 @@ export function whenSessionMutationsSettled() {
 function enqueueMomentsMutation(task) {
   const next = momentsMutationQueue.then(task, task);
   momentsMutationQueue = next.catch(() => {});
-  return next;
-}
-
-function enqueueDiaryMutation(task) {
-  const next = diaryMutationQueue.then(task, task);
-  diaryMutationQueue = next.catch(() => {});
   return next;
 }
 
@@ -1745,127 +1748,7 @@ export function updateMoments(updater) {
 }
 
 // ---- 角色日记 ----
-// 日记条目按「索引 + 单条分键」存储（与角色库/贴纸/世界书一致），避免整表塞进一个键；
-// 设置单键保存：每角色的开关与全局 API 来源。
-
-function diaryItemKey(id) {
-  return `${DIARY_ITEM_PREFIX}::${String(id || '')}`;
-}
-
-export async function getDiarySettings() {
-  const stored = await readJsonStatus(DIARY_SETTINGS_KEY);
-  if (stored.status === 'corrupt') {
-    await backupCorruptValue(DIARY_SETTINGS_KEY);
-    return normalizeDiarySettings(null);
-  }
-  return normalizeDiarySettings(stored.status === 'ok' ? stored.value : null);
-}
-
-export async function saveDiarySettings(settings) {
-  const normalized = normalizeDiarySettings(settings);
-  await AsyncStorage.setItem(DIARY_SETTINGS_KEY, JSON.stringify(normalized));
-  return normalized;
-}
-
-async function readDiaryIndex() {
-  const stored = await readJsonStatus(DIARY_INDEX_KEY);
-  if (stored.status === 'missing') return { status: 'missing', ids: [] };
-  if (stored.status === 'corrupt' || !Array.isArray(stored.value)) {
-    await backupCorruptValue(DIARY_INDEX_KEY);
-    return { status: 'corrupt', ids: [] };
-  }
-  const ids = stored.value.map(item => String(item || '')).filter(Boolean);
-  return { status: 'ok', ids: [...new Set(ids)] };
-}
-
-export async function getDiariesStatus() {
-  const index = await readDiaryIndex();
-  if (index.status === 'missing') return { status: 'missing', diaries: [] };
-  if (index.status === 'corrupt') return { status: 'corrupt', diaries: [] };
-  const diaries = [];
-  for (const id of index.ids) {
-    const stored = await readJsonStatus(diaryItemKey(id));
-    // 索引在、条目丢了同样按损坏处理：先备份，避免后续写盘把残存的日记清掉。
-    if (stored.status === 'missing') {
-      await backupCorruptValue(diaryItemKey(id));
-      return { status: 'corrupt', diaries: [] };
-    }
-    if (stored.status === 'corrupt' || !stored.value || typeof stored.value !== 'object' || Array.isArray(stored.value)) {
-      await backupCorruptValue(diaryItemKey(id));
-      return { status: 'corrupt', diaries: [] };
-    }
-    const normalized = normalizeDiaryEntry(stored.value);
-    if (!normalized.id || !normalized.characterId || !normalized.date) {
-      await backupCorruptValue(diaryItemKey(id));
-      return { status: 'corrupt', diaries: [] };
-    }
-    diaries.push(normalized);
-  }
-  return { status: 'ok', diaries };
-}
-
-export async function getDiaries() {
-  const { diaries } = await getDiariesStatus();
-  return diaries;
-}
-
-async function readDiariesForMutation() {
-  const { status, diaries } = await getDiariesStatus();
-  if (status === 'corrupt') {
-    throw new Error('日记读取失败，请稍后重试');
-  }
-  return diaries;
-}
-
-async function writeDiaryCollection(diaries) {
-  const list = (Array.isArray(diaries) ? diaries : [])
-    .map(normalizeDiaryEntry)
-    .filter(item => item.id && item.characterId && item.date);
-  const ids = list.map(item => item.id);
-  if (list.length > 0) {
-    await AsyncStorage.multiSet(list.map(item => [diaryItemKey(item.id), JSON.stringify(item)]));
-  }
-  // 索引最后写：它是提交点，写成功即代表这一批条目已经落盘。
-  await AsyncStorage.setItem(DIARY_INDEX_KEY, JSON.stringify(ids));
-  // 清理索引里已不存在的旧条目，避免删除后残留在存储里。
-  try {
-    const keys = await AsyncStorage.getAllKeys();
-    const active = new Set(ids);
-    const stale = (Array.isArray(keys) ? keys : []).filter(key => (
-      String(key).startsWith(`${DIARY_ITEM_PREFIX}::`)
-      && !String(key).endsWith(CORRUPT_BACKUP_SUFFIX)
-      && !active.has(String(key).slice(`${DIARY_ITEM_PREFIX}::`.length))
-    ));
-    if (stale.length > 0) await AsyncStorage.multiRemove(stale);
-  } catch (error) {}
-  return list;
-}
-
-export function saveDiaries(diaries) {
-  return enqueueDiaryMutation(async () => {
-    await readDiariesForMutation();
-    return writeDiaryCollection(diaries);
-  });
-}
-
-export function updateDiaries(updater) {
-  return enqueueDiaryMutation(async () => {
-    const current = await readDiariesForMutation();
-    const next = typeof updater === 'function' ? await updater(current) : current;
-    if (next === undefined) return current;
-    return writeDiaryCollection(next);
-  });
-}
-
-export async function deleteDiariesForCharacterDeletion(characterIds) {
-  let removed = 0;
-  await updateDiaries(list => {
-    const next = removeDiariesForCharacter(list, characterIds);
-    removed = (Array.isArray(list) ? list : []).length - next.length;
-    return removed > 0 ? next : list;
-  });
-  return removed;
-}
+// 日记实现见 src/storage/diary.js（barrel 这里 re-export 以保持对外 API 不变）。
 
 // ---- 世界地图 ----
 // 地图实现见 src/storage/worldMap.js（barrel 这里 re-export 以保持对外 API 不变）。

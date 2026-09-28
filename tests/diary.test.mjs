@@ -32,6 +32,7 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
 const STORAGE_SOURCE = read('storage.js');
+const DIARY_STORAGE_SOURCE = read('storage/diary.js');
 const RUNNER_SOURCE = read('diary/runDiary.js');
 const PANEL_SOURCE = read('DiaryPanel.js');
 const EXTENSION_SOURCE = read('ExtensionScreen.js');
@@ -201,16 +202,16 @@ test('日记提示词与文本规范化', () => {
 });
 
 test('日记存储使用索引+分键，索引最后写并清理旧条目', () => {
-  assert.ok(STORAGE_SOURCE.includes("const DIARY_SETTINGS_KEY = '@easychat2_diary_settings'"));
-  assert.ok(STORAGE_SOURCE.includes("const DIARY_INDEX_KEY = '@easychat2_diary_index'"));
-  assert.ok(STORAGE_SOURCE.includes("const DIARY_ITEM_PREFIX = '@easychat2_diary_item'"));
-  assert.ok(STORAGE_SOURCE.includes('async function writeDiaryCollection'));
-  assert.ok(STORAGE_SOURCE.includes('enqueueDiaryMutation'));
+  assert.ok(DIARY_STORAGE_SOURCE.includes("const DIARY_SETTINGS_KEY = '@easychat2_diary_settings'"));
+  assert.ok(DIARY_STORAGE_SOURCE.includes("const DIARY_INDEX_KEY = '@easychat2_diary_index'"));
+  assert.ok(DIARY_STORAGE_SOURCE.includes("const DIARY_ITEM_PREFIX = '@easychat2_diary_item'"));
+  assert.ok(DIARY_STORAGE_SOURCE.includes('async function writeDiaryCollection'));
+  assert.ok(DIARY_STORAGE_SOURCE.includes('enqueueDiaryMutation'));
   // 设置损坏先备份：沿用既有损坏保护约定
-  assert.ok(STORAGE_SOURCE.includes('backupCorruptValue(DIARY_SETTINGS_KEY)'));
-  assert.ok(STORAGE_SOURCE.includes('saveDiarySettings'));
-  assert.ok(STORAGE_SOURCE.includes('getDiariesStatus'));
-  // 角色删除联动清理
+  assert.ok(DIARY_STORAGE_SOURCE.includes('backupCorruptValue(DIARY_SETTINGS_KEY)'));
+  assert.ok(DIARY_STORAGE_SOURCE.includes('saveDiarySettings'));
+  assert.ok(DIARY_STORAGE_SOURCE.includes('getDiariesStatus'));
+  // 角色删除联动清理（barrel storage.js 调用拆分后的模块）
   assert.ok(STORAGE_SOURCE.includes('deleteDiariesForCharacterDeletion'));
   assert.ok(STORAGE_SOURCE.includes('removeRolesFromDiarySettings'));
 });
