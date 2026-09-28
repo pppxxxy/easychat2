@@ -2,7 +2,7 @@
 
 Feature Name: chat-screen-split
 Updated: 2026-09-27
-状态: PR1（阶段 A+B）已提交；阶段 C 进行中（已完成 useScrollScrubber/useChatSearch/useChatTts）；阶段 D 未开始
+状态: PR1（阶段 A+B）已提交；阶段 C 进行中（已完成 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 未开始
 
 ## 实施记录
 
@@ -10,6 +10,7 @@ Updated: 2026-09-27
 - 2026-09-27 PR2 阶段 C 第 1 个 hook 完成：`src/chat/useScrollScrubber.js`（快速定位滑动条）。共享的滚动基础设施（`scrollRef`/`messageOffsetsRef`/`scrollToMessage`）仍留在 ChatScreen，通过参数注入，因为搜索定位与引用跳转也依赖它。依赖数组与原文逐字保持一致（稳定 ref 不加入依赖）。`.c8rc.json` 排除该 hook（含 `react`，Node 里不可加载）。
 - 2026-09-27 PR2 阶段 C 第 2 个 hook 完成：`src/chat/useChatSearch.js`（聊天内搜索：`searchOpen`/`searchQuery`/`activeMatchIndex`/`searchMatches`/`goToMatch`/`closeSearch` + 自动定位 effect）。同样把共享的 `scrollToMessage` 与跨功能焦点锚点 `focusedMessageId` 留在 ChatScreen、参数注入；依赖数组与原文逐字一致。核验：4 个关键逻辑块逐字搬运。`.c8rc.json` 排除该 hook。`ChatScreen.js` 4506 → 4446 行。
 - 2026-09-27 PR2 阶段 C 第 3 个 hook 完成：`src/chat/useChatTts.js`（语音播报设置 + 手动/自动播报）。完全自包含（只依赖 storage/tts/speechText 与自身 state/ref），不触碰会话竞态守卫；hook 调用点放在原 `ttsSettings` 声明处（所有 tts 引用之前），消除前向引用。核验：3 个关键逻辑块逐字搬运。`.c8rc.json` 排除该 hook。`ChatScreen.js` 4446 → 4403 行。
+- 2026-09-27 PR2 阶段 C 第 4 个 hook 完成：`src/chat/useChatModelThinking.js`（模型来源 + 思考设置面板）。依赖注入 `isSending`/`sendLockRef` 两个发送守卫锚点（唯一的跨功能耦合，用于「发送中禁止切换模型」），不碰会话竞态守卫。核验：4 个关键逻辑块逐字搬运；组件内移除不再用的 `saveApiConfigs`/`saveThinkingSettings` import。`.c8rc.json` 排除该 hook。`ChatScreen.js` 4403 → 4356 行。
 
 ### 阶段 C 候选评估（2026-09-27）
 

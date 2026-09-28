@@ -96,9 +96,7 @@ import {
   getStickers,
   getThinkingSettings,
   getUserProfile,
-  saveApiConfigs,
   saveMessagesBySession,
-  saveThinkingSettings,
   setProtectedChatImageUris,
   getTtsSettings,
   getMomentsSettings,
@@ -131,6 +129,7 @@ import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
 import { stop as ttsStop } from './tts';
 import useChatTts from './chat/useChatTts';
+import useChatModelThinking from './chat/useChatModelThinking';
 import { evaluateTurn, clampAffinity } from './moments/affinity';
 import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments';
 import { runHousemateReactions } from './moments/runHousemateReactions';
@@ -297,14 +296,24 @@ export default function ChatScreen() {
   const userNameRef = useRef('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
-  const [modelPanelOpen, setModelPanelOpen] = useState(false);
-  const [apiConfigs, setApiConfigs] = useState([]);
-  const [modelSourceId, setModelSourceId] = useState('');
-  const [thinkingOpen, setThinkingOpen] = useState(false);
-  const [thinkingEnabled, setThinkingEnabled] = useState(false);
-  const [thinkingLevel, setThinkingLevel] = useState('medium');
-  const [thinkingSupported, setThinkingSupported] = useState(false);
-  const [thinkingDisplay, setThinkingDisplay] = useState('fold');
+  const {
+    modelPanelOpen,
+    setModelPanelOpen,
+    apiConfigs,
+    modelSourceId,
+    setModelSourceId,
+    openModelPanel,
+    applyModelSelection,
+    thinkingOpen,
+    setThinkingOpen,
+    thinkingEnabled,
+    thinkingLevel,
+    thinkingSupported,
+    thinkingDisplay,
+    setThinkingDisplay,
+    openThinkingPanel,
+    applyThinking,
+  } = useChatModelThinking({ isSending, sendLockRef });
    const [attachments, setAttachments] = useState([]);
    const attachmentsRef = useRef([]);
    attachmentsRef.current = attachments;
@@ -1308,62 +1317,6 @@ export default function ChatScreen() {
     messageOffsetsRef,
     scrollToMessage,
   });
-
-  const openModelPanel = useCallback(async () => {
-    if (isSending || sendLockRef.current) return;
-    try {
-      const { configs: list, activeId: id } = await getApiConfigs();
-      setApiConfigs(list);
-      setModelSourceId(id);
-      setModelPanelOpen(true);
-    } catch (error) {
-      Alert.alert('读取失败', '无法读取 API 配置。');
-    }
-  }, [isSending]);
-
-  const applyModelSelection = useCallback(async (sourceId, model) => {
-    if (isSending || sendLockRef.current) return;
-    const list = apiConfigs.map(item => (
-      item.id === sourceId ? { ...item, activeModel: model } : item
-    ));
-    try {
-      const saved = await saveApiConfigs(list, sourceId);
-      setApiConfigs(saved.configs);
-      setModelSourceId(sourceId);
-      setModelPanelOpen(false);
-    } catch (error) {
-      Alert.alert('切换失败', '请检查存储空间或权限。');
-    }
-  }, [apiConfigs, isSending]);
-
-  const openThinkingPanel = useCallback(async () => {
-    try {
-      const [settings, { configs, activeId }] = await Promise.all([
-        getThinkingSettings(),
-        getApiConfigs(),
-      ]);
-      const current = configs.find(item => item.id === activeId) || configs[0];
-      setThinkingSupported(!!(current && current.supportsThinking));
-      setThinkingEnabled(settings.enabled);
-      setThinkingLevel(settings.level);
-      setThinkingDisplay(settings.display);
-      setThinkingOpen(true);
-    } catch (error) {
-      Alert.alert('读取失败', '无法读取思考设置。');
-    }
-  }, []);
-
-  const applyThinking = useCallback(async patch => {
-    try {
-      const current = await getThinkingSettings();
-      const saved = await saveThinkingSettings({ ...current, ...patch });
-      setThinkingEnabled(saved.enabled);
-      setThinkingLevel(saved.level);
-      setThinkingDisplay(saved.display);
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, []);
 
   const runSummarize = useCallback(async (session, list, manual) => {
     if (summarizingRef.current) return;
