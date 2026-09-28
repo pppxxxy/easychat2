@@ -35,6 +35,7 @@
     "src/chat/FullScreenInputModal.js",
     "src/chat/ChatSearchBar.js",
     "src/chat/ChatTopBar.js",
+    "src/chat/ChatComposer.js",
     "src/chat/useScrollScrubber.js",
     "src/chat/useChatSearch.js",
     "src/chat/useChatTts.js",

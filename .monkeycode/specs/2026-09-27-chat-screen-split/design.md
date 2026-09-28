@@ -2,7 +2,7 @@
 
 Feature Name: chat-screen-split
 Updated: 2026-09-27
-状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 的 10 个内联 Modal 已全部抽出 + 搜索栏/顶栏已抽（SelectionTextModal、SwitcherModal、MentionPickerModal、ModelPanelModal、ThinkingPanelModal、StickerPanelModal、StickerNamePromptModal、MoreMenuModal、ChatSettingsModal、FullScreenInputModal、ChatSearchBar、ChatTopBar）；阶段 D 剩余：输入区 render 子树
+状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 完成（10 个内联 Modal + 搜索栏 + 顶栏 + 输入区全部抽出）；`ChatScreen.js` 6112 → 3658 行
 
 ## 实施记录
 
@@ -21,6 +21,7 @@ Updated: 2026-09-27
 - 2026-09-27 阶段 D 小结：render 内 10 个内联 `Modal` 已全部抽出为 `src/chat/*Modal.js`，render 中不再有内联 `<Modal>`。阶段 D 剩余 render 子树：顶栏、输入区、搜索栏。
 - 2026-09-27 PR3 阶段 D 第 8 个 render 子树完成：`src/chat/ChatSearchBar.js`（props `visible`/`query`/`onChangeQuery`/`matchCount`/`activeMatchIndex`/`onPrev`/`onNext`/`onClose`）。`visible` 为假时组件内部返回 `null`（等价原 `searchOpen ? (...) : null`）。核验：markup 逐字搬运，`goToMatch`/`closeSearch`/`setSearchQuery` 与派生计数仍留在 ChatScreen 参数注入。`.c8rc.json` 排除该文件。`ChatScreen.js` 3882 → 3848 行。
 - 2026-09-27 PR3 阶段 D 第 9 个 render 子树完成：`src/chat/ChatTopBar.js`（聊天页顶栏，含消息多选态与常规态）。props 收 `messageSelectionOpen`/`selectedCount`/`isSending`/`onCancelSelection`/`onDeleteSelected`/`onOpenSwitcher`/`loaded`/`isGroup`/`groupAvatarUri`/`characterAvatarUri`/`displayName`/`onNewChat`/`ready`/`autoBroadcast`/`onToggleBroadcast`/`onOpenMore`；`character.avatarUri` → `characterAvatarUri`、`ttsSettings.autoBroadcast` → `autoBroadcast`、`selectedMessageIds.length` → `selectedCount` 仅为改名。核验：markup 逐字搬运。`.c8rc.json` 排除该文件。`ChatScreen.js` 3848 → 3772 行。
+- 2026-09-27 PR3 阶段 D 第 10 个 render 子树完成（阶段 D 收尾）：`src/chat/ChatComposer.js`（引用条 + 附件条 + 输入框 + 发送/停止）。props 收引用/附件/输入/发送相关回调；闭包里的竞态/发送守卫（`isSending`/`sendLockRef.current`/`onSend`/`onStop`）仍留在 ChatScreen，仅注入 `quoteLocked`/`attachLocked`/`fullScreenDisabled` 等派生布尔。`MENTION_PREFIX` 由组件直接从 `../groupMentions` 导入。核验：markup 逐字搬运。ChatScreen 移除不再用的 `TextInput` import。`.c8rc.json` 排除该文件。`ChatScreen.js` 3772 → 3658 行。
 
 ### 阶段 C 候选评估（2026-09-27）
 
