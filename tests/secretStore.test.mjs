@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
+import { maskSecrets } from '../src/secrets.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -71,6 +72,19 @@ test('写盘前把密钥抽到安全存储并落引用，读回能还原明文',
   const hydrated = await hydrateSecrets('@easychat2_api_configs', protectedPayload);
   assert.equal(hydrated.configs[0].apiKey, 'sk-secret-a');
   assert.equal(hydrated.configs[1].apiKey, 'sk-secret-b');
+});
+
+test('存储边界登记的密钥可被脱敏（脱敏双保险）', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  // 不使用 sk-/Bearer 等可识别前缀的无格式随机串，正则兜不住，只能靠登记表
+  const plain = 'zQ7plaincustomsecretvalue9x';
+  const protectedPayload = await protectSecrets('@easychat2_api_configs', {
+    configs: [{ id: 'a', apiKey: plain }],
+  });
+  assert.equal(maskSecrets(`接口失败: ${plain}`).includes(plain), false);
+  const hydrated = await hydrateSecrets('@easychat2_api_configs', protectedPayload);
+  assert.equal(hydrated.configs[0].apiKey, plain);
 });
 
 test('确定性 id：同一字段重复保存覆盖同一条，不产生孤儿密钥', async () => {

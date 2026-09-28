@@ -9,6 +9,12 @@
 //   功能行为与改造前一致；
 // - 兼容旧数据：读取时遇到明文（非引用）原样返回，下次保存自动转为引用；
 // - 字段白名单精确匹配键名，避免误伤 `apiKeyUrl` 这类同前缀字段。
+//
+// 脱敏双保险：本模块是密钥进出内存的存储边界，遍历到 SECRET_FIELDS 的明文时顺手登记到
+// secrets 模块的登记表，供诊断日志脱敏。使用点（api/imageGen/tts/webSearch/vector）仍各自登记，
+// 这里兜住「新接入的密钥字段只走了存储边界、忘了在使用点登记」的漏网情况。
+
+import { registerSecretValues } from './secrets.js';
 
 const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey']);
 const REF_PREFIX = 'secure:v1:';
@@ -112,6 +118,7 @@ async function protectValue(value, namespace, path) {
     const out = {};
     for (const [key, item] of Object.entries(value)) {
       if (SECRET_FIELDS.has(key) && typeof item === 'string' && item && !isSecretRef(item)) {
+        registerSecretValues([item]);
         const id = makeSecretId(namespace, childPath(path, key));
         try {
           await writeSecret(id, item);
@@ -143,6 +150,7 @@ async function hydrateValue(value, namespace, path) {
     for (const [key, item] of Object.entries(value)) {
       if (SECRET_FIELDS.has(key) && isSecretRef(item)) {
         out[key] = await readSecret(refId(item));
+        registerSecretValues([out[key]]);
       } else {
         out[key] = await hydrateValue(item, namespace, childPath(path, key));
       }
