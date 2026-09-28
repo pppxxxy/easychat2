@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -660,7 +662,10 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         animationType="fade"
         onRequestClose={closeAssist}
       >
-        <View style={styles.assistOverlay}>
+        <KeyboardAvoidingView
+          style={styles.assistOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.assistCard}>
             <Text style={styles.assistTitle}>{`辅助生成「${assistLabel}」`}</Text>
             {isRegexAssist ? (
@@ -673,14 +678,21 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                 {`当前内容：${assistPreview.trim() || '（空）'}`}
               </Text>
             ) : null}
-            <TextField
-              style={styles.assistInput}
-              value={assistText}
-              onChangeText={setAssistText}
-              placeholder="描述想修改的地方，例如：把性格改得更傲娇一些"
-              multiline
-              autoFocus
-            />
+            <ScrollView
+              style={styles.assistScroll}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <TextField
+                style={styles.assistInput}
+                value={assistText}
+                onChangeText={setAssistText}
+                placeholder="描述想修改的地方，例如：把性格改得更傲娇一些"
+                multiline
+                autoFocus
+                scrollEnabled={false}
+              />
+            </ScrollView>
             {assistBusy ? (
               <View style={styles.assistBusyRow}>
                 <ActivityIndicator color={theme.colors.primary} />
@@ -692,7 +704,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               <PrimaryButton title="生成" onPress={submitAssist} disabled={assistBusy} style={styles.footerButton} />
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <CardPreviewModal
@@ -855,6 +867,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   assistCard: {
     width: '100%',
     maxWidth: 380,
+    maxHeight: '80%',
     backgroundColor: theme.colors.surfaceAlt,
     borderRadius: tokens.radius.lg,
     borderWidth: tokens.border.thin,
@@ -879,6 +892,9 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     lineHeight: fonts.scaled(17),
     marginTop: tokens.spacing.xs,
     marginBottom: tokens.spacing.sm,
+  },
+  assistScroll: {
+    flexGrow: 0,
   },
   assistInput: {
     minHeight: tokens.metrics.fieldHeight * 2,
