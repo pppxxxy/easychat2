@@ -26,7 +26,8 @@ Updated: 2026-09-28
 - 已提交 `edc129f`（P1）：`secretStore` 在 `protectValue`/`hydrateValue` 命中 `SECRET_FIELDS` 明文时调用 `registerSecretValues`（脱敏双保险）；新增回归测试（无格式前缀的自定义密钥经存储边界登记后可被 `maskSecrets` 脱掉）。
 - 已提交 `6d3a53a`（P1）：把 `useChatSearch` 的匹配与下标推进抽成纯函数 `src/chat/chatSearchMath.js` 并补 `tests/chatSearchMath.test.mjs`（4 条），纯逻辑受覆盖率门禁约束（hooks 本体仍需 renderer，继续排除）。
 - 覆盖率 exclude 审计结论：被排除且不直接依赖 RN 的文件仅 5 个，其中 4 个（`useChatSearch`/`useScrollScrubber`/`AppContext`/`ui/index`）需 React renderer 才能真正执行；采取「抽纯逻辑 + 补测」而非直接纳入 hooks 本体。
-- 待办 P2：消除 `MODULE_TYPELESS_PACKAGE_JSON`（先 spike `src/package.json` type:module）；统一相对导入 `.js` 扩展名（约 356 处）。
+- 已提交 `08939d6`（P2）：新增 `src/package.json` = `{"type":"module"}`，消除全部 `MODULE_TYPELESS_PACKAGE_JSON` 警告（原 30+ 条），451/451、Metro、`expo config` 均正常。
+- 已提交 `1a01082`（P2）：统一相对导入 `.js` 扩展名（`App.js` 15 处、`src` 350 处、`tests` 35 处；目录导入改写为 `<dir>/index.js`，图片资源不动）。同步更新测试里按 specifier 的打桩（如 `'./secrets'` → `'./secrets.js'`）与源码断言（`from './memoryBuckets.js'` 等）。
 - 待办 P3：聊天主链路真机冒烟清单。
 
 ## 目标
