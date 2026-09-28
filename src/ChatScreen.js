@@ -1342,8 +1342,16 @@ export default function ChatScreen() {
         .find(item => item.id === sessionCharacterId) || character;
        const characterExists = (Array.isArray(characters) ? characters : [])
          .some(item => item.id === sessionCharacterId);
+       // 自动总结在启用向量记忆后降级为会话级（跨会话召回交给向量）；
+       // 手动总结是用户显式操作，仍按原有作用域判定，允许写入世界书。
+       let vectorEnabled = false;
+       try {
+         const vectorConfig = await getVectorMemoryConfig();
+         vectorEnabled = vectorConfig.enabled === true;
+       } catch (error) {}
+       const scopeOverride = !manual && vectorEnabled;
        const scoped = !characterExists
-         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list);
+         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list, scopeOverride);
        let expectedConfigId = '';
        let expectedConfigFingerprint = '';
        try {
@@ -1368,7 +1376,7 @@ export default function ChatScreen() {
             const latestCharacterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
               .some(item => item.id === sessionCharacterId);
              return !latestCharacterExists
-               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list);
+               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list, scopeOverride);
           },
         });
       await refreshSessions().catch(() => {});
@@ -1517,6 +1525,11 @@ export default function ChatScreen() {
       const trimmedHistory = boundaryIndex >= 0
         ? historyMessages.slice(boundaryIndex + 1)
         : historyMessages;
+      // 已经作为原文发送的历史（boundary 之后）不再由向量重复召回；被摘要裁剪掉
+      // 的更早区间和其它会话才交给向量，避免同一内容既当原文又当“相关记忆”。
+      const sentIds = new Set(
+        trimmedHistory.map(item => String((item && item.id) || ''))
+      );
       let memorySnippets = '';
       try {
         const vectorConfig = await getVectorMemoryConfig();
@@ -1530,7 +1543,9 @@ export default function ChatScreen() {
             topK: vectorConfig.topK,
             signal: controller.signal,
           });
-          memorySnippets = buildMemoryContext(hits);
+          memorySnippets = buildMemoryContext(
+            hits.filter(item => !sentIds.has(String((item && item.messageId) || '')))
+          );
         }
       } catch (error) {
         memorySnippets = '';

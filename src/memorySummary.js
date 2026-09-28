@@ -187,8 +187,10 @@ export function isSessionScopedMemory(
   sessions,
   characterId,
   activeSession = null,
-  activeMessages = []
+  activeMessages = [],
+  override = undefined
 ) {
+  if (override === true) return true;
   return countCharacterMemories(sessions, characterId, activeSession, activeMessages)
     >= MEMORY_SCOPE_THRESHOLD;
 }

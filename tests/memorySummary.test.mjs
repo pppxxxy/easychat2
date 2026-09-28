@@ -280,6 +280,14 @@ test('会话摘要版本变化后拒绝写回', async () => {
   storageMock.isSessionSummaryRevisionCurrent = (_sessionId, revision) => revision === summaryRevision;
 });
 
+test('启用向量记忆后自动总结强制降级为会话级', () => {
+  const sessions = [{ id: 'only', characterId: 'c', preview: '有一条消息' }];
+  // 默认（未启用向量）单会话写世界书
+  assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c'), false);
+  // override=true（启用向量）时恒为会话级，跨会话召回交给向量
+  assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c', null, [], true), true);
+});
+
 test('preview 为空但已推进边界或当前有消息的会话仍计入记忆', () => {
   const sessions = [
     { id: 's1', characterId: 'c', preview: '' },
