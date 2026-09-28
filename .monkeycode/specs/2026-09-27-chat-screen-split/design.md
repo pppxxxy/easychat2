@@ -2,7 +2,7 @@
 
 Feature Name: chat-screen-split
 Updated: 2026-09-27
-状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 进行中（已完成 SelectionTextModal、SwitcherModal、MentionPickerModal、ModelPanelModal、ThinkingPanelModal、StickerPanelModal、StickerNamePromptModal、MoreMenuModal、ChatSettingsModal；剩余 FullScreenInputModal）
+状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 的 10 个内联 Modal 已全部抽出（SelectionTextModal、SwitcherModal、MentionPickerModal、ModelPanelModal、ThinkingPanelModal、StickerPanelModal、StickerNamePromptModal、MoreMenuModal、ChatSettingsModal、FullScreenInputModal）；阶段 D 剩余：顶栏 / 输入区 / 搜索栏 render 子树
 
 ## 实施记录
 
@@ -17,6 +17,8 @@ Updated: 2026-09-27
 - 2026-09-27 PR3 阶段 D 第 4 个 Modal（模型 + 思考成对）完成：`src/chat/ModelPanelModal.js`（props `visible`/`onClose`/`apiConfigs`/`modelSourceId`/`setModelSourceId`/`applyModelSelection`/`isSending`）、`src/chat/ThinkingPanelModal.js`（props `visible`/`onClose`/`thinkingSupported`/`thinkingEnabled`/`thinkingLevel`/`thinkingDisplay`/`applyThinking`）。思考常量来源：`THINKING_LEVELS`/`THINKING_DISPLAYS` 来自 `../storage`，`THINKING_LEVEL_LABELS`/`THINKING_DISPLAY_LABELS` 来自 `./chatConstants`。核验：markup 逐字搬运，仅 `set*Open(false)` → `onClose`。ChatScreen 移除不再用的 `Switch` 与 4 个思考常量 import。`.c8rc.json` 排除两文件。`ChatScreen.js` 4208 → 4055 行。
 - 2026-09-27 PR3 阶段 D 第 5 个 Modal（贴纸成对）完成：`src/chat/StickerPanelModal.js`（props `visible`/`onClose`/`stickers`/`stickerSaving`/`addStickerFromPicker`/`sendSticker`/`inputDisabled`）、`src/chat/StickerNamePromptModal.js`（props `visible`/`onClose`/`draft`/`onChangeDraft`/`confirmStickerName`/`stickerSaving`）。核验：markup 逐字搬运，仅 `setStickerPanelOpen(false)` → `onClose`、`setStickerNameDraft` → `onChangeDraft`。`.c8rc.json` 排除两文件。`ChatScreen.js` 4055 → 3979 行。
 - 2026-09-27 PR3 阶段 D 第 6 个 Modal（更多菜单 + 聊天设置）完成：`src/chat/MoreMenuModal.js`（props `visible`/`onClose`/`items`；菜单项数组仍在 ChatScreen 构造并传入，组件只渲染，保留渲染期状态捕获与 `onClose → item.onPress` 顺序）、`src/chat/ChatSettingsModal.js`（props `visible`/`onClose`/`onOpenSystemSettings`/`editLabel`/`onOpenEditor`；`onClose → 具体回调` 顺序不变）。核验：markup 逐字搬运。`.c8rc.json` 排除两文件。`ChatScreen.js` 3979 → 3915 行。
+- 2026-09-27 PR3 阶段 D 第 7 个 Modal（全屏输入）完成：`src/chat/FullScreenInputModal.js`（props `visible`/`onClose`/`text`/`onChangeText`/`onSend`）。**会话竞态守卫逻辑未拆**：内联 async `onSend`（`captureSessionGuard`/`isSessionGuardCurrent`/`sendMessage`）原样留在 ChatScreen，仅作为 prop 注入组件。`canSend = !!text.trim()` 在组件内推导，与原文 `!fullScreenText.trim()` 等价。核验：markup 逐字搬运。ChatScreen 移除不再用的 `Modal` import。`.c8rc.json` 排除该文件。`ChatScreen.js` 3915 → 3882 行。
+- 2026-09-27 阶段 D 小结：render 内 10 个内联 `Modal` 已全部抽出为 `src/chat/*Modal.js`，render 中不再有内联 `<Modal>`。阶段 D 剩余 render 子树：顶栏、输入区、搜索栏。
 
 ### 阶段 C 候选评估（2026-09-27）
 

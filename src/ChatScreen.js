@@ -4,7 +4,6 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -163,6 +162,7 @@ import StickerPanelModal from './chat/StickerPanelModal';
 import StickerNamePromptModal from './chat/StickerNamePromptModal';
 import MoreMenuModal from './chat/MoreMenuModal';
 import ChatSettingsModal from './chat/ChatSettingsModal';
+import FullScreenInputModal from './chat/FullScreenInputModal';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3701,63 +3701,30 @@ if (!isCurrent() || controller.signal.aborted) return false;
         stickerSaving={stickerSaving}
       />
 
-      <Modal
+      <FullScreenInputModal
         visible={fullScreenOpen}
-        animationType="slide"
-        onRequestClose={() => setFullScreenOpen(false)}
-      >
-        <KeyboardAvoidingView
-          style={styles.fullScreenContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.fullScreenHeader}>
-            <Text style={styles.fullScreenTitle}>全屏输入</Text>
-            <TouchableOpacity
-              onPress={() => setFullScreenOpen(false)}
-              hitSlop={8}
-              accessibilityLabel="退出全屏"
-            >
-              <Ionicons name="close" size={24} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-          <TextInput
-            style={styles.fullScreenInput}
-            value={fullScreenText}
-            onChangeText={setFullScreenText}
-            placeholder="输入消息..."
-            placeholderTextColor={theme.colors.textFaint}
-            multiline
-            textAlignVertical="top"
-            autoFocus
-          />
-          <TouchableOpacity
-            style={[styles.fullScreenSend, !fullScreenText.trim() && styles.sendButtonDisabled]}
-             onPress={async () => {
-               const text = fullScreenText.trim();
-               const draft = fullScreenText;
-               const sessionGuard = captureSessionGuard();
-               setFullScreenOpen(false);
-               if (!text) {
-                 setFullScreenText('');
-                 return;
-               }
-               const sent = await sendMessage(text, [], sessionGuard);
-               if (!isSessionGuardCurrent(sessionGuard)) return;
-               if (sent) {
-                 setFullScreenText('');
-                 setInput('');
-               } else {
-                 setFullScreenText(draft);
-               }
-             }}
-            disabled={!fullScreenText.trim()}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="arrow-up" size={18} color={theme.colors.text} />
-            <Text style={styles.fullScreenSendText}>发送</Text>
-          </TouchableOpacity>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setFullScreenOpen(false)}
+        text={fullScreenText}
+        onChangeText={setFullScreenText}
+        onSend={async () => {
+          const text = fullScreenText.trim();
+          const draft = fullScreenText;
+          const sessionGuard = captureSessionGuard();
+          setFullScreenOpen(false);
+          if (!text) {
+            setFullScreenText('');
+            return;
+          }
+          const sent = await sendMessage(text, [], sessionGuard);
+          if (!isSessionGuardCurrent(sessionGuard)) return;
+          if (sent) {
+            setFullScreenText('');
+            setInput('');
+          } else {
+            setFullScreenText(draft);
+          }
+        }}
+      />
 
       <SwitcherModal
         visible={switcherOpen}
