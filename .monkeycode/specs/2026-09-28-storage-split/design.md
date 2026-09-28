@@ -2,7 +2,7 @@
 
 Feature Name: storage-split
 Updated: 2026-09-28
-状态: 进行中（已完成 `io.js`、`worldMap.js`、`diary.js`、`moments.js`、`stickers.js`、`settings.js`）
+状态: 进行中（已完成 `io.js`、`worldMap.js`、`diary.js`、`moments.js`、`stickers.js`、`settings.js`、`apiConfigs.js`、`personas.js`、`globalPresets.js`）
 
 ## 实施记录
 
@@ -12,6 +12,7 @@ Updated: 2026-09-28
 - 2026-09-28 阶段 3 完成：新建 `src/storage/moments.js`（`MOMENTS_SETTINGS_KEY`/`PROACTIVE_SETTINGS_KEY`/`MOMENTS_KEY` + `enqueueMomentsMutation` + 动态设置/集合读写 + 互动（`PROACTIVE_MODES`/`makeProactiveSlotId`/设置）+ 按会话/角色删除联动）。`storage.js` 删除实现并 re-export；为内部媒体清理保留 `MOMENTS_KEY`（`isAvatarReferenceBackupKey`）与 `getMomentsStatus`（`collectAvatarImageFiles`）的 import。核验同上。`storage.js` 3506 → 3331 行。
 - 2026-09-28 阶段 4 完成：新建 `src/storage/stickers.js`（`@easychat2_sticker_*` 键 + `stickerWriteQueue` + 索引/条目读写、旧整表迁移、`getStickers`/`saveSticker`/`readStickerStatus`/`isStickerReferenceBackupKey`）。`storage.js` 删除实现并 re-export；媒体清理 `collectStickerImageFiles` 仍留在 barrel，import `readStickerStatus`/`isStickerReferenceBackupKey`。核验同上。`storage.js` 3331 → 3169 行。
 - 2026-09-28 阶段 5 完成：新建 `src/storage/settings.js`（思考 / 采样 / 图像生成 / 聊天选项 / 外观 / 配图 / 语音播报 / 记忆总结 / 插件 / 免责声明与引导；含各自 normalizer 与默认值）。`storage.js` 删除实现并 re-export；移除不再用的 `isKnownImageProvider`/`normalizeImagePosition` import 与 11 个键常量。`tests/aigc.test.mjs` 的 `DISCLAIMER_VERSION` 源码断言改读 `storage/settings.js`。核验同上。`storage.js` 3169 → 2785 行。
+- 2026-09-28 阶段 6 完成：新建 `src/storage/apiConfigs.js`（API 配置 + `getActiveModel` + `DEFAULT_API_CONFIG`，含密钥走 `*WithSecrets`）、`src/storage/personas.js`（人设 + 用户全局资料；导出 `USER_PROFILE_KEY` 供媒体清理判断备份键）、`src/storage/globalPresets.js`（全局预设列表与开关）。`storage.js` 删除实现并 re-export；为媒体清理 import `USER_PROFILE_KEY`/`getUserProfileStatus`；移除不再用的 `GLOBAL_PRESETS` 与 `readJsonStatusWithSecrets` import。核验同上。`storage.js` 2785 → 2361 行。
 
 ## 目标
 
@@ -46,7 +47,7 @@ Updated: 2026-09-28
 3. `moments.js`（**含 设置 + 集合 + 按角色/会话删除**：`MOMENTS_SETTINGS_KEY`/`MOMENTS_KEY`/`PROACTIVE_SETTINGS_KEY` + `enqueueMomentsMutation`）——**已完成**
 4. `stickers.js`（`@easychat2_sticker_*` + `stickerWriteQueue` + 表情包文件收集）——**已完成**（文件收集仍留在 barrel 的媒体清理）
 5. `settings.js`（thinking/sampling/imageGen/chatOptions/appearance/inlineImage/tts/memorySummary/plugins/disclaimer/onboarding）——**已完成**
-6. `apiConfigs.js` / `personas.js` / `userProfile.js` / `globalPresets.js`（含密钥读写，走 `io.js` 的 `*WithSecrets`）
+6. `apiConfigs.js` / `personas.js` / `userProfile.js` / `globalPresets.js`（含密钥读写，走 `io.js` 的 `*WithSecrets`）——**已完成**（userProfile 并入 `personas.js`）
 7. `vector.js`（vector memory config/index + `vectorIndexWriteQueues`）
 8. `affinity.js`
 9. `cardForge.js`（含 payload 文件写入）

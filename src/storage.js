@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 
-import GLOBAL_PRESETS from './presets';
 import { FORGE_FIELDS, FORGE_QUESTIONS, MAX_PRESERVED_ITEMS, MAX_PRESERVED_TEXT } from './cardForge/forge';
 import { removeRolesFromDiarySettings } from './diary/diary';
 import { assignStableCharacterIds } from './context/characterIdentity';
@@ -31,7 +30,6 @@ import {
   backupCorruptValue,
   readJson,
   readJsonStatus,
-  readJsonStatusWithSecrets,
   readJsonWithSecrets,
   readLargeAsyncStorageValue,
   setJsonWithSecrets,
@@ -53,6 +51,7 @@ import {
 } from './storage/diary.js';
 import { MOMENTS_KEY, getMomentsStatus } from './storage/moments.js';
 import { isStickerReferenceBackupKey, readStickerStatus } from './storage/stickers.js';
+import { USER_PROFILE_KEY, getUserProfileStatus } from './storage/personas.js';
 
 export { markMediaWrite } from './mediaProtection';
 export { detachCharacterFromWorldMap, getWorldMap, getWorldMapStatus, updateWorldMap };
@@ -109,14 +108,33 @@ export {
   saveThinkingSettings,
   saveTtsSettings,
 } from './storage/settings.js';
+export {
+  createApiConfig,
+  getActiveApiConfig,
+  getActiveModel,
+  getApiConfigs,
+  saveApiConfigs,
+} from './storage/apiConfigs.js';
+export {
+  USER_PROFILE_KEY,
+  createPersona,
+  deletePersona,
+  getActivePersonaId,
+  getPersonas,
+  getUserProfile,
+  getUserProfileStatus,
+  saveUserProfile,
+  setActivePersonaId,
+} from './storage/personas.js';
+export {
+  createGlobalPresetId,
+  getEnabledGlobalPresetPrompts,
+  getGlobalPresetSettings,
+  getGlobalPresets,
+  saveGlobalPresetSettings,
+  saveGlobalPresets,
+} from './storage/globalPresets.js';
 
-const API_CONFIG_KEY = '@easychat2_api_config';
-const API_CONFIGS_KEY = '@easychat2_api_configs';
-const USER_PROFILE_KEY = '@easychat2_user_profile';
-const PERSONAS_KEY = '@easychat2_personas';
-const ACTIVE_PERSONA_KEY = '@easychat2_active_persona';
-const GLOBAL_PRESETS_KEY = '@easychat2_global_presets';
-const PRESET_LIST_KEY = '@easychat2_preset_list';
 const CHARACTER_KEY = '@easychat2_character';
 // 旧格式：整库数组存一个键（超过约 2MB 会触发 Android SQLite 行读取上限）。
 const CHARACTERS_KEY = '@easychat2_characters';
@@ -163,12 +181,6 @@ function enqueueSessionMutation(task) {
 export function whenSessionMutationsSettled() {
   return sessionMutationQueue.catch(() => {});
 }
-
-const DEFAULT_API_CONFIG = {
-  baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
-  apiKey: ''
-};
 
 export const DEFAULT_CHARACTER = {
   id: 'default',
@@ -788,55 +800,6 @@ export async function clearCharacterEditDraft(characterId) {
   }
 }
 
-function makeApiConfigId() {
-  return `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function normalizeApiConfig(raw, index = 0) {
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const legacyModel = String(source.model || source.activeModel || DEFAULT_API_CONFIG.model);
-  const providedModels = Array.isArray(source.models)
-    ? source.models.map(item => String(item || '').trim()).filter(Boolean)
-    : null;
-  const models = providedModels !== null ? providedModels : [legacyModel];
-  const requestedActive = String(source.activeModel || '');
-  const activeModel = models.includes(requestedActive)
-    ? requestedActive
-    : (models.includes(legacyModel) ? legacyModel : (models[0] || ''));
-  return {
-    id: String(source.id || `cfg-${index}`),
-    name: String(source.name || `配置 ${index + 1}`),
-    baseUrl: typeof source.baseUrl === 'string' ? source.baseUrl : DEFAULT_API_CONFIG.baseUrl,
-    apiKey: String(source.apiKey || ''),
-    vendorId: String(source.vendorId || ''),
-    protocol: source.protocol === 'anthropic' ? 'anthropic' : 'openai',
-    authHeader: String(source.authHeader || 'Authorization'),
-    authScheme: source.authScheme === undefined || source.authScheme === null
-      ? 'Bearer '
-      : String(source.authScheme),
-    apiKeyUrl: String(source.apiKeyUrl || ''),
-    models,
-    activeModel,
-    supportsThinking: source.supportsThinking === true,
-    supportsVision: source.supportsVision === true,
-    thinking: {
-      field: String((source.thinking && source.thinking.field) || 'reasoning_effort')
-        || 'reasoning_effort',
-      format: ['effort', 'boolean', 'object'].includes(source.thinking && source.thinking.format)
-        ? source.thinking.format
-        : 'effort',
-    },
-  };
-}
-
-export function getActiveModel(config) {
-  if (!config) return DEFAULT_API_CONFIG.model;
-  return String(config.activeModel || '')
-    || (Array.isArray(config.models) && config.models[0])
-    || String(config.model || '')
-    || DEFAULT_API_CONFIG.model;
-}
-
 function normalizeVectorMemoryConfig(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const topK = Math.trunc(Number(source.topK));
@@ -1446,393 +1409,6 @@ export async function saveAffinity(map) {
   const normalized = normalizeAffinityState(map);
   await AsyncStorage.setItem(AFFINITY_KEY, JSON.stringify(normalized));
   return normalized;
-}
-
-function ensureUniqueApiConfigIds(list) {
-  const seen = new Set();
-  return list.map((item, index) => {
-    let id = String(item.id);
-    if (seen.has(id)) {
-      let candidate = `${id}-${index}`;
-      let bump = index;
-      while (seen.has(candidate)) {
-        bump += 1;
-        candidate = `${id}-${index}-${bump}`;
-      }
-      id = candidate;
-    }
-    seen.add(id);
-    return id === item.id ? item : { ...item, id };
-  });
-}
-
-async function persistApiConfigs(configs, activeId) {
-  await setJsonWithSecrets(API_CONFIGS_KEY, { configs, activeId });
-}
-
-export async function getApiConfigs() {
-  const stored = await readJsonStatusWithSecrets(API_CONFIGS_KEY);
-  let payload = stored.status === 'ok' ? stored.value : null;
-  const shapeInvalid = payload !== null
-    && (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray(payload.configs));
-  if (stored.status === 'corrupt' || shapeInvalid) {
-    // 以前这里直接抛错：用户会卡在“读不到配置”，原始数据既没备份也无法自愈。
-    // 现在先备份原始值，再按“缺失”重建默认配置。
-    await backupCorruptValue(API_CONFIGS_KEY);
-    payload = null;
-  }
-  let configs = [];
-  let activeId = '';
-  let needsPersist = false;
-
-  if (payload) {
-    configs = ensureUniqueApiConfigIds(payload.configs.map(normalizeApiConfig));
-    activeId = String(payload.activeId || '');
-  } else {
-    // 旧单配置键：仅迁移用，读失败绝不覆盖；密钥可能为明文，hydrate 后随新结构一并转引用。
-    const legacy = await readJsonStatusWithSecrets(API_CONFIG_KEY);
-    if (legacy.status === 'corrupt') await backupCorruptValue(API_CONFIG_KEY);
-    const legacyValue = legacy.status === 'ok'
-      && legacy.value && typeof legacy.value === 'object' && !Array.isArray(legacy.value)
-      ? legacy.value
-      : null;
-    const seed = legacyValue
-      ? { ...legacyValue, id: 'default', name: '默认配置' }
-      : { id: 'default', name: '默认配置' };
-    configs = [normalizeApiConfig(seed, 0)];
-    needsPersist = true;
-  }
-
-  if (configs.length === 0) {
-    configs = [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
-    needsPersist = true;
-  }
-  if (!configs.some(item => item.id === activeId)) {
-    activeId = configs[0].id;
-    needsPersist = true;
-  }
-  if (needsPersist) {
-    try {
-      await persistApiConfigs(configs, activeId);
-    } catch (error) {}
-  }
-  return { configs, activeId };
-}
-
-export async function saveApiConfigs(configs, activeId) {
-  const normalized = ensureUniqueApiConfigIds(
-    (Array.isArray(configs) ? configs : []).map(normalizeApiConfig)
-  );
-  const list = normalized.length
-    ? normalized
-    : [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
-  const resolvedActive = list.some(item => item.id === activeId)
-    ? String(activeId)
-    : list[0].id;
-  await persistApiConfigs(list, resolvedActive);
-  return { configs: list, activeId: resolvedActive };
-}
-
-export function createApiConfig(partial = {}) {
-  return normalizeApiConfig({ id: makeApiConfigId(), ...partial });
-}
-
-export async function getActiveApiConfig() {
-  const { configs, activeId } = await getApiConfigs();
-  return configs.find(item => item.id === activeId) || configs[0];
-}
-
-const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '' };
-const DEFAULT_PERSONA_ID = 'default';
-
-function makePersonaId(now = Date.now()) {
-  return `persona-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function normalizePersona(raw) {
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const createdAt = Number(source.createdAt);
-  const updatedAt = Number(source.updatedAt);
-  return {
-    id: String(source.id || '').trim() || makePersonaId(),
-    userName: String(source.userName || ''),
-    persona: String(source.persona || ''),
-    createdAt: Number.isFinite(createdAt) ? createdAt : 0,
-    updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
-  };
-}
-
-function readGlobalProfileMeta(rawProfile) {
-  const source = rawProfile && typeof rawProfile === 'object' ? rawProfile : {};
-  return {
-    avatarUri: String(source.avatarUri || ''),
-  };
-}
-
-export async function getPersonas() {
-  const stored = await readJsonStatus(PERSONAS_KEY);
-  if (stored.status === 'ok' && Array.isArray(stored.value) && stored.value.length > 0) {
-    return stored.value.map(normalizePersona);
-  }
-  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
-    // 读不出就不落盘，更不能把其余人设覆盖成一条；返回默认值，下次可重试。
-    await backupCorruptValue(PERSONAS_KEY);
-    const now = Date.now();
-    return [{ id: DEFAULT_PERSONA_ID, userName: '', persona: '', createdAt: now, updatedAt: now }];
-  }
-  const legacy = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
-  const now = Date.now();
-  const migrated = {
-    id: DEFAULT_PERSONA_ID,
-    userName: String(legacy?.userName || ''),
-    persona: String(legacy?.persona || ''),
-    createdAt: now,
-    updatedAt: now,
-  };
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify([migrated]));
-  const activeId = await getActivePersonaId([migrated]);
-  if (!activeId) await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(DEFAULT_PERSONA_ID));
-  else if (activeId !== DEFAULT_PERSONA_ID) {
-    await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(migrated.id));
-  }
-  return [migrated];
-}
-
-export async function getActivePersonaId(list) {
-  const personas = Array.isArray(list) ? list : await getPersonas();
-  if (personas.length === 0) return '';
-  let stored = '';
-  try {
-    const raw = await AsyncStorage.getItem(ACTIVE_PERSONA_KEY);
-    stored = raw ? String(JSON.parse(raw)) : '';
-  } catch (error) {
-    stored = '';
-  }
-  if (stored && personas.some(item => item.id === stored)) return stored;
-  return personas[0].id;
-}
-
-export async function setActivePersonaId(id) {
-  const personas = await getPersonas();
-  const target = personas.find(item => item.id === id);
-  const resolved = target ? target.id : (personas[0] && personas[0].id) || '';
-  await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(resolved));
-  return resolved;
-}
-
-export async function createPersona(partial = {}) {
-  const personas = await getPersonas();
-  const now = Date.now();
-  const created = normalizePersona({
-    id: makePersonaId(now),
-    userName: String(partial.userName || ''),
-    persona: String(partial.persona || ''),
-    createdAt: now,
-    updatedAt: now,
-  });
-  const next = [...personas, created];
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
-  await setActivePersonaId(created.id);
-  return created;
-}
-
-export async function deletePersona(id) {
-  const personas = await getPersonas();
-  if (personas.length <= 1) throw new Error('至少保留一个人设');
-  const remaining = personas.filter(item => item.id !== id);
-  if (remaining.length === personas.length) throw new Error('人设不存在');
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(remaining));
-  const activeId = await getActivePersonaId(personas);
-  const resolved = activeId === id ? remaining[0].id : activeId;
-  await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(resolved));
-  return { personas: remaining, activeId: resolved };
-}
-
-export async function getUserProfile() {
-  const global = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
-  const meta = readGlobalProfileMeta(global);
-  const personas = await getPersonas();
-  const activeId = await getActivePersonaId(personas);
-  const active = personas.find(item => item.id === activeId) || personas[0];
-  return {
-    userName: String(active?.userName || ''),
-    persona: String(active?.persona || ''),
-    avatarUri: meta.avatarUri,
-  };
-}
-
-export async function getUserProfileStatus() {
-  const stored = await readJsonStatus(USER_PROFILE_KEY);
-  if (stored.status === 'missing') {
-    return { status: 'missing', profile: { ...DEFAULT_USER_PROFILE, avatarUri: '' } };
-  }
-  if (
-    stored.status !== 'ok'
-    || !stored.value
-    || typeof stored.value !== 'object'
-    || Array.isArray(stored.value)
-  ) {
-    await backupCorruptValue(USER_PROFILE_KEY);
-    return { status: 'corrupt', profile: null };
-  }
-  const meta = readGlobalProfileMeta(stored.value);
-  const personas = await getPersonas();
-  const activeId = await getActivePersonaId(personas);
-  const active = personas.find(item => item.id === activeId) || personas[0];
-  return {
-    status: 'ok',
-    profile: {
-      userName: String(active?.userName || ''),
-      persona: String(active?.persona || ''),
-      avatarUri: String(meta.avatarUri || ''),
-    },
-  };
-}
-
-export async function saveUserProfile(profile) {
-  const personas = await getPersonas();
-  const activeId = await getActivePersonaId(personas);
-  const now = Date.now();
-  const next = personas.map(item => (
-    item.id === activeId
-      ? {
-        ...item,
-        userName: String(profile?.userName || ''),
-        persona: String(profile?.persona || ''),
-        updatedAt: now,
-      }
-      : item
-  ));
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
-  const profileStatus = await readJsonStatus(USER_PROFILE_KEY);
-  if (profileStatus.status === 'corrupt') {
-    await backupCorruptValue(USER_PROFILE_KEY);
-  }
-  const global = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
-  const meta = readGlobalProfileMeta(global);
-  await AsyncStorage.setItem(
-    USER_PROFILE_KEY,
-    JSON.stringify({
-      userName: String(profile?.userName || ''),
-      persona: String(profile?.persona || ''),
-      avatarUri: String(profile?.avatarUri ?? meta.avatarUri ?? ''),
-    })
-  );
-}
-
-function normalizePreset(source) {
-  if (!source || typeof source !== 'object' || Array.isArray(source)
-    || typeof source.id !== 'string' || !source.id.trim()
-    || typeof source.name !== 'string' || !source.name.trim()
-    || typeof source.prompt !== 'string' || !source.prompt.trim()) {
-    throw new Error('预设需要有效的 ID、名称和提示词');
-  }
-  return {
-    id: source.id.trim(),
-    name: source.name.trim(),
-    description: String(source.description || '').trim(),
-    prompt: source.prompt.trim(),
-  };
-}
-
-function normalizePresetList(presets) {
-  if (!Array.isArray(presets)) throw new Error('预设列表格式错误');
-  const list = presets.map(normalizePreset);
-  if (new Set(list.map(preset => preset.id)).size !== list.length) {
-    throw new Error('预设 ID 重复');
-  }
-  return list;
-}
-
-export async function getGlobalPresets() {
-  const stored = await readJsonStatus(PRESET_LIST_KEY);
-  if (stored.status === 'missing') return GLOBAL_PRESETS.map(normalizePreset);
-  if (stored.status === 'corrupt') {
-    await backupCorruptValue(PRESET_LIST_KEY);
-    return GLOBAL_PRESETS.map(normalizePreset);
-  }
-  try {
-    return normalizePresetList(stored.value);
-  } catch (error) {
-    // 结构不合法时尽量保留可用项，而不是整份丢弃（原始值已备份）
-    const list = Array.isArray(stored.value) ? stored.value : [];
-    const kept = [];
-    const seen = new Set();
-    list.forEach(item => {
-      try {
-        const preset = normalizePreset(item);
-        if (seen.has(preset.id)) return;
-        seen.add(preset.id);
-        kept.push(preset);
-      } catch (entryError) {}
-    });
-    await backupCorruptValue(PRESET_LIST_KEY);
-    return kept.length > 0 ? kept : GLOBAL_PRESETS.map(normalizePreset);
-  }
-}
-
-export async function saveGlobalPresets(presets) {
-  const list = normalizePresetList(presets);
-  await AsyncStorage.setItem(PRESET_LIST_KEY, JSON.stringify(list));
-  return list;
-}
-
-function normalizeEnabledMap(source, presets) {
-  const raw = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
-  const enabled = {};
-  presets.forEach(preset => {
-    enabled[preset.id] = raw[preset.id] === true;
-  });
-  return enabled;
-}
-
-async function readGlobalPresetSettings() {
-  const stored = await readJsonStatus(GLOBAL_PRESETS_KEY);
-  if (stored.status === 'missing') return {};
-  const enabled = stored.status === 'ok' ? stored.value : null;
-  if (!enabled || typeof enabled !== 'object' || Array.isArray(enabled)) {
-    // 这里抛错会连累 getEnabledGlobalPresetPrompts，而后者位于发送消息的
-    // Promise.all 中 —— 一个损坏的开关文件会导致“聊天完全发不出去”。
-    // 改为退回空开关并备份原始值。
-    await backupCorruptValue(GLOBAL_PRESETS_KEY);
-    return {};
-  }
-  return enabled;
-}
-
-export async function createGlobalPresetId(presets) {
-  const enabled = await readGlobalPresetSettings();
-  const used = new Set([...presets.map(preset => preset.id), ...Object.keys(enabled)]);
-  const base = `preset-${Date.now()}`;
-  let id = base;
-  let suffix = 0;
-  while (used.has(id)) {
-    suffix += 1;
-    id = `${base}-${suffix}`;
-  }
-  return id;
-}
-
-export async function getGlobalPresetSettings() {
-  const [raw, presets] = await Promise.all([
-    readGlobalPresetSettings(),
-    getGlobalPresets(),
-  ]);
-  return normalizeEnabledMap(raw, presets);
-}
-
-export async function saveGlobalPresetSettings(enabled) {
-  const presets = await getGlobalPresets();
-  const normalized = normalizeEnabledMap(enabled, presets);
-  await AsyncStorage.setItem(GLOBAL_PRESETS_KEY, JSON.stringify(normalized));
-  return normalized;
-}
-
-export async function getEnabledGlobalPresetPrompts() {
-  const presets = await getGlobalPresets();
-  const raw = await readGlobalPresetSettings();
-  const enabled = normalizeEnabledMap(raw, presets);
-  return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
 }
 
 function ensureUniqueSessionIds(list) {
