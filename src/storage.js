@@ -66,7 +66,7 @@ export {
   saveProactiveSettings,
   updateMoments,
 } from './storage/moments.js';
-export { getStickers, saveSticker } from './storage/stickers.js';
+export { deleteStickers, getStickers, reorderStickers, saveSticker } from './storage/stickers.js';
 export {
   DISCLAIMER_VERSION,
   SAMPLING_FIELDS,

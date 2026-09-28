@@ -99,6 +99,8 @@ import {
   saveAffinity,
   updateMoments,
   saveSticker,
+  deleteStickers,
+  reorderStickers,
   setSessionGreetingSelected,
   startNewSession,
   updateSessionMemberProfiles,
@@ -3149,6 +3151,23 @@ if (!isCurrent() || controller.signal.aborted) return false;
     }
   }, [captureSessionGuard, input, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending]);
 
+  const deleteStickerItems = useCallback(async ids => {
+    const result = await deleteStickers(ids);
+    stickerLoadRef.current += 1;
+    setStickers(result.remaining);
+    (result.removed || []).forEach(item => {
+      if (item.uri) deleteStickerImage(item.uri);
+    });
+    return result.remaining;
+  }, [deleteStickerImage, deleteStickers]);
+
+  const reorderStickerItems = useCallback(async orderedIds => {
+    const next = await reorderStickers(orderedIds);
+    stickerLoadRef.current += 1;
+    setStickers(next);
+    return next;
+  }, [reorderStickers]);
+
   const onSend = useCallback(async () => {
     const text = input.trim();
      if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
@@ -3466,6 +3485,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
         addStickerFromPicker={addStickerFromPicker}
         sendSticker={sendSticker}
         inputDisabled={inputDisabled}
+        onDeleteStickers={deleteStickerItems}
+        onReorderStickers={reorderStickerItems}
       />
 
       <StickerNamePromptModal

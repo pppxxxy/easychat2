@@ -49,6 +49,20 @@ function sortStickers(list) {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+// 保序规范化：校验字段并按首次出现去重，不重排。用于读写已有索引的顺序（用户手动排序后靠它保持）。
+function normalizeStickerList(list) {
+  const seen = new Set();
+  const result = [];
+  (Array.isArray(list) ? list : []).forEach(item => {
+    const normalized = normalizeSticker(item);
+    if (!normalized.id || !normalized.name || !normalized.uri) return;
+    if (seen.has(normalized.id)) return;
+    seen.add(normalized.id);
+    result.push(normalized);
+  });
+  return result;
+}
+
 async function migrateLegacyStickers() {
   const legacy = await readJsonStatus(STICKERS_KEY);
   if (legacy.status === 'missing') return { status: 'missing', stickers: [] };
@@ -99,28 +113,26 @@ export async function readStickerStatus() {
   if (legacy.status !== 'missing') {
     if (legacy.status === 'corrupt' || !Array.isArray(legacy.value)) {
       await backupCorruptValue(STICKERS_KEY);
-      return { status: 'ok', stickers: sortStickers(stickers) };
+      return { status: 'ok', stickers: normalizeStickerList(stickers) };
     }
     const normalizedLegacy = legacy.value.map(normalizeSticker);
     if (normalizedLegacy.some(item => !item.id || !item.name || !item.uri)) {
       await backupCorruptValue(STICKERS_KEY);
-      return { status: 'ok', stickers: sortStickers(stickers) };
+      return { status: 'ok', stickers: normalizeStickerList(stickers) };
     }
     const byId = new Map(stickers.map(item => [item.id, item]));
     normalizedLegacy.forEach(item => {
       if (!byId.has(item.id)) byId.set(item.id, item);
     });
-    const merged = sortStickers([...byId.values()]);
+    const merged = normalizeStickerList([...byId.values()]);
     await writeStickerCollection(merged);
     return { status: 'ok', stickers: merged };
   }
-  return { status: 'ok', stickers: sortStickers(stickers) };
+  return { status: 'ok', stickers: normalizeStickerList(stickers) };
 }
 
 async function writeStickerCollection(stickers) {
-  const list = sortStickers(stickers).filter(
-    (item, index, all) => all.findIndex(other => other.id === item.id) === index
-  );
+  const list = normalizeStickerList(stickers);
   const ids = list.map(item => item.id);
   if (list.length > 0) {
     await AsyncStorage.multiSet(list.map(item => [stickerItemKey(item.id), JSON.stringify(item)]));
@@ -162,11 +174,58 @@ export function saveSticker(sticker) {
     if (result.status === 'corrupt') {
       throw new Error('表情包记录读取失败，请稍后重试');
     }
-    await writeStickerCollection([
-      normalized,
-      ...result.stickers.filter(item => item.id !== normalized.id),
-    ]);
+    // 已存在则原位替换（保持用户排序），新增则置顶。
+    const exists = result.stickers.some(item => item.id === normalized.id);
+    await writeStickerCollection(
+      exists
+        ? result.stickers.map(item => (item.id === normalized.id ? normalized : item))
+        : [normalized, ...result.stickers]
+    );
     return normalized;
+  });
+  stickerWriteQueue = task.catch(() => {});
+  return task;
+}
+
+// 批量删除表情包记录，返回 { remaining, removed }；图片文件由调用方用 deleteStickerImage 清理。
+export function deleteStickers(ids) {
+  const targetIds = new Set((Array.isArray(ids) ? ids : [ids]).map(id => String(id || '')).filter(Boolean));
+  const task = stickerWriteQueue.then(async () => {
+    const result = await readStickerStatus();
+    if (result.status === 'corrupt') {
+      throw new Error('表情包记录读取失败，请稍后重试');
+    }
+    if (targetIds.size === 0) return { remaining: result.stickers, removed: [] };
+    const removed = result.stickers.filter(item => targetIds.has(item.id));
+    const remaining = result.stickers.filter(item => !targetIds.has(item.id));
+    await writeStickerCollection(remaining);
+    return { remaining, removed };
+  });
+  stickerWriteQueue = task.catch(() => {});
+  return task;
+}
+
+// 按给定 id 顺序重排（只含存在项，未列出者按原相对顺序补齐），返回新顺序。
+export function reorderStickers(orderedIds) {
+  const order = (Array.isArray(orderedIds) ? orderedIds : []).map(id => String(id || ''));
+  const task = stickerWriteQueue.then(async () => {
+    const result = await readStickerStatus();
+    if (result.status === 'corrupt') {
+      throw new Error('表情包记录读取失败，请稍后重试');
+    }
+    const byId = new Map(result.stickers.map(item => [item.id, item]));
+    const ordered = [];
+    order.forEach(id => {
+      if (byId.has(id)) {
+        ordered.push(byId.get(id));
+        byId.delete(id);
+      }
+    });
+    result.stickers.forEach(item => {
+      if (byId.has(item.id)) ordered.push(item);
+    });
+    await writeStickerCollection(ordered);
+    return ordered;
   });
   stickerWriteQueue = task.catch(() => {});
   return task;

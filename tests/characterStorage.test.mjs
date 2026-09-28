@@ -408,6 +408,33 @@ test('表情包元数据迁移到索引与分片键并保持串行写入', async
   assert.equal(JSON.parse(store.get('@easychat2_sticker_item::sticker-c')).name, '惊讶');
 });
 
+test('表情包批量删除与重排（保序、原位替换）', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sticker_index', JSON.stringify(['a', 'b', 'c']));
+  for (const id of ['a', 'b', 'c']) {
+    store.set(`@easychat2_sticker_item::${id}`, JSON.stringify({
+      id, name: id, uri: `file:///stickers/${id}.jpg`, createdAt: 1,
+    }));
+  }
+
+  // 重排：按给定顺序，未列出者按原相对顺序补齐
+  await storage.reorderStickers(['c', 'a']);
+  assert.deepEqual((await storage.getStickers()).map(item => item.id), ['c', 'a', 'b']);
+
+  // 已存在项原位替换，不因 createdAt 变化被重排
+  await storage.saveSticker({ id: 'a', name: 'A', uri: 'file:///stickers/a.jpg', createdAt: 999 });
+  assert.deepEqual((await storage.getStickers()).map(item => item.id), ['c', 'a', 'b']);
+  assert.equal(JSON.parse(store.get('@easychat2_sticker_item::a')).name, 'A');
+
+  // 批量删除：返回 remaining/removed，索引与分片键同步清理
+  const result = await storage.deleteStickers(['a', 'c']);
+  assert.deepEqual(result.remaining.map(item => item.id), ['b']);
+  assert.deepEqual(result.removed.map(item => item.id).sort(), ['a', 'c']);
+  assert.deepEqual(JSON.parse(store.get('@easychat2_sticker_index')), ['b']);
+  assert.equal(store.has('@easychat2_sticker_item::a'), false);
+  assert.equal(store.has('@easychat2_sticker_item::c'), false);
+});
+
 test('索引已部分写入时继续合并旧表情包记录', async () => {
   const storage = loadStorage();
   store.set('@easychat2_sticker_index', JSON.stringify(['sticker-a']));
