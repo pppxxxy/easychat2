@@ -2,7 +2,7 @@
 
 Feature Name: storage-split
 Updated: 2026-09-28
-状态: 进行中（已完成 `io`、`worldMap`、`diary`、`moments`、`stickers`、`settings`、`apiConfigs`、`personas`、`globalPresets`、`vector`（`reconcileVectorIndexes` 待并入）、`affinity`、`cardForge`、`characters`（`saveCharacterState` 编排留在 barrel）；剩余 `sessions`）
+状态: 基本完成（已拆 `io`、`worldMap`、`diary`、`moments`、`stickers`、`settings`、`apiConfigs`、`personas`、`globalPresets`、`vector`、`affinity`、`cardForge`、`characters`、`sessions`；`storage.js` 现为 358 行 barrel，仅剩跨域编排 `saveCharacterState` 与头像/表情/孤儿图片清理）
 
 ## 实施记录
 
@@ -17,6 +17,8 @@ Updated: 2026-09-28
 - 2026-09-29 阶段 8 完成：新建 `src/storage/affinity.js`（好感度 `@easychat2_affinity` + `getAffinityStatus`/`saveAffinity` + `normalizeAffinityState`）。`storage.js` 删除实现并 re-export；移除 `AFFINITY_KEY`。核验同上。`storage.js` 2165 → 2133 行。
 - 2026-09-29 阶段 9 完成：新建 `src/storage/cardForge.js`（制卡草稿：内联/文件描述符读写、`normalizeCardForgeState`、`getCardForgeStatus`/`getCardForge`/`saveCardForge`/`clearCardForge` + `cardForgeWriteQueue`）。共享纯函数 `utf8ByteLength` 提到 `src/storage/io.js`（角色卡与制卡共用）。`storage.js` 删除实现并 re-export；移除 `CARD_FORGE_*` 键/队列/`FORGE_*` import。核验同上。`storage.js` 2133 → 1908 行。
 - 2026-09-29 阶段 10 完成：新建 `src/storage/characters.js`（角色库：索引+条目文件读写、旧整库/单配置迁移、按 id 重建、`DEFAULT_CHARACTER`、`sortCharacters`、`getCharacterLibrary`/`saveCharacterLibrary`、`getActiveCharacterId`/`setActiveCharacterId`、编辑草稿、`characterLibraryWriteBlocked`）。**例外**：`saveCharacterState`（角色删除/保存的跨领域编排：清消息键、`clearVectorIndex`、日记、世界地图）留在 `storage.js` barrel，调用 characters/vector/diary/worldMap 模块。导出 `CHARACTER_ITEM_PREFIX` 供 barrel 的媒体清理判断备份键。用脚本按行段抽取（避免手抄），移除 `assignStableCharacterIds`/`normalizeCharacterPresets`/`utf8ByteLength` 的 barrel import。核验：83/83 角色测试 + 全量 446/446、覆盖率、Metro。`storage.js` 1908 → 1388 行。
+- 2026-09-29 阶段 11 完成（收尾）：新建 `src/storage/sessions.js`（会话列表 + 消息按会话分键 + 记忆摘要 + `searchMessages` + 旧消息迁移 + 孤儿会话恢复 + **聊天图片清理**（`collectChatImageFiles`，因会话删除会触发它，必须同模块避免循环依赖）+ **`reconcileVectorIndexes`**（需 `readSessionsStatus`，随本模块，形成 sessions → vector 单向依赖）+ `enqueueSessionMutation`/`whenSessionMutationsSettled` + `sessionMutationQueue`/`deletedSessionIds`/`sessionSummaryRevisions`/`protectedChatImageUris`）。导出 `SESSIONS_KEY`/`messagesKey`/`readSessionsStatus` 供 barrel 的 `saveCharacterState` 与媒体清理；补回 `collectChatImageFiles` 的 barrel re-export（角色测试依赖）。`storage.js` 删除实现并 re-export，移除 `sessionLibrary`/`shouldIndexSession`/`getNextRecentMediaExpiry` 等不再用的 import。核验：446/446、覆盖率 81.86%、Metro。`storage.js` 1388 → 358 行。
+- 2026-09-29 总览：`storage.js` 3771 → 358 行（-90%），拆出 14 个 `src/storage/*.js` 领域模块；barrel 现仅保留跨域编排 `saveCharacterState` 与头像/表情/孤儿图片清理。
 
 ## 工程加固（2026-09-29，独立于拆分）
 
@@ -59,11 +61,11 @@ Updated: 2026-09-28
 4. `stickers.js`（`@easychat2_sticker_*` + `stickerWriteQueue` + 表情包文件收集）——**已完成**（文件收集仍留在 barrel 的媒体清理）
 5. `settings.js`（thinking/sampling/imageGen/chatOptions/appearance/inlineImage/tts/memorySummary/plugins/disclaimer/onboarding）——**已完成**
 6. `apiConfigs.js` / `personas.js` / `userProfile.js` / `globalPresets.js`（含密钥读写，走 `io.js` 的 `*WithSecrets`）——**已完成**（userProfile 并入 `personas.js`）
-7. `vector.js`（vector memory config/index + `vectorIndexWriteQueues`）——**已完成**（`reconcileVectorIndexes` 待 sessions 抽出后并入）
+7. `vector.js`（vector memory config/index + `vectorIndexWriteQueues`）——**已完成**
 8. `affinity.js`——**已完成**
 9. `cardForge.js`（含 payload 文件写入）——**已完成**
 10. `characters.js`（角色库索引+条目文件、迁移、默认角色、`characterLibraryWriteBlocked`）——**已完成**（`saveCharacterState` 编排留在 barrel）
-11. `sessions.js`（sessions + messages + summaries + searchMessages + 迁移 + `enqueueSessionMutation` + 图片文件收集）——最大、最后做
+11. `sessions.js`（sessions + messages + summaries + searchMessages + 迁移 + `enqueueSessionMutation` + 聊天图片清理 + `reconcileVectorIndexes`）——**已完成**
 
 每步：纯搬运、逐字保留语义；更新受影响的源码断言测试；跑 lint + `npm test` + `test:coverage` + Metro；单独提交。
 
