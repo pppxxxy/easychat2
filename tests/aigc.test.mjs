@@ -24,6 +24,7 @@ const CARD_EXPORTER = readSource(['src', 'cardExporter.js']);
 const MOMENTS_VIEW = readSource(['src', 'MomentsView.js']);
 const IMAGE_GEN = readSource(['src', 'ImageGenScreen.js']);
 const STORAGE = readSource(['src', 'storage.js']);
+const STORAGE_SETTINGS = readSource(['src', 'storage', 'settings.js']);
 const README = readSource(['README.md']);
 const DISCLAIMER = readSource(['src', 'disclaimer.js']);
 
@@ -108,9 +109,10 @@ test('动态与生图界面有 AI 生成显式标识', () => {
 });
 
 test('免责声明带版本号：条款更新后存量用户需重新确认', () => {
-  assert.ok(STORAGE.includes('export const DISCLAIMER_VERSION = 2;'));
-  assert.ok(STORAGE.includes('return raw === String(DISCLAIMER_VERSION);'));
-  assert.ok(STORAGE.includes("String(DISCLAIMER_VERSION)"));
+  // 免责声明常量 2026-09-28 随 storage 拆分移至 src/storage/settings.js，断言改指向新文件。
+  assert.ok(STORAGE_SETTINGS.includes('export const DISCLAIMER_VERSION = 2;'));
+  assert.ok(STORAGE_SETTINGS.includes('return raw === String(DISCLAIMER_VERSION);'));
+  assert.ok(STORAGE_SETTINGS.includes("String(DISCLAIMER_VERSION)"));
   // 新条款：标识保留、禁止用途、技术局限
   assert.ok(DISCLAIMER.includes('不得擅自删除、篡改或隐匿 AI 生成标识'));
   assert.ok(DISCLAIMER.includes('仅供个人虚构创作与测试使用，不得用于商业用途'));
