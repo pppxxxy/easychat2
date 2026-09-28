@@ -2,7 +2,7 @@
 
 Feature Name: chat-screen-split
 Updated: 2026-09-27
-状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 的 10 个内联 Modal 已全部抽出 + 搜索栏已抽（SelectionTextModal、SwitcherModal、MentionPickerModal、ModelPanelModal、ThinkingPanelModal、StickerPanelModal、StickerNamePromptModal、MoreMenuModal、ChatSettingsModal、FullScreenInputModal、ChatSearchBar）；阶段 D 剩余：顶栏 / 输入区 render 子树
+状态: PR1（阶段 A+B）已提交；阶段 C 完成（已抽 useScrollScrubber/useChatSearch/useChatTts/useChatModelThinking）；阶段 D 的 10 个内联 Modal 已全部抽出 + 搜索栏/顶栏已抽（SelectionTextModal、SwitcherModal、MentionPickerModal、ModelPanelModal、ThinkingPanelModal、StickerPanelModal、StickerNamePromptModal、MoreMenuModal、ChatSettingsModal、FullScreenInputModal、ChatSearchBar、ChatTopBar）；阶段 D 剩余：输入区 render 子树
 
 ## 实施记录
 
@@ -20,6 +20,7 @@ Updated: 2026-09-27
 - 2026-09-27 PR3 阶段 D 第 7 个 Modal（全屏输入）完成：`src/chat/FullScreenInputModal.js`（props `visible`/`onClose`/`text`/`onChangeText`/`onSend`）。**会话竞态守卫逻辑未拆**：内联 async `onSend`（`captureSessionGuard`/`isSessionGuardCurrent`/`sendMessage`）原样留在 ChatScreen，仅作为 prop 注入组件。`canSend = !!text.trim()` 在组件内推导，与原文 `!fullScreenText.trim()` 等价。核验：markup 逐字搬运。ChatScreen 移除不再用的 `Modal` import。`.c8rc.json` 排除该文件。`ChatScreen.js` 3915 → 3882 行。
 - 2026-09-27 阶段 D 小结：render 内 10 个内联 `Modal` 已全部抽出为 `src/chat/*Modal.js`，render 中不再有内联 `<Modal>`。阶段 D 剩余 render 子树：顶栏、输入区、搜索栏。
 - 2026-09-27 PR3 阶段 D 第 8 个 render 子树完成：`src/chat/ChatSearchBar.js`（props `visible`/`query`/`onChangeQuery`/`matchCount`/`activeMatchIndex`/`onPrev`/`onNext`/`onClose`）。`visible` 为假时组件内部返回 `null`（等价原 `searchOpen ? (...) : null`）。核验：markup 逐字搬运，`goToMatch`/`closeSearch`/`setSearchQuery` 与派生计数仍留在 ChatScreen 参数注入。`.c8rc.json` 排除该文件。`ChatScreen.js` 3882 → 3848 行。
+- 2026-09-27 PR3 阶段 D 第 9 个 render 子树完成：`src/chat/ChatTopBar.js`（聊天页顶栏，含消息多选态与常规态）。props 收 `messageSelectionOpen`/`selectedCount`/`isSending`/`onCancelSelection`/`onDeleteSelected`/`onOpenSwitcher`/`loaded`/`isGroup`/`groupAvatarUri`/`characterAvatarUri`/`displayName`/`onNewChat`/`ready`/`autoBroadcast`/`onToggleBroadcast`/`onOpenMore`；`character.avatarUri` → `characterAvatarUri`、`ttsSettings.autoBroadcast` → `autoBroadcast`、`selectedMessageIds.length` → `selectedCount` 仅为改名。核验：markup 逐字搬运。`.c8rc.json` 排除该文件。`ChatScreen.js` 3848 → 3772 行。
 
 ### 阶段 C 候选评估（2026-09-27）
 

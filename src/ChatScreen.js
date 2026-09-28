@@ -164,6 +164,7 @@ import MoreMenuModal from './chat/MoreMenuModal';
 import ChatSettingsModal from './chat/ChatSettingsModal';
 import FullScreenInputModal from './chat/FullScreenInputModal';
 import ChatSearchBar from './chat/ChatSearchBar';
+import ChatTopBar from './chat/ChatTopBar';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3264,101 +3265,24 @@ if (!isCurrent() || controller.signal.aborted) return false;
       {bgUri ? (
         <Image key={bgUri} source={{ uri: bgUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" pointerEvents="none" />
       ) : null}
-      <View style={styles.topBar}>
-        {messageSelectionOpen ? (
-          <>
-            <TouchableOpacity
-              style={styles.selectionAction}
-              onPress={cancelMessageSelection}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="取消选择消息"
-            >
-              <Ionicons name="close" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.selectionActionText}>取消</Text>
-            </TouchableOpacity>
-            <Text style={styles.selectionCount}>已选择 {selectedMessageIds.length} 条</Text>
-            <TouchableOpacity
-              style={[styles.selectionAction, isSending && styles.actionDisabled]}
-              onPress={confirmDeleteSelectedMessages}
-              disabled={isSending}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="删除选中消息"
-            >
-              <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-              <Text style={[styles.selectionActionText, styles.selectionDeleteText]}>删除</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.characterChip}
-              onPress={() => setSwitcherOpen(true)}
-              disabled={!loaded}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={isGroup ? '切换群聊' : '切换角色'}
-              accessibilityState={{ disabled: !loaded }}
-            >
-              {isGroup ? (
-                groupAvatarUri ? (
-                  <Image source={{ uri: groupAvatarUri }} style={styles.characterAvatar} />
-                ) : (
-                  <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-                    <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
-                  </View>
-                )
-              ) : character.avatarUri ? (
-                <Image source={{ uri: character.avatarUri }} style={styles.characterAvatar} />
-              ) : (
-                <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-                  <Ionicons name="person" size={13} color={theme.colors.primarySoft} />
-                </View>
-              )}
-              <Text style={styles.characterName} numberOfLines={1}>
-                {displayName}
-              </Text>
-              <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.noticeButton, (isSending || !ready) && styles.actionDisabled]}
-              onPress={onNewChat}
-              disabled={isSending || !ready}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="新建对话"
-              accessibilityState={{ disabled: isSending || !ready }}
-            >
-              <Ionicons name="add-circle-outline" size={13} color={theme.colors.primarySoft} />
-              <Text style={styles.noticeButtonText}>新建</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.noticeButton, !ttsSettings.autoBroadcast && styles.actionDisabled]}
-              onPress={toggleBroadcast}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={ttsSettings.autoBroadcast ? '关闭自动播报' : '开启自动播报'}
-            >
-              <Ionicons
-                name={ttsSettings.autoBroadcast ? 'volume-high-outline' : 'volume-mute-outline'}
-                size={13}
-                color={theme.colors.primarySoft}
-              />
-              <Text style={styles.noticeButtonText}>{ttsSettings.autoBroadcast ? '自动播报开' : '自动播报关'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.noticeButton}
-              onPress={() => setMoreOpen(true)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="更多功能"
-            >
-              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+      <ChatTopBar
+        messageSelectionOpen={messageSelectionOpen}
+        selectedCount={selectedMessageIds.length}
+        isSending={isSending}
+        onCancelSelection={cancelMessageSelection}
+        onDeleteSelected={confirmDeleteSelectedMessages}
+        onOpenSwitcher={() => setSwitcherOpen(true)}
+        loaded={loaded}
+        isGroup={isGroup}
+        groupAvatarUri={groupAvatarUri}
+        characterAvatarUri={character.avatarUri}
+        displayName={displayName}
+        onNewChat={onNewChat}
+        ready={ready}
+        autoBroadcast={ttsSettings.autoBroadcast}
+        onToggleBroadcast={toggleBroadcast}
+        onOpenMore={() => setMoreOpen(true)}
+      />
       <View style={styles.aiNoticeBar} pointerEvents="none">
         <Text style={styles.aiNoticeText}>{AI_DISCLAIMER_TEXT}</Text>
       </View>
