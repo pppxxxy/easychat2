@@ -11,6 +11,9 @@ const DEFAULT_BATCH_SIZE = 16;
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_TOP_K = 5;
 const DEFAULT_MAX_TOTAL_CHARS = 1200;
+// 相关性门槛：余弦相似度低于此值的片段不注入。0.2 以下基本是噪声，
+// 但保留 keywordRetrieve 兜底（关键词命中天然高置信），故只过滤向量路径。
+const DEFAULT_MIN_SCORE = 0.2;
 
 export function normalizeVectorConfig(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -247,7 +250,26 @@ export function keywordRetrieve({ index, query, topK }) {
   return scored.slice(0, limit).map(entry => entry.item);
 }
 
-export async function retrieve({ config, index, query, topK, signal = null }) {
+// 纯函数：按余弦相似度取命中，过滤低于门槛与指纹不匹配的片段。便于单测。
+export function selectVectorHits(list, queryVector, { signature = '', topK, minScore } = {}) {
+  const threshold = Number.isFinite(minScore) && minScore >= 0 ? minScore : DEFAULT_MIN_SCORE;
+  const limit = Number.isFinite(topK) && topK > 0 ? topK : DEFAULT_TOP_K;
+  return (Array.isArray(list) ? list : [])
+    .filter(item => (
+      item
+      && Array.isArray(item.vector)
+      && item.vector.length > 0
+      && (!signature || item.signature === signature)
+    ))
+    .map(item => ({ item, score: cosineSimilarity(queryVector, item.vector) }))
+    // 低于门槛的不算命中：弱相关片段注入只会挤占预算并干扰模型。
+    .filter(entry => entry.score >= threshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(entry => entry.item);
+}
+
+export async function retrieve({ config, index, query, topK, minScore, signal = null }) {
   const resolved = normalizeVectorConfig(config);
   const list = Array.isArray(index) ? index : [];
   const limit = Number.isFinite(topK) && topK > 0 ? topK : resolved.topK;
@@ -255,19 +277,13 @@ export async function retrieve({ config, index, query, topK, signal = null }) {
   if (!resolved.enabled) return keywordRetrieve({ index: list, query, topK: limit });
   try {
     const [queryVector] = await embedTexts({ config: resolved, texts: [query], signal });
-    const signature = vectorSignature(resolved);
-    const scored = list
-      .filter(item => (
-        item
-        && Array.isArray(item.vector)
-        && item.vector.length > 0
-        && item.signature === signature
-      ))
-      .map(item => ({ item, score: cosineSimilarity(queryVector, item.vector) }))
-      .filter(entry => entry.score > 0);
-    if (scored.length === 0) return keywordRetrieve({ index: list, query, topK: limit });
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit).map(entry => entry.item);
+    const hits = selectVectorHits(list, queryVector, {
+      signature: vectorSignature(resolved),
+      topK: limit,
+      minScore,
+    });
+    if (hits.length === 0) return keywordRetrieve({ index: list, query, topK: limit });
+    return hits;
   } catch (error) {
     if (error && error.name === 'AbortError') throw error;
     return keywordRetrieve({ index: list, query, topK: limit });

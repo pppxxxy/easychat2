@@ -165,6 +165,43 @@ export async function generateSummary({
 
 export const MEMORY_SCOPE_THRESHOLD = 2;
 
+// 记忆上下文总预算：世界书/会话摘要 + 向量召回合计不超过此长度，
+// 避免长期使用后 system 无界膨胀。向量命中时按比例分账，无命中时全给摘要。
+export const MEMORY_CONTEXT_BUDGET = 1800;
+export const MEMORY_VECTOR_BUDGET_RATIO = 0.6;
+
+export function planMemoryBudget({ hasVectorContext = false } = {}) {
+  if (!hasVectorContext) {
+    return { vectorMaxChars: 0, summaryMaxChars: MEMORY_CONTEXT_BUDGET };
+  }
+  const vectorMaxChars = Math.round(MEMORY_CONTEXT_BUDGET * MEMORY_VECTOR_BUDGET_RATIO);
+  return { vectorMaxChars, summaryMaxChars: MEMORY_CONTEXT_BUDGET - vectorMaxChars };
+}
+
+// 从末尾开始按预算保留整条记忆（新的在前更值得留），单条超预算时截取其尾部。
+function joinWithinBudget(chunks, maxChars) {
+  const list = (Array.isArray(chunks) ? chunks : []).filter(Boolean);
+  if (list.length === 0) return '';
+  const limit = Number(maxChars);
+  if (!Number.isFinite(limit)) return list.join('\n\n');
+  if (limit <= 0) return '';
+  const kept = [];
+  let total = 0;
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const chunk = list[index];
+    const extra = kept.length === 0 ? chunk.length : chunk.length + 2;
+    if (total + extra > limit) {
+      if (kept.length === 0) {
+        kept.unshift(chunk.slice(Math.max(0, chunk.length - limit)));
+      }
+      break;
+    }
+    kept.unshift(chunk);
+    total += extra;
+  }
+  return kept.join('\n\n');
+}
+
 export function countCharacterMemories(sessions, characterId, activeSession = null, activeMessages = []) {
   const id = String(characterId || '');
   if (!id) return 0;
@@ -334,28 +371,44 @@ function summaryIndex(comment) {
   return match ? Number(match[1]) : 0;
 }
 
-export function buildWorldSummaryText(character) {
+function worldSummaryEntries(character) {
   const entries = (Array.isArray(character && character.worldInfo) ? character.worldInfo : [])
     .filter(entry => entry
       && entry.enabled !== false
       && String(entry.comment || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
       && String(entry.content || '').trim())
     .sort((a, b) => summaryIndex(a.comment) - summaryIndex(b.comment));
-  return entries.map(entry => String(entry.content).trim()).join('\n\n');
+  return entries.map(entry => String(entry.content).trim());
+}
+
+function sessionSummaryEntries(sessionSummaries) {
+  return (Array.isArray(sessionSummaries) ? sessionSummaries : [])
+    .map(item => String((item && item.summary) || '').trim())
+    .filter(Boolean);
+}
+
+export function buildWorldSummaryText(character) {
+  return worldSummaryEntries(character).join('\n\n');
 }
 
 export function buildSessionSummaryText(sessionSummaries) {
-  return (Array.isArray(sessionSummaries) ? sessionSummaries : [])
-    .map(item => String((item && item.summary) || '').trim())
-    .filter(Boolean)
-    .join('\n\n');
+  return sessionSummaryEntries(sessionSummaries).join('\n\n');
 }
 
-export function buildMemorySummaryText(character, sessionSummaries, scoped = false) {
-  const worldText = buildWorldSummaryText(character);
-  const sessionText = buildSessionSummaryText(sessionSummaries);
-  if (scoped) return sessionText;
-  return [worldText, sessionText].filter(Boolean).join('\n\n');
+// 记忆摘要的整条数组（世界书旧条目在前、会话摘要在后），按整条粒度做预算，避免切断单条。
+function memorySummarySections(character, sessionSummaries, scoped = false) {
+  if (scoped) return sessionSummaryEntries(sessionSummaries);
+  return [
+    ...worldSummaryEntries(character),
+    ...sessionSummaryEntries(sessionSummaries),
+  ];
+}
+
+export function buildMemorySummaryText(character, sessionSummaries, scoped = false, maxChars = undefined) {
+  return joinWithinBudget(
+    memorySummarySections(character, sessionSummaries, scoped),
+    maxChars
+  );
 }
 
 export async function applySummary({

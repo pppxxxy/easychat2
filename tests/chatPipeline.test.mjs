@@ -217,6 +217,24 @@ test('深度世界书不会插到 system 消息之前', () => {
   assert.equal(messages[2].content, '触发');
 });
 
+test('记忆摘要先于向量召回，由一般到具体', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '继续',
+    userProfile: {},
+    globalPresets: [],
+    summaryText: '会话状态：在咖啡店',
+    memorySnippets: '[相关记忆]\n- 用户：上次约定周末见面',
+  });
+  const system = messages.find(item => item.role === 'system');
+  assert.ok(system.content.includes('[记忆摘要]'));
+  assert.ok(system.content.includes('[相关记忆]'));
+  assert.ok(
+    system.content.indexOf('[记忆摘要]') < system.content.indexOf('[相关记忆]')
+  );
+});
+
 test('全局预设与输出格式指令共存', () => {
   const messages = buildRequestMessages({
     character,

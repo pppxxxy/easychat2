@@ -48,6 +48,7 @@ import {
   buildMemorySummaryText,
   invalidateHistorySummaries,
   isSessionScopedMemory,
+  planMemoryBudget,
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
@@ -1530,26 +1531,42 @@ export default function ChatScreen() {
       const sentIds = new Set(
         trimmedHistory.map(item => String((item && item.id) || ''))
       );
-      let memorySnippets = '';
+      let vectorConfig = null;
+      let vectorIndex = [];
       try {
-        const vectorConfig = await getVectorMemoryConfig();
-        const vectorOwnerId = getVectorOwnerId(currentSession, character.id);
-        const index = vectorOwnerId ? await getVectorIndex(vectorOwnerId) : [];
+        const config = await getVectorMemoryConfig();
+        const ownerId = getVectorOwnerId(currentSession, character.id);
+        const index = ownerId ? await getVectorIndex(ownerId) : [];
         if (index.length > 0 && String(userText || '').trim()) {
+          vectorConfig = config;
+          vectorIndex = index;
+        }
+      } catch (error) {
+        vectorConfig = null;
+      }
+      let vectorHits = [];
+      try {
+        if (vectorConfig) {
           const hits = await retrieve({
             config: vectorConfig,
-            index,
+            index: vectorIndex,
             query: userText,
             topK: vectorConfig.topK,
             signal: controller.signal,
           });
-          memorySnippets = buildMemoryContext(
-            hits.filter(item => !sentIds.has(String((item && item.messageId) || '')))
-          );
+          vectorHits = hits.filter(item => (
+            !sentIds.has(String((item && item.messageId) || ''))
+          ));
         }
       } catch (error) {
-        memorySnippets = '';
+        vectorHits = [];
       }
+      // 记忆上下文总预算：仅在向量确有命中时才分走份额，否则全部让给摘要，
+      // 避免“有索引但无命中”时预算被空占。
+      const memoryBudget = planMemoryBudget({ hasVectorContext: vectorHits.length > 0 });
+      const memorySnippets = vectorHits.length > 0
+        ? buildMemoryContext(vectorHits, { maxTotalChars: memoryBudget.vectorMaxChars })
+        : '';
       let summaryText = '';
       try {
         const sessionCharacterId = String(
@@ -1557,10 +1574,22 @@ export default function ChatScreen() {
         );
         const characterExists = (Array.isArray(characters) ? characters : [])
           .some(item => item.id === sessionCharacterId);
+        // 读取沿用原作用域判定：单会话角色继续带上已有世界书记忆（不做迁移/丢弃），
+        // 多会话角色只读本会话。写入侧的降级见 runSummarize，两者解耦。
         const scoped = !characterExists
-          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, currentSession, historyMessages);
+          || isSessionScopedMemory(
+            sessionsRef.current,
+            sessionCharacterId,
+            currentSession,
+            historyMessages
+          );
         const sessionSummaries = await getSessionSummaries(sendSessionId);
-        summaryText = buildMemorySummaryText(character, sessionSummaries, scoped);
+        summaryText = buildMemorySummaryText(
+          character,
+          sessionSummaries,
+          scoped,
+          memoryBudget.summaryMaxChars
+        );
       } catch (error) {
         summaryText = '';
       }

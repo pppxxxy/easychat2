@@ -19,7 +19,14 @@ const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));
 runtimeModule._compile(transformed, filename);
-const { buildMemoryContext, chunkMessages, cosineSimilarity, indexMessages, vectorSignature } = runtimeModule.exports;
+const {
+  buildMemoryContext,
+  chunkMessages,
+  cosineSimilarity,
+  indexMessages,
+  selectVectorHits,
+  vectorSignature,
+} = runtimeModule.exports;
 
 const message = {
   id: 'shared-message',
@@ -48,6 +55,20 @@ test('相同消息 id 的不同会话片段可以同时建立索引', async () =
 test('不同维度的向量不会被截断后当成高相似度', () => {
   assert.equal(cosineSimilarity([1, 0], [1, 0, 999]), 0);
   assert.equal(cosineSimilarity([1, 0], [1, 0]), 1);
+});
+
+test('低于相关性门槛的向量命中被过滤', () => {
+  const signature = vectorSignature({ enabled: true, model: 'm', maxChars: 400 });
+  const items = [
+    { id: 'strong', signature, vector: [1, 0] },
+    { id: 'weak', signature, vector: [0.1, 1] },
+    { id: 'stale', signature: 'other', vector: [1, 0] },
+  ];
+  const hits = selectVectorHits(items, [1, 0], { signature, topK: 5, minScore: 0.5 });
+  assert.deepEqual(hits.map(item => item.id), ['strong']);
+  // minScore=0 时保留弱命中，但仍排除指纹不匹配项
+  const loose = selectVectorHits(items, [1, 0], { signature, topK: 5, minScore: 0 });
+  assert.deepEqual(loose.map(item => item.id), ['strong', 'weak']);
 });
 
 test('记忆上下文总长度不会超过配置上限', () => {

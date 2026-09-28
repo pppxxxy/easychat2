@@ -288,6 +288,39 @@ test('启用向量记忆后自动总结强制降级为会话级', () => {
   assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c', null, [], true), true);
 });
 
+test('记忆预算按向量命中与否分账且不会超支', () => {
+  const plain = memorySummary.planMemoryBudget({ hasVectorContext: false });
+  assert.equal(plain.vectorMaxChars, 0);
+  assert.equal(plain.summaryMaxChars, memorySummary.MEMORY_CONTEXT_BUDGET);
+  const withVector = memorySummary.planMemoryBudget({ hasVectorContext: true });
+  assert.equal(
+    withVector.vectorMaxChars + withVector.summaryMaxChars,
+    memorySummary.MEMORY_CONTEXT_BUDGET
+  );
+  assert.ok(withVector.vectorMaxChars > withVector.summaryMaxChars);
+});
+
+test('摘要超出预算时优先保留较新的整条记忆', () => {
+  const character = {
+    worldInfo: [
+      { comment: '记忆总结 1', content: '旧'.repeat(200) },
+      { comment: '记忆总结 2', content: '新'.repeat(200) },
+    ],
+  };
+  const text = memorySummary.buildMemorySummaryText(character, [], false, 220);
+  assert.ok(text.length <= 220);
+  assert.ok(text.includes('新'));
+  assert.equal(text.includes('旧'), false);
+  // 单条超过预算时保留其尾部，而不是整体丢弃
+  const single = memorySummary.buildMemorySummaryText(
+    { worldInfo: [{ comment: '记忆总结 1', content: 'A'.repeat(50) + '尾部' }] },
+    [],
+    false,
+    2
+  );
+  assert.equal(single, '尾部');
+});
+
 test('preview 为空但已推进边界或当前有消息的会话仍计入记忆', () => {
   const sessions = [
     { id: 's1', characterId: 'c', preview: '' },

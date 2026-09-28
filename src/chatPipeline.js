@@ -130,14 +130,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     systemContent = `${systemContent}\n\n[全局预设]\n${presetText.replace(/\{\{user\}\}/g, presetUserName)}`;
   }
 
-  const memoryText = String(memorySnippets || '').trim();
-  if (memoryText) {
-    systemContent = `${systemContent}\n\n${replaceUser(memoryText)}`;
-  }
-
+  // 先状态摘要（一般）再向量召回（贴合当前输入的具体细节），由一般到具体。
   const summaryContent = String(summaryText || '').trim();
   if (summaryContent) {
     systemContent = `${systemContent}\n\n[记忆摘要]\n${replaceUser(summaryContent)}`;
+  }
+
+  const memoryText = String(memorySnippets || '').trim();
+  if (memoryText) {
+    systemContent = `${systemContent}\n\n${replaceUser(memoryText)}`;
   }
 
   const groupContent = String(groupContext || '').trim();
