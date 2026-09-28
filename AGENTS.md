@@ -18,7 +18,7 @@ npm test             # Node unit and regression tests
 npm run test:coverage # tests + c8 coverage gate (60% floor)
 ```
 
-- Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually, plus `npm ci` for dependency integrity. Enabled rules: `no-undef`, `react/jsx-uses-vars`、`react-hooks/rules-of-hooks`、`no-unused-vars` (catch 参数与默认导入 `React` 忽略)。`eslint` 精确锁定 `10.11.0`（`^` 也会随 minor 漂移，且 core 的 JSX 使用追踪是 10 的新行为），`package.json` 的 `engines.node` 对齐 eslint 要求（`^20.19.0 || ^22.13.0 || >=24`）；`react/jsx-uses-vars` 让 lint 在 eslint 9/10 下行为一致。`react-hooks/exhaustive-deps` 尚未启用——存量 37 处多为刻意省略依赖（改错会改变 effect 触发时机），需逐条人工判断后再单独开启。
+- Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually（聊天相关改动按 `SMOKE_TEST.md` 走查）, plus `npm ci` for dependency integrity. Enabled rules: `no-undef`, `react/jsx-uses-vars`、`react-hooks/rules-of-hooks`、`no-unused-vars` (catch 参数与默认导入 `React` 忽略)。`eslint` 精确锁定 `10.11.0`（`^` 也会随 minor 漂移，且 core 的 JSX 使用追踪是 10 的新行为），`package.json` 的 `engines.node` 对齐 eslint 要求（`^20.19.0 || ^22.13.0 || >=24`）；`react/jsx-uses-vars` 让 lint 在 eslint 9/10 下行为一致。`react-hooks/exhaustive-deps` 尚未启用——存量 37 处多为刻意省略依赖（改错会改变 effect 触发时机），需逐条人工判断后再单独开启。
 - 覆盖率门禁是 `npm run test:coverage`（`c8` + `.c8rc.json`）：只统计可在纯 Node 测试里加载的模块，RN UI 层（`react-native`/`@expo/vector-icons` 等）排除在外；当前为 60% 的「只升不降」地板，实际行覆盖约 81%（纳入集约 15400 行，另有约 62% 的 src 行数因 RN 依赖被排除，见 `.c8rc.json`）。测试脚手架用 `Module._compile` 加载源码时必须传**真实源码路径**（如 `src/storage.js`），用合成文件名（`*.test-runtime.cjs`）会让 V8 覆盖率记到假路径、真实文件显示 0%。
 - Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run `npm run lint`; it must print nothing.
 - `.npmrc` sets `legacy-peer-deps=true`; keep it.
@@ -29,6 +29,8 @@ npm run test:coverage # tests + c8 coverage gate (60% floor)
 
 - `src/polyfills.js` **must stay the first import in `App.js`**, before `react-native-gesture-handler`. `parsecard` needs a global `Buffer`; ES module hoisting breaks it if the import moves.
 - `metro.config.js` enables `unstable_enablePackageExports = true` globally so Metro resolves `parsecard`'s ESM `exports`. This affects every dependency. Re-verify bundling after adding or upgrading deps.
+- `src/package.json` declares `{"type":"module"}`：让 `src/**/*.js` 对 Node 是**无歧义 ESM**，消除测试里 `MODULE_TYPELESS_PACKAGE_JSON`（否则 `.js` 靠 Node 语法探测）。不要删除它；根目录配置（`babel.config.js`/`metro.config.js`/`plugins/*.js`）仍是 CJS，与 `src` 无关。新增 `src` 内文件按 ESM 写。
+- 相对导入一律带 `.js` 扩展名（`App.js`、`src/**`、`tests/**`）；目录导入写 `<dir>/index.js`（如 `./ui/index.js`）。新增文件沿用此约定，`node --test` 直接 `import` 时才不会因缺扩展名解析失败。
 - `android/` and `ios/` are gitignored generated output. Never hand-edit them; they are recreated by `expo prebuild --clean`.
 - Context layers must not present UI. `AppContext.updateCharacter` rolls back state and rethrows; screens catch and show `Alert`. Keep it that way.
 - Pending assistant placeholders (`pending: true`) must never be persisted. Both `storage.js` and `ChatScreen.js` filter them; preserve that in any new persistence path.
