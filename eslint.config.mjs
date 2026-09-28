@@ -1,3 +1,4 @@
+import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
@@ -18,9 +19,12 @@ export default [
         __DEV__: 'readonly',
       },
     },
-    plugins: { 'react-hooks': reactHooks },
+    plugins: { 'react-hooks': reactHooks, react },
     rules: {
       'no-undef': 'error',
+      // 仅 JSX 使用的标识符也要算作已使用。ESLint 10 core 自带该追踪，但 ESLint 9 core 没有；
+      // 显式开启后，lint 在 9/10 下行为一致，不再隐式依赖 ESLint 10 的新行为。
+      'react/jsx-uses-vars': 'error',
       // 真实规则违规会让 hooks 调用顺序错乱，按错误处理。
       'react-hooks/rules-of-hooks': 'error',
       // 未使用的变量/导入/参数：抓死代码。catch 参数与 React 默认导入按惯例忽略。
