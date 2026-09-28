@@ -81,7 +81,7 @@ import { containsHtml } from './plainText';
 import { shouldRenderRichHtml } from './richHtml';
 import ScrollScrubber from './ScrollScrubber';
 import { maskSecrets } from './secrets';
-import { hideVariantStatusBar, toSpeechText } from './speechText';
+import { hideVariantStatusBar } from './speechText';
 import {
   createGroupSession,
   getApiConfigs,
@@ -106,7 +106,6 @@ import {
   saveAffinity,
   updateMoments,
   saveSticker,
-  saveTtsSettings,
   setSessionGreetingSelected,
   startNewSession,
   THINKING_DISPLAYS,
@@ -130,8 +129,8 @@ import { getVectorOwnerId, shouldIndexSession } from './vectorMemory/scope';
 import { useTheme } from './theme/ThemeContext';
 import { generateImage } from './imageGen';
 import { getImageProvider } from './imageGen/providers';
-import { speak as ttsSpeak, stop as ttsStop } from './tts';
-import { getTtsProvider } from './tts/providers';
+import { stop as ttsStop } from './tts';
+import useChatTts from './chat/useChatTts';
 import { evaluateTurn, clampAffinity } from './moments/affinity';
 import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments';
 import { runHousemateReactions } from './moments/runHousemateReactions';
@@ -348,7 +347,13 @@ export default function ChatScreen() {
    const inlineImageBusyRef = useRef(false);
    const inlineImageControllerRef = useRef(null);
 
-  const [ttsSettings, setTtsSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
+  const {
+    ttsSettings,
+    setTtsSettings,
+    toggleBroadcast,
+    broadcastMessage,
+    autoBroadcastMessage,
+  } = useChatTts();
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
   const [focusedMessageId, setFocusedMessageId] = useState('');
@@ -2591,48 +2596,6 @@ if (!isCurrent() || controller.signal.aborted) return false;
     );
   }, [character, characterId, characters, isSending, ready, removeVectorIndexForMessages, selectedMessageIds, updateCharacter]);
 
-  const toggleBroadcast = useCallback(async () => {
-    const previous = ttsRef.current;
-    const next = { ...previous, autoBroadcast: previous.autoBroadcast !== true };
-    setTtsSettings(next);
-    ttsRef.current = next;
-    // 关闭自动播报：只停掉「自动触发」的那次播报，不打断用户手动点的播报。
-    if (!next.autoBroadcast && playbackSourceRef.current === 'auto') {
-      ttsStop().catch(() => {});
-    }
-    try {
-      await saveTtsSettings(next);
-    } catch (error) {
-      if (ttsRef.current === next) {
-        ttsRef.current = previous;
-        setTtsSettings(previous);
-      }
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, []);
-
-  // 手动播报：点消息下方的「播报」始终可用，不受顶部自动播报开关限制。
-  const broadcastMessage = useCallback(async (text, source = 'manual') => {
-    const settings = ttsRef.current || {};
-    const content = toSpeechText(text);
-    if (!content) return;
-    const provider = getTtsProvider(settings.activeProvider);
-    const config = (settings.providers && settings.providers[provider.id]) || {};
-    playbackSourceRef.current = source;
-    try {
-      await ttsSpeak({ provider, config, text: content });
-    } catch (error) {
-      Alert.alert('播报失败', maskSecrets((error && error.message) || '请稍后重试。'));
-    }
-  }, []);
-
-  // 自动播报：仅当自动播报开关开启时才在回复完成后朗读。
-  const autoBroadcastMessage = useCallback(async text => {
-    const settings = ttsRef.current;
-    if (!settings || settings.autoBroadcast !== true) return;
-    return broadcastMessage(text, 'auto');
-  }, [broadcastMessage]);
-
   // 生成配图用的场景描述：取回复对应位置的段落，交给模型转写成一句画面描述。
   // 转写失败（无配置 / 请求错误 / 空结果）时回退用该段原文，保证配图流程不中断。
   const resolveInlineImageScene = useCallback(async ({ messageId, replyText, position, signal }) => {
@@ -2767,18 +2730,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
   const sendTextRef = useRef(sendText);
   const generateInlineImageRef = useRef(null);
   const inlineImageEnabledRef = useRef(false);
-  const ttsRef = useRef({ autoBroadcast: false, activeProvider: 'system', providers: {} });
-  // 当前播报是「自动」还是「手动」触发：关闭自动播报只停自动那次，不打断手动播报。
-  const playbackSourceRef = useRef(null);
   const recordTurnRef = useRef(null);
   const recordTurnQueueRef = useRef(Promise.resolve());
   useEffect(() => {
     generateInlineImageRef.current = generateInlineImage;
     inlineImageEnabledRef.current = inlineImageSettings.enabled;
   }, [generateInlineImage, inlineImageSettings.enabled]);
-  useEffect(() => {
-    ttsRef.current = ttsSettings;
-  }, [ttsSettings]);
   useEffect(() => {
     sendTextRef.current = sendText;
   }, [sendText]);

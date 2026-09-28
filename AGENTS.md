@@ -45,7 +45,7 @@ npm run test:coverage # tests + c8 coverage gate (40% floor)
 
 - `App.js` — real entrypoint (package.json `main` points at Expo's AppEntry). Wraps `AppProvider`, bottom tabs: 聊天 / 记忆 / 角色 / 扩展 / 设置.
 - `src/ChatScreen.js` — message list, send flow, Markdown assistant replies, error bubbles.
-- `src/chat/` — ChatScreen 拆分出的模块：`chatConstants.js`（常量）、`chatHelpers.js`（纯函数）、`chatStyles.js`（样式工厂）、`useChatSearch.js`/`useScrollScrubber.js`（聊天内搜索、快速定位滑动条）、`MessageBubble.js`/`ErrorBubble.js`/`ThinkingIndicator.js`（展示组件）。纯搬运无行为变化；默认导出仍是 `function ChatScreen()`。共享的滚动/焦点锚点（`scrollRef`/`messageOffsetsRef`/`scrollToMessage`/`focusedMessageId`）仍留在 ChatScreen 参数注入，因为搜索、滚动条、引用跳转、删除清理共用。
+- `src/chat/` — ChatScreen 拆分出的模块：`chatConstants.js`（常量）、`chatHelpers.js`（纯函数）、`chatStyles.js`（样式工厂）、`useChatSearch.js`/`useScrollScrubber.js`/`useChatTts.js`（聊天内搜索、快速定位滑动条、语音播报）、`MessageBubble.js`/`ErrorBubble.js`/`ThinkingIndicator.js`（展示组件）。纯搬运无行为变化；默认导出仍是 `function ChatScreen()`。共享的滚动/焦点锚点（`scrollRef`/`messageOffsetsRef`/`scrollToMessage`/`focusedMessageId`）仍留在 ChatScreen 参数注入，因为搜索、滚动条、引用跳转、删除清理共用。
 - `src/CharacterScreen.js` — character edit + PNG/JSON card import (`parsecard`).
 - `src/SettingsScreen.js` — API `baseUrl` / `model` / `apiKey`; warns before saving `http://`.
 - `src/api.js` — `sendChatMessage`, URL normalization, streaming via `XMLHttpRequest` SSE parsing (`onChunk`), 30s idle timeout.
