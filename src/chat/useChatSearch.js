@@ -6,29 +6,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { getMessagePromptText } from '../chatMedia';
-import { ASSISTANT_ID, USER_ID } from './chatConstants';
+import { advanceMatchIndex, collectSearchMatchIds } from './chatSearchMath.js';
 
 export default function useChatSearch({ messages, scrollToMessage, setFocusedMessageId }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
 
-  const searchMatches = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return [];
-    return messages
-      .filter(message => (
-        message
-        && (message.role === USER_ID || message.role === ASSISTANT_ID)
-        && getMessagePromptText(message).toLowerCase().includes(query)
-      ))
-      .map(message => message.id);
-  }, [messages, searchQuery]);
+  const searchMatches = useMemo(
+    () => collectSearchMatchIds(messages, searchQuery),
+    [messages, searchQuery]
+  );
 
   const goToMatch = useCallback(delta => {
     if (searchMatches.length === 0) return;
-    const next = (activeMatchIndex + delta + searchMatches.length) % searchMatches.length;
+    const next = advanceMatchIndex(activeMatchIndex, delta, searchMatches.length);
     setActiveMatchIndex(next);
     setFocusedMessageId(searchMatches[next]);
     scrollToMessage(searchMatches[next]);
