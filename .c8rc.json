@@ -23,6 +23,7 @@
     "src/chat/MessageBubble.js",
     "src/chat/ErrorBubble.js",
     "src/chat/ThinkingIndicator.js",
+    "src/chat/SelectionTextModal.js",
     "src/chat/useScrollScrubber.js",
     "src/chat/useChatSearch.js",
     "src/chat/useChatTts.js",

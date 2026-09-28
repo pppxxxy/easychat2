@@ -15,7 +15,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -161,6 +160,7 @@ import useScrollScrubber from './chat/useScrollScrubber';
 import useChatSearch from './chat/useChatSearch';
 import MessageBubble from './chat/MessageBubble';
 import ErrorBubble from './chat/ErrorBubble';
+import SelectionTextModal from './chat/SelectionTextModal';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -3974,37 +3974,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         </TouchableOpacity>
       </Modal>
 
-      <Modal
-        visible={!!selectionText}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectionText('')}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>选择文本</Text>
-            <ScrollView style={styles.selectScroll} keyboardShouldPersistTaps="handled">
-              <Text selectable style={styles.selectText}>{selectionText}</Text>
-            </ScrollView>
-            <View style={styles.selectActions}>
-              <TouchableOpacity
-                style={styles.selectButton}
-                onPress={() => { Clipboard.setStringAsync(selectionText).catch(() => {}); }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.selectButtonText}>复制</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.selectButton, styles.selectButtonGhost]}
-                onPress={() => setSelectionText('')}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.selectButtonText}>关闭</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <SelectionTextModal text={selectionText} onClose={() => setSelectionText('')} />
 
       <Modal
         visible={moreOpen}
