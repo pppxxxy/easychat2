@@ -2,7 +2,7 @@
 
 Feature Name: storage-split
 Updated: 2026-09-28
-状态: 进行中（已完成 `io.js`、`worldMap.js`、`diary.js`、`moments.js`、`stickers.js`、`settings.js`、`apiConfigs.js`、`personas.js`、`globalPresets.js`）
+状态: 进行中（已完成 `io.js`、`worldMap.js`、`diary.js`、`moments.js`、`stickers.js`、`settings.js`、`apiConfigs.js`、`personas.js`、`globalPresets.js`、`vector.js`（`reconcileVectorIndexes` 待并入））
 
 ## 实施记录
 
@@ -13,6 +13,7 @@ Updated: 2026-09-28
 - 2026-09-28 阶段 4 完成：新建 `src/storage/stickers.js`（`@easychat2_sticker_*` 键 + `stickerWriteQueue` + 索引/条目读写、旧整表迁移、`getStickers`/`saveSticker`/`readStickerStatus`/`isStickerReferenceBackupKey`）。`storage.js` 删除实现并 re-export；媒体清理 `collectStickerImageFiles` 仍留在 barrel，import `readStickerStatus`/`isStickerReferenceBackupKey`。核验同上。`storage.js` 3331 → 3169 行。
 - 2026-09-28 阶段 5 完成：新建 `src/storage/settings.js`（思考 / 采样 / 图像生成 / 聊天选项 / 外观 / 配图 / 语音播报 / 记忆总结 / 插件 / 免责声明与引导；含各自 normalizer 与默认值）。`storage.js` 删除实现并 re-export；移除不再用的 `isKnownImageProvider`/`normalizeImagePosition` import 与 11 个键常量。`tests/aigc.test.mjs` 的 `DISCLAIMER_VERSION` 源码断言改读 `storage/settings.js`。核验同上。`storage.js` 3169 → 2785 行。
 - 2026-09-28 阶段 6 完成：新建 `src/storage/apiConfigs.js`（API 配置 + `getActiveModel` + `DEFAULT_API_CONFIG`，含密钥走 `*WithSecrets`）、`src/storage/personas.js`（人设 + 用户全局资料；导出 `USER_PROFILE_KEY` 供媒体清理判断备份键）、`src/storage/globalPresets.js`（全局预设列表与开关）。`storage.js` 删除实现并 re-export；为媒体清理 import `USER_PROFILE_KEY`/`getUserProfileStatus`；移除不再用的 `GLOBAL_PRESETS` 与 `readJsonStatusWithSecrets` import。核验同上。`storage.js` 2785 → 2361 行。
+- 2026-09-28 阶段 7 完成：新建 `src/storage/vector.js`（多配置载荷 + 按角色向量索引 CRUD + `clearVectorIndex`）。**例外**：`reconcileVectorIndexes` 依赖会话列表读取（`readSessionsStatus`，仍属会话领域），本次暂留 `storage.js` barrel；为此 vector.js 导出 `readVectorIndexStatus`/`VECTOR_INDEX_PREFIX` 供其使用，待 sessions 领域抽出后再并入。`storage.js` 删除实现并 re-export；内部 import `clearVectorIndex`（角色删除）、`removeVectorIndexForSession(s)`（会话删除）、`readVectorIndexStatus`/`updateVectorIndex`/`VECTOR_INDEX_PREFIX`（reconcile）；移除不再用的 `readJsonWithSecrets`/`setJsonWithSecrets` import。核验同上。`storage.js` 2361 → 2165 行。
 
 ## 目标
 
@@ -48,7 +49,7 @@ Updated: 2026-09-28
 4. `stickers.js`（`@easychat2_sticker_*` + `stickerWriteQueue` + 表情包文件收集）——**已完成**（文件收集仍留在 barrel 的媒体清理）
 5. `settings.js`（thinking/sampling/imageGen/chatOptions/appearance/inlineImage/tts/memorySummary/plugins/disclaimer/onboarding）——**已完成**
 6. `apiConfigs.js` / `personas.js` / `userProfile.js` / `globalPresets.js`（含密钥读写，走 `io.js` 的 `*WithSecrets`）——**已完成**（userProfile 并入 `personas.js`）
-7. `vector.js`（vector memory config/index + `vectorIndexWriteQueues`）
+7. `vector.js`（vector memory config/index + `vectorIndexWriteQueues`）——**已完成**（`reconcileVectorIndexes` 待 sessions 抽出后并入）
 8. `affinity.js`
 9. `cardForge.js`（含 payload 文件写入）
 10. `characters.js`（角色库索引+条目文件、迁移、默认角色、`characterLibraryWriteBlocked`）
