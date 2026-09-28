@@ -156,11 +156,11 @@ import {
   buildGreetingMessage,
   buildInlineImagePrompt,
   buildQuotePayload,
-  formatScrubberTime,
-  messageTimestamp,
   settlePendingMessage,
 } from './chat/chatHelpers';
 import { createChatStyles } from './chat/chatStyles';
+import useScrollScrubber from './chat/useScrollScrubber';
+import useChatSearch from './chat/useChatSearch';
 import MessageBubble from './chat/MessageBubble';
 import ErrorBubble from './chat/ErrorBubble';
 
@@ -298,8 +298,6 @@ export default function ChatScreen() {
   const userNameRef = useRef('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [scrubberOpen, setScrubberOpen] = useState(false);
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   const [apiConfigs, setApiConfigs] = useState([]);
   const [modelSourceId, setModelSourceId] = useState('');
@@ -353,8 +351,6 @@ export default function ChatScreen() {
   const [ttsSettings, setTtsSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [focusedMessageId, setFocusedMessageId] = useState('');
    const [quoteTarget, setQuoteTarget] = useState(null);
    const navigation = useNavigation();
@@ -1227,18 +1223,6 @@ export default function ChatScreen() {
     openGreetingPicker('new');
   }, [isSending, isSwitching, openGreetingPicker, ready, refreshSessions, sessionOwnerMissing, sessionTransitionPending]);
 
-  const searchMatches = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return [];
-    return messages
-      .filter(message => (
-        message
-        && (message.role === USER_ID || message.role === ASSISTANT_ID)
-        && getMessagePromptText(message).toLowerCase().includes(query)
-      ))
-      .map(message => message.id);
-  }, [messages, searchQuery]);
-
   const scrollToMessage = useCallback(id => {
     const attempt = tries => {
       const offset = messageOffsetsRef.current[id];
@@ -1255,30 +1239,17 @@ export default function ChatScreen() {
     messageOffsetsRef.current[id] = event.nativeEvent.layout.y;
   }, []);
 
-  const goToMatch = useCallback(delta => {
-    if (searchMatches.length === 0) return;
-    const next = (activeMatchIndex + delta + searchMatches.length) % searchMatches.length;
-    setActiveMatchIndex(next);
-    setFocusedMessageId(searchMatches[next]);
-    scrollToMessage(searchMatches[next]);
-  }, [activeMatchIndex, searchMatches, scrollToMessage]);
-
-  useEffect(() => {
-    if (!searchOpen) return;
-    const query = searchQuery.trim();
-    if (!query) {
-      setActiveMatchIndex(0);
-      setFocusedMessageId('');
-      return;
-    }
-    setActiveMatchIndex(0);
-    if (searchMatches.length > 0) {
-      setFocusedMessageId(searchMatches[0]);
-      scrollToMessage(searchMatches[0]);
-    } else {
-      setFocusedMessageId('');
-    }
-  }, [searchOpen, searchQuery, searchMatches, scrollToMessage]);
+  const {
+    searchOpen,
+    setSearchOpen,
+    searchQuery,
+    setSearchQuery,
+    activeMatchIndex,
+    setActiveMatchIndex,
+    searchMatches,
+    goToMatch,
+    closeSearch,
+  } = useChatSearch({ messages, scrollToMessage, setFocusedMessageId });
 
   useEffect(() => {
     if (!ready || !pendingTarget) return;
@@ -1317,52 +1288,21 @@ export default function ChatScreen() {
     return unsubscribe;
   }, [navigation]);
 
-  const closeSearch = useCallback(() => {
-    setSearchOpen(false);
-    setSearchQuery('');
-    setActiveMatchIndex(0);
-    setFocusedMessageId('');
-  }, []);
-
-  const scrubberMessages = useMemo(
-    () => messages.filter(message => (
-      message
-      && !message.pending
-      && (message.role === USER_ID || message.role === ASSISTANT_ID)
-    )),
-    [messages]
-  );
-
-  const scrubberPreviews = useMemo(
-    () => scrubberMessages.map(message => {
-      const timestamp = messageTimestamp(message);
-      return {
-        label: formatScrubberTime(timestamp),
-        speaker: message.role === USER_ID ? '我' : (character.name || '角色'),
-        text: getMessagePromptText(message).replace(/\s+/g, ' ').trim().slice(0, 60),
-      };
-    }),
-    [scrubberMessages, character.name]
-  );
-
-  const onScrubberSeek = useCallback(index => {
-    const target = scrubberMessages[index];
-    if (!target) return;
-    const offset = messageOffsetsRef.current[target.id];
-    if (typeof offset === 'number') {
-      scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
-    } else {
-      scrollToMessage(target.id);
-    }
-  }, [scrubberMessages, scrollToMessage]);
-
-  const onScrubberToStart = useCallback(() => {
-    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
-  }, []);
-
-  const onScrubberToEnd = useCallback(() => {
-    scrollRef.current?.scrollToEnd?.({ animated: true });
-  }, []);
+  const {
+    scrubberOpen,
+    setScrubberOpen,
+    scrubberMessages,
+    scrubberPreviews,
+    onScrubberSeek,
+    onScrubberToStart,
+    onScrubberToEnd,
+  } = useScrollScrubber({
+    messages,
+    characterName: character.name,
+    scrollRef,
+    messageOffsetsRef,
+    scrollToMessage,
+  });
 
   const openModelPanel = useCallback(async () => {
     if (isSending || sendLockRef.current) return;

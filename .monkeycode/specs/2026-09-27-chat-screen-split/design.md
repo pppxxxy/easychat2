@@ -2,11 +2,21 @@
 
 Feature Name: chat-screen-split
 Updated: 2026-09-27
-状态: PR1（阶段 A+B）已完成（commit 待提）；阶段 C/D 未开始
+状态: PR1（阶段 A+B）已提交；阶段 C 进行中（已完成 useScrollScrubber）；阶段 D 未开始
 
 ## 实施记录
 
 - 2026-09-27 PR1（阶段 A+B）完成：新建 `src/chat/{chatConstants,chatHelpers,chatStyles,ThinkingIndicator,MessageBubble,ErrorBubble}.js`；`ChatScreen.js` 6112 → 4506 行；同步改 `richHtml.test.mjs`（断言合并读 ChatScreen + MessageBubble）与 `aigc.test.mjs`（断言指向 `chatConstants.js`）；`.c8rc.json` 排除 4 个 RN 展示/样式文件、保留两个纯逻辑文件并新增 `tests/chatHelpers.test.mjs`。核验：所有搬迁块与原文逐字一致（仅加 `export`/`export default`）。
+- 2026-09-27 PR2 阶段 C 第 1 个 hook 完成：`src/chat/useScrollScrubber.js`（快速定位滑动条）。共享的滚动基础设施（`scrollRef`/`messageOffsetsRef`/`scrollToMessage`）仍留在 ChatScreen，通过参数注入，因为搜索定位与引用跳转也依赖它。依赖数组与原文逐字保持一致（稳定 ref 不加入依赖）。`.c8rc.json` 排除该 hook（含 `react`，Node 里不可加载）。
+- 2026-09-27 PR2 阶段 C 第 2 个 hook 完成：`src/chat/useChatSearch.js`（聊天内搜索：`searchOpen`/`searchQuery`/`activeMatchIndex`/`searchMatches`/`goToMatch`/`closeSearch` + 自动定位 effect）。同样把共享的 `scrollToMessage` 与跨功能焦点锚点 `focusedMessageId` 留在 ChatScreen、参数注入；依赖数组与原文逐字一致。核验：4 个关键逻辑块逐字搬运。`.c8rc.json` 排除该 hook。`ChatScreen.js` 4506 → 4446 行。
+
+### 阶段 C 方案修正（2026-09-27）
+
+动手核查后发现原计划「低风险三个 hook（search/scrubber/greetings）」的前提不成立：
+
+- **greetings 不是低风险**：`confirmGreeting` 深度依赖切换会话竞态守卫（`switchOperationRef`/`sessionVersionRef`/`abortRef`/`activeCharacterIdRef`）并重置大批跨域状态，命中「不拆竞态守卫」约定 → **暂缓**。
+- **search 与 scrubber 共享滚动底座**：`scrollToMessage`/`messageOffsetsRef`/`onMessageLayout` 同时服务搜索、滚动条、引用跳转、消息删除清理；`focusedMessageId` 亦为跨功能共享状态。
+- **调整**：先做最干净的 scrubber（共享底座参数注入）；后续如需抽 search，应先把「滚动 + 焦点锚点」抽成 `useMessageAnchors` 再由 search/scrubber 消费，避免单个 hook 反向拥有跨功能共享状态。
 
 ## 目标
 

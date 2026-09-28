@@ -23,6 +23,8 @@
     "src/chat/MessageBubble.js",
     "src/chat/ErrorBubble.js",
     "src/chat/ThinkingIndicator.js",
+    "src/chat/useScrollScrubber.js",
+    "src/chat/useChatSearch.js",
     "src/chat/chatStyles.js"
   ],
   "reporter": ["text-summary"],
