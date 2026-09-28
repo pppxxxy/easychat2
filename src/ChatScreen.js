@@ -3362,7 +3362,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             // 富 HTML 消息内含 WebView：外层 Pressable 会抢走手势，导致卡片内部滚不动。
             // 非多选状态下不包 Pressable，多选入口改由三点菜单的「选择消息」提供。
             const body = (
-                <View onLayout={event => onMessageLayout(message.id, event)}>
+                <View>
                   {message.role === SYSTEM_ERROR_ID ? (
                     <ErrorBubble
                       message={message}
@@ -3418,11 +3418,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
                 </View>
             );
             if (richInteractive && !messageSelectionOpen) {
-              return <View key={message.id}>{body}</View>;
+              return (
+                <View key={message.id} onLayout={event => onMessageLayout(message.id, event)}>
+                  {body}
+                </View>
+              );
             }
             return (
               <Pressable
                 key={message.id}
+                onLayout={event => onMessageLayout(message.id, event)}
                 onLongPress={!messageSelectionOpen ? () => {
                   if (message.image) openImageActions(message.image, message.id);
                   else startMessageSelection(message.id);
