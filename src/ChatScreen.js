@@ -9,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -104,8 +103,6 @@ import {
   saveSticker,
   setSessionGreetingSelected,
   startNewSession,
-  THINKING_DISPLAYS,
-  THINKING_LEVELS,
   updateSessionMemberProfiles,
   getVectorMemoryConfig,
   getVectorIndex,
@@ -142,8 +139,6 @@ import {
   ASSISTANT_ID,
   NEAR_BOTTOM_THRESHOLD,
   SYSTEM_ERROR_ID,
-  THINKING_DISPLAY_LABELS,
-  THINKING_LEVEL_LABELS,
   THINKING_PLACEHOLDER,
   USER_ID,
 } from './chat/chatConstants';
@@ -162,6 +157,8 @@ import ErrorBubble from './chat/ErrorBubble';
 import SelectionTextModal from './chat/SelectionTextModal';
 import SwitcherModal from './chat/SwitcherModal';
 import MentionPickerModal from './chat/MentionPickerModal';
+import ModelPanelModal from './chat/ModelPanelModal';
+import ThinkingPanelModal from './chat/ThinkingPanelModal';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -4024,175 +4021,25 @@ if (!isCurrent() || controller.signal.aborted) return false;
         onClose={() => setNoticeOpen(false)}
       />
 
-      <Modal
+      <ModelPanelModal
         visible={modelPanelOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModelPanelOpen(false)}
-      >
-        <Pressable
-          style={styles.modelBackdrop}
-          onPress={() => setModelPanelOpen(false)}
-        >
-          <Pressable style={styles.modelSheet} onPress={() => {}}>
-            <Text style={styles.modelTitle}>切换模型</Text>
-            <Text style={styles.modelLabel}>来源</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.modelSourceRow}>
-                {apiConfigs.map(config => {
-                  const selected = config.id === modelSourceId;
-                  return (
-                    <TouchableOpacity
-                      key={config.id}
-                       style={[styles.modelSourceChip, selected && styles.modelSourceChipActive, isSending && styles.actionDisabled]}
-                       onPress={() => setModelSourceId(config.id)}
-                       disabled={isSending}
-                       activeOpacity={0.8}
-                    >
-                      <Text
-                        style={[styles.modelSourceText, selected && styles.modelSourceTextActive]}
-                        numberOfLines={1}
-                      >
-                        {config.name || '未命名配置'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </ScrollView>
-            <Text style={styles.modelLabel}>模型</Text>
-            <ScrollView style={styles.modelListScroll}>
-              {(() => {
-                const source = apiConfigs.find(item => item.id === modelSourceId);
-                const models = (source && source.models) || [];
-                if (models.length === 0) {
-                  return <Text style={styles.modelEmpty}>该来源没有模型。</Text>;
-                }
-                return models.map(model => {
-                  const isActive = source.activeModel === model;
-                  return (
-                    <TouchableOpacity
-                      key={model}
-                       style={[styles.modelOption, isSending && styles.actionDisabled]}
-                       onPress={() => applyModelSelection(source.id, model)}
-                       disabled={isSending}
-                       activeOpacity={0.8}
-                    >
-                      <Text style={styles.modelOptionText} numberOfLines={1}>{model}</Text>
-                      {isActive ? (
-                        <Ionicons name="checkmark" size={16} color={theme.colors.primaryMuted} />
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                });
-              })()}
-            </ScrollView>
-            <TouchableOpacity
-              style={styles.modelClose}
-              onPress={() => setModelPanelOpen(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modelCloseText}>关闭</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setModelPanelOpen(false)}
+        apiConfigs={apiConfigs}
+        modelSourceId={modelSourceId}
+        setModelSourceId={setModelSourceId}
+        applyModelSelection={applyModelSelection}
+        isSending={isSending}
+      />
 
-      <Modal
+      <ThinkingPanelModal
         visible={thinkingOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setThinkingOpen(false)}
-      >
-        <Pressable
-          style={styles.modelBackdrop}
-          onPress={() => setThinkingOpen(false)}
-        >
-          <Pressable style={styles.modelSheet} onPress={() => {}}>
-            <Text style={styles.modelTitle}>思考设置</Text>
-            {!thinkingSupported ? (
-              <Text style={styles.modelEmpty}>
-                当前来源未标记为支持思考，请在设置中确认模型能力。
-              </Text>
-            ) : null}
-            <View style={styles.thinkingRow}>
-              <Text style={styles.thinkingLabel}>开启思考</Text>
-              <Switch
-                value={thinkingEnabled}
-                onValueChange={value => applyThinking({ enabled: value })}
-                disabled={!thinkingSupported}
-                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                thumbColor={theme.colors.primaryContrast}
-              />
-            </View>
-            <Text style={styles.modelLabel}>思考深度</Text>
-            <View style={styles.thinkingLevels}>
-              {THINKING_LEVELS.map(level => {
-                const active = thinkingLevel === level;
-                const disabled = !thinkingSupported || !thinkingEnabled;
-                return (
-                  <TouchableOpacity
-                    key={level}
-                    style={[
-                      styles.thinkingLevelChip,
-                      active && styles.thinkingLevelChipActive,
-                      disabled && styles.actionDisabled,
-                    ]}
-                    disabled={disabled}
-                    onPress={() => applyThinking({ level })}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.thinkingLevelText,
-                        active && styles.thinkingLevelTextActive,
-                      ]}
-                    >
-                      {THINKING_LEVEL_LABELS[level]}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <Text style={styles.modelLabel}>思考内容展示</Text>
-            <View style={styles.thinkingLevels}>
-              {THINKING_DISPLAYS.map(display => {
-                const active = thinkingDisplay === display;
-                const disabled = !thinkingSupported || !thinkingEnabled;
-                return (
-                  <TouchableOpacity
-                    key={display}
-                    style={[
-                      styles.thinkingLevelChip,
-                      active && styles.thinkingLevelChipActive,
-                      disabled && styles.actionDisabled,
-                    ]}
-                    disabled={disabled}
-                    onPress={() => applyThinking({ display })}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.thinkingLevelText,
-                        active && styles.thinkingLevelTextActive,
-                      ]}
-                    >
-                      {THINKING_DISPLAY_LABELS[display]}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <TouchableOpacity
-              style={styles.modelClose}
-              onPress={() => setThinkingOpen(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modelCloseText}>关闭</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setThinkingOpen(false)}
+        thinkingSupported={thinkingSupported}
+        thinkingEnabled={thinkingEnabled}
+        thinkingLevel={thinkingLevel}
+        thinkingDisplay={thinkingDisplay}
+        applyThinking={applyThinking}
+      />
 
       <ScrollScrubber
         visible={scrubberOpen}

@@ -26,6 +26,8 @@
     "src/chat/SelectionTextModal.js",
     "src/chat/SwitcherModal.js",
     "src/chat/MentionPickerModal.js",
+    "src/chat/ModelPanelModal.js",
+    "src/chat/ThinkingPanelModal.js",
     "src/chat/useScrollScrubber.js",
     "src/chat/useChatSearch.js",
     "src/chat/useChatTts.js",
