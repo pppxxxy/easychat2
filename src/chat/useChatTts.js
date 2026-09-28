@@ -6,11 +6,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { maskSecrets } from '../secrets';
-import { toSpeechText } from '../speechText';
-import { saveTtsSettings } from '../storage';
-import { speak as ttsSpeak, stop as ttsStop } from '../tts';
-import { getTtsProvider } from '../tts/providers';
+import { maskSecrets } from '../secrets.js';
+import { toSpeechText } from '../speechText.js';
+import { saveTtsSettings } from '../storage.js';
+import { speak as ttsSpeak, stop as ttsStop } from '../tts/index.js';
+import { getTtsProvider } from '../tts/providers.js';
 
 export default function useChatTts() {
   const [ttsSettings, setTtsSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });

@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import ChapterSections from './ChapterSections';
-import { useTheme } from './theme/ThemeContext';
+import ChapterSections from './ChapterSections.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 export const DISCLAIMER_TEXT =
   'EasyChat2 是一个开源 AI 聊天工具，仅供学习交流使用。\n\n'

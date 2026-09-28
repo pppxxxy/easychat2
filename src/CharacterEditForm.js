@@ -15,11 +15,11 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { markMediaWrite } from './mediaProtection';
-import { buildSystemPrompt } from './cardParser';
-import { useApp } from './context/AppContext';
-import { FieldHint, FieldLabel, TextField } from './ui';
-import { useTheme } from './theme/ThemeContext';
+import { markMediaWrite } from './mediaProtection.js';
+import { buildSystemPrompt } from './cardParser.js';
+import { useApp } from './context/AppContext.js';
+import { FieldHint, FieldLabel, TextField } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;

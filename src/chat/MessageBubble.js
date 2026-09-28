@@ -17,14 +17,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml from 'react-native-render-html';
 
-import { collectTNodeText, createHtmlBaseStyle, createHtmlTagsStyles, createMarkdownStyles, customHTMLElementModels, prepareAssistantHtml, regexClassesStyles, regexDomVisitors } from '../assistantRender';
-import { containsHtml, messageCopyText } from '../plainText';
-import { shouldRenderRichHtml, splitFullHtmlDocument } from '../richHtml';
-import RichHtmlMessage from '../RichHtmlMessage';
-import { useTheme } from '../theme/ThemeContext';
-import { USER_ID } from './chatConstants';
-import { createChatStyles } from './chatStyles';
-import ThinkingIndicator from './ThinkingIndicator';
+import { collectTNodeText, createHtmlBaseStyle, createHtmlTagsStyles, createMarkdownStyles, customHTMLElementModels, prepareAssistantHtml, regexClassesStyles, regexDomVisitors } from '../assistantRender.js';
+import { containsHtml, messageCopyText } from '../plainText.js';
+import { shouldRenderRichHtml, splitFullHtmlDocument } from '../richHtml.js';
+import RichHtmlMessage from '../RichHtmlMessage.js';
+import { useTheme } from '../theme/ThemeContext.js';
+import { USER_ID } from './chatConstants.js';
+import { createChatStyles } from './chatStyles.js';
+import ThinkingIndicator from './ThinkingIndicator.js';
 
 function renderHighlightedText(text, keyword, styles) {
   const source = String(text || '');

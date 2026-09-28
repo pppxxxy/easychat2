@@ -2,21 +2,21 @@
 // 设计约束：
 // - 这是增值功能，绝不写回会话消息或记忆；失败静默，不能拖垮发动态的主流程；
 // - 逐角色串行调用模型，合并进动态列表；已反应过的角色不重复调用（不重复扣费）。
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../api';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../api.js';
 import {
   getApiConfigs,
   getCharacterLibrary,
   getMoments,
   getWorldMap,
   updateMoments,
-} from '../storage';
-import { housemateCharacterIds, houseNumberLabel } from '../worldMap/map';
+} from '../storage.js';
+import { housemateCharacterIds, houseNumberLabel } from '../worldMap/map.js';
 import {
   buildHousemateReactionPrompt,
   mergeReactionIntoMoments,
   parseHousemateReaction,
   selectReactingHousemates,
-} from './housemateReactions';
+} from './housemateReactions.js';
 
 // 每条动态同一时刻只跑一轮反应：避免并发重复调用模型（重复扣费）。
 // 用集合而非全局锁，保证不同动态之间互不阻塞。

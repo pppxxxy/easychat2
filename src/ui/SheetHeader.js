@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 弹窗标题行：标题 + 关闭按钮，可选左侧返回。
 export default function SheetHeader({ title, onClose, onBack, closeLabel = '关闭' }) {

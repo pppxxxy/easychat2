@@ -28,7 +28,7 @@ const secretsMock = {
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return { __esModule: true, default: AsyncStorage };
-  if (request === './secrets' || request.endsWith('/secrets')) return secretsMock;
+  if (request === './secrets.js' || request.endsWith('/secrets')) return secretsMock;
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -109,7 +109,7 @@ test('AsyncStorage 不可用时静默（不抛错）', async () => {
   const previousLoad = Module._load;
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === '@react-native-async-storage/async-storage') return { __esModule: true, default: null };
-    if (request === './secrets' || request.endsWith('/secrets')) return secretsMock;
+    if (request === './secrets.js' || request.endsWith('/secrets')) return secretsMock;
     return originalLoad.call(this, request, parent, isMain);
   };
   try {

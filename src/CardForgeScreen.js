@@ -12,11 +12,11 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getConfigFingerprint, isCanceledError, sendChatMessage } from './api';
-import { buildSystemPrompt } from './cardParser';
-import { buildRequestMessages } from './chatPipeline';
-import { useApp } from './context/AppContext';
-import CardForgeEditor from './CardForgeEditor';
+import { getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
+import { buildSystemPrompt } from './cardParser.js';
+import { buildRequestMessages } from './chatPipeline.js';
+import { useApp } from './context/AppContext.js';
+import CardForgeEditor from './CardForgeEditor.js';
 import {
   appendTranscript,
   buildEditPrompt,
@@ -30,12 +30,12 @@ import {
   parseCardPatch,
   recordAnswer,
   summarizeAnswers,
-} from './cardForge/forge';
-import { clearCardForge, getActiveModel, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage';
-import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution';
-import { maskSecrets } from './secrets';
-import { Chip, PrimaryButton, TextField } from './ui';
-import { useTheme } from './theme/ThemeContext';
+} from './cardForge/forge.js';
+import { clearCardForge, getActiveModel, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage.js';
+import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution.js';
+import { maskSecrets } from './secrets.js';
+import { Chip, PrimaryButton, TextField } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守输出格式要求，只输出要求的 JSON。';
 

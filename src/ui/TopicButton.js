@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 「教学」入口按钮：问号图标 + 文字，各界面「教学」入口统一使用。
 export default function TopicButton({

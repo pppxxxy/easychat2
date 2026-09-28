@@ -19,7 +19,7 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
 const originalLoad = Module._load;
 let lastChatCall = null;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './api') {
+  if (request === './api.js') {
     return {
       isCanceledError: () => false,
       isConfigChangedError: () => false,
@@ -29,19 +29,19 @@ Module._load = function patchedLoad(request, parent, isMain) {
       },
     };
   }
-  if (request === './chatPipeline') {
+  if (request === './chatPipeline.js') {
     return { buildRequestMessages: () => [] };
   }
-  if (request === './chatMedia') {
+  if (request === './chatMedia.js') {
     return { getMessagePromptText: item => String(item?.text || '') };
   }
-  if (request === './regexEngine') {
+  if (request === './regexEngine.js') {
     return {
       applyRegexScripts: text => text,
       REGEX_PLACEMENT: { USER_INPUT: 1, AI_OUTPUT: 2, WORLD_INFO: 5 },
     };
   }
-  if (request === './groupMentions') {
+  if (request === './groupMentions.js') {
     return {
       EVERYONE_MENTION: '全体',
       MENTION_PREFIX: '@',

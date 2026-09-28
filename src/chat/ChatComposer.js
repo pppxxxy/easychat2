@@ -4,9 +4,9 @@ import React, { useMemo } from 'react';
 import { Image, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { MENTION_PREFIX } from '../groupMentions';
-import { useTheme } from '../theme/ThemeContext';
-import { createChatStyles } from './chatStyles';
+import { MENTION_PREFIX } from '../groupMentions.js';
+import { useTheme } from '../theme/ThemeContext.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function ChatComposer({
   quoteTarget,

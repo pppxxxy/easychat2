@@ -18,7 +18,7 @@ const transformed = babel.transformSync(sourceCode, {
 }).code;
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './disclaimer' || request.endsWith('/disclaimer')) {
+  if (request === './disclaimer.js' || request.endsWith('/disclaimer')) {
     return { __esModule: true, DISCLAIMER_SECTIONS: [] };
   }
   return originalLoad.call(this, request, parent, isMain);

@@ -86,7 +86,7 @@ test('档位定义完整', () => {
 });
 
 test('记忆界面接入分组折叠与展开全部', () => {
-  assert.ok(SCREEN_SOURCE.includes("from './memoryBuckets'"));
+  assert.ok(SCREEN_SOURCE.includes("from './memoryBuckets.js'"));
   assert.ok(SCREEN_SOURCE.includes('groupSessionsByAge'));
   assert.ok(SCREEN_SOURCE.includes('buildMemoryListData'));
   assert.ok(SCREEN_SOURCE.includes('expandedGroups'));

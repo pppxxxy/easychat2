@@ -125,13 +125,13 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
   if (request === 'expo-file-system') return FileSystem;
   if (request === 'expo-sqlite') return SQLite;
-  if (request.endsWith('/presets') || request === './presets') {
+  if (request.endsWith('/presets') || request === './presets.js') {
     return { __esModule: true, default: [] };
   }
-  if (request.endsWith('/imageGen/providers') || request === './imageGen/providers') {
+  if (request.endsWith('/imageGen/providers') || request === './imageGen/providers.js') {
     return { __esModule: true, isKnownImageProvider: () => true };
   }
-  if (request.endsWith('/cardForge/forge') || request === './cardForge/forge') {
+  if (request.endsWith('/cardForge/forge') || request === './cardForge/forge.js') {
     return {
       __esModule: true,
       FORGE_FIELDS: ['description'],
@@ -140,13 +140,13 @@ Module._load = function patchedLoad(request, parent, isMain) {
       MAX_PRESERVED_ITEMS: 2000,
     };
   }
-  if (request.endsWith('/moments/moments') || request === './moments/moments') {
+  if (request.endsWith('/moments/moments') || request === './moments/moments.js') {
     return { __esModule: true, removeMomentsBySessionIds: async () => {} };
   }
-  if (request.endsWith('/context/characterIdentity') || request === './context/characterIdentity') {
+  if (request.endsWith('/context/characterIdentity') || request === './context/characterIdentity.js') {
     return { __esModule: true, ...characterIdentity };
   }
-  if (request.endsWith('/context/sessionLibrary') || request === './context/sessionLibrary') {
+  if (request.endsWith('/context/sessionLibrary') || request === './context/sessionLibrary.js') {
     return { __esModule: true, ...sessionLibrary };
   }
   if (parent && parent.filename && request.startsWith('.')) {

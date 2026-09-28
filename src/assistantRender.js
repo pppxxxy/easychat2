@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
-import { stripMarkdownFences } from './richHtml';
+import { stripMarkdownFences } from './richHtml.js';
 
 // 助手正文渲染的共享配置与预处理：聊天页与制卡预览共用，
 // 保证「预览里的 Markdown/HTML/正则效果」与真实聊天完全一致。纯配置与纯函数，无 JSX。

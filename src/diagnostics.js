@@ -38,7 +38,7 @@ function getMaskSecrets() {
   if (!maskSecretsLoaded) {
     maskSecretsLoaded = true;
     try {
-      maskSecretsFn = require('./secrets').maskSecrets;
+      maskSecretsFn = require('./secrets.js').maskSecrets;
     } catch (error) {
       maskSecretsFn = null;
     }

@@ -3,8 +3,8 @@ import {
   DEFAULT_VECTOR_PROVIDER,
   getVectorProvider,
   mapEmbeddingError,
-} from './providers';
-import { registerSecretValues } from '../secrets';
+} from './providers.js';
+import { registerSecretValues } from '../secrets.js';
 
 const DEFAULT_MAX_CHARS = 400;
 const DEFAULT_BATCH_SIZE = 16;

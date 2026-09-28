@@ -25,7 +25,7 @@ let activeConfig = {
 };
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './storage') {
+  if (request === './storage.js') {
     return {
       getActiveApiConfig: async () => activeConfig,
       getActiveModel: config => config.activeModel,
@@ -33,7 +33,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
       getThinkingSettings: async () => ({ enabled: false }),
     };
   }
-  if (request === './secrets') {
+  if (request === './secrets.js') {
     return { registerSecretValues: () => {} };
   }
   return originalLoad.call(this, request, parent, isMain);

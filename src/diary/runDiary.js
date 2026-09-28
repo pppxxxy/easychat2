@@ -1,6 +1,6 @@
 // 角色日记的启动执行器：过了一天之后的第一次启动时为符合条件的角色各写一篇日记。
 // 设计上不弹 UI、不抛错给上层：后台任务失败只影响日记，不能拖垮启动。
-import { EMPTY_REPLY_TEXT, sendChatMessage } from '../api';
+import { EMPTY_REPLY_TEXT, sendChatMessage } from '../api.js';
 import {
   getApiConfigs,
   getCharacterLibrary,
@@ -10,7 +10,7 @@ import {
   getUserProfile,
   saveDiarySettings,
   updateDiaries,
-} from '../storage';
+} from '../storage.js';
 import {
   appendDiary,
   buildDiaryPrompt,
@@ -23,7 +23,7 @@ import {
   resolveRoleDiaryConfigId,
   selectDiaryRoles,
   setDiaryLastRunDate,
-} from './diary';
+} from './diary.js';
 
 let running = false;
 

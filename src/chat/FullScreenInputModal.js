@@ -5,8 +5,8 @@ import React, { useMemo } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
-import { createChatStyles } from './chatStyles';
+import { useTheme } from '../theme/ThemeContext.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function FullScreenInputModal({
   visible,

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 选中态 chip：用于人设、标签、尺寸、主题等二/多选场景。
 export default function Chip({ label, active = false, onPress, icon, disabled = false, style, textStyle }) {

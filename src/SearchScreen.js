@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { searchMessages } from './storage';
-import { EmptyState } from './ui';
-import { useTheme } from './theme/ThemeContext';
+import { searchMessages } from './storage.js';
+import { EmptyState } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);

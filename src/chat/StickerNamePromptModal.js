@@ -3,8 +3,8 @@
 import React, { useMemo } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-import { useTheme } from '../theme/ThemeContext';
-import { createChatStyles } from './chatStyles';
+import { useTheme } from '../theme/ThemeContext.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function StickerNamePromptModal({
   visible,

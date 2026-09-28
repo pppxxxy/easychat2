@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export function FieldLabel({ children, style }) {
   const { theme, fonts, tokens } = useTheme();

@@ -30,20 +30,20 @@ import {
   parseCardFromPng,
   REGEX_PLACEMENT_LABELS,
   WORLD_POSITION_LABELS,
-} from './cardParser';
-import { exportCardFile } from './cardExporter';
-import ChapterModal from './ChapterModal';
-import GreetingPickerModal from './GreetingPickerModal';
-import { listGreetingCandidates } from './cardGreetings';
-import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui';
-import { useApp } from './context/AppContext';
-import { selectSessionsForCharacters } from './context/sessionLibrary';
+} from './cardParser.js';
+import { exportCardFile } from './cardExporter.js';
+import ChapterModal from './ChapterModal.js';
+import GreetingPickerModal from './GreetingPickerModal.js';
+import { listGreetingCandidates } from './cardGreetings.js';
+import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui/index.js';
+import { useApp } from './context/AppContext.js';
+import { selectSessionsForCharacters } from './context/sessionLibrary.js';
 import { useNavigation } from '@react-navigation/native';
-import PresetPanel from './PresetPanel';
-import ScrollScrubber, { getScrollRange } from './ScrollScrubber';
-import { compileRegex, isUnsafeRegexPattern } from './regexEngine';
-import { getUnsafeWorldEntryKeys } from './lorebook';
-import { maskSecrets } from './secrets';
+import PresetPanel from './PresetPanel.js';
+import ScrollScrubber, { getScrollRange } from './ScrollScrubber.js';
+import { compileRegex, isUnsafeRegexPattern } from './regexEngine.js';
+import { getUnsafeWorldEntryKeys } from './lorebook.js';
+import { maskSecrets } from './secrets.js';
 import {
   createGroupSession,
   deleteMomentsForCharacterDeletion,
@@ -54,13 +54,13 @@ import {
   saveCharacterEditDraft,
   takeCharacterEditDraft,
   clearCharacterEditDraft,
-} from './storage';
-import { isRecentMediaUri } from './mediaProtection';
-import { countMomentsForCharacterDeletion } from './moments/moments';
-import { createForgeState, draftFromCharacter } from './cardForge/forge';
-import { isFormDirty, setCharacterEditGuard } from './characterEditGuard';
-import { isValidAigcMeta } from './aigc/attribution';
-import { useTheme } from './theme/ThemeContext';
+} from './storage.js';
+import { isRecentMediaUri } from './mediaProtection.js';
+import { countMomentsForCharacterDeletion } from './moments/moments.js';
+import { createForgeState, draftFromCharacter } from './cardForge/forge.js';
+import { isFormDirty, setCharacterEditGuard } from './characterEditGuard.js';
+import { isValidAigcMeta } from './aigc/attribution.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';

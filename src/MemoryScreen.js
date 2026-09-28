@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useApp } from './context/AppContext';
+import { useApp } from './context/AppContext.js';
 import {
   deleteMomentsBySessionIds,
   findOrphanSessions,
@@ -18,15 +18,15 @@ import {
   getMomentsStatus,
   getUserProfile,
   restoreSession,
-} from './storage';
-import { buildPreview } from './context/sessionLibrary';
-import { countMomentsBySessionIds } from './moments/moments';
-import { buildMemoryListData, groupSessionsByAge } from './memoryBuckets';
-import ChapterModal from './ChapterModal';
-import SessionRecoveryModal from './SessionRecoveryModal';
-import { Card, EmptyState, TopicButton } from './ui';
-import SearchScreen from './SearchScreen';
-import { useTheme } from './theme/ThemeContext';
+} from './storage.js';
+import { buildPreview } from './context/sessionLibrary.js';
+import { countMomentsBySessionIds } from './moments/moments.js';
+import { buildMemoryListData, groupSessionsByAge } from './memoryBuckets.js';
+import ChapterModal from './ChapterModal.js';
+import SessionRecoveryModal from './SessionRecoveryModal.js';
+import { Card, EmptyState, TopicButton } from './ui/index.js';
+import SearchScreen from './SearchScreen.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);

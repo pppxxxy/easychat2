@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 统一列表行：左图标 + 主/副文本 + 右侧内容（chevron / 开关等）。
 export default function ListRow({

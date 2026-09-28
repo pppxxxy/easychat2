@@ -179,7 +179,7 @@ test('地图存储：单键读写、损坏备份、删除联动', () => {
 test('世界分组新增地图入口并就地展开', () => {
   assert.ok(EXTENSION_SOURCE.includes("id: 'map', label: '地图'"));
   assert.ok(EXTENSION_SOURCE.includes("section.id === 'map' ? <MapPanel embedded />"));
-  assert.ok(EXTENSION_SOURCE.includes("import MapPanel from './MapPanel'"));
+  assert.ok(EXTENSION_SOURCE.includes("import MapPanel from './MapPanel.js'"));
 });
 
 test('地图面板：网格、放置、编辑、屋主与住户', () => {

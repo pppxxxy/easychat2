@@ -3,10 +3,10 @@
 import React, { useMemo } from 'react';
 import { Modal, Pressable, Switch, Text, TouchableOpacity, View } from 'react-native';
 
-import { useTheme } from '../theme/ThemeContext';
-import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage';
-import { THINKING_DISPLAY_LABELS, THINKING_LEVEL_LABELS } from './chatConstants';
-import { createChatStyles } from './chatStyles';
+import { useTheme } from '../theme/ThemeContext.js';
+import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage.js';
+import { THINKING_DISPLAY_LABELS, THINKING_LEVEL_LABELS } from './chatConstants.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function ThinkingPanelModal({
   visible,

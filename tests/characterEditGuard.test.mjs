@@ -130,7 +130,7 @@ test('脏判定以 seed 快照为基准，不因角色后台更新误报', () =>
     false
   );
   // formReady 闸门由 isFormDirty 内部处理
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './characterEditGuard'"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './characterEditGuard.js'"));
 });
 
 test('保存后表单等于已保存内容即视为干净（规范化不致误报未保存）', () => {

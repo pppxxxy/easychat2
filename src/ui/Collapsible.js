@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 折叠分组：标题行点击展开/收起内容。用于设置页把体积较大的区块（外观、生成参数等）
 // 默认收起，避免一屏塞满选项。可受控（open + onToggle）或非受控（defaultOpen）。

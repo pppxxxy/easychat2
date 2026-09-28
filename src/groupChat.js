@@ -1,5 +1,5 @@
-import { isCanceledError, isConfigChangedError, sendChatMessage } from './api';
-import { buildRequestMessages } from './chatPipeline';
+import { isCanceledError, isConfigChangedError, sendChatMessage } from './api.js';
+import { buildRequestMessages } from './chatPipeline.js';
 import { getMessagePromptText } from './chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 import {
@@ -7,7 +7,7 @@ import {
   MENTION_PREFIX,
   hasEveryoneMention,
   parseMentions,
-} from './groupMentions';
+} from './groupMentions.js';
 
 export { EVERYONE_MENTION, MENTION_PREFIX, hasEveryoneMention, parseMentions };
 

@@ -10,10 +10,10 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from './theme/ThemeContext';
-import { indexFromRatio } from './scrollScrubberMath';
+import { useTheme } from './theme/ThemeContext.js';
+import { indexFromRatio } from './scrollScrubberMath.js';
 
-export { getScrollRange, indexFromRatio } from './scrollScrubberMath';
+export { getScrollRange, indexFromRatio } from './scrollScrubberMath.js';
 
 const PREVIEW_THRESHOLD = 30;
 const THUMB_HEIGHT = 44;

@@ -23,8 +23,8 @@ const storageMock = {
 };
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './storage' || request.endsWith('/storage')) return storageMock;
-  if (request === './secrets' || request.endsWith('/secrets')) return { registerSecretValues: () => {} };
+  if (request === './storage.js' || request.endsWith('/storage')) return storageMock;
+  if (request === './secrets.js' || request.endsWith('/secrets')) return { registerSecretValues: () => {} };
   return originalLoad.call(this, request, parent, isMain);
 };
 const filename = path.resolve('src/api.js');

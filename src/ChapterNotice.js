@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from './theme/ThemeContext';
+import { useTheme } from './theme/ThemeContext.js';
 
 // 章节的合规警告与外部链接。
 // 警告文案显示在链接正上方（显著位置），点击链接时再弹出一次确认，确认后才打开。

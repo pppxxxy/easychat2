@@ -20,14 +20,14 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers';
-import { generateImage, detectImageProvider, probeImageProvider } from './imageGen';
-import { getImageGenSettings, saveImageGenSettings } from './storage';
-import { resolveImageFormat } from './imageResultFormat';
-import ChapterModal from './ChapterModal';
-import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui';
-import { useTheme } from './theme/ThemeContext';
-import { maskSecrets } from './secrets';
+import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers.js';
+import { generateImage, detectImageProvider, probeImageProvider } from './imageGen/index.js';
+import { getImageGenSettings, saveImageGenSettings } from './storage.js';
+import { resolveImageFormat } from './imageResultFormat.js';
+import ChapterModal from './ChapterModal.js';
+import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
+import { maskSecrets } from './secrets.js';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
 const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;

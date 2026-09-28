@@ -1,13 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 
-import { removeRolesFromDiarySettings } from './diary/diary';
+import { removeRolesFromDiarySettings } from './diary/diary.js';
 import {
   getMediaWriteRevision,
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
   markMediaWrite,
-} from './mediaProtection';
+} from './mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX } from './storage/io.js';
 import {
   detachCharacterFromWorldMap,
@@ -41,7 +41,7 @@ import {
 } from './storage/characters.js';
 import { SESSIONS_KEY, collectChatImageFiles, messagesKey, readSessionsStatus } from './storage/sessions.js';
 
-export { markMediaWrite } from './mediaProtection';
+export { markMediaWrite } from './mediaProtection.js';
 export { detachCharacterFromWorldMap, getWorldMap, getWorldMapStatus, updateWorldMap };
 export {
   deleteDiariesForCharacterDeletion,

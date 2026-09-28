@@ -13,9 +13,9 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FieldLabel, SecondaryButton, TextField } from './ui';
-import { makeCharacterPresetId } from './characterPresets';
-import { useTheme } from './theme/ThemeContext';
+import { FieldLabel, SecondaryButton, TextField } from './ui/index.js';
+import { makeCharacterPresetId } from './characterPresets.js';
+import { useTheme } from './theme/ThemeContext.js';
 import {
   createGlobalPresetId,
   getGlobalPresetSettings,
@@ -24,7 +24,7 @@ import {
   saveGlobalPresetSettings,
   saveGlobalPresets,
   saveMemorySummarySettings,
-} from './storage';
+} from './storage.js';
 
 const THRESHOLD_FALLBACK = 40;
 const EMPTY_CHARACTER_PRESETS = [];

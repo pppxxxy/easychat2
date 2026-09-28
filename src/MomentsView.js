@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api';
-import { buildRequestMessages } from './chatPipeline';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
+import { buildRequestMessages } from './chatPipeline.js';
 import {
   getEnabledGlobalPresetPrompts,
   getApiConfigs,
@@ -22,18 +22,18 @@ import {
   getSessionSummaries,
   getUserProfile,
   updateMoments,
-} from './storage';
+} from './storage.js';
 import {
   buildMomentMemoryText,
   buildMomentReplyPrompt,
   normalizeMomentReply,
-} from './moments/momentReply';
-import { buildMemorySummaryText, isSessionScopedMemory } from './memorySummary';
-import { useApp } from './context/AppContext';
-import ChapterModal from './ChapterModal';
-import { Card, EmptyState, TopicButton } from './ui';
-import { useTheme } from './theme/ThemeContext';
-import { maskSecrets } from './secrets';
+} from './moments/momentReply.js';
+import { buildMemorySummaryText, isSessionScopedMemory } from './memorySummary.js';
+import { useApp } from './context/AppContext.js';
+import ChapterModal from './ChapterModal.js';
+import { Card, EmptyState, TopicButton } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
+import { maskSecrets } from './secrets.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);

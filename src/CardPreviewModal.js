@@ -13,18 +13,18 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { isCanceledError } from './api';
-import AssistantMessageBody from './AssistantMessageBody';
+import { isCanceledError } from './api.js';
+import AssistantMessageBody from './AssistantMessageBody.js';
 import {
   buildPreviewDisplayTurns,
   buildPreviewOpeningTurns,
   buildPreviewSections,
   capPreviewHistory,
   previewAdvancedCounts,
-} from './cardForge/preview';
-import { maskSecrets } from './secrets';
-import { PrimaryButton, TextField } from './ui';
-import { useTheme } from './theme/ThemeContext';
+} from './cardForge/preview.js';
+import { maskSecrets } from './secrets.js';
+import { PrimaryButton, TextField } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 // 制卡预览：只读展示当前草稿，并允许用真实模型多轮模拟对话。
 // 对话仅存在于本组件的内存状态里，关闭即重置，不写入角色库或聊天记录。

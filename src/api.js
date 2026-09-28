@@ -1,6 +1,6 @@
-import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from './storage';
-import { registerSecretValues } from './secrets';
-import { recordDiagnostic } from './diagnostics';
+import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from './storage.js';
+import { registerSecretValues } from './secrets.js';
+import { recordDiagnostic } from './diagnostics.js';
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
 // 用同一个 30s 阈值会误报“请求超时”。

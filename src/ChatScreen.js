@@ -15,7 +15,7 @@ import {
 import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, isConfigChangedError, sendChatMessage } from './api';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, isConfigChangedError, sendChatMessage } from './api.js';
 import {
    deleteLocalImage,
    deleteTemporaryImage,
@@ -36,13 +36,13 @@ import {
    MAX_IMAGE_BASE64_BYTES,
    validateImageBatch,
    validateImageSize,
-} from './attachments';
-import { buildRequestMessages } from './chatPipeline';
-import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia';
-import { createStickerImage, deleteStickerImage } from './stickerImages';
-import { getCachedDisplayText } from './displayTextCache';
-import { isGreetingMessage, listGreetingCandidates } from './cardGreetings';
-import { getEditResendPlan, removeMessagesByIds, toggleMessageSelection } from './messageSelection';
+} from './attachments.js';
+import { buildRequestMessages } from './chatPipeline.js';
+import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
+import { createStickerImage, deleteStickerImage } from './stickerImages.js';
+import { getCachedDisplayText } from './displayTextCache.js';
+import { isGreetingMessage, listGreetingCandidates } from './cardGreetings.js';
+import { getEditResendPlan, removeMessagesByIds, toggleMessageSelection } from './messageSelection.js';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -51,13 +51,13 @@ import {
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
-} from './memorySummary';
-import { isStaleReply } from './chatRace';
-import { useApp } from './context/AppContext';
-import CharacterEditForm from './CharacterEditForm';
-import GreetingPickerModal from './GreetingPickerModal';
-import GroupEditForm from './GroupEditForm';
-import DisclaimerModal from './disclaimer';
+} from './memorySummary.js';
+import { isStaleReply } from './chatRace.js';
+import { useApp } from './context/AppContext.js';
+import CharacterEditForm from './CharacterEditForm.js';
+import GreetingPickerModal from './GreetingPickerModal.js';
+import GroupEditForm from './GroupEditForm.js';
+import DisclaimerModal from './disclaimer.js';
 import {
   buildEnsemblePrompt,
   buildGroupRequest,
@@ -70,13 +70,13 @@ import {
   parseEnsembleReply,
   parseMentions,
   selectSpeakers,
-} from './groupChat';
-import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine';
-import { containsHtml } from './plainText';
-import { shouldRenderRichHtml } from './richHtml';
-import ScrollScrubber from './ScrollScrubber';
-import { maskSecrets } from './secrets';
-import { hideVariantStatusBar } from './speechText';
+} from './groupChat.js';
+import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
+import { containsHtml } from './plainText.js';
+import { shouldRenderRichHtml } from './richHtml.js';
+import ScrollScrubber from './ScrollScrubber.js';
+import { maskSecrets } from './secrets.js';
+import { hideVariantStatusBar } from './speechText.js';
 import {
   createGroupSession,
   getApiConfigs,
@@ -108,29 +108,29 @@ import {
   removeVectorIndexForMessages,
   removeVectorIndexForSession,
   updateVectorIndex,
-} from './storage';
+} from './storage.js';
 
-import { runPlugins } from './plugins/registry';
+import { runPlugins } from './plugins/registry.js';
 import {
   buildMemoryContext,
   indexMessages,
   retrieve,
-} from './vectorMemory';
-import { getVectorOwnerId, shouldIndexSession } from './vectorMemory/scope';
-import { useTheme } from './theme/ThemeContext';
-import { generateImage } from './imageGen';
-import { getImageProvider } from './imageGen/providers';
-import { stop as ttsStop } from './tts';
-import useChatTts from './chat/useChatTts';
-import useChatModelThinking from './chat/useChatModelThinking';
-import { evaluateTurn, clampAffinity } from './moments/affinity';
-import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments';
-import { runHousemateReactions } from './moments/runHousemateReactions';
+} from './vectorMemory/index.js';
+import { getVectorOwnerId, shouldIndexSession } from './vectorMemory/scope.js';
+import { useTheme } from './theme/ThemeContext.js';
+import { generateImage } from './imageGen/index.js';
+import { getImageProvider } from './imageGen/providers.js';
+import { stop as ttsStop } from './tts/index.js';
+import useChatTts from './chat/useChatTts.js';
+import useChatModelThinking from './chat/useChatModelThinking.js';
+import { evaluateTurn, clampAffinity } from './moments/affinity.js';
+import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments.js';
+import { runHousemateReactions } from './moments/runHousemateReactions.js';
 import {
   buildScenePrompt,
   normalizeScenePrompt,
   selectReplySegment,
-} from './inlineImagePrompt';
+} from './inlineImagePrompt.js';
 
 import {
   AI_DISCLAIMER_TEXT,
@@ -139,32 +139,32 @@ import {
   SYSTEM_ERROR_ID,
   THINKING_PLACEHOLDER,
   USER_ID,
-} from './chat/chatConstants';
+} from './chat/chatConstants.js';
 import {
   buildErrorRawText,
   buildGreetingMessage,
   buildInlineImagePrompt,
   buildQuotePayload,
   settlePendingMessage,
-} from './chat/chatHelpers';
-import { createChatStyles } from './chat/chatStyles';
-import useScrollScrubber from './chat/useScrollScrubber';
-import useChatSearch from './chat/useChatSearch';
-import MessageBubble from './chat/MessageBubble';
-import ErrorBubble from './chat/ErrorBubble';
-import SelectionTextModal from './chat/SelectionTextModal';
-import SwitcherModal from './chat/SwitcherModal';
-import MentionPickerModal from './chat/MentionPickerModal';
-import ModelPanelModal from './chat/ModelPanelModal';
-import ThinkingPanelModal from './chat/ThinkingPanelModal';
-import StickerPanelModal from './chat/StickerPanelModal';
-import StickerNamePromptModal from './chat/StickerNamePromptModal';
-import MoreMenuModal from './chat/MoreMenuModal';
-import ChatSettingsModal from './chat/ChatSettingsModal';
-import FullScreenInputModal from './chat/FullScreenInputModal';
-import ChatSearchBar from './chat/ChatSearchBar';
-import ChatTopBar from './chat/ChatTopBar';
-import ChatComposer from './chat/ChatComposer';
+} from './chat/chatHelpers.js';
+import { createChatStyles } from './chat/chatStyles.js';
+import useScrollScrubber from './chat/useScrollScrubber.js';
+import useChatSearch from './chat/useChatSearch.js';
+import MessageBubble from './chat/MessageBubble.js';
+import ErrorBubble from './chat/ErrorBubble.js';
+import SelectionTextModal from './chat/SelectionTextModal.js';
+import SwitcherModal from './chat/SwitcherModal.js';
+import MentionPickerModal from './chat/MentionPickerModal.js';
+import ModelPanelModal from './chat/ModelPanelModal.js';
+import ThinkingPanelModal from './chat/ThinkingPanelModal.js';
+import StickerPanelModal from './chat/StickerPanelModal.js';
+import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
+import MoreMenuModal from './chat/MoreMenuModal.js';
+import ChatSettingsModal from './chat/ChatSettingsModal.js';
+import FullScreenInputModal from './chat/FullScreenInputModal.js';
+import ChatSearchBar from './chat/ChatSearchBar.js';
+import ChatTopBar from './chat/ChatTopBar.js';
+import ChatComposer from './chat/ChatComposer.js';
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();

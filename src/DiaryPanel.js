@@ -11,16 +11,16 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getDiaries, getDiarySettings, getApiConfigs, saveDiarySettings } from './storage';
+import { getDiaries, getDiarySettings, getApiConfigs, saveDiarySettings } from './storage.js';
 import {
   formatDiaryDate,
   getRoleDiarySetting,
   selectDiariesForCharacter,
   setRoleDiarySetting,
-} from './diary/diary';
-import { useApp } from './context/AppContext';
-import { EmptyState } from './ui';
-import { useTheme } from './theme/ThemeContext';
+} from './diary/diary.js';
+import { useApp } from './context/AppContext.js';
+import { EmptyState } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 // 日记：为每个角色单独开关「自动写日记」，并可为该角色指定写日记用的 API（不选则用默认）。
 // 角色用折叠选择器挑选，避免一次罗列一大堆角色卡；每个角色对应一页，页内左右滑动翻阅日记。

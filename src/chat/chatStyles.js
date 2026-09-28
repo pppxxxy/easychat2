@@ -3,7 +3,7 @@
 
 import { StyleSheet } from 'react-native';
 
-import { hexToRgba } from '../theme/themes';
+import { hexToRgba } from '../theme/themes.js';
 
 export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   aiNoticeBar: {

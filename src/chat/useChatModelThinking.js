@@ -11,7 +11,7 @@ import {
   getThinkingSettings,
   saveApiConfigs,
   saveThinkingSettings,
-} from '../storage';
+} from '../storage.js';
 
 export default function useChatModelThinking({ isSending, sendLockRef }) {
   const [modelPanelOpen, setModelPanelOpen] = useState(false);

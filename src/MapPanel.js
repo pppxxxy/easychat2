@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getWorldMap, updateWorldMap } from './storage';
+import { getWorldMap, updateWorldMap } from './storage.js';
 import {
   assignHouseNumbers,
   canAddResident,
@@ -27,10 +27,10 @@ import {
   MAP_OWNER_SELF,
   placeHouse,
   removeHouseAtCell,
-} from './worldMap/map';
-import { useApp } from './context/AppContext';
-import { FieldGroup, PrimaryButton, SecondaryButton, TextField, CollapsibleSelect } from './ui';
-import { useTheme } from './theme/ThemeContext';
+} from './worldMap/map.js';
+import { useApp } from './context/AppContext.js';
+import { FieldGroup, PrimaryButton, SecondaryButton, TextField, CollapsibleSelect } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 const CELL_SIZE = 26;
 

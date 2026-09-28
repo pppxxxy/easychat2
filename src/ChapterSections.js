@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from './theme/ThemeContext';
+import { useTheme } from './theme/ThemeContext.js';
 
 // 分节内容：图标 + 标题 + 正文 + 可选要点，用于免责声明等结构化条款。
 export default function ChapterSections({ sections = [] }) {

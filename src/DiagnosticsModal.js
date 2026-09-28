@@ -11,8 +11,8 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 
-import { clearDiagnostics, formatDiagnostics, getDiagnostics } from './diagnostics';
-import { useTheme } from './theme/ThemeContext';
+import { clearDiagnostics, formatDiagnostics, getDiagnostics } from './diagnostics.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 // 本地诊断日志查看器：只读展示本机留存的异常记录（已脱敏），支持复制/清空。
 // 全程不联网上报，符合 SECURITY.md「未接入分析/遥测 SDK」的承诺。

@@ -10,31 +10,31 @@ import { NavigationContainer, DefaultTheme, createNavigationContainerRef } from 
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import ChatScreen from './src/ChatScreen';
-import CharacterScreen from './src/CharacterScreen';
-import MemoryScreen from './src/MemoryScreen';
-import ExtensionScreen from './src/ExtensionScreen';
-import SettingsScreen from './src/SettingsScreen';
-import DisclaimerModal from './src/disclaimer';
-import OnboardingModal from './src/OnboardingModal';
+import ChatScreen from './src/ChatScreen.js';
+import CharacterScreen from './src/CharacterScreen.js';
+import MemoryScreen from './src/MemoryScreen.js';
+import ExtensionScreen from './src/ExtensionScreen.js';
+import SettingsScreen from './src/SettingsScreen.js';
+import DisclaimerModal from './src/disclaimer.js';
+import OnboardingModal from './src/OnboardingModal.js';
 import {
   acknowledgeDisclaimer,
   completeOnboarding,
   isDisclaimerAcknowledged,
   isOnboardingDone,
   migrateLegacyMessages,
-} from './src/storage';
-import { AppProvider, useApp } from './src/context/AppContext';
-import { runDiaryForNewDay } from './src/diary/runDiary';
+} from './src/storage.js';
+import { AppProvider, useApp } from './src/context/AppContext.js';
+import { runDiaryForNewDay } from './src/diary/runDiary.js';
 import {
   addOpenRoleListener,
   consumeInitialRole,
   isProactiveMessageAvailable,
-} from './src/proactiveMessage';
-import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
-import { maskSecrets } from './src/secrets';
-import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard';
-import { recordDiagnostic } from './src/diagnostics';
+} from './src/proactiveMessage.js';
+import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
+import { maskSecrets } from './src/secrets.js';
+import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard.js';
+import { recordDiagnostic } from './src/diagnostics.js';
 
 const Tab = createBottomTabNavigator();
 

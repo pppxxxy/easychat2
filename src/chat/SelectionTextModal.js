@@ -4,8 +4,8 @@ import React, { useMemo } from 'react';
 import { Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
-import { useTheme } from '../theme/ThemeContext';
-import { createChatStyles } from './chatStyles';
+import { useTheme } from '../theme/ThemeContext.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function SelectionTextModal({ text, onClose }) {
   const { theme, fonts, tokens } = useTheme();

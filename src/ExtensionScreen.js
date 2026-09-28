@@ -11,16 +11,16 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import CardForgeScreen from './CardForgeScreen';
-import DiaryPanel from './DiaryPanel';
-import ImageGenScreen from './ImageGenScreen';
-import MapPanel from './MapPanel';
-import MomentsView from './MomentsView';
-import ProactivePanel from './ProactivePanel';
-import { GAMES } from './games/games';
-import { getMomentsSettings } from './storage';
-import { EmptyState, PrimaryButton } from './ui';
-import { useTheme } from './theme/ThemeContext';
+import CardForgeScreen from './CardForgeScreen.js';
+import DiaryPanel from './DiaryPanel.js';
+import ImageGenScreen from './ImageGenScreen.js';
+import MapPanel from './MapPanel.js';
+import MomentsView from './MomentsView.js';
+import ProactivePanel from './ProactivePanel.js';
+import { GAMES } from './games/games.js';
+import { getMomentsSettings } from './storage.js';
+import { EmptyState, PrimaryButton } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 let WebViewComponent = null;
 try {

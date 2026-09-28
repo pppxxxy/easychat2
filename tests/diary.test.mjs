@@ -227,7 +227,7 @@ test('启动执行器：过一天的首次启动、按所选 API、静默失败'
   assert.ok(API_SOURCE.includes('async function resolveChatConfig'));
   assert.ok(API_SOURCE.includes('getApiConfigs'));
   // 启动时挂载
-  assert.ok(APP_SOURCE.includes("import { runDiaryForNewDay } from './src/diary/runDiary'"));
+  assert.ok(APP_SOURCE.includes("import { runDiaryForNewDay } from './src/diary/runDiary.js'"));
   assert.ok(APP_SOURCE.includes('<DiaryStartup />'));
 });
 
@@ -257,7 +257,7 @@ test('世界分组新增日记入口并复用折叠容器', () => {
   assert.ok(EXTENSION_SOURCE.includes("id: 'diary', label: '日记'"));
   assert.ok(EXTENSION_SOURCE.includes("section.id === 'diary'"));
   assert.ok(EXTENSION_SOURCE.includes('<DiaryPanel embedded />'));
-  assert.ok(EXTENSION_SOURCE.includes("import DiaryPanel from './DiaryPanel'"));
+  assert.ok(EXTENSION_SOURCE.includes("import DiaryPanel from './DiaryPanel.js'"));
 });
 
 test('日记面板：折叠选角色、单角色开关、专属 API 与左右滑动查看', () => {

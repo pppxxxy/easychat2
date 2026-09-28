@@ -23,15 +23,15 @@ import {
   mergeEntryAssistPatch,
   parseEntryAssistPatch,
   parseFieldAssistText,
-} from './cardForge/forge';
-import { createRegexScript, createWorldEntry } from './cardParser';
-import CardPreviewModal from './CardPreviewModal';
-import { makeCharacterPresetId } from './characterPresets';
-import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution';
-import { isCanceledError } from './api';
-import { maskSecrets } from './secrets';
-import { FieldGroup, PrimaryButton, SecondaryButton, TextField } from './ui';
-import { useTheme } from './theme/ThemeContext';
+} from './cardForge/forge.js';
+import { createRegexScript, createWorldEntry } from './cardParser.js';
+import CardPreviewModal from './CardPreviewModal.js';
+import { makeCharacterPresetId } from './characterPresets.js';
+import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution.js';
+import { isCanceledError } from './api.js';
+import { maskSecrets } from './secrets.js';
+import { FieldGroup, PrimaryButton, SecondaryButton, TextField } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 const MULTILINE_FIELDS = new Set([
   'description',

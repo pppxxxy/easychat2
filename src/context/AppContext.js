@@ -28,7 +28,7 @@ import {
   deleteSessions as deleteSessionsStorage,
    collectOrphanImageFiles,
    reconcileVectorIndexes,
- } from '../storage';
+ } from '../storage.js';
 
 import {
   resolveActiveId,
@@ -39,8 +39,8 @@ import {
   withPinnedCharacter,
   withSwitchedCharacter,
   withUpdatedCharacter,
-} from './characterLibrary';
-import { resolveActiveSessionId, sortSessions } from './sessionLibrary';
+} from './characterLibrary.js';
+import { resolveActiveSessionId, sortSessions } from './sessionLibrary.js';
 
 const AppContext = createContext(null);
 

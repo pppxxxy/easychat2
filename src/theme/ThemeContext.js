@@ -17,12 +17,12 @@ import {
   getFontOption,
   getTheme,
   resolveFontScale,
-} from './themes';
+} from './themes.js';
 import {
   getAppearanceSettings,
   saveAppearanceSettings,
-} from '../storage';
-import { tokens } from './tokens';
+} from '../storage.js';
+import { tokens } from './tokens.js';
 
 const ThemeContext = createContext(null);
 

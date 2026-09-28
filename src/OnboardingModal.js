@@ -9,14 +9,14 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { ONBOARDING_CHAPTERS } from './onboardingContent';
-import { getOnboardingImages } from './onboarding/images';
-import ChapterImages from './ChapterImages';
-import ChapterNotice from './ChapterNotice';
-import ChapterOutro from './ChapterOutro';
-import ChapterSections from './ChapterSections';
-import { GhostButton, PrimaryButton } from './ui';
-import { useTheme } from './theme/ThemeContext';
+import { ONBOARDING_CHAPTERS } from './onboardingContent.js';
+import { getOnboardingImages } from './onboarding/images.js';
+import ChapterImages from './ChapterImages.js';
+import ChapterNotice from './ChapterNotice.js';
+import ChapterOutro from './ChapterOutro.js';
+import ChapterSections from './ChapterSections.js';
+import { GhostButton, PrimaryButton } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 export default function OnboardingModal({ visible, onFinish }) {
   const { theme, fonts, tokens } = useTheme();

@@ -1,6 +1,6 @@
-import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from './apiVendors';
-import { IMAGE_PROVIDERS } from './imageGen/providers';
-import { DISCLAIMER_SECTIONS } from './disclaimer';
+import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from './apiVendors.js';
+import { IMAGE_PROVIDERS } from './imageGen/providers.js';
+import { DISCLAIMER_SECTIONS } from './disclaimer.js';
 
 // 新手教学 / 使用教程共用内容。
 // 每个章节既可作为「分步向导」的一步，也可作为「速查长列表」的一节。

@@ -15,9 +15,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { markMediaWrite, updateSessionInfo } from './storage';
-import { FieldLabel, TextField } from './ui';
-import { useTheme } from './theme/ThemeContext';
+import { markMediaWrite, updateSessionInfo } from './storage.js';
+import { FieldLabel, TextField } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;

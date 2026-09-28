@@ -14,10 +14,10 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FieldHint, FieldLabel, TextField } from './ui';
-import { getTtsSettings, saveTtsSettings } from './storage';
-import { TTS_PROVIDERS, getTtsProvider } from './tts/providers';
-import { useTheme } from './theme/ThemeContext';
+import { FieldHint, FieldLabel, TextField } from './ui/index.js';
+import { getTtsSettings, saveTtsSettings } from './storage.js';
+import { TTS_PROVIDERS, getTtsProvider } from './tts/providers.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 export default function TtsPanel({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();

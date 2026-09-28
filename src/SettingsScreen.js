@@ -18,12 +18,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { normalizeChatUrl } from './api';
-import { useTheme } from './theme/ThemeContext';
-import DisclaimerModal from './disclaimer';
-import PluginPanel from './PluginPanel';
-import PresetPanel from './PresetPanel';
-import TtsPanel from './TtsPanel';
+import { normalizeChatUrl } from './api.js';
+import { useTheme } from './theme/ThemeContext.js';
+import DisclaimerModal from './disclaimer.js';
+import PluginPanel from './PluginPanel.js';
+import PresetPanel from './PresetPanel.js';
+import TtsPanel from './TtsPanel.js';
 import {
   createApiConfig,
   getApiConfigs,
@@ -54,12 +54,12 @@ import {
   saveVectorMemorySettings,
   SAMPLING_FIELDS,
   THINKING_DISPLAYS,
-} from './storage';
-import { markMediaWrite } from './mediaProtection';
-import { IMAGE_PROVIDERS } from './imageGen/providers';
-import { detectImageProvider } from './imageGen';
-import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors';
-import { testVectorConnection } from './vectorMemory';
+} from './storage.js';
+import { markMediaWrite } from './mediaProtection.js';
+import { IMAGE_PROVIDERS } from './imageGen/providers.js';
+import { detectImageProvider } from './imageGen/index.js';
+import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors.js';
+import { testVectorConnection } from './vectorMemory/index.js';
 import {
   Card,
   DangerButton,
@@ -71,10 +71,10 @@ import {
   TopicButton,
   CollapsibleSection,
   CollapsibleSelect,
-} from './ui';
-import ChapterModal from './ChapterModal';
-import TutorialModal from './TutorialModal';
-import DiagnosticsModal from './DiagnosticsModal';
+} from './ui/index.js';
+import ChapterModal from './ChapterModal.js';
+import TutorialModal from './TutorialModal.js';
+import DiagnosticsModal from './DiagnosticsModal.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', label: '开头', meta: '取回复首段' },

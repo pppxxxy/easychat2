@@ -4,9 +4,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
-import { maskSecrets } from '../secrets';
-import { useTheme } from '../theme/ThemeContext';
-import { createChatStyles } from './chatStyles';
+import { maskSecrets } from '../secrets.js';
+import { useTheme } from '../theme/ThemeContext.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function ErrorBubble({ message, rawError, onCopied, fullWidth, selectionMode, selected }) {
   const { theme, fonts, tokens } = useTheme();

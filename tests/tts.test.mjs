@@ -17,13 +17,13 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
 
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './providers') {
+  if (request === './providers.js') {
     return {
       TTS_MAX_CHARS: 800,
       getTtsProvider: () => null,
     };
   }
-  if (request === '../secrets') {
+  if (request === '../secrets.js') {
     return { registerSecretValues: () => {} };
   }
   if (request === 'expo-av') {

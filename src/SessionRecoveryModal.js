@@ -9,9 +9,9 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { guessCharacterIdForMessages } from './context/sessionLibrary';
-import { Card, EmptyState, PrimaryButton } from './ui';
-import { useTheme } from './theme/ThemeContext';
+import { guessCharacterIdForMessages } from './context/sessionLibrary.js';
+import { Card, EmptyState, PrimaryButton } from './ui/index.js';
+import { useTheme } from './theme/ThemeContext.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);

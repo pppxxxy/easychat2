@@ -10,9 +10,9 @@ import {
   buildRichHtmlDocument,
   isViewportRichHtml,
   resolveViewportCardHeight,
-} from './richHtml';
-import { useTheme } from './theme/ThemeContext';
-import { recordDiagnostic } from './diagnostics';
+} from './richHtml.js';
+import { useTheme } from './theme/ThemeContext.js';
+import { recordDiagnostic } from './diagnostics.js';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
 let WebViewComponent = null;

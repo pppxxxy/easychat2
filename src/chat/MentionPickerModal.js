@@ -4,9 +4,9 @@ import React, { useMemo } from 'react';
 import { Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext';
-import { EVERYONE_MENTION } from '../groupMentions';
-import { createChatStyles } from './chatStyles';
+import { useTheme } from '../theme/ThemeContext.js';
+import { EVERYONE_MENTION } from '../groupMentions.js';
+import { createChatStyles } from './chatStyles.js';
 
 export default function MentionPickerModal({
   visible,

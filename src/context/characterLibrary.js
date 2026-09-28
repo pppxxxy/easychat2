@@ -1,4 +1,4 @@
-import { DEFAULT_CHARACTER, sortCharacters } from '../storage';
+import { DEFAULT_CHARACTER, sortCharacters } from '../storage.js';
 
 export function resolveActiveId(list, activeId) {
   if (activeId && list.some(character => character.id === activeId)) {

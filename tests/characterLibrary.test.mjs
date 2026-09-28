@@ -40,7 +40,7 @@ const storageMock = { __esModule: true, DEFAULT_CHARACTER, sortCharacters };
 
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === '../storage' || request.endsWith('/storage')) return storageMock;
+  if (request === '../storage.js' || request.endsWith('/storage')) return storageMock;
   return originalLoad.call(this, request, parent, isMain);
 };
 

@@ -1,5 +1,5 @@
-import { getImageProvider } from './providers';
-import { registerSecretValues } from '../secrets';
+import { getImageProvider } from './providers.js';
+import { registerSecretValues } from '../secrets.js';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 0;

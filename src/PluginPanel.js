@@ -14,10 +14,10 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FieldHint, FieldLabel, TextField } from './ui';
-import { getPlugins, savePlugins } from './storage';
-import { useTheme } from './theme/ThemeContext';
-import { PROVIDERS } from './plugins/providers';
+import { FieldHint, FieldLabel, TextField } from './ui/index.js';
+import { getPlugins, savePlugins } from './storage.js';
+import { useTheme } from './theme/ThemeContext.js';
+import { PROVIDERS } from './plugins/providers.js';
 
 export default function PluginPanel({ visible, onClose }) {
   const [plugins, setPlugins] = useState([]);

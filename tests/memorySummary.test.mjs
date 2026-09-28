@@ -35,13 +35,13 @@ const storageMock = {
 };
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './api' || request.endsWith('/api')) {
+  if (request === './api.js' || request.endsWith('/api')) {
     return { sendChatMessage: async () => summaryText };
   }
-  if (request === './storage' || request.endsWith('/storage')) {
+  if (request === './storage.js' || request.endsWith('/storage')) {
     return storageMock;
   }
-  if (request === './cardParser' || request.endsWith('/cardParser')) {
+  if (request === './cardParser.js' || request.endsWith('/cardParser')) {
     return { createWorldEntry: partial => partial };
   }
   return originalLoad.call(this, request, parent, isMain);
