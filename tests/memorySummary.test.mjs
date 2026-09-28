@@ -63,6 +63,20 @@ function makeMessages(turns) {
   }));
 }
 
+test('总结提示词只记剧情与关键对话，排除习惯/口头禅且不重复已有记忆', () => {
+  const prompt = memorySummary.buildSummaryPrompt(
+    [{ role: 'user', text: '你好' }, { role: 'assistant', text: '你好呀' }],
+    '用户',
+    '- 之前发生过的事'
+  );
+  const system = prompt[0].content;
+  assert.ok(system.includes('重要对话'));
+  assert.ok(system.includes('不要重复'));
+  assert.ok(system.includes('口头禅'));
+  assert.ok(system.includes('习惯'));
+  assert.ok(system.includes('之前发生过的事'));
+});
+
 test('自动总结阈值按可总结消息计算', () => {
   const messages = makeMessages(9);
   const settings = { enabled: true, threshold: 8 };

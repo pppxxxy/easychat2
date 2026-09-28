@@ -449,7 +449,13 @@ export function buildGeneratePrompt(state) {
   const advancedLines = [];
   if (sections.includes('world')) {
     advancedLines.push(
-      '- worldInfo：世界书条目数组，每项 {keys:[字符串数组,2-4 个触发关键词], content:字符串, position:0-7 的数字（0 角色定义之前/1 角色定义之后/4 按深度插入）, depth:数字, enabled:true}，写 3-6 条世界观、地点或人物设定。'
+      [
+        '- worldInfo：世界书条目数组，每项 {keys:[字符串数组,2-4 个触发关键词], content:字符串, position:0-7 的数字（0 角色定义之前/1 角色定义之后/4 按深度插入）, depth:数字, enabled:true}，写 6-12 条。',
+        '  · 不要只写一条笼统的总览。要拆成「1 条总览 + 多条具体条目」：总览概括整个世界的基调与设定；其余条目分别覆盖具体的种族、组织、地点、历史事件、力量或等级体系、规则与禁忌。',
+        '  · 每条 content 要写出「具体内容」，不要用一句话概括。例如「魅魔等级」这一条，要写清有哪些等级、各等级的特征、晋升条件与方式；「种族」这一条要写清有哪些种族、各自特点与相互关系。每条约 80-200 字。',
+        '  · comment 用简短标题（如「魅魔等级制度」），keys 选该条目最可能被提及的 2-4 个关键词。',
+        '  · 条目之间不要重复同样内容；总览条目只做整体铺垫。',
+      ].join('\n')
     );
   }
   if (sections.includes('regex')) {
@@ -769,6 +775,15 @@ export function buildEntryAssistPrompt({ kind = '', currentEntry = {}, request =
     '- 未修改的字段原样完整复制，不要留空。',
     '- keys 是字符串数组，其余字段是字符串。',
   ];
+  // 世界书条目单独给内容约定：否则模型常只给一句笼统概括，缺少可用的细节。
+  if (kind === 'worldInfo') {
+    lines.push(
+      '- comment 是简短标题；keys 是 2-4 个该条目最可能被提及的触发关键词。',
+      '- content 必须具体、可检索：写清「是什么、有哪些、彼此关系、规则或条件」，不要用一句话笼统概括。',
+      '- 例如「魅魔等级制度」应写明有哪些等级、各等级的特征与权限、晋升条件与方式；「种族」应写明有哪些种族、各自特点与相互关系。',
+      '- content 建议 80-200 字，信息密度高，避免空话与重复。'
+    );
+  }
   // 正则条目单独给写法约定：否则模型常给带斜杠/修饰符或转义错误的表达式，导入后跑不通。
   if (kind === 'regexScripts') {
     lines.push(

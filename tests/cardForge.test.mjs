@@ -362,12 +362,26 @@ test('要求生成时提示词包含对应高级字段的 schema', () => {
   assert.ok(worldPrompt.includes('worldInfo'));
   assert.equal(worldPrompt.includes('regexScripts'), false);
   assert.equal(worldPrompt.includes('presets'), false);
+  // 世界书要拆成「总览 + 具体条目」，不能只给一条笼统描述
+  assert.ok(worldPrompt.includes('总览'));
+  assert.ok(worldPrompt.includes('具体'));
 
   state = { ...state, answers: { ...state.answers, advanced: '全部生成' } };
   const allPrompt = buildGeneratePrompt(state);
   assert.ok(allPrompt.includes('worldInfo'));
   assert.ok(allPrompt.includes('regexScripts'));
   assert.ok(allPrompt.includes('presets'));
+});
+
+test('世界书条目辅助生成提示要求具体内容而非笼统概括', () => {
+  const prompt = buildEntryAssistPrompt({
+    kind: 'worldInfo',
+    currentEntry: { comment: '等级', keys: ['魅魔'], content: '魅魔有等级' },
+    request: '写详细一点',
+  });
+  assert.ok(prompt.includes('具体'));
+  assert.ok(prompt.includes('等级'));
+  assert.equal(prompt.includes('一句话笼统概括'), true);
 });
 
 test('模型返回的世界书 / 正则 / 预设被清洗成完整结构', () => {
