@@ -21,12 +21,18 @@
 ### `ChatScreen`（默认导出）
 **位置**: `src/ChatScreen.js`
 **Props**: 无（由导航注入）
+**拆分模块**（2026-09-27 从 ChatScreen 外提，纯搬运无行为变化）:
+- `src/chat/chatConstants.js`：`USER_ID`/`ASSISTANT_ID`/`SYSTEM_ERROR_ID`/`THINKING_PLACEHOLDER`/`NEAR_BOTTOM_THRESHOLD`/`AI_DISCLAIMER_TEXT`/`QUOTE_TEXT_MAX`/`INLINE_IMAGE_PROMPT_MAX`/`NO_BODY_TEXT`/`THINKING_LEVEL_LABELS`/`THINKING_DISPLAY_LABELS`。
+- `src/chat/chatHelpers.js`：`buildInlineImagePrompt`/`buildQuotePayload`/`getHttpStatus`/`buildErrorRawText`/`buildGreetingMessage`/`formatScrubberTime`/`settlePendingMessage`/`messageTimestamp`（纯函数）。
+- `src/chat/chatStyles.js`：`createChatStyles(theme, fonts, tokens)` 样式工厂。
+- `src/chat/MessageBubble.js`（默认导出）、`src/chat/ErrorBubble.js`（默认导出）、`src/chat/ThinkingIndicator.js`（默认导出）：展示组件。
+
 **内部组件**:
 
-| 组件 | Props | 说明 |
-|------|-------|------|
-| `MessageBubble` | `message` | 用户文字消息渲染纯文本，图片/表情包消息渲染本地图片，助手消息用 `Markdown`；全宽模式下助手头像与名字置于气泡上方，头像在名字左侧 |
-| `ErrorBubble` | `message`, `rawError`, `onCopied` | 可展开的系统报错气泡，支持复制原文 |
+| 组件 | 位置 | Props | 说明 |
+|------|------|-------|------|
+| `MessageBubble` | `src/chat/MessageBubble.js` | `message` | 用户文字消息渲染纯文本，图片/表情包消息渲染本地图片，助手消息用 `Markdown`；全宽模式下助手头像与名字置于气泡上方，头像在名字左侧 |
+| `ErrorBubble` | `src/chat/ErrorBubble.js` | `message`, `rawError`, `onCopied` | 可展开的系统报错气泡，支持复制原文 |
 
 **状态与副作用**:
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`

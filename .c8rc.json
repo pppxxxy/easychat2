@@ -19,7 +19,11 @@
     "src/stickerImages.js",
     "src/theme/ThemeContext.js",
     "src/theme/tokens.js",
-    "src/context/AppContext.js"
+    "src/context/AppContext.js",
+    "src/chat/MessageBubble.js",
+    "src/chat/ErrorBubble.js",
+    "src/chat/ThinkingIndicator.js",
+    "src/chat/chatStyles.js"
   ],
   "reporter": ["text-summary"],
   "check-coverage": true,

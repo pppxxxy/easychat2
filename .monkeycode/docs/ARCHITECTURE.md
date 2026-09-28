@@ -54,7 +54,8 @@ easychat2/
 ├── .npmrc                    # npm 配置（legacy-peer-deps）
 ├── assets/                   # 图标、自适应图标与启动图
 ├── src/
-│   ├── ChatScreen.js         # 聊天界面：角色切换、图片/文字消息、表情包、错误气泡、持久化
+│   ├── ChatScreen.js         # 聊天界面主流程：角色切换、发送/接收、持久化、竞态守卫
+│   ├── chat/                 # 聊天页拆分出的模块（2026-09-27）：常量/纯函数/样式/消息气泡
 │   ├── chatMedia.js          # 图片/表情包消息结构与模型提示
 │   ├── stickerImages.js      # 表情包图片缩小与本地文件保存
 │   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
@@ -118,9 +119,10 @@ easychat2/
 ### 聊天界面
 **目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理图片/文字消息、表情包、长按多选删除、带确认的修改重发、全宽布局与大型 HTML 开场白、发送请求、展示助手 Markdown 回复与系统报错气泡，并按角色持久化会话
 **位置**: `src/ChatScreen.js`
-**关键文件**: `src/ChatScreen.js`
-**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`@expo/vector-icons`、`expo-clipboard`、`react-native-markdown-display`
+**关键文件**: `src/ChatScreen.js`、`src/chat/chatConstants.js`、`src/chat/chatHelpers.js`、`src/chat/chatStyles.js`、`src/chat/MessageBubble.js`、`src/chat/ErrorBubble.js`、`src/chat/ThinkingIndicator.js`
+**依赖**: `src/api.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`src/chat/*`、`@expo/vector-icons`、`expo-clipboard`、`react-native-markdown-display`
 **被依赖**: `App.js`
+**说明**: 2026-09-27 起把模块常量、纯辅助函数、样式工厂与消息气泡展示组件拆到 `src/chat/`；`ChatScreen.js` 只保留有状态的聊天主流程（6112 → 4506 行）。拆分仅搬运，行为不变；默认导出仍是 `function ChatScreen()`。
 
 ### 记忆页
 **目的**: 逐行陈列历史会话，支持点击续聊、置顶、克隆与删除

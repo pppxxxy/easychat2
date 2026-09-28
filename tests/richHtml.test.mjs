@@ -19,7 +19,12 @@ import {
 } from '../src/richHtml.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
+// 聊天渲染路径的源码：主屏 + 抽出后的消息气泡（2026-09-27 从 ChatScreen 拆分）。
+// 相关断言需同时覆盖两者，否则负向字符串会因代码搬家而失去约束力。
+const CHAT_SCREEN_SOURCE = [
+  readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8'),
+  readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageBubble.js'), 'utf8'),
+].join('\n');
 
 test('视口卡片高度：宿主实测优先，估算一律封顶', () => {
   // Modal 场景：信宿主实测高度

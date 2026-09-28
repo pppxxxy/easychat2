@@ -97,6 +97,7 @@ npm test             # 运行 Node 单元与回归测试
 |------|------|
 | `App.js` | 应用入口与导航 |
 | `src/ChatScreen.js` | 聊天主流程 |
+| `src/chat/*` | 聊天页拆分模块：常量、纯函数、样式、消息气泡 |
 | `src/CharacterScreen.js` | 角色编辑与角色卡导入 |
 | `src/ExtensionScreen.js` | 扩展页：内嵌小游戏与生图 |
 | `src/theme/ThemeContext.js` | 主题与字体缩放的全局上下文 |

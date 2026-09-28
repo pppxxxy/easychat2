@@ -102,8 +102,9 @@ test('AI 生成卡的角色页徽标与导出注入', () => {
 test('动态与生图界面有 AI 生成显式标识', () => {
   assert.ok(MOMENTS_VIEW.includes('动态与回复由 AI 生成'));
   assert.ok(IMAGE_GEN.includes('画廊中的图片由 AI 生成'));
-  // 聊天页提示行（既有合规项保持）
-  assert.ok(readSource(['src', 'ChatScreen.js']).includes('AI 生成可能有误，仅供参考'));
+  // 聊天页提示行（既有合规项保持）。文案常量 2026-09-27 随 ChatScreen 拆分
+  // 移至 src/chat/chatConstants.js，断言改指向新文件、约束不变。
+  assert.ok(readSource(['src', 'chat', 'chatConstants.js']).includes('AI 生成可能有误，仅供参考'));
 });
 
 test('免责声明带版本号：条款更新后存量用户需重新确认', () => {
