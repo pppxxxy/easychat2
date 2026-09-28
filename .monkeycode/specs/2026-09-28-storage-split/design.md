@@ -23,8 +23,10 @@ Updated: 2026-09-28
 ## 工程加固（2026-09-29，独立于拆分）
 
 - 已提交 `0947889`：覆盖率地板 40 → 60（`.c8rc.json`）、`eslint` 精确锁 `10.11.0` + `engines.node`、新增 `eslint-plugin-react@7.37.5` 并启用 `react/jsx-uses-vars`（消除对 ESLint 10 core JSX 追踪的隐性依赖）。
-- 待办 P1：审计 `.c8rc.json` exclude 清单（当前约 62% src 行被排除）与 hooks 纯逻辑外提补测；`secretStore` 在 protect/hydrate 命中 `SECRET_FIELDS` 明文时登记 `registerSecretValues`（脱敏双保险）。
-- 待办 P2：消除 `MODULE_TYPELESS_PACKAGE_JSON`（先 spike `src/package.json` type:module）；统一相对导入 `.js` 扩展名（356 处）。
+- 已提交 `edc129f`（P1）：`secretStore` 在 `protectValue`/`hydrateValue` 命中 `SECRET_FIELDS` 明文时调用 `registerSecretValues`（脱敏双保险）；新增回归测试（无格式前缀的自定义密钥经存储边界登记后可被 `maskSecrets` 脱掉）。
+- 已提交 `6d3a53a`（P1）：把 `useChatSearch` 的匹配与下标推进抽成纯函数 `src/chat/chatSearchMath.js` 并补 `tests/chatSearchMath.test.mjs`（4 条），纯逻辑受覆盖率门禁约束（hooks 本体仍需 renderer，继续排除）。
+- 覆盖率 exclude 审计结论：被排除且不直接依赖 RN 的文件仅 5 个，其中 4 个（`useChatSearch`/`useScrollScrubber`/`AppContext`/`ui/index`）需 React renderer 才能真正执行；采取「抽纯逻辑 + 补测」而非直接纳入 hooks 本体。
+- 待办 P2：消除 `MODULE_TYPELESS_PACKAGE_JSON`（先 spike `src/package.json` type:module）；统一相对导入 `.js` 扩展名（约 356 处）。
 - 待办 P3：聊天主链路真机冒烟清单。
 
 ## 目标
