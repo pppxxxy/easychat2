@@ -155,6 +155,7 @@ export {
   saveVectorMemorySettings,
   updateVectorIndex,
 } from './storage/vector.js';
+export { getAffinityStatus, saveAffinity } from './storage/affinity.js';
 
 const CHARACTER_KEY = '@easychat2_character';
 // 旧格式：整库数组存一个键（超过约 2MB 会触发 Android SQLite 行读取上限）。
@@ -167,7 +168,6 @@ const CHARACTER_PAYLOAD_DIRECTORY = 'characters';
 const CHARACTER_PAYLOAD_FILE_VERSION = 1;
 const CHARACTER_INLINE_LIMIT_BYTES = 512 * 1024;
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
-const AFFINITY_KEY = '@easychat2_affinity';
 const SESSIONS_KEY = '@easychat2_sessions';
 const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
 const SESSION_SUMMARIES_PREFIX = '@easychat2_session_summaries';
@@ -1181,39 +1181,7 @@ export function clearCardForge() {
 
 // 动态删除联动实现见 src/storage/moments.js。
 
-function normalizeAffinityState(raw) {
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const result = {};
-  Object.entries(source).forEach(([id, value]) => {
-    const entry = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    result[String(id)] = {
-      score: Number(entry.score) || 0,
-      turnCount: Number(entry.turnCount) || 0,
-      triggers: Array.isArray(entry.triggers)
-        ? entry.triggers.filter(item => typeof item === 'string')
-        : [],
-    };
-  });
-  return result;
-}
-
-export async function getAffinityStatus() {
-  const stored = await readJsonStatus(AFFINITY_KEY);
-  const isBadObject = stored.status === 'ok'
-    && (!stored.value || typeof stored.value !== 'object' || Array.isArray(stored.value));
-  if (stored.status === 'corrupt' || isBadObject) {
-    await backupCorruptValue(AFFINITY_KEY);
-    return { status: 'corrupt', map: {} };
-  }
-  if (stored.status === 'missing') return { status: 'missing', map: {} };
-  return { status: 'ok', map: normalizeAffinityState(stored.value) };
-}
-
-export async function saveAffinity(map) {
-  const normalized = normalizeAffinityState(map);
-  await AsyncStorage.setItem(AFFINITY_KEY, JSON.stringify(normalized));
-  return normalized;
-}
+// 好感度存储见 src/storage/affinity.js。
 
 function ensureUniqueSessionIds(list) {
   // 消息体按会话 id 存键。若把重复 id 重命名成一个新 id，新 id 下没有消息，
