@@ -82,6 +82,21 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 globalThis.__DEV__ = false;
 
+// storage.js 依赖拆出的 src/storage/io.js；本测试只把 storage.js 转成 CJS 加载，
+// 若不预先把 io.js 也转成 CJS 注册进缓存，require(esm) 会绕过上面的 Module._load 打桩。
+const ioPath = path.resolve('src/storage/io.js');
+const ioTransformed = babel.transformSync(fs.readFileSync(ioPath, 'utf8'), {
+  babelrc: false,
+  configFile: false,
+  filename: ioPath,
+  presets: [[presetEnv, { targets: { node: 'current' }, modules: 'commonjs' }]],
+}).code;
+const ioModule = new Module(ioPath);
+ioModule.filename = ioPath;
+ioModule.paths = Module._nodeModulePaths(path.dirname(ioPath));
+ioModule._compile(ioTransformed, ioPath);
+Module._cache[ioPath] = ioModule;
+
 const filename = path.resolve('src/storage.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
