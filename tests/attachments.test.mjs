@@ -45,7 +45,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'react-native') return { Image };
   if (request === 'expo-document-picker') return DocumentPicker;
   if (request === 'expo-image-picker') return ImagePicker;
-  if (request === 'expo-file-system') return FileSystem;
+  if (request === 'expo-file-system' || request === 'expo-file-system/legacy') return FileSystem;
   return originalLoad.call(this, request, parent, isMain);
 };
 

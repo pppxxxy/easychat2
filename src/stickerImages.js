@@ -1,5 +1,5 @@
 import { Image } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { validateImageSize } from './attachments.js';
 import { markMediaWrite } from './mediaProtection.js';

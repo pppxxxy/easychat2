@@ -2,7 +2,7 @@
 // 拆出的目的是让各领域存储模块（characters/sessions/...）复用同一套读写与损坏备份逻辑。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { hydrateSecrets, protectSecrets } from '../secretStore.js';
 import { recordDiagnostic } from '../diagnostics.js';

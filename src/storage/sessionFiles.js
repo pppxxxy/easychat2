@@ -3,7 +3,7 @@
 // 本层只依赖 sessionCore（键/共享状态），不依赖 messages/list，作为叶子避免循环。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import {
   getMediaWriteRevision,

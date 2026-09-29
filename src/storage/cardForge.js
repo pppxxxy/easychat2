@@ -2,7 +2,7 @@
 // 草稿超过内联阈值时落文件，AsyncStorage 只存文件描述符；读取时再回读文件。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { FORGE_FIELDS, FORGE_QUESTIONS, MAX_PRESERVED_ITEMS, MAX_PRESERVED_TEXT } from '../cardForge/forge.js';
 import { normalizeCharacterPresets } from '../characterPresets.js';

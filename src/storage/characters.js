@@ -3,7 +3,7 @@
 // 注：saveCharacterState（删除/保存的跨领域编排）仍留在 storage.js barrel。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { assignStableCharacterIds } from '../context/characterIdentity.js';
 import { normalizeCharacterPresets } from '../characterPresets.js';

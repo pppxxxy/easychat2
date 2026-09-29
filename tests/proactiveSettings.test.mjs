@@ -79,7 +79,7 @@ function loadStorageModule(absPath) {
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
-  if (request === 'expo-file-system') return FileSystem;
+  if (request === 'expo-file-system' || request === 'expo-file-system/legacy') return FileSystem;
   if (request === 'expo-sqlite') return SQLite;
   if (request.endsWith('/presets') || request === './presets.js') {
     return { __esModule: true, default: [] };

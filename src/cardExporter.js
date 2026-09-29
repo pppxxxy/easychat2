@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { appendExportNotice, isValidAigcMeta } from './aigc/attribution.js';
 

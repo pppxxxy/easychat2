@@ -21,7 +21,7 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
 
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === 'expo-file-system') return {};
+  if (request === 'expo-file-system' || request === 'expo-file-system/legacy') return {};
   return originalLoad.call(this, request, parent, isMain);
 };
 
