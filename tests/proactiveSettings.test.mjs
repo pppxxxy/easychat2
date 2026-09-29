@@ -64,7 +64,15 @@ function loadStorageModule(absPath) {
   const mod = new Module(absPath);
   mod.filename = absPath;
   mod.paths = Module._nodeModulePaths(path.dirname(absPath));
-  mod._compile(code, absPath);
+  // 写入 Module._cache，让多个子模块 import 同一 sessionCore 时拿到同一实例
+  // （匹配真实 ESM 单例语义，避免模块级共享状态被复制成多份）。
+  Module._cache[absPath] = mod;
+  try {
+    mod._compile(code, absPath);
+  } catch (error) {
+    delete Module._cache[absPath];
+    throw error;
+  }
   return mod.exports;
 }
 

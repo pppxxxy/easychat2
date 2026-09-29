@@ -116,7 +116,16 @@ function loadStorageModule(absPath) {
   const mod = new Module(absPath);
   mod.filename = absPath;
   mod.paths = Module._nodeModulePaths(path.dirname(absPath));
-  mod._compile(code, absPath);
+  // 写入 Module._cache：让多个子模块 import 同一个 sessionCore 时拿到同一实例，
+  // 匹配真实 ESM 的模块单例语义。否则模块级共享状态（deletedSessionIds /
+  // protectedChatImageUris / 各类队列）会被复制成多份，跨模块写入互不可见。
+  Module._cache[absPath] = mod;
+  try {
+    mod._compile(code, absPath);
+  } catch (error) {
+    delete Module._cache[absPath];
+    throw error;
+  }
   return mod.exports;
 }
 
@@ -171,6 +180,11 @@ function loadStorage() {
   sqliteEnabled = false;
   setCalls = 0;
   vectorSetCalls = 0;
+  // 清掉上一轮缓存的存储子模块：模块级状态（队列/Set/Map）必须每轮从零开始，
+  // 否则跨用例泄漏。子模块之间仍共享同一实例（见 loadStorageModule 的缓存写入）。
+  Object.keys(Module._cache).forEach(key => {
+    if (key.startsWith(`${STORAGE_DIR}${path.sep}`)) delete Module._cache[key];
+  });
   const filename = path.resolve('src/storage.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
