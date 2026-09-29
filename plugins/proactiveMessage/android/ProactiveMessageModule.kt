@@ -82,7 +82,7 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
         intent.removeExtra(Notifier.EXTRA_ROLE_ID)
     }
 
-    override fun onActivityResult(activity: android.app.Activity?, requestCode: Int, resultCode: Int, data: Intent?) {}
+    override fun onActivityResult(activity: android.app.Activity, requestCode: Int, resultCode: Int, data: Intent?) {}
 
     override fun onHostResume() {
         // 冷启动路径：读取启动 intent。currentActivity 可能此刻仍为 null，
