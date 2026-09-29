@@ -1,0 +1,4 @@
+# 统一以 LF 写入工作区：避免 Windows 上 core.autocrlf=true 检出 CRLF，
+# 导致 tests/characterEditGuard.test.mjs 等源码文本断言测试失败。
+# 二进制文件由 text=auto 自动识别，不受影响。
+* text=auto eol=lf
