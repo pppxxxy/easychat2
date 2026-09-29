@@ -3,7 +3,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
   {
-    files: ['**/*.js'],
+    files: ['**/*.js', '**/*.mjs'],
     ignores: ['node_modules/**', 'android/**', 'ios/**'],
     languageOptions: {
       ecmaVersion: 2022,
@@ -13,10 +13,12 @@ export default [
         React: 'readonly', global: 'readonly', Promise: 'readonly', require: 'readonly',
         module: 'readonly', exports: 'readonly', process: 'readonly', console: 'readonly',
         setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly',
-        clearInterval: 'readonly', fetch: 'readonly', FormData: 'readonly',
+        clearInterval: 'readonly', setImmediate: 'readonly', clearImmediate: 'readonly',
+        queueMicrotask: 'readonly', fetch: 'readonly', FormData: 'readonly',
         XMLHttpRequest: 'readonly', AbortController: 'readonly', Buffer: 'readonly',
         requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', alert: 'readonly',
-        __DEV__: 'readonly',
+        __DEV__: 'readonly', __dirname: 'readonly', URLSearchParams: 'readonly',
+        TextEncoder: 'readonly', TextDecoder: 'readonly',
       },
     },
     plugins: { 'react-hooks': reactHooks, react },

@@ -11,7 +11,7 @@
     "prebuild": "npx expo prebuild --clean",
     "test": "node --test",
     "test:coverage": "c8 node --test",
-    "lint": "eslint App.js src"
+    "lint": "eslint App.js src plugins tests"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

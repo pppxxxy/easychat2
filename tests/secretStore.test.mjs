@@ -46,7 +46,6 @@ const {
   isSecretRef,
   protectSecrets,
   hydrateSecrets,
-  isSecretStoreAvailable,
   __resetSecretStoreForTests,
 } = mod;
 

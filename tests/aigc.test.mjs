@@ -23,7 +23,6 @@ const CHARACTER_SCREEN = readSource(['src', 'CharacterScreen.js']);
 const CARD_EXPORTER = readSource(['src', 'cardExporter.js']);
 const MOMENTS_VIEW = readSource(['src', 'MomentsView.js']);
 const IMAGE_GEN = readSource(['src', 'ImageGenScreen.js']);
-const STORAGE = readSource(['src', 'storage.js']);
 const STORAGE_SETTINGS = readSource(['src', 'storage', 'settings.js']);
 const README = readSource(['README.md']);
 const DISCLAIMER = readSource(['src', 'disclaimer.js']);
