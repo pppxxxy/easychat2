@@ -96,3 +96,26 @@ export async function consumeInitialRole() {
   if (!native) return null;
   return native.consumeInitialRole();
 }
+
+// 取出待写队列（原生生成但尚未写入会话的主动消息）。不清空，落库后需 ackPendingMessages。
+export async function consumePendingMessages() {
+  if (!native || typeof native.consumePendingMessages !== 'function') return [];
+  try {
+    const list = await native.consumePendingMessages();
+    return Array.isArray(list) ? list : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+// 已成功落库的消息按 id 从待写队列移除（原生侧持久化，App 重启前不丢）。
+export async function ackPendingMessages(ids) {
+  if (!native || typeof native.ackPendingMessages !== 'function') return false;
+  const list = (Array.isArray(ids) ? ids : []).map(item => String(item || '')).filter(Boolean);
+  if (list.length === 0) return true;
+  try {
+    return await native.ackPendingMessages(list);
+  } catch (error) {
+    return false;
+  }
+}

@@ -197,6 +197,7 @@ export default function ChatScreen() {
     updateCharacter,
     refreshSessions,
     switchSession,
+    messageRefreshTick,
     pendingTarget,
     consumePendingTarget,
   } = useApp();
@@ -907,7 +908,7 @@ export default function ChatScreen() {
       cancelled = true;
       sessionVersionRef.current += 1;
     };
-  }, [activeSessionId, loaded, sessionOwnerMissing]);
+  }, [activeSessionId, loaded, sessionOwnerMissing, messageRefreshTick]);
 
   // 回填输入草稿。独立于会话加载 effect：chatOptions 是异步读出的，冷启动时
   // 往往晚于会话就绪；若挤在加载 effect 里，keepDraft 还没读出来就会回填失败。

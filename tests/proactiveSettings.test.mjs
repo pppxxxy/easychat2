@@ -207,3 +207,45 @@ test('互动面板：折叠选择 API/模型/角色 + 权限状态勾叉问号',
   assert.ok(panel.includes("'help-circle'"));
   assert.ok(panel.includes('permissionRow'));
 });
+
+test('消息类型：槽可保存 messageType 与 customPrompt，非法值回退默认', async () => {
+  const saved = await saveProactiveSettings({
+    slots: [
+      { roleId: 'role-a', hour: 8, minute: 0, messageType: 'CARE' },
+      { roleId: 'role-b', hour: 9, minute: 0, messageType: 'CUSTOM', customPrompt: '问我吃了吗' },
+      { roleId: 'role-c', hour: 10, minute: 0, messageType: 'BOGUS' },
+    ],
+  });
+  assert.equal(saved.slots[0].messageType, 'CARE');
+  assert.equal(saved.slots[1].messageType, 'CUSTOM');
+  assert.equal(saved.slots[1].customPrompt, '问我吃了吗');
+  // 非法类型回退默认，避免原生 MessageType.valueOf 抛错
+  assert.equal(saved.slots[2].messageType, 'DEFAULT');
+  const loaded = await getProactiveSettings();
+  assert.equal(loaded.slots[1].messageType, 'CUSTOM');
+});
+
+test('互动面板：提供默认/关心心情/问好/自定义四种消息类型与自定义输入框', () => {
+  const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  assert.ok(panel.includes('MESSAGE_TYPE_OPTIONS'));
+  for (const label of ['默认', '关心心情', '问好', '自定义']) {
+    assert.ok(panel.includes(label), `缺少消息类型选项 ${label}`);
+  }
+  // 选「自定义」时才出现提示词输入框
+  assert.ok(panel.includes("slot.messageType === 'CUSTOM'"));
+  assert.ok(panel.includes('customPrompt'));
+});
+
+test('主动消息落库：存储导出 appendProactiveMessage，桥接消费并 ack', () => {
+  assert.equal(typeof runtimeModule.exports.appendProactiveMessage, 'function');
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  assert.ok(app.includes('consumePendingMessages'));
+  assert.ok(app.includes('ingestProactiveMessages'));
+  assert.ok(app.includes('ackPendingMessages'));
+  // 跳转前先落库，保证点通知进入即可见
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  const ingestIndex = bridge.indexOf('await ingestPending()');
+  const switchIndex = bridge.indexOf('await switchCharacter(roleId)');
+  assert.ok(ingestIndex > 0 && switchIndex > 0, '缺少落库或切换调用');
+  assert.ok(ingestIndex < switchIndex, '必须先落库再切换角色');
+});

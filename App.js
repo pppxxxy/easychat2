@@ -27,8 +27,10 @@ import {
 import { AppProvider, useApp } from './src/context/AppContext.js';
 import { runDiaryForNewDay } from './src/diary/runDiary.js';
 import {
+  ackPendingMessages,
   addOpenRoleListener,
   consumeInitialRole,
+  consumePendingMessages,
   isProactiveMessageAvailable,
 } from './src/proactiveMessage.js';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
@@ -257,8 +259,19 @@ function DiaryStartup() {
 // 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
 // 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
 function ProactiveMessageBridge({ navigationReady }) {
-  const { loaded, switchCharacter } = useApp();
+  const { loaded, switchCharacter, ingestProactiveMessages } = useApp();
   const pendingRoleRef = useRef(null);
+
+  // 消费原生待写队列：把到点时生成、但尚未写入会话的主动消息落库。
+  // 写入成功的按 id ack 删除；失败或角色已删除的保留/跳过，下次启动再试。
+  const ingestPending = useCallback(async () => {
+    if (!loaded) return;
+    const messages = await consumePendingMessages();
+    if (messages.length === 0) return;
+    const { written, skipped } = await ingestProactiveMessages(messages);
+    const acked = [...written, ...skipped];
+    if (acked.length > 0) await ackPendingMessages(acked);
+  }, [loaded, ingestProactiveMessages]);
 
   const openRole = useCallback(async roleId => {
     if (!roleId) return;
@@ -272,12 +285,14 @@ function ProactiveMessageBridge({ navigationReady }) {
       return;
     }
     try {
+      // 跳转前先落库，保证聊天页打开就能看到刚落库的主动消息。
+      await ingestPending();
       await switchCharacter(roleId);
       navigationRef.navigate('聊天');
     } catch (error) {
       Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
     }
-  }, [loaded, navigationReady, switchCharacter]);
+  }, [loaded, navigationReady, switchCharacter, ingestPending]);
 
   // 加载与导航都就绪后再消费排队中的角色。
   useEffect(() => {
@@ -292,6 +307,8 @@ function ProactiveMessageBridge({ navigationReady }) {
     if (loaded) {
       (async () => {
         try {
+          // 启动即消费一轮：App 未打开期间到点的消息在这里补写进会话。
+          await ingestPending();
           const roleId = await consumeInitialRole();
           if (roleId) await openRole(roleId);
         } catch (error) {
@@ -301,7 +318,7 @@ function ProactiveMessageBridge({ navigationReady }) {
     }
     const unsubscribe = addOpenRoleListener(openRole);
     return () => unsubscribe();
-  }, [loaded, openRole]);
+  }, [loaded, openRole, ingestPending]);
 
   return null;
 }

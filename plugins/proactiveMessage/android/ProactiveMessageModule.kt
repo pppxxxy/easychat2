@@ -114,6 +114,47 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
         promise.resolve(roleId)
     }
 
+    /**
+     * 取出待写队列（原生生成但尚未写入会话的主动消息），**不清空**，供 JS 落库。
+     * 返回 [{ id, slotId, roleId, roleName, text, createdAt }]。
+     * 落库成功由 JS 调 ackPendingMessages(ids) 删除；写入失败则下次启动重试。
+     * 消息 id 幂等，重复返回不会产生重复会话消息。
+     */
+    @ReactMethod
+    fun consumePendingMessages(promise: Promise) {
+        try {
+            val store = MessageStore(reactContext)
+            val pending = store.loadPendingMessages()
+            val array = Arguments.createArray()
+            pending.forEach { message ->
+                val map = Arguments.createMap()
+                map.putString("id", message.id)
+                map.putString("slotId", message.slotId)
+                map.putString("roleId", message.roleId)
+                map.putString("roleName", message.roleName)
+                map.putString("text", message.text)
+                map.putDouble("createdAt", message.createdAt.toDouble())
+                array.pushMap(map)
+            }
+            promise.resolve(array)
+        } catch (e: Exception) {
+            // 读取失败返回空数组，不影响主流程
+            promise.resolve(Arguments.createArray())
+        }
+    }
+
+    /** 已成功落库的消息按 id 从待写队列移除。 */
+    @ReactMethod
+    fun ackPendingMessages(ids: com.facebook.react.bridge.ReadableArray, promise: Promise) {
+        try {
+            val list = (0 until ids.size()).mapNotNull { ids.getString(it) }
+            MessageStore(reactContext).removePendingMessages(list)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
     @ReactMethod
     fun schedule(config: ReadableMap, promise: Promise) {
         try {
@@ -126,7 +167,14 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                 mode = ScheduleMode.valueOf(config.getString("mode") ?: "WORK"),
                 enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else true,
                 revision = config.getString("revision") ?: java.util.UUID.randomUUID().toString(),
-                slotId = config.getString("slotId") ?: ""
+                slotId = config.getString("slotId") ?: "",
+                messageType = runCatching {
+                    MessageType.valueOf(
+                        if (config.hasKey("messageType")) config.getString("messageType") ?: "DEFAULT"
+                        else "DEFAULT"
+                    )
+                }.getOrDefault(MessageType.DEFAULT),
+                customPrompt = if (config.hasKey("customPrompt")) config.getString("customPrompt") ?: "" else ""
             )
             val store = MessageStore(reactContext)
             store.upsertSchedule(schedule)

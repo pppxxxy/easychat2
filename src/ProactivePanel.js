@@ -87,6 +87,14 @@ function CollapsibleSelect({ label, value, options, onSelect, emptyHint, styles,
   );
 }
 
+// 主动消息类型：与原生 MessageType 对齐。问好的早/中/晚由原生按触发时刻自动选。
+const MESSAGE_TYPE_OPTIONS = [
+  { value: 'DEFAULT', label: '默认' },
+  { value: 'CARE', label: '关心心情' },
+  { value: 'GREETING', label: '问好' },
+  { value: 'CUSTOM', label: '自定义' },
+];
+
 function TimeField({ value, onCommit, theme, styles }) {
   const [text, setText] = useState(String(value).padStart(2, '0'));
   useEffect(() => {
@@ -200,6 +208,8 @@ export default function ProactivePanel({ embedded = false }) {
         apiConfigId: '',
         model: '',
         revision: '',
+        messageType: 'DEFAULT',
+        customPrompt: '',
       },
     ]);
   }, [characters, activeRoleId]);
@@ -423,6 +433,34 @@ export default function ProactivePanel({ embedded = false }) {
               </TouchableOpacity>
             ))}
           </View>
+          <Text style={styles.fieldLabel}>消息类型</Text>
+          <View style={styles.chipWrap}>
+            {MESSAGE_TYPE_OPTIONS.map(option => {
+              const active = (slot.messageType || 'DEFAULT') === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => updateSlot(slot.slotId, { messageType: option.value })}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {slot.messageType === 'CUSTOM' ? (
+            <TextInput
+              style={styles.promptInput}
+              value={slot.customPrompt || ''}
+              onChangeText={text => updateSlot(slot.slotId, { customPrompt: text })}
+              placeholder="自定义提示词，例如：用略带调侃的语气问我晚饭吃了没"
+              placeholderTextColor={theme.colors.textFaint}
+              multiline
+            />
+          ) : null}
         </View>
       ))}
 
@@ -500,6 +538,20 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   sectionTitle: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', marginTop: 20 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
+  fieldLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginTop: 12 },
+  promptInput: {
+    marginTop: 8,
+    minHeight: 64,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    backgroundColor: theme.colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlignVertical: 'top',
+  },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 7,

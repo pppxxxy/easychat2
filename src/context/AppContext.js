@@ -23,6 +23,7 @@ import {
   setActiveSessionId,
   saveSessions,
   startNewSession,
+  appendProactiveMessage,
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
   deleteSessions as deleteSessionsStorage,
@@ -53,6 +54,8 @@ export function AppProvider({ children }) {
   const [activeSessionId, setActiveSessionIdState] = useState('');
   const [pendingTarget, setPendingTargetState] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  // 主动消息落库后自增，通知聊天页重新读取当前会话消息（同会话追加时 activeSessionId 不变）。
+  const [messageRefreshTick, setMessageRefreshTick] = useState(0);
   const charactersRef = useRef([DEFAULT_CHARACTER]);
   const activeIdRef = useRef(DEFAULT_CHARACTER.id);
   const sessionsRef = useRef([]);
@@ -387,6 +390,44 @@ export function AppProvider({ children }) {
     });
   }, [applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
 
+  // 主动消息落库：把原生待写队列里的消息逐条写入各自角色的单聊会话，再刷新列表。
+  // 返回成功写入的消息 id，供调用方 ack（删除原生队列项）。角色已删除的条目跳过且视为已处理，
+  // 避免队列卡死。
+  const ingestProactiveMessages = useCallback(async messages => {
+    const list = Array.isArray(messages) ? messages : [];
+    if (list.length === 0 || !loadedRef.current) return { written: [], skipped: [] };
+    const written = [];
+    const skipped = [];
+    for (const message of list) {
+      const roleId = String(message && message.roleId || '');
+      const id = String(message && message.id || '');
+      if (!roleId || !id) {
+        if (id) skipped.push(id);
+        continue;
+      }
+      if (!charactersRef.current.some(item => item.id === roleId)) {
+        // 角色已被删除：丢弃该条，不阻断其余消息
+        skipped.push(id);
+        continue;
+      }
+      try {
+        await appendProactiveMessage(roleId, {
+          id,
+          text: message.text,
+          createdAt: message.createdAt,
+        });
+        written.push(id);
+      } catch (error) {
+        // 写入失败：不加入 written，下次启动消费者会重试
+      }
+    }
+    if (written.length > 0) {
+      await refreshSessionsDirect().catch(() => {});
+      setMessageRefreshTick(tick => tick + 1);
+    }
+    return { written, skipped };
+  }, [refreshSessionsDirect]);
+
   const switchSession = useCallback(async id => {
     if (!loadedRef.current) {
       throw new Error('会话尚未加载完成');
@@ -544,6 +585,8 @@ export function AppProvider({ children }) {
       deleteSessions,
       refreshSessions,
       ensureCharacterSession,
+      ingestProactiveMessages,
+      messageRefreshTick,
       pendingTarget,
       setPendingTarget,
       consumePendingTarget,
@@ -568,6 +611,8 @@ export function AppProvider({ children }) {
       deleteSessions,
       refreshSessions,
       ensureCharacterSession,
+      ingestProactiveMessages,
+      messageRefreshTick,
       pendingTarget,
       setPendingTarget,
       consumePendingTarget,

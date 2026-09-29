@@ -15,6 +15,7 @@ import {
   readJsonStatus,
 } from './io.js';
 import { markMediaWrite } from '../mediaProtection.js';
+import { mergeProactiveMessage } from '../proactiveInbox.js';
 import {
   collectChatImageFiles,
   imageUrisFromMessages,
@@ -131,6 +132,45 @@ export function saveMessagesBySession(sessionId, messages, characterId = '', pro
     characterId,
     protectedUris
   ));
+}
+
+// 把一条主动消息写入角色的单聊会话。目标会话不存在时先建立，避免落到空会话。
+// 幂等：消息 id 由原生按 slotId+日期派生，重复消费不会产生重复消息。
+// 返回目标 sessionId；字符不存在等异常向上抛出，由调用方决定是否 ack。
+export function appendProactiveMessage(characterId, incoming) {
+  const ownerId = String(characterId || '');
+  const source = incoming && typeof incoming === 'object' ? incoming : {};
+  const messageId = String(source.id || '');
+  const text = String(source.text || '').trim();
+  return enqueueSessionMutation(async () => {
+    if (!ownerId || !messageId || !text) return '';
+    const sessionsStatus = await readSessionsStatus();
+    if (sessionsStatus.status === 'corrupt') {
+      throw new Error('会话列表读取失败，请稍后重试');
+    }
+    const sessions = sessionsStatus.sessions;
+    let target = sessions.find(
+      session => session.type !== 'group' && String(session.characterId || '') === ownerId
+    );
+    if (!target) {
+      target = createEmptySession(ownerId, sessions);
+      await saveSessionsInternal(sortSessions([...sessions, target]));
+    }
+    const status = await getMessagesBySessionStatus(target.id);
+    if (status.status === 'corrupt') {
+      throw new Error('聊天记录读取失败，请稍后重试');
+    }
+    const timestamp = Number(source.createdAt) || Date.now();
+    const next = mergeProactiveMessage(status.messages, {
+      id: messageId,
+      text,
+      timestamp,
+    });
+    // 幂等命中（无新增）时不必写盘
+    if (next.length === status.messages.length) return target.id;
+    await saveMessagesBySessionInternal(target.id, next, ownerId);
+    return target.id;
+  });
 }
 
 // ---------- 记忆摘要 ----------

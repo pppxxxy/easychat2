@@ -38,6 +38,9 @@ enum class ScheduleMode { WORK, EXACT }
  * 同一角色可以配置多个槽（早 8:00、晚 21:00…），因此唯一标识用 slotId，
  * 而不是 roleId —— 否则多个槽会在 WorkManager/闹钟/去重记录上互相覆盖。
  */
+/** 主动消息的类型，决定生成提示词的取向。问好按时间段自动选早/中/晚。 */
+enum class MessageType { DEFAULT, CARE, GREETING, CUSTOM }
+
 data class RoleSchedule(
     val roleId: String,
     val roleName: String,
@@ -49,7 +52,10 @@ data class RoleSchedule(
     // 配置每次变更重新生成；队列里的旧任务凭 revision 不匹配自动放弃
     val revision: String = UUID.randomUUID().toString(),
     // 时间槽标识，由 JS 生成并在排定/取消时保持一致
-    val slotId: String = ""
+    val slotId: String = "",
+    // 消息类型与自定义提示词
+    val messageType: MessageType = MessageType.DEFAULT,
+    val customPrompt: String = ""
 ) {
     init {
         require(roleId.isNotBlank())
@@ -71,6 +77,8 @@ data class RoleSchedule(
         .put("enabled", enabled)
         .put("revision", revision)
         .put("slotId", resolvedSlotId)
+        .put("messageType", messageType.name)
+        .put("customPrompt", customPrompt)
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -82,7 +90,41 @@ data class RoleSchedule(
             mode = ScheduleMode.valueOf(json.optString("mode", "WORK")),
             enabled = json.optBoolean("enabled", true),
             revision = json.optString("revision", UUID.randomUUID().toString()),
-            slotId = json.optString("slotId", "")
+            slotId = json.optString("slotId", ""),
+            // 老配置没有 messageType：解析失败一律回退默认
+            messageType = runCatching {
+                MessageType.valueOf(json.optString("messageType", "DEFAULT"))
+            }.getOrDefault(MessageType.DEFAULT),
+            customPrompt = json.optString("customPrompt", "")
+        )
+    }
+}
+
+/** 待写队列中的一条主动消息：原生生成后暂存，JS 打开应用/点通知时消费落库。 */
+data class PendingMessage(
+    val id: String,
+    val slotId: String,
+    val roleId: String,
+    val roleName: String,
+    val text: String,
+    val createdAt: Long
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("slotId", slotId)
+        .put("roleId", roleId)
+        .put("roleName", roleName)
+        .put("text", text)
+        .put("createdAt", createdAt)
+
+    companion object {
+        fun fromJson(json: JSONObject): PendingMessage = PendingMessage(
+            id = json.getString("id"),
+            slotId = json.optString("slotId", ""),
+            roleId = json.getString("roleId"),
+            roleName = json.optString("roleName", "角色"),
+            text = json.optString("text", ""),
+            createdAt = json.optLong("createdAt", 0L)
         )
     }
 }
@@ -191,6 +233,49 @@ class MessageStore(context: Context) {
         prefs.edit().putString("$KEY_LAST_SENT$slotId", today()).apply()
     }
 
+    // ---------- 待写队列（主动消息落库） ----------
+    // 消息生成后先入队；JS 消费写入会话后按 id 移除。App 没打开也不丢，下次启动补写。
+
+    fun appendPendingMessage(message: PendingMessage) {
+        val list = loadPendingMessages()
+            // 同 id 幂等：同一槽同一天重复生成时保留最早一条
+            .filterNot { it.id == message.id }
+            .plus(message)
+        // 超期淘汰：生成超过 7 天的消息不再有意义
+        val cutoff = System.currentTimeMillis() - MAX_PENDING_AGE_MS
+        val fresh = list.filter { it.createdAt >= cutoff }
+        // 上限淘汰：超出按 createdAt 淘汰最旧
+        val bounded = if (fresh.size > MAX_PENDING) {
+            fresh.sortedBy { it.createdAt }.takeLast(MAX_PENDING)
+        } else fresh
+        prefs.edit().putString(KEY_PENDING_MESSAGES, encodePending(bounded)).apply()
+    }
+
+    fun loadPendingMessages(): List<PendingMessage> {
+        val raw = prefs.getString(KEY_PENDING_MESSAGES, null) ?: return emptyList()
+        return try {
+            val json = JSONArray(raw)
+            (0 until json.length()).map { PendingMessage.fromJson(json.getJSONObject(it)) }
+        } catch (e: Exception) {
+            Log.e("MessageStore", "解析待写队列失败", e)
+            emptyList()
+        }
+    }
+
+    /** 按 id 移除已成功落库的消息，避免重复写入。 */
+    fun removePendingMessages(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val idSet = ids.toSet()
+        val remaining = loadPendingMessages().filterNot { it.id in idSet }
+        prefs.edit().putString(KEY_PENDING_MESSAGES, encodePending(remaining)).apply()
+    }
+
+    private fun encodePending(list: List<PendingMessage>): String {
+        val json = JSONArray()
+        list.forEach { json.put(it.toJson()) }
+        return json.toString()
+    }
+
     private fun today(): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().time)
 
@@ -201,6 +286,10 @@ class MessageStore(context: Context) {
         private const val KEY_MODEL = "api_model"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_LAST_SENT = "last_sent_"
+        private const val KEY_PENDING_MESSAGES = "pending_messages"
+        // 队列上限与超期，避免长期不打开应用导致无界增长
+        private const val MAX_PENDING = 100
+        private const val MAX_PENDING_AGE_MS = 7L * 24L * 60L * 60L * 1000L
     }
 }
 
@@ -209,7 +298,7 @@ object FallbackMessages {
     private val morning = listOf(
         "早上好！新的一天，有什么想和我聊聊的吗？",
         "早安～记得吃早餐哦，今天也在等你的消息。",
-        "醒了吗？我在呢，随时来找我聊天。"
+        "醒了吗？我在呢，随时来找你聊天。"
     )
     private val afternoon = listOf(
         "下午好，工作学习还顺利吗？",
@@ -221,13 +310,23 @@ object FallbackMessages {
         "忙碌了一天，和我分享一下今天吧。",
         "夜晚是聊天的好时光，有什么心事吗？"
     )
+    // 关心心情：与问候区分，聚焦对方状态
+    private val care = listOf(
+        "最近还好吗？有点惦记你的心情。",
+        "今天累不累？要是心情不好，我陪你聊聊。",
+        "忽然想起你，记得照顾好自己呀。"
+    )
 
-    fun random(): String {
+    fun random(messageType: MessageType = MessageType.DEFAULT): String {
+        if (messageType == MessageType.CARE) return care.random()
         val list = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
             in 5..11 -> morning
             in 12..17 -> afternoon
             else -> evening
         }
+        return list.random()
+    }
+}
         return list.random()
     }
 }
@@ -250,11 +349,7 @@ class AiApiClient {
             return@withContext null
         }
         try {
-            val systemPrompt = """
-                你将扮演以下角色：${schedule.persona}
-                请主动给一段时间没说话的用户发一条简短、自然的问候消息。
-                要求：不超过 80 字，不要输出 JSON 或解释，直接输出消息正文。
-            """.trimIndent()
+            val systemPrompt = buildSystemPrompt(schedule)
 
             val messages = JSONArray()
                 .put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -298,6 +393,34 @@ class AiApiClient {
 
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+        /** 按消息类型组装系统提示词；问好按当前时段选早/中/晚。 */
+        fun buildSystemPrompt(schedule: RoleSchedule, nowHour: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): String {
+            val head = "你将扮演以下角色：${schedule.persona}"
+            val tail = "要求：不超过 80 字，不要输出 JSON 或解释，直接输出消息正文。"
+            val task = when (schedule.messageType) {
+                MessageType.CARE ->
+                    "请主动给一段时间没说话的用户发一条关心其心情与状态的消息：先体贴地询问对方此刻心情如何、累不累，语气温暖真诚。"
+                MessageType.GREETING -> {
+                    val period = when (nowHour) {
+                        in 5..11 -> "早上"
+                        in 12..17 -> "中午"
+                        in 18..22 -> "晚上"
+                        else -> "夜里"
+                    }
+                    "请主动向用户发一条${period}的问好消息，自然亲切，可以带一点当天的问候。"
+                }
+                MessageType.CUSTOM ->
+                    if (schedule.customPrompt.isBlank()) {
+                        "请主动给一段时间没说话的用户发一条简短、自然的问候消息。"
+                    } else {
+                        schedule.customPrompt
+                    }
+                else ->
+                    "请主动给一段时间没说话的用户发一条简短、自然的问候消息。"
+            }
+            return "$head\n$task\n$tail"
+        }
     }
 }
 
@@ -390,12 +513,26 @@ object ProactiveMessageSender {
 
         val generated = store.loadApiSettings()
             ?.let { AiApiClient().generateProactiveMessage(it, schedule) }
-        val text = generated ?: FallbackMessages.random().also {
+        val text = generated ?: FallbackMessages.random(schedule.messageType).also {
             Log.i(TAG, "AI 生成失败，使用本地降级文案: slot=$slotId")
         }
 
         // 网络请求可能耗时较久，发送前复检
         if (MessageClock.isExpired(schedule, System.currentTimeMillis()) || store.isSlotSentToday(slotId)) return
+
+        // 先落待写队列：通知权限被拒也不影响消息存在性，App 下次打开补写进会话。
+        // id 由 slotId + 日期派生，保证同一槽同一天幂等。
+        val pendingId = "${schedule.resolvedSlotId}-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().time)}"
+        store.appendPendingMessage(
+            PendingMessage(
+                id = pendingId,
+                slotId = schedule.resolvedSlotId,
+                roleId = schedule.roleId,
+                roleName = schedule.roleName,
+                text = text,
+                createdAt = System.currentTimeMillis()
+            )
+        )
 
         Notifier.sendRoleMessage(
             context, slotId, schedule.roleId, schedule.roleName, text

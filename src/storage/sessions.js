@@ -29,6 +29,7 @@ export {
   getMessagesBySession,
   getMessagesBySessionStatus,
   saveMessagesBySession,
+  appendProactiveMessage,
   getSessionSummaries,
   getSessionSummariesStatus,
   setSessionSummarizedUpTo,

@@ -234,6 +234,50 @@ test('whenSessionMutationsSettled 会等待会话写入排空', async () => {
   assert.deepEqual(order, ['save', 'settled']);
 });
 
+test('appendProactiveMessage：无会话时先建会话再写入，且消息出现在该会话', async () => {
+  const storage = loadStorage();
+  const sessionId = await storage.appendProactiveMessage('role-x', {
+    id: 'proactive-1',
+    text: '早上好呀',
+    createdAt: 1234,
+  });
+  assert.ok(sessionId, '应返回目标会话 id');
+  const sessions = await storage.getSessions();
+  const target = sessions.find(item => item.id === sessionId);
+  assert.equal(target.characterId, 'role-x');
+  const messages = await storage.getMessagesBySession(sessionId);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].role, 'assistant');
+  assert.equal(messages[0].text, '早上好呀');
+  assert.equal(messages[0].proactive, true);
+});
+
+test('appendProactiveMessage：同 id 幂等，重复写入不产生重复消息', async () => {
+  const storage = loadStorage();
+  const sessionId = await storage.appendProactiveMessage('role-y', {
+    id: 'proactive-dup',
+    text: '在吗',
+  });
+  const again = await storage.appendProactiveMessage('role-y', {
+    id: 'proactive-dup',
+    text: '在吗',
+  });
+  assert.equal(again, sessionId, '应复用同一会话');
+  const messages = await storage.getMessagesBySession(sessionId);
+  assert.equal(messages.length, 1, '同 id 不应重复');
+});
+
+test('appendProactiveMessage：复用该角色已有单聊会话，不新建', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([
+    { id: 'existing-single', type: 'single', characterId: 'role-z', updatedAt: 10 },
+  ]));
+  await storage.appendProactiveMessage('role-z', { id: 'p-1', text: '嘿' });
+  const sessions = await storage.getSessions();
+  assert.equal(sessions.length, 1, '不应新建会话');
+  assert.equal(sessions[0].id, 'existing-single');
+});
+
 test('空白人设读取时不覆写为默认值', async () => {
   // UI 保存角色编辑后人设可能为空串；normalizeCharacter 扩展源字段
   // 后会把 '' 覆盖到默认卡文案上，存储层不能再覆写回去。

@@ -180,6 +180,7 @@ export {
   resetSessionSummaries,
   restoreSession,
   saveMessagesBySession,
+  appendProactiveMessage,
   saveSessionDraft,
   saveSessions,
   searchMessages,

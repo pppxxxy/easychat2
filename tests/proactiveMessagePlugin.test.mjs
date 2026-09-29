@@ -152,3 +152,47 @@ test('pendingRoleId/listenerCount 跨线程访问加锁，且启动 intent 有�
   assert.ok(captures.length >= 3, `captureLaunchIntent 调用点过少：${captures.length}`);
   assert.ok(module.includes('intent.removeExtra(Notifier.EXTRA_ROLE_ID)'), '抓到后应清 extra 防重复');
 });
+
+test('主动消息落库：发送前写待写队列，通知被拒不阻断', () => {
+  const source = readAllKotlin();
+  // Sender 必须在发通知前 appendPendingMessage（消息存在性不依赖通知权限）
+  assert.ok(source.includes('data class PendingMessage'), '缺少 PendingMessage 结构');
+  assert.ok(source.includes('fun appendPendingMessage'), '缺少入队方法');
+  const appendIndex = source.indexOf('appendPendingMessage(');
+  const notifyIndex = source.indexOf('Notifier.sendRoleMessage(');
+  assert.ok(appendIndex > 0 && notifyIndex > 0, '缺少入队或发通知调用');
+  assert.ok(appendIndex < notifyIndex, '必须先落队再发通知');
+  // 队列有界且有超期淘汰
+  assert.ok(source.includes('MAX_PENDING'));
+  assert.ok(source.includes('MAX_PENDING_AGE_MS'));
+  // 幂等 id：slotId + 日期
+  assert.ok(source.includes('resolvedSlotId') && source.includes('yyyy-MM-dd'));
+});
+
+test('主动消息类型：原生 messageType/customPrompt 与按时段问好', () => {
+  const source = readAllKotlin();
+  assert.ok(source.includes('enum class MessageType'), '缺少 MessageType 枚举');
+  for (const type of ['DEFAULT', 'CARE', 'GREETING', 'CUSTOM']) {
+    assert.ok(source.includes(type), `缺少消息类型 ${type}`);
+  }
+  // 问好按触发时段选早/中/晚
+  assert.ok(source.includes('in 5..11') || source.includes('5..11'), '缺少早间时段');
+  assert.ok(source.includes('customPrompt'), '缺少自定义提示词字段');
+  const module = readFileSync(
+    path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),
+    'utf8'
+  );
+  assert.ok(module.includes('MessageType.valueOf'), '模块未解析 messageType');
+});
+
+test('原生 JS 桥：取出待写队列并提供 ack 删除', () => {
+  const module = readFileSync(
+    path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),
+    'utf8'
+  );
+  assert.ok(module.includes('fun consumePendingMessages(promise: Promise)'));
+  assert.ok(module.includes('fun ackPendingMessages('));
+  // consume 不清空，落库成功才 ack；否则写失败无法重试
+  assert.ok(!/consumePendingMessages[\s\S]{0,800}removePendingMessages/.test(module),
+    'consumePendingMessages 不应直接清空队列');
+});

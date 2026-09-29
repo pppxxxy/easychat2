@@ -42,6 +42,9 @@ export async function saveMomentsSettings(settings) {
 // 这里只负责 JS 侧的展示与编辑数据；原生侧另存一份供后台发送使用。
 export const PROACTIVE_MODES = ['WORK', 'EXACT'];
 
+// 主动消息类型：默认 / 关心心情 / 问好（按时段自动选早/中/晚）/ 自定义提示词。
+export const PROACTIVE_MESSAGE_TYPES = ['DEFAULT', 'CARE', 'GREETING', 'CUSTOM'];
+
 export function makeProactiveSlotId() {
   return `slot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -65,6 +68,10 @@ function normalizeProactiveSlot(raw, index = 0) {
     apiConfigId: String(source.apiConfigId || ''),
     model: String(source.model || ''),
     revision: String(source.revision || ''),
+    messageType: PROACTIVE_MESSAGE_TYPES.includes(source.messageType)
+      ? source.messageType
+      : 'DEFAULT',
+    customPrompt: String(source.customPrompt || ''),
   };
 }
 
