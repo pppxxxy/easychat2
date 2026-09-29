@@ -55,3 +55,15 @@ Entries discovered by the Agent during task execution should follow this format:
   - 按逻辑问题、未命名变量或其他调用错误、修复回归、大角色卡运行与渲染、其他 Bug 五类逐文件逐行检查。
   - 检查结果必须有代码证据或可重复验证，确认后补充到 `.monkeycode/docs/审查待办.md`。
   - 按依赖关系逐项修复，每次修复补充对应回归测试，完成全部门禁后汇报并等待用户检查。
+
+[User Instruction Summary]
+- Date: 2026-09-29
+- Context: 平台搜索积分将耗尽，需增设备用联网搜索能力
+- Instructions:
+  - 备用联网搜索使用 AnySearch，配置在 opencode 全局配置 `~/.config/opencode/opencode.json` 的 `mcp.anysearch`（remote / Streamable HTTP，`https://api.anysearch.com/mcp`），真实 Key 只存该全局配置，不写入项目仓库或文档。
+  - AnySearch 也可直接用 REST：`POST https://api.anysearch.com/v1/search`，`Authorization: Bearer <key>`，Body `{ query, max_results, zone, language, domain? }`；另有 `/v1/extract`、`/v1/sub-domains`；无 Key 时匿名有免费额度。
+  - **搜索优先用 AnySearch**：平台自带搜索消耗积分，AnySearch 免费；需要联网查资料时默认走它，省积分。
+  - 能力边界（2026-09-29 实测）：`/v1/search` 中英文/垂类（domain，如 `code`/`finance`）均可用，但 snippet/content 很短（约 160 字），要完整正文需再调 `/v1/extract`。
+  - `/v1/extract` 只能抓静态页与原始文件（GitHub raw / 静态博客有效，实测 llama.rn README 抓到 32KB 全文）；对 JS 渲染的 SPA 文档站会返回 `code:-1 / extract_failed: Unable to extract content from the URL`（如 `docs.expo.dev`）。
+  - 遇到抓不动的 SPA 文档站：退回用 search snippet 佐证，或换 GitHub / raw / 镜像源，不要反复重试 extract。
+  - 新增或修改 opencode 配置后需重启 opencode 才生效（配置不热重载）。
