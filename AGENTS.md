@@ -53,6 +53,8 @@ npm run test:coverage # tests + c8 coverage gate (60% floor)
 - `src/api.js` — `sendChatMessage`, URL normalization, streaming via `XMLHttpRequest` SSE parsing (`onChunk`), 30s idle timeout.
 - `src/storage.js` — 对外 barrel（既有导入方零改动）。持久化已按领域拆到 `src/storage/*.js`：`io.js`（AsyncStorage/FileSystem I/O 原语 + 含密钥读写包装 + 损坏备份 + SQLite 大值读取 + `utf8ByteLength`）、`characters.js`、`sessions.js`（会话/消息/摘要/搜索/迁移 + 聊天图片清理 + `reconcileVectorIndexes`）、`settings.js`、`apiConfigs.js`、`personas.js`、`globalPresets.js`、`vector.js`、`moments.js`、`diary.js`、`worldMap.js`、`stickers.js`、`affinity.js`、`cardForge.js`。`storage.js` 自身仅剩跨域编排 `saveCharacterState` 与头像/表情/孤儿图片清理。注意：`tests/characterStorage.test.mjs`、`tests/proactiveSettings.test.mjs` 用 Babel 把 `storage.js` 转 CJS 后 `Module._compile`，并靠「`Module._load` 拦截 `src/storage/*` 按需转 CJS」加载子模块（否则 `require(esm)` 绕过打桩）；新增子模块自动生效，无需逐个登记。详见 `.monkeycode/specs/2026-09-28-storage-split/`。
 - `src/secretStore.js` — 把配置里的密钥抽到 `expo-secure-store`、AsyncStorage 只留 `secure:v1:<id>` 引用（`setJsonWithSecrets` / `readJsonWithSecrets`）。
+- `src/stickerDirectives.js` — 纯函数：解析助手回复里的 `[[表情包:名称]]`（`extractStickerDirectives` 按用户表情包白名单过滤并剥离标记、`resolveStickerNames` 归一名称）。角色发表情包依赖它，白名单外名称一律丢弃。
+- `src/moments/commenters.js` / `src/moments/runUserMomentComments.js` — 用户发动态的评论选人纯函数（`countCharacterMessageTotals`/`selectCommenters`/`pickRandom`，「最活跃保底 + 随机」，保底并列可超 7）与串行评论执行器；与同住的 `runHousemateReactions` 并存。
 - `src/diagnostics.js` — 本地脱敏异常日志（存储损坏 / 接口失败 / WebView 异常 / 未捕获 / 启动），不联网上报；查看入口在「设置 → 关于 → 诊断日志」。
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.

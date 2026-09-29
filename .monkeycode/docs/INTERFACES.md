@@ -43,6 +43,7 @@
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
 - 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
 - 助手回复完成后本地评估好感与轮次（无额外网络请求），好感累计到 ±30（`AFFINITY_HIGH_THRESHOLD`/`AFFINITY_LOW_THRESHOLD`）、50/100 轮或特殊大事且未触发过时生成一条动态；动态保存发起请求时的角色名称与头像快照，角色改名或删除后历史动态身份保持不变；开关关闭时不生成
+- 动态面板支持用户自己发布动态：写入 `authorType:'user'`（`characterId` 为空）的动态后，后台串行触发「最活跃保底 + 随机」角色评论（`moments/runUserMomentComments.js`）——按角色消息总量取活跃度最高的角色保底（并列全部纳入，可超过 7），不足 7 时从其余角色随机补足；用户动态不走同住的自动反应，角色动态仍走同住机制
 - 助手消息保存可选 `inlineImage` 字段；并持久化：开启时助手回复完成自动播报，发送新消息或关闭开关时停止；助手消息提供「播报」手动重播。播报前经 `toSpeechText` 清洗为正文：去除 Markdown（标题/加粗/列表/引用/代码块/链接）、HTML 标签与数值状态栏，且手动播报使用原始文本、不套用显示正则
 - 助手消息可按需生成配图（气泡下方按钮）或随自动配图开关自动生成：生成前先按设置里的「配图位置」（`start`/`middle`/`end`，默认结尾）从本轮回复取对应段落，再用模型把该段对话转写成一句「角色说完这段话后所处的画面」描述作为生图提示词（转写失败回退用该段原文），拼上风格前缀后出图；生成中展示加载态，失败展示重试，完成把 `inlineImage` 随消息持久化（`loading`/`error` 不落盘）；同一时刻仅允许一个配图请求
 - 顶部栏提供「新建」按钮：单聊先打开开场白选择器，选择结果保存为角色默认开场白并用于后续新会话；群聊沿用成员新建逻辑。空会话也允许选择开场白，开场白消息底部提供「重选」
@@ -58,6 +59,7 @@
 - 输入栏附件入口可选择纯文本类文档或图片：文本文档读取内容并在发送时以 `[附件：名称]` 并入上下文；图片仅当来源支持识图时允许，并以多模态形式发送；已选附件以标签与缩略图展示、可移除
 - 图片附件发送时拆分为连续的媒体消息与文字消息：图片单独展示并持久化到文档目录，文字随后作为第二条用户消息发送；媒体名称会经过用户输入正则处理；旧媒体消息缺少 `kind` 时仍能生成名称提示
 - 输入框右侧提供透明笑脸表情按钮，打开表情包面板；面板首项为添加入口，从相册一次选择一张图片，按原图宽高约一半缩放并要求填写名称；表情包可作为媒体消息发送，无识图模型至少收到 `【表情包：名称】` 提示
+- 角色也可主动发表情包：开启全局预设「表情包使用」且用户已有表情包时，system 的该预设段注入可用名称清单，角色回复中的 `[[表情包:名称]]` 由 `stickerDirectives.extractStickerDirectives` 解析——名称命中用户表情包白名单才生成一条助手表情包消息，白名单外丢弃并保留原样，标记从正文剥离，文字与表情包分别成条展示
 - 图片附件在复制或读取尺寸前先检查文件大小；单文件上限 12 MiB、像素上限 1600 万、单次最多 3 张、总文件大小上限 20 MiB，Base64 请求数据另有 28 MiB 上限；不识图的普通图片在发送前拒绝
 - 输入栏最右提供全屏输入入口，全屏界面提供发送与右上角关闭，退出保留文本
 - 顶部栏「模型」按钮打开切换面板：先列来源再列模型，选择后更新该来源当前模型并持久化
@@ -692,7 +694,7 @@ data: [DONE]
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
 
 ### 动态接口
-**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/MomentsView.js`
+**位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/moments/commenters.js`、`src/moments/runUserMomentComments.js`、`src/MomentsView.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -709,8 +711,12 @@ data: [DONE]
 | `selectReactingHousemates({ reactors, moment, max })` | 选出待反应的同住角色：排除发帖人自己、已点赞或已评论过的角色，默认上限 8 |
 | `mergeReactionIntoMoments(list, momentId, reaction)` | 把某角色的点赞/评论不可变地并入动态；同角色已反应过则跳过 |
 | `runHousemateReactions({ momentId, signal })` | 执行器：读动态/角色/地图/API → 求同住角色 → 逐角色串行调模型 → 合并进动态；失败静默、已反应者不重复调用 |
+| `countCharacterMessageTotals(sessions, messagesBySession)` | 按角色累计消息总条数（排除群聊、无归属会话） |
+| `pickRandom(list, count, random)` | 从列表不重复随机抽取 count 个，随机源可注入 |
+| `selectCommenters({ characters, totals, max, excludeIds, random })` | 选评论角色：活跃度最高者保底（并列全纳入，可超 max），不足 max 随机补足，保底 ≥max 不再随机 |
+| `runUserMomentComments({ momentId, signal, random })` | 执行器：读动态/角色/会话/API → 算活跃度 → 选评论者 → 逐角色串行调模型 → 合并进动态评论；失败静默 |
 
-**说明**: 好感与轮次评估全为本地纯逻辑，无模型调用。动态记录保存发动态时的 `characterName` 与 `avatarUri` 快照，角色改名或删除不会改写历史动态名称。发动态后由 `ChatScreen` 异步触发 `runHousemateReactions`：同一栋房子（屋主 + 住户）里的其他角色会对这条动态点赞、评论，逐角色串行调用模型、失败静默，且不写回会话消息或记忆。
+**说明**: 好感与轮次评估全为本地纯逻辑，无模型调用。动态记录保存发动态时的 `characterName` 与 `avatarUri` 快照，角色改名或删除不会改写历史动态名称。发动态后由 `ChatScreen` 异步触发 `runHousemateReactions`：同一栋房子（屋主 + 住户）里的其他角色会对这条动态点赞、评论，逐角色串行调用模型、失败静默，且不写回会话消息或记忆。用户在动态面板发布的动态（`authorType:'user'`）改由 `runUserMomentComments` 触发：从全部角色中按「最活跃保底 + 随机」最多选 7 个来评论（保底并列可超过 7），同样失败静默、不写回记忆。
 
 ### 角色日记接口
 **位置**: `src/diary/diary.js`、`src/diary/runDiary.js`、`src/DiaryPanel.js`
