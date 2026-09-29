@@ -81,7 +81,7 @@ test('Gradle 依赖注入幂等且包含 work-runtime-ktx', () => {
   assert.equal(twice, once);
 });
 
-test('MainApplication 补丁注册 ProactiveMessagePackage 且幂等', () => {
+test('MainApplication 补丁注册 ProactiveMessagePackage（SDK 50 模板）且幂等', () => {
   const input = [
     'import expo.modules.ReactNativeHostWrapper',
     '',
@@ -93,6 +93,35 @@ test('MainApplication 补丁注册 ProactiveMessagePackage 且幂等', () => {
   assert.match(once, /import com\.pppxxxy\.easychat2\.proactive\.ProactiveMessagePackage/);
   assert.match(once, /packages\.add\(ProactiveMessagePackage\(\)\)/);
   assert.equal(applyMainApplicationPatch(once), once);
+});
+
+test('MainApplication 补丁注册 ProactiveMessagePackage（SDK 54 apply 模板）', () => {
+  // SDK 53+ 模板是 `PackageList(this).packages.apply { ... }`，没有 return；
+  // 旧正则匹配不到会静默只插 import 不注册，必须把 add 放进 apply 块内。
+  const input = [
+    'import expo.modules.ReactNativeHostWrapper',
+    '',
+    '        override fun getPackages(): List<ReactPackage> =',
+    '            PackageList(this).packages.apply {',
+    '              // add(MyReactNativePackage())',
+    '            }',
+  ].join('\n');
+  const once = applyMainApplicationPatch(input);
+  assert.match(once, /import com\.pppxxxy\.easychat2\.proactive\.ProactiveMessagePackage/);
+  assert.match(once, /add\(ProactiveMessagePackage\(\)\)/);
+  // 必须真的在 apply 块内注册，而不是只 import
+  assert.equal(/import com\.pppxxxy\.easychat2\.proactive\.ProactiveMessagePackage/.test(once), true);
+  assert.equal(/\badd\(ProactiveMessagePackage\(\)\)/.test(once), true);
+  assert.equal(applyMainApplicationPatch(once), once);
+});
+
+test('MainApplication 模板无法识别时抛错，不静默放行', () => {
+  const input = [
+    'import expo.modules.ReactNativeHostWrapper',
+    '',
+    '        override fun getPackages(): List<ReactPackage> = somethingElse()',
+  ].join('\n');
+  assert.throws(() => applyMainApplicationPatch(input), /补丁未生效/);
 });
 
 test('插件本体返回 config 对象', () => {

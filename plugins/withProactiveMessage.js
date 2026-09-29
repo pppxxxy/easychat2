@@ -92,18 +92,29 @@ function applyGradleDependencies(contents) {
 }
 
 function applyMainApplicationPatch(contents) {
-  if (contents.includes('ProactiveMessagePackage')) {
+  if (/packages\.add\(ProactiveMessagePackage\(\)\)|\badd\(ProactiveMessagePackage\(\)\)/.test(contents)) {
     return contents;
   }
   let out = contents.replace(
     /import expo\.modules\.ReactNativeHostWrapper/,
     'import expo.modules.ReactNativeHostWrapper\nimport com.pppxxxy.easychat2.proactive.ProactiveMessagePackage'
   );
-  out = out.replace(
-    /return PackageList\(this\)\.packages/,
-    'val packages = PackageList(this).packages\n            packages.add(ProactiveMessagePackage())\n            return packages'
-  );
-  if (!out.includes('ProactiveMessagePackage')) {
+  // SDK 50 模板：getPackages() 直接 `return PackageList(this).packages`。
+  if (/return PackageList\(this\)\.packages/.test(out)) {
+    out = out.replace(
+      /return PackageList\(this\)\.packages/,
+      'val packages = PackageList(this).packages\n            packages.add(ProactiveMessagePackage())\n            return packages'
+    );
+  } else if (/PackageList\(this\)\.packages\.apply\s*\{/.test(out)) {
+    // SDK 53+ 模板：`PackageList(this).packages.apply { ... }`（无 return），
+    // 必须把 add(...) 插进 apply 块内，否则只会 import 而不注册，且守卫被 import 骗过。
+    out = out.replace(
+      /PackageList\(this\)\.packages\.apply\s*\{/,
+      match => `${match}\n              add(ProactiveMessagePackage())`
+    );
+  }
+  // 守卫必须校验「注册语句」而非仅类名：只 import 未 add 的静默失效必须抛错。
+  if (!/packages\.add\(ProactiveMessagePackage\(\)\)|\badd\(ProactiveMessagePackage\(\)\)/.test(out)) {
     throw new Error('withProactiveMessage: MainApplication 补丁未生效');
   }
   return out;
