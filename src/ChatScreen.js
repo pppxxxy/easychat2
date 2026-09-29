@@ -39,6 +39,7 @@ import {
 } from './attachments.js';
 import { buildRequestMessages } from './chatPipeline.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
+import { extractStickerDirectives, resolveStickerNames } from './stickerDirectives.js';
 import { createStickerImage, deleteStickerImage } from './stickerImages.js';
 import { getCachedDisplayText } from './displayTextCache.js';
 import { isGreetingMessage, listGreetingCandidates } from './cardGreetings.js';
@@ -351,6 +352,8 @@ export default function ChatScreen() {
    }, []);
    const [stickerPanelOpen, setStickerPanelOpen] = useState(false);
   const [stickers, setStickers] = useState([]);
+  const stickersRef = useRef([]);
+  stickersRef.current = stickers;
   const stickerLoadRef = useRef(0);
    const [stickerNamePrompt, setStickerNamePrompt] = useState(null);
    const [stickerNameDraft, setStickerNameDraft] = useState('');
@@ -1687,6 +1690,8 @@ export default function ChatScreen() {
          pluginContext,
          images,
          quote,
+         // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
+         stickerNames: resolveStickerNames(stickersRef.current),
        });
        if (!isCurrentSession()) return;
 
@@ -1730,29 +1735,38 @@ export default function ChatScreen() {
          ));
          return;
        }
+       // 解析表情包指令：回复可能被拆成「文字消息 + 若干表情包消息」。
+       const replyParts = buildAssistantReply(reply);
+       const replyText = replyParts.find(item => item.role === ASSISTANT_ID && !item.kind)?.text
+         || '';
        setMessages(current => {
         if (!isCurrentSession()) return current;
-        return current.map(item =>
-          item.id === pendingAssistantMessage.id
-            ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
-            : item
-        );
+        const next = [];
+        current.forEach(item => {
+          if (item.id === pendingAssistantMessage.id) {
+            if (replyParts.length === 0) {
+              next.push({ ...item, text: '没有收到回复。', pending: false, waitingForResponse: false });
+            } else {
+              next.push(...replyParts.map(part => ({ ...part, pending: false, waitingForResponse: false })));
+            }
+          } else {
+            next.push(item);
+          }
+        });
+        return next;
       });
       if (isCurrentSession()) {
         maybeAutoSummarize([
           ...baseMessages,
-          {
-            ...pendingAssistantMessage,
-            text: reply || '没有收到回复。',
-            pending: false,
-            waitingForResponse: false,
-          },
+          ...(replyParts.length === 0
+            ? [{ ...pendingAssistantMessage, text: '没有收到回复。', pending: false, waitingForResponse: false }]
+            : replyParts.map(part => ({ ...part, pending: false, waitingForResponse: false }))),
         ]);
         if (inlineImageEnabledRef.current) {
-          generateInlineImageRef.current?.(pendingAssistantMessage.id, reply || '');
+          generateInlineImageRef.current?.(pendingAssistantMessage.id, replyText);
         }
-        autoBroadcastMessage(reply || '');
-        recordTurnRef.current?.(userText, reply || '', senderSnapshot);
+        autoBroadcastMessage(replyText);
+        recordTurnRef.current?.(userText, replyText, senderSnapshot);
       }
      } catch (error) {
        if (isConfigChangedError(error)) {
@@ -3284,6 +3298,40 @@ if (!isCurrent() || controller.signal.aborted) return false;
       Alert.alert('发送表情包失败', (error && error.message) || '请稍后重试。');
     }
   }, [captureSessionGuard, input, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending]);
+
+  // 把助手回复拆成 [文字消息, ...表情包消息]。表情包名称严格取自用户现有表情包，
+  // 白名单外的 [[表情包:xxx]] 由 extractStickerDirectives 丢弃并保留原样。
+  const buildAssistantReply = useCallback(replyText => {
+    const list = Array.isArray(stickersRef.current) ? stickersRef.current : [];
+    const names = resolveStickerNames(list);
+    const { text, stickers: hitNames } = extractStickerDirectives(replyText || '', names);
+    const byName = new Map(list.map(item => [item.name, item]));
+    const now = Date.now();
+    const items = [];
+    const body = String(text || '').trim();
+    if (body) {
+      items.push({ id: `${now}-assistant`, role: ASSISTANT_ID, text: body, timestamp: now });
+    }
+    hitNames.forEach((name, index) => {
+      const sticker = byName.get(name);
+      if (!sticker) return;
+      items.push(createMediaMessage({
+        id: `${now}-assistant-sticker-${index}`,
+        kind: STICKER_MESSAGE_KIND,
+        role: ASSISTANT_ID,
+        uri: sticker.uri,
+        mime: sticker.mime,
+        name,
+        stickerName: name,
+        stickerId: sticker.id,
+        width: sticker.width,
+        height: sticker.height,
+        timestamp: now + index + 1,
+      }));
+    });
+    // createMediaMessage 固定 role:'user'（用户发表情包用），助手表情包需覆盖为 assistant。
+    return items.map(item => (item.kind === STICKER_MESSAGE_KIND ? { ...item, role: ASSISTANT_ID } : item));
+  }, []);
 
   const deleteStickerItems = useCallback(async ids => {
     const result = await deleteStickers(ids);

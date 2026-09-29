@@ -57,7 +57,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
@@ -121,13 +121,23 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     systemContent = `${systemContent}\n\n[角色预设]\n${replaceUser(characterPresetText)}`;
   }
 
-  const presetText = (Array.isArray(globalPresets) ? globalPresets : [])
+  // 表情包名称清单：空清单时 {{stickers}} 占位符会让「表情包使用」预设退化为
+  // 无意义的空指令，故该预设整条丢弃（其它预设不受影响）。
+  const stickerList = (Array.isArray(stickerNames) ? stickerNames : [])
     .map(item => String(item || '').trim())
+    .filter(Boolean);
+  const presetList = (Array.isArray(globalPresets) ? globalPresets : [])
+    .map(item => String(item || ''))
+    .map(item => item.trim())
     .filter(Boolean)
-    .join('\n');
+    .map(item => (item.includes('{{stickers}}') && stickerList.length === 0 ? '' : item))
+    .filter(Boolean);
+  const presetText = presetList.join('\n');
   if (presetText) {
     const presetUserName = userName || '用户';
-    systemContent = `${systemContent}\n\n[全局预设]\n${presetText.replace(/\{\{user\}\}/g, presetUserName)}`;
+    systemContent = `${systemContent}\n\n[全局预设]\n${presetText
+      .replace(/\{\{user\}\}/g, presetUserName)
+      .replace(/\{\{stickers\}\}/g, stickerList.join('、'))}`;
   }
 
   // 先状态摘要（一般）再向量召回（贴合当前输入的具体细节），由一般到具体。

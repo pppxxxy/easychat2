@@ -235,6 +235,49 @@ test('记忆摘要先于向量召回，由一般到具体', () => {
   );
 });
 
+test('表情包预设：有名称时展开，无名称时整条丢弃', () => {
+  const stickerPreset = '写一行 [[表情包:名称]]，可选：{{stickers}}';
+  const withNames = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: [stickerPreset],
+    stickerNames: ['开心', '惊讶'],
+  });
+  const system = withNames.find(item => item.role === 'system');
+  assert.ok(system.content.includes('[[表情包:名称]]'));
+  assert.ok(system.content.includes('开心、惊讶'));
+  assert.equal(system.content.includes('{{stickers}}'), false);
+
+  const withoutNames = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: [stickerPreset],
+    stickerNames: [],
+  });
+  const system2 = withoutNames.find(item => item.role === 'system');
+  // 无表情包时整条预设不注入（避免空清单的无效指令）
+  assert.equal(system2.content.includes('{{stickers}}'), false);
+  assert.equal(system2.content.includes('[[表情包:名称]]'), false);
+});
+
+test('表情包预设不影响其它预设共存', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: ['普通预设内容', '可选：{{stickers}}'],
+    stickerNames: [],
+  });
+  const system = messages.find(item => item.role === 'system');
+  assert.ok(system.content.includes('普通预设内容'));
+  assert.ok(system.content.includes('[全局预设]'));
+});
+
 test('全局预设与输出格式指令共存', () => {
   const messages = buildRequestMessages({
     character,
