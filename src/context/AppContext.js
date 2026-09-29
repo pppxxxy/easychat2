@@ -31,6 +31,7 @@ import {
  } from '../storage.js';
 
 import {
+  describeDefaultArtwork,
   resolveActiveId,
   runWithRollback,
   withAddedCharacter,
@@ -41,6 +42,7 @@ import {
   withUpdatedCharacter,
 } from './characterLibrary.js';
 import { resolveActiveSessionId, sortSessions } from './sessionLibrary.js';
+import { materializeDefaultArtwork } from '../defaultCharacterAssets.js';
 
 const AppContext = createContext(null);
 
@@ -77,14 +79,41 @@ export function AppProvider({ children }) {
         ]);
         if (cancelled) return;
         const libraryBlocked = isCharacterLibraryWriteBlocked();
-        const resolved = resolveActiveId(list, storedActiveId);
+        // 默认角色（EasyChat2 助手）首次运行时补上内置头像/背景：仅当用户尚未自定义。
+        // 落盘为 avatars/ 下的普通文件，使所有既有渲染点无需改动即可生效。
+        let resolvedList = list;
+        if (!libraryBlocked) {
+          const defaultCharacter = list.find(item => item.id === DEFAULT_CHARACTER.id);
+          const needs = describeDefaultArtwork({
+            id: DEFAULT_CHARACTER.id,
+            avatarUri: defaultCharacter && defaultCharacter.avatarUri,
+            bgUri: defaultCharacter && defaultCharacter.bgUri,
+            defaultId: DEFAULT_CHARACTER.id,
+          });
+          if (needs.avatar || needs.bg) {
+            const artwork = await materializeDefaultArtwork();
+            if (cancelled) return;
+            if (artwork.avatarUri || artwork.bgUri) {
+              resolvedList = list.map(item => {
+                if (item.id !== DEFAULT_CHARACTER.id) return item;
+                return {
+                  ...item,
+                  avatarUri: needs.avatar && artwork.avatarUri ? artwork.avatarUri : item.avatarUri,
+                  bgUri: needs.bg && artwork.bgUri ? artwork.bgUri : item.bgUri,
+                };
+              });
+              await saveCharacterLibrary(resolvedList).catch(() => {});
+            }
+          }
+        }
+        const resolved = resolveActiveId(resolvedList, storedActiveId);
         const sortedSessions = sortSessions(sessionList);
         const resolvedSessionId = resolveActiveSessionId(sortedSessions, storedActiveSessionId);
-        charactersRef.current = list;
+        charactersRef.current = resolvedList;
         activeIdRef.current = libraryBlocked ? (storedActiveId || resolved) : resolved;
         sessionsRef.current = sortedSessions;
         activeSessionIdRef.current = resolvedSessionId;
-        setCharactersState(list);
+        setCharactersState(resolvedList);
         setActiveIdState(libraryBlocked ? (storedActiveId || resolved) : resolved);
         setSessionsState(sortedSessions);
         setActiveSessionIdState(resolvedSessionId);

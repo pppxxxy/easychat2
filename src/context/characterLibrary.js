@@ -82,6 +82,15 @@ export function withDeletedCharacters(list, ids, activeId) {
   return { list: next, activeId: nextActiveId, removedCount };
 }
 
+// 判断默认角色是否需要补内置头像/背景：仅对默认角色生效，且仅在字段为空时。
+export function describeDefaultArtwork({ id, avatarUri, bgUri, defaultId }) {
+  const target = String(id === undefined || id === null ? '' : id);
+  const expected = String(defaultId === undefined || defaultId === null ? '' : defaultId);
+  if (!expected || target !== expected) return { avatar: false, bg: false };
+  const blank = value => !String(value === undefined || value === null ? '' : value).trim();
+  return { avatar: blank(avatarUri), bg: blank(bgUri) };
+}
+
 export async function runWithRollback(snapshot, restore, persist) {
   try {
     await persist();

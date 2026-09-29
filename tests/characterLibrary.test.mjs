@@ -63,6 +63,7 @@ const {
   withPinnedCharacter,
   withDeletedCharacters,
   runWithRollback,
+  describeDefaultArtwork,
 } = runtimeModule.exports;
 
 const DEFAULT = { id: 'default', builtin: true, name: '助手', lastUsedAt: 0 };
@@ -146,6 +147,36 @@ test('withDeletedCharacters：批量删除，删空时补内置卡', () => {
   assert.equal(all.removedCount, 3);
   assert.equal(all.list.length, 1);
   assert.equal(all.list[0].id, 'default');
+});
+
+test('describeDefaultArtwork：仅默认角色且字段为空时才补内置图', () => {
+  const base = { id: 'default', avatarUri: '', bgUri: '', defaultId: 'default' };
+  assert.deepEqual(describeDefaultArtwork(base), { avatar: true, bg: true });
+  // 用户已自定义：不再补
+  assert.deepEqual(
+    describeDefaultArtwork({ ...base, avatarUri: 'file:///a.jpg', bgUri: 'file:///b.jpg' }),
+    { avatar: false, bg: false }
+  );
+  // 只自定义了头像：背景仍补
+  assert.deepEqual(
+    describeDefaultArtwork({ ...base, avatarUri: 'file:///a.jpg' }),
+    { avatar: false, bg: true }
+  );
+  // 非默认角色：一律不补
+  assert.deepEqual(
+    describeDefaultArtwork({ id: 'other', avatarUri: '', bgUri: '', defaultId: 'default' }),
+    { avatar: false, bg: false }
+  );
+  // 空 defaultId：不补
+  assert.deepEqual(
+    describeDefaultArtwork({ id: 'default', avatarUri: '', bgUri: '', defaultId: '' }),
+    { avatar: false, bg: false }
+  );
+  // 空白字符串视同空
+  assert.deepEqual(
+    describeDefaultArtwork({ ...base, avatarUri: '   ' }),
+    { avatar: true, bg: true }
+  );
 });
 
 test('runWithRollback：成功不改动，失败回滚并抛出原错误', async () => {
