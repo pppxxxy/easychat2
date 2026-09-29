@@ -148,6 +148,8 @@ function normalizeChatOptions(raw) {
     fullWidth: source.fullWidth === true,
     // 含 <style>/<script> 的助手消息是否用 WebView 渲染；缺省开启。
     richHtml: source.richHtml !== false,
+    // 是否按会话保留输入框草稿；缺省关闭，避免改变既有用户预期。
+    keepDraft: source.keepDraft === true,
   };
 }
 

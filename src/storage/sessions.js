@@ -45,6 +45,8 @@ import {
 export const SESSIONS_KEY = '@easychat2_sessions';
 const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
 const SESSION_SUMMARIES_PREFIX = '@easychat2_session_summaries';
+// 每个会话的输入框草稿：按会话分键，避免把可能很大的集合塞进单键。
+const SESSION_DRAFT_PREFIX = '@easychat2_session_draft';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
@@ -470,6 +472,39 @@ function sessionSummariesKey(sessionId) {
   return `${SESSION_SUMMARIES_PREFIX}::${String(sessionId || '')}`;
 }
 
+function sessionDraftKey(sessionId) {
+  return `${SESSION_DRAFT_PREFIX}::${String(sessionId || '')}`;
+}
+
+// 草稿读写不经过会话变更队列：它是高频、独立的旁路数据，进队列反而会让
+// 每次输入都排在一次消息写盘之后。按会话分键天然互相隔离。
+export async function getSessionDraft(sessionId) {
+  const id = String(sessionId || '');
+  if (!id) return '';
+  try {
+    const raw = await AsyncStorage.getItem(sessionDraftKey(id));
+    return typeof raw === 'string' ? raw : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+export async function saveSessionDraft(sessionId, text) {
+  const id = String(sessionId || '');
+  if (!id) return '';
+  const value = String(text || '');
+  if (!value) {
+    await AsyncStorage.removeItem(sessionDraftKey(id)).catch(() => {});
+    return '';
+  }
+  await AsyncStorage.setItem(sessionDraftKey(id), value).catch(() => {});
+  return value;
+}
+
+export async function clearSessionDraft(sessionId) {
+  return saveSessionDraft(sessionId, '');
+}
+
 function bumpSessionSummaryRevision(sessionId) {
   const id = String(sessionId || '');
   const next = (sessionSummaryRevisions.get(id) || 0) + 1;
@@ -818,6 +853,7 @@ async function deleteSessionInternal(sessionId) {
     await AsyncStorage.multiRemove([
       sessionMessagesKey(sessionId),
       sessionSummariesKey(sessionId),
+      sessionDraftKey(sessionId),
     ]);
   } catch (error) {}
   await collectChatImageFiles();
@@ -879,6 +915,7 @@ async function deleteSessionsInternal(sessionIds) {
     await AsyncStorage.multiRemove(ids.flatMap(id => [
       sessionMessagesKey(id),
       sessionSummariesKey(id),
+      sessionDraftKey(id),
     ]));
   } catch (error) {}
   await collectChatImageFiles();

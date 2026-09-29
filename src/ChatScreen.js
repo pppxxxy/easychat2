@@ -79,6 +79,7 @@ import ScrollScrubber from './ScrollScrubber.js';
 import { maskSecrets } from './secrets.js';
 import { hideVariantStatusBar } from './speechText.js';
 import {
+  clearSessionDraft,
   createGroupSession,
   getApiConfigs,
   getChatOptions,
@@ -88,11 +89,13 @@ import {
   getInlineImageSettings,
   getMemorySummarySettings,
   getMessagesBySessionStatus,
+  getSessionDraft,
   getSessionSummaries,
   getStickers,
   getThinkingSettings,
   getUserProfile,
   saveMessagesBySession,
+  saveSessionDraft,
   setProtectedChatImageUris,
   getTtsSettings,
   getMomentsSettings,
@@ -277,6 +280,11 @@ export default function ChatScreen() {
     )
   ), []);
   const [input, setInput] = useState('');
+  // 输入框草稿按会话保留。draftTextRef 只记录“用户真实输入”的文本，程序性的
+  // setInput('')（切会话/发送后清空）不经过 onInputChange，因此不会污染草稿。
+  const draftSessionIdRef = useRef('');
+  const draftTextRef = useRef('');
+  const draftSaveTimerRef = useRef(null);
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const inputSelectionRef = useRef({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
@@ -350,7 +358,37 @@ export default function ChatScreen() {
    const stickerSaveLockRef = useRef(false);
    const stickerPickerLockRef = useRef(false);
    const pendingStickerResultRef = useRef(null);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false });
+  const chatOptionsRef = useRef(chatOptions);
+  chatOptionsRef.current = chatOptions;
+
+  // 立即落定某个会话的草稿：开启保留则写入，关闭则清除（避免旧草稿在新开关下复活）。
+  const persistDraftNow = useCallback((sessionId, text) => {
+    const id = String(sessionId || '');
+    if (!id) return;
+    if (chatOptionsRef.current.keepDraft) {
+      saveSessionDraft(id, text).catch(() => {});
+    } else {
+      clearSessionDraft(id).catch(() => {});
+    }
+  }, []);
+
+  // 用户真实输入走这里：更新界面与草稿 ref，并在开启保留时防抖写盘。
+  // 程序性 setInput（切会话清空、发送后清空、回填）不经过本函数，故不会误写。
+  const onInputChange = useCallback(text => {
+    setInput(text);
+    draftTextRef.current = String(text ?? '');
+    if (!chatOptionsRef.current.keepDraft) return;
+    const id = String(draftSessionIdRef.current || '');
+    if (!id) return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    const value = draftTextRef.current;
+    draftSaveTimerRef.current = setTimeout(() => {
+      draftSaveTimerRef.current = null;
+      if (!chatOptionsRef.current.keepDraft) return;
+      saveSessionDraft(id, value).catch(() => {});
+    }, 400);
+  }, []);
   const [greetingPicker, setGreetingPicker] = useState(null);
   const [inlineImageSettings, setInlineImageSettings] = useState({
     enabled: false,
@@ -701,6 +739,23 @@ export default function ChatScreen() {
 
   useEffect(() => {
      if (!loaded) return;
+      const loadSessionId = String(activeSessionId || '');
+      const previousSessionId = String(draftSessionIdRef.current || '');
+      const sessionChanged = previousSessionId !== loadSessionId;
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+      // 只在会话真的切换时动草稿：会话内其它依赖（如角色资料缺失）触发的重跑
+      // 不应重新回填，否则会覆盖用户正在输入的内容。
+      if (sessionChanged) {
+        if (previousSessionId) {
+          // 离开旧会话：按开关立即落定草稿（开启保存、关闭清除），避免旧草稿复活。
+          persistDraftNow(previousSessionId, draftTextRef.current);
+        }
+        draftSessionIdRef.current = loadSessionId;
+        draftTextRef.current = '';
+      }
       const draftAttachments = attachmentsRef.current;
       draftAttachments.forEach(item => {
         if (item.kind === 'image') deleteLocalImage(item.uri);
@@ -850,6 +905,30 @@ export default function ChatScreen() {
       sessionVersionRef.current += 1;
     };
   }, [activeSessionId, loaded, sessionOwnerMissing]);
+
+  // 回填输入草稿。独立于会话加载 effect：chatOptions 是异步读出的，冷启动时
+  // 往往晚于会话就绪；若挤在加载 effect 里，keepDraft 还没读出来就会回填失败。
+  useEffect(() => {
+    if (!loaded || !activeSessionId) return undefined;
+    if (!chatOptions.keepDraft) {
+      draftTextRef.current = '';
+      return undefined;
+    }
+    const targetSessionId = String(activeSessionId);
+    let cancelled = false;
+    getSessionDraft(targetSessionId)
+      .then(text => {
+        if (cancelled) return;
+        if (activeSessionIdRef.current !== targetSessionId) return;
+        // 用户已在异步回填前开始输入时，不覆盖他正在写的内容。
+        if (draftTextRef.current) return;
+        const value = String(text || '');
+        draftTextRef.current = value;
+        if (value) setInput(value);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeSessionId, loaded, chatOptions.keepDraft]);
 
   // 角色与会话必须成对：导入/新建角色、或历史遗留的错配状态下，只要当前会话不属于当前角色，
   // 就切到该角色自己的会话。否则界面会继续显示上一个角色的对话，新消息还会写进那段会话。
@@ -1045,11 +1124,14 @@ export default function ChatScreen() {
               if (__DEV__) console.warn('[vector] clear cleanup failed', error);
             });
           }
-          setMessages([]);
+           setMessages([]);
+          setInput('');
+          draftTextRef.current = '';
+          persistDraftNow(clearSessionId, '');
         }
       }
     ]);
-  }, [character, refreshSessions, removeVectorIndexForSession, updateCharacter]);
+  }, [character, persistDraftNow, refreshSessions, removeVectorIndexForSession, updateCharacter]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     const current = messages.find(item => isGreetingMessage(item, activeSessionIdRef.current));
@@ -2215,7 +2297,13 @@ if (!isCurrent() || controller.signal.aborted) return false;
        return false;
      }
      const baseAttachmentIds = baseAttachments.map(item => String(item.id || ''));
-    setInput(current => current === rawText ? '' : current);
+    setInput(current => {
+      if (current !== rawText) return current;
+      // 发送成功即清空草稿：内容已进入消息列表，不再是待发草稿。
+      draftTextRef.current = '';
+      persistDraftNow(sessionGuard.sessionId, '');
+      return '';
+    });
     setAttachments(current => {
       const currentIds = current.map(item => String(item.id || ''));
       if (
@@ -2239,6 +2327,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
         attachmentsRef.current = restoredAttachments;
         setAttachments(restoredAttachments);
         setInput(rawText);
+        draftTextRef.current = rawText;
+        persistDraftNow(sessionGuard.sessionId, rawText);
         setQuoteTarget(draftQuote);
         syncProtectedAttachmentUris();
         if (sourceChangedRef.current) {
@@ -3224,16 +3314,15 @@ if (!isCurrent() || controller.signal.aborted) return false;
 
   const insertMention = useCallback(name => {
     const label = `${MENTION_PREFIX}${name} `;
-    setInput(current => {
-      const selection = inputSelectionRef.current || { start: current.length, end: current.length };
-      const start = Math.max(0, Math.min(selection.start, current.length));
-      const end = Math.max(start, Math.min(selection.end, current.length));
-      const next = `${current.slice(0, start)}${label}${current.slice(end)}`;
-      const caret = start + label.length;
-      inputSelectionRef.current = { start: caret, end: caret };
-      return next;
-    });
-  }, []);
+    const current = input;
+    const selection = inputSelectionRef.current || { start: current.length, end: current.length };
+    const start = Math.max(0, Math.min(selection.start, current.length));
+    const end = Math.max(start, Math.min(selection.end, current.length));
+    const next = `${current.slice(0, start)}${label}${current.slice(end)}`;
+    const caret = start + label.length;
+    inputSelectionRef.current = { start: caret, end: caret };
+    onInputChange(next);
+  }, [input, onInputChange]);
 
   const bgUri = isGroup
     ? String(activeSession?.bgUri || '')
@@ -3509,7 +3598,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         onPickAttachment={pickAttachmentMenu}
         onOpenMention={() => setMentionPickerOpen(true)}
         input={input}
-        onChangeInput={setInput}
+        onChangeInput={onInputChange}
         inputFocused={inputFocused}
         onInputFocus={() => setInputFocused(true)}
         onInputBlur={() => setInputFocused(false)}
@@ -3566,6 +3655,9 @@ if (!isCurrent() || controller.signal.aborted) return false;
           if (sent) {
             setFullScreenText('');
             setInput('');
+            // 全屏输入的文本已作为消息发出，清掉主输入框与对应草稿。
+            draftTextRef.current = '';
+            persistDraftNow(sessionGuard.sessionId, '');
           } else {
             setFullScreenText(draft);
           }

@@ -128,8 +128,8 @@ export default function SettingsScreen() {
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true });
-  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false });
+  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false });
   const [sampling, setSampling] = useState({
     maxTokens: { enabled: false, value: 8024 },
     temperature: { enabled: false, value: 1 },
@@ -1632,6 +1632,19 @@ export default function SettingsScreen() {
             />
           </View>
           <Text style={styles.fieldHint}>{'开启后，含 <style>/<script> 的助手消息用 WebView 渲染，可还原角色卡的样式与交互；折叠状态栏始终保留 WebView 渲染。'}</Text>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="save-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>保留输入草稿</Text>
+            </View>
+            <Switch
+              value={chatOptions.keepDraft === true}
+              onValueChange={value => updateChatOption('keepDraft', value)}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <Text style={styles.fieldHint}>开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。</Text>
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />

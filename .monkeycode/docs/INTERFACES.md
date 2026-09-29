@@ -38,7 +38,7 @@
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
 - 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
@@ -94,7 +94,7 @@
 **位置**: `src/SettingsScreen.js`
 **Props**: 无
 **状态**: `configs`、`activeId`、`loaded`、`userName`、`userPersona`、`userAvatarUri`、`presetEntryOpen`、`enabledPresetCount`、`sampling`、`vectorPayload`（`{ enabled, configs, activeId }`）、`imageGenProviders`
-**行为**: 挂载时读取多配置列表与当前活跃 `id`。为避免一次性罗列大量选项，设置页大量改用 `ui/Collapsible` 的折叠选择器 `CollapsibleSelect` 与折叠分组 `CollapsibleSection`：`CollapsibleSelect` 先显示当前项、点开才列候选、选中自动收起（API 配置、用户人设、生图服务、向量配置都用它）；`CollapsibleSection` 是可点击展开/收起的标题分组，右侧可显示一行摘要（外观显示当前主题，生成参数显示已启用项数）。**API 配置**卡：`CollapsibleSelect` 选择当前配置（副标题为地址·模型），选中后下方只编辑这一份的名称、地址、模型列表（输入添加、点击设为当前、可删除，至少保留一个）、「检测模型」、API Key、「保存配置」（保存前对 HTTP 明文地址与方法能力分别确认）与「删除当前配置」；右上角「新建」经厂商选择弹窗创建。「用户人设」卡：`CollapsibleSelect` 选当前人设（副标题为人设描述），「新增人设」创建并设为当前，多人设时可「删除当前」（自动切到剩余首项）；人设名称与描述编辑当前人设，头像全局共用。「外观」卡为折叠分组（摘要显示当前主题），内含主题与字体大小。「对话配图」卡：开启开关后，`CollapsibleSelect` 选生图服务（候选带「已配置/未配置密钥」标识），选中后就地编辑该服务商的地址 / Key / 模型 / 额外参数与「检测连通性」，与「扩展 → 生图」共用 `@easychat2_image_gen`；另含风格前缀、尺寸、提示词长度。「全局配置」卡提供「全局预设」入口（副标题显示已开启数量或「未开启」）、流式输出 / 全宽 / 富 HTML / 思考展示 / 联网搜索 / 语音播报 / 动态开关。「生成参数」卡为折叠分组（摘要显示已启用项数），最大回复令牌 / 温度 / top-p / top-k 四项各有独立开关与数值输入，失焦夹取范围，仅开启项随请求发送。「向量记忆」卡：启用开关 + `CollapsibleSelect` 选向量配置 + 「新增配置 / 删除当前」+ 就地编辑该配置的名称 / 接口地址 / 密钥（密文）/ 模型 / 召回条数 / 分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（13 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`；以及「诊断日志」入口打开 `DiagnosticsModal`（本地脱敏留存的异常记录，可复制/清空，不上报）。
+**行为**: 挂载时读取多配置列表与当前活跃 `id`。为避免一次性罗列大量选项，设置页大量改用 `ui/Collapsible` 的折叠选择器 `CollapsibleSelect` 与折叠分组 `CollapsibleSection`：`CollapsibleSelect` 先显示当前项、点开才列候选、选中自动收起（API 配置、用户人设、生图服务、向量配置都用它）；`CollapsibleSection` 是可点击展开/收起的标题分组，右侧可显示一行摘要（外观显示当前主题，生成参数显示已启用项数）。**API 配置**卡：`CollapsibleSelect` 选择当前配置（副标题为地址·模型），选中后下方只编辑这一份的名称、地址、模型列表（输入添加、点击设为当前、可删除，至少保留一个）、「检测模型」、API Key、「保存配置」（保存前对 HTTP 明文地址与方法能力分别确认）与「删除当前配置」；右上角「新建」经厂商选择弹窗创建。「用户人设」卡：`CollapsibleSelect` 选当前人设（副标题为人设描述），「新增人设」创建并设为当前，多人设时可「删除当前」（自动切到剩余首项）；人设名称与描述编辑当前人设，头像全局共用。「外观」卡为折叠分组（摘要显示当前主题），内含主题与字体大小。「对话配图」卡：开启开关后，`CollapsibleSelect` 选生图服务（候选带「已配置/未配置密钥」标识），选中后就地编辑该服务商的地址 / Key / 模型 / 额外参数与「检测连通性」，与「扩展 → 生图」共用 `@easychat2_image_gen`；另含风格前缀、尺寸、提示词长度。「全局配置」卡提供「全局预设」入口（副标题显示已开启数量或「未开启」）、流式输出 / 全宽 / 富 HTML / 保留输入草稿 / 思考展示 / 联网搜索 / 语音播报 / 动态开关。「生成参数」卡为折叠分组（摘要显示已启用项数），最大回复令牌 / 温度 / top-p / top-k 四项各有独立开关与数值输入，失焦夹取范围，仅开启项随请求发送。「向量记忆」卡：启用开关 + `CollapsibleSelect` 选向量配置 + 「新增配置 / 删除当前」+ 就地编辑该配置的名称 / 接口地址 / 密钥（密文）/ 模型 / 召回条数 / 分片长度与「测试连接」，未配置或失败时聊天侧自动降级为关键词检索。API 配置 / 用户人设 / 对话配图 / 向量记忆 卡片各带「教学」按钮，用 `ChapterModal` 打开对应单章。「关于」卡片提供「使用教程」入口，打开 `TutorialModal` 图文教程（13 章，与启动新手教学共用 `onboardingContent.js`），只读静态内容；另有「免责条款」入口复用 `DISCLAIMER_TEXT`；以及「诊断日志」入口打开 `DiagnosticsModal`（本地脱敏留存的异常记录，可复制/清空，不上报）。
 
 ### `CharacterEditForm`（默认导出）
 **位置**: `src/CharacterEditForm.js`
@@ -315,6 +315,7 @@
 | `getMessagesBySessionStatus` | `(sessionId) => Promise<{ status, messages }>` | 带状态的按会话读取；损坏时先备份再返回 `status: 'corrupt'`，调用方不得把读失败当成空会话写回 |
 | `saveMessagesBySession` | `(sessionId, messages, characterId?, protectedUris?) => Promise<Message[]>` | 按会话写入消息，过滤 `pending`，同步会话预览与更新时间；检测到媒体删除时回收未被其他会话或待发送附件引用的聊天图片 |
 | `setSessionSummarizedUpTo` | `(sessionId, messageId, expectedRevision?) => Promise<Session>` | 在会话存储队列内更新总结边界；传入版本时可拒绝过期写入 |
+| `getSessionDraft` / `saveSessionDraft` / `clearSessionDraft` | `(sessionId) => Promise<string>` / `(sessionId, text) => Promise<string>` / `(sessionId) => Promise<string>` | 读写单个会话的输入框草稿（纯文本，独立分键、不进存储队列）；空文本等价清除，删除会话时一并清理 |
 | `getSessionSummaryRevision` / `isSessionSummaryRevisionCurrent` | `(sessionId)` / `(sessionId, revision)` | 读取并校验会话摘要版本，重置或删除后立即使旧摘要请求失效 |
 | `appendSessionSummary` | `(sessionId, entry, expectedRevision?) => Promise<Summary[]>` | 在同一存储队列内读取、追加摘要并推进边界，读取损坏或版本过期时拒绝写入 |
 | `collectChatImageFiles` | `(protectedUris?) => Promise<boolean>` | 扫描会话消息引用，清理未被引用的 `documentDirectory/chat-images/` 文件；读取到损坏消息键时保守返回，不执行删除 |
@@ -410,7 +411,8 @@
 | `@easychat2_vector_memory`（legacy） | 旧的单条向量配置对象 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }`，读取时迁为多配置首条，不再写入 |
 | `@easychat2_vector_index::<characterId>` | 角色级记忆片段索引 `[{ id, messageId, sessionId, role, at, text, vector }]`；清理按 `sessionId` 分片 |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }`；`providers[].apiKey` 落盘为安全存储引用 |
-| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true }` |
+| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean, keepDraft: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true, keepDraft: false }` |
+| `@easychat2_session_draft::<sessionId>` | 会话级输入框草稿（纯文本，仅 `keepDraft` 开启时写入与回填；删除会话时一并清理） |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
 | `@easychat2_diary_settings` | 日记设置 `{ roles: { [characterId]: { enabled, roleName, lastDiaryDate, apiConfigId } }, apiConfigId, model, lastRunDate }` |

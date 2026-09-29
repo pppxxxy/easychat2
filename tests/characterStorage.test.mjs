@@ -492,6 +492,25 @@ test('删除会话只清理对应会话的向量片段', async () => {
   assert.deepEqual(index.map(item => item.id), ['second']);
 });
 
+test('输入草稿按会话分键读写且删除会话时一并清理', async () => {
+  const storage = loadStorage();
+  const first = await storage.startNewSession('character-draft');
+  const second = await storage.startNewSession('character-draft');
+  await storage.saveSessionDraft(first.id, '还没发出去的字');
+  await storage.saveSessionDraft(second.id, '另一个会话的草稿');
+  assert.equal(await storage.getSessionDraft(first.id), '还没发出去的字');
+  assert.equal(await storage.getSessionDraft(second.id), '另一个会话的草稿');
+  // 空字符串等价于清除，避免留下空键
+  await storage.clearSessionDraft(first.id);
+  assert.equal(await storage.getSessionDraft(first.id), '');
+  assert.equal(store.has(`@easychat2_session_draft::${first.id}`), false);
+  // 删除会话要连草稿一起清掉，避免孤儿键
+  await storage.saveSessionDraft(second.id, '又要删了');
+  await storage.deleteSession(second.id);
+  assert.equal(store.has(`@easychat2_session_draft::${second.id}`), false);
+  assert.equal(await storage.getSessionDraft(second.id), '');
+});
+
 test('启动清理未引用的聊天图片和表情包文件', async () => {
   const storage = loadStorage();
   const chatUri = 'file:///documents/chat-images/orphan.jpg';

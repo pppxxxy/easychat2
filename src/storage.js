@@ -158,6 +158,7 @@ export {
 } from './storage/cardForge.js';
 export {
   appendSessionSummary,
+  clearSessionDraft,
   cloneSession,
   collectChatImageFiles,
   createGroupSession,
@@ -167,6 +168,7 @@ export {
   getActiveSessionId,
   getMessagesBySession,
   getMessagesBySessionStatus,
+  getSessionDraft,
   getSessionSummaries,
   getSessionSummariesStatus,
   getSessionSummaryRevision,
@@ -178,6 +180,7 @@ export {
   resetSessionSummaries,
   restoreSession,
   saveMessagesBySession,
+  saveSessionDraft,
   saveSessions,
   searchMessages,
   setActiveSessionId,
