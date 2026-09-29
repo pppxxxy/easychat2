@@ -262,8 +262,12 @@ function ProactiveMessageBridge({ navigationReady }) {
 
   const openRole = useCallback(async roleId => {
     if (!roleId) return;
-    // 导航容器未就绪时先入队，避免在挂载完成前调用 navigate。
-    if (!navigationReady || !navigationRef.isReady()) {
+    // 加载/导航任一未就绪都先入队，避免在挂载完成前调用 navigate。
+    //
+    // 必须同时门控 loaded：loaded 前调 switchCharacter 会抛「角色尚未加载完成」，
+    // 被 catch 吞掉后 roleId 既没入队、原生 pendingRoleId 也已在 drain 时清空
+    // → roleId 消费一次即永久丢失（冷启动点通知不跳转的根因）。
+    if (!loaded || !navigationReady || !navigationRef.isReady()) {
       pendingRoleRef.current = roleId;
       return;
     }
@@ -273,15 +277,15 @@ function ProactiveMessageBridge({ navigationReady }) {
     } catch (error) {
       Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
     }
-  }, [navigationReady, switchCharacter]);
+  }, [loaded, navigationReady, switchCharacter]);
 
-  // 导航就绪后消费排队中的角色。
+  // 加载与导航都就绪后再消费排队中的角色。
   useEffect(() => {
-    if (!navigationReady || !pendingRoleRef.current) return;
+    if (!loaded || !navigationReady || !pendingRoleRef.current) return;
     const roleId = pendingRoleRef.current;
     pendingRoleRef.current = null;
     openRole(roleId);
-  }, [navigationReady, openRole]);
+  }, [loaded, navigationReady, openRole]);
 
   useEffect(() => {
     if (!isProactiveMessageAvailable()) return undefined;

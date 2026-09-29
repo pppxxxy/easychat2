@@ -135,3 +135,20 @@ test('原生暴露权限状态查询（勾/叉/问号数据源）', () => {
   // 自启动白名单无公开可读接口 → null（JS 侧显示问号）
   assert.ok(module.includes('result.putNull("autostart")'));
 });
+
+test('pendingRoleId/listenerCount 跨线程访问加锁，且启动 intent 有兜底抓取', () => {
+  const module = readFileSync(
+    path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),
+    'utf8'
+  );
+  // UI 线程（onHostResume/onNewIntent）与 NativeModules 队列线程（consumeInitialRole/
+  // addListener）都会读写这两个字段；缺锁会出现角色丢失的竞态。
+  assert.ok(module.includes('private val lock = Any()'), '缺少同步锁');
+  const lockUses = module.match(/synchronized\(lock\)/g) || [];
+  assert.ok(lockUses.length >= 4, `synchronized(lock) 使用次数过少：${lockUses.length}`);
+  // 冷启动时 currentActivity 可能晚于 onHostResume 就绪：init 与 addListener 都要兜底抓 intent
+  assert.ok(module.includes('private fun captureLaunchIntent()'), '缺少启动 intent 兜底抓取');
+  const captures = module.match(/captureLaunchIntent\(\)/g) || [];
+  assert.ok(captures.length >= 3, `captureLaunchIntent 调用点过少：${captures.length}`);
+  assert.ok(module.includes('intent.removeExtra(Notifier.EXTRA_ROLE_ID)'), '抓到后应清 extra 防重复');
+});

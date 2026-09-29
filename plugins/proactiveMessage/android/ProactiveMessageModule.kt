@@ -31,25 +31,44 @@ class ProactiveMessagePackage : com.facebook.react.ReactPackage {
 class ProactiveMessageModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext), ActivityEventListener, LifecycleEventListener {
 
+    // pendingRoleId/listenerCount 会被两个线程访问：UI 线程（onHostResume/onNewIntent）
+    // 与 NativeModules 队列线程（consumeInitialRole/addListener）。无同步时存在竞态：
+    // 一个线程读空后另一个线程刚写入，或 drain 与 consume 同时清空导致角色丢失。
+    private val lock = Any()
     private var listenerCount = 0
     private var pendingRoleId: String? = null
 
     init {
         reactContext.addActivityEventListener(this)
         reactContext.addLifecycleEventListener(this)
+        // 注册时先兜底抓一次启动 intent：onHostResume 触发的时机早于 currentActivity 就绪，
+        // 冷启动时 intent 可能读不到，这里补一次，避免通知点击进入但角色丢失。
+        captureLaunchIntent()
     }
 
     override fun getName() = "ProactiveMessage"
 
+    /** 从当前 Activity 的启动 intent 取 roleId；取到即消费并清掉 extra，防止重复处理。 */
+    private fun captureLaunchIntent() {
+        val intent = reactContext.currentActivity?.intent ?: return
+        intent.getStringExtra(Notifier.EXTRA_ROLE_ID)?.let { queueRoleOpen(it) }
+        intent.removeExtra(Notifier.EXTRA_ROLE_ID)
+    }
+
     private fun queueRoleOpen(roleId: String) {
-        pendingRoleId = roleId
+        synchronized(lock) {
+            pendingRoleId = roleId
+        }
         drain()
     }
 
     private fun drain() {
-        val roleId = pendingRoleId ?: return
-        if (listenerCount <= 0) return
-        pendingRoleId = null
+        val roleId = synchronized(lock) {
+            val pending = pendingRoleId ?: return
+            if (listenerCount <= 0) return
+            pendingRoleId = null
+            pending
+        }
         reactContext
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
             .emit(EVENT_OPEN_ROLE, roleId)
@@ -63,11 +82,9 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
     override fun onActivityResult(activity: android.app.Activity?, requestCode: Int, resultCode: Int, data: Intent?) {}
 
     override fun onHostResume() {
-        // 冷启动路径：模块注册时读取启动 intent 一次
-        reactContext.currentActivity?.intent?.let { intent ->
-            intent.getStringExtra(Notifier.EXTRA_ROLE_ID)?.let { queueRoleOpen(it) }
-            intent.removeExtra(Notifier.EXTRA_ROLE_ID)
-        }
+        // 冷启动路径：读取启动 intent。currentActivity 可能此刻仍为 null，
+        // 故 addListener 命中时还会再兜底一次。
+        captureLaunchIntent()
         drain()
     }
 
@@ -76,19 +93,24 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
 
     @ReactMethod
     fun addListener(eventName: String) {
-        listenerCount++
+        synchronized(lock) { listenerCount++ }
+        // JS 监听器就位时补抓一次启动 intent，覆盖 currentActivity 晚于 onHostResume 就绪的冷启动。
+        captureLaunchIntent()
         drain()
     }
 
     @ReactMethod
     fun removeListeners(count: Int) {
-        listenerCount = maxOf(0, listenerCount - count)
+        synchronized(lock) { listenerCount = maxOf(0, listenerCount - count) }
     }
 
     @ReactMethod
     fun consumeInitialRole(promise: Promise) {
-        val roleId = pendingRoleId
-        pendingRoleId = null
+        val roleId = synchronized(lock) {
+            val pending = pendingRoleId
+            pendingRoleId = null
+            pending
+        }
         promise.resolve(roleId)
     }
 
