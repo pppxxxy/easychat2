@@ -29,6 +29,7 @@ import {
   normalizeMomentReply,
 } from './moments/momentReply.js';
 import { buildMemorySummaryText, isSessionScopedMemory } from './memorySummary.js';
+import { runUserMomentComments } from './moments/runUserMomentComments.js';
 import { useApp } from './context/AppContext.js';
 import ChapterModal from './ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
@@ -49,6 +50,8 @@ export default function MomentsView({ active = true }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [postDraft, setPostDraft] = useState('');
+  const [posting, setPosting] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [replying, setReplying] = useState([]);
   const [topic, setTopic] = useState(null);
@@ -323,6 +326,48 @@ export default function MomentsView({ active = true }) {
     }
   }, [commentDrafts, mutateMoments, requestReply]);
 
+  // 用户发布动态：写入 by=user 的动态后，后台串行触发「最活跃保底 + 随机」角色评论。
+  const submitPost = useCallback(async () => {
+    const text = String(postDraft || '').trim();
+    if (!text || posting) return;
+    setPosting(true);
+    const momentId = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const moment = {
+      id: momentId,
+      authorType: 'user',
+      characterId: '',
+      characterName: '我',
+      avatarUri: '',
+      sessionId: '',
+      trigger: 'user-post',
+      text,
+      createdAt: Date.now(),
+      likedByUser: false,
+      likes: [],
+      comments: [],
+    };
+    try {
+      const next = await mutateMoments(list => [moment, ...(Array.isArray(list) ? list : [])]);
+      if (!next) throw new Error('动态保存失败');
+      setPostDraft('');
+      setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
+      // 后台串行生成评论：不阻塞发布，失败静默。
+      runUserMomentComments({ momentId })
+        .then(() => getMoments().catch(() => null))
+        .then(list => {
+          if (list && mountedRef.current) setMoments(list);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (mountedRef.current) setReplying(current => current.filter(id => id !== momentId));
+        });
+    } catch (error) {
+      Alert.alert('发布失败', '请检查存储空间或权限。');
+    } finally {
+      setPosting(false);
+    }
+  }, [mutateMoments, postDraft, posting]);
+
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
     const displayName = String(item.characterName || '').trim() || '角色';
@@ -396,7 +441,7 @@ export default function MomentsView({ active = true }) {
         {replying.includes(item.id) ? (
           <View style={styles.replyPendingRow}>
             <Text style={styles.replyPending}>
-              {`${item.characterName || '角色'}正在回复…`}
+              {item.authorType === 'user' ? '角色们正在评论…' : `${item.characterName || '角色'}正在回复…`}
             </Text>
             <TouchableOpacity
               onPress={() => cancelReply(item.id)}
@@ -433,10 +478,29 @@ export default function MomentsView({ active = true }) {
     return (
       <View style={styles.wrap}>
         <MomentHeader styles={styles} onPress={() => setTopic('moments')} />
+        <View style={styles.postComposer}>
+          <TextInput
+            style={styles.postInput}
+            value={postDraft}
+            onChangeText={setPostDraft}
+            placeholder="分享点什么…"
+            placeholderTextColor={theme.colors.textFaint}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.postSend, (!postDraft.trim() || posting) && styles.postSendDisabled]}
+            onPress={submitPost}
+            disabled={!postDraft.trim() || posting}
+            activeOpacity={0.8}
+            accessibilityLabel="发布动态"
+          >
+            <Ionicons name="send" size={15} color={theme.colors.primaryContrast} />
+          </TouchableOpacity>
+        </View>
         <EmptyState
           icon="planet-outline"
           title="还没有动态"
-          description="和角色多聊聊，重要时刻会自动出现。"
+          description="和角色多聊聊，重要时刻会自动出现；也可以在上面分享你的动态。"
         />
         <ChapterModal
           visible={!!topic}
@@ -456,8 +520,29 @@ export default function MomentsView({ active = true }) {
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={(
-          // 动态由 AI 生成：显式标识常驻列表头部（与聊天页提示行同口径）
-          <Text style={styles.aigcHint}>动态与回复由 AI 生成，可能有误。</Text>
+          <>
+            <View style={styles.postComposer}>
+              <TextInput
+                style={styles.postInput}
+                value={postDraft}
+                onChangeText={setPostDraft}
+                placeholder="分享点什么…"
+                placeholderTextColor={theme.colors.textFaint}
+                multiline
+              />
+              <TouchableOpacity
+                style={[styles.postSend, (!postDraft.trim() || posting) && styles.postSendDisabled]}
+                onPress={submitPost}
+                disabled={!postDraft.trim() || posting}
+                activeOpacity={0.8}
+                accessibilityLabel="发布动态"
+              >
+                <Ionicons name="send" size={15} color={theme.colors.primaryContrast} />
+              </TouchableOpacity>
+            </View>
+            {/* 动态由 AI 生成：显式标识常驻列表头部（与聊天页提示行同口径） */}
+            <Text style={styles.aigcHint}>动态与回复由 AI 生成，可能有误。</Text>
+          </>
         )}
         renderItem={renderItem}
       />
@@ -495,6 +580,33 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
+  postComposer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginHorizontal: 16,
+    marginBottom: 10,
+  },
+  postInput: {
+    flex: 1,
+    minHeight: 40,
+    maxHeight: 120,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.md,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 8,
+  },
+  postSend: {
+    width: 40,
+    height: 40,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postSendDisabled: { opacity: 0.4 },
   aigcHint: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),

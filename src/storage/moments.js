@@ -106,9 +106,12 @@ function normalizeMoment(raw) {
   const comments = Array.isArray(source.comments)
     ? source.comments.filter(item => item && typeof item === 'object')
     : [];
+  const characterId = String(source.characterId || '');
   return {
     id: String(source.id || ''),
-    characterId: String(source.characterId || ''),
+    // 用户自发布动态（characterId 为空）标记为 user，其余为角色动态；老数据无该字段。
+    authorType: source.authorType === 'user' || !characterId ? 'user' : 'character',
+    characterId,
     characterName: String(source.characterName || ''),
     avatarUri: String(source.avatarUri || ''),
     // 这条动态是从哪段对话（记忆）里来的：评论回复会依据它对应的记忆来生成。
