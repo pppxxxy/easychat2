@@ -41,16 +41,17 @@ export function extractStickerDirectives(text, names) {
     return '';
   });
 
+  // 只有真正剥离了指令才做空白收敛：否则（用户有表情包但本条回复没用到）
+  // 会把正常 Markdown 的缩进、空行、行尾双空格一并改坏。
+  if (stickers.length === 0) return { text: source, stickers };
   return {
     text: normalizeDirectiveWhitespace(stripped),
     stickers,
   };
 }
 
-// 剥离标记后可能留下空行或行尾的多余空格，收敛为整齐的段落。
+// 剥离指令后可能留下成片空行，仅收敛多余空行。刻意不动行尾空格（Markdown 硬换行）
+// 与整体缩进：同一条回复里既有指令又有正常 Markdown 时，不能连带改坏正文。
 function normalizeDirectiveWhitespace(text) {
-  return String(text || '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/^\s+|\s+$/g, '');
+  return String(text || '').replace(/\n{3,}/g, '\n\n');
 }

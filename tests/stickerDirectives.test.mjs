@@ -62,3 +62,20 @@ test('剥离后收敛多余空行', () => {
   const result = extractStickerDirectives('A\n\n[[表情包:开心]]\n\nB', ['开心']);
   assert.equal(result.text, 'A\n\nB');
 });
+
+test('无指令但有白名单时正文原样返回，不破坏 Markdown', () => {
+  // 回归：以前一旦用户拥有表情包，每条回复都会被归一化，缩进/空行/行尾空格被改坏。
+  const md = 'const x = 1;\n\n\n\n return x;  \n';
+  const result = extractStickerDirectives(md, ['开心']);
+  assert.deepEqual(result.stickers, []);
+  assert.equal(result.text, md, '无指令时不得改动正文');
+});
+
+test('剥离指令时不误删代码缩进与行尾硬换行空格', () => {
+  const input = '    const x = 1;  \n[[表情包:开心]]\n    return x;';
+  const result = extractStickerDirectives(input, ['开心']);
+  assert.deepEqual(result.stickers, ['开心']);
+  assert.ok(result.text.includes('    const x = 1;  '), '保留缩进与行尾空格');
+  assert.ok(result.text.includes('    return x;'));
+  assert.equal(result.text.includes('[[表情包'), false);
+});

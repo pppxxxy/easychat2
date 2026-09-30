@@ -80,7 +80,8 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const userPersona = String(userProfile?.persona || '').trim();
   const replaceUser = text => {
     if (!userName) return text;
-    return text.replace(/\{\{user\}\}/g, userName);
+    // 用户名也可能含 `$&` 等模式，同样用替换函数避免被解释。
+    return text.replace(/\{\{user\}\}/g, () => userName);
   };
 
   const base = String(character?.systemPromptComposed || '').trim()
@@ -135,9 +136,11 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const presetText = presetList.join('\n');
   if (presetText) {
     const presetUserName = userName || '用户';
+    // 用替换函数而非替换字符串：表情包名可含 `$&`/`$'`/`$1` 等特殊模式，
+    // 作为替换字符串会被 String.replace 解释成注入（占位符泄漏或文本错乱）。
     systemContent = `${systemContent}\n\n[全局预设]\n${presetText
-      .replace(/\{\{user\}\}/g, presetUserName)
-      .replace(/\{\{stickers\}\}/g, stickerList.join('、'))}`;
+      .replace(/\{\{user\}\}/g, () => presetUserName)
+      .replace(/\{\{stickers\}\}/g, () => stickerList.join('、'))}`;
   }
 
   // 先状态摘要（一般）再向量召回（贴合当前输入的具体细节），由一般到具体。

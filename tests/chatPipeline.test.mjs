@@ -291,3 +291,35 @@ test('全局预设与输出格式指令共存', () => {
   assert.ok(system.content.includes('保持沉浸'));
   assert.ok(system.content.includes('[输出格式]'));
 });
+
+test('表情包名称含 $ 特殊模式不被 String.replace 解释（注入防护）', () => {
+  // 回归：以前把名称列表 join 后直接当替换字符串，$&/$'/$1 会被解释，
+  // 导致占位符泄漏或文本错乱。改用替换函数后应原样填入。
+  const preset = '可选：{{stickers}}';
+  for (const name of ['$&', "$'", '$1', '\\$&']) {
+    const messages = buildRequestMessages({
+      character,
+      historyMessages: [],
+      userText: '你好',
+      userProfile: {},
+      globalPresets: [preset],
+      stickerNames: [name],
+    });
+    const system = messages.find(item => item.role === 'system');
+    assert.ok(system.content.includes(`可选：${name}`), `名称 ${name} 应原样出现`);
+    assert.equal(system.content.includes('{{stickers}}'), false, '占位符不得泄漏');
+  }
+});
+
+test('用户名含 $ 特殊模式不被解释', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: { userName: '$&先生' },
+    globalPresets: ['你好 {{user}}'],
+    stickerNames: [],
+  });
+  const system = messages.find(item => item.role === 'system');
+  assert.ok(system.content.includes('你好 $&先生'));
+});

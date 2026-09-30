@@ -52,7 +52,7 @@ export function buildErrorRawText(error) {
 export function buildGreetingMessage(sessionId, firstMes, userName) {
   const text = String(firstMes || '').trim();
   if (!text) return null;
-  const replaced = userName ? text.replace(/\{\{user\}\}/g, userName) : text;
+  const replaced = userName ? text.replace(/\{\{user\}\}/g, () => userName) : text;
   return {
     id: `greeting-${sessionId}`,
     role: ASSISTANT_ID,

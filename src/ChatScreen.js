@@ -1181,7 +1181,7 @@ export default function ChatScreen() {
         }
         setIsSending(false);
          const openingTemplate = String(result.firstMes || '');
-         const openingText = openingTemplate.replace(/\{\{user\}\}/g, userNameRef.current || '用户');
+         const openingText = openingTemplate.replace(/\{\{user\}\}/g, () => userNameRef.current || '用户');
          const created = await startNewSession(characterId, {
            text: openingText,
            template: openingTemplate,
@@ -1764,7 +1764,12 @@ export default function ChatScreen() {
             : replyParts.map(part => ({ ...part, pending: false, waitingForResponse: false }))),
         ]);
         if (inlineImageEnabledRef.current) {
-          generateInlineImageRef.current?.(pendingAssistantMessage.id, replyText);
+          // 配图要挂到替换后的文字消息上：pending 占位符已被 replyParts 替换，其 id 已变，
+          // 继续用 pendingAssistantMessage.id 会永远匹配不到（图静默不出现）。
+          const inlineTarget = replyParts.find(item => item.role === ASSISTANT_ID && !item.kind);
+          if (inlineTarget && inlineTarget.id) {
+            generateInlineImageRef.current?.(inlineTarget.id, replyText);
+          }
         }
         autoBroadcastMessage(replyText);
         recordTurnRef.current?.(userText, replyText, senderSnapshot);

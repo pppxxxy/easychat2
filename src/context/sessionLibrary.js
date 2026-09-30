@@ -259,7 +259,7 @@ export function guessCharacterIdForMessages(messages, characters, { userName = '
   const user = String(userName || '').trim();
   const normalize = text => {
     let value = String(text || '');
-    if (user) value = value.replace(/\{\{user\}\}/g, user);
+    if (user) value = value.replace(/\{\{user\}\}/g, () => user);
     return value.replace(/\s+/g, ' ').trim();
   };
   const pool = (Array.isArray(characters) ? characters : [])

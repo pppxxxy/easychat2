@@ -1123,7 +1123,7 @@ setWorldInfo(next.worldInfo);
       setPendingImport(null);
       const profile = await getUserProfile().catch(() => ({}));
       const openingTemplate = String(result.firstMes || '');
-      const openingText = openingTemplate.replace(/\{\{user\}\}/g, String(profile.userName || '用户'));
+      const openingText = openingTemplate.replace(/\{\{user\}\}/g, () => String(profile.userName || '用户'));
       await ensureCharacterSession(created.id, {
         text: openingText,
         template: openingTemplate,
