@@ -261,26 +261,47 @@ function DiaryStartup() {
 function ProactiveMessageBridge({ navigationReady }) {
   const { loaded, switchCharacter, switchSession, ingestProactiveMessages } = useApp();
   const pendingRoleRef = useRef(null);
+  // 最近一轮落库得到的 roleId → sessionId 映射。冷启动时启动 effect 会先消费并 ack，
+  // 事件路径（onOpenRole）随后再消费只能拿到空队列；若此时拿不到映射，就只切角色、
+  // 停在默认会话，看不到落在另一段的新消息。缓存一份供后续 openRole 复用。
+  const targetSessionRef = useRef({});
+  // 消费互斥：启动 effect 与 onOpenRole 事件会在同一次进入时并发消费同一队列，
+  // 先完成的一方 ack 清队列后另一方只能拿到空数组、丢失 targetSessions。共享同一
+  // in-flight Promise，让并发调用复用同一次消费结果（含会话映射）。
+  const ingestInFlightRef = useRef(null);
 
   // 消费原生待写队列：把到点时生成、但尚未写入会话的主动消息落库。
   // 只有写入成功的、以及永远无法处理的（结构残缺）才 ack 删除；
   // 角色暂时不在库或写入失败的**保留**，下次启动再试，绝不静默丢消息。
   // 返回本次每条消息实际落到的会话（roleId → sessionId），供跳转精确切段。
-  const ingestPending = useCallback(async () => {
-    if (!loaded) return { targetSessions: {} };
-    const messages = await consumePendingMessages();
-    if (messages.length === 0) return { targetSessions: {} };
-    const { written, skipped, deferred, targetSessions } = await ingestProactiveMessages(messages);
-    const acked = [...written, ...skipped];
-    if (acked.length > 0) await ackPendingMessages(acked);
-    // 诊断（release 可见）：记录一轮消费的结果，供「设置 → 关于 → 诊断日志」定位
-    // 「通知发出但消息未落库」这类问题——区分取不到队列 / 角色不在库 / 写入失败。
-    recordDiagnostic(
-      'storage',
-      `主动消息消费：取${messages.length} 写${written.length} 删${skipped.length} 缓${deferred.length}`,
-      'proactive-ingest'
-    );
-    return { targetSessions: targetSessions || {} };
+  const ingestPending = useCallback(() => {
+    if (!loaded) return Promise.resolve({ targetSessions: {} });
+    if (ingestInFlightRef.current) return ingestInFlightRef.current;
+    const task = (async () => {
+      const messages = await consumePendingMessages();
+      if (messages.length === 0) return { targetSessions: {} };
+      const { written, skipped, deferred, targetSessions } = await ingestProactiveMessages(messages);
+      const acked = [...written, ...skipped];
+      if (acked.length > 0) await ackPendingMessages(acked);
+      const resolved = targetSessions || {};
+      // 缓存落库得到的会话映射：队列已被本轮 ack 清空，后续 openRole 无法再取到，
+      // 只能靠这份缓存精确切到消息所在会话。
+      targetSessionRef.current = { ...targetSessionRef.current, ...resolved };
+      // 诊断（release 可见）：记录一轮消费的结果，供「设置 → 关于 → 诊断日志」定位
+      // 「通知发出但消息未落库」这类问题——区分取不到队列 / 角色不在库 / 写入失败。
+      recordDiagnostic(
+        'storage',
+        `主动消息消费：取${messages.length} 写${written.length} 删${skipped.length} 缓${deferred.length}`,
+        'proactive-ingest'
+      );
+      return { targetSessions: resolved };
+    })();
+    ingestInFlightRef.current = task;
+    // 结束后清空，允许下一次（如回前台）重新消费。用 then 而非 await 保证引用同步可读。
+    task.catch(() => {}).then(() => {
+      if (ingestInFlightRef.current === task) ingestInFlightRef.current = null;
+    });
+    return task;
   }, [loaded, ingestProactiveMessages]);
 
   const openRole = useCallback(async (roleId, ingestResult = null) => {
@@ -301,7 +322,15 @@ function ProactiveMessageBridge({ navigationReady }) {
       await switchCharacter(roleId);
       // 精确切到消息实际落到的会话：只 switchCharacter + ensureCharacterSession 会取该角色
       // 的第一段会话，若消息落在另一段（衔接对话选了其它历史），就会停在旧会话看不到新消息。
-      const targetSessionId = targetSessions && targetSessions[roleId];
+      // 本轮落库拿不到映射时回退到本次运行缓存的映射（启动已 ack 的场景）。
+      const targetSessionId = (targetSessions && targetSessions[roleId])
+        || targetSessionRef.current[roleId];
+      // 诊断（release 可见）：记录跳转是否命中消息所在会话——命中才会切段。
+      recordDiagnostic(
+        'storage',
+        `主动消息跳转：角色${roleId} 目标会话${targetSessionId || '(无)'}`,
+        'proactive-open'
+      );
       if (targetSessionId) {
         // switchSession 内部读最新 sessionsRef，能命中刚落库新建的会话；
         // 会话不存在时静默忽略（switchCharacter 已切到该角色的会话）。

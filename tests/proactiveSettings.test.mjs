@@ -301,6 +301,18 @@ test('启动消费结果直接交给 openRole，避免同批消息重复消费',
   assert.match(bridge, /await openRole\(roleId, ingestResult\)/);
 });
 
+test('事件路径拿不到 targetSessions 时回退缓存映射，且并发消费合并为一次', () => {
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  // 冷启动：启动 effect 先消费并 ack 清队列，事件路径再消费只能拿到空；
+  // 必须缓存 roleId→sessionId 供其复用，否则只切角色、停在默认会话看不到新消息。
+  assert.ok(bridge.includes('targetSessionRef'), '应有落库会话缓存');
+  assert.match(bridge, /targetSessionRef\.current\[roleId\]/, '应回退到缓存映射');
+  // 启动 effect 与 onOpenRole 事件会并发消费同一队列：共享 in-flight Promise
+  assert.ok(bridge.includes('ingestInFlightRef'), '应有并发互斥');
+  assert.match(bridge, /if \(ingestInFlightRef\.current\) return ingestInFlightRef\.current/);
+});
+
 test('落库结果写入诊断日志（release 可见，免 adb）', () => {
   const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
   const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
