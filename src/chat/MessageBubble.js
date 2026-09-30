@@ -19,6 +19,7 @@ import RenderHtml from 'react-native-render-html';
 
 import { collectTNodeText, createHtmlBaseStyle, createHtmlTagsStyles, createMarkdownStyles, customHTMLElementModels, prepareAssistantHtml, regexClassesStyles, regexDomVisitors } from '../assistantRender.js';
 import { containsHtml, messageCopyText } from '../plainText.js';
+import { clampMarkdownText } from '../markdownGuard.js';
 import { shouldRenderRichHtml, splitFullHtmlDocument } from '../richHtml.js';
 import RichHtmlMessage from '../RichHtmlMessage.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -232,7 +233,9 @@ const fullWidthAssistant = !isUser && fullWidth;
      const value = String(segment || '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
      if (!value) return null;
      if (!containsHtml(value)) {
-       return <Markdown style={markdownStyles} rules={markdownRules}>{value}</Markdown>;
+       // 截断超长文本再交给 markdown-it，防 linkify-it ReDoS 卡死。
+       const { text: safeText } = clampMarkdownText(value);
+       return <Markdown style={markdownStyles} rules={markdownRules}>{safeText}</Markdown>;
      }
      const source = { html: prepareAssistantHtml(value).replace(/\n/g, '<br/>') };
      return (
@@ -383,7 +386,7 @@ const fullWidthAssistant = !isUser && fullWidth;
               defaultTextProps={{ selectable: true }}
             />
           ) : (
-             <Markdown style={markdownStyles} rules={markdownRules}>{message.text}</Markdown>
+             <Markdown style={markdownStyles} rules={markdownRules}>{clampMarkdownText(message.text).text}</Markdown>
           )}
         </View>
 

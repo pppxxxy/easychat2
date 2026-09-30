@@ -14,6 +14,7 @@ import {
   regexDomVisitors,
 } from './assistantRender.js';
 import { containsHtml } from './plainText.js';
+import { clampMarkdownText } from './markdownGuard.js';
 import { shouldRenderRichHtml, splitFullHtmlDocument } from './richHtml.js';
 import RichHtmlMessage from './RichHtmlMessage.js';
 import { useTheme } from './theme/ThemeContext.js';
@@ -90,7 +91,9 @@ export default function AssistantMessageBody({
     const value = String(segment || '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
     if (!value) return null;
     if (!containsHtml(value)) {
-      return <Markdown style={markdownStyles} rules={markdownRules}>{value}</Markdown>;
+      // 截断超长文本再交给 markdown-it，防 linkify-it ReDoS 卡死。
+      const { text: safeText } = clampMarkdownText(value);
+      return <Markdown style={markdownStyles} rules={markdownRules}>{safeText}</Markdown>;
     }
     return (
       <RenderHtml
@@ -145,5 +148,6 @@ export default function AssistantMessageBody({
     );
   }
 
-  return <Markdown style={markdownStyles} rules={markdownRules}>{text}</Markdown>;
+  const plainMarkdown = clampMarkdownText(text).text;
+  return <Markdown style={markdownStyles} rules={markdownRules}>{plainMarkdown}</Markdown>;
 }
