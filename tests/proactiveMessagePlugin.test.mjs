@@ -286,3 +286,22 @@ test('原生 JS 桥：取出待写队列并提供 ack 删除', () => {
   assert.ok(!/consumePendingMessages[\s\S]{0,800}removePendingMessages/.test(module),
     'consumePendingMessages 不应直接清空队列');
 });
+
+test('原生 JS 桥改用 JSON 字符串契约（新架构 Interop 下数组编组不可靠）', () => {
+  const module = readFileSync(
+    path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),
+    'utf8'
+  );
+  // consumePendingMessages 返回 JSON 字符串，而非 WritableArray
+  assert.ok(module.includes('JSONArray()'), '应构造 JSONArray');
+  assert.match(module, /promise\.resolve\(json\)/, '应 resolve 字符串');
+  assert.match(module, /promise\.resolve\("\[\]"\)/, '异常兜底应回空数组 JSON');
+  assert.ok(!module.includes('Arguments.createArray()'), '不应再回传 WritableArray');
+  // ackPendingMessages 入参是字符串（JSON），不是 ReadableArray
+  assert.match(module, /fun ackPendingMessages\(idsJson: String, promise: Promise\)/);
+  assert.ok(module.includes('JSONArray(idsJson)'), '应解析入参 JSON');
+  assert.ok(!module.includes('ReadableArray'), '不应再依赖 ReadableArray');
+  // release 可见日志：供 adb logcat 确认 JS 是否调进来、取到几条
+  assert.ok(module.includes('Log.i(TAG, "consume pending n='), '缺少 consume 日志');
+  assert.ok(module.includes('Log.i(TAG, "ack pending n='), '缺少 ack 日志');
+});

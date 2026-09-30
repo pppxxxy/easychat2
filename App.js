@@ -2,7 +2,7 @@ import './src/polyfills';
 import 'react-native-gesture-handler';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -270,13 +270,20 @@ function ProactiveMessageBridge({ navigationReady }) {
     if (!loaded) return { targetSessions: {} };
     const messages = await consumePendingMessages();
     if (messages.length === 0) return { targetSessions: {} };
-    const { written, skipped, targetSessions } = await ingestProactiveMessages(messages);
+    const { written, skipped, deferred, targetSessions } = await ingestProactiveMessages(messages);
     const acked = [...written, ...skipped];
     if (acked.length > 0) await ackPendingMessages(acked);
+    // 诊断（release 可见）：记录一轮消费的结果，供「设置 → 关于 → 诊断日志」定位
+    // 「通知发出但消息未落库」这类问题——区分取不到队列 / 角色不在库 / 写入失败。
+    recordDiagnostic(
+      'storage',
+      `主动消息消费：取${messages.length} 写${written.length} 删${skipped.length} 缓${deferred.length}`,
+      'proactive-ingest'
+    );
     return { targetSessions: targetSessions || {} };
   }, [loaded, ingestProactiveMessages]);
 
-  const openRole = useCallback(async roleId => {
+  const openRole = useCallback(async (roleId, ingestResult = null) => {
     if (!roleId) return;
     // 加载/导航任一未就绪都先入队，避免在挂载完成前调用 navigate。
     //
@@ -288,8 +295,9 @@ function ProactiveMessageBridge({ navigationReady }) {
       return;
     }
     try {
-      // 先落库；落库会返回消息实际写入的会话 id。
-      const { targetSessions } = await ingestPending();
+      // 先落库；落库会返回消息实际写入的会话 id。启动路径已消费过一轮的话直接复用，
+      // 避免重复消费、也保证跳转用的是「刚落库那一段会话」而非再取一次的结果。
+      const { targetSessions } = ingestResult || await ingestPending();
       await switchCharacter(roleId);
       // 精确切到消息实际落到的会话：只 switchCharacter + ensureCharacterSession 会取该角色
       // 的第一段会话，若消息落在另一段（衔接对话选了其它历史），就会停在旧会话看不到新消息。
@@ -319,9 +327,10 @@ function ProactiveMessageBridge({ navigationReady }) {
       (async () => {
         try {
           // 启动即消费一轮：App 未打开期间到点的消息在这里补写进会话。
-          await ingestPending();
+          // 结果直接交给 openRole，避免同一次启动再消费一遍（重复往返原生）。
+          const ingestResult = await ingestPending();
           const roleId = await consumeInitialRole();
-          if (roleId) await openRole(roleId);
+          if (roleId) await openRole(roleId, ingestResult);
         } catch (error) {
           // 原生模块读取失败时静默，不影响主流程
         }
@@ -330,6 +339,20 @@ function ProactiveMessageBridge({ navigationReady }) {
     const unsubscribe = addOpenRoleListener(openRole);
     return () => unsubscribe();
   }, [loaded, openRole, ingestPending]);
+
+  // 热启动/返回前台补消费：到点时 App 可能只是切到后台（进程未死），通知点击虽会触发
+  // onOpenRole，但用户「自己切回 App 看消息」这条路径没有任何消费入口——不补这一轮，
+  // 后台到点的消息就会直到下次冷启动才落库（甚至永不落库）。回到前台消费一次即可。
+  useEffect(() => {
+    if (!isProactiveMessageAvailable() || !loaded) return undefined;
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener('change', next => {
+      const cameToForeground = previous !== 'active' && next === 'active';
+      previous = next;
+      if (cameToForeground) ingestPending().catch(() => {});
+    });
+    return () => subscription.remove();
+  }, [loaded, ingestPending]);
 
   return null;
 }

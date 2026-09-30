@@ -2,6 +2,8 @@
 // 原生实现由 plugins/withProactiveMessage.js 在 prebuild 时注入 android/ 工程。
 import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 
+import { normalizePendingMessages } from './proactiveInbox.js';
+
 const native = Platform.OS === 'android' ? NativeModules.ProactiveMessage : null;
 
 function requireNative() {
@@ -101,20 +103,20 @@ export async function consumeInitialRole() {
 export async function consumePendingMessages() {
   if (!native || typeof native.consumePendingMessages !== 'function') return [];
   try {
-    const list = await native.consumePendingMessages();
-    return Array.isArray(list) ? list : [];
+    return normalizePendingMessages(await native.consumePendingMessages());
   } catch (error) {
     return [];
   }
 }
 
 // 已成功落库的消息按 id 从待写队列移除（原生侧持久化，App 重启前不丢）。
+// 传 JSON 字符串而非数组：数组跨 Interop 编组不可靠（见上方注释）。
 export async function ackPendingMessages(ids) {
   if (!native || typeof native.ackPendingMessages !== 'function') return false;
   const list = (Array.isArray(ids) ? ids : []).map(item => String(item || '')).filter(Boolean);
   if (list.length === 0) return true;
   try {
-    return await native.ackPendingMessages(list);
+    return await native.ackPendingMessages(JSON.stringify(list));
   } catch (error) {
     return false;
   }

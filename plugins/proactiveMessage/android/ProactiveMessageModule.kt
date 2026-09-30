@@ -5,6 +5,7 @@ import android.provider.Settings
 import android.os.Build
 import android.os.PowerManager
 import android.net.Uri
+import android.util.Log
 import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
@@ -14,6 +15,8 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import org.json.JSONArray
+import org.json.JSONObject
 
 class ProactiveMessagePackage : com.facebook.react.ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext) =
@@ -116,7 +119,9 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
 
     /**
      * 取出待写队列（原生生成但尚未写入会话的主动消息），**不清空**，供 JS 落库。
-     * 返回 [{ id, slotId, roleId, roleName, text, createdAt }]。
+     * 返回 JSON 字符串（`[{ id, slotId, roleId, roleName, text, createdAt }]`）。
+     * 返回值刻意用 String 而非 WritableArray：新架构 Interop 下数组跨桥编组不可靠，
+     * JS 侧 `Array.isArray` 不成立时会静默丢消息（曾导致主动消息永不落库）。
      * 落库成功由 JS 调 ackPendingMessages(ids) 删除；写入失败则下次启动重试。
      * 消息 id 幂等，重复返回不会产生重复会话消息。
      */
@@ -125,32 +130,46 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
         try {
             val store = MessageStore(reactContext)
             val pending = store.loadPendingMessages()
-            val array = Arguments.createArray()
+            val array = JSONArray()
             pending.forEach { message ->
-                val map = Arguments.createMap()
-                map.putString("id", message.id)
-                map.putString("slotId", message.slotId)
-                map.putString("roleId", message.roleId)
-                map.putString("roleName", message.roleName)
-                map.putString("text", message.text)
-                map.putDouble("createdAt", message.createdAt.toDouble())
-                array.pushMap(map)
+                array.put(
+                    JSONObject()
+                        .put("id", message.id)
+                        .put("slotId", message.slotId)
+                        .put("roleId", message.roleId)
+                        .put("roleName", message.roleName)
+                        .put("text", message.text)
+                        .put("createdAt", message.createdAt)
+                )
             }
-            promise.resolve(array)
+            val json = array.toString()
+            // release 包也要能确认「JS 是否调进来、取到几条」，供 adb logcat 判据
+            Log.i(TAG, "consume pending n=${pending.size}")
+            promise.resolve(json)
         } catch (e: Exception) {
-            // 读取失败返回空数组，不影响主流程
-            promise.resolve(Arguments.createArray())
+            Log.e(TAG, "consume pending failed: ${e.javaClass.simpleName}: ${e.message}")
+            // 读取失败返回空数组 JSON，不影响主流程
+            promise.resolve("[]")
         }
     }
 
-    /** 已成功落库的消息按 id 从待写队列移除。 */
+    /**
+     * 已成功落库的消息按 id 从待写队列移除。
+     * 入参是 JSON 字符串数组（如 `["slot-2026-09-30"]`），而非桥接数组对象：
+     * 数组跨 Interop 编组不可靠，字符串契约与 schedule/consumeInitialRole 一致、已验证可用。
+     */
     @ReactMethod
-    fun ackPendingMessages(ids: com.facebook.react.bridge.ReadableArray, promise: Promise) {
+    fun ackPendingMessages(idsJson: String, promise: Promise) {
         try {
-            val list = (0 until ids.size()).mapNotNull { ids.getString(it) }
+            val array = JSONArray(idsJson)
+            val list = (0 until array.length())
+                .map { array.optString(it) }
+                .filter { it.isNotBlank() }
             MessageStore(reactContext).removePendingMessages(list)
+            Log.i(TAG, "ack pending n=${list.size}")
             promise.resolve(true)
         } catch (e: Exception) {
+            Log.e(TAG, "ack pending failed: ${e.javaClass.simpleName}: ${e.message}")
             promise.resolve(false)
         }
     }
@@ -354,5 +373,6 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
 
     companion object {
         const val EVENT_OPEN_ROLE = "ProactiveMessage:onOpenRole"
+        const val TAG = "ProactiveMessage"
     }
 }

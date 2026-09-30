@@ -282,6 +282,32 @@ test('通知跳转精确切到消息实际落到的会话', () => {
   assert.ok(switchCharIndex < switchSessIndex, '先切角色再切会话');
 });
 
+test('回前台补消费：AppState 变 active 时消费待写队列', () => {
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  // 到点时 App 可能只是切到后台（进程未死），这条路径此前无消费入口
+  assert.ok(bridge.includes('AppState'), '应监听 AppState');
+  assert.ok(bridge.includes("addEventListener('change'"), '应监听前后台切换');
+  assert.match(bridge, /cameToForeground/, '应判定为回到前台才消费');
+  assert.match(bridge, /cameToForeground\)\s*ingestPending\(\)\.catch/, '回到前台消费一次');
+});
+
+test('启动消费结果直接交给 openRole，避免同批消息重复消费', () => {
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  // 启动一轮消费后把 targetSessions 传给 openRole，openRole 不再二次 ingest
+  assert.match(bridge, /openRole = useCallback\(async \(roleId, ingestResult = null\)/);
+  assert.match(bridge, /const \{ targetSessions \} = ingestResult \|\| await ingestPending\(\)/);
+  assert.match(bridge, /await openRole\(roleId, ingestResult\)/);
+});
+
+test('落库结果写入诊断日志（release 可见，免 adb）', () => {
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  assert.ok(bridge.includes('recordDiagnostic'), '应记录诊断');
+  assert.ok(bridge.includes('主动消息消费'), '应含可读的结果说明');
+});
+
 test('互动面板：有主动消息的角色带星标，并说明横幅通知设置', () => {
   const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
   // 星标：存在时间槽的角色在选项 label 前加 ★
