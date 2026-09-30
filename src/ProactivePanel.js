@@ -448,13 +448,17 @@ export default function ProactivePanel({ embedded = false }) {
       <CollapsibleSelect
         label="选择角色"
         value={(characters.find(item => item.id === activeRoleId) || {}).name || ''}
-        options={characters.map(item => ({ value: item.id, label: item.name || '未命名' }))}
+        // 有主动消息（存在任何时间槽）的角色加星标，多于十多个时一眼看出哪些配过。
+        options={characters.map(item => ({
+          value: item.id,
+          label: `${slots.some(slot => slot.roleId === item.id) ? '★ ' : ''}${item.name || '未命名'}`,
+        }))}
         onSelect={id => setSelectedRoleId(id)}
         emptyHint="还没有角色，请先到角色页添加。"
         styles={styles}
         theme={theme}
       />
-
+      <Text style={styles.hint}>★ 表示该角色已设置主动消息。</Text>
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>时间（可多个）</Text>
         <View style={styles.sectionActions}>
@@ -666,6 +670,10 @@ export default function ProactivePanel({ embedded = false }) {
           })}
           <Text style={styles.hint}>
             勾=已取得、叉=未取得、问号=无法自动判断（如厂商自启动白名单），点按对应行去系统设置。
+          </Text>
+          <Text style={styles.hint}>
+            想让「横屏/横幅通知」弹出并震动？到「系统设置 → 通知 → EasyChat2 → 角色主动消息」，
+            勾选「横幅通知」与「锁屏通知」，并关闭「静默通知」。
           </Text>
         </>
       ) : null}

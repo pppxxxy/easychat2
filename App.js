@@ -259,19 +259,21 @@ function DiaryStartup() {
 // 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
 // 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
 function ProactiveMessageBridge({ navigationReady }) {
-  const { loaded, switchCharacter, ingestProactiveMessages } = useApp();
+  const { loaded, switchCharacter, switchSession, ingestProactiveMessages } = useApp();
   const pendingRoleRef = useRef(null);
 
   // 消费原生待写队列：把到点时生成、但尚未写入会话的主动消息落库。
   // 只有写入成功的、以及永远无法处理的（结构残缺）才 ack 删除；
   // 角色暂时不在库或写入失败的**保留**，下次启动再试，绝不静默丢消息。
+  // 返回本次每条消息实际落到的会话（roleId → sessionId），供跳转精确切段。
   const ingestPending = useCallback(async () => {
-    if (!loaded) return;
+    if (!loaded) return { targetSessions: {} };
     const messages = await consumePendingMessages();
-    if (messages.length === 0) return;
-    const { written, skipped } = await ingestProactiveMessages(messages);
+    if (messages.length === 0) return { targetSessions: {} };
+    const { written, skipped, targetSessions } = await ingestProactiveMessages(messages);
     const acked = [...written, ...skipped];
     if (acked.length > 0) await ackPendingMessages(acked);
+    return { targetSessions: targetSessions || {} };
   }, [loaded, ingestProactiveMessages]);
 
   const openRole = useCallback(async roleId => {
@@ -286,14 +288,22 @@ function ProactiveMessageBridge({ navigationReady }) {
       return;
     }
     try {
-      // 跳转前先落库，保证聊天页打开就能看到刚落库的主动消息。
-      await ingestPending();
+      // 先落库；落库会返回消息实际写入的会话 id。
+      const { targetSessions } = await ingestPending();
       await switchCharacter(roleId);
+      // 精确切到消息实际落到的会话：只 switchCharacter + ensureCharacterSession 会取该角色
+      // 的第一段会话，若消息落在另一段（衔接对话选了其它历史），就会停在旧会话看不到新消息。
+      const targetSessionId = targetSessions && targetSessions[roleId];
+      if (targetSessionId) {
+        // switchSession 内部读最新 sessionsRef，能命中刚落库新建的会话；
+        // 会话不存在时静默忽略（switchCharacter 已切到该角色的会话）。
+        await switchSession(targetSessionId).catch(() => {});
+      }
       navigationRef.navigate('聊天');
     } catch (error) {
       Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
     }
-  }, [loaded, navigationReady, switchCharacter, ingestPending]);
+  }, [loaded, navigationReady, switchCharacter, switchSession, ingestPending]);
 
   // 加载与导航都就绪后再消费排队中的角色。
   useEffect(() => {

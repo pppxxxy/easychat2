@@ -266,6 +266,32 @@ test('找不到角色的待写消息不 ack 删除，改为保留重试', () => 
   assert.match(bridge, /const acked = \[\.\.\.written, \.\.\.skipped\]/);
 });
 
+test('通知跳转精确切到消息实际落到的会话', () => {
+  const ctx = fs.readFileSync(path.resolve('src/context/AppContext.js'), 'utf8');
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  // 落库结果带 roleId → sessionId 映射
+  assert.ok(ctx.includes('targetSessions'), '落库应返回 targetSessions');
+  assert.match(ctx, /targetSessions\[roleId\] = result\.sessionId/);
+  // 桥接用该 sessionId 切会话，而非只 switchCharacter
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  assert.ok(bridge.includes('switchSession'), '应切到具体会话');
+  assert.match(bridge, /targetSessions\[roleId\]/);
+  const switchCharIndex = bridge.indexOf('await switchCharacter(roleId)');
+  const switchSessIndex = bridge.indexOf('switchSession(targetSessionId)');
+  assert.ok(switchCharIndex > 0 && switchSessIndex > 0);
+  assert.ok(switchCharIndex < switchSessIndex, '先切角色再切会话');
+});
+
+test('互动面板：有主动消息的角色带星标，并说明横幅通知设置', () => {
+  const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  // 星标：存在时间槽的角色在选项 label 前加 ★
+  assert.ok(panel.includes("slots.some(slot => slot.roleId === item.id) ? '★ '"));
+  assert.ok(panel.includes('表示该角色已设置主动消息'));
+  // 横幅通知说明
+  assert.ok(panel.includes('横幅通知'));
+  assert.ok(panel.includes('静默通知'));
+});
+
 test('衔接对话：槽可保存 sessionTargetId，非法/缺失回退空串', async () => {
   const saved = await saveProactiveSettings({
     slots: [

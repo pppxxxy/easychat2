@@ -395,17 +395,21 @@ export function AppProvider({ children }) {
   // 主动消息落库：把原生待写队列里的消息逐条写入各自角色的单聊会话，再刷新列表。
   // 目标会话由槽的 sessionTargetId 决定：命中该角色的历史对话则写入，否则新建一段并把槽绑定过去
   // （下次触发即固定复用；该会话若被删除则视为空，再次新建）。
-  // 返回 { written, skipped, deferred }：
-  //   written  已写入，可 ack 删除；
-  //   skipped  结构残缺、永远无法处理，可 ack 删除；
-  //   deferred 暂时处理不了（角色不在库/写入失败），**不 ack**，保留在原生队列等下次重试——
-  //            绝不能让「角色 id 一时对不上」把消息静默销毁。
+  // 返回 { written, skipped, deferred, targetSessions }：
+  //   written        已写入，可 ack 删除；
+  //   skipped        结构残缺、永远无法处理，可 ack 删除；
+  //   deferred       暂时处理不了（角色不在库/写入失败），**不 ack**，保留重试；
+  //   targetSessions roleId → 本次消息实际写入的 sessionId，供通知跳转精确切到那段会话。
   const ingestProactiveMessages = useCallback(async messages => {
     const list = Array.isArray(messages) ? messages : [];
-    if (list.length === 0 || !loadedRef.current) return { written: [], skipped: [], deferred: [] };
+    if (list.length === 0 || !loadedRef.current) {
+      return { written: [], skipped: [], deferred: [], targetSessions: {} };
+    }
     const written = [];
     const skipped = [];
     const deferred = [];
+    // 每个角色本次消息落到的会话；同一角色多条时取最后一条（最新）。
+    const targetSessions = {};
     // 槽绑定表只读一次；新建后同步更新，保证同一轮多条消息指向同一段新建会话。
     const settings = await getProactiveSettings().catch(() => ({ slots: [] }));
     const slotTargets = new Map(
@@ -438,6 +442,9 @@ export function AppProvider({ children }) {
           sessionTargetId: slotTargets.get(slotId) || '',
         });
         written.push(id);
+        if (result && result.sessionId) {
+          targetSessions[roleId] = result.sessionId;
+        }
         // 首次新建对话：把槽绑定到这段新会话，之后固定复用。
         if (result && result.created && slotId && result.sessionId) {
           slotTargets.set(slotId, result.sessionId);
@@ -452,7 +459,7 @@ export function AppProvider({ children }) {
       await refreshSessionsDirect().catch(() => {});
       setMessageRefreshTick(tick => tick + 1);
     }
-    return { written, skipped, deferred };
+    return { written, skipped, deferred, targetSessions };
   }, [refreshSessionsDirect]);
 
   const switchSession = useCallback(async id => {
