@@ -38,6 +38,7 @@ import {
    validateImageSize,
 } from './attachments.js';
 import { buildRequestMessages } from './chatPipeline.js';
+import { buildTimeAwareText } from './currentTime.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
 import { extractStickerDirectives, resolveStickerNames } from './stickerDirectives.js';
 import { createStickerImage, deleteStickerImage } from './stickerImages.js';
@@ -362,7 +363,7 @@ export default function ChatScreen() {
    const stickerSaveLockRef = useRef(false);
    const stickerPickerLockRef = useRef(false);
    const pendingStickerResultRef = useRef(null);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
   const chatOptionsRef = useRef(chatOptions);
   chatOptionsRef.current = chatOptions;
 
@@ -1693,6 +1694,8 @@ export default function ChatScreen() {
          quote,
          // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
          stickerNames: resolveStickerNames(stickersRef.current),
+         // 时间感知开启时附上当前时间（每次请求现算，保证准确）。
+         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware),
        });
        if (!isCurrentSession()) return;
 

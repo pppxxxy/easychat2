@@ -128,8 +128,8 @@ export default function SettingsScreen() {
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false });
-  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
+  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
   const [sampling, setSampling] = useState({
     maxTokens: { enabled: false, value: 8024 },
     temperature: { enabled: false, value: 1 },
@@ -1645,6 +1645,19 @@ export default function SettingsScreen() {
             />
           </View>
           <Text style={styles.fieldHint}>开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。</Text>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="time-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>时间感知</Text>
+            </View>
+            <Switch
+              value={chatOptions.timeAware === true}
+              onValueChange={value => updateChatOption('timeAware', value)}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <Text style={styles.fieldHint}>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</Text>
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />

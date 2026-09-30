@@ -57,7 +57,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, extraSystemPrompt }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
@@ -90,6 +90,11 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const name = String(character?.name || '').trim();
   let systemContent = name ? `你的名字是${name}。${base}` : base;
   systemContent = replaceUser(systemContent);
+  // 时间感知：开启后附上当前日期时间，让角色能感知「现在」。
+  const timeText = String(currentTimeText || '').trim();
+  if (timeText) {
+    systemContent = `${replaceUser(timeText)}\n\n${systemContent}`;
+  }
   if (userPersona) {
     systemContent = `${systemContent}\n\n[用户设定]\n${replaceUser(userPersona)}`;
   }
@@ -170,6 +175,12 @@ export function buildRequestMessages({ character, historyMessages, userText, use
       ].join('\n'),
     }]
     : [];
+
+  // 主动消息等特殊场景的补充指令：贴近输出，放在格式约束之前。
+  const extraPrompt = String(extraSystemPrompt || '').trim();
+  if (extraPrompt) {
+    systemContent = `${systemContent}\n\n[本轮任务]\n${replaceUser(extraPrompt)}`;
+  }
 
   // 放在最后，作为贴近输出的格式约束
   systemContent = `${systemContent}\n\n[输出格式]\n${DEFAULT_OUTPUT_FORMAT_PROMPT}`;

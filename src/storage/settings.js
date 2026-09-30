@@ -150,6 +150,8 @@ function normalizeChatOptions(raw) {
     richHtml: source.richHtml !== false,
     // 是否按会话保留输入框草稿；缺省关闭，避免改变既有用户预期。
     keepDraft: source.keepDraft === true,
+    // 时间感知：开启后在每次请求系统提示里附上当前日期时间；缺省关闭。
+    timeAware: source.timeAware === true,
   };
 }
 
