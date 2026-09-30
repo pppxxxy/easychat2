@@ -15,6 +15,9 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   presets: [[require.resolve('@babel/preset-env'), { targets: { node: 'current' }, modules: 'commonjs' }]],
 }).code;
 
+// 记录 expo-audio 播放调用，供「云端音频播放链」测试断言。
+const audioCalls = { created: [], played: 0 };
+
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === './providers.js') {
@@ -26,19 +29,16 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '../secrets.js') {
     return { registerSecretValues: () => {} };
   }
-  if (request === 'expo-av') {
+  if (request === 'expo-audio') {
     return {
-      Audio: {
-        Sound: {
-          createAsync: async () => ({
-            sound: {
-              setOnPlaybackStatusUpdate() {},
-              async playAsync() {},
-              async stopAsync() {},
-              async unloadAsync() {},
-            },
-          }),
-        },
+      createAudioPlayer: source => {
+        audioCalls.created.push(source);
+        return {
+          addListener: () => ({ remove() {} }),
+          play: () => { audioCalls.played += 1; },
+          pause() {},
+          remove() {},
+        };
       },
     };
   }
@@ -466,6 +466,44 @@ test('百度 60 字上限生效且超出部分截断', () => {
   assert.equal(tts.truncateText('一'.repeat(100), 60).length, 60);
   assert.equal(tts.truncateText('一'.repeat(30), 60).length, 30);
   assert.equal(tts.truncateText('一'.repeat(900)).length, 800);
+});
+
+test('云端音频合成后交给 expo-audio 以 data URI 播放', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  class BinaryXHR {
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.status = 200;
+      this.response = Uint8Array.from([0x00, 0xff, 0x10, 0x80]).buffer;
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  }
+  globalThis.XMLHttpRequest = BinaryXHR;
+  audioCalls.created = [];
+  audioCalls.played = 0;
+  try {
+    const { speak } = loadTts();
+    await speak({
+      provider: {
+        engine: 'remote',
+        method: 'POST',
+        baseUrl: 'https://example.test/tts',
+        textField: 'text',
+        response: { mode: 'binary' },
+        responseMime: 'audio/mp3',
+      },
+      config: { apiKey: 'key-12345678' },
+      text: '你好',
+    });
+    // 迁移后播放必须走 expo-audio.createAudioPlayer，且源是 base64 data URI
+    assert.equal(audioCalls.created.length, 1);
+    assert.equal(audioCalls.created[0].uri, 'data:audio/mp3;base64,AP8QgA==');
+    assert.equal(audioCalls.played, 1);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
 });
 
 test('真实声明表驱动五家请求体逐家断言', async () => {

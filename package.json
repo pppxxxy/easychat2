@@ -21,7 +21,7 @@
     "@react-navigation/native-stack": "^6.9.17",
     "buffer": "^6.0.3",
     "expo": "^54.0.37",
-    "expo-av": "~16.0.8",
+    "expo-audio": "~1.1.1",
     "expo-clipboard": "~8.0.8",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.24",

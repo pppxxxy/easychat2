@@ -178,7 +178,7 @@ easychat2/
 **目的**: 以声明式 Provider 描述系统引擎与九家云端 TTS，统一请求、令牌兑换与音频播放，支持随回复自动播报与手动重播
 **位置**: `src/tts/providers.js`、`src/tts/index.js`、`src/TtsPanel.js`
 **关键文件**: `src/tts/index.js`
-**依赖**: `expo-speech`、`expo-av`、`src/storage.js`
+**依赖**: `expo-speech`、`expo-audio`、`src/storage.js`
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`
 
 ### 动态

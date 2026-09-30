@@ -766,7 +766,7 @@ data: [DONE]
 | `buildTtsRequest(provider, config, text, token?)` | 按字段映射构造请求；支持 header/query/body/token 鉴权与讯飞/腾讯云/火山签名；无地址返回 `null` |
 | `resolveToken(provider, config, opts?)` | `auth.type === 'token'` 时兑换并缓存令牌（按 `tokenTtlSec`） |
 | `synthesize({ provider, config, text })` | 返回 `{ mode: 'system' | 'audio', text?/base64? }` |
-| `speak({ provider, config, text, onDone?, onError? })` | 系统引擎走 `expo-speech`，云端音频走 `expo-av` 播放；播放前先停止上一段 |
+| `speak({ provider, config, text, onDone?, onError? })` | 系统引擎走 `expo-speech`，云端音频走 `expo-audio` 播放；播放前先停止上一段 |
 | `stop()` | 停止系统朗读与当前音频 |
 | `listVoices(provider)` | 系统引擎取 `getAvailableVoicesAsync`，云端取声明音色 |
 | `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「播报失败（HTTP n）」 |

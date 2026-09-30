@@ -26,7 +26,10 @@ function getAudioModule() {
   if (!audioLoaded) {
     audioLoaded = true;
     try {
-      audioModule = require('expo-av');
+      // expo-av 在 SDK 54 已弃用，播放迁移到 expo-audio（imperative createAudioPlayer）。
+      // 同样禁止模块顶层 require：requireNativeModule 在原生模块初始化失败时会抛，
+      // 延迟到首次实际播报才加载，避免启动阶段白屏闪退。
+      audioModule = require('expo-audio');
     } catch (error) {
       audioModule = null;
     }
@@ -34,7 +37,8 @@ function getAudioModule() {
   return audioModule;
 }
 
-let currentSound = null;
+let currentPlayer = null;
+let currentPlayerSubscription = null;
 let speakGeneration = 0;
 let speakRequestId = 0;
 let activeRequestController = null;
@@ -508,7 +512,7 @@ export async function synthesize({ provider, config = {}, text, signal = null })
   return {
     mode: 'audio',
     base64: audio.base64,
-    // 播放端按声明表的 responseMime 传给 expo-av；默认 mp3 与各家的
+    // 播放端按声明表的 responseMime 传给 expo-audio；默认 mp3 与各家的
     // 显式格式请求（audio.format/format/encoding/aue）保持配套。
     mime: resolvedProvider.responseMime || 'audio/mp3',
   };
@@ -528,12 +532,19 @@ async function stopPlayback() {
       speech.stop();
     } catch (error) {}
   }
-  if (currentSound) {
-    const sound = currentSound;
-    currentSound = null;
+  if (currentPlayer) {
+    const player = currentPlayer;
+    const subscription = currentPlayerSubscription;
+    currentPlayer = null;
+    currentPlayerSubscription = null;
     try {
-      await sound.stopAsync();
-      await sound.unloadAsync();
+      if (subscription) subscription.remove();
+    } catch (error) {}
+    try {
+      player.pause();
+    } catch (error) {}
+    try {
+      player.remove();
     } catch (error) {}
   }
 }
@@ -579,27 +590,27 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
     const result = await synthesize({ provider: resolvedProvider, config, text, signal: controller.signal });
     if (token !== speakGeneration) return;
     const audio = getAudioModule();
-    if (!audio || !audio.Audio || typeof audio.Audio.Sound === 'undefined') {
+    if (!audio || typeof audio.createAudioPlayer !== 'function') {
       throw new Error('当前设备不支持音频播放');
     }
     const uri = `data:${result.mime || 'audio/mp3'};base64,${result.base64}`;
-    const { sound } = await audio.Audio.Sound.createAsync({ uri });
+    const player = audio.createAudioPlayer({ uri });
     if (token !== speakGeneration) {
       try {
-        await sound.unloadAsync();
+        player.remove();
       } catch (error) {}
       return;
     }
-    currentSound = sound;
-    sound.setOnPlaybackStatusUpdate(status => {
-      if (status && status.didJustFinish) {
-        if (token === speakGeneration && currentSound === sound) {
-          if (onDone) onDone();
-          stop();
-        }
+    currentPlayer = player;
+    // 播完自动回收并回调；didJustFinish 由 playbackStatusUpdate 事件给出。
+    currentPlayerSubscription = player.addListener('playbackStatusUpdate', status => {
+      if (!status || !status.didJustFinish) return;
+      if (token === speakGeneration && currentPlayer === player) {
+        if (onDone) onDone();
+        stop();
       }
     });
-    await sound.playAsync();
+    player.play();
   } catch (error) {
     if (token !== speakGeneration || (error && error.name === 'AbortError')) return;
     await stop();

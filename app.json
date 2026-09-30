@@ -32,7 +32,14 @@
         }
       ],
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "android": {
       "package": "com.pppxxxy.easychat2",
