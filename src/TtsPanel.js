@@ -140,7 +140,9 @@ export default function TtsPanel({ visible, onClose }) {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        // Android 用 undefined：app.json 的 softwareKeyboardLayoutMode 已是 resize，
+        // 再叠一层 behavior="height" 会在键盘收起时反复重算高度，表现为界面疯狂上下闪动。
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
@@ -220,6 +222,40 @@ export default function TtsPanel({ visible, onClose }) {
               </View>
             )) : null}
 
+            {/* 预置音色清单：点选即填入 voice 字段（也可在上方音色输入框手填）。
+                留空表示「默认音色」，交给模型自选。 */}
+            {loaded && Array.isArray(provider.voices) && provider.voices.length > 0 ? (
+              <View>
+                <FieldLabel style={styles.label}>{'预置音色（可选）'}</FieldLabel>
+                <View style={styles.voiceRow}>
+                  <TouchableOpacity
+                    style={[styles.voiceChip, !providerConfig.voice && styles.voiceChipActive]}
+                    onPress={() => setField('voice', '')}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.voiceText, !providerConfig.voice && styles.voiceTextActive]}>
+                      默认
+                    </Text>
+                  </TouchableOpacity>
+                  {provider.voices.map(voice => {
+                    const active = String(providerConfig.voice || '') === voice;
+                    return (
+                      <TouchableOpacity
+                        key={voice}
+                        style={[styles.voiceChip, active && styles.voiceChipActive]}
+                        onPress={() => setField('voice', voice)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={[styles.voiceText, active && styles.voiceTextActive]}>
+                          {voice}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
             {provider.apiKeyUrl ? (
               <TouchableOpacity
                 style={styles.keyLink}
@@ -298,6 +334,19 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
   },
   providerTextUnsupported: { color: theme.colors.textFaint },
+  voiceRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  voiceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  voiceChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
+  voiceText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  voiceTextActive: { color: theme.colors.primarySoft },
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 10 },
   keyLink: {
     flexDirection: 'row',

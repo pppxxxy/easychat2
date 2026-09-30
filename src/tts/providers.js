@@ -29,11 +29,17 @@ export const TTS_PROVIDERS = [
     payloadDefaults: { audio: { format: 'mp3' } },
     responseMime: 'audio/mp3',
     response: { mode: 'base64', path: 'choices.0.message.audio.data' },
+    // 预设音色走 audio.voice（chat 形态的音频参数）；留空则由模型用默认音色。
+    voiceField: 'audio.voice',
     fields: [
       { key: 'baseUrl', label: '接口地址', placeholder: 'https://api.xiaomimimo.com/v1/chat/completions' },
       { key: 'apiKey', label: 'API Key', secret: true, placeholder: '在开放平台控制台获取' },
-      { key: 'model', label: '模型名', placeholder: 'MiMo-V2.5-TTS' },
+      // 模型 ID 是 OpenAI 协议的小写名；大写是产品名不是模型名，写错会 404/报错。
+      { key: 'model', label: '模型名', placeholder: 'mimo-v2.5-tts' },
+      { key: 'voice', label: '音色', optional: true, placeholder: 'mimo_default' },
     ],
+    // 官方预置音色；留空（默认项）由模型自选。voicedesign/voiceclone 另有专门模型。
+    voices: ['mimo_default', 'default_zh', 'default_en', 'Mia', 'Chloe', 'Milo', 'Dean'],
     timeoutMs: 30000,
     retries: 1,
     custom: true,

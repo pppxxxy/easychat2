@@ -203,6 +203,12 @@ test('TTS 声明表与官方端点逐家一致', async () => {
   assert.equal(mimo.auth.keyName, 'api-key');
   assert.equal(mimo.response.mode, 'base64');
   assert.equal(mimo.response.path, 'choices.0.message.audio.data');
+  // 预设音色走 audio.voice；模型 placeholder 必须是官方小写 Model ID，不是产品名
+  assert.equal(mimo.voiceField, 'audio.voice');
+  assert.ok(Array.isArray(mimo.voices) && mimo.voices.includes('mimo_default'));
+  const mimoModelField = mimo.fields.find(field => field.key === 'model');
+  assert.equal(mimoModelField.placeholder, 'mimo-v2.5-tts');
+  assert.ok(mimo.fields.some(field => field.key === 'voice'), 'MiMo 应提供音色字段');
   // MiniMax：现行域名 + data.audio 是 hex（官方默认 output_format=hex）
   const minimax = getTtsProvider('minimax');
   assert.equal(minimax.baseUrl, 'https://api.minimaxi.com/v1/t2a_v2');
@@ -249,11 +255,13 @@ test('chat 模式把合成文本作为 assistant 消息发送', () => {
       { key: 'apiKey', label: 'API Key', secret: true },
       { key: 'model', label: '模型名' },
     ],
-  }, { apiKey: 'mimo-key', model: 'MiMo-V2.5-TTS' }, '你好，世界');
+  }, { apiKey: 'mimo-key', model: 'mimo-v2.5-tts', voice: 'Mia' }, '你好，世界');
   assert.equal(request.headers['api-key'], 'mimo-key');
   const body = JSON.parse(request.body);
-  assert.equal(body.model, 'MiMo-V2.5-TTS');
+  assert.equal(body.model, 'mimo-v2.5-tts');
   assert.deepEqual(body.messages, [{ role: 'assistant', content: '你好，世界' }]);
+  // 该内联声明未设 payloadDefaults/voiceField：不该凭空出现 audio 载荷
+  assert.equal(body.audio, undefined);
 });
 
 test('hex 响应按 hex 解码为 base64 音频', async () => {
@@ -513,15 +521,16 @@ test('真实声明表驱动五家请求体逐家断言', async () => {
   const tts = loadTts();
   const find = id => TTS_PROVIDERS.find(item => item.id === id);
 
-  // 小米：chat 模式 + audio.format=mp3 显式请求 + api-key 头
+  // 小米：chat 模式 + audio.format=mp3 显式请求 + api-key 头 + 音色写 audio.voice
   const mimo = tts.buildTtsRequest(find('xiaomi-mimo'), {
-    apiKey: 'mimo-key', model: 'MiMo-V2.5-TTS',
+    apiKey: 'mimo-key', model: 'mimo-v2.5-tts', voice: 'mimo_default',
   }, '你好');
   const mimoBody = JSON.parse(mimo.body);
   assert.equal(mimo.headers['api-key'], 'mimo-key');
   assert.deepEqual(mimoBody.messages, [{ role: 'assistant', content: '你好' }]);
   assert.equal(mimoBody.audio.format, 'mp3');
-  assert.equal(mimoBody.model, 'MiMo-V2.5-TTS');
+  assert.equal(mimoBody.audio.voice, 'mimo_default');
+  assert.equal(mimoBody.model, 'mimo-v2.5-tts');
 
   // MiniMax：GroupId 查询 + Bearer 头 + hex 响应声明
   const minimax = tts.buildTtsRequest(find('minimax'), {
@@ -568,4 +577,15 @@ test('真实声明表驱动五家请求体逐家断言', async () => {
   assert.match(aliyun.url, /appkey=appkey-1/);
   assert.match(aliyun.url, /token=nls-token/);
   assert.equal(JSON.parse(aliyun.body).format, 'mp3');
+});
+
+test('语音播报面板：渲染预置音色选择并修 Android 键盘抖动', () => {
+  const panel = fs.readFileSync(path.resolve('src/TtsPanel.js'), 'utf8');
+  // 1a：声明表的 voices 必须真正渲染成可点选音色，否则「有音色却不能选」
+  assert.ok(panel.includes('provider.voices'), '面板应使用 provider.voices');
+  assert.ok(panel.includes('预置音色'), '应有音色选择区');
+  assert.match(panel, /setField\('voice'/, '点选音色应写入 voice 字段');
+  // 1c：Android 不能再用 behavior="height"（与 softwareKeyboardLayoutMode:resize 叠加会抖动）
+  assert.match(panel, /behavior=\{Platform\.OS === 'ios' \? 'padding' : undefined\}/);
+  assert.ok(!panel.includes("? 'padding' : 'height'"), 'Android 不应再叠 height 键盘避让');
 });
