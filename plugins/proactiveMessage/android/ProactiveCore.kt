@@ -55,7 +55,10 @@ data class RoleSchedule(
     val slotId: String = "",
     // 消息类型与自定义提示词
     val messageType: MessageType = MessageType.DEFAULT,
-    val customPrompt: String = ""
+    val customPrompt: String = "",
+    // JS 侧预先组装好的完整请求消息数组（JSON 字符串）。非空时后台直接发送它，
+    // 使主动消息与普通对话用同一套提示词（角色/用户设定、预设、世界书、摘要、历史）。
+    val requestJson: String = ""
 ) {
     init {
         require(roleId.isNotBlank())
@@ -79,6 +82,7 @@ data class RoleSchedule(
         .put("slotId", resolvedSlotId)
         .put("messageType", messageType.name)
         .put("customPrompt", customPrompt)
+        .put("requestJson", requestJson)
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -95,7 +99,8 @@ data class RoleSchedule(
             messageType = runCatching {
                 MessageType.valueOf(json.optString("messageType", "DEFAULT"))
             }.getOrDefault(MessageType.DEFAULT),
-            customPrompt = json.optString("customPrompt", "")
+            customPrompt = json.optString("customPrompt", ""),
+            requestJson = json.optString("requestJson", "")
         )
     }
 }
@@ -346,11 +351,12 @@ class AiApiClient {
             return@withContext null
         }
         try {
-            val systemPrompt = buildSystemPrompt(schedule)
-
-            val messages = JSONArray()
-                .put(JSONObject().put("role", "system").put("content", systemPrompt))
-                .put(JSONObject().put("role", "user").put("content", "请现在主动开口。"))
+            // 优先用 JS 保存槽时组装好的完整消息数组（含正常对话的整套上下文）；
+            // 解析失败或无此字段时退回「角色设定 + 类型提示词」的简版。
+            val messages = parseRequestJson(schedule.requestJson)
+                ?: JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", buildSystemPrompt(schedule)))
+                    .put(JSONObject().put("role", "user").put("content", "请现在主动开口。"))
 
             val body = JSONObject()
                 .put("model", settings.model)
@@ -390,6 +396,18 @@ class AiApiClient {
 
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+        /** 解析 JS 组装的请求消息数组；非法/为空返回 null，由调用方回退简版提示词。 */
+        fun parseRequestJson(raw: String): JSONArray? {
+            if (raw.isBlank()) return null
+            return try {
+                val array = JSONArray(raw)
+                if (array.length() == 0) null else array
+            } catch (e: Exception) {
+                Log.w("AiApiClient", "requestJson 解析失败，回退简版提示词")
+                null
+            }
+        }
 
         /** 按消息类型组装系统提示词；问好按当前时段选早/中/晚。 */
         fun buildSystemPrompt(schedule: RoleSchedule, nowHour: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): String {

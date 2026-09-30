@@ -230,6 +230,20 @@ test('主动消息类型：原生 messageType/customPrompt 与按时段问好', 
   assert.ok(module.includes('MessageType.valueOf'), '模块未解析 messageType');
 });
 
+test('主动消息优先用 JS 组装的完整请求（requestJson）', () => {
+  const source = readAllKotlin();
+  // 槽带 requestJson 字段，发送时优先解析它，解析失败回退简版提示词
+  assert.ok(source.includes('val requestJson: String'), '缺少 requestJson 字段');
+  assert.ok(source.includes('fun parseRequestJson'), '缺少 requestJson 解析');
+  const module = readFileSync(
+    path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),
+    'utf8'
+  );
+  assert.ok(module.includes('requestJson'), '模块未读取 requestJson');
+  // 解析失败必须回退（不能直接崩）
+  assert.ok(source.includes('?.let { AiApiClient().generateProactiveMessage'), '调用链异常');
+});
+
 test('原生 JS 桥：取出待写队列并提供 ack 删除', () => {
   const module = readFileSync(
     path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),

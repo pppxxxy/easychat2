@@ -18,6 +18,7 @@ import {
   makeProactiveSlotId,
   saveProactiveSettings,
   getApiConfigs,
+  getChatOptions,
 } from './storage.js';
 import {
   cancelDailySchedule,
@@ -33,6 +34,7 @@ import {
 } from './proactiveMessage.js';
 import { useApp } from './context/AppContext.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { buildProactiveRequestJson } from './proactiveRequest.js';
 
 // 互动：让角色在指定时间主动发消息。面板负责编辑（角色 / 多个时间 / 模式 / API 来源），
 // 实际调度交给原生（WorkManager 或精确闹钟），原生侧另存一份配置供后台发送。
@@ -97,17 +99,29 @@ const MESSAGE_TYPE_OPTIONS = [
 
 function TimeField({ value, onCommit, theme, styles }) {
   const [text, setText] = useState(String(value).padStart(2, '0'));
+  const [focused, setFocused] = useState(false);
+  // 仅在不聚焦时用外部值同步显示：编辑中若被外部值回写，会打断输入（如先输 0 再输 9 变成 09 时被重置）。
   useEffect(() => {
-    setText(String(value).padStart(2, '0'));
-  }, [value]);
+    if (!focused) setText(String(value).padStart(2, '0'));
+  }, [value, focused]);
+  const handleChange = next => {
+    const digits = String(next).replace(/[^0-9]/g, '').slice(0, 2);
+    setText(digits);
+    // 即时提交：避免「编辑后直接点保存并启用」时 onBlur 未触发、改动丢失（保存读到旧值）。
+    if (digits.length > 0) onCommit(digits);
+  };
   return (
     <TextInput
       style={styles.timeInput}
       value={text}
       keyboardType="number-pad"
       maxLength={2}
-      onChangeText={setText}
-      onBlur={() => onCommit(text)}
+      onChangeText={handleChange}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        onCommit(text);
+      }}
       placeholderTextColor={theme.colors.textFaint}
     />
   );
@@ -132,6 +146,20 @@ export default function ProactivePanel({ embedded = false }) {
     notification: null, exactAlarm: null, battery: null, autostart: null,
   });
   const [notice, setNotice] = useState('');
+  // 时间感知开关（与设置页共享同一 chatOptions）：保存槽时决定是否把当前时间写进请求。
+  const [timeAware, setTimeAware] = useState(false);
+  // 已展开的时间槽 id 集合：默认全部收起，避免多个时间占满屏幕。
+  const [openSlotIds, setOpenSlotIds] = useState(() => new Set());
+  // 权限区是否展开。
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const toggleSlotOpen = useCallback(slotId => {
+    setOpenSlotIds(prev => {
+      const next = new Set(prev);
+      if (next.has(slotId)) next.delete(slotId);
+      else next.add(slotId);
+      return next;
+    });
+  }, []);
   // 已持久化的槽 id：保存时用于取消被删除的槽
   const persistedSlotIdsRef = useRef([]);
 
@@ -144,9 +172,14 @@ export default function ProactivePanel({ embedded = false }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [settings, api] = await Promise.all([getProactiveSettings(), getApiConfigs()]);
+      const [settings, api, chatOptions] = await Promise.all([
+        getProactiveSettings(),
+        getApiConfigs(),
+        getChatOptions().catch(() => ({ timeAware: false })),
+      ]);
       setSlots(settings.slots);
       persistedSlotIdsRef.current = settings.slots.map(item => item.slotId);
+      setTimeAware(chatOptions.timeAware === true);
       setConfigs(api.configs);
       const nextConfigId = api.configs.some(item => item.id === settings.apiConfigId)
         ? settings.apiConfigId
@@ -274,7 +307,8 @@ export default function ProactivePanel({ embedded = false }) {
         apiKey: currentConfig.apiKey,
       });
 
-      // 3. 逐槽排定；角色信息随槽带上，后台无需 JS 也能组装 prompt
+      // 3. 逐槽排定；在 JS 侧用「正常对话」的同一管线组装好完整请求消息数组，
+      //    连同槽配置存进原生，使后台主动消息与普通回复共用同一套提示词。
       const persisted = [];
       for (const slot of slots) {
         const character = characters.find(item => item.id === slot.roleId);
@@ -286,11 +320,26 @@ export default function ProactivePanel({ embedded = false }) {
           && String(item.id || '') === boundId
           && String(item.characterId || '') === String(slot.roleId || '')
         ));
+        let requestJson = '';
+        if (character) {
+          try {
+            requestJson = await buildProactiveRequestJson({
+              character,
+              sessionTargetId: boundValid ? boundId : '',
+              messageType: slot.messageType,
+              customPrompt: slot.customPrompt,
+              timeAware,
+            });
+          } catch (error) {
+            requestJson = '';
+          }
+        }
         const payload = {
           ...slot,
           roleName: (character && character.name) || slot.roleName || '角色',
           persona: character ? rolePersona(character) : slot.persona,
           sessionTargetId: boundValid ? boundId : '',
+          requestJson,
           // 每次保存生成新 revision，让队列中未执行的旧配置自动失效
           revision: makeProactiveSlotId(),
         };
@@ -311,7 +360,7 @@ export default function ProactivePanel({ embedded = false }) {
     } finally {
       setSaving(false);
     }
-  }, [available, currentConfig, configId, model, slots, characters, sessions]);
+  }, [available, currentConfig, configId, model, slots, characters, sessions, timeAware]);
 
   const requestNotification = useCallback(async () => {
     const granted = await requestNotificationPermission();
@@ -407,7 +456,9 @@ export default function ProactivePanel({ embedded = false }) {
         <Text style={styles.hint}>该角色还没有时间，点「添加时间」开始。</Text>
       ) : null}
 
-      {roleSlots.map(slot => (
+      {roleSlots.map(slot => {
+        const expanded = openSlotIds.has(slot.slotId);
+        return (
         <View key={slot.slotId} style={styles.slotCard}>
           <View style={styles.slotTopRow}>
             <View style={styles.timeRow}>
@@ -448,117 +499,152 @@ export default function ProactivePanel({ embedded = false }) {
               >
                 <Ionicons name="trash-outline" size={16} color={theme.colors.textMuted} />
               </TouchableOpacity>
-            </View>
-          </View>
-          <View style={styles.chipWrap}>
-            {['WORK', 'EXACT'].map(modeValue => (
               <TouchableOpacity
-                key={modeValue}
-                style={[styles.chip, slot.mode === modeValue && styles.chipActive]}
-                onPress={() => updateSlot(slot.slotId, { mode: modeValue })}
-                activeOpacity={0.85}
+                style={styles.deleteButton}
+                onPress={() => toggleSlotOpen(slot.slotId)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
               >
-                <Text style={[styles.chipText, slot.mode === modeValue && styles.chipTextActive]}>
-                  {modeValue === 'WORK' ? '普通' : '精确'}
-                </Text>
+                <Ionicons
+                  name={expanded ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={theme.colors.textMuted}
+                />
               </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={styles.fieldLabel}>消息类型</Text>
-          <View style={styles.chipWrap}>
-            {MESSAGE_TYPE_OPTIONS.map(option => {
-              const active = (slot.messageType || 'DEFAULT') === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => updateSlot(slot.slotId, { messageType: option.value })}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {slot.messageType === 'CUSTOM' ? (
-            <TextInput
-              style={styles.promptInput}
-              value={slot.customPrompt || ''}
-              onChangeText={text => updateSlot(slot.slotId, { customPrompt: text })}
-              placeholder="自定义提示词，例如：用略带调侃的语气问我晚饭吃了没"
-              placeholderTextColor={theme.colors.textFaint}
-              multiline
-            />
-          ) : null}
-          <CollapsibleSelect
-            label="衔接对话"
-            // 槽绑定的会话若已被删除（不在候选里）则显示为空，等同「新建对话」。
-            value={sessionLabelById.get(String(slot.sessionTargetId || '')) || '新建对话'}
-            options={sessionOptions}
-            onSelect={id => updateSlot(slot.slotId, { sessionTargetId: id })}
-            emptyHint="该角色还没有历史对话，首次触发会新建一段。"
-            styles={styles}
-            theme={theme}
-          />
-          <Text style={styles.hint}>
-            选「新建对话」时，到点会新开一段并固定复用；选某段历史对话则把消息续写在那段里。
-          </Text>
-        </View>
-      ))}
-
-      <Text style={styles.sectionTitle}>必要权限</Text>
-      {[
-        {
-          key: 'notification',
-          title: '通知权限',
-          hint: '用于展示角色发来的消息通知',
-          onPress: requestNotification,
-        },
-        {
-          key: 'exactAlarm',
-          title: '精确闹钟权限',
-          hint: '仅「精确」模式需要，可让消息准点触发',
-          onPress: enableExactAlarm,
-        },
-        {
-          key: 'battery',
-          title: '电池优化白名单',
-          hint: '避免系统在后台限制应用导致不触发',
-          onPress: openBatterySettings,
-        },
-        {
-          key: 'autostart',
-          title: '自启动设置',
-          hint: '厂商系统需手动允许后台运行与自启动',
-          onPress: openAutostart,
-        },
-      ].map((item, index) => {
-        const status = permissionStatus[item.key];
-        const icon = status === true ? 'checkmark-circle' : (status === false ? 'close-circle' : 'help-circle');
-        const color = status === true
-          ? theme.colors.primary
-          : (status === false ? theme.colors.danger : theme.colors.textFaint);
-        return (
-          <TouchableOpacity
-            key={item.key}
-            style={styles.permissionRow}
-            onPress={item.onPress}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.permissionIndex}>{index + 1}</Text>
-            <View style={styles.permissionText}>
-              <Text style={styles.permissionTitle}>{item.title}</Text>
-              <Text style={styles.permissionHint}>{item.hint}</Text>
             </View>
-            <Ionicons name={icon} size={20} color={color} />
-          </TouchableOpacity>
+          </View>
+          {expanded ? (
+            <>
+              <View style={styles.chipWrap}>
+                {['WORK', 'EXACT'].map(modeValue => (
+                  <TouchableOpacity
+                    key={modeValue}
+                    style={[styles.chip, slot.mode === modeValue && styles.chipActive]}
+                    onPress={() => updateSlot(slot.slotId, { mode: modeValue })}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.chipText, slot.mode === modeValue && styles.chipTextActive]}>
+                      {modeValue === 'WORK' ? '普通' : '精确'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.fieldLabel}>消息类型</Text>
+              <View style={styles.chipWrap}>
+                {MESSAGE_TYPE_OPTIONS.map(option => {
+                  const active = (slot.messageType || 'DEFAULT') === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => updateSlot(slot.slotId, { messageType: option.value })}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {slot.messageType === 'CUSTOM' ? (
+                <TextInput
+                  style={styles.promptInput}
+                  value={slot.customPrompt || ''}
+                  onChangeText={text => updateSlot(slot.slotId, { customPrompt: text })}
+                  placeholder="自定义提示词，例如：用略带调侃的语气问我晚饭吃了没"
+                  placeholderTextColor={theme.colors.textFaint}
+                  multiline
+                />
+              ) : null}
+              <CollapsibleSelect
+                label="衔接对话"
+                // 槽绑定的会话若已被删除（不在候选里）则显示为空，等同「新建对话」。
+                value={sessionLabelById.get(String(slot.sessionTargetId || '')) || '新建对话'}
+                options={sessionOptions}
+                onSelect={id => updateSlot(slot.slotId, { sessionTargetId: id })}
+                emptyHint="该角色还没有历史对话，首次触发会新建一段。"
+                styles={styles}
+                theme={theme}
+              />
+              <Text style={styles.hint}>
+                选「新建对话」时，到点会新开一段并固定复用；选某段历史对话则把消息续写在那段里。
+              </Text>
+            </>
+          ) : null}
+        </View>
         );
       })}
-      <Text style={styles.hint}>
-        勾=已取得、叉=未取得、问号=无法自动判断（如厂商自启动白名单），点按对应行去系统设置。
-      </Text>
+
+      <TouchableOpacity
+        style={styles.sectionRow}
+        onPress={() => setPermissionsOpen(v => !v)}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: permissionsOpen }}
+      >
+        <Text style={styles.sectionTitle}>必要权限</Text>
+        <Ionicons
+          name={permissionsOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={theme.colors.textFaint}
+        />
+      </TouchableOpacity>
+      {permissionsOpen ? (
+        <>
+          {[
+            {
+              key: 'notification',
+              title: '通知权限',
+              hint: '用于展示角色发来的消息通知',
+              onPress: requestNotification,
+            },
+            {
+              key: 'exactAlarm',
+              title: '精确闹钟权限',
+              hint: '仅「精确」模式需要，可让消息准点触发',
+              onPress: enableExactAlarm,
+            },
+            {
+              key: 'battery',
+              title: '电池优化白名单',
+              hint: '避免系统在后台限制应用导致不触发',
+              onPress: openBatterySettings,
+            },
+            {
+              key: 'autostart',
+              title: '自启动设置',
+              hint: '厂商系统需手动允许后台运行与自启动',
+              onPress: openAutostart,
+            },
+          ].map((item, index) => {
+            const status = permissionStatus[item.key];
+            const icon = status === true ? 'checkmark-circle' : (status === false ? 'close-circle' : 'help-circle');
+            const color = status === true
+              ? theme.colors.primary
+              : (status === false ? theme.colors.danger : theme.colors.textFaint);
+            return (
+              <TouchableOpacity
+                key={item.key}
+                style={styles.permissionRow}
+                onPress={item.onPress}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.permissionIndex}>{index + 1}</Text>
+                <View style={styles.permissionText}>
+                  <Text style={styles.permissionTitle}>{item.title}</Text>
+                  <Text style={styles.permissionHint}>{item.hint}</Text>
+                </View>
+                <Ionicons name={icon} size={20} color={color} />
+              </TouchableOpacity>
+            );
+          })}
+          <Text style={styles.hint}>
+            勾=已取得、叉=未取得、问号=无法自动判断（如厂商自启动白名单），点按对应行去系统设置。
+          </Text>
+        </>
+      ) : null}
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 

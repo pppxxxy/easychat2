@@ -1,0 +1,148 @@
+// 主动消息请求组装：在 JS 侧用与「正常对话」相同的管线生成完整消息数组，
+// 保存时间槽时快照进原生配置；后台触发时原生直接发送这份消息，保证主动消息
+// 与普通回复用同一套提示词（角色设定 / 用户设定 / 预设 / 世界书 / 记忆摘要 / 历史对话）。
+//
+// 与普通对话的差异（按用户要求）：
+// - 不带正则脚本（只要纯文字）；
+// - 追加一段「主动开话题」的特殊提示，说明这是角色主动给用户发消息；
+// - 时间感知开启时附上当前时间。
+
+import { buildRequestMessages } from './chatPipeline.js';
+import { buildTimeAwareText } from './currentTime.js';
+
+// 按消息类型生成「本轮任务」提示；问好按触发时段选早/中/晚。
+export function buildProactiveTask({ messageType = 'DEFAULT', customPrompt = '', now = new Date() } = {}) {
+  const type = String(messageType || 'DEFAULT').toUpperCase();
+  if (type === 'CARE') {
+    return '主动给一段时间没说话的用户发一条关心其心情与状态的消息：先体贴地询问对方此刻心情如何、累不累，语气温暖真诚。';
+  }
+  if (type === 'GREETING') {
+    const hour = (now instanceof Date ? now : new Date(now)).getHours();
+    const period = hour >= 5 && hour <= 11
+      ? '早上'
+      : hour >= 12 && hour <= 17
+        ? '中午'
+        : hour >= 18 && hour <= 22
+          ? '晚上'
+          : '夜里';
+    return `主动向用户发一条${period}的问好消息，自然亲切，可以带一点当天的问候。`;
+  }
+  if (type === 'CUSTOM') {
+    const prompt = String(customPrompt || '').trim();
+    return prompt || '主动给一段时间没说话的用户发一条简短、自然的问候消息。';
+  }
+  return '主动给一段时间没说话的用户发一条简短、自然的问候消息。';
+}
+
+// 特殊提示：明确告诉角色「这是你主动给用户发消息」，并给出本轮任务与字数约束。
+export function buildProactiveExtraPrompt(options) {
+  const task = buildProactiveTask(options);
+  return [
+    '现在是你可以主动给用户发消息的时刻。用户此刻并没有开口，这是你主动开启的话题。',
+    task,
+    '要求：不超过 80 字，不要输出 JSON 或解释，直接输出消息正文。',
+  ].join('\n');
+}
+
+// 历史对话快照上限：只取最近若干条，避免 requestJson 过大（AsyncStorage/SharedPreferences
+// 与请求体都有体积压力）。
+export const PROACTIVE_HISTORY_LIMIT = 20;
+
+// 组装主动消息的完整请求消息数组。
+// 传入的 character 会被去掉正则脚本（主动消息只要纯文字）。
+export function buildProactiveRequestMessages({
+  character,
+  historyMessages = [],
+  userProfile = null,
+  globalPresets = [],
+  summaryText = '',
+  messageType = 'DEFAULT',
+  customPrompt = '',
+  timeAware = false,
+  now = new Date(),
+} = {}) {
+  const cleanCharacter = character && typeof character === 'object'
+    ? { ...character, regexScripts: [] }
+    : character;
+  // 只保留最近 PROACTIVE_HISTORY_LIMIT 条，且过滤占位/系统错误等非对话消息。
+  const trimmedHistory = (Array.isArray(historyMessages) ? historyMessages : [])
+    .filter(item => item && !item.pending && (item.role === 'user' || item.role === 'assistant'))
+    .slice(-PROACTIVE_HISTORY_LIMIT);
+  return buildRequestMessages({
+    character: cleanCharacter,
+    historyMessages: trimmedHistory,
+    userText: '（请现在主动开口）',
+    userProfile,
+    globalPresets,
+    summaryText,
+    extraSystemPrompt: buildProactiveExtraPrompt({ messageType, customPrompt, now }),
+    currentTimeText: buildTimeAwareText(timeAware, now),
+  });
+}
+
+// 保存槽时从本地存储读取该角色/该目标会话的上下文，组装成可直接发送的消息数组 JSON。
+// 目标会话为空（新建对话）时只用角色设定等静态上下文，不含历史。
+// 存储依赖用动态 import 延迟加载：纯函数（上面的 build*）因此可在纯 Node 下独立测试，
+// 不被 expo-file-system 等原生模块拖入。
+export async function buildProactiveRequestJson({
+  character,
+  sessionTargetId = '',
+  messageType = 'DEFAULT',
+  customPrompt = '',
+  timeAware = false,
+  now = new Date(),
+} = {}) {
+  const {
+    getMessagesBySession,
+    getSessionSummaries,
+    getEnabledGlobalPresetPrompts,
+    getUserProfile,
+  } = await import('./storage.js');
+  const { buildMemorySummaryText } = await import('./memorySummary.js');
+
+  let historyMessages = [];
+  let summaryText = '';
+  const targetId = String(sessionTargetId || '');
+  if (targetId) {
+    try {
+      const [messages, summaries] = await Promise.all([
+        getMessagesBySession(targetId),
+        getSessionSummaries(targetId),
+      ]);
+      historyMessages = Array.isArray(messages) ? messages : [];
+      summaryText = buildMemorySummaryText(character, summaries, false);
+    } catch (error) {
+      historyMessages = [];
+      summaryText = '';
+    }
+  }
+  let globalPresets = [];
+  let userProfile = null;
+  try {
+    globalPresets = await getEnabledGlobalPresetPrompts();
+  } catch (error) {
+    globalPresets = [];
+  }
+  try {
+    userProfile = await getUserProfile();
+  } catch (error) {
+    userProfile = null;
+  }
+
+  const messages = buildProactiveRequestMessages({
+    character,
+    historyMessages,
+    userProfile,
+    globalPresets,
+    summaryText,
+    messageType,
+    customPrompt,
+    timeAware,
+    now,
+  });
+  try {
+    return JSON.stringify(messages);
+  } catch (error) {
+    return '';
+  }
+}

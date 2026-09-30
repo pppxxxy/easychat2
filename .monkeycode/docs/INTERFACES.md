@@ -38,7 +38,7 @@
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿；`timeAware`（缺省关闭）决定每次请求的系统提示是否前置一行 `[当前时间] YYYY-MM-DD 周X HH:mm`（`src/currentTime.js`），让角色感知当前日期时间，普通对话与主动消息共用同一格式
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消与删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择，选择态暂时隐藏消息行内操作并禁用输入发送
 - 用户文字消息的「修改重发」先弹出确认框，说明会撤回该消息及其后续回复，并将原文字回退到输入框；确认后才截断消息并回填草稿
@@ -413,7 +413,7 @@
 | `@easychat2_vector_memory`（legacy） | 旧的单条向量配置对象 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }`，读取时迁为多配置首条，不再写入 |
 | `@easychat2_vector_index::<characterId>` | 角色级记忆片段索引 `[{ id, messageId, sessionId, role, at, text, vector }]`；清理按 `sessionId` 分片 |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }`；`providers[].apiKey` 落盘为安全存储引用 |
-| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean, keepDraft: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true, keepDraft: false }` |
+| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean, keepDraft: boolean, timeAware: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false }` |
 | `@easychat2_session_draft::<sessionId>` | 会话级输入框草稿（纯文本，仅 `keepDraft` 开启时写入与回填；删除会话时一并清理） |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
