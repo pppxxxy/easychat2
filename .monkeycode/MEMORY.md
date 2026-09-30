@@ -56,6 +56,16 @@ Entries discovered by the Agent during task execution should follow this format:
   - 检查结果必须有代码证据或可重复验证，确认后补充到 `.monkeycode/docs/审查待办.md`。
   - 按依赖关系逐项修复，每次修复补充对应回归测试，完成全部门禁后汇报并等待用户检查。
 
+[Project Knowledge Summary]
+- Date: 2026-09-30
+- Context: 用户要求在上下文压缩后仍能恢复项目进度
+- Category: Workflow & Collaboration
+- Instructions:
+  - **恢复进度先读 `.monkeycode/docs/进度交接.md`**：记录当前分支结构（main / 0a `chore/sdk54-upgrade` / 0b `chore/sdk54-newarch-probe`）、下一步动作、未完成待办、门禁基线与易踩的坑。
+  - 三处同名提交靠 cherry-pick 同步（不要 merge）；0a/0b 相对 main 差异仅 SDK 54 必需项；main 每批改完 cherry-pick 到两分支并各自 push。
+  - 升级路线已定：SDK 50→54 / RN 0.73→0.81 / 新架构开，均已在 0a/0b 分支完成，只差 0b 真机验证 `[INTEROP_PROBE]` 探针；探针过则零改造，不过才迁 TurboModule（0c，范围仅 `plugins/proactiveMessage/android/*.kt` 约 1168 行）。勿再重新调研版本链。
+  - 该文件是「时间点状态」，会随进展更新；架构与约定的权威来源仍是 `AGENTS.md` 与 `.monkeycode/docs/`。
+
 [User Instruction Summary]
 - Date: 2026-09-29
 - Context: 平台搜索积分将耗尽，需增设备用联网搜索能力
