@@ -14,7 +14,7 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "plugins": [
       [
         "./plugins/withAsyncStorageDbSize",
