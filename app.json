@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#2593fd"
+      "backgroundColor": "#118afd"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -39,7 +39,7 @@
       "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#2593fd"
+        "backgroundColor": "#118afd"
       },
       "permissions": [],
       "blockedPermissions": [
