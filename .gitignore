@@ -15,3 +15,5 @@ ios/
 .env.*
 .DS_Store
 npm-debug.log*
+# 本地手工大卡解析测试素材：不进版本库，仅保留在工作区
+default.jpg
