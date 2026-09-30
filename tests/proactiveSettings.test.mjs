@@ -289,3 +289,17 @@ test('互动面板：每个槽可选择衔接的历史对话或新建对话', ()
   // 候选只取该角色的单聊会话
   assert.match(panel, /item\.type !== 'group' && item\.characterId === activeRoleId/);
 });
+
+test('互动面板：时间槽不自动按时间排序，改为按钮显式触发', () => {
+  const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  // roleSlots 只过滤、不再 sort：编辑时间时不会立即跳位
+  const roleSlotsBlock = panel.match(
+    /const roleSlots = useMemo\([\s\S]*?\[slots, activeRoleId\]\s*\)/
+  );
+  assert.ok(roleSlotsBlock, '未找到 roleSlots 定义');
+  assert.equal(roleSlotsBlock[0].includes('.sort('), false, 'roleSlots 不应再自动 sort');
+  assert.match(roleSlotsBlock[0], /slots\.filter\(item => item\.roleId === activeRoleId\)/);
+  // 提供显式的排序按钮与处理函数
+  assert.ok(panel.includes('sortSlotsByTime'));
+  assert.ok(panel.includes('按时间排序'));
+});

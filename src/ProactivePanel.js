@@ -214,9 +214,10 @@ export default function ProactivePanel({ embedded = false }) {
   const activeRoleId = selectedRoleId
     || (characters[0] && characters[0].id)
     || '';
+  // 保持用户添加时的顺序，不再每次渲染按时间自动排序——编辑时间时数字变化会立即换位，
+  // 让人找不到自己在改哪一条，反直觉。需要整理时由用户点「按时间排序」显式触发。
   const roleSlots = useMemo(
-    () => slots.filter(item => item.roleId === activeRoleId)
-      .sort((a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute)),
+    () => slots.filter(item => item.roleId === activeRoleId),
     [slots, activeRoleId]
   );
 
@@ -271,6 +272,13 @@ export default function ProactivePanel({ embedded = false }) {
 
   const removeSlot = useCallback(slotId => {
     setSlots(prev => prev.filter(item => item.slotId !== slotId));
+  }, []);
+
+  // 仅按用户点击触发：把全部槽按时间升序排列。不做自动排序，避免编辑时跳位。
+  const sortSlotsByTime = useCallback(() => {
+    setSlots(prev => [...prev].sort(
+      (a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute)
+    ));
   }, []);
 
   const chooseConfig = useCallback(id => {
@@ -446,10 +454,23 @@ export default function ProactivePanel({ embedded = false }) {
 
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>时间（可多个）</Text>
-        <TouchableOpacity style={styles.addButton} onPress={addSlot} activeOpacity={0.85}>
-          <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />
-          <Text style={styles.addButtonText}>添加时间</Text>
-        </TouchableOpacity>
+        <View style={styles.sectionActions}>
+          {roleSlots.length > 1 ? (
+            <TouchableOpacity
+              style={styles.sortButton}
+              onPress={sortSlotsByTime}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+            >
+              <Ionicons name="swap-vertical" size={15} color={theme.colors.primary} />
+              <Text style={styles.sortButtonText}>按时间排序</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity style={styles.addButton} onPress={addSlot} activeOpacity={0.85}>
+            <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />
+            <Text style={styles.addButtonText}>添加时间</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {roleSlots.length === 0 ? (
@@ -667,6 +688,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 8 },
   sectionTitle: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', marginTop: 20 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 },
+  sectionActions: { flexDirection: 'row', alignItems: 'center' },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+  },
+  sortButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
   fieldLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginTop: 12 },
   promptInput: {
@@ -702,7 +735,6 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    marginTop: 20,
   },
   addButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
   slotCard: {
