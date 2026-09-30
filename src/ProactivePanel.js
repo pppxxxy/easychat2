@@ -117,7 +117,7 @@ function TimeField({ value, onCommit, theme, styles }) {
 export default function ProactivePanel({ embedded = false }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
-  const { characters } = useApp();
+  const { characters, sessions } = useApp();
   const available = isProactiveMessageAvailable();
 
   const [loading, setLoading] = useState(true);
@@ -187,6 +187,27 @@ export default function ProactivePanel({ embedded = false }) {
     [slots, activeRoleId]
   );
 
+  // 该角色的单聊会话候选：用于把某个时间槽「衔接」到某段历史对话。
+  // 空值代表「新建对话」（首次触发新建后固定复用这段）。
+  const sessionOptions = useMemo(() => {
+    const list = (Array.isArray(sessions) ? sessions : [])
+      .filter(item => item && item.type !== 'group' && item.characterId === activeRoleId)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .map(item => {
+        const preview = String(item.preview || '').trim();
+        return {
+          value: String(item.id || ''),
+          label: preview || '（空会话）',
+        };
+      });
+    return [{ value: '', label: '新建对话' }, ...list];
+  }, [sessions, activeRoleId]);
+  const sessionLabelById = useMemo(() => {
+    const map = new Map();
+    sessionOptions.forEach(option => map.set(option.value, option.label));
+    return map;
+  }, [sessionOptions]);
+
   const updateSlot = useCallback((slotId, patch) => {
     setSlots(prev => prev.map(item => (item.slotId === slotId ? { ...item, ...patch } : item)));
   }, []);
@@ -210,6 +231,7 @@ export default function ProactivePanel({ embedded = false }) {
         revision: '',
         messageType: 'DEFAULT',
         customPrompt: '',
+        sessionTargetId: '',
       },
     ]);
   }, [characters, activeRoleId]);
@@ -256,10 +278,19 @@ export default function ProactivePanel({ embedded = false }) {
       const persisted = [];
       for (const slot of slots) {
         const character = characters.find(item => item.id === slot.roleId);
+        // 绑定的会话若已不存在（被删）则规整为空串，等同「新建对话」，避免存储残留无效 id。
+        const boundId = String(slot.sessionTargetId || '');
+        const boundValid = boundId && (Array.isArray(sessions) ? sessions : []).some(item => (
+          item
+          && item.type !== 'group'
+          && String(item.id || '') === boundId
+          && String(item.characterId || '') === String(slot.roleId || '')
+        ));
         const payload = {
           ...slot,
           roleName: (character && character.name) || slot.roleName || '角色',
           persona: character ? rolePersona(character) : slot.persona,
+          sessionTargetId: boundValid ? boundId : '',
           // 每次保存生成新 revision，让队列中未执行的旧配置自动失效
           revision: makeProactiveSlotId(),
         };
@@ -280,7 +311,7 @@ export default function ProactivePanel({ embedded = false }) {
     } finally {
       setSaving(false);
     }
-  }, [available, currentConfig, configId, model, slots, characters]);
+  }, [available, currentConfig, configId, model, slots, characters, sessions]);
 
   const requestNotification = useCallback(async () => {
     const granted = await requestNotificationPermission();
@@ -461,6 +492,19 @@ export default function ProactivePanel({ embedded = false }) {
               multiline
             />
           ) : null}
+          <CollapsibleSelect
+            label="衔接对话"
+            // 槽绑定的会话若已被删除（不在候选里）则显示为空，等同「新建对话」。
+            value={sessionLabelById.get(String(slot.sessionTargetId || '')) || '新建对话'}
+            options={sessionOptions}
+            onSelect={id => updateSlot(slot.slotId, { sessionTargetId: id })}
+            emptyHint="该角色还没有历史对话，首次触发会新建一段。"
+            styles={styles}
+            theme={theme}
+          />
+          <Text style={styles.hint}>
+            选「新建对话」时，到点会新开一段并固定复用；选某段历史对话则把消息续写在那段里。
+          </Text>
         </View>
       ))}
 

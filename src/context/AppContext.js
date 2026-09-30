@@ -24,6 +24,8 @@ import {
   saveSessions,
   startNewSession,
   appendProactiveMessage,
+  getProactiveSettings,
+  bindProactiveSlotSession,
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
   deleteSessions as deleteSessionsStorage,
@@ -391,16 +393,24 @@ export function AppProvider({ children }) {
   }, [applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
 
   // 主动消息落库：把原生待写队列里的消息逐条写入各自角色的单聊会话，再刷新列表。
-  // 返回成功写入的消息 id，供调用方 ack（删除原生队列项）。角色已删除的条目跳过且视为已处理，
-  // 避免队列卡死。
+  // 目标会话由槽的 sessionTargetId 决定：命中该角色的历史对话则写入，否则新建一段并把槽绑定过去
+  // （下次触发即固定复用；该会话若被删除则视为空，再次新建）。返回成功写入的消息 id 供 ack；
+  // 角色已删除的条目跳过且视为已处理，避免队列卡死。
   const ingestProactiveMessages = useCallback(async messages => {
     const list = Array.isArray(messages) ? messages : [];
     if (list.length === 0 || !loadedRef.current) return { written: [], skipped: [] };
     const written = [];
     const skipped = [];
+    // 槽绑定表只读一次；新建后同步更新，保证同一轮多条消息指向同一段新建会话。
+    const settings = await getProactiveSettings().catch(() => ({ slots: [] }));
+    const slotTargets = new Map(
+      (Array.isArray(settings.slots) ? settings.slots : [])
+        .map(slot => [String(slot.slotId || ''), String(slot.sessionTargetId || '')])
+    );
     for (const message of list) {
       const roleId = String(message && message.roleId || '');
       const id = String(message && message.id || '');
+      const slotId = String(message && message.slotId || '');
       if (!roleId || !id) {
         if (id) skipped.push(id);
         continue;
@@ -411,12 +421,18 @@ export function AppProvider({ children }) {
         continue;
       }
       try {
-        await appendProactiveMessage(roleId, {
+        const result = await appendProactiveMessage(roleId, {
           id,
           text: message.text,
           createdAt: message.createdAt,
+          sessionTargetId: slotTargets.get(slotId) || '',
         });
         written.push(id);
+        // 首次新建对话：把槽绑定到这段新会话，之后固定复用。
+        if (result && result.created && slotId && result.sessionId) {
+          slotTargets.set(slotId, result.sessionId);
+          await bindProactiveSlotSession(slotId, result.sessionId).catch(() => {});
+        }
       } catch (error) {
         // 写入失败：不加入 written，下次启动消费者会重试
       }

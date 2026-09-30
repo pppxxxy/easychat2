@@ -126,6 +126,7 @@ Module._load = originalLoad;
 const {
   getProactiveSettings,
   saveProactiveSettings,
+  bindProactiveSlotSession,
   makeProactiveSlotId,
   PROACTIVE_MODES,
 } = runtimeModule.exports;
@@ -248,4 +249,43 @@ test('主动消息落库：存储导出 appendProactiveMessage，桥接消费并
   const switchIndex = bridge.indexOf('await switchCharacter(roleId)');
   assert.ok(ingestIndex > 0 && switchIndex > 0, '缺少落库或切换调用');
   assert.ok(ingestIndex < switchIndex, '必须先落库再切换角色');
+});
+
+test('衔接对话：槽可保存 sessionTargetId，非法/缺失回退空串', async () => {
+  const saved = await saveProactiveSettings({
+    slots: [
+      { roleId: 'role-a', hour: 8, minute: 0, sessionTargetId: 'sess-1' },
+      { roleId: 'role-b', hour: 9, minute: 0 },
+    ],
+  });
+  assert.equal(saved.slots[0].sessionTargetId, 'sess-1');
+  assert.equal(saved.slots[1].sessionTargetId, '', '缺省应为空串（新建对话）');
+});
+
+test('bindProactiveSlotSession：仅更新指定槽的绑定，保留其它编辑', async () => {
+  await saveProactiveSettings({
+    slots: [
+      { slotId: 's1', roleId: 'role-a', hour: 8, minute: 0 },
+      { slotId: 's2', roleId: 'role-a', hour: 9, minute: 0, sessionTargetId: 'keep' },
+    ],
+  });
+  const ok = await bindProactiveSlotSession('s1', 'new-session');
+  assert.equal(ok, true);
+  const loaded = await getProactiveSettings();
+  assert.equal(loaded.slots.find(item => item.slotId === 's1').sessionTargetId, 'new-session');
+  assert.equal(loaded.slots.find(item => item.slotId === 's2').sessionTargetId, 'keep');
+  // 未命中的槽返回 false，不误报
+  assert.equal(await bindProactiveSlotSession('nope', 'x'), false);
+  // 空参数直接拒绝
+  assert.equal(await bindProactiveSlotSession('', 'x'), false);
+  assert.equal(await bindProactiveSlotSession('s1', ''), false);
+});
+
+test('互动面板：每个槽可选择衔接的历史对话或新建对话', () => {
+  const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  assert.ok(panel.includes("label: '新建对话'"));
+  assert.ok(panel.includes('sessionTargetId'));
+  assert.ok(panel.includes('sessionOptions'));
+  // 候选只取该角色的单聊会话
+  assert.match(panel, /item\.type !== 'group' && item\.characterId === activeRoleId/);
 });

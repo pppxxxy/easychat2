@@ -134,27 +134,54 @@ export function saveMessagesBySession(sessionId, messages, characterId = '', pro
   ));
 }
 
-// 把一条主动消息写入角色的单聊会话。目标会话不存在时先建立，避免落到空会话。
+// 把一条主动消息写入角色的单聊会话。
+// - 指定 sessionTargetId（衔接某段历史对话）且该会话仍属于此角色：写入该会话；
+// - 否则新建一段会话并写入（首次触发新建后由调用方回填绑定，之后固定复用）。
 // 幂等：消息 id 由原生按 slotId+日期派生，重复消费不会产生重复消息。
-// 返回目标 sessionId；字符不存在等异常向上抛出，由调用方决定是否 ack。
+// 返回 { sessionId, created }：created=true 表示本次新建了会话，调用方应把槽绑定到该 id。
 export function appendProactiveMessage(characterId, incoming) {
   const ownerId = String(characterId || '');
   const source = incoming && typeof incoming === 'object' ? incoming : {};
   const messageId = String(source.id || '');
   const text = String(source.text || '').trim();
+  const targetSessionId = String(source.sessionTargetId || '');
   return enqueueSessionMutation(async () => {
-    if (!ownerId || !messageId || !text) return '';
+    if (!ownerId || !messageId || !text) return { sessionId: '', created: false };
     const sessionsStatus = await readSessionsStatus();
     if (sessionsStatus.status === 'corrupt') {
       throw new Error('会话列表读取失败，请稍后重试');
     }
     const sessions = sessionsStatus.sessions;
-    let target = sessions.find(
-      session => session.type !== 'group' && String(session.characterId || '') === ownerId
-    );
+    let target = null;
+    let created = false;
+    if (targetSessionId) {
+      target = sessions.find(session => (
+        session.type !== 'group'
+        && String(session.id || '') === targetSessionId
+        && String(session.characterId || '') === ownerId
+      )) || null;
+    }
+    // 未命中（未指定 / 指定会话已删）：先在角色已有单聊会话里找是否已含该消息 id，
+    // 命中则复用它，使「同槽同日不重复」不依赖绑定写入成功（需求 1.5 幂等）。
+    if (!target) {
+      const owned = sessions.filter(
+        session => session.type !== 'group' && String(session.characterId || '') === ownerId
+      );
+      for (const candidate of owned) {
+        const candidateStatus = await getMessagesBySessionStatus(candidate.id);
+        if (candidateStatus.status === 'corrupt') {
+          throw new Error('聊天记录读取失败，请稍后重试');
+        }
+        if (candidateStatus.messages.some(item => item && String(item.id || '') === messageId)) {
+          target = candidate;
+          break;
+        }
+      }
+    }
     if (!target) {
       target = createEmptySession(ownerId, sessions);
       await saveSessionsInternal(sortSessions([...sessions, target]));
+      created = true;
     }
     const status = await getMessagesBySessionStatus(target.id);
     if (status.status === 'corrupt') {
@@ -167,9 +194,9 @@ export function appendProactiveMessage(characterId, incoming) {
       timestamp,
     });
     // 幂等命中（无新增）时不必写盘
-    if (next.length === status.messages.length) return target.id;
+    if (next.length === status.messages.length) return { sessionId: target.id, created };
     await saveMessagesBySessionInternal(target.id, next, ownerId);
-    return target.id;
+    return { sessionId: target.id, created };
   });
 }
 

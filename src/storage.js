@@ -64,6 +64,7 @@ export {
   saveMoments,
   saveMomentsSettings,
   saveProactiveSettings,
+  bindProactiveSlotSession,
   updateMoments,
 } from './storage/moments.js';
 export { deleteStickers, getStickers, reorderStickers, saveSticker } from './storage/stickers.js';

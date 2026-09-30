@@ -72,6 +72,9 @@ function normalizeProactiveSlot(raw, index = 0) {
       ? source.messageType
       : 'DEFAULT',
     customPrompt: String(source.customPrompt || ''),
+    // 指定衔接的历史对话 id；空串表示「新建对话」。首次触发新建后由落库逻辑回填为新建的会话 id，
+    // 之后该槽固定复用这一段；会话被删则视为空串，下次触发再新建并重新绑定。
+    sessionTargetId: String(source.sessionTargetId || ''),
   };
 }
 
@@ -105,6 +108,26 @@ export async function saveProactiveSettings(settings) {
   const normalized = normalizeProactiveSettings(settings);
   await AsyncStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(normalized));
   return normalized;
+}
+
+// 主动消息落库时把「新建对话」的槽绑定到实际写入的会话 id：重读当前设置后仅改该槽，
+// 避免用旧的整表覆盖用户在面板上的其它编辑。返回是否命中该槽。
+export function bindProactiveSlotSession(slotId, sessionId) {
+  const target = String(slotId || '');
+  const bound = String(sessionId || '');
+  if (!target || !bound) return Promise.resolve(false);
+  return enqueueMomentsMutation(async () => {
+    const stored = await getProactiveSettings();
+    let hit = false;
+    const slots = stored.slots.map(slot => {
+      if (slot.slotId !== target || slot.sessionTargetId === bound) return slot;
+      hit = true;
+      return { ...slot, sessionTargetId: bound };
+    });
+    if (!hit) return false;
+    await AsyncStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify({ ...stored, slots }));
+    return true;
+  });
 }
 
 function normalizeMoment(raw) {
