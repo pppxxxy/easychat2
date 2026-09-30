@@ -33,14 +33,14 @@ import java.util.concurrent.TimeUnit
 
 enum class ScheduleMode { WORK, EXACT }
 
+/** 主动消息的类型，决定生成提示词的取向。问好按时间段自动选早/中/晚。 */
+enum class MessageType { DEFAULT, CARE, GREETING, CUSTOM }
+
 /**
  * 一个"时间槽"：某角色在某个时刻的一条定时任务。
  * 同一角色可以配置多个槽（早 8:00、晚 21:00…），因此唯一标识用 slotId，
  * 而不是 roleId —— 否则多个槽会在 WorkManager/闹钟/去重记录上互相覆盖。
  */
-/** 主动消息的类型，决定生成提示词的取向。问好按时间段自动选早/中/晚。 */
-enum class MessageType { DEFAULT, CARE, GREETING, CUSTOM }
-
 data class RoleSchedule(
     val roleId: String,
     val roleName: String,
@@ -238,13 +238,13 @@ class MessageStore(context: Context) {
 
     fun appendPendingMessage(message: PendingMessage) {
         val list = loadPendingMessages()
-            // 同 id 幂等：同一槽同一天重复生成时保留最早一条
+            // 同 id 幂等：同一槽同一天重复生成时以后写入的为准（旧值先移除）
             .filterNot { it.id == message.id }
             .plus(message)
         // 超期淘汰：生成超过 7 天的消息不再有意义
         val cutoff = System.currentTimeMillis() - MAX_PENDING_AGE_MS
         val fresh = list.filter { it.createdAt >= cutoff }
-        // 上限淘汰：超出按 createdAt 淘汰最旧
+        // 上限淘汰：超出时按 createdAt 保留最新的 MAX_PENDING 条
         val bounded = if (fresh.size > MAX_PENDING) {
             fresh.sortedBy { it.createdAt }.takeLast(MAX_PENDING)
         } else fresh
@@ -324,9 +324,6 @@ object FallbackMessages {
             in 12..17 -> afternoon
             else -> evening
         }
-        return list.random()
-    }
-}
         return list.random()
     }
 }

@@ -110,6 +110,51 @@ test('Kotlin 源码不使用不存在的系统 action 常量', () => {
   assert.ok(source.includes('Intent.ACTION_TIME_CHANGED'));
 });
 
+test('Kotlin 源码大括号平衡（沙箱无法编译，防编辑遗留重复片段）', () => {
+  // 曾经因为一次编辑留下重复的 `}` 片段导致 CI 编译失败（Expecting a top level declaration）。
+  for (const file of readdirSync(KOTLIN_DIR).filter(f => f.endsWith('.kt'))) {
+    const source = readFileSync(path.join(KOTLIN_DIR, file), 'utf8');
+    let balance = 0;
+    let inString = false;
+    let inTriple = false;
+    for (let i = 0; i < source.length; i += 1) {
+      const ch = source[i];
+      if (!inString && !inTriple && source.slice(i, i + 3) === '"""') {
+        inTriple = true;
+        i += 2;
+        continue;
+      }
+      if (inTriple && source.slice(i, i + 3) === '"""') {
+        inTriple = false;
+        i += 2;
+        continue;
+      }
+      if (inTriple) continue;
+      if (!inString && ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (inString) {
+        if (ch === '\\') i += 1;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '{') balance += 1;
+      else if (ch === '}') balance -= 1;
+      assert.ok(balance >= 0, `${file} 出现多余的 }`);
+    }
+    assert.equal(balance, 0, `${file} 大括号不平衡`);
+  }
+});
+
+test('Kotlin 顶层声明不重复定义', () => {
+  const source = readAllKotlin();
+  for (const keyword of ['enum class MessageType', 'enum class ScheduleMode', 'object FallbackMessages']) {
+    const count = source.split(keyword).length - 1;
+    assert.equal(count, 1, `${keyword} 应恰好定义一次，实际 ${count}`);
+  }
+});
+
 test('同一角色多时间以 slotId 为唯一标识，不按 roleId 覆盖', () => {
   const source = readAllKotlin();
   // 去重、WorkManager 唯一名、闹钟 requestCode 都必须按槽区分
