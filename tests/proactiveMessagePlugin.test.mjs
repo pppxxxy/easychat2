@@ -244,6 +244,37 @@ test('主动消息优先用 JS 组装的完整请求（requestJson）', () => {
   assert.ok(source.includes('?.let { AiApiClient().generateProactiveMessage'), '调用链异常');
 });
 
+test('通知：新渠道弹横幅 + 角色头像 + 单色小图标去圈 i', () => {
+  const source = readAllKotlin();
+  // 新渠道 ID：旧渠道重要性被系统固定，只能新建
+  assert.ok(source.includes('"proactive_message_v2"'), '应换新渠道 ID');
+  assert.ok(source.includes('CATEGORY_MESSAGE'), '应设消息类别以允许横幅');
+  // 角色头像：Person.setIcon + setLargeIcon
+  assert.ok(source.includes('setLargeIcon'), '应设大图标（角色头像）');
+  assert.ok(source.includes('createWithBitmap'), 'Person 应带头像');
+  assert.ok(source.includes('avatarUri'), '槽应带 avatarUri');
+  // 单色小图标：用自带 drawable，不再用系统 ic_dialog_info
+  assert.ok(source.includes('R.drawable.ic_stat_proactive'), '应用自带小图标');
+  assert.ok(!source.includes('android.R.drawable.ic_dialog_info'), '不应再用系统圈 i 图标');
+  // 插件注入该 drawable
+  const plugin = require('../plugins/withProactiveMessage.js');
+  const pluginSrc = readFileSync(
+    path.join(HERE, '..', 'plugins', 'withProactiveMessage.js'),
+    'utf8'
+  );
+  assert.ok(pluginSrc.includes('ic_stat_proactive.xml'), '插件应注入单色图标');
+  assert.ok(typeof plugin === 'function');
+});
+
+test('重新保存槽会清「今天已发」标记，当天可再次触发', () => {
+  const source = readAllKotlin();
+  assert.ok(source.includes('fun clearSlotSentToday'), '缺少清除标记方法');
+  // upsertSchedule 内必须调用它
+  const upsert = source.match(/fun upsertSchedule[\s\S]*?\n    \}/);
+  assert.ok(upsert, '未找到 upsertSchedule');
+  assert.ok(upsert[0].includes('clearSlotSentToday'), 'upsertSchedule 应清除已发标记');
+});
+
 test('原生 JS 桥：取出待写队列并提供 ack 删除', () => {
   const module = readFileSync(
     path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),

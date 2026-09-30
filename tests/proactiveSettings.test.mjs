@@ -251,6 +251,21 @@ test('主动消息落库：存储导出 appendProactiveMessage，桥接消费并
   assert.ok(ingestIndex < switchIndex, '必须先落库再切换角色');
 });
 
+test('找不到角色的待写消息不 ack 删除，改为保留重试', () => {
+  const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
+  const ctx = fs.readFileSync(path.resolve('src/context/AppContext.js'), 'utf8');
+  // ingest 返回 deferred 名单
+  assert.ok(ctx.includes('deferred'), 'AppContext 应返回 deferred');
+  // 角色不在库时进 deferred（而非 skipped）
+  const roleMissing = ctx.match(/角色当前不在库[\s\S]{0,120}/);
+  assert.ok(roleMissing, '未找到角色缺失分支');
+  assert.ok(roleMissing[0].includes('deferred.push'), '角色缺失应保留重试');
+  // App.js 只 ack written + skipped，不含 deferred
+  const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
+  assert.ok(!/acked\s*=\s*\[[^\]]*deferred/.test(bridge), 'deferred 不得被 ack');
+  assert.match(bridge, /const acked = \[\.\.\.written, \.\.\.skipped\]/);
+});
+
 test('衔接对话：槽可保存 sessionTargetId，非法/缺失回退空串', async () => {
   const saved = await saveProactiveSettings({
     slots: [

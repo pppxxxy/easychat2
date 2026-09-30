@@ -14,6 +14,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import com.pppxxxy.easychat2.MainActivity
+import com.pppxxxy.easychat2.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -58,7 +59,9 @@ data class RoleSchedule(
     val customPrompt: String = "",
     // JS 侧预先组装好的完整请求消息数组（JSON 字符串）。非空时后台直接发送它，
     // 使主动消息与普通对话用同一套提示词（角色/用户设定、预设、世界书、摘要、历史）。
-    val requestJson: String = ""
+    val requestJson: String = "",
+    // 角色头像本地文件 URI（file://…/avatars/xxx），用于通知头像。
+    val avatarUri: String = ""
 ) {
     init {
         require(roleId.isNotBlank())
@@ -83,6 +86,7 @@ data class RoleSchedule(
         .put("messageType", messageType.name)
         .put("customPrompt", customPrompt)
         .put("requestJson", requestJson)
+        .put("avatarUri", avatarUri)
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -100,7 +104,8 @@ data class RoleSchedule(
                 MessageType.valueOf(json.optString("messageType", "DEFAULT"))
             }.getOrDefault(MessageType.DEFAULT),
             customPrompt = json.optString("customPrompt", ""),
-            requestJson = json.optString("requestJson", "")
+            requestJson = json.optString("requestJson", ""),
+            avatarUri = json.optString("avatarUri", "")
         )
     }
 }
@@ -183,6 +188,9 @@ class MessageStore(context: Context) {
     fun upsertSchedule(schedule: RoleSchedule) {
         val list = loadSchedules().filterNot { it.resolvedSlotId == schedule.resolvedSlotId } + schedule
         saveSchedules(list)
+        // 用户重新保存了该槽（改了时间/类型/内容等）：清掉「今天已发」标记，
+        // 让新配置当天就能再次生效。否则改了设置也必须等明天，无法验证。
+        clearSlotSentToday(schedule.resolvedSlotId)
     }
 
     /** 取消某角色的全部时间槽 */
@@ -236,6 +244,11 @@ class MessageStore(context: Context) {
 
     fun markSlotSentToday(slotId: String) {
         prefs.edit().putString("$KEY_LAST_SENT$slotId", today()).apply()
+    }
+
+    /** 清除「今天已发」标记：用户重新保存该槽后允许当天再次触发。 */
+    fun clearSlotSentToday(slotId: String) {
+        prefs.edit().remove("$KEY_LAST_SENT$slotId").apply()
     }
 
     // ---------- 待写队列（主动消息落库） ----------
@@ -441,14 +454,22 @@ class AiApiClient {
 
 object Notifier {
 
-    const val CHANNEL_ID = "proactive_message"
+    // 渠道 ID 带 v2：Android 的渠道重要性只在首次创建时固定，旧渠道（proactive_message）
+    // 已被系统记住为低重要性、代码改不动，只能用新 ID 重建为高重要性以弹出横幅。
+    const val CHANNEL_ID = "proactive_message_v2"
+    // 前台服务通知沿用同一渠道即可
     const val EXTRA_ROLE_ID = "com.pppxxxy.easychat2.proactive.EXTRA_ROLE_ID"
 
     // Android 8+ 必须有渠道；重复创建是幂等的
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID, "角色主动消息", NotificationManager.IMPORTANCE_HIGH
-        ).apply { description = "AI 角色的定时主动问候" }
+        ).apply {
+            description = "AI 角色的定时主动问候"
+            enableVibration(true)
+            // 允许横幅提醒（部分系统仍会由用户通知设置覆盖）
+            setShowBadge(true)
+        }
         context.getSystemService(NotificationManager::class.java)
             .createNotificationChannel(channel)
     }
@@ -463,14 +484,41 @@ object Notifier {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
-    fun sendRoleMessage(context: Context, slotId: String, roleId: String, roleName: String, text: String) {
+    /** 把角色头像本地文件读成 Bitmap 供通知使用；失败返回 null（回退默认）。 */
+    private fun loadAvatar(context: Context, uri: String): android.graphics.Bitmap? {
+        if (uri.isBlank()) return null
+        return try {
+            context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { input ->
+                android.graphics.BitmapFactory.decodeStream(input)
+            }
+        } catch (e: Exception) {
+            Log.w("Notifier", "头像加载失败: ${e.javaClass.simpleName}")
+            null
+        }
+    }
+
+    fun sendRoleMessage(
+        context: Context,
+        slotId: String,
+        roleId: String,
+        roleName: String,
+        text: String,
+        avatarUri: String = ""
+    ) {
         ensureChannel(context)
         if (!canNotify(context)) {
             Log.w("Notifier", "通知未授权或被关闭，跳过展示")
             return
         }
-        val sender = Person.Builder().setName(roleName).build()
-        // MessagingStyle 呈现聊天气泡
+        val avatar = loadAvatar(context, avatarUri)
+        val personBuilder = Person.Builder().setName(roleName)
+        if (avatar != null) {
+            personBuilder.setIcon(
+                androidx.core.graphics.drawable.IconCompat.createWithBitmap(avatar)
+            )
+        }
+        val sender = personBuilder.build()
+        // MessagingStyle 呈现聊天气泡；带 Person 头像时通知头像即角色卡头像
         val style = NotificationCompat.MessagingStyle(sender)
             .addMessage(text, System.currentTimeMillis(), sender)
 
@@ -485,17 +533,23 @@ object Notifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            // 用自带单色聊天气泡，避免系统内置图标（带圈 i）作角标
+            .setSmallIcon(R.drawable.ic_stat_proactive)
             .setContentTitle(roleName)
             .setStyle(style)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
+            // 消息类通知：部分系统据此允许横幅与置顶
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+        if (avatar != null) {
+            builder.setLargeIcon(avatar)
+        }
 
         try {
-            NotificationManagerCompat.from(context).notify(slotId.hashCode(), notification)
+            NotificationManagerCompat.from(context).notify(slotId.hashCode(), builder.build())
         } catch (e: SecurityException) {
             Log.w("Notifier", "通知权限在运行中被撤销", e)
         }
@@ -550,7 +604,7 @@ object ProactiveMessageSender {
         )
 
         Notifier.sendRoleMessage(
-            context, slotId, schedule.roleId, schedule.roleName, text
+            context, slotId, schedule.roleId, schedule.roleName, text, schedule.avatarUri
         )
         // 通知权限被拒时也标记已发送，避免反复尝试变成骚扰
         store.markSlotSentToday(slotId)

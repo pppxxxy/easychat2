@@ -394,13 +394,18 @@ export function AppProvider({ children }) {
 
   // 主动消息落库：把原生待写队列里的消息逐条写入各自角色的单聊会话，再刷新列表。
   // 目标会话由槽的 sessionTargetId 决定：命中该角色的历史对话则写入，否则新建一段并把槽绑定过去
-  // （下次触发即固定复用；该会话若被删除则视为空，再次新建）。返回成功写入的消息 id 供 ack；
-  // 角色已删除的条目跳过且视为已处理，避免队列卡死。
+  // （下次触发即固定复用；该会话若被删除则视为空，再次新建）。
+  // 返回 { written, skipped, deferred }：
+  //   written  已写入，可 ack 删除；
+  //   skipped  结构残缺、永远无法处理，可 ack 删除；
+  //   deferred 暂时处理不了（角色不在库/写入失败），**不 ack**，保留在原生队列等下次重试——
+  //            绝不能让「角色 id 一时对不上」把消息静默销毁。
   const ingestProactiveMessages = useCallback(async messages => {
     const list = Array.isArray(messages) ? messages : [];
-    if (list.length === 0 || !loadedRef.current) return { written: [], skipped: [] };
+    if (list.length === 0 || !loadedRef.current) return { written: [], skipped: [], deferred: [] };
     const written = [];
     const skipped = [];
+    const deferred = [];
     // 槽绑定表只读一次；新建后同步更新，保证同一轮多条消息指向同一段新建会话。
     const settings = await getProactiveSettings().catch(() => ({ slots: [] }));
     const slotTargets = new Map(
@@ -411,13 +416,18 @@ export function AppProvider({ children }) {
       const roleId = String(message && message.roleId || '');
       const id = String(message && message.id || '');
       const slotId = String(message && message.slotId || '');
-      if (!roleId || !id) {
-        if (id) skipped.push(id);
+      if (!id) {
+        // 没有 id 就无法定位、无法 ack，忽略即可
+        continue;
+      }
+      if (!roleId) {
+        // 连角色都没有，永远无法落库：保留重试也无意义，按可删除处理
+        skipped.push(id);
         continue;
       }
       if (!charactersRef.current.some(item => item.id === roleId)) {
-        // 角色已被删除：丢弃该条，不阻断其余消息
-        skipped.push(id);
+        // 角色当前不在库（可能被删、也可能是 id 一时对不上）：保留重试，不删消息。
+        deferred.push(id);
         continue;
       }
       try {
@@ -434,14 +444,15 @@ export function AppProvider({ children }) {
           await bindProactiveSlotSession(slotId, result.sessionId).catch(() => {});
         }
       } catch (error) {
-        // 写入失败：不加入 written，下次启动消费者会重试
+        // 写入失败：保留重试，下次启动消费者会再取一次
+        deferred.push(id);
       }
     }
     if (written.length > 0) {
       await refreshSessionsDirect().catch(() => {});
       setMessageRefreshTick(tick => tick + 1);
     }
-    return { written, skipped };
+    return { written, skipped, deferred };
   }, [refreshSessionsDirect]);
 
   const switchSession = useCallback(async id => {

@@ -109,6 +109,20 @@ function applyMainApplicationPatch(contents) {
   return out;
 }
 
+// 单色通知小图标（聊天气泡），vector drawable，纯文本便于版本管理。
+// Android 通知小图标只取 alpha 通道，故用白色填充即可。
+const NOTIFICATION_ICON_XML = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:fillColor="#FFFFFF"
+      android:pathData="M4,4h16a2,2 0 0 1 2,2v9a2,2 0 0 1 -2,2H8l-4,4V6a2,2 0 0 1 2,-2z" />
+</vector>
+`;
+
 // ---------- 预构建 mod ----------
 
 function withManifest(config) {
@@ -145,6 +159,15 @@ function withSources(config) {
           fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
         }
       }
+
+      // 单色通知小图标：默认 setSmallIcon 用系统内置图标（带圈 i），
+      // 注入一个聊天气泡 vector 作为通知小图标，避免角标突兀。
+      const drawableDir = path.join(projectRoot, 'app', 'src', 'main', 'res', 'drawable');
+      fs.mkdirSync(drawableDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(drawableDir, 'ic_stat_proactive.xml'),
+        NOTIFICATION_ICON_XML
+      );
 
       const mainAppPath = path.join(
         projectRoot, 'app', 'src', 'main', 'java',

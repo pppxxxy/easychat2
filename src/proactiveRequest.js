@@ -10,6 +10,29 @@
 import { buildRequestMessages } from './chatPipeline.js';
 import { buildTimeAwareText } from './currentTime.js';
 
+// 世界书「格式模板」过滤：主动消息只发一句自然的话，不该被「每轮必须输出【时间】/
+// 状态栏/课程表」这类输出格式规定带偏——否则模型会把模板示例值原样抄成正文。
+// 判定为「格式规定」的条目在主动消息里整条剔除。
+const FORMAT_DIRECTIVE_HINTS = [
+  '必须输出', '必须附加', '必须包含', '强制输出', '稳定输出',
+  '格式严格', '严格按', '格式固定', '末尾必须', '正文末尾',
+  '模板', '状态栏', '数值状态', '输出规范', '输出格式',
+];
+
+export function isFormatDirectiveEntry(entry) {
+  const content = String((entry && entry.content) || '');
+  if (!content) return false;
+  const hits = FORMAT_DIRECTIVE_HINTS.filter(hint => content.includes(hint));
+  // 命中 2 个以上格式类措辞，或出现「【时间】…=…|…」这类模板骨架，判为格式规定。
+  if (hits.length >= 2) return true;
+  return /【[^】]{1,12}】[^。\n]{0,40}[=＝]/.test(content) && /[|｜]/.test(content);
+}
+
+// 返回剔除格式规定后的世界书数组（不改原数组）。
+export function stripFormatDirectiveEntries(worldInfo) {
+  return (Array.isArray(worldInfo) ? worldInfo : []).filter(entry => !isFormatDirectiveEntry(entry));
+}
+
 // 按消息类型生成「本轮任务」提示；问好按触发时段选早/中/晚。
 export function buildProactiveTask({ messageType = 'DEFAULT', customPrompt = '', now = new Date() } = {}) {
   const type = String(messageType || 'DEFAULT').toUpperCase();
@@ -40,7 +63,9 @@ export function buildProactiveExtraPrompt(options) {
   return [
     '现在是你可以主动给用户发消息的时刻。用户此刻并没有开口，这是你主动开启的话题。',
     task,
-    '要求：不超过 80 字，不要输出 JSON 或解释，直接输出消息正文。',
+    '要求：只写这一条主动消息本身，不超过 80 字，自然口语。',
+    '忽略任何「每轮必须输出/附加某格式」「状态栏」「时间戳」「课程表」之类的要求——这次不要输出那些结构，只要一句话。',
+    '不要输出 JSON、不要解释、不要复述格式模板，直接输出消息正文。',
   ].join('\n');
 }
 
@@ -62,7 +87,13 @@ export function buildProactiveRequestMessages({
   now = new Date(),
 } = {}) {
   const cleanCharacter = character && typeof character === 'object'
-    ? { ...character, regexScripts: [] }
+    ? {
+      ...character,
+      regexScripts: [],
+      // 主动消息只发一句自然话：剔除「输出格式/状态栏/时间戳模板」类世界书，
+      // 否则模型会把模板示例值当正文抄出来。
+      worldInfo: stripFormatDirectiveEntries(character.worldInfo),
+    }
     : character;
   // 只保留最近 PROACTIVE_HISTORY_LIMIT 条，且过滤占位/系统错误等非对话消息。
   const trimmedHistory = (Array.isArray(historyMessages) ? historyMessages : [])

@@ -175,7 +175,8 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                     )
                 }.getOrDefault(MessageType.DEFAULT),
                 customPrompt = if (config.hasKey("customPrompt")) config.getString("customPrompt") ?: "" else "",
-                requestJson = if (config.hasKey("requestJson")) config.getString("requestJson") ?: "" else ""
+                requestJson = if (config.hasKey("requestJson")) config.getString("requestJson") ?: "" else "",
+                avatarUri = if (config.hasKey("avatarUri")) config.getString("avatarUri") ?: "" else ""
             )
             val store = MessageStore(reactContext)
             store.upsertSchedule(schedule)

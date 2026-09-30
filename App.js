@@ -263,7 +263,8 @@ function ProactiveMessageBridge({ navigationReady }) {
   const pendingRoleRef = useRef(null);
 
   // 消费原生待写队列：把到点时生成、但尚未写入会话的主动消息落库。
-  // 写入成功的按 id ack 删除；失败或角色已删除的保留/跳过，下次启动再试。
+  // 只有写入成功的、以及永远无法处理的（结构残缺）才 ack 删除；
+  // 角色暂时不在库或写入失败的**保留**，下次启动再试，绝不静默丢消息。
   const ingestPending = useCallback(async () => {
     if (!loaded) return;
     const messages = await consumePendingMessages();

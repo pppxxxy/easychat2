@@ -19,6 +19,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.pppxxxy.easychat2.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -198,7 +199,7 @@ class MessageForegroundService : Service() {
 
     private fun buildServiceNotification(): Notification {
         return NotificationCompat.Builder(this, Notifier.CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_stat_proactive)
             .setContentTitle("正在准备消息")
             .setContentText("正在生成角色的主动消息…")
             .setPriority(NotificationCompat.PRIORITY_LOW)

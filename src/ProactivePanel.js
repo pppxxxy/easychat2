@@ -348,6 +348,9 @@ export default function ProactivePanel({ embedded = false }) {
           persona: character ? rolePersona(character) : slot.persona,
           sessionTargetId: boundValid ? boundId : '',
           requestJson,
+          // 角色头像本地 URI：通知用它当头像，避免系统用角色名首字当占位。
+          // 不入 JS 设置键（normalizeProactiveSlot 会丢弃），仅随本次 schedule 传给原生。
+          avatarUri: (character && character.avatarUri) || '',
           // 每次保存生成新 revision，让队列中未执行的旧配置自动失效
           revision: makeProactiveSlotId(),
         };

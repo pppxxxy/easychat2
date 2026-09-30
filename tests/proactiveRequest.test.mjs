@@ -5,6 +5,8 @@ import {
   buildProactiveTask,
   buildProactiveExtraPrompt,
   buildProactiveRequestMessages,
+  isFormatDirectiveEntry,
+  stripFormatDirectiveEntries,
   PROACTIVE_HISTORY_LIMIT,
 } from '../src/proactiveRequest.js';
 
@@ -82,4 +84,39 @@ test('主动消息请求：包含「主动开话题」的补充指令', () => {
   const messages = buildProactiveRequestMessages({ character, messageType: 'CARE' });
   const system = messages.find(item => item.role === 'system');
   assert.ok(system.content.includes('主动'));
+});
+
+test('补充指令明确要求忽略格式/状态栏类要求', () => {
+  const extra = buildProactiveExtraPrompt({ messageType: 'DEFAULT' });
+  assert.ok(extra.includes('忽略'));
+  assert.ok(extra.includes('状态栏') || extra.includes('格式'));
+});
+
+test('格式模板世界书被识别并从主动消息中剔除', () => {
+  // 典型：某角色卡要求「每轮正文末尾必须稳定输出【时间】字段…模板…|分隔」
+  const formatEntry = {
+    content: '每轮正文末尾必须稳定输出【时间】字段。格式严格按以下模板：\n【时间】日期=2024-09-01|月日=09-01|月份=09|季节=秋',
+  };
+  const normalEntry = { content: '沈梦凌是班上的学习委员，性格冷静。' };
+  assert.equal(isFormatDirectiveEntry(formatEntry), true);
+  assert.equal(isFormatDirectiveEntry(normalEntry), false);
+  const kept = stripFormatDirectiveEntries([formatEntry, normalEntry]);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].content, normalEntry.content);
+});
+
+test('主动消息组装时剔除格式模板世界书，保留普通世界书', () => {
+  const character2 = {
+    name: '小雨',
+    systemPrompt: '你是小雨。',
+    worldInfo: [
+      { constant: true, content: '每轮正文末尾必须附加状态栏。格式严格按以下模板：\n【数值状态栏】好感度：35/200' },
+      { constant: true, content: '小雨住在海边小镇。' },
+    ],
+  };
+  const messages = buildProactiveRequestMessages({ character: character2, historyMessages: [] });
+  const system = messages.find(item => item.role === 'system');
+  assert.ok(system.content.includes('小雨住在海边小镇'));
+  assert.ok(!system.content.includes('数值状态栏'));
+  assert.ok(!system.content.includes('35/200'));
 });
