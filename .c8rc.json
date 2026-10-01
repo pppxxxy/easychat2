@@ -14,6 +14,8 @@
     "src/SearchScreen.js",
     "src/SettingsScreen.js",
     "src/settings/useVectorSettings.js",
+    "src/settings/SamplingCard.js",
+    "src/settings/settingsStyles.js",
     "src/DiaryPanel.js",
     "src/MapPanel.js",
     "src/PluginPanel.js",

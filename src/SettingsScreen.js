@@ -8,7 +8,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Switch,
   Text,
   TouchableOpacity,
@@ -36,7 +35,6 @@ import {
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
-  getSamplingSettings,
   getUserProfile,
   getPersonas,
   getActivePersonaId,
@@ -47,10 +45,8 @@ import {
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
-  saveSamplingSettings,
   saveThinkingSettings,
   saveUserProfile,
-  SAMPLING_FIELDS,
   THINKING_DISPLAYS,
 } from './storage.js';
 import { markMediaWrite } from './mediaProtection.js';
@@ -73,6 +69,8 @@ import ChapterModal from './ChapterModal.js';
 import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
 import useVectorSettings from './settings/useVectorSettings.js';
+import SamplingCard from './settings/SamplingCard.js';
+import { createSettingsStyles } from './settings/settingsStyles.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', label: '开头', meta: '取回复首段' },
@@ -137,18 +135,6 @@ export default function SettingsScreen() {
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
-  const [sampling, setSampling] = useState({
-    maxTokens: { enabled: false, value: 8024 },
-    temperature: { enabled: false, value: 1 },
-    topP: { enabled: false, value: 1 },
-    topK: { enabled: false, value: 0 },
-  });
-  const samplingRef = useRef({
-    maxTokens: { enabled: false, value: 8024 },
-    temperature: { enabled: false, value: 1 },
-    topP: { enabled: false, value: 1 },
-    topK: { enabled: false, value: 0 },
-  });
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
     enabled: false,
@@ -203,7 +189,7 @@ export default function SettingsScreen() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
 
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const refreshPresetCount = useCallback(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
@@ -228,12 +214,6 @@ export default function SettingsScreen() {
       .catch(() => {});
     getThinkingSettings()
       .then(settings => setThinkingDisplay(settings.display))
-      .catch(() => {});
-    getSamplingSettings()
-      .then(settings => {
-        samplingRef.current = settings;
-        setSampling(settings);
-      })
       .catch(() => {});
     loadVectorSettings();
 
@@ -274,51 +254,6 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
-
-  const persistSampling = useCallback(async next => {
-    samplingRef.current = next;
-    setSampling(next);
-    try {
-      const saved = await saveSamplingSettings(next);
-      samplingRef.current = saved;
-      setSampling(saved);
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-    }
-  }, []);
-
-  const toggleSamplingField = useCallback(name => {
-    const current = samplingRef.current;
-    const field = current[name] || {};
-    persistSampling({
-      ...current,
-      [name]: { ...field, enabled: field.enabled !== true },
-    });
-  }, [persistSampling]);
-
-  const commitSamplingValue = useCallback((name, rawText) => {
-    const rule = SAMPLING_FIELDS[name];
-    if (!rule) return;
-    const current = samplingRef.current;
-    const field = current[name] || {};
-    const trimmed = String(rawText == null ? '' : rawText).trim();
-    let value;
-    if (!trimmed || !Number.isFinite(Number(trimmed))) {
-      value = rule.default;
-    } else {
-      value = Number(trimmed);
-      if (rule.integer) value = Math.round(value);
-      if (value < rule.min || value > rule.max) {
-        const clamped = Math.min(rule.max, Math.max(rule.min, value));
-        Alert.alert('数值超出范围', `已调整为 ${clamped}。`);
-        value = clamped;
-      }
-    }
-    persistSampling({
-      ...current,
-      [name]: { enabled: field.enabled === true, value },
-    });
-  }, [persistSampling]);
 
   const activeImageProvider = useMemo(
     () => IMAGE_PROVIDERS.find(item => item.id === inlineImage.providerId) || null,
@@ -1589,58 +1524,7 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
-        <Card>
-          <CollapsibleSection
-            title="生成参数"
-            icon="analytics-outline"
-            right={<Text style={styles.collapseSummary}>
-              {Object.values(sampling).filter(f => f && f.enabled === true).length > 0
-                ? `${Object.values(sampling).filter(f => f && f.enabled === true).length} 项已启用`
-                : '使用服务端默认'}
-            </Text>}
-          >
-            {[
-              { name: 'maxTokens', label: '最大回复令牌', keyboard: 'number-pad', hint: '1 - 128000' },
-              { name: 'temperature', label: '温度', keyboard: 'decimal-pad', hint: '0 - 2' },
-              { name: 'topP', label: 'top-p', keyboard: 'decimal-pad', hint: '0 - 1' },
-              { name: 'topK', label: 'top-k', keyboard: 'number-pad', hint: '0 - 50' },
-            ].map(item => {
-              const field = sampling[item.name] || {};
-              return (
-                <View key={item.name} style={styles.capabilityRow}>
-                  <View style={styles.linkLeft}>
-                    <Text style={styles.linkText}>{item.label}</Text>
-                  </View>
-                  <View style={styles.samplingRight}>
-                    <TextField
-                      style={styles.samplingInput}
-                      value={String(field.value == null ? '' : field.value)}
-                      onChangeText={text => {
-                        const current = samplingRef.current;
-                        const next = {
-                          ...current,
-                          [item.name]: { ...(current[item.name] || {}), value: text },
-                        };
-                        samplingRef.current = next;
-                        setSampling(next);
-                      }}
-                      onEndEditing={event => commitSamplingValue(item.name, event.nativeEvent.text)}
-                      keyboardType={item.keyboard}
-                      placeholder={item.hint}
-                    />
-                    <Switch
-                      value={field.enabled === true}
-                      onValueChange={() => toggleSamplingField(item.name)}
-                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                      thumbColor={theme.colors.primaryContrast}
-                    />
-                  </View>
-                </View>
-              );
-            })}
-            <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
-          </CollapsibleSection>
-        </Card>
+        <SamplingCard />
 
         <Card>
           <View style={styles.cardHeader}>
@@ -2042,321 +1926,3 @@ export default function SettingsScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  flex: { flex: 1, backgroundColor: theme.colors.background },
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: tokens.spacing.lg, paddingTop: tokens.spacing.sm },
-  scrollContent: { paddingBottom: 80 },
-
-  pageHeader: { marginTop: 4, marginBottom: 14 },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(24), fontWeight: '800', marginBottom: 6 },
-  hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6, lineHeight: fonts.scaled(18) },
-
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
-  collapseSummary: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 6 },
-  configSelect: { marginTop: 6 },
-  providerEditor: {
-    marginTop: tokens.spacing.sm,
-    paddingTop: tokens.spacing.sm,
-    borderTopWidth: tokens.border.thin,
-    borderTopColor: theme.colors.divider,
-  },
-  providerEditorTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700', marginTop: tokens.spacing.xs },
-  headerActions: { flexDirection: 'row', alignItems: 'center' },
-  topicButtonSpaced: { marginRight: 8 },
-  appearanceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
-  themeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.pill,
-    borderWidth: tokens.border.thin * 1.5,
-    borderColor: 'transparent',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.xs + 2,
-    marginRight: tokens.spacing.sm,
-    marginBottom: tokens.spacing.sm,
-  },
-  themeSwatch: {
-    width: 20,
-    height: 20,
-    borderRadius: tokens.radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: tokens.spacing.xs + 2,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  themeSwatchDot: { width: 8, height: 8, borderRadius: tokens.radius.pill },
-  themeChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
-  fontRow: { flexDirection: 'row', flexWrap: 'wrap' },
-  fontChip: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.pill,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.xs + 2,
-    marginRight: tokens.spacing.sm,
-    marginBottom: tokens.spacing.sm,
-  },
-  fontChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  fontChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
-  fontChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '700' },
-
-  pillButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.primaryAlpha(0.12),
-    borderWidth: 1,
-    borderColor: theme.colors.primaryMutedAlpha(0.45),
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-  },
-  pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 4 },
-
-  label: { color: theme.colors.text, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: fonts.scaled(13) },
-  multilineInput: { minHeight: 100, paddingTop: 12 },
-  modelRow: { flexDirection: 'row', alignItems: 'center' },
-  modelInput: { flex: 1, minHeight: 40, marginRight: 8 },
-
-  actionBtn: {
-    marginTop: tokens.spacing.md,
-  },
-  buttonDisabled: { opacity: 0.45 },
-
-  detectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.primaryAlpha(0.12),
-    borderWidth: 1,
-    borderColor: theme.colors.primaryMutedAlpha(0.45),
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-  },
-  detectButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 6 },
-
-  fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 4 },
-  savedHint: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 8 },
-
-  selectButton: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.primary,
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    marginLeft: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectButtonGhost: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  selectButtonText: { color: theme.colors.primaryContrast, fontWeight: '700' },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 18 },
-  capabilityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.divider,
-  },
-  personaActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: tokens.spacing.sm },
-  personaAddChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    marginRight: 8,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  personaAddText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4 },
-  samplingRight: { flexDirection: 'row', alignItems: 'center' },
-  samplingInput: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    fontSize: fonts.scaled(14),
-    minWidth: 84,
-    marginRight: 10,
-    textAlign: 'right',
-  },
-  thinkingDisplayRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.divider,
-  },
-  thinkingDisplayChips: { flexDirection: 'row', alignItems: 'center' },
-  capabilityLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), flex: 1, marginRight: 12 },
-  modelChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
-  modelChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    paddingLeft: 10,
-    paddingRight: 8,
-    paddingVertical: 6,
-    marginRight: 8,
-    marginBottom: 8,
-    maxWidth: '100%',
-  },
-  modelChipActive: {
-    backgroundColor: theme.colors.primaryAlpha(0.25),
-    borderColor: theme.colors.primary,
-  },
-  modelChipMain: { maxWidth: 180, marginRight: 6 },
-  modelChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
-  modelChipTextActive: { color: theme.colors.text, fontWeight: '700' },
-  thinkingFormatRow: { flexDirection: 'row', marginTop: 8, marginBottom: 4 },
-  formatChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-    marginRight: 8,
-  },
-  formatChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
-  formatChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
-  formatChipTextActive: { color: theme.colors.primarySoft },
-
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.divider,
-  },
-  linkLeft: { flexDirection: 'row', alignItems: 'center' },
-  linkText: { color: theme.colors.textMuted, fontSize: fonts.scaled(15), marginLeft: 10 },
-  linkRight: { flexDirection: 'row', alignItems: 'center' },
-  linkValue: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginRight: 6 },
-
-  avatarRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-  avatarBox: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: theme.colors.surface,
-    overflow: 'hidden',
-    marginRight: 12,
-    borderWidth: 2,
-    borderColor: theme.colors.primaryMutedAlpha(0.45),
-  },
-  avatarImg: { width: 56, height: 56, borderRadius: 28 },
-  avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.colors.primaryAlpha(0.14),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(20), fontWeight: '800' },
-  imageActions: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  smallButton: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.primaryMutedAlpha(0.45),
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    marginRight: 12,
-  },
-  smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13) },
-  removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
-
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: theme.colors.overlay,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalSheet: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.lg,
-    padding: tokens.metrics.cardPadding,
-    maxHeight: '70%',
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.divider,
-    ...tokens.elevation(2, theme),
-  },
-  modalTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800', marginBottom: 12 },
-  modalList: { maxHeight: 360 },
-  modalListContent: { paddingBottom: tokens.spacing.xs },
-  modalRow: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md,
-    paddingVertical: tokens.spacing.sm + 2,
-    paddingHorizontal: tokens.spacing.md,
-    marginBottom: tokens.spacing.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  modalRowText: { color: theme.colors.textMuted },
-  apiKeyLinkRow: { alignItems: 'flex-end', marginTop: 6 },
-  apiKeyLink: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
-  vendorEditorNote: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(12),
-    lineHeight: fonts.scaled(18),
-    marginTop: 6,
-  },
-  vendorList: { maxHeight: 420 },
-  vendorSectionLabel: {
-    color: theme.colors.primaryMuted,
-    fontSize: fonts.scaled(12),
-    fontWeight: '800',
-    marginTop: 10,
-    marginBottom: 8,
-    letterSpacing: 0.4,
-  },
-  vendorRow: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  vendorRowDisabled: { opacity: 0.5 },
-  vendorRowHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  vendorName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: 8 },
-  vendorNameDisabled: { color: theme.colors.textMuted },
-  vendorCategory: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
-  vendorBaseUrl: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginBottom: 3 },
-  vendorNote: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18) },
-});
