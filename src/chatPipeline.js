@@ -57,7 +57,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, extraSystemPrompt }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
@@ -189,6 +189,20 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const quoteText = quote && String(quote.text || '').trim()
     ? `[引用${String(quote.name || '').trim() || '对方'}的消息] ${String(quote.text).trim()}\n\n${promptUserText}`
     : promptUserText;
+  // 语音兜底（需求 6.2）：来源标记 supportsAudio 且转写失败时，音频按 OpenAI
+  // input_audio 多模态内容随当前用户消息直接发送（仅当前一条，历史不回传）。
+  const voiceBase64 = String(voiceAudio?.base64 || '').trim();
+  const voiceMime = String(voiceAudio?.mime || '').trim();
+  const voiceFormat = voiceBase64 ? resolveVoiceFormat(voiceMime) : '';
+  const finalUserMessage = voiceBase64
+    ? [{
+        role: 'user',
+        content: [
+          { type: 'text', text: quoteText || '[用户发来一段语音]' },
+          { type: 'input_audio', input_audio: { data: voiceBase64, format: voiceFormat } },
+        ],
+      }]
+    : (quoteText ? [{ role: 'user', content: quoteText }] : []);
   const currentMedia = Array.isArray(imageMessages) && imageMessages.length > 0
     ? imageMessages
     : (Array.isArray(images) ? images.filter(Boolean).map(uri => ({
@@ -214,9 +228,6 @@ export function buildRequestMessages({ character, historyMessages, userText, use
         : text;
       return { role: 'user', content };
     });
-  const finalUserMessage = quoteText
-    ? [{ role: 'user', content: quoteText }]
-    : [];
 
   const assembled = [
     { role: 'system', content: systemContent },
@@ -227,4 +238,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   ];
   insertDepthEntries(assembled, depth, scripts, replaceUser);
   return assembled;
+}
+
+// input_audio 的 format 字段：从 mime 推导（OpenAI 兼容端点常收 wav/mp3，m4a 等按实际传）。
+export function resolveVoiceFormat(mime) {
+  const value = String(mime || '').toLowerCase();
+  if (value.includes('wav')) return 'wav';
+  if (value.includes('mp3') || value.includes('mpeg')) return 'mp3';
+  if (value.includes('m4a') || value.includes('mp4')) return 'm4a';
+  if (value.includes('ogg')) return 'ogg';
+  if (value.includes('flac')) return 'flac';
+  return 'mp3';
 }

@@ -8,6 +8,7 @@ import {
   DEFAULT_OUTPUT_FORMAT_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   buildRequestMessages,
+  resolveVoiceFormat,
 } from '../src/chatPipeline.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -126,6 +127,52 @@ test('图片与文字作为连续两条用户消息发送', () => {
   assert.equal(userMessages.length, 2);
   assert.equal(userMessages[0].content[1].image_url.url, 'data:image/jpeg;base64,abc');
   assert.equal(userMessages[1].content, '看看这张图');
+});
+
+test('语音兜底：音频按 input_audio 多模态随当前用户消息发送', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '[用户发来一段语音]',
+    userProfile: {},
+    voiceAudio: { base64: 'QUJD', mime: 'audio/m4a' },
+  });
+  const userMessages = messages.filter(item => item.role === 'user');
+  assert.equal(userMessages.length, 1);
+  assert.equal(Array.isArray(userMessages[0].content), true);
+  assert.equal(userMessages[0].content[0].type, 'text');
+  assert.equal(userMessages[0].content[0].text, '[用户发来一段语音]');
+  assert.equal(userMessages[0].content[1].type, 'input_audio');
+  assert.deepEqual(userMessages[0].content[1].input_audio, { data: 'QUJD', format: 'm4a' });
+});
+
+test('语音兜底：无音频时用户消息保持纯文本，历史语音不回传', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [
+      { id: 'v1', role: 'user', kind: 'voice', text: '[用户发来一段语音]', audio: { uri: 'file:///voice/a.m4a' } },
+    ],
+    userText: '你好',
+    userProfile: {},
+  });
+  const userMessages = messages.filter(item => item.role === 'user');
+  assert.equal(userMessages.length, 2);
+  assert.equal(typeof userMessages[0].content, 'string');
+  assert.equal(userMessages[0].content, '[用户发来一段语音]');
+  assert.equal(userMessages[1].content, '你好');
+  assert.equal(JSON.stringify(messages).includes('input_audio'), false);
+});
+
+test('resolveVoiceFormat：mime 到 input_audio format 的推导', () => {
+  assert.equal(resolveVoiceFormat('audio/mp3'), 'mp3');
+  assert.equal(resolveVoiceFormat('audio/mpeg'), 'mp3');
+  assert.equal(resolveVoiceFormat('audio/wav'), 'wav');
+  assert.equal(resolveVoiceFormat('audio/x-wav'), 'wav');
+  assert.equal(resolveVoiceFormat('audio/m4a'), 'm4a');
+  assert.equal(resolveVoiceFormat('audio/mp4'), 'm4a');
+  assert.equal(resolveVoiceFormat('audio/ogg'), 'ogg');
+  assert.equal(resolveVoiceFormat(''), 'mp3');
+  assert.equal(resolveVoiceFormat(undefined), 'mp3');
 });
 
 test('无识图模型收到表情包名称提示', () => {

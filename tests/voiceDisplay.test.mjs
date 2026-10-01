@@ -51,3 +51,16 @@ test('SettingsScreen 能力弹窗提供语音识别开关并写入配置', () =>
   assert.match(source, /supportsAudio: selected\.supportsAudio === true/, '打开弹窗时应回填 supportsAudio');
   assert.match(source, /supportsAudio: value,\s*\n\s*\}\)\)\}/, '开关切换应更新 draft');
 });
+
+test('语音兜底接线：supportsAudio 时转写失败按 input_audio 直发，失败反馈可见', () => {
+  const chatSource = read('src/ChatScreen.js');
+  assert.match(chatSource, /audioInputEnabled = !!\(current && current\.supportsAudio\)/, '发送时应读取当前来源的 supportsAudio');
+  assert.match(chatSource, /FileSystem\.readAsStringAsync\(voice\.uri, \{\s*\n\s*encoding: FileSystem\.EncodingType\.Base64,/, '兜底应读音频为 base64');
+  assert.match(chatSource, /voiceAudio,\s*\n\s*expectedConfigId,/, '兜底音频应随请求 payload 传递');
+  assert.match(chatSource, /voiceAudio,\s*\n\s*\}\);/, 'requestReply 应把兜底音频传给 buildRequestMessages');
+  assert.match(chatSource, /voice-transcribe/, '转写失败应记录诊断日志');
+  assert.match(chatSource, /语音转写失败/, '网络类转写失败应有可见提示');
+  assert.match(chatSource, /未配置语音转写/, '无转写来源时应有补配引导');
+  const pipelineSource = read('src/chatPipeline.js');
+  assert.match(pipelineSource, /type: 'input_audio', input_audio: \{ data: voiceBase64, format: voiceFormat \}/, '兜底应按 OpenAI input_audio 格式构造');
+});

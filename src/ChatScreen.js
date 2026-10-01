@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, isConfigChangedError, sendChatMessage } from './api.js';
@@ -85,6 +86,7 @@ import { shouldRenderRichHtml } from './richHtml.js';
 import ScrollScrubber from './ScrollScrubber.js';
 import { maskSecrets } from './secrets.js';
 import { hideVariantStatusBar } from './speechText.js';
+import { recordDiagnostic } from './diagnostics.js';
 import {
   clearSessionDraft,
   createGroupSession,
@@ -1537,7 +1539,7 @@ export default function ChatScreen() {
     );
   }, [isSending, ready, messages, runSummarize]);
 
-  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false }) => {
+  const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false, voiceAudio = null }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
     const sendCharacterId = activeCharacterIdRef.current;
@@ -1687,6 +1689,8 @@ export default function ChatScreen() {
          stickerNames: resolveStickerNames(stickersRef.current),
          // 时间感知开启时附上当前时间（每次请求现算，保证准确）。
          currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware),
+         // 语音兜底（需求 6.2）：转写失败且来源支持音频时按 input_audio 直发。
+         voiceAudio,
        });
        if (!isCurrentSession()) return;
 
@@ -2165,6 +2169,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
       return false;
     }
      let visionEnabled = false;
+     let audioInputEnabled = false;
      let expectedConfigId = '';
      let expectedConfigFingerprint = '';
     try {
@@ -2174,6 +2179,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        expectedConfigId = String(current?.id || '');
        expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
        visionEnabled = !!(current && current.supportsVision);
+       audioInputEnabled = !!(current && current.supportsAudio);
     } catch (error) {}
      let sizedImages = [];
      try {
@@ -2282,6 +2288,19 @@ if (!isCurrent() || controller.signal.aborted) return false;
     if (textMessage) baseMessages.push(textMessage);
     if (voiceMessage) baseMessages.push(voiceMessage);
     const promptUserText = voiceMessage ? String(voice.text || '').trim() : mergedText;
+    // 音频兜底（需求 6.2）：转写文本为空且来源标记 supportsAudio 时，读音频为
+    // base64 按 input_audio 多模态直接发送（仅当前这条，历史不回传）。
+    let voiceAudio = null;
+    if (voiceMessage && !promptUserText && audioInputEnabled && voice.uri) {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(voice.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        if (base64) voiceAudio = { base64, mime: voice.mime };
+      } catch (error) {
+        voiceAudio = null;
+      }
+    }
     const payload = {
       historyMessages: messages,
       userText: voiceMessage ? (promptUserText || '[用户发来一段语音]') : mergedText,
@@ -2291,6 +2310,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         .map(item => item.dataUri),
       imageMessages,
       quote: (textMessage || voiceMessage) ? draftQuote : null,
+      voiceAudio,
        expectedConfigId,
        expectedConfigFingerprint,
        sessionGuard,
@@ -3481,6 +3501,13 @@ if (!isCurrent() || controller.signal.aborted) return false;
         item => item.id === transcriptionSettings.activeId
       ) || null;
       const target = resolveTranscription({ chatConfig: activeChat, dedicated });
+      // 无任何可用的转写来源：明确提示引导补配，本条仍按占位发送（不阻断）。
+      if (target.source === 'none') {
+        Alert.alert(
+          '未配置语音转写',
+          '请在「设置 → 语音转文字」配置转写服务，或在「设置 → API」确认模型能力后由音频直接发送。本条语音将以占位文本发送。'
+        );
+      }
       // 该会话已确认来源不支持转写：跳过请求，直接用占位（需求 3.5）。
       const known = transcriptionSupportedRef.current[guard.sessionId];
       if (target.source !== 'none' && known !== false) {
@@ -3496,10 +3523,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
             transcriptionSupportedRef.current[guard.sessionId] = false;
             Alert.alert(
               '当前来源不支持语音转写',
-              '可在「设置 → 语音转文字」单独配置转写服务。本条语音将以占位文本发送。'
+              '可在「设置 → 语音转文字」单独配置转写服务，或在「设置 → API」确认模型能力（支持语音识别）后由音频直接发送。本条语音将以占位文本发送。'
+            );
+          } else {
+            // 网络类/其他失败：明确告知（角色收不到文字的根因可见），本条按占位发送。
+            recordDiagnostic('api', error, 'voice-transcribe');
+            Alert.alert(
+              '语音转写失败',
+              `已按占位文本发送，角色收不到语音内容。原因：${String((error && error.message) || '未知')}`
             );
           }
-          // 网络类失败静默降级为占位，不打断发送（需求 3.4）。
         }
       }
     } catch (error) {}
