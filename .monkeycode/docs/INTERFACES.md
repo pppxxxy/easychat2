@@ -1049,4 +1049,4 @@ data: [DONE]
 | `supportsAudio` | `boolean` | 是否支持语音识别（音频兜底发送），保存前确认；纳入 `getConfigFingerprint` |
 | `thinking` | `{ field, format }` | 思考参数声明；`format` 为 `effort` / `boolean` / `object`，缺省 `reasoning_effort` + `effort` |
 
-厂商与协议预设见 `src/apiVendors.js`：`CHAT_API_VENDORS`（DeepSeek、魔搭、ai.gitee、Agnes、小红书 Dots Studio、NVIDIA NIM、AMD Radeon Cloud）、`API_PROTOCOL_PRESETS` 与 `THIRD_PARTY_RELAY_RISK`；`getChatApiVendor(id)` 按 id 取厂商。
+厂商与协议预设见 `src/apiVendors.js`：`CHAT_API_VENDORS`（DeepSeek、魔搭、ai.gitee、Agnes、小红书 Dots Studio、NVIDIA NIM、AMD Radeon Cloud）、`API_PROTOCOL_PRESETS` 与 `THIRD_PARTY_RELAY_RISK`；`getChatApiVendor(id)` 按 id 取厂商。语音转文字厂商预设 `TRANSCRIPTION_API_VENDORS`（硅基流动 SenseVoice、Groq whisper、OpenAI whisper-1，均为 OpenAI 兼容 `/audio/transcriptions` 端点）+ `getTranscriptionVendor(id)`；「语音转文字」面板点厂商芯片一键预填端点与模型，「自定义」入口全手填。

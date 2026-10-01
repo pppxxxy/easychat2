@@ -114,3 +114,36 @@ export const THIRD_PARTY_RELAY_RISK = [
 export function getChatApiVendor(id) {
   return CHAT_API_VENDORS.find(item => item.id === id) || null;
 }
+
+// 语音转文字（STT）厂商预设：一键预填端点与模型，避免用户自行查端点格式。
+// 均为 OpenAI 兼容的 /audio/transcriptions 端点（POST multipart，Bearer 鉴权）。
+export const TRANSCRIPTION_API_VENDORS = [
+  {
+    id: 'siliconflow-stt',
+    name: '硅基流动',
+    baseUrl: 'https://api.siliconflow.cn/v1/audio/transcriptions',
+    model: 'FunAudioLLM/SenseVoiceSmall',
+    apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
+    note: '国内直连；SenseVoice 中文识别准确、价格低；模型名可换 FunAudioLLM/whisper-large-v3。',
+  },
+  {
+    id: 'groq-stt',
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1/audio/transcriptions',
+    model: 'whisper-large-v3-turbo',
+    apiKeyUrl: 'https://console.groq.com/keys',
+    note: '速度极快、免费额度大；需国际网络可达。',
+  },
+  {
+    id: 'openai-stt',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1/audio/transcriptions',
+    model: 'whisper-1',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
+    note: '最稳定；按音频时长计费；需海外支付方式。',
+  },
+];
+
+export function getTranscriptionVendor(id) {
+  return TRANSCRIPTION_API_VENDORS.find(item => item.id === id) || null;
+}

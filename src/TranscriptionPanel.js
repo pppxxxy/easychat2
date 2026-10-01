@@ -21,6 +21,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getTranscriptionSettings, saveTranscriptionSettings } from './storage.js';
+import { TRANSCRIPTION_API_VENDORS } from './apiVendors.js';
 import { useTheme } from './theme/ThemeContext.js';
 
 const REUSED_ID = '__reused__';
@@ -79,13 +80,14 @@ export default function TranscriptionPanel({ visible, onClose }) {
     persist({ ...settingsRef.current, activeId: id === REUSED_ID ? '' : id });
   }, [persist]);
 
-  const addConfig = useCallback(() => {
+  const addConfig = useCallback(vendor => {
+    const preset = vendor && typeof vendor === 'object' ? vendor : null;
     const next = {
       id: makeConfigId(),
-      name: '新配置',
-      baseUrl: '',
+      name: preset ? preset.name : '新配置',
+      baseUrl: preset ? preset.baseUrl : '',
       apiKey: '',
-      model: '',
+      model: preset ? preset.model : '',
     };
     persist({
       ...settingsRef.current,
@@ -213,10 +215,38 @@ export default function TranscriptionPanel({ visible, onClose }) {
               );
             }) : null}
 
-            <TouchableOpacity style={styles.addButton} onPress={addConfig} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.addButtonText}>新增独立转写配置</Text>
-            </TouchableOpacity>
+            <FieldLabel style={styles.label}>新增独立转写配置</FieldLabel>
+            <FieldHint style={styles.hint}>
+              点厂商一键预填端点与模型，再填入该厂商的 API Key 即可。
+            </FieldHint>
+            <View style={styles.vendorRow}>
+              {TRANSCRIPTION_API_VENDORS.map(vendor => (
+                <TouchableOpacity
+                  key={vendor.id}
+                  style={styles.vendorChip}
+                  onPress={() => addConfig(vendor)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`新增${vendor.name}转写配置`}
+                >
+                  <Text style={styles.vendorChipText}>{vendor.name}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[styles.vendorChip, styles.vendorChipCustom]}
+                onPress={() => addConfig(null)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="新增自定义转写配置"
+              >
+                <Text style={styles.vendorChipCustomText}>自定义</Text>
+              </TouchableOpacity>
+            </View>
+            {TRANSCRIPTION_API_VENDORS.map(vendor => (
+              <Text key={`${vendor.id}-note`} style={styles.vendorNote}>
+                {vendor.name}：{vendor.note}
+              </Text>
+            ))}
 
             <TouchableOpacity style={styles.saveButton} onPress={onClose} activeOpacity={0.8}>
               <Text style={styles.saveText}>完成</Text>
@@ -272,6 +302,29 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   addButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4, fontWeight: '600' },
+  vendorRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2, marginBottom: 6 },
+  vendorChip: {
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
+    backgroundColor: theme.colors.primaryAlpha(0.12),
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  vendorChipCustom: {
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+  },
+  vendorChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+  vendorChipCustomText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
+  vendorNote: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginTop: 2,
+  },
   saveButton: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,

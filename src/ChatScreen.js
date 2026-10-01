@@ -3505,7 +3505,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
       if (target.source === 'none') {
         Alert.alert(
           '未配置语音转写',
-          '请在「设置 → 语音转文字」配置转写服务，或在「设置 → API」确认模型能力后由音频直接发送。本条语音将以占位文本发送。'
+          '当前聊天来源不支持转写时，可在「设置 → 语音转文字」新增独立转写配置：点厂商芯片（硅基流动 / Groq / OpenAI）一键预填端点与模型，再填入 API Key。本条语音将以占位文本发送。'
         );
       }
       // 该会话已确认来源不支持转写：跳过请求，直接用占位（需求 3.5）。
@@ -3523,14 +3523,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
             transcriptionSupportedRef.current[guard.sessionId] = false;
             Alert.alert(
               '当前来源不支持语音转写',
-              '可在「设置 → 语音转文字」单独配置转写服务，或在「设置 → API」确认模型能力（支持语音识别）后由音频直接发送。本条语音将以占位文本发送。'
+              '可在「设置 → 语音转文字」新增独立转写配置：点厂商芯片（硅基流动 / Groq / OpenAI）一键预填，或改用支持音频的模型并在「设置 → API」打开「支持语音识别」。本条语音将以占位文本发送。'
             );
           } else {
             // 网络类/其他失败：明确告知（角色收不到文字的根因可见），本条按占位发送。
             recordDiagnostic('api', error, 'voice-transcribe');
             Alert.alert(
               '语音转写失败',
-              `已按占位文本发送，角色收不到语音内容。原因：${String((error && error.message) || '未知')}`
+              `已按占位文本发送，角色收不到语音内容。原因：${String((error && error.message) || '未知')}\n\n可到「设置 → 语音转文字」检查接口地址、密钥与模型名。`
             );
           }
         }
