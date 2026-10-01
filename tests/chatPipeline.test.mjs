@@ -8,6 +8,7 @@ import {
   DEFAULT_OUTPUT_FORMAT_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   buildRequestMessages,
+  filterRequestMedia,
   resolveVoiceFormat,
 } from '../src/chatPipeline.js';
 
@@ -369,4 +370,60 @@ test('用户名含 $ 特殊模式不被解释', () => {
   });
   const system = messages.find(item => item.role === 'system');
   assert.ok(system.content.includes('你好 $&先生'));
+});
+
+test('filterRequestMedia：默认裁剪掉图片与音频并折叠为纯文本', () => {
+  const messages = [
+    { role: 'system', content: 'sys' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '看这张图' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,xxx' } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '语音' },
+        { type: 'input_audio', input_audio: { data: 'zzz', format: 'mp3' } },
+      ],
+    },
+  ];
+  const out = filterRequestMedia(messages, {});
+  assert.equal(out.length, 3);
+  assert.equal(out[0].content, 'sys');
+  assert.equal(out[1].content, '看这张图');
+  assert.equal(out[2].content, '语音');
+});
+
+test('filterRequestMedia：按能力保留对应媒体，未允许的仍裁剪', () => {
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'text', text: '图文' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,xxx' } },
+      { type: 'input_audio', input_audio: { data: 'zzz', format: 'mp3' } },
+    ],
+  }];
+  const visionOnly = filterRequestMedia(messages, { allowVision: true, allowAudio: false });
+  assert.equal(visionOnly[0].content.length, 2);
+  assert.equal(visionOnly[0].content.some(part => part.type === 'image_url'), true);
+  assert.equal(visionOnly[0].content.some(part => part.type === 'input_audio'), false);
+
+  const both = filterRequestMedia(messages, { allowVision: true, allowAudio: true });
+  assert.equal(both[0].content.length, 3);
+});
+
+test('filterRequestMedia：只剩媒体无文本时保留媒体；空数组消息被丢弃', () => {
+  const mediaOnly = filterRequestMedia([
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] },
+  ], { allowVision: true });
+  assert.equal(mediaOnly[0].content.length, 1);
+
+  const dropped = filterRequestMedia([
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] },
+    { role: 'user', content: '纯文本' },
+  ], {});
+  assert.deepEqual(dropped.map(item => item.content), ['纯文本']);
 });

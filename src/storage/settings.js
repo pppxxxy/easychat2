@@ -12,7 +12,6 @@ import {
   readJsonWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
-import { normalizeLocalModelSettings } from '../localModel/modelState.js';
 
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const ONBOARDING_DONE_KEY = '@easychat2_onboarding_done';
@@ -26,21 +25,10 @@ const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const TTS_KEY = '@easychat2_tts';
 const SAMPLING_KEY = '@easychat2_sampling';
 const TRANSCRIPTION_KEY = '@easychat2_transcription';
-const LOCAL_MODEL_KEY = '@easychat2_local_model';
 
 const DEFAULT_THINKING = { enabled: false, level: 'medium', display: 'fold' };
 export const THINKING_LEVELS = ['low', 'medium', 'high'];
 export const THINKING_DISPLAYS = ['open', 'fold', 'off'];
-
-export async function getLocalModelSettings() {
-  return normalizeLocalModelSettings(await readJson(LOCAL_MODEL_KEY, null));
-}
-
-export async function saveLocalModelSettings(settings) {
-  const normalized = normalizeLocalModelSettings(settings);
-  await AsyncStorage.setItem(LOCAL_MODEL_KEY, JSON.stringify(normalized));
-  return normalized;
-}
 
 function normalizeThinking(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};

@@ -23,6 +23,7 @@
         }
       ],
       "./plugins/withProactiveMessage",
+      "./plugins/withLocalApiServer",
       [
         "expo-image-picker",
         {

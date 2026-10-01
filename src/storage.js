@@ -80,7 +80,6 @@ export {
   getEnabledPlugins,
   getImageGenSettings,
   getInlineImageSettings,
-  getLocalModelSettings,
   getMemorySummarySettings,
   getPlugins,
   getSamplingSettings,
@@ -93,7 +92,6 @@ export {
   saveChatOptions,
   saveImageGenSettings,
   saveInlineImageSettings,
-  saveLocalModelSettings,
   saveMemorySummarySettings,
   savePlugins,
   saveSamplingSettings,
@@ -108,6 +106,17 @@ export {
   getApiConfigs,
   saveApiConfigs,
 } from './storage/apiConfigs.js';
+export {
+  deleteLocalModelItem,
+  getActiveLocalModel,
+  getLocalModelIndex,
+  getLocalModelItem,
+  getLocalModelSettings,
+  localModelItemKey,
+  rebuildLocalModelIndex,
+  saveLocalModelItem,
+  saveLocalModelSettings,
+} from './storage/localModels.js';
 export {
   USER_PROFILE_KEY,
   createPersona,

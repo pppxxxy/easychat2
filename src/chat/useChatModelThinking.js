@@ -1,4 +1,5 @@
 // 模型来源与思考（reasoning）设置面板。2026-09-27 从 ChatScreen 抽出（无行为变化）。
+// 2026-10-01 追加本地模型分组：切换模型弹窗内可直接加载/卸载本地模型，并打开发运行日志。
 //
 // 依赖注入两个发送守卫锚点（isSending / sendLockRef），用于「发送中禁止切换模型」，
 // 这是唯一的跨功能耦合；不触碰会话竞态守卫。
@@ -8,10 +9,19 @@ import { Alert } from 'react-native';
 
 import {
   getApiConfigs,
+  getLocalModelIndex,
+  getLocalModelItem,
+  getLocalModelSettings,
   getThinkingSettings,
   saveApiConfigs,
+  saveLocalModelSettings,
   saveThinkingSettings,
 } from '../storage.js';
+import { loadLocalModel, unloadLocalModel } from '../localModel/adapter.js';
+import { stopLocalApiServer } from '../localModel/localApiServer.js';
+import { recordModelLog } from '../localModel/modelLogs.js';
+import { applyActiveLocalModel } from '../localModel/modelState.js';
+import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 
 export default function useChatModelThinking({ isSending, sendLockRef }) {
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
@@ -22,13 +32,25 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
   const [thinkingLevel, setThinkingLevel] = useState('medium');
   const [thinkingSupported, setThinkingSupported] = useState(false);
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
+  const [localModels, setLocalModels] = useState([]);
+  const [activeLocalModelId, setActiveLocalModelId] = useState('');
+  const [loadingLocalModelId, setLoadingLocalModelId] = useState('');
+  const [localLogsOpen, setLocalLogsOpen] = useState(false);
 
   const openModelPanel = useCallback(async () => {
     if (isSending || sendLockRef.current) return;
     try {
-      const { configs: list, activeId: id } = await getApiConfigs();
+      const [{ configs: list, activeId: id }, localIndex, localSettings] = await Promise.all([
+        getApiConfigs(),
+        getLocalModelIndex().catch(() => []),
+        getLocalModelSettings().catch(() => null),
+      ]);
       setApiConfigs(list);
       setModelSourceId(id);
+      setLocalModels(Array.isArray(localIndex) ? localIndex : []);
+      setActiveLocalModelId(
+        localSettings && localSettings.enabled ? (localSettings.activeModelId || '') : ''
+      );
       setModelPanelOpen(true);
     } catch (error) {
       Alert.alert('读取失败', '无法读取 API 配置。');
@@ -49,6 +71,42 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
       Alert.alert('切换失败', '请检查存储空间或权限。');
     }
   }, [apiConfigs, isSending]);
+
+  // 加载本地模型：先确保文件存在，再加载常驻上下文并把该条设为活动模型。
+  const activateLocalModel = useCallback(async entry => {
+    if (!entry || isSending || sendLockRef.current) return;
+    setLoadingLocalModelId(entry.id);
+    try {
+      const item = await getLocalModelItem(entry.id).catch(() => null);
+      if (!item) throw new Error('模型条目不存在');
+      const info = await getLocalModelFileInfo(item).catch(() => ({ exists: false }));
+      if (!info || info.exists === false) throw new Error('模型文件缺失，请重新下载或导入');
+      await loadLocalModel(item);
+      const current = await getLocalModelSettings().catch(() => null);
+      await saveLocalModelSettings(applyActiveLocalModel(current, item));
+      setActiveLocalModelId(item.id);
+      setModelPanelOpen(false);
+    } catch (error) {
+      recordModelLog('load', `加载失败：${error.message || error}`, { level: 'error' });
+      Alert.alert('加载失败', error.message || '请检查模型文件后重试。');
+    } finally {
+      setLoadingLocalModelId('');
+    }
+  }, [isSending]);
+
+  // 卸载当前本地模型：释放常驻上下文并关闭本地模式，回到在线 API。
+  const deactivateLocalModel = useCallback(async () => {
+    try {
+      await stopLocalApiServer().catch(() => {});
+      await unloadLocalModel();
+      const current = await getLocalModelSettings().catch(() => null);
+      await saveLocalModelSettings({ ...current, enabled: false });
+      setActiveLocalModelId('');
+      setModelPanelOpen(false);
+    } catch (error) {
+      Alert.alert('卸载失败', error.message || '请重试。');
+    }
+  }, []);
 
   const openThinkingPanel = useCallback(async () => {
     try {
@@ -96,5 +154,12 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
     setThinkingDisplay,
     openThinkingPanel,
     applyThinking,
+    localModels,
+    activeLocalModelId,
+    loadingLocalModelId,
+    activateLocalModel,
+    deactivateLocalModel,
+    localLogsOpen,
+    setLocalLogsOpen,
   };
 }

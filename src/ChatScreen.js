@@ -38,7 +38,7 @@ import {
    validateImageBatch,
    validateImageSize,
 } from './attachments.js';
-import { buildRequestMessages } from './chatPipeline.js';
+import { buildRequestMessages, filterRequestMedia } from './chatPipeline.js';
 import { buildTimeAwareText } from './currentTime.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
 import { extractStickerDirectives, resolveStickerNames } from './stickerDirectives.js';
@@ -92,6 +92,7 @@ import {
   createGroupSession,
   DEFAULT_CHARACTER,
   getApiConfigs,
+  getActiveLocalModel,
   getChatOptions,
   getEnabledGlobalPresetPrompts,
   getEnabledPlugins,
@@ -140,7 +141,8 @@ import { getVectorOwnerId, shouldIndexSession } from './vectorMemory/scope.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { generateImage } from './imageGen/index.js';
 import { getLocalModelFileInfo } from './localModel/modelManager.js';
-import { sendWithModelProvider } from './modelProvider.js';
+import ModelLogsModal from './localModel/ModelLogsModal.js';
+import { canUseLocalModel, sendWithModelProvider } from './modelProvider.js';
 import { getImageProvider } from './imageGen/providers.js';
 import { stop as ttsStop } from './tts/index.js';
 import useChatTts from './chat/useChatTts.js';
@@ -356,6 +358,13 @@ export default function ChatScreen() {
     setThinkingDisplay,
     openThinkingPanel,
     applyThinking,
+    localModels,
+    activeLocalModelId,
+    loadingLocalModelId,
+    activateLocalModel,
+    deactivateLocalModel,
+    localLogsOpen,
+    setLocalLogsOpen,
   } = useChatModelThinking({ isSending, sendLockRef });
    const [attachments, setAttachments] = useState([]);
    const attachmentsRef = useRef([]);
@@ -1702,9 +1711,18 @@ export default function ChatScreen() {
        if (!isCurrentSession()) return;
 
         const localSettings = await getLocalModelSettings().catch(() => null);
-        const localFileInfo = localSettings
-          ? await getLocalModelFileInfo(localSettings).catch(() => null)
+        const localItem = await getActiveLocalModel().catch(() => null);
+        const localFileInfo = (localItem || localSettings)
+          ? await getLocalModelFileInfo(localItem || localSettings).catch(() => null)
           : null;
+        // 本地多模态默认关：仅当用户开启且该模型有能力时，才把图片/音频发给本地推理。
+        const localReady = canUseLocalModel(localSettings, localFileInfo, localItem);
+        const localMessages = localReady
+          ? filterRequestMedia(requestMessages, {
+              allowVision: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasVision),
+              allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
+            })
+          : requestMessages;
         const onlineSend = () => sendChatMessage(requestMessages, {
               expectedConfigId,
               expectedConfigFingerprint,
@@ -1734,8 +1752,9 @@ export default function ChatScreen() {
             }
         });
         const reply = await sendWithModelProvider({
-          messages: requestMessages,
+          messages: localMessages,
           localSettings,
+          localItem,
           localFileInfo,
           signal: controller.signal,
           onToken: fullText => {
@@ -3994,6 +4013,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
             onPress: openModelPanel,
           },
           {
+            key: 'local-logs',
+            label: '本地日志',
+            icon: 'document-text-outline',
+            onPress: () => setLocalLogsOpen(true),
+          },
+          {
             key: 'thinking',
             label: '思考',
             icon: 'bulb-outline',
@@ -4110,7 +4135,15 @@ if (!isCurrent() || controller.signal.aborted) return false;
         setModelSourceId={setModelSourceId}
         applyModelSelection={applyModelSelection}
         isSending={isSending}
+        localModels={localModels}
+        activeLocalModelId={activeLocalModelId}
+        loadingLocalModelId={loadingLocalModelId}
+        onActivateLocalModel={activateLocalModel}
+        onDeactivateLocalModel={deactivateLocalModel}
+        onOpenModelLogs={() => setLocalLogsOpen(true)}
       />
+
+      <ModelLogsModal visible={localLogsOpen} onClose={() => setLocalLogsOpen(false)} />
 
       <ThinkingPanelModal
         visible={thinkingOpen}

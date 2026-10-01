@@ -1,4 +1,5 @@
 // 切换模型弹窗。从 src/ChatScreen.js 原样外提（无行为变化）。
+// 2026-10-01 追加「本地模型」分组：可加载/卸载本地模型并打开运行日志。
 
 import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
@@ -6,6 +7,19 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { createChatStyles } from './chatStyles.js';
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size >= 10 || index === 0 ? Math.round(size) : size.toFixed(1)}${units[index]}`;
+}
 
 export default function ModelPanelModal({
   visible,
@@ -15,6 +29,12 @@ export default function ModelPanelModal({
   setModelSourceId,
   applyModelSelection,
   isSending,
+  localModels = [],
+  activeLocalModelId = '',
+  loadingLocalModelId = '',
+  onActivateLocalModel,
+  onDeactivateLocalModel,
+  onOpenModelLogs,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -83,6 +103,50 @@ export default function ModelPanelModal({
               });
             })()}
           </ScrollView>
+
+          <View style={styles.localHeaderRow}>
+            <Text style={styles.modelLabel}>本地模型</Text>
+            <TouchableOpacity
+              onPress={onOpenModelLogs}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="本地模型运行日志"
+            >
+              <Text style={styles.localLogLink}>运行日志</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modelListScroll}>
+            {localModels.length === 0 ? (
+              <Text style={styles.modelEmpty}>还没有本地模型，可在设置 → 关于 → 本地模型中下载或导入。</Text>
+            ) : (
+              localModels.map(entry => {
+                const active = entry.id === activeLocalModelId;
+                const loading = entry.id === loadingLocalModelId;
+                const meta = [entry.quant, formatBytes(entry.modelBytes)].filter(Boolean).join(' · ');
+                return (
+                  <View key={entry.id} style={styles.localRow}>
+                    <View style={styles.localInfo}>
+                      <Text style={styles.localName} numberOfLines={1}>
+                        {entry.name || entry.id}{active ? ' · 当前' : ''}
+                      </Text>
+                      {meta ? <Text style={styles.localMeta} numberOfLines={1}>{meta}</Text> : null}
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.localAction, active && styles.localActionActive, (isSending || loading) && styles.actionDisabled]}
+                      disabled={isSending || loading}
+                      onPress={() => (active ? onDeactivateLocalModel() : onActivateLocalModel(entry))}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${active ? '卸载' : '加载'} ${entry.name || entry.id}`}
+                    >
+                      <Text style={styles.localActionText}>{loading ? '加载中' : active ? '卸载' : '加载'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+
           <TouchableOpacity
             style={styles.modelClose}
             onPress={onClose}

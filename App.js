@@ -21,6 +21,7 @@ import OnboardingModal from './src/OnboardingModal.js';
 import {
   acknowledgeDisclaimer,
   completeOnboarding,
+  getActiveLocalModel,
   isDisclaimerAcknowledged,
   isOnboardingDone,
   migrateLegacyMessages,
@@ -41,6 +42,13 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
 import { maskSecrets } from './src/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard.js';
 import { recordDiagnostic } from './src/diagnostics.js';
+import { runLocalModel } from './src/localModel/adapter.js';
+import {
+  attachLocalApiServerInference,
+  isLocalApiServerAvailable,
+  stopLocalApiServer,
+} from './src/localModel/localApiServer.js';
+import { tryAcquireResource } from './src/resourceMutex.js';
 import { useTabIconScale } from './src/ui/animations.js';
 
 const Tab = createBottomTabNavigator();
@@ -417,6 +425,40 @@ function ProactiveMessageBridge({ navigationReady }) {
   return null;
 }
 
+// 本地 API 服务桥：把原生 HTTP 请求接到常驻本地模型，退后台/卸载时停服释放端口。
+function LocalApiServerBridge() {
+  useEffect(() => {
+    if (!isLocalApiServerAvailable()) return undefined;
+    const unsubscribe = attachLocalApiServerInference({
+      runInference: async messages => {
+        const item = await getActiveLocalModel().catch(() => null);
+        if (!item) throw new Error('未选择本地模型');
+        const release = tryAcquireResource('local-model');
+        if (!release) throw new Error('本地模型资源被占用');
+        try {
+          const result = await runLocalModel(messages, item, {});
+          return result && typeof result.text === 'string' ? result.text : '';
+        } finally {
+          release();
+        }
+      },
+    });
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener('change', next => {
+      if (previous === 'active' && next !== 'active') {
+        stopLocalApiServer().catch(() => {});
+      }
+      previous = next;
+    });
+    return () => {
+      unsubscribe();
+      subscription.remove();
+      stopLocalApiServer().catch(() => {});
+    };
+  }, []);
+  return null;
+}
+
 function TabBarIcon({ routeName, color, focused, palette }) {
   const [outline, filled] = TAB_ICONS[routeName] || ['ellipse-outline', 'ellipse'];
   const scale = useTabIconScale(focused);
@@ -493,6 +535,7 @@ function AppShell() {
     >
       <StatusBar style={palette.id === 'light' ? 'dark' : 'light'} />
       <ProactiveMessageBridge navigationReady={navigationReady} />
+      <LocalApiServerBridge />
       <Header />
       <Tab.Navigator
         screenListeners={{ tabPress: handleTabPress }}

@@ -250,3 +250,38 @@ export function resolveVoiceFormat(mime) {
   if (value.includes('flac')) return 'flac';
   return 'mp3';
 }
+
+// 本地模型媒体裁剪：按能力/开关只保留允许的多模态部分，其余退化为纯文本。
+// 数组 content 裁剪后若无媒体则折叠成字符串；空消息丢弃；字符串 content 原样返回。
+export function filterRequestMedia(messages, { allowVision = false, allowAudio = false } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  return list
+    .map(message => {
+      if (!message || typeof message !== 'object') return message;
+      if (!Array.isArray(message.content)) return message;
+      const parts = [];
+      message.content.forEach(part => {
+        if (!part || typeof part !== 'object') return;
+        if (part.type === 'image_url') {
+          if (allowVision) parts.push(part);
+          return;
+        }
+        if (part.type === 'input_audio') {
+          if (allowAudio) parts.push(part);
+          return;
+        }
+        parts.push(part);
+      });
+      if (parts.length === 0) return null;
+      const hasMedia = parts.some(part => part.type === 'image_url' || part.type === 'input_audio');
+      if (!hasMedia) {
+        const text = parts
+          .map(part => (typeof part.text === 'string' ? part.text : ''))
+          .filter(Boolean)
+          .join('\n');
+        return { ...message, content: text };
+      }
+      return { ...message, content: parts };
+    })
+    .filter(Boolean);
+}

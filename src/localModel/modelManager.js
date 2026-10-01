@@ -1,16 +1,17 @@
-// 本地模型元数据与文件生命周期。原生模型只接收 documentDirectory 下的本地路径。
+// 本地模型文件生命周期：下载、本地导入、文件信息与删除。
+// 原生模型只接收 documentDirectory 下的本地路径；下载/导入任一步失败都清理半成品文件并回滚登记。
+// 文件系统与登记依赖可注入（options.fileSystem / options.registerItem），便于 Node 单测。
 
 import * as FileSystem from 'expo-file-system/legacy';
+
+import { saveLocalModelItem } from '../storage/localModels.js';
 import {
-  DEFAULT_LOCAL_MODEL_SETTINGS,
+  buildLocalModelItem,
+  localModelIdFromFileName,
   localModelPath as safeLocalModelPath,
-  normalizeLocalModelSettings,
 } from './modelState.js';
 
-export const LOCAL_MODEL_SETTINGS_KEY = '@easychat2_local_model';
 export const LOCAL_MODEL_DIRECTORY = 'local-models';
-export const LOCAL_MODEL_SETTINGS_VERSION = 1;
-
 
 export function localModelDirectory() {
   return `${FileSystem.documentDirectory || FileSystem.cacheDirectory || ''}${LOCAL_MODEL_DIRECTORY}/`;
@@ -20,50 +21,167 @@ export function localModelPath(modelId, extension = 'gguf') {
   return `${localModelDirectory()}${safeLocalModelPath(modelId, extension)}`;
 }
 
-export async function getLocalModelFileInfo(settings) {
-  const normalized = normalizeLocalModelSettings(settings);
-  if (!normalized.modelPath) return { exists: false };
-  return FileSystem.getInfoAsync(normalized.modelPath);
+export function localModelMmprojPath(modelId) {
+  return localModelPath(modelId, 'mmproj.gguf');
 }
 
-export async function downloadLocalModel({ modelId, modelName, modelUrl, modelSha256 = '', onProgress } = {}) {
-  const id = String(modelId || '').trim();
-  const url = String(modelUrl || '').trim();
+function resolveFileSystem(options) {
+  return (options && options.fileSystem) || FileSystem;
+}
+
+function resolveRegister(options) {
+  return (options && options.registerItem) || saveLocalModelItem;
+}
+
+function parsePositiveSize(info) {
+  const size = Number(info && info.size);
+  return Number.isFinite(size) && size > 0 ? Math.floor(size) : 0;
+}
+
+async function removeQuietly(fs, path) {
+  if (!path) return;
+  try {
+    await fs.deleteAsync(path, { idempotent: true });
+  } catch (error) {}
+}
+
+export async function getLocalModelFileInfo(model, options = {}) {
+  const fs = resolveFileSystem(options);
+  const path = String((model && model.modelPath) || '').trim();
+  if (!path) return { exists: false };
+  return fs.getInfoAsync(path);
+}
+
+async function downloadToFile(fs, url, destination, onProgress) {
+  const temporary = `${destination}.download`;
+  await fs.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
+  await removeQuietly(fs, temporary);
+  try {
+    const task = fs.createDownloadResumable(url, temporary, {}, progress => {
+      if (typeof onProgress !== 'function') return;
+      const total = Number(progress.totalBytesExpectedToWrite);
+      const written = Number(progress.totalBytesWritten);
+      onProgress(total > 0 ? Math.min(1, written / total) : 0);
+    });
+    const result = await task.downloadAsync();
+    if (!result || !result.uri) throw new Error('模型下载失败');
+    const info = await fs.getInfoAsync(result.uri);
+    const size = parsePositiveSize(info);
+    if (!info || info.exists === false || size <= 0) throw new Error('模型文件为空');
+    await removeQuietly(fs, destination);
+    await fs.moveAsync({ from: result.uri, to: destination });
+    return size;
+  } catch (error) {
+    await removeQuietly(fs, temporary);
+    throw error;
+  }
+}
+
+async function copyToFile(fs, sourceUri, destination) {
+  await fs.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
+  const info = await fs.getInfoAsync(sourceUri);
+  const size = parsePositiveSize(info);
+  if (!info || info.exists === false || size <= 0) throw new Error('所选文件为空');
+  await removeQuietly(fs, destination);
+  try {
+    await fs.copyAsync({ from: sourceUri, to: destination });
+  } catch (error) {
+    await removeQuietly(fs, destination);
+    throw error;
+  }
+  return size;
+}
+
+// 下载模型（可选配套 mmproj）→ 构造条目 → 登记索引。
+// 下载或登记任一步失败，删除已落盘文件并把错误抛给调用方。
+export async function downloadLocalModel(input = {}, options = {}) {
+  const fs = resolveFileSystem(options);
+  const register = resolveRegister(options);
+  const url = String(input.modelUrl || '').trim();
+  const id = localModelIdFromFileName(input.modelId || input.modelName || input.modelUrl);
   if (!id || !/^https?:\/\//i.test(url)) throw new Error('请填写有效的模型地址与模型 id');
   const destination = localModelPath(id);
-  const temporary = `${destination}.download`;
-  await FileSystem.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
-  await FileSystem.deleteAsync(temporary, { idempotent: true });
-  const task = FileSystem.createDownloadResumable(url, temporary, {}, progress => {
-    if (typeof onProgress !== 'function') return;
-    const total = Number(progress.totalBytesExpectedToWrite);
-    const written = Number(progress.totalBytesWritten);
-    onProgress(total > 0 ? Math.min(1, written / total) : 0);
-  });
-  const result = await task.downloadAsync();
-  if (!result || !result.uri) throw new Error('模型下载失败');
-  const info = await FileSystem.getInfoAsync(result.uri);
-  if (!info.exists || Number(info.size) <= 0) throw new Error('模型文件为空');
-  await FileSystem.deleteAsync(destination, { idempotent: true });
-  await FileSystem.moveAsync({ from: result.uri, to: destination });
-  return {
-    enabled: false,
-    modelId: id,
-    modelName: String(modelName || id),
-    modelUrl: url,
-    modelPath: destination,
-    modelSha256: String(modelSha256 || ''),
-    modelBytes: Number(info.size) || 0,
-    contextSize: 2048,
-    gpuLayers: 0,
-    updatedAt: Date.now(),
-  };
+  const mmprojUrl = String(input.mmprojUrl || '').trim();
+  const mmprojDestination = mmprojUrl ? localModelMmprojPath(id) : '';
+  let modelWritten = false;
+  let mmprojWritten = false;
+  try {
+    const modelBytes = await downloadToFile(fs, url, destination, input.onProgress);
+    modelWritten = true;
+    let mmprojBytes = 0;
+    if (mmprojUrl) {
+      mmprojBytes = await downloadToFile(fs, mmprojUrl, mmprojDestination, null);
+      mmprojWritten = true;
+    }
+    const item = buildLocalModelItem({
+      id,
+      name: input.modelName || id,
+      sourceId: input.sourceId,
+      repoPath: input.repoPath,
+      modelUrl: url,
+      modelPath: destination,
+      modelBytes,
+      modelSha256: input.modelSha256,
+      quant: input.quant,
+      paramSize: input.paramSize,
+      mmprojUrl,
+      mmprojPath: mmprojDestination,
+      mmprojBytes,
+      imported: false,
+    });
+    return await register(item);
+  } catch (error) {
+    if (modelWritten) await removeQuietly(fs, destination);
+    if (mmprojWritten) await removeQuietly(fs, mmprojDestination);
+    throw error;
+  }
 }
 
-export async function deleteLocalModelFile(settings) {
-  const normalized = normalizeLocalModelSettings(settings);
-  if (normalized.modelPath) {
-    await FileSystem.deleteAsync(normalized.modelPath, { idempotent: true });
+// 导入本地 GGUF（可选配套 mmproj）：复制进应用目录 → 构造 imported 条目 → 登记索引。
+export async function importLocalModel(input = {}, options = {}) {
+  const fs = resolveFileSystem(options);
+  const register = resolveRegister(options);
+  const sourceUri = String(input.sourceUri || '').trim();
+  const id = localModelIdFromFileName(input.modelId || input.sourceUri || input.name);
+  if (!sourceUri || !id) throw new Error('请选择要导入的 GGUF 文件');
+  const destination = localModelPath(id);
+  const mmprojSourceUri = String(input.mmprojSourceUri || '').trim();
+  const mmprojDestination = mmprojSourceUri ? localModelMmprojPath(id) : '';
+  let modelWritten = false;
+  let mmprojWritten = false;
+  try {
+    const modelBytes = await copyToFile(fs, sourceUri, destination);
+    modelWritten = true;
+    let mmprojBytes = 0;
+    if (mmprojSourceUri) {
+      mmprojBytes = await copyToFile(fs, mmprojSourceUri, mmprojDestination);
+      mmprojWritten = true;
+    }
+    const item = buildLocalModelItem({
+      id,
+      name: input.name || id,
+      sourceId: 'local',
+      modelUrl: '',
+      modelPath: destination,
+      modelBytes,
+      quant: input.quant,
+      paramSize: input.paramSize,
+      mmprojPath: mmprojDestination,
+      mmprojBytes,
+      imported: true,
+    });
+    return await register(item);
+  } catch (error) {
+    if (modelWritten) await removeQuietly(fs, destination);
+    if (mmprojWritten) await removeQuietly(fs, mmprojDestination);
+    throw error;
   }
-  return { ...DEFAULT_LOCAL_MODEL_SETTINGS };
+}
+
+// 删除模型文件与配套 mmproj；文件缺失不报错（幂等）。
+export async function deleteLocalModel(model, options = {}) {
+  const fs = resolveFileSystem(options);
+  if (!model) return;
+  await removeQuietly(fs, model.modelPath);
+  await removeQuietly(fs, model.mmprojPath);
 }
