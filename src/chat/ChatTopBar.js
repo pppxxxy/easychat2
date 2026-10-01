@@ -62,7 +62,7 @@ export default function ChatTopBar({
               <Text style={styles.selectionActionText}>{allSelected ? '取消全选' : '全选'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.selectionAction, isSending && styles.actionDisabled]}
+              style={[styles.selectionAction, styles.selectionDeleteAction, isSending && styles.actionDisabled]}
               onPress={onDeleteSelected}
               disabled={isSending}
               activeOpacity={0.7}

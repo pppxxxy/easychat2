@@ -747,7 +747,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   cardSelected: {
     borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: tokens.border.thick,
+    backgroundColor: theme.colors.primaryAlpha(0.06),
   },
   cardMain: {
     flex: 1,
@@ -817,6 +818,10 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderRadius: tokens.metrics.buttonRadius,
     paddingHorizontal: 18,
     paddingVertical: 10,
+    shadowColor: theme.colors.danger,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
   },
   deleteButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700' },
   disabled: { opacity: tokens.opacity.disabled },

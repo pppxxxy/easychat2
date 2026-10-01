@@ -181,7 +181,13 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     borderWidth: 1,
     borderColor: theme.colors.primaryContrast,
   },
-  characterCardCheckOn: { backgroundColor: theme.colors.primary },
+  characterCardCheckOn: {
+    backgroundColor: theme.colors.primary,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+  },
   characterCardPin: {
     position: 'absolute',
     bottom: 6,

@@ -36,6 +36,8 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: tokens.spacing.sm,
     borderRadius: tokens.radius.md,
     backgroundColor: theme.colors.primaryAlpha(0.12),
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.3),
   },
   selectionActionText: {
     color: theme.colors.primarySoft,
@@ -45,6 +47,10 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   selectionDeleteText: {
     color: theme.colors.danger,
+  },
+  selectionDeleteAction: {
+    backgroundColor: theme.colors.dangerAlpha(0.14),
+    borderColor: theme.colors.dangerAlpha(0.35),
   },
   selectionActions: {
     flexDirection: 'row',
@@ -689,6 +695,10 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleSelected: {
     borderWidth: 2,
     borderColor: theme.colors.primary,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
   },
   thinkingIndicator: {
     flexDirection: 'row',
