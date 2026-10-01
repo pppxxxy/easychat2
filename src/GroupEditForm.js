@@ -16,15 +16,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { markMediaWrite, updateSessionInfo } from './storage.js';
+import { getPickedAsset } from './character/cardHelpers.js';
 import { FieldLabel, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
-
-function getPickedAsset(result) {
-  if (!result || result.canceled || result.type === 'cancel') return null;
-  if (Array.isArray(result.assets) && result.assets[0]) return result.assets[0];
-  if (result.uri) return result;
-  return null;
-}
 
 export default function GroupEditForm({ visible, session, members, onClose, onSaved }) {
   const { theme, fonts } = useTheme();

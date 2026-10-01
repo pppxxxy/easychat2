@@ -17,7 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getPlugins, savePlugins } from './storage.js';
 import { useTheme } from './theme/ThemeContext.js';
-import { PROVIDERS } from './plugins/providers.js';
+import { PROVIDERS, getProvider, missingRequiredFields } from './plugins/providers.js';
 
 export default function PluginPanel({ visible, onClose }) {
   const [plugins, setPlugins] = useState([]);
@@ -113,18 +113,8 @@ export default function PluginPanel({ visible, onClose }) {
   const togglePlugin = useCallback(async (plugin, value) => {
     if (value && plugin.type === 'web-search') {
       const config = plugin.config || {};
-      const provider = PROVIDERS.find(item => item.id === config.provider) || PROVIDERS[0];
-      let missing = false;
-      if (provider.custom) {
-        missing = !String(config.customBaseUrl || '').trim()
-          || !String(config.apiKey || '').trim();
-      } else if ((provider.secretFields || []).includes('apiKey')) {
-        missing = !String(config.apiKey || '').trim();
-      }
-      if (!missing && (provider.extraFields || []).includes('cx')) {
-        missing = !String(config.cx || '').trim();
-      }
-      if (missing) {
+      const provider = getProvider(config.provider);
+      if (missingRequiredFields(provider, config).length > 0) {
         Alert.alert('请先填写密钥', '开启联网搜索前，请先填写搜索服务的密钥或地址。');
         return;
       }

@@ -84,3 +84,22 @@ export const PROVIDERS = [
 export function getProvider(id) {
   return PROVIDERS.find(provider => provider.id === id) || PROVIDERS[0];
 }
+
+// 判断某供应商配置缺少哪些必填项，返回缺失字段名数组（空数组=配置完整）。
+// 面板「开启联网搜索」前的拦截与 webSearch 执行前的短路共用同一判定，
+// 避免两处规则漂移（此前各写一份 if 链）。
+export function missingRequiredFields(provider, config) {
+  const source = config && typeof config === 'object' ? config : {};
+  const target = provider || PROVIDERS[0];
+  const missing = [];
+  if (target.custom && !String(source.customBaseUrl || '').trim()) {
+    missing.push('customBaseUrl');
+  }
+  if ((target.secretFields || []).includes('apiKey') && !String(source.apiKey || '').trim()) {
+    missing.push('apiKey');
+  }
+  if ((target.extraFields || []).includes('cx') && !String(source.cx || '').trim()) {
+    missing.push('cx');
+  }
+  return missing;
+}

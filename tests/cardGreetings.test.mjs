@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildGreetingImport, isGreetingMessage, listGreetingCandidates } from '../src/cardGreetings.js';
+import {
+  buildGreetingImport,
+  isGreetingMessage,
+  listGreetingCandidates,
+  removeGreetingDraftIndex,
+} from '../src/cardGreetings.js';
 
 test('整理候选：firstMes 在前，备用开场白在后，去空去空白', () => {
   const list = listGreetingCandidates({
@@ -48,4 +53,23 @@ test('识别新旧开场白消息', () => {
   assert.equal(isGreetingMessage({ id: 'greeting-session-1', role: 'assistant' }, 'session-1'), true);
   assert.equal(isGreetingMessage({ id: 'other', role: 'assistant', kind: 'greeting' }, 'session-1'), true);
   assert.equal(isGreetingMessage({ id: 'other', role: 'assistant' }, 'session-1'), false);
+});
+
+test('删除草稿后选中下标：删中回落第一条，删空回 -1', () => {
+  // 删中的那条：还有剩余则选中第一条，删空则 -1
+  assert.equal(removeGreetingDraftIndex(1, 1, 2), 0);
+  assert.equal(removeGreetingDraftIndex(0, 0, 0), -1);
+});
+
+test('删除草稿后选中下标：删除项之后的选中位左移，之前的保持不变', () => {
+  // 选中第 2 条，删第 0 条 → 左移为 1
+  assert.equal(removeGreetingDraftIndex(2, 0, 2), 1);
+  // 选中第 0 条，删第 2 条 → 不变
+  assert.equal(removeGreetingDraftIndex(0, 2, 2), 0);
+});
+
+test('删除草稿后选中下标：未选中（-1）保持 -1，非法输入归一为 -1', () => {
+  assert.equal(removeGreetingDraftIndex(-1, 0, 2), -1);
+  assert.equal(removeGreetingDraftIndex(undefined, 0, 2), -1);
+  assert.equal(removeGreetingDraftIndex(null, 0, 2), -1);
 });

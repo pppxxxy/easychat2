@@ -1,4 +1,4 @@
-import { getProvider } from './providers.js';
+import { getProvider, missingRequiredFields } from './providers.js';
 import { registerSecretValues } from '../secrets.js';
 
 const SEARCH_TIMEOUT_MS = 10000;
@@ -199,14 +199,7 @@ export async function runWebSearch({ query, config, maxResults, signal = null })
     Math.max(1, Math.trunc(Number(maxResults) || Number(source.maxResults) || 5)),
     10
   );
-  if (provider.custom) {
-    if (!String(source.customBaseUrl || '').trim()) return [];
-  }
-  const requiresKey = (provider.secretFields || []).includes('apiKey');
-  if (requiresKey && !String(source.apiKey || '').trim()) return [];
-  if ((provider.extraFields || []).includes('cx') && !String(source.cx || '').trim()) {
-    return [];
-  }
+  if (missingRequiredFields(provider, source).length > 0) return [];
 
   const key = cacheKey(provider.id, text, limit, source);
   const now = Date.now();

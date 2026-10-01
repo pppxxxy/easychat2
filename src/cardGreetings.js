@@ -33,3 +33,13 @@ export function buildGreetingImport(drafts, selectedIndex) {
   const alternateGreetings = list.filter((text, index) => text && (useNone || index !== selectedIndex));
   return { firstMes, alternateGreetings };
 }
+
+// 删除第 index 条草稿后，重算仍应选中的下标（纯函数，便于单测）。
+// remainingLength 为删除后剩余条数：删中的那条回落到第一条（还有剩余）或 -1（删空）；
+// 被删项之前的选中位不变，之后的选中位左移一位；未选中（-1）保持 -1。
+export function removeGreetingDraftIndex(selectedIndex, index, remainingLength) {
+  const prev = Number.isInteger(selectedIndex) ? selectedIndex : -1;
+  if (prev === index) return remainingLength > 0 ? 0 : -1;
+  if (prev > index) return prev - 1;
+  return prev;
+}

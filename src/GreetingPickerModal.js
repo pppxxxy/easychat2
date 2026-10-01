@@ -11,7 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
-import { buildGreetingImport } from './cardGreetings.js';
+import { buildGreetingImport, removeGreetingDraftIndex } from './cardGreetings.js';
 
 // 导入角色卡时选择开场白：挑一条、就地修改，或新增。确认后返回
 // { firstMes, alternateGreetings }。
@@ -56,11 +56,7 @@ export default function GreetingPickerModal({
   const removeDraft = index => {
     setDrafts(current => {
       const next = current.filter((_, i) => i !== index);
-      setSelectedIndex(prev => {
-        if (prev === index) return next.length > 0 ? 0 : -1;
-        if (prev > index) return prev - 1;
-        return prev;
-      });
+      setSelectedIndex(prev => removeGreetingDraftIndex(prev, index, next.length));
       return next;
     });
   };

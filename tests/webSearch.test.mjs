@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { formatContext } from '../src/plugins/registry.js';
 import { runWebSearch } from '../src/plugins/webSearch.js';
+import { PROVIDERS, getProvider, missingRequiredFields } from '../src/plugins/providers.js';
 
 test('联网搜索结果标记为外部不可信数据并清理换行', () => {
   const context = formatContext([{
@@ -100,4 +101,36 @@ test('搜索请求可以响应 AbortSignal', async () => {
   } finally {
     globalThis.XMLHttpRequest = originalXHR;
   }
+});
+
+test('missingRequiredFields：常规供应商缺 apiKey 视为不完整', () => {
+  const provider = getProvider('serpapi');
+  assert.deepEqual(missingRequiredFields(provider, {}), ['apiKey']);
+  assert.deepEqual(missingRequiredFields(provider, { apiKey: '   ' }), ['apiKey']);
+  assert.deepEqual(missingRequiredFields(provider, { apiKey: 'k' }), []);
+});
+
+test('missingRequiredFields：Google CSE 额外要求 cx', () => {
+  const provider = getProvider('google-cse');
+  assert.deepEqual(missingRequiredFields(provider, { apiKey: 'k' }), ['cx']);
+  assert.deepEqual(missingRequiredFields(provider, { apiKey: 'k', cx: 'engine' }), []);
+  // 两项都缺时按 customBaseUrl 无关、apiKey 与 cx 顺序返回
+  assert.deepEqual(missingRequiredFields(provider, {}), ['apiKey', 'cx']);
+});
+
+test('missingRequiredFields：自定义供应商要求地址与密钥', () => {
+  const provider = getProvider('custom');
+  // 旧实现两处都要求 customBaseUrl 且 apiKey（custom.secretFields 含 apiKey）
+  assert.deepEqual(missingRequiredFields(provider, {}), ['customBaseUrl', 'apiKey']);
+  assert.deepEqual(missingRequiredFields(provider, { customBaseUrl: ' https://x ' }), ['apiKey']);
+  assert.deepEqual(missingRequiredFields(provider, { customBaseUrl: 'https://x', apiKey: 'k' }), []);
+});
+
+test('missingRequiredFields：容错输入与未知供应商回退首个', () => {
+  assert.deepEqual(missingRequiredFields(null, null), ['apiKey']);
+  assert.deepEqual(missingRequiredFields(getProvider('不存在'), { apiKey: 'k' }), []);
+  // 每个内置供应商都能被判定，不抛异常
+  PROVIDERS.forEach(provider => {
+    assert.ok(Array.isArray(missingRequiredFields(provider, {})), `${provider.id} 判定异常`);
+  });
 });
