@@ -33,3 +33,18 @@ test('媒体消息保留空正文并生成名称提示', () => {
     /图片：旧图片\.jpg/
   );
 });
+
+test('语音消息上下文投影：有转写用文本、空则占位', () => {
+  assert.equal(
+    getMessagePromptText({ kind: 'voice', audio: { uri: 'file:///v.m4a' }, text: '  你好  ' }),
+    '你好'
+  );
+  assert.equal(
+    getMessagePromptText({ kind: 'voice', audio: { uri: 'file:///v.m4a' }, text: '' }),
+    '[用户发来一段语音]'
+  );
+  assert.equal(
+    getMessagePromptText({ kind: 'voice', audio: { uri: 'file:///v.m4a' }, text: '   ' }),
+    '[用户发来一段语音]'
+  );
+});

@@ -24,6 +24,7 @@ import DisclaimerModal from './disclaimer.js';
 import PluginPanel from './PluginPanel.js';
 import PresetPanel from './PresetPanel.js';
 import TtsPanel from './TtsPanel.js';
+import TranscriptionPanel from './TranscriptionPanel.js';
 import {
   createApiConfig,
   getApiConfigs,
@@ -125,6 +126,7 @@ export default function SettingsScreen() {
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [ttsEntryOpen, setTtsEntryOpen] = useState(false);
+  const [transcriptionEntryOpen, setTranscriptionEntryOpen] = useState(false);
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
@@ -1704,6 +1706,17 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => setTranscriptionEntryOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="mic-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>语音转文字</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="planet-outline" size={17} color={theme.colors.primaryMuted} />
@@ -1901,6 +1914,11 @@ export default function SettingsScreen() {
         <TtsPanel
           visible={ttsEntryOpen}
           onClose={() => setTtsEntryOpen(false)}
+        />
+
+        <TranscriptionPanel
+          visible={transcriptionEntryOpen}
+          onClose={() => setTranscriptionEntryOpen(false)}
         />
 
         <PresetPanel

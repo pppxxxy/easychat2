@@ -17,12 +17,14 @@ export {
   getActiveSessionId,
   setActiveSessionId,
   setProtectedChatImageUris,
+  setProtectedVoiceUris,
   getSessionSummaryRevision,
   isSessionSummaryRevisionCurrent,
 } from './sessionCore.js';
 
 export {
   collectChatImageFiles,
+  collectVoiceFiles,
 } from './sessionFiles.js';
 
 export {

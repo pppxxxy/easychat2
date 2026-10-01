@@ -19,7 +19,14 @@ export function getMediaPrompt(message) {
   return `【图片：${name || '未命名'}】`;
 }
 
+// 上下文投影统一入口：语音消息（有转写用转写、空则占位）优先于文本；
+// 图片/表情包沿用既有投影；其余按纯文本。
+// 语音投影逻辑定义在 voiceMessages.js，这里内联等价判断，避免引入循环依赖。
 export function getMessagePromptText(message) {
+  if (message && message.kind === 'voice' && message.audio) {
+    const text = String(message.text || '').trim();
+    return text || '[用户发来一段语音]';
+  }
   return isMediaMessage(message) ? getMediaPrompt(message) : String(message && message.text || '');
 }
 

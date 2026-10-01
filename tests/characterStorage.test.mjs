@@ -915,6 +915,55 @@ test('聊天图片回收保留其他会话和待发送附件的引用', async ()
   storage.setProtectedChatImageUris([]);
 });
 
+test('语音文件回收：保留被引用与待发送的语音，删除孤儿', async () => {
+  const storage = loadStorage();
+  const kept = 'file:///documents/voice/kept.m4a';
+  const orphan = 'file:///documents/voice/orphan.m4a';
+  const draft = 'file:///documents/voice/draft.m4a';
+  files.set(kept, 'kept');
+  files.set(orphan, 'orphan');
+  files.set(draft, 'draft');
+  // voice 消息用 audio.uri 引用
+  store.set('@easychat2_messages::s1', JSON.stringify([
+    { id: 'v1', role: 'user', kind: 'voice', audio: { uri: kept, durationMs: 1000 } },
+  ]));
+  // 待发送语音（已落盘、消息尚未落盘）应被保护，不会被首次回收删除
+  storage.setProtectedVoiceUris([draft]);
+
+  await storage.collectVoiceFiles();
+  assert.equal(files.has(kept), true, '被引用的语音应保留');
+  assert.equal(files.has(orphan), false, '孤儿语音应删除');
+  assert.equal(files.has(draft), true, '待发送语音应保留');
+
+  storage.setProtectedVoiceUris([]);
+  // 引用消息被删后，语音应被回收
+  store.delete('@easychat2_messages::s1');
+  await storage.collectVoiceFiles();
+  assert.equal(files.has(kept), false, '取消引用后应回收');
+  assert.equal(files.has(draft), false, '取消保护后应回收');
+});
+
+test('语音文件回收：消息键损坏时保守返回不删除', async () => {
+  const storage = loadStorage();
+  const voice = 'file:///documents/voice/safe.m4a';
+  files.set(voice, 'safe');
+  store.set('@easychat2_messages::broken', '{not json');
+  await storage.collectVoiceFiles();
+  assert.equal(files.has(voice), true, '读取失败时不得误删');
+});
+
+test('删除会话会同时回收语音文件', async () => {
+  const storage = loadStorage();
+  const created = await storage.startNewSession('character-1');
+  const voice = 'file:///documents/voice/bye.m4a';
+  files.set(voice, 'bye');
+  await storage.saveMessagesBySession(created.id, [
+    { id: 'v1', role: 'user', kind: 'voice', audio: { uri: voice }, timestamp: 1 },
+  ], 'character-1');
+  await storage.deleteSession(created.id);
+  assert.equal(files.has(voice), false, '删除会话后语音应被回收');
+});
+
 test('动态记录损坏时删除关联动态拒绝写回', async () => {
   const storage = loadStorage();
   const raw = '{broken-json';
@@ -1570,4 +1619,43 @@ test('对话配图设置：imagePosition 默认结尾并夹取合法值', async 
   // 非法值回退结尾
   const invalid = await storage.saveInlineImageSettings({ imagePosition: '高潮' });
   assert.equal(invalid.imagePosition, 'end');
+});
+
+test('语音转文字设置：默认「仅复用」+ 多配置 + 密钥保险箱', async () => {
+  const storage = loadStorage();
+  store.clear();
+  // 默认：无配置，activeId 为空 = 仅复用当前聊天来源
+  const initial = await storage.getTranscriptionSettings();
+  assert.deepEqual(initial, { activeId: '', configs: [] });
+  const saved = await storage.saveTranscriptionSettings({
+    activeId: 'stt-1',
+    configs: [
+      { id: 'stt-1', name: '本地', baseUrl: 'https://stt.test', apiKey: 'sk-secret-value', model: '' },
+      { id: 'stt-2', name: '备用', baseUrl: 'https://stt2.test', apiKey: 'k2' },
+    ],
+  });
+  assert.equal(saved.activeId, 'stt-1');
+  assert.equal(saved.configs[0].model, 'whisper-1', '缺省 model 应回退 whisper-1');
+  // 测试环境 expo-secure-store 不可用：protectSecrets 按「降级安全」保持明文，
+  // 读写一致即可（真实设备上会转为 secure:v1:<id> 引用，不落明文）。
+  const reloaded = await storage.getTranscriptionSettings();
+  assert.equal(reloaded.configs[0].apiKey, 'sk-secret-value', '读回应还原密钥');
+  assert.equal(reloaded.activeId, 'stt-1');
+});
+
+test('语音转文字设置：activeId 指向不存在的配置时回退为空', async () => {
+  const storage = loadStorage();
+  store.clear();
+  const saved = await storage.saveTranscriptionSettings({
+    activeId: 'ghost',
+    configs: [{ id: 'stt-1', baseUrl: 'https://stt.test', apiKey: 'k' }],
+  });
+  assert.equal(saved.activeId, '');
+});
+
+test('语音转文字设置：损坏时备份并抛错，不静默覆盖', async () => {
+  const storage = loadStorage();
+  store.clear();
+  store.set('@easychat2_transcription', '{not json');
+  await assert.rejects(() => storage.getTranscriptionSettings(), /语音转文字设置读取失败/);
 });

@@ -35,6 +35,11 @@ export default function ChatComposer({
   fullScreenDisabled,
   onStop,
   onSend,
+  voiceEnabled,
+  recording,
+  onStartVoice,
+  onStopVoice,
+  onCancelVoice,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -76,6 +81,15 @@ export default function ChatComposer({
               </TouchableOpacity>
             </View>
           ))}
+        </View>
+      ) : null}
+      {recording ? (
+        <View style={[styles.voiceRecordingBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
+          <Ionicons name="mic" size={16} color={theme.colors.danger} />
+          <Text style={styles.voiceRecordingText}>正在录音…松开结束，上滑取消</Text>
+          <TouchableOpacity onPress={onCancelVoice} hitSlop={8} accessibilityLabel="取消录音">
+            <Text style={styles.voiceCancelText}>取消</Text>
+          </TouchableOpacity>
         </View>
       ) : null}
       <View style={[styles.inputBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
@@ -127,6 +141,30 @@ export default function ChatComposer({
             <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
           </TouchableOpacity>
         )}
+        {voiceEnabled && !isSending ? (
+          recording ? (
+            <TouchableOpacity
+              style={[styles.attachButton, styles.voiceHoldButtonActive]}
+              onPress={onStopVoice}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="结束录音并转写"
+            >
+              <Ionicons name="mic" size={22} color={theme.colors.danger} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={onStartVoice}
+              disabled={inputDisabled}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="录制语音消息"
+            >
+              <Ionicons name="mic-outline" size={22} color={theme.colors.primarySoft} />
+            </TouchableOpacity>
+          )
+        ) : null}
         <TextInput
           style={[styles.input, bgUri && styles.inputOverlay, inputFocused && styles.inputFocused]}
           value={input}

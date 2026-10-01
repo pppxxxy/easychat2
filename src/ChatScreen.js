@@ -96,6 +96,7 @@ import {
   getSessionSummaries,
   getStickers,
   getThinkingSettings,
+  getTranscriptionSettings,
   getUserProfile,
   hasShownDefaultGreeting,
   markDefaultGreetingShown,
@@ -176,7 +177,13 @@ import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
 import ChatComposer from './chat/ChatComposer.js';
-
+import useChatRecorder from './chat/useChatRecorder.js';
+import {
+  isUnsupportedTranscriptionError,
+  resolveTranscription,
+  transcribeAudio,
+} from './transcription.js';
+import { createVoiceMessage } from './voiceMessages.js';
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -416,6 +423,10 @@ export default function ChatScreen() {
     broadcastMessage,
     autoBroadcastMessage,
   } = useChatTts();
+  // 语音录制：仅在单聊且非群聊时提供入口。转录判定按会话缓存（见 transcriptionSupportedRef）。
+  const recorder = useChatRecorder();
+  const transcriptionSupportedRef = useRef({}); // sessionId -> false 表示该来源已确认不支持转写
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
   const [focusedMessageId, setFocusedMessageId] = useState('');
@@ -2172,7 +2183,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     }
   }, [autoScrollToBottom, chatOptions.stream, isSessionGuardCurrent, ready, scrollToBottom]);
 
-  const performSendMessage = useCallback(async (rawText, extraAttachments = [], suppliedGuard = null) => {
+  const performSendMessage = useCallback(async (rawText, extraAttachments = [], suppliedGuard = null, voice = null) => {
     const sessionGuard = suppliedGuard || captureSessionGuard();
     const sendController = sendLockRef.current?.controller || null;
     const isCanceled = () => !!(
@@ -2194,7 +2205,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        || messageSelectionOpen
        || isSwitching
        || sessionTransitionPending
-       || (!text && imageAttachments.length === 0 && textAttachments.length === 0)
+       || (!text && imageAttachments.length === 0 && textAttachments.length === 0 && !voice)
       || !sendLockRef.current
        || !ready
        || (abortRef.current && abortRef.current.signal.aborted)) return false;
@@ -2299,7 +2310,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
       });
     }
      const mergedText = mergeTextAttachments(text, textAttachments);
-     if (!mergedText && mediaMessages.length === 0) return false;
+     if (!mergedText && mediaMessages.length === 0 && !voice) return false;
      const textMessage = mergedText
       ? {
           id: `${now}-user-${mediaMessages.length}`,
@@ -2310,17 +2321,31 @@ if (!isCurrent() || controller.signal.aborted) return false;
       : null;
     const draftQuote = quoteTarget;
     if (textMessage && draftQuote) textMessage.quoted = draftQuote;
+    // 语音消息：自身携带转写文本与音频引用，作为一条 user 消息参与展示与上下文。
+    // 转写文本进入 userText（送模型），音频仅本机回放（历史不回传，符合非目标）。
+    const voiceMessage = voice
+      ? createVoiceMessage({
+          id: `${now}-user-voice`,
+          role: USER_ID,
+          text: voice.text,
+          audio: { uri: voice.uri, mime: voice.mime, durationMs: voice.durationMs },
+          timestamp: now + mediaMessages.length,
+        })
+      : null;
+    if (voiceMessage && draftQuote) voiceMessage.quoted = draftQuote;
     const baseMessages = [...messages, ...mediaMessages];
     if (textMessage) baseMessages.push(textMessage);
+    if (voiceMessage) baseMessages.push(voiceMessage);
+    const promptUserText = voiceMessage ? String(voice.text || '').trim() : mergedText;
     const payload = {
       historyMessages: messages,
-      userText: mergedText,
+      userText: voiceMessage ? (promptUserText || '[用户发来一段语音]') : mergedText,
       baseMessages,
       images: imageMessages
         .filter(item => item.includeImage)
         .map(item => item.dataUri),
       imageMessages,
-      quote: textMessage ? draftQuote : null,
+      quote: (textMessage || voiceMessage) ? draftQuote : null,
        expectedConfigId,
        expectedConfigFingerprint,
        sessionGuard,
@@ -2409,7 +2434,6 @@ if (!isCurrent() || controller.signal.aborted) return false;
   }, [beginSendOperation, endSendOperation, performSendMessage]);
 
   const sendText = useCallback(rawText => sendMessage(rawText), [sendMessage]);
-
   const regenerateMessage = useCallback(async targetId => {
      if (isSending || isSwitching || sessionTransitionPending || !ready || sendLockRef.current) return;
     const token = beginSendOperation();
@@ -3405,6 +3429,92 @@ if (!isCurrent() || controller.signal.aborted) return false;
      await sendText(input);
    }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, sendText, sessionTransitionPending]);
 
+  // 语音录制入口：仅在单聊、非群聊、就绪时可用。
+  const voiceEnabled = !isGroup && !sessionOwnerMissing && ready;
+
+  const onStartVoice = useCallback(async () => {
+    if (!voiceEnabled || isSending || isSwitching || messageSelectionOpen || voiceBusy) return;
+    if (!isGroupRef.current && !greetingReady) {
+      openGreetingPicker(activeSessionId ? 'reselect' : 'new');
+      return;
+    }
+    try {
+      await recorder.start();
+    } catch (error) {
+      Alert.alert('无法录音', maskSecrets((error && error.message) || '请检查麦克风权限。'));
+    }
+  }, [voiceEnabled, isSending, isSwitching, messageSelectionOpen, voiceBusy, greetingReady, activeSessionId, openGreetingPicker, recorder]);
+
+  const onCancelVoice = useCallback(async () => {
+    try {
+      await recorder.cancel();
+    } catch (error) {}
+  }, [recorder]);
+
+  // 结束录音 → 转写（复用聊天来源 → 独立配置 → 占位）→ 作为语音消息发送。
+  const onStopVoice = useCallback(async () => {
+    if (voiceBusy) return;
+    setVoiceBusy(true);
+    let audio = null;
+    try {
+      audio = await recorder.stop();
+    } catch (error) {
+      Alert.alert('录音失败', maskSecrets((error && error.message) || '请重试。'));
+      setVoiceBusy(false);
+      return;
+    }
+    if (!audio || !audio.uri) {
+      setVoiceBusy(false);
+      return;
+    }
+    const guard = captureSessionGuard();
+    let text = '';
+    try {
+      const [{ configs, activeId }, transcriptionSettings] = await Promise.all([
+        getApiConfigs(),
+        getTranscriptionSettings().catch(() => ({ activeId: '', configs: [] })),
+      ]);
+      const activeChat = configs.find(item => item.id === activeId) || configs[0] || null;
+      const dedicated = transcriptionSettings.configs.find(
+        item => item.id === transcriptionSettings.activeId
+      ) || null;
+      const target = resolveTranscription({ chatConfig: activeChat, dedicated });
+      // 该会话已确认来源不支持转写：跳过请求，直接用占位（需求 3.5）。
+      const known = transcriptionSupportedRef.current[guard.sessionId];
+      if (target.source !== 'none' && known !== false) {
+        try {
+          const result = await transcribeAudio({
+            config: target,
+            fileUri: audio.uri,
+            mime: audio.mime,
+          });
+          text = String(result.text || '').trim();
+        } catch (error) {
+          if (isUnsupportedTranscriptionError(error)) {
+            transcriptionSupportedRef.current[guard.sessionId] = false;
+            Alert.alert(
+              '当前来源不支持语音转写',
+              '可在「设置 → 语音转文字」单独配置转写服务。本条语音将以占位文本发送。'
+            );
+          }
+          // 网络类失败静默降级为占位，不打断发送（需求 3.4）。
+        }
+      }
+    } catch (error) {}
+    if (!isSessionGuardCurrent(guard)) {
+      setVoiceBusy(false);
+      return;
+    }
+    // 转写成功时把文本回填输入框（让用户可见），同时仍以语音气泡发送。
+    if (text) setInput(text);
+    try {
+      await sendMessage(text, [], guard, { uri: audio.uri, mime: audio.mime, durationMs: audio.durationMs, text });
+    } finally {
+      setVoiceBusy(false);
+    }
+  }, [voiceBusy, recorder, captureSessionGuard, isSessionGuardCurrent, sendMessage]);
+
+
   const insertMention = useCallback(name => {
     const label = `${MENTION_PREFIX}${name} `;
     const current = input;
@@ -3722,6 +3832,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
         fullScreenDisabled={!ready || sessionOwnerMissing || (!isGroup && !greetingReady)}
         onStop={onStop}
         onSend={onSend}
+        voiceEnabled={voiceEnabled}
+        recording={recorder.recording}
+        onStartVoice={onStartVoice}
+        onStopVoice={onStopVoice}
+        onCancelVoice={onCancelVoice}
       />
 
       <StickerPanelModal

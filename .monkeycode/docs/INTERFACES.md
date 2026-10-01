@@ -423,6 +423,7 @@
 | `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast`；`providers[].apiKey` / `.appSecretKey` 落盘为安全存储引用 |
+| `@easychat2_transcription` | 语音转文字配置 `{ activeId, configs: [{ id, name, baseUrl, apiKey, model }] }`；`activeId` 为空串表示「仅复用当前聊天来源」；`apiKey` 落盘为安全存储引用 |
 | `@easychat2_inline_image` | 对话配图设置 `{ enabled, providerId, stylePrefix, size, maxPromptChars, imagePosition }`；`imagePosition` 为 `start` / `middle` / `end`（默认 `end`），决定从本轮回复取哪一段配图 |
 | `@easychat2_sticker_index` | 表情包元数据 ID 索引 |
 | `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
@@ -772,6 +773,26 @@ data: [DONE]
 | `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「播报失败（HTTP n）」 |
 
 **说明**: 密钥仅存本机 AsyncStorage，不写入日志或文档。播报正文清洗由 `src/speechText.js` 提供：`toSpeechText(text)` 去除 Markdown/HTML/状态栏并折叠空白，`hideVariantStatusBar(text)` 去除 `【数值状态栏】` 等行。
+
+### 语音消息接口
+**位置**: `src/transcription.js`、`src/voiceMessages.js`、`src/chat/useChatRecorder.js`、`src/chat/VoiceBubble.js`
+
+用户录音经转写后作为一条 `kind: 'voice'` 的用户消息进入既有发送链路（转写文本进入上下文，音频仅本机回放）。转写采用「先复用当前聊天配置 → 失败引导补配独立转写 → 再失败存占位」的降级顺序（需求 3）。音频落盘到 `documentDirectory/voice/`，消息只存引用。
+
+| 函数 | 说明 |
+|------|------|
+| `buildTranscriptionUrl(baseUrl)` | 由聊天 baseUrl 推导转写端点：去 `/chat/completions`、固定 `{origin}/v1/audio/transcriptions` |
+| `normalizeTranscriptionConfig(raw)` | 规整转写配置，模型缺省 `whisper-1` |
+| `resolveTranscription({ chatConfig, dedicated })` | 解析来源，优先级独立 > 复用；返回 `{ source: 'dedicated'\|'reused'\|'none', url, ... }` |
+| `transcribeAudio({ config, fileUri, mime?, signal? })` | `FormData` 传 `file` + `model` 到 `config.url`；成功返回 `{ text }`，失败抛带 `status`/`unsupported` 的错误 |
+| `isUnsupportedTranscriptionError(error)` | 404/405/501 或明确「不支持」文案判定为来源不支持转写 |
+| `createVoiceMessage({ id, role, text, audio, timestamp })` | 构造语音消息（`audio: { uri, mime, durationMs }`） |
+| `getVoicePromptText(message)` | 上下文投影：有转写用文本、空用占位 `[用户发来一段语音]` |
+| `isVoiceMessage(message)` / `formatVoiceDuration(ms)` | 判定与时长展示 |
+| `useChatRecorder()` | 录制生命周期（`start`/`stop`/`cancel`）+ 麦克风权限 + 时长上下限（0.5s ~ 60s），结束时落盘 `voice/` |
+| `VoiceBubble` | 语音气泡：播放/暂停（`expo-audio` `createAudioPlayer`）、时长、缺失时「语音不可用」 |
+
+**说明**: 音频文件回收由 `src/storage/sessionFiles.js` 的 `collectVoiceFiles()` 负责，与聊天图片回收同构；删除会话时一并回收。转写缓存「当前来源是否支持」的判定按会话记录，避免对必然失败的端点重复请求（需求 3.5）。
 
 ### 插件接口
 **位置**: `src/plugins/registry.js`、`src/plugins/webSearch.js`、`src/plugins/providers.js`

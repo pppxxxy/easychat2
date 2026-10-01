@@ -22,6 +22,7 @@ let sessionMutationQueue = Promise.resolve();
 export const deletedSessionIds = new Set();
 const sessionSummaryRevisions = new Map();
 export const protectedChatImageUris = new Set();
+export const protectedVoiceUris = new Set();
 
 export function enqueueSessionMutation(task) {
   const next = sessionMutationQueue.then(task, task);
@@ -166,6 +167,16 @@ export function setProtectedChatImageUris(uris) {
   (Array.isArray(uris) ? uris : []).forEach(uri => {
     const value = String(uri || '');
     if (value.includes('/chat-images/')) protectedChatImageUris.add(value);
+  });
+}
+
+// 待发送语音的本地文件保护：录音完成后、消息落盘前，文件已存在于 voice/，
+// 若此时触发回收会被误删。与图片保护同构。
+export function setProtectedVoiceUris(uris) {
+  protectedVoiceUris.clear();
+  (Array.isArray(uris) ? uris : []).forEach(uri => {
+    const value = String(uri || '');
+    if (value.includes('/voice/')) protectedVoiceUris.add(value);
   });
 }
 

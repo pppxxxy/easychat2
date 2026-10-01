@@ -84,6 +84,7 @@ export {
   getPlugins,
   getSamplingSettings,
   getThinkingSettings,
+  getTranscriptionSettings,
   getTtsSettings,
   isDisclaimerAcknowledged,
   isOnboardingDone,
@@ -95,6 +96,7 @@ export {
   savePlugins,
   saveSamplingSettings,
   saveThinkingSettings,
+  saveTranscriptionSettings,
   saveTtsSettings,
 } from './storage/settings.js';
 export {
@@ -164,6 +166,7 @@ export {
   clearSessionDraft,
   cloneSession,
   collectChatImageFiles,
+  collectVoiceFiles,
   createGroupSession,
   deleteSession,
   deleteSessions,
@@ -189,6 +192,7 @@ export {
   searchMessages,
   setActiveSessionId,
   setProtectedChatImageUris,
+  setProtectedVoiceUris,
   setSessionGreetingSelected,
   setSessionSummarizedUpTo,
   startNewSession,

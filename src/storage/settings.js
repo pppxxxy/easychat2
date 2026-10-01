@@ -24,6 +24,7 @@ const APPEARANCE_KEY = '@easychat2_appearance';
 const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const TTS_KEY = '@easychat2_tts';
 const SAMPLING_KEY = '@easychat2_sampling';
+const TRANSCRIPTION_KEY = '@easychat2_transcription';
 
 const DEFAULT_THINKING = { enabled: false, level: 'medium', display: 'fold' };
 export const THINKING_LEVELS = ['low', 'medium', 'high'];
@@ -277,6 +278,45 @@ export async function getTtsSettings() {
 export async function saveTtsSettings(settings) {
   const normalized = normalizeTts(settings);
   await setJsonWithSecrets(TTS_KEY, normalized);
+  return normalized;
+}
+
+// 语音转文字（STT）配置：与 vector / imageGen 同构的多配置 + 密钥保险箱。
+// activeId 为 '' 表示「不使用独立配置，仅复用当前聊天来源」（默认，需求 4.5）。
+export function normalizeTranscriptionSettings(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const list = Array.isArray(source.configs) ? source.configs : [];
+  const configs = list
+    .map(item => ({
+      id: String((item && item.id) || ''),
+      name: String((item && item.name) || '').trim(),
+      baseUrl: String((item && item.baseUrl) || '').trim(),
+      apiKey: String((item && item.apiKey) || ''),
+      model: String((item && item.model) || '').trim() || 'whisper-1',
+    }))
+    .filter(item => item.id);
+  const activeId = configs.some(item => item.id === source.activeId)
+    ? String(source.activeId)
+    : '';
+  return { activeId, configs };
+}
+
+export async function getTranscriptionSettings() {
+  const stored = await readJsonStatusWithSecrets(TRANSCRIPTION_KEY);
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok' && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
+  ) {
+    await backupCorruptValue(TRANSCRIPTION_KEY);
+    throw new Error('语音转文字设置读取失败');
+  }
+  if (stored.status === 'missing') return normalizeTranscriptionSettings(null);
+  return normalizeTranscriptionSettings(stored.value);
+}
+
+export async function saveTranscriptionSettings(settings) {
+  const normalized = normalizeTranscriptionSettings(settings);
+  await setJsonWithSecrets(TRANSCRIPTION_KEY, normalized);
   return normalized;
 }
 

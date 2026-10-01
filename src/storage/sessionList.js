@@ -26,7 +26,7 @@ import {
 } from './vector.js';
 import { CORRUPT_BACKUP_SUFFIX, readJson } from './io.js';
 import { markMediaWrite } from '../mediaProtection.js';
-import { collectChatImageFiles } from './sessionFiles.js';
+import { collectChatImageFiles, collectVoiceFiles } from './sessionFiles.js';
 import {
   getMessagesBySession,
   getMessagesBySessionStatus,
@@ -273,6 +273,7 @@ async function deleteSessionInternal(sessionId) {
     ]);
   } catch (error) {}
   await collectChatImageFiles();
+  await collectVoiceFiles();
   if (activeId === sessionId) {
     const nextActive = remaining[0] || null;
     if (nextActive) {
@@ -335,6 +336,7 @@ async function deleteSessionsInternal(sessionIds) {
     ]));
   } catch (error) {}
   await collectChatImageFiles();
+  await collectVoiceFiles();
   return { sessions: remaining, activeSessionId };
 }
 

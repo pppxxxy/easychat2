@@ -26,6 +26,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { USER_ID } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
 import ThinkingIndicator from './ThinkingIndicator.js';
+import VoiceBubble from './VoiceBubble.js';
 
 function renderHighlightedText(text, keyword, styles) {
   const source = String(text || '');
@@ -274,6 +275,7 @@ const fullWidthAssistant = !isUser && fullWidth;
           (fullWidth || renderRichHtml) ? styles.bubbleFullWidth : styles.bubbleBounded,
           isUser ? styles.userBubble : styles.assistantBubble,
           message.image ? styles.mediaBubble : null,
+          message.kind === 'voice' ? styles.mediaBubble : null,
           isMatch ? styles.bubbleMatch : null,
           isActiveMatch ? styles.bubbleActiveMatch : null,
           selected ? styles.bubbleSelected : null,
@@ -331,7 +333,9 @@ const fullWidthAssistant = !isUser && fullWidth;
               );
             })()
           ) : null}
-          {isUser && message.image?.uri ? (
+          {message.kind === 'voice' && message.audio ? (
+            <VoiceBubble message={message} isUser={isUser} />
+          ) : isUser && message.image?.uri ? (
             <View style={styles.userMediaBox}>
               <View>
                 <Image
