@@ -911,7 +911,7 @@ data: [DONE]
 
 ### `ChapterModal` / `ChapterNotice` / `ChapterImages` / `TutorialModal`
 **位置**: `src/ChapterModal.js` / `src/ChapterNotice.js` / `src/ChapterImages.js` / `src/TutorialModal.js`
-**说明**: `ChapterModal`（默认导出）Props 为 `{ visible, onClose, chapterIds, title?, buttonText? }`，全屏 `Modal` + `ScrollView` 渲染指定章节（摘要、正文、合规警告、外链、编号步骤、速查条目、注意事项与已注册图片，`chapterIds` 为空数组时渲染全部）；`chapterIds` 含多章时顶部渲染可横滑的章节目录 chips，点击按 `onLayout` 记录的偏移滚动到对应章节；各界面「教学」按钮以单章子集打开它。`ChapterImages`（默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，横向分页、多图圆点指示、图注跟随当前页。`ChapterNotice`（默认导出）Props 为 `{ disclaimer?, warning?, links?: [{ label, url }] }`，依次渲染章首声明、警告框与可点击外链，点击链接先 `Alert` 二次确认再 `Linking.openURL`。`ChapterOutro`（默认导出）Props 为 `{ outro }`，渲染章末附加块（标题、正文、要点列表、外链与免责声明），外链确认文案取 `linkNotice`。`TutorialModal`（默认导出）Props 为 `{ visible, onClose }`，是 `ChapterModal` 展示全部章节的薄封装，由设置页「使用教程」入口打开；`TUTORIAL_SECTIONS` 为 `ONBOARDING_CHAPTERS` 的兼容转发（`src/tutorialContent.js`）。
+**说明**: `ChapterModal`（默认导出）Props 为 `{ visible, onClose, chapterIds, title?, buttonText? }`，全屏 `Modal` + `ScrollView` 渲染指定章节（摘要、正文、合规警告、外链、编号步骤、速查条目、注意事项与已注册图片，`chapterIds` 为空数组时渲染全部）；`chapterIds` 含多章时顶部渲染可横滑的章节目录 chips，点击按 `onLayout` 记录的偏移滚动到对应章节；各界面「教学」按钮以单章子集打开它。`ChapterImages`（默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，横向分页、多图圆点指示、图注跟随当前页。`ChapterNotice`（默认导出）Props 为 `{ disclaimer?, warning?, links?: [{ label, url }] }`，依次渲染章首声明、警告框与可点击外链，点击链接先 `Alert` 二次确认再 `Linking.openURL`。`ChapterOutro`（默认导出）Props 为 `{ outro }`，渲染章末附加块（标题、正文、要点列表、外链与免责声明），外链确认文案取 `linkNotice`。`TutorialModal`（默认导出）Props 为 `{ visible, onClose }`，是 `ChapterModal` 展示全部章节的薄封装，由设置页「使用教程」入口打开。
 
 ## 数据结构
 
