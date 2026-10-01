@@ -44,6 +44,15 @@ test('CharacterEditForm 提供三档语音形态选择并随保存写回', () =>
   assert.match(source, /voiceDisplay:\s*\['text', 'voice-text', 'voice'\]\.includes\(draft\.voiceDisplay\)/, '保存应规范化 voiceDisplay');
 });
 
+test('CharacterScreen 主角色编辑页同样提供并保存语音形态', () => {
+  const source = read('src/CharacterScreen.js');
+  assert.match(source, /const \[voiceDisplay, setVoiceDisplay\] = useState\('text'\)/);
+  assert.match(source, /voiceDisplay,\s*\n\s*\}\), \[/, '表单签名应包含 voiceDisplay');
+  assert.match(source, /voiceDisplay: \['text', 'voice-text', 'voice'\]\.includes\(voiceDisplay\)/, '保存应写回 voiceDisplay');
+  assert.match(source, /语音形态/);
+  assert.match(source, /纯语音/);
+});
+
 test('SettingsScreen 能力弹窗提供语音识别开关并写入配置', () => {
   const source = read('src/SettingsScreen.js');
   assert.match(source, /支持语音识别/, '能力弹窗应有语音识别开关');

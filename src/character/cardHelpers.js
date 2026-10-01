@@ -100,6 +100,9 @@ export function buildCharacterPatch(card) {
     worldInfo: Array.isArray(card.worldInfo) ? card.worldInfo : [],
     regexScripts: Array.isArray(card.regexScripts) ? card.regexScripts : [],
     presets: Array.isArray(card.presets) ? card.presets : [],
+    voiceDisplay: ['text', 'voice-text', 'voice'].includes(card.voiceDisplay)
+      ? card.voiceDisplay
+      : 'text',
     cardExtensions: card.extensions && typeof card.extensions === 'object' && !Array.isArray(card.extensions)
       ? card.extensions
       : {},
@@ -127,6 +130,9 @@ export function buildCharacterFormState(character) {
     presets: Array.isArray(source.presets) ? source.presets : [],
     avatarUri: String(source.avatarUri || ''),
     bgUri: String(source.bgUri || ''),
+    voiceDisplay: ['text', 'voice-text', 'voice'].includes(source.voiceDisplay)
+      ? source.voiceDisplay
+      : 'text',
   };
 }
 

@@ -43,6 +43,8 @@ test('TranscriptionPanel 接入厂商预设芯片：点选即预填端点与模�
   assert.match(source, /自定义/, '应保留自定义入口');
   // 修复后不再使用旧的通用「新增」按钮
   assert.match(source, /点厂商一键预填端点与模型/, '应有预填说明文案');
+  assert.match(source, /Linking\.openURL\(getVendorForConfig\(config\)\.apiKeyUrl\)/, '厂商配置应提供官网获取密钥跳转');
+  assert.match(source, /获取密钥/, 'API Key 字段下方应显示获取密钥链接');
 });
 
 test('ChatScreen 转写失败提示包含具体厂商推荐', () => {

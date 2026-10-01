@@ -115,6 +115,7 @@ export default function CharacterScreen() {
   const [worldInfo, setWorldInfo] = useState([]);
   const [regexScripts, setRegexScripts] = useState([]);
   const [characterPresets, setCharacterPresets] = useState([]);
+  const [voiceDisplay, setVoiceDisplay] = useState('text');
   const [characterListExpanded, setCharacterListExpanded] = useState(false);
   const [characterScrubberOpen, setCharacterScrubberOpen] = useState(false);
   const [expandedWorld, setExpandedWorld] = useState(false);
@@ -193,6 +194,7 @@ export default function CharacterScreen() {
     presets: characterPresets,
     avatarUri: avatarPreview || '',
     bgUri: bgPreview || '',
+    voiceDisplay,
   }), [
     name,
     tags,
@@ -208,6 +210,7 @@ export default function CharacterScreen() {
     characterPresets,
     avatarPreview,
     bgPreview,
+    voiceDisplay,
   ]);
   const currentFormSignature = useMemo(
     () => JSON.stringify(currentFormState),
@@ -488,6 +491,7 @@ export default function CharacterScreen() {
       worldInfo,
       regexScripts,
       presets: characterPresets,
+      voiceDisplay: ['text', 'voice-text', 'voice'].includes(voiceDisplay) ? voiceDisplay : 'text',
        avatarUri: avatarPreview || '',
        bgUri: bgPreview || '',
      };
@@ -552,6 +556,7 @@ export default function CharacterScreen() {
 setWorldInfo(next.worldInfo);
        setRegexScripts(next.regexScripts);
        setCharacterPresets(next.presets);
+       setVoiceDisplay(next.voiceDisplay || 'text');
        const savedFormState = buildCharacterFormState(next);
        const savedFormSignatureValue = JSON.stringify(savedFormState);
        seededIdRef.current = next.id;
@@ -1039,6 +1044,7 @@ setWorldInfo(next.worldInfo);
     setWorldInfo(next.worldInfo);
     setRegexScripts(next.regexScripts);
     setCharacterPresets(next.presets);
+    setVoiceDisplay(next.voiceDisplay || 'text');
     setAvatarPreview(next.avatarUri || null);
     setBgPreview(next.bgUri || null);
   }, []);
@@ -1788,15 +1794,39 @@ setWorldInfo(next.worldInfo);
             <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
           </TouchableOpacity>
           <FieldLabel style={styles.label}>人设 / 系统提示词</FieldLabel>
-          <TextField
-            style={styles.multiline}
-            value={systemPrompt}
-            onChangeText={setSystemPrompt}
-            placeholder="描述角色的语气、知识和回答方式"
-            multiline
-            textAlignVertical="top"
-          />
-          <FieldLabel style={styles.label}>角色描述</FieldLabel>
+           <TextField
+             style={styles.multiline}
+             value={systemPrompt}
+             onChangeText={setSystemPrompt}
+             placeholder="描述角色的语气、知识和回答方式"
+             multiline
+             textAlignVertical="top"
+           />
+           <FieldLabel style={styles.label}>语音形态</FieldLabel>
+           <View style={styles.chipRow}>
+             {[
+               { value: 'text', label: '仅文字' },
+               { value: 'voice-text', label: '语音 + 原文' },
+               { value: 'voice', label: '纯语音' },
+             ].map(option => {
+               const active = voiceDisplay === option.value;
+               return (
+                 <TouchableOpacity
+                   key={option.value}
+                   style={[styles.chip, active && styles.chipActive]}
+                   onPress={() => setVoiceDisplay(option.value)}
+                   activeOpacity={0.8}
+                   accessibilityRole="button"
+                   accessibilityLabel={`语音形态 ${option.label}`}
+                   accessibilityState={{ selected: active }}
+                 >
+                   <Text style={[styles.chipText, active && styles.chipTextActive]}>{option.label}</Text>
+                 </TouchableOpacity>
+               );
+             })}
+           </View>
+           <FieldHint style={styles.fieldHint}>纯语音会隐藏回复正文，但正文仍会保存并进入对话记忆；合成失败时自动退回仅文字。</FieldHint>
+           <FieldLabel style={styles.label}>角色描述</FieldLabel>
           <TextField
             style={styles.multiline}
             value={description}

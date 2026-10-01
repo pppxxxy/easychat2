@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -88,6 +89,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
       baseUrl: preset ? preset.baseUrl : '',
       apiKey: '',
       model: preset ? preset.model : '',
+      vendorId: preset ? preset.id : '',
     };
     persist({
       ...settingsRef.current,
@@ -116,6 +118,13 @@ export default function TranscriptionPanel({ visible, onClose }) {
   }, [persist]);
 
   const activeConfig = settings.configs.find(item => item.id === settings.activeId) || null;
+
+  const getVendorForConfig = config => {
+    if (!config) return null;
+    return TRANSCRIPTION_API_VENDORS.find(vendor => (
+      vendor.id === config.vendorId || vendor.baseUrl === config.baseUrl
+    )) || null;
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -199,10 +208,22 @@ export default function TranscriptionPanel({ visible, onClose }) {
                     value={config.apiKey}
                     onChangeText={value => updateConfig(config.id, 'apiKey', value)}
                     placeholder="在服务商控制台获取"
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
+                   secureTextEntry
+                   autoCapitalize="none"
+                   autoCorrect={false}
                   />
+                  {getVendorForConfig(config)?.apiKeyUrl ? (
+                    <View style={styles.keyLinkRow}>
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(getVendorForConfig(config).apiKeyUrl)}
+                        activeOpacity={0.75}
+                        accessibilityRole="link"
+                        accessibilityLabel={`获取${getVendorForConfig(config).name} API Key`}
+                      >
+                        <Text style={styles.keyLink}>获取密钥</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                   <FieldLabel style={styles.label}>模型名</FieldLabel>
                   <TextField
                     value={config.model}
@@ -301,6 +322,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   addButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  keyLinkRow: { alignItems: 'flex-end', marginTop: 4 },
+  keyLink: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), textDecorationLine: 'underline' },
   addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4, fontWeight: '600' },
   vendorRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2, marginBottom: 6 },
   vendorChip: {
