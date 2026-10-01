@@ -1,7 +1,7 @@
 // 轻量动画工具：基于 React Native Animated API 的可复用动画 Hook。
 // 不引入额外依赖，纯 RN 内置能力实现按压、呼吸、滑入效果。
 
-import { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { Animated, Easing } from 'react-native';
 
 // 呼吸动画：适合于空状态图标、加载指示器等需要持续吸引注意力的场景。

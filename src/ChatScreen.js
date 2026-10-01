@@ -169,6 +169,7 @@ import useScrollScrubber from './chat/useScrollScrubber.js';
 import useChatSearch from './chat/useChatSearch.js';
 import MessageBubble from './chat/MessageBubble.js';
 import ErrorBubble from './chat/ErrorBubble.js';
+import AnimatedEntry from './chat/AnimatedEntry.js';
 import SelectionTextModal from './chat/SelectionTextModal.js';
 import SwitcherModal from './chat/SwitcherModal.js';
 import MentionPickerModal from './chat/MentionPickerModal.js';
@@ -3685,7 +3686,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             </View>
           )
         ) : (
-          renderedMessages.map(message => {
+          renderedMessages.map((message, index) => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
             const selected = selectedMessageIdSet.has(String(message.id || ''));
             const richInteractive =
@@ -3696,8 +3697,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
               && shouldRenderRichHtml(message.text, chatOptions.richHtml !== false);
             // 富 HTML 消息内含 WebView：外层 Pressable 会抢走手势，导致卡片内部滚不动。
             // 非多选状态下不包 Pressable，多选入口改由三点菜单的「选择消息」提供。
+            const distanceFromBottom = renderedMessages.length - 1 - index;
+            const shouldAnimate = distanceFromBottom < 15;
+            const entryDelay = distanceFromBottom * 40;
             const body = (
-                <View>
+                <AnimatedEntry delay={entryDelay} enabled={shouldAnimate}>
                   {message.role === SYSTEM_ERROR_ID ? (
                     <ErrorBubble
                       message={message}
@@ -3750,7 +3754,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
                       selected={selected}
                     />
                   )}
-                </View>
+                </AnimatedEntry>
             );
             if (richInteractive && !messageSelectionOpen) {
               return (
