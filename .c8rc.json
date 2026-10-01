@@ -5,6 +5,8 @@
     "src/ui/**",
     "src/CardForgeScreen.js",
     "src/CharacterScreen.js",
+    "src/character/editors.js",
+    "src/character/characterStyles.js",
     "src/ChatScreen.js",
     "src/ExtensionScreen.js",
     "src/ImageGenScreen.js",
