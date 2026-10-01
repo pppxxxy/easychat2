@@ -705,6 +705,15 @@ data: [DONE]
 - 导入先校验版本、数据键、媒体路径和 base64 内容，再写回既有键与媒体目录。
 - 导入消息过滤 `pending: true`，合并模式以导入记录覆盖同 id 数据，覆盖模式清理备份管理范围后恢复。
 
+### 本地模型
+
+**位置**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`
+
+- 设置 → 关于 → 本地模型管理模型 id、名称、GGUF 下载地址、下载进度、启用和删除。
+- 本地模型未安装原生适配器、模型未就绪或推理失败时，聊天自动使用在线 API。
+- `llama.rn` 为可选原生依赖；v0.10+要求 New Architecture，当前项目 RN 0.81/Expo SDK 54 方向匹配，但需要单独 prebuild/release 探针确认。
+- `resourceMutex` 保证本地推理、录音和其他原生重负载能力不会同时持有资源。
+
 ### 动态接口
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/moments/commenters.js`、`src/moments/runUserMomentComments.js`、`src/MomentsView.js`
 

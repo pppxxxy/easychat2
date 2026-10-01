@@ -61,6 +61,7 @@ import ChapterModal from './ChapterModal.js';
 import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';
+import LocalModelPanel from './LocalModelPanel.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
@@ -168,6 +169,7 @@ export default function SettingsScreen() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [localModelOpen, setLocalModelOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { refreshAppData } = useApp();
 
@@ -1533,6 +1535,17 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => setLocalModelOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="hardware-chip-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>本地模型</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
         </Card>
       </ScrollView>
 
@@ -1748,6 +1761,10 @@ export default function SettingsScreen() {
           await refreshAppData();
           await reloadAppearance();
         }}
+      />
+      <LocalModelPanel
+        visible={localModelOpen}
+        onClose={() => setLocalModelOpen(false)}
       />
 
       <ChapterModal

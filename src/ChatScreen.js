@@ -96,6 +96,7 @@ import {
   getEnabledGlobalPresetPrompts,
   getEnabledPlugins,
   getImageGenSettings,
+  getLocalModelSettings,
   getInlineImageSettings,
   getMemorySummarySettings,
   getMessagesBySessionStatus,
@@ -138,6 +139,8 @@ import {
 import { getVectorOwnerId, shouldIndexSession } from './vectorMemory/scope.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { generateImage } from './imageGen/index.js';
+import { getLocalModelFileInfo } from './localModel/modelManager.js';
+import { sendWithModelProvider } from './modelProvider.js';
 import { getImageProvider } from './imageGen/providers.js';
 import { stop as ttsStop } from './tts/index.js';
 import useChatTts from './chat/useChatTts.js';
@@ -1694,12 +1697,14 @@ export default function ChatScreen() {
        });
        if (!isCurrentSession()) return;
 
-       const reply = await sendChatMessage(
-         requestMessages,
-         {
-             expectedConfigId,
-             expectedConfigFingerprint,
-             signal: controller.signal,
+        const localSettings = await getLocalModelSettings().catch(() => null);
+        const localFileInfo = localSettings
+          ? await getLocalModelFileInfo(localSettings).catch(() => null)
+          : null;
+        const onlineSend = () => sendChatMessage(requestMessages, {
+              expectedConfigId,
+              expectedConfigFingerprint,
+              signal: controller.signal,
            stream: chatOptions.stream,
            onChunk: fullText => {
              if (!isCurrentSession() || controller.signal.aborted) return;
@@ -1722,9 +1727,23 @@ export default function ChatScreen() {
                    : item
                );
              });
-           }
-         }
-       );
+            }
+        });
+        const reply = await sendWithModelProvider({
+          messages: requestMessages,
+          localSettings,
+          localFileInfo,
+          signal: controller.signal,
+          onToken: fullText => {
+            if (!isCurrentSession() || controller.signal.aborted) return;
+            setMessages(current => current.map(item => (
+              item.id === pendingAssistantMessage.id && item.pending
+                ? { ...item, text: fullText, waitingForResponse: false }
+                : item
+            )));
+          },
+          onlineSend,
+        });
 
        if (controller.signal.aborted) {
          setMessages(current => (
