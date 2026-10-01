@@ -17,6 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { hexToRgba } from './theme/themes.js';
 import DisclaimerModal from './disclaimer.js';
 import PluginPanel from './PluginPanel.js';
 import PresetPanel from './PresetPanel.js';
@@ -978,7 +979,10 @@ export default function SettingsScreen() {
                 return (
                   <TouchableOpacity
                     key={item.id}
-                    style={[styles.themeChip, active && { borderColor: item.colors.primary }]}
+                    style={[styles.themeChip, active && {
+                      borderColor: item.colors.primary,
+                      backgroundColor: hexToRgba(item.colors.primary, 0.08),
+                    }]}
                     onPress={() => setThemeId(item.id)}
                     activeOpacity={0.85}
                     accessibilityLabel={`切换到${item.label}主题`}

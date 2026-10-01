@@ -38,7 +38,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     backgroundColor: theme.colors.surface,
     borderRadius: tokens.radius.pill,
     borderWidth: tokens.border.thin * 1.5,
-    borderColor: 'transparent',
+    borderColor: theme.colors.surfaceBorder,
     paddingHorizontal: tokens.spacing.md,
     paddingVertical: tokens.spacing.xs + 2,
     marginRight: tokens.spacing.sm,
@@ -53,8 +53,9 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     marginRight: tokens.spacing.xs + 2,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
+    overflow: 'hidden',
   },
-  themeSwatchDot: { width: 8, height: 8, borderRadius: tokens.radius.pill },
+  themeSwatchDot: { width: 12, height: 12, borderRadius: tokens.radius.pill },
   themeChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
   fontRow: { flexDirection: 'row', flexWrap: 'wrap' },
   fontChip: {
@@ -70,7 +71,6 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   fontChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   fontChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
   fontChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '700' },
-
   pillButton: {
     flexDirection: 'row',
     alignItems: 'center',
