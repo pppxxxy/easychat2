@@ -936,6 +936,7 @@ data: [DONE]
 | `worldInfo` | `WorldInfoEntry[]?` | 世界书条目，结构见[世界书](./专有概念/世界书.md) |
 | `regexScripts` | `RegexScript[]?` | 正则脚本，结构见[正则脚本](./专有概念/正则脚本.md) |
 | `presets` | `CharacterPreset[]?` | 随角色卡保存的角色预设，发送时注入 `[角色预设]` |
+| `voiceDisplay` | `'text' \| 'voice-text' \| 'voice'` | 语音形态：仅文字（默认）/ 语音+原文（回复后合成语音气泡并展示正文）/ 纯语音（只显示语音气泡，正文隐藏但入库并进入上下文与记忆）；TTS 为系统引擎、未配置或合成失败时降级仅文字 |
 | `lastUsedAt` | `number?` | 最近一次成为当前角色的时间戳，决定列表排序 |
 | `pinned` | `boolean?` | 是否置顶；置顶角色排在角色库最前 |
 
@@ -1045,6 +1046,7 @@ data: [DONE]
 | `activeModel` | `string` | 当前模型，必须属于 `models` |
 | `supportsThinking` | `boolean` | 是否支持思考，保存前确认 |
 | `supportsVision` | `boolean` | 是否支持识图，保存前确认 |
+| `supportsAudio` | `boolean` | 是否支持语音识别（音频兜底发送），保存前确认；纳入 `getConfigFingerprint` |
 | `thinking` | `{ field, format }` | 思考参数声明；`format` 为 `effort` / `boolean` / `object`，缺省 `reasoning_effort` + `effort` |
 
 厂商与协议预设见 `src/apiVendors.js`：`CHAT_API_VENDORS`（DeepSeek、魔搭、ai.gitee、Agnes、小红书 Dots Studio、NVIDIA NIM、AMD Radeon Cloud）、`API_PROTOCOL_PRESETS` 与 `THIRD_PARTY_RELAY_RISK`；`getChatApiVendor(id)` 按 id 取厂商。

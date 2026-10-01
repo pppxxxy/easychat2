@@ -43,6 +43,9 @@ function emptyDraft(character) {
     tags: Array.isArray(character?.tags) ? character.tags.map(String) : [],
     avatarUri: String(character?.avatarUri || ''),
     bgUri: String(character?.bgUri || ''),
+    voiceDisplay: ['text', 'voice-text', 'voice'].includes(character?.voiceDisplay)
+      ? character.voiceDisplay
+      : 'text',
   };
 }
 
@@ -212,6 +215,9 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       tags: draft.tags,
       avatarUri: draft.avatarUri || '',
       bgUri: draft.bgUri || '',
+      voiceDisplay: ['text', 'voice-text', 'voice'].includes(draft.voiceDisplay)
+        ? draft.voiceDisplay
+        : 'text',
     };
     setSaving(true);
     try {
@@ -399,6 +405,33 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
             />
             <FieldHint style={styles.hint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
 
+            <FieldLabel style={styles.label}>语音形态</FieldLabel>
+            <View style={styles.voiceRow}>
+              {[
+                { value: 'text', label: '仅文字' },
+                { value: 'voice-text', label: '语音 + 原文' },
+                { value: 'voice', label: '纯语音' },
+              ].map(option => {
+                const active = draft.voiceDisplay === option.value;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[styles.voiceChip, active && styles.voiceChipActive]}
+                    onPress={() => patch('voiceDisplay', option.value)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`语音形态 ${option.label}`}
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text style={[styles.voiceChipText, active && styles.voiceChipTextActive]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <FieldHint style={styles.hint}>纯语音会隐藏回复正文（仍计入对话与记忆）；语音合成失败时自动退回仅文字。</FieldHint>
+
             <FieldLabel style={styles.label}>标签</FieldLabel>
             <View style={styles.tagRow}>
               {draft.tags.map(tag => (
@@ -536,6 +569,23 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   secondaryButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 6 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  voiceRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  voiceChip: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surfaceAlt,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  voiceChipActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primaryAlpha(0.12),
+  },
+  voiceChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13) },
+  voiceChipTextActive: { color: theme.colors.primary, fontWeight: '700' },
   tagChip: {
     flexDirection: 'row',
     alignItems: 'center',

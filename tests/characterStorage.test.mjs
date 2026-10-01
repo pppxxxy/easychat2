@@ -332,6 +332,23 @@ test('空白人设读取时不覆写为默认值', async () => {
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
 });
 
+test('角色语音形态字段规范化：合法值保留、非法值回退 text', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([
+    { id: 'voice-both', name: '语音角色', voiceDisplay: 'voice-text' },
+    { id: 'voice-pure', name: '纯语音角色', voiceDisplay: 'voice' },
+    { id: 'voice-invalid', name: '非法形态', voiceDisplay: 'both' },
+    { id: 'voice-missing', name: '缺省角色' },
+  ]);
+  const restored = await storage.getCharacterLibrary();
+  const byId = id => restored.find(entry => entry.id === id);
+  assert.equal(byId('voice-both').voiceDisplay, 'voice-text');
+  assert.equal(byId('voice-pure').voiceDisplay, 'voice');
+  assert.equal(byId('voice-invalid').voiceDisplay, 'text');
+  assert.equal(byId('voice-missing').voiceDisplay, 'text');
+});
+
 test('默认索引是升级回归产物时，从仍可读的 legacy 整库恢复角色', async () => {
   const storage = loadStorage();
   seedDefaultItem();

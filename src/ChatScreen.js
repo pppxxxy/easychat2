@@ -428,6 +428,7 @@ export default function ChatScreen() {
     toggleBroadcast,
     broadcastMessage,
     autoBroadcastMessage,
+    synthesizeVoice,
   } = useChatTts();
   // 语音录制：仅在单聊且非群聊时提供入口。转录判定按会话缓存（见 transcriptionSupportedRef）。
   const recorder = useChatRecorder();
@@ -1765,6 +1766,7 @@ export default function ChatScreen() {
           }
         }
         autoBroadcastMessage(replyText);
+        synthesizeVoiceForReply(replyParts, replyText);
         recordTurnRef.current?.(userText, replyText, senderSnapshot);
       }
      } catch (error) {
@@ -2885,10 +2887,28 @@ if (!isCurrent() || controller.signal.aborted) return false;
     }
   }, [inlineImageSettings, resolveInlineImageScene]);
 
+  // 角色语音形态（需求 5）：回复 settle 后按角色卡 voiceDisplay 合成语音并挂到消息。
+  // 合成由 useChatTts.synthesizeVoice 完成（失败静默返回 null，降级仅文字）。
+  // 挂载按消息 id 匹配：切走会话后 id 匹配不到则无害跳过；仍在列表内则随快照落盘。
+  const synthesizeVoiceForReply = useCallback((replyParts, replyText) => {
+    const displayMode = character.voiceDisplay;
+    if (displayMode !== 'voice-text' && displayMode !== 'voice') return;
+    if (isGroupRef.current) return;
+    const target = (replyParts || []).find(item => item.role === ASSISTANT_ID && !item.kind);
+    if (!target || !target.id) return;
+    synthesizeVoice(target.id, replyText).then(audio => {
+      if (!audio) return;
+      setMessages(current => current.map(item => (
+        item.id === target.id && !item.audio
+          ? { ...item, audio, voiceMode: displayMode }
+          : item
+      )));
+    });
+  }, [character.voiceDisplay, synthesizeVoice]);
+
   const sendTextRef = useRef(sendText);
   const generateInlineImageRef = useRef(null);
-  const inlineImageEnabledRef = useRef(false);
-  const recordTurnRef = useRef(null);
+  const inlineImageEnabledRef = useRef(false);  const recordTurnRef = useRef(null);
   const recordTurnQueueRef = useRef(Promise.resolve());
   useEffect(() => {
     generateInlineImageRef.current = generateInlineImage;

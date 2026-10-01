@@ -33,6 +33,7 @@ export function getConfigFingerprint(config) {
     String(source.authScheme === undefined ? 'Bearer ' : source.authScheme),
     source.supportsVision === true,
     source.supportsThinking === true,
+    source.supportsAudio === true,
   ]));
 }
 

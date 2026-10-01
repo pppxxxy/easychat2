@@ -5,11 +5,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
+import { markMediaWrite } from '../mediaProtection.js';
 import { maskSecrets } from '../secrets.js';
 import { toSpeechText } from '../speechText.js';
 import { saveTtsSettings } from '../storage.js';
-import { speak as ttsSpeak, stop as ttsStop } from '../tts/index.js';
+import { synthesize, speak as ttsSpeak, stop as ttsStop, isSystemProvider } from '../tts/index.js';
 import { getTtsProvider } from '../tts/providers.js';
 
 export default function useChatTts() {
@@ -64,11 +66,38 @@ export default function useChatTts() {
     return broadcastMessage(text, 'auto');
   }, [broadcastMessage]);
 
+  // 角色语音形态（需求 5）：合成回复文本为语音文件并落盘，返回 { uri, mime }。
+  // 系统引擎（expo-speech 无法产文件）、未配置地址、合成失败时返回 null，
+  // 调用方静默降级为仅文字，不弹窗打断（需求 5.5）。
+  const synthesizeVoice = useCallback(async (messageId, text) => {
+    if (!messageId || !String(text || '').trim()) return null;
+    const settings = ttsRef.current || {};
+    const provider = getTtsProvider(settings.activeProvider);
+    if (!provider || isSystemProvider(provider)) return null;
+    const config = (settings.providers && settings.providers[provider.id]) || {};
+    try {
+      const result = await synthesize({ provider, config, text });
+      if (!result || result.mode !== 'audio' || !result.base64) return null;
+      const ext = String(result.mime || 'audio/mp3').includes('wav') ? 'wav' : 'mp3';
+      const dir = `${FileSystem.documentDirectory}voice/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const uri = `${dir}role-${messageId}.${ext}`;
+      await FileSystem.writeAsStringAsync(uri, result.base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      markMediaWrite(uri);
+      return { uri, mime: result.mime || 'audio/mp3' };
+    } catch (error) {
+      return null;
+    }
+  }, []);
+
   return {
     ttsSettings,
     setTtsSettings,
     toggleBroadcast,
     broadcastMessage,
     autoBroadcastMessage,
+    synthesizeVoice,
   };
 }

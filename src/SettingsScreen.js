@@ -120,6 +120,7 @@ export default function SettingsScreen() {
   const [capabilityDraft, setCapabilityDraft] = useState({
     supportsThinking: false,
     supportsVision: false,
+    supportsAudio: false,
     thinkingField: 'reasoning_effort',
     thinkingFormat: 'effort',
   });
@@ -494,6 +495,7 @@ export default function SettingsScreen() {
               activeModel,
               supportsThinking: caps.supportsThinking === true,
               supportsVision: caps.supportsVision === true,
+              supportsAudio: caps.supportsAudio === true,
               thinking: {
                 field: String(caps.thinkingField || '').trim() || 'reasoning_effort',
                 format: ['effort', 'boolean', 'object'].includes(caps.thinkingFormat)
@@ -552,6 +554,7 @@ export default function SettingsScreen() {
     setCapabilityDraft({
       supportsThinking: selected.supportsThinking === true,
       supportsVision: selected.supportsVision === true,
+      supportsAudio: selected.supportsAudio === true,
       thinkingField: (selected.thinking && selected.thinking.field) || 'reasoning_effort',
       thinkingFormat: (selected.thinking && selected.thinking.format) || 'effort',
     });
@@ -1616,7 +1619,7 @@ export default function SettingsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>确认模型能力</Text>
-            <FieldHint style={styles.hint}>用于决定聊天页是否开放「思考」与图片上传。</FieldHint>
+            <FieldHint style={styles.hint}>用于决定聊天页是否开放「思考」、图片上传与语音识别。</FieldHint>
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
               <Switch
@@ -1671,6 +1674,18 @@ export default function SettingsScreen() {
                 onValueChange={value => setCapabilityDraft(current => ({
                   ...current,
                   supportsVision: value,
+                }))}
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
+              />
+            </View>
+            <View style={styles.capabilityRow}>
+              <Text style={styles.capabilityLabel}>支持语音识别（音频兜底发送）</Text>
+              <Switch
+                value={capabilityDraft.supportsAudio}
+                onValueChange={value => setCapabilityDraft(current => ({
+                  ...current,
+                  supportsAudio: value,
                 }))}
                 trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
                 thumbColor={theme.colors.primaryContrast}

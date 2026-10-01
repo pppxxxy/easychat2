@@ -52,6 +52,7 @@ export const DEFAULT_CHARACTER = {
   presets: [],
   avatarUri: '',
   bgUri: '',
+  voiceDisplay: 'text',
   lastUsedAt: 0
 };
 
@@ -74,6 +75,10 @@ function normalizeCharacter(raw) {
     : [];
   merged.mesExample = String(merged.mesExample || '');
   merged.presets = normalizeCharacterPresets(merged.presets);
+  // 语音形态：'text' 仅文字（默认）/ 'voice-text' 语音+原文 / 'voice' 纯语音（隐藏正文但入库）。
+  merged.voiceDisplay = ['text', 'voice-text', 'voice'].includes(merged.voiceDisplay)
+    ? merged.voiceDisplay
+    : 'text';
   return merged;
 }
 

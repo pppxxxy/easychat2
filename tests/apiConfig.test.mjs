@@ -50,6 +50,18 @@ test('API 配置指纹覆盖地址、模型和密钥变化', () => {
   assert.equal(original.includes('key-a'), false);
 });
 
+test('API 配置指纹覆盖语音识别能力标记（supportsAudio）', () => {
+  const base = {
+    id: 'config-audio',
+    baseUrl: 'https://example.com/v1',
+    activeModel: 'model-a',
+    apiKey: 'key-a',
+  };
+  const withoutAudio = getConfigFingerprint(base);
+  assert.equal(getConfigFingerprint({ ...base, supportsAudio: false }), withoutAudio);
+  assert.notEqual(withoutAudio, getConfigFingerprint({ ...base, supportsAudio: true }));
+});
+
 test('空回复占位文本保持稳定判等', () => {
   assert.equal(String(` ${EMPTY_REPLY_TEXT} `).trim(), EMPTY_REPLY_TEXT);
 });

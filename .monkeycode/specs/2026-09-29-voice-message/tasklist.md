@@ -24,26 +24,26 @@
 
 ## 阶段 D：模型能力标记
 
-- [ ] D1. `src/storage/apiConfigs.js` 新增 `supportsAudio`（需求 6.1）
-- [ ] D2. `src/api.js` 把 `supportsAudio` 纳入 `getConfigFingerprint`（需求 6.3）
-- [ ] D3. 设置页「确认模型能力」弹窗新增「支持语音识别」开关（需求 6.1、6.2）
+- [x] D1. `src/storage/apiConfigs.js` 新增 `supportsAudio`（需求 6.1）
+- [x] D2. `src/api.js` 把 `supportsAudio` 纳入 `getConfigFingerprint`（需求 6.3）
+- [x] D3. 设置页「确认模型能力」弹窗新增「支持语音识别」开关（需求 6.1、6.2）
 
 ## 阶段 E：角色卡语音形态
 
-- [ ] E1. `src/storage/characters.js` 新增 `voiceDisplay` 字段，默认 `'text'`（需求 5.1、5.2）
-- [ ] E2. `src/CharacterEditForm.js` 新增语音形态选择（需求 5.1）
-- [ ] E3. `src/chat/useChatTts.js` 按 `voiceDisplay` 决定自动合成与展示（需求 5.3、5.4）
-- [ ] E4. `'voice'` 模式隐藏正文但保留入库与上下文；TTS 失败降级仅文字（需求 5.4、5.5）
+- [x] E1. `src/storage/characters.js` 新增 `voiceDisplay` 字段，默认 `'text'`（需求 5.1、5.2）
+- [x] E2. `src/CharacterEditForm.js` 新增语音形态选择（需求 5.1）
+- [x] E3. `src/chat/useChatTts.js` 按 `voiceDisplay` 决定自动合成与展示（需求 5.3、5.4）
+- [x] E4. `'voice'` 模式隐藏正文但保留入库与上下文；TTS 失败降级仅文字（需求 5.4、5.5）
 
 ## 阶段 F：检查点 - 确保所有可运行验证通过
 
-- [ ] F1. `npm run lint` 无输出
-- [ ] F2. `npm test` 全绿（新增转写/投影/回收测试）
-- [ ] F3. `npm run test:coverage` 不低于地板
+- [x] F1. `npm run lint` 无输出
+- [x] F2. `npm test` 全绿（新增转写/投影/回收测试）
+- [x] F3. `npm run test:coverage` 不低于地板
 
 ## 阶段 G：回归与文档
 
-- [ ] G1. `npx expo export --platform android` 通过
-- [ ] G2. `SMOKE_TEST.md` 增加语音消息走查项（录音→转写→发送、补配引导、三档语音形态、回放、删除回收）
-- [ ] G3. 同步 `.monkeycode/docs/`（INTERFACES.md、数据与状态.md、界面层.md）
-- [ ] G4. 明确不在本次范围：端侧转写、WebRTC 通话、历史音频回传
+- [x] G1. `npx expo export --platform android` 通过
+- [x] G2. `SMOKE_TEST.md` 增加语音消息走查项（录音→转写→发送、补配引导、三档语音形态、回放、删除回收）
+- [x] G3. 同步 `.monkeycode/docs/`（INTERFACES.md、数据与状态.md、界面层.md）
+- [x] G4. 明确不在本次范围：端侧转写、WebRTC 通话、历史音频回传

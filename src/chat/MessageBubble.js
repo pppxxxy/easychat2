@@ -118,12 +118,15 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
    const mediaWidth = message.image?.stickerId
      ? Math.min(112, availableMediaWidth)
      : availableMediaWidth;
-  const mediaRatio = Number(message.image?.height) > 0 && Number(message.image?.width) > 0
-    ? Number(message.image.height) / Number(message.image.width)
-    : 0.75;
-  const mediaHeight = message.image?.stickerId
-    ? 112
-    : Math.min(300, Math.max(120, Math.round(mediaWidth * mediaRatio)));
+   const mediaRatio = Number(message.image?.height) > 0 && Number(message.image?.width) > 0
+     ? Number(message.image.height) / Number(message.image.width)
+     : 0.75;
+   const mediaHeight = message.image?.stickerId
+     ? 112
+     : Math.min(300, Math.max(120, Math.round(mediaWidth * mediaRatio)));
+  // 角色语音形态（需求 5）：纯语音只渲染语音气泡（正文已入库与上下文），语音+原文在正文后追加气泡。
+  const hideAssistantBody = !isUser && !!message.audio && message.voiceMode === 'voice';
+  const showRoleVoice = !isUser && !!message.audio && message.kind !== 'voice';
   const onCopy = useCallback(async () => {
     try {
       await Clipboard.setStringAsync(plainText);
@@ -335,6 +338,8 @@ const fullWidthAssistant = !isUser && fullWidth;
           ) : null}
           {message.kind === 'voice' && message.audio ? (
             <VoiceBubble message={message} isUser={isUser} />
+          ) : hideAssistantBody ? (
+            <VoiceBubble message={message} isUser={false} />
           ) : isUser && message.image?.uri ? (
             <View style={styles.userMediaBox}>
               <View>
@@ -392,6 +397,7 @@ const fullWidthAssistant = !isUser && fullWidth;
           ) : (
              <Markdown style={markdownStyles} rules={markdownRules}>{clampMarkdownText(message.text).text}</Markdown>
           )}
+          {showRoleVoice ? <VoiceBubble message={message} isUser={false} /> : null}
         </View>
 
         {!isUser && message.inlineImage ? (
