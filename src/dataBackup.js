@@ -1,7 +1,8 @@
 // 备份包纯函数：版本校验、敏感字段脱敏、pending 过滤与导入计划。
 
 export const BACKUP_SCHEMA_VERSION = 1;
-export const BACKUP_MAX_BYTES = 64 * 1024 * 1024;
+// 角色卡与聊天媒体单条可达十几 MB，整包上限放宽到 2GB，避免正常备份被误判超限。
+export const BACKUP_MAX_BYTES = 2048 * 1024 * 1024;
 export const BACKUP_MEDIA_DIRECTORIES = ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge'];
 
 const SECRET_KEY_PATTERN = /(apiKey|appSecretKey|secret|password|token)/i;

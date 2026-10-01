@@ -7,6 +7,8 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SETTINGS_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'SettingsScreen.js'), 'utf8');
 const EXTENSION_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ExtensionScreen.js'), 'utf8');
+const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
+const VOICE_SETTINGS_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'VoiceSettingsModal.js'), 'utf8');
 
 test('全宽对话默认关闭，开启前弹窗提醒滑动风险', () => {
   // 默认值：存储层与 UI 初始 state 均为关闭（fullWidth === true 才开启）
@@ -18,6 +20,22 @@ test('全宽对话默认关闭，开启前弹窗提醒滑动风险', () => {
   assert.ok(SETTINGS_SCREEN_SOURCE.includes("text: '仍然开启'"));
   // 关闭路径不需要确认，直接落盘
   assert.ok(SETTINGS_SCREEN_SOURCE.includes("updateChatOption('fullWidth', false)"));
+});
+
+test('聊天「更多」菜单含语音入口，弹窗提供全语音开关与转文字设置', () => {
+  // 更多菜单新增「语音」项
+  assert.ok(CHAT_SCREEN_SOURCE.includes("key: 'voice'"));
+  assert.ok(CHAT_SCREEN_SOURCE.includes("label: '语音'"));
+  assert.ok(CHAT_SCREEN_SOURCE.includes('setVoiceSettingsOpen(true)'));
+  // 弹窗提供全语音模式开关与语音转文字入口
+  assert.ok(VOICE_SETTINGS_SOURCE.includes('全语音模式'));
+  assert.ok(VOICE_SETTINGS_SOURCE.includes('语音转文字设置'));
+  assert.ok(VOICE_SETTINGS_SOURCE.includes('onToggleVoiceMode'));
+  assert.ok(VOICE_SETTINGS_SOURCE.includes('onOpenTranscription'));
+  // 全语音开关在 voice / text 之间切换当前角色
+  assert.ok(CHAT_SCREEN_SOURCE.includes("character.voiceDisplay === 'voice' ? 'text' : 'voice'"));
+  // 打开系统「语音转文字」配置面板
+  assert.ok(CHAT_SCREEN_SOURCE.includes('<TranscriptionPanel'));
 });
 
 test('世界分组内「互动」初始默认折叠', () => {

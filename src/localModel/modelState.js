@@ -1,5 +1,28 @@
 // 本地模型设置与路径纯函数，不依赖 RN/Expo，便于单测。
 
+// 模型下载源预设：官方 Hugging Face 与国内镜像 hf-mirror.com。
+export const LOCAL_MODEL_DOWNLOAD_SOURCES = [
+  {
+    id: 'huggingface',
+    name: 'Hugging Face',
+    baseUrl: 'https://huggingface.co',
+    note: '官方源，需国际网络可达。',
+  },
+  {
+    id: 'hf-mirror',
+    name: 'HF Mirror（国内镜像）',
+    baseUrl: 'https://hf-mirror.com',
+    note: '国内直连镜像，地址与官方一致，替换域名即可。',
+  },
+];
+
+export function buildModelDownloadUrl(baseUrl, repoPath) {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const path = String(repoPath || '').trim().replace(/^\/+/, '');
+  if (!base || !path) return '';
+  return `${base}/${path}`;
+}
+
 export const DEFAULT_LOCAL_MODEL_SETTINGS = {
   enabled: false,
   modelId: '',

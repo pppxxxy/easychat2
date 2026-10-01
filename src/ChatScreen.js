@@ -184,6 +184,8 @@ import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
+import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
+import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
@@ -327,6 +329,8 @@ export default function ChatScreen() {
    const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
+  const [transcriptionPanelOpen, setTranscriptionPanelOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
   const [groupEditOpen, setGroupEditOpen] = useState(false);
@@ -3996,6 +4000,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
             onPress: openThinkingPanel,
           },
           {
+            key: 'voice',
+            label: '语音',
+            icon: 'volume-high-outline',
+            onPress: () => setVoiceSettingsOpen(true),
+          },
+          {
             key: 'scrubber',
             label: '定位',
             icon: 'options-outline',
@@ -4034,6 +4044,25 @@ if (!isCurrent() || controller.signal.aborted) return false;
           if (isGroup) setGroupEditOpen(true);
           else setCharacterEditOpen(true);
         }}
+      />
+
+      <VoiceSettingsModal
+        visible={voiceSettingsOpen}
+        onClose={() => setVoiceSettingsOpen(false)}
+        voiceMode={!isGroup && character.voiceDisplay === 'voice'}
+        onToggleVoiceMode={() => {
+          if (isGroup || !characterId) return;
+          const next = character.voiceDisplay === 'voice' ? 'text' : 'voice';
+          updateCharacter({ id: characterId, voiceDisplay: next }).catch(() => {
+            Alert.alert('保存失败', '请检查存储空间或权限。');
+          });
+        }}
+        onOpenTranscription={() => setTranscriptionPanelOpen(true)}
+      />
+
+      <TranscriptionPanel
+        visible={transcriptionPanelOpen}
+        onClose={() => setTranscriptionPanelOpen(false)}
       />
 
       <CharacterEditForm

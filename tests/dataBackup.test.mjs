@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  BACKUP_MAX_BYTES,
   buildBackupPayload,
   filterPendingMessages,
   isAllowedMediaPath,
@@ -9,6 +10,10 @@ import {
   sanitizeBackupValue,
   validateBackupPayload,
 } from '../src/dataBackup.js';
+
+test('备份上限放宽到足以容纳多张大角色卡与媒体', () => {
+  assert.ok(BACKUP_MAX_BYTES >= 1024 * 1024 * 1024, '上限应不低于 1GB');
+});
 
 test('sanitizeBackupValue：递归清除密钥字段与 secure 引用', () => {
   const value = sanitizeBackupValue({

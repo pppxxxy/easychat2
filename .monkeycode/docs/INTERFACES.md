@@ -700,7 +700,7 @@ data: [DONE]
 **位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/BackupPanel.js`
 
 - 设置 → 关于 → 备份与恢复提供导出、合并恢复和覆盖恢复。
-- 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/`、`characters/`、`card-forge/` 媒体/大字段文件。
+- 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/`、`characters/`、`card-forge/` 媒体/大字段文件；整包上限 `BACKUP_MAX_BYTES` 为 2GB（角色卡与媒体单条可达十几 MB）。
 - API Key、`appSecretKey`、secure-store 引用和其他密钥字段导出为空值；恢复后需要重新填写密钥。
 - 导入先校验版本、数据键、媒体路径和 base64 内容，再写回既有键与媒体目录。
 - 导入消息过滤 `pending: true`，合并模式以导入记录覆盖同 id 数据，覆盖模式清理备份管理范围后恢复。
@@ -710,6 +710,7 @@ data: [DONE]
 **位置**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`
 
 - 设置 → 关于 → 本地模型管理模型 id、名称、GGUF 下载地址、下载进度、启用和删除。
+- 下载源预设 `LOCAL_MODEL_DOWNLOAD_SOURCES`：Hugging Face 官方源与 hf-mirror.com 国内镜像，点选后替换地址域名前缀。
 - 本地模型未安装原生适配器、模型未就绪或推理失败时，聊天自动使用在线 API。
 - `llama.rn` 为可选原生依赖；v0.10+要求 New Architecture，当前项目 RN 0.81/Expo SDK 54 方向匹配，但需要单独 prebuild/release 探针确认。
 - `resourceMutex` 保证本地推理、录音和其他原生重负载能力不会同时持有资源。

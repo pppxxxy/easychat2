@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_LOCAL_MODEL_SETTINGS,
+  LOCAL_MODEL_DOWNLOAD_SOURCES,
+  buildModelDownloadUrl,
   isLocalModelReady,
   localModelPath,
   normalizeLocalModelSettings,
@@ -21,6 +23,19 @@ test('normalizeLocalModelSettings：非法值回退安全默认值', () => {
   assert.equal(settings.contextSize, 512);
   assert.equal(settings.gpuLayers, 0);
   assert.equal(normalizeLocalModelSettings(null).modelId, DEFAULT_LOCAL_MODEL_SETTINGS.modelId);
+});
+
+test('模型下载源预设包含 Hugging Face 与 hf-mirror，并可拼接仓库路径', () => {
+  const ids = LOCAL_MODEL_DOWNLOAD_SOURCES.map(source => source.id);
+  assert.ok(ids.includes('huggingface'));
+  assert.ok(ids.includes('hf-mirror'));
+  const mirror = LOCAL_MODEL_DOWNLOAD_SOURCES.find(source => source.id === 'hf-mirror');
+  assert.equal(mirror.baseUrl, 'https://hf-mirror.com');
+  assert.equal(
+    buildModelDownloadUrl('https://hf-mirror.com', 'Qwen/model/resolve/main/m.gguf'),
+    'https://hf-mirror.com/Qwen/model/resolve/main/m.gguf'
+  );
+  assert.equal(buildModelDownloadUrl('', 'x'), '');
 });
 
 test('localModelPath：模型 id 被限制为安全文件名', () => {

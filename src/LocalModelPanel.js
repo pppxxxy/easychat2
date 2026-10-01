@@ -5,6 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { getLocalModelSettings, saveLocalModelSettings } from './storage.js';
 import { deleteLocalModelFile, downloadLocalModel, getLocalModelFileInfo } from './localModel/modelManager.js';
 import { isLocalModelModuleAvailable } from './localModel/adapter.js';
+import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './localModel/modelState.js';
 import { useTheme } from './theme/ThemeContext.js';
 
 export default function LocalModelPanel({ visible, onClose }) {
@@ -84,8 +85,31 @@ export default function LocalModelPanel({ visible, onClose }) {
             <TextInput style={styles.input} value={modelId} onChangeText={setModelId} placeholder="例如 qwen2.5-1.5b" placeholderTextColor={theme.colors.textFaint} />
             <Text style={styles.label}>模型名称</Text>
             <TextInput style={styles.input} value={modelName} onChangeText={setModelName} placeholder="展示名称" placeholderTextColor={theme.colors.textFaint} />
+            <Text style={styles.label}>下载源</Text>
+            <View style={styles.sourceRow}>
+              {LOCAL_MODEL_DOWNLOAD_SOURCES.map(source => (
+                <TouchableOpacity
+                  key={source.id}
+                  style={[styles.sourceChip, modelUrl.startsWith(source.baseUrl) && styles.sourceChipActive]}
+                  onPress={() => setModelUrl(current => {
+                    const repoPath = String(current || '').replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '');
+                    return repoPath ? `${source.baseUrl}/${repoPath}` : `${source.baseUrl}/`;
+                  })}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`使用 ${source.name} 下载源`}
+                >
+                  <Text style={[styles.sourceChipText, modelUrl.startsWith(source.baseUrl) && styles.sourceChipTextActive]}>
+                    {source.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {LOCAL_MODEL_DOWNLOAD_SOURCES.map(source => (
+              <Text key={`${source.id}-note`} style={styles.sourceNote}>{source.name}：{source.note}</Text>
+            ))}
             <Text style={styles.label}>GGUF 下载地址</Text>
-            <TextInput style={styles.input} value={modelUrl} onChangeText={setModelUrl} placeholder="https://.../model.gguf" placeholderTextColor={theme.colors.textFaint} autoCapitalize="none" />
+            <TextInput style={styles.input} value={modelUrl} onChangeText={setModelUrl} placeholder="https://huggingface.co/<repo>/resolve/main/model.gguf" placeholderTextColor={theme.colors.textFaint} autoCapitalize="none" />
             {busy ? <Text style={styles.progress}>下载进度：{Math.round(progress * 100)}%</Text> : null}
             <TouchableOpacity style={styles.primary} onPress={handleDownload} disabled={busy} activeOpacity={0.8}>
               <Text style={styles.primaryText}>{busy ? '下载中...' : '下载 / 更新模型'}</Text>
@@ -111,6 +135,21 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   content: { paddingBottom: 18 },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 10 },
   status: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginBottom: 10 },
+  sourceRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
+  sourceChip: {
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
+    backgroundColor: theme.colors.primaryAlpha(0.12),
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  sourceChipActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.22) },
+  sourceChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+  sourceChipTextActive: { color: theme.colors.primary },
+  sourceNote: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 2 },
   label: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 10, marginBottom: 5 },
   input: { minHeight: 42, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surface, color: theme.colors.text, paddingHorizontal: 12, paddingVertical: 9 },
   progress: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 10 },
