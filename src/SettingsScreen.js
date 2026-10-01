@@ -37,8 +37,6 @@ import {
   saveMomentsSettings,
   getThinkingSettings,
   getSamplingSettings,
-  getVectorMemorySettings,
-  createVectorConfig,
   getUserProfile,
   getPersonas,
   getActivePersonaId,
@@ -52,7 +50,6 @@ import {
   saveSamplingSettings,
   saveThinkingSettings,
   saveUserProfile,
-  saveVectorMemorySettings,
   SAMPLING_FIELDS,
   THINKING_DISPLAYS,
 } from './storage.js';
@@ -60,7 +57,6 @@ import { markMediaWrite } from './mediaProtection.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors.js';
-import { testVectorConnection } from './vectorMemory/index.js';
 import {
   Card,
   DangerButton,
@@ -76,6 +72,7 @@ import {
 import ChapterModal from './ChapterModal.js';
 import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
+import useVectorSettings from './settings/useVectorSettings.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', label: '开头', meta: '取回复首段' },
@@ -100,16 +97,24 @@ export default function SettingsScreen() {
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaIdState] = useState('');
-  const [vectorPayload, setVectorPayload] = useState({ enabled: false, configs: [], activeId: '' });
-  const vectorRef = useRef(null);
-  const vectorSaveTimerRef = useRef(null);
-  const vectorSaveQueueRef = useRef(Promise.resolve());
-  const vectorRevisionRef = useRef(0);
-  const lastSavedVectorRef = useRef(null);
-  const vectorMountedRef = useRef(true);
-  const [vectorTesting, setVectorTesting] = useState(false);
-  const [vectorTopKDraft, setVectorTopKDraft] = useState('5');
-  const [vectorMaxCharsDraft, setVectorMaxCharsDraft] = useState('400');
+  const {
+    vectorPayload,
+    vectorRef,
+    vectorTesting,
+    vectorTopKDraft,
+    setVectorTopKDraft,
+    vectorMaxCharsDraft,
+    setVectorMaxCharsDraft,
+    currentVectorConfig,
+    loadVectorSettings,
+    flushVectorMemory,
+    updateVectorConfig,
+    toggleVectorEnabled,
+    addVectorConfig,
+    selectVectorConfig,
+    removeVectorConfig,
+    testVector,
+  } = useVectorSettings();
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
@@ -198,21 +203,6 @@ export default function SettingsScreen() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
 
-  useEffect(() => {
-    vectorMountedRef.current = true;
-    return () => {
-      vectorMountedRef.current = false;
-      if (vectorSaveTimerRef.current) {
-        clearTimeout(vectorSaveTimerRef.current);
-        vectorSaveTimerRef.current = null;
-      }
-      const snapshot = vectorRef.current;
-      if (snapshot) {
-        const task = vectorSaveQueueRef.current.then(() => saveVectorMemorySettings(snapshot));
-        vectorSaveQueueRef.current = task.catch(() => {});
-      }
-    };
-  }, []);
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const refreshPresetCount = useCallback(() => {
@@ -245,21 +235,7 @@ export default function SettingsScreen() {
         setSampling(settings);
       })
       .catch(() => {});
-     getVectorMemorySettings()
-       .then(payload => {
-         lastSavedVectorRef.current = payload;
-         const next = vectorRevisionRef.current > 0 && vectorRef.current
-           ? vectorRef.current
-           : payload;
-         vectorRef.current = next;
-         setVectorPayload(next);
-         const active = next.configs.find(item => item.id === next.activeId) || next.configs[0];
-         if (active) {
-           setVectorTopKDraft(String(active.topK));
-           setVectorMaxCharsDraft(String(active.maxChars));
-         }
-       })
-      .catch(() => {});
+    loadVectorSettings();
 
     getInlineImageSettings()
       .then(settings => {
@@ -344,128 +320,10 @@ export default function SettingsScreen() {
     });
   }, [persistSampling]);
 
-  const flushVectorMemory = useCallback(async () => {
-    if (vectorSaveTimerRef.current) {
-      clearTimeout(vectorSaveTimerRef.current);
-      vectorSaveTimerRef.current = null;
-    }
-    const snapshot = vectorRef.current;
-    if (!snapshot) return true;
-    const revision = vectorRevisionRef.current;
-    const task = vectorSaveQueueRef.current.then(() => saveVectorMemorySettings(snapshot));
-    vectorSaveQueueRef.current = task.catch(() => {});
-    try {
-      const saved = await task;
-      lastSavedVectorRef.current = saved;
-      if (vectorMountedRef.current && revision === vectorRevisionRef.current) {
-        vectorRef.current = saved;
-        setVectorPayload(saved);
-      }
-      return true;
-    } catch (error) {
-      if (vectorMountedRef.current && revision === vectorRevisionRef.current) {
-        const previous = lastSavedVectorRef.current;
-        if (previous) {
-          vectorRef.current = previous;
-          setVectorPayload(previous);
-        }
-        Alert.alert('保存失败', '配置未保存，已恢复到上次成功状态。');
-      }
-      return false;
-    }
-  }, []);
-
-  // 把补丁应用到「当前激活的向量配置」，其余配置保持不变。
-  const updateVectorConfig = useCallback(patch => {
-    const base = vectorRef.current || vectorPayload;
-    const configs = base.configs.map(item => (
-      item.id === base.activeId ? { ...item, ...patch } : item
-    ));
-    const next = { ...base, configs };
-    vectorRef.current = next;
-    vectorRevisionRef.current += 1;
-    setVectorPayload(next);
-    if (vectorSaveTimerRef.current) clearTimeout(vectorSaveTimerRef.current);
-    vectorSaveTimerRef.current = setTimeout(() => {
-      flushVectorMemory();
-    }, 500);
-  }, [flushVectorMemory, vectorPayload]);
-
-  const currentVectorConfig = useMemo(() => {
-    const list = vectorPayload.configs || [];
-    return list.find(item => item.id === vectorPayload.activeId) || list[0] || null;
-  }, [vectorPayload]);
-
   const activeImageProvider = useMemo(
     () => IMAGE_PROVIDERS.find(item => item.id === inlineImage.providerId) || null,
     [inlineImage.providerId]
   );
-
-  // 直接落盘一个完整的向量载荷（新增/删除/切换激活项时用，立即保存）。
-  const persistVectorPayload = useCallback(async next => {
-    vectorRef.current = next;
-    vectorRevisionRef.current += 1;
-    setVectorPayload(next);
-    try {
-      const saved = await saveVectorMemorySettings(next);
-      lastSavedVectorRef.current = saved;
-      vectorRef.current = saved;
-      if (vectorMountedRef.current) setVectorPayload(saved);
-      return true;
-    } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
-      return false;
-    }
-  }, []);
-
-  const addVectorConfig = useCallback(() => {
-    const base = vectorRef.current || vectorPayload;
-    const created = createVectorConfig({ name: `向量配置 ${base.configs.length + 1}` });
-    return persistVectorPayload({ ...base, configs: [...base.configs, created], activeId: created.id });
-  }, [persistVectorPayload, vectorPayload]);
-
-  const selectVectorConfig = useCallback(id => {
-    const base = vectorRef.current || vectorPayload;
-    if (!base.configs.some(item => item.id === id)) return;
-    return persistVectorPayload({ ...base, activeId: id });
-  }, [persistVectorPayload, vectorPayload]);
-
-  const removeVectorConfig = useCallback(() => {
-    const base = vectorRef.current || vectorPayload;
-    if (base.configs.length <= 1) {
-      Alert.alert('无法删除', '至少保留一个向量配置。');
-      return;
-    }
-    Alert.alert('删除向量配置', '确定删除当前向量配置吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: () => {
-          const latest = vectorRef.current || vectorPayload;
-          const configs = latest.configs.filter(item => item.id !== latest.activeId);
-          return persistVectorPayload({ ...latest, configs, activeId: configs[0].id });
-        },
-      },
-    ]);
-  }, [persistVectorPayload, vectorPayload]);
-
-  const testVector = useCallback(async () => {
-    if (vectorTesting) return;
-    setVectorTesting(true);
-    try {
-      await flushVectorMemory();
-      const active = (vectorRef.current || vectorPayload).configs.find(
-        item => item.id === (vectorRef.current || vectorPayload).activeId
-      ) || (vectorRef.current || vectorPayload).configs[0];
-      const dims = await testVectorConnection(active);
-      Alert.alert('连接成功', `向量维度：${dims}`);
-    } catch (error) {
-      Alert.alert('连接失败', error?.message || '请检查地址、密钥与模型。');
-    } finally {
-      setVectorTesting(false);
-    }
-  }, [flushVectorMemory, vectorPayload, vectorTesting]);
 
   const updateInlineImage = useCallback(async patch => {
     const next = { ...inlineImageRef.current, ...patch };
@@ -1801,7 +1659,7 @@ export default function SettingsScreen() {
             </View>
             <Switch
               value={vectorPayload.enabled === true}
-              onValueChange={value => persistVectorPayload({ ...(vectorRef.current || vectorPayload), enabled: value })}
+              onValueChange={toggleVectorEnabled}
               trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
               thumbColor={theme.colors.primaryContrast}
             />

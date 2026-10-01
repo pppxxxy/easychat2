@@ -13,6 +13,7 @@
     "src/MemoryScreen.js",
     "src/SearchScreen.js",
     "src/SettingsScreen.js",
+    "src/settings/useVectorSettings.js",
     "src/DiaryPanel.js",
     "src/MapPanel.js",
     "src/PluginPanel.js",
