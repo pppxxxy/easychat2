@@ -1,8 +1,50 @@
 import React, { useMemo } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+
+function PressScaleTouchable({ children, scale: pressScale = 0.97, disabled, style, ...props }) {
+  const anim = React.useRef(new Animated.Value(1)).current;
+
+  const onPressIn = React.useCallback(() => {
+    Animated.timing(anim, {
+      toValue: pressScale,
+      duration: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [anim, pressScale]);
+
+  const onPressOut = React.useCallback(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+  }, [anim]);
+
+  return (
+    <TouchableOpacity
+      {...props}
+      disabled={disabled}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      activeOpacity={0.85}
+      style={style}
+    >
+      <Animated.View style={{ transform: [{ scale: anim }] }}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
 
 export function PrimaryButton({
   title,
@@ -19,7 +61,7 @@ export function PrimaryButton({
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const isDisabled = disabled || loading;
   return (
-    <TouchableOpacity
+    <PressScaleTouchable
       style={[
         styles.base,
         small ? styles.small : styles.regular,
@@ -31,7 +73,6 @@ export function PrimaryButton({
       ]}
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
     >
       {loading ? (
         <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
@@ -43,7 +84,7 @@ export function PrimaryButton({
           <Text style={[styles.primaryText, small && styles.smallText, icon ? styles.textSpaced : null, textStyle]}>{title}</Text>
         </View>
       )}
-    </TouchableOpacity>
+    </PressScaleTouchable>
   );
 }
 
@@ -62,7 +103,7 @@ export function SecondaryButton({
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const isDisabled = disabled || loading;
   return (
-    <TouchableOpacity
+    <PressScaleTouchable
       style={[
         styles.base,
         small ? styles.small : styles.regular,
@@ -73,7 +114,6 @@ export function SecondaryButton({
       ]}
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
     >
       {loading ? (
         <ActivityIndicator size="small" color={theme.colors.primarySoft} />
@@ -85,7 +125,7 @@ export function SecondaryButton({
           <Text style={[styles.secondaryText, small && styles.smallText, icon ? styles.textSpaced : null, textStyle]}>{title}</Text>
         </View>
       )}
-    </TouchableOpacity>
+    </PressScaleTouchable>
   );
 }
 
@@ -104,7 +144,7 @@ export function DangerButton({
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const isDisabled = disabled || loading;
   return (
-    <TouchableOpacity
+    <PressScaleTouchable
       style={[
         styles.base,
         small ? styles.small : styles.regular,
@@ -116,7 +156,6 @@ export function DangerButton({
       ]}
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
     >
       {loading ? (
         <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
@@ -128,7 +167,7 @@ export function DangerButton({
           <Text style={[styles.primaryText, small && styles.smallText, icon ? styles.textSpaced : null, textStyle]}>{title}</Text>
         </View>
       )}
-    </TouchableOpacity>
+    </PressScaleTouchable>
   );
 }
 
@@ -145,7 +184,7 @@ export function GhostButton({
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
-    <TouchableOpacity
+    <PressScaleTouchable
       style={[
         styles.base,
         small ? styles.small : styles.regular,
@@ -156,7 +195,6 @@ export function GhostButton({
       ]}
       onPress={onPress}
       disabled={disabled}
-      activeOpacity={0.85}
     >
       <View style={styles.content}>
         {icon ? (
@@ -164,7 +202,7 @@ export function GhostButton({
         ) : null}
         <Text style={[styles.ghostText, small && styles.smallText, icon ? styles.textSpaced : null, textStyle]}>{title}</Text>
       </View>
-    </TouchableOpacity>
+    </PressScaleTouchable>
   );
 }
 
@@ -173,17 +211,18 @@ export function IconButton({ name, onPress, disabled = false, size = 'md', color
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const iconSize = tokens.iconSize[size] || tokens.iconSize.md;
   return (
-    <TouchableOpacity
+    <PressScaleTouchable
       onPress={onPress}
       disabled={disabled}
+      scale={0.88}
       hitSlop={hitSlop}
-      accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      activeOpacity={0.7}
-      style={[disabled && styles.disabled, style]}
+      accessibilityRole="button"
     >
-      <Ionicons name={name} size={iconSize} color={color || theme.colors.textMuted} />
-    </TouchableOpacity>
+      <View style={[disabled && styles.disabled, style]}>
+        <Ionicons name={name} size={iconSize} color={color || theme.colors.textMuted} />
+      </View>
+    </PressScaleTouchable>
   );
 }
 

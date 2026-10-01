@@ -6,6 +6,7 @@ import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-nativ
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Animated } from 'react-native';
 import { NavigationContainer, DefaultTheme, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,6 +41,7 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
 import { maskSecrets } from './src/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard.js';
 import { recordDiagnostic } from './src/diagnostics.js';
+import { useTabIconScale } from './src/ui/animations.js';
 
 const Tab = createBottomTabNavigator();
 
@@ -415,6 +417,21 @@ function ProactiveMessageBridge({ navigationReady }) {
   return null;
 }
 
+function TabBarIcon({ routeName, color, focused, palette }) {
+  const [outline, filled] = TAB_ICONS[routeName] || ['ellipse-outline', 'ellipse'];
+  const scale = useTabIconScale(focused);
+  return (
+    <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive, focused && {
+      backgroundColor: palette.colors.primaryAlpha(0.18),
+      borderColor: palette.colors.primaryMutedAlpha(0.35),
+    }]}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons name={focused ? filled : outline} size={20} color={color} />
+      </Animated.View>
+    </View>
+  );
+}
+
 function AppShell() {
   const { theme: palette, tokens } = useTheme();
   const [navigationReady, setNavigationReady] = useState(false);
@@ -488,17 +505,9 @@ function AppShell() {
           tabBarActiveTintColor: palette.colors.primaryMuted,
           tabBarInactiveTintColor: palette.colors.textFaint,
           tabBarLabelStyle: styles.tabLabel,
-          tabBarIcon: ({ color, focused }) => {
-            const [outline, filled] = TAB_ICONS[route.name] || ['ellipse-outline', 'ellipse'];
-            return (
-              <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive, focused && {
-                backgroundColor: palette.colors.primaryAlpha(0.18),
-                borderColor: palette.colors.primaryMutedAlpha(0.35),
-              }]}>
-                <Ionicons name={focused ? filled : outline} size={20} color={color} />
-              </View>
-            );
-          },
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon routeName={route.name} color={color} focused={focused} palette={palette} />
+          ),
         })}
       >
         <Tab.Screen name="聊天" component={ChatScreen} />
@@ -566,6 +575,10 @@ const styles = StyleSheet.create({
   tabBar: {
     borderTopWidth: 1,
     paddingTop: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
   },
   tabLabel: { fontSize: 11, fontWeight: '600' },
   tabIconWrap: {

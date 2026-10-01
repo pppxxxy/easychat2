@@ -46,10 +46,10 @@ export const opacity = {
 export function elevation(level, theme) {
   const shadowColor = (theme && theme.colors && theme.colors.text) || '#000000';
   const config = {
-    1: { shadowOpacity: 0.12, shadowRadius: 6, elevation: 2, y: 2 },
-    2: { shadowOpacity: 0.22, shadowRadius: 14, elevation: 8, y: 6 },
-    3: { shadowOpacity: 0.3, shadowRadius: 10, elevation: 4, y: 3 },
-  }[level] || { shadowOpacity: 0.12, shadowRadius: 6, elevation: 2, y: 2 };
+    1: { shadowOpacity: 0.14, shadowRadius: 8, elevation: 3, y: 2 },
+    2: { shadowOpacity: 0.24, shadowRadius: 16, elevation: 10, y: 6 },
+    3: { shadowOpacity: 0.32, shadowRadius: 12, elevation: 6, y: 3 },
+  }[level] || { shadowOpacity: 0.14, shadowRadius: 8, elevation: 3, y: 2 };
 
   if (Platform.OS === 'android') {
     return { elevation: config.elevation };

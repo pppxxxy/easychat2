@@ -354,6 +354,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginBottom: tokens.metrics.cardGap,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
+    ...tokens.elevation(1, theme),
   },
   gameIcon: {
     width: 40,
@@ -392,6 +393,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     marginBottom: tokens.metrics.cardGap,
     overflow: 'hidden',
+    ...tokens.elevation(1, theme),
   },
   worldHeader: {
     flexDirection: 'row',

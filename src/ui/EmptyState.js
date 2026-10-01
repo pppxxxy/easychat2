@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { usePulseAnimation } from './animations.js';
 
 export default function EmptyState({
   icon = 'albums-outline',
@@ -13,12 +14,13 @@ export default function EmptyState({
 }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const pulse = usePulseAnimation({ min: 0.94, max: 1.06, duration: 2400 });
 
   return (
     <View style={[styles.container, style]}>
-      <View style={styles.iconBadge}>
+      <Animated.View style={[styles.iconBadge, { transform: [{ scale: pulse }] }]}>
         <Ionicons name={icon} size={32} color={theme.colors.primarySoft} />
-      </View>
+      </Animated.View>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {description ? <Text style={styles.description}>{description}</Text> : null}
       {action ? <View style={styles.actionWrap}>{action}</View> : null}
