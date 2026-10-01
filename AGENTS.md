@@ -63,7 +63,7 @@ npm run test:coverage # tests + c8 coverage gate (60% floor)
 - `src/secretStore.js` — 把配置里的密钥抽到 `expo-secure-store`、AsyncStorage 只留 `secure:v1:<id>` 引用（`setJsonWithSecrets` / `readJsonWithSecrets`）。
 - `src/stickerDirectives.js` — 纯函数：解析助手回复里的 `[[表情包:名称]]`（`extractStickerDirectives` 按用户表情包白名单过滤并剥离标记、`resolveStickerNames` 归一名称）。角色发表情包依赖它，白名单外名称一律丢弃。
 - `src/moments/commenters.js` / `src/moments/runUserMomentComments.js` — 用户发动态的评论选人纯函数（`countCharacterMessageTotals`/`selectCommenters`/`pickRandom`，「最活跃保底 + 随机」，保底并列可超 7）与串行评论执行器；与同住的 `runHousemateReactions` 并存。
-- `src/diagnostics.js` — 本地脱敏异常日志（存储损坏 / 接口失败 / WebView 异常 / 未捕获 / 启动），不联网上报；查看入口在「设置 → 关于 → 诊断日志」。
+- `src/diagnostics.js` — 本地脱敏异常日志（存储损坏 / 接口失败 / WebView 异常 / 未捕获 / 启动），不联网上报；查看入口在「设置 → 关于 → 诊断日志」。它**故意**不 import `storage.js`（顶层不放 import，AsyncStorage/`maskSecrets` 用惰性 `require`）：`storage/io.js` 反过来 import 它，若把它改成走存储门面会形成 `storage.js → io.js → diagnostics.js → storage.js` 循环，且门面也不导出诊断 API。
 - `src/context/AppContext.js` — global character state (`useApp()`).
 - `src/polyfills.js` — global Buffer shim.
 
