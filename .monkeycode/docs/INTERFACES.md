@@ -690,10 +690,10 @@ data: [DONE]
 
 | 导出 | 说明 |
 |------|------|
-| `GAMES` | `[{ id, name, description, html }]`，内置 `guess-number`、`snake`、`breakout`、`snake-battle`、`thunder-fighter` |
+| `GAMES` | `[{ id, name, description, html?, native? }]`；HTML 游戏内置 `guess-number`、`snake`、`breakout`、`snake-battle`、`thunder-fighter`；原生游戏含 `daily-wife` |
 | `getGame(id)` | 按 id 取游戏，未命中返回 `null` |
 
-**说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求。
+**说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求；带 `native` 的游戏由 `ExtensionScreen` 切换到对应 RN 面板。`daily-wife` 对应 `src/games/DailyWifeView.js`，按本地日期与「老婆/老公」称呼从角色库稳定抽取角色卡，空角色库显示引导。
 
 ### 动态接口
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/moments/commenters.js`、`src/moments/runUserMomentComments.js`、`src/MomentsView.js`

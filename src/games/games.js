@@ -1,5 +1,6 @@
 // 小游戏清单。每款游戏的 HTML 放在 src/games/html/ 下的独立文件，
 // 避免把几十 KB 的 HTML 压成无法 review/diff/lint 的超长单行字符串。
+// native 标记的游戏走原生 RN 面板（如 daily-wife 需要读角色库，WebView 拿不到存储）。
 import GUESS_NUMBER_HTML from './html/GUESS_NUMBER_HTML.js';
 import SNAKE_HTML from './html/SNAKE_HTML.js';
 import BREAKOUT_HTML from './html/BREAKOUT_HTML.js';
@@ -36,5 +37,11 @@ export const GAMES = [
     name: '战机战机战机战机',
     description: '移动端竖屏射击，躲避弹幕、击落敌机并迎战 BOSS。',
     html: THUNDER_HTML,
+  },
+  {
+    id: 'daily-wife',
+    name: '今日老婆',
+    description: '每天随机抽一位角色，也能切换「今日老公」。',
+    native: 'daily-wife',
   },
 ];

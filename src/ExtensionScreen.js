@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import CardForgeScreen from './CardForgeScreen.js';
+import DailyWifeView from './games/DailyWifeView.js';
 import DiaryPanel from './DiaryPanel.js';
 import ImageGenScreen from './ImageGenScreen.js';
 import MapPanel from './MapPanel.js';
@@ -61,6 +62,12 @@ function GamesView() {
     setActiveGameId('');
     setFailed(false);
   }, []);
+
+  if (activeGame && activeGame.native === 'daily-wife') {
+    // 原生游戏：需要读角色库，WebView 拿不到存储，走独立面板。
+    // 放在 WebView 守卫之前：原生游戏不依赖 WebView，环境不支持也能玩。
+    return <DailyWifeView onBack={backToList} />;
+  }
 
   if (!WebViewComponent) {
     return (

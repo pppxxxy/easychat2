@@ -11,8 +11,17 @@ test('内置游戏表：id 唯一、字段齐全、HTML 可渲染', () => {
   assert.ok(GAMES.length >= 5);
   for (const game of GAMES) {
     assert.ok(game.name && game.description, game.id);
-    assert.ok(game.html.includes('<!DOCTYPE html>'), game.id);
+    if (game.native) {
+      // 原生游戏（如 daily-wife 需读角色库）走 RN 面板，无 HTML。
+      assert.ok(!game.html, `${game.id} 原生游戏不应带 html`);
+    } else {
+      assert.ok(game.html.includes('<!DOCTYPE html>'), game.id);
+    }
   }
+  // 今日老婆：原生游戏，入口在游戏列表
+  const dailyWife = GAMES.find(game => game.id === 'daily-wife');
+  assert.ok(dailyWife);
+  assert.equal(dailyWife.native, 'daily-wife');
 });
 
 test('全局预设：id 唯一、字段齐全、默认导出与具名导出一致', () => {
