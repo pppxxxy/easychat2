@@ -193,6 +193,8 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: tokens.border.thin,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   characterCardTags: {
     flexDirection: 'row',
@@ -354,6 +356,8 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   },
   characterCardActive: {
     borderColor: theme.colors.primary,
+    borderWidth: tokens.border.thick,
+    backgroundColor: theme.colors.primaryAlpha(0.06),
   },
   characterCardImageWrap: {
     width: '100%',
@@ -368,7 +372,14 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     justifyContent: 'center',
     backgroundColor: theme.colors.primaryAlpha(0.18),
   },
-  characterCardFallbackText: { color: theme.colors.primarySoft, fontSize: 34, fontWeight: '800' },
+  characterCardFallbackText: {
+    color: theme.colors.primarySoft,
+    fontSize: 34,
+    fontWeight: '800',
+    textShadowColor: theme.colors.primaryAlpha(0.4),
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+  },
   characterCardBadge: {
     position: 'absolute',
     top: 8,
@@ -377,6 +388,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     borderRadius: tokens.radius.pill,
     paddingHorizontal: tokens.spacing.sm,
     paddingVertical: 2,
+    ...tokens.elevation(2, theme),
   },
   characterCardBadgeText: { color: theme.colors.primaryContrast, fontSize: 11, fontWeight: '700' },
   characterCardDelete: {
@@ -389,6 +401,8 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: tokens.border.thin,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   characterCardNameBar: {
     backgroundColor: theme.colors.surfaceAlt,
@@ -404,6 +418,9 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     fontSize: 13,
     fontWeight: '700',
     maxWidth: '100%',
+    textShadowColor: theme.colors.primaryAlpha(0.15),
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
 
@@ -418,6 +435,10 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     marginRight: 12,
     borderWidth: 2,
     borderColor: theme.colors.primaryMutedAlpha(0.45),
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
   },
   avatarImage: { width: 56, height: 56, borderRadius: 28 },
   avatarPlaceholder: {
