@@ -13,8 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api.js';
@@ -35,21 +33,13 @@ import {
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
-  getUserProfile,
-  getPersonas,
-  getActivePersonaId,
-  createPersona,
-  deletePersona,
-  setActivePersonaId,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
-  saveUserProfile,
   THINKING_DISPLAYS,
 } from './storage.js';
-import { markMediaWrite } from './mediaProtection.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors.js';
@@ -69,6 +59,7 @@ import ChapterModal from './ChapterModal.js';
 import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
 import useVectorSettings from './settings/useVectorSettings.js';
+import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
 import { createSettingsStyles } from './settings/settingsStyles.js';
 
@@ -78,23 +69,10 @@ const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'end', label: '结尾（默认）', meta: '取回复末段' },
 ];
 
-function getPickedAsset(result) {
-  if (!result || result.canceled || result.type === 'cancel') return null;
-  if (Array.isArray(result.assets) && result.assets[0]) return result.assets[0];
-  if (result.uri) return result;
-  return null;
-}
-
 export default function SettingsScreen() {
   const [configs, setConfigs] = useState([]);
   const [activeId, setActiveId] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const [userName, setUserName] = useState('');
-  const [userPersona, setUserPersona] = useState('');
-  const [userAvatarUri, setUserAvatarUri] = useState('');
-  const [userProfileLoaded, setUserProfileLoaded] = useState(false);
-  const [personas, setPersonas] = useState([]);
-  const [activePersonaId, setActivePersonaIdState] = useState('');
   const {
     vectorPayload,
     vectorRef,
@@ -113,6 +91,25 @@ export default function SettingsScreen() {
     removeVectorConfig,
     testVector,
   } = useVectorSettings();
+  const {
+    userName,
+    setUserName,
+    userPersona,
+    setUserPersona,
+    userAvatarUri,
+    userProfileSaved,
+    personas,
+    setPersonas,
+    activePersonaId,
+    loadUserProfile,
+    saveUserProfileDelayed,
+    changeUserAvatar,
+    selectPersona,
+    addPersona,
+    removePersona,
+    pickUserAvatar,
+    saveUserProfileNow,
+  } = useUserProfile();
   const [detectingModels, setDetectingModels] = useState(false);
   const [modelList, setModelList] = useState([]);
   const [modelModalVisible, setModelModalVisible] = useState(false);
@@ -125,7 +122,6 @@ export default function SettingsScreen() {
     thinkingField: 'reasoning_effort',
     thinkingFormat: 'effort',
   });
-  const [userProfileSaved, setUserProfileSaved] = useState(false);
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [ttsEntryOpen, setTtsEntryOpen] = useState(false);
@@ -158,26 +154,6 @@ export default function SettingsScreen() {
     maxPromptChars: 400,
     imagePosition: 'end',
   });
-  const profileTimerRef = useRef(null);
-  const profileHintTimerRef = useRef(null);
-  const profileSavingRef = useRef(null);
-  const profileWriteQueueRef = useRef(Promise.resolve());
-  const profileRevisionRef = useRef(0);
-  const lastSavedProfileRef = useRef(null);
-  const profileFlushRef = useRef(null);
-  const profileMountedRef = useRef(true);
-  const profileStateRef = useRef(null);
-  profileStateRef.current = { userName, persona: userPersona, avatarUri: userAvatarUri };
-
-  useEffect(() => {
-    profileMountedRef.current = true;
-    return () => {
-      profileFlushRef.current?.();
-      profileMountedRef.current = false;
-      clearTimeout(profileTimerRef.current);
-      clearTimeout(profileHintTimerRef.current);
-    };
-  }, []);
   const apiStateRef = useRef({ configs: [], activeId: '', loaded: false });
   const apiBusyRef = useRef(false);
   const apiMountedRef = useRef(true);
@@ -363,29 +339,7 @@ export default function SettingsScreen() {
       .catch(() => {
         if (apiMountedRef.current) Alert.alert('读取配置失败', '请重新打开应用后重试。');
       });
-    getPersonas()
-      .then(list => {
-        setPersonas(list);
-        return getActivePersonaId(list);
-      })
-      .then(id => setActivePersonaIdState(id))
-      .catch(() => {});
-    getUserProfile()
-       .then(profile => {
-         const next = {
-           userName: profile.userName,
-           persona: profile.persona,
-           avatarUri: profile.avatarUri || '',
-         };
-         profileStateRef.current = next;
-         lastSavedProfileRef.current = next;
-         setUserName(next.userName);
-         setUserPersona(next.persona);
-         setUserAvatarUri(next.avatarUri);
-       })
-
-      .catch(() => {})
-      .finally(() => setUserProfileLoaded(true));
+    loadUserProfile();
     return () => {
       apiMountedRef.current = false;
       const request = modelRequestRef.current;
@@ -393,164 +347,7 @@ export default function SettingsScreen() {
       modelSourceRef.current = null;
       request?.cancel?.();
     };
-  }, []);
-
-  const flushUserProfile = useCallback(async () => {
-    if (profileTimerRef.current) {
-      clearTimeout(profileTimerRef.current);
-      profileTimerRef.current = null;
-    }
-    const snapshot = profileStateRef.current;
-    if (!snapshot) return true;
-    const revision = profileRevisionRef.current;
-    const saving = profileWriteQueueRef.current.then(() => saveUserProfile(snapshot));
-    profileWriteQueueRef.current = saving.catch(() => {});
-    profileSavingRef.current = saving;
-    try {
-       await saving;
-       const previous = lastSavedProfileRef.current;
-       lastSavedProfileRef.current = snapshot;
-       if (
-         previous
-         && previous.avatarUri
-         && previous.avatarUri !== snapshot.avatarUri
-         && String(previous.avatarUri).includes('/user-avatar-')
-       ) {
-         FileSystem.deleteAsync(previous.avatarUri, { idempotent: true }).catch(() => {});
-       }
-
-      if (profileMountedRef.current && revision === profileRevisionRef.current) {
-        setUserProfileSaved(true);
-        clearTimeout(profileHintTimerRef.current);
-        profileHintTimerRef.current = setTimeout(() => setUserProfileSaved(false), 2000);
-      }
-      return true;
-    } catch (error) {
-      if (profileMountedRef.current) {
-        Alert.alert('保存失败', '用户资料未保存，当前内容仍保留在界面，请稍后重试。');
-      }
-      return false;
-    } finally {
-      if (profileSavingRef.current === saving) profileSavingRef.current = null;
-    }
-  }, []);
-  profileFlushRef.current = flushUserProfile;
-
-  const saveUserProfileDelayed = useMemo(() => {
-    return (name, persona, avatar) => {
-      profileStateRef.current = {
-        userName: name,
-        persona,
-        avatarUri: avatar ?? profileStateRef.current?.avatarUri,
-      };
-      profileRevisionRef.current += 1;
-      setUserProfileSaved(false);
-      if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
-      profileTimerRef.current = setTimeout(() => {
-        flushUserProfile();
-      }, 600);
-    };
-  }, [flushUserProfile]);
-
-  const changeUserAvatar = avatarUri => {
-    if (!userProfileLoaded || !profileMountedRef.current) return;
-    setUserAvatarUri(avatarUri);
-    const profile = profileStateRef.current;
-    saveUserProfileDelayed(profile.userName, profile.persona, avatarUri);
-  };
-
-  const refreshPersonas = useCallback(async () => {
-    try {
-      const list = await getPersonas();
-      const id = await getActivePersonaId(list);
-       setPersonas(list);
-       setActivePersonaIdState(id);
-       const active = list.find(item => item.id === id);
-       const next = {
-         userName: active ? active.userName : '',
-         persona: active ? active.persona : '',
-         avatarUri: profileStateRef.current?.avatarUri || '',
-       };
-       profileStateRef.current = next;
-       lastSavedProfileRef.current = next;
-       setUserName(next.userName);
-       setUserPersona(next.persona);
-
-    } catch (error) {}
-  }, []);
-
-  const selectPersona = async id => {
-    if (id === activePersonaId) return;
-    const saved = await flushUserProfile();
-    if (!saved) return;
-    try {
-      const resolved = await setActivePersonaId(id);
-      setActivePersonaIdState(resolved);
-      await refreshPersonas();
-    } catch (error) {
-      Alert.alert('切换失败', '请稍后重试。');
-    }
-  };
-
-  const addPersona = async () => {
-    const saved = await flushUserProfile();
-    if (!saved) return;
-    try {
-      await createPersona({ userName: '', persona: '' });
-      await refreshPersonas();
-    } catch (error) {
-      Alert.alert('新增失败', '请重试。');
-    }
-  };
-
-  const removePersona = id => {
-    if (personas.length <= 1) {
-      Alert.alert('无法删除', '至少保留一个人设。');
-      return;
-    }
-    Alert.alert('删除人设', '确定删除这个人设吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-         onPress: async () => {
-           const saved = await flushUserProfile();
-           if (!saved) return;
-           try {
-             await deletePersona(id);
-             await refreshPersonas();
-           } catch (error) {
-             Alert.alert('删除失败', '请检查存储空间或权限。');
-           }
-         },
-
-      },
-    ]);
-  };
-
-  const pickUserAvatar = async () => {
-    if (!userProfileLoaded) return;
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/png', 'image/jpeg'],
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-      const asset = getPickedAsset(result);
-      if (!asset?.uri) return;
-      const dir = `${FileSystem.documentDirectory}avatars/`;
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-       const mime = String(asset.mimeType || '').toLowerCase();
-       const ext = mime === 'image/png' || /\.png(?:$|\?)/i.test(asset.uri) ? '.png' : '.jpg';
-       const dest = `${dir}user-avatar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
-
-       markMediaWrite(dest);
-       await FileSystem.copyAsync({ from: asset.uri, to: dest });
-      changeUserAvatar(dest);
-    } catch (error) {
-      Alert.alert('图片读取失败', '请重试。');
-    }
-  };
+  }, [loadUserProfile]);
 
   const active = useMemo(
     () => configs.find(item => item.id === activeId) || configs[0] || null,
@@ -879,12 +676,6 @@ export default function SettingsScreen() {
     const nextModels = models.filter(item => item !== model);
     const activeModel = selected.activeModel === model ? nextModels[0] : selected.activeModel;
     updateField({ models: nextModels, activeModel });
-  };
-
-  const saveUserProfileNow = async () => {
-    if (!userProfileLoaded) return;
-    const saved = await flushUserProfile();
-    if (saved) Alert.alert('已保存', '用户人设已保存到本机。');
   };
 
   const openTutorial = () => {
