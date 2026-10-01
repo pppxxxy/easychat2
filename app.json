@@ -27,8 +27,7 @@
         "expo-image-picker",
         {
           "photosPermission": "选择图片发送到聊天或保存为表情包",
-          "cameraPermission": false,
-          "microphonePermission": false
+          "cameraPermission": false
         }
       ],
       "expo-secure-store",
