@@ -83,6 +83,7 @@ import { hideVariantStatusBar } from './speechText.js';
 import {
   clearSessionDraft,
   createGroupSession,
+  DEFAULT_CHARACTER,
   getApiConfigs,
   getChatOptions,
   getEnabledGlobalPresetPrompts,
@@ -96,6 +97,8 @@ import {
   getStickers,
   getThinkingSettings,
   getUserProfile,
+  hasShownDefaultGreeting,
+  markDefaultGreetingShown,
   saveMessagesBySession,
   saveSessionDraft,
   setProtectedChatImageUris,
@@ -879,6 +882,39 @@ export default function ChatScreen() {
              })();
           }
           return;
+        }
+        // 默认角色（内置助手）的空会话：首次进入自动显示内置教学开场白，
+        // 让新手一进来就看到「配 API → 导入角色卡 → 开始聊天」的引导，而不是空白。
+        // 仅对内置默认角色、仅当该会话为空、且从未自动展示过时执行一次；
+        // 用户自定义开场白的角色、已有消息的会话、以及清空后都不再自动注入。
+        if (
+          initial.length === 0
+          && !isGroupRef.current
+          && !sessionOwnerMissing
+          && characterId === DEFAULT_CHARACTER.id
+          && String(character.firstMes || '').trim()
+        ) {
+          try {
+            const alreadyShown = await hasShownDefaultGreeting();
+            if (!cancelled && !alreadyShown && activeSessionIdRef.current === activeSessionId) {
+              const greeting = buildGreetingMessage(
+                activeSessionId,
+                character.firstMes,
+                userNameRef.current
+              );
+              if (greeting) {
+                // 不预置 lastSavedSnapshotRef，让常规保存 effect 把这条开场白写盘，
+                // 否则重启后（标记已置位、不再自动补）会变成空会话。
+                setMessages([greeting]);
+                setGreetingReady(true);
+                markDefaultGreetingShown().catch(() => {});
+                setSessionGreetingSelected(activeSessionId, true).catch(() => {});
+                return;
+              }
+            }
+          } catch (error) {
+            // 自动开场白失败退回普通空状态，不阻断加载。
+          }
         }
         setGreetingReady(
           isGroupRef.current
@@ -3516,29 +3552,45 @@ if (!isCurrent() || controller.signal.aborted) return false;
         keyboardShouldPersistTaps="handled"
       >
         {messages.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconBadge}>
-              <Ionicons name="chatbubbles-outline" size={36} color={theme.colors.primaryMuted} />
+          bgUri ? (
+            // 有自定义/内置背景图时不再叠加「开始聊天/当前角色/请先填写 API」引导块：
+            // 背景图上再压一段旧引导文案既突兀又像第二层背景。只保留「选择开场白」入口。
+            !isGroup && !sessionOwnerMissing ? (
+              <View style={styles.emptyState}>
+                <TouchableOpacity
+                  style={styles.emptyGreetingButton}
+                  onPress={() => openGreetingPicker(activeSessionId ? 'reselect' : 'new')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.emptyGreetingButtonText}>选择开场白</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconBadge}>
+                <Ionicons name="chatbubbles-outline" size={36} color={theme.colors.primaryMuted} />
+              </View>
+              <Text style={styles.emptyTitle}>开始聊天</Text>
+              <Text style={styles.emptyText}>
+                当前角色：{sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手')}{'\n'}
+                {sessionOwnerMissing
+                  ? '这段历史对话仍可查看，角色资料恢复后才能发送。'
+                  : !greetingReady
+                    ? '先选择开场白，再开始发送消息。'
+                    : '请先在“设置”里填写 API Key，然后输入消息。'}{'\n'}
+              </Text>
+              {!isGroup && !sessionOwnerMissing ? (
+                <TouchableOpacity
+                  style={styles.emptyGreetingButton}
+                  onPress={() => openGreetingPicker(activeSessionId ? 'reselect' : 'new')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.emptyGreetingButtonText}>选择开场白</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
-            <Text style={styles.emptyTitle}>开始聊天</Text>
-            <Text style={styles.emptyText}>
-              当前角色：{sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手')}{'\n'}
-              {sessionOwnerMissing
-                ? '这段历史对话仍可查看，角色资料恢复后才能发送。'
-                : !greetingReady
-                  ? '先选择开场白，再开始发送消息。'
-                  : '请先在“设置”里填写 API Key，然后输入消息。'}{'\n'}
-            </Text>
-            {!isGroup && !sessionOwnerMissing ? (
-              <TouchableOpacity
-                style={styles.emptyGreetingButton}
-                onPress={() => openGreetingPicker(activeSessionId ? 'reselect' : 'new')}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.emptyGreetingButtonText}>选择开场白</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+          )
         ) : (
           renderedMessages.map(message => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;

@@ -82,3 +82,40 @@ test('场景输出清洗：剥前缀/引号、压缩换行、超长截断', () =
   const long = normalizeScenePrompt('啊'.repeat(500), 100);
   assert.ok(long.length <= 100);
 });
+
+test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
+  // 背景图（bgUri）之上再压一段「开始聊天/当前角色/请先填写 API」会显得像第二层背景。
+  // 现在空状态按 bgUri 分支：有背景时只留「选择开场白」入口，无背景时才显示完整引导块。
+  const start = CHAT_SCREEN_SOURCE.indexOf('messages.length === 0 ? (');
+  const end = CHAT_SCREEN_SOURCE.indexOf('renderedMessages.map', start);
+  assert.ok(start > 0 && end > start, '未找到空状态渲染块');
+  const block = CHAT_SCREEN_SOURCE.slice(start, end);
+  assert.ok(block.includes('bgUri ? ('), '空状态应按 bgUri 分支');
+  const bgBranchStart = block.indexOf('bgUri ? (');
+  const emptyTitleAt = block.indexOf('emptyTitle');
+  const apiHintAt = block.indexOf('请先在“设置”里填写');
+  const greetingAt = block.indexOf('选择开场白');
+  assert.ok(emptyTitleAt > 0 && apiHintAt > 0 && greetingAt > 0, '块内应同时存在引导与入口');
+  // 引导文案（标题/API 提示）必须都排在「选择开场白」之后的主分支里，
+  // 即位于有背景分支之外——有背景分支内只允许出现「选择开场白」这一个入口。
+  assert.ok(greetingAt < emptyTitleAt, '有背景分支的选择开场白入口应在引导标题之前');
+  assert.ok(greetingAt < apiHintAt, '有背景分支的选择开场白入口应在 API 引导之前');
+  // 有背景分支（bgUri 到第一个选择开场白入口）内不得出现引导标题
+  const bgBranch = block.slice(bgBranchStart, greetingAt);
+  assert.equal(bgBranch.includes('emptyTitle'), false, '有背景分支不得含引导标题');
+  assert.equal(bgBranch.includes('请先在“设置”里填写'), false, '有背景分支不得含 API 引导');
+});
+
+test('默认角色空会话首次进入自动显示教学开场白（仅内置角色、仅一次）', () => {
+  // 仅内置默认角色、仅空会话、且从未自动展示过时才注入。
+  const autoStart = CHAT_SCREEN_SOURCE.indexOf('默认角色（内置助手）的空会话');
+  // 取自动展示分支的固定窗口：从注释/条件判断到该分支结束（含打标记与 return）
+  const block = CHAT_SCREEN_SOURCE.slice(autoStart, autoStart + 1200);
+  assert.ok(block, '未找到默认角色自动开场白分支');
+  assert.ok(block.includes('hasShownDefaultGreeting'), '应检查是否已展示过');
+  assert.ok(block.includes('markDefaultGreetingShown'), '展示后应打标记');
+  assert.ok(block.includes('buildGreetingMessage'), '应构造开场白消息');
+  assert.ok(block.includes('setSessionGreetingSelected'), '应标记会话已选择开场白');
+  assert.ok(block.includes('initial.length === 0'), '应仅在空会话时触发');
+  assert.ok(block.includes('!sessionOwnerMissing'), '角色资料缺失时不得注入');
+});

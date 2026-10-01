@@ -479,6 +479,59 @@ test('迁移标记存在时保留当前索引，不重新复活已删除角色',
   assert.deepEqual(list.map(item => item.id), ['default']);
 });
 
+test('默认角色带内置教学开场白（获取 API / 导入角色卡 / 开始聊天）', async () => {
+  const storage = loadStorage();
+  const builtin = storage.DEFAULT_CHARACTER;
+  assert.ok(builtin.firstMes.trim().length > 0, '默认角色应有开场白');
+  assert.ok(builtin.firstMes.includes('设置'), '开场白应引导填写 API 设置');
+  assert.ok(builtin.firstMes.includes('角色'), '开场白应引导导入角色卡');
+});
+
+test('存量默认角色首启动播种教学开场白，且仅播种一次', async () => {
+  const storage = loadStorage();
+  // 存量数据：默认角色 firstMes 为空（会覆盖 DEFAULT_CHARACTER 的新默认值）
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  store.set(MIGRATION_KEY, JSON.stringify({ version: 1, ids: ['default'] }));
+  const list = await storage.getCharacterLibrary();
+  const seeded = list.find(item => item.id === 'default');
+  assert.equal(seeded.firstMes, storage.DEFAULT_CHARACTER.firstMes, '应播种教学开场白');
+  // 播种后落盘标记
+  assert.equal(store.get('@easychat2_default_greeting_seed'), '1');
+});
+
+test('用户清空默认角色开场白后不再被播种填回', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  store.set(MIGRATION_KEY, JSON.stringify({ version: 1, ids: ['default'] }));
+  // 标记已置位（此前已播种过），用户主动清空 firstMes
+  store.set('@easychat2_default_greeting_seed', '1');
+  store.set(`${CHARACTER_ITEM_PREFIX}::default`, JSON.stringify({
+    id: 'default',
+    builtin: true,
+    name: 'EasyChat2 助手',
+    firstMes: '',
+  }));
+  const list = await storage.getCharacterLibrary();
+  const item = list.find(entry => entry.id === 'default');
+  assert.equal(item.firstMes, '', '标记已置位后不得再填回');
+});
+
+test('用户自设的默认角色开场白不被内置文案覆盖', async () => {
+  const storage = loadStorage();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  store.set(MIGRATION_KEY, JSON.stringify({ version: 1, ids: ['default'] }));
+  store.set(`${CHARACTER_ITEM_PREFIX}::default`, JSON.stringify({
+    id: 'default',
+    builtin: true,
+    name: 'EasyChat2 助手',
+    firstMes: '这是我自己写的开场白',
+  }));
+  const list = await storage.getCharacterLibrary();
+  assert.equal(list.find(item => item.id === 'default').firstMes, '这是我自己写的开场白');
+});
+
 test('表情包元数据迁移到索引与分片键并保持串行写入', async () => {
   const storage = loadStorage();
   store.set('@easychat2_stickers', JSON.stringify([

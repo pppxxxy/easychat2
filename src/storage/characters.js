@@ -16,6 +16,12 @@ const CHARACTERS_KEY = '@easychat2_characters';
 const CHARACTER_INDEX_KEY = '@easychat2_character_index';
 export const CHARACTER_ITEM_PREFIX = '@easychat2_character_item';
 const CHARACTER_MIGRATION_KEY = '@easychat2_character_migration';
+// 一次性标记：内置默认角色的教学开场白是否已播种。播种后即使用户清空也不再补回，
+// 避免「用户主动删掉开场白、下次启动又被填回」。
+const DEFAULT_GREETING_SEED_KEY = '@easychat2_default_greeting_seed';
+// 一次性标记：是否已为默认角色自动开启过含教学开场白的会话。
+// 置位后，用户清空/删除会话也不再自动重开，尊重用户意图。
+const DEFAULT_GREETING_SHOWN_KEY = '@easychat2_default_greeting_shown';
 const CHARACTER_PAYLOAD_DIRECTORY = 'characters';
 const CHARACTER_PAYLOAD_FILE_VERSION = 1;
 const CHARACTER_INLINE_LIMIT_BYTES = 512 * 1024;
@@ -33,7 +39,9 @@ export const DEFAULT_CHARACTER = {
   description: '',
   personality: '',
   scenario: '',
-  firstMes: '',
+  // 内置教学开场白：首次运行自动开启一段会话并显示，引导用户配 API、导入角色卡、开始聊天。
+  // 用户可在角色编辑页改写；仅当为空时才会被内置文案补上（不覆盖用户自设）。
+  firstMes: '你好，我是 EasyChat2 助手。开始很简单：\n1. 打开底部「设置」填写 API 地址与密钥；\n2. 到「角色」页导入你喜欢的角色卡；\n3. 回到这里发消息，就能开始聊天了。',
   alternateGreetings: [],
   mesExample: '',
   creatorNotes: '',
@@ -104,6 +112,21 @@ function ensureDefaultCharacter(list, now = Date.now()) {
     changedNow = true;
   }
   return { list: marked, changed: changedNow };
+}
+
+// 给默认角色播种内置教学开场白（仅当尚未播种且当前为空时）。
+// 存量用户的默认角色 firstMes 是空串，会覆盖 DEFAULT_CHARACTER 的新默认值，
+// 故需一次性迁移；用持久化标记保证「用户主动清空后不再被填回」。
+function seedDefaultGreeting(list, seeded) {
+  if (seeded) return { list, changed: false };
+  let changed = false;
+  const next = (Array.isArray(list) ? list : []).map(item => {
+    if (item.id !== DEFAULT_CHARACTER.id) return item;
+    if (String(item.firstMes || '').trim()) return item;
+    changed = true;
+    return { ...item, firstMes: DEFAULT_CHARACTER.firstMes };
+  });
+  return { list: next, changed };
 }
 
 export function sortCharacters(list) {
@@ -223,6 +246,36 @@ async function readCharacterMigrationMarker() {
     return null;
   }
   return stored.value;
+}
+
+async function readDefaultGreetingSeed() {
+  try {
+    return (await AsyncStorage.getItem(DEFAULT_GREETING_SEED_KEY)) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+async function markDefaultGreetingSeeded() {
+  try {
+    await AsyncStorage.setItem(DEFAULT_GREETING_SEED_KEY, '1');
+  } catch (error) {}
+}
+
+// 内置教学开场白是否已自动展示过（一次性）。用于「默认角色空会话自动显示开场白」，
+// 展示过之后即使用户清空也不再自动补，尊重用户意图。
+export async function hasShownDefaultGreeting() {
+  try {
+    return (await AsyncStorage.getItem(DEFAULT_GREETING_SHOWN_KEY)) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function markDefaultGreetingShown() {
+  try {
+    await AsyncStorage.setItem(DEFAULT_GREETING_SHOWN_KEY, '1');
+  } catch (error) {}
 }
 
 function mergeCharacterItems(primary, fallback) {
@@ -364,18 +417,20 @@ async function readCharacterItems(ids) {
   return { items, missing, failed };
 }
 
-function ensureDefaultCharacterOrPersistHint(items) {
+function ensureDefaultCharacterOrPersistHint(items, greetingSeeded) {
   const hadDefault = items.some(item => item.id === DEFAULT_CHARACTER.id);
   const { list: ensured, changed } = ensureDefaultCharacter(items);
-  const list = sortCharacters(ensured);
-  return { list, mustPersist: !hadDefault || changed };
+  const { list: seeded, changed: seededChanged } = seedDefaultGreeting(ensured, greetingSeeded);
+  const list = sortCharacters(seeded);
+  return { list, mustPersist: !hadDefault || changed || seededChanged, seededChanged };
 }
 
 export async function getCharacterLibrary() {
-  const [index, legacy, marker] = await Promise.all([
+  const [index, legacy, marker, greetingSeeded] = await Promise.all([
     readCharacterIndex(),
     readLegacyCharacterItems(),
     readCharacterMigrationMarker(),
+    readDefaultGreetingSeed(),
   ]);
   let items = [];
   let needsPersist = false;
@@ -441,7 +496,7 @@ export async function getCharacterLibrary() {
     writeBlocked = true;
   }
 
-  const { list, mustPersist } = ensureDefaultCharacterOrPersistHint(items);
+  const { list, mustPersist } = ensureDefaultCharacterOrPersistHint(items, greetingSeeded);
   if (writeBlocked) {
     characterLibraryWriteBlocked = true;
     return list;
@@ -465,6 +520,10 @@ export async function getCharacterLibrary() {
     } catch (error) {
       characterLibraryWriteBlocked = true;
     }
+  }
+  // 播种成功（或无需播种）后打一次性标记：避免用户主动清空后每次启动又被填回。
+  if (!greetingSeeded && !characterLibraryWriteBlocked) {
+    await markDefaultGreetingSeeded();
   }
   return list;
 }

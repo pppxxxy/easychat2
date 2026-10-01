@@ -23,6 +23,9 @@ import {
   isDisclaimerAcknowledged,
   isOnboardingDone,
   migrateLegacyMessages,
+  DEFAULT_CHARACTER,
+  getUserProfile,
+  markDefaultGreetingShown,
 } from './src/storage.js';
 import { AppProvider, useApp } from './src/context/AppContext.js';
 import { runDiaryForNewDay } from './src/diary/runDiary.js';
@@ -185,7 +188,7 @@ function StartupFlow({ onReady }) {
 }
 
 function StartupSession() {
-  const { characters, loaded, refreshSessions } = useApp();
+  const { characters, loaded, refreshSessions, ensureCharacterSession } = useApp();
   const [retry, setRetry] = useState(0);
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
@@ -205,10 +208,36 @@ function StartupSession() {
       } catch (error) {
         failed = true;
       }
+      let sessionList = null;
       try {
-        await refreshSessions();
+        sessionList = await refreshSessions();
       } catch (error) {
         failed = true;
+      }
+      // 首次安装（迁移后仍无任何会话）：用默认角色的内置教学开场白自动开启一段会话，
+      // 让新手一进聊天页就能看到引导，而不是只有一张背景图或空状态。
+      // 仅在「完全无会话」时执行：存量用户的会话/清空后自动补的空会话都不会被覆盖。
+      if (!cancelled && !failed && Array.isArray(sessionList) && sessionList.length === 0) {
+        try {
+          const defaultCharacter = charactersRef.current.find(
+            item => item.id === DEFAULT_CHARACTER.id
+          );
+          const firstMes = String((defaultCharacter && defaultCharacter.firstMes) || '').trim();
+          if (firstMes) {
+            let userName = '';
+            try {
+              const profile = await getUserProfile();
+              userName = String((profile && profile.userName) || '').trim();
+            } catch (error) {}
+            const text = firstMes.replace(/\{\{user\}\}/g, () => userName || '用户');
+            await ensureCharacterSession(DEFAULT_CHARACTER.id, { text, template: firstMes });
+            // 标记「已自动展示」：与 ChatScreen 的兜底路径共用同一标记，
+            // 用户日后清空会话也不会再被自动重开。
+            await markDefaultGreetingShown().catch(() => {});
+          }
+        } catch (error) {
+          // 自动开场白失败不影响主流程：聊天页会退回「选择开场白」空状态。
+        }
       }
       if (!cancelled) {
         if (failed) {
@@ -236,7 +265,7 @@ function StartupSession() {
         retryTimerRef.current = null;
       }
     };
-  }, [loaded, retry, refreshSessions]);
+  }, [loaded, retry, refreshSessions, ensureCharacterSession]);
 
   return null;
 }
