@@ -73,7 +73,7 @@
     "src/chat/useChatModelThinking.js",
     "src/chat/chatStyles.js"
   ],
-  "reporter": ["text-summary"],
+  "reporter": ["text-summary", "lcov"],
   "check-coverage": true,
   "lines": 60,
   "statements": 60,
