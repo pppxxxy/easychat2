@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-import { getEditResendPlan, removeMessagesByIds, toggleMessageSelection } from '../src/messageSelection.js';
+import {
+  getEditResendPlan,
+  removeMessagesByIds,
+  selectableMessageIds,
+  toggleMessageSelection,
+} from '../src/messageSelection.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
+const CHAT_TOP_BAR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'ChatTopBar.js'), 'utf8');
 
 test('消息选择支持添加、移除与重复选择', () => {
   assert.deepEqual(toggleMessageSelection([], 'a'), ['a']);
@@ -19,6 +31,57 @@ test('批量删除只移除选中的消息并保持原顺序', () => {
   assert.deepEqual(removeMessagesByIds(messages, ['a', 'c']), [messages[1]]);
   assert.deepEqual(removeMessagesByIds(messages, []), messages);
   assert.equal(messages.length, 3);
+});
+
+test('全选候选排除生成中的占位消息与无 id 项', () => {
+  const messages = [
+    { id: 'a', text: '用户消息' },
+    { id: 'p', pending: true, text: '生成中' },
+    { id: 'b', text: '助手回复' },
+    { text: '没有 id' },
+    null,
+  ];
+  assert.deepEqual(selectableMessageIds(messages), ['a', 'b']);
+  // 空/非法输入返回空数组，不抛异常
+  assert.deepEqual(selectableMessageIds([]), []);
+  assert.deepEqual(selectableMessageIds(null), []);
+});
+
+test('多选态消息 Pressable 的 onLongPress 始终非空（原地松手不退出多选）', () => {
+  // 回归：长按进入多选后本轮会重渲染，若把 onLongPress 置为 undefined，松手时
+  // RN Pressability 的 isPressCanceledByLongPress 判定失效，会补发 onPress 把刚
+  // 选中的消息又取消，表现为「原地松手就变回原样，只有滑动才留得住多选」。
+  // 因此渲染里不得出现 onLongPress={!messageSelectionOpen ? ... : undefined} 的写法。
+  assert.equal(
+    CHAT_SCREEN_SOURCE.includes('onLongPress={!messageSelectionOpen ?'),
+    false
+  );
+  assert.ok(CHAT_SCREEN_SOURCE.includes('onLongPress={() => {'));
+  assert.ok(CHAT_SCREEN_SOURCE.includes('if (messageSelectionOpen) return;'));
+});
+
+test('多选顶栏提供全选/取消全选按钮并接线', () => {
+  // 顶栏多选态包含「全选」，全选时切换为「取消全选」
+  assert.ok(CHAT_TOP_BAR_SOURCE.includes("allSelected ? '取消全选' : '全选'"));
+  assert.ok(CHAT_TOP_BAR_SOURCE.includes('onToggleSelectAll'));
+  assert.ok(CHAT_TOP_BAR_SOURCE.includes("accessibilityLabel={allSelected ? '取消全选' : '全选消息'}"));
+  // ChatScreen 传入全选相关 props
+  assert.ok(CHAT_SCREEN_SOURCE.includes('onToggleSelectAll={toggleSelectAllMessages}'));
+  assert.ok(CHAT_SCREEN_SOURCE.includes('allSelected={allMessagesSelected}'));
+});
+
+test('移除输入区「清空」按钮，改由全选+删除承担清空', () => {
+  const composer = readFileSync(
+    path.join(HERE, '..', 'src', 'chat', 'ChatComposer.js'),
+    'utf8'
+  );
+  assert.equal(composer.includes('清空'), false);
+  assert.equal(composer.includes('onClear'), false);
+  // ChatScreen 不再向下传 onClear / messagesCount
+  assert.equal(CHAT_SCREEN_SOURCE.includes('onClear={onClear}'), false);
+  // 删光全部消息时按清空收尾（重置开场白 + 清理整段向量索引）
+  assert.ok(CHAT_SCREEN_SOURCE.includes('const clearsAll = messagesRef.current.length > 0 && messagesAfter.length === 0;'));
+  assert.ok(CHAT_SCREEN_SOURCE.includes('removeVectorIndexForSession(vectorOwnerId, sessionId)'));
 });
 
 test('修改重发计划撤回目标消息及后续回复并回填文字', () => {

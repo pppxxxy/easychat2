@@ -16,10 +16,7 @@ export default function ChatComposer({
   attachments,
   attachLocked,
   onRemoveAttachment,
-  messagesCount,
-  messageSelectionOpen,
   isSending,
-  onClear,
   isGroup,
   inputDisabled,
   onPickAttachment,
@@ -93,19 +90,6 @@ export default function ChatComposer({
         </View>
       ) : null}
       <View style={[styles.inputBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
-        {messagesCount > 0 && !messageSelectionOpen ? (
-          <TouchableOpacity
-            style={[styles.clearButton, isSending && styles.clearButtonDisabled]}
-            onPress={onClear}
-            disabled={isSending}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="清空当前聊天"
-            accessibilityState={{ disabled: isSending }}
-          >
-            <Text style={styles.clearText}>清空</Text>
-          </TouchableOpacity>
-        ) : null}
         {isGroup ? (
           <>
             <TouchableOpacity

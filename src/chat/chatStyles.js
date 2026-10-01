@@ -46,6 +46,11 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   selectionDeleteText: {
     color: theme.colors.danger,
   },
+  selectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+  },
   selectionCount: {
     flex: 1,
     color: theme.colors.text,
@@ -1034,23 +1039,5 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   stopButton: {
     backgroundColor: theme.colors.danger,
     shadowColor: theme.colors.danger,
-  },
-  clearButton: {
-    marginRight: tokens.spacing.sm,
-    height: 44,
-    borderRadius: tokens.radius.pill,
-    justifyContent: 'center',
-    paddingHorizontal: tokens.spacing.md,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    backgroundColor: theme.colors.surface,
-  },
-  clearButtonDisabled: {
-    opacity: tokens.opacity.disabled,
-  },
-  clearText: {
-    color: theme.colors.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
   },
 });

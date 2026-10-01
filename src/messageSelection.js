@@ -9,6 +9,14 @@ export function toggleMessageSelection(selectedIds, messageId) {
     : [...current, id];
 }
 
+// 可进入多选的稳定消息 id：排除生成中的占位消息（pending），与消息 Pressable 的
+// disabled 判定保持一致。返回字符串 id 数组，供「全选」使用。
+export function selectableMessageIds(messages) {
+  return (Array.isArray(messages) ? messages : [])
+    .filter(message => message && message.id && !message.pending)
+    .map(message => String(message.id));
+}
+
 export function removeMessagesByIds(messages, messageIds) {
   const ids = new Set(
     (Array.isArray(messageIds) ? messageIds : [messageIds])

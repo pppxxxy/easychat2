@@ -44,7 +44,12 @@ import { extractStickerDirectives, resolveStickerNames } from './stickerDirectiv
 import { createStickerImage, deleteStickerImage } from './stickerImages.js';
 import { getCachedDisplayText } from './displayTextCache.js';
 import { isGreetingMessage, listGreetingCandidates } from './cardGreetings.js';
-import { getEditResendPlan, removeMessagesByIds, toggleMessageSelection } from './messageSelection.js';
+import {
+  getEditResendPlan,
+  removeMessagesByIds,
+  selectableMessageIds,
+  toggleMessageSelection,
+} from './messageSelection.js';
 import {
   applySummary,
   buildMemorySummaryText,
@@ -1121,69 +1126,6 @@ export default function ChatScreen() {
       abortRef.current.abort();
     }
   }, []);
-
-  const onClear = useCallback(() => {
-    const clearCharacterId = activeCharacterIdRef.current;
-    const clearOwnerId = getVectorOwnerId(activeSessionRef.current, clearCharacterId);
-    const clearSessionId = activeSessionIdRef.current;
-    const clearSessionVersion = sessionVersionRef.current;
-    const canClear = () =>
-      sessionVersionRef.current === clearSessionVersion
-      && !isStaleReply(activeCharacterIdRef.current, clearCharacterId)
-      && activeSessionIdRef.current === clearSessionId
-      && !abortRef.current;
-    Alert.alert('清空聊天', '确定清空当前会话的消息吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '清空',
-        style: 'destructive',
-        onPress: async () => {
-          if (!canClear()) return;
-          if (!isGroupRef.current) {
-            const session = activeSessionRef.current;
-            try {
-              if (session) {
-                const sessionCharacterId = String(session.characterId || '');
-                const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
-                  .some(item => item.id === sessionCharacterId);
-                const scoped = !characterExists
-                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, messagesRef.current);
-                await invalidateHistorySummaries({
-                  session,
-                  messages: [],
-                  removedIds: messagesRef.current.map(item => String(item && item.id || '')),
-                  scoped,
-                  character,
-                  updateCharacter,
-                });
-              }
-            } catch (error) {
-              Alert.alert('清空失败', '记忆摘要未能同步清理，请稍后重试。');
-              return;
-            }
-          }
-          if (!canClear()) return;
-          sessionVersionRef.current += 1;
-          errorRawRef.current = {};
-          if (!isGroupRef.current) {
-            setGreetingReady(false);
-            setSessionGreetingSelected(clearSessionId, false)
-              .then(() => refreshSessions())
-              .catch(() => {});
-          }
-          if (clearOwnerId) {
-            removeVectorIndexForSession(clearOwnerId, clearSessionId).catch(error => {
-              if (__DEV__) console.warn('[vector] clear cleanup failed', error);
-            });
-          }
-           setMessages([]);
-          setInput('');
-          draftTextRef.current = '';
-          persistDraftNow(clearSessionId, '');
-        }
-      }
-    ]);
-  }, [character, persistDraftNow, refreshSessions, removeVectorIndexForSession, updateCharacter]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     const current = messages.find(item => isGreetingMessage(item, activeSessionIdRef.current));
@@ -2701,6 +2643,22 @@ if (!isCurrent() || controller.signal.aborted) return false;
     setSelectedMessageIds([]);
   }, []);
 
+  // 全选 / 取消全选：把可进入多选的消息整体选中或清空。生成中的占位消息不可选，
+  // 与消息 Pressable 的 disabled 判定一致（见 selectableMessageIds）。
+  const selectableIds = useMemo(
+    () => selectableMessageIds(messages),
+    [messages]
+  );
+  const allMessagesSelected = selectableIds.length > 0
+    && selectedMessageIds.length === selectableIds.length;
+  const toggleSelectAllMessages = useCallback(() => {
+    if (!ready || isSending) return;
+    setSelectedMessageIds(current => {
+      const next = selectableMessageIds(messagesRef.current);
+      return current.length === next.length ? [] : next;
+    });
+  }, [isSending, ready]);
+
   const confirmDeleteSelectedMessages = useCallback(() => {
     const ids = selectedMessageIds.slice();
     if (ids.length === 0 || !ready || isSending) return;
@@ -2708,9 +2666,15 @@ if (!isCurrent() || controller.signal.aborted) return false;
     const sessionVersion = sessionVersionRef.current;
     const session = sessionsRef.current.find(item => item.id === sessionId);
     const messagesAfter = removeMessagesByIds(messagesRef.current, ids);
+    // 删光当前会话的全部消息时，语义等同旧「清空」：额外重置开场白选择并清理整段
+    // 向量索引（而非逐条删除）。这样移除输入区的「清空」按钮后，用户用「全选 + 删除」
+    // 仍能得到与清空一致的收尾。
+    const clearsAll = messagesRef.current.length > 0 && messagesAfter.length === 0;
     Alert.alert(
       '删除消息',
-      `确定删除选中的 ${ids.length} 条消息吗？`,
+      clearsAll
+        ? `确定删除全部 ${ids.length} 条消息吗？这会同时重置本会话的开场白与记忆摘要。`
+        : `确定删除选中的 ${ids.length} 条消息吗？`,
       [
         { text: '取消', style: 'cancel' },
         {
@@ -2748,11 +2712,23 @@ if (!isCurrent() || controller.signal.aborted) return false;
               || activeSessionIdRef.current !== sessionId
             ) return;
             sessionVersionRef.current += 1;
+            if (clearsAll && !isGroupRef.current) {
+              setGreetingReady(false);
+              setSessionGreetingSelected(sessionId, false)
+                .then(() => refreshSessions())
+                .catch(() => {});
+            }
             const vectorOwnerId = getVectorOwnerId(session, characterId);
             if (vectorOwnerId) {
-              removeVectorIndexForMessages(vectorOwnerId, sessionId, ids).catch(error => {
-                if (__DEV__) console.warn('[vector] message cleanup failed', error);
-              });
+              if (clearsAll) {
+                removeVectorIndexForSession(vectorOwnerId, sessionId).catch(error => {
+                  if (__DEV__) console.warn('[vector] clear cleanup failed', error);
+                });
+              } else {
+                removeVectorIndexForMessages(vectorOwnerId, sessionId, ids).catch(error => {
+                  if (__DEV__) console.warn('[vector] message cleanup failed', error);
+                });
+              }
             }
             setMessages(current => removeMessagesByIds(current, ids));
             ids.forEach(id => {
@@ -2766,11 +2742,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
             setQuoteTarget(current => (
               current && ids.includes(String(current.id || '')) ? null : current
             ));
+            if (clearsAll) {
+              setInput('');
+              draftTextRef.current = '';
+              persistDraftNow(sessionId, '');
+            }
           },
         },
       ]
     );
-  }, [character, characterId, characters, isSending, ready, removeVectorIndexForMessages, selectedMessageIds, updateCharacter]);
+  }, [character, characterId, characters, isSending, persistDraftNow, ready, refreshSessions, removeVectorIndexForMessages, removeVectorIndexForSession, selectedMessageIds, setSessionGreetingSelected, updateCharacter]);
 
   // 生成配图用的场景描述：取回复对应位置的段落，交给模型转写成一句画面描述。
   // 转写失败（无配置 / 请求错误 / 空结果）时回退用该段原文，保证配图流程不中断。
@@ -3623,8 +3604,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
       <ChatTopBar
         messageSelectionOpen={messageSelectionOpen}
         selectedCount={selectedMessageIds.length}
+        allSelected={allMessagesSelected}
         isSending={isSending}
         onCancelSelection={cancelMessageSelection}
+        onToggleSelectAll={toggleSelectAllMessages}
         onDeleteSelected={confirmDeleteSelectedMessages}
         onOpenSwitcher={() => setSwitcherOpen(true)}
         loaded={loaded}
@@ -3780,10 +3763,17 @@ if (!isCurrent() || controller.signal.aborted) return false;
               <Pressable
                 key={message.id}
                 onLayout={event => onMessageLayout(message.id, event)}
-                onLongPress={!messageSelectionOpen ? () => {
+                // onLongPress 必须始终非空：长按触发进入多选后本轮会重渲染，
+                // 若此时把 onLongPress 置空，松手时 RN Pressability 的
+                // isPressCanceledByLongPress 判定失效（Pressability.js:751），
+                // 会补发 onPress 把刚选中的消息又取消掉——表现为原地松手就退出多选、
+                // 只有滑动（先转 LONG_PRESS_OUT）才留得住。这里保留 onLongPress 作为
+                // 「本次手势已被长按消费」的标记；多选态下长按不做新动作。
+                onLongPress={() => {
+                  if (messageSelectionOpen) return;
                   if (message.image) openImageActions(message.image, message.id);
                   else startMessageSelection(message.id);
-                } : undefined}
+                }}
                 onPress={messageSelectionOpen ? () => toggleSelectedMessage(message.id) : undefined}
                 delayLongPress={350}
                 disabled={!ready || isSending || message.pending}
@@ -3808,10 +3798,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         attachments={attachments}
         attachLocked={isSending || !!sendLockRef.current}
         onRemoveAttachment={removeAttachment}
-        messagesCount={messages.length}
-        messageSelectionOpen={messageSelectionOpen}
         isSending={isSending}
-        onClear={onClear}
         isGroup={isGroup}
         inputDisabled={inputDisabled}
         onPickAttachment={pickAttachmentMenu}

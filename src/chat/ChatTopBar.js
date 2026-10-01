@@ -12,6 +12,8 @@ export default function ChatTopBar({
   selectedCount,
   isSending,
   onCancelSelection,
+  onToggleSelectAll,
+  allSelected,
   onDeleteSelected,
   onOpenSwitcher,
   loaded,
@@ -43,17 +45,34 @@ export default function ChatTopBar({
             <Text style={styles.selectionActionText}>取消</Text>
           </TouchableOpacity>
           <Text style={styles.selectionCount}>已选择 {selectedCount} 条</Text>
-          <TouchableOpacity
-            style={[styles.selectionAction, isSending && styles.actionDisabled]}
-            onPress={onDeleteSelected}
-            disabled={isSending}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="删除选中消息"
-          >
-            <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-            <Text style={[styles.selectionActionText, styles.selectionDeleteText]}>删除</Text>
-          </TouchableOpacity>
+          <View style={styles.selectionActions}>
+            <TouchableOpacity
+              style={[styles.selectionAction, isSending && styles.actionDisabled]}
+              onPress={onToggleSelectAll}
+              disabled={isSending}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={allSelected ? '取消全选' : '全选消息'}
+            >
+              <Ionicons
+                name={allSelected ? 'checkmark-done' : 'checkmark-done-outline'}
+                size={16}
+                color={theme.colors.primarySoft}
+              />
+              <Text style={styles.selectionActionText}>{allSelected ? '取消全选' : '全选'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.selectionAction, isSending && styles.actionDisabled]}
+              onPress={onDeleteSelected}
+              disabled={isSending}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="删除选中消息"
+            >
+              <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+              <Text style={[styles.selectionActionText, styles.selectionDeleteText]}>删除</Text>
+            </TouchableOpacity>
+          </View>
         </>
       ) : (
         <>
