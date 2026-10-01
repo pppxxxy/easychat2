@@ -712,7 +712,8 @@ data: [DONE]
 - 设置 → 关于 → 本地模型管理模型 id、名称、GGUF 下载地址、下载进度、启用和删除。
 - 下载源预设 `LOCAL_MODEL_DOWNLOAD_SOURCES`：Hugging Face 官方源与 hf-mirror.com 国内镜像，点选后替换地址域名前缀。
 - 本地模型未安装原生适配器、模型未就绪或推理失败时，聊天自动使用在线 API。
-- `llama.rn` 为可选原生依赖；v0.10+要求 New Architecture，当前项目 RN 0.81/Expo SDK 54 方向匹配，但需要单独 prebuild/release 探针确认。
+- `llama.rn` 为可选原生依赖：v0.10+要求 New Architecture；项目锁定 `llama.rn@0.12.9`，prebuild 探针已通过（插件注册 + autolinking + codegen）。
+- Android ABI 必须为 `arm64-v8a,x86_64`（`llama.rn` 只提供 64 位预编译库）：由 `expo-build-properties` 的 `android.buildArchs` 强制，`android/gradle.properties` 的 `reactNativeArchitectures` 会随之收窄。
 - `resourceMutex` 保证本地推理、录音和其他原生重负载能力不会同时持有资源。
 
 ### 动态接口

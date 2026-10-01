@@ -9,6 +9,15 @@ Updated: 2026-10-01
 
 Android 模型必须先写入应用文档目录并传递本地路径，不能直接把 `content://` URI 传给 `llama.rn`。
 
+### Android 构建探针结论（2026-10-01）
+
+- 锁定 `llama.rn@0.12.9`；其预编译库只提供 64 位（`arm64-v8a`、`x86_64`），原生 build.gradle 会主动剔除 `armeabi-v7a`/`x86`。
+- 因此必须把项目 ABI 收窄为 `arm64-v8a,x86_64`，否则 32 位 ABI 缺少 so 导致打包失败；用 `expo-build-properties` 的 `android.buildArchs` 配置（属性名是 `buildArchs`，不是 `reactNativeArchitectures`）。
+- `npx expo prebuild --clean` 通过：`llama-rn-plugin` 已注册，autolinking 识别到 `RNLlamaPackage`、`sourceDir` 与 New Architecture codegen 的 `CMakeLists.txt`。
+- `npm install llama.rn` 的 postinstall 会并行下载 Android/iOS 原生 artifact；沙箱内 iOS 下载可能长时间挂起，Android 探针可用 `RNLLAMA_SKIP_POSTINSTALL=1` 先落盘依赖，再单独运行 `node node_modules/llama.rn/install/download-native-artifacts.js` 获取 Android JNI 库。
+- 沙箱无 Java/Gradle，Gradle release 编译需在 CI 或本机 `npm run build:apk` 验证。
+- 注意：`npx expo prebuild` 会顺带改写 `app.json`（把 `android`/`ios` 脚本改成 `expo run:*`、补 `ios.bundleIdentifier`、把 `permissions` 展开成 `RECORD_AUDIO`/`MODIFY_AUDIO_SETTINGS`）与 `package.json`。其中 `MODIFY_AUDIO_SETTINGS` 与既有 `blockedPermissions` 冲突，提交前需回退这些非预期改动，只保留 `llama.rn`/`expo-build-properties` 插件与依赖。
+
 ## Architecture
 
 ```mermaid
