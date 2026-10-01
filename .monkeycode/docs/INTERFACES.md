@@ -695,6 +695,16 @@ data: [DONE]
 
 **说明**: `html` 为完整 HTML 字符串常量，样式与脚本内联，无外部资源与网络请求；带 `native` 的游戏由 `ExtensionScreen` 切换到对应 RN 面板。`daily-wife` 对应 `src/games/DailyWifeView.js`，按本地日期与「老婆/老公」称呼从角色库稳定抽取角色卡，空角色库显示引导。
 
+### 备份与恢复
+
+**位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/BackupPanel.js`
+
+- 设置 → 关于 → 备份与恢复提供导出、合并恢复和覆盖恢复。
+- 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/` 媒体。
+- API Key、`appSecretKey`、secure-store 引用和其他密钥字段导出为空值；恢复后需要重新填写密钥。
+- 导入先校验版本、数据键、媒体路径和 base64 内容，再写回既有键与媒体目录。
+- 导入消息过滤 `pending: true`，合并模式以导入记录覆盖同 id 数据，覆盖模式清理备份管理范围后恢复。
+
 ### 动态接口
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/moments/commenters.js`、`src/moments/runUserMomentComments.js`、`src/MomentsView.js`
 

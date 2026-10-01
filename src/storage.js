@@ -141,6 +141,7 @@ export {
   updateVectorIndex,
 } from './storage/vector.js';
 export { getAffinityStatus, saveAffinity } from './storage/affinity.js';
+export { exportBackup, importBackup } from './storage/backup.js';
 export {
   DEFAULT_CHARACTER,
   clearCharacterEditDraft,
@@ -367,4 +368,3 @@ export async function collectOrphanImageFiles() {
 // 动态删除联动实现见 src/storage/moments.js。
 
 // 好感度存储见 src/storage/affinity.js。
-
