@@ -150,6 +150,13 @@ export default function CharacterScreen() {
   const formDirtyRef = useRef(false);
   const formSignatureRef = useRef('');
   const draftTimerRef = useRef(null);
+  // Tab 拦截信箱需要调用「最新的」save。save 在下方才声明，若直接把 save 放进
+  // guard effect 的依赖数组，本轮渲染求值该数组时 save 尚未赋值（Babel 把
+  // const 降级为 var，此处读到 undefined），undefined===undefined 让 effect
+  // 永不重跑，guard 会一直持有首次 dirty 那一刻的旧闭包——按「保存并离开」
+  // 只落库了旧表单，界面表单仍与已保存内容不同，于是切回再切走又弹窗。
+  // 用 ref 持有最新引用，effect 只依赖 dirty 闸门，始终调用最新 save。
+  const saveRef = useRef(null);
   const formOwnerIdRef = useRef(activeId);
   const formSessionIdRef = useRef(activeSessionId);
   const revertingToRef = useRef('');
@@ -260,9 +267,12 @@ export default function CharacterScreen() {
   // save 每次渲染都是新引用，这里靠 effect 在提交后同步；cleanup 保证
   // 卸载或表单态变化时信箱立即回落到安全默认值。
   useEffect(() => {
-    setCharacterEditGuard({ dirty: formReady && formDirty, save });
+    setCharacterEditGuard({
+      dirty: formReady && formDirty,
+      save: options => (saveRef.current ? saveRef.current(options) : Promise.resolve(false)),
+    });
     return () => setCharacterEditGuard(null);
-  }, [formReady, formDirty, save]);
+  }, [formReady, formDirty]);
 
   // 编辑草稿防抖暂存：切走或杀 App 后回来可恢复未保存的修改。
   // 表单与角色一致（含保存后 seed 回一致）时清草稿，避免下次误弹恢复框。
@@ -561,6 +571,7 @@ setWorldInfo(next.worldInfo);
        return false;
      }
    };
+  saveRef.current = save;
 
   const importCard = async () => {
     if (importing || !loaded) return;

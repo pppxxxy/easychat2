@@ -99,8 +99,17 @@ test('save 返回布尔且角色页注册信箱', () => {
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return true;'));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return false;'));
   // 渲染提交后同步信箱；卸载/变化时回落安全值
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes('setCharacterEditGuard({ dirty: formReady && formDirty, save });'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('dirty: formReady && formDirty,'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('save: options => (saveRef.current ? saveRef.current(options) : Promise.resolve(false)),'));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return () => setCharacterEditGuard(null);'));
+  // 回归：guard effect 的依赖不得直接含 save。save 声明在 effect 之后，Babel 把
+  // const 降级为 var，effect 首轮求值依赖数组时 save 是 undefined，undefined===undefined
+  // 会让 effect 永不重跑，guard 一直持有首次 dirty 时的旧闭包——「保存并离开」只落库
+  // 旧表单，切回再切走又弹未保存。改用 saveRef 持有最新引用，effect 只依赖 dirty 闸门。
+  assert.equal(CHARACTER_SCREEN_SOURCE.includes('}, [formReady, formDirty, save]);'), false);
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('}, [formReady, formDirty]);'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('const saveRef = useRef(null);'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('saveRef.current = save;'));
 });
 
 test('编辑草稿防丢链路完整接线', () => {
