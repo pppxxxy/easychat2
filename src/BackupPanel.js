@@ -19,7 +19,7 @@ import { exportBackup, importBackup } from './storage.js';
 import { validateBackupPayload } from './dataBackup.js';
 import { useTheme } from './theme/ThemeContext.js';
 
-export default function BackupPanel({ visible, onClose }) {
+export default function BackupPanel({ visible, onClose, onImported }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [busy, setBusy] = useState(false);
@@ -32,7 +32,7 @@ export default function BackupPanel({ visible, onClose }) {
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(result.uri, { mimeType: 'application/json', dialogTitle: '导出 EasyChat2 备份' });
       } else {
-        Alert.alert('导出完成', `已生成 ${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件。`);
+        Alert.alert('导出完成', `已生成 ${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件（${(result.bytes / 1024 / 1024).toFixed(2)}MB）。`);
       }
     } catch (error) {
       Alert.alert('导出失败', error.message || '请稍后重试。');
@@ -61,7 +61,8 @@ export default function BackupPanel({ visible, onClose }) {
       const validation = validateBackupPayload(payload);
       if (!validation.valid) throw new Error(validation.error);
       const result = await importBackup(payload, mode);
-      Alert.alert('恢复完成', `已恢复 ${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件。重启应用后所有页面会重新读取数据。`);
+      await onImported?.();
+      Alert.alert('恢复完成', `已恢复 ${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件。角色、会话和外观设置已刷新，API Key 需要重新填写。`);
     } catch (error) {
       Alert.alert('导入失败', error.message || '备份文件无法恢复，现有数据保持不变。');
     } finally {

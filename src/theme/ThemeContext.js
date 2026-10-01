@@ -101,6 +101,18 @@ export function ThemeProvider({ children }) {
     persist({ themeId: themeIdRef.current, fontScaleId: resolved });
   }, [persist]);
 
+  const reloadAppearance = useCallback(async () => {
+    const settings = await getAppearanceSettings();
+    themeIdRef.current = settings.themeId;
+    fontScaleIdRef.current = settings.fontScaleId;
+    lastSavedRef.current = {
+      themeId: settings.themeId,
+      fontScaleId: settings.fontScaleId,
+    };
+    setThemeId(settings.themeId);
+    setFontScaleId(settings.fontScaleId);
+  }, []);
+
   const theme = useMemo(() => getTheme(themeId), [themeId]);
 
   const { fontScale: windowFontScale } = useWindowDimensions();
@@ -117,11 +129,12 @@ export function ThemeProvider({ children }) {
       fontScaleId,
       fontScales: FONT_SCALES,
       setFontScaleId: changeFontScale,
+      reloadAppearance,
       fontScale: scale,
       fonts: { scale, scaled },
       tokens,
     };
-  }, [theme, themeId, changeTheme, fontScaleId, changeFontScale, systemScale]);
+  }, [theme, themeId, changeTheme, fontScaleId, changeFontScale, reloadAppearance, systemScale]);
 
   return (
     <ThemeContext.Provider value={value}>
@@ -142,6 +155,7 @@ export function useTheme() {
     fontScaleId: DEFAULT_FONT_SCALE_ID,
     fontScales: FONT_SCALES,
     setFontScaleId: () => {},
+    reloadAppearance: async () => {},
     fontScale: fallbackScale,
     fonts: {
       scale: fallbackScale,

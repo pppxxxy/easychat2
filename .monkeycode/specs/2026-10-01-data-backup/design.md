@@ -42,7 +42,7 @@ BackupPayload = {
 }
 ```
 
-媒体 `path` 只允许 `avatars/`、`stickers/`、`chat-images/`、`voice/` 目录下的相对路径。消息导出前过滤 `pending: true`，API 配置中的 `apiKey`、`appSecretKey`、`secure:v1:*` 引用全部清空或排除。
+媒体 `path` 只允许 `avatars/`、`stickers/`、`chat-images/`、`voice/`、`characters/`、`card-forge/` 目录下的相对路径。消息导出前过滤 `pending: true`，API 配置中的 `apiKey`、`appSecretKey`、`secure:v1:*` 引用全部清空或排除。
 
 ## Correctness Properties
 

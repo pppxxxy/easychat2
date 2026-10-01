@@ -17,6 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useApp } from './context/AppContext.js';
 import { hexToRgba } from './theme/themes.js';
 import DisclaimerModal from './disclaimer.js';
 import PluginPanel from './PluginPanel.js';
@@ -167,7 +168,8 @@ export default function SettingsScreen() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
-  const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId } = useTheme();
+  const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
+  const { refreshAppData } = useApp();
 
   const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -1742,6 +1744,10 @@ export default function SettingsScreen() {
       <BackupPanel
         visible={backupOpen}
         onClose={() => setBackupOpen(false)}
+        onImported={async () => {
+          await refreshAppData();
+          await reloadAppearance();
+        }}
       />
 
       <ChapterModal

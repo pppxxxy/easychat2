@@ -39,7 +39,7 @@ EasyChat2 需要支持本机数据的完整备份与恢复，用于换机、清�
 1. WHEN the system reads a data key, the system SHALL use the existing large-value fallback path.
 2. WHEN the system restores collections, the system SHALL write existing index and item keys rather than storing a growing collection in one key.
 3. WHEN the system restores messages, the system SHALL exclude `pending` messages.
-4. WHEN the system restores media, the system SHALL write files under the existing application media directories and preserve referenced URIs.
+4. WHEN the system restores media, the system SHALL write files under the existing application media and large-payload directories and preserve referenced URIs.
 5. WHEN import fails during a write, the system SHALL report the failure and preserve a diagnostic record for investigation.
 
 ### Requirement 4: User Experience

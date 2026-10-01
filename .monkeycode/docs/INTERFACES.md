@@ -700,7 +700,7 @@ data: [DONE]
 **位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/BackupPanel.js`
 
 - 设置 → 关于 → 备份与恢复提供导出、合并恢复和覆盖恢复。
-- 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/` 媒体。
+- 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/`、`characters/`、`card-forge/` 媒体/大字段文件。
 - API Key、`appSecretKey`、secure-store 引用和其他密钥字段导出为空值；恢复后需要重新填写密钥。
 - 导入先校验版本、数据键、媒体路径和 base64 内容，再写回既有键与媒体目录。
 - 导入消息过滤 `pending: true`，合并模式以导入记录覆盖同 id 数据，覆盖模式清理备份管理范围后恢复。

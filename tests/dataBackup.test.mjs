@@ -34,7 +34,9 @@ test('filterPendingMessages：递归过滤 pending 消息', () => {
 test('媒体路径校验：只允许应用媒体目录且拒绝穿越', () => {
   assert.equal(isAllowedMediaPath('avatars/a.jpg'), true);
   assert.equal(isAllowedMediaPath('voice/a.m4a'), true);
-  assert.equal(isAllowedMediaPath('characters/a.json'), false);
+  assert.equal(isAllowedMediaPath('characters/a.json'), true);
+  assert.equal(isAllowedMediaPath('card-forge/draft.json'), true);
+  assert.equal(isAllowedMediaPath('unknown/a.json'), false);
   assert.equal(isAllowedMediaPath('voice/../secret.txt'), false);
 });
 
@@ -61,4 +63,6 @@ test('validateBackupPayload/planBackupImport：版本与结构校验，模式规
   assert.equal(planBackupImport(payload, 'other').mode, 'merge');
   assert.equal(validateBackupPayload({ ...payload, schemaVersion: 2 }).valid, false);
   assert.equal(validateBackupPayload({ ...payload, media: [{ path: '../x', base64: 'AA==' }] }).valid, false);
+  assert.equal(validateBackupPayload({ ...payload, storage: [{ key: 'other_key', value: {} }] }).valid, false);
+  assert.equal(validateBackupPayload({ ...payload, storage: [{ key: '@easychat2_x', value: {} }, { key: '@easychat2_x', value: {} }] }).valid, false);
 });

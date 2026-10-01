@@ -2,7 +2,7 @@
 
 export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_MAX_BYTES = 64 * 1024 * 1024;
-export const BACKUP_MEDIA_DIRECTORIES = ['avatars', 'stickers', 'chat-images', 'voice'];
+export const BACKUP_MEDIA_DIRECTORIES = ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge'];
 
 const SECRET_KEY_PATTERN = /(apiKey|appSecretKey|secret|password|token)/i;
 
@@ -52,9 +52,16 @@ export function validateBackupPayload(payload) {
   if (!Array.isArray(payload.storage) || !Array.isArray(payload.media)) {
     return { valid: false, error: '备份文件缺少数据或媒体清单' };
   }
-  if (payload.storage.some(item => !item || typeof item.key !== 'string')) {
+  if (payload.storage.some(item => (
+    !item
+    || typeof item.key !== 'string'
+    || !item.key.startsWith('@easychat2_')
+    || item.key.endsWith('__corrupt_backup')
+  ))) {
     return { valid: false, error: '备份数据键格式无效' };
   }
+  const keys = payload.storage.map(item => item.key);
+  if (new Set(keys).size !== keys.length) return { valid: false, error: '备份数据键重复' };
   if (payload.media.some(item => !item || !isAllowedMediaPath(item.path) || typeof item.base64 !== 'string')) {
     return { valid: false, error: '备份媒体路径或内容无效' };
   }

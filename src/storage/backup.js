@@ -27,6 +27,62 @@ async function readRawValue(key) {
   return undefined;
 }
 
+async function readRawStorageString(key) {
+  try {
+    return await AsyncStorage.getItem(key);
+  } catch (error) {
+    const recovered = await readLargeAsyncStorageValue(key);
+    if (recovered !== null) return recovered;
+    throw new Error(`无法读取待恢复数据：${key}`);
+  }
+}
+
+async function snapshotStorageKeys(keys) {
+  const snapshot = [];
+  for (const key of keys) {
+    const raw = await readRawStorageString(key);
+    snapshot.push({ key, raw, exists: raw !== null && raw !== undefined });
+  }
+  return snapshot;
+}
+
+async function snapshotMediaFiles(items) {
+  const snapshot = [];
+  for (const item of items) {
+    const uri = `${FileSystem.documentDirectory}${item.path}`;
+    const info = await FileSystem.getInfoAsync(uri);
+    let base64 = null;
+    if (info && info.exists && !info.isDirectory) {
+      base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    }
+    snapshot.push({ path: item.path, uri, exists: Boolean(base64 !== null), base64 });
+  }
+  return snapshot;
+}
+
+async function rollbackStorage(snapshot) {
+  for (const item of snapshot) {
+    if (item.exists) await AsyncStorage.setItem(item.key, item.raw);
+    else await AsyncStorage.removeItem(item.key);
+  }
+}
+
+async function rollbackMedia(snapshot) {
+  for (const item of snapshot) {
+    if (item.exists) {
+      const parent = item.uri.slice(0, item.uri.lastIndexOf('/'));
+      await FileSystem.makeDirectoryAsync(`${parent}/`, { intermediates: true });
+      await FileSystem.writeAsStringAsync(item.uri, item.base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } else {
+      await FileSystem.deleteAsync(item.uri, { idempotent: true });
+    }
+  }
+}
+
 async function collectMedia(directory, prefix = '') {
   const root = `${FileSystem.documentDirectory || ''}${directory}/`;
   let entries = [];
@@ -62,7 +118,7 @@ export async function exportBackup({ appVersion = '' } = {}) {
     if (value !== undefined) storage.push({ key, value });
   }
   const media = [];
-  for (const directory of ['avatars', 'stickers', 'chat-images', 'voice']) {
+  for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge']) {
     media.push(...await collectMedia(directory));
   }
   const payload = buildBackupPayload({ storage, media, appVersion });
@@ -72,30 +128,41 @@ export async function exportBackup({ appVersion = '' } = {}) {
   }
   const uri = `${FileSystem.documentDirectory}easychat2-backup-${Date.now()}.json`;
   await FileSystem.writeAsStringAsync(uri, json);
-  return { uri, payload, storageCount: storage.length, mediaCount: media.length };
+  return { uri, payload, storageCount: storage.length, mediaCount: media.length, bytes: utf8ByteLength(json) };
 }
 
 export async function importBackup(payload, mode = 'merge') {
   const plan = planBackupImport(payload, mode);
   if (!plan.valid) throw new Error(plan.error);
-  if (plan.mode === 'replace') {
-    // 只清理备份包明确管理的键：读取失败或新版本新增的本机键应保留，
-    // 避免“覆盖恢复”先清空整库后因部分写入失败造成不可逆数据丢失。
-    const managed = plan.storage
-      .map(item => item.key)
-      .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
-    if (managed.length > 0) await AsyncStorage.multiRemove(managed);
-  }
-  for (const item of plan.storage) {
-    await AsyncStorage.setItem(item.key, JSON.stringify(item.value));
-  }
-  for (const item of plan.media) {
-    const uri = `${FileSystem.documentDirectory}${item.path}`;
-    const parent = uri.slice(0, uri.lastIndexOf('/'));
-    await FileSystem.makeDirectoryAsync(`${parent}/`, { intermediates: true });
-    await FileSystem.writeAsStringAsync(uri, item.base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+  const storageKeys = plan.storage
+    .map(item => item.key)
+    .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
+  const storageSnapshot = await snapshotStorageKeys(storageKeys);
+  const mediaSnapshot = await snapshotMediaFiles(plan.media);
+  try {
+    if (plan.mode === 'replace' && storageKeys.length > 0) {
+      // 只清理备份包明确管理的键：读取失败或新版本新增的本机键应保留。
+      await AsyncStorage.multiRemove(storageKeys);
+    }
+    for (const item of plan.storage) {
+      await AsyncStorage.setItem(item.key, JSON.stringify(item.value));
+    }
+    for (const item of plan.media) {
+      const uri = `${FileSystem.documentDirectory}${item.path}`;
+      const parent = uri.slice(0, uri.lastIndexOf('/'));
+      await FileSystem.makeDirectoryAsync(`${parent}/`, { intermediates: true });
+      await FileSystem.writeAsStringAsync(uri, item.base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    }
+  } catch (error) {
+    try {
+      await rollbackStorage(storageSnapshot);
+      await rollbackMedia(mediaSnapshot);
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError;
+    }
+    throw error;
   }
   return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode };
 }

@@ -367,6 +367,30 @@ export function AppProvider({ children }) {
     [enqueueMutation, refreshSessionsDirect]
   );
 
+  const refreshAppData = useCallback(async () => {
+    await enqueueMutation(async () => {
+      const [list, storedActiveId, sessionList, storedActiveSessionId] = await Promise.all([
+        getCharacterLibrary(),
+        getActiveCharacterId(),
+        getSessions(),
+        getActiveSessionId(),
+      ]);
+      const resolvedList = Array.isArray(list) && list.length > 0 ? list : [DEFAULT_CHARACTER];
+      const resolved = resolveActiveId(resolvedList, storedActiveId);
+      const sortedSessions = sortSessions(sessionList);
+      const resolvedSessionId = resolveActiveSessionId(sortedSessions, storedActiveSessionId);
+      charactersRef.current = resolvedList;
+      activeIdRef.current = resolved;
+      sessionsRef.current = sortedSessions;
+      activeSessionIdRef.current = resolvedSessionId;
+      setCharactersState(resolvedList);
+      setActiveIdState(resolved);
+      setSessionsState(sortedSessions);
+      setActiveSessionIdState(resolvedSessionId);
+      setMessageRefreshTick(tick => tick + 1);
+    });
+  }, [enqueueMutation]);
+
   const ensureCharacterSession = useCallback(async (characterId, opening = null) => {
     if (!loadedRef.current) {
       throw new Error('会话尚未加载完成');
@@ -618,6 +642,7 @@ export function AppProvider({ children }) {
       deleteSession,
       deleteSessions,
       refreshSessions,
+      refreshAppData,
       ensureCharacterSession,
       ingestProactiveMessages,
       messageRefreshTick,
@@ -644,6 +669,7 @@ export function AppProvider({ children }) {
       deleteSession,
       deleteSessions,
       refreshSessions,
+      refreshAppData,
       ensureCharacterSession,
       ingestProactiveMessages,
       messageRefreshTick,
