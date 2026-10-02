@@ -2,13 +2,15 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
 
 import {
   BACKUP_MAX_BYTES,
   buildBackupPayload,
   planBackupImport,
 } from '../dataBackup.js';
-import { readJsonStatus, readLargeAsyncStorageValue, utf8ByteLength } from './io.js';
+import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
+import { createBackupChunkGenerator } from './backupStream.js';
 
 const MANAGED_PREFIX = '@easychat2_';
 const CORRUPT_SUFFIX = '__corrupt_backup';
@@ -171,17 +173,10 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
   throwIfAborted(signal);
   report('packing', 0, 0);
   const payload = buildBackupPayload({ storage, media, appVersion });
-  const json = JSON.stringify(payload);
-  // 只做一次字节统计，上限判断与回传复用同一结果（原实现对整包字符串扫了两遍，
-  // 大备份时是纯 CPU 的双倍开销）。
-  const bytes = utf8ByteLength(json);
-  if (bytes > BACKUP_MAX_BYTES) {
-    throw new Error(`备份文件过大，当前上限为 ${Math.round(BACKUP_MAX_BYTES / 1024 / 1024)}MB`);
-  }
-  throwIfAborted(signal);
-  report('writing', 0, 0);
   const uri = `${FileSystem.documentDirectory}easychat2-backup-${Date.now()}.json`;
-  await FileSystem.writeAsStringAsync(uri, json);
+  // 流式写盘：按片序列化 + 逐片写入，避免一次性构造巨型 JSON 串。
+  // 打包/写盘阶段保持可取消，并持续上报 writing 进度（已写字节/总字节）。
+  const bytes = await writeBackupStream(uri, payload, { signal, report });
   report('done', 1, 1);
   return {
     uri,
@@ -193,6 +188,47 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
     unreadableMedia,
     incomplete: unreadableKeys.length > 0 || unreadableMedia.length > 0,
   };
+}
+
+// 把 payload 流式写入 uri：分片序列化 → 逐片 writeBytes → 片间检查取消。
+// 返回写入的总字节数（与一次性 JSON.stringify 的 UTF-8 字节数一致）。
+async function writeBackupStream(uri, payload, { signal, report }) {
+  const file = new File(uri);
+  if (file.exists) file.delete();
+  file.create({ intermediates: true, overwrite: true });
+  const handle = file.open();
+  let bytes = 0;
+  let pieceCount = 0;
+  const encoder = new TextEncoder();
+  try {
+    for (const chunk of createBackupChunkGenerator(payload)) {
+      throwIfAborted(signal);
+      const encoded = encoder.encode(chunk);
+      handle.writeBytes(encoded);
+      bytes += encoded.length;
+      pieceCount += 1;
+      if (bytes > BACKUP_MAX_BYTES) {
+        throw new Error(`备份文件过大，当前上限为 ${Math.round(BACKUP_MAX_BYTES / 1024 / 1024)}MB`);
+      }
+      // 每片之后让出一次事件循环：写盘阶段不再独占主线程，取消能及时生效。
+      if (pieceCount % 4 === 0) {
+        report('writing', bytes, 0);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    report('writing', bytes, bytes);
+    throwIfAborted(signal);
+  } catch (error) {
+    try {
+      handle.close();
+    } catch (closeError) {}
+    try {
+      if (file.exists) file.delete();
+    } catch (deleteError) {}
+    throw error;
+  }
+  handle.close();
+  return bytes;
 }
 
 export async function importBackup(payload, mode = 'merge') {

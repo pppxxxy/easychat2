@@ -75,10 +75,46 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
     filename: sourcePath,
     presets: [[require.resolve('@babel/preset-env'), { targets: { node: 'current' }, modules: 'commonjs' }]],
   }).code;
+  // 新版 expo-file-system 的 File/FileHandle 打桩：
+  // 写入按顺序 append 到 files，delete 时移除，用于验证流式写盘与取消清理。
+  class FakeFileHandle {
+    constructor(file) {
+      this.file = file;
+      this.closed = false;
+    }
+    writeBytes(bytes) {
+      if (this.closed) throw new Error('file handle is closed');
+      const previous = files.get(this.file.uri) || '';
+      files.set(this.file.uri, previous + Buffer.from(bytes).toString('utf8'));
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+  class FakeFile {
+    constructor(...segments) {
+      this.uri = segments.map(String).join('');
+    }
+    get exists() {
+      return files.has(this.uri);
+    }
+    create() {
+      if (failMediaWrite) throw new Error('backup write failed');
+      if (!files.has(this.uri)) files.set(this.uri, '');
+    }
+    open() {
+      return new FakeFileHandle(this);
+    }
+    delete() {
+      files.delete(this.uri);
+    }
+  }
+  const newFileSystem = { File: FakeFile };
   const originalLoad = Module._load;
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === '@react-native-async-storage/async-storage') return asyncStorage;
     if (request === 'expo-file-system/legacy') return fileSystem;
+    if (request === 'expo-file-system') return newFileSystem;
     if (request.endsWith('/dataBackup.js')) return dataBackup;
     if (request.endsWith('/io.js')) return io;
     return originalLoad.call(this, request, parent, isMain);
@@ -201,4 +237,52 @@ test('exportBackup：signal 已中止时立即抛 AbortError（不产出文件�
     backup.exportBackup({ appVersion: 'test', signal: controller.signal }),
     error => error && error.name === 'AbortError'
   );
+});
+
+test('exportBackup：流式写盘内容与整包序列化逐字一致', async () => {
+  const storage = new Map([
+    ['@easychat2_a', JSON.stringify({ a: 1, 中文: '值' })],
+    ['@easychat2_b', JSON.stringify({ b: [1, 2, 3] })],
+  ]);
+  const files = new Map([['file:///doc/avatars/x.jpg', 'XYZ']]);
+  const directories = {
+    'file:///doc/avatars/': ['x.jpg'],
+    'file:///doc/stickers/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/characters/': [],
+    'file:///doc/card-forge/': [],
+  };
+  const backup = loadBackup({ storage, files, directories });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  const written = files.get(result.uri);
+  assert.equal(written, JSON.stringify(result.payload), '流式写盘内容应与整包 JSON 一致');
+  assert.equal(result.bytes, Buffer.byteLength(written, 'utf8'));
+});
+
+test('exportBackup：写盘阶段可取消（signal 在流式写入中生效）', async () => {
+  const storage = new Map([
+    ['@easychat2_a', JSON.stringify({ a: 1 })],
+    ['@easychat2_b', JSON.stringify({ b: 2 })],
+  ]);
+  const files = new Map();
+  const directories = {};
+  const backup = loadBackup({ storage, files, directories });
+  const controller = new AbortController();
+  const phases = [];
+  await assert.rejects(
+    backup.exportBackup({
+      appVersion: 'test',
+      signal: controller.signal,
+      onProgress: p => {
+        phases.push(p.phase);
+        // 一旦进入写盘阶段就取消：应中止且不留下半成品文件
+        if (p.phase === 'writing') controller.abort();
+      },
+    }),
+    error => error && error.name === 'AbortError'
+  );
+  assert.ok(phases.includes('writing'), '取消应发生在写盘阶段');
+  const leftovers = [...files.keys()].filter(uri => uri.includes('easychat2-backup-'));
+  assert.equal(leftovers.length, 0, '取消后不应残留半成品备份文件');
 });

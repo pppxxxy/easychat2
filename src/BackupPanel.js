@@ -29,6 +29,14 @@ const PHASE_LABELS = {
 function progressText(progress) {
   if (!progress) return '处理中...';
   const label = PHASE_LABELS[progress.phase] || '处理中';
+  // 写盘阶段的 done/total 是字节数，按 MB 展示更可读。
+  if (progress.phase === 'writing') {
+    const mb = value => (Number(value || 0) / 1024 / 1024).toFixed(1);
+    if (progress.total > 0 && progress.total !== progress.done) {
+      return `${label} ${mb(progress.done)}/${mb(progress.total)}MB`;
+    }
+    return progress.done > 0 ? `${label} ${mb(progress.done)}MB` : `${label}...`;
+  }
   if (progress.total > 0) return `${label} ${progress.done}/${progress.total}`;
   if (progress.done > 0) return `${label} ${progress.done}`;
   return `${label}...`;
