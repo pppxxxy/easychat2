@@ -135,6 +135,8 @@ const {
   setActivePersonaId,
   getActivePersonaId,
   saveUserProfile,
+  getApiConfigs,
+  saveApiConfigs,
 } = runtimeModule.exports;
 
 const KEY = '@easychat2_proactive_settings';
@@ -443,4 +445,49 @@ test('人设：删除走队列且保留至少一个', async () => {
   // 非末位时删不存在的人设才会命中「人设不存在」
   await createPersona({ userName: '再来一个' });
   await assert.rejects(deletePersona('missing-id'), /人设不存在/);
+});
+
+const API_CONFIGS_KEY = '@easychat2_api_configs';
+
+test('API 配置：并发保存被队列串行化，最后一次写入为准', async () => {
+  const first = await saveApiConfigs(
+    [{ id: 'a', name: 'A', baseUrl: 'https://a/v1', model: 'ma', apiKey: 'k1' }],
+    'a',
+  );
+  assert.equal(first.configs.length, 1);
+  // 两次并发保存：若不串行，可能出现交错的半写状态
+  await Promise.all([
+    saveApiConfigs([{ id: 'b', name: 'B', baseUrl: 'https://b/v1', model: 'mb', apiKey: 'k2' }], 'b'),
+    saveApiConfigs([{ id: 'c', name: 'C', baseUrl: 'https://c/v1', model: 'mc', apiKey: 'k3' }], 'c'),
+  ]);
+  const loaded = await getApiConfigs();
+  // 落盘结果必须是两次完整写入之一（不存在混合/半写）
+  assert.equal(loaded.configs.length, 1);
+  assert.ok(['b', 'c'].includes(loaded.configs[0].id));
+  assert.equal(loaded.activeId, loaded.configs[0].id);
+  // 存储中的 payload 形状完整
+  const stored = JSON.parse(store.get(API_CONFIGS_KEY));
+  assert.equal(stored.configs.length, 1);
+  assert.ok(['b', 'c'].includes(stored.configs[0].id));
+});
+
+test('API 配置：保存后读回 activeId 回退到首条（非法 id）', async () => {
+  const saved = await saveApiConfigs(
+    [
+      { id: 'x', name: 'X', baseUrl: 'https://x/v1', model: 'mx', apiKey: 'kx' },
+      { id: 'y', name: 'Y', baseUrl: 'https://y/v1', model: 'my', apiKey: 'ky' },
+    ],
+    'missing',
+  );
+  assert.equal(saved.activeId, 'x');
+  const loaded = await getApiConfigs();
+  assert.equal(loaded.activeId, 'x');
+  assert.deepEqual(loaded.configs.map(item => item.id), ['x', 'y']);
+});
+
+test('API 配置：空列表保存回退默认配置', async () => {
+  const saved = await saveApiConfigs([], '');
+  assert.equal(saved.configs.length, 1);
+  assert.equal(saved.configs[0].id, 'default');
+  assert.equal(saved.activeId, 'default');
 });

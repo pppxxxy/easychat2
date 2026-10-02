@@ -3,12 +3,20 @@
 
 import {
   backupCorruptValue,
+  createMutationQueue,
   readJsonStatusWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
+
+// API 配置是「整表覆盖」写入：调用方（设置页、聊天页模型切换）都基于各自
+// 内存快照构造完整列表后整体落盘，两次并发保存会互相覆盖。这里用队列把
+// saveApiConfigs 串行化，避免交错写；首启迁移写保持不入队（只读路径内触发、
+// 仅缺键时发生）。读路径（getApiConfigs/getActiveApiConfig）不入队，避免与
+// 入队的 save 形成同队列重入。
+const apiConfigsMutation = createMutationQueue();
 
 const DEFAULT_API_CONFIG = {
   baseUrl: 'https://api.deepseek.com',
@@ -137,18 +145,20 @@ export async function getApiConfigs() {
   return { configs, activeId };
 }
 
-export async function saveApiConfigs(configs, activeId) {
-  const normalized = ensureUniqueApiConfigIds(
-    (Array.isArray(configs) ? configs : []).map(normalizeApiConfig)
-  );
-  const list = normalized.length
-    ? normalized
-    : [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
-  const resolvedActive = list.some(item => item.id === activeId)
-    ? String(activeId)
-    : list[0].id;
-  await persistApiConfigs(list, resolvedActive);
-  return { configs: list, activeId: resolvedActive };
+export function saveApiConfigs(configs, activeId) {
+  return apiConfigsMutation.enqueue(async () => {
+    const normalized = ensureUniqueApiConfigIds(
+      (Array.isArray(configs) ? configs : []).map(normalizeApiConfig)
+    );
+    const list = normalized.length
+      ? normalized
+      : [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
+    const resolvedActive = list.some(item => item.id === activeId)
+      ? String(activeId)
+      : list[0].id;
+    await persistApiConfigs(list, resolvedActive);
+    return { configs: list, activeId: resolvedActive };
+  });
 }
 
 export function createApiConfig(partial = {}) {
