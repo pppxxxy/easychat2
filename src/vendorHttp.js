@@ -48,6 +48,12 @@ function setHeaders(xhr, headers) {
  * @param {boolean} [options.abortFlagOnSignal] imageGen 在 signal 取消时置 canceled
  *        标记供 onabort 区分「用户取消」与「服务端中断」。
  * @param {string} [options.responseType] 设置 xhr.responseType（如 'arraybuffer'）。
+ * @param {boolean} [options.nativeTimeout] 用 XHR 原生 `xhr.timeout` + `ontimeout`
+ *        计时（设置页模型检测），替代模块内的 setTimeout 空闲计时。
+ * @param {{ cancel: (() => void) | null }} [options.cancelHandle] 外部取消句柄：
+ *        模块在 open 后写入 `cancelHandle.cancel`（触发取消并 reject），结算时清为 null。
+ *        供不经 AbortSignal、而是由调用方持有取消入口的场景（设置页模型检测）复用。
+ * @param {() => Error} [options.onCancelError] 外部句柄取消时的错误构造，默认同 onAbortError。
  */
 export default function xhrRequest(options) {
   const {
@@ -68,6 +74,9 @@ export default function xhrRequest(options) {
     timeoutAbortOrder = 'abortThenReject',
     abortFlagOnSignal = false,
     responseType,
+    nativeTimeout = false,
+    cancelHandle = null,
+    onCancelError = onAbortError,
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -88,6 +97,7 @@ export default function xhrRequest(options) {
         removeAbortListener();
         removeAbortListener = null;
       }
+      if (cancelHandle) cancelHandle.cancel = null;
       fn(value);
     };
 
@@ -96,11 +106,13 @@ export default function xhrRequest(options) {
       settled = true;
       clearTimeout(timer);
       if (abortFlagOnSignal) canceled = true;
+      if (cancelHandle) cancelHandle.cancel = null;
       safeAbort(xhr);
       reject(onAbortError(canceled));
     };
 
-    const timer = setTimeout(() => {
+    // 原生超时模式不挂 JS 计时器，改由 xhr.timeout/ontimeout 处理（clearTimeout(undefined) 为 no-op）。
+    const timer = nativeTimeout ? undefined : setTimeout(() => {
       if (timeoutAbortOrder === 'finishThenAbort') {
         finish(reject, onTimeoutError());
         safeAbort(xhr);
@@ -122,6 +134,16 @@ export default function xhrRequest(options) {
       try {
         xhr.responseType = responseType;
       } catch (error) {}
+    }
+    if (nativeTimeout) {
+      xhr.timeout = timeoutMs || defaultTimeoutMs;
+      xhr.ontimeout = () => finish(reject, onTimeoutError());
+    }
+    if (cancelHandle) {
+      cancelHandle.cancel = () => {
+        finish(reject, onCancelError());
+        safeAbort(xhr);
+      };
     }
     setHeaders(xhr, headers);
 

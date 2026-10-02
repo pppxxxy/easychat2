@@ -16,6 +16,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './api.js';
+import vendorXhr from './vendorHttp.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useApp } from './context/AppContext.js';
 import { hexToRgba } from './theme/themes.js';
@@ -593,32 +594,23 @@ export default function SettingsScreen() {
       if (!isCurrent()) return;
       if (result.length) break;
       try {
-        const text = await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          let settled = false;
-          const finish = (fn, value) => {
-            if (settled) return;
-            settled = true;
-            request.cancel = null;
-            fn(value);
-          };
-          request.cancel = () => {
-            finish(reject, new Error('检测已取消'));
-            xhr.abort();
-          };
-          xhr.open('GET', url);
-          const detectAuthHeader = String(selected.authHeader || 'Authorization');
-          const detectAuthScheme = selected.authScheme === undefined ? 'Bearer ' : String(selected.authScheme);
-          xhr.setRequestHeader(detectAuthHeader, `${detectAuthScheme}${selected.apiKey.trim()}`);
-          xhr.timeout = 15000;
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) finish(resolve, xhr.responseText);
-            else finish(reject, new Error('请求失败'));
-          };
-          xhr.onerror = () => finish(reject, new Error('网络错误'));
-          xhr.ontimeout = () => finish(reject, new Error('超时'));
-          xhr.onabort = () => finish(reject, new Error('检测已取消'));
-          xhr.send();
+        const detectAuthHeader = String(selected.authHeader || 'Authorization');
+        const detectAuthScheme = selected.authScheme === undefined ? 'Bearer ' : String(selected.authScheme);
+        const text = await vendorXhr({
+          method: 'GET',
+          url,
+          headers: { [detectAuthHeader]: `${detectAuthScheme}${selected.apiKey.trim()}` },
+          timeoutMs: 15000,
+          nativeTimeout: true,
+          cancelHandle: request,
+          onTimeoutError: () => new Error('超时'),
+          onAbortError: () => new Error('检测已取消'),
+          onAbortEventError: () => new Error('检测已取消'),
+          onCancelError: () => new Error('检测已取消'),
+          onNetworkError: () => new Error('网络错误'),
+          onHttpError: () => new Error('请求失败'),
+          parse: xhr => xhr.responseText,
+          onParseError: () => new Error('请求失败'),
         });
         if (!isCurrent()) return;
         const data = JSON.parse(text);

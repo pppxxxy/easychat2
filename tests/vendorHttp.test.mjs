@@ -251,3 +251,83 @@ test('vendorXhr send 抛错时 reject 原始错误', async () => {
     restore();
   }
 });
+
+test('vendorXhr nativeTimeout：设置 xhr.timeout 并由 ontimeout 拒绝（不挂 JS 计时器）', async () => {
+  let instance = null;
+  class Xhr {
+    constructor() { instance = this; }
+    open() {}
+    setRequestHeader() {}
+    send() {}
+    abort() { if (this.onabort) this.onabort(); }
+  }
+  const restore = installXhr(Xhr);
+  try {
+    const promise = vendorXhr(baseOptions({
+      nativeTimeout: true,
+      timeoutMs: 15000,
+      onTimeoutError: () => new Error('超时'),
+    }));
+    await Promise.resolve();
+    assert.equal(instance.timeout, 15000);
+    instance.ontimeout();
+    await assert.rejects(promise, /超时/);
+  } finally {
+    restore();
+  }
+});
+
+test('vendorXhr cancelHandle：外部调用 cancel 触发拒绝并在结算后清空', async () => {
+  let instance = null;
+  class Xhr {
+    constructor() { instance = this; }
+    open() {}
+    setRequestHeader() {}
+    send() {}
+    abort() { if (this.onabort) this.onabort(); }
+  }
+  const restore = installXhr(Xhr);
+  try {
+    const handle = { cancel: null };
+    const promise = vendorXhr(baseOptions({
+      nativeTimeout: true,
+      timeoutMs: 1000,
+      cancelHandle: handle,
+      onCancelError: () => new Error('检测已取消'),
+    }));
+    await Promise.resolve();
+    assert.equal(typeof handle.cancel, 'function');
+    handle.cancel();
+    await assert.rejects(promise, /检测已取消/);
+    // 结算后句柄被清空，重复取消不会二次生效
+    assert.equal(handle.cancel, null);
+    assert.ok(instance);
+  } finally {
+    restore();
+  }
+});
+
+test('vendorXhr cancelHandle：成功结算后清空句柄', async () => {
+  class Xhr {
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.status = 200;
+      this.responseText = 'ok';
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  }
+  const restore = installXhr(Xhr);
+  try {
+    const handle = { cancel: null };
+    const value = await vendorXhr(baseOptions({
+      cancelHandle: handle,
+      parse: xhr => xhr.responseText,
+    }));
+    assert.equal(value, 'ok');
+    assert.equal(handle.cancel, null);
+  } finally {
+    restore();
+  }
+});
