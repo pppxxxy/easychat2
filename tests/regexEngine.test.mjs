@@ -194,6 +194,18 @@ test('嵌套无界量词会被识别为潜在灾难性回溯', () => {
   assert.equal(isUnsafeRegexPattern('a(b+c)d'), false);
 });
 
+test('安全检查与编译按同一 /pattern/ 解析口径：模式体内未转义斜杠不漏检', () => {
+  // 模式体含未转义斜杠、尾部是灾难性回溯结构：按第一个 / 截断会漏检
+  assert.equal(isUnsafeRegexPattern('/a(?:b+)+c/g'), true);
+  assert.equal(isUnsafeRegexPattern('/a\\/b(?:c+)+/g'), true);
+  // 普通写法不受影响
+  assert.equal(isUnsafeRegexPattern('/a/b/g'), false);
+  assert.equal(isUnsafeRegexPattern('/foo/g'), false);
+  // 漏检回补：被标记的脚本会整条跳过，主线程不会执行会挂死的正则
+  const unsafeSlash = script({ findRegex: '/a(?:b+)+c/g', replaceString: 'x' });
+  assert.equal(applyRegexScripts('abc', [unsafeSlash], REGEX_PLACEMENT.AI_OUTPUT), 'abc');
+});
+
 test('潜在灾难性回溯脚本被跳过而不是挂起主线程', () => {
   const unsafe = script({ findRegex: '/(a+)+$/g', replaceString: 'x' });
   const input = 'a'.repeat(40);

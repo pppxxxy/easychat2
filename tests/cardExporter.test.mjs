@@ -127,6 +127,17 @@ test('世界书导出保留 role、depth、probability、scan_depth 并可重新
   assert.equal(external.matchWholeWords, true);
   assert.equal(external.useProbability, false);
 });
+
+test('世界书导出保留默认的 selective/useRegex 关闭状态', () => {
+  const exporter = loadExporter();
+  const parsed = parseCardFromJson(exporter.cardToJson({
+    name: '角色',
+    worldInfo: [{ keys: ['普通词'], content: '设定' }],
+  }));
+  const entry = parsed.worldInfo[0];
+  assert.equal(entry.selective, false);
+  assert.equal(entry.useRegex, false);
+});
 test('导出会移除 iTXt 里的旧 chara 块，不再携带双份卡数据', () => {
   const exporter = loadExporter();
 

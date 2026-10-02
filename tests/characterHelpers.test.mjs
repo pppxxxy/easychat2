@@ -68,7 +68,13 @@ test('buildCharacterFormState / characterFormSignature：稳定序列化', () =>
   assert.deepEqual(form.tags, ['a']);
   // worldInfo/regexScripts 经 ensureUniqueIds 补 id
   const form2 = buildCharacterFormState({ worldInfo: [{ keys: ['k'] }] });
-  assert.ok(form2.worldInfo[0].id);
+  assert.equal(form2.worldInfo[0].id, 'entry-0');
+  const form3 = buildCharacterFormState({
+    worldInfo: [{}, { id: 'entry-0' }, { id: '' }],
+    regexScripts: [{}, { id: 'regex-1' }, { id: 'regex-1' }],
+  });
+  assert.deepEqual(form3.worldInfo.map(item => item.id), ['entry-0', 'entry-1', 'entry-2']);
+  assert.deepEqual(form3.regexScripts.map(item => item.id), ['regex-0', 'regex-1', 'regex-2']);
   assert.equal(characterFormSignature({ name: '甲' }), characterFormSignature({ name: '甲' }));
   assert.notEqual(characterFormSignature({ name: '甲' }), characterFormSignature({ name: '乙' }));
 });

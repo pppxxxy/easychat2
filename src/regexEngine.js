@@ -12,19 +12,21 @@ export const REGEX_PLACEMENT = {
 export function isUnsafeRegexPattern(findRegex) {
   let pattern = String(findRegex ?? '');
   if (pattern.startsWith('/')) {
+    // 与 compileRegex 同一解析口径（最后一个未转义 / 是分隔符）：模式体内
+    // 允许出现未转义斜杠（如 /a/b/g）。若这里按第一个 / 截断，模式体尾部的
+    // 灾难性回溯结构（/a(?:b+)+c/g）会漏检，主线程仍会执行会挂死的正则。
     let escaped = false;
     let inClass = false;
+    let delimiter = -1;
     for (let index = 1; index < pattern.length; index += 1) {
       const char = pattern[index];
       if (escaped) escaped = false;
       else if (char === '\\') escaped = true;
       else if (char === '[') inClass = true;
       else if (char === ']') inClass = false;
-      else if (char === '/' && !inClass) {
-        pattern = pattern.slice(1, index);
-        break;
-      }
+      else if (char === '/' && !inClass) delimiter = index;
     }
+    if (delimiter >= 0) pattern = pattern.slice(1, delimiter);
   }
   const stack = [];
   let escaped = false;

@@ -530,7 +530,10 @@ export function buildSystemPrompt(fields) {
 export function ensureUniqueIds(items, prefix) {
   const seen = new Set();
   return items.map((item, index) => {
-    let id = String(item.id);
+    const rawId = item && item.id;
+    let id = rawId === null || rawId === undefined || String(rawId).trim() === ''
+      ? `${prefix}-${index}`
+      : String(rawId);
     if (seen.has(id)) {
       let candidate = `${prefix}-${index}`;
       let bump = index;
@@ -541,7 +544,7 @@ export function ensureUniqueIds(items, prefix) {
       id = candidate;
     }
     seen.add(id);
-    return id === item.id ? item : { ...item, id };
+    return id === rawId ? item : { ...item, id };
   });
 }
 
