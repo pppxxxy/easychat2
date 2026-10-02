@@ -137,3 +137,77 @@ test('MessageList 窗口化虚拟化：尾部窗口、扩窗入口与真实动�
   assert.ok(CHAT_SCREEN_SOURCE.includes('expandMessageWindow(MESSAGE_WINDOW_STEP_SCROLL)'));
   assert.ok(CHAT_SCREEN_SOURCE.includes('setMessageWindowSize(MESSAGE_WINDOW_INITIAL);'));
 });
+
+test('hook 签名与调用点参数集双向匹配', () => {
+  // 背景：useChatSend 曾签名要求 4 个参数而调用点漏传（运行时崩溃、lint 与
+  // TDZ 检查都查不出）。本测试对每个 hook 做「签名参数集 == 调用点参数集」
+  // 的双向比对，缺失与多余都报错。
+  const lines = CHAT_SCREEN_SOURCE.split('\n');
+  const hooks = [
+    ['useSessionGuard', 'src/chat/useSessionGuard.js'],
+    ['useSessionMessages', 'src/chat/useSessionMessages.js'],
+    ['useSessionSwitch', 'src/chat/useSessionSwitch.js'],
+    ['useChatSend', 'src/chat/useChatSend.js'],
+  ];
+  const callStart = name => lines.findIndex(l => l.includes(`} = ${name}({`));
+  const callParams = name => {
+    const start = callStart(name);
+    const after = lines[start].split('({')[1] || '';
+    const names = [];
+    let i = start;
+    while (i < lines.length) {
+      const line = i === start ? after : lines[i];
+      if (line.includes('}) {') || line.includes('});')) {
+        const seg = line.split('})')[0];
+        seg.split(',').forEach(p => {
+          const m = p.trim().match(/^([A-Za-z_$][\w$]*)$/);
+          if (m) names.push(m[1]);
+        });
+        break;
+      }
+      const m = line.trim().match(/^([A-Za-z_$][\w$]*),?$/);
+      if (m) names.push(m[1]);
+      i++;
+    }
+    return names;
+  };
+  const signatureParams = file => {
+    const src = readFileSync(path.join(HERE, '..', file), 'utf8').split('\n');
+    const start = src.findIndex(l => l.includes('({') && (l.includes('export default function') || l.trim().startsWith('export default function')));
+    // 签名可能起始于上一行（export default function useXxx({）
+    const names = [];
+    let i = start;
+    while (i < src.length) {
+      const line = src[i];
+      // 单行签名：({ a, b }) { 同行同时含开与闭
+      if (i === start && line.includes('({') && line.includes('})')) {
+        const seg = line.split('({')[1].split('})')[0];
+        seg.split(',').forEach(p => {
+          const m = p.trim().match(/^([A-Za-z_$][\w$]*)$/);
+          if (m) names.push(m[1]);
+        });
+        break;
+      }
+      if (line.includes('}) {') || line.trim() === '}) {') break;
+      if (i > start || line.includes('({')) {
+        const seg = line.includes('({') ? line.split('({')[1] : line;
+        seg.split(',').forEach(p => {
+          const m = p.trim().match(/^([A-Za-z_$][\w$]*)$/);
+          if (m) names.push(m[1]);
+        });
+      }
+      i++;
+    }
+    return names;
+  };
+  for (const [name, file] of hooks) {
+    const sig = new Set(signatureParams(file));
+    const call = new Set(callParams(name));
+    for (const p of sig) {
+      assert.ok(call.has(p), `${name} 签名要求 ${p} 但调用点未传 → 运行时 undefined`);
+    }
+    for (const p of call) {
+      assert.ok(sig.has(p), `${name} 调用点传了 ${p} 但签名没有 → 死参数`);
+    }
+  }
+});
