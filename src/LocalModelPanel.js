@@ -698,6 +698,7 @@ export default function LocalModelPanel({ visible, onClose }) {
         onClose={() => setSearchVisible(false)}
         initialSourceId={draft.sourceId || LOCAL_MODEL_DOWNLOAD_SOURCES[0].id}
         onSelect={handleSearchSelect}
+        totalMemoryBytes={deviceMemoryBytes}
       />
 
       <ModelLogsModal visible={logsOpen} onClose={() => setLogsOpen(false)} />

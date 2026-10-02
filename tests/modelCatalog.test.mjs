@@ -190,8 +190,31 @@ test('listModelFiles：按适配器分支读取文件', async () => {
     };
   };
   const parsed = await listModelFiles('hf-mirror', 'org/repo', { fetchImpl });
-  assert.match(captured, /huggingface\.co\/api\/models\/org\/repo\/tree\/main/);
+  // 回归：HF Mirror 不仅下载走镜像，文件列表接口也必须走 hf-mirror.com，
+  // 否则国内仍会去连官方 huggingface.co 而失败。
+  assert.match(captured, /^https:\/\/hf-mirror\.com\/api\/models\/org\/repo\/tree\/main/);
   assert.equal(parsed.modelFiles[0].path, 'a.gguf');
+});
+
+test('searchModels：HF Mirror 搜索走镜像域名，官方仍走官方域名', async () => {
+  const capture = async () => {
+    let captured = null;
+    const fetchImpl = async (url) => {
+      captured = url;
+      return {
+        ok: true,
+        json: async () => ([{ id: 'org/gguf', modelId: 'org/gguf', tags: ['gguf'], downloads: 1 }]),
+      };
+    };
+    return { fetchImpl, get: () => captured };
+  };
+  const mirror = await capture();
+  await searchModels('hf-mirror', 'qwen', { fetchImpl: mirror.fetchImpl });
+  assert.match(mirror.get(), /^https:\/\/hf-mirror\.com\/api\/models\?search=qwen/);
+
+  const official = await capture();
+  await searchModels('huggingface', 'qwen', { fetchImpl: official.fetchImpl });
+  assert.match(official.get(), /^https:\/\/huggingface\.co\/api\/models\?search=qwen/);
 });
 
 test('searchModels：HTTP 失败时抛错', async () => {

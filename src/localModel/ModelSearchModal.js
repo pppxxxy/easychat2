@@ -18,6 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
 import { buildDownloadUrl, listModelFiles, searchModels } from './modelCatalog.js';
+import { rankModelFiles } from './modelCompatibility.js';
 import { useTheme } from '../theme/ThemeContext.js';
 
 function formatBytes(value) {
@@ -37,7 +38,15 @@ function fileBaseName(filePath) {
   return String(filePath || '').split('/').pop().replace(/\.gguf$/i, '');
 }
 
-export default function ModelSearchModal({ visible, onClose, initialSourceId, onSelect }) {
+// 兼容分级的展示色：推荐=主色、难跑=警告、跑不了=危险、未知=弱化。
+function tierColor(theme, tier) {
+  if (tier === 'recommended') return theme.colors.primarySoft;
+  if (tier === 'tight') return theme.colors.star || theme.colors.dangerSoft;
+  if (tier === 'incompatible') return theme.colors.dangerSoft;
+  return theme.colors.textFaint;
+}
+
+export default function ModelSearchModal({ visible, onClose, initialSourceId, onSelect, totalMemoryBytes = 0 }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [sourceId, setSourceId] = useState(initialSourceId || 'huggingface');
@@ -48,6 +57,13 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
   const [results, setResults] = useState(null);
   const [activeRepo, setActiveRepo] = useState(null);
   const [files, setFiles] = useState(null);
+
+  // 为每个量化文件附上「参数规模 + 估算内存 + 兼容分级」，并按推荐程度排序：
+  // 推荐（绰绰有余）在前，跑不了的沉底，帮助用户优先挑能稳跑的量化。
+  const rankedFiles = useMemo(
+    () => rankModelFiles((files && files.modelFiles) || [], { totalMemoryBytes, contextSize: 2048 }),
+    [files, totalMemoryBytes]
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -209,7 +225,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                 <ActivityIndicator color={theme.colors.primary} style={styles.loading} />
               ) : (
                 <>
-                  {(files && files.modelFiles || []).map(file => (
+                  {rankedFiles.map(({ file, summary }) => (
                     <TouchableOpacity
                       key={file.path}
                       style={styles.fileRow}
@@ -219,14 +235,29 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                       accessibilityLabel={`选择 ${file.path}`}
                     >
                       <View style={styles.fileInfo}>
-                        <Text style={styles.fileName} numberOfLines={1}>{fileBaseName(file.path)}</Text>
-                        <Text style={styles.fileMeta}>{formatBytes(file.size) || file.path}</Text>
+                        <View style={styles.fileNameRow}>
+                          <Text style={styles.fileName} numberOfLines={1}>{fileBaseName(file.path)}</Text>
+                          {summary.compatibility.label ? (
+                            <Text style={[styles.tierChip, { color: tierColor(theme, summary.compatibility.tier) }]}>
+                              {summary.compatibility.label}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text style={styles.fileMeta}>
+                          {formatBytes(file.size) || file.path}
+                          {summary.memory.totalBytes > 0 ? ` · 约需内存 ${formatBytes(summary.memory.totalBytes)}` : ''}
+                          {summary.paramLabel ? ` · ${summary.paramLabel}` : ''}
+                          {totalMemoryBytes <= 0 ? ' · 内存未知，无法判断是否可跑' : ''}
+                        </Text>
                       </View>
                       <Ionicons name="download-outline" size={18} color={theme.colors.primary} />
                     </TouchableOpacity>
                   ))}
-                  {files && files.modelFiles && files.modelFiles.length === 0 ? (
+                  {rankedFiles.length === 0 ? (
                     <Text style={styles.empty}>该仓库没有可用的 GGUF 模型文件。</Text>
+                  ) : null}
+                  {totalMemoryBytes <= 0 ? (
+                    <Text style={styles.compatHint}>未能读取设备内存，无法给出「推荐 / 难跑」判断；请优先选择体积较小的量化（如 Q4_K_M）。</Text>
                   ) : null}
                   {files && files.projectorFiles && files.projectorFiles.length > 0 ? (
                     <>
@@ -310,8 +341,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   resultRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.surfaceBorder },
   fileRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.surfaceBorder },
   fileInfo: { flex: 1, marginRight: 8 },
+  fileNameRow: { flexDirection: 'row', alignItems: 'center' },
   fileName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
+  tierChip: { fontSize: fonts.scaled(11), fontWeight: '800', marginLeft: 8 },
   fileMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
+  compatHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 12 },
   groupLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 14, marginBottom: 4 },
   projectorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
 });

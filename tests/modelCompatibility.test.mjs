@@ -8,6 +8,7 @@ import {
   estimateModelMemory,
   parseParamScaleB,
   parseQuantization,
+  rankModelFiles,
 } from '../src/localModel/modelCompatibility.js';
 
 test('parseQuantization：识别常见量化等级与比特数', () => {
@@ -95,4 +96,38 @@ test('buildModelSummary：名称可兜底解析且缺信息时为未知', () => 
   assert.equal(empty.quantLabel, '');
   assert.equal(empty.paramLabel, '');
   assert.equal(empty.memory.totalBytes, 0);
+});
+
+test('rankModelFiles：推荐在前、跑不了沉底，同级按体积升序', () => {
+  const files = [
+    { path: 'Qwen2.5-14B-Instruct-Q4_K_M.gguf', size: 9 * 1024 ** 3 },
+    { path: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf', size: 2 * 1024 ** 3 },
+    { path: 'Mistral-7B-Instruct-Q4_K_M.gguf', size: 4.7 * 1024 ** 3 },
+    { path: 'Qwen2.5-0.5B-Instruct-Q4_K_M.gguf', size: 0.5 * 1024 ** 3 },
+  ];
+  const ranked = rankModelFiles(files, { totalMemoryBytes: 8 * 1024 ** 3 });
+  // 8GB 设备：0.5B/3B 推荐，7B 难跑，14B 跑不了
+  assert.deepEqual(
+    ranked.map(item => item.file.path),
+    [
+      'Qwen2.5-0.5B-Instruct-Q4_K_M.gguf',
+      'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+      'Mistral-7B-Instruct-Q4_K_M.gguf',
+      'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+    ]
+  );
+  assert.equal(ranked[0].summary.compatibility.tier, 'recommended');
+  assert.equal(ranked[3].summary.compatibility.tier, 'incompatible');
+});
+
+test('rankModelFiles：无内存信息时全部 unknown，仍按体积升序', () => {
+  const files = [
+    { path: 'b-7B-Q4_K_M.gguf', size: 5 },
+    { path: 'a-1B-Q4_K_M.gguf', size: 1 },
+  ];
+  const ranked = rankModelFiles(files, { totalMemoryBytes: 0 });
+  assert.equal(ranked[0].summary.compatibility.tier, 'unknown');
+  assert.deepEqual(ranked.map(item => item.file.path), ['a-1B-Q4_K_M.gguf', 'b-7B-Q4_K_M.gguf']);
+  // 非数组兜底
+  assert.deepEqual(rankModelFiles(null), []);
 });

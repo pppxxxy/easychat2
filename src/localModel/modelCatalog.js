@@ -80,6 +80,13 @@ function encodeFilePath(filePath) {
   return String(filePath || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
 }
 
+// 取某下载源的基地址（去尾斜杠）。目录搜索/文件列表与下载共用同一主机，
+// 这样 HF Mirror 不仅下载走镜像，搜索与文件接口也走镜像（否则国内仍连不上官方站）。
+function catalogBaseUrl(sourceId) {
+  const source = LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === String(sourceId || ''));
+  return String((source && source.baseUrl) || 'https://huggingface.co').replace(/\/+$/, '');
+}
+
 // --- HuggingFace ---
 
 export function parseHuggingFaceSearch(json) {
@@ -202,12 +209,12 @@ const CATALOG_ADAPTERS = {
   huggingface: {
     provider: 'huggingface',
     revision: 'main',
-    searchRequest: query => ({
-      url: `https://huggingface.co/api/models?search=${encodeURIComponent(String(query || ''))}&filter=gguf&sort=downloads&direction=-1&limit=30`,
+    searchRequest: (query, baseUrl) => ({
+      url: `${baseUrl}/api/models?search=${encodeURIComponent(String(query || ''))}&filter=gguf&sort=downloads&direction=-1&limit=30`,
       init: { method: 'GET' },
     }),
-    filesRequest: (repoId, revision) => ({
-      url: `https://huggingface.co/api/models/${encodeRepoPath(repoId)}/tree/${encodeURIComponent(revision || 'main')}?recursive=true`,
+    filesRequest: (repoId, revision, baseUrl) => ({
+      url: `${baseUrl}/api/models/${encodeRepoPath(repoId)}/tree/${encodeURIComponent(revision || 'main')}?recursive=true`,
       init: { method: 'GET' },
     }),
     parseSearch: parseHuggingFaceSearch,
@@ -216,8 +223,8 @@ const CATALOG_ADAPTERS = {
   modelscope: {
     provider: 'modelscope',
     revision: 'master',
-    searchRequest: query => ({
-      url: 'https://modelscope.cn/api/v1/dolphin/models',
+    searchRequest: (query, baseUrl) => ({
+      url: `${baseUrl || 'https://modelscope.cn'}/api/v1/dolphin/models`,
       init: {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -231,8 +238,8 @@ const CATALOG_ADAPTERS = {
         }),
       },
     }),
-    filesRequest: (repoId, revision) => ({
-      url: `https://modelscope.cn/api/v1/models/${encodeRepoPath(repoId)}/repo/files?Revision=${encodeURIComponent(revision || 'master')}`,
+    filesRequest: (repoId, revision, baseUrl) => ({
+      url: `${baseUrl || 'https://modelscope.cn'}/api/v1/models/${encodeRepoPath(repoId)}/repo/files?Revision=${encodeURIComponent(revision || 'master')}`,
       init: { method: 'GET' },
     }),
     parseSearch: parseModelScopeSearch,
@@ -258,13 +265,15 @@ async function requestJson(request, options) {
 
 export async function searchModels(sourceId, query, options = {}) {
   const adapter = CATALOG_ADAPTERS[catalogProviderForSource(sourceId)];
-  const json = await requestJson(adapter.searchRequest(query), options);
+  const baseUrl = catalogBaseUrl(sourceId);
+  const json = await requestJson(adapter.searchRequest(query, baseUrl), options);
   return adapter.parseSearch(json).map(item => ({ ...item, sourceId: String(sourceId || '') }));
 }
 
 export async function listModelFiles(sourceId, repoId, options = {}) {
   const adapter = CATALOG_ADAPTERS[catalogProviderForSource(sourceId)];
   const revision = adapter.revision;
-  const json = await requestJson(adapter.filesRequest(repoId, revision), options);
+  const baseUrl = catalogBaseUrl(sourceId);
+  const json = await requestJson(adapter.filesRequest(repoId, revision, baseUrl), options);
   return adapter.parseFiles(json, repoId, revision);
 }

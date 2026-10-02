@@ -148,3 +148,29 @@ export function buildModelSummary(
     compatibility,
   };
 }
+
+const TIER_RANK = { recommended: 0, tight: 1, unknown: 2, incompatible: 3 };
+
+// 为每个量化文件附上兼容摘要并按推荐程度排序：推荐（绰绰有余）在前、跑不了沉底，
+// 同级别按文件体积升序（更小更稳）。filenames 已含参数规模与量化等级（如
+// `Qwen2.5-3B-Instruct-Q4_K_M.gguf`），故直接由文件名解析，无需额外元数据。
+export function rankModelFiles(files, { totalMemoryBytes = 0, contextSize = 2048 } = {}) {
+  const list = Array.isArray(files) ? files : [];
+  return list
+    .map(file => {
+      const rawName = String((file && file.path) || '');
+      const base = rawName.split('/').pop().replace(/\.gguf$/i, '');
+      return {
+        file,
+        summary: buildModelSummary({ name: base }, { totalMemoryBytes, contextSize }),
+      };
+    })
+    .sort((a, b) => {
+      const rankA = TIER_RANK[a.summary.compatibility.tier] ?? 2;
+      const rankB = TIER_RANK[b.summary.compatibility.tier] ?? 2;
+      if (rankA !== rankB) return rankA - rankB;
+      const sizeA = toNonNegative(a.file && a.file.size);
+      const sizeB = toNonNegative(b.file && b.file.size);
+      return sizeA - sizeB;
+    });
+}
