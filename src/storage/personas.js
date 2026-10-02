@@ -3,7 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { backupCorruptValue, readJson, readJsonStatus } from './io.js';
+import { backupCorruptValue, createMutationQueue, readJson, readJsonStatus } from './io.js';
 
 // 供 barrel 的媒体清理函数判断损坏备份键时复用。
 export const USER_PROFILE_KEY = '@easychat2_user_profile';
@@ -12,6 +12,11 @@ const ACTIVE_PERSONA_KEY = '@easychat2_active_persona';
 
 const DEFAULT_USER_PROFILE = { userName: '', persona: '', avatarUri: '' };
 const DEFAULT_PERSONA_ID = 'default';
+
+// 人设与全局资料的所有读-改-写走同一队列：create/delete/saveUserProfile/切活跃
+// 都基于「重读当前列表再整表写回」，并发会互相覆盖。内部读helper保持不入队，
+// 由队列任务直接调用，避免同队列重入死锁（与 moments/sessionCore 同构）。
+const personasMutation = createMutationQueue();
 
 function makePersonaId(now = Date.now()) {
   return `persona-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -80,7 +85,7 @@ export async function getActivePersonaId(list) {
   return personas[0].id;
 }
 
-export async function setActivePersonaId(id) {
+async function setActivePersonaIdInternal(id) {
   const personas = await getPersonas();
   const target = personas.find(item => item.id === id);
   const resolved = target ? target.id : (personas[0] && personas[0].id) || '';
@@ -88,32 +93,40 @@ export async function setActivePersonaId(id) {
   return resolved;
 }
 
-export async function createPersona(partial = {}) {
-  const personas = await getPersonas();
-  const now = Date.now();
-  const created = normalizePersona({
-    id: makePersonaId(now),
-    userName: String(partial.userName || ''),
-    persona: String(partial.persona || ''),
-    createdAt: now,
-    updatedAt: now,
-  });
-  const next = [...personas, created];
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
-  await setActivePersonaId(created.id);
-  return created;
+export function setActivePersonaId(id) {
+  return personasMutation.enqueue(() => setActivePersonaIdInternal(id));
 }
 
-export async function deletePersona(id) {
-  const personas = await getPersonas();
-  if (personas.length <= 1) throw new Error('至少保留一个人设');
-  const remaining = personas.filter(item => item.id !== id);
-  if (remaining.length === personas.length) throw new Error('人设不存在');
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(remaining));
-  const activeId = await getActivePersonaId(personas);
-  const resolved = activeId === id ? remaining[0].id : activeId;
-  await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(resolved));
-  return { personas: remaining, activeId: resolved };
+export function createPersona(partial = {}) {
+  return personasMutation.enqueue(async () => {
+    const personas = await getPersonas();
+    const now = Date.now();
+    const created = normalizePersona({
+      id: makePersonaId(now),
+      userName: String(partial.userName || ''),
+      persona: String(partial.persona || ''),
+      createdAt: now,
+      updatedAt: now,
+    });
+    const next = [...personas, created];
+    await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
+    await setActivePersonaIdInternal(created.id);
+    return created;
+  });
+}
+
+export function deletePersona(id) {
+  return personasMutation.enqueue(async () => {
+    const personas = await getPersonas();
+    if (personas.length <= 1) throw new Error('至少保留一个人设');
+    const remaining = personas.filter(item => item.id !== id);
+    if (remaining.length === personas.length) throw new Error('人设不存在');
+    await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(remaining));
+    const activeId = await getActivePersonaId(personas);
+    const resolved = activeId === id ? remaining[0].id : activeId;
+    await AsyncStorage.setItem(ACTIVE_PERSONA_KEY, JSON.stringify(resolved));
+    return { personas: remaining, activeId: resolved };
+  });
 }
 
 export async function getUserProfile() {
@@ -157,33 +170,35 @@ export async function getUserProfileStatus() {
   };
 }
 
-export async function saveUserProfile(profile) {
-  const personas = await getPersonas();
-  const activeId = await getActivePersonaId(personas);
-  const now = Date.now();
-  const next = personas.map(item => (
-    item.id === activeId
-      ? {
-        ...item,
+export function saveUserProfile(profile) {
+  return personasMutation.enqueue(async () => {
+    const personas = await getPersonas();
+    const activeId = await getActivePersonaId(personas);
+    const now = Date.now();
+    const next = personas.map(item => (
+      item.id === activeId
+        ? {
+          ...item,
+          userName: String(profile?.userName || ''),
+          persona: String(profile?.persona || ''),
+          updatedAt: now,
+        }
+        : item
+    ));
+    await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
+    const profileStatus = await readJsonStatus(USER_PROFILE_KEY);
+    if (profileStatus.status === 'corrupt') {
+      await backupCorruptValue(USER_PROFILE_KEY);
+    }
+    const global = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
+    const meta = readGlobalProfileMeta(global);
+    await AsyncStorage.setItem(
+      USER_PROFILE_KEY,
+      JSON.stringify({
         userName: String(profile?.userName || ''),
         persona: String(profile?.persona || ''),
-        updatedAt: now,
-      }
-      : item
-  ));
-  await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
-  const profileStatus = await readJsonStatus(USER_PROFILE_KEY);
-  if (profileStatus.status === 'corrupt') {
-    await backupCorruptValue(USER_PROFILE_KEY);
-  }
-  const global = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
-  const meta = readGlobalProfileMeta(global);
-  await AsyncStorage.setItem(
-    USER_PROFILE_KEY,
-    JSON.stringify({
-      userName: String(profile?.userName || ''),
-      persona: String(profile?.persona || ''),
-      avatarUri: String(profile?.avatarUri ?? meta.avatarUri ?? ''),
-    })
-  );
+        avatarUri: String(profile?.avatarUri ?? meta.avatarUri ?? ''),
+      })
+    );
+  });
 }

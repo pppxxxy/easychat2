@@ -129,6 +129,12 @@ const {
   bindProactiveSlotSession,
   makeProactiveSlotId,
   PROACTIVE_MODES,
+  getPersonas,
+  createPersona,
+  deletePersona,
+  setActivePersonaId,
+  getActivePersonaId,
+  saveUserProfile,
 } = runtimeModule.exports;
 
 const KEY = '@easychat2_proactive_settings';
@@ -381,4 +387,60 @@ test('互动面板：时间槽不自动按时间排序，改为按钮显式触�
   // 提供显式的排序按钮与处理函数
   assert.ok(panel.includes('sortSlotsByTime'));
   assert.ok(panel.includes('按时间排序'));
+});
+const PERSONAS_KEY = '@easychat2_personas';
+const ACTIVE_PERSONA_KEY = '@easychat2_active_persona';
+
+test('人设：并发创建不会丢写（读-改-写入同一队列）', async () => {
+  await getPersonas(); // 触发迁移：建立默认人设
+  await Promise.all([createPersona({ userName: '甲' }), createPersona({ userName: '乙' })]);
+  const list = await getPersonas();
+  assert.equal(list.length, 3);
+  assert.deepEqual(
+    list.map(item => item.userName).sort(),
+    ['', '乙', '甲'],
+  );
+  // 落盘与内存一致
+  const stored = JSON.parse(store.get(PERSONAS_KEY));
+  assert.equal(stored.length, 3);
+});
+
+test('人设：切换活跃人设后持久化，且非法 id 回退到首个人设', async () => {
+  const list = await getPersonas();
+  const target = list[0].id;
+  assert.equal(await setActivePersonaId(target), target);
+  assert.equal(await getActivePersonaId(list), target);
+  // 非法 id 回退首个
+  assert.equal(await setActivePersonaId('nope'), list[0].id);
+  assert.equal(store.get(ACTIVE_PERSONA_KEY), JSON.stringify(list[0].id));
+});
+
+test('人设：并发创建与保存资料互不覆盖', async () => {
+  const before = await getPersonas();
+  await Promise.all([
+    createPersona({ userName: '新人' }),
+    saveUserProfile({ userName: '我', persona: '设定', avatarUri: 'file://a.png' }),
+  ]);
+  const after = await getPersonas();
+  // 新创建的人设不丢（并发 RMW 未互相覆盖）
+  assert.equal(after.length, before.length + 1);
+  // 资料写在「当时的活跃人设」上；createPersona 会把新人设设为活跃，
+  // 因此资料落到活跃人设（可能是新建那条），但仍要有且仅有一条带设定的记录。
+  const configured = after.filter(item => item.persona === '设定' && item.userName === '我');
+  assert.equal(configured.length, 1);
+  const activeId = await getActivePersonaId(after);
+  assert.equal(configured[0].id, activeId);
+});
+
+test('人设：删除走队列且保留至少一个', async () => {
+  const list = await getPersonas();
+  // 至少保留一个：只剩默认时删除报错
+  await assert.rejects(deletePersona(list[0].id), /至少保留一个人设/);
+  const extra = await createPersona({ userName: '多余' });
+  const result = await deletePersona(extra.id);
+  assert.equal(result.personas.length, 1);
+  assert.equal(result.personas.some(item => item.id === extra.id), false);
+  // 非末位时删不存在的人设才会命中「人设不存在」
+  await createPersona({ userName: '再来一个' });
+  await assert.rejects(deletePersona('missing-id'), /人设不存在/);
 });
