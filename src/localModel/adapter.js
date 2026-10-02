@@ -253,8 +253,10 @@ export async function runLocalModel(messages, model, { onToken, onReasoning, sig
   ].join(' ');
   recordModelLog('chat', '开始推理', { context: runContext });
   try {
-    // 本地推理模型把思考过程以 <think>…</think> 内联在输出里（无 reasoning_content
-    // 字段）：这里按流拆分，思考走 onReasoning、正文走 onToken，避免思考被当正文。
+    // 本地推理模型把思考过程以内联标签输出（无 reasoning_content 字段），两种形态：
+    // ① 输出以 <think> 开头、</think> 结束（R1/QwQ）；② 开标签在聊天模板的生成
+    // 前缀里、只见 </think>（Qwen3 系）。这里按流拆分，思考走 onReasoning、
+    // 正文走 onToken，避免思考被当正文。
     const splitter = createThinkSplitter();
     const result = await loaded.context.completion(completionParams, data => {
       if (data && data.token) {
