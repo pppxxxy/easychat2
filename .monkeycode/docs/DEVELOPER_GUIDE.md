@@ -103,7 +103,7 @@ npm ci
 # 运行纯函数、存储、媒体和聊天管线回归测试
 npm test
 
-# 带覆盖率门禁的测试（c8 + .c8rc.json，40% 地板）
+# 带覆盖率门禁的测试（c8 + .c8rc.json，60% 地板）
 npm run test:coverage
 
 # 静态检查（no-undef / rules-of-hooks / no-unused-vars）
@@ -120,7 +120,9 @@ npx expo export --platform android
 
 ### 覆盖率门禁
 
-`npm run test:coverage`（`c8` + `.c8rc.json`）在跑完测试后校验覆盖率。口径：只统计**能在纯 Node 测试里加载**的模块，RN UI 层（`src/ui/**`、各 `*Screen.js`/`*Panel.js`/`*Modal.js` 等，以及 `ThemeContext`/`AppContext`）排除在外——它们在 Node 里 `require('react-native')` 会失败。当前阈值为 40%，是「只升不降」的地板，实际行覆盖约 80%；补了测试后应把阈值同步上调。
+`npm run test:coverage`（`c8` + `.c8rc.json`）在跑完测试后校验覆盖率。口径：只统计**能在纯 Node 测试里加载**的模块，RN UI 层（`src/ui/**`、各 `*Screen.js`/`*Panel.js`/`*Modal.js` 等，以及 `ThemeContext`/`AppContext`）排除在外——它们在 Node 里 `require('react-native')` 会失败。当前阈值为 **60%**（lines / statements / functions / branches 四项同值），是「只升不降」的地板，实际行覆盖约 **85%**（2026-10-02：84.96%，861 个测试）；补了测试后应把阈值同步上调。
+
+> 新增可测模块后 **需手动登记**：`src/chat/` 的 hook 与 `MessageList` 等因 import RN 依赖而列入 `exclude`，但纯函数模块（如 `backupStream.js`、`thinkStream.js`、`localDream.js`、`png.js`）应在 `include` 内并被测试实际加载——漏登记不会报错，但也不会被门禁统计。
 
 两条容易踩的坑：
 

@@ -29,13 +29,13 @@
 
 | 模块 | 描述 | 文档 |
 |------|------|------|
-| 界面层 | 应用外壳、导航与四个功能页面 | [文档](./模块/界面层.md) |
+| 界面层 | 应用外壳、导航与五个功能页面 | [文档](./模块/界面层.md) |
 | 设计令牌 | 间距、圆角、描边、图标尺寸与阴影的统一来源 | [文档](./模块/设计令牌.md) |
 | UI 组件 | 公共基础组件（Card / Button / Chip / Field / ListRow / SheetHeader） | [文档](./模块/UI组件.md) |
-| 数据与状态 | AsyncStorage 封装与全局角色库状态 | [文档](./模块/数据与状态.md) |
-| 网络层 | 兼容 OpenAI 的接口调用与错误处理 | [文档](./模块/网络层.md) |
+| 数据与状态 | AsyncStorage 域模块与全局角色库状态 | [文档](./模块/数据与状态.md) |
+| 网络层 | 兼容 OpenAI 的接口调用、在线/本地选择与厂商统一请求 | [文档](./模块/网络层.md) |
 | 卡解析与提示管线 | 角色卡解析、世界书与正则组装请求 | [文档](./模块/卡解析与提示管线.md) |
-| 构建与配置 | 打包、运行时垫片与 CI 流水线 | [文档](./模块/构建与配置.md) |
+| 构建与配置 | 打包、原生插件、运行时垫片与 CI 流水线 | [文档](./模块/构建与配置.md) |
 
 ### 功能规格
 
@@ -101,22 +101,40 @@ npm test             # 运行 Node 单元与回归测试
 
 | 文件 | 目的 |
 |------|------|
-| `App.js` | 应用入口与导航 |
-| `src/ChatScreen.js` | 聊天主流程 |
-| `src/chat/*` | 聊天页拆分模块：常量、纯函数、样式、消息气泡 |
+| `App.js` | 应用入口与导航（含主动消息消费与本地 API 服务桥） |
+| `src/ChatScreen.js` | 聊天页接线与渲染（约 2358 行） |
+| `src/chat/useChatSend.js` | 发送/接收/流式/重生成/群聊调度 |
+| `src/chat/useSessionMessages.js` | 消息加载、落盘队列、草稿、附件引用 |
+| `src/chat/useSessionSwitch.js` | 切换角色/会话/群聊、新建、开场白确认 |
+| `src/chat/useSessionGuard.js` | 会话竞态守卫（版本号、单飞锁、AbortController） |
+| `src/chat/MessageList.js` | 消息列表渲染（窗口化 + 加载更早） |
+| `src/chat/replyFlow.js` | 回复流纯函数（合并/错误分类/重生成计划） |
+| `src/chat/*` | 聊天页拆分模块：hook、纯函数、样式、消息气泡与各类弹窗 |
 | `src/CharacterScreen.js` | 角色编辑与角色卡导入 |
-| `src/ExtensionScreen.js` | 扩展页：内嵌小游戏与生图 |
+| `src/ExtensionScreen.js` | 扩展页：游戏、生图、制卡与世界分组 |
 | `src/theme/ThemeContext.js` | 主题与字体缩放的全局上下文 |
 | `src/tts/index.js` | 语音播报适配层与播放控制 |
+| `src/transcription.js` | 语音转写（多厂商 + 复用聊天来源） |
+| `src/voiceMessages.js` | 语音消息结构与播放 |
 | `src/moments/moments.js` | 动态触发判定与文本模板 |
 | `src/imageGen/index.js` | 生图统一适配与响应解析 |
+| `src/imageGen/localDream.js` | Local Dream 端侧生图（SSE + 原始 RGB） |
+| `src/localModel/` | 本地大模型（模型管理、适配器、本地 API 服务、think 流切分） |
+| `src/modelProvider.js` | 在线/本地推理选择与回退 |
+| `src/storage/` | 存储域实现（io / backupStream / 各数据域） |
+| `src/storage/backupStream.js` | 备份导出分块生成器（逐块可取消） |
 | `src/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
 | `src/chatPipeline.js` | 世界书/正则/角色预设提示词组装 |
 | `src/characterPresets.js` | 角色卡预设规范化与解析 |
-| `src/storage.js` | 持久化封装 |
+| `src/storage.js` | 持久化门面（转发 `src/storage/`） |
+| `src/secretStore.js` | 密钥安全存储（AsyncStorage 只留引用） |
 | `src/api.js` | 大模型接口调用 |
+| `src/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
 | `src/context/AppContext.js` | 全局角色库状态 |
 | `src/context/characterLibrary.js` | 角色库状态迁移纯函数 |
 | `src/chatRace.js` | 切换角色的迟到回复守卫 |
-| `app.json` | Expo 应用配置 |
+| `plugins/withLocalApiServer.js` | 本地 OpenAI 兼容服务原生插件 |
+| `plugins/withProactiveMessage.js` | 主动消息原生插件 |
+| `app.json` | Expo 应用配置（`newArchEnabled: true`、插件链） |
 | `metro.config.js` | 打包配置（package exports 开关） |
+| `SMOKE_TEST.md` | 真机走查清单 |

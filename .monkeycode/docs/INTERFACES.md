@@ -21,11 +21,27 @@
 ### `ChatScreen`（默认导出）
 **位置**: `src/ChatScreen.js`
 **Props**: 无（由导航注入）
-**拆分模块**（2026-09-27 从 ChatScreen 外提，纯搬运无行为变化）:
+**拆分模块**（2026-09-27 与 2026-10-02 两次外提，行为不变）:
+
+*第一批（2026-09-27，常量 / 纯函数 / 样式 / 展示组件）*:
 - `src/chat/chatConstants.js`：`USER_ID`/`ASSISTANT_ID`/`SYSTEM_ERROR_ID`/`THINKING_PLACEHOLDER`/`NEAR_BOTTOM_THRESHOLD`/`AI_DISCLAIMER_TEXT`/`QUOTE_TEXT_MAX`/`INLINE_IMAGE_PROMPT_MAX`/`NO_BODY_TEXT`/`THINKING_LEVEL_LABELS`/`THINKING_DISPLAY_LABELS`。
 - `src/chat/chatHelpers.js`：`buildInlineImagePrompt`/`buildQuotePayload`/`getHttpStatus`/`buildErrorRawText`/`buildGreetingMessage`/`formatScrubberTime`/`settlePendingMessage`/`messageTimestamp`（纯函数）。
 - `src/chat/chatStyles.js`：`createChatStyles(theme, fonts, tokens)` 样式工厂。
 - `src/chat/MessageBubble.js`（默认导出）、`src/chat/ErrorBubble.js`（默认导出）、`src/chat/ThinkingIndicator.js`（默认导出）：展示组件。
+
+*第二批（2026-10-02 A 线，有状态逻辑按职责拆分）*:
+- `src/chat/useChatSend.js`：发送/接收主流程——请求装配、流式合并、思考内容、重生成、群聊调度、配图触发；返回 `{ requestReply, requestGroupReply, performSendMessage, sendMessage, sendText, regenerateMessage, editUserMessage, onRegenerateMessage, onEditUserMessage }`。
+- `src/chat/useSessionMessages.js`：按会话加载消息、落盘快照比对与重试队列、输入框草稿、附件引用与 `pending` 过滤；返回 `{ input, setInput, onInputChange, persistDraftNow, draftTextRef, messages, setMessages, messagesRef, ready, greetingReady, setGreetingReady }`。
+- `src/chat/useSessionSwitch.js`：切换角色/会话/群聊、新建会话、开场白确认；返回 `{ switcherOpen, setSwitcherOpen, onSwitch, onSwitchGroup, confirmGreeting, onNewChat }`。
+- `src/chat/useSessionGuard.js`：竞态守卫——会话版本号、单飞锁、`AbortController`、切换操作与开场请求的取消；返回守卫方法与各 ref。
+- `src/chat/MessageList.js`：消息列表渲染段（窗口化、空状态、加载更早、逐条渲染包装）。
+- `src/chat/replyFlow.js`：回复流纯函数——`trimHistoryByBoundary`/`mergeStreamedText`/`mergeStreamedReasoning`/`replacePendingWithReply`/`classifyReplyError`/`buildReplyErrorMessage`/`mergeErrorMessage`/`buildAutoSummaryInput`。
+- 其余展示与弹窗模块：`ChatComposer.js`、`ChatTopBar.js`、`ChatSearchBar.js`、`ChatSettingsModal.js`、`SwitcherModal.js`、`MoreMenuModal.js`、`MentionPickerModal.js`、`StickerPanelModal.js`、`StickerNamePromptModal.js`、`ModelPanelModal.js`、`ThinkingPanelModal.js`、`VoiceSettingsModal.js`、`SelectionTextModal.js`、`FullScreenInputModal.js`、`AnimatedEntry.js`、`VoiceBubble.js`、`audioModules.js`。
+- 辅助 hook：`useChatSearch.js`（会话内搜索）、`useChatModelThinking.js`（模型/思考弹窗状态）、`useChatRecorder.js`（录音）、`useChatTts.js`（播报接线）、`useScrollScrubber.js`（定位条）。
+
+**窗口化契约**: `MessageList` 接收 `windowSize` 与 `onExpandWindow`；只渲染 `renderedMessages` 的尾部 `windowSize` 条，被切走的更早消息以「加载更早消息（还有 N 条）」按钮放开。常量在 `chatConstants.js`：`MESSAGE_WINDOW_INITIAL` = 80（初始窗口，切会话时重置）、`MESSAGE_WINDOW_STEP` = 200（每次放开的条数）、`MESSAGE_WINDOW_STEP_SCROLL` = 400（`scrollToMessage` 定位到窗口外消息时的一次扩窗量，最多重试 6 次）。
+
+**结构性守卫**: `tests/chatScreenSplit.test.mjs` 含声明顺序测试（防 hook 早于其依赖的 `useState`，TDZ）与双向参数匹配测试（防 hook 签名与调用点实参不一致），两者来自实战 P0 缺陷，属永久门禁。
 
 **内部组件**:
 
@@ -377,6 +393,21 @@
 **导出的默认值**:
 - `DEFAULT_CHARACTER` 含 `id`、`builtin`（初始卡标记，改名/改提示后仍可识别）、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
+**存储域模块（`src/storage/`）**: `src/storage.js` 是门面，实际读写按域拆分在 `src/storage/` 下（`characters.js` / `apiConfigs.js` / `sessionCore.js` / `sessionList.js` / `sessionMessages.js` / `sessionFiles.js` / `sessions.js` / `settings.js` / `localModels.js` / `vector.js` / `stickers.js` / `moments.js` / `diary.js` / `affinity.js` / `worldMap.js` / `globalPresets.js` / `personas.js` / `cardForge.js` / `backup.js` / `backupStream.js`）。测试加载这些子模块时**必须写回 `Module._cache`**，否则模块级共享状态会被复制（见 AGENTS.md）。
+
+**写队列工厂（`src/storage/io.js`）**:
+
+| 导出 | 说明 |
+|------|------|
+| `createMutationQueue()` | 串行写队列工厂，返回 `{ enqueue, settle }`；`enqueue(task)` 为单队列（会话/动态/日记/地图/制卡/表情包等），`enqueue(task, key)` 按 key 分桶、每 key 独立一条队列（如向量按角色分）。任务成功失败都继续执行下一个（`.then(task, task)`），与各域原先手写的 `enqueueXxxMutation` 行为一致，用于统一收编且零行为变化；`settle()` 返回当前挂起写入全部落定的 promise，供外部读取前排空（迁移/刷新协调） |
+| `utf8ByteLength(text)` | UTF-8 字节数统计（备份上限判断与回传复用同一结果） |
+| `CORRUPT_BACKUP_SUFFIX` | 损坏值备份键后缀 `__corrupt_backup` |
+| `readJson(key, fallback)` / `readJsonStatus(key)` | 容错读取与带状态读取（`ok` / `corrupt`，损坏时先备份） |
+| `setJsonWithSecrets` / `readJsonWithSecrets` / `readJsonStatusWithSecrets` | 含密钥配置的读写：落盘前抽取密钥到安全存储 |
+| `readLargeAsyncStorageValue(key)` | Android 旧 AsyncStorage 大行经 SQLite 只读分块恢复 |
+| `backupCorruptValue(key)` | 损坏值备份（读写分离，避免覆盖） |
+| `getSqliteModule()` | 惰性获取 `expo-sqlite` |
+
 **AsyncStorage 键约定**:
 
 > 安全存储：含密钥的配置（`@easychat2_api_configs`、`@easychat2_vector_memory_configs`、`@easychat2_image_gen`、`@easychat2_tts`、`@easychat2_plugins`）写盘前由 `src/secretStore.js` 把 `apiKey` / `appSecretKey` / `secretKey` 抽到系统安全存储（`expo-secure-store`，键 `easychat2_secret_<namespace>_<path>`），AsyncStorage 中只留引用 `secure:v1:<id>`；读取时回填明文供内存使用。密钥 id 由「存储键命名空间 + 字段路径」确定性推导（数组优先用条目自身 `id`），重复保存覆盖同一条、不产生孤儿。旧明文数据读取原样返回、下次保存自动转引用；SecureStore 不可用或写入失败时透明降级为明文，不丢密钥、不阻断保存。
@@ -430,6 +461,17 @@
 | `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
 | `@easychat2_stickers` | 旧版表情包整数组，仅迁移读取 |
 | `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }`（`pink` 显示为「蜜桃」、`crimson` 显示为「薰衣草」） |
+| `@easychat2_local_model_index` | 本地模型 ID 索引（提交点，最后写） |
+| `@easychat2_local_model_item::<id>` | 单个本地模型条目 `{ id, name, uri, size, quant, mmproj, params, ... }` |
+| `@easychat2_local_model` | 旧版单模型设置（仅迁移读取：迁移为索引首条并回填 `activeModelId`） |
+| `@easychat2_proactive_settings` | 主动消息槽位设置 `{ enabled, slots: [{ id, time, messageType, prompt, sessionBinding, ... }] }`；由 `plugins/proactiveMessage` 的 `EncryptedSharedPreferences` 在原生侧同步保存一份 |
+| `@easychat2_card_forge` | 制卡草稿（状态读取带损坏备份） |
+| `@easychat2_character_edit_draft::<id>` | 角色页表单草稿（未保存编辑防丢），读即取走 |
+| `@easychat2_default_greeting_seed` / `@easychat2_default_greeting_shown` | 初始卡开场白播种标记与展示标记 |
+| `@easychat2_sessions__rollback_backup` | 会话写失败回滚备份（会话存储域内部使用） |
+| `documentDirectory/voice/` | 语音消息音频文件 |
+| `documentDirectory/characters/` | 超大角色正文文件（索引存 `{ storage: 'file', fileName }` 描述符） |
+| `documentDirectory/card-forge/` | 制卡草稿的媒体/大字段文件 |
 
 **默认 API 配置**:
 
@@ -682,6 +724,23 @@ data: [DONE]
 
 **说明**: 密钥仅存本机 AsyncStorage；未填地址或密钥时直接抛错不发起请求；`extra.params` 与 Provider 的 `params` 映射按点号路径写入请求体；`sizeSplit` 把 `宽*高` 拆为 width/height；图生图必须携带图片。个性化配置中已下线的旧平台 id 会在读取时被规范化为空，界面回退到首个平台。
 
+**Local Dream 端侧生图（`src/imageGen/localDream.js`）**: 内置 provider `local-dream`，在本机运行 Local Dream App（需先在 App 内加载模型，服务才监听）的前提下离线出图。
+
+| 导出 | 说明 |
+|------|------|
+| `LOCAL_DREAM_DEFAULT_URL` / `LOCAL_DREAM_GENERATE_PATH` / `LOCAL_DREAM_TOKENIZE_PATH` | 默认 `http://127.0.0.1:8081`、`/generate`、`/tokenize` |
+| `normalizeLocalDreamScheduler(value)` / `parseLocalDreamSize(value)` | 归一化采样器与尺寸 |
+| `buildLocalDreamBody({ ... })` | 构造 `/generate` 请求体（提示词、负向提示词、步数、CFG、尺寸、种子等） |
+| `localDreamEndpoint(baseUrl, path)` | 拼接端点（容忍结尾斜杠与已含路径的 baseUrl） |
+| `parseLocalDreamEvent(dataText)` | 解析单条 SSE 事件（进度 / 完成 / 错误） |
+| `createLocalDreamSseParser(onEvent)` | 增量 SSE 解析器，逐事件回调 |
+| `completeEventToImage(event)` | 完成事件 → `{ base64 }`：**响应为 base64 编码的原始 RGB 像素（3 通道，非 PNG）**，经 `png.js` 编码为 PNG data URI |
+| `describeLocalDreamNetworkError(error)` | 把连接失败翻译为「请先在本机 Local Dream 内加载模型」的提示 |
+
+**PNG 编码（`src/imageGen/png.js`，依赖 `buffer`）**: `encodePngFromRgb(pixels, width, height, channels = 3)`、`encodePngBase64FromRgb(...)`、`decodeBase64ToBytes(base64)`。零依赖 PNG 编码器（CRC32 + zlib stored 块），供 Local Dream 原始像素转 PNG 使用；有专门测试 `tests/imagePng.test.mjs`。
+
+**注意**: Local Dream 的 HTTP API 与 A1111 不兼容（端点、SSE 事件结构与像素响应格式均不同），因此单独实现，不复用云端声明式适配层。
+
 ### `getImageGenSettings()` / `saveImageGenSettings(settings)`
 **位置**: `src/storage.js`
 **说明**: 读取/写入 `@easychat2_image_gen`；`extra` 支持 JSON 字符串或对象，读取时统一规范化为对象。
@@ -703,7 +762,7 @@ data: [DONE]
 
 ### 备份与恢复
 
-**位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/BackupPanel.js`
+**位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/storage/backupStream.js`、`src/BackupPanel.js`
 
 - 设置 → 关于 → 备份与恢复提供导出、合并恢复和覆盖恢复。
 - 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/`、`characters/`、`card-forge/` 媒体/大字段文件；整包上限 `BACKUP_MAX_BYTES` 为 2GB（角色卡与媒体单条可达十几 MB）。
@@ -711,9 +770,20 @@ data: [DONE]
 - 导入先校验版本、数据键、媒体路径和 base64 内容，再写回既有键与媒体目录。
 - 导入消息过滤 `pending: true`，合并模式以导入记录覆盖同 id 数据，覆盖模式清理备份管理范围后恢复。
 
+**流式导出（`src/storage/backupStream.js`，零依赖纯函数模块）**:
+
+| 函数 | 说明 |
+|------|------|
+| `BACKUP_CHUNK_CHARS` | 单块字符数上限，256 × 1024 |
+| `createBackupChunkGenerator(payload)` | 生成器，按对象键序产出 `{`、`"key":`、值、`,`、`}` 等片段；跳过 `undefined`/函数/`Symbol` 属性，数组内 `undefined`/函数/`Symbol` 转为 `null`；长字符串按 `BACKUP_CHUNK_CHARS` 切块，**切点不会落在代理对中间**（否则两半各自 UTF-8 编码会变成 U+FFFD，既损坏内容又让写入字节数与整包不一致） |
+| `createBackupChunks(payload)` | 物化数组版本（`Array.from`），供测试与小载荷使用 |
+| `utf8ByteLengthOfChunks(chunks)` | 累计各块 UTF-8 字节数，避免拼接后再统计 |
+
+不变式：**所有块的拼接结果与 `JSON.stringify(payload)` 逐字节等价**（有专门测试覆盖多形态载荷、超大 base64 字符串与代理对切点边界）。`src/storage/backup.js` 的 `writeBackupStream(uri, payload, { signal, report })` 用之写盘：`new File(uri)` → 删除已存在文件 → `create({ intermediates: true, overwrite: true })` → `open()` → 逐块 `writeBytes(encoder.encode(chunk))`，每块后检查 `signal`（取消时关闭并删除半成品文件）、超过上限即抛错、每 4 块让出一次事件循环并上报 `writing` 阶段的累计字节。进度阶段为 `packing`（按条目数）与 `writing`（按 MB，`BackupPanel` 显示保留一位小数）等。
+
 ### 本地模型
 
-**位置**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`
+**位置**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`
 
 - 设置 → 关于 → 本地模型管理模型 id、名称、GGUF 下载地址、下载进度、启用和删除。
 - 下载源预设 `LOCAL_MODEL_DOWNLOAD_SOURCES`：Hugging Face 官方源与 hf-mirror.com 国内镜像，点选后替换地址域名前缀。
@@ -721,6 +791,35 @@ data: [DONE]
 - `llama.rn` 为可选原生依赖：v0.10+要求 New Architecture；项目锁定 `llama.rn@0.12.9`，prebuild 探针已通过（插件注册 + autolinking + codegen）。
 - Android ABI 必须为 `arm64-v8a,x86_64`（`llama.rn` 只提供 64 位预编译库）：由 `expo-build-properties` 的 `android.buildArchs` 强制，`android/gradle.properties` 的 `reactNativeArchitectures` 会随之收窄。
 - `resourceMutex` 保证本地推理、录音和其他原生重负载能力不会同时持有资源。
+
+**在线/本地选择（`src/modelProvider.js`）**:
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `resolveLocalModelReadiness({ settings, item, fileInfo, moduleAvailable })` | `=> { ready, reason }` | 汇总本地模型可用的四项条件（开关、模型条目、文件、原生模块） |
+| `canUseLocalModel(settings, fileInfo, item)` | `=> boolean` | 是否满足走本地推理的条件 |
+| `sendWithModelProvider(options)` | `=> Promise<...>` | 统一发送入口：本地就绪走 `localModel/adapter`，否则回退在线 `api.js`；失败时按配置回退 |
+
+**思考流切分（`src/localModel/thinkStream.js`，零依赖纯函数模块）**:
+
+| 函数 | 说明 |
+|------|------|
+| `THINK_OPEN_TAG` / `THINK_CLOSE_TAG` | `' thinking'` / `'</think>'` |
+| `splitThinkContent(raw, { openTag, closeTag })` | 一次性切分完整文本，返回 `{ reasoning, text }`；含**只出现闭合标签、无开启标签**的兜底（该形态此前会把思考内容当正文显示） |
+| `createThinkSplitter(options)` | 增量切分器，逐片段喂入并按需产出已确定的分段，用于流式渲染 |
+
+**本地 API 服务（`src/localModel/localApiServer.js`）**:
+
+| 函数 | 说明 |
+|------|------|
+| `isLocalApiServerAvailable()` | 原生模块是否可用 |
+| `generateLocalApiKey()` | 生成随机 apiKey，供「留空时自动生成」使用 |
+| `startLocalApiServer({ port, apiKey, modelId })` / `stopLocalApiServer()` / `getLocalApiServerStatus()` | 启停与状态；HTTP 层在 Kotlin（nanohttpd），推理经 `LocalApiServer:onRequest` 事件回 JS |
+| `parseLocalApiServerRequest(raw)` | 解析原生事件载荷为请求对象 |
+| `addLocalApiServerRequestListener(callback)` / `respondLocalApiServer(requestId, response)` | 订阅请求与回写响应 |
+| `attachLocalApiServerInference({ model, runInference, addListener, respond })` | 接线：把请求转给常驻上下文推理并回写结果 |
+
+**鉴权契约（已实现并测试）**: Bearer 强制开启，apiKey 留空时由 `generateLocalApiKey()` 自动生成；校验使用 `MessageDigest.isEqual` 常量时间比较；缺失或空 key 一律 401 拒绝。相关断言在 `tests/localApiServer.test.mjs` 与 `tests/localApiServerPlugin.test.mjs`。
 
 ### 动态接口
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/moments/commenters.js`、`src/moments/runUserMomentComments.js`、`src/MomentsView.js`
