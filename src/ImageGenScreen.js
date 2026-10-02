@@ -593,6 +593,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         />
 
         <FieldLabel style={styles.label}>输入图片（图生图，可选）</FieldLabel>
+        <FieldHint style={styles.hint}>提示词与你选的图片会发送到当前服务商。</FieldHint>
         {imagePreview ? (
           <View style={styles.previewRow}>
             <Image source={imagePreview} style={styles.preview} resizeMode="cover" />

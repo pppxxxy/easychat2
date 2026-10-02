@@ -176,6 +176,7 @@ export default function PluginPanel({ visible, onClose }) {
             <FieldHint style={styles.hint}>
               联网搜索为全局能力，开启后对后续请求生效。命中触发词时会获取实时资料并注入对话。
             </FieldHint>
+            <FieldHint style={styles.hint}>搜索会把命中的关键词发送到所选搜索服务商。</FieldHint>
             {loaded ? plugins.map(plugin => {
               const config = plugin.config || {};
               const currentProvider = PROVIDERS.find(

@@ -153,6 +153,7 @@ export default function TtsPanel({ visible, onClose }) {
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <FieldHint style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</FieldHint>
+            <FieldHint style={styles.hint}>播报时会把你选中的回复文本发送到所选服务商合成音频。</FieldHint>
             <View style={styles.switchRow}>
               <View style={styles.switchTextWrap}>
                 <Text style={styles.switchTitle}>自动播报</Text>

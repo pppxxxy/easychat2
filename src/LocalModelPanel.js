@@ -714,7 +714,7 @@ export default function LocalModelPanel({ visible, onClose }) {
               </TouchableOpacity>
 
               <Text style={styles.label}>本地 API 服务（OpenAI 兼容）</Text>
-              <Text style={styles.hint}>固定监听 127.0.0.1，供同机客户端调用；推理复用当前加载的本地模型。</Text>
+              <Text style={styles.hint}>固定监听 127.0.0.1，供同机客户端调用；推理复用当前加载的本地模型。请求强制携带 Bearer 密钥（留空会自动生成），同机其他应用无法匿名调用。</Text>
               <View style={styles.apiPortRow}>
                 <Text style={styles.labelInline}>端口</Text>
                 <TextInput

@@ -447,7 +447,7 @@ export async function getEnabledPlugins() {
 
 // 免责声明版本：条款变更时 bump——存量用户已确认的是旧版本号，
 // 首启会重新弹出确认，保证新条款对全部用户生效（法律效力前提）。
-export const DISCLAIMER_VERSION = 2;
+export const DISCLAIMER_VERSION = 3;
 
 export async function isDisclaimerAcknowledged() {
   const raw = await AsyncStorage.getItem(DISCLAIMER_ACK_KEY);

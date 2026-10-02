@@ -14,10 +14,19 @@
    | `@easychat2_api_configs` | 多套 API 配置（API Key 存于系统安全存储，本键只留引用） |
    | `@easychat2_character_index` + `@easychat2_character_item::<id>` | 角色库、世界书与正则脚本 |
    | `@easychat2_messages::<sessionId>` | 会话消息（旧的按角色/单会话键仅迁移读取） |
+   | `@easychat2_session_draft::<sessionId>` | 会话级输入框草稿（仅开启「保留输入草稿」时写入） |
    | `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>` | 表情包元数据 |
+   | `@easychat2_moments`、`@easychat2_diary_item::<id>`、`@easychat2_world_map`、`@easychat2_affinity` | 动态、日记、世界地图与好感度 |
+   | `@easychat2_vector_memory_configs`、`@easychat2_vector_index::<characterId>` | 向量记忆配置与本地索引（含消息片段向量） |
+   | `@easychat2_tts`、`@easychat2_transcription`、`@easychat2_image_gen`、`@easychat2_plugins` | TTS / 转写 / 生图 / 搜索配置（密钥存于系统安全存储，本键只留引用） |
+   | `@easychat2_local_model_index` + `@easychat2_local_model_item::<id>` | 本地模型条目与参数（模型文件本身也存于本机文档目录） |
+   | `@easychat2_proactive_settings` | 主动消息槽位设置（原生侧另用 EncryptedSharedPreferences 存一份） |
+   | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
+   | `documentDirectory/voice/` | 语音消息与角色语音音频文件 |
+   | `documentDirectory/characters/`、`documentDirectory/card-forge/` | 超大角色正文与制卡草稿的大字段文件 |
 
-- 卸载应用或清除应用数据即可删除上述内容。开发者侧没有可删除的副本。
+- 卸载应用或清除应用数据即可删除上述内容。开发者侧没有可删除的副本。导出的备份包由你自行保管，包含角色、会话、消息与媒体；密钥字段在导出时一律置空。
 - 需要留意的本地风险：
   - API Key 存于系统安全存储（Android Keystore / iOS Keychain，`expo-secure-store`），AsyncStorage 只保留引用 `secure:v1:<id>`，不再明文保存。安全存储不可用的旧设备（如未配置锁屏的模拟器）会透明降级为明文，此时应用私有目录受系统沙箱保护，但 root / 越狱设备、或调试工具仍可能读取。
   - 应用已设置 `android:allowBackup="false"`，系统云备份不会包含应用数据（含 API Key）。
@@ -57,20 +66,33 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 ## 5. Android 权限说明
 
-应用使用系统文件选择器和系统图片选择器，不主动申请相机、麦克风或传统存储权限。`expo-image-picker` 仅声明图片选择用途文案，Android 的传统读写媒体权限通过 `blockedPermissions` 排除：
+应用使用系统文件选择器和系统图片选择器，不申请相机或传统存储权限。`expo-image-picker` 仅声明图片选择用途文案，Android 的传统读写媒体权限通过 `blockedPermissions` 排除：
 
 | 权限 | 处理 |
 |------|------|
 | `READ_EXTERNAL_STORAGE` | 已排除，角色卡和附件走系统选择器 |
 | `WRITE_EXTERNAL_STORAGE` | 已排除 |
 | `READ_MEDIA_IMAGES`、`READ_MEDIA_VIDEO` | 已排除，图片由系统选择器按用户选择返回 |
-| `RECORD_AUDIO`、`MODIFY_AUDIO_SETTINGS` | 已排除，图片/聊天功能不使用录音 |
+| `MODIFY_AUDIO_SETTINGS` | 已排除 |
+
+**麦克风（`RECORD_AUDIO`）**：语音消息功能需要，由 `expo-audio` 插件声明（`recordAudioAndroid:true`），用途文案为「录制语音消息需要访问麦克风」。仅在首次点麦克风录音时由系统弹窗请求；拒绝后不启动录音，其他功能不受影响。**不使用语音消息即不会请求该权限。**
+
+**主动消息与通知**：开启主动消息后，由 `withProactiveMessage` 插件声明下列权限（不开启该功能则不占用）：
+
+| 权限 | 用途 |
+|------|------|
+| `POST_NOTIFICATIONS` | 到点发送通知（Android 13+ 需用户授权） |
+| `RECEIVE_BOOT_COMPLETED` | 重启后重新排定闹钟，避免计划丢失 |
+| `SCHEDULE_EXACT_ALARM` | 按设定时刻精确触发 |
+| `FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC` | 触发时短时前台服务完成消息落库 |
 
 经 `expo prebuild` 生成后，清单中保留的权限为：
 
 | 权限 | 来源与用途 |
 |------|-----------|
-| `INTERNET` | 发送 API 请求所必需 |
+| `INTERNET` | 发送 API 请求所必需（`withLocalApiServer` 亦声明，用于本机回环服务） |
+| `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`SCHEDULE_EXACT_ALARM`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC` | 主动消息（见上表） |
+| `RECORD_AUDIO` | 语音消息录音（见上） |
 | `SYSTEM_ALERT_WINDOW`、`VIBRATE` | Expo / React Native 模板默认值，非本应用功能所需；如需可继续通过 `blockedPermissions` 排除（`SYSTEM_ALERT_WINDOW` 与开发菜单相关，请在真机上验证后再决定） |
 
 其他加固：
@@ -78,7 +100,24 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - `android:allowBackup="false"`，避免 API Key 等数据进入系统备份。
 - 角色卡导入使用 Storage Access Framework，不需要存储权限。
 - 建议在每次发布前核对 release 包的实际清单，确认没有额外被引入的权限。
-- iOS 侧声明图片库用途文案，用于系统图片选择器；不申请相机或麦克风权限。
+- iOS 侧声明图片库用途文案，用于系统图片选择器；不申请相机权限，录音权限由语音消息触发。
+
+## 5.5 各功能向第三方发送的内容
+
+除聊天请求外，以下功能在你主动使用时会把你指定的内容直接发往**你自己配置的**对应服务商。开发者不参与、不记录、不中转这些请求：
+
+| 功能 | 发送内容 | 默认是否启用 |
+|------|---------|------------|
+| 聊天（含群聊） | 系统提示词、命中的世界书、历史消息与输入、模型名、`Authorization` 头 | 配置 API 后即启用 |
+| 对话配图 / 生图 | 提示词、可选的原图（图生图） | 关闭，需手动开启 |
+| 语音播报（TTS） | 待朗读的回复文本（经清洗去 Markdown） | 关闭 |
+| 语音转写 | 录音音频文件 | 发送语音时 |
+| 向量记忆 | 消息片段（建索引）与检索词（召回） | 关闭 |
+| 联网搜索 | 命中的搜索关键词 | 关闭 |
+| 本地模型 | 不外发（推理在本机完成） | 关闭 |
+| 本地 API 服务 | 不外发；仅在 `127.0.0.1` 监听，供同机客户端调用，强制 Bearer 鉴权 | 关闭 |
+
+请勿在上述任何内容中发送身份证号、银行卡号、密码等个人敏感信息。发送前请阅读对应服务商的隐私政策。
 
 ## 6. 依赖与数据行为
 
@@ -109,7 +148,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 - 设置页允许填写 `http://` 地址，保存前会二次确认（见 `src/SettingsScreen.js`）。
 - 风险：在明文连接下，**API Key 与全部对话内容**可能被同一网络下的第三方窃听或篡改。请始终优先使用 `https://`。
-- Expo SDK 50 的 Android 模板默认写入 `android:usesCleartextTraffic="true"`；实际 release 行为仍需检查生成后的 Manifest 与目标系统策略。使用 `http://` 会暴露 API Key 和对话内容，发布前应优先禁用明文流量并使用 `https://`。
+- Expo Android 模板默认写入 `android:usesCleartextTraffic="true"`；本项目未显式关闭它，因此 release 包是否允许明文请求取决于生成后的 Manifest 与目标系统策略——发布前请核对实际清单，并在确认所有服务均为 `https://` 后优先禁用明文流量。
 - 报错信息在展示与复制前会经 `src/secrets.js` 的 `maskSecrets` 屏蔽 `sk-...` 与 `Bearer ...`，但仍可能包含其他上下文，公开分享日志前请再次检查。
 - 本地聊天记录与 API 配置均以明文 JSON 存储，未加密。
 
