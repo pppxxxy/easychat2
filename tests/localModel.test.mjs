@@ -12,6 +12,7 @@ import {
   buildModelDownloadUrl,
   buildLocalModelItem,
   clearActiveLocalModel,
+  getLocalModelMediaCapabilities,
   isLocalModelItemReady,
   isLocalModelReady,
   localModelCapabilities,
@@ -301,6 +302,22 @@ test('applyActiveLocalModel：空条目不改动设置；clearActiveLocalModel �
   assert.equal(cleared.modelId, '');
   assert.equal(cleared.modelPath, '');
   assert.equal(cleared.updatedAt, 9);
+});
+
+test('getLocalModelMediaCapabilities：本地开关与条目能力共同决定媒体入口', () => {
+  const item = { hasVision: true, hasAudio: false };
+  assert.deepEqual(
+    getLocalModelMediaCapabilities({ enabled: true, enableMediaInput: true }, item),
+    { vision: true, audio: false }
+  );
+  assert.deepEqual(
+    getLocalModelMediaCapabilities({ enabled: true, enableMediaInput: false }, item),
+    { vision: false, audio: false }
+  );
+  assert.deepEqual(
+    getLocalModelMediaCapabilities({ enabled: false, enableMediaInput: true }, item),
+    { vision: false, audio: false }
+  );
 });
 
 test('resolveLocalModelReadiness：模块不可用/未启用/未就绪分级', () => {

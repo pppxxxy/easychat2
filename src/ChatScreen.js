@@ -143,6 +143,7 @@ import { generateImage } from './imageGen/index.js';
 import { getLocalModelFileInfo } from './localModel/modelManager.js';
 import ModelLogsModal from './localModel/ModelLogsModal.js';
 import { canUseLocalModel, sendWithModelProvider } from './modelProvider.js';
+import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { getImageProvider } from './imageGen/providers.js';
 import { stop as ttsStop } from './tts/index.js';
 import useChatTts from './chat/useChatTts.js';
@@ -2210,8 +2211,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
       Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
       return false;
     }
-     let visionEnabled = false;
-     let audioInputEnabled = false;
+      let visionEnabled = false;
+      let audioInputEnabled = false;
      let expectedConfigId = '';
      let expectedConfigFingerprint = '';
     try {
@@ -2220,9 +2221,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
       const current = configs.find(item => item.id === activeId) || configs[0];
        expectedConfigId = String(current?.id || '');
        expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
-       visionEnabled = !!(current && current.supportsVision);
-       audioInputEnabled = !!(current && current.supportsAudio);
-    } catch (error) {}
+        visionEnabled = !!(current && current.supportsVision);
+        audioInputEnabled = !!(current && current.supportsAudio);
+      } catch (error) {}
+      // 在线配置与本地活动模型可能是两套能力声明：本地模型带 mmproj 且开启多模态时，
+      // 附件校验应使用本地能力，不能被在线配置的 supportsVision/supportsAudio 提前拦截。
+      const localSettingsForMedia = await getLocalModelSettings().catch(() => null);
+      const localItemForMedia = await getActiveLocalModel().catch(() => null);
+      const localMedia = getLocalModelMediaCapabilities(localSettingsForMedia, localItemForMedia);
+      visionEnabled = visionEnabled || localMedia.vision;
+      audioInputEnabled = audioInputEnabled || localMedia.audio;
      let sizedImages = [];
      try {
        sizedImages = await Promise.all(imageAttachments.map(async item => {
@@ -2375,11 +2383,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
          Alert.alert('模型来源已切换', '请重新发送这条消息。');
          return false;
        }
-       if (
-         imageAttachments.some(item => item.kind === 'image')
-         && latestConfig
-         && latestConfig.supportsVision !== true
-       ) {
+        if (
+          imageAttachments.some(item => item.kind === 'image')
+          && latestConfig
+          && latestConfig.supportsVision !== true
+          && !localMedia.vision
+        ) {
          Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
          return false;
        }
@@ -2470,12 +2479,19 @@ if (!isCurrent() || controller.signal.aborted) return false;
        let includeImage = false;
        let expectedConfigId = '';
        let expectedConfigFingerprint = '';
+       let localMedia = { vision: false, audio: false };
       try {
-        const { configs, activeId } = await getApiConfigs();
+        const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
+          getApiConfigs(),
+          getLocalModelSettings().catch(() => null),
+          getActiveLocalModel().catch(() => null),
+        ]);
         const current = configs.find(item => item.id === activeId) || configs[0];
          expectedConfigId = String(current?.id || '');
          expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
          includeImage = !!(current && current.supportsVision);
+         localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+         includeImage = includeImage || localMedia.vision;
       } catch (error) {}
       if (!isSessionGuardCurrent(sessionGuard)) return false;
        const mediaItems = userMessages.filter(item => item && item.image);
@@ -3108,9 +3124,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
         Alert.alert('图片过多', `一次最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
         return;
       }
-      const { configs, activeId } = await getApiConfigs();
+      const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
+        getApiConfigs(),
+        getLocalModelSettings().catch(() => null),
+        getActiveLocalModel().catch(() => null),
+      ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
-      if (!current || current.supportsVision !== true) {
+      const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+      if ((!current || current.supportsVision !== true) && !localMedia.vision) {
         deleteTemporaryImage(picked.uri);
         Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
         return;

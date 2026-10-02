@@ -310,6 +310,18 @@ export function clearActiveLocalModel(settings, now = Date.now()) {
   };
 }
 
+// 媒体入口由「已启用的活动模型 + 用户开关 + 模型能力」共同决定。
+// 供发送前的附件校验使用，避免只看在线 API 配置而提前拦截本地模型的 mmproj 能力。
+export function getLocalModelMediaCapabilities(settings, item) {
+  const normalized = normalizeLocalModelSettings(settings);
+  const source = item && typeof item === 'object' ? item : {};
+  const enabled = normalized.enabled && normalized.enableMediaInput;
+  return {
+    vision: enabled && source.hasVision === true,
+    audio: enabled && source.hasAudio === true,
+  };
+}
+
 export function isLocalModelItemReady(item, fileInfo = null) {
   const normalized = normalizeLocalModelItem(item);
   if (!normalized.id || !normalized.modelPath) return false;
