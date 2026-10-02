@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -42,6 +42,9 @@ export default function DiaryPanel({ embedded = false }) {
   const [diaryIndex, setDiaryIndex] = useState(0);
   const [notice, setNotice] = useState('');
   const [viewWidth, setViewWidth] = useState(() => Dimensions.get('window').width - 72);
+  // 翻页按钮的程序化滚动目标：按钮与手势翻页共用一个计数器，
+  // 按钮只改 state 不滚 ScrollView 的话页面不会动（手势翻页仍由 onMomentumScrollEnd 回写）。
+  const pagerRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +84,13 @@ export default function DiaryPanel({ embedded = false }) {
   useEffect(() => {
     setDiaryIndex(current => (current < roleDiaries.length ? current : 0));
   }, [roleDiaries.length, activeRoleId]);
+
+  // 按钮翻页：diaryIndex 变化时同步滚动（手势滑动结束回写同值时滚动是 no-op，无循环）。
+  useEffect(() => {
+    if (pagerRef.current && viewWidth > 0) {
+      pagerRef.current.scrollTo({ x: diaryIndex * viewWidth, animated: true });
+    }
+  }, [diaryIndex, viewWidth]);
 
   const toggleRole = useCallback((id, enabled, roleName) => {
     setSettings(current => setRoleDiarySetting(current, id, { enabled, roleName }));
@@ -241,6 +251,7 @@ export default function DiaryPanel({ embedded = false }) {
       ) : (
         <View style={styles.diaryPager} onLayout={e => setViewWidth(e.nativeEvent.layout.width - 24)}>
           <ScrollView
+            ref={pagerRef}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}

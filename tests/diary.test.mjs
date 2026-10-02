@@ -273,4 +273,7 @@ test('日记面板：折叠选角色、单角色开关、专属 API 与左右滑
   assert.ok(PANEL_SOURCE.includes('pagingEnabled'));
   assert.ok(PANEL_SOURCE.includes('diaryIndex'));
   assert.ok(PANEL_SOURCE.includes('onMomentumScrollEnd'));
+  // 翻页按钮必须程序化滚动：只改 diaryIndex 不滚 ScrollView 的话按钮按了页面不动
+  assert.ok(PANEL_SOURCE.includes('ref={pagerRef}'));
+  assert.ok(PANEL_SOURCE.includes('pagerRef.current.scrollTo({ x: diaryIndex * viewWidth, animated: true })'));
 });

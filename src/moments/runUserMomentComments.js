@@ -79,12 +79,16 @@ export async function runUserMomentComments({ momentId, signal = null, random = 
     );
     const userName = String((profile && profile.userName) || '').trim() || '用户';
 
+    // 评论串行生成：本轮里前面角色写的评论要进后面角色的提示词（thread 上下文）。
+    // updateMoments 只更新存储，循环内不重读整个列表——这里本地累积，避免提示词里
+    // 一直只有开跑前的旧评论。
+    let threadComments = Array.isArray(moment.comments) ? moment.comments : [];
+
     for (const commenterId of commenterIds) {
       if (signal && signal.aborted) break;
       const character = characterMap.get(commenterId);
       if (!character) continue;
       const charName = String(character.name || '').trim() || '角色';
-      const latest = moments.find(item => item && item.id === id);
       const memoryText = buildMomentMemoryText({
         summaries: [],
         messages: [],
@@ -92,8 +96,8 @@ export async function runUserMomentComments({ momentId, signal = null, random = 
         userName,
       }) || rolePersona(character);
       const prompt = buildMomentReplyPrompt({
-        moment: latest || moment,
-        comments: Array.isArray(latest && latest.comments) ? latest.comments : [],
+        moment,
+        comments: threadComments,
         memoryText,
         charName,
         userName,
@@ -117,25 +121,27 @@ export async function runUserMomentComments({ momentId, signal = null, random = 
       if (!raw || String(raw).trim() === EMPTY_REPLY_TEXT) continue;
       const text = normalizeMomentReply(raw);
       if (!text) continue;
+      const comment = {
+        id: makeCommentId(),
+        by: 'character',
+        characterId: commenterId,
+        name: charName,
+        text,
+        createdAt: Date.now(),
+        likedByCharacter: false,
+      };
       await updateMoments(list => list.map(item => (
         item.id === id
           ? {
             ...item,
             comments: [
               ...(Array.isArray(item.comments) ? item.comments : []),
-              {
-                id: makeCommentId(),
-                by: 'character',
-                characterId: commenterId,
-                name: charName,
-                text,
-                createdAt: Date.now(),
-                likedByCharacter: false,
-              },
+              comment,
             ],
           }
           : item
       )));
+      threadComments = [...threadComments, comment];
       written += 1;
     }
     return written;
