@@ -76,6 +76,7 @@
     "src/chat/useSessionGuard.js",
     "src/chat/useSessionMessages.js",
     "src/chat/useSessionSwitch.js",
+    "src/chat/replyFlow.js",
     "src/chat/chatStyles.js",
     "src/localModel/ModelSearchModal.js",
     "src/localModel/ModelLogsModal.js",

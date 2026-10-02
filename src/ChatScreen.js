@@ -62,6 +62,16 @@ import {
   shouldSummarize,
 } from './memorySummary.js';
 import { isStaleReply } from './chatRace.js';
+import {
+  buildAutoSummaryInput,
+  buildReplyErrorMessage,
+  classifyReplyError,
+  mergeErrorMessage,
+  mergeStreamedReasoning,
+  mergeStreamedText,
+  replacePendingWithReply,
+  trimHistoryByBoundary,
+} from './chat/replyFlow.js';
 import { useApp } from './context/AppContext.js';
 import CharacterEditForm from './CharacterEditForm.js';
 import GreetingPickerModal from './GreetingPickerModal.js';
@@ -156,7 +166,6 @@ import {
   USER_ID,
 } from './chat/chatConstants.js';
 import {
-  buildErrorRawText,
   buildInlineImagePrompt,
   buildQuotePayload,
   settlePendingMessage,
@@ -960,17 +969,9 @@ export default function ChatScreen() {
         session => session.id === sendSessionId
       );
       const boundary = currentSession && currentSession.summarizedUpTo;
-      const boundaryIndex = boundary
-        ? historyMessages.findIndex(item => item.id === boundary)
-        : -1;
-      const trimmedHistory = boundaryIndex >= 0
-        ? historyMessages.slice(boundaryIndex + 1)
-        : historyMessages;
       // 已经作为原文发送的历史（boundary 之后）不再由向量重复召回；被摘要裁剪掉
       // 的更早区间和其它会话才交给向量，避免同一内容既当原文又当“相关记忆”。
-      const sentIds = new Set(
-        trimmedHistory.map(item => String((item && item.id) || ''))
-      );
+      const { trimmedHistory, sentIds } = trimHistoryByBoundary(historyMessages, boundary);
       let vectorConfig = null;
       let vectorIndex = [];
       try {
@@ -1090,22 +1091,14 @@ export default function ChatScreen() {
              if (!isCurrentSession() || controller.signal.aborted) return;
              setMessages(current => {
                if (!isCurrentSession()) return current;
-               return current.map(item =>
-                 item.id === pendingAssistantMessage.id && item.pending
-                   ? { ...item, text: fullText, waitingForResponse: false }
-                   : item
-               );
+               return mergeStreamedText(current, pendingAssistantMessage.id, fullText);
              });
            },
            onReasoning: fullReasoning => {
              if (!isCurrentSession() || controller.signal.aborted) return;
              setMessages(current => {
                if (!isCurrentSession()) return current;
-               return current.map(item =>
-                 item.id === pendingAssistantMessage.id
-                   ? { ...item, reasoning: fullReasoning }
-                   : item
-               );
+               return mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning);
              });
             }
         });
@@ -1155,27 +1148,10 @@ export default function ChatScreen() {
          || '';
        setMessages(current => {
         if (!isCurrentSession()) return current;
-        const next = [];
-        current.forEach(item => {
-          if (item.id === pendingAssistantMessage.id) {
-            if (replyParts.length === 0) {
-              next.push({ ...item, text: '没有收到回复。', pending: false, waitingForResponse: false });
-            } else {
-              next.push(...replyParts.map(part => ({ ...part, pending: false, waitingForResponse: false })));
-            }
-          } else {
-            next.push(item);
-          }
-        });
-        return next;
+        return replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
       });
       if (isCurrentSession()) {
-        maybeAutoSummarize([
-          ...baseMessages,
-          ...(replyParts.length === 0
-            ? [{ ...pendingAssistantMessage, text: '没有收到回复。', pending: false, waitingForResponse: false }]
-            : replyParts.map(part => ({ ...part, pending: false, waitingForResponse: false }))),
-        ]);
+        maybeAutoSummarize(buildAutoSummaryInput(baseMessages, replyParts, pendingAssistantMessage));
         if (inlineImageEnabledRef.current) {
           // 配图要挂到替换后的文字消息上：pending 占位符已被 replyParts 替换，其 id 已变，
           // 继续用 pendingAssistantMessage.id 会永远匹配不到（图静默不出现）。
@@ -1207,27 +1183,17 @@ export default function ChatScreen() {
          ));
          return false;
        }
-       const rawText = buildErrorRawText(error);
-      const errorMessage = {
-        id: `${pendingAssistantMessage.id}-error`,
-        role: SYSTEM_ERROR_ID,
-        text: '请求失败，点击查看详情',
-        detail: maskSecrets(rawText),
-        timestamp: Date.now(),
-      };
-      if (isCurrentSession()) {
-        errorRawRef.current[errorMessage.id] = rawText;
+       if (classifyReplyError(error, isConfigChangedError, isCanceledError) === 'failure') {
+        const { message: errorMessage, rawText } = buildReplyErrorMessage(pendingAssistantMessage.id, error);
+        if (isCurrentSession()) {
+          errorRawRef.current[errorMessage.id] = rawText;
+        }
+        setMessages(current => {
+          if (!isCurrentSession()) return current;
+          return mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage);
+        });
+        if (restoreOnFailure) return false;
       }
-      setMessages(current => {
-        if (!isCurrentSession()) return current;
-        const settled = settlePendingMessage(current, pendingAssistantMessage.id);
-        const keptPartial = settled.some(item => item && item.id === pendingAssistantMessage.id);
-        if (keptPartial) return settled.concat(errorMessage);
-        return current.map(item => (
-          item.id === pendingAssistantMessage.id ? errorMessage : item
-        ));
-       });
-       if (restoreOnFailure) return false;
      } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
