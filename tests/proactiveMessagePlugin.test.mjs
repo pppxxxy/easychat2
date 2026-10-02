@@ -1,20 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+
+import {
+  checkBraceBalance,
+  checkPackageConsistency,
+  checkUniqueDeclarations,
+  findUnusedImports,
+  readAllKotlin,
+  readKotlinFiles,
+} from './helpers/kotlinStatic.mjs';
 
 const require = createRequire(import.meta.url);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const KOTLIN_DIR = path.join(HERE, '..', 'plugins', 'proactiveMessage', 'android');
+const KOTLIN_PACKAGE = 'com.pppxxxy.easychat2.proactive';
 
-function readAllKotlin() {
-  return readdirSync(KOTLIN_DIR)
-    .filter(f => f.endsWith('.kt'))
-    .map(f => readFileSync(path.join(KOTLIN_DIR, f), 'utf8'))
-    .join('\n');
-}
+const readAllKotlinSource = () => readAllKotlin(KOTLIN_DIR);
 const plugin = require('../plugins/withProactiveMessage.js');
 const {
   PERMISSIONS,
@@ -145,7 +150,7 @@ test('插件本体返回 config 对象', () => {
 });
 
 test('Kotlin 源码不使用不存在的系统 action 常量', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   // 这两个标识符在 Android SDK 中不存在，曾是真实的编译失败原因
   assert.ok(!source.includes('Settings.ACTION_BATTERY_OPTIMIZATION_SETTINGS'));
   assert.ok(!source.includes('Intent.ACTION_TIME_SET'));
@@ -156,51 +161,40 @@ test('Kotlin 源码不使用不存在的系统 action 常量', () => {
 
 test('Kotlin 源码大括号平衡（沙箱无法编译，防编辑遗留重复片段）', () => {
   // 曾经因为一次编辑留下重复的 `}` 片段导致 CI 编译失败（Expecting a top level declaration）。
-  for (const file of readdirSync(KOTLIN_DIR).filter(f => f.endsWith('.kt'))) {
-    const source = readFileSync(path.join(KOTLIN_DIR, file), 'utf8');
-    let balance = 0;
-    let inString = false;
-    let inTriple = false;
-    for (let i = 0; i < source.length; i += 1) {
-      const ch = source[i];
-      if (!inString && !inTriple && source.slice(i, i + 3) === '"""') {
-        inTriple = true;
-        i += 2;
-        continue;
-      }
-      if (inTriple && source.slice(i, i + 3) === '"""') {
-        inTriple = false;
-        i += 2;
-        continue;
-      }
-      if (inTriple) continue;
-      if (!inString && ch === '"') {
-        inString = true;
-        continue;
-      }
-      if (inString) {
-        if (ch === '\\') i += 1;
-        else if (ch === '"') inString = false;
-        continue;
-      }
-      if (ch === '{') balance += 1;
-      else if (ch === '}') balance -= 1;
-      assert.ok(balance >= 0, `${file} 出现多余的 }`);
+  for (const { file, source } of readKotlinFiles(KOTLIN_DIR)) {
+    const { balance, errors } = checkBraceBalance(source);
+    for (const error of errors) {
+      assert.fail(`${file}:${error.line} ${error.message}`);
     }
     assert.equal(balance, 0, `${file} 大括号不平衡`);
   }
 });
 
+test('Kotlin 包名一致且无未使用导入（共享静态校验）', () => {
+  const packageErrors = checkPackageConsistency(KOTLIN_DIR, KOTLIN_PACKAGE);
+  for (const error of packageErrors) {
+    assert.fail(`${error.file} ${error.message}`);
+  }
+  for (const { file, source } of readKotlinFiles(KOTLIN_DIR)) {
+    const unused = findUnusedImports(source);
+    assert.deepEqual(
+      unused.map(item => item.name),
+      [],
+      `${file} 存在未使用导入：${unused.map(item => item.line).join(' / ')}`,
+    );
+  }
+});
+
 test('Kotlin 顶层声明不重复定义', () => {
-  const source = readAllKotlin();
-  for (const keyword of ['enum class MessageType', 'enum class ScheduleMode', 'object FallbackMessages']) {
-    const count = source.split(keyword).length - 1;
-    assert.equal(count, 1, `${keyword} 应恰好定义一次，实际 ${count}`);
+  const source = readAllKotlin(KOTLIN_DIR);
+  const errors = checkUniqueDeclarations(source, ['enum class MessageType', 'enum class ScheduleMode', 'object FallbackMessages']);
+  for (const error of errors) {
+    assert.fail(error.message);
   }
 });
 
 test('同一角色多时间以 slotId 为唯一标识，不按 roleId 覆盖', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   // 去重、WorkManager 唯一名、闹钟 requestCode 都必须按槽区分
   assert.ok(source.includes('resolvedSlotId'));
   assert.ok(source.includes('isSlotSentToday'));
@@ -212,13 +206,13 @@ test('同一角色多时间以 slotId 为唯一标识，不按 roleId 覆盖', (
 });
 
 test('前台服务 onStartCommand 显式返回 Int', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   assert.match(source, /onStartCommand\([^)]*\): Int\s*\{/);
   assert.ok(source.includes('START_NOT_STICKY'));
 });
 
 test('原生暴露权限状态查询（勾/叉/问号数据源）', () => {
-  const module = readAllKotlin();
+  const module = readAllKotlinSource();
   assert.ok(module.includes('fun getPermissionStatus(promise: Promise)'));
   assert.ok(module.includes('Notifier.canNotify(reactContext)'));
   // 自启动白名单无公开可读接口 → null（JS 侧显示问号）
@@ -243,7 +237,7 @@ test('pendingRoleId/listenerCount 跨线程访问加锁，且启动 intent 有�
 });
 
 test('主动消息落库：发送前写待写队列，通知被拒不阻断', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   // Sender 必须在发通知前 appendPendingMessage（消息存在性不依赖通知权限）
   assert.ok(source.includes('data class PendingMessage'), '缺少 PendingMessage 结构');
   assert.ok(source.includes('fun appendPendingMessage'), '缺少入队方法');
@@ -259,7 +253,7 @@ test('主动消息落库：发送前写待写队列，通知被拒不阻断', ()
 });
 
 test('主动消息类型：原生 messageType/customPrompt 与按时段问好', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   assert.ok(source.includes('enum class MessageType'), '缺少 MessageType 枚举');
   for (const type of ['DEFAULT', 'CARE', 'GREETING', 'CUSTOM']) {
     assert.ok(source.includes(type), `缺少消息类型 ${type}`);
@@ -275,7 +269,7 @@ test('主动消息类型：原生 messageType/customPrompt 与按时段问好', 
 });
 
 test('主动消息优先用 JS 组装的完整请求（requestJson）', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   // 槽带 requestJson 字段，发送时优先解析它，解析失败回退简版提示词
   assert.ok(source.includes('val requestJson: String'), '缺少 requestJson 字段');
   assert.ok(source.includes('fun parseRequestJson'), '缺少 requestJson 解析');
@@ -317,7 +311,7 @@ test('ProactiveCore：apiKey 走 EncryptedSharedPreferences，不再默认明文
 });
 
 test('通知：新渠道弹横幅 + 角色头像 + 单色小图标去圈 i', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   // 新渠道 ID：旧渠道重要性被系统固定，只能新建
   assert.ok(source.includes('"proactive_message_v2"'), '应换新渠道 ID');
   assert.ok(source.includes('CATEGORY_MESSAGE'), '应设消息类别以允许横幅');
@@ -339,7 +333,7 @@ test('通知：新渠道弹横幅 + 角色头像 + 单色小图标去圈 i', () 
 });
 
 test('重新保存槽会清「今天已发」标记，当天可再次触发', () => {
-  const source = readAllKotlin();
+  const source = readAllKotlinSource();
   assert.ok(source.includes('fun clearSlotSentToday'), '缺少清除标记方法');
   // upsertSchedule 内必须调用它
   const upsert = source.match(/fun upsertSchedule[\s\S]*?\n    \}/);
