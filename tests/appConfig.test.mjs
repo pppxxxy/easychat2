@@ -54,3 +54,38 @@ test('expo-audio 已启用 Android 录音权限声明', () => {
   );
   assert.ok(pluginEntry('expo-audio'), 'app.json 应配置 expo-audio 插件');
 });
+
+// 拍照附件：与麦克风同一个坑——image-picker 的 `cameraPermission:false` 会把
+// CAMERA 转成屏蔽权限（tools:node="remove"），系统设置里不会有相机开关，
+// launchCameraAsync 必然被拒。因此锁定不设 false，且 blockedPermissions 不含 CAMERA。
+test('expo-image-picker 不得把相机权限设为 false（否则拍照必然失败）', () => {
+  const options = pluginOptions('expo-image-picker');
+  assert.notEqual(
+    options.cameraPermission,
+    false,
+    'image-picker 的 cameraPermission:false 会把 CAMERA 加入屏蔽权限，拍照无法工作'
+  );
+  assert.equal(
+    typeof options.cameraPermission,
+    'string',
+    '应给出相机用途文案（Android/iOS 权限弹窗与系统设置都要展示）'
+  );
+});
+
+test('android.blockedPermissions 不得屏蔽 CAMERA', () => {
+  const blocked = EXPO.android?.blockedPermissions || [];
+  assert.equal(
+    blocked.includes('android.permission.CAMERA'),
+    false,
+    'CAMERA 被屏蔽后系统设置不显示相机开关，拍照必然失败'
+  );
+});
+
+test('iOS 声明相机用途文案（NSCameraUsageDescription）', () => {
+  const infoPlist = EXPO.ios?.infoPlist || {};
+  assert.equal(
+    typeof infoPlist.NSCameraUsageDescription,
+    'string',
+    'iOS 缺少 NSCameraUsageDescription 时调用相机会直接崩溃'
+  );
+});

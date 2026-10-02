@@ -60,6 +60,7 @@
     "src/chat/ThinkingPanelModal.js",
     "src/chat/StickerPanelModal.js",
     "src/chat/StickerNamePromptModal.js",
+    "src/chat/AttachmentMenuModal.js",
     "src/chat/MoreMenuModal.js",
     "src/chat/ChatSettingsModal.js",
     "src/chat/FullScreenInputModal.js",

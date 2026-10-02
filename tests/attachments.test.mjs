@@ -26,8 +26,26 @@ const DocumentPicker = {
 };
 const ImagePicker = {
   MediaTypeOptions: { Images: 'Images' },
+  CameraType: { back: 'back', front: 'front' },
   getPendingResultAsync: async () => pendingResults,
   launchImageLibraryAsync: async () => ({ canceled: true }),
+  // 拍照相关：行为全部由字段驱动。不能在建好 mock 后再替换这些函数——
+  // Babel 的 `import * as` 会把命名空间复制一份，模块内拿到的是复制时的函数引用，
+  // 测试里改 `ImagePicker.xxx = fn` 不会传进模块（改字段才会，因为闭包读的是当前值）。
+  cameraPermission: { granted: true, status: 'granted' },
+  // 模拟用户在系统权限弹窗上点「允许/拒绝」后的结果；为 null 表示权限没有变化
+  cameraPermissionAfterRequest: null,
+  requestedCameraPermission: false,
+  cameraResult: { canceled: true },
+  getCameraPermissionsAsync: async () => ImagePicker.cameraPermission,
+  requestCameraPermissionsAsync: async () => {
+    ImagePicker.requestedCameraPermission = true;
+    if (ImagePicker.cameraPermissionAfterRequest) {
+      ImagePicker.cameraPermission = ImagePicker.cameraPermissionAfterRequest;
+    }
+    return ImagePicker.cameraPermission;
+  },
+  launchCameraAsync: async () => ImagePicker.cameraResult,
 };
 const FileSystem = {
   documentDirectory: 'file:///documents/',
@@ -112,4 +130,69 @@ test('图片 MIME 和 pending 表情包结果可以规范化', async () => {
     height: 30,
     size: 12,
   });
+});
+
+test('拍照：授予权限后返回与相册同形状的图片信息', async () => {
+  ImagePicker.cameraPermission = { granted: true, status: 'granted' };
+  ImagePicker.requestedCameraPermission = false;
+  ImagePicker.cameraResult = {
+    canceled: false,
+    assets: [{
+      uri: 'file:///cache/photo.jpg',
+      fileName: 'IMG_0001.jpg',
+      mimeType: 'image/jpeg',
+      fileSize: 2048,
+      width: 1080,
+      height: 1920,
+    }],
+  };
+  const shot = await attachments.takePhoto();
+  assert.deepEqual(shot, {
+    uri: 'file:///cache/photo.jpg',
+    name: 'IMG_0001.jpg',
+    mime: 'image/jpeg',
+    width: 1080,
+    height: 1920,
+    size: 2048,
+  });
+  // 已授权时不再重复弹权限请求
+  assert.equal(ImagePicker.requestedCameraPermission, false);
+});
+
+test('拍照：未授权时先请求，被拒返回 denied 且不打开相机', async () => {
+  ImagePicker.cameraPermission = { granted: false, status: 'undetermined' };
+  ImagePicker.cameraPermissionAfterRequest = { granted: false, status: 'denied' };
+  ImagePicker.requestedCameraPermission = false;
+  ImagePicker.cameraResult = { canceled: false, assets: [{ uri: 'file:///cache/should-not-happen.jpg' }] };
+  const denied = await attachments.takePhoto();
+  assert.deepEqual(denied, { denied: true });
+  assert.equal(ImagePicker.requestedCameraPermission, true, '应请求过权限');
+
+  // 授权后正常打开相机；用户取消则返回 null
+  ImagePicker.cameraPermission = { granted: false, status: 'undetermined' };
+  ImagePicker.cameraPermissionAfterRequest = { granted: true, status: 'granted' };
+  ImagePicker.cameraResult = { canceled: true };
+  assert.equal(await attachments.takePhoto(), null, '授权后应打开相机，取消拍照返回 null');
+  assert.equal(ImagePicker.cameraPermission.status, 'granted');
+  ImagePicker.cameraPermissionAfterRequest = null;
+});
+
+test('拍照：用户取消返回 null（与相册取消语义一致）', async () => {
+  ImagePicker.cameraPermission = { granted: true, status: 'granted' };
+  ImagePicker.cameraResult = { canceled: true };
+  assert.equal(await attachments.takePhoto(), null);
+});
+
+test('相机权限判定：仅明确 denied 视为拒绝，undetermined 不算', () => {
+  assert.equal(attachments.isCameraPermissionDenied({ status: 'denied' }), true);
+  assert.equal(attachments.isCameraPermissionDenied({ status: 'undetermined', granted: false }), false);
+  assert.equal(attachments.isCameraPermissionDenied({ status: 'granted', granted: true }), false);
+  assert.equal(attachments.isCameraPermissionDenied(null), false);
+  assert.equal(attachments.isCameraPermissionDenied(undefined), false);
+});
+
+test('拍照结果缺失 uri 时返回 null（不产生空附件）', async () => {
+  ImagePicker.cameraPermission = { granted: true, status: 'granted' };
+  ImagePicker.cameraResult = { canceled: false, assets: [{}] };
+  assert.equal(await attachments.takePhoto(), null);
 });

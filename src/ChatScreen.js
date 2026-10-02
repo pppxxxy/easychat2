@@ -27,6 +27,7 @@ import {
    getImageMime,
    getPendingStickerImage,
    MAX_IMAGE_ATTACHMENTS,
+   takePhoto,
    validateImageSize,
 } from './attachments.js';
 import { createMediaMessage, STICKER_MESSAGE_KIND } from './chatMedia.js';
@@ -146,6 +147,7 @@ import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
 import ChatComposer from './chat/ChatComposer.js';
 import useChatRecorder from './chat/useChatRecorder.js';
+import AttachmentMenuModal from './chat/AttachmentMenuModal.js';
 import {
   isUnsupportedTranscriptionError,
   resolveTranscription,
@@ -315,6 +317,9 @@ export default function ChatScreen() {
      setProtectedChatImageUris([]);
    }, []);
    const [stickerPanelOpen, setStickerPanelOpen] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  // 拍照/图片附件要求当前来源支持识图；进入附件菜单前刷新一次，用于禁用不可用项。
+  const [attachmentVisionEnabled, setAttachmentVisionEnabled] = useState(false);
   const [stickers, setStickers] = useState([]);
   const stickersRef = useRef([]);
   stickersRef.current = stickers;
@@ -355,6 +360,30 @@ export default function ChatScreen() {
   const onProfileLoaded = useCallback(profile => {
     setUserAvatar((profile && profile.avatarUri) || '');
   }, []);
+
+  // 打开附件菜单时刷新识图能力：在线来源的 supportsVision 与本地模型的多模态，
+  // 任一可用即视为支持。读盘失败按「不支持」处理（菜单里会给出原因提示）。
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    let cancelled = false;
+    (async () => {
+      let vision = false;
+      try {
+        const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
+          getApiConfigs(),
+          getLocalModelSettings().catch(() => null),
+          getActiveLocalModel().catch(() => null),
+        ]);
+        const current = configs.find(item => item.id === activeId) || configs[0];
+        vision = !!(current && current.supportsVision === true)
+          || !!getLocalModelMediaCapabilities(localSettings, localItem).vision;
+      } catch (error) {}
+      if (!cancelled) setAttachmentVisionEnabled(vision);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachmentMenuOpen]);
 
   const {
     input,
@@ -1366,7 +1395,15 @@ export default function ChatScreen() {
     let durableUri = '';
     let picked = null;
     try {
-      picked = await pickAttachment();
+      // 拍照走相机，其余走系统文件选择器。两者产出同一形状，后续校验与落盘复用。
+      picked = kind === 'camera' ? await takePhoto() : await pickAttachment();
+      if (picked && picked.denied) {
+        Alert.alert(
+          '需要相机权限',
+          '拍照需要访问相机。请在系统「设置 → 应用 → EasyChat2 → 权限」中开启相机权限后重试。'
+        );
+        return;
+      }
       if (!picked) return;
       if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
         deleteTemporaryImage(picked.uri);
@@ -1494,11 +1531,12 @@ export default function ChatScreen() {
    }, [attachmentLoading, captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sessionTransitionPending, syncProtectedAttachmentUris]);
 
   const pickAttachmentMenu = useCallback(() => {
-    Alert.alert('添加附件', '选择要上传的内容类型。', [
-      { text: '取消', style: 'cancel' },
-      { text: '纯文本文档', onPress: () => addAttachment('text') },
-      { text: '图片', onPress: () => addAttachment('image') },
-    ]);
+    setAttachmentMenuOpen(true);
+  }, []);
+
+  const selectAttachmentKind = useCallback(kind => {
+    setAttachmentMenuOpen(false);
+    addAttachment(kind);
   }, [addAttachment]);
 
   const openStickerNamePrompt = useCallback(source => {
@@ -2133,6 +2171,13 @@ export default function ChatScreen() {
         onChangeDraft={setStickerNameDraft}
         confirmStickerName={confirmStickerName}
         stickerSaving={stickerSaving}
+      />
+
+      <AttachmentMenuModal
+        visible={attachmentMenuOpen}
+        onClose={() => setAttachmentMenuOpen(false)}
+        onSelect={selectAttachmentKind}
+        visionEnabled={attachmentVisionEnabled}
       />
 
       <FullScreenInputModal

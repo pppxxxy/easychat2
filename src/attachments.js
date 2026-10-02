@@ -184,6 +184,49 @@ export async function pickStickerImage() {
   return normalizeStickerResult(result);
 }
 
+// ---- 相机拍照附件 ----
+
+// 归一化拍照结果：与相册选图同一形状，供 addAttachment 的图片分支复用。
+function normalizeCameraResult(result) {
+  const asset = result && !result.canceled && result.assets && result.assets[0];
+  if (!asset?.uri) return null;
+  return {
+    uri: asset.uri,
+    name: asset.fileName || `拍照_${Date.now()}.jpg`,
+    mime: asset.mimeType || 'image/jpeg',
+    width: Number(asset.width) || 0,
+    height: Number(asset.height) || 0,
+    size: Number(asset.fileSize) || 0,
+  };
+}
+
+// 拍照结果可能是 'granted' | 'denied' | 'undetermined'；仅在明确 denied 时视为拒绝，
+// 否则交给系统弹窗（这样「未决定」的首用场景不会被误判成拒绝）。
+export function isCameraPermissionDenied(permission) {
+  const status = String((permission && permission.status) || '');
+  return status === 'denied';
+}
+
+export async function requestCameraPermission() {
+  const current = await ImagePicker.getCameraPermissionsAsync().catch(() => null);
+  if (current && current.granted) return current;
+  return ImagePicker.requestCameraPermissionsAsync();
+}
+
+// 拍照取图。权限被拒时返回 { denied: true }，由调用方给出可操作的提示；
+// 用户取消拍照返回 null（与相册选图的取消语义一致）。
+export async function takePhoto() {
+  const permission = await requestCameraPermission();
+  if (isCameraPermissionDenied(permission)) return { denied: true };
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: false,
+    quality: 1,
+    cameraType: ImagePicker.CameraType?.back,
+  });
+  return normalizeCameraResult(result);
+}
+
 export async function getImageFileInfo(uri) {
   const info = await FileSystem.getInfoAsync(uri);
   return {
