@@ -20,7 +20,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { IMAGE_PROVIDERS, getImageProvider } from './imageGen/providers.js';
+import { IMAGE_PROVIDERS, getImageProvider, providerRequiresApiKey } from './imageGen/providers.js';
 import { generateImage, detectImageProvider, probeImageProvider } from './imageGen/index.js';
 import { getImageGenSettings, saveImageGenSettings } from './storage.js';
 import { resolveImageFormat } from './imageResultFormat.js';
@@ -74,6 +74,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
   const [imageUri, setImageUri] = useState('');
   const [imageMime, setImageMime] = useState('image/png');
   const [generating, setGenerating] = useState(false);
+  const [generateProgress, setGenerateProgress] = useState(null);
   const [results, setResults] = useState([]);
   const [busyResult, setBusyResult] = useState('');
   const [draftBaseUrl, setDraftBaseUrl] = useState('');
@@ -379,7 +380,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       Alert.alert('请先填写 API 地址', '点击「填密钥」打开设置面板。');
       return;
     }
-    if (!String(providerConfig.apiKey || '').trim()) {
+    if (providerRequiresApiKey(provider) && !String(providerConfig.apiKey || '').trim()) {
       Alert.alert('请先填写 API 密钥', '点击「填密钥」打开设置面板。');
       return;
     }
@@ -391,6 +392,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
      const requestRevision = settingsRevisionRef.current;
      generationControllerRef.current = controller;
      setGenerating(true);
+     setGenerateProgress(null);
      try {
 
       let imageFile = '';
@@ -412,6 +414,9 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         size,
          seed: Number.isFinite(seedValue) ? seedValue : undefined,
          signal: controller.signal,
+         onProgress: percent => {
+           if (mountedRef.current) setGenerateProgress(percent);
+         },
        });
 
         if (!mountedRef.current || controller.signal.aborted) return;
@@ -433,11 +438,14 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
        if (mountedRef.current && !controller.signal.aborted) {
          Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
        }
-     } finally {
-       if (generationControllerRef.current === controller) {
-         generationControllerRef.current = null;
-         if (mountedRef.current) setGenerating(false);
-       }
+       } finally {
+         if (generationControllerRef.current === controller) {
+           generationControllerRef.current = null;
+           if (mountedRef.current) {
+             setGenerating(false);
+             setGenerateProgress(null);
+           }
+         }
 
     }
   }, [generating, imageMime, imageUri, loaded, model, prompt, provider, providerConfig, seed, size]);
@@ -607,7 +615,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           loading={generating}
           style={styles.generateButton}
         />
-        {generating ? <Text style={styles.generatingHint}>生成中，请稍候...</Text> : null}
+        {generating ? <Text style={styles.generatingHint}>生成中{generateProgress !== null ? ` ${generateProgress}%` : '，请稍候...'}</Text> : null}
 
         {results.length > 0 ? (
           <>
@@ -704,23 +712,29 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
               autoCorrect={false}
               placeholder={provider.baseUrlPlaceholder || provider.baseUrl || 'https://example.com/v1/images'}
             />
-            <FieldLabel style={styles.label}>API Key</FieldLabel>
-            <TextField
-              value={draftApiKey}
-              onChangeText={setDraftApiKey}
-              autoCapitalize="none"
-              autoCorrect={false}
-              secureTextEntry
-              placeholder="sk-..."
-            />
-            <TouchableOpacity
-              style={[styles.selectButton, styles.apiKeyButton]}
-              onPress={openApiKeyUrl}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
-              <Text style={styles.selectButtonText}>获取 API Key</Text>
-            </TouchableOpacity>
+            {providerRequiresApiKey(provider) ? (
+              <>
+                <FieldLabel style={styles.label}>API Key</FieldLabel>
+                <TextField
+                  value={draftApiKey}
+                  onChangeText={setDraftApiKey}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                  placeholder="sk-..."
+                />
+                <TouchableOpacity
+                  style={[styles.selectButton, styles.apiKeyButton]}
+                  onPress={openApiKeyUrl}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
+                  <Text style={styles.selectButtonText}>获取 API Key</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <FieldHint style={styles.hint}>该服务为本地回环端点，无需 API Key。</FieldHint>
+            )}
             <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
             <TextField
               value={draftModel}

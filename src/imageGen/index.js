@@ -1,6 +1,15 @@
 import { getImageProvider } from './providers.js';
 import { registerSecretValues } from '../secrets.js';
 import vendorXhr from '../vendorHttp.js';
+import {
+  buildLocalDreamBody,
+  completeEventToImage,
+  createLocalDreamSseParser,
+  describeLocalDreamNetworkError,
+  localDreamEndpoint,
+  LOCAL_DREAM_GENERATE_PATH,
+  LOCAL_DREAM_TOKENIZE_PATH,
+} from './localDream.js';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 0;
@@ -304,6 +313,33 @@ export async function listModels({ provider, config, signal }) {
 }
 
 export async function detectImageProvider({ provider, config, model, signal }) {
+  const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
+  // Local Dream 无模型列表接口：用 /tokenize 探活（能返回 token 计数即在监听）。
+  if (resolvedProvider && resolvedProvider.localDream) {
+    try {
+      const normalized = normalizeConfig(resolvedProvider, config || {});
+      const url = localDreamEndpoint(normalized.baseUrl, LOCAL_DREAM_TOKENIZE_PATH);
+      const data = await xhrRequest({
+        method: 'POST',
+        url,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: 'connectivity check' }),
+        timeoutMs: 15000,
+        signal,
+      });
+      const count = Number(data && data.count);
+      const max = Number(data && data.max_length) || 77;
+      return {
+        ok: true,
+        mode: 'probe',
+        models: [],
+        message: Number.isFinite(count) ? `已连通（本地 CLIP 上限 ${max} token）` : '已连通',
+      };
+    } catch (error) {
+      if (error && error.name === 'AbortError') throw error;
+      return { ok: false, error: describeLocalDreamNetworkError(error) };
+    }
+  }
   try {
     const models = await listModels({ provider, config, signal });
     const normalizedModel = String(model || '').trim();
@@ -385,7 +421,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs, signal }) {
   });
 }
 
-export async function generateImage({ provider, prompt, imageFile, imageUrl, imageUri, image, model, size, seed, extra, config, imageMime, signal }) {
+export async function generateImage({ provider, prompt, imageFile, imageUrl, imageUri, image, model, size, seed, extra, config, imageMime, signal, onProgress }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
   if (!resolvedProvider) throw new Error('未知的生图服务');
   const resolvedConfig = config || extra && extra.config || {};
@@ -401,6 +437,22 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
   if (!text && !hasImage) throw new Error('请输入提示词');
   if (hasImage) {
     if (!resolvedProvider.i2i) throw new Error('该服务不支持图生图');
+  }
+  // Local Dream 端侧生图：走专用 SSE 分支（裸 RGB → PNG），不走声明式模板。
+  if (resolvedProvider.localDream) {
+    return generateLocalDreamImage({
+      provider: resolvedProvider,
+      config: resolvedConfig,
+      prompt: text,
+      image,
+      imageFile,
+      imageUri,
+      size,
+      seed,
+      extra,
+      signal,
+      onProgress,
+    });
   }
   const imageValue = image || imageFile || imageUrl || imageUri || '';
   const request = buildRequest({
@@ -441,4 +493,138 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
     }
   }
   throw lastError || new Error('生成失败');
+}
+
+// Local Dream 专用：POST /generate，SSE 流式。RN 的 fetch 无流式 body，沿用内置
+// XMLHttpRequest 的 onprogress + 累积 responseText（与 src/api.js 同一做法）。
+function generateLocalDreamImage({ provider, config, prompt, image, imageFile, imageUri, size, seed, extra, signal, onProgress }) {
+  return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(createAbortError());
+      return;
+    }
+    const normalized = normalizeConfig(provider, config);
+    const sourceImage = String(image || imageFile || imageUri || '').replace(/^data:[^;]*;base64,/, '');
+    const body = buildLocalDreamBody({
+      prompt,
+      negativePrompt: extra && extra.negativePrompt,
+      steps: extra && extra.steps,
+      cfg: extra && (extra.cfg !== undefined ? extra.cfg : extra.guidance),
+      seed,
+      size,
+      image: sourceImage || undefined,
+      mask: extra && extra.mask,
+      denoiseStrength: extra && extra.denoiseStrength,
+      scheduler: extra && extra.scheduler,
+      aspectRatio: extra && extra.aspectRatio,
+    });
+    const url = localDreamEndpoint(normalized.baseUrl, LOCAL_DREAM_GENERATE_PATH);
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    let canceled = false;
+    let completeImage = null;
+    let streamError = null;
+    let removeAbortListener = null;
+
+    const cleanup = () => {
+      if (removeAbortListener) {
+        removeAbortListener();
+        removeAbortListener = null;
+      }
+    };
+    const finishReject = error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const finishResolve = value => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const parser = createLocalDreamSseParser(event => {
+      if (event.type === 'progress') {
+        if (typeof onProgress === 'function' && event.percent !== null) onProgress(event.percent);
+        return;
+      }
+      if (event.type === 'complete') {
+        try {
+          completeImage = completeEventToImage(event);
+        } catch (error) {
+          streamError = error;
+        }
+        return;
+      }
+      if (event.type === 'error') {
+        streamError = new Error(event.message || '本地生图失败');
+      }
+    });
+
+    const onAbort = () => {
+      canceled = true;
+      try {
+        xhr.abort();
+      } catch (error) {}
+      finishReject(createAbortError());
+    };
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', onAbort, { once: true });
+      removeAbortListener = () => signal.removeEventListener('abort', onAbort);
+    }
+
+    xhr.open('POST', url);
+    try {
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('Accept', 'text/event-stream');
+    } catch (error) {}
+    xhr.onprogress = () => {
+      if (settled) return;
+      try {
+        parser.push(xhr.responseText || '');
+      } catch (error) {
+        streamError = error;
+      }
+    };
+    xhr.onload = () => {
+      if (settled) return;
+      parser.push(xhr.responseText || '');
+      parser.flush();
+      if (xhr.status < 200 || xhr.status >= 300) {
+        // 客户端错误（无效 JSON、缺 prompt 等）后端可能返回非 SSE 的 JSON 体。
+        let detail = '';
+        try {
+          detail = JSON.parse(xhr.responseText || '{}')?.error?.message
+            || JSON.parse(xhr.responseText || '{}')?.message
+            || '';
+        } catch (error) {}
+        finishReject(new Error(detail || mapHttpError(xhr.status)));
+        return;
+      }
+      if (streamError) {
+        finishReject(streamError);
+        return;
+      }
+      if (!completeImage) {
+        finishReject(new Error('本地生图未返回结果（请确认已在 Local Dream 中加载模型）'));
+        return;
+      }
+      finishResolve({ images: [{ ...completeImage }], raw: completeImage });
+    };
+    xhr.onerror = () => {
+      if (settled) return;
+      finishReject(new Error(describeLocalDreamNetworkError('Network request failed')));
+    };
+    xhr.onabort = () => {
+      if (settled) return;
+      finishReject(canceled ? createAbortError() : new Error('生成已中断'));
+    };
+    try {
+      xhr.send(JSON.stringify(body));
+    } catch (error) {
+      finishReject(error);
+    }
+  });
 }

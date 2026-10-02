@@ -218,6 +218,32 @@ export const IMAGE_PROVIDERS = [
     networkNote: '连通性由中转站决定，请使用「检测」功能验证，若失败请检查中转站状态或更换地址。',
     custom: true,
   },
+  {
+    // 端侧本地生图：对接 Local Dream（xororz/local-dream）内置的 HTTP API。
+    // 仅回环 127.0.0.1:8081、无鉴权；须先在 Local Dream 里加载模型后端才监听。
+    // 走专用 SSE 分支（见 imageGen/localDream.js），不使用本表的声明式模板。
+    id: 'local-dream',
+    label: 'Local Dream（本地端侧生图）',
+    baseUrl: 'http://127.0.0.1:8081',
+    baseUrlPlaceholder: 'http://127.0.0.1:8081',
+    method: 'POST',
+    requestFormat: 'json',
+    // 无 auth：回环端点，不显示密钥输入。
+    modelField: '',
+    defaultModel: '',
+    listModelsPath: '',
+    localDream: true,
+    probeSize: '512*512',
+    t2i: { template: null },
+    i2i: { template: null },
+    response: {},
+    timeoutMs: 300000,
+    retries: 0,
+    keyHint: '',
+    cors: 'n/a',
+    corsNote: '仅监听 127.0.0.1，只接受同一台设备上的调用，无需也不能配置跨域。',
+    networkNote: '需先安装并打开 Local Dream，加载一个 SD 模型后其 HTTP API 才会在 127.0.0.1:8081 上监听。未加载模型时会连接失败。',
+  },
 ];
 
 export function getImageProvider(id) {
@@ -226,4 +252,9 @@ export function getImageProvider(id) {
 
 export function isKnownImageProvider(id) {
   return IMAGE_PROVIDERS.some(provider => provider.id === id);
+}
+
+// 该生图服务是否需要 API 密钥：声明了 auth 就需要（本地回环服务如 local-dream 无 auth）。
+export function providerRequiresApiKey(provider) {
+  return Boolean(provider && provider.auth && provider.auth.type);
 }
