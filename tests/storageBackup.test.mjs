@@ -162,3 +162,43 @@ test('exportBackup：损坏键与读不出的媒体计入 incomplete 并回传�
   assert.equal(result.storageCount, 1);
   assert.equal(result.mediaCount, 1);
 });
+
+test('exportBackup：onProgress 依次上报 storage/media/packing/writing/done 阶段', async () => {
+  const storage = new Map([
+    ['@easychat2_a', JSON.stringify({ a: 1 })],
+    ['@easychat2_b', JSON.stringify({ b: 2 })],
+  ]);
+  const files = new Map([['file:///doc/avatars/x.jpg', 'X']]);
+  const directories = {
+    'file:///doc/avatars/': ['x.jpg'],
+    'file:///doc/stickers/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/characters/': [],
+    'file:///doc/card-forge/': [],
+  };
+  const backup = loadBackup({ storage, files, directories });
+  const phases = [];
+  const result = await backup.exportBackup({
+    appVersion: 'test',
+    onProgress: p => phases.push(p),
+  });
+  assert.ok(phases.some(p => p.phase === 'storage' && p.done === 2 && p.total === 2), '应上报数据键进度');
+  assert.ok(phases.some(p => p.phase === 'media' && p.done === 1), '应上报媒体文件进度');
+  assert.ok(phases.some(p => p.phase === 'packing'), '应上报打包阶段');
+  assert.ok(phases.some(p => p.phase === 'done'), '应上报完成阶段');
+  assert.equal(result.bytes, Buffer.byteLength(JSON.stringify(result.payload), 'utf8'));
+});
+
+test('exportBackup：signal 已中止时立即抛 AbortError（不产出文件）', async () => {
+  const storage = new Map([['@easychat2_a', JSON.stringify({ a: 1 })]]);
+  const files = new Map();
+  const directories = {};
+  const backup = loadBackup({ storage, files, directories });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    backup.exportBackup({ appVersion: 'test', signal: controller.signal }),
+    error => error && error.name === 'AbortError'
+  );
+});

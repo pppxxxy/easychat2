@@ -7,6 +7,7 @@ import {
   filterPendingMessages,
   isAllowedMediaPath,
   planBackupImport,
+  sanitizeAndFilterBackupValue,
   sanitizeBackupValue,
   validateBackupPayload,
 } from '../src/dataBackup.js';
@@ -70,4 +71,39 @@ test('validateBackupPayload/planBackupImport：版本与结构校验，模式规
   assert.equal(validateBackupPayload({ ...payload, media: [{ path: '../x', base64: 'AA==' }] }).valid, false);
   assert.equal(validateBackupPayload({ ...payload, storage: [{ key: 'other_key', value: {} }] }).valid, false);
   assert.equal(validateBackupPayload({ ...payload, storage: [{ key: '@easychat2_x', value: {} }, { key: '@easychat2_x', value: {} }] }).valid, false);
+});
+
+test('sanitizeAndFilterBackupValue：单次遍历与两次分别调用等价', () => {
+  const input = {
+    apiKey: 'sk-secret',
+    token: 'abc',
+    messages: [
+      { id: 1, text: 'hi' },
+      { id: 2, pending: true, text: 'streaming' },
+      { id: 3, text: 'ok', nested: { password: 'pw', keep: 'yes' } },
+    ],
+    secureRef: 'secure:v1:xyz',
+    list: [{ pending: true }, { pending: false, note: 'keep' }, null],
+  };
+  const combined = sanitizeAndFilterBackupValue(input);
+  const separate = filterPendingMessages(sanitizeBackupValue(input));
+  assert.deepEqual(combined, separate);
+  // 关键字段确认
+  assert.equal(combined.apiKey, '');
+  assert.equal(combined.token, '');
+  assert.equal(combined.secureRef, '');
+  assert.equal(combined.messages.length, 2, 'pending 消息应被过滤');
+  assert.equal(combined.messages[1].nested.password, '');
+  assert.equal(combined.messages[1].nested.keep, 'yes');
+});
+
+test('buildBackupPayload：合并递归后仍脱敏密钥并过滤 pending', () => {
+  const payload = buildBackupPayload({
+    appVersion: 'v',
+    storage: [{ key: '@easychat2_messages::s1', value: [{ id: 'm1', text: 'x', pending: true }, { id: 'm2', text: 'y', apiKey: 'sk-1' }] }],
+    media: [],
+  });
+  assert.equal(payload.storage[0].value.length, 1);
+  assert.equal(payload.storage[0].value[0].id, 'm2');
+  assert.equal(payload.storage[0].value[0].apiKey, '');
 });

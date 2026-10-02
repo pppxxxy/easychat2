@@ -36,6 +36,29 @@ export function filterPendingMessages(value) {
   return value;
 }
 
+// 单次遍历同时完成「密钥脱敏 + pending 过滤」：导出大对象时避免对整棵数据图
+// 递归两遍（sanitize 一遍、filter 一遍），显著降低 CPU 与临时对象分配。
+// 语义与分别调用 sanitizeBackupValue / filterPendingMessages 等价。
+export function sanitizeAndFilterBackupValue(value, key = '') {
+  if (SECRET_KEY_PATTERN.test(String(key))) return '';
+  if (typeof value === 'string') {
+    return value.startsWith('secure:v1:') ? '' : value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter(item => !item || item.pending !== true)
+      .map(item => sanitizeAndFilterBackupValue(item));
+  }
+  if (value && typeof value === 'object') {
+    const result = {};
+    Object.entries(value).forEach(([childKey, childValue]) => {
+      result[childKey] = sanitizeAndFilterBackupValue(childValue, childKey);
+    });
+    return result;
+  }
+  return value;
+}
+
 export function isAllowedMediaPath(relativePath) {
   const normalized = String(relativePath || '').replace(/^\/+/, '');
   return BACKUP_MEDIA_DIRECTORIES.some(directory => (
@@ -79,7 +102,8 @@ export function buildBackupPayload({ storage = [], media = [], appVersion = '' }
       .filter(item => item && typeof item.key === 'string')
       .map(item => ({
         key: item.key,
-        value: filterPendingMessages(sanitizeBackupValue(item.value)),
+        // 顶层不按存储键判定密钥（与原实现一致）；嵌套键才参与脱敏。
+        value: sanitizeAndFilterBackupValue(item.value),
       })),
     media: media
       .filter(item => item && isAllowedMediaPath(item.path) && typeof item.base64 === 'string')

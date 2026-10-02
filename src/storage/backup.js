@@ -13,6 +13,17 @@ import { readJsonStatus, readLargeAsyncStorageValue, utf8ByteLength } from './io
 const MANAGED_PREFIX = '@easychat2_';
 const CORRUPT_SUFFIX = '__corrupt_backup';
 
+function createAbortError() {
+  const error = new Error('导出已取消');
+  error.name = 'AbortError';
+  error.canceled = true;
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) throw createAbortError();
+}
+
 async function readRawValue(key) {
   const status = await readJsonStatus(key);
   if (status.status === 'ok') return status.value;
@@ -83,7 +94,7 @@ async function rollbackMedia(snapshot) {
   }
 }
 
-async function collectMedia(directory, prefix = '') {
+async function collectMedia(directory, prefix = '', hooks = {}) {
   const root = `${FileSystem.documentDirectory || ''}${directory}/`;
   let entries = [];
   try {
@@ -94,11 +105,12 @@ async function collectMedia(directory, prefix = '') {
   const items = [];
   const failed = [];
   for (const name of entries) {
+    if (hooks.signal && hooks.signal.aborted) throw createAbortError();
     const relative = `${prefix}${name}`;
     const uri = `${root}${relative}`;
     const info = await FileSystem.getInfoAsync(uri);
     if (info.isDirectory) {
-      const nested = await collectMedia(directory, `${relative}/`);
+      const nested = await collectMedia(directory, `${relative}/`, hooks);
       items.push(...nested.items);
       failed.push(...nested.failed);
     } else {
@@ -110,42 +122,73 @@ async function collectMedia(directory, prefix = '') {
       } catch (error) {
         failed.push(`${directory}/${relative}`);
       }
+      if (typeof hooks.onFile === 'function') hooks.onFile();
     }
   }
   return { items, failed };
 }
 
-export async function exportBackup({ appVersion = '' } = {}) {
+export async function exportBackup({ appVersion = '', onProgress, signal } = {}) {
+  const report = (phase, done, total) => {
+    if (typeof onProgress === 'function') {
+      try {
+        onProgress({ phase, done, total });
+      } catch (error) {}
+    }
+  };
+  throwIfAborted(signal);
   const keys = await AsyncStorage.getAllKeys();
+  const managedKeys = keys.filter(item => item.startsWith(MANAGED_PREFIX) && !item.endsWith(CORRUPT_SUFFIX));
   const storage = [];
   // 记录读不出的键：数据恰好损坏时最需要备份，静默跳过会让用户拿到一份
   // “看起来成功、实则残缺”的备份。这里统计并回传给 UI 明确提示。
   const unreadableKeys = [];
-  for (const key of keys.filter(item => item.startsWith(MANAGED_PREFIX) && !item.endsWith(CORRUPT_SUFFIX))) {
+  report('storage', 0, managedKeys.length);
+  for (let index = 0; index < managedKeys.length; index += 1) {
+    throwIfAborted(signal);
+    const key = managedKeys[index];
     const value = await readRawValue(key);
     if (value !== undefined) storage.push({ key, value });
     else unreadableKeys.push(key);
+    report('storage', index + 1, managedKeys.length);
   }
   const media = [];
   const unreadableMedia = [];
+  report('media', 0, 0);
+  let mediaSeen = 0;
   for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge']) {
-    const collected = await collectMedia(directory);
+    throwIfAborted(signal);
+    const collected = await collectMedia(directory, '', {
+      signal,
+      onFile: () => {
+        mediaSeen += 1;
+        report('media', mediaSeen, 0);
+      },
+    });
     media.push(...collected.items);
     unreadableMedia.push(...collected.failed);
   }
+  throwIfAborted(signal);
+  report('packing', 0, 0);
   const payload = buildBackupPayload({ storage, media, appVersion });
   const json = JSON.stringify(payload);
-  if (utf8ByteLength(json) > BACKUP_MAX_BYTES) {
+  // 只做一次字节统计，上限判断与回传复用同一结果（原实现对整包字符串扫了两遍，
+  // 大备份时是纯 CPU 的双倍开销）。
+  const bytes = utf8ByteLength(json);
+  if (bytes > BACKUP_MAX_BYTES) {
     throw new Error(`备份文件过大，当前上限为 ${Math.round(BACKUP_MAX_BYTES / 1024 / 1024)}MB`);
   }
+  throwIfAborted(signal);
+  report('writing', 0, 0);
   const uri = `${FileSystem.documentDirectory}easychat2-backup-${Date.now()}.json`;
   await FileSystem.writeAsStringAsync(uri, json);
+  report('done', 1, 1);
   return {
     uri,
     payload,
     storageCount: storage.length,
     mediaCount: media.length,
-    bytes: utf8ByteLength(json),
+    bytes,
     unreadableKeys,
     unreadableMedia,
     incomplete: unreadableKeys.length > 0 || unreadableMedia.length > 0,

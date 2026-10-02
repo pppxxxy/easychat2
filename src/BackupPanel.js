@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -19,16 +19,40 @@ import { exportBackup, importBackup } from './storage.js';
 import { validateBackupPayload } from './dataBackup.js';
 import { useTheme } from './theme/ThemeContext.js';
 
+const PHASE_LABELS = {
+  storage: '读取数据键',
+  media: '打包媒体文件',
+  packing: '生成备份文件',
+  writing: '写入备份文件',
+};
+
+function progressText(progress) {
+  if (!progress) return '处理中...';
+  const label = PHASE_LABELS[progress.phase] || '处理中';
+  if (progress.total > 0) return `${label} ${progress.done}/${progress.total}`;
+  if (progress.done > 0) return `${label} ${progress.done}`;
+  return `${label}...`;
+}
+
 export default function BackupPanel({ visible, onClose, onImported }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const exportControllerRef = useRef(null);
 
   const handleExport = async () => {
     if (busy) return;
     setBusy(true);
+    setProgress(null);
+    const controller = new AbortController();
+    exportControllerRef.current = controller;
     try {
-      const result = await exportBackup({ appVersion: '1.0.0' });
+      const result = await exportBackup({
+        appVersion: '1.0.0',
+        signal: controller.signal,
+        onProgress: setProgress,
+      });
       const summary = `${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件（${(result.bytes / 1024 / 1024).toFixed(2)}MB）`;
       // 读不出的键/文件会被跳过：必须明确告知，避免用户拿到“成功”的残缺备份。
       const incompleteNote = result.incomplete
@@ -45,10 +69,20 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         Alert.alert('导出完成', `已生成 ${summary}。`);
       }
     } catch (error) {
-      Alert.alert('导出失败', error.message || '请稍后重试。');
+      if (error && error.name === 'AbortError') {
+        Alert.alert('已取消导出', '本次备份已中止，未生成备份文件。');
+      } else {
+        Alert.alert('导出失败', error.message || '请稍后重试。');
+      }
     } finally {
+      if (exportControllerRef.current === controller) exportControllerRef.current = null;
       setBusy(false);
+      setProgress(null);
     }
+  };
+
+  const cancelExport = () => {
+    exportControllerRef.current?.abort();
   };
 
   const handleImport = async mode => {
@@ -94,8 +128,19 @@ export default function BackupPanel({ visible, onClose, onImported }) {
             <Text style={styles.hint}>备份包含角色、会话、消息、设置与媒体文件。API Key、密钥和安全存储引用不会导出。</Text>
             <TouchableOpacity style={styles.primaryButton} onPress={handleExport} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="share-outline" size={18} color={theme.colors.primaryContrast} />
-              <Text style={styles.primaryText}>{busy ? '处理中...' : '导出备份'}</Text>
+              <Text style={styles.primaryText}>{busy ? progressText(progress) : '导出备份'}</Text>
             </TouchableOpacity>
+            {busy ? (
+              <>
+                <Text style={styles.progressHint}>
+                  数据较多时导出需要一些时间，请保持 App 在前台。导出期间可随时取消。
+                </Text>
+                <TouchableOpacity style={styles.secondaryButton} onPress={cancelExport} activeOpacity={0.8}>
+                  <Ionicons name="close-circle-outline" size={18} color={theme.colors.primarySoft} />
+                  <Text style={styles.secondaryText}>取消导出</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
             <Text style={styles.sectionTitle}>恢复备份</Text>
             <TouchableOpacity style={styles.secondaryButton} onPress={() => handleImport('merge')} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="git-merge-outline" size={18} color={theme.colors.primarySoft} />
@@ -121,6 +166,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   content: { paddingBottom: 18 },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 12 },
+  progressHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginBottom: 8 },
   sectionTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginTop: 18, marginBottom: 8 },
   primaryButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, borderRadius: tokens.radius.md, paddingVertical: 12, marginBottom: 8 },
   primaryText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 6 },
