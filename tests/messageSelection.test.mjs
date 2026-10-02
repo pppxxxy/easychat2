@@ -15,6 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');
 const CHAT_TOP_BAR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'ChatTopBar.js'), 'utf8');
+const MESSAGE_LIST_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageList.js'), 'utf8');
 
 test('消息选择支持添加、移除与重复选择', () => {
   assert.deepEqual(toggleMessageSelection([], 'a'), ['a']);
@@ -54,11 +55,11 @@ test('多选态消息 Pressable 的 onLongPress 始终非空（原地松手不�
   // 选中的消息又取消，表现为「原地松手就变回原样，只有滑动才留得住多选」。
   // 因此渲染里不得出现 onLongPress={!messageSelectionOpen ? ... : undefined} 的写法。
   assert.equal(
-    CHAT_SCREEN_SOURCE.includes('onLongPress={!messageSelectionOpen ?'),
+    MESSAGE_LIST_SOURCE.includes('onLongPress={!messageSelectionOpen ?'),
     false
   );
-  assert.ok(CHAT_SCREEN_SOURCE.includes('onLongPress={() => {'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('if (messageSelectionOpen) return;'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('onLongPress={() => {'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('if (messageSelectionOpen) return;'));
 });
 
 test('多选顶栏提供全选/取消全选按钮并接线', () => {
@@ -127,6 +128,6 @@ test('MessageBubble 的引用/重选回调保持稳定引用以击穿 memo', () 
   // 渲染处不再内联箭头函数
   assert.equal(CHAT_SCREEN_SOURCE.includes("() => openGreetingPicker('reselect')"), false);
   assert.equal(CHAT_SCREEN_SOURCE.includes('() => startMessageSelection(message.id)'), false);
-  assert.ok(CHAT_SCREEN_SOURCE.includes('onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('onStartSelection={richInteractive ? startMessageSelection : undefined}'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('onStartSelection={richInteractive ? startMessageSelection : undefined}'));
 });

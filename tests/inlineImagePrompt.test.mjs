@@ -18,6 +18,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');
 const CHAT_SEND_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useChatSend.js'), 'utf8');
+const MESSAGE_LIST_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageList.js'), 'utf8');
 
 test('配图挂载到替换后的文字消息 id，而非 pending 占位符 id', () => {
   // 回归：pending 占位符会被 replyParts 替换、id 改变；继续用 pendingAssistantMessage.id
@@ -88,10 +89,10 @@ test('场景输出清洗：剥前缀/引号、压缩换行、超长截断', () =
 test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
   // 背景图（bgUri）之上再压一段「开始聊天/当前角色/请先填写 API」会显得像第二层背景。
   // 现在空状态按 bgUri 分支：有背景时只留「选择开场白」入口，无背景时才显示完整引导块。
-  const start = CHAT_SCREEN_SOURCE.indexOf('messages.length === 0 ? (');
-  const end = CHAT_SCREEN_SOURCE.indexOf('renderedMessages.map', start);
+  const start = MESSAGE_LIST_SOURCE.indexOf('messages.length === 0 ? (');
+  const end = MESSAGE_LIST_SOURCE.indexOf('renderedMessages.map', start);
   assert.ok(start > 0 && end > start, '未找到空状态渲染块');
-  const block = CHAT_SCREEN_SOURCE.slice(start, end);
+  const block = MESSAGE_LIST_SOURCE.slice(start, end);
   assert.ok(block.includes('bgUri ? ('), '空状态应按 bgUri 分支');
   const bgBranchStart = block.indexOf('bgUri ? (');
   const emptyTitleAt = block.indexOf('emptyTitle');
