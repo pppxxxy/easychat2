@@ -170,7 +170,9 @@ import {
   buildErrorRawText,
   buildGreetingMessage,
   buildInlineImagePrompt,
+  buildPersistableMessages,
   buildQuotePayload,
+  createPersistableSnapshotCache,
   settlePendingMessage,
 } from './chat/chatHelpers.js';
 import { createChatStyles } from './chat/chatStyles.js';
@@ -619,18 +621,7 @@ export default function ChatScreen() {
   }, []);
 
   const persistableMessages = useMemo(
-    () => (messages || [])
-      .filter(item => item && !item.pending)
-      .map(item => {
-        const hasWaiting = Object.prototype.hasOwnProperty.call(item, 'waitingForResponse');
-        const inlineImage = item.inlineImage;
-        const inlineImageSettled = inlineImage && inlineImage.status === 'done';
-        if (!hasWaiting && (!inlineImage || inlineImageSettled)) return item;
-        const next = { ...item };
-        delete next.waitingForResponse;
-        if (inlineImage && !inlineImageSettled) delete next.inlineImage;
-        return next;
-      }),
+    () => buildPersistableMessages(messages),
     [messages]
   );
   // 已提交（非 pending）消息：流式期间 pending 消息不参与落盘
@@ -638,20 +629,11 @@ export default function ChatScreen() {
     () => (messages || []).filter(item => item && !item.pending),
     [messages]
   );
-  const committedRef = useRef({ list: [], snapshot: '[]' });
+  const snapshotCacheRef = useRef(null);
   const persistableSnapshot = useMemo(() => {
-    // 只有“已提交消息”确实变化时才做整份 JSON.stringify：流式回复期间每个
-    // token 都会更新 messages，但已提交部分没有变（元素仍是同一批对象引用），
-    // 因此这里按引用比对即可跳过无意义的全量序列化，同时保留
-    // “用户消息一发出就落盘”的原有行为。
-    const previous = committedRef.current.list;
-    const unchanged = previous.length === committedMessages.length
-      && committedMessages.every((item, index) => item === previous[index]);
-    if (unchanged) return committedRef.current.snapshot;
-    const snapshot = JSON.stringify(persistableMessages);
-    committedRef.current = { list: committedMessages, snapshot };
-    return snapshot;
-  }, [committedMessages, persistableMessages]);
+    if (!snapshotCacheRef.current) snapshotCacheRef.current = createPersistableSnapshotCache();
+    return snapshotCacheRef.current.get(committedMessages, messages);
+  }, [committedMessages, messages]);
   const rawTextById = useMemo(() => {
     const map = new Map();
     (Array.isArray(messages) ? messages : []).forEach(message => {

@@ -5,7 +5,9 @@ import {
   buildErrorRawText,
   buildGreetingMessage,
   buildInlineImagePrompt,
+  buildPersistableMessages,
   buildQuotePayload,
+  createPersistableSnapshotCache,
   formatScrubberTime,
   getHttpStatus,
   messageTimestamp,
@@ -120,4 +122,47 @@ test('messageTimestamp：显式字段优先，退化为 id 前缀，否则 0', (
   assert.equal(messageTimestamp(null), 0);
   // 显式字段非法时退化到 id
   assert.equal(messageTimestamp({ timestamp: 0, id: '1700000000000-x' }), 1700000000000);
+});
+
+test('buildPersistableMessages：剔除 pending 并剥瞬态字段', () => {
+  const settled = { id: '1', inlineImage: { status: 'done', base64: 'xx' } };
+  const unsettled = { id: '2', inlineImage: { status: 'generating' } };
+  const waiting = { id: '3', text: 'hi', waitingForResponse: true };
+  const plain = { id: '4', text: 'ok' };
+  const pending = { id: '5', pending: true, text: 'streaming' };
+  const result = buildPersistableMessages([null, pending, waiting, unsettled, settled, plain]);
+  assert.equal(result.length, 4);
+  // waitingForResponse 被剥掉，其余字段保留
+  assert.equal(result[0].waitingForResponse, undefined);
+  assert.equal(result[0].text, 'hi');
+  // 未完成配图整体剥掉
+  assert.equal(result[1].inlineImage, undefined);
+  assert.equal('id' in result[1], true);
+  // 已完成配图保留
+  assert.deepEqual(result[2].inlineImage, { status: 'done', base64: 'xx' });
+  // 无瞬态字段的元素保持原引用（上层 memo 依赖此行为）
+  assert.equal(result[3], plain);
+  // 空入参兜底
+  assert.deepEqual(buildPersistableMessages(null), []);
+  assert.deepEqual(buildPersistableMessages(undefined), []);
+});
+
+test('createPersistableSnapshotCache：引用不变走缓存，引用变化才重算', () => {
+  const cache = createPersistableSnapshotCache();
+  // 初始空列表返回 '[]'
+  assert.equal(cache.get([], []), '[]');
+  const item = { id: 'a', text: 'x' };
+  const committed = [item];
+  const first = cache.get(committed, [item]);
+  assert.equal(first, JSON.stringify([item]));
+  // 引用未变：即使 persistable 传 null 也不应重算（返回缓存值而非 '[]'）
+  assert.equal(cache.get(committed, null), first);
+  // 引用变化（同内容新数组）：重算
+  assert.equal(cache.get([item], null), JSON.stringify([item]));
+  // 元素引用变化：重算
+  assert.equal(cache.get([{ id: 'a', text: 'x' }], [{ id: 'a', text: 'x' }]), JSON.stringify([item]));
+  // 长度变化：重算
+  assert.equal(cache.get([], null), '[]');
+  // 非数组 committed 兜底
+  assert.equal(cache.get(undefined, null), '[]');
 });
