@@ -81,7 +81,7 @@ test('hook 调用点参数不存在 TDZ：声明语句必须先于调用点结�
     return -1;
   };
 
-  for (const hookName of ['useSessionGuard', 'useSessionMessages', 'useSessionSwitch']) {
+  for (const hookName of ['useSessionGuard', 'useSessionMessages', 'useSessionSwitch', 'useChatSend']) {
     const callLine = findCallStart(hookName);
     assert.ok(callLine >= 0, `应能定位 ${hookName} 调用`);
     // 调用点参数名：从 "} = useXxx({" 起到 "});" 止（参数可能与其同行或换行）

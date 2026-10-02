@@ -17,16 +17,17 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');
+const CHAT_SEND_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useChatSend.js'), 'utf8');
 
 test('配图挂载到替换后的文字消息 id，而非 pending 占位符 id', () => {
   // 回归：pending 占位符会被 replyParts 替换、id 改变；继续用 pendingAssistantMessage.id
   // 调 generateInlineImage 会永久匹配失败（图静默不出现）。
   assert.equal(
-    CHAT_SCREEN_SOURCE.includes('generateInlineImageRef.current?.(pendingAssistantMessage.id'),
+    CHAT_SEND_SOURCE.includes('generateInlineImageRef.current?.(pendingAssistantMessage.id'),
     false,
     '不得再用 pending id 调配图'
   );
-  const call = CHAT_SCREEN_SOURCE.match(/generateInlineImageRef\.current\?\.\(([^)]*)\)/);
+  const call = CHAT_SEND_SOURCE.match(/generateInlineImageRef\.current\?\.\(([^)]*)\)/);
   assert.ok(call, '未找到配图调用');
   assert.ok(call[1].includes('inlineTarget.id'), '应使用替换后文字消息的 id');
 });

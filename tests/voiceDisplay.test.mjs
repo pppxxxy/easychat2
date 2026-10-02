@@ -20,11 +20,14 @@ test('useChatTts 提供角色语音合成：落盘到 voice/ 目录并走密钥�
 });
 
 test('ChatScreen 按 voiceDisplay 在回复 settle 后合成并挂载 audio', () => {
+  // synthesizeVoiceForReply 定义在 ChatScreen（上移至 useChatSend 调用点之前），
+  // settle 后的触发顺序在 useChatSend 的 requestReply 里。
   const source = read('src/ChatScreen.js');
+  const sendSource = read('src/chat/useChatSend.js');
   assert.match(source, /synthesizeVoiceForReply/, 'ChatScreen 应定义 settle 后的语音形态处理');
   assert.match(source, /displayMode\s*!==\s*'voice-text'\s*&&\s*displayMode\s*!==\s*'voice'/, '仅 text 形态应跳过合成');
   assert.match(source, /isGroupRef\.current\)\s*return/, '群聊暂不做角色语音');
-  assert.match(source, /autoBroadcastMessage\(replyText\);\s*\n\s*synthesizeVoiceForReply\(replyParts, replyText\);/, '语音形态处理应在自动播报后触发');
+  assert.match(sendSource, /autoBroadcastMessage\(replyText\);\s*\n\s*synthesizeVoiceForReply\(replyParts, replyText\);/, '语音形态处理应在自动播报后触发');
   assert.match(source, /voiceMode:\s*displayMode/, '挂载 audio 时应带上 voiceMode 供渲染层判定');
 });
 
@@ -62,11 +65,13 @@ test('SettingsScreen 能力弹窗提供语音识别开关并写入配置', () =>
 });
 
 test('语音兜底接线：supportsAudio 时转写失败按 input_audio 直发，失败反馈可见', () => {
+  // 发送侧已外提 useChatSend；转写侧仍在 ChatScreen
+  const sendSource = read('src/chat/useChatSend.js');
   const chatSource = read('src/ChatScreen.js');
-  assert.match(chatSource, /audioInputEnabled = !!\(current && current\.supportsAudio\)/, '发送时应读取当前来源的 supportsAudio');
-  assert.match(chatSource, /FileSystem\.readAsStringAsync\(voice\.uri, \{\s*\n\s*encoding: FileSystem\.EncodingType\.Base64,/, '兜底应读音频为 base64');
-  assert.match(chatSource, /voiceAudio,\s*\n\s*expectedConfigId,/, '兜底音频应随请求 payload 传递');
-  assert.match(chatSource, /voiceAudio,\s*\n\s*\}\);/, 'requestReply 应把兜底音频传给 buildRequestMessages');
+  assert.match(sendSource, /audioInputEnabled = !!\(current && current\.supportsAudio\)/, '发送时应读取当前来源的 supportsAudio');
+  assert.match(sendSource, /FileSystem\.readAsStringAsync\(voice\.uri, \{\s*\n\s*encoding: FileSystem\.EncodingType\.Base64,/, '兜底应读音频为 base64');
+  assert.match(sendSource, /voiceAudio,\s*\n\s*expectedConfigId,/, '兜底音频应随请求 payload 传递');
+  assert.match(sendSource, /voiceAudio,\s*\n\s*\}\);/, 'requestReply 应把兜底音频传给 buildRequestMessages');
   assert.match(chatSource, /voice-transcribe/, '转写失败应记录诊断日志');
   assert.match(chatSource, /语音转写失败/, '网络类转写失败应有可见提示');
   assert.match(chatSource, /未配置语音转写/, '无转写来源时应有补配引导');
