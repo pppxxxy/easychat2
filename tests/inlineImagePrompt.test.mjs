@@ -16,6 +16,7 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
+const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');
 
 test('配图挂载到替换后的文字消息 id，而非 pending 占位符 id', () => {
   // 回归：pending 占位符会被 replyParts 替换、id 改变；继续用 pendingAssistantMessage.id
@@ -107,10 +108,10 @@ test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
 });
 
 test('默认角色空会话首次进入自动显示教学开场白（仅内置角色、仅一次）', () => {
-  // 仅内置默认角色、仅空会话、且从未自动展示过时才注入。
-  const autoStart = CHAT_SCREEN_SOURCE.indexOf('默认角色（内置助手）的空会话');
+  // 仅内置默认角色、仅空会话、且从未自动展示过时才注入。（已外提至 useSessionMessages）
+  const autoStart = SESSION_MESSAGES_SOURCE.indexOf('默认角色（内置助手）的空会话');
   // 取自动展示分支的固定窗口：从注释/条件判断到该分支结束（含打标记与 return）
-  const block = CHAT_SCREEN_SOURCE.slice(autoStart, autoStart + 1200);
+  const block = SESSION_MESSAGES_SOURCE.slice(autoStart, autoStart + 1200);
   assert.ok(block, '未找到默认角色自动开场白分支');
   assert.ok(block.includes('hasShownDefaultGreeting'), '应检查是否已展示过');
   assert.ok(block.includes('markDefaultGreetingShown'), '展示后应打标记');

@@ -74,6 +74,7 @@
     "src/chat/useChatTts.js",
     "src/chat/useChatModelThinking.js",
     "src/chat/useSessionGuard.js",
+    "src/chat/useSessionMessages.js",
     "src/chat/chatStyles.js",
     "src/localModel/ModelSearchModal.js",
     "src/localModel/ModelLogsModal.js",
