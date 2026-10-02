@@ -350,6 +350,19 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
   },
+  loadEarlierButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 8,
+    marginBottom: 4,
+    borderRadius: 16,
+    backgroundColor: 'rgba(128,128,128,0.18)',
+  },
+  loadEarlierText: {
+    fontSize: 13,
+    opacity: 0.75,
+  },
   emptyGreetingButton: {
     marginTop: 14,
     paddingHorizontal: 18,

@@ -123,3 +123,17 @@ test('hook 调用点参数不存在 TDZ：声明语句必须先于调用点结�
     }
   }
 });
+
+test('MessageList 窗口化虚拟化：尾部窗口、扩窗入口与真实动画距离', () => {
+  const messageListSource = readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageList.js'), 'utf8');
+  // 只渲染尾部 windowSize 条
+  assert.ok(messageListSource.includes('renderedMessages.slice(totalCount - windowSize)'));
+  // 有隐藏消息时提供「加载更早消息」入口
+  assert.ok(messageListSource.includes('hiddenCount > 0 ? ('));
+  assert.ok(messageListSource.includes('onPress={onExpandWindow}'));
+  // 入场动画距离按全量列表计算（窗口内 index 加上被切走的偏移）
+  assert.ok(messageListSource.includes('totalCount - 1 - (hiddenCount + index)'));
+  // ChatScreen：定位窗口外消息时扩窗重试；切会话重置窗口
+  assert.ok(CHAT_SCREEN_SOURCE.includes('expandMessageWindow(MESSAGE_WINDOW_STEP_SCROLL)'));
+  assert.ok(CHAT_SCREEN_SOURCE.includes('setMessageWindowSize(MESSAGE_WINDOW_INITIAL);'));
+});

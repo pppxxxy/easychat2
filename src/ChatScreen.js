@@ -119,6 +119,9 @@ import {
   ASSISTANT_ID,
   NEAR_BOTTOM_THRESHOLD,
   USER_ID,
+  MESSAGE_WINDOW_INITIAL,
+  MESSAGE_WINDOW_STEP,
+  MESSAGE_WINDOW_STEP_SCROLL,
 } from './chat/chatConstants.js';
 import {
   buildInlineImagePrompt,
@@ -502,6 +505,18 @@ export default function ChatScreen() {
     }),
     [messages, character.regexScripts, characterMap, sessionOwnerMissing]
   );
+  const renderedMessagesRef = useRef([]);
+  renderedMessagesRef.current = renderedMessages;
+  // 列表窗口化：默认只挂载尾部消息，向上翻历史时手动/自动扩窗（见 MessageList 与
+  // scrollToMessage）。切会话时重置回默认窗口。
+  const [messageWindowSize, setMessageWindowSize] = useState(MESSAGE_WINDOW_INITIAL);
+  const expandMessageWindow = useCallback((step = MESSAGE_WINDOW_STEP) => {
+    setMessageWindowSize(current => {
+      const total = renderedMessagesRef.current.length;
+      if (total <= 0) return current;
+      return Math.min(total, current + step);
+    });
+  }, []);
 
   const regenerableIds = useMemo(() => {
     const ids = new Set();
@@ -526,6 +541,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     autoSummaryAttemptRef.current = { sessionId: '', signature: '' };
+    setMessageWindowSize(MESSAGE_WINDOW_INITIAL);
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -590,11 +606,13 @@ export default function ChatScreen() {
       if (typeof offset === 'number') {
         scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
       } else if (tries > 0) {
+        // 目标可能在窗口外：扩窗后等布局回填 offsets 再重试
+        expandMessageWindow(MESSAGE_WINDOW_STEP_SCROLL);
         setTimeout(() => attempt(tries - 1), 120);
       }
     };
     setTimeout(() => attempt(6), 60);
-  }, []);
+  }, [expandMessageWindow]);
 
   const onMessageLayout = useCallback((id, event) => {
     messageOffsetsRef.current[id] = event.nativeEvent.layout.y;
@@ -2024,6 +2042,8 @@ export default function ChatScreen() {
         characterMap={ characterMap }
         selectedMessageIdSet={ selectedMessageIdSet }
         messageSelectionOpen={ messageSelectionOpen }
+        windowSize={ messageWindowSize }
+        onExpandWindow={ expandMessageWindow }
         chatOptions={ chatOptions }
         errorRawRef={ errorRawRef }
         rawTextById={ rawTextById }

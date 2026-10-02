@@ -32,6 +32,8 @@ function MessageList({
   characterMap,
   selectedMessageIdSet,
   messageSelectionOpen,
+  windowSize,
+  onExpandWindow,
   chatOptions,
   errorRawRef,
   rawTextById,
@@ -60,6 +62,12 @@ function MessageList({
   ready,
   isSending,
 }) {
+  // 窗口化：只渲染尾部 windowSize 条；被切走的更早消息通过「加载更早消息」放开。
+  const totalCount = renderedMessages.length;
+  const visibleMessages = totalCount > windowSize
+    ? renderedMessages.slice(totalCount - windowSize)
+    : renderedMessages;
+  const hiddenCount = totalCount - visibleMessages.length;
   return (
       <ScrollView
         ref={scrollRef}
@@ -112,7 +120,21 @@ function MessageList({
             </View>
           )
         ) : (
-          renderedMessages.map((message, index) => {
+          [
+            hiddenCount > 0 ? (
+              <TouchableOpacity
+                key="load-earlier"
+                style={styles.loadEarlierButton}
+                onPress={onExpandWindow}
+                accessibilityRole="button"
+                accessibilityLabel="加载更早消息"
+              >
+                <Text style={styles.loadEarlierText}>
+                  加载更早消息（还有 {hiddenCount} 条）
+                </Text>
+              </TouchableOpacity>
+            ) : null,
+            ...visibleMessages.map((message, index) => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
             const selected = selectedMessageIdSet.has(String(message.id || ''));
             const richInteractive =
@@ -123,7 +145,7 @@ function MessageList({
               && shouldRenderRichHtml(message.text, chatOptions.richHtml !== false);
             // 富 HTML 消息内含 WebView：外层 Pressable 会抢走手势，导致卡片内部滚不动。
             // 非多选状态下不包 Pressable，多选入口改由三点菜单的「选择消息」提供。
-            const distanceFromBottom = renderedMessages.length - 1 - index;
+            const distanceFromBottom = totalCount - 1 - (hiddenCount + index);
             const shouldAnimate = distanceFromBottom < 15;
             const entryDelay = distanceFromBottom * 40;
             const body = (
@@ -214,7 +236,8 @@ function MessageList({
                 {body}
               </Pressable>
             );
-          })
+            }),
+          ]
         )}
       </ScrollView>
   );

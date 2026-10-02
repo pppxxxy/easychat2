@@ -90,7 +90,7 @@ test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
   // 背景图（bgUri）之上再压一段「开始聊天/当前角色/请先填写 API」会显得像第二层背景。
   // 现在空状态按 bgUri 分支：有背景时只留「选择开场白」入口，无背景时才显示完整引导块。
   const start = MESSAGE_LIST_SOURCE.indexOf('messages.length === 0 ? (');
-  const end = MESSAGE_LIST_SOURCE.indexOf('renderedMessages.map', start);
+  const end = MESSAGE_LIST_SOURCE.indexOf('visibleMessages.map', start);
   assert.ok(start > 0 && end > start, '未找到空状态渲染块');
   const block = MESSAGE_LIST_SOURCE.slice(start, end);
   assert.ok(block.includes('bgUri ? ('), '空状态应按 bgUri 分支');
