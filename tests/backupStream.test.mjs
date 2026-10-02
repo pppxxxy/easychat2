@@ -59,6 +59,30 @@ test('单个超大 base64 被切成多片，拼接后仍逐字一致', () => {
   assert.equal(chunks.join(''), JSON.stringify(payload));
 });
 
+test('切点不切断代理对：分片总字节数与整包 UTF-8 编码一致', () => {
+  // JSON.stringify 只转义孤立代理，成对的星平面字符（emoji）按原样输出，
+  // 因此分片若从代理对中间切开，两半各自编码会变成 U+FFFD，字节数也会不同。
+  const encoder = new TextEncoder();
+  for (const offset of [0, 1, 2, 3]) {
+    const filler = 'A'.repeat(BACKUP_CHUNK_CHARS - 1 - offset);
+    const payload = { t: filler + '😀' + 'B'.repeat(50) };
+    const whole = JSON.stringify(payload);
+    const chunks = createBackupChunks(payload);
+    assert.equal(chunks.join(''), whole, `offset ${offset}：拼接应与 stringify 一致`);
+    const wholeBytes = encoder.encode(whole).length;
+    let chunkBytes = 0;
+    for (const chunk of chunks) chunkBytes += encoder.encode(chunk).length;
+    assert.equal(chunkBytes, wholeBytes, `offset ${offset}：分片字节数与整包应一致`);
+    for (const chunk of chunks) {
+      assert.equal(
+        /[\uD800-\uDBFF]$/.test(chunk) || /^[\uDC00-\uDFFF]/.test(chunk),
+        false,
+        `offset ${offset}：分片不应以孤立代理开头或结尾`,
+      );
+    }
+  }
+});
+
 test('生成器惰性产出：不在首个片段前构造整包字符串', () => {
   const generator = createBackupChunkGenerator({
     schemaVersion: 1,

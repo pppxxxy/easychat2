@@ -18,8 +18,25 @@ function* splitLongString(text, size = BACKUP_CHUNK_CHARS) {
     yield text;
     return;
   }
-  for (let index = 0; index < text.length; index += size) {
-    yield text.slice(index, index + size);
+  let index = 0;
+  while (index < text.length) {
+    let end = Math.min(index + size, text.length);
+    // 切点不能落在代理对中间：分片各自 UTF-8 编码时，孤立的高/低代理会变成
+    // U+FFFD（各 3 字节），既损坏内容又让写入字节数与整包编码不一致。
+    // JSON.stringify 只转义孤立代理，成对星平面字符（如 emoji）是按原样输出的，
+    // 因此这里必须主动回退一位。
+    if (
+      end < text.length
+      && end - 1 > index
+      && text.charCodeAt(end - 1) >= 0xd800
+      && text.charCodeAt(end - 1) <= 0xdbff
+      && text.charCodeAt(end) >= 0xdc00
+      && text.charCodeAt(end) <= 0xdfff
+    ) {
+      end -= 1;
+    }
+    yield text.slice(index, end);
+    index = end;
   }
 }
 
