@@ -36,6 +36,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Stamp dynamic versionCode
+        # app.json 的 versionCode 是固定值，Gradle 路径每次都打同一个 versionCode，
+        # 手机上覆盖安装会一直失败（只能先卸载）。这里按 run_number 单调递增写回，
+        # 起跳 1000 以避开历史 versionCode(2)。EAS 路径由 appVersionSource:remote 管理，不受影响。
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const file = 'app.json';
+          const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+          config.expo.android = config.expo.android || {};
+          const runNumber = Number(process.env.GITHUB_RUN_NUMBER || 0);
+          config.expo.android.versionCode = 1000 + runNumber;
+          fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+          console.log(`versionCode -> ${config.expo.android.versionCode}`);
+          NODE
+
       - name: Generate Android project
         run: npx expo prebuild --platform android --non-interactive --clean
 

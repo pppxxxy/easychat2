@@ -314,6 +314,8 @@ export default function ChatScreen() {
   const draftSessionIdRef = useRef('');
   const draftTextRef = useRef('');
   const draftSaveTimerRef = useRef(null);
+  // 上一次处理过的主动消息刷新计数：用于把「主动消息落库刷新」与「切会话」区分开。
+  const refreshTickRef = useRef(messageRefreshTick);
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const inputSelectionRef = useRef({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
@@ -787,6 +789,30 @@ export default function ChatScreen() {
       const loadSessionId = String(activeSessionId || '');
       const previousSessionId = String(draftSessionIdRef.current || '');
       const sessionChanged = previousSessionId !== loadSessionId;
+      const tickChanged = refreshTickRef.current !== messageRefreshTick;
+      // 后台主动消息落库会把 messageRefreshTick 推进，但会话并未切换。这条路径
+      // 只把新落库的消息读回来：绝不清空正在输入的草稿、删除已选附件，也不打断
+      // 进行中的请求。正在发送/流式时索性不覆盖本地消息，避免丢掉尚未落盘的回复；
+      // 此时不消费 tick，等下一次刷新再补。
+      if (!sessionChanged && tickChanged && loadSessionId) {
+        if (sendLockRef.current || abortRef.current) return undefined;
+        refreshTickRef.current = messageRefreshTick;
+        let tickCancelled = false;
+        getMessagesBySessionStatus(loadSessionId)
+          .then(result => {
+            if (tickCancelled) return;
+            if (!result || result.status !== 'ok') return;
+            const refreshed = Array.isArray(result.messages) ? result.messages : [];
+            // 同步落盘基准，避免随后把刚读回的消息当成本地改动又写一遍。
+            lastSavedSnapshotRef.current = JSON.stringify(refreshed);
+            setMessages(refreshed);
+          })
+          .catch(() => {});
+        return () => {
+          tickCancelled = true;
+        };
+      }
+      refreshTickRef.current = messageRefreshTick;
       if (draftSaveTimerRef.current) {
         clearTimeout(draftSaveTimerRef.current);
         draftSaveTimerRef.current = null;
@@ -1149,7 +1175,9 @@ export default function ChatScreen() {
   }, []);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
-    const current = messages.find(item => isGreetingMessage(item, activeSessionIdRef.current));
+    // 用 messagesRef 读取当前消息：回调不该因为流式回复更新 messages 而换引用，
+    // 否则会给每个 MessageBubble 传新的 onReselectGreeting，击穿 React.memo。
+    const current = messagesRef.current.find(item => isGreetingMessage(item, activeSessionIdRef.current));
     const template = String((current && (current.greetingTemplate || current.text)) || '');
     const foundIndex = greetingCandidates.findIndex(item => item.text === template);
     const initialSelectedIndex = current
@@ -1160,7 +1188,7 @@ export default function ChatScreen() {
       candidates: greetingCandidates,
       initialSelectedIndex,
     });
-  }, [greetingCandidates, messages]);
+  }, [greetingCandidates]);
 
   const confirmGreeting = useCallback(async result => {
      const flow = greetingPicker;
@@ -2709,14 +2737,17 @@ if (!isCurrent() || controller.signal.aborted) return false;
 
   const onPressQuoteBlock = useCallback(quote => {
     if (!quote || !quote.id) return;
-    const exists = messages.some(item => item.id === quote.id);
+    // 用 messagesRef 查询存在性：若依赖 messages，流式回复期间每个 token 都会让
+    // 这个回调换引用，进而击穿 MessageBubble 的 React.memo，导致全体历史气泡
+    // 每 token 全量重渲染并重跑 Markdown 解析。
+    const exists = messagesRef.current.some(item => item.id === quote.id);
     if (!exists) {
       Alert.alert('原消息已删除', '无法定位到被引用的消息。');
       return;
     }
     setFocusedMessageId(quote.id);
     scrollToMessage(quote.id);
-  }, [messages, scrollToMessage]);
+  }, [scrollToMessage]);
 
   const startMessageSelection = useCallback(messageId => {
     if (!messageId || !ready || isSending) return;
@@ -2728,6 +2759,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
     setSearchOpen(false);
     setMoreOpen(false);
   }, [isSending, ready]);
+
+  // 传给 MessageBubble 的稳定引用：把「按消息 id 分派」的包装放在这里，渲染处
+  // 不再内联箭头函数（内联箭头每次渲染都是新引用，会击穿 React.memo）。
+  const onReselectGreeting = useCallback(() => {
+    openGreetingPicker('reselect');
+  }, [openGreetingPicker]);
 
   const toggleSelectedMessage = useCallback(messageId => {
     if (!messageId || !ready || isSending) return;
@@ -3876,8 +3913,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
                       isActiveMatch={focusedMessageId === message.id}
                       fullWidth={chatOptions.fullWidth}
                       richHtmlEnabled={chatOptions.richHtml !== false}
-                      onReselectGreeting={sessionOwnerMissing ? undefined : () => openGreetingPicker('reselect')}
-                      onStartSelection={richInteractive ? () => startMessageSelection(message.id) : undefined}
+                      onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}
+                      onStartSelection={richInteractive ? startMessageSelection : undefined}
                       thinkingDisplay={thinkingDisplay}
                       overlayActions={!!bgUri}
                       selectionMode={messageSelectionOpen}

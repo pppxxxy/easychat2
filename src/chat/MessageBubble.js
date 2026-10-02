@@ -192,7 +192,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           ? { key: 'regenerate', label: '重新生成', icon: 'reload-outline', onPress: () => onRegenerate?.(message.id) }
           : null),
       onStartSelection
-        ? { key: 'select-message', label: '选择消息', icon: 'checkmark-circle-outline', onPress: onStartSelection }
+        ? { key: 'select-message', label: '选择消息', icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
         : null,
     ].filter(Boolean);
 

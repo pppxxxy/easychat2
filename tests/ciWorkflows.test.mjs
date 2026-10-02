@@ -34,3 +34,19 @@ test('workflows 的 actions/* 固定到 commit SHA', () => {
   }
   assert.ok(checked > 0, '应至少检查到一个 actions/* 引用');
 });
+
+test('GitHub Gradle APK 工作流动态写入 versionCode，避免覆盖安装失败', () => {
+  // app.json 的 versionCode 是固定值：Gradle 路径每次打同一个 versionCode，
+  // 覆盖安装会失败。工作流需在 prebuild 前按 run_number 写回一个单调递增的值。
+  const gradleFlow = readFileSync(
+    path.join(WORKFLOW_DIR, 'build-apk-github.yml'),
+    'utf8'
+  );
+  assert.match(gradleFlow, /versionCode = 1000 \+ runNumber/);
+  assert.ok(gradleFlow.includes('GITHUB_RUN_NUMBER: ${{ github.run_number }}'));
+  // 必须在生成原生工程之前写回，否则 versionCode 不生效
+  assert.ok(
+    gradleFlow.indexOf('Stamp dynamic versionCode') < gradleFlow.indexOf('expo prebuild'),
+    'versionCode 注入必须早于 prebuild'
+  );
+});
