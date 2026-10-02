@@ -501,9 +501,15 @@ Accept: text/event-stream
 
 **发送前校验**: `baseUrl` 为空抛「请先填写 API 地址」；无可用模型抛「请先添加并选择模型」；`protocol === 'anthropic'` 抛「Claude 协议暂未开放」。避免空地址或空模型静默回退到默认端点与模型。
 
-流式响应为 SSE，每个事件的数据行形如：
+流式响应为 SSE，事件以空行分隔，数据行形如：
 
 ```
+data: {"choices":[{"delta":{"content":"增量文本"}}}
+
+data: [DONE]
+```
+
+同一事件可跨多个 `data:` 行：解析器按规范用换行拼接后再 `JSON.parse`；对不补空行、直接连发完整 `data:` 的服务端也能逐条解析（追加新行前先试探上一条是否已是完整事件，可解析则先派发）。
 data: {"choices":[{"delta":{"content":"增量文本"}}]}
 
 data: [DONE]

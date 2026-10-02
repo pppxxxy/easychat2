@@ -120,6 +120,42 @@ test('流式数组正文会合并文本 part', async () => {
   }
 });
 
+test('SSE 单个事件跨多个 data 行时按规范拼接后再解析', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  // 同一事件内 JSON 被拆到两行 data:（在 token 之间换行，JSON 视换行为空白），
+  // 按规范用 \n 拼接后才能解析出完整增量。
+  FakeXHR.responseText = 'data: {"choices":[{"delta":\n'
+    + 'data: {"content":"你好"}}]}\n\ndata: [DONE]\n\n';
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { sendChatMessage } = loadApi();
+    const result = await sendChatMessage([{ role: 'user', content: 'hi' }]);
+    assert.equal(result, '你好');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
+  }
+});
+
+test('SSE 事件间无空行时逐条按完整事件解析', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  // 部分服务端不补空行，直接连发完整 data:：第一条能独立解析，应先派发再累积下一条。
+  FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你"}}]}\n'
+    + 'data: {"choices":[{"delta":{"content":"好"}}]}\n'
+    + 'data: [DONE]\n';
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { sendChatMessage } = loadApi();
+    const result = await sendChatMessage([{ role: 'user', content: 'hi' }]);
+    assert.equal(result, '你好');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
+  }
+});
+
 test('请求结束前配置指纹变化时丢弃旧来源回复', async () => {
   const originalXHR = globalThis.XMLHttpRequest;
   FakeXHR.autoRespond = false;

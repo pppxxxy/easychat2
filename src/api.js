@@ -227,6 +227,7 @@ export async function sendChatMessage(messages, options = {}) {
     const xhr = new XMLHttpRequest();
     let consumed = 0;
     let lineBuffer = '';
+    let dataLines = [];
     let fullText = '';
     let fullReasoning = '';
     let sawSse = false;
@@ -319,12 +320,33 @@ export async function sendChatMessage(messages, options = {}) {
       }, waitingFirstByte ? FIRST_BYTE_TIMEOUT_MS : IDLE_TIMEOUT_MS);
     };
 
-    const handleLine = line => {
-      if (settled) return;
-      const trimmed = line.replace(/\r$/, '').trim();
-      if (!trimmed || trimmed.startsWith(':')) return;
-      if (!trimmed.startsWith('data:')) return;
-      const payloadText = trimmed.slice(5).trim();
+    const tryDispatch = () => {
+      if (settled || dataLines.length === 0) return false;
+      const joined = dataLines.join('\n').trim();
+      if (!joined) {
+        dataLines = [];
+        return false;
+      }
+      if (joined === '[DONE]') {
+        dispatchEvent();
+        return true;
+      }
+      try {
+        JSON.parse(joined);
+      } catch (error) {
+        return false;
+      }
+      dispatchEvent();
+      return true;
+    };
+
+    const dispatchEvent = () => {
+      if (settled || dataLines.length === 0) {
+        dataLines = [];
+        return;
+      }
+      const payloadText = dataLines.join('\n').trim();
+      dataLines = [];
       if (!payloadText) return;
       sawSse = true;
       if (payloadText === '[DONE]') {
@@ -356,6 +378,22 @@ export async function sendChatMessage(messages, options = {}) {
       if (!delta) return;
       fullText += delta;
       if (onChunk) onChunk(fullText);
+    };
+
+    // SSE 事件由若干行组成、以空行分隔；同一事件的多个 `data:` 行需按规范用
+    // 换行拼接后再解析。但部分服务端不补空行，直接连发多条完整 `data:`，因此
+    // 追加新行前先试探上一段是否已是完整事件：能解析就先派发，否则继续累积。
+    const handleLine = line => {
+      if (settled) return;
+      const trimmed = line.replace(/\r$/, '').trim();
+      if (!trimmed) {
+        dispatchEvent();
+        return;
+      }
+      if (trimmed.startsWith(':')) return;
+      if (!trimmed.startsWith('data:')) return;
+      tryDispatch();
+      dataLines.push(trimmed.slice(5).trim());
     };
 
     const drainIncremental = () => {
@@ -414,6 +452,7 @@ export async function sendChatMessage(messages, options = {}) {
           handleLine(lineBuffer);
           lineBuffer = '';
         }
+        dispatchEvent();
       } catch (error) {
         fail(error);
         return;
