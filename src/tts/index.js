@@ -2,6 +2,7 @@ import { Buffer } from 'buffer';
 
 import { TTS_MAX_CHARS, getTtsProvider } from './providers.js';
 import { registerSecretValues } from '../secrets.js';
+import vendorXhr from '../vendorHttp.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -312,177 +313,91 @@ function extractServiceError(parsed) {
 }
 
 function xhrJson({ method, url, headers, body, timeoutMs, signal }) {
-  return new Promise((resolve, reject) => {
-    if (signal && signal.aborted) {
-      reject(createTtsAbortError());
-      return;
-    }
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-    const onAbort = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(createTtsAbortError());
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(new Error('播报超时，请稍后重试'));
-    }, timeoutMs || DEFAULT_TIMEOUT_MS);
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onAbort);
-      }
-      fn(value);
-    };
-    if (signal && typeof signal.addEventListener === 'function') {
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    xhr.open(method || 'POST', url);
-    Object.entries(headers || {}).forEach(([key, value]) => {
-      try {
-        xhr.setRequestHeader(key, value);
-      } catch (error) {}
-    });
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, new Error(mapHttpError(xhr.status)));
-        return;
-      }
-      try {
-        finish(resolve, JSON.parse(xhr.responseText || '{}'));
-      } catch (error) {
-        finish(reject, new Error('播报返回无法解析'));
-      }
-    };
-    xhr.onerror = () => finish(reject, new Error('播报网络请求失败'));
-    xhr.onabort = () => finish(reject, new Error('播报已中断'));
-    try {
-      xhr.send(body || null);
-    } catch (error) {
-      finish(reject, error);
-    }
+  return vendorXhr({
+    method: method || 'POST',
+    url,
+    headers,
+    body,
+    signal,
+    timeoutMs,
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    onTimeoutError: () => new Error('播报超时，请稍后重试'),
+    onAbortError: () => createTtsAbortError(),
+    onAbortEventError: () => new Error('播报已中断'),
+    onNetworkError: () => new Error('播报网络请求失败'),
+    onHttpError: status => new Error(mapHttpError(status)),
+    parse: xhr => JSON.parse(xhr.responseText || '{}'),
+    onParseError: () => new Error('播报返回无法解析'),
   });
 }
 
 function xhrAudio({ method, url, headers, body, timeoutMs, mode, path, signal }) {
-  return new Promise((resolve, reject) => {
-    if (signal && signal.aborted) {
-      reject(createTtsAbortError());
-      return;
-    }
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-    const onAbort = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(createTtsAbortError());
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(new Error('播报超时，请稍后重试'));
-    }, timeoutMs || DEFAULT_TIMEOUT_MS);
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onAbort);
-      }
-      fn(value);
-    };
-    if (signal && typeof signal.addEventListener === 'function') {
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    xhr.open(method || 'POST', url);
-    if (mode !== 'base64') {
-      try {
-        xhr.responseType = 'arraybuffer';
-      } catch (error) {}
-    }
-    Object.entries(headers || {}).forEach(([key, value]) => {
-      try {
-        xhr.setRequestHeader(key, value);
-      } catch (error) {}
-    });
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, new Error(mapHttpError(xhr.status)));
-        return;
-      }
-      if (mode === 'base64' || mode === 'hex') {
-        let raw = '';
-        let parsed = null;
-        try {
-          parsed = JSON.parse(xhr.responseText || '{}');
-          raw = String(getByPath(parsed, path) || '');
-        } catch (error) {
-          raw = '';
-          parsed = null;
-        }
-        if (!raw) {
-          const serviceError = extractServiceError(parsed);
-          finish(reject, new Error(serviceError || '未获取到音频数据'));
-          return;
-        }
-        // MiniMax 等平台的 audio 是 hex 编码（官方默认），按 base64 解会得到坏音频。
-        if (mode === 'hex') {
-          finish(resolve, { base64: Buffer.from(raw, 'hex').toString('base64') });
-          return;
-        }
-        finish(resolve, { base64: raw });
-        return;
-      }
-      const response = xhr.response;
-      if (!response || (typeof response === 'string' && !response)) {
-        finish(reject, new Error('未获取到音频数据'));
-        return;
-      }
-      // HTTP 200 但实际是 JSON 错误体（百度常见）：音频二进制不会以 '{' 开头，
-      // 命中则解析出真实错误，不再报"音频数据无法解码"。
-      try {
-        const bytes = response instanceof ArrayBuffer ? new Uint8Array(response) : null;
-        if (bytes && bytes.length > 0 && bytes[0] === 0x7b) {
-          const parsed = JSON.parse(Buffer.from(bytes).toString('utf8'));
-          const serviceError = extractServiceError(parsed);
-          if (serviceError) {
-            finish(reject, new Error(serviceError));
-            return;
-          }
-        }
-      } catch (error) {}
-      try {
-        finish(resolve, { base64: arrayBufferToBase64(response) });
-      } catch (error) {
-        finish(reject, new Error('音频数据无法解码'));
-      }
-    };
-    xhr.onerror = () => finish(reject, new Error('播报网络请求失败'));
-    xhr.onabort = () => finish(reject, new Error('播报已中断'));
-    try {
-      xhr.send(body || null);
-    } catch (error) {
-      finish(reject, error);
-    }
+  return vendorXhr({
+    method: method || 'POST',
+    url,
+    headers,
+    body,
+    signal,
+    timeoutMs,
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    responseType: mode !== 'base64' ? 'arraybuffer' : undefined,
+    onTimeoutError: () => new Error('播报超时，请稍后重试'),
+    onAbortError: () => createTtsAbortError(),
+    onAbortEventError: () => new Error('播报已中断'),
+    onNetworkError: () => new Error('播报网络请求失败'),
+    onHttpError: status => new Error(mapHttpError(status)),
+    parse: xhr => parseAudioResponse(xhr, { mode, path }),
+    onParseError: error => (
+      error && error.__audioError ? error : new Error('音频数据无法解码')
+    ),
   });
+}
+
+function parseAudioResponse(xhr, { mode, path }) {
+  if (mode === 'base64' || mode === 'hex') {
+    let raw = '';
+    let parsed = null;
+    try {
+      parsed = JSON.parse(xhr.responseText || '{}');
+      raw = String(getByPath(parsed, path) || '');
+    } catch (error) {
+      raw = '';
+      parsed = null;
+    }
+    if (!raw) {
+      const serviceError = extractServiceError(parsed);
+      throw tagAudioError(new Error(serviceError || '未获取到音频数据'));
+    }
+    // MiniMax 等平台的 audio 是 hex 编码（官方默认），按 base64 解会得到坏音频。
+    if (mode === 'hex') {
+      return { base64: Buffer.from(raw, 'hex').toString('base64') };
+    }
+    return { base64: raw };
+  }
+  const response = xhr.response;
+  if (!response || (typeof response === 'string' && !response)) {
+    throw tagAudioError(new Error('未获取到音频数据'));
+  }
+  // HTTP 200 但实际是 JSON 错误体（百度常见）：音频二进制不会以 '{' 开头，
+  // 命中则解析出真实错误，不再报"音频数据无法解码"。
+  try {
+    const bytes = response instanceof ArrayBuffer ? new Uint8Array(response) : null;
+    if (bytes && bytes.length > 0 && bytes[0] === 0x7b) {
+      const parsed = JSON.parse(Buffer.from(bytes).toString('utf8'));
+      const serviceError = extractServiceError(parsed);
+      if (serviceError) {
+        throw tagAudioError(new Error(serviceError));
+      }
+    }
+  } catch (error) {
+    if (error && error.__audioError) throw error;
+  }
+  return { base64: arrayBufferToBase64(response) };
+}
+
+function tagAudioError(error) {
+  error.__audioError = true;
+  return error;
 }
 
 export async function synthesize({ provider, config = {}, text, signal = null }) {

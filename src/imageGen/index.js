@@ -1,5 +1,6 @@
 import { getImageProvider } from './providers.js';
 import { registerSecretValues } from '../secrets.js';
+import vendorXhr from '../vendorHttp.js';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 0;
@@ -364,71 +365,23 @@ function wait(ms) {
 }
 
 function xhrRequest({ method, url, headers, body, timeoutMs, signal }) {
-  return new Promise((resolve, reject) => {
-    if (signal && signal.aborted) {
-      reject(createAbortError());
-      return;
-    }
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-    let canceled = false;
-    let removeAbortListener = null;
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (removeAbortListener) {
-        removeAbortListener();
-        removeAbortListener = null;
-      }
-      fn(value);
-    };
-    const timer = setTimeout(() => {
-      finish(reject, new Error('生成超时，请稍后重试'));
-      try {
-        xhr.abort();
-      } catch (error) {}
-    }, timeoutMs || DEFAULT_TIMEOUT_MS);
-    if (signal) {
-      const onAbort = () => {
-        canceled = true;
-        finish(reject, createAbortError());
-        try {
-          xhr.abort();
-        } catch (error) {}
-      };
-      signal.addEventListener('abort', onAbort);
-      removeAbortListener = () => signal.removeEventListener('abort', onAbort);
-      if (signal.aborted) onAbort();
-      if (settled) return;
-    }
-    xhr.open(method || 'POST', url);
-    Object.entries(headers || {}).forEach(([key, value]) => {
-      try {
-        xhr.setRequestHeader(key, value);
-      } catch (error) {}
-    });
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, createHttpError(xhr.status));
-        return;
-      }
-      let parsed = null;
-      try {
-        parsed = JSON.parse(xhr.responseText || '{}');
-      } catch (error) {
-        finish(reject, new Error('生成返回无法解析'));
-        return;
-      }
-      finish(resolve, parsed);
-    };
-    xhr.onerror = () => finish(reject, new Error('生成网络请求失败'));
-    xhr.onabort = () => finish(reject, canceled ? createAbortError() : new Error('生成已中断'));
-    try {
-      xhr.send(body || null);
-    } catch (error) {
-      finish(reject, error);
-    }
+  return vendorXhr({
+    method: method || 'POST',
+    url,
+    headers,
+    body,
+    signal,
+    timeoutMs,
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    abortFlagOnSignal: true,
+    timeoutAbortOrder: 'finishThenAbort',
+    onTimeoutError: () => new Error('生成超时，请稍后重试'),
+    onAbortError: () => createAbortError(),
+    onAbortEventError: canceled => (canceled ? createAbortError() : new Error('生成已中断')),
+    onNetworkError: () => new Error('生成网络请求失败'),
+    onHttpError: status => createHttpError(status),
+    parse: xhr => JSON.parse(xhr.responseText || '{}'),
+    onParseError: () => new Error('生成返回无法解析'),
   });
 }
 

@@ -1,5 +1,6 @@
 import { getProvider, missingRequiredFields } from './providers.js';
 import { registerSecretValues } from '../secrets.js';
+import vendorXhr from '../vendorHttp.js';
 
 const SEARCH_TIMEOUT_MS = 10000;
 const CACHE_TTL_MS = 60000;
@@ -62,66 +63,21 @@ function createAbortError() {
 }
 
 function xhrRequest({ method, url, headers, body, signal, timeoutMs = SEARCH_TIMEOUT_MS }) {
-  return new Promise((resolve, reject) => {
-    if (signal && signal.aborted) {
-      reject(createAbortError());
-      return;
-    }
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-    const onAbort = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(createAbortError());
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(new Error('搜索超时'));
-    }, Math.max(1, Number(timeoutMs) || SEARCH_TIMEOUT_MS));
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onAbort);
-      }
-      fn(value);
-    };
-    if (signal && typeof signal.addEventListener === 'function') {
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    xhr.open(method || 'GET', url);
-    Object.entries(headers || {}).forEach(([key, value]) => {
-      try {
-        xhr.setRequestHeader(key, value);
-      } catch (error) {}
-    });
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, new Error(`搜索失败（HTTP ${xhr.status}）`));
-        return;
-      }
-      try {
-        finish(resolve, JSON.parse(xhr.responseText || '{}'));
-      } catch (error) {
-        finish(reject, new Error('搜索返回无法解析'));
-      }
-    };
-    xhr.onerror = () => finish(reject, new Error('搜索网络请求失败'));
-    xhr.onabort = () => finish(reject, new Error('搜索已中断'));
-    try {
-      xhr.send(body || null);
-    } catch (error) {
-      finish(reject, error);
-    }
+  return vendorXhr({
+    method: method || 'GET',
+    url,
+    headers,
+    body,
+    signal,
+    timeoutMs,
+    defaultTimeoutMs: SEARCH_TIMEOUT_MS,
+    onTimeoutError: () => new Error('搜索超时'),
+    onAbortError: () => createAbortError(),
+    onAbortEventError: () => new Error('搜索已中断'),
+    onNetworkError: () => new Error('搜索网络请求失败'),
+    onHttpError: status => new Error(`搜索失败（HTTP ${status}）`),
+    parse: xhr => JSON.parse(xhr.responseText || '{}'),
+    onParseError: () => new Error('搜索返回无法解析'),
   });
 }
 

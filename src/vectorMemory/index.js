@@ -5,6 +5,7 @@ import {
   mapEmbeddingError,
 } from './providers.js';
 import { registerSecretValues } from '../secrets.js';
+import vendorXhr from '../vendorHttp.js';
 
 const DEFAULT_MAX_CHARS = 400;
 const DEFAULT_BATCH_SIZE = 16;
@@ -86,66 +87,21 @@ function createVectorAbortError() {
 }
 
 function xhrPostJson({ url, headers, body, timeoutMs, signal = null }) {
-  return new Promise((resolve, reject) => {
-    if (signal && signal.aborted) {
-      reject(createVectorAbortError());
-      return;
-    }
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-    const onAbort = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(createVectorAbortError());
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        xhr.abort();
-      } catch (error) {}
-      reject(new Error('向量请求超时'));
-    }, timeoutMs || DEFAULT_TIMEOUT_MS);
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onAbort);
-      }
-      fn(value);
-    };
-    if (signal && typeof signal.addEventListener === 'function') {
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    xhr.open('POST', url);
-    Object.entries(headers || {}).forEach(([key, value]) => {
-      try {
-        xhr.setRequestHeader(key, value);
-      } catch (error) {}
-    });
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, new Error(mapEmbeddingError(xhr.status)));
-        return;
-      }
-      try {
-        finish(resolve, JSON.parse(xhr.responseText || '{}'));
-      } catch (error) {
-        finish(reject, new Error('向量服务返回无法解析'));
-      }
-    };
-    xhr.onerror = () => finish(reject, new Error('向量服务网络请求失败'));
-    xhr.onabort = () => finish(reject, new Error('向量请求已中断'));
-    try {
-      xhr.send(JSON.stringify(body));
-    } catch (error) {
-      finish(reject, error);
-    }
+  return vendorXhr({
+    method: 'POST',
+    url,
+    headers,
+    body: JSON.stringify(body),
+    signal,
+    timeoutMs,
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    onTimeoutError: () => new Error('向量请求超时'),
+    onAbortError: () => createVectorAbortError(),
+    onAbortEventError: () => new Error('向量请求已中断'),
+    onNetworkError: () => new Error('向量服务网络请求失败'),
+    onHttpError: status => new Error(mapEmbeddingError(status)),
+    parse: xhr => JSON.parse(xhr.responseText || '{}'),
+    onParseError: () => new Error('向量服务返回无法解析'),
   });
 }
 
