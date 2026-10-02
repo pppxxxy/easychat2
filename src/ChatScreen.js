@@ -1724,7 +1724,21 @@ export default function ChatScreen() {
               allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
             })
           : requestMessages;
-        const onlineSend = () => sendChatMessage(requestMessages, {
+        // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置
+        // 单独裁剪媒体，避免把图片/音频发给不支持多模态的在线端点。
+        let onlineMedia = { allowVision: false, allowAudio: false };
+        try {
+          const { configs, activeId } = await getApiConfigs();
+          const onlineConfig = configs.find(item => item.id === expectedConfigId)
+            || configs.find(item => item.id === activeId)
+            || configs[0];
+          onlineMedia = {
+            allowVision: Boolean(onlineConfig && onlineConfig.supportsVision),
+            allowAudio: Boolean(onlineConfig && onlineConfig.supportsAudio),
+          };
+        } catch (error) {}
+        const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
+        const onlineSend = () => sendChatMessage(onlineMessages, {
               expectedConfigId,
               expectedConfigFingerprint,
               signal: controller.signal,

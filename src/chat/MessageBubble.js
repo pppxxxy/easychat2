@@ -168,7 +168,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
         );
       },
     }),
-    [onSlashCommand]
+    [message.id, onSlashCommand, styles]
   );
 
    const messageActionItems = [
