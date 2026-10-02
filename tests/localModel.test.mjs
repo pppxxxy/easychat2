@@ -330,3 +330,22 @@ test('resolveLocalModelReadiness：模块不可用/未启用/未就绪分级', (
   assert.equal(resolveLocalModelReadiness({ settings, item: readyItem, moduleAvailable: true, fileInfo: { exists: true, size: 10 } }).ready, true);
   assert.equal(resolveLocalModelReadiness({ settings, item: readyItem, moduleAvailable: true, fileInfo: { exists: false } }).reason, 'not-ready');
 });
+
+test('本地模型面板：展示并支持复制以 /v1 结尾的本地地址', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const panel = fs.readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
+  // 使用剪贴板复制（与诊断/生图面板一致的约定）
+  assert.ok(panel.includes("import * as Clipboard from 'expo-clipboard'"), '应引入剪贴板');
+  assert.ok(panel.includes('Clipboard.setStringAsync(apiAddress)'), '复制内容应为本地地址');
+  // 地址始终以 /v1 结尾，且默认端口兜底 8080
+  assert.ok(panel.includes('`http://127.0.0.1:${effectivePort}/v1`'), '地址格式应为 http://127.0.0.1:端口/v1');
+  assert.ok(panel.includes('effectivePort'), '应有端口兜底');
+  // 运行中以实际端口为准（可能与配置端口不同）
+  assert.ok(panel.includes('apiStatus.running && apiStatus.port ? apiStatus.port : apiServer.port'), '运行中应以实际端口为准');
+  // 点击地址栏可复制，并有明确提示
+  assert.ok(panel.includes('onPress={copyApiAddress}'), '地址栏应可点击复制');
+  assert.ok(panel.includes('copyApiAddress'), '应有复制处理函数');
+});

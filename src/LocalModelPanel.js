@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 
 import {
@@ -212,6 +213,29 @@ export default function LocalModelPanel({ visible, onClose }) {
       setApiBusy(false);
     }
   };
+
+  // 展示给用户复制的本地地址：运行中用实际监听端口，未启动时用配置端口，
+  // 始终以 /v1 结尾（OpenAI 兼容 base_url）。startLocalApiServer 可能因端口
+  // 被占用回落到其他端口，故以 apiStatus.port 为准。
+  const apiAddress = useMemo(() => {
+    const port = apiStatus.running && apiStatus.port ? apiStatus.port : apiServer.port;
+    const effectivePort = Number(port) > 0 ? Number(port) : 8080;
+    return `http://127.0.0.1:${effectivePort}/v1`;
+  }, [apiStatus.running, apiStatus.port, apiServer.port]);
+
+  const copyApiAddress = useCallback(async () => {
+    try {
+      await Clipboard.setStringAsync(apiAddress);
+      Alert.alert(
+        '已复制',
+        `${apiAddress}\n\n在同机客户端的 base_url / 接口地址中填入此地址。${
+          apiServer.apiKey?.trim() ? 'API Key 使用上方填写的值。' : '当前未设置 API Key，客户端可留空。'
+        }`
+      );
+    } catch (error) {
+      Alert.alert('复制失败', `请手动记录：${apiAddress}`);
+    }
+  }, [apiAddress, apiServer.apiKey]);
 
   const openParams = async entry => {
     const item = await getLocalModelItem(entry.id).catch(() => null);
@@ -609,8 +633,22 @@ export default function LocalModelPanel({ visible, onClose }) {
                 autoCapitalize="none"
               />
               <Text style={styles.apiStatus}>
-                {apiStatus.running ? `运行中 · http://127.0.0.1:${apiStatus.port}/v1` : '未启动'}
+                {apiStatus.running ? '运行中' : '未启动'}
               </Text>
+              <TouchableOpacity
+                style={styles.apiAddressRow}
+                onPress={copyApiAddress}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`复制本地 API 地址 ${apiAddress}`}
+              >
+                <Text style={styles.apiAddress} numberOfLines={1}>{apiAddress}</Text>
+                <View style={styles.apiCopyChip}>
+                  <Ionicons name="copy-outline" size={14} color={theme.colors.primarySoft} />
+                  <Text style={styles.apiCopyText}>复制</Text>
+                </View>
+              </TouchableOpacity>
+              <Text style={styles.apiAddressHint}>在上方选择模型并点击「启动服务」后，把此地址填入同机客户端的 base_url。</Text>
               <View style={styles.apiButtonRow}>
                 <TouchableOpacity style={[styles.secondary, styles.apiButton]} onPress={startApi} disabled={apiBusy} activeOpacity={0.8}>
                   <Text style={styles.secondaryText}>{apiBusy ? '处理中...' : '启动服务'}</Text>
@@ -689,6 +727,22 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   apiPortRow: { flexDirection: 'row', alignItems: 'center' },
   apiPortInput: { flex: 1, marginLeft: 10 },
   apiStatus: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 8 },
+  apiAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+  },
+  apiAddress: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  apiCopyChip: { flexDirection: 'row', alignItems: 'center', marginLeft: 10 },
+  apiCopyText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
+  apiAddressHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 6 },
   apiButtonRow: { flexDirection: 'row', marginTop: 4 },
   apiButton: { flex: 1, marginRight: 8, marginTop: 10 },
   item: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, padding: 10, marginBottom: 8 },

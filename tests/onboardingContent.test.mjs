@@ -36,12 +36,22 @@ const {
 } = runtimeModule.exports;
 
 test('新手教程包含图片、表情包与大角色卡章节', () => {
-  assert.equal(ONBOARDING_CHAPTERS.length, 16);
+  assert.equal(ONBOARDING_CHAPTERS.length, 17);
   const chapter = getOnboardingChapters(['chat-media'])[0];
   assert.equal(getOnboardingChapter('chat-media'), chapter);
   assert.equal(chapter.id, 'chat-media');
   assert.match(chapter.intro, /HTML/);
   assert.ok(chapter.items.some(item => item.name === '修改重发'));
+});
+
+test('新手教程包含本地模型与本地 API 章节，且说明可复制 /v1 地址', () => {
+  const chapter = getOnboardingChapter('local-model');
+  assert.ok(chapter, '缺少 local-model 章节');
+  assert.ok(chapter.steps.some(step => step.includes('http://127.0.0.1') && step.includes('/v1')),
+    '步骤应给出以 /v1 结尾的本地地址');
+  assert.ok(chapter.items.some(item => item.name === '复制地址'), '应有复制地址的速查项');
+  // 地址固定 127.0.0.1、不对外网开放
+  assert.match(chapter.note, /127\.0\.0\.1/);
 });
 
 test('新手教程包含世界书、正则脚本与预设章节', () => {
