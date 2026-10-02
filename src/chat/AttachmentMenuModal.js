@@ -6,35 +6,20 @@ import React, { useMemo } from 'react';
 import { Modal, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { useTranslation } from '../i18n/I18nContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createChatStyles } from './chatStyles.js';
 
-const OPTIONS = [
-  {
-    id: 'text',
-    icon: 'document-text-outline',
-    title: '纯文本文档',
-    hint: 'txt / md / json 等文本内容会并入消息',
-    requiresVision: false,
-  },
-  {
-    id: 'camera',
-    icon: 'camera-outline',
-    title: '拍照',
-    hint: '拍摄照片发送给角色',
-    requiresVision: true,
-  },
-  {
-    id: 'image',
-    icon: 'image-outline',
-    title: '图片',
-    hint: '从相册中选择图片',
-    requiresVision: true,
-  },
+// 选项的文案键，实际文本由 t() 在渲染时取（语言切换后无需重建模块级常量）。
+const OPTION_KEYS = [
+  { id: 'text', icon: 'document-text-outline', titleKey: 'chat.attach.text.title', hintKey: 'chat.attach.text.hint', requiresVision: false },
+  { id: 'camera', icon: 'camera-outline', titleKey: 'chat.attach.camera.title', hintKey: 'chat.attach.camera.hint', requiresVision: true },
+  { id: 'image', icon: 'image-outline', titleKey: 'chat.attach.image.title', hintKey: 'chat.attach.image.hint', requiresVision: true },
 ];
 
 export default function AttachmentMenuModal({ visible, onClose, onSelect, visionEnabled }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -42,14 +27,15 @@ export default function AttachmentMenuModal({ visible, onClose, onSelect, vision
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
           <View style={styles.attachMenuHeader}>
-            <Text style={styles.modalTitle}>添加附件</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.modalTitle}>{t('chat.attach.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('chat.attach.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
-          {OPTIONS.map(option => {
+          {OPTION_KEYS.map(option => {
             // 拍照与图片都需要识图模型：不支持时置灰并给出原因，避免走到一半才被拒。
             const locked = option.requiresVision && !visionEnabled;
+            const title = t(option.titleKey);
             return (
               <TouchableOpacity
                 key={option.id}
@@ -61,7 +47,7 @@ export default function AttachmentMenuModal({ visible, onClose, onSelect, vision
                 disabled={locked}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel={option.title}
+                accessibilityLabel={title}
                 accessibilityState={{ disabled: locked }}
               >
                 <Ionicons
@@ -71,10 +57,10 @@ export default function AttachmentMenuModal({ visible, onClose, onSelect, vision
                 />
                 <View style={styles.attachMenuTextWrap}>
                   <Text style={[styles.attachMenuTitle, locked && styles.attachMenuTitleLocked]}>
-                    {option.title}
+                    {title}
                   </Text>
                   <Text style={styles.attachMenuHint}>
-                    {locked ? '当前来源未标记为支持识图，请先在「设置 → API」确认模型能力' : option.hint}
+                    {locked ? t('chat.attach.visionRequired') : t(option.hintKey)}
                   </Text>
                 </View>
                 {locked ? <Ionicons name="lock-closed-outline" size={15} color={theme.colors.textFaint} /> : null}

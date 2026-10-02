@@ -39,6 +39,7 @@ import {
   isProactiveMessageAvailable,
 } from './src/proactiveMessage.js';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
+import { I18nProvider, useTranslation } from './src/i18n/I18nContext.js';
 import { maskSecrets } from './src/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard.js';
 import { recordDiagnostic } from './src/diagnostics.js';
@@ -480,6 +481,7 @@ function TabBarIcon({ routeName, color, focused, palette }) {
 
 function AppShell() {
   const { theme: palette, tokens } = useTheme();
+  const { t } = useTranslation();
   const [navigationReady, setNavigationReady] = useState(false);
   const navTheme = {
     ...DefaultTheme,
@@ -557,11 +559,14 @@ function AppShell() {
           ),
         })}
       >
-        <Tab.Screen name="聊天" component={ChatScreen} />
-        <Tab.Screen name="记忆" component={MemoryScreen} />
-        <Tab.Screen name="角色" component={CharacterScreen} />
-        <Tab.Screen name="扩展" component={ExtensionScreen} />
-        <Tab.Screen name="设置" component={SettingsScreen} />
+        {/* 路由名保持中文不动：它是内部标识符，被 navigation.navigate('聊天') 等
+            多处引用（含 App.js 的离页确认与各 Screen）。只翻译可见的 tabBarLabel，
+            避免为 i18n 重命名路由带来的连锁改动风险。 */}
+        <Tab.Screen name="聊天" component={ChatScreen} options={{ tabBarLabel: t('app.tab.chat') }} />
+        <Tab.Screen name="记忆" component={MemoryScreen} options={{ tabBarLabel: t('app.tab.memory') }} />
+        <Tab.Screen name="角色" component={CharacterScreen} options={{ tabBarLabel: t('app.tab.character') }} />
+        <Tab.Screen name="扩展" component={ExtensionScreen} options={{ tabBarLabel: t('app.tab.extension') }} />
+        <Tab.Screen name="设置" component={SettingsScreen} options={{ tabBarLabel: t('app.tab.settings') }} />
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -576,12 +581,14 @@ export default function App() {
       <SafeAreaProvider>
         <StartupErrorBoundary>
           <ThemeProvider>
-            <AppProvider>
-              {startupReady ? <AppShell /> : null}
-              {startupReady ? <StartupSession /> : null}
-              {startupReady ? <DiaryStartup /> : null}
-              <StartupFlow onReady={handleStartupReady} />
-            </AppProvider>
+            <I18nProvider>
+              <AppProvider>
+                {startupReady ? <AppShell /> : null}
+                {startupReady ? <StartupSession /> : null}
+                {startupReady ? <DiaryStartup /> : null}
+                <StartupFlow onReady={handleStartupReady} />
+              </AppProvider>
+            </I18nProvider>
           </ThemeProvider>
         </StartupErrorBoundary>
       </SafeAreaProvider>

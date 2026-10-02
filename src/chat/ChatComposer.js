@@ -5,6 +5,7 @@ import { Image, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { MENTION_PREFIX } from '../groupMentions.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createChatStyles } from './chatStyles.js';
 
@@ -39,6 +40,7 @@ export default function ChatComposer({
   onCancelVoice,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -46,14 +48,14 @@ export default function ChatComposer({
       {quoteTarget ? (
         <View style={[styles.quoteBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
           <View style={styles.quoteBarBody}>
-            <Text style={styles.quoteBarName} numberOfLines={1}>{quoteTarget.name || '原文'}</Text>
+            <Text style={styles.quoteBarName} numberOfLines={1}>{quoteTarget.name || t('chat.composer.quote.fallbackName')}</Text>
             <Text style={styles.quoteBarText} numberOfLines={1}>{quoteTarget.text}</Text>
           </View>
            <TouchableOpacity
              onPress={onCancelQuote}
              disabled={quoteLocked}
              hitSlop={8}
-             accessibilityLabel="取消引用"
+             accessibilityLabel={t('chat.composer.a11y.cancelQuote')}
            >
             <Ionicons name="close" size={16} color={theme.colors.textFaint} />
           </TouchableOpacity>
@@ -83,9 +85,9 @@ export default function ChatComposer({
       {recording ? (
         <View style={[styles.voiceRecordingBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
           <Ionicons name="mic" size={16} color={theme.colors.danger} />
-          <Text style={styles.voiceRecordingText}>正在录音…松开结束，上滑取消</Text>
-          <TouchableOpacity onPress={onCancelVoice} hitSlop={8} accessibilityLabel="取消录音">
-            <Text style={styles.voiceCancelText}>取消</Text>
+          <Text style={styles.voiceRecordingText}>{t('chat.composer.recording')}</Text>
+          <TouchableOpacity onPress={onCancelVoice} hitSlop={8} accessibilityLabel={t('chat.composer.a11y.cancelRecord')}>
+            <Text style={styles.voiceCancelText}>{t('chat.composer.recording.cancel')}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -98,7 +100,7 @@ export default function ChatComposer({
               disabled={inputDisabled}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="添加附件"
+              accessibilityLabel={t('chat.composer.a11y.attach')}
             >
               <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
             </TouchableOpacity>
@@ -108,7 +110,7 @@ export default function ChatComposer({
               disabled={inputDisabled}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="提及成员"
+              accessibilityLabel={t('chat.composer.a11y.mention')}
             >
               <Text style={styles.mentionButtonText}>{MENTION_PREFIX}</Text>
             </TouchableOpacity>
@@ -120,7 +122,7 @@ export default function ChatComposer({
             disabled={inputDisabled}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel="添加附件"
+            accessibilityLabel={t('chat.composer.a11y.attach')}
           >
             <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
           </TouchableOpacity>
@@ -132,7 +134,7 @@ export default function ChatComposer({
               onPress={onStopVoice}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="结束录音并转写"
+              accessibilityLabel={t('chat.composer.a11y.stopRecord')}
             >
               <Ionicons name="mic" size={22} color={theme.colors.danger} />
             </TouchableOpacity>
@@ -143,7 +145,7 @@ export default function ChatComposer({
               disabled={inputDisabled}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="录制语音消息"
+              accessibilityLabel={t('chat.composer.a11y.record')}
             >
               <Ionicons name="mic-outline" size={22} color={theme.colors.primarySoft} />
             </TouchableOpacity>
@@ -156,7 +158,7 @@ export default function ChatComposer({
           onFocus={onInputFocus}
           onBlur={onInputBlur}
           onSelectionChange={onSelectionChange}
-          placeholder="输入消息..."
+          placeholder={t('chat.composer.placeholder')}
            placeholderTextColor={theme.colors.textFaint}
            multiline
            editable={!inputDisabled}
@@ -167,7 +169,7 @@ export default function ChatComposer({
            disabled={inputDisabled}
            activeOpacity={0.7}
            accessibilityRole="button"
-           accessibilityLabel="表情包"
+           accessibilityLabel={t('chat.composer.a11y.sticker')}
          >
            <Ionicons name="happy-outline" size={21} color={theme.colors.primarySoft} />
          </TouchableOpacity>
@@ -177,7 +179,7 @@ export default function ChatComposer({
           disabled={fullScreenDisabled}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="全屏输入"
+          accessibilityLabel={t('chat.composer.a11y.fullScreen')}
         >
           <Ionicons name="expand-outline" size={18} color={theme.colors.primarySoft} />
         </TouchableOpacity>
@@ -185,7 +187,7 @@ export default function ChatComposer({
           <TouchableOpacity
             style={[styles.sendButton, styles.stopButton]}
             onPress={onStop}
-            accessibilityLabel="停止"
+            accessibilityLabel={t('chat.composer.a11y.stop')}
             activeOpacity={0.8}
           >
             <Ionicons name="stop" size={18} color={theme.colors.text} />
@@ -198,7 +200,7 @@ export default function ChatComposer({
             ]}
             onPress={onSend}
             disabled={inputDisabled || (!input.trim() && attachments.length === 0)}
-            accessibilityLabel="发送"
+            accessibilityLabel={t('chat.composer.a11y.send')}
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-up" size={20} color={theme.colors.text} />

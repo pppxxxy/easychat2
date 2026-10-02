@@ -20,7 +20,7 @@ import {
 } from './themes.js';
 import {
   getAppearanceSettings,
-  saveAppearanceSettings,
+  patchAppearanceSettings,
 } from '../storage.js';
 import { tokens } from './tokens.js';
 
@@ -64,7 +64,9 @@ export function ThemeProvider({ children }) {
     const revision = ++persistRevisionRef.current;
     const run = saveQueueRef.current
       .catch(() => {})
-      .then(() => saveAppearanceSettings(next));
+      // 外观键由主题/字号/语言共享，必须走 patch（读-合并-写）——直接
+      // saveAppearanceSettings 会因缺 localeId 而把它归一回默认语言。
+      .then(() => patchAppearanceSettings(next));
     saveQueueRef.current = run;
     run
       .then(() => {

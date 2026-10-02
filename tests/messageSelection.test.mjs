@@ -63,10 +63,18 @@ test('多选态消息 Pressable 的 onLongPress 始终非空（原地松手不�
 });
 
 test('多选顶栏提供全选/取消全选按钮并接线', () => {
-  // 顶栏多选态包含「全选」，全选时切换为「取消全选」
-  assert.ok(CHAT_TOP_BAR_SOURCE.includes("allSelected ? '取消全选' : '全选'"));
+  // 顶栏多选态包含「全选」，全选时切换为「取消全选」。
+  // 文案已迁到 i18n 词条表（chat.topBar.selection.selectAll / unselectAll），
+  // 断言随之改为锁定「按 allSelected 在两个词条间切换」这一行为，而不是中文字面量。
+  assert.ok(
+    CHAT_TOP_BAR_SOURCE.includes("allSelected ? t('chat.topBar.selection.unselectAll') : t('chat.topBar.selection.selectAll')"),
+    '全选按钮文案应随 allSelected 在 selectAll/unselectAll 词条间切换'
+  );
+  assert.ok(
+    CHAT_TOP_BAR_SOURCE.includes("allSelected ? t('chat.topBar.a11y.unselectAll') : t('chat.topBar.a11y.selectAll')"),
+    '无障碍标签同样应随状态切换'
+  );
   assert.ok(CHAT_TOP_BAR_SOURCE.includes('onToggleSelectAll'));
-  assert.ok(CHAT_TOP_BAR_SOURCE.includes("accessibilityLabel={allSelected ? '取消全选' : '全选消息'}"));
   // ChatScreen 传入全选相关 props
   assert.ok(CHAT_SCREEN_SOURCE.includes('onToggleSelectAll={toggleSelectAllMessages}'));
   assert.ok(CHAT_SCREEN_SOURCE.includes('allSelected={allMessagesSelected}'));

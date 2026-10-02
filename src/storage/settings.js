@@ -169,7 +169,11 @@ export async function saveChatOptions(options) {
 
 const THEME_IDS = ['dark', 'light', 'blue', 'pink', 'crimson'];
 const FONT_SCALE_IDS = ['default', 'system', 'small', 'medium', 'large', 'xlarge'];
-const DEFAULT_APPEARANCE = { themeId: 'dark', fontScaleId: 'default' };
+// 语言与主题/字号同属「外观」配置。新增 localeId 时**不能**把它做成必填字段：
+// 旧版本写入的 JSON 没有这个 key，归一化必须容忍缺失并回落到默认值，
+// 否则升级用户的外观设置会被整体重置。
+export const LOCALE_IDS = ['zh-CN', 'en'];
+const DEFAULT_APPEARANCE = { themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN' };
 
 function normalizeAppearance(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -178,6 +182,7 @@ function normalizeAppearance(raw) {
     fontScaleId: FONT_SCALE_IDS.includes(source.fontScaleId)
       ? source.fontScaleId
       : DEFAULT_APPEARANCE.fontScaleId,
+    localeId: LOCALE_IDS.includes(source.localeId) ? source.localeId : DEFAULT_APPEARANCE.localeId,
   };
 }
 
@@ -188,6 +193,20 @@ export async function getAppearanceSettings() {
 
 export async function saveAppearanceSettings(settings) {
   const normalized = normalizeAppearance(settings);
+  await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+// 局部更新：读现值 → 合并补丁 → 归一化写回。
+//
+// 存在的理由：外观键由主题、字号、语言共享，而这三个设置分别由相互独立的
+// Context 维护（ThemeContext / I18nContext）。若各自直接调用
+// saveAppearanceSettings 且只带上自己的字段，归一化会把其余字段归回默认值——
+// 表现为「改主题把语言重置了」。所有写入方都应走这个函数。
+export async function patchAppearanceSettings(patch) {
+  const current = await getAppearanceSettings();
+  const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
+  const normalized = normalizeAppearance(merged);
   await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
   return normalized;
 }

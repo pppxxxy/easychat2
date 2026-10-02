@@ -48,6 +48,7 @@
     "src/proactiveMessage.js",
     "src/stickerImages.js",
     "src/theme/ThemeContext.js",
+    "src/i18n/I18nContext.js",
     "src/theme/tokens.js",
     "src/context/AppContext.js",
     "src/chat/MessageBubble.js",

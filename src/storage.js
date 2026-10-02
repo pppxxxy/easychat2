@@ -88,6 +88,7 @@ export {
   getTtsSettings,
   isDisclaimerAcknowledged,
   isOnboardingDone,
+  patchAppearanceSettings,
   saveAppearanceSettings,
   saveChatOptions,
   saveImageGenSettings,

@@ -21,6 +21,7 @@ import { useTheme } from './theme/ThemeContext.js';
 import { useApp } from './context/AppContext.js';
 import { hexToRgba } from './theme/themes.js';
 import DisclaimerModal from './disclaimer.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import PluginPanel from './PluginPanel.js';
 import PresetPanel from './PresetPanel.js';
 import TtsPanel from './TtsPanel.js';
@@ -172,6 +173,7 @@ export default function SettingsScreen() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [localModelOpen, setLocalModelOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
+  const { t, localeId, setLocaleId, locales } = useTranslation();
   const { refreshAppData } = useApp();
 
   const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -1009,6 +1011,27 @@ export default function SettingsScreen() {
                     onPress={() => setFontScaleId(item.id)}
                     activeOpacity={0.85}
                   >
+                    <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <FieldLabel style={styles.label}>{t('settings.appearance.language')}</FieldLabel>
+            <View style={styles.fontRow}>
+              {locales.map(item => {
+                const active = item.id === localeId;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.fontChip, active && styles.fontChipActive]}
+                    onPress={() => setLocaleId(item.id)}
+                    activeOpacity={0.85}
+                    accessibilityLabel={item.english}
+                  >
+                    {/* 语言名用各自的写法展示：英文界面下「简体中文」仍显示为中文，
+                        用户不必先读懂当前界面语言才能找到自己的语言。 */}
                     <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
                       {item.label}
                     </Text>
