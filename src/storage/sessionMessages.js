@@ -295,7 +295,7 @@ export function resetSessionSummaries(sessionId) {
       await AsyncStorage.removeItem(key);
     } catch (error) {
       await saveSessionsInternal(sessions).catch(restoreError => {
-        if (__DEV__) console.warn('[storage] summary boundary restore failed', restoreError);
+        if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[storage] summary boundary restore failed', restoreError);
       });
       throw error;
     }
@@ -321,7 +321,7 @@ export function invalidateSessionSummaries(sessionId, keepSummaries = [], nextBo
       await setSessionSummarizedUpToInternal(sessionId, nextBoundary, { allowBackward: true });
     } catch (error) {
       await saveSessionSummariesInternal(sessionId, previousStatus.summaries).catch(restoreError => {
-        if (__DEV__) console.warn('[storage] summary rollback failed', restoreError);
+        if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[storage] summary rollback failed', restoreError);
       });
       throw error;
     }

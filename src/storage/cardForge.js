@@ -209,7 +209,7 @@ async function clearCardForgeInternal() {
   await Promise.all((names || [])
     .filter(name => String(name).endsWith('.json'))
     .map(name => FileSystem.deleteAsync(cardForgePayloadPath(name), { idempotent: true }).catch(error => {
-      if (__DEV__) console.warn('[cardForge] payload cleanup failed', error);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[cardForge] payload cleanup failed', error);
     })));
 }
 

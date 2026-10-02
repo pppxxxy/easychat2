@@ -99,7 +99,7 @@ export async function reconcileVectorIndexes() {
       report.removed += Math.max(0, status.index.length - result.length);
     } catch (error) {
       report.failedKeys.push(key);
-      if (__DEV__) console.warn('[vector] reconciliation failed', error);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] reconciliation failed', error);
     }
   }
   return report;
@@ -261,7 +261,7 @@ async function deleteSessionInternal(sessionId) {
     try {
       await removeVectorIndexForSession(target.characterId, sessionId);
     } catch (error) {
-      if (__DEV__) console.warn('[vector] session cleanup failed', error);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] session cleanup failed', error);
     }
   }
   deletedSessionIds.add(String(sessionId));
@@ -324,7 +324,7 @@ async function deleteSessionsInternal(sessionIds) {
     try {
       await removeVectorIndexForSessions(ownerId, targetIds);
     } catch (error) {
-      if (__DEV__) console.warn('[vector] batch session cleanup failed', error);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] batch session cleanup failed', error);
     }
   }
   ids.forEach(id => deletedSessionIds.add(String(id)));
