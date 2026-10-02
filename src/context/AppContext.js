@@ -465,14 +465,18 @@ export function AppProvider({ children }) {
           createdAt: message.createdAt,
           sessionTargetId: slotTargets.get(slotId) || '',
         });
-        written.push(id);
         if (result && result.sessionId) {
+          written.push(id);
           targetSessions[roleId] = result.sessionId;
-        }
-        // 首次新建对话：把槽绑定到这段新会话，之后固定复用。
-        if (result && result.created && slotId && result.sessionId) {
-          slotTargets.set(slotId, result.sessionId);
-          await bindProactiveSlotSession(slotId, result.sessionId).catch(() => {});
+          // 首次新建对话：把槽绑定到这段新会话，之后固定复用。
+          if (result.created && slotId) {
+            slotTargets.set(slotId, result.sessionId);
+            await bindProactiveSlotSession(slotId, result.sessionId).catch(() => {});
+          }
+        } else {
+          // appendProactiveMessage 拒写（正文为空等）：永远写不进去，按可删除处理，
+          // 否则会无限重试并占用队列配额（此前误标 written 直接丢失消息）。
+          skipped.push(id);
         }
       } catch (error) {
         // 写入失败：保留重试，下次启动消费者会再取一次

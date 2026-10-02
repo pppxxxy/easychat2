@@ -299,6 +299,9 @@ export default function ProactivePanel({ embedded = false }) {
     }
     setSaving(true);
     setNotice('');
+    // 本轮新加的槽（此前未排定过）：中途失败时必须回滚，
+    // 否则原生留下 JS 无记录的幽灵定时任务，用户再也无法取消。
+    const newSlotIdsThisRun = [];
     try {
       // 1. 取消本次被删除的槽
       const removed = persistedSlotIdsRef.current.filter(
@@ -354,6 +357,10 @@ export default function ProactivePanel({ embedded = false }) {
           // 每次保存生成新 revision，让队列中未执行的旧配置自动失效
           revision: makeProactiveSlotId(),
         };
+        if (!persistedSlotIdsRef.current.includes(slot.slotId)) {
+          // 先登记再调用原生：即使原生写入后才抛错，catch 也能回滚该槽。
+          newSlotIdsThisRun.push(slot.slotId);
+        }
         await scheduleDailyMessage(payload);
         persisted.push(payload);
       }
@@ -367,6 +374,11 @@ export default function ProactivePanel({ embedded = false }) {
       setSlots(saved.slots);
       setNotice(`已保存 ${saved.slots.filter(item => item.enabled).length} 个主动消息时间`);
     } catch (error) {
+      // 回滚本轮已排进原生的新槽；旧槽保留原生新排期（revision 已更新且配置完整，
+      // 取消反而会杀掉原本正常工作的任务），等下次成功保存时对齐 JS 记录。
+      for (const slotId of newSlotIdsThisRun) {
+        await cancelDailySchedule(slotId).catch(() => {});
+      }
       setNotice('保存失败，请检查权限后重试。');
     } finally {
       setSaving(false);

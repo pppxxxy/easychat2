@@ -273,6 +273,20 @@ test('主动消息优先用 JS 组装的完整请求（requestJson）', () => {
   assert.ok(source.includes('?.let { AiApiClient().generateProactiveMessage'), '调用链异常');
 });
 
+test('requestJson 时间占位符在触发时由原生替换（不固化保存时刻）', () => {
+  const core = readFileSync(
+    path.join(KOTLIN_DIR, 'ProactiveCore.kt'),
+    'utf8'
+  );
+  // JS 快照写 {{proactive_now}}，原生发送前替换成触发时刻
+  assert.ok(core.includes('"{{proactive_now}}"'), '缺少时间占位符常量');
+  assert.ok(core.includes('fun substituteProactiveTime'), '缺少占位符替换函数');
+  assert.ok(core.includes('substituteProactiveTime(messages)'), '发送前必须调用替换');
+  assert.ok(core.includes('WEEKDAY_CHARS'), '缺少周字表（与 JS 周日~周六对齐）');
+  // 简版回退的问好仍按触发时段选早/中/晚（不受占位符方案影响）
+  assert.ok(core.includes('in 5..11'), 'fallback 问好时段逻辑被误删');
+});
+
 test('通知：新渠道弹横幅 + 角色头像 + 单色小图标去圈 i', () => {
   const source = readAllKotlin();
   // 新渠道 ID：旧渠道重要性被系统固定，只能新建

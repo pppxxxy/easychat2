@@ -8,6 +8,7 @@ import {
   isFormatDirectiveEntry,
   stripFormatDirectiveEntries,
   PROACTIVE_HISTORY_LIMIT,
+  PROACTIVE_TIME_TOKEN,
 } from '../src/proactiveRequest.js';
 
 const character = { name: '小雨', systemPrompt: '你是小雨。', regexScripts: [{ id: 'r1' }] };
@@ -23,12 +24,14 @@ test('buildProactiveTask：关心心情按类型措辞', () => {
   assert.ok(task.includes('心情'));
 });
 
-test('buildProactiveTask：问好按触发时段选早/中/晚/夜', () => {
-  const at = h => buildProactiveTask({ messageType: 'GREETING', now: new Date(2026, 8, 30, h, 0) });
-  assert.ok(at(8).includes('早上'));
-  assert.ok(at(14).includes('中午'));
-  assert.ok(at(20).includes('晚上'));
-  assert.ok(at(2).includes('夜里'));
+test('buildProactiveTask：问好类型不固化时段，交给触发时刻判断', () => {
+  const task = buildProactiveTask({ messageType: 'GREETING' });
+  // 快照在保存后数天触发：不得出现保存时段（曾把保存时段烘进快照导致早上说"夜里的问好"）
+  assert.ok(task.includes('贴合发送时刻'));
+  assert.ok(task.includes('当前时间'));
+  for (const stale of ['早上', '中午', '晚上', '夜里']) {
+    assert.ok(!task.includes(`${stale}的问好`), `不得固化时段：${stale}`);
+  }
 });
 
 test('buildProactiveTask：自定义为空时回退自然问候', () => {
@@ -53,13 +56,17 @@ test('主动消息请求：去掉正则脚本，保留角色设定', () => {
   assert.ok(!system.content.includes('[[regex'));
 });
 
-test('主动消息请求：带上当前时间（时间感知开启时）', () => {
+test('主动消息请求：时间感知写占位符，不固化保存时刻', () => {
   const now = new Date(2026, 8, 30, 15, 4);
   const on = buildProactiveRequestMessages({ character, timeAware: true, now });
   const onSystem = on.find(item => item.role === 'system');
-  assert.ok(onSystem.content.includes('2026-09-30'));
+  // 占位符由原生在触发时替换；保存时刻不得出现在快照里
+  assert.ok(onSystem.content.includes(PROACTIVE_TIME_TOKEN));
+  assert.ok(!onSystem.content.includes('2026-09-30'));
+  assert.ok(onSystem.content.startsWith(PROACTIVE_TIME_TOKEN), '占位符应位于系统提示开头，与聊天时间行同位');
   const off = buildProactiveRequestMessages({ character, timeAware: false, now });
   const offSystem = off.find(item => item.role === 'system');
+  assert.ok(!offSystem.content.includes(PROACTIVE_TIME_TOKEN));
   assert.ok(!offSystem.content.includes('2026-09-30'));
 });
 

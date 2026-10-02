@@ -370,6 +370,8 @@ class AiApiClient {
                 ?: JSONArray()
                     .put(JSONObject().put("role", "system").put("content", buildSystemPrompt(schedule)))
                     .put(JSONObject().put("role", "user").put("content", "请现在主动开口。"))
+            // requestJson 是保存时的快照：JS 侧把时间感知写成了占位符，这里替换成触发时刻。
+            substituteProactiveTime(messages)
 
             val body = JSONObject()
                 .put("model", settings.model)
@@ -410,6 +412,10 @@ class AiApiClient {
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
+        // 与 src/proactiveRequest.js 的 PROACTIVE_TIME_TOKEN 保持一致
+        private const val PROACTIVE_TIME_TOKEN = "{{proactive_now}}"
+        private val WEEKDAY_CHARS = arrayOf("日", "一", "二", "三", "四", "五", "六")
+
         /** 解析 JS 组装的请求消息数组；非法/为空返回 null，由调用方回退简版提示词。 */
         fun parseRequestJson(raw: String): JSONArray? {
             if (raw.isBlank()) return null
@@ -419,6 +425,27 @@ class AiApiClient {
             } catch (e: Exception) {
                 Log.w("AiApiClient", "requestJson 解析失败，回退简版提示词")
                 null
+            }
+        }
+
+        /**
+         * 把 JS 保存槽时写入的时间占位符替换成触发时刻的「[当前时间] …」。
+         * 快照会在保存后数天的任意时刻触发，JS 侧不能固化真实时间；
+         * 格式与 JS 聊天的时间感知一致（yyyy-MM-dd 周X HH:mm）。
+         */
+        fun substituteProactiveTime(messages: JSONArray) {
+            if (!messages.toString().contains(PROACTIVE_TIME_TOKEN)) return
+            val calendar = Calendar.getInstance()
+            val week = WEEKDAY_CHARS[calendar.get(Calendar.DAY_OF_WEEK) - 1]
+            val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
+            val time = SimpleDateFormat("HH:mm", Locale.US).format(calendar.time)
+            val nowText = "[当前时间] $date 周$week $time"
+            for (index in 0 until messages.length()) {
+                val message = messages.optJSONObject(index) ?: continue
+                val content = message.opt("content")
+                if (content is String && content.contains(PROACTIVE_TIME_TOKEN)) {
+                    message.put("content", content.replace(PROACTIVE_TIME_TOKEN, nowText))
+                }
             }
         }
 

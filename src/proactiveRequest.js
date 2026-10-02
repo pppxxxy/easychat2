@@ -8,7 +8,6 @@
 // - 时间感知开启时附上当前时间。
 
 import { buildRequestMessages } from './chatPipeline.js';
-import { buildTimeAwareText } from './currentTime.js';
 
 // 世界书「格式模板」过滤：主动消息只发一句自然的话，不该被「每轮必须输出【时间】/
 // 状态栏/课程表」这类输出格式规定带偏——否则模型会把模板示例值原样抄成正文。
@@ -33,22 +32,17 @@ export function stripFormatDirectiveEntries(worldInfo) {
   return (Array.isArray(worldInfo) ? worldInfo : []).filter(entry => !isFormatDirectiveEntry(entry));
 }
 
-// 按消息类型生成「本轮任务」提示；问好按触发时段选早/中/晚。
-export function buildProactiveTask({ messageType = 'DEFAULT', customPrompt = '', now = new Date() } = {}) {
+// 按消息类型生成「本轮任务」提示；问好类型交给「发送时刻」判断时段。
+// 注意：requestJson 是保存槽时的快照，触发在数天后的任意时刻——
+// 不能在保存时固化「早/中/晚」时段或具体时间戳（曾把保存时段烘进快照，
+// 早上触发的问好却说"夜里的问好"）。时段判断改由原生在触发时注入真实时间。
+export function buildProactiveTask({ messageType = 'DEFAULT', customPrompt = '' } = {}) {
   const type = String(messageType || 'DEFAULT').toUpperCase();
   if (type === 'CARE') {
     return '主动给一段时间没说话的用户发一条关心其心情与状态的消息：先体贴地询问对方此刻心情如何、累不累，语气温暖真诚。';
   }
   if (type === 'GREETING') {
-    const hour = (now instanceof Date ? now : new Date(now)).getHours();
-    const period = hour >= 5 && hour <= 11
-      ? '早上'
-      : hour >= 12 && hour <= 17
-        ? '中午'
-        : hour >= 18 && hour <= 22
-          ? '晚上'
-          : '夜里';
-    return `主动向用户发一条${period}的问好消息，自然亲切，可以带一点当天的问候。`;
+    return '主动向用户发一条贴合发送时刻的问好消息：按系统提示中的当前时间判断此刻是早上、中午、晚上还是夜里，自然亲切，可以带一点当天的问候。';
   }
   if (type === 'CUSTOM') {
     const prompt = String(customPrompt || '').trim();
@@ -73,6 +67,10 @@ export function buildProactiveExtraPrompt(options) {
 // 与请求体都有体积压力）。
 export const PROACTIVE_HISTORY_LIMIT = 20;
 
+// 时间感知占位符：保存槽时不能写入真实时间（快照会在未来任意时刻触发），
+// 原生在发送时把该占位符替换成触发时刻的「[当前时间] …」。
+export const PROACTIVE_TIME_TOKEN = '{{proactive_now}}';
+
 // 组装主动消息的完整请求消息数组。
 // 传入的 character 会被去掉正则脚本（主动消息只要纯文字）。
 export function buildProactiveRequestMessages({
@@ -84,7 +82,6 @@ export function buildProactiveRequestMessages({
   messageType = 'DEFAULT',
   customPrompt = '',
   timeAware = false,
-  now = new Date(),
 } = {}) {
   const cleanCharacter = character && typeof character === 'object'
     ? {
@@ -106,8 +103,9 @@ export function buildProactiveRequestMessages({
     userProfile,
     globalPresets,
     summaryText,
-    extraSystemPrompt: buildProactiveExtraPrompt({ messageType, customPrompt, now }),
-    currentTimeText: buildTimeAwareText(timeAware, now),
+    extraSystemPrompt: buildProactiveExtraPrompt({ messageType, customPrompt }),
+    // 保存时不能固化真实时间：占位符由原生在触发时替换成触发时刻。
+    currentTimeText: timeAware ? PROACTIVE_TIME_TOKEN : '',
   });
 }
 
@@ -121,7 +119,6 @@ export async function buildProactiveRequestJson({
   messageType = 'DEFAULT',
   customPrompt = '',
   timeAware = false,
-  now = new Date(),
 } = {}) {
   const {
     getMessagesBySession,
@@ -169,7 +166,6 @@ export async function buildProactiveRequestJson({
     messageType,
     customPrompt,
     timeAware,
-    now,
   });
   try {
     return JSON.stringify(messages);
