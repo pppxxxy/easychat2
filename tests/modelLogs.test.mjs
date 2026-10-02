@@ -7,6 +7,8 @@ import {
   __resetModelLogsForTests,
   classifyLocalModelError,
   clearModelLogs,
+  describeModelError,
+  formatBytes,
   formatModelLogs,
   getModelLogs,
   normalizeModelLog,
@@ -80,4 +82,27 @@ test('classifyLocalModelError：按 code/name 分类等级', () => {
 
 test('MODEL_LOG_LEVELS 稳定', () => {
   assert.deepEqual(MODEL_LOG_LEVELS, ['info', 'warn', 'error']);
+});
+
+test('formatBytes：人类可读体积，非法值返回空串', () => {
+  assert.equal(formatBytes(0), '');
+  assert.equal(formatBytes(-1), '');
+  assert.equal(formatBytes(NaN), '');
+  assert.equal(formatBytes(512), '512B');
+  assert.equal(formatBytes(1024), '1.0KB');
+  assert.equal(formatBytes(2 * 1024 ** 3), '2.0GB');
+  assert.equal(formatBytes(1.5 * 1024 ** 2), '1.5MB');
+});
+
+test('describeModelError：保留 name/code 便于定位原生错误', () => {
+  const native = new Error('failed to load model');
+  native.name = 'LlamaError';
+  native.code = 'LOAD_FAILED';
+  assert.equal(describeModelError(native), 'LlamaError/LOAD_FAILED: failed to load model');
+  // 只有 message 时直接返回
+  assert.equal(describeModelError(new Error('boom')), 'boom');
+  // 字符串/空值兜底
+  assert.equal(describeModelError('plain text'), 'plain text');
+  assert.equal(describeModelError(null), '未知错误');
+  assert.equal(describeModelError(undefined), '未知错误');
 });

@@ -63,6 +63,36 @@ export function formatModelLogs(list) {
     .join('\n');
 }
 
+// 人类可读的体积（用于日志里展示模型文件大小 / 设备内存）。
+export function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size >= 10 || index === 0 ? Math.round(size) : size.toFixed(1)}${units[index]}`;
+}
+
+// 把错误整理成可定位的文本：保留 name/code（原生库常把真实原因放在这里，
+// 只取 message 会丢失关键信息），并带上堆栈的首行调用点。
+export function describeModelError(error) {
+  if (error === null || error === undefined) return '未知错误';
+  if (typeof error === 'string') return error;
+  const name = clean(error.name);
+  const code = clean(error.code);
+  const message = clean(error.message);
+  // 泛型 Error 的 name 无信息量，不前缀，避免「Error: xxx」噪声；原生库的
+  // 自定义 name（如 LlamaError）与 code 才是定位关键，优先保留。
+  const label = [name && name !== 'Error' ? name : '', code].filter(Boolean).join('/');
+  const base = message || label || '未知错误';
+  if (!label || base.includes(label)) return base;
+  return `${label}: ${base}`;
+}
+
 // 错误分类：统一 code/level/message，供 UI 与回退逻辑判断。
 export function classifyLocalModelError(error) {
   const name = clean(error && error.name);

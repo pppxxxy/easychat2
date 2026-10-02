@@ -2,7 +2,7 @@
 // 未包含原生模块或模型未就绪时保持在线 API 可用；同一时刻只维护一个已加载上下文。
 
 import { normalizeLocalModelParams } from './modelParams.js';
-import { recordModelLog } from './modelLogs.js';
+import { describeModelError, formatBytes, recordModelLog } from './modelLogs.js';
 
 let moduleState;
 
@@ -60,6 +60,36 @@ function buildContextParams(model) {
   };
 }
 
+// 加载日志的可定位上下文：文件体积、上下文长度、GPU 层数、设备内存。
+// 这些是「模型能不能跑起来」最关键的几个数字，出错时一眼能看出问题。
+function buildLoadContext(model, key) {
+  const source = model && typeof model === 'object' ? model : {};
+  const params = effectiveParams(source);
+  const parts = [];
+  const fileSize = Number(source.modelBytes);
+  if (Number.isFinite(fileSize) && fileSize > 0) parts.push(`文件=${formatBytes(fileSize)}`);
+  parts.push(`上下文=${params.contextSize}`);
+  parts.push(`GPU层=${params.gpuLayers}`);
+  if (source.mmprojPath) parts.push(`mmproj=${String(source.mmprojPath).split('/').pop()}`);
+  const totalMem = getTotalDeviceMemoryBytes();
+  if (totalMem > 0) parts.push(`设备内存=${formatBytes(totalMem)}`);
+  return `${parts.join(' ')} | ${key}`;
+}
+
+let deviceMemoryBytesCache;
+function getTotalDeviceMemoryBytes() {
+  if (deviceMemoryBytesCache === undefined) {
+    try {
+      // 惰性 require：避免在没有 expo-device 的纯 Node 测试环境里解析失败。
+      const info = require('./deviceMemory.js').getDeviceMemoryInfo();
+      deviceMemoryBytesCache = Number(info && info.totalMemoryBytes) || 0;
+    } catch (error) {
+      deviceMemoryBytesCache = 0;
+    }
+  }
+  return deviceMemoryBytesCache;
+}
+
 function buildCompletionParams(model, override) {
   const params = normalizeLocalModelParams({
     ...(model && model.params && typeof model.params === 'object' ? model.params : {}),
@@ -88,7 +118,9 @@ export async function loadLocalModel(model, { onProgress } = {}) {
   if (current && current.key === key) return current;
   await unloadLocalModel();
 
-  recordModelLog('load', `开始加载 ${modelPath}`, { context: key });
+  recordModelLog('load', `开始加载 ${modelPath}`, {
+    context: buildLoadContext(model, key),
+  });
   let context;
   try {
     context = await module.initLlama(buildContextParams(model), progress => {
@@ -96,7 +128,7 @@ export async function loadLocalModel(model, { onProgress } = {}) {
     });
   } catch (error) {
     error.code = error.code || 'LOAD_FAILED';
-    recordModelLog('load', `加载失败：${error.message}`, { level: 'error', context: key });
+    recordModelLog('load', `加载失败：${describeModelError(error)}`, { level: 'error', context: buildLoadContext(model, key) });
     throw error;
   }
 
@@ -110,12 +142,12 @@ export async function loadLocalModel(model, { onProgress } = {}) {
         support = { vision: info && info.vision === true, audio: info && info.audio === true };
       }
     } catch (error) {
-      recordModelLog('load', `多模态初始化失败：${error.message}`, { level: 'warn', context: key });
+      recordModelLog('load', `多模态初始化失败：${describeModelError(error)}`, { level: 'warn', context: key });
     }
   }
 
   current = { key, context, support };
-  recordModelLog('load', '模型加载完成', { context: key });
+  recordModelLog('load', `模型加载完成${support.vision || support.audio ? `（${[support.vision ? '视觉' : '', support.audio ? '音频' : ''].filter(Boolean).join('+')}）` : ''}`, { context: key });
   return current;
 }
 
@@ -172,6 +204,13 @@ export async function runLocalModel(messages, model, { onToken, signal, params }
   if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', onAbort);
 
   const startedAt = Date.now();
+  const runContext = [
+    `消息=${Array.isArray(messages) ? messages.length : 0}`,
+    `上下文=${completionParams.n_ctx}`,
+    `maxTokens=${completionParams.n_predict}`,
+    `temp=${completionParams.temperature}`,
+  ].join(' ');
+  recordModelLog('chat', '开始推理', { context: runContext });
   try {
     let fullText = '';
     const result = await loaded.context.completion(completionParams, data => {
@@ -190,7 +229,7 @@ export async function runLocalModel(messages, model, { onToken, signal, params }
       throw error;
     }
     error.code = error.code || (aborted ? 'ABORTED' : 'INFERENCE_FAILED');
-    recordModelLog('chat', `推理失败：${error.message}`, { level: 'error', context: String(model && model.modelPath || '') });
+    recordModelLog('chat', `推理失败：${describeModelError(error)}`, { level: 'error', context: runContext });
     throw error;
   } finally {
     if (signal && typeof signal.removeEventListener === 'function') signal.removeEventListener('abort', onAbort);

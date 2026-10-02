@@ -254,6 +254,9 @@ export async function sendChatMessage(messages, options = {}) {
     };
     const succeed = value => settle(resolve, value);
     const fail = error => {
+      // 已结算后到达的失败（典型：失败结算后再触发 xhr.abort 引发的 onabort）
+      // 必须忽略，否则会把用户主动停止误记成「请求已中断」污染诊断日志。
+      if (settled) return undefined;
       // 中止与配置切换是预期的控制流，不进诊断日志；其余失败记录一次（脱敏）。
       const message = String((error && error.message) || '');
       if (message !== CONFIG_CHANGED_ERROR && !isCanceledError(error)) {

@@ -24,6 +24,7 @@ let activeConfig = {
   authScheme: 'Bearer ',
 };
 const originalLoad = Module._load;
+const recordedDiagnostics = [];
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === './storage.js') {
     return {
@@ -35,6 +36,13 @@ Module._load = function patchedLoad(request, parent, isMain) {
   }
   if (request === './secrets.js') {
     return { registerSecretValues: () => {} };
+  }
+  if (request === './diagnostics.js') {
+    return {
+      recordDiagnostic: (kind, error, context) => {
+        recordedDiagnostics.push({ kind, message: String((error && error.message) || error), context });
+      },
+    };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -176,5 +184,49 @@ test('请求结束前配置指纹变化时丢弃旧来源回复', async () => {
   } finally {
     activeConfig = previous;
     globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+test('主动中止不会把「请求已中断」误记进诊断日志', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = false;
+  globalThis.XMLHttpRequest = FakeXHR;
+  recordedDiagnostics.length = 0;
+  try {
+    const { sendChatMessage } = loadApi();
+    const controller = new AbortController();
+    const pending = sendChatMessage([{ role: 'user', content: 'hi' }], { signal: controller.signal });
+    await new Promise(resolve => setImmediate(resolve));
+    // 用户停止：先触发 signal，再让 XHR 的 abort 事件到达（真实 RN 会两者都触发）。
+    controller.abort();
+    FakeXHR.last.onabort();
+    await assert.rejects(pending, error => error && error.name === 'AbortError');
+    assert.equal(
+      recordedDiagnostics.some(item => item.message.includes('请求已中断')),
+      false,
+      '主动中止不应记录幽灵诊断'
+    );
+    assert.equal(recordedDiagnostics.length, 0);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
+  }
+});
+
+test('真正的接口失败仍会记录一次诊断', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = false;
+  globalThis.XMLHttpRequest = FakeXHR;
+  recordedDiagnostics.length = 0;
+  try {
+    const { sendChatMessage } = loadApi();
+    const pending = sendChatMessage([{ role: 'user', content: 'hi' }]);
+    await new Promise(resolve => setImmediate(resolve));
+    FakeXHR.last.onerror();
+    await assert.rejects(pending, /网络请求失败/);
+    assert.equal(recordedDiagnostics.length, 1);
+    assert.equal(recordedDiagnostics[0].context, '聊天接口请求失败');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
   }
 });

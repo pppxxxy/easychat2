@@ -389,6 +389,23 @@ export default function LocalModelPanel({ visible, onClose }) {
       mmprojUrl: mmprojUrls[0] || '',
       mmprojUrls,
     }));
+    // 下载前提醒：模型体积 + 上下文长度共同决定内存占用，选错量化或把上下文设太长
+    // 都可能超出上限导致加载失败/OOM。用当前设备内存给出「推荐/难跑/跑不了」判断。
+    const summary = buildModelSummary(
+      { name: selection.modelId || selection.modelName || '' },
+      { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 }
+    );
+    const memText = summary.memory.totalBytes > 0
+      ? `预计占用约 ${formatBytes(summary.memory.totalBytes)}（含权重 + 上下文缓存 + 运行时开销）`
+      : '（未能读取设备内存，请优先选体积较小、量化等级较低的模型）';
+    const tierText = summary.compatibility.label ? `兼容评估：${summary.compatibility.label}\n` : '';
+    Alert.alert(
+      '下载前请确认',
+      `${tierText}${memText}\n\n`
+      + '注意：上下文长度（context size）越长，KV 缓存占用越大，总内存会明显增加。'
+      + '请优先选择标「推荐」的量化，并在选用后把上下文设为能跑稳的档位；'
+      + '若加载失败或闪退，多半是内存超出上限，改用更小的模型/更低的上下文即可。'
+    );
   };
 
   const rewriteSource = source => {
@@ -546,6 +563,9 @@ export default function LocalModelPanel({ visible, onClose }) {
                   {draftSummary.memory.totalBytes > 0 ? <Text style={styles.summaryChip}>占用约 {formatBytes(draftSummary.memory.totalBytes)}</Text> : null}
                   <Text style={[styles.summaryTier, { color: tierColor(theme, draftSummary.compatibility.tier) }]}>{draftSummary.compatibility.label}</Text>
                 </View>
+                <Text style={styles.summaryHint}>
+                  内存占用随上下文长度增加；若加载失败或闪退，请改用更小的模型或降低上下文。
+                </Text>
               </View>
 
               <View style={styles.sourceRow}>
@@ -777,6 +797,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   summaryRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 8 },
   summaryChip: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginRight: 12, marginBottom: 4 },
   summaryTier: { fontSize: fonts.scaled(12), fontWeight: '800', marginBottom: 4 },
+  summaryHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 8 },
   input: { minHeight: 42, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surface, color: theme.colors.text, paddingHorizontal: 12, paddingVertical: 9 },
   progress: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 10 },
   loading: { marginVertical: 10 },

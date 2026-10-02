@@ -19,7 +19,7 @@ import {
 } from '../storage.js';
 import { loadLocalModel, unloadLocalModel } from '../localModel/adapter.js';
 import { stopLocalApiServer } from '../localModel/localApiServer.js';
-import { recordModelLog } from '../localModel/modelLogs.js';
+import { describeModelError, recordModelLog } from '../localModel/modelLogs.js';
 import { applyActiveLocalModel } from '../localModel/modelState.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { tryAcquireResource } from '../resourceMutex.js';
@@ -94,7 +94,7 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
       setActiveLocalModelId(item.id);
       setModelPanelOpen(false);
     } catch (error) {
-      recordModelLog('load', `加载失败：${error.message || error}`, { level: 'error' });
+      recordModelLog('load', `加载失败：${describeModelError(error)}`, { level: 'error' });
       Alert.alert('加载失败', error.message || '请检查模型文件后重试。');
     } finally {
       release();

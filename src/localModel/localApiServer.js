@@ -3,7 +3,7 @@
 // 顶层不 import react-native（惰性 require），保证纯 Node 测试可直接加载纯函数。
 
 import { normalizeLocalModelApiServer } from './modelState.js';
-import { recordModelLog } from './modelLogs.js';
+import { describeModelError, recordModelLog } from './modelLogs.js';
 
 const EVENT_REQUEST = 'LocalApiServer:onRequest';
 
@@ -129,7 +129,7 @@ export function attachLocalApiServerInference({ model, runInference, addListener
       const text = await runInference(messages, model);
       await reply(event.requestId, { text: typeof text === 'string' ? text : '', model: modelId });
     } catch (error) {
-      recordModelLog('api', `本地 API 推理失败：${error.message}`, { level: 'error' });
+      recordModelLog('api', `本地 API 推理失败：${describeModelError(error)}`, { level: 'error' });
       await reply(event.requestId, { text: '', model: modelId });
     }
   });
