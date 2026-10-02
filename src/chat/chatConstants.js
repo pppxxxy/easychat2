@@ -15,3 +15,10 @@ export const NO_BODY_TEXT = '（未生成正文）';
 
 export const THINKING_LEVEL_LABELS = { low: '低', medium: '中', high: '高' };
 export const THINKING_DISPLAY_LABELS = { open: '开启', fold: '折叠', off: '关闭' };
+
+// 消息列表窗口化（MessageList 虚拟化）：默认只挂载尾部消息，扩窗逐步放开。
+// INITIAL 为切会话/冷启动的初始窗口；STEP 为「加载更早消息」每次放开的条数；
+// STEP_SCROLL 为 scrollToMessage 定位到窗口外消息时的一次扩窗量。
+export const MESSAGE_WINDOW_INITIAL = 80;
+export const MESSAGE_WINDOW_STEP = 200;
+export const MESSAGE_WINDOW_STEP_SCROLL = 400;

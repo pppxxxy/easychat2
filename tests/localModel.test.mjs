@@ -373,12 +373,18 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   assert.ok(provider.includes('onReasoning,'), '路由层应透传 onReasoning');
   assert.ok(provider.includes('conversationKey,'), '路由层应透传 conversationKey');
 
-  const chat = read('ChatScreen.js');
+  // 会话标识与本地 onReasoning 已随 requestReply 外提至 useChatSend
+  const chat = read('chat/useChatSend.js');
   assert.ok(chat.includes('conversationKey: String((sessionGuard && sessionGuard.sessionId)'), '本地推理应传会话标识');
   // 本地思考与在线 onReasoning 同构：覆写 reasoning、不动 pending
+  // （外提后覆写经 replyFlow 的 mergeStreamedReasoning 纯函数完成）
   const localReasoning = chat.match(/onReasoning: fullReasoning => \{[\s\S]{0,600}?\},\n\s*onlineSend/);
   assert.ok(localReasoning, '本地路径应有 onReasoning 处理器');
-  assert.ok(localReasoning[0].includes('reasoning: fullReasoning'), '本地思考应写入 reasoning 字段');
+  assert.ok(
+    localReasoning[0].includes('reasoning: fullReasoning')
+      || localReasoning[0].includes('mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning)'),
+    '本地思考应写入 reasoning 字段'
+  );
 
   const panel = read('LocalModelPanel.js');
   // 面板加载按钮：进度百分比、已加载态、互斥锁

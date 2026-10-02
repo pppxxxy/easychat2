@@ -13,7 +13,9 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
+const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');
 const CHAT_TOP_BAR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'ChatTopBar.js'), 'utf8');
+const MESSAGE_LIST_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageList.js'), 'utf8');
 
 test('消息选择支持添加、移除与重复选择', () => {
   assert.deepEqual(toggleMessageSelection([], 'a'), ['a']);
@@ -53,11 +55,11 @@ test('多选态消息 Pressable 的 onLongPress 始终非空（原地松手不�
   // 选中的消息又取消，表现为「原地松手就变回原样，只有滑动才留得住多选」。
   // 因此渲染里不得出现 onLongPress={!messageSelectionOpen ? ... : undefined} 的写法。
   assert.equal(
-    CHAT_SCREEN_SOURCE.includes('onLongPress={!messageSelectionOpen ?'),
+    MESSAGE_LIST_SOURCE.includes('onLongPress={!messageSelectionOpen ?'),
     false
   );
-  assert.ok(CHAT_SCREEN_SOURCE.includes('onLongPress={() => {'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('if (messageSelectionOpen) return;'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('onLongPress={() => {'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('if (messageSelectionOpen) return;'));
 });
 
 test('多选顶栏提供全选/取消全选按钮并接线', () => {
@@ -99,16 +101,17 @@ test('修改重发计划撤回目标消息及后续回复并回填文字', () =>
 });
 
 test('主动消息刷新不清空输入/附件，也不打断进行中的请求', () => {
-  // 加载 effect 依赖含 messageRefreshTick：后台主动消息落库会推进它。修复后
-  // 会话未切换的 tick 刷新走独立分支，只把消息读回来，不做切会话的副作用。
-  assert.ok(CHAT_SCREEN_SOURCE.includes('const refreshTickRef = useRef(messageRefreshTick);'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('const tickChanged = refreshTickRef.current !== messageRefreshTick;'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('if (!sessionChanged && tickChanged && loadSessionId) {'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('if (sendLockRef.current || abortRef.current) return undefined;'));
+  // 加载 effect（已外提至 useSessionMessages）依赖含 messageRefreshTick：后台主动
+  // 消息落库会推进它。会话未切换的 tick 刷新走独立分支，只把消息读回来，不做切
+  // 会话的副作用。
+  assert.ok(SESSION_MESSAGES_SOURCE.includes('const refreshTickRef = useRef(messageRefreshTick);'));
+  assert.ok(SESSION_MESSAGES_SOURCE.includes('const tickChanged = refreshTickRef.current !== messageRefreshTick;'));
+  assert.ok(SESSION_MESSAGES_SOURCE.includes('if (!sessionChanged && tickChanged && loadSessionId) {'));
+  assert.ok(SESSION_MESSAGES_SOURCE.includes('if (sendLockRef.current || abortRef.current) return undefined;'));
   // tick 分支里不再有清空输入/删除草稿附件的调用
-  const tickBranch = CHAT_SCREEN_SOURCE.slice(
-    CHAT_SCREEN_SOURCE.indexOf('if (!sessionChanged && tickChanged && loadSessionId) {'),
-    CHAT_SCREEN_SOURCE.indexOf('refreshTickRef.current = messageRefreshTick;\n      if (draftSaveTimerRef.current)')
+  const tickBranch = SESSION_MESSAGES_SOURCE.slice(
+    SESSION_MESSAGES_SOURCE.indexOf('if (!sessionChanged && tickChanged && loadSessionId) {'),
+    SESSION_MESSAGES_SOURCE.indexOf('refreshTickRef.current = messageRefreshTick;\n    if (draftSaveTimerRef.current)')
   );
   assert.ok(tickBranch.length > 0, '应能截取 tick 刷新分支');
   assert.equal(tickBranch.includes("setInput('')"), false);
@@ -125,6 +128,6 @@ test('MessageBubble 的引用/重选回调保持稳定引用以击穿 memo', () 
   // 渲染处不再内联箭头函数
   assert.equal(CHAT_SCREEN_SOURCE.includes("() => openGreetingPicker('reselect')"), false);
   assert.equal(CHAT_SCREEN_SOURCE.includes('() => startMessageSelection(message.id)'), false);
-  assert.ok(CHAT_SCREEN_SOURCE.includes('onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('onStartSelection={richInteractive ? startMessageSelection : undefined}'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}'));
+  assert.ok(MESSAGE_LIST_SOURCE.includes('onStartSelection={richInteractive ? startMessageSelection : undefined}'));
 });

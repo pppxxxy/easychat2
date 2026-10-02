@@ -15,17 +15,19 @@ import {
 } from '../src/inlineImagePrompt.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
+const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');
+const CHAT_SEND_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useChatSend.js'), 'utf8');
+const MESSAGE_LIST_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageList.js'), 'utf8');
 
 test('配图挂载到替换后的文字消息 id，而非 pending 占位符 id', () => {
   // 回归：pending 占位符会被 replyParts 替换、id 改变；继续用 pendingAssistantMessage.id
   // 调 generateInlineImage 会永久匹配失败（图静默不出现）。
   assert.equal(
-    CHAT_SCREEN_SOURCE.includes('generateInlineImageRef.current?.(pendingAssistantMessage.id'),
+    CHAT_SEND_SOURCE.includes('generateInlineImageRef.current?.(pendingAssistantMessage.id'),
     false,
     '不得再用 pending id 调配图'
   );
-  const call = CHAT_SCREEN_SOURCE.match(/generateInlineImageRef\.current\?\.\(([^)]*)\)/);
+  const call = CHAT_SEND_SOURCE.match(/generateInlineImageRef\.current\?\.\(([^)]*)\)/);
   assert.ok(call, '未找到配图调用');
   assert.ok(call[1].includes('inlineTarget.id'), '应使用替换后文字消息的 id');
 });
@@ -86,10 +88,10 @@ test('场景输出清洗：剥前缀/引号、压缩换行、超长截断', () =
 test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
   // 背景图（bgUri）之上再压一段「开始聊天/当前角色/请先填写 API」会显得像第二层背景。
   // 现在空状态按 bgUri 分支：有背景时只留「选择开场白」入口，无背景时才显示完整引导块。
-  const start = CHAT_SCREEN_SOURCE.indexOf('messages.length === 0 ? (');
-  const end = CHAT_SCREEN_SOURCE.indexOf('renderedMessages.map', start);
+  const start = MESSAGE_LIST_SOURCE.indexOf('messages.length === 0 ? (');
+  const end = MESSAGE_LIST_SOURCE.indexOf('visibleMessages.map', start);
   assert.ok(start > 0 && end > start, '未找到空状态渲染块');
-  const block = CHAT_SCREEN_SOURCE.slice(start, end);
+  const block = MESSAGE_LIST_SOURCE.slice(start, end);
   assert.ok(block.includes('bgUri ? ('), '空状态应按 bgUri 分支');
   const bgBranchStart = block.indexOf('bgUri ? (');
   const emptyTitleAt = block.indexOf('emptyTitle');
@@ -107,10 +109,10 @@ test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
 });
 
 test('默认角色空会话首次进入自动显示教学开场白（仅内置角色、仅一次）', () => {
-  // 仅内置默认角色、仅空会话、且从未自动展示过时才注入。
-  const autoStart = CHAT_SCREEN_SOURCE.indexOf('默认角色（内置助手）的空会话');
+  // 仅内置默认角色、仅空会话、且从未自动展示过时才注入。（已外提至 useSessionMessages）
+  const autoStart = SESSION_MESSAGES_SOURCE.indexOf('默认角色（内置助手）的空会话');
   // 取自动展示分支的固定窗口：从注释/条件判断到该分支结束（含打标记与 return）
-  const block = CHAT_SCREEN_SOURCE.slice(autoStart, autoStart + 1200);
+  const block = SESSION_MESSAGES_SOURCE.slice(autoStart, autoStart + 1200);
   assert.ok(block, '未找到默认角色自动开场白分支');
   assert.ok(block.includes('hasShownDefaultGreeting'), '应检查是否已展示过');
   assert.ok(block.includes('markDefaultGreetingShown'), '展示后应打标记');

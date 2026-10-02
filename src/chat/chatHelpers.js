@@ -103,3 +103,42 @@ export function messageTimestamp(message) {
   const fromId = Number(String((message && message.id) || '').split('-')[0]);
   return Number.isFinite(fromId) && fromId > 0 ? fromId : 0;
 }
+
+// 可落盘消息列表：剔除 pending 消息，剥掉瞬态字段（waitingForResponse /
+// 未完成的配图 inlineImage）。settled 的配图保留原样（含 base64，历史行为）。
+// 无瞬态字段的元素原引用返回，避免上层 memo 因新对象而失效。
+export function buildPersistableMessages(messages) {
+  return (messages || [])
+    .filter(item => item && !item.pending)
+    .map(item => {
+      const hasWaiting = Object.prototype.hasOwnProperty.call(item, 'waitingForResponse');
+      const inlineImage = item.inlineImage;
+      const inlineImageSettled = inlineImage && inlineImage.status === 'done';
+      if (!hasWaiting && (!inlineImage || inlineImageSettled)) return item;
+      const next = { ...item };
+      delete next.waitingForResponse;
+      if (inlineImage && !inlineImageSettled) delete next.inlineImage;
+      return next;
+    });
+}
+
+// 已提交消息快照缓存：只有“已提交消息”确实变化时才做整份 JSON.stringify。
+// 流式回复期间每个 token 都会更新 messages，但已提交部分没有变（元素仍是
+// 同一批对象引用），按引用比对即可跳过无意义的全量序列化，同时保留
+// “用户消息一发出就落盘”的原有行为。committed 用于引用比对，persistable
+// 仅在实际重算时使用。
+export function createPersistableSnapshotCache() {
+  let list = [];
+  let snapshot = '[]';
+  return {
+    get(committed, persistable) {
+      const current = Array.isArray(committed) ? committed : [];
+      const unchanged = current.length === list.length
+        && current.every((item, index) => item === list[index]);
+      if (unchanged) return snapshot;
+      snapshot = JSON.stringify(buildPersistableMessages(persistable));
+      list = current;
+      return snapshot;
+    },
+  };
+}
