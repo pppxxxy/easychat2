@@ -13,7 +13,8 @@ import {
   saveLocalModelSettings,
 } from './storage.js';
 import { deleteLocalModel, downloadLocalModel, getLocalModelFileInfo, importLocalModel } from './localModel/modelManager.js';
-import { isLocalModelModuleAvailable } from './localModel/adapter.js';
+import { isLocalModelModuleAvailable, loadLocalModel } from './localModel/adapter.js';
+import { tryAcquireResource } from './resourceMutex.js';
 import {
   getLocalApiServerStatus,
   isLocalApiServerAvailable,
@@ -96,6 +97,10 @@ export default function LocalModelPanel({ visible, onClose }) {
   const [apiServer, setApiServer] = useState({ enabled: false, host: '127.0.0.1', port: 8080, apiKey: '' });
   const [apiStatus, setApiStatus] = useState({ running: false, port: 0 });
   const [apiBusy, setApiBusy] = useState(false);
+  // 显式加载：面板里的加载按钮状态（加载中的条目 id、进度百分比、已加载条目 id）。
+  const [loadBusyId, setLoadBusyId] = useState('');
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadedModelId, setLoadedModelId] = useState('');
 
   const refresh = useCallback(async () => {
     const [list, current] = await Promise.all([
@@ -417,6 +422,36 @@ export default function LocalModelPanel({ visible, onClose }) {
     });
   };
 
+  // 面板内的显式加载：与聊天页加载共用 local-model 互斥锁；进度 0-100，
+  // 完成后标记「已加载」。加载前先确认文件存在，缺失给明确指引。
+  const handleLoadModel = async entry => {
+    if (!entry || loadBusyId) return;
+    const release = tryAcquireResource('local-model');
+    if (!release) {
+      Alert.alert('资源忙', '录音、语音合成或本地推理正在进行，请稍后再加载。');
+      return;
+    }
+    setLoadBusyId(entry.id);
+    setLoadProgress(0);
+    try {
+      const item = await getLocalModelItem(entry.id).catch(() => null);
+      if (!item) throw new Error('模型条目不存在');
+      const info = await getLocalModelFileInfo(item).catch(() => ({ exists: false }));
+      if (!info || info.exists === false) throw new Error('模型文件缺失，请重新下载或导入');
+      await loadLocalModel(item, {
+        onProgress: p => setLoadProgress(Math.max(0, Math.min(100, Math.round(Number(p) || 0)))),
+      });
+      setLoadedModelId(entry.id);
+      setLoadProgress(100);
+      Alert.alert('已加载', '模型已加载到内存，聊天页选择「本地」来源即可使用。');
+    } catch (error) {
+      Alert.alert('加载失败', error.message || '请检查模型文件与设备内存。');
+    } finally {
+      release();
+      setLoadBusyId('');
+    }
+  };
+
   const renderEntry = entry => {
     const summary = buildModelSummary(entry, { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 });
     const active = Boolean(settings && settings.activeModelId === entry.id);
@@ -445,25 +480,55 @@ export default function LocalModelPanel({ visible, onClose }) {
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textMuted} />
         </TouchableOpacity>
         {expanded ? (
-          <View style={styles.itemActions}>
-            <TouchableOpacity
-              style={[styles.selectButton, active && styles.selectButtonActive]}
-              onPress={() => selectActive(entry)}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel={active ? '当前活动模型' : `选用 ${entry.name || entry.id}`}
-            >
-              <Text style={styles.selectButtonText}>{active ? '已选用' : '选用'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={() => openParams(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="参数">
-              <Ionicons name="options-outline" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.iconButtonText}>参数</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={() => confirmDelete(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="删除">
-              <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
-              <Text style={styles.dangerText}>删除</Text>
-            </TouchableOpacity>
-          </View>
+          <>
+            <View style={styles.itemActions}>
+              {active ? (
+                <View style={styles.activeCheck} accessibilityLabel="当前选用的模型">
+                  <Ionicons name="checkmark-circle" size={18} color={theme.colors.primary} />
+                </View>
+              ) : null}
+              <TouchableOpacity
+                style={[styles.selectButton, active && styles.selectButtonActive]}
+                onPress={() => selectActive(entry)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={active ? '当前活动模型' : `选用 ${entry.name || entry.id}`}
+              >
+                <Text style={styles.selectButtonText}>{active ? '已选用' : '选用'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.iconButton, loadBusyId === entry.id && styles.loadButtonBusy]}
+                onPress={() => handleLoadModel(entry)}
+                disabled={Boolean(loadBusyId)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  loadedModelId === entry.id ? '模型已加载' : `加载 ${entry.name || entry.id}`
+                }
+              >
+                <Ionicons name="hardware-chip-outline" size={16} color={theme.colors.primarySoft} />
+                <Text style={styles.iconButtonText}>
+                  {loadBusyId === entry.id ? `加载中 ${loadProgress}%` : loadedModelId === entry.id ? '已加载' : '加载'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconButton} onPress={() => openParams(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="参数">
+                <Ionicons name="options-outline" size={16} color={theme.colors.primarySoft} />
+                <Text style={styles.iconButtonText}>参数</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconButton} onPress={() => confirmDelete(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="删除">
+                <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
+                <Text style={styles.dangerText}>删除</Text>
+              </TouchableOpacity>
+            </View>
+            {loadBusyId === entry.id ? (
+              <View style={styles.loadProgressRow} accessibilityLabel={`加载进度 ${loadProgress}%`}>
+                <View style={styles.loadProgressBar}>
+                  <View style={[styles.loadProgressFill, { width: `${loadProgress}%` }]} />
+                </View>
+                <Text style={styles.loadProgressText}>{loadProgress}%</Text>
+              </View>
+            ) : null}
+          </>
         ) : null}
       </View>
     );
@@ -775,7 +840,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   chip: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginRight: 10, marginBottom: 4 },
   tierChip: { fontSize: fonts.scaled(11), fontWeight: '800', marginBottom: 4 },
   itemActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  activeCheck: { marginRight: 6, alignItems: 'center', justifyContent: 'center' },
   selectButton: { borderRadius: tokens.radius.pill, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.5), paddingHorizontal: 14, paddingVertical: 6, marginRight: 10 },
+  loadButtonBusy: { opacity: 0.75 },
+  loadProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  loadProgressBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.surfaceBorder, overflow: 'hidden' },
+  loadProgressFill: { height: '100%', borderRadius: 2, backgroundColor: theme.colors.primary },
+  loadProgressText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 8, minWidth: 36, textAlign: 'right' },
   selectButtonActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.18) },
   selectButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
   iconButton: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },

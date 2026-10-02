@@ -436,7 +436,11 @@ function LocalApiServerBridge() {
         const release = tryAcquireResource('local-model');
         if (!release) throw new Error('本地模型资源被占用');
         try {
-          const result = await runLocalModel(messages, item, {});
+          // OpenAI 语义是无状态：每个请求用独立会话标识，跨请求必清 KV cache，
+          // 避免上一个客户端请求的内容串进下一个请求。
+          const result = await runLocalModel(messages, item, {
+            conversationKey: `api-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          });
           return result && typeof result.text === 'string' ? result.text : '';
         } finally {
           release();

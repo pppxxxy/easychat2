@@ -1800,6 +1800,8 @@ export default function ChatScreen() {
           localItem,
           localFileInfo,
           signal: controller.signal,
+          // 会话标识：跨对话时适配器会清 KV cache，避免新对话串进上一段对话。
+          conversationKey: String((sessionGuard && sessionGuard.sessionId) || ''),
           onToken: fullText => {
             if (!isCurrentSession() || controller.signal.aborted) return;
             setMessages(current => current.map(item => (
@@ -1807,6 +1809,19 @@ export default function ChatScreen() {
                 ? { ...item, text: fullText, waitingForResponse: false }
                 : item
             )));
+          },
+          // 本地推理模型的思考过程（<think> 流）由适配器拆分后走这里，
+          // 与在线路径的 onReasoning 同构：覆写 reasoning 字段，不动 pending。
+          onReasoning: fullReasoning => {
+            if (!isCurrentSession() || controller.signal.aborted) return;
+            setMessages(current => {
+              if (!isCurrentSession()) return current;
+              return current.map(item => (
+                item.id === pendingAssistantMessage.id
+                  ? { ...item, reasoning: fullReasoning }
+                  : item
+              ));
+            });
           },
           onlineSend,
         });

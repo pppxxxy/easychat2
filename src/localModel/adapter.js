@@ -3,6 +3,7 @@
 
 import { normalizeLocalModelParams } from './modelParams.js';
 import { describeModelError, formatBytes, recordModelLog } from './modelLogs.js';
+import { createThinkSplitter, splitThinkContent } from './thinkStream.js';
 
 let moduleState;
 
@@ -146,7 +147,7 @@ export async function loadLocalModel(model, { onProgress } = {}) {
     }
   }
 
-  current = { key, context, support };
+  current = { key, context, support, conversationKey: '' };
   recordModelLog('load', `模型加载完成${support.vision || support.audio ? `（${[support.vision ? '视觉' : '', support.audio ? '音频' : ''].filter(Boolean).join('+')}）` : ''}`, { context: key });
   return current;
 }
@@ -172,6 +173,27 @@ export function getLoadedLocalModelKey() {
   return current ? current.key : '';
 }
 
+// 某个模型是否正是当前常驻上下文（供 UI 显示「已加载」）。
+export function isLocalModelLoaded(model) {
+  return Boolean(current && current.key === modelKey(model));
+}
+
+// 跨对话必须清 KV cache：常驻上下文会沿用上一段对话的缓存，导致新对话
+// 「记得」上一段对话的内容（llama.rn clearCache 文档明确要求在对话间调用）。
+// 混合架构模型（LFM2 等）的循环状态只能整体清除，部分删除无效。
+export async function clearLocalModelCache() {
+  if (!current || !current.context) return false;
+  if (typeof current.context.clearCache !== 'function') return false;
+  try {
+    await current.context.clearCache();
+    current.conversationKey = '';
+    return true;
+  } catch (error) {
+    recordModelLog('chat', `清空上下文缓存失败：${describeModelError(error)}`, { level: 'warn' });
+    return false;
+  }
+}
+
 export function getLoadedLocalModelSupport() {
   return current ? { ...current.support } : { vision: false, audio: false };
 }
@@ -182,11 +204,30 @@ function abortError() {
   return error;
 }
 
-export async function runLocalModel(messages, model, { onToken, signal, params } = {}) {
+export async function runLocalModel(messages, model, { onToken, onReasoning, signal, params, conversationKey } = {}) {
   if (signal && signal.aborted) throw abortError();
   const loaded = await loadLocalModel(model);
   // 加载耗时较长：期间用户可能已取消，进入生成前必须复查，否则会白跑一整轮。
   if (signal && signal.aborted) throw abortError();
+
+  // 会话切换时清 KV cache：常驻上下文跨对话会残留上一段对话的缓存，导致
+  // 新对话的思考/回复「串」进上一段对话的内容。同一对话内保留缓存以复用前缀。
+  const nextConversationKey = String(conversationKey || '');
+  if (
+    nextConversationKey
+    && loaded.context
+    && typeof loaded.context.clearCache === 'function'
+    && loaded.conversationKey !== nextConversationKey
+  ) {
+    try {
+      await loaded.context.clearCache();
+      loaded.conversationKey = nextConversationKey;
+      recordModelLog('chat', '已切换对话，清空上下文缓存');
+    } catch (error) {
+      recordModelLog('chat', `清空上下文缓存失败：${describeModelError(error)}`, { level: 'warn' });
+    }
+  }
+
   const completionParams = {
     messages: Array.isArray(messages) ? messages : [],
     ...buildCompletionParams(model, params),
@@ -206,23 +247,27 @@ export async function runLocalModel(messages, model, { onToken, signal, params }
   const startedAt = Date.now();
   const runContext = [
     `消息=${Array.isArray(messages) ? messages.length : 0}`,
-    `上下文=${completionParams.n_ctx}`,
+    `上下文=${effectiveParams(model).contextSize}`,
     `maxTokens=${completionParams.n_predict}`,
     `temp=${completionParams.temperature}`,
   ].join(' ');
   recordModelLog('chat', '开始推理', { context: runContext });
   try {
-    let fullText = '';
+    // 本地推理模型把思考过程以 <think>…</think> 内联在输出里（无 reasoning_content
+    // 字段）：这里按流拆分，思考走 onReasoning、正文走 onToken，避免思考被当正文。
+    const splitter = createThinkSplitter();
     const result = await loaded.context.completion(completionParams, data => {
       if (data && data.token) {
-        fullText += data.token;
-        if (typeof onToken === 'function') onToken(fullText);
+        splitter.push(data.token);
+        if (typeof onToken === 'function') onToken(splitter.text());
+        if (typeof onReasoning === 'function') onReasoning(splitter.reasoning());
       }
     });
     if (aborted) throw abortError();
-    const text = result && typeof result.text === 'string' ? result.text : fullText;
-    recordModelLog('chat', `推理完成（${text.length} 字，${Date.now() - startedAt}ms）`);
-    return { ...result, text };
+    const rawText = result && typeof result.text === 'string' ? result.text : splitter.raw();
+    const split = splitThinkContent(rawText);
+    recordModelLog('chat', `推理完成（${split.text.length} 字${split.reasoning ? `，思考 ${split.reasoning.length} 字` : ''}，${Date.now() - startedAt}ms）`);
+    return { ...result, text: split.text, reasoning: split.reasoning };
   } catch (error) {
     if (error && error.name === 'AbortError') {
       recordModelLog('chat', '推理已取消', { level: 'info', context: String(model && model.modelPath || '') });

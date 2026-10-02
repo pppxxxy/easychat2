@@ -349,3 +349,45 @@ test('本地模型面板：展示并支持复制以 /v1 结尾的本地地址', 
   assert.ok(panel.includes('onPress={copyApiAddress}'), '地址栏应可点击复制');
   assert.ok(panel.includes('copyApiAddress'), '应有复制处理函数');
 });
+
+test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮（源码守护）', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const read = name => fs.readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
+
+  const adapter = read('localModel/adapter.js');
+  // 跨对话必须清 KV cache（llama.rn clearCache 文档要求；否则新对话串上一段对话）
+  assert.ok(adapter.includes('await loaded.context.clearCache()'), '会话切换应调用 clearCache');
+  assert.ok(adapter.includes('loaded.conversationKey !== nextConversationKey'), '同对话不应重复清缓存');
+  assert.ok(adapter.includes('export async function clearLocalModelCache'), '应导出手动清缓存入口');
+  assert.ok(adapter.includes('export function isLocalModelLoaded'), '应导出已加载判定（面板显示用）');
+  // 思考流：<think> 拆分后思考走 onReasoning、正文走 onToken
+  assert.ok(adapter.includes('createThinkSplitter()'), '推理回调应使用 think 拆分器');
+  assert.ok(adapter.includes('onReasoning(splitter.reasoning())'), '思考应走 onReasoning');
+  assert.ok(adapter.includes('onToken(splitter.text())'), '正文应走 onToken（已剥离思考）');
+  assert.ok(adapter.includes('const split = splitThinkContent(rawText)'), '最终文本也要剥离思考标签');
+
+  const provider = read('modelProvider.js');
+  assert.ok(provider.includes('onReasoning,'), '路由层应透传 onReasoning');
+  assert.ok(provider.includes('conversationKey,'), '路由层应透传 conversationKey');
+
+  const chat = read('ChatScreen.js');
+  assert.ok(chat.includes('conversationKey: String((sessionGuard && sessionGuard.sessionId)'), '本地推理应传会话标识');
+  // 本地思考与在线 onReasoning 同构：覆写 reasoning、不动 pending
+  const localReasoning = chat.match(/onReasoning: fullReasoning => \{[\s\S]{0,600}?\},\n\s*onlineSend/);
+  assert.ok(localReasoning, '本地路径应有 onReasoning 处理器');
+  assert.ok(localReasoning[0].includes('reasoning: fullReasoning'), '本地思考应写入 reasoning 字段');
+
+  const panel = read('LocalModelPanel.js');
+  // 面板加载按钮：进度百分比、已加载态、互斥锁
+  assert.ok(panel.includes('const handleLoadModel = async entry'), '应有面板加载处理函数');
+  assert.ok(panel.includes("tryAcquireResource('local-model')"), '加载应走 local-model 互斥锁');
+  assert.ok(panel.includes('onProgress: p => setLoadProgress'), '应接线加载进度');
+  assert.ok(panel.includes('加载中 ${loadProgress}%'), '按钮应显示加载百分比');
+  assert.ok(panel.includes("'已加载'"), '按钮应有已加载态');
+  assert.ok(panel.includes('loadProgressBar'), '应有进度条');
+  // 选用勾：当前模型操作行左侧
+  assert.ok(panel.includes('checkmark-circle'), '选中的模型应有勾标识');
+});

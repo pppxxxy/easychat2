@@ -24,7 +24,17 @@ export function canUseLocalModel(settings, fileInfo, item) {
   }).ready;
 }
 
-export async function sendWithModelProvider({ messages, localSettings, localItem, localFileInfo, onlineSend, onToken, signal }) {
+export async function sendWithModelProvider({
+  messages,
+  localSettings,
+  localItem,
+  localFileInfo,
+  onlineSend,
+  onToken,
+  onReasoning,
+  conversationKey,
+  signal,
+}) {
   if (!canUseLocalModel(localSettings, localFileInfo, localItem)) {
     return onlineSend();
   }
@@ -35,7 +45,7 @@ export async function sendWithModelProvider({ messages, localSettings, localItem
   }
   const model = localItem || localSettings;
   try {
-    const result = await runLocalModel(messages, model, { onToken, signal });
+    const result = await runLocalModel(messages, model, { onToken, onReasoning, conversationKey, signal });
     return result && typeof result.text === 'string' ? result.text : '';
   } catch (error) {
     if (error && error.name === 'AbortError') throw error;
