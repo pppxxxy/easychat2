@@ -22,6 +22,7 @@ import { stopLocalApiServer } from '../localModel/localApiServer.js';
 import { recordModelLog } from '../localModel/modelLogs.js';
 import { applyActiveLocalModel } from '../localModel/modelState.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
+import { tryAcquireResource } from '../resourceMutex.js';
 
 export default function useChatModelThinking({ isSending, sendLockRef }) {
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
@@ -73,8 +74,14 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
   }, [apiConfigs, isSending]);
 
   // 加载本地模型：先确保文件存在，再加载常驻上下文并把该条设为活动模型。
+  // 与聊天推理共用 local-model 互斥锁：换上下文不能与正在进行的推理并发。
   const activateLocalModel = useCallback(async entry => {
     if (!entry || isSending || sendLockRef.current) return;
+    const release = tryAcquireResource('local-model');
+    if (!release) {
+      Alert.alert('资源忙', '录音、语音合成或本地推理正在进行，请稍后再切换。');
+      return;
+    }
     setLoadingLocalModelId(entry.id);
     try {
       const item = await getLocalModelItem(entry.id).catch(() => null);
@@ -90,12 +97,18 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
       recordModelLog('load', `加载失败：${error.message || error}`, { level: 'error' });
       Alert.alert('加载失败', error.message || '请检查模型文件后重试。');
     } finally {
+      release();
       setLoadingLocalModelId('');
     }
   }, [isSending]);
 
   // 卸载当前本地模型：释放常驻上下文并关闭本地模式，回到在线 API。
   const deactivateLocalModel = useCallback(async () => {
+    const release = tryAcquireResource('local-model');
+    if (!release) {
+      Alert.alert('资源忙', '录音、语音合成或本地推理正在进行，请稍后再卸载。');
+      return;
+    }
     try {
       await stopLocalApiServer().catch(() => {});
       await unloadLocalModel();
@@ -105,6 +118,8 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
       setModelPanelOpen(false);
     } catch (error) {
       Alert.alert('卸载失败', error.message || '请重试。');
+    } finally {
+      release();
     }
   }, []);
 

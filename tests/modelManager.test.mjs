@@ -16,6 +16,8 @@ const moved = [];
 const copied = [];
 let downloadShouldFail = false;
 let copyShouldFail = false;
+let httpStatus = 0;
+let failMoveToOnce = null;
 
 const fsStub = {
   documentDirectory: DOCUMENT_DIR,
@@ -35,10 +37,14 @@ const fsStub = {
     downloadAsync: async () => {
       if (downloadShouldFail) throw new Error('network down');
       files.set(temporary, { size: 2048 });
-      return { uri: temporary };
+      return { uri: temporary, ...(httpStatus ? { status: httpStatus } : {}) };
     },
   }),
   moveAsync: async ({ from, to }) => {
+    if (failMoveToOnce && to === failMoveToOnce) {
+      failMoveToOnce = null;
+      throw new Error('move failed');
+    }
     moved.push([from, to]);
     files.set(to, files.get(from) || { size: 2048 });
     files.delete(from);
@@ -85,6 +91,8 @@ function reset() {
   copied.length = 0;
   storage.saved.length = 0;
   downloadShouldFail = false;
+  httpStatus = 0;
+  failMoveToOnce = null;
   copyShouldFail = false;
 }
 
@@ -170,7 +178,11 @@ test('importLocalModel：复制本地 GGUF 并以 imported 登记', async () => 
   assert.equal(item.paramSize, 3);
   assert.equal(item.sourceId, 'local');
   assert.equal(item.modelPath, `${DOCUMENT_DIR}local-models/Qwen-3B-Q5_K_M.gguf`);
-  assert.deepEqual(copied[0], ['content://picked/Qwen-3B-Q5_K_M.gguf', item.modelPath]);
+  // 导入先复制到暂存位（.import），经原子替换就位后暂存被清
+  const staging = `${DOCUMENT_DIR}local-models/Qwen-3B-Q5_K_M.gguf.import`;
+  assert.deepEqual(copied[0], ['content://picked/Qwen-3B-Q5_K_M.gguf', staging]);
+  assert.equal(files.get(item.modelPath).size, 4096);
+  assert.equal(files.has(staging), false);
 });
 
 test('importLocalModel：可附带 mmproj 并标记识图能力', async () => {
@@ -199,6 +211,47 @@ test('importLocalModel：复制失败不登记并清理目标文件', async () =
 test('importLocalModel：未选择文件时拒绝', async () => {
   reset();
   await assert.rejects(() => manager.importLocalModel({ name: 'x' }), /请选择要导入的 GGUF 文件/);
+});
+
+test('downloadLocalModel：HTTP 4xx/5xx 的错误页不落位、不登记', async () => {
+  reset();
+  httpStatus = 404;
+  await assert.rejects(
+    () => manager.downloadLocalModel({ modelId: 'oops', modelUrl: 'https://example.com/oops.gguf' }),
+    /HTTP 404/
+  );
+  assert.equal(storage.saved.length, 0);
+  assert.equal(files.has(`${DOCUMENT_DIR}local-models/oops.gguf`), false);
+  assert.equal(files.has(`${DOCUMENT_DIR}local-models/oops.gguf.download`), false, '临时文件应清理');
+});
+
+test('downloadLocalModel：替换失败时旧模型被恢复，不出现两头落空', async () => {
+  reset();
+  const destination = `${DOCUMENT_DIR}local-models/keep.gguf`;
+  const backup = `${destination}.old`;
+  files.set(destination, { size: 100 });
+  failMoveToOnce = destination;
+  await assert.rejects(
+    () => manager.downloadLocalModel({ modelId: 'keep', modelUrl: 'https://example.com/keep.gguf' }),
+    /move failed/
+  );
+  assert.equal(storage.saved.length, 0);
+  assert.equal(files.get(destination).size, 100, '旧模型应原样恢复');
+  assert.equal(files.has(backup), false, '备份应被回收');
+  assert.equal(files.has(`${destination}.download`), false, '临时文件应清理');
+});
+
+test('importLocalModel：替换失败时旧模型被恢复', async () => {
+  reset();
+  const destination = `${DOCUMENT_DIR}local-models/keep2.gguf`;
+  files.set(destination, { size: 100 });
+  failMoveToOnce = destination;
+  await assert.rejects(
+    () => manager.importLocalModel({ sourceUri: 'content://picked/keep2.gguf', name: 'keep2' }),
+    /move failed/
+  );
+  assert.equal(storage.saved.length, 0);
+  assert.equal(files.get(destination).size, 100, '旧模型应原样恢复');
 });
 
 test('deleteLocalModel：删除模型与 mmproj，缺文件不报错', async () => {

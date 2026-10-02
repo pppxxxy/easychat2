@@ -153,6 +153,8 @@ function abortError() {
 export async function runLocalModel(messages, model, { onToken, signal, params } = {}) {
   if (signal && signal.aborted) throw abortError();
   const loaded = await loadLocalModel(model);
+  // 加载耗时较长：期间用户可能已取消，进入生成前必须复查，否则会白跑一整轮。
+  if (signal && signal.aborted) throw abortError();
   const completionParams = {
     messages: Array.isArray(messages) ? messages : [],
     ...buildCompletionParams(model, params),

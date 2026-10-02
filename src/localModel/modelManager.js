@@ -52,6 +52,29 @@ export async function getLocalModelFileInfo(model, options = {}) {
   return fs.getInfoAsync(path);
 }
 
+// 原子替换：旧文件先挪到 .old 备份，新文件就位后才清备份；替换失败时恢复旧文件。
+// 否则「先删旧再写新」的窗口里 move/copy 一失败，旧模型也会一起丢。
+async function swapIntoPlace(fs, source, destination) {
+  const backup = `${destination}.old`;
+  await removeQuietly(fs, backup);
+  let replaced = false;
+  try {
+    const existing = await fs.getInfoAsync(destination);
+    if (existing && existing.exists) {
+      await fs.moveAsync({ from: destination, to: backup });
+      replaced = true;
+    }
+    await fs.moveAsync({ from: source, to: destination });
+    await removeQuietly(fs, backup);
+  } catch (error) {
+    if (replaced) {
+      await removeQuietly(fs, destination);
+      await fs.moveAsync({ from: backup, to: destination }).catch(() => {});
+    }
+    throw error;
+  }
+}
+
 async function downloadToFile(fs, url, destination, onProgress) {
   const temporary = `${destination}.download`;
   await fs.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
@@ -65,11 +88,13 @@ async function downloadToFile(fs, url, destination, onProgress) {
     });
     const result = await task.downloadAsync();
     if (!result || !result.uri) throw new Error('模型下载失败');
+    // 404/403 的错误页会被完整写成文件，必须在落位前按状态码拒绝。
+    const status = Number(result.status);
+    if (Number.isFinite(status) && status >= 400) throw new Error(`模型下载失败（HTTP ${status}）`);
     const info = await fs.getInfoAsync(result.uri);
     const size = parsePositiveSize(info);
     if (!info || info.exists === false || size <= 0) throw new Error('模型文件为空');
-    await removeQuietly(fs, destination);
-    await fs.moveAsync({ from: result.uri, to: destination });
+    await swapIntoPlace(fs, result.uri, destination);
     return size;
   } catch (error) {
     await removeQuietly(fs, temporary);
@@ -78,18 +103,20 @@ async function downloadToFile(fs, url, destination, onProgress) {
 }
 
 async function copyToFile(fs, sourceUri, destination) {
+  const staging = `${destination}.import`;
   await fs.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
-  const info = await fs.getInfoAsync(sourceUri);
-  const size = parsePositiveSize(info);
-  if (!info || info.exists === false || size <= 0) throw new Error('所选文件为空');
-  await removeQuietly(fs, destination);
+  await removeQuietly(fs, staging);
   try {
-    await fs.copyAsync({ from: sourceUri, to: destination });
+    const info = await fs.getInfoAsync(sourceUri);
+    const size = parsePositiveSize(info);
+    if (!info || info.exists === false || size <= 0) throw new Error('所选文件为空');
+    await fs.copyAsync({ from: sourceUri, to: staging });
+    await swapIntoPlace(fs, staging, destination);
+    return size;
   } catch (error) {
-    await removeQuietly(fs, destination);
+    await removeQuietly(fs, staging);
     throw error;
   }
-  return size;
 }
 
 // 下载模型（可选配套 mmproj）→ 构造条目 → 登记索引。
