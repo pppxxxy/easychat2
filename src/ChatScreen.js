@@ -633,6 +633,35 @@ export default function ChatScreen() {
     });
   }, [greetingCandidates]);
 
+
+  const scrollToMessage = useCallback(id => {
+    const attempt = tries => {
+      const offset = messageOffsetsRef.current[id];
+      if (typeof offset === 'number') {
+        scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
+      } else if (tries > 0) {
+        setTimeout(() => attempt(tries - 1), 120);
+      }
+    };
+    setTimeout(() => attempt(6), 60);
+  }, []);
+
+  const onMessageLayout = useCallback((id, event) => {
+    messageOffsetsRef.current[id] = event.nativeEvent.layout.y;
+  }, []);
+
+  const {
+    searchOpen,
+    setSearchOpen,
+    searchQuery,
+    setSearchQuery,
+    activeMatchIndex,
+    setActiveMatchIndex,
+    searchMatches,
+    goToMatch,
+    closeSearch,
+  } = useChatSearch({ messages, scrollToMessage, setFocusedMessageId });
+
   const {
     switcherOpen,
     setSwitcherOpen,
@@ -692,34 +721,6 @@ export default function ChatScreen() {
     refreshSessions,
     updateCharacter,
   });
-
-  const scrollToMessage = useCallback(id => {
-    const attempt = tries => {
-      const offset = messageOffsetsRef.current[id];
-      if (typeof offset === 'number') {
-        scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
-      } else if (tries > 0) {
-        setTimeout(() => attempt(tries - 1), 120);
-      }
-    };
-    setTimeout(() => attempt(6), 60);
-  }, []);
-
-  const onMessageLayout = useCallback((id, event) => {
-    messageOffsetsRef.current[id] = event.nativeEvent.layout.y;
-  }, []);
-
-  const {
-    searchOpen,
-    setSearchOpen,
-    searchQuery,
-    setSearchQuery,
-    activeMatchIndex,
-    setActiveMatchIndex,
-    searchMatches,
-    goToMatch,
-    closeSearch,
-  } = useChatSearch({ messages, scrollToMessage, setFocusedMessageId });
 
   useEffect(() => {
     if (!ready || !pendingTarget) return;

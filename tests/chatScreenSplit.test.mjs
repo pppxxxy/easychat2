@@ -65,3 +65,61 @@ test('useSessionSwitch 保有切换流程的关键守卫语义', () => {
   // 群聊新建走 createGroupSession 且旧对话保留
   assert.ok(SWITCH_SOURCE.includes('createGroupSession(groupCharactersRef.current'));
 });
+
+test('hook 调用点参数不存在 TDZ：声明语句必须先于调用点结束', () => {
+  // 背景：useSessionSwitch 曾在 useChatSearch 解构之前读取其 setter（TDZ，
+  // 挂载即崩）。lint no-undef 与 Node 测试都查不出声明顺序问题，这里做静态检查：
+  // 对每个 hook 调用点的每个入参名，必须存在一条声明语句（const/let/var 或
+  // 解构续行），且该语句的结束行（首个以 ; 结尾的行）严格早于调用点起始行。
+  const lines = CHAT_SCREEN_SOURCE.split('\n');
+
+  const findCallStart = name => lines.findIndex(l => l.includes(`} = ${name}({`));
+  const statementEnd = startIdx => {
+    for (let i = startIdx; i < lines.length; i++) {
+      if (lines[i].trimEnd().endsWith(';')) return i;
+    }
+    return -1;
+  };
+
+  for (const hookName of ['useSessionGuard', 'useSessionMessages', 'useSessionSwitch']) {
+    const callLine = findCallStart(hookName);
+    assert.ok(callLine >= 0, `应能定位 ${hookName} 调用`);
+    // 调用点参数名：从 "} = useXxx({" 起到 "});" 止（参数可能与其同行或换行）
+    const paramNames = [];
+    let after = lines[callLine].split('({')[1] || '';
+    let i = callLine;
+    while (i < lines.length) {
+      const line = i === callLine ? after : lines[i];
+      if (line.trim() === '});' || line.includes('});')) {
+        const seg = line.split('})')[0];
+        for (const piece of seg.split(',')) {
+          const m = piece.trim().match(/^([A-Za-z_$][\w$]*)$/);
+          if (m) paramNames.push(m[1]);
+        }
+        break;
+      }
+      const m = line.trim().match(/^([A-Za-z_$][\w$]*),?$/);
+      if (m) paramNames.push(m[1]);
+      i++;
+    }
+    assert.ok(paramNames.length > 0, `${hookName} 应有入参`);
+
+    for (const name of paramNames) {
+      const esc = name.replace(/\$/g, '\\$');
+      const declRe = new RegExp(`^(?:const|let|var)\\s+${esc}\\b\\s*=|^(?:const|let|var)\\s*[\\[{][^;]*\\b${esc}\\b|^${esc}\\b\\s*[,:]\\s*$|^${esc}\\s*,\\s*$`);
+      let declaredBefore = false;
+      for (let i = 0; i < callLine; i++) {
+        if (declRe.test(lines[i].trim())) {
+          if (statementEnd(i) !== -1 && statementEnd(i) < callLine) {
+            declaredBefore = true;
+            break;
+          }
+        }
+      }
+      assert.ok(
+        declaredBefore,
+        `${hookName} 的入参 ${name} 在调用点(第 ${callLine + 1} 行)之前未完成声明 → TDZ 崩溃`
+      );
+    }
+  }
+});
