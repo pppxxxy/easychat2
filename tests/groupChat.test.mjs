@@ -100,3 +100,70 @@ test('群聊开场白把用户设定与全局预设传入提示词', async () =>
   assert.match(userContent, /保持中文/);
   assert.match(userContent, /阿青/);
 });
+
+test('群聊选人解析：JSON 提取、名称匹配与去重', () => {
+  const { parseSpeakerResponse } = loadGroupChat();
+  const characters = [{ id: 'a', name: '阿青' }, { id: 'b', name: '小蓝' }];
+  assert.deepEqual(
+    parseSpeakerResponse('```json\n{"speakers": ["阿青", "小蓝"]}\n```', characters),
+    ['a', 'b']
+  );
+  assert.deepEqual(parseSpeakerResponse('{"speakers": ["阿青", "阿青", "不存在"]}', characters), ['a']);
+  assert.deepEqual(parseSpeakerResponse('不是 JSON', characters), []);
+  assert.deepEqual(parseSpeakerResponse('{"speakers": []}', characters), []);
+});
+
+test('群聊回复解析：分段、粗体标记、URL 不算发言人与相邻同角色合并', () => {
+  const { parseEnsembleReply, mergeAdjacentSegments } = loadGroupChat();
+  const characters = [{ id: 'a', name: '阿青' }, { id: 'b', name: '小蓝' }];
+  const reply = parseEnsembleReply([
+    '**阿青**：第一段发言',
+    '补充一行',
+    '',
+    '小蓝：回应',
+    'https://example.com/link',
+  ].join('\n'), characters);
+  assert.equal(reply.length, 2);
+  assert.equal(reply[0].speakerId, 'a');
+  assert.equal(reply[0].speakerName, '阿青');
+  assert.equal(reply[0].text, '第一段发言\n补充一行');
+  assert.equal(reply[1].speakerId, 'b');
+  assert.equal(reply[1].text, '回应\nhttps://example.com/link');
+  // 未匹配到角色时保留原始名、speakerId 为空（展示兜底）
+  const unknown = parseEnsembleReply('路人甲：你好', characters);
+  assert.equal(unknown.length, 1);
+  assert.equal(unknown[0].speakerId, '');
+  assert.equal(unknown[0].speakerName, '路人甲');
+  const merged = mergeAdjacentSegments([
+    { speakerId: 'a', speakerName: '阿青', text: '第一句' },
+    { speakerId: 'a', speakerName: '阿青', text: '第二句' },
+    { speakerId: 'b', speakerName: '小蓝', text: '回应' },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].text, '第一句\n\n第二句');
+  assert.equal(merged[1].speakerId, 'b');
+});
+
+test('群聊选人：模型失败时回退（点名 → 最近发言人轮换 → 首位成员）', async () => {
+  const { selectSpeakers } = loadGroupChat();
+  lastChatCall = null;
+  const characters = [{ id: 'a', name: '阿青' }, { id: 'b', name: '小蓝' }, { id: 'c', name: '小红' }];
+  // 点名优先
+  assert.deepEqual(
+    await selectSpeakers({ characters, history: [], userText: '继续', mentions: ['c'] }),
+    ['c']
+  );
+  // 无点名：调度模型回空 → 最近发言人（小蓝）说完轮换到下一位（小红）
+  const rotated = await selectSpeakers({
+    characters,
+    history: [
+      { role: 'user', text: '问题' },
+      { role: 'assistant', speakerId: 'b', speakerName: '小蓝', text: '回答' },
+    ],
+    userText: '继续',
+  });
+  assert.deepEqual(rotated, ['c']);
+  // 无历史：回退首位成员
+  const first = await selectSpeakers({ characters, history: [], userText: '继续' });
+  assert.deepEqual(first, ['a']);
+});

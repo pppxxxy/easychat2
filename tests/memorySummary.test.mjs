@@ -77,6 +77,33 @@ test('总结提示词只记剧情与关键对话，排除习惯/口头禅且不�
   assert.ok(system.includes('之前发生过的事'));
 });
 
+test('总结响应解析：记忆行、关键词行与占位过滤', () => {
+  const response = memorySummary.parseSummaryResponse([
+    '- 第一条记忆',
+    '- 第二条记忆',
+    '关键词：小明、咖啡店',
+  ].join('\n'));
+  assert.equal(response.skipped, false);
+  assert.equal(response.summary, '- 第一条记忆\n- 第二条记忆');
+  assert.deepEqual(response.keywords, ['小明', '咖啡店']);
+  // 有记忆行但缺关键词行时回退「前情提要」
+  assert.deepEqual(memorySummary.parseSummaryResponse('- 只有记忆').keywords, ['前情提要']);
+  // 没有记忆行（只有关键词）时跳过
+  const skipped = memorySummary.parseSummaryResponse('关键词：只有关键词');
+  assert.equal(skipped.skipped, true);
+  assert.deepEqual(skipped.keywords, []);
+});
+
+test('关键词行与记忆行解析的标签与分隔符', () => {
+  assert.deepEqual(memorySummary.parseKeywordsLine('关键词：a、b，c; d'), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(memorySummary.parseKeywordsLine('Keywords: alpha, beta'), ['alpha', 'beta']);
+  assert.deepEqual(memorySummary.parseKeywordsLine('没有关键词行'), []);
+  assert.deepEqual(
+    memorySummary.parseMemoryLines('- 记忆一\n关键词：x\n* 记忆二\n（暂无已记录的记忆）'),
+    ['记忆一', '记忆二']
+  );
+});
+
 test('自动总结阈值按可总结消息计算', () => {
   const messages = makeMessages(9);
   const settings = { enabled: true, threshold: 8 };

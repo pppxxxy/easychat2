@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatContext } from '../src/plugins/registry.js';
+import { formatContext, hasTrigger, shouldSearch, runPlugins } from '../src/plugins/registry.js';
 import { runWebSearch } from '../src/plugins/webSearch.js';
 import { PROVIDERS, getProvider, missingRequiredFields } from '../src/plugins/providers.js';
 
@@ -133,4 +133,75 @@ test('missingRequiredFields：容错输入与未知供应商回退首个', () =>
   PROVIDERS.forEach(provider => {
     assert.ok(Array.isArray(missingRequiredFields(provider, {})), `${provider.id} 判定异常`);
   });
+});
+
+test('联网搜索触发判定：开关/类型/触发词缺一不可', () => {
+  const plugin = { type: 'web-search', enabled: true };
+  const future = Date.now() + 100000;
+  assert.equal(shouldSearch({ userText: '今天有什么新闻', plugin, sessionId: 's-check', now: future }), true);
+  assert.equal(shouldSearch({ userText: '你好', plugin, sessionId: 's-check', now: future }), false);
+  assert.equal(shouldSearch({ userText: '今天有什么新闻', plugin: { ...plugin, enabled: false }, sessionId: 's-check', now: future }), false);
+  assert.equal(shouldSearch({ userText: '今天有什么新闻', plugin: { ...plugin, type: 'other' }, sessionId: 's-check', now: future }), false);
+});
+
+test('hasTrigger：触发词命中与空输入', () => {
+  assert.equal(hasTrigger('今天有什么新闻'), true);
+  assert.equal(hasTrigger('你好'), false);
+  assert.equal(hasTrigger(''), false);
+  assert.equal(hasTrigger('自定义词', ['自定义词']), true);
+});
+
+test('联网搜索冷却与失败一次性上报：成功后重新允许上报', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  class FailingXHR {
+    open() {}
+    setRequestHeader() {}
+    send() { this.onerror && this.onerror(); }
+    abort() {}
+  }
+  const SuccessXHR = class {
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.status = 200;
+      this.responseText = JSON.stringify({ results: [{ title: '结果', snippet: '内容' }] });
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  };
+  globalThis.XMLHttpRequest = FailingXHR;
+  try {
+    const plugin = {
+      type: 'web-search',
+      enabled: true,
+      config: { provider: 'custom', customBaseUrl: 'https://example.test/search', apiKey: 'key-run-123456' },
+    };
+    const errors = [];
+    const base = {
+      userText: '今天有什么新闻',
+      plugins: [plugin],
+      onError: error => errors.push(error),
+    };
+    const t0 = Date.now();
+    // 首次失败：上报一次
+    await runPlugins({ ...base, sessionId: 'run-a', now: t0 + 1000 });
+    assert.equal(errors.length, 1);
+    // 冷却窗口（30 秒）内不再触发，也不重复上报
+    await runPlugins({ ...base, sessionId: 'run-a', now: t0 + 2000 });
+    assert.equal(errors.length, 1);
+    // 冷却过后：失败标记仍在，继续只报一次
+    await runPlugins({ ...base, sessionId: 'run-a', now: t0 + 31000 });
+    assert.equal(errors.length, 1);
+    // 成功一次：清除失败标记，返回外部资料上下文
+    globalThis.XMLHttpRequest = SuccessXHR;
+    const context = await runPlugins({ ...base, sessionId: 'run-a', now: t0 + 62000 });
+    assert.match(context, /联网搜索外部资料/);
+    assert.equal(errors.length, 1);
+    // 标记已清除：再次失败会重新上报（换查询词避开 60 秒结果缓存）
+    globalThis.XMLHttpRequest = FailingXHR;
+    await runPlugins({ ...base, userText: '最近有什么大新闻', sessionId: 'run-a', now: t0 + 93000 });
+    assert.equal(errors.length, 2);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
 });

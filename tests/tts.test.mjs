@@ -589,3 +589,58 @@ test('语音播报面板：渲染预置音色选择并修 Android 键盘抖动',
   assert.match(panel, /behavior=\{Platform\.OS === 'ios' \? 'padding' : undefined\}/);
   assert.ok(!panel.includes("? 'padding' : 'height'"), 'Android 不应再叠 height 键盘避让');
 });
+
+test('resolveToken：凭据走 POST body、缓存按凭据指纹区分且 TTL 过期后重取', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const requests = [];
+  class TokenXHR {
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader() {}
+    send(body) {
+      requests.push({ method: this.method, url: this.url, body });
+      this.status = 200;
+      this.responseText = JSON.stringify({ access_token: `token-${requests.length}` });
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  }
+  globalThis.XMLHttpRequest = TokenXHR;
+  try {
+    const { resolveToken } = loadTts();
+    const provider = {
+      auth: {
+        type: 'token',
+        tokenUrl: 'https://oauth.test/token',
+        tokenFields: { grant_type: 'client_credentials' },
+        tokenPath: 'access_token',
+        tokenTtlSec: 2592000,
+      },
+    };
+    const base = { apiKey: 'key-one-123456', appSecretKey: 'secret-1' };
+    // 首次：POST body 携带凭据（不进 URL 查询串）
+    assert.equal(await resolveToken(provider, base, { now: 1000 }), 'token-1');
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].url, 'https://oauth.test/token');
+    const body = new URLSearchParams(requests[0].body);
+    assert.equal(body.get('client_id'), 'key-one-123456');
+    assert.equal(body.get('client_secret'), 'secret-1');
+    assert.equal(body.get('grant_type'), 'client_credentials');
+    assert.equal(requests[0].url.includes('client_id'), false);
+    // 同凭据命中缓存：只发一次请求
+    assert.equal(await resolveToken(provider, base, { now: 2000 }), 'token-1');
+    assert.equal(requests.length, 1);
+    // 换密钥：凭据指纹变化，重新获取
+    assert.equal(await resolveToken(provider, { ...base, apiKey: 'key-two-123456' }, { now: 3000 }), 'token-2');
+    assert.equal(requests.length, 2);
+    // TTL 过期后重取（新凭据避免命中前两项缓存）
+    const ttlProvider = { auth: { ...provider.auth, tokenTtlSec: 10 } };
+    const ttlBase = { apiKey: 'key-ttl-123456', appSecretKey: 'secret-ttl' };
+    assert.equal(await resolveToken(ttlProvider, ttlBase, { now: 5000 }), 'token-3');
+    assert.equal(await resolveToken(ttlProvider, ttlBase, { now: 5000 + 11 * 1000 }), 'token-4');
+    assert.equal(requests.length, 4);
+    // 非 token 类型直接返回空令牌
+    assert.equal(await resolveToken({ auth: { type: 'header' } }, base, {}), '');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
