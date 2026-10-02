@@ -13,6 +13,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.pppxxxy.easychat2.MainActivity
 import com.pppxxxy.easychat2.R
 import kotlinx.coroutines.Dispatchers
@@ -179,6 +181,25 @@ class MessageStore(context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    // apiKey 单独存 EncryptedSharedPreferences（AES256-GCM，密钥由 Android Keystore 托管），
+    // 其余非敏感数据仍走明文 prefs。创建失败（极老设备/Keystore 异常）时降级为 null，
+    // 读取退回明文 prefs、写入退回明文 —— 保证功能可用，不因加密不可用而崩溃。
+    private val secretPrefs: android.content.SharedPreferences? = try {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            context,
+            SECRET_PREFS,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    } catch (e: Exception) {
+        Log.e("MessageStore", "加密存储不可用，apiKey 降级为明文存储", e)
+        null
+    }
+
     fun saveSchedules(list: List<RoleSchedule>) {
         val json = JSONArray()
         list.forEach { json.put(it.toJson()) }
@@ -223,15 +244,51 @@ class MessageStore(context: Context) {
         prefs.edit()
             .putString(KEY_ENDPOINT, settings.endpoint)
             .putString(KEY_MODEL, settings.model)
-            // apiKey 明文 SharedPreferences 仅作示例，生产建议 Keystore/EncryptedSharedPreferences
-            .putString(KEY_API_KEY, settings.apiKey)
             .apply()
+        // 安全：apiKey 不再明文落盘。优先写加密存储；加密不可用（写入也可能因 Keystore
+        // 失效抛错）时降级明文，保证功能不因加密异常而中断。
+        if (writeSecretApiKey(settings.apiKey)) {
+            // 迁移清理：历史版本可能在明文 prefs 存过 apiKey，写加密成功后删除。
+            prefs.edit().remove(KEY_API_KEY).apply()
+        } else {
+            prefs.edit().putString(KEY_API_KEY, settings.apiKey).apply()
+        }
     }
 
     fun loadApiSettings(): ApiSettings? {
         val endpoint = prefs.getString(KEY_ENDPOINT, null) ?: return null
         val model = prefs.getString(KEY_MODEL, null) ?: return null
-        return ApiSettings(endpoint, model, prefs.getString(KEY_API_KEY, "") ?: "")
+        val secret = readSecretApiKey()
+        if (secret != null) return ApiSettings(endpoint, model, secret)
+        // 加密区没有值（或不可用）：回退明文区，兼作旧数据迁移。
+        val legacy = prefs.getString(KEY_API_KEY, null)
+        if (legacy != null && secretPrefs != null) {
+            if (writeSecretApiKey(legacy)) prefs.edit().remove(KEY_API_KEY).apply()
+        }
+        return ApiSettings(endpoint, model, legacy ?: "")
+    }
+
+    /** 写入加密存储；成功返回 true，加密不可用或抛错返回 false（调用方降级明文）。 */
+    private fun writeSecretApiKey(value: String): Boolean {
+        val encrypted = secretPrefs ?: return false
+        return try {
+            encrypted.edit().putString(KEY_API_KEY, value).apply()
+            true
+        } catch (e: Exception) {
+            Log.e("MessageStore", "apiKey 写入加密存储失败，降级明文", e)
+            false
+        }
+    }
+
+    /** 读取加密存储中的 apiKey；无值/不可用/抛错返回 null（调用方回退明文区）。 */
+    private fun readSecretApiKey(): String? {
+        val encrypted = secretPrefs ?: return null
+        return try {
+            encrypted.getString(KEY_API_KEY, null)
+        } catch (e: Exception) {
+            Log.e("MessageStore", "apiKey 读取加密存储失败，回退明文", e)
+            null
+        }
     }
 
     /**
@@ -299,6 +356,7 @@ class MessageStore(context: Context) {
 
     companion object {
         private const val PREFS = "proactive_message_prefs"
+        private const val SECRET_PREFS = "proactive_message_secrets"
         private const val KEY_SCHEDULES = "schedules"
         private const val KEY_ENDPOINT = "api_endpoint"
         private const val KEY_MODEL = "api_model"

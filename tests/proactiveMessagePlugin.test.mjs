@@ -73,12 +73,27 @@ test('组件注册：接收器非导出、BootReceiver 监听重启事件、前�
   assert.equal(again.service.length, 1);
 });
 
-test('Gradle 依赖注入幂等且包含 work-runtime-ktx', () => {
+test('Gradle 依赖注入幂等且包含 work-runtime-ktx 与 security-crypto', () => {
   const input = 'android {\n}\n\ndependencies {\n    implementation("com.facebook.react:react-android")\n}\n';
   const once = applyGradleDependencies(input);
   assert.match(once, /implementation\("androidx\.work:work-runtime-ktx:2\.9\.1"\)/);
+  // apiKey 走 EncryptedSharedPreferences，需要 security-crypto
+  assert.match(once, /implementation\("androidx\.security:security-crypto:1\.1\.0-alpha06"\)/);
   const twice = applyGradleDependencies(once);
   assert.equal(twice, once);
+});
+
+test('Gradle 依赖注入：仅缺一条时只补缺失的那条', () => {
+  // 已注入 work-runtime、缺 security-crypto：只补后者，不重复前者
+  const partial = 'dependencies {\n    implementation("androidx.work:work-runtime-ktx:2.9.1")\n}\n';
+  const out = applyGradleDependencies(partial);
+  assert.equal(out.match(/androidx\.work:work-runtime-ktx/g).length, 1);
+  assert.equal(out.match(/androidx\.security:security-crypto/g).length, 1);
+  // 反向：已有 security-crypto、缺 work-runtime
+  const partial2 = 'dependencies {\n    implementation("androidx.security:security-crypto:1.1.0-alpha06")\n}\n';
+  const out2 = applyGradleDependencies(partial2);
+  assert.equal(out2.match(/androidx\.work:work-runtime-ktx/g).length, 1);
+  assert.equal(out2.match(/androidx\.security:security-crypto/g).length, 1);
 });
 
 test('MainApplication 补丁注册 ProactiveMessagePackage（SDK 50 模板）且幂等', () => {
@@ -285,6 +300,20 @@ test('requestJson 时间占位符在触发时由原生替换（不固化保存�
   assert.ok(core.includes('WEEKDAY_CHARS'), '缺少周字表（与 JS 周日~周六对齐）');
   // 简版回退的问好仍按触发时段选早/中/晚（不受占位符方案影响）
   assert.ok(core.includes('in 5..11'), 'fallback 问好时段逻辑被误删');
+});
+
+test('ProactiveCore：apiKey 走 EncryptedSharedPreferences，不再默认明文落盘', () => {
+  const core = readFileSync(path.join(KOTLIN_DIR, 'ProactiveCore.kt'), 'utf8');
+  assert.ok(core.includes('import androidx.security.crypto.EncryptedSharedPreferences'), '缺 EncryptedSharedPreferences 导入');
+  assert.ok(core.includes('import androidx.security.crypto.MasterKey'), '缺 MasterKey 导入');
+  assert.ok(core.includes('MasterKey.KeyScheme.AES256_GCM'), '应使用 AES256_GCM 主密钥');
+  assert.ok(core.includes('SECRET_PREFS'), '应有独立加密 prefs 文件名');
+  // 加密失败/不可用时降级明文，且读写都兜异常，不能因加密异常崩溃
+  assert.ok(core.includes('fun writeSecretApiKey'), '缺加密写入 helper');
+  assert.ok(core.includes('fun readSecretApiKey'), '缺加密读取 helper');
+  assert.ok(core.includes('降级明文'), '应有降级路径');
+  // 历史明文迁移：读到旧明文 apiKey 后搬入加密区并删除明文
+  assert.ok(core.includes('prefs.edit().remove(KEY_API_KEY)'), '迁移后应删除明文 apiKey');
 });
 
 test('通知：新渠道弹横幅 + 角色头像 + 单色小图标去圈 i', () => {

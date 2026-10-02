@@ -82,13 +82,22 @@ function applyComponents(manifest) {
 }
 
 function applyGradleDependencies(contents) {
-  if (contents.includes('androidx.work:work-runtime-ktx')) {
-    return contents;
+  let out = contents;
+  if (!out.includes('androidx.work:work-runtime-ktx')) {
+    out = out.replace(
+      /dependencies\s*\{/,
+      deps => `${deps}\n    implementation("androidx.work:work-runtime-ktx:2.9.1")`
+    );
   }
-  return contents.replace(
-    /dependencies\s*\{/,
-    deps => `${deps}\n    implementation("androidx.work:work-runtime-ktx:2.9.1")`
-  );
+  // 主动消息的 apiKey 存 EncryptedSharedPreferences，避免明文落盘。
+  // 逐依赖独立判重：任一已存在时只补缺失的那条。
+  if (!out.includes('androidx.security:security-crypto')) {
+    out = out.replace(
+      /dependencies\s*\{/,
+      deps => `${deps}\n    implementation("androidx.security:security-crypto:1.1.0-alpha06")`
+    );
+  }
+  return out;
 }
 
 function applyMainApplicationPatch(contents) {
