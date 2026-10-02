@@ -50,6 +50,9 @@ function MessageList({
   onPressQuoteBlock,
   generateInlineImage,
   broadcastMessage,
+  onSaveImage,
+  onSaveAsSticker,
+  onDeleteImageMessage,
   searchQuery,
   searchMatches,
   focusedMessageId,
@@ -189,6 +192,9 @@ function MessageList({
                       onPressQuote={onPressQuoteBlock}
                       onGenerateImage={generateInlineImage}
                       onBroadcast={broadcastMessage}
+                      onSaveImage={onSaveImage}
+                      onSaveAsSticker={onSaveAsSticker}
+                      onDeleteImageMessage={onDeleteImageMessage}
                       highlightKeyword={searchQuery.trim()}
                       isMatch={searchMatches.includes(message.id)}
                       isActiveMatch={focusedMessageId === message.id}

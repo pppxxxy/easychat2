@@ -814,7 +814,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
          if (isCanceled()) return false;
          validateImageBatch(sizedImages, { requireDimensions: true });
      } catch (error) {
-       if (error && error.message === '无法读取图片大小') {
+       // 三种失败要分开说：文件已不存在（如撤回后原文件被清理）不能被说成「图片过大」，
+       // 那会让用户去换更小的图，而真正的问题是这张图没了。
+       if (error && error.message === '图片不存在') {
+         Alert.alert('图片已失效', '这张图片的文件已不存在，请重新选择图片。');
+       } else if (error && error.message === '无法读取图片大小') {
          Alert.alert('图片读取失败', '无法读取图片大小，请重新选择图片。');
        } else {
          Alert.alert('图片过大', '一次发送的图片总大小过大，请减少图片后再试。');
@@ -1184,9 +1188,13 @@ if (!isCurrent() || controller.signal.aborted) return false;
     const sessionGuard = captureSessionGuard();
     const plan = getEditResendPlan(messagesRef.current, targetId);
     if (!plan || !isSessionGuardCurrent(sessionGuard)) return;
+    // 图片/表情包撤回后回填到附件区，文字撤回后回填到输入框——文案随之区分。
+    const isMediaPlan = Array.isArray(plan.attachments) && plan.attachments.length > 0;
     Alert.alert(
       '修改重发',
-      '确定撤回这条消息及其后续回复，并将原文字回退到输入框吗？',
+      isMediaPlan
+        ? '确定撤回这条图片消息及其后续回复，并把图片放回待发送附件吗？'
+        : '确定撤回这条消息及其后续回复，并将原文字回退到输入框吗？',
       [
         { text: '取消', style: 'cancel' },
         {
@@ -1227,6 +1235,18 @@ if (!isCurrent() || controller.signal.aborted) return false;
               if (!isSessionGuardCurrent(sessionGuard)) return;
               setMessages(latestPlan.messages);
               setInput(latestPlan.text);
+              // 图片消息把撤下来的图片放回附件区：文件仍在文档目录，落入附件列表即
+              // 被 syncProtectedAttachmentUris 纳入保护集合（它读取 attachmentsRef +
+              // pendingAttachmentUrisRef），后续孤儿文件回收不会误删。
+              const restored = Array.isArray(latestPlan.attachments) ? latestPlan.attachments : [];
+              if (restored.length > 0) {
+                setAttachments(current => {
+                  const next = [...current, ...restored];
+                  attachmentsRef.current = next;
+                  return next;
+                });
+                syncProtectedAttachmentUris();
+              }
               setQuoteTarget(null);
             } catch (error) {
               Alert.alert('撤回失败', '记忆摘要未能同步重置，请稍后重试。');
@@ -1235,7 +1255,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         },
       ]
     );
-  }, [captureSessionGuard, character, characterId, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, sessionTransitionPending, updateCharacter]);
+  }, [captureSessionGuard, character, characterId, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, sessionTransitionPending, syncProtectedAttachmentUris, updateCharacter]);
 
   const messageActionsRef = useRef({});
   useEffect(() => {

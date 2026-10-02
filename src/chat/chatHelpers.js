@@ -7,6 +7,7 @@ import {
   QUOTE_TEXT_MAX,
   THINKING_PLACEHOLDER,
 } from './chatConstants.js';
+import { STICKER_MESSAGE_KIND } from '../chatMedia.js';
 
 // 拼生图提示词：风格前缀 + 场景描述（场景描述由模型转写或本地兜底得到）。
 export function buildInlineImagePrompt(sceneText, stylePrefix, maxChars) {
@@ -18,10 +19,20 @@ export function buildInlineImagePrompt(sceneText, stylePrefix, maxChars) {
   return prefix ? `${prefix}, ${clipped}` : clipped;
 }
 
+// 图片/表情包消息的文字占位：这类消息 text 为空，但引用与回填都需要一段可读文本。
+export function mediaQuoteText(message) {
+  const stickerName = String(message?.image?.stickerName || '').trim();
+  if (stickerName) return `【表情包：${stickerName}】`;
+  if (message?.kind === STICKER_MESSAGE_KIND) return '【表情包】';
+  return '【图片】';
+}
+
 export function buildQuotePayload(message, name) {
   if (!message || !message.id) return null;
   const raw = String(message.text || '').trim();
-  const text = raw.length > QUOTE_TEXT_MAX ? `${raw.slice(0, QUOTE_TEXT_MAX)}…` : raw;
+  // 图片/表情包消息没有正文：用占位文本参与引用，否则引用入口对这类消息永远返回 null。
+  const body = raw || (message.image ? mediaQuoteText(message) : '');
+  const text = body.length > QUOTE_TEXT_MAX ? `${body.slice(0, QUOTE_TEXT_MAX)}…` : body;
   if (!text) return null;
   return {
     id: message.id,

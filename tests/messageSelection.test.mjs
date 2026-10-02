@@ -94,10 +94,47 @@ test('修改重发计划撤回目标消息及后续回复并回填文字', () =>
   ];
   assert.deepEqual(getEditResendPlan(messages, 'c'), {
     text: '当前消息',
+    attachments: [],
     messages: messages.slice(0, 2),
   });
   assert.equal(getEditResendPlan(messages, 'b'), null);
+});
+
+test('修改重发计划：图片消息改为回填附件（复用原文件、可重新发送）', () => {
+  const list = [
+    { id: 'a', role: 'user', text: '前言' },
+    {
+      id: 'img',
+      role: 'user',
+      kind: 'image',
+      text: '',
+      image: { uri: 'file:///documents/chat-images/x.jpg', mime: 'image/jpeg', name: 'x.jpg', width: 100, height: 200 },
+    },
+    { id: 'r', role: 'assistant', text: '回复' },
+  ];
+  const plan = getEditResendPlan(list, 'img');
+  assert.equal(plan.text, '', '图片消息没有正文可回填');
+  assert.equal(plan.attachments.length, 1);
+  const [attachment] = plan.attachments;
+  assert.equal(attachment.uri, 'file:///documents/chat-images/x.jpg', '必须复用原 URI，不重新落盘');
+  assert.equal(attachment.kind, 'image');
+  assert.equal(attachment.mime, 'image/jpeg');
+  assert.equal(attachment.width, 100);
+  assert.equal(attachment.height, 200);
+  // size 由发送路径重新 stat 磁盘决定，这里不写可能过期的值
+  assert.equal(attachment.size, 0);
+  assert.equal(plan.messages.length, 1, '撤回该消息及其后续回复');
+  // 表情包保留贴纸身份，回到附件后仍按表情包发送
+  const stickerPlan = getEditResendPlan([
+    { id: 's', role: 'user', kind: 'sticker', text: '', image: { uri: 'file:///s.png', stickerId: 'st-1', stickerName: '猫猫' } },
+  ], 's');
+  assert.equal(stickerPlan.attachments[0].kind, 'sticker');
+  assert.equal(stickerPlan.attachments[0].stickerId, 'st-1');
+  assert.equal(stickerPlan.attachments[0].stickerName, '猫猫');
+  // 缺 uri 的图片消息无法回填，返回 null（不产生空附件）
   assert.equal(getEditResendPlan([{ id: 'image', role: 'user', image: {} }], 'image'), null);
+  // 助手消息（含助手图片）不属于用户消息，不可撤回
+  assert.equal(getEditResendPlan([{ id: 'ai', role: 'assistant', image: { uri: 'file:///a.png' } }], 'ai'), null);
 });
 
 test('主动消息刷新不清空输入/附件，也不打断进行中的请求', () => {

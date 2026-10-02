@@ -10,6 +10,7 @@ import {
   createPersistableSnapshotCache,
   formatScrubberTime,
   getHttpStatus,
+  mediaQuoteText,
   messageTimestamp,
   settlePendingMessage,
 } from '../src/chat/chatHelpers.js';
@@ -50,6 +51,25 @@ test('buildQuotePayload：无 id 或空文本返回 null，超长截断加省略
   const clipped = buildQuotePayload({ id: 'm2', text: longText }, '甲');
   assert.equal(clipped.text.length, QUOTE_TEXT_MAX + 1);
   assert.ok(clipped.text.endsWith('…'));
+});
+
+test('buildQuotePayload：图片/表情包用占位文本参与引用', () => {
+  // 这类消息 text 为空，曾经让引用入口对它们永远返回 null。
+  const image = buildQuotePayload({ id: 'i1', role: USER_ID, text: '', image: { uri: 'file:///a.jpg' } }, '我');
+  assert.equal(image.text, '【图片】');
+  assert.equal(image.id, 'i1');
+  assert.equal(image.role, USER_ID);
+  // 表情包带名字时显示名字
+  const named = buildQuotePayload({
+    id: 's1', role: USER_ID, kind: 'sticker', text: '',
+    image: { uri: 'file:///s.png', stickerId: 'st1', stickerName: '猫猫' },
+  }, '我');
+  assert.equal(named.text, '【表情包：猫猫】');
+  assert.equal(mediaQuoteText({ kind: 'sticker', image: {} }), '【表情包】');
+  assert.equal(mediaQuoteText({ kind: 'image', image: {} }), '【图片】');
+  // 语音消息仍按正文处理（它有转写文本）
+  const voice = buildQuotePayload({ id: 'v1', role: USER_ID, text: '你好呀', audio: { uri: 'file:///v.m4a' } }, '我');
+  assert.equal(voice.text, '你好呀');
 });
 
 test('getHttpStatus：多来源取值，兜底 null', () => {

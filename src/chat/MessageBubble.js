@@ -56,7 +56,7 @@ function renderHighlightedText(text, keyword, styles) {
 }
 
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, onStartSelection, selectionMode, selected }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, onStartSelection, selectionMode, selected, onSaveImage, onSaveAsSticker, onDeleteImageMessage }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
    const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -171,7 +171,29 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
     [message.id, onSlashCommand, styles]
   );
 
-   const messageActionItems = [
+  // 图片/表情包消息走独立菜单：没有正文，复制/选择文本/引用原文都无意义，
+  // 改为「保存 / 保存为表情包 / 删除消息」，把原先只挂在长按手势上的操作
+  // 摆到明面上（长按是隐藏手势，用户不容易发现）。
+  const isMediaMessage = !!message.image;
+  const messageActionItems = isMediaMessage
+    ? [
+        onSaveImage
+          ? { key: 'save', label: '保存图片', icon: 'download-outline', onPress: () => onSaveImage(message.image) }
+          : null,
+        onSaveAsSticker && !message.image.stickerId
+          ? { key: 'sticker', label: '保存为表情包', icon: 'happy-outline', onPress: () => onSaveAsSticker(message.image) }
+          : null,
+        isUser && onEditUserMessage
+          ? { key: 'edit', label: '修改重发', icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
+          : null,
+        onDeleteImageMessage
+          ? { key: 'delete', label: '删除消息', icon: 'trash-outline', onPress: () => onDeleteImageMessage(message.id) }
+          : null,
+        onStartSelection
+          ? { key: 'select-message', label: '选择消息', icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
+          : null,
+      ].filter(Boolean)
+    : [
       isGreeting && onReselectGreeting
         ? { key: 'reselect', label: '重选', icon: 'refresh-outline', onPress: onReselectGreeting }
         : null,
@@ -430,7 +452,7 @@ const fullWidthAssistant = !isUser && fullWidth;
             )}
           </View>
         ) : null}
-        {!message.pending && !selectionMode && !message.image ? (
+        {!message.pending && !selectionMode ? (
           <View style={[styles.messageActions, isUser ? styles.messageActionsRight : styles.messageActionsLeft]}>
             <TouchableOpacity
               style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
@@ -441,7 +463,7 @@ const fullWidthAssistant = !isUser && fullWidth;
             >
               <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
             </TouchableOpacity>
-            {!isUser && onBroadcast ? (
+            {!isUser && !isMediaMessage && onBroadcast ? (
               <TouchableOpacity
                 style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onBroadcast(rawText != null ? rawText : message.text)}

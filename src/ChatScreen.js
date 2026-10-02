@@ -2101,6 +2101,9 @@ export default function ChatScreen() {
         onPressQuoteBlock={ onPressQuoteBlock }
         generateInlineImage={ generateInlineImage }
         broadcastMessage={ broadcastMessage }
+        onSaveImage={ saveImage }
+        onSaveAsSticker={ openStickerNamePrompt }
+        onDeleteImageMessage={ confirmDeleteImageMessage }
         searchQuery={ searchQuery }
         searchMatches={ searchMatches }
         focusedMessageId={ focusedMessageId }
