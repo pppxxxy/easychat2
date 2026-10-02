@@ -89,37 +89,49 @@ async function collectMedia(directory, prefix = '') {
   try {
     entries = await FileSystem.readDirectoryAsync(`${root}${prefix}`);
   } catch (error) {
-    return [];
+    return { items: [], failed: [] };
   }
-  const result = [];
+  const items = [];
+  const failed = [];
   for (const name of entries) {
     const relative = `${prefix}${name}`;
     const uri = `${root}${relative}`;
     const info = await FileSystem.getInfoAsync(uri);
     if (info.isDirectory) {
-      result.push(...await collectMedia(directory, `${relative}/`));
+      const nested = await collectMedia(directory, `${relative}/`);
+      items.push(...nested.items);
+      failed.push(...nested.failed);
     } else {
       try {
         const base64 = await FileSystem.readAsStringAsync(uri, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        result.push({ path: `${directory}/${relative}`, base64 });
-      } catch (error) {}
+        items.push({ path: `${directory}/${relative}`, base64 });
+      } catch (error) {
+        failed.push(`${directory}/${relative}`);
+      }
     }
   }
-  return result;
+  return { items, failed };
 }
 
 export async function exportBackup({ appVersion = '' } = {}) {
   const keys = await AsyncStorage.getAllKeys();
   const storage = [];
+  // 记录读不出的键：数据恰好损坏时最需要备份，静默跳过会让用户拿到一份
+  // “看起来成功、实则残缺”的备份。这里统计并回传给 UI 明确提示。
+  const unreadableKeys = [];
   for (const key of keys.filter(item => item.startsWith(MANAGED_PREFIX) && !item.endsWith(CORRUPT_SUFFIX))) {
     const value = await readRawValue(key);
     if (value !== undefined) storage.push({ key, value });
+    else unreadableKeys.push(key);
   }
   const media = [];
+  const unreadableMedia = [];
   for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge']) {
-    media.push(...await collectMedia(directory));
+    const collected = await collectMedia(directory);
+    media.push(...collected.items);
+    unreadableMedia.push(...collected.failed);
   }
   const payload = buildBackupPayload({ storage, media, appVersion });
   const json = JSON.stringify(payload);
@@ -128,7 +140,16 @@ export async function exportBackup({ appVersion = '' } = {}) {
   }
   const uri = `${FileSystem.documentDirectory}easychat2-backup-${Date.now()}.json`;
   await FileSystem.writeAsStringAsync(uri, json);
-  return { uri, payload, storageCount: storage.length, mediaCount: media.length, bytes: utf8ByteLength(json) };
+  return {
+    uri,
+    payload,
+    storageCount: storage.length,
+    mediaCount: media.length,
+    bytes: utf8ByteLength(json),
+    unreadableKeys,
+    unreadableMedia,
+    incomplete: unreadableKeys.length > 0 || unreadableMedia.length > 0,
+  };
 }
 
 export async function importBackup(payload, mode = 'merge') {

@@ -50,6 +50,7 @@ export {
   setSessionGreetingSelected,
   createGroupSession,
   updateSessionInfo,
+  setSessionPinned,
   updateSessionMemberProfiles,
   cloneSession,
   deleteSession,

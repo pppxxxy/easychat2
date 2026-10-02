@@ -10,6 +10,10 @@
 
 export const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
 
+// 转写请求默认超时：调用方（录音发送）不传 signal，网络挂起时会永久卡住
+// voiceBusy。这里在无外部 signal 时用内部 AbortController 兜底，超时即中断。
+export const TRANSCRIPTION_TIMEOUT_MS = 60000;
+
 // 转写端点固定在 v1 下，不复用聊天端点可能带的 /chat/completions 后缀。
 // 复用聊天配置时按 chat baseUrl 推导 origin/base；独立配置则直接给定地址。
 function stripSuffixes(baseUrl) {
@@ -85,7 +89,7 @@ export function isUnsupportedTranscriptionError(error) {
 
 // 转写音频。fileUri 为本地文件 uri；mime 默认 audio/m4a。
 // 成功返回 { text }；失败抛错（带 status / unsupported 字段，供上层判定与降级）。
-export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', signal } = {}) {
+export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', signal, timeoutMs = TRANSCRIPTION_TIMEOUT_MS } = {}) {
   const target = config || {};
   if (!target.url) {
     const error = new Error('未配置语音转写服务');
@@ -99,18 +103,38 @@ export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', sig
   form.append('model', String(target.model || DEFAULT_TRANSCRIPTION_MODEL));
 
   let response;
+  // 超时兜底：外部 signal（若有）与内部超时控制器联动；两者任一触发都会中断 fetch。
+  const timeoutController = new AbortController();
+  const timeoutTimer = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const onExternalAbort = () => timeoutController.abort();
+  if (signal) {
+    if (signal.aborted) timeoutController.abort();
+    else signal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   try {
     response = await fetch(target.url, {
       method: 'POST',
       headers: target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {},
       body: form,
-      signal,
+      signal: timeoutController.signal,
     });
   } catch (error) {
-    if (error && error.name === 'AbortError') throw error;
+    if (error && error.name === 'AbortError') {
+      // 外部 signal 主动取消：原样抛出，调用方按取消处理。
+      if (signal && signal.aborted) throw error;
+      // 否则是内部超时兜底：给出可诊断文案。
+      const timeoutError = new Error('转写请求超时，请检查网络后重试');
+      timeoutError.status = 0;
+      throw timeoutError;
+    }
     const wrapped = new Error('转写请求失败，请检查网络');
     wrapped.cause = error;
     throw wrapped;
+  } finally {
+    clearTimeout(timeoutTimer);
+    if (signal && typeof signal.removeEventListener === 'function') {
+      signal.removeEventListener('abort', onExternalAbort);
+    }
   }
 
   const bodyText = await response.text().catch(() => '');

@@ -6,7 +6,7 @@
 // expo-audio 的 useAudioRecorder 是组件级 hook，这里在 hook 顶层调用它，
 // start/stop 内部再走命令式 prepare/record/stop。
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { markMediaWrite } from '../mediaProtection.js';
 import { getAudioModule, getFileSystem } from './audioModules.js';
@@ -111,6 +111,20 @@ export default function useChatRecorder() {
       await recorder.stop();
     } catch (error) {}
     await discardFile(String(recorder.uri || ''));
+  }, []);
+
+  // 卸载时若仍在录音，必须停止并释放麦克风：否则录音会一直持有麦克风，
+  // 用户离开聊天页后其它应用无法录音，且录制临时文件会残留。
+  useEffect(() => () => {
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (!recorder) return;
+    (async () => {
+      try {
+        await recorder.stop();
+      } catch (error) {}
+      await discardFile(String(recorder.uri || ''));
+    })();
   }, []);
 
   return { recording, available: true, start, stop, cancel };

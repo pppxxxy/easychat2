@@ -21,7 +21,7 @@ import {
   getActiveSessionId,
   whenSessionMutationsSettled,
   setActiveSessionId,
-  saveSessions,
+  setSessionPinned,
   startNewSession,
   appendProactiveMessage,
   getProactiveSettings,
@@ -516,14 +516,22 @@ export function AppProvider({ children }) {
       if (!snapshot.sessions.some(session => session.id === id)) {
         throw new Error('会话不存在');
       }
-      const next = snapshot.sessions.map(session =>
-        session.id === id ? { ...session, pinned: !session.pinned } : session
-      );
-      const sorted = applySessions(next);
-      await runWithRollback(snapshot, restoreSessions, () => saveSessions(sorted));
-      return sorted;
+      try {
+        // 交给存储层在会话队列内读-改-写：用内存旧快照整表覆盖会打回并发写入
+        // （如主动消息落库新建的会话行）。
+        const updated = await setSessionPinned(id, !(snapshot.sessions.find(
+          session => session.id === id
+        ) || {}).pinned);
+        const next = snapshot.sessions.map(session => (
+          session.id === id ? (updated || session) : session
+        ));
+        return applySessions(next);
+      } catch (error) {
+        await refreshSessionsDirect().catch(() => {});
+        throw error;
+      }
     });
-  }, [applySessions, restoreSessions, snapshotSessions, enqueueMutation]);
+  }, [applySessions, refreshSessionsDirect, snapshotSessions, enqueueMutation]);
 
   const cloneSession = useCallback(async id => {
     if (!loadedRef.current) {

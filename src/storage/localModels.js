@@ -5,7 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { backupCorruptValue, readJson, readJsonStatus } from './io.js';
+import { backupCorruptValue, readJson, readJsonStatus, readJsonWithSecrets, setJsonWithSecrets } from './io.js';
 import {
   LOCAL_MODEL_INDEX_KEY,
   LOCAL_MODEL_ITEM_PREFIX,
@@ -22,12 +22,13 @@ export function localModelItemKey(id) {
 }
 
 export async function getLocalModelSettings() {
-  return normalizeLocalModelSettings(await readJson(LOCAL_MODEL_SETTINGS_KEY, null));
+  // 设置键的 apiServer.apiKey 是密钥：与其他配置一致走保险箱读写，避免明文落盘。
+  return normalizeLocalModelSettings(await readJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, null));
 }
 
 export async function saveLocalModelSettings(settings) {
   const normalized = normalizeLocalModelSettings(settings);
-  await AsyncStorage.setItem(LOCAL_MODEL_SETTINGS_KEY, JSON.stringify(normalized));
+  await setJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, normalized);
   return normalized;
 }
 
@@ -64,7 +65,7 @@ export async function migrateLegacyLocalModel() {
     await AsyncStorage.setItem(localModelItemKey(item.id), JSON.stringify(item));
     const entry = localModelIndexEntry(item);
     await writeIndexEntries([entry]);
-    await AsyncStorage.setItem(LOCAL_MODEL_SETTINGS_KEY, JSON.stringify(settings));
+    await setJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, settings);
     return [entry];
   } catch (error) {
     return [];

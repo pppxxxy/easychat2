@@ -153,3 +153,54 @@ test('transcribeAudio：未配置地址直接判为不支持', async () => {
     error => error.unsupported === true
   );
 });
+
+test('transcribeAudio：无外部 signal 时内部超时兜底，不再永久挂起', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (url, options) => new Promise((resolve, reject) => {
+    // 模拟永久挂起的请求：只在被 abort 时拒绝。
+    if (options && options.signal) {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }
+  });
+  try {
+    await assert.rejects(
+      () => transcribeAudio({
+        config: { url: 'https://stt.test/v1/audio/transcriptions', apiKey: 'k', model: 'whisper-1' },
+        fileUri: 'file:///documents/voice/a.m4a',
+        timeoutMs: 20,
+      }),
+      error => /超时/.test(error.message)
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('transcribeAudio：外部 signal 主动取消时原样抛出 AbortError', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (url, options) => new Promise((resolve, reject) => {
+    if (options && options.signal) {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }
+  });
+  try {
+    const controller = new AbortController();
+    const promise = transcribeAudio({
+      config: { url: 'https://stt.test/v1/audio/transcriptions', apiKey: 'k', model: 'whisper-1' },
+      fileUri: 'file:///documents/voice/a.m4a',
+      signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(promise, error => error.name === 'AbortError');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

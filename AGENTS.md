@@ -2,7 +2,7 @@
 
 ## Project
 
-EasyChat2: single-device Expo SDK 50 / React Native 0.73 AI chat app. No backend. Talks to any OpenAI-compatible Chat Completions endpoint. Metadata and settings live in on-device AsyncStorage; chat images, stickers, and large character payloads use on-device files.
+EasyChat2: single-device Expo SDK 54 / React Native 0.81 / React 19.1 AI chat app. No backend. Talks to any OpenAI-compatible Chat Completions endpoint. Metadata and settings live in on-device AsyncStorage; chat images, stickers, and large character payloads use on-device files.
 
 ## Commands
 

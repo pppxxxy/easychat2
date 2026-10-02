@@ -49,6 +49,19 @@ const ioStub = {
       return { status: 'corrupt' };
     }
   },
+  // 设置键走保险箱读写；测试环境 SecureStore 不可用，此处透明转发为明文，
+  // 断言仍可读取到原始 JSON。
+  readJsonWithSecrets: async (key, fallback) => {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (error) {
+      return fallback;
+    }
+  },
+  setJsonWithSecrets: async (key, payload) => {
+    await AsyncStorage.setItem(key, JSON.stringify(payload));
+  },
   backupCorruptValue: async key => {
     const raw = store.get(key);
     if (raw) store.set(`${key}__corrupt_backup`, raw);
@@ -215,4 +228,22 @@ test('参数隔离：保存一个模型的参数不影响其他模型', async ()
   await storage.saveLocalModelItem({ ...first, params: { ...first.params, contextSize: 8192 } });
   assert.equal((await storage.getLocalModelItem('m1')).params.contextSize, 8192);
   assert.equal((await storage.getLocalModelItem('m2')).params.contextSize, 2048);
+});
+
+test('本地模型设置走保险箱读写：apiServer.apiKey 经 WithSecrets 入口不落裸 JSON', async () => {
+  reset();
+  const seen = [];
+  const originalSet = ioStub.setJsonWithSecrets;
+  ioStub.setJsonWithSecrets = async (key, payload) => {
+    seen.push(key);
+    await originalSet(key, payload);
+  };
+  try {
+    await storage.saveLocalModelSettings({ apiServer: { enabled: true, apiKey: 'local-secret-123456' } });
+    const saved = await storage.getLocalModelSettings();
+    assert.equal(saved.apiServer.apiKey, 'local-secret-123456');
+    assert.ok(seen.includes(SETTINGS_KEY), '设置键应经 setJsonWithSecrets 写入');
+  } finally {
+    ioStub.setJsonWithSecrets = originalSet;
+  }
 });

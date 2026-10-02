@@ -1676,3 +1676,26 @@ test('语音转文字设置：损坏时备份并抛错，不静默覆盖', async
   store.set('@easychat2_transcription', '{not json');
   await assert.rejects(() => storage.getTranscriptionSettings(), /语音转文字设置读取失败/);
 });
+
+test('setSessionPinned：会话队列内读-改-写，保留并发新建的会话行', async () => {
+  const storage = loadStorage();
+  const first = await storage.startNewSession('character-pin');
+  // 模拟并发写入：在置顶读改写之间插入另一段会话（模拟主动消息落库新建）
+  const concurrent = storage.startNewSession('character-other');
+  const pin = storage.setSessionPinned(first.id, true);
+  await concurrent;
+  const updated = await pin;
+  assert.equal(updated.pinned, true);
+  const sessions = await storage.getSessions();
+  // 并发新建的会话行必须还在，不能被置顶的旧快照覆盖掉
+  assert.ok(sessions.some(session => session.id === first.id && session.pinned === true));
+  assert.ok(sessions.some(session => session.characterId === 'character-other'));
+});
+
+test('setSessionPinned：幂等且目标不存在返回 null', async () => {
+  const storage = loadStorage();
+  const session = await storage.startNewSession('character-pin2');
+  assert.equal((await storage.setSessionPinned(session.id, true)).pinned, true);
+  assert.equal((await storage.setSessionPinned(session.id, true)).pinned, true);
+  assert.equal(await storage.setSessionPinned('missing-session', true), null);
+});

@@ -206,6 +206,7 @@ export {
   setProtectedChatImageUris,
   setProtectedVoiceUris,
   setSessionGreetingSelected,
+  setSessionPinned,
   setSessionSummarizedUpTo,
   startNewSession,
   updateSessionInfo,

@@ -29,10 +29,20 @@ export default function BackupPanel({ visible, onClose, onImported }) {
     setBusy(true);
     try {
       const result = await exportBackup({ appVersion: '1.0.0' });
+      const summary = `${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件（${(result.bytes / 1024 / 1024).toFixed(2)}MB）`;
+      // 读不出的键/文件会被跳过：必须明确告知，避免用户拿到“成功”的残缺备份。
+      const incompleteNote = result.incomplete
+        ? `\n\n注意：有 ${result.unreadableKeys.length} 个数据键、${result.unreadableMedia.length} 个媒体文件读取失败，未包含在备份中。`
+        : '';
       if (await Sharing.isAvailableAsync()) {
+        if (result.incomplete) {
+          Alert.alert('备份不完整', `已生成备份（${summary}），但部分数据读取失败${incompleteNote}\n分享的是这份不完整的备份。`);
+        }
         await Sharing.shareAsync(result.uri, { mimeType: 'application/json', dialogTitle: '导出 EasyChat2 备份' });
+      } else if (result.incomplete) {
+        Alert.alert('备份不完整', `已生成 ${summary}，但部分数据读取失败${incompleteNote}`);
       } else {
-        Alert.alert('导出完成', `已生成 ${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件（${(result.bytes / 1024 / 1024).toFixed(2)}MB）。`);
+        Alert.alert('导出完成', `已生成 ${summary}。`);
       }
     } catch (error) {
       Alert.alert('导出失败', error.message || '请稍后重试。');

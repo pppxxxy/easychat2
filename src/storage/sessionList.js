@@ -340,6 +340,19 @@ async function deleteSessionsInternal(sessionIds) {
   return { sessions: remaining, activeSessionId };
 }
 
+async function setSessionPinnedInternal(sessionId, pinned) {
+  const sessions = await requireSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target) return null;
+  const updated = { ...target, pinned: pinned === true };
+  if (updated.pinned === target.pinned) return updated;
+  const sorted = sortSessions(sessions.map(session => (
+    session.id === sessionId ? updated : session
+  )));
+  await saveSessionsInternal(sorted);
+  return updated;
+}
+
 export function startNewSession(characterId, opening = null) {
   return enqueueSessionMutation(() => startNewSessionInternal(characterId, opening));
 }
@@ -354,6 +367,12 @@ export function createGroupSession(members, name, extras = {}) {
 
 export function updateSessionInfo(sessionId, patch = {}) {
   return enqueueSessionMutation(() => updateSessionInfoInternal(sessionId, patch));
+}
+
+// 置顶/取消置顶：在会话队列内读-改-写，避免调用方用内存旧快照整表覆盖，
+// 把并发写入（如主动消息落库新建的会话）打回旧值。
+export function setSessionPinned(sessionId, pinned) {
+  return enqueueSessionMutation(() => setSessionPinnedInternal(sessionId, pinned));
 }
 
 export function updateSessionMemberProfiles(sessionId, memberProfiles) {

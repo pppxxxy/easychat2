@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {} }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -19,6 +19,11 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false })
     async readAsStringAsync(uri) {
       if (!files.has(uri)) throw new Error('missing file');
       return files.get(uri);
+    },
+    async readDirectoryAsync(uri) {
+      const names = directories[uri];
+      if (!names) throw new Error('no dir');
+      return names;
     },
     async makeDirectoryAsync() {},
     async writeAsStringAsync(uri, value) {
@@ -45,7 +50,11 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false })
   const io = {
     async readJsonStatus(key) {
       if (!storage.has(key)) return { status: 'missing' };
-      return { status: 'ok', value: JSON.parse(storage.get(key)) };
+      try {
+        return { status: 'ok', value: JSON.parse(storage.get(key)) };
+      } catch (error) {
+        return { status: 'corrupt' };
+      }
     },
     async readLargeAsyncStorageValue() { return null; },
     utf8ByteLength: text => Buffer.byteLength(String(text), 'utf8'),
@@ -125,4 +134,31 @@ test('importBackup：媒体写入失败后回滚已存在媒体', async () => {
     /media write failed/
   );
   assert.equal(files.get('file:///doc/voice/old.m4a'), 'OLD');
+});
+
+test('exportBackup：损坏键与读不出的媒体计入 incomplete 并回传清单', async () => {
+  const storage = new Map([
+    ['@easychat2_ok', JSON.stringify({ ok: true })],
+    ['@easychat2_broken', '{ not valid json'],
+  ]);
+  const files = new Map([
+    ['file:///doc/avatars/good.jpg', 'GOOD'],
+    // 目录里有 good 与 bad 两个文件，bad 读不出来
+    ['file:///doc/avatars', undefined],
+  ]);
+  const directories = {
+    'file:///doc/avatars/': ['good.jpg', 'bad.jpg'],
+    'file:///doc/stickers/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/characters/': [],
+    'file:///doc/card-forge/': [],
+  };
+  const backup = loadBackup({ storage, files, directories });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  assert.equal(result.incomplete, true);
+  assert.deepEqual(result.unreadableKeys, ['@easychat2_broken']);
+  assert.deepEqual(result.unreadableMedia, ['avatars/bad.jpg']);
+  assert.equal(result.storageCount, 1);
+  assert.equal(result.mediaCount, 1);
 });
