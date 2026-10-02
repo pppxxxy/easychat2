@@ -127,6 +127,26 @@ test('transcribeAudio：HTTP 错误带 status 与可读信息', async () => {
   }
 });
 
+test('transcribeAudio：error 为无 message 的对象时回退状态文案而非 [object Object]', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 500,
+    text: async () => JSON.stringify({ error: { code: 'server_error' } }),
+  });
+  try {
+    await assert.rejects(
+      () => transcribeAudio({
+        config: { url: 'https://stt.test/v1/audio/transcriptions', apiKey: 'k', model: 'whisper-1' },
+        fileUri: 'file:///documents/voice/a.m4a',
+      }),
+      error => error.status === 500 && /转写失败（HTTP 500）/.test(error.message)
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('transcribeAudio：未配置地址直接判为不支持', async () => {
   await assert.rejects(
     () => transcribeAudio({ config: { url: '' }, fileUri: 'file:///a.m4a' }),

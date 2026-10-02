@@ -118,7 +118,12 @@ export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', sig
     let message = `转写失败（HTTP ${response.status}）`;
     try {
       const data = JSON.parse(bodyText);
-      message = data.error?.message || data.message || data.error || message;
+      // error 可能是 {message}、纯字符串或无 message 的对象：最后一种直接
+      // String 会显示成 "[object Object]"，此时回退 HTTP 状态文案更可诊断。
+      message = data.error?.message
+        || data.message
+        || (typeof data.error === 'string' && data.error)
+        || message;
     } catch (parseError) {}
     const error = new Error(String(message));
     error.status = response.status;
