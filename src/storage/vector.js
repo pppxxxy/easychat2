@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   backupCorruptValue,
+  createMutationQueue,
   readJsonStatus,
   readJsonWithSecrets,
   setJsonWithSecrets,
@@ -15,7 +16,7 @@ const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
 const VECTOR_MEMORY_CONFIGS_KEY = '@easychat2_vector_memory_configs';
 export const VECTOR_INDEX_PREFIX = '@easychat2_vector_index';
 
-const vectorIndexWriteQueues = new Map();
+const vectorIndexMutation = createMutationQueue();
 
 function normalizeVectorMemoryConfig(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -112,11 +113,8 @@ function vectorIndexKey(characterId) {
 }
 
 function enqueueVectorIndexMutation(characterId, task) {
-  const key = vectorIndexKey(characterId);
-  const previous = vectorIndexWriteQueues.get(key) || Promise.resolve();
-  const next = previous.then(task, task);
-  vectorIndexWriteQueues.set(key, next.catch(() => {}));
-  return next;
+  // 按角色分桶：不同角色的向量索引写入互不阻塞，同一角色串行。
+  return vectorIndexMutation.enqueue(task, vectorIndexKey(characterId));
 }
 
 function normalizeVectorIndex(index) {

@@ -11,7 +11,7 @@ import {
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
 } from '../mediaProtection.js';
-import { CORRUPT_BACKUP_SUFFIX, readLargeAsyncStorageValue } from './io.js';
+import { CORRUPT_BACKUP_SUFFIX, createMutationQueue, readLargeAsyncStorageValue } from './io.js';
 import {
   MESSAGES_KEY_PREFIX,
   protectedChatImageUris,
@@ -116,12 +116,10 @@ function scheduleMediaCollectRetry() {
 
 // 回收会读取全部会话消息并删文件；与新媒体写入或另一轮回收并发时容易交错。
 // 统一排进同一 promise 队列，保证任意时刻只有一次回收在跑（图片/语音共用）。
-let mediaCollectQueue = Promise.resolve();
+const mediaCollectMutation = createMutationQueue();
 
 function enqueueCollect(task) {
-  const run = mediaCollectQueue.catch(() => {}).then(task);
-  mediaCollectQueue = run.catch(() => {});
-  return run;
+  return mediaCollectMutation.enqueue(task);
 }
 
 export function collectChatImageFiles(protectedUris = []) {

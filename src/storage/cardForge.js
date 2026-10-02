@@ -6,14 +6,14 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { FORGE_FIELDS, FORGE_QUESTIONS, MAX_PRESERVED_ITEMS, MAX_PRESERVED_TEXT } from '../cardForge/forge.js';
 import { normalizeCharacterPresets } from '../characterPresets.js';
-import { backupCorruptValue, readJsonStatus, utf8ByteLength } from './io.js';
+import { backupCorruptValue, createMutationQueue, readJsonStatus, utf8ByteLength } from './io.js';
 
 const CARD_FORGE_KEY = '@easychat2_card_forge';
 const CARD_FORGE_PAYLOAD_DIRECTORY = 'card-forge';
 const CARD_FORGE_PAYLOAD_VERSION = 1;
 const CARD_FORGE_INLINE_LIMIT_BYTES = 512 * 1024;
 
-let cardForgeWriteQueue = Promise.resolve();
+const cardForgeMutation = createMutationQueue();
 
 function cardForgePayloadDirectory() {
   return `${FileSystem.documentDirectory || FileSystem.cacheDirectory || ''}${CARD_FORGE_PAYLOAD_DIRECTORY}/`;
@@ -156,9 +156,7 @@ async function getCardForgeStatusInternal() {
 }
 
 export function getCardForgeStatus() {
-  const task = cardForgeWriteQueue.then(() => getCardForgeStatusInternal());
-  cardForgeWriteQueue = task.then(() => undefined, () => undefined);
-  return task;
+  return cardForgeMutation.enqueue(() => getCardForgeStatusInternal());
 }
 
 export async function getCardForge() {
@@ -193,9 +191,7 @@ async function saveCardForgeInternal(state) {
 }
 
 export function saveCardForge(state) {
-  const task = cardForgeWriteQueue.then(() => saveCardForgeInternal(state));
-  cardForgeWriteQueue = task.catch(() => {});
-  return task;
+  return cardForgeMutation.enqueue(() => saveCardForgeInternal(state));
 }
 
 async function clearCardForgeInternal() {
@@ -214,7 +210,5 @@ async function clearCardForgeInternal() {
 }
 
 export function clearCardForge() {
-  const task = cardForgeWriteQueue.then(() => clearCardForgeInternal());
-  cardForgeWriteQueue = task.catch(() => {});
-  return task;
+  return cardForgeMutation.enqueue(() => clearCardForgeInternal());
 }

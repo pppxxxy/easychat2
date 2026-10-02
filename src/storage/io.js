@@ -148,3 +148,29 @@ export async function backupCorruptValue(key) {
     return false;
   }
 }
+
+// 存储写入串行化工厂：把同一逻辑域的写操作排进一条 promise 链，前一个无论
+// 成功失败都继续执行下一个（`.then(task, task)`）。返回的 enqueue 与各域原本
+// 手写的 enqueueXxxMutation 行为一致，便于统一收编，且零行为变化。
+//
+// - enqueue(task)：单队列（sessionCore/moments/diary/worldMap/cardForge/stickers 等）。
+// - enqueue(task, key)：按 key 分桶，每个 key 独立一条队列（如 vector 按角色分）。
+// - settle()：返回当前挂起写入全部落定的 promise，供外部读取前排空（迁移/刷新协调）。
+export function createMutationQueue() {
+  let single = Promise.resolve();
+  const buckets = new Map();
+  return {
+    enqueue(task, key = '') {
+      const bucket = String(key || '');
+      const tail = bucket ? (buckets.get(bucket) || Promise.resolve()) : single;
+      const next = tail.then(task, task);
+      if (bucket) buckets.set(bucket, next.catch(() => {}));
+      else single = next.catch(() => {});
+      return next;
+    },
+    settle() {
+      const tails = [single, ...buckets.values()];
+      return Promise.all(tails.map(tail => tail.catch(() => {}))).then(() => undefined);
+    },
+  };
+}

@@ -4,13 +4,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { markMediaWrite } from '../mediaProtection.js';
-import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, readJsonStatus } from './io.js';
+import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
 const STICKERS_KEY = '@easychat2_stickers';
 const STICKER_INDEX_KEY = '@easychat2_sticker_index';
 const STICKER_ITEM_PREFIX = '@easychat2_sticker_item';
 
-let stickerWriteQueue = Promise.resolve();
+const stickerMutation = createMutationQueue();
 
 function stickerItemKey(id) {
   return `${STICKER_ITEM_PREFIX}::${String(id || '')}`;
@@ -151,12 +151,10 @@ async function writeStickerCollection(stickers) {
 }
 
 export function getStickers() {
-  const task = stickerWriteQueue.then(async () => {
+  return stickerMutation.enqueue(async () => {
     const result = await readStickerStatus();
     return result.stickers;
   });
-  stickerWriteQueue = task.catch(() => {});
-  return task;
 }
 
 export function isStickerReferenceBackupKey(key) {
@@ -164,7 +162,7 @@ export function isStickerReferenceBackupKey(key) {
 }
 
 export function saveSticker(sticker) {
-  const task = stickerWriteQueue.then(async () => {
+  return stickerMutation.enqueue(async () => {
     const normalized = normalizeSticker(sticker);
     if (!normalized.id || !normalized.name || !normalized.uri) {
       throw new Error('表情包信息不完整');
@@ -183,14 +181,12 @@ export function saveSticker(sticker) {
     );
     return normalized;
   });
-  stickerWriteQueue = task.catch(() => {});
-  return task;
 }
 
 // 批量删除表情包记录，返回 { remaining, removed }；图片文件由调用方用 deleteStickerImage 清理。
 export function deleteStickers(ids) {
   const targetIds = new Set((Array.isArray(ids) ? ids : [ids]).map(id => String(id || '')).filter(Boolean));
-  const task = stickerWriteQueue.then(async () => {
+  return stickerMutation.enqueue(async () => {
     const result = await readStickerStatus();
     if (result.status === 'corrupt') {
       throw new Error('表情包记录读取失败，请稍后重试');
@@ -201,14 +197,12 @@ export function deleteStickers(ids) {
     await writeStickerCollection(remaining);
     return { remaining, removed };
   });
-  stickerWriteQueue = task.catch(() => {});
-  return task;
 }
 
 // 按给定 id 顺序重排（只含存在项，未列出者按原相对顺序补齐），返回新顺序。
 export function reorderStickers(orderedIds) {
   const order = (Array.isArray(orderedIds) ? orderedIds : []).map(id => String(id || ''));
-  const task = stickerWriteQueue.then(async () => {
+  return stickerMutation.enqueue(async () => {
     const result = await readStickerStatus();
     if (result.status === 'corrupt') {
       throw new Error('表情包记录读取失败，请稍后重试');
@@ -227,6 +221,4 @@ export function reorderStickers(orderedIds) {
     await writeStickerCollection(ordered);
     return ordered;
   });
-  stickerWriteQueue = task.catch(() => {});
-  return task;
 }

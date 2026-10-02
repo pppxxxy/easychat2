@@ -9,18 +9,16 @@ import {
   normalizeDiarySettings,
   removeDiariesForCharacter,
 } from '../diary/diary.js';
-import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, readJsonStatus } from './io.js';
+import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
 const DIARY_SETTINGS_KEY = '@easychat2_diary_settings';
 const DIARY_INDEX_KEY = '@easychat2_diary_index';
 const DIARY_ITEM_PREFIX = '@easychat2_diary_item';
 
-let diaryMutationQueue = Promise.resolve();
+const diaryMutation = createMutationQueue();
 
 function enqueueDiaryMutation(task) {
-  const next = diaryMutationQueue.then(task, task);
-  diaryMutationQueue = next.catch(() => {});
-  return next;
+  return diaryMutation.enqueue(task);
 }
 
 function diaryItemKey(id) {

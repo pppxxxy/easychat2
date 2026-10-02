@@ -6,19 +6,17 @@ import {
   removeMomentsForCharacterDeletion,
   removeMomentsBySessionIds,
 } from '../moments/moments.js';
-import { backupCorruptValue, readJson, readJsonStatus } from './io.js';
+import { backupCorruptValue, createMutationQueue, readJson, readJsonStatus } from './io.js';
 
 // 供 barrel 的媒体清理函数判断损坏备份键时复用。
 export const MOMENTS_KEY = '@easychat2_moments';
 const MOMENTS_SETTINGS_KEY = '@easychat2_moments_settings';
 const PROACTIVE_SETTINGS_KEY = '@easychat2_proactive_settings';
 
-let momentsMutationQueue = Promise.resolve();
+const momentsMutation = createMutationQueue();
 
 function enqueueMomentsMutation(task) {
-  const next = momentsMutationQueue.then(task, task);
-  momentsMutationQueue = next.catch(() => {});
-  return next;
+  return momentsMutation.enqueue(task);
 }
 
 function normalizeMomentsSettings(raw) {

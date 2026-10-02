@@ -4,16 +4,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { detachCharacterFromMap, normalizeMapHouses } from '../worldMap/map.js';
-import { backupCorruptValue, readJsonStatus } from './io.js';
+import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
 const WORLD_MAP_KEY = '@easychat2_world_map';
 
-let worldMapWriteQueue = Promise.resolve();
+const worldMapMutation = createMutationQueue();
 
 function enqueueWorldMapMutation(task) {
-  const next = worldMapWriteQueue.then(task, task);
-  worldMapWriteQueue = next.catch(() => {});
-  return next;
+  return worldMapMutation.enqueue(task);
 }
 
 export async function getWorldMapStatus() {

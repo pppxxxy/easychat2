@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeSession } from '../context/sessionLibrary.js';
 import { DEFAULT_CHARACTER } from './characters.js';
-import { backupCorruptValue, readJsonStatus } from './io.js';
+import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
 export const SESSIONS_KEY = '@easychat2_sessions';
 const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
@@ -18,23 +18,21 @@ const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
 
 // 跨模块共享的可变状态：全部集中在本层，兄弟模块 import 后引用同一实例。
-let sessionMutationQueue = Promise.resolve();
+const sessionMutation = createMutationQueue();
 export const deletedSessionIds = new Set();
 const sessionSummaryRevisions = new Map();
 export const protectedChatImageUris = new Set();
 export const protectedVoiceUris = new Set();
 
 export function enqueueSessionMutation(task) {
-  const next = sessionMutationQueue.then(task, task);
-  sessionMutationQueue = next.catch(() => {});
-  return next;
+  return sessionMutation.enqueue(task);
 }
 
 // 等待当前挂起的会话写入全部落定。迁移（migrateLegacyMessages）也在 sessionMutationQueue
 // 里，但会话列表读取（getSessions）不经过队列；外部刷新若在迁移写盘中途读取，会拿到中间态。
 // 刷新前 await 这个钩子即可保证读到迁移完成后的最终状态。
 export function whenSessionMutationsSettled() {
-  return sessionMutationQueue.catch(() => {});
+  return sessionMutation.settle();
 }
 
 export function messagesKey(characterId) {
