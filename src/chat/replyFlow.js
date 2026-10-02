@@ -43,6 +43,19 @@ export function mergeStreamedReasoning(messages, pendingId, fullReasoning) {
   ));
 }
 
+// 占位符上累积的思考内容搬到回复分段上。
+// onReasoning 只覆写占位符的 reasoning 字段，而收尾时 replyParts 是全新对象
+// （buildAssistantReply 只带 id/role/text/timestamp）——不搬一次，思考内容就会
+// 在回复完成的瞬间随占位符一起消失（界面表现为「思考过程」一闪就没，且因未落盘
+// 而无法通过切换展示方式找回）。优先挂正文分段，纯媒体回复退而挂首个分段。
+function attachReasoning(replyParts, reasoning) {
+  const index = replyParts.findIndex(part => part && !part.kind);
+  const target = index >= 0 ? index : 0;
+  return replyParts.map((part, i) => (
+    i === target && part ? { ...part, reasoning } : part
+  ));
+}
+
 // 用解析后的回复分段替换 pending 占位符；回复为空时落「没有收到回复。」。
 // 注意：与原实现一致，即使未命中占位符也返回新数组（保持既有重渲染节奏）。
 export function replacePendingWithReply(messages, pendingId, replyParts) {
@@ -52,7 +65,9 @@ export function replacePendingWithReply(messages, pendingId, replyParts) {
       if (!Array.isArray(replyParts) || replyParts.length === 0) {
         next.push({ ...item, text: '没有收到回复。', pending: false, waitingForResponse: false });
       } else {
-        replyParts.forEach(part => next.push({ ...part, pending: false, waitingForResponse: false }));
+        const reasoning = typeof item.reasoning === 'string' ? item.reasoning : '';
+        const parts = reasoning.trim() ? attachReasoning(replyParts, reasoning) : replyParts;
+        parts.forEach(part => next.push({ ...part, pending: false, waitingForResponse: false }));
       }
     } else {
       next.push(item);

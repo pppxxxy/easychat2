@@ -92,6 +92,31 @@ test('replacePendingWithReply：分段替换占位符；空回复落「没有收
   assert.deepEqual(miss.map(i => i.id), before.map(i => i.id));
 });
 
+test('replacePendingWithReply：思考内容随分段保留（回归：完成后思考不再消失）', () => {
+  // onReasoning 只覆写占位符的 reasoning，而 replyParts 是全新对象；
+  // 不显式搬运，思考会在回复完成的瞬间丢失且未落盘（切换展示方式也找不回）。
+  const base = { ...pending('x'), reasoning: '先分析问题\n再组织回答' };
+  const parts = [
+    { role: 'assistant', id: 'r1', text: '你好' },
+    { role: 'assistant', id: 'r2', kind: 'sticker', text: '' },
+  ];
+  const next = replacePendingWithReply([base], 'x', parts);
+  assert.equal(next[0].reasoning, '先分析问题\n再组织回答', '正文分段应带上思考内容');
+  assert.equal(next[1].reasoning, undefined, '仅正文分段携带，媒体分段不带');
+  // 纯媒体回复（无正文分段）：思考挂首个分段，不能丢
+  const mediaOnly = replacePendingWithReply([base], 'x', [{ role: 'assistant', id: 'r1', kind: 'sticker', text: '' }]);
+  assert.equal(mediaOnly[0].reasoning, '先分析问题\n再组织回答');
+  // 思考为空/纯空白：不注入字段，保持原有形状
+  const noReasoning = replacePendingWithReply([{ ...pending('x'), reasoning: '' }], 'x', parts);
+  assert.equal(noReasoning[0].reasoning, undefined);
+  const blankReasoning = replacePendingWithReply([{ ...pending('x'), reasoning: '   ' }], 'x', parts);
+  assert.equal(blankReasoning[0].reasoning, undefined);
+  // 无正文且思考为空回复：走「没有收到回复。」分支，思考仍随该条保留
+  const fallback = replacePendingWithReply([base], 'x', []);
+  assert.equal(fallback[0].text, '没有收到回复。');
+  assert.equal(fallback[0].reasoning, '先分析问题\n再组织回答');
+});
+
 test('classifyReplyError：配置变更 / 取消 / 真失败 三分类（判定器注入）', () => {
   // 判定器由调用方注入（api.js 的实现依据 message 常量 / canceled / AbortError），
   // 这里以内联等价实现验证分类路由本身。
