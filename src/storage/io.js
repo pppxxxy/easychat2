@@ -136,13 +136,15 @@ export async function backupCorruptValue(key) {
     if (!raw) return false;
     await AsyncStorage.setItem(`${key}${CORRUPT_BACKUP_SUFFIX}`, raw);
     recordDiagnostic('storage', new Error('读取失败或结构异常，已备份原始值'), key);
-    if (__DEV__) {
+    // __DEV__ 是 Metro 全局，纯 Node 测试环境不存在：直接引用会抛 ReferenceError
+    // 落进下方 catch，把已成功的备份误记成「备份失败」。
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
       console.warn(`[storage] ${key} 读取失败或结构异常，已备份到 ${key}${CORRUPT_BACKUP_SUFFIX}`);
     }
     return true;
   } catch (error) {
     recordDiagnostic('storage', error, `损坏数据备份失败：${key}`);
-    if (__DEV__) console.warn(`[storage] ${key} 损坏数据备份失败`, error);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn(`[storage] ${key} 损坏数据备份失败`, error);
     return false;
   }
 }
