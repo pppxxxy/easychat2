@@ -147,6 +147,7 @@ import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { getImageProvider } from './imageGen/providers.js';
 import { stop as ttsStop } from './tts/index.js';
 import useChatTts from './chat/useChatTts.js';
+import useSessionGuard from './chat/useSessionGuard.js';
 import useChatModelThinking from './chat/useChatModelThinking.js';
 import { evaluateTurn, clampAffinity } from './moments/affinity.js';
 import { shouldTrigger, buildMomentText, appendMoment } from './moments/moments.js';
@@ -287,27 +288,23 @@ export default function ChatScreen() {
   const autoSummaryAttemptRef = useRef({ sessionId: '', signature: '' });
   const messageOffsetsRef = useRef({});
   const atBottomRef = useRef(true);
-   const abortRef = useRef(null);
-   const sendLockRef = useRef(null);
-   const sourceChangedRef = useRef(false);
-   const sendOperationRef = useRef(0);
-   const switchOperationRef = useRef(0);
-   const openingRequestRef = useRef(0);
-   const openingAbortControllerRef = useRef(null);
-   const sessionVersionRef = useRef(0);
-  const captureSessionGuard = useCallback(() => ({
-    sessionId: activeSessionIdRef.current,
-    characterId: activeCharacterIdRef.current,
-    version: sessionVersionRef.current,
-  }), []);
-  const isSessionGuardCurrent = useCallback(guard => (
-    !guard
-    || (
-      activeSessionIdRef.current === guard.sessionId
-      && activeCharacterIdRef.current === guard.characterId
-      && sessionVersionRef.current === guard.version
-    )
-  ), []);
+  const {
+    isSending,
+    setIsSending,
+    abortRef,
+    sendLockRef,
+    sourceChangedRef,
+    switchOperationRef,
+    openingRequestRef,
+    openingAbortControllerRef,
+    sessionVersionRef,
+    inlineImageControllerRef,
+    captureSessionGuard,
+    isSessionGuardCurrent,
+    beginSendOperation,
+    endSendOperation,
+    invalidateSessionOperations,
+  } = useSessionGuard({ activeSessionIdRef, activeCharacterIdRef });
   const [input, setInput] = useState('');
   // 输入框草稿按会话保留。draftTextRef 只记录“用户真实输入”的文本，程序性的
   // setInput('')（切会话/发送后清空）不经过 onInputChange，因此不会污染草稿。
@@ -329,7 +326,6 @@ export default function ChatScreen() {
   );
   const messageSelectionOpen = selectedMessageIds.length > 0;
   const [greetingReady, setGreetingReady] = useState(false);
-   const [isSending, setIsSending] = useState(false);
    const [isSwitching, setIsSwitching] = useState(false);
    const [ready, setReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -441,7 +437,6 @@ export default function ChatScreen() {
     imagePosition: 'end',
   });
    const inlineImageBusyRef = useRef(false);
-   const inlineImageControllerRef = useRef(null);
 
   const {
     ttsSettings,
@@ -460,40 +455,6 @@ export default function ChatScreen() {
   const [focusedMessageId, setFocusedMessageId] = useState('');
    const [quoteTarget, setQuoteTarget] = useState(null);
    const navigation = useNavigation();
-
-   const beginSendOperation = useCallback(() => {
-     if (sendLockRef.current) return null;
-     const controller = new AbortController();
-     const token = { id: ++sendOperationRef.current, controller };
-     sourceChangedRef.current = false;
-     sendLockRef.current = token;
-     abortRef.current = controller;
-     setIsSending(true);
-     return token;
-   }, []);
-
-   const endSendOperation = useCallback(token => {
-     if (!token || sendLockRef.current !== token) return;
-     if (abortRef.current === token.controller) abortRef.current = null;
-     sendLockRef.current = null;
-     setIsSending(false);
-   }, []);
-
-   const invalidateSessionOperations = useCallback(() => {
-     sessionVersionRef.current += 1;
-     openingRequestRef.current += 1;
-     if (openingAbortControllerRef.current) {
-       openingAbortControllerRef.current.abort();
-       openingAbortControllerRef.current = null;
-     }
-     sendLockRef.current = null;
-     if (abortRef.current) {
-       abortRef.current.abort();
-     }
-     inlineImageControllerRef.current?.abort();
-
-     setIsSending(false);
-   }, []);
 
    const closeStickerNamePrompt = useCallback(() => {
      const source = stickerNamePrompt;
