@@ -14,6 +14,8 @@ import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -27,7 +29,8 @@ import java.util.concurrent.TimeUnit
  * 发给 JS，JS 用常驻 adapter 推理后调 `respond(requestId, json)` 回写，原生再组装响应。
  * 数组/对象跨桥不可靠，事件与回写统一用 JSON 字符串契约。
  *
- * 仅绑定 127.0.0.1，`Bearer` 校验（apiKey 为空时放行）。
+ * 仅绑定 127.0.0.1；鉴权强制：apiKey 为空时自动生成随机密钥（绝不放行匿名请求），
+ * 回显在启动结果里供 JS 展示；比较用恒定时间，Bearer 前缀严格校验。
  */
 class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -62,11 +65,24 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
     )
 
     private fun checkAuth(session: IHTTPSession): Boolean {
-        val expected = apiKey.trim()
-        if (expected.isEmpty()) return true
+        // 免鉴权放行已移除：同机其它应用可达回环端口，匿名放行等于把推理
+        // （连带已加载模型与上下文）开放给任意本机 App。start() 保证密钥非空，
+        // 这里对空密钥直接拒绝作为双保险。
+        val expected = apiKey
+        if (expected.isEmpty()) return false
         val header = session.headers["authorization"] ?: return false
-        val token = header.removePrefix("Bearer").removePrefix("bearer").trim()
-        return token == expected
+        // 严格 Bearer 方案：<scheme> 空格 <token>，scheme 大小写不敏感（RFC 7235）。
+        val separator = header.indexOf(' ')
+        if (separator <= 0) return false
+        val scheme = header.substring(0, separator).trim()
+        if (!scheme.equals("bearer", ignoreCase = true)) return false
+        val token = header.substring(separator + 1).trim()
+        if (token.isEmpty()) return false
+        // 恒定时间比较：本机攻击面下计时侧信道价值有限，但成本为零。
+        return MessageDigest.isEqual(
+            expected.toByteArray(Charsets.UTF_8),
+            token.toByteArray(Charsets.UTF_8)
+        )
     }
 
     private fun handle(session: IHTTPSession): Response {
@@ -178,12 +194,15 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
     fun start(host: String, port: Int, apiKey: String, modelId: String, promise: Promise) {
         try {
             stopServer()
-            this.apiKey = apiKey
+            // 空密钥不再意味着免鉴权：自动生成随机密钥并回显给 JS（持久化由 JS 侧
+            // 决定），保证任何情况下服务都有鉴权。
+            val requestedKey = apiKey.trim()
+            this.apiKey = if (requestedKey.isEmpty()) generateApiKey() else requestedKey
             this.modelId = modelId
             val next = ApiServer(HOST, port)
             next.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             server = next
-            Log.i(TAG, "local api server started on $HOST:$port")
+            Log.i(TAG, "local api server started on $HOST:$port (auth: ${if (requestedKey.isEmpty()) "generated" else "user"})")
             promise.resolve(statusMap(true, port))
         } catch (error: Exception) {
             promise.reject("LOCAL_API_START_FAILED", error.message, error)
@@ -219,7 +238,15 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         map.putBoolean("running", running)
         map.putString("host", HOST)
         map.putInt("port", port)
+        // 回显生效密钥（含自动生成的）：JS 侧据此展示/持久化，客户端照此携带。
+        map.putString("apiKey", apiKey)
         return map
+    }
+
+    private fun generateApiKey(): String {
+        val bytes = ByteArray(18)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     private fun stopServer() {

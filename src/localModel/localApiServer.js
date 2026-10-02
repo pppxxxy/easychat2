@@ -35,19 +35,40 @@ function unavailableError() {
   return error;
 }
 
+// JS 侧生成稳定的本地 API 密钥：留空启动时生成一次并持久化，重启后不变。
+// Math.random 非密码学随机，但密钥仅用于本机回环端点的鉴权展示；原生侧对空密钥
+// 还会用 SecureRandom 再生成一道（双保险），此处保证「发给原生的密钥永不为空」，
+// 这样旧原生构建（无自动生成）也被一并堵上。
+export function generateLocalApiKey() {
+  let key = 'local-';
+  for (let round = 0; round < 4; round += 1) {
+    key += Math.random().toString(36).slice(2, 10);
+  }
+  return key;
+}
+
 // 启动服务：host 固定回环，端口/apiKey 规范化后交给原生。
+// apiKey 为空时自动生成稳定密钥（并随结果返回，调用方负责持久化与展示），
+// 原生永远收到非空密钥 —— 免鉴权放行已在两端同时移除。
 export async function startLocalApiServer({ port, apiKey, modelId } = {}) {
   const native = getNative();
   if (!native || typeof native.start !== 'function') throw unavailableError();
   const normalized = normalizeLocalModelApiServer({ enabled: true, port, apiKey });
+  const effectiveApiKey = normalized.apiKey && normalized.apiKey.trim()
+    ? normalized.apiKey.trim()
+    : generateLocalApiKey();
   const result = await native.start(
     normalized.host,
     normalized.port,
-    normalized.apiKey || '',
+    effectiveApiKey,
     String(modelId || 'local-model')
   );
-  recordModelLog('api', `本地 API 服务已启动 127.0.0.1:${normalized.port}`);
-  return result;
+  recordModelLog('api', `本地 API 服务已启动 127.0.0.1:${normalized.port}${normalized.apiKey ? '' : '（已自动生成随机密钥）'}`);
+  return {
+    ...result,
+    // 优先取原生回显（新构建可能自行生成）；旧构建无该字段时回落 JS 生成的值。
+    apiKey: String((result && result.apiKey) || effectiveApiKey),
+  };
 }
 
 export async function stopLocalApiServer() {

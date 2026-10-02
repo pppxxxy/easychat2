@@ -191,13 +191,27 @@ export default function LocalModelPanel({ visible, onClose }) {
     }
     setApiBusy(true);
     try {
+      // 留空即自动生成随机密钥（两端都强制鉴权）；生成后持久化，重启不变。
+      const keyWasEmpty = !String(apiServer.apiKey || '').trim();
       const saved = await persistApiServer({ enabled: true });
       const status = await startLocalApiServer({
         port: apiServer.port,
         apiKey: apiServer.apiKey,
         modelId: saved.activeModelId || 'local-model',
       });
+      const effectiveKey = String((status && status.apiKey) || apiServer.apiKey || '');
+      if (keyWasEmpty && effectiveKey) {
+        // 把生成的密钥写回设置（幂等带上 enabled，避免与旧闭包状态合并后丢失开关），
+        // persistApiServer 内部会同步 setApiServer；客户端照此携带 Bearer。
+        await persistApiServer({ enabled: true, apiKey: effectiveKey });
+      }
       setApiStatus({ running: true, port: Number(status && status.port) || apiServer.port });
+      if (keyWasEmpty) {
+        Alert.alert(
+          '已生成随机密钥',
+          `未填写 API Key，已自动生成并保存：\n${effectiveKey}\n\n客户端请求需携带 Authorization: Bearer <此密钥>，可在上方输入框查看或修改。`
+        );
+      }
     } catch (error) {
       Alert.alert('启动失败', error.message || '请检查端口是否被占用。');
     } finally {
@@ -234,7 +248,9 @@ export default function LocalModelPanel({ visible, onClose }) {
       Alert.alert(
         '已复制',
         `${apiAddress}\n\n在同机客户端的 base_url / 接口地址中填入此地址。${
-          apiServer.apiKey?.trim() ? 'API Key 使用上方填写的值。' : '当前未设置 API Key，客户端可留空。'
+          apiServer.apiKey?.trim()
+            ? '请求需携带 Authorization: Bearer <上方输入框里的密钥>。'
+            : '启动时会自动生成随机密钥，请从上方输入框复制。'
         }`
       );
     } catch (error) {
@@ -713,7 +729,7 @@ export default function LocalModelPanel({ visible, onClose }) {
                 style={styles.input}
                 value={apiServer.apiKey}
                 onChangeText={text => setApiServer(current => ({ ...current, apiKey: text }))}
-                placeholder="API Key（可留空，则不做鉴权）"
+                placeholder="API Key（留空将自动生成随机密钥）"
                 placeholderTextColor={theme.colors.textFaint}
                 autoCapitalize="none"
               />

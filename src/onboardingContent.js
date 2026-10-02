@@ -80,7 +80,7 @@ export const ONBOARDING_CHAPTERS = [
       { name: '下载 / 导入模型', where: '设置 → 关于 → 本地模型', usage: '从模型源搜索下载 GGUF，或导入本机 GGUF 文件。' },
       { name: '加载 / 卸载', where: '本地模型 → 模型卡片', usage: '加载后推理复用该模型；卸载则释放内存、回到在线来源。' },
       { name: '本地 API 端口', where: '本地模型 → 本地 API 服务 → 端口', usage: '默认 8080；被占用时服务会回落到其它端口，以显示的地址为准。' },
-      { name: '本地 API Key', where: '本地模型 → 本地 API 服务 → API Key', usage: '可留空表示不鉴权；填写后客户端需带同样的 Bearer Key。' },
+      { name: '本地 API Key', where: '本地模型 → 本地 API 服务 → API Key', usage: '留空会自动生成随机密钥并保存；客户端请求需携带 Authorization: Bearer <密钥>。' },
       { name: '复制地址', where: '本地模型 → 本地 API 服务 → 地址栏', usage: '点击地址栏即可复制 http://127.0.0.1:端口/v1，粘贴到客户端。' },
     ],
     note: '本地 API 服务固定只监听 127.0.0.1，只有同一台设备上的应用能访问，不对外网开放。地址以 /v1 结尾，属于 OpenAI 兼容的 base_url，通常无需再补 /chat/completions。',

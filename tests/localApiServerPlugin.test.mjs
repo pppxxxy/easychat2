@@ -177,5 +177,25 @@ test('Kotlin 外层方法引用的字段必须挂在模块类上（inner 属性�
   // ApiServer 构造不再携带 apiKey/modelId（inner 属性外层方法拿不到）
   assert.match(module, /ApiServer\(HOST, port\)/, 'ApiServer 应只接 host/port');
   // start() 必须先写入外层字段再建 server
-  assert.match(module, /this\.apiKey = apiKey[\s\S]*?ApiServer\(HOST, port\)/);
+  assert.match(module, /this\.apiKey = [\s\S]*?ApiServer\(HOST, port\)/);
+});
+
+test('Kotlin 鉴权：免鉴权放行已移除，空密钥自动生成，比较恒定时间', () => {
+  const module = readFileSync(path.join(KOTLIN_DIR, 'LocalApiServerModule.kt'), 'utf8');
+  // 旧的「空密钥放行」必须不复存在（同机任意 App 曾可匿名调用推理）
+  assert.equal(
+    /expected\.isEmpty\(\)\) return true/.test(module),
+    false,
+    '空密钥不得放行'
+  );
+  // checkAuth 对空密钥直接拒绝（双保险；start 保证非空）
+  assert.match(module, /if \(expected\.isEmpty\(\)\) return false/, '空密钥应拒绝');
+  // 恒定时间比较
+  assert.match(module, /MessageDigest\.isEqual\(/, '应使用恒定时间比较');
+  // 严格 Bearer 方案校验（scheme 大小写不敏感，但必须存在）
+  assert.match(module, /equals\("bearer", ignoreCase = true\)/, '应严格校验 Bearer 方案');
+  // 空密钥启动自动生成随机密钥（SecureRandom）并回显
+  assert.match(module, /SecureRandom\(\)\.nextBytes/, '应用 SecureRandom 生成密钥');
+  assert.match(module, /generateApiKey\(\)/, '空密钥启动应自动生成');
+  assert.match(module, /map\.putString\("apiKey", apiKey\)/, '启动结果应回显生效密钥');
 });
