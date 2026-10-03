@@ -4,6 +4,7 @@
 // 非文本扩展名一律抛错，避免 agent 触达沙盒外的文件。
 
 const ALLOWED_EXTENSIONS = new Set(['txt', 'md', 'markdown']);
+const OUTPUT_ONLY_EXTENSIONS = new Set(['docx']);
 const MAX_PATH_LENGTH = 240;
 const MAX_SANDBOX_ID_LENGTH = 64;
 
@@ -47,6 +48,24 @@ export function assertAllowedWorkspaceFile(path) {
     throw new Error('工作区第一版只支持纯文本与 Markdown（.txt/.md/.markdown）。');
   }
   return path;
+}
+
+// 可写入的文件：文本/Markdown（字符串内容）+ 生成的 .docx（二进制）。
+export function isAllowedWorkspaceOutputFile(path) {
+  const extension = fileExtension(path);
+  return ALLOWED_EXTENSIONS.has(extension) || OUTPUT_ONLY_EXTENSIONS.has(extension);
+}
+
+export function assertAllowedWorkspaceOutputFile(path) {
+  if (!isAllowedWorkspaceOutputFile(path)) {
+    throw new Error('工作区写入只支持纯文本/Markdown 与生成的 .docx。');
+  }
+  return path;
+}
+
+// 可列出（供 agent/UI 感知）的文件：文本/Markdown 与 .docx；读取仍限纯文本。
+export function isListableWorkspaceFile(path) {
+  return isAllowedWorkspaceOutputFile(path);
 }
 
 export function sandboxDirectory(root, characterId) {

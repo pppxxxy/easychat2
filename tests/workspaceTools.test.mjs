@@ -59,7 +59,12 @@ test.beforeEach(() => {
 
 test('registerWorkspaceTools 按模式暴露工具', () => {
   registerWorkspaceTools({ root, fileSystem });
-  assert.deepEqual(WORKSPACE_TOOL_NAMES, ['list_workspace_files', 'read_workspace_file', 'write_workspace_file']);
+  assert.deepEqual(WORKSPACE_TOOL_NAMES, [
+    'list_workspace_files',
+    'read_workspace_file',
+    'write_workspace_file',
+    'export_workspace_docx',
+  ]);
   assert.deepEqual(listToolsForMode(AGENT_MODES.ASK), []);
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
@@ -67,7 +72,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   );
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.WRITE).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'write_workspace_file'],
+    ['list_workspace_files', 'read_workspace_file', 'write_workspace_file', 'export_workspace_docx'],
   );
 });
 
@@ -121,4 +126,36 @@ test('unregisterWorkspaceTools 清理注册', () => {
   registerWorkspaceTools({ root, fileSystem });
   unregisterWorkspaceTools();
   assert.deepEqual(listToolsForMode(AGENT_MODES.WRITE), []);
+});
+
+test('export_workspace_docx 仅在可改模式生成 .docx 并可被 list 看到', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  const exported = await runTool(
+    { name: 'export_workspace_docx', arguments: '{"path":"report.docx","content":"第一段\\n第二段","title":"报告"}' },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(exported.isError, false);
+  assert.match(exported.content, /已导出 report\.docx/);
+
+  const list = await runTool(
+    { name: 'list_workspace_files', arguments: '{}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.equal(list.content, 'report.docx');
+
+  // 只读模式下导出被门控
+  const denied = await runTool(
+    { name: 'export_workspace_docx', arguments: '{"path":"x.docx","content":"x"}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.equal(denied.isError, true);
+  assert.match(denied.content, /当前模式不允许/);
+
+  // 非 .docx 路径拒绝
+  const wrongExt = await runTool(
+    { name: 'export_workspace_docx', arguments: '{"path":"x.txt","content":"x"}' },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(wrongExt.isError, true);
+  assert.match(wrongExt.content, /必须以 \.docx 结尾/);
 });

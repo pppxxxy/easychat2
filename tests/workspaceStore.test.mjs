@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   listWorkspaceFiles,
   readWorkspaceFile,
+  writeWorkspaceBinaryFile,
   writeWorkspaceFile,
 } from '../src/workspace/store.js';
 
@@ -113,6 +114,20 @@ test('read 超过 maxChars 时截断', async () => {
   await writeWorkspaceFile({ root, characterId: 'c1', path: 'a.txt', content: '0123456789', fileSystem });
   const read = await readWorkspaceFile({ root, characterId: 'c1', path: 'a.txt', fileSystem, maxChars: 4 });
   assert.deepEqual(read, { path: 'a.txt', content: '0123', truncated: true });
+});
+
+test('二进制写入 .docx 可被 list 看到，但 read 拒绝', async () => {
+  const fileSystem = createMemoryFs();
+  const written = await writeWorkspaceBinaryFile({
+    root, characterId: 'c1', path: 'report.docx', base64: 'UEsDBAo=', fileSystem,
+  });
+  assert.deepEqual(written, { path: 'report.docx', base64Length: 8 });
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.deepEqual(files, ['report.docx']);
+  await assert.rejects(
+    readWorkspaceFile({ root, characterId: 'c1', path: 'report.docx', fileSystem }),
+    /只支持纯文本与 Markdown/,
+  );
 });
 
 test('缺少 fileSystem 注入时抛错', async () => {

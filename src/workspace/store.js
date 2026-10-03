@@ -3,7 +3,8 @@
 
 import {
   assertAllowedWorkspaceFile,
-  isAllowedWorkspaceFile,
+  assertAllowedWorkspaceOutputFile,
+  isListableWorkspaceFile,
   normalizeWorkspacePath,
   sandboxDirectory,
 } from './paths.js';
@@ -49,7 +50,7 @@ async function walk(fileSystem, directoryUri, prefix, results, depth) {
     if (info && info.isDirectory) {
       results.push(`${relative}/`);
       await walk(fileSystem, `${uri}/`, relative, results, depth + 1);
-    } else if (isAllowedWorkspaceFile(relative)) {
+    } else if (isListableWorkspaceFile(relative)) {
       results.push(relative);
     }
   }
@@ -94,6 +95,21 @@ export async function writeWorkspaceFile({ root, characterId, path, content, fil
     : String(content === undefined || content === null ? '' : content);
   await fileSystem.writeAsStringAsync(uri, text);
   return { path: relative, length: text.length };
+}
+
+// 二进制写入（如导出的 .docx）：内容以 base64 传入，落盘用 base64 编码。
+export async function writeWorkspaceBinaryFile({ root, characterId, path, base64, fileSystem } = {}) {
+  assertFileSystem(fileSystem);
+  const relative = normalizeWorkspacePath(path);
+  assertAllowedWorkspaceOutputFile(relative);
+  const sandbox = sandboxDirectory(root, characterId);
+  const uri = `${sandbox}${relative}`;
+  const parent = uri.slice(0, uri.lastIndexOf('/') + 1);
+  await ensureDirectory(fileSystem, sandbox);
+  await ensureDirectory(fileSystem, parent);
+  const payload = String(base64 === undefined || base64 === null ? '' : base64);
+  await fileSystem.writeAsStringAsync(uri, payload, { encoding: 'base64' });
+  return { path: relative, base64Length: payload.length };
 }
 
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS });

@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   assertAllowedWorkspaceFile,
+  assertAllowedWorkspaceOutputFile,
   fileExtension,
   isAllowedWorkspaceFile,
+  isAllowedWorkspaceOutputFile,
+  isListableWorkspaceFile,
   normalizeWorkspacePath,
   resolveWorkspaceUri,
   sandboxDirectory,
@@ -44,6 +47,16 @@ test('fileExtension 与扩展名白名单', () => {
   assert.equal(isAllowedWorkspaceFile('a.png'), false);
   assert.equal(isAllowedWorkspaceFile('a.js'), false);
   assert.throws(() => assertAllowedWorkspaceFile('a.png'), /只支持纯文本与 Markdown/);
+});
+
+test('写入白名单额外放行 .docx；读取仍只认纯文本', () => {
+  assert.equal(isAllowedWorkspaceOutputFile('a.docx'), true);
+  assert.equal(isAllowedWorkspaceOutputFile('a.txt'), true);
+  assert.equal(isAllowedWorkspaceOutputFile('a.png'), false);
+  assert.equal(isListableWorkspaceFile('a.docx'), true);
+  assert.equal(isAllowedWorkspaceFile('a.docx'), false);
+  assert.equal(assertAllowedWorkspaceOutputFile('a.docx'), 'a.docx');
+  assert.throws(() => assertAllowedWorkspaceOutputFile('a.png'), /只支持纯文本\/Markdown 与生成的 \.docx/);
 });
 
 test('sandboxDirectory 与 resolveWorkspaceUri', () => {
