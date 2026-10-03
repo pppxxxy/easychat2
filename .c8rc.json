@@ -84,7 +84,10 @@
     "src/chat/chatStyles.js",
     "src/localModel/ModelSearchModal.js",
     "src/localModel/ModelLogsModal.js",
-    "src/localModel/deviceMemory.js"
+    "src/localModel/deviceMemory.js",
+    "src/music/MusicScreen.js",
+    "src/music/useMusicPlayer.js",
+    "src/music/importMusic.js"
   ],
   "reporter": ["text-summary", "lcov"],
   "check-coverage": true,
