@@ -55,6 +55,9 @@ export function AppProvider({ children }) {
   const [sessions, setSessionsState] = useState([]);
   const [activeSessionId, setActiveSessionIdState] = useState('');
   const [pendingTarget, setPendingTargetState] = useState(null);
+  // 听歌等面板「接话」带入的引用：{ sessionId, payload }。与 pendingTarget 同一
+  // ref+state 惯例——目标会话激活后由聊天页消费一次，消费前多次设置以最后一次为准。
+  const [pendingQuote, setPendingQuoteState] = useState(null);
   const [loaded, setLoaded] = useState(false);
   // 主动消息落库后自增，通知聊天页重新读取当前会话消息（同会话追加时 activeSessionId 不变）。
   const [messageRefreshTick, setMessageRefreshTick] = useState(0);
@@ -63,6 +66,7 @@ export function AppProvider({ children }) {
   const sessionsRef = useRef([]);
   const activeSessionIdRef = useRef('');
   const pendingTargetRef = useRef(null);
+  const pendingQuoteRef = useRef(null);
   const loadedRef = useRef(false);
   const mutationRef = useRef(Promise.resolve());
 
@@ -344,6 +348,32 @@ export function AppProvider({ children }) {
     const value = pendingTargetRef.current;
     pendingTargetRef.current = null;
     setPendingTargetState(null);
+    return value;
+  }, []);
+
+  // payload 形状与 buildQuotePayload 一致（{ id, name, role, text }）；id 允许为空
+  // ——评论不是会话内消息，点引用块不定位（onPressQuoteBlock 对空 id 直接返回）。
+  const setPendingQuote = useCallback(quote => {
+    const value = quote && quote.sessionId && quote.payload
+      ? {
+        sessionId: String(quote.sessionId),
+        payload: {
+          id: String((quote.payload && quote.payload.id) || ''),
+          name: String((quote.payload && quote.payload.name) || '').trim(),
+          role: String((quote.payload && quote.payload.role) || 'assistant'),
+          text: String((quote.payload && quote.payload.text) || '').trim(),
+        },
+      }
+      : null;
+    if (value && !value.payload.text) return;
+    pendingQuoteRef.current = value;
+    setPendingQuoteState(value);
+  }, []);
+
+  const consumePendingQuote = useCallback(() => {
+    const value = pendingQuoteRef.current;
+    pendingQuoteRef.current = null;
+    setPendingQuoteState(null);
     return value;
   }, []);
 
@@ -661,6 +691,9 @@ export function AppProvider({ children }) {
       pendingTarget,
       setPendingTarget,
       consumePendingTarget,
+      pendingQuote,
+      setPendingQuote,
+      consumePendingQuote,
     }),
     [
       character,
@@ -688,6 +721,9 @@ export function AppProvider({ children }) {
       pendingTarget,
       setPendingTarget,
       consumePendingTarget,
+      pendingQuote,
+      setPendingQuote,
+      consumePendingQuote,
     ]
   );
 
