@@ -339,6 +339,10 @@ export function createForgeDraft() {
   draft.worldInfo = [];
   draft.regexScripts = [];
   draft.presets = [];
+  // 头像与背景图：制卡里选的图先落在 card-forge/ 目录（不进孤儿回收扫描范围），
+  // 导入角色库时才提升到 avatars/ 并进入引用集合。同样不参与 AI 改写。
+  draft.avatarUri = '';
+  draft.bgUri = '';
   // 往返保留但不由 AI 改写：语音形态、AI 生成标识、第三方扩展与顶层透传字段。
   // 不带这些字段时，用制卡改一遍会把语音形态打回纯文字、并丢掉 AI 标识与作者扩展。
   draft.voiceDisplay = 'text';
@@ -491,14 +495,23 @@ export function buildGeneratePrompt(state) {
     draft,
     '',
     '输出要求：',
-    '- 只输出一个 JSON 对象，不要任何解释、前后缀或代码块标记。',
-    '- 字段固定为：name, description, personality, scenario, firstMes, mesExample, creatorNotes, postHistoryInstructions, tags。',
+    ...buildCardOutputRules(),
     ...(advancedLines.length > 0
       ? [
         '- 本次还需要在同一个 JSON 里追加以下高级字段（未要求的字段不要输出）：',
         ...advancedLines,
       ]
       : []),
+    '- 全部使用中文。',
+  ].join('\n');
+}
+
+// 角色卡 JSON 的输出规则。整卡生成、按图生成、字段描述共用同一份，
+// 避免三处各写一遍后互相漂移（字段名/清空语义/中文要求必须一致）。
+function buildCardOutputRules() {
+  return [
+    '- 只输出一个 JSON 对象，不要任何解释、前后缀或代码块标记。',
+    '- 字段固定为：name, description, personality, scenario, firstMes, mesExample, creatorNotes, postHistoryInstructions, tags。',
     '- name：角色名（2-8 字）；description：外貌、身份、背景（150-400 字）；personality：性格与说话方式（80-200 字）。',
     '- scenario：故事背景以及角色与用户的关系（50-200 字）。',
     '- firstMes：角色主动说的第一条消息，第一人称，1-3 句，不要替用户说话。',
@@ -506,8 +519,7 @@ export function buildGeneratePrompt(state) {
     '- creatorNotes：给用户的使用建议（可留空）；postHistoryInstructions：给模型的持续要求（可留空）。',
     '- tags：3-6 个简短中文标签组成的数组。',
     '- 要清空某个字段或全部标签时，把该字段（或 tags）的值写成 null；不要用空字符串或空数组表示清空。',
-    '- 全部使用中文。',
-  ].join('\n');
+  ];
 }
 
 export function buildEditPrompt({ draft, request, answers } = {}) {
@@ -526,6 +538,27 @@ export function buildEditPrompt({ draft, request, answers } = {}) {
     '- 字段与结构保持不变，不要新增或删除字段。',
     '- 未修改的字段必须原样完整复制，不要留空。',
     '- 要清空某个字段或全部标签时，把该字段（或 tags）的值写成 null；空字符串和空数组不会被视为清空。',
+    '- 全部使用中文。',
+  ].filter(Boolean).join('\n');
+}
+
+// 「按图片生成角色」的提示词：图片作为多模态内容随本提示一起发送，
+// 这里只给文字侧的规则。用户补充说明可选。
+export function buildImageCardPrompt({ hint = '', hasAvatar = false, hasBg = false } = {}) {
+  const images = [
+    hasAvatar ? '第一张是角色的头像/立绘' : '',
+    hasBg ? `${hasAvatar ? '第二张' : '第一张'}是角色的场景或背景` : '',
+  ].filter(Boolean).join('，');
+  return [
+    '你是角色卡（SillyTavern 风格）撰写助手。请根据随本条消息附带的图片，写出一张完整的角色卡。',
+    images ? `图片说明：${images}。` : '',
+    hint ? `用户的补充要求：${clean(hint, 400)}` : '',
+    '',
+    '要求：',
+    '- 从图片中读出外貌特征（发色、瞳色、服饰、气质、年龄感、画风）与场景氛围，据此设计角色。',
+    '- 如果图片里有人物，角色要与图中人物一致；如果只有场景，就以该场景设计一个合理的角色。',
+    '- 不要描写图片里没有的、与画面明显冲突的特征。',
+    ...buildCardOutputRules(),
     '- 全部使用中文。',
   ].filter(Boolean).join('\n');
 }
@@ -649,6 +682,8 @@ export function draftFromCharacter(character) {
   draft.presets = Array.isArray(source.presets)
     ? source.presets.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
+  draft.avatarUri = preserveText(source.avatarUri, 2000);
+  draft.bgUri = preserveText(source.bgUri, 2000);
   draft.voiceDisplay = ['text', 'voice-text', 'voice'].includes(source.voiceDisplay)
     ? source.voiceDisplay
     : 'text';
@@ -688,6 +723,8 @@ export function draftToCharacterPatch(draft, { composedPrompt = '', now = Date.n
     worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, MAX_PRESERVED_ITEMS) : [],
     regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, MAX_PRESERVED_ITEMS) : [],
     presets: Array.isArray(source.presets) ? source.presets.slice(0, MAX_PRESERVED_ITEMS) : [],
+    avatarUri: preserveText(source.avatarUri, 2000),
+    bgUri: preserveText(source.bgUri, 2000),
     voiceDisplay: ['text', 'voice-text', 'voice'].includes(source.voiceDisplay) ? source.voiceDisplay : 'text',
     cardExtensions: source.cardExtensions && typeof source.cardExtensions === 'object' && !Array.isArray(source.cardExtensions)
       ? source.cardExtensions
