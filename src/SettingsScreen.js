@@ -37,11 +37,13 @@ import {
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
+  getWorkspaceSettings,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
+  saveWorkspaceSettings,
   THINKING_DISPLAYS,
 } from './storage.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
@@ -73,6 +75,12 @@ const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', label: '开头', meta: '取回复首段' },
   { value: 'middle', label: '高潮（正中）', meta: '取回复中段' },
   { value: 'end', label: '结尾（默认）', meta: '取回复末段' },
+];
+
+const WORKSPACE_MODE_OPTIONS = [
+  { id: 'ask', labelKey: 'settings.workspace.mode.ask', hintKey: 'settings.workspace.hint.ask' },
+  { id: 'read', labelKey: 'settings.workspace.mode.read', hintKey: 'settings.workspace.hint.read' },
+  { id: 'write', labelKey: 'settings.workspace.mode.write', hintKey: 'settings.workspace.hint.write' },
 ];
 
 export default function SettingsScreen() {
@@ -138,6 +146,8 @@ export default function SettingsScreen() {
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
+  const [workspaceMode, setWorkspaceMode] = useState('ask');
+  const workspaceModeRef = useRef('ask');
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
     enabled: false,
@@ -201,6 +211,12 @@ export default function SettingsScreen() {
       .catch(() => {});
     getThinkingSettings()
       .then(settings => setThinkingDisplay(settings.display))
+      .catch(() => {});
+    getWorkspaceSettings()
+      .then(settings => {
+        workspaceModeRef.current = settings.mode;
+        setWorkspaceMode(settings.mode);
+      })
       .catch(() => {});
     loadVectorSettings();
 
@@ -332,6 +348,16 @@ export default function SettingsScreen() {
     setChatOptions(next);
     try {
       await saveChatOptions(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
+
+  const updateWorkspaceMode = useCallback(async mode => {
+    workspaceModeRef.current = mode;
+    setWorkspaceMode(mode);
+    try {
+      await saveWorkspaceSettings({ mode });
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
@@ -1040,6 +1066,37 @@ export default function SettingsScreen() {
               })}
             </View>
           </CollapsibleSection>
+        </Card>
+
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="briefcase-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>{t('settings.workspace.title')}</Text>
+            </View>
+          </View>
+          <FieldLabel style={styles.label}>{t('settings.workspace.mode')}</FieldLabel>
+          <View style={styles.fontRow}>
+            {WORKSPACE_MODE_OPTIONS.map(option => {
+              const active = option.id === workspaceMode;
+              return (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[styles.fontChip, active && styles.fontChipActive]}
+                  onPress={() => updateWorkspaceMode(option.id)}
+                  activeOpacity={0.85}
+                  accessibilityLabel={t(option.labelKey)}
+                >
+                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                    {t(option.labelKey)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <FieldHint style={styles.hint}>
+            {t((WORKSPACE_MODE_OPTIONS.find(option => option.id === workspaceMode) || WORKSPACE_MODE_OPTIONS[0]).hintKey)}
+          </FieldHint>
         </Card>
 
         <Card>
