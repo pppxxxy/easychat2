@@ -143,3 +143,57 @@ registerTool({
 - **assistant 历史消息空 content 置 `null`**，避免兼容端点拒绝空串（§5）。
 
 边界：`useChatSend.js` 的 `onlineSend` → `runAgentTurn` 接线归 `src/chat/`（Zcode 在第 8 项接入时做）；本项交付到 `src/agent/` + `api.js` / `modelProvider` 为止。
+
+## 13. 聊天接线（在线路径 → runAgentTurn）
+
+归属：monkey code（`src/chat/useChatSend.js`；Zcode 已确认第 8 项看屏幕走视觉多模态直连、不依赖本循环，故该文件由 monkey 单写，见协作规则「单写者原则」）。
+
+### 改动点（仅 requestReply 的 onlineSend）
+
+`src/chat/useChatSend.js` 的 `onlineSend`（约 324-344 行）由「直接 `sendChatMessage`」改为「按模式分流」：
+
+```js
+const onlineSend = async () => {
+  const tools = listToolsForMode(workspaceMode); // ask → []
+  if (!tools.length) {
+    // ask 模式：保持现状零变化
+    return sendChatMessage(onlineMessages, { expectedConfigId, expectedConfigFingerprint,
+      signal: controller.signal, stream: chatOptions.stream, onChunk, onReasoning });
+  }
+  return runAgentTurn(onlineMessages, {
+    mode: workspaceMode,
+    tools,
+    signal: controller.signal,
+    requestOptions: { expectedConfigId, expectedConfigFingerprint, stream: chatOptions.stream },
+    onToken: fullText => mergeStreamedText(...),      // 已累积全量语义，勿再叠加
+    onReasoning: fullReasoning => mergeStreamedReasoning(...),
+    onToolEvent: event => { /* 见下 */ },
+    context: { characterId: character.id, sessionId: sendSessionId },
+  });
+};
+```
+
+- **mode 来源**：`requestReply` 开始时 `const { mode: workspaceMode } = await getWorkspaceSettings();`（storage 已导出）。`ask`/无工具 → 现有 `sendChatMessage` 路径，行为完全不变。
+- **守卫透传**：`expectedConfigId/Fingerprint` 经 `runAgentTurn.requestOptions` 传入（契约 §2/§5 支持；v1.1 会剥离其中的 tools/toolChoice）。
+- **累积语义对齐**：`api.js` 的 `onChunk` 与 `runAgentTurn` 的 `onToken` 都已是「全量已累积文本」，`onlineSend` 的 `mergeStreamedText` 语义不变，**不要再加一层累积**。
+- **工具注册**：会话进入时调 `registerDefaultWorkspaceTools()`（幂等；`native.js` 惰性加载 expo-file-system）；`runTool` 按 `ctx.mode` 门控，读取/写入 `documentDirectory/workspace/<characterId>/`。
+- **本地模型**：`sendWithModelProvider` 在本地就绪时仍走本地纯文本路径（工具循环只在在线路径生效，符合 §6）。**v1 不传 tools 给 provider**（避免语义歧义）；本地模型用户可读工作区文件、但不能 agent 调用工具（降级为普通对话）。这与 §6「本地模型 v1 不支持工具调用」一致，接线不额外处理。
+
+### onToolEvent → 会话内轻提示（工具气泡）
+
+工具调用对用户是「角色正在动手」的过程反馈。v1 以**会话内临时系统气泡**呈现（`pending:'true'` 的临时消息，**不落库**——与既有 pending 占位过滤一致）：
+
+- `phase:'start'` → 插入/更新一条临时气泡「正在<工具名>…」（`kind:'tool-status'`，pending 标记）；`phase:'end', ok:true` → 移除。
+- `phase:'end', ok:false` → 短暂显示失败后移除，或替换为该轮的普通错误处理；**不把 `error` 原文展示给用户**（脱敏短句即可）。
+- `onToolEvent` 是 UI 信息回调，`runAgentTurn` 已 try/catch 包裹（§5），气泡异常不影响循环。
+
+> 备选（更简）：v1 先不做气泡，仅复用现有「assistant 流式文本」展示思考过程，`onToolEvent` 仅在 dev/诊断记录。二选一由实现时定；本契约推荐做气泡，因为「读了文件才回答」时用户需要看到中间态。
+
+### ask 模式零变化保证
+
+- `listToolsForMode('ask') === []` ⇒ `onlineSend` 完全走原 `sendChatMessage` 分支，不注册工具、不触达 `runAgentTurn`。
+- 回归测试钉：`ask` 模式下 `runAgentTurn` 零调用（源码/注入断言）。
+
+### 不改的文件
+
+本次接线**只动 `src/chat/useChatSend.js`**。如需动 `replyFlow.js`/`chatPipeline.js`/`App.js`/`ChatScreen.js`，先告知 Zcode（协作规则 §2），确认后单独提交。
