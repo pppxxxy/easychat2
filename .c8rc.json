@@ -87,7 +87,11 @@
     "src/localModel/deviceMemory.js",
     "src/music/MusicScreen.js",
     "src/music/useMusicPlayer.js",
-    "src/music/importMusic.js"
+    "src/music/importMusic.js",
+    "src/books/BookScreen.js",
+    "src/books/BookReaderView.js",
+    "src/books/useBookReader.js",
+    "src/books/importBook.js"
   ],
   "reporter": ["text-summary", "lcov"],
   "check-coverage": true,
