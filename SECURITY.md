@@ -21,6 +21,7 @@
    | `@easychat2_tts`、`@easychat2_transcription`、`@easychat2_image_gen`、`@easychat2_plugins` | TTS / 转写 / 生图 / 搜索配置（密钥存于系统安全存储，本键只留引用） |
    | `@easychat2_local_model_index` + `@easychat2_local_model_item::<id>` | 本地模型条目与参数（模型文件本身也存于本机文档目录） |
    | `@easychat2_proactive_settings` | 主动消息槽位设置（原生侧另用 EncryptedSharedPreferences 存一份） |
+   | `@easychat2_workspace` | 工作区模式设置（ask/read/write）；沙盒文件本身存于本机文档目录 `workspace/`，不在此键 |
    | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
    | `documentDirectory/voice/` | 语音消息与角色语音音频文件 |

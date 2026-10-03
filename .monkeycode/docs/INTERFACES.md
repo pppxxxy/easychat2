@@ -643,6 +643,15 @@ data: [DONE]
 - `store.js` 的 `listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` / `writeWorkspaceBinaryFile` 均接收注入的 `fileSystem`（原生 `expo-file-system/legacy`，测试用内存实现）；文件落在磁盘而非 AsyncStorage。
 - Word 导出由 `src/workspace/docx.js` 的 `buildDocxBytes` 生成（纯函数，`fflate` 打包 `[Content_Types].xml` / `_rels/.rels` / `word/document.xml` / `word/_rels/document.xml.rels` / `word/styles.xml`；`bytesToBase64` 落盘）。边界：只生成新 `.docx`，不做保格式编辑。
 
+### 工作区设置
+**位置**: `src/storage/workspace.js`（持久化）、`src/workspace/settings.js`（纯归一）
+
+| 导出 | 说明 |
+|------|------|
+| `getWorkspaceSettings()` | 读取模式设置，损坏/缺失/非法一律回默认 `{ mode: 'ask' }` |
+| `saveWorkspaceSettings(settings)` | 归一后写入 `@easychat2_workspace`，返回归一结果 |
+| `WORKSPACE_MODES` / `normalizeWorkspaceMode` | `['ask','read','write']`，与 agent 工具门控共用 `AGENT_MODES` |
+
 ## 向量记忆接口
 
 **位置**: `src/vectorMemory/`
