@@ -101,6 +101,11 @@ export {
   saveTtsSettings,
 } from './storage/settings.js';
 export {
+  WORKSPACE_KEY,
+  getWorkspaceSettings,
+  saveWorkspaceSettings,
+} from './storage/workspace.js';
+export {
   createApiConfig,
   getActiveApiConfig,
   getActiveModel,
