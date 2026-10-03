@@ -21,9 +21,10 @@
    | `@easychat2_tts`、`@easychat2_transcription`、`@easychat2_image_gen`、`@easychat2_plugins` | TTS / 转写 / 生图 / 搜索配置（密钥存于系统安全存储，本键只留引用） |
    | `@easychat2_local_model_index` + `@easychat2_local_model_item::<id>` | 本地模型条目与参数（模型文件本身也存于本机文档目录） |
    | `@easychat2_proactive_settings` | 主动消息槽位设置（原生侧另用 EncryptedSharedPreferences 存一份） |
+   | `@easychat2_music_index` + `@easychat2_music_item::<id>`、`@easychat2_music_comments::<songId>` | 本地音乐库（曲库与时间轴打点）与听歌陪伴评论（评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
-   | `documentDirectory/voice/` | 语音消息与角色语音音频文件 |
+   | `documentDirectory/voice/`、`documentDirectory/music/` | 语音消息与角色语音音频文件、导入的本地音乐文件 |
    | `documentDirectory/characters/`、`documentDirectory/card-forge/` | 超大角色正文与制卡草稿的大字段文件 |
 
 - 卸载应用或清除应用数据即可删除上述内容。开发者侧没有可删除的副本。导出的备份包由你自行保管，包含角色、会话、消息与媒体；密钥字段在导出时一律置空。
@@ -112,6 +113,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | 功能 | 发送内容 | 默认是否启用 |
 |------|---------|------------|
 | 聊天（含群聊） | 系统提示词、命中的世界书、历史消息与输入（**含图片附件**——拍照、相册选图与表情包在开启识图时以多模态内容发送）、模型名、`Authorization` 头 | 配置 API 后即启用 |
+| 一起听歌（陪伴评论） | 系统提示词、用户档案与全局预设、歌曲名与当前进度（不含音频内容本身） | 扩展 → 世界 → 听歌，打点或开播时 |
 | 对话配图 / 生图 | 提示词、可选的原图（图生图） | 关闭，需手动开启 |
 | 语音播报（TTS） | 待朗读的回复文本（经清洗去 Markdown） | 关闭 |
 | 语音转写 | 录音音频文件 | 发送语音时 |

@@ -448,6 +448,9 @@
 | `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean, keepDraft: boolean, timeAware: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false }` |
 | `@easychat2_session_draft::<sessionId>` | 会话级输入框草稿（纯文本，仅 `keepDraft` 开启时写入与回填；删除会话时一并清理） |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
+| `@easychat2_music_index` | 音乐库 ID 索引（提交点，最后写；新导入置顶） |
+| `@easychat2_music_item::<id>` | 单曲记录 `{ id, name, uri, size, mime, durationMs, addedAt, triggers: [{ id, atMs, note }] }`；音频文件复制到 `documentDirectory/music/<id>.<ext>`，时长首播后回填 |
+| `@easychat2_music_comments::<songId>` | 听歌陪伴评论 `[{ id, characterId, characterName, text, atMs, createdAt, source: 'trigger' \| 'opening' \| 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
 | `@easychat2_diary_settings` | 日记设置 `{ roles: { [characterId]: { enabled, roleName, lastDiaryDate, apiConfigId } }, apiConfigId, model, lastRunDate }` |
 | `@easychat2_diary_index` | 日记条目 ID 索引（提交点，最后写） |
@@ -460,7 +463,7 @@
 | `@easychat2_sticker_index` | 表情包元数据 ID 索引 |
 | `@easychat2_sticker_item::<id>` | 单个表情包元数据（名称、文档目录 URI、尺寸、创建时间） |
 | `@easychat2_stickers` | 旧版表情包整数组，仅迁移读取 |
-| `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge' }`（`pink` 显示为「蜜桃」、`crimson` 显示为「薰衣草」） |
+| `@easychat2_appearance` | 外观设置 `{ themeId: 'dark' \| 'light' \| 'blue' \| 'pink' \| 'crimson', fontScaleId: 'default' \| 'system' \| 'small' \| 'medium' \| 'large' \| 'xlarge', localeId: 'zh-CN' \| 'en' }`（`pink` 显示为「蜜桃」、`crimson` 显示为「薰衣草」；语言与主题/字号同键共存，写入必须走 `patchAppearanceSettings` 读-合并-写，缺字段按默认值补齐） |
 | `@easychat2_local_model_index` | 本地模型 ID 索引（提交点，最后写） |
 | `@easychat2_local_model_item::<id>` | 单个本地模型条目 `{ id, name, uri, size, quant, mmproj, params, ... }` |
 | `@easychat2_local_model` | 旧版单模型设置（仅迁移读取：迁移为索引首条并回填 `activeModelId`） |

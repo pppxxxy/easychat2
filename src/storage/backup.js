@@ -152,7 +152,9 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
   const unreadableMedia = [];
   report('media', 0, 0);
   let mediaSeen = 0;
-  for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge']) {
+  // 媒体目录清单：新增媒体目录必须同步登记，否则备份会静默丢文件
+  // （恢复侧按备份载荷泛化处理，无需改动）。
+  for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge', 'music']) {
     throwIfAborted(signal);
     const collected = await collectMedia(directory, '', {
       signal,
