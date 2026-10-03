@@ -3,8 +3,11 @@
 // 全部为纯字符串处理，供 Node 测试穷举；注意与 backupStream 相同的代理对切割坑。
 
 // 章节标题判定：行首「第X章/节/回/卷/部/篇/幕/集」、Chapter N、以及楔子/序章/尾声等
-// 特殊篇目。行首匹配 + 行长 ≤60，避免把「第二年春天……」这类叙述行误判成章节
+// 特殊篇目。行首匹配 + 行长 ≤30，避免把「第二年春天……」这类叙述行误判成章节
 // （「年/天」不在单位集里，天然排除）。
+// 中文小说的叙述行也常以「第三章」开头（「第三章的内容让他想起…」），因此单位后
+// 还有两条排除：以「的/里/中」这类助词/方位词开头（标题分隔几乎总带空格或标点），
+// 或以句读标点收尾（叙述行特征）。
 const CHAPTER_UNIT = '[章节回卷部篇幕集]';
 const CHAPTER_NUM = '[0-9〇零一二两三四五六七八九十百千万]+';
 const CHAPTER_PATTERN = new RegExp(
@@ -13,12 +16,25 @@ const CHAPTER_PATTERN = new RegExp(
   + `|^[Cc]hapter\\s+\\d+`
   + `|^(楔子|序章|序幕|引子|尾声|终章|后记|番外(篇|之)?)`
 );
-const CHAPTER_LINE_MAX = 60;
+const CHAPTER_UNIT_PATTERN = new RegExp(`^第?\\s*${CHAPTER_NUM}?\\s*${CHAPTER_UNIT}`);
+const SPECIAL_PATTERN = /^(楔子|序章|序幕|引子|尾声|终章|后记|番外(篇|之)?)/;
+const CHAPTER_LINE_MAX = 30;
+const NARRATIVE_CONTINUATIONS = /^[的里中上下前后]/;
+const NARRATIVE_ENDINGS = /[。，？！；]$/;
 
 export function detectChapterTitle(line) {
   const text = String(line || '').trim();
   if (!text || text.length > CHAPTER_LINE_MAX) return '';
-  return CHAPTER_PATTERN.test(text) ? text : '';
+  if (!CHAPTER_PATTERN.test(text)) return '';
+  // 单位字符之后的剩余部分：空格/标点分隔或直接接标题文字都算章节行；
+  // 但「的/里/中…」开头或以句读标点收尾的是叙述行，排除。特殊篇目同理。
+  const unitMatch = CHAPTER_UNIT_PATTERN.exec(text) || SPECIAL_PATTERN.exec(text);
+  if (unitMatch) {
+    const rest = text.slice(unitMatch[0].length);
+    if (rest && NARRATIVE_CONTINUATIONS.test(rest)) return '';
+    if (NARRATIVE_ENDINGS.test(text)) return '';
+  }
+  return text;
 }
 
 // 代理对安全切点：切点前若是高位代理则回退一位，避免把 emoji 生劈成 U+FFFD。
@@ -117,7 +133,8 @@ export function splitBookIntoBlocks(rawText, { maxBlockChars = 12000 } = {}) {
     if (lines[index].length === 0 && buffered >= limit) {
       emitLines(blockStartLine, index + 1, currentTitle);
       blockStartLine = index + 1;
-      currentTitle = '';
+      // 续块必须沿用章题：章跨多块时后续页的底部栏、评论上下文都读 block.title，
+      // 清空会让这些块的 chapterTitle 变空（monkey 审查发现的缺陷 2）。
       buffered = 0;
     }
   }

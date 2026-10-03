@@ -190,7 +190,11 @@ export default function MusicScreen() {
       durationDoneRef.current = '';
       load(item);
     } catch (error) {
-      Alert.alert('导入失败', '无法读取所选音频文件，请重试。');
+      if (error && error.code === 'UNSUPPORTED_FORMAT') {
+        Alert.alert('格式不支持', '请选择音频文件（mp3/m4a/wav/flac 等）。');
+      } else {
+        Alert.alert('导入失败', '无法读取所选音频文件，请重试。');
+      }
     } finally {
       setImporting(false);
     }

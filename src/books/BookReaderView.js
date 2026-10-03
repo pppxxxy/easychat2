@@ -2,7 +2,7 @@
 // 可见页只渲染分到本页的行（页首行锚文本用于字号变化后的重新定位）；
 // 左右 30% 点按翻页，中间点按呼出/收起控制条；页脚显示进度与章题。
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 
 import { splitBookIntoBlocks } from './blocks.js';
+import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
 import { pageText } from './pagination.js';
 import { useBookComments } from './useBookComments.js';
@@ -112,6 +113,51 @@ export default function BookReaderView({ item, content, onBack }) {
     setFontSize(next);
   }, [fontSize, reader]);
 
+  // 阅读进度落库：翻页位置变化防抖 800ms 保存，退出阅读器时兜底保存一次。
+  // 只存 { blockIndex, pageIndex, anchorText } —— 字号变化会改变页数，
+  // 百分比是显示期计算值（见 library.js 注释）。
+  const readerRef = useRef(reader);
+  readerRef.current = reader;
+  const progressTimerRef = useRef(null);
+  const progressSavedRef = useRef('');
+
+  useEffect(() => {
+    const location = reader.location;
+    if (!location) return undefined;
+    const stamp = `${location.blockIndex}:${location.pageIndex}:${location.anchorText}`;
+    if (stamp === progressSavedRef.current) return undefined;
+    progressTimerRef.current = setTimeout(() => {
+      progressSavedRef.current = stamp;
+      saveBookProgress(item.id, location).catch(() => {});
+    }, 800);
+    return () => {
+      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+    };
+  }, [item.id, reader.location]);
+
+  // 退出兜底：防抖窗口内退出时立刻补写当前位置（fire-and-forget，失败不阻塞返回）。
+  const flushProgress = useCallback(() => {
+    if (progressTimerRef.current) {
+      clearTimeout(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    const location = readerRef.current ? readerRef.current.location : null;
+    if (!location) return;
+    const stamp = `${location.blockIndex}:${location.pageIndex}:${location.anchorText}`;
+    if (stamp === progressSavedRef.current) return;
+    progressSavedRef.current = stamp;
+    saveBookProgress(item.id, location).catch(() => {});
+  }, [item.id]);
+
+  // 组件卸载（切页/换书等路径）同样兜底一次。flushProgress 幂等：
+  // 与 handleBack 重复调用只会多一次同样的写入被 stamp 短路。
+  useEffect(() => () => flushProgress(), [flushProgress]);
+
+  const handleBack = useCallback(() => {
+    flushProgress();
+    onBack();
+  }, [flushProgress, onBack]);
+
   const percent = formatReadingPercent(
     reader.blockIndex,
     Math.max(1, reader.blockCount),
@@ -142,7 +188,7 @@ export default function BookReaderView({ item, content, onBack }) {
     <View style={styles.container}>
       {showControls ? (
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack} accessibilityLabel="返回书架">
+          <TouchableOpacity style={styles.backButton} onPress={handleBack} accessibilityLabel="返回书架">
             <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
             <Text style={styles.backText}>书架</Text>
           </TouchableOpacity>

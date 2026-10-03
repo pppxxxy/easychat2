@@ -29,7 +29,13 @@ test('章节标题判定：常见格式命中，叙述行不误判', () => {
   assert.equal(detectChapterTitle('第二年春天，他们回来了'), '', '「年」不在章节单位集');
   assert.equal(detectChapterTitle('第3天我们出发'), '', '「天」不在章节单位集');
   assert.equal(detectChapterTitle(''), '');
-  assert.equal(detectChapterTitle(`${'长'.repeat(61)}第一章`), '', '超长行不判章节');
+  assert.equal(detectChapterTitle(`${'长'.repeat(31)}第一章`), '', '超长行不判章节');
+  // 叙述行排除（monkey 审查发现：以「第X章」开头的正文曾被误判为章节）
+  assert.equal(detectChapterTitle('第三章的内容让他想起往事。'), '', '「章+的」开头的叙述行');
+  assert.equal(detectChapterTitle('第一章里提到的那个地方。'), '', '「章+里」开头的叙述行');
+  assert.equal(detectChapterTitle('第二章，他离开了。'), '', '句读标点收尾的叙述行');
+  assert.equal(detectChapterTitle('第一章 起点'), '第一章 起点', '空格分隔的真标题保留');
+  assert.equal(detectChapterTitle('第一章起点'), '第一章起点', '无分隔的真标题保留');
 });
 
 test('代理对安全切点：高位代理前回退', () => {
@@ -105,6 +111,19 @@ test('目录：连续同章块合并', () => {
   assert.equal(chapters[0].blockIndex, 0);
   assert.equal(chapters[chapters.length - 1].title, '第二章');
   assert.ok(chapters.every((chapter, index) => index === 0 || chapter.blockIndex > chapters[index - 1].blockIndex));
+});
+
+test('长章节跨多块：续块全部沿用章题（monkey 审查缺陷 2 回归）', () => {
+  const lines = ['第一章'];
+  for (let index = 0; index < 400; index += 1) lines.push('这是第一段的内容，用来撑长度。'.repeat(3));
+  lines.push('', '第二章', '第二章正文。');
+  const blocks = splitBookIntoBlocks(lines.join('\n\n'), { maxBlockChars: 3000 });
+  assert.ok(blocks.length > 3, '第一章必须跨多块');
+  const secondStart = blocks.findIndex(block => block.text.startsWith('第二章'));
+  assert.ok(secondStart > 0, '第二章必须独立成块');
+  blocks.slice(0, secondStart).forEach(block => {
+    assert.equal(block.title, '第一章', `块 ${block.index} 的章题不得丢`);
+  });
 });
 
 test('分页：贪心装箱、超行独占、锚文本', () => {

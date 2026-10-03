@@ -52,6 +52,17 @@ test('importBook：宽松选择器 + 严格校验 + 编码检测 + 失败清理'
     '复制/校验失败都必须清理半成品文件');
 });
 
+test('阅读进度落库：防抖保存 + 退出/卸载兜底（monkey 审查缺陷 1 回归）', () => {
+  const reader = readSource('src/books/useBookReader.js');
+  assert.ok(reader.includes('location'), 'useBookReader 必须暴露当前阅读位置');
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(view.includes('saveBookProgress(item.id, location)'), '翻页/退出必须写回进度');
+  assert.ok(/setTimeout\([\s\S]{0,160}saveBookProgress/.test(view), '位置变化必须防抖保存');
+  assert.ok(view.includes('flushProgress'), '退出必须兜底 flush');
+  assert.ok(view.includes('onPress={handleBack}'), '返回按钮必须走 flush 路径');
+  assert.ok(/useEffect\(\(\) => \(\) => flushProgress\(\)/.test(view), '组件卸载必须兜底保存');
+});
+
 test('BookScreen：打开按需读文件、错误按 code 分流', () => {
   const source = readSource('src/books/BookScreen.js');
   assert.ok(source.includes('readBookContent'), '打开书籍才读正文文件');

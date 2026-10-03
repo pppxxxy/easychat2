@@ -129,6 +129,16 @@ export function useBookReader({ blocks, initial = {}, pageWidth, pageHeight, lin
     goToBlock(chapterBlockIndex, { type: 'first' });
   }, [goToBlock]);
 
+  // 当前阅读位置（供进度持久化）：块号 + 页号 + 页首锚文本。测量未就绪时
+  // 返回 null——没有可保存的位置，调用方跳过这次写入。
+  const location = status === MEASURE_READY && pages[pageIndex]
+    ? {
+      blockIndex,
+      pageIndex,
+      anchorText: pages[pageIndex].anchorText || '',
+    }
+    : null;
+
   return useMemo(() => ({
     status,
     lines,
@@ -139,6 +149,7 @@ export function useBookReader({ blocks, initial = {}, pageWidth, pageHeight, lin
     block,
     blockIndex,
     blockCount: blocks.length,
+    location,
     measureText,
     handleTextLayout,
     nextPage,
@@ -148,7 +159,7 @@ export function useBookReader({ blocks, initial = {}, pageWidth, pageHeight, lin
     canPrev: status === MEASURE_READY && (pageIndex > 0 || blockIndex > 0),
     canNext: status === MEASURE_READY && (pageIndex < pages.length - 1 || blockIndex < blocks.length - 1),
   }), [
-    block, blockIndex, blocks.length, handleTextLayout, lines, measureText, nextPage,
+    block, blockIndex, blocks.length, handleTextLayout, lines, location, measureText, nextPage,
     pages, pageIndex, prevPage, reanchor, jumpToChapter, status,
   ]);
 }

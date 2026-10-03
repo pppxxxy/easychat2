@@ -31,7 +31,8 @@ test('useMusicPlayer：expo-audio 关键调用齐全（非 expo-av 旧 API）', 
 
 test('importMusic：SAF 选文件、零新权限、失败清理半成品', () => {
   const source = readSource('src/music/importMusic.js');
-  assert.ok(source.includes("type: 'audio/*'"), '选择器限定音频类型');
+  assert.ok(source.includes("type: '*/*'"), '与书一致用 */*（厂商把音频标成 octet-stream，audio/* 会选不中）');
+  assert.ok(source.includes('isMusicFileName'), '扩展名白名单兜底校验');
   assert.ok(source.includes('copyToCacheDirectory: true'), '先复制到缓存再转存');
   assert.ok(source.includes('expo-file-system/legacy'), '与代码库一致走 legacy 文件 API');
   const markIndex = source.indexOf('markMediaWrite(dest)');
