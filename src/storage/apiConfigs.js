@@ -55,6 +55,7 @@ function normalizeApiConfig(raw, index = 0) {
     activeModel,
     supportsThinking: source.supportsThinking === true,
     supportsVision: source.supportsVision === true,
+    supportsVideo: source.supportsVideo === true,
     supportsAudio: source.supportsAudio === true,
     thinking: {
       field: String((source.thinking && source.thinking.field) || 'reasoning_effort')

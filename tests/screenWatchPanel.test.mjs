@@ -16,7 +16,8 @@ function readSource(relativePath) {
 
 test('useScreenWatchComments：多模态带图 + 视觉门控 + 链路守卫', () => {
   const source = readSource('src/screenWatch/useScreenWatchComments.js');
-  assert.ok(source.includes('images: uri ? [uri] : []'), '截图以 images 参数走多模态');
+  assert.ok(source.includes('images: uris'), '截图以 images 参数走多模态');
+  assert.ok(source.includes('imageUris'), '支持视频帧序列（多图）');
   assert.ok(source.includes('getLocalModelMediaCapabilities'), '视觉判定含本地模型多模态');
   assert.ok(source.includes('supportsVision === true'), '视觉判定含在线来源标记');
   assert.ok(source.includes("code: 'NO_VISION'"), '无视觉能力必须给 NO_VISION 错误');
@@ -37,8 +38,8 @@ test('ScreenWatchScreen：截屏→评论→接话接线', () => {
   // 限制文案已迁 i18n：断言 key 存在，并断言基准语言词条确实说明了限制
   assert.ok(source.includes("t('screenWatch.limits')"), 'v1 固有限制必须如实告知用户（i18n key）');
   const zh = readSource('src/i18n/locales/zh-CN.js');
-  assert.ok(zh.includes('只包含本应用的画面') && zh.includes('暂时没有做'),
-    'zh-CN 限制词条必须说明只截本应用与跨应用未做');
+  assert.ok(zh.includes('只包含本应用的画面') && zh.includes('悬浮窗'),
+    'zh-CN 限制词条必须说明只截本应用、跨应用走悬浮窗');
   // NO_VISION 分流在 hook 层（面板只显示 hook 给的错误文案）
   const hook = readSource('src/screenWatch/useScreenWatchComments.js');
   assert.ok(hook.includes("code: 'NO_VISION'"), '无视觉能力时以 NO_VISION 分流提示');

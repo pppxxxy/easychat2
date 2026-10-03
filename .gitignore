@@ -12,6 +12,8 @@ ios/
 !plugins/proactiveMessage/android/**
 !plugins/localApiServer/android/
 !plugins/localApiServer/android/**
+!plugins/screenOverlay/android/
+!plugins/screenOverlay/android/**
 *.jks
 *.keystore
 .env

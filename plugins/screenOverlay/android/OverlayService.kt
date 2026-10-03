@@ -1,0 +1,394 @@
+package com.pppxxxy.easychat2.screenoverlay
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.Image
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.util.Log
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.TextView
+import com.facebook.react.bridge.Arguments
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+/**
+ * 看屏幕悬浮窗前台服务：
+ * - WindowManager（TYPE_APPLICATION_OVERLAY）承载悬浮球 ⇄ 小窗，可拖动；
+ * - MediaProjection + ImageReader/VirtualDisplay 采集跨应用画面，JPEG 落
+ *   filesDir/screen-watch/（与 expo documentDirectory 同目录），经事件交 JS；
+ * - 关闭 / 锁屏 / 系统回收（projection.onStop）时释放全部资源。
+ * AI 评论留在 JS：小窗「截屏」按钮只发 onRequestCapture，由 JS 决定单帧/帧序列并调 capture()。
+ */
+class OverlayService : Service() {
+
+    companion object {
+        const val EXTRA_RESULT_CODE = "result_code"
+        const val EXTRA_RESULT_DATA = "result_data"
+        const val EVENT_CAPTURE = "ScreenOverlay:onCapture"
+        const val EVENT_REQUEST_CAPTURE = "ScreenOverlay:onRequestCapture"
+        const val EVENT_STATE = "ScreenOverlay:onState"
+        private const val TAG = "ScreenOverlay"
+        private const val NOTIFICATION_ID = 0x5C02
+        private const val CHANNEL_ID = "screen_overlay"
+
+        @Volatile var instance: OverlayService? = null
+            private set
+        @Volatile var isRunning: Boolean = false
+            private set
+    }
+
+    private lateinit var windowManager: WindowManager
+    private lateinit var rootView: LinearLayout
+    private lateinit var params: WindowManager.LayoutParams
+    private var statusView: TextView? = null
+    private var expanded = false
+
+    private var projection: MediaProjection? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+    private var captureRequested = false
+    private var width = 0
+    private var height = 0
+    private var density = 0
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        isRunning = true
+        startForegroundCompat()
+        windowManager = getSystemService(WindowManager::class.java)
+        createOverlayView()
+        ScreenOverlayModule.emitState(true)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
+        @Suppress("DEPRECATION")
+        val resultData = intent?.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
+        if (projection == null && resultData != null) {
+            setupProjection(resultCode, resultData)
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        releaseCapture()
+        try {
+            if (::rootView.isInitialized) windowManager.removeView(rootView)
+        } catch (error: Exception) {}
+        instance = null
+        isRunning = false
+        ScreenOverlayModule.emitState(false)
+        super.onDestroy()
+    }
+
+    // ---------- 前台通知 ----------
+
+    private fun startForegroundCompat() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "看屏幕",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            channel.description = "悬浮窗正在获取屏幕画面"
+            manager.createNotificationChannel(channel)
+        }
+        val launch = packageManager.getLaunchIntentForPackage(packageName)
+        val pending = if (launch != null) {
+            PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE)
+        } else {
+            null
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        builder.setContentTitle("看屏幕")
+            .setContentText("悬浮窗已开启，点按悬浮球可截屏给角色看")
+            .setSmallIcon(android.R.drawable.ic_menu_view)
+            .setOngoing(true)
+        if (pending != null) builder.setContentIntent(pending)
+        val notification = builder.build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    // ---------- 悬浮视图 ----------
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+
+    private fun createOverlayView() {
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = dp(16)
+        params.y = dp(160)
+
+        rootView = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        rootView.setOnTouchListener(dragListener)
+        windowManager.addView(rootView, params)
+        showCollapsed()
+    }
+
+    private fun showCollapsed() {
+        expanded = false
+        statusView = null
+        rootView.removeAllViews()
+        val ball = TextView(this).apply {
+            text = "看"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#6c63ff"))
+            }
+        }
+        val size = dp(52)
+        rootView.addView(ball, LinearLayout.LayoutParams(size, size))
+    }
+
+    private fun showExpanded() {
+        expanded = true
+        rootView.removeAllViews()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.parseColor("#E62d2d44"))
+            }
+        }
+        val title = TextView(this).apply {
+            text = "看屏幕"
+            setTextColor(Color.parseColor("#6c63ff"))
+            textSize = 13f
+        }
+        panel.addView(title)
+        val status = TextView(this).apply {
+            text = "点「截屏」让角色看看现在的屏幕"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            maxWidth = dp(220)
+            setPadding(0, dp(6), 0, dp(8))
+        }
+        panel.addView(status)
+        statusView = status
+
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actions.addView(button("截屏") { requestCaptureFromButton() })
+        actions.addView(button("收起") { showCollapsed() })
+        actions.addView(button("关闭") { stopSelf() })
+        panel.addView(actions)
+
+        rootView.addView(panel, LinearLayout.LayoutParams(dp(236), LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun button(label: String, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(9).toFloat()
+                setColor(Color.parseColor("#3a3a5a"))
+            }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private val dragListener = View.OnTouchListener { _, event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.rawX
+                downY = event.rawY
+                startX = params.x
+                startY = params.y
+                dragged = false
+                true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - downX
+                val dy = event.rawY - downY
+                if (abs(dx) > touchSlop || abs(dy) > touchSlop) dragged = true
+                params.x = startX + dx.roundToInt()
+                params.y = startY + dy.roundToInt()
+                try {
+                    windowManager.updateViewLayout(rootView, params)
+                } catch (error: Exception) {}
+                true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!dragged && !expanded) showExpanded()
+                true
+            }
+            else -> false
+        }
+    }
+    private var downX = 0f
+    private var downY = 0f
+    private var startX = 0
+    private var startY = 0
+    private var dragged = false
+    private val touchSlop: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
+
+    fun setStatusText(text: String) {
+        val value = String(text).trim()
+        Handler(Looper.getMainLooper()).post {
+            statusView?.text = value.ifEmpty { "点「截屏」让角色看看现在的屏幕" }
+        }
+    }
+
+    private fun requestCaptureFromButton() {
+        setStatusText("正在看…")
+        ScreenOverlayModule.emit(EVENT_REQUEST_CAPTURE, Arguments.createMap())
+    }
+
+    fun requestCapture() {
+        captureRequested = true
+        setStatusText("正在看…")
+        // 静态画面可能不产生新帧：强制刷新一次 surface 以触发 ImageReader 回调。
+        try {
+            virtualDisplay?.setSurface(null)
+            virtualDisplay?.setSurface(imageReader?.surface)
+        } catch (error: Exception) {}
+    }
+
+    // ---------- 屏幕采集 ----------
+
+    private fun setupProjection(resultCode: Int, data: Intent) {
+        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
+        val mp = manager.getMediaProjection(resultCode, data) ?: return
+        projection = mp
+        mp.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                releaseCapture()
+            }
+        }, Handler(Looper.getMainLooper()))
+
+        val metrics = resources.displayMetrics
+        width = metrics.widthPixels
+        height = metrics.heightPixels
+        density = metrics.densityDpi
+        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+        reader.setOnImageAvailableListener({ available ->
+            val image = available.acquireLatestImage()
+            if (image != null) {
+                try {
+                    if (captureRequested) {
+                        captureRequested = false
+                        val bitmap = imageToBitmap(image)
+                        if (bitmap != null) saveAndEmit(bitmap)
+                    }
+                } catch (error: Exception) {
+                    Log.w(TAG, "capture frame failed: ${error.message}")
+                } finally {
+                    image.close()
+                }
+            }
+        }, Handler(Looper.getMainLooper()))
+        imageReader = reader
+        virtualDisplay = mp.createVirtualDisplay(
+            "easychat-screenwatch",
+            width,
+            height,
+            density,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            reader.surface,
+            null,
+            null
+        )
+    }
+
+    private fun imageToBitmap(image: Image): Bitmap? {
+        val plane = image.planes.firstOrNull() ?: return null
+        val buffer = plane.buffer
+        val pixelStride = plane.pixelStride
+        val rowStride = plane.rowStride
+        val rowPadding = rowStride - pixelStride * width
+        val padded = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888)
+        padded.copyPixelsFromBuffer(buffer)
+        val cropped = Bitmap.createBitmap(padded, 0, 0, width, height)
+        if (cropped !== padded) padded.recycle()
+        return cropped
+    }
+
+    private fun saveAndEmit(bitmap: Bitmap) {
+        try {
+            val dir = File(filesDir, "screen-watch")
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, "sw-${System.currentTimeMillis().toString(36)}.jpg")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
+            }
+            val map = Arguments.createMap().apply { putString("path", "file://${file.absolutePath}") }
+            ScreenOverlayModule.emit(EVENT_CAPTURE, map)
+        } catch (error: Exception) {
+            Log.w(TAG, "save frame failed: ${error.message}")
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun releaseCapture() {
+        captureRequested = false
+        try {
+            virtualDisplay?.release()
+        } catch (error: Exception) {}
+        virtualDisplay = null
+        try {
+            imageReader?.close()
+        } catch (error: Exception) {}
+        imageReader = null
+        try {
+            projection?.stop()
+        } catch (error: Exception) {}
+        projection = null
+    }
+}
