@@ -659,6 +659,11 @@ data: [DONE]
 | `saveWorkspaceSettings(settings)` | 归一后写入 `@easychat2_workspace`，返回归一结果 |
 | `WORKSPACE_MODES` / `normalizeWorkspaceMode` | `['ask','read','write']`，与 agent 工具门控共用 `AGENT_MODES` |
 
+### 工作区面板
+**位置**: `src/WorkspacePanel.js`（设置页「工作区」卡片打开）
+
+浏览当前角色沙盒（`characterId` 维度）：文本文件预览/复制/分享/删除；「可改」模式下可新建文本、把文本导出为 Word（`.docx`）并分享。只读顶栏显示当前模式（在设置页修改）。依赖 `expo-sharing` / `expo-clipboard`；文件名净化见 `src/workspace/naming.js`（`sanitizeWorkspaceFileName` / `ensureTextFileName` / `ensureDocxFileName`）。
+
 ## 向量记忆接口
 
 **位置**: `src/vectorMemory/`

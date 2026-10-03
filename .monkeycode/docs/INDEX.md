@@ -139,6 +139,7 @@ npm test             # 运行 Node 单元与回归测试
 | `src/workspace/tools.js` | 工作区三工具定义与注册（list/read/write） |
 | `src/workspace/docx.js` | Word(.docx) 导出：fflate 自拼最小 OOXML |
 | `src/workspace/native.js` | 工作区原生默认入口（惰性加载 expo-file-system） |
+| `src/WorkspacePanel.js` | 工作区面板（浏览/预览/分享/新建/导出 Word） |
 | `src/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
 | `src/context/AppContext.js` | 全局角色库状态 |
 | `src/context/characterLibrary.js` | 角色库状态迁移纯函数 |
