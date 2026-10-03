@@ -24,6 +24,9 @@ import { buildRequestMessages, filterRequestMedia } from '../chatPipeline.js';
 import { isStaleReply } from '../chatRace.js';
 import { getEditResendPlan } from '../messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../modelProvider.js';
+import { listToolsForMode } from '../agent/tools/registry.js';
+import { runAgentTurn } from '../agent/loop.js';
+import { registerDefaultWorkspaceTools } from '../workspace/native.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
   getImageDimensions,
@@ -80,6 +83,7 @@ import {
   getSessionSummaries,
   getVectorIndex,
   getVectorMemoryConfig,
+  getWorkspaceSettings,
   removeVectorIndexForSession,
   updateSessionMemberProfiles,
 } from '../storage.js';
@@ -166,6 +170,40 @@ export default function useChatSend({
      const controller = sendLockRef.current?.controller || new AbortController();
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
+     // 工具状态气泡（read/write 模式下由 onToolEvent 驱动）；临时、不落库。
+     const toolStatusId = `${Date.now()}-tool-status`;
+     const clearToolStatus = () => {
+       if (!isCurrentSession()) return;
+       setMessages(current => (
+         isCurrentSession() ? current.filter(item => item.id !== toolStatusId) : current
+       ));
+     };
+     const setToolStatus = text => {
+       if (!isCurrentSession()) return;
+       setMessages(current => {
+         if (!isCurrentSession()) return current;
+         const without = current.filter(item => item.id !== toolStatusId);
+         if (!text) return without;
+         return [...without, {
+           id: toolStatusId,
+           role: ASSISTANT_ID,
+           text,
+           kind: 'tool-status',
+           pending: true,
+           transient: true,
+           timestamp: Date.now(),
+         }];
+       });
+     };
+     // 工作区模式（ask/read/write）：决定在线路径是否走 agent 工具循环。
+     // 读取失败按默认 ask 处理（零行为变化，绝不因设置读失败而改变发送行为）。
+     let workspaceMode = 'ask';
+     try {
+       const workspaceSettings = await getWorkspaceSettings();
+       workspaceMode = (workspaceSettings && workspaceSettings.mode) || 'ask';
+     } catch (error) {
+       workspaceMode = 'ask';
+     }
      const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
@@ -321,7 +359,48 @@ export default function useChatSend({
           };
         } catch (error) {}
         const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
-        const onlineSend = () => sendChatMessage(onlineMessages, {
+        // 在线路径按工作区模式分流：ask 不暴露任何工具，走原 sendChatMessage（零变化）；
+        // read/write 走 runAgentTurn（agent 工具循环）。工具集由注册表按模式派生。
+        let agentTools = [];
+        if (workspaceMode !== 'ask') {
+          try {
+            registerDefaultWorkspaceTools();
+          } catch (error) {}
+          agentTools = listToolsForMode(workspaceMode);
+        }
+        const onlineSend = () => (agentTools.length > 0
+          ? runAgentTurn(onlineMessages, {
+              mode: workspaceMode,
+              tools: agentTools,
+              signal: controller.signal,
+              requestOptions: {
+                expectedConfigId,
+                expectedConfigFingerprint,
+                stream: chatOptions.stream,
+              },
+              onToken: fullText => {
+                if (!isCurrentSession() || controller.signal.aborted) return;
+                setMessages(current => {
+                  if (!isCurrentSession()) return current;
+                  return mergeStreamedText(current, pendingAssistantMessage.id, fullText);
+                });
+              },
+              onReasoning: fullReasoning => {
+                if (!isCurrentSession() || controller.signal.aborted) return;
+                setMessages(current => {
+                  if (!isCurrentSession()) return current;
+                  return mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning);
+                });
+              },
+              onToolEvent: event => {
+                // 轻提示：start 打一条临时气泡，end 清掉（不落库，pending 过滤兜底）。
+                if (!event) return;
+                if (event.phase === 'start') setToolStatus(`正在读取工作区（${event.name}）…`);
+                else setToolStatus('');
+              },
+              context: { characterId: character.id, sessionId: sendSessionId },
+            })
+          : sendChatMessage(onlineMessages, {
               expectedConfigId,
               expectedConfigFingerprint,
               signal: controller.signal,
@@ -340,7 +419,7 @@ export default function useChatSend({
                return mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning);
              });
             }
-        });
+        }));
         const reply = await sendWithModelProvider({
           messages: localMessages,
           localSettings,
@@ -370,6 +449,7 @@ export default function useChatSend({
         });
 
        if (controller.signal.aborted) {
+         clearToolStatus();
          setMessages(current => (
            isCurrentSession()
              ? settlePendingMessage(current, pendingAssistantMessage.id)
@@ -381,6 +461,7 @@ export default function useChatSend({
        const replyParts = buildAssistantReply(reply);
        const replyText = replyParts.find(item => item.role === ASSISTANT_ID && !item.kind)?.text
          || '';
+       clearToolStatus();
        setMessages(current => {
         if (!isCurrentSession()) return current;
         return replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
@@ -400,6 +481,7 @@ export default function useChatSend({
         recordTurnRef.current?.(userText, replyText, senderSnapshot);
       }
      } catch (error) {
+       clearToolStatus();
        if (isConfigChangedError(error)) {
          sourceChangedRef.current = true;
          setMessages(current => (
@@ -726,7 +808,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
           if (turnHandled === false) return false;
         }
         return true;
-      } catch (error) {
+     } catch (error) {
        if (isConfigChangedError(error)) {
          sourceChangedRef.current = true;
          if (isCurrent()) setMessages(current => current.filter(item => !item.pending));
