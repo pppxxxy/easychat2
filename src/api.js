@@ -133,7 +133,33 @@ function extractErrorMessage(payload) {
   return '接口返回错误。';
 }
 
-function createAbortError() {
+// 流式增量：OpenAI 兼容端会把 tool_calls 按 index 分片下发，
+// 首片带 id/name，其余片只带 arguments 片段。
+function extractToolCallDeltas(payload) {
+  const list = payload?.choices?.[0]?.delta?.tool_calls;
+  return Array.isArray(list) ? list : [];
+}
+
+// 非流式正文：message.tool_calls 是一次性给全的完整数组。
+function extractMessageToolCalls(message) {
+  const list = message?.tool_calls;
+  if (!Array.isArray(list)) return [];
+  return list.map((call, index) => ({
+    index,
+    id: typeof call?.id === 'string' ? call.id : '',
+    function: {
+      name: typeof call?.function?.name === 'string' ? call.function.name : '',
+      arguments: typeof call?.function?.arguments === 'string' ? call.function.arguments : '',
+    },
+  }));
+}
+
+function extractFinishReason(payload) {
+  const reason = payload?.choices?.[0]?.finish_reason;
+  return typeof reason === 'string' ? reason : null;
+}
+
+export function createAbortError() {
   const error = new Error('已停止生成。');
   error.name = 'AbortError';
   error.canceled = true;
@@ -158,11 +184,16 @@ async function resolveChatConfig(options = {}) {
   return model ? { ...config, activeModel: model } : config;
 }
 
-export async function sendChatMessage(messages, options = {}) {
+// 结构化流式请求：返回完整文本、思考文本与 tool_calls 累积结果，供 agent 循环使用。
+// 注意：这里返回**原始空文本**，不做 EMPTY_REPLY_TEXT 兜底——工具轮里
+// 「text 为空 + tool_calls」是正常形态，占位文本会污染 assistant 历史。
+export async function streamChatCompletion(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
   const onReasoning = options && typeof options.onReasoning === 'function' ? options.onReasoning : null;
   const signal = options && options.signal ? options.signal : null;
   const stream = options && options.stream === false ? false : true;
+  const tools = Array.isArray(options && options.tools) ? options.tools : null;
+  const toolChoice = options ? options.toolChoice : undefined;
   if (signal && signal.aborted) {
     throw createAbortError();
   }
@@ -230,6 +261,8 @@ export async function sendChatMessage(messages, options = {}) {
     let dataLines = [];
     let fullText = '';
     let fullReasoning = '';
+    let finishReason = null;
+    const toolCallEntries = new Map();
     let sawSse = false;
     let sawPayloadData = false;
     let sawFirstByte = false;
@@ -238,6 +271,28 @@ export async function sendChatMessage(messages, options = {}) {
     let settled = false;
     let idleTimer = null;
     let removeAbortListener = null;
+
+    const mergeToolCallDeltas = list => {
+      for (const raw of list) {
+        const index = Number.isInteger(raw && raw.index) ? raw.index : 0;
+        const entry = toolCallEntries.get(index) || { index, id: '', name: '', arguments: '' };
+        if (raw && typeof raw.id === 'string' && raw.id) entry.id = raw.id;
+        const fn = (raw && raw.function) || {};
+        if (typeof fn.name === 'string' && fn.name) entry.name = fn.name;
+        if (typeof fn.arguments === 'string') entry.arguments += fn.arguments;
+        toolCallEntries.set(index, entry);
+      }
+    };
+    const collectToolCalls = () => Array.from(toolCallEntries.values())
+      .filter(entry => entry.name)
+      .sort((a, b) => a.index - b.index)
+      .map(entry => ({ id: entry.id, name: entry.name, arguments: entry.arguments }));
+    const makeResult = () => ({
+      text: fullText,
+      reasoning: fullReasoning,
+      toolCalls: collectToolCalls(),
+      finishReason,
+    });
 
     const settle = (fn, value) => {
       if (settled) return;
@@ -296,8 +351,8 @@ export async function sendChatMessage(messages, options = {}) {
 
     const finishFromStream = () => {
       finishWithConfig(() => {
-        if (fullText) {
-          succeed(fullText);
+        if (fullText || toolCallEntries.size > 0) {
+          succeed(makeResult());
           xhr.abort();
           return;
         }
@@ -306,7 +361,7 @@ export async function sendChatMessage(messages, options = {}) {
           xhr.abort();
           return;
         }
-        succeed(EMPTY_REPLY_TEXT);
+        succeed(makeResult());
         xhr.abort();
       });
     };
@@ -376,6 +431,10 @@ export async function sendChatMessage(messages, options = {}) {
         fullReasoning += reasoningDelta;
         if (onReasoning) onReasoning(fullReasoning);
       }
+
+      mergeToolCallDeltas(extractToolCallDeltas(payload));
+      const reason = extractFinishReason(payload);
+      if (reason) finishReason = reason;
 
       const delta = extractDeltaContent(payload);
       if (!delta) return;
@@ -462,8 +521,8 @@ export async function sendChatMessage(messages, options = {}) {
       }
 
       if (settled) return;
-      if (fullText) {
-        finishWithConfig(() => succeed(fullText));
+      if (fullText || toolCallEntries.size > 0) {
+        finishWithConfig(() => succeed(makeResult()));
         return;
       }
 
@@ -474,7 +533,7 @@ export async function sendChatMessage(messages, options = {}) {
 
       const body = (xhr.responseText || '').trim();
       if (!body) {
-        finishWithConfig(() => succeed(EMPTY_REPLY_TEXT));
+        finishWithConfig(() => succeed(makeResult()));
         return;
       }
       try {
@@ -490,9 +549,15 @@ export async function sendChatMessage(messages, options = {}) {
         const reasoning = typeof message.reasoning_content === 'string'
           ? message.reasoning_content
           : (typeof message.reasoning === 'string' ? message.reasoning : '');
-        if (reasoning && onReasoning) onReasoning(reasoning);
-         const content = normalizeAssistantContent(message.content);
-         finishWithConfig(() => succeed(content || EMPTY_REPLY_TEXT));
+        if (reasoning) {
+          fullReasoning = reasoning;
+          if (onReasoning) onReasoning(reasoning);
+        }
+        mergeToolCallDeltas(extractMessageToolCalls(message));
+        const reason = extractFinishReason(data);
+        if (reason) finishReason = reason;
+        fullText = normalizeAssistantContent(message.content);
+        finishWithConfig(() => succeed(makeResult()));
       } catch (error) {
         fail(new Error('接口返回了无法解析的内容。'));
       }
@@ -503,10 +568,22 @@ export async function sendChatMessage(messages, options = {}) {
 
     if (settled) return;
     try {
-      xhr.send(JSON.stringify({ model, messages, stream, ...thinkingParams, ...samplingParams }));
+      const body = { model, messages, stream, ...thinkingParams, ...samplingParams };
+      if (tools && tools.length > 0) {
+        body.tools = tools;
+        if (toolChoice !== undefined) body.tool_choice = toolChoice;
+      }
+      xhr.send(JSON.stringify(body));
       armIdleTimer();
     } catch (error) {
       fail(error);
     }
   });
+}
+
+// 兼容薄包装：保持既有 string 返回与 EMPTY_REPLY_TEXT 语义（流式/非流式两条
+// 路径都在这里兜底），工具轮请直接用 streamChatCompletion。
+export async function sendChatMessage(messages, options = {}) {
+  const result = await streamChatCompletion(messages, options);
+  return result.text || EMPTY_REPLY_TEXT;
 }

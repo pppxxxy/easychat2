@@ -24,6 +24,7 @@
    | `@easychat2_music_index` + `@easychat2_music_item::<id>`、`@easychat2_music_comments::<songId>` | 本地音乐库（曲库与时间轴打点）与听歌陪伴评论（评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_books_index` + `@easychat2_books_item::<id>`、`@easychat2_book_comments::<bookId>` | 本地书架（书目、阅读进度与目录）与陪读评论（评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_screen_watch_comments` | 看屏幕评论（含对应截图的本机路径；评论只在面板内呈现，不进聊天会话） |
+   | `@easychat2_workspace` | 工作区模式设置（ask/read/write）；沙盒文件本身存于本机文档目录 `workspace/`，不在此键 |
    | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
    | `documentDirectory/voice/`、`documentDirectory/music/`、`documentDirectory/books/` | 语音消息与角色语音音频文件、导入的本地音乐文件、导入的本地书籍文件 |

@@ -81,6 +81,14 @@ export const zhCN = {
   'settings.appearance.fontScale': '字体大小',
   'settings.language.zh': '简体中文',
   'settings.language.en': 'English',
+  'settings.workspace.title': '工作区',
+  'settings.workspace.mode': '助手工作模式',
+  'settings.workspace.mode.ask': '询问',
+  'settings.workspace.mode.read': '只读',
+  'settings.workspace.mode.write': '可改',
+  'settings.workspace.hint.ask': '只用文字交流，不读取工作区文件。',
+  'settings.workspace.hint.read': '可读取并引用工作区内的文本/Markdown 文件。',
+  'settings.workspace.hint.write': '可在工作区内新建或修改文本/Markdown 文件、导出 Word。',
 
   // ---- 通用 ----
   'common.cancel': '取消',

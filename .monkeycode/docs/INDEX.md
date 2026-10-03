@@ -2,7 +2,7 @@
 
 本目录是 EasyChat2 的项目文档，面向希望了解系统结构、集成接口或参与开发的读者。文档基于当前代码仓库生成，描述实际实现。
 
-**快速链接**: [架构](./ARCHITECTURE.md) | [接口](./INTERFACES.md) | [开发者指南](./DEVELOPER_GUIDE.md) | [进度交接](./进度交接.md)
+**快速链接**: [架构](./ARCHITECTURE.md) | [接口](./INTERFACES.md) | [开发者指南](./DEVELOPER_GUIDE.md) | [进度交接](./进度交接.md) | [工具循环契约](./agent-loop.md)
 
 ---
 
@@ -22,6 +22,9 @@
 
 ### [开发者指南](./DEVELOPER_GUIDE.md)
 环境搭建、运行与构建、编码规范与常见任务。贡献者必读。
+
+### [工具循环契约](./agent-loop.md)
+Agent 工具调用循环 v1 接口契约（数据结构、SSE 累积、循环算法、取消语义、模式门控、本地模型策略）。
 
 ---
 
@@ -128,7 +131,14 @@ npm test             # 运行 Node 单元与回归测试
 | `src/characterPresets.js` | 角色卡预设规范化与解析 |
 | `src/storage.js` | 持久化门面（转发 `src/storage/`） |
 | `src/secretStore.js` | 密钥安全存储（AsyncStorage 只留引用） |
-| `src/api.js` | 大模型接口调用 |
+| `src/api.js` | 大模型接口调用（`streamChatCompletion` 结构化 + `sendChatMessage` 薄包装） |
+| `src/agent/loop.js` | Agent 工具调用循环（跨轮累积、上限收尾、取消） |
+| `src/agent/tools/registry.js` | 工具注册表与 ask/read/write 模式门控 |
+| `src/workspace/paths.js` | 工作区路径安全（沙盒相对路径 + 扩展名白名单） |
+| `src/workspace/store.js` | 工作区文件 list/read/write（fileSystem 注入，可 Node 直测） |
+| `src/workspace/tools.js` | 工作区三工具定义与注册（list/read/write） |
+| `src/workspace/docx.js` | Word(.docx) 导出：fflate 自拼最小 OOXML |
+| `src/workspace/native.js` | 工作区原生默认入口（惰性加载 expo-file-system） |
 | `src/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
 | `src/context/AppContext.js` | 全局角色库状态 |
 | `src/context/characterLibrary.js` | 角色库状态迁移纯函数 |

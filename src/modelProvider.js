@@ -34,6 +34,7 @@ export async function sendWithModelProvider({
   onReasoning,
   conversationKey,
   signal,
+  tools,
 }) {
   if (!canUseLocalModel(localSettings, localFileInfo, localItem)) {
     return onlineSend();
@@ -45,6 +46,10 @@ export async function sendWithModelProvider({
   }
   const model = localItem || localSettings;
   try {
+    // v1 本地模型不支持工具调用：请求了工具时降级为纯对话并留日志，不静默吞掉。
+    if (Array.isArray(tools) && tools.length > 0) {
+      recordModelLog('api', '本地模型暂不支持工具调用，已降级为纯对话', { level: 'warn' });
+    }
     const result = await runLocalModel(messages, model, { onToken, onReasoning, conversationKey, signal });
     return result && typeof result.text === 'string' ? result.text : '';
   } catch (error) {
