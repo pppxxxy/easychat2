@@ -66,6 +66,7 @@ import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
+import WorkspacePanel from './WorkspacePanel.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
@@ -148,6 +149,7 @@ export default function SettingsScreen() {
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
   const [workspaceMode, setWorkspaceMode] = useState('ask');
   const workspaceModeRef = useRef('ask');
+  const characterId = (character && character.id) || 'default';
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
     enabled: false,
@@ -182,9 +184,10 @@ export default function SettingsScreen() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [localModelOpen, setLocalModelOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
-  const { refreshAppData } = useApp();
+  const { refreshAppData, character } = useApp();
 
   const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -1097,6 +1100,12 @@ export default function SettingsScreen() {
           <FieldHint style={styles.hint}>
             {t((WORKSPACE_MODE_OPTIONS.find(option => option.id === workspaceMode) || WORKSPACE_MODE_OPTIONS[0]).hintKey)}
           </FieldHint>
+          <SecondaryButton
+            title="打开工作区"
+            small
+            style={{ alignSelf: 'flex-start', marginTop: 12 }}
+            onPress={() => setWorkspaceOpen(true)}
+          />
         </Card>
 
         <Card>
@@ -1837,6 +1846,11 @@ export default function SettingsScreen() {
       <LocalModelPanel
         visible={localModelOpen}
         onClose={() => setLocalModelOpen(false)}
+      />
+      <WorkspacePanel
+        visible={workspaceOpen}
+        onClose={() => setWorkspaceOpen(false)}
+        characterId={characterId}
       />
 
       <ChapterModal

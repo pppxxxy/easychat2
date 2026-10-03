@@ -94,7 +94,8 @@
     "src/books/importBook.js",
     "src/screenWatch/ScreenWatchScreen.js",
     "src/screenWatch/useScreenWatchComments.js",
-    "src/screenWatch/capture.js"
+    "src/screenWatch/capture.js",
+    "src/WorkspacePanel.js"
   ],
   "reporter": ["text-summary", "lcov"],
   "check-coverage": true,
