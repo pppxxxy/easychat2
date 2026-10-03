@@ -25,6 +25,7 @@
    | `@easychat2_books_index` + `@easychat2_books_item::<id>`、`@easychat2_book_comments::<bookId>` | 本地书架（书目、阅读进度与目录）与陪读评论（评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_screen_watch_comments` | 看屏幕评论（含对应截图的本机路径；评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_workspace` | 工作区模式设置（ask/read/write）；沙盒文件本身存于本机文档目录 `workspace/`，不在此键 |
+   | `@easychat2_location` | 真实位置开关、最近一次成功位置（经纬度与反地理编码描述）与可选瓦片模板；关闭时不取点、不注入对话 |
    | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
    | `documentDirectory/voice/`、`documentDirectory/music/`、`documentDirectory/books/` | 语音消息与角色语音音频文件、导入的本地音乐文件、导入的本地书籍文件 |
@@ -40,7 +41,7 @@
 
 EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直接**发送到你填写的 API 地址（默认 `https://api.deepseek.com`）：
 
-- 系统提示词（由角色名、描述、性格、场景、系统提示词、历史后指令合成）
+- 系统提示词（由角色名、描述、性格、场景、系统提示词、历史后指令合成；**开启「真实位置」时另含一行当前位置描述**）
 - 命中的世界书条目
 - 历史消息与当前输入
 - 模型名
@@ -84,6 +85,8 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 **相机（`CAMERA`）**：聊天页「添加附件 → 拍照」功能需要，由 `expo-image-picker` 插件声明，用途文案为「拍摄照片发送到聊天」（iOS 对应 `NSCameraUsageDescription`）。仅在首次点「拍照」时由系统弹窗请求；拒绝后不打开相机并提示到系统设置开启，从相册选图、语音等其他功能不受影响。**不使用拍照即不会请求该权限。**注意：**曾装过 `cameraPermission:false` 旧版本的设备**，插件当时把 CAMERA 写成了屏蔽权限（`tools:node="remove"`），必须卸载重装（或覆盖安装新 release）后系统设置里才会出现相机开关。
 
+**定位（`ACCESS_COARSE_LOCATION`、`ACCESS_FINE_LOCATION`）**：真实位置功能需要，由 `expo-location` 插件声明，用途文案为「获取当前位置，让角色知道你在哪，并在真实地图上标注（仅在使用时）」（iOS 对应 `NSLocationWhenInUseUsageDescription`）。**仅前台、仅在使用时**获取；仅在「扩展 → 世界 → 地图 → 真实地图」中首次开启时由系统弹窗请求，拒绝后保持关闭并提示，网格地图等其他功能不受影响。关闭开关即停止取点并在界面上清除标注。**不开启真实位置即不会请求该权限、不会获取任何位置数据。**
+
 **主动消息与通知**：开启主动消息后，由 `withProactiveMessage` 插件声明下列权限（不开启该功能则不占用）：
 
 | 权限 | 用途 |
@@ -101,6 +104,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`SCHEDULE_EXACT_ALARM`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC` | 主动消息（见上表） |
 | `RECORD_AUDIO` | 语音消息录音（见上） |
 | `CAMERA` | 拍照附件（见上） |
+| `ACCESS_COARSE_LOCATION`、`ACCESS_FINE_LOCATION` | 真实位置（前台、仅在使用时，见上） |
 | `SYSTEM_ALERT_WINDOW`、`VIBRATE` | Expo / React Native 模板默认值，非本应用功能所需；如需可继续通过 `blockedPermissions` 排除（`SYSTEM_ALERT_WINDOW` 与开发菜单相关，请在真机上验证后再决定） |
 
 其他加固：
@@ -120,6 +124,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | 一起听歌（陪伴评论） | 系统提示词、用户档案与全局预设、歌曲名与当前进度（不含音频内容本身） | 扩展 → 世界 → 听歌，打点或开播时 |
 | 一起看书（陪读评论） | 系统提示词、用户档案与全局预设、书名与当前页的段落摘录（仅文字，至多约 600 字） | 扩展 → 世界 → 看书，点「让TA聊聊这一页」时 |
 | 看屏幕（陪伴评论） | 系统提示词、用户档案与全局预设、**当前屏幕截图（仅本应用画面）** | 扩展 → 世界 → 看屏幕，点「截屏给TA看看」时 |
+| 真实位置 | 当前位置的经纬度与反地理编码得到的地点描述，开启后随聊天的系统提示一并发往**你自己配置的模型服务**；**瓦片底图请求由 WebView 直接发往地图服务商（默认高德）**，不含聊天内容与 API Key | 关闭，需手动开启并授权定位 |
 | 对话配图 / 生图 | 提示词、可选的原图（图生图） | 关闭，需手动开启 |
 | 语音播报（TTS） | 待朗读的回复文本（经清洗去 Markdown） | 关闭 |
 | 语音转写 | 录音音频文件 | 发送语音时 |
@@ -152,6 +157,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `react-native-vector-icons` | 图标 |
 | `@babel/core`、`@babel/preset-env`（devDependency） | 构建转译与 Node 测试运行 |
 | `expo-image-picker`、`expo-image-manipulator` | 选择、缩放和处理本地图片/表情包 |
+| `expo-location` | 获取前台位置与反地理编码（真实位置功能） |
 
 建议定期执行 `npm audit` 并关注上游安全公告。
 

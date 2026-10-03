@@ -44,6 +44,7 @@ import { stop as ttsStop } from '../tts/index.js';
 import { maskSecrets } from '../secrets.js';
 import { resolveStickerNames } from '../stickerDirectives.js';
 import { buildTimeAwareText } from '../currentTime.js';
+import { buildLocationText } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
   buildAutoSummaryInput,
@@ -81,6 +82,7 @@ import {
   getEnabledPlugins,
   getUserProfile,
   getLocalModelSettings,
+  getLocationSettings,
   getSessionSummaries,
   getVectorIndex,
   getVectorMemoryConfig,
@@ -317,6 +319,17 @@ export default function useChatSend({
       } catch (error) {
         summaryText = '';
       }
+       // 位置感知：开启且存在最近一次成功位置时注入「[当前位置] …」（关闭/无位置为空串）。
+       let locationLine = '';
+       try {
+         const locationSettings = await getLocationSettings();
+         locationLine = buildLocationText(
+           locationSettings && locationSettings.enabled,
+           locationSettings && locationSettings.last
+         );
+       } catch (error) {
+         locationLine = '';
+       }
        const requestMessages = buildRequestMessages({
          character,
          historyMessages: trimmedHistory,
@@ -333,6 +346,8 @@ export default function useChatSend({
          stickerNames: resolveStickerNames(stickersRef.current),
          // 时间感知开启时附上当前时间（每次请求现算，保证准确）。
          currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware),
+         // 真实位置开启且存在最近位置时附上位置行。
+         locationText: locationLine,
          // 语音兜底（需求 6.2）：转写失败且来源支持音频时按 input_audio 直发。
          voiceAudio,
        });

@@ -92,6 +92,8 @@
     "src/books/BookReaderView.js",
     "src/books/useBookReader.js",
     "src/books/importBook.js",
+    "src/location/service.js",
+    "src/worldMap/RealMapView.js",
     "src/screenWatch/ScreenWatchScreen.js",
     "src/screenWatch/useScreenWatchComments.js",
     "src/screenWatch/capture.js",
