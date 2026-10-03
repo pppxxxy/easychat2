@@ -571,6 +571,9 @@ export default function ChatScreen() {
   useEffect(() => {
     autoSummaryAttemptRef.current = { sessionId: '', signature: '' };
     setMessageWindowSize(MESSAGE_WINDOW_INITIAL);
+    // 切会话必须清掉上一条会话的布局偏移：否则 scrollToMessage 读到过期的数字 offset，
+    // 会跳过扩窗直接滚到越界 y，搜索/引用跳转落点错误。
+    messageOffsetsRef.current = {};
   }, [activeSessionId]);
 
   useEffect(() => {

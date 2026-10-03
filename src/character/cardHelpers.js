@@ -100,6 +100,8 @@ export function buildCharacterPatch(card) {
     worldInfo: Array.isArray(card.worldInfo) ? card.worldInfo : [],
     regexScripts: Array.isArray(card.regexScripts) ? card.regexScripts : [],
     presets: Array.isArray(card.presets) ? card.presets : [],
+    // 透传隐式 AI 标识（与 cardForge/forge.js 一致），否则导入的 AI 生成卡丢失追溯信息。
+    aigcMeta: card.aigcMeta && typeof card.aigcMeta === 'object' ? card.aigcMeta : null,
     voiceDisplay: ['text', 'voice-text', 'voice'].includes(card.voiceDisplay)
       ? card.voiceDisplay
       : 'text',

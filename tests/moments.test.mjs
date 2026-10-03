@@ -97,3 +97,12 @@ test('好感度与回合阈值去重后触发', () => {
   assert.equal(shouldTrigger({ affinity: -120, triggers: ['affinity-worst'] }), null);
   assert.equal(shouldTrigger({ turnCount: 50, triggers: ['affinity-best'] }), 'turns-50');
 });
+
+test('里程碑瞬时触发优先，不因同回合好感阈值而被永久丢弃', () => {
+  // 里程碑只在该回合文本里有效，晚一步就没了；好感是累计状态，可以下一回合补发。
+  assert.equal(shouldTrigger({ affinity: 30, milestone: 'confession' }), 'milestone-confession');
+  assert.equal(
+    shouldTrigger({ affinity: 30, milestone: 'confession', triggers: ['milestone-confession'] }),
+    'affinity-best'
+  );
+});

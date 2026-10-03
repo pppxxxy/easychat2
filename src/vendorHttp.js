@@ -81,7 +81,7 @@ export default function xhrRequest(options) {
 
   return new Promise((resolve, reject) => {
     if (signal && signal.aborted) {
-      reject(onAbortError(false));
+      reject(onAbortError(true));
       return;
     }
     const xhr = new XMLHttpRequest();
@@ -119,7 +119,16 @@ export default function xhrRequest(options) {
         return;
       }
       if (settled) return;
+      // 默认顺序 abortThenReject：先置 settled 让 xhr.onabort 触发时 finish 成为 no-op，
+      // 再 abort，最后 reject 超时错误。同时补齐 finish 的清理（移除 abort 监听、
+      // 清空 cancelHandle），否则超时后监听器会残留、cancelHandle 仍指向已结算闭包。
       settled = true;
+      clearTimeout(timer);
+      if (removeAbortListener) {
+        removeAbortListener();
+        removeAbortListener = null;
+      }
+      if (cancelHandle) cancelHandle.cancel = null;
       safeAbort(xhr);
       reject(onTimeoutError());
     }, timeoutMs || defaultTimeoutMs);

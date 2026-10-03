@@ -48,6 +48,9 @@ function getMaskSecrets() {
 
 let cache = null;
 let writeQueue = Promise.resolve();
+// 读-改-写（读 cache → 追加 → 写回）必须整体串行：recordDiagnostic 可并发调用，
+// 若各自基于同一份 current 追加，后写的会覆盖先写的，丢掉日志。
+let mutationQueue = Promise.resolve();
 let lastSignature = '';
 let lastAt = 0;
 
@@ -145,11 +148,14 @@ export function recordDiagnostic(kind, error, context = '') {
     lastSignature = signature;
     lastAt = now;
     const entry = normalizeDiagnostic({ at: now, kind: safeKind, message, stack, context: ctx });
-    const task = readCache().then(current => {
+    const task = mutationQueue.then(async () => {
+      const current = await readCache();
       const next = [...current, entry].slice(-MAX_ENTRIES);
       cache = next;
-      return persist(next).then(() => next);
+      await persist(next);
+      return next;
     });
+    mutationQueue = task.catch(() => {});
     return task.catch(() => {});
   } catch (error) {
     return undefined;
@@ -165,14 +171,14 @@ export async function clearDiagnostics() {
   cache = [];
   lastSignature = '';
   lastAt = 0;
-  const task = writeQueue.then(async () => {
+  const task = mutationQueue.then(async () => {
     const store = getAsyncStorage();
     if (!store) return;
     try {
       await store.removeItem(DIAGNOSTICS_KEY);
     } catch (error) {}
   });
-  writeQueue = task.catch(() => {});
+  mutationQueue = task.catch(() => {});
   return task;
 }
 
@@ -182,6 +188,7 @@ export function __resetDiagnosticsForTests() {
   lastSignature = '';
   lastAt = 0;
   writeQueue = Promise.resolve();
+  mutationQueue = Promise.resolve();
   asyncStorage = undefined;
   asyncStorageLoaded = false;
   maskSecretsFn = undefined;

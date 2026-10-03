@@ -9,7 +9,9 @@
 // 无法被 readAvatarBytes 读取的 http/asset 伪 uri。
 
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system';
+// 必须走 /legacy 入口：SDK 54 的 expo-file-system 主入口不导出 documentDirectory，
+// 且 getInfoAsync/copyAsync 等在主入口是会抛错的弃用桩，会导致内置头像/背景永远落盘失败。
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { markMediaWrite } from './mediaProtection.js';
 
@@ -29,8 +31,9 @@ async function materialize(moduleRef, fileName) {
     const from = asset.localUri || asset.uri;
     if (!from) return '';
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
-    await FileSystem.copyAsync({ from, to: dest });
+    // 先登记保护再写盘，堵住写盘与登记之间被回收器误删的窗口。
     markMediaWrite(dest);
+    await FileSystem.copyAsync({ from, to: dest });
     return dest;
   } catch (error) {
     return '';

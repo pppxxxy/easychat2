@@ -48,8 +48,10 @@ export async function sendWithModelProvider({
     const result = await runLocalModel(messages, model, { onToken, onReasoning, conversationKey, signal });
     return result && typeof result.text === 'string' ? result.text : '';
   } catch (error) {
-    if (error && error.name === 'AbortError') throw error;
+    // 用统一分类判定取消：adapter 在 signal 已中止但异常 name 不是 AbortError 时
+    // 会把 error.code 置为 'ABORTED'，只认 name 会漏判并多做一次在线回退。
     const info = classifyLocalModelError(error);
+    if (info.code === 'ABORTED') throw error;
     recordModelLog('api', `本地推理失败，回退在线 API：${info.message}`, { level: info.level });
     recordDiagnostic('api', error, 'local-model-fallback');
     return onlineSend();

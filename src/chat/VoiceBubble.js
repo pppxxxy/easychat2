@@ -68,6 +68,9 @@ export default function VoiceBubble({ message, isUser }) {
         if (status.didJustFinish) {
           stop();
         } else if (status.isLoaded === false && status.error) {
+          // 加载失败也要释放播放器与状态订阅：气泡会一直挂在列表里，
+          // 不清理会把失败的 player 长期占住，直到组件卸载。
+          cleanup();
           setState('error');
         }
       });

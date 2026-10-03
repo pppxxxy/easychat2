@@ -293,6 +293,12 @@ setMemoryEnabled(memory.enabled === true);
   };
 
   const handleClose = async () => {
+    // 尚未加载完时不要提交：commitThreshold 里 !loaded 返回 false 会被当成保存失败，
+    // 导致加载窗口内「关闭」按钮点了没反应。直接关闭即可。
+    if (!loaded) {
+      onClose();
+      return;
+    }
     if (!isCharacterScope) {
       const saved = await commitThreshold();
       if (!saved) return;

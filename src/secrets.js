@@ -1,4 +1,7 @@
-export const SECRET_PATTERN = /(sk-[a-zA-Z0-9]{8,}|AIza[0-9A-Za-z\-_]{20,}|Bearer\s+[a-zA-Z0-9\-_.]+|Bot\s+[a-zA-Z0-9\-_.]+|xox[baprs]-[a-zA-Z0-9\-]+|gh[pousr]_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,})/g;
+// 尽力而为的格式兜底：真正的保障是 registerSecretValues 登记表。这里覆盖常见前缀，
+// 并放宽字符集——`sk-` 后允许 `-`（OpenAI sk-proj-/sk-svcacct-、Anthropic sk-ant-），
+// Bearer/Bot 允许 base64 的 +/=。Bearer/Bot 要求后接 ≥8 字符 token，避免误伤散文。
+export const SECRET_PATTERN = /(\bsk-[A-Za-z0-9_-]{8,}|\bAIza[0-9A-Za-z\-_]{20,}|\bBearer\s+[A-Za-z0-9\-._~+/=]{8,}|\bBot\s+[A-Za-z0-9\-._~:=]{8,}|\bxox[baprs]-[A-Za-z0-9-]{8,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bhf_[A-Za-z0-9]{20,}|\bglpat-[A-Za-z0-9_-]{20,}|\bya29\.[A-Za-z0-9_-]+|\bAKIA[0-9A-Z]{16})/gi;
 
 // 实际使用过的密钥值登记表：只按前缀猜格式一定会漏（很多服务商的 Key 是无前缀的
 // 随机串，authScheme 还是用户可自定义的），所以谁用到密钥就登记进来，

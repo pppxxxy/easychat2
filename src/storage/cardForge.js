@@ -98,6 +98,17 @@ function normalizeForgeDraft(raw) {
     ? source.regexScripts.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
   draft.presets = normalizeCharacterPresets(source.presets).slice(0, MAX_PRESERVED_ITEMS);
+  // 同样随草稿持久化：否则草稿落盘再读回时，语音形态、AI 标识与扩展字段会被抹掉。
+  draft.voiceDisplay = ['text', 'voice-text', 'voice'].includes(source.voiceDisplay) ? source.voiceDisplay : 'text';
+  draft.aigcMeta = source.aigcMeta && typeof source.aigcMeta === 'object' && !Array.isArray(source.aigcMeta)
+    ? source.aigcMeta
+    : null;
+  draft.cardExtensions = source.cardExtensions && typeof source.cardExtensions === 'object' && !Array.isArray(source.cardExtensions)
+    ? source.cardExtensions
+    : {};
+  draft.cardExtra = source.cardExtra && typeof source.cardExtra === 'object' && !Array.isArray(source.cardExtra)
+    ? source.cardExtra
+    : {};
   return draft;
 }
 

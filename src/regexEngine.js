@@ -8,7 +8,21 @@ export const REGEX_PLACEMENT = {
 
 // 正则来自第三方卡片或用户输入，可能是灾难性回溯模式（例如 (a+)+$）。
 // JS 主线程无法抢占正在执行的正则，这里用嵌套量词启发式识别会挂死的模式并跳过。
-// 只在「分组体内含未限定量词，且分组本身又被 * 或 + 重复」时判定，避免误伤 (a{2})+ 这类有界写法。
+// 只在「分组体内含未限定量词，且分组本身又被无上界量词（*、+、{n,}）重复」时判定，
+// 避免误伤 (a{2,3})+ 这类有界写法。
+// 判断分组结束后紧跟的量词是否「无上界」（可无限重复）：*、+、{n,}、{n,}?。
+// 有上界的 {n,m} 不在此列——`(a{2,3})+` 这类写成有界的模式仍应放行，避免误伤。
+function isUnboundedRepeatAfter(pattern, at) {
+  const char = pattern[at];
+  if (char === '*' || char === '+') return true;
+  if (char !== '{') return false;
+  const close = pattern.indexOf('}', at + 1);
+  if (close < 0) return false;
+  const inner = pattern.slice(at + 1, close).trim();
+  const match = inner.match(/^(\d+)\s*,\s*(\d*)$/);
+  return Boolean(match && match[2] === '');
+}
+
 export function isUnsafeRegexPattern(findRegex) {
   let pattern = String(findRegex ?? '');
   if (pattern.startsWith('/')) {
@@ -55,8 +69,7 @@ export function isUnsafeRegexPattern(findRegex) {
     }
     if (char !== ')' || stack.length === 0) continue;
     const start = stack.pop();
-    const outerQuantifier = pattern[index + 1];
-    if (outerQuantifier !== '*' && outerQuantifier !== '+') continue;
+    if (!isUnboundedRepeatAfter(pattern, index + 1)) continue;
     const body = pattern.slice(start + 1, index);
     let bodyEscaped = false;
     let bodyInClass = false;

@@ -290,6 +290,16 @@ test('同住判定：屋主 + 住户都算，排除自己', () => {
   assert.deepEqual(housemateCharacterIds(houses, 'c9'), []);
 });
 
+test('同住判定：既拥有房子又住进别家时按住所取同住者，且与顺序无关', () => {
+  const houses = normalizeMapHouses([
+    { id: 'own', x: 0, y: 0, ownerType: 'character', ownerId: 'c1', residents: ['r1'] },
+    { id: 'host', x: 1, y: 0, ownerType: 'character', ownerId: 'c2', residents: ['c1'] },
+  ]);
+  // c1 住进 c2 家：同住者应是 c2，而不是只认第一栋（自己家）的 r1
+  assert.deepEqual(housemateCharacterIds(houses, 'c1').sort(), ['c2']);
+  assert.deepEqual(housemateCharacterIds([...houses].reverse(), 'c1').sort(), ['c2']);
+});
+
 test('编辑房子保持原位置：房号不因保存而改变', () => {
   const houses = normalizeMapHouses([
     { id: 'self', x: 0, y: 0, name: '我的' },

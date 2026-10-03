@@ -145,8 +145,12 @@ export default function LocalModelPanel({ visible, onClose }) {
       Alert.alert('模型未就绪', '模型文件缺失，请重新下载或删除该条。');
       return;
     }
-    const next = await saveLocalModelSettings(applyActiveLocalModel(settings, item));
-    setSettings(next);
+    try {
+      const next = await saveLocalModelSettings(applyActiveLocalModel(settings, item));
+      setSettings(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
   };
 
   const toggleEnabled = async () => {
@@ -163,14 +167,22 @@ export default function LocalModelPanel({ visible, onClose }) {
         return;
       }
     }
-    const next = await saveLocalModelSettings({ ...settings, enabled: !settings.enabled });
-    setSettings(next);
+    try {
+      const next = await saveLocalModelSettings({ ...settings, enabled: !settings.enabled });
+      setSettings(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
   };
 
   const toggleMediaInput = async () => {
     if (!settings) return;
-    const next = await saveLocalModelSettings({ ...settings, enableMediaInput: !settings.enableMediaInput });
-    setSettings(next);
+    try {
+      const next = await saveLocalModelSettings({ ...settings, enableMediaInput: !settings.enableMediaInput });
+      setSettings(next);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
   };
 
   const persistApiServer = async patch => {
@@ -308,8 +320,12 @@ export default function LocalModelPanel({ visible, onClose }) {
           await deleteLocalModelItem(entry.id).catch(() => {});
           if (settings && settings.activeModelId === entry.id) {
             if (apiStatus.running) await stopLocalApiServer().catch(() => {});
-            const next = await saveLocalModelSettings(clearActiveLocalModel(settings));
-            setSettings(next);
+            try {
+              const next = await saveLocalModelSettings(clearActiveLocalModel(settings));
+              setSettings(next);
+            } catch (error) {
+              Alert.alert('保存失败', '请检查存储空间或权限。');
+            }
             setApiStatus({ running: false, port: 0 });
           } else {
             setSettings(await getLocalModelSettings().catch(() => settings));

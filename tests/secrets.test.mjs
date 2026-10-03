@@ -15,6 +15,18 @@ test('遮蔽常见前缀的密钥', () => {
   assert.equal(maskSecrets('Authorization: Bearer abc.def-ghi_jkl'), `Authorization: ${MASK}`);
 });
 
+test('遮蔽带连字符的 sk- 新形态，以及大小写 Bearer 与 base64 字符集', () => {
+  // OpenAI 现行 key 与 Anthropic key 均含连字符，旧正则的 [a-zA-Z0-9] 会漏掉
+  assert.equal(maskSecrets('key=sk-proj-AbCdEfGhIjKlMnOpQrStUvWx'), `key=${MASK}`);
+  assert.equal(maskSecrets('key=sk-ant-api03-abcdefghijklmnop'), `key=${MASK}`);
+  assert.equal(maskSecrets('key=sk-svcacct-abcdefghijklmnop'), `key=${MASK}`);
+  // HTTP 头大小写不敏感；base64 密钥含 +/=，旧的字符集会在这些字符处截断
+  assert.equal(maskSecrets('Authorization: bearer abcdefghijkl'), `Authorization: ${MASK}`);
+  assert.equal(maskSecrets('Authorization: Bearer abc+def/ghi=='), `Authorization: ${MASK}`);
+  // 普通散文里的 Bearer 后接短词不应误伤
+  assert.equal(maskSecrets('Bearer of good news'), 'Bearer of good news');
+});
+
 test('遮蔽登记过的无前缀密钥（靠前缀猜不到的那类）', () => {
   clearRegisteredSecrets();
   const plain = '9f8e7d6c5b4a39281706';

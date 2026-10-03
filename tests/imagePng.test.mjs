@@ -58,6 +58,14 @@ test('RGBA（4 通道）颜色类型为 6，且扫描线长度正确', () => {
   assert.equal(raw.length, 2 * (1 + 8));
 });
 
+test('单通道灰度/双通道灰+alpha 不被误判为不支持（颜色类型 0/4）', () => {
+  // channels=1 映射到颜色类型 0（falsy）：用真值判断会把灰度图错误拒绝
+  const gray = encodePngFromRgb(new Uint8Array([0, 128, 255, 64]), 2, 2, 1);
+  assert.equal(readChunks(gray)[0].data[9], 0);
+  const grayAlpha = encodePngFromRgb(new Uint8Array(2 * 2 * 2), 2, 2, 2);
+  assert.equal(readChunks(grayAlpha)[0].data[9], 4);
+});
+
 test('非方形与大于 65535 字节时使用多个 stored 块仍可解压', () => {
   const width = 200;
   const height = 200;

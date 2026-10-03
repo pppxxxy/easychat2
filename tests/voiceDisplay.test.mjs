@@ -36,6 +36,8 @@ test('MessageBubble 渲染三档语音形态：纯语音隐藏正文、语音+�
   assert.match(source, /hideAssistantBody\s*=\s*!isUser\s*&&\s*!!message\.audio\s*&&\s*message\.voiceMode\s*===\s*'voice'/, '纯语音判定应基于 voiceMode');
   assert.match(source, /hideAssistantBody \? \(\s*\n\s*<VoiceBubble message=\{message\} isUser=\{false\} \/\>/, '纯语音应只渲染语音气泡');
   assert.match(source, /\{showRoleVoice \? <VoiceBubble message=\{message\} isUser=\{false\} \/> : null\}/, '语音+原文应在正文后追加气泡');
+  // 追加气泡必须排除纯语音，否则 hideAssistantBody 与 showRoleVoice 同时为真，同一条语音渲染两个气泡
+  assert.match(source, /showRoleVoice\s*=\s*!isUser\s*&&\s*!!message\.audio\s*&&\s*message\.kind\s*!==\s*'voice'\s*&&\s*!hideAssistantBody/, '追加气泡应排除纯语音形态');
 });
 
 test('CharacterEditForm 提供三档语音形态选择并随保存写回', () => {

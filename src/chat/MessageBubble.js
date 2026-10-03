@@ -126,7 +126,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
      : Math.min(300, Math.max(120, Math.round(mediaWidth * mediaRatio)));
   // 角色语音形态（需求 5）：纯语音只渲染语音气泡（正文已入库与上下文），语音+原文在正文后追加气泡。
   const hideAssistantBody = !isUser && !!message.audio && message.voiceMode === 'voice';
-  const showRoleVoice = !isUser && !!message.audio && message.kind !== 'voice';
+  // 纯语音模式（voiceMode==='voice'）正文已由上面的 VoiceBubble 顶替，这里不能再追加
+  // 第二个气泡，否则同一条角色语音会渲染出两个播放条。
+  const showRoleVoice = !isUser && !!message.audio && message.kind !== 'voice' && !hideAssistantBody;
   const onCopy = useCallback(async () => {
     try {
       await Clipboard.setStringAsync(plainText);

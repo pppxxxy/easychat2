@@ -312,37 +312,43 @@ class MessageStore(context: Context) {
     // 消息生成后先入队；JS 消费写入会话后按 id 移除。App 没打开也不丢，下次启动补写。
 
     fun appendPendingMessage(message: PendingMessage) {
-        val list = loadPendingMessages()
-            // 同 id 幂等：同一槽同一天重复生成时以后写入的为准（旧值先移除）
-            .filterNot { it.id == message.id }
-            .plus(message)
-        // 超期淘汰：生成超过 7 天的消息不再有意义
-        val cutoff = System.currentTimeMillis() - MAX_PENDING_AGE_MS
-        val fresh = list.filter { it.createdAt >= cutoff }
-        // 上限淘汰：超出时按 createdAt 保留最新的 MAX_PENDING 条
-        val bounded = if (fresh.size > MAX_PENDING) {
-            fresh.sortedBy { it.createdAt }.takeLast(MAX_PENDING)
-        } else fresh
-        prefs.edit().putString(KEY_PENDING_MESSAGES, encodePending(bounded)).apply()
+        synchronized(pendingLock) {
+            val list = loadPendingMessages()
+                // 同 id 幂等：同一槽同一天重复生成时以后写入的为准（旧值先移除）
+                .filterNot { it.id == message.id }
+                .plus(message)
+            // 超期淘汰：生成超过 7 天的消息不再有意义
+            val cutoff = System.currentTimeMillis() - MAX_PENDING_AGE_MS
+            val fresh = list.filter { it.createdAt >= cutoff }
+            // 上限淘汰：超出时按 createdAt 保留最新的 MAX_PENDING 条
+            val bounded = if (fresh.size > MAX_PENDING) {
+                fresh.sortedBy { it.createdAt }.takeLast(MAX_PENDING)
+            } else fresh
+            prefs.edit().putString(KEY_PENDING_MESSAGES, encodePending(bounded)).apply()
+        }
     }
 
     fun loadPendingMessages(): List<PendingMessage> {
-        val raw = prefs.getString(KEY_PENDING_MESSAGES, null) ?: return emptyList()
-        return try {
-            val json = JSONArray(raw)
-            (0 until json.length()).map { PendingMessage.fromJson(json.getJSONObject(it)) }
-        } catch (e: Exception) {
-            Log.e("MessageStore", "解析待写队列失败", e)
-            emptyList()
+        synchronized(pendingLock) {
+            val raw = prefs.getString(KEY_PENDING_MESSAGES, null) ?: return emptyList()
+            return try {
+                val json = JSONArray(raw)
+                (0 until json.length()).map { PendingMessage.fromJson(json.getJSONObject(it)) }
+            } catch (e: Exception) {
+                Log.e("MessageStore", "解析待写队列失败", e)
+                emptyList()
+            }
         }
     }
 
     /** 按 id 移除已成功落库的消息，避免重复写入。 */
     fun removePendingMessages(ids: List<String>) {
         if (ids.isEmpty()) return
-        val idSet = ids.toSet()
-        val remaining = loadPendingMessages().filterNot { it.id in idSet }
-        prefs.edit().putString(KEY_PENDING_MESSAGES, encodePending(remaining)).apply()
+        synchronized(pendingLock) {
+            val idSet = ids.toSet()
+            val remaining = loadPendingMessages().filterNot { it.id in idSet }
+            prefs.edit().putString(KEY_PENDING_MESSAGES, encodePending(remaining)).apply()
+        }
     }
 
     private fun encodePending(list: List<PendingMessage>): String {
@@ -363,6 +369,10 @@ class MessageStore(context: Context) {
         private const val KEY_API_KEY = "api_key"
         private const val KEY_LAST_SENT = "last_sent_"
         private const val KEY_PENDING_MESSAGES = "pending_messages"
+        // 待写队列的读-改-写必须整体互斥：MessageStore 每次调用都新实例化，
+        // 实例锁无效，这里用伴生对象的全局锁。否则前台服务线程 append 与
+        // NativeModules 线程 remove 交错时，后写者会用旧快照覆盖，丢「已通知未落库」的消息。
+        private val pendingLock = Any()
         // 队列上限与超期，避免长期不打开应用导致无界增长
         private const val MAX_PENDING = 100
         private const val MAX_PENDING_AGE_MS = 7L * 24L * 60L * 60L * 1000L
@@ -542,6 +552,9 @@ object Notifier {
     // 渠道 ID 带 v2：Android 的渠道重要性只在首次创建时固定，旧渠道（proactive_message）
     // 已被系统记住为低重要性、代码改不动，只能用新 ID 重建为高重要性以弹出横幅。
     const val CHANNEL_ID = "proactive_message_v2"
+    // 前台服务「正在准备消息」通知单独用低重要性渠道：API 26+ 单条通知的 priority
+    // 受渠道重要性支配，沿用 HIGH 渠道会让这条临时通知也弹横幅，与低干扰意图相反。
+    const val SERVICE_CHANNEL_ID = "proactive_service_v1"
     // 前台服务通知沿用同一渠道即可
     const val EXTRA_ROLE_ID = "com.pppxxxy.easychat2.proactive.EXTRA_ROLE_ID"
 
@@ -554,6 +567,18 @@ object Notifier {
             enableVibration(true)
             // 允许横幅提醒（部分系统仍会由用户通知设置覆盖）
             setShowBadge(true)
+        }
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
+    }
+
+    // 前台服务进度通知专用的低重要性渠道（静默、不弹横幅）。
+    fun ensureServiceChannel(context: Context) {
+        val channel = NotificationChannel(
+            SERVICE_CHANNEL_ID, "主动消息生成中", NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "生成主动消息时的临时进度提示"
+            setShowBadge(false)
         }
         context.getSystemService(NotificationManager::class.java)
             .createNotificationChannel(channel)

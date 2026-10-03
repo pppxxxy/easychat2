@@ -27,6 +27,41 @@ test('sanitizeBackupValue：递归清除密钥字段与 secure 引用', () => {
   });
 });
 
+test('脱敏按字段名精确匹配：maxTokens/apiKeyUrl 不被误清空', () => {
+  const out = sanitizeAndFilterBackupValue({
+    maxTokens: { enabled: true, value: 4000 },
+    apiKeyUrl: 'https://platform.example',
+    sampling: { tokenizer: 'x' },
+    token: 'abc',
+    apiKey: 'sk-secret',
+  });
+  // 含 token/apiKey 子串的正常字段必须保留
+  assert.deepEqual(out.maxTokens, { enabled: true, value: 4000 });
+  assert.equal(out.apiKeyUrl, 'https://platform.example');
+  assert.equal(out.sampling.tokenizer, 'x');
+  // 真正的密钥字段名仍要清空
+  assert.equal(out.token, '');
+  assert.equal(out.apiKey, '');
+});
+
+test('planBackupImport：导入同样过滤 pending 并剥离密钥', () => {
+  const plan = planBackupImport({
+    schemaVersion: 1,
+    storage: [{
+      key: '@easychat2_messages::s1',
+      value: [
+        { id: 'm1', text: '占位', pending: true },
+        { id: 'm2', text: '真实', apiKey: 'sk-leak' },
+      ],
+    }],
+    media: [],
+  });
+  assert.equal(plan.valid, true);
+  assert.equal(plan.storage[0].value.length, 1);
+  assert.equal(plan.storage[0].value[0].id, 'm2');
+  assert.equal(plan.storage[0].value[0].apiKey, '');
+});
+
 test('filterPendingMessages：递归过滤 pending 消息', () => {
   const value = filterPendingMessages({
     messages: [

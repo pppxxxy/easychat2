@@ -37,6 +37,12 @@ function pick(list, seed) {
 
 export function shouldTrigger({ affinity = 0, turnCount = 0, milestone = null, triggers = [] } = {}) {
   const seen = Array.isArray(triggers) ? triggers : [];
+  // 里程碑是「当回合」文本算出的瞬时值，过回合即消失；好感/回合阈值是累计状态，
+  // 晚一步触发仍会补上。同一回合两者都命中时先返回里程碑，避免它被永久丢弃。
+  if (milestone) {
+    const id = `milestone-${milestone}`;
+    if (!seen.includes(id)) return id;
+  }
   const score = Number(affinity);
   if (Number.isFinite(score) && score >= AFFINITY_HIGH_THRESHOLD && !seen.includes('affinity-best')) return 'affinity-best';
   if (Number.isFinite(score) && score <= AFFINITY_LOW_THRESHOLD && !seen.includes('affinity-worst')) return 'affinity-worst';
@@ -45,10 +51,6 @@ export function shouldTrigger({ affinity = 0, turnCount = 0, milestone = null, t
     for (const threshold of TURN_THRESHOLDS) {
       if (turns >= threshold && !seen.includes(`turns-${threshold}`)) return `turns-${threshold}`;
     }
-  }
-  if (milestone) {
-    const id = `milestone-${milestone}`;
-    if (!seen.includes(id)) return id;
   }
   return null;
 }

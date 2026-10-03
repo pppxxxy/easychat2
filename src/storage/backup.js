@@ -9,6 +9,7 @@ import {
   buildBackupPayload,
   planBackupImport,
 } from '../dataBackup.js';
+import { recordDiagnostic } from '../diagnostics.js';
 import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
 import { createBackupChunkGenerator } from './backupStream.js';
 
@@ -27,17 +28,10 @@ function throwIfAborted(signal) {
 }
 
 async function readRawValue(key) {
+  // readJsonStatus 在 getItem 抛错或 JSON.parse 失败时已经调用过
+  // readLargeAsyncStorageValue 兜底读取；这里再读一次是重复的昂贵 SQLite 全值读取。
   const status = await readJsonStatus(key);
-  if (status.status === 'ok') return status.value;
-  if (status.status === 'corrupt') {
-    const raw = await readLargeAsyncStorageValue(key);
-    if (raw !== null) {
-      try {
-        return JSON.parse(raw);
-      } catch (error) {}
-    }
-  }
-  return undefined;
+  return status.status === 'ok' ? status.value : undefined;
 }
 
 async function readRawStorageString(key) {
@@ -262,6 +256,8 @@ export async function importBackup(payload, mode = 'merge') {
     } catch (rollbackError) {
       error.rollbackError = rollbackError;
     }
+    // 写入失败保留诊断记录，便于在「诊断日志」里回看失败现场（需求 3.5）。
+    recordDiagnostic('storage', error, 'importBackup');
     throw error;
   }
   return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode };

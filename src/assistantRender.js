@@ -50,8 +50,8 @@ export const createMarkdownStyles = (theme, fonts, tokens) => ({
   ordered_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
 });
 
-const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
-const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)<\/button>/gi;
+const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?(?:<\/style>|$)/gi;
+const BUTTON_BLOCK_PATTERN = /<button\b([^>]*)>([\s\S]*?)(?:<\/button>|$)/gi;
 const ONCLICK_ATTRIBUTE_PATTERN = /onclick\s*=\s*("[^"]*"|'[^']*')/i;
 const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
 const GRADIENT_DECLARATION_PATTERN = /(?:background(?:-image)?)\s*:\s*(?:repeating-)?(?:linear|radial)-gradient\(((?:[^()]|\([^()]*\))*)\)/gi;

@@ -350,16 +350,26 @@ export default function MomentsView({ active = true }) {
       const next = await mutateMoments(list => [moment, ...(Array.isArray(list) ? list : [])]);
       if (!next) throw new Error('动态保存失败');
       setPostDraft('');
+      // 与 requestReply 同源登记：挂 AbortController，用户动态的评论生成也要能「停止」
+      // （否则卡片上的停止按钮是空操作），并在切走/卸载时统一中止，不再后台偷跑扣费。
+      const controller = new AbortController();
+      replyControllersRef.current.set(momentId, controller);
+      replyingRef.current.add(momentId);
       setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
       // 后台串行生成评论：不阻塞发布，失败静默。
-      runUserMomentComments({ momentId })
+      runUserMomentComments({ momentId, signal: controller.signal })
         .then(() => getMoments().catch(() => null))
         .then(list => {
-          if (list && mountedRef.current) setMoments(list);
+          if (list && mountedRef.current && !controller.signal.aborted) setMoments(list);
         })
         .catch(() => {})
         .finally(() => {
-          if (mountedRef.current) setReplying(current => current.filter(id => id !== momentId));
+          // 同源同判：只清理自己注册的那一次，避免旧请求晚到的 finally 误删新请求标记。
+          if (replyControllersRef.current.get(momentId) === controller) {
+            replyControllersRef.current.delete(momentId);
+            replyingRef.current.delete(momentId);
+            if (mountedRef.current) setReplying(current => current.filter(id => id !== momentId));
+          }
         });
     } catch (error) {
       Alert.alert('发布失败', '请检查存储空间或权限。');
