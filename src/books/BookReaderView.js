@@ -22,6 +22,8 @@ import { EmptyState, GhostButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 
+import { useTranslation } from '../i18n/I18nContext.js';
+
 import { splitBookIntoBlocks } from './blocks.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
@@ -41,6 +43,7 @@ export default function BookReaderView({ item, content, onBack }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const navigation = useNavigation();
+  const { t } = useTranslation();
   const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
 
   const [fontSize, setFontSize] = useState(17);
@@ -89,7 +92,7 @@ export default function BookReaderView({ item, content, onBack }) {
         sessionId: session.id,
         payload: {
           id: '',
-          name: comment.characterName || '角色',
+          name: comment.characterName || t('common.characterFallback'),
           role: 'assistant',
           text: comment.text,
         },
@@ -97,7 +100,7 @@ export default function BookReaderView({ item, content, onBack }) {
       setShowComments(false);
       navigation.navigate('聊天');
     } catch (error) {
-      Alert.alert('无法接话', '没能打开该角色的会话，请稍后重试。');
+      Alert.alert(t('books.comments.quoteFailed.title'), t('books.comments.quoteFailed.body'));
     }
   }, [ensureCharacterSession, navigation, setPendingQuote]);
 
@@ -188,30 +191,30 @@ export default function BookReaderView({ item, content, onBack }) {
     <View style={styles.container}>
       {showControls ? (
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack} accessibilityLabel="返回书架">
+          <TouchableOpacity style={styles.backButton} onPress={handleBack} accessibilityLabel={t('books.reader.back')}>
             <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
-            <Text style={styles.backText}>书架</Text>
+            <Text style={styles.backText}>{t('ext.world.books.label')}</Text>
           </TouchableOpacity>
           <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
           <View style={styles.topActions}>
-            <TouchableOpacity style={styles.iconButton} onPress={() => handleFontSize(-1)} accessibilityLabel="缩小字号">
+            <TouchableOpacity style={styles.iconButton} onPress={() => handleFontSize(-1)} accessibilityLabel={t('books.reader.a11y.shrink')}>
               <Text style={styles.fontButtonText}>A-</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={() => handleFontSize(1)} accessibilityLabel="放大字号">
+            <TouchableOpacity style={styles.iconButton} onPress={() => handleFontSize(1)} accessibilityLabel={t('books.reader.a11y.grow')}>
               <Text style={styles.fontButtonText}>A+</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconButton}
               onPress={() => setShowChapters(true)}
               disabled={item.chapters.length === 0}
-              accessibilityLabel="章节目录"
+              accessibilityLabel={t('books.reader.a11y.chapters')}
             >
               <Ionicons name="list-outline" size={18} color={theme.colors.text} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconButton}
               onPress={() => setShowComments(true)}
-              accessibilityLabel="陪读评论"
+              accessibilityLabel={t('books.reader.a11y.comments')}
             >
               <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.text} />
             </TouchableOpacity>
@@ -249,7 +252,9 @@ export default function BookReaderView({ item, content, onBack }) {
         <View style={styles.bottomBar}>
           <Text style={styles.progressText}>
             {percent}%{reader.block && reader.block.title ? ` · ${reader.block.title}` : ''}
-            {reader.pageCount > 0 ? ` · 本段 ${reader.pageIndex + 1}/${reader.pageCount}` : ''}
+            {reader.pageCount > 0
+              ? ` · ${t('books.reader.progress.blockPage', { page: reader.pageIndex + 1, total: reader.pageCount })}`
+              : ''}
           </Text>
         </View>
       ) : null}
@@ -259,16 +264,16 @@ export default function BookReaderView({ item, content, onBack }) {
           <View style={styles.topBar}>
             <TouchableOpacity style={styles.backButton} onPress={() => setShowChapters(false)}>
               <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
-              <Text style={styles.backText}>返回阅读</Text>
+              <Text style={styles.backText}>{t('books.reader.returnToReading')}</Text>
             </TouchableOpacity>
-            <Text style={styles.title}>目录</Text>
+            <Text style={styles.title}>{t('books.reader.chapterTitle')}</Text>
             <View style={styles.topActions} />
           </View>
           {item.chapters.length === 0 ? (
             <EmptyState
               icon="list-outline"
-              title="没有识别到章节"
-              description="未按「第X章」等格式命名的书籍没有目录，可直接翻页阅读。"
+              title={t('books.reader.noChapters.title')}
+              description={t('books.reader.noChapters.body')}
             />
           ) : (
             <FlatList
@@ -300,13 +305,13 @@ export default function BookReaderView({ item, content, onBack }) {
           <View style={styles.topBar}>
             <TouchableOpacity style={styles.backButton} onPress={() => setShowComments(false)}>
               <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
-              <Text style={styles.backText}>返回阅读</Text>
+              <Text style={styles.backText}>{t('books.reader.returnToReading')}</Text>
             </TouchableOpacity>
-            <Text style={styles.title}>陪读评论</Text>
+            <Text style={styles.title}>{t('books.comments.title')}</Text>
             <View style={styles.topActions} />
           </View>
           <View style={styles.commentsBody}>
-            <Text style={styles.sectionHint}>一起读的角色</Text>
+            <Text style={styles.sectionHint}>{t('books.comments.characterLabel')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
               {characters.map(entry => {
                 const selected = entry.id === characterId;
@@ -321,7 +326,7 @@ export default function BookReaderView({ item, content, onBack }) {
                       style={[styles.characterChipText, selected && styles.characterChipTextActive]}
                       numberOfLines={1}
                     >
-                      {String(entry.name || '').trim() || '角色'}
+                      {String(entry.name || '').trim() || t('common.characterFallback')}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -336,24 +341,26 @@ export default function BookReaderView({ item, content, onBack }) {
               {generating
                 ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
                 : <Ionicons name="chatbubbles" size={15} color={theme.colors.primaryContrast} />}
-              <Text style={styles.generateText}>让TA聊聊这一页</Text>
+              <Text style={styles.generateText}>{t('books.comments.generate')}</Text>
             </TouchableOpacity>
             {commentError ? (
               <View style={styles.errorBanner}>
                 <Text style={styles.errorText}>{commentError}</Text>
-                <GhostButton title="重试" small onPress={retry} />
+                <GhostButton title={t('common.retry')} small onPress={retry} />
               </View>
             ) : null}
             {comments.length === 0 && !generating ? (
               <Text style={styles.emptyComments}>
-                还没有评论。翻到想聊的一页，点上面的按钮，{characters.length > 0 ? '角色' : '选好角色后'}会在这里聊这段内容。
+                {characters.length > 0
+                  ? t('books.comments.empty', { character: t('common.characterFallback') })
+                  : t('books.comments.empty.noCharacter')}
               </Text>
             ) : null}
             {comments.map(comment => (
               <View key={comment.id} style={styles.commentCard}>
                 <View style={styles.commentHead}>
                   <Text style={styles.commentName} numberOfLines={1}>
-                    {comment.characterName || '角色'}
+                    {comment.characterName || t('common.characterFallback')}
                     {comment.chapterTitle ? ` · ${comment.chapterTitle}` : ''}
                   </Text>
                   <TouchableOpacity
@@ -361,7 +368,7 @@ export default function BookReaderView({ item, content, onBack }) {
                     onPress={() => handleQuoteComment(comment)}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.quoteButtonText}>接话</Text>
+                    <Text style={styles.quoteButtonText}>{t('books.comments.quote')}</Text>
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.commentText}>{comment.text}</Text>

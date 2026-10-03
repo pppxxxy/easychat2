@@ -52,6 +52,6 @@ test('MusicScreen：接线完整（曲库/导入/打点/删除链路）', () => 
   assert.ok(source.includes('deleteMusicCommentsForSongs'), '删除歌曲时同步清理其评论键');
   assert.ok(source.includes('saveMusicDuration'), '首播时长回填接线');
   assert.ok(source.includes('useMusicPlayer'), '播放器 hook 接线');
-  assert.ok(source.includes('在此打点'), '打点按钮存在');
+  assert.ok(source.includes("t('music.player.mark')"), '打点按钮存在（i18n key）');
   assert.ok(source.includes('formatPlaybackPosition'), '时间显示复用统一的 mm:ss 格式化');
 });

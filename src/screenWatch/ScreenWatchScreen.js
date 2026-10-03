@@ -20,6 +20,8 @@ import { Card, EmptyState, GhostButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 
+import { useTranslation } from '../i18n/I18nContext.js';
+
 import { captureAppScreen } from './capture.js';
 import { useScreenWatchComments } from './useScreenWatchComments.js';
 
@@ -27,6 +29,7 @@ export default function ScreenWatchScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const navigation = useNavigation();
+  const { t } = useTranslation();
   const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
 
   const [capturing, setCapturing] = useState(false);
@@ -53,7 +56,7 @@ export default function ScreenWatchScreen() {
       const { uri } = await captureAppScreen();
       await generate({ imageUri: uri });
     } catch (error) {
-      Alert.alert('截屏失败', '没能完成截屏，请重试。');
+      Alert.alert(t('screenWatch.capture.failed.title'), t('screenWatch.capture.failed.body'));
     } finally {
       setCapturing(false);
     }
@@ -68,25 +71,25 @@ export default function ScreenWatchScreen() {
         sessionId: session.id,
         payload: {
           id: '',
-          name: comment.characterName || '角色',
+          name: comment.characterName || t('common.characterFallback'),
           role: 'assistant',
           text: comment.text,
         },
       });
       navigation.navigate('聊天');
     } catch (error) {
-      Alert.alert('无法接话', '没能打开该角色的会话，请稍后重试。');
+      Alert.alert(t('screenWatch.quoteFailed.title'), t('screenWatch.quoteFailed.body'));
     }
   }, [ensureCharacterSession, navigation, setPendingQuote]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.listContent}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>一起看屏幕</Text>
+        <Text style={styles.headerTitle}>{t('screenWatch.title')}</Text>
       </View>
 
       <Card style={styles.captureCard}>
-        <Text style={styles.sectionTitle}>一起看屏幕的角色</Text>
+        <Text style={styles.sectionTitle}>{t('screenWatch.characterLabel')}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
           {characters.map(item => {
             const selected = item.id === characterId;
@@ -101,7 +104,7 @@ export default function ScreenWatchScreen() {
                   style={[styles.characterChipText, selected && styles.characterChipTextActive]}
                   numberOfLines={1}
                 >
-                  {String(item.name || '').trim() || '角色'}
+                  {String(item.name || '').trim() || t('common.characterFallback')}
                 </Text>
               </TouchableOpacity>
             );
@@ -117,17 +120,16 @@ export default function ScreenWatchScreen() {
             ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
             : <Ionicons name="eye-outline" size={18} color={theme.colors.primaryContrast} />}
           <Text style={styles.captureText}>
-            {capturing ? '截屏中…' : generating ? 'TA正在看…' : '截屏给TA看看'}
+            {capturing
+              ? t('screenWatch.capture.busy')
+              : (generating ? t('screenWatch.capture.reading') : t('screenWatch.capture'))}
           </Text>
         </TouchableOpacity>
-        <Text style={styles.hint}>
-          截图只包含本应用的画面（截屏时这个面板也会入镜），需要模型支持识图。
-          跨应用看屏幕需系统投屏授权，暂时没有做。
-        </Text>
+        <Text style={styles.hint}>{t('screenWatch.limits')}</Text>
         {error ? (
           <View style={styles.errorBanner}>
             <Text style={styles.errorText}>{error}</Text>
-            <GhostButton title="重试" small onPress={retry} />
+            <GhostButton title={t('common.retry')} small onPress={retry} />
           </View>
         ) : null}
       </Card>
@@ -135,25 +137,25 @@ export default function ScreenWatchScreen() {
       {comments.length === 0 && !generating ? (
         <EmptyState
           icon="eye-outline"
-          title="还没有一起看屏幕"
-          description={
-            selectedCharacter
-              ? `点上面的按钮截个屏，${String(selectedCharacter.name || '角色').trim() || '角色'}会看看你的屏幕并聊聊。`
-              : '先选一位角色，再点上面的按钮截屏。'
-          }
+          title={t('screenWatch.empty.title')}
+          description={selectedCharacter
+            ? t('screenWatch.empty', {
+              character: String(selectedCharacter.name || '').trim() || t('common.characterFallback'),
+            })
+            : t('screenWatch.empty.noCharacter')}
         />
       ) : comments.map(comment => (
         <View key={comment.id} style={styles.commentCard}>
           <View style={styles.commentHead}>
             <Text style={styles.commentName} numberOfLines={1}>
-              {comment.characterName || '角色'} · 看屏幕
+              {comment.characterName || t('common.characterFallback')} · {t('screenWatch.commentLabel')}
             </Text>
             <TouchableOpacity
               style={styles.quoteButton}
               onPress={() => handleQuoteComment(comment)}
               activeOpacity={0.85}
             >
-              <Text style={styles.quoteButtonText}>接话</Text>
+              <Text style={styles.quoteButtonText}>{t('screenWatch.quote')}</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.commentText}>{comment.text}</Text>

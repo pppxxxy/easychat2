@@ -254,7 +254,8 @@ test('昨天时间窗用本地日历日两端，避免夏令时偏移', () => {
 });
 
 test('世界分组新增日记入口并复用折叠容器', () => {
-  assert.ok(EXTENSION_SOURCE.includes("id: 'diary', label: '日记'"));
+  // 文案已迁 i18n：断言条目 id + 词条 key（标签在渲染时翻译）
+  assert.ok(EXTENSION_SOURCE.includes("id: 'diary'") && EXTENSION_SOURCE.includes("t('ext.world.diary.label')"));
   assert.ok(EXTENSION_SOURCE.includes("section.id === 'diary'"));
   assert.ok(EXTENSION_SOURCE.includes('<DiaryPanel embedded />'));
   assert.ok(EXTENSION_SOURCE.includes("import DiaryPanel from './DiaryPanel.js'"));

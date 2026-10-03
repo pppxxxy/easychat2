@@ -23,6 +23,7 @@ import ScreenWatchScreen from './screenWatch/ScreenWatchScreen.js';
 import ProactivePanel from './ProactivePanel.js';
 import { GAMES } from './games/games.js';
 import { getMomentsSettings } from './storage.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { EmptyState, PrimaryButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 
@@ -34,14 +35,16 @@ try {
   WebViewComponent = null;
 }
 
-const SEGMENTS = [
-  { id: 'games', label: '游戏', icon: 'game-controller-outline' },
-  { id: 'image', label: '生图', icon: 'image-outline' },
-  { id: 'forge', label: '制卡', icon: 'id-card-outline' },
+// 分段与「世界」条目的 label/description 一律走 t()：常量只保留 id/icon，
+// 文案在渲染时翻译（语言切换后无需重挂载常量表）。
+const SEGMENT_IDS = [
+  { id: 'games', labelKey: 'ext.segment.games', icon: 'game-controller-outline' },
+  { id: 'image', labelKey: 'ext.segment.image', icon: 'image-outline' },
+  { id: 'forge', labelKey: 'ext.segment.forge', icon: 'id-card-outline' },
 ];
 
 // 「世界」把赋予角色生命力的扩展收拢在一处：动态、互动，后续新增也归到这里。
-const WORLD_SEGMENT = { id: 'world', label: '世界', icon: 'earth-outline' };
+const WORLD_SEGMENT = { id: 'world', labelKey: 'ext.segment.world', icon: 'earth-outline' };
 
 function GamesView() {
   const [activeGameId, setActiveGameId] = useState('');
@@ -49,6 +52,7 @@ function GamesView() {
   const [failed, setFailed] = useState(false);
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const { t } = useTranslation();
 
   const activeGame = useMemo(
     () => GAMES.find(game => game.id === activeGameId) || null,
@@ -76,8 +80,8 @@ function GamesView() {
     return (
       <EmptyState
         icon="alert-circle-outline"
-        title="环境不支持"
-        description="当前环境不支持游戏运行，请更新应用到最新版本。"
+        title={t('ext.games.env.title')}
+        description={t('ext.games.env.body')}
       />
     );
   }
@@ -88,18 +92,18 @@ function GamesView() {
         <View style={styles.gameBar}>
           <TouchableOpacity style={styles.backButton} onPress={backToList} activeOpacity={0.8}>
             <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
-            <Text style={styles.backButtonText}>返回列表</Text>
+            <Text style={styles.backButtonText}>{t('ext.games.back')}</Text>
           </TouchableOpacity>
           <Text style={styles.gameBarTitle}>{activeGame.name}</Text>
         </View>
         {failed ? (
           <EmptyState
             icon="cloud-offline-outline"
-            title="加载失败"
-            description="网络或资源异常，请重试。"
+            title={t('ext.games.load.title')}
+            description={t('ext.games.load.body')}
             action={
               <PrimaryButton
-                title="重试"
+                title={t('common.retry')}
                 small
                 onPress={() => {
                   setFailed(false);
@@ -151,22 +155,23 @@ function GamesView() {
 function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic, onOpenBooks, onOpenScreenWatch }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const { t } = useTranslation();
   // 互动分组初始保持折叠：进入页面先看到分组列表，不默认展开编辑面板。
   const [openSection, setOpenSection] = useState('');
 
   const sections = useMemo(() => {
     const list = [];
     if (momentsEnabled) {
-      list.push({ id: 'moments', label: '动态', icon: 'planet-outline', description: '角色会随时间生成自己的动态' });
+      list.push({ id: 'moments', label: t('ext.world.moments.label'), icon: 'planet-outline', description: t('ext.world.moments.desc') });
     }
-    list.push({ id: 'music', label: '听歌', icon: 'musical-notes-outline', description: '导入本地音乐，和角色一起听、在打点处聊感受' });
-    list.push({ id: 'books', label: '看书', icon: 'book-outline', description: '导入本地小说，和角色一起读、随页聊内容' });
-    list.push({ id: 'screen', label: '看屏幕', icon: 'eye-outline', description: '截一张当前屏幕，让角色看看并聊聊' });
-    list.push({ id: 'interactive', label: '互动', icon: 'chatbubbles-outline', description: '角色在指定时间主动发来消息' });
-    list.push({ id: 'diary', label: '日记', icon: 'create-outline', description: '角色为你和它的对话写日记' });
-    list.push({ id: 'map', label: '地图', icon: 'map-outline', description: '在网格地图上为自己和角色安家' });
+    list.push({ id: 'music', label: t('ext.world.music.label'), icon: 'musical-notes-outline', description: t('ext.world.music.desc') });
+    list.push({ id: 'books', label: t('ext.world.books.label'), icon: 'book-outline', description: t('ext.world.books.desc') });
+    list.push({ id: 'screen', label: t('ext.world.screen.label'), icon: 'eye-outline', description: t('ext.world.screen.desc') });
+    list.push({ id: 'interactive', label: t('ext.world.interactive.label'), icon: 'chatbubbles-outline', description: t('ext.world.interactive.desc') });
+    list.push({ id: 'diary', label: t('ext.world.diary.label'), icon: 'create-outline', description: t('ext.world.diary.desc') });
+    list.push({ id: 'map', label: t('ext.world.map.label'), icon: 'map-outline', description: t('ext.world.map.desc') });
     return list;
-  }, [momentsEnabled]);
+  }, [momentsEnabled, t]);
 
   return (
     <ScrollView contentContainerStyle={styles.listContent}>
@@ -234,6 +239,7 @@ export default function ExtensionScreen({ route }) {
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const { t } = useTranslation();
 
   const navigation = useNavigation();
   useEffect(() => {
@@ -262,7 +268,10 @@ export default function ExtensionScreen({ route }) {
     setSegment(params.segment === 'moments' ? 'world' : params.segment);
   }, [route && route.params]);
 
-  const segments = useMemo(() => [...SEGMENTS, WORLD_SEGMENT], []);
+  const segments = useMemo(
+    () => [...SEGMENT_IDS, WORLD_SEGMENT].map(item => ({ ...item, label: t(item.labelKey) })),
+    [t]
+  );
 
   // 动态被关闭时不能停留在动态面板上
   useEffect(() => {
@@ -337,9 +346,9 @@ export default function ExtensionScreen({ route }) {
                 activeOpacity={0.8}
               >
                 <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
-                <Text style={styles.backButtonText}>世界</Text>
+                <Text style={styles.backButtonText}>{t('ext.world.back')}</Text>
               </TouchableOpacity>
-              <Text style={styles.gameBarTitle}>动态</Text>
+              <Text style={styles.gameBarTitle}>{t('ext.world.moments.label')}</Text>
             </View>
             <MomentsView active={segment === 'moments'} />
           </View>
@@ -355,9 +364,9 @@ export default function ExtensionScreen({ route }) {
               activeOpacity={0.8}
             >
               <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
-              <Text style={styles.backButtonText}>世界</Text>
+              <Text style={styles.backButtonText}>{t('ext.world.back')}</Text>
             </TouchableOpacity>
-            <Text style={styles.gameBarTitle}>听歌</Text>
+            <Text style={styles.gameBarTitle}>{t('ext.world.music.label')}</Text>
           </View>
           <MusicScreen />
         </View>
@@ -372,9 +381,9 @@ export default function ExtensionScreen({ route }) {
               activeOpacity={0.8}
             >
               <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
-              <Text style={styles.backButtonText}>世界</Text>
+              <Text style={styles.backButtonText}>{t('ext.world.back')}</Text>
             </TouchableOpacity>
-            <Text style={styles.gameBarTitle}>看书</Text>
+            <Text style={styles.gameBarTitle}>{t('ext.world.books.label')}</Text>
           </View>
           <BookScreen />
         </View>
@@ -389,9 +398,9 @@ export default function ExtensionScreen({ route }) {
               activeOpacity={0.8}
             >
               <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
-              <Text style={styles.backButtonText}>世界</Text>
+              <Text style={styles.backButtonText}>{t('ext.world.back')}</Text>
             </TouchableOpacity>
-            <Text style={styles.gameBarTitle}>看屏幕</Text>
+            <Text style={styles.gameBarTitle}>{t('ext.world.screen.label')}</Text>
           </View>
           <ScreenWatchScreen />
         </View>

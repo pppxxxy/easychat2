@@ -19,25 +19,34 @@ import { EmptyState, GhostButton, IconButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
+import { useTranslation } from '../i18n/I18nContext.js';
+
 import { deleteBookCommentsForBooks } from './comments.js';
 import { deleteBooks, getBooks, readBookContent } from './library.js';
 import { importBookFromPicker } from './importBook.js';
 import { BookReaderView } from './BookReaderView.js';
 
-function formatBookSize(item) {
+function formatBookSize(item, t) {
   const parts = [];
   if (item.chars > 0) {
-    parts.push(item.chars >= 10000 ? `${(item.chars / 10000).toFixed(1)} 万字` : `${item.chars} 字`);
+    // 中文用「万」（除以 1 万），英文用「k chars」（除以 1 千）——单位不同，
+    // 因此两个数值都要传，由各自语言的词条决定用哪个（词条里只出现自己那个占位符）。
+    parts.push(item.chars >= 10000
+      ? t('books.list.chars.tenThousand', {
+        wan: (item.chars / 10000).toFixed(1),
+        k: Math.round(item.chars / 1000),
+      })
+      : t('books.list.chars', { count: item.chars }));
   } else if (item.size > 0) {
     parts.push(item.size >= 1024 * 1024 ? `${(item.size / (1024 * 1024)).toFixed(1)}MB` : `${Math.round(item.size / 1024)}KB`);
   }
-  if (item.chapters.length > 0) parts.push(`${item.chapters.length} 章`);
+  if (item.chapters.length > 0) parts.push(t('books.list.chapters', { count: item.chapters.length }));
   const hasProgress = item.progress.blockIndex > 0 || item.progress.pageIndex > 0;
-  if (hasProgress) parts.push('上次读到');
+  if (hasProgress) parts.push(t('books.list.continueReading'));
   return parts.join(' · ');
 }
 
-function BookRow({ item, onPress, onDelete, styles, theme }) {
+function BookRow({ item, onPress, onDelete, styles, theme, t }) {
   return (
     <View style={styles.row}>
       <TouchableOpacity style={styles.rowMain} onPress={onPress} activeOpacity={0.8}>
@@ -47,13 +56,13 @@ function BookRow({ item, onPress, onDelete, styles, theme }) {
         <View style={styles.rowBody}>
           <Text style={styles.rowName} numberOfLines={1}>{item.name}</Text>
           <Text style={styles.rowMeta} numberOfLines={1}>
-            {formatBookSize(item) || '文本'}
+            {formatBookSize(item, t) || t('books.list.text')}
           </Text>
         </View>
       </TouchableOpacity>
       <IconButton
         name="trash-outline"
-        accessibilityLabel={`删除 ${item.name}`}
+        accessibilityLabel={t('books.a11y.deleteBook', { name: item.name })}
         onPress={onDelete}
         style={styles.rowDelete}
       />
@@ -64,6 +73,7 @@ function BookRow({ item, onPress, onDelete, styles, theme }) {
 export default function BookScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const { t } = useTranslation();
 
   const [books, setBooks] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -99,11 +109,11 @@ export default function BookScreen() {
     } catch (error) {
       const code = error && error.code;
       if (code === 'UNSUPPORTED_FORMAT') {
-        Alert.alert('格式不支持', '目前只支持 txt 与 Markdown 文本文件。');
+        Alert.alert(t('books.import.unsupported.title'), t('books.import.unsupported.body'));
       } else if (code === 'ENCODING') {
-        Alert.alert('编码不支持', error.message);
+        Alert.alert(t('books.import.encoding.title'), error.message);
       } else {
-        Alert.alert('导入失败', '无法读取所选文件，请重试。');
+        Alert.alert(t('books.import.failed.title'), t('books.import.failed.body'));
       }
     } finally {
       setImporting(false);
@@ -117,7 +127,7 @@ export default function BookScreen() {
       const content = await readBookContent(item);
       setOpenBook({ item, content });
     } catch (error) {
-      Alert.alert('打开失败', '书籍文件读取失败，可能已被清理，请删除后重新导入。');
+      Alert.alert(t('books.open.failed.title'), t('books.open.failed.body'));
     } finally {
       setOpening(false);
     }
@@ -131,12 +141,12 @@ export default function BookScreen() {
   const handleDelete = useCallback(item => {
     if (!item) return;
     Alert.alert(
-      '删除书籍',
-      `确定从书架删除「${item.name}」吗？书籍文件与它的评论会一并删除。`,
+      t('books.delete.title'),
+      t('books.delete.body', { name: item.name }),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '删除',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
             setBooks(list => list.filter(entry => entry.id !== item.id));
@@ -161,9 +171,9 @@ export default function BookScreen() {
     return (
       <EmptyState
         icon="alert-circle-outline"
-        title="书架读取失败"
-        description="书架记录读取失败，请稍后重试。"
-        action={<GhostButton title="重试" onPress={reload} />}
+        title={t('books.load.failed.title')}
+        description={t('books.load.failed.body')}
+        action={<GhostButton title={t('common.retry')} onPress={reload} />}
       />
     );
   }
@@ -182,7 +192,7 @@ export default function BookScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>一起看书</Text>
+        <Text style={styles.headerTitle}>{t('books.title')}</Text>
         <TouchableOpacity
           style={styles.importButton}
           onPress={handleImport}
@@ -192,7 +202,7 @@ export default function BookScreen() {
           {importing
             ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
             : <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />}
-          <Text style={styles.importText}>导入本地书籍</Text>
+          <Text style={styles.importText}>{t('books.import')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -205,8 +215,8 @@ export default function BookScreen() {
         {books.length === 0 && !opening ? (
           <EmptyState
             icon="book-outline"
-            title="书架还是空的"
-            description="导入本地的 txt / Markdown 小说，和角色一起读。"
+            title={t('books.empty.title')}
+            description={t('books.empty.body')}
           />
         ) : books.map(item => (
           <BookRow
@@ -216,6 +226,7 @@ export default function BookScreen() {
             onDelete={() => handleDelete(item)}
             styles={styles}
             theme={theme}
+            t={t}
           />
         ))}
       </ScrollView>

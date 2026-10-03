@@ -16,6 +16,7 @@ import {
 
 import { appendMusicComment, getMusicComments } from './comments.js';
 import { buildOpeningCommentPrompt, buildTriggerCommentPrompt } from './commentPrompts.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
 
@@ -24,6 +25,7 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [characterId, setCharacterId] = useState(String(defaultCharacterId || ''));
+  const { t } = useTranslation();
 
   const songRef = useRef(song);
   songRef.current = song;
@@ -67,7 +69,7 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
     if (!currentSong || generatingRef.current) return false;
     const character = (charactersRef.current || []).find(item => item.id === characterIdRef.current);
     if (!character) {
-      setError('请先选择一位一起听歌的角色');
+      setError(t('music.error.noCharacter'));
       return false;
     }
     const controller = new AbortController();
@@ -117,7 +119,8 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
       const comment = {
         id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         characterId: character.id,
-        characterName: String(character.name || '').trim() || '角色',
+        // 名字留空：显示层按当前语言补「角色」，切语言后旧评论也跟着变。
+        characterName: String(character.name || '').trim(),
         text: text.slice(0, COMMENT_TEXT_MAX),
         atMs: kind === 'opening' ? 0 : Math.max(0, Math.floor(Number(atMs)) || 0),
         createdAt: Date.now(),
@@ -131,7 +134,7 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
       return true;
     } catch (caught) {
       if (controller.signal.aborted || isCanceledError(caught)) return false;
-      if (mountedRef.current) setError('评论生成失败，请检查 API 配置后重试。');
+      if (mountedRef.current) setError(t('music.comments.failed'));
       lastFailedRef.current = { kind, atMs, note };
       return false;
     } finally {
