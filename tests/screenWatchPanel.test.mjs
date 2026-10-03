@@ -34,7 +34,13 @@ test('ScreenWatchScreen：截屏→评论→接话接线', () => {
   assert.ok(source.includes('ensureCharacterSession') && source.includes("navigation.navigate('聊天')"),
     '接话 = 确保会话 + 切聊天页');
   assert.ok(source.includes('setPendingQuote'), '接话复用 pendingQuote');
-  assert.ok(source.includes('截屏时这个面板也会入镜') || source.includes('只包含本应用的画面'),
-    'v1 固有限制必须如实告知用户');
-  assert.ok(source.includes('NO_VISION') || source.includes('识图'), '无视觉能力时面板可见原因');
+  // 限制文案已迁 i18n：断言 key 存在，并断言基准语言词条确实说明了限制
+  assert.ok(source.includes("t('screenWatch.limits')"), 'v1 固有限制必须如实告知用户（i18n key）');
+  const zh = readSource('src/i18n/locales/zh-CN.js');
+  assert.ok(zh.includes('只包含本应用的画面') && zh.includes('暂时没有做'),
+    'zh-CN 限制词条必须说明只截本应用与跨应用未做');
+  // NO_VISION 分流在 hook 层（面板只显示 hook 给的错误文案）
+  const hook = readSource('src/screenWatch/useScreenWatchComments.js');
+  assert.ok(hook.includes("code: 'NO_VISION'"), '无视觉能力时以 NO_VISION 分流提示');
+  assert.ok(hook.includes("t('screenWatch.error.noVision')"), 'NO_VISION 文案走 i18n key');
 });

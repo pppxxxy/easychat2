@@ -16,6 +16,7 @@ import {
 
 import { appendBookComment, getBookComments } from './comments.js';
 import { buildPassageCommentPrompt } from './commentPrompts.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
 
@@ -24,6 +25,7 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [characterId, setCharacterId] = useState(String(defaultCharacterId || ''));
+  const { t } = useTranslation();
 
   const bookRef = useRef(book);
   bookRef.current = book;
@@ -69,7 +71,7 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
     if (!currentBook || generatingRef.current) return false;
     const character = (charactersRef.current || []).find(item => item.id === characterIdRef.current);
     if (!character) {
-      setError('请先选择一位一起读书的角色');
+      setError(t('books.error.noCharacter'));
       return false;
     }
     const controller = new AbortController();
@@ -116,7 +118,8 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
       const comment = {
         id: `bc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         characterId: character.id,
-        characterName: String(character.name || '').trim() || '角色',
+        // 名字留空：显示层按当前语言补「角色」，切语言后旧评论也跟着变。
+        characterName: String(character.name || '').trim(),
         text: text.slice(0, COMMENT_TEXT_MAX),
         anchor: {
           blockIndex: Math.max(0, Math.floor(Number(payload.blockIndex)) || 0),
@@ -135,7 +138,7 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
       return true;
     } catch (caught) {
       if (controller.signal.aborted || isCanceledError(caught)) return false;
-      if (mountedRef.current) setError('评论生成失败，请检查 API 配置后重试。');
+      if (mountedRef.current) setError(t('books.comments.failed'));
       lastFailedRef.current = payload;
       return false;
     } finally {

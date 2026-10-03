@@ -177,7 +177,8 @@ test('地图存储：单键读写、损坏备份、删除联动', () => {
 });
 
 test('世界分组新增地图入口并就地展开', () => {
-  assert.ok(EXTENSION_SOURCE.includes("id: 'map', label: '地图'"));
+  // 文案已迁 i18n：断言条目 id + 词条 key（标签在渲染时翻译）
+  assert.ok(EXTENSION_SOURCE.includes("id: 'map'") && EXTENSION_SOURCE.includes("t('ext.world.map.label')"));
   assert.ok(EXTENSION_SOURCE.includes("section.id === 'map' ? <MapPanel embedded />"));
   assert.ok(EXTENSION_SOURCE.includes("import MapPanel from './MapPanel.js'"));
 });

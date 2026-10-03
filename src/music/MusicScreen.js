@@ -21,6 +21,8 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
+import { useTranslation } from '../i18n/I18nContext.js';
+
 import { deleteMusicCommentsForSongs } from './comments.js';
 import { deleteMusicItems, getMusicItems, saveMusicDuration, saveMusicTriggers } from './library.js';
 import { importMusicFromPicker } from './importMusic.js';
@@ -41,7 +43,7 @@ function formatFileSize(size) {
   return bytes > 0 ? `${bytes}B` : '';
 }
 
-function MusicRow({ item, isCurrent, playing, onPress, onDelete, styles, theme }) {
+function MusicRow({ item, isCurrent, playing, onPress, onDelete, styles, theme, t }) {
   return (
     <View style={styles.row}>
       <TouchableOpacity style={styles.rowMain} onPress={onPress} activeOpacity={0.8}>
@@ -58,14 +60,14 @@ function MusicRow({ item, isCurrent, playing, onPress, onDelete, styles, theme }
             {[
               item.durationMs > 0 ? formatPlaybackPosition(item.durationMs) : '',
               formatFileSize(item.size),
-              item.triggers.length > 0 ? `${item.triggers.length} 个打点` : '',
-            ].filter(Boolean).join(' · ') || '音频'}
+              item.triggers.length > 0 ? t('music.list.meta.triggers', { count: item.triggers.length }) : '',
+            ].filter(Boolean).join(' · ') || t('music.list.meta.audio')}
           </Text>
         </View>
       </TouchableOpacity>
       <IconButton
         name="trash-outline"
-        accessibilityLabel={`删除 ${item.name}`}
+        accessibilityLabel={t('music.a11y.deleteSong', { name: item.name })}
         onPress={onDelete}
         style={styles.rowDelete}
       />
@@ -76,6 +78,7 @@ function MusicRow({ item, isCurrent, playing, onPress, onDelete, styles, theme }
 export default function MusicScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const { t } = useTranslation();
   const navigation = useNavigation();
   const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
 
@@ -191,9 +194,9 @@ export default function MusicScreen() {
       load(item);
     } catch (error) {
       if (error && error.code === 'UNSUPPORTED_FORMAT') {
-        Alert.alert('格式不支持', '请选择音频文件（mp3/m4a/wav/flac 等）。');
+        Alert.alert(t('music.import.unsupported.title'), t('music.import.unsupported.body'));
       } else {
-        Alert.alert('导入失败', '无法读取所选音频文件，请重试。');
+        Alert.alert(t('music.import.failed.title'), t('music.import.failed.body'));
       }
     } finally {
       setImporting(false);
@@ -220,7 +223,7 @@ export default function MusicScreen() {
       firedRef.current = resolveFiredIdsAtPosition(updated.triggers, status.positionMs);
       return updated;
     } catch (error) {
-      Alert.alert('保存失败', '打点没能保存，请重试。');
+      Alert.alert(t('music.save.failed.title'), t('music.save.failed.body'));
       return null;
     }
   }, [status.positionMs]);
@@ -243,12 +246,12 @@ export default function MusicScreen() {
   const handleDelete = useCallback(item => {
     if (!item) return;
     Alert.alert(
-      '删除歌曲',
-      `确定从曲库删除「${item.name}」吗？音频文件与它的打点、评论会一并删除。`,
+      t('music.delete.title'),
+      t('music.delete.body', { name: item.name }),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '删除',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
             if (item.id === currentId) {
@@ -275,14 +278,14 @@ export default function MusicScreen() {
         sessionId: session.id,
         payload: {
           id: '',
-          name: comment.characterName || '角色',
+          name: comment.characterName || t('common.characterFallback'),
           role: 'assistant',
           text: comment.text,
         },
       });
       navigation.navigate('聊天');
     } catch (error) {
-      Alert.alert('无法接话', '没能打开该角色的会话，请稍后重试。');
+      Alert.alert(t('music.comments.quoteFailed.title'), t('music.comments.quoteFailed.body'));
     }
   }, [ensureCharacterSession, navigation, setPendingQuote]);
 
@@ -305,9 +308,9 @@ export default function MusicScreen() {
     return (
       <EmptyState
         icon="alert-circle-outline"
-        title="曲库读取失败"
-        description="音乐库记录读取失败，请稍后重试。"
-        action={<GhostButton title="重试" onPress={reload} />}
+        title={t('music.load.failed.title')}
+        description={t('music.load.failed.body')}
+        action={<GhostButton title={t('common.retry')} onPress={reload} />}
       />
     );
   }
@@ -315,7 +318,7 @@ export default function MusicScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.listContent}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>一起听歌</Text>
+        <Text style={styles.headerTitle}>{t('music.title')}</Text>
         <TouchableOpacity
           style={styles.importButton}
           onPress={handleImport}
@@ -325,7 +328,7 @@ export default function MusicScreen() {
           {importing
             ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
             : <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />}
-          <Text style={styles.importText}>导入本地音乐</Text>
+          <Text style={styles.importText}>{t('music.import')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -345,33 +348,33 @@ export default function MusicScreen() {
                 const width = trackWidthRef.current;
                 if (width > 0) seekFraction(event.nativeEvent.locationX / width);
               }}
-              accessibilityLabel="播放进度条，点按跳转"
+              accessibilityLabel={t('music.a11y.progressBar')}
             >
               <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
             </TouchableOpacity>
           </View>
           <View style={styles.controlsRow}>
-            <TouchableOpacity style={styles.controlButton} onPress={() => seekBySeconds(-15)} accessibilityLabel="后退 15 秒">
+            <TouchableOpacity style={styles.controlButton} onPress={() => seekBySeconds(-15)} accessibilityLabel={t('music.a11y.back15')}>
               <Ionicons name="play-back" size={20} color={theme.colors.text} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.controlButton, styles.playButton]}
               onPress={toggle}
-              accessibilityLabel={status.playing ? '暂停' : '播放'}
+              accessibilityLabel={status.playing ? t('music.a11y.pause') : t('music.a11y.play')}
             >
               <Ionicons name={status.playing ? 'pause' : 'play'} size={22} color={theme.colors.primaryContrast} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.controlButton} onPress={() => seekBySeconds(15)} accessibilityLabel="前进 15 秒">
+            <TouchableOpacity style={styles.controlButton} onPress={() => seekBySeconds(15)} accessibilityLabel={t('music.a11y.forward15')}>
               <Ionicons name="play-forward" size={20} color={theme.colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.markButton} onPress={addTriggerHere} accessibilityLabel="在当前进度打点">
+            <TouchableOpacity style={styles.markButton} onPress={addTriggerHere} accessibilityLabel={t('music.a11y.markHere')}>
               <Ionicons name="bookmark" size={14} color={theme.colors.primaryContrast} />
-              <Text style={styles.markText}>在此打点</Text>
+              <Text style={styles.markText}>{t('music.player.mark')}</Text>
             </TouchableOpacity>
           </View>
           {current.triggers.length > 0 ? (
             <View style={styles.triggerBlock}>
-              <Text style={styles.triggerTitle}>时间轴打点（点按跳转，角色评论会在这里出现）</Text>
+              <Text style={styles.triggerTitle}>{t('music.triggers.hint')}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.triggerScroll}>
                 {current.triggers.map(trigger => (
                   <View key={trigger.id} style={styles.triggerChip}>
@@ -385,7 +388,7 @@ export default function MusicScreen() {
                     <TouchableOpacity
                       style={styles.triggerRemove}
                       onPress={() => removeTrigger(trigger.id)}
-                      accessibilityLabel={`删除 ${formatPlaybackPosition(trigger.atMs)} 的打点`}
+                      accessibilityLabel={t('music.a11y.deleteTrigger', { time: formatPlaybackPosition(trigger.atMs) })}
                     >
                       <Ionicons name="close" size={12} color={theme.colors.textFaint} />
                     </TouchableOpacity>
@@ -400,10 +403,10 @@ export default function MusicScreen() {
       {current ? (
         <Card style={styles.commentsCard}>
           <View style={styles.commentsHeader}>
-            <Text style={styles.commentsTitle}>陪伴评论</Text>
+            <Text style={styles.commentsTitle}>{t('music.comments.title')}</Text>
             {generating ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
           </View>
-          <Text style={styles.triggerTitle}>一起听的角色</Text>
+          <Text style={styles.triggerTitle}>{t('music.comments.characterLabel')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.triggerScroll}>
             {characters.map(item => {
               const selected = item.id === characterId;
@@ -418,7 +421,7 @@ export default function MusicScreen() {
                     style={[styles.characterChipText, selected && styles.characterChipTextActive]}
                     numberOfLines={1}
                   >
-                    {String(item.name || '').trim() || '角色'}
+                    {String(item.name || '').trim() || t('common.characterFallback')}
                   </Text>
                 </TouchableOpacity>
               );
@@ -427,28 +430,30 @@ export default function MusicScreen() {
           {commentError ? (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{commentError}</Text>
-              <GhostButton title="重试" small onPress={retry} />
+              <GhostButton title={t('common.retry')} small onPress={retry} />
             </View>
           ) : null}
           {!selectedCharacter ? (
-            <Text style={styles.emptyComments}>选择一位角色，打点或开播时它会陪你聊。</Text>
+            <Text style={styles.emptyComments}>{t('music.comments.empty.noCharacter')}</Text>
           ) : comments.length === 0 && !generating ? (
             <Text style={styles.emptyComments}>
-              还没有评论。开播时会自动开场，在进度条上打点，{String(selectedCharacter.name || '角色').trim() || '角色'}会在这里聊到那个位置。
+              {t('music.comments.empty', {
+                character: String(selectedCharacter.name || '').trim() || t('common.characterFallback'),
+              })}
             </Text>
           ) : null}
           {comments.map(comment => (
             <View key={comment.id} style={styles.commentCard}>
               <View style={styles.commentHead}>
                 <Text style={styles.commentName} numberOfLines={1}>
-                  {comment.characterName || '角色'} · {formatPlaybackPosition(comment.atMs)}
+                  {comment.characterName || t('common.characterFallback')} · {formatPlaybackPosition(comment.atMs)}
                 </Text>
                 <TouchableOpacity
                   style={styles.quoteButton}
                   onPress={() => handleQuoteComment(comment)}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.quoteButtonText}>接话</Text>
+                  <Text style={styles.quoteButtonText}>{t('music.comments.quote')}</Text>
                 </TouchableOpacity>
               </View>
               <Text style={styles.commentText}>{comment.text}</Text>
@@ -460,8 +465,8 @@ export default function MusicScreen() {
       {items.length === 0 ? (
         <EmptyState
           icon="musical-notes-outline"
-          title="曲库还是空的"
-          description="导入手机里的本地音频，和角色一起听。"
+          title={t('music.empty.title')}
+          description={t('music.empty.body')}
         />
       ) : items.map(item => (
         <MusicRow
@@ -473,6 +478,7 @@ export default function MusicScreen() {
           onDelete={() => handleDelete(item)}
           styles={styles}
           theme={theme}
+          t={t}
         />
       ))}
     </ScrollView>
