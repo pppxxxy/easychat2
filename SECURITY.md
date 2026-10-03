@@ -44,9 +44,9 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - 命中的世界书条目
 - 历史消息与当前输入
 - 模型名
-- HTTP 头 `Authorization: Bearer <你的 API Key>`
+- 鉴权头：OpenAI 系为 `Authorization: Bearer <你的 API Key>`；Anthropic 协议为 `x-api-key: <你的 API Key>` 与 `anthropic-version`
 
-该地址的实际运营方决定其日志、留存、数据地域与合规策略，均与本项目开发者无关。请在使用前阅读对应服务商的隐私政策与服务条款，并自行确认其可信度。默认值仅作示例，你可以指向任意兼容 OpenAI Chat Completions 的服务。
+该地址的实际运营方决定其日志、留存、数据地域与合规策略，均与本项目开发者无关。请在使用前阅读对应服务商的隐私政策与服务条款，并自行确认其可信度。默认值仅作示例，你可以指向任意兼容的服务。可在「设置 → API 配置」中选择三种协议：**OpenAI Chat Completions**（`/v1/chat/completions`）、**OpenAI Responses**（`/v1/responses`）与 **Anthropic Messages**（`/v1/messages`）；切换协议时按协议使用对应的端点、鉴权头与请求格式。
 
 请仅使用各平台官方提供的 API 服务。EasyChat2 不提供任何共享 API Key、代理地址、中转接口或非官方接口。使用非官方渠道、共享密钥或代理服务产生的一切后果，由用户自行承担。
 

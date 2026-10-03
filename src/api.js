@@ -1,6 +1,15 @@
 import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from './storage.js';
 import { registerSecretValues } from './secrets.js';
 import { recordDiagnostic } from './diagnostics.js';
+import {
+  buildRequestBody,
+  buildRequestHeaders,
+  normalizeProtocol,
+  normalizeProtocolUrl,
+  parseFinalPayload,
+  parseProtocolError,
+  parseStreamPayload,
+} from './apiProtocols.js';
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
 // 用同一个 30s 阈值会误报“请求超时”。
@@ -31,6 +40,7 @@ export function getConfigFingerprint(config) {
     String(source.apiKey || ''),
     String(source.authHeader || 'Authorization'),
     String(source.authScheme === undefined ? 'Bearer ' : source.authScheme),
+    normalizeProtocol(source.protocol),
     source.supportsVision === true,
     source.supportsThinking === true,
     source.supportsAudio === true,
@@ -110,53 +120,11 @@ export function normalizeAssistantContent(value) {
     .join('');
 }
 
-function extractDeltaContent(payload) {
-  const choice = payload?.choices?.[0];
-  const delta = choice?.delta?.content;
-  if (delta !== undefined && delta !== null) return normalizeAssistantContent(delta);
-  const message = choice?.message?.content;
-  return message === undefined || message === null ? '' : normalizeAssistantContent(message);
-}
-
-function extractReasoningDelta(payload) {
-  const choice = payload?.choices?.[0];
-  const delta = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning;
-  if (typeof delta === 'string') return delta;
-  const message = choice?.message?.reasoning_content ?? choice?.message?.reasoning;
-  return typeof message === 'string' ? message : '';
-}
-
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   if (typeof payload.error === 'string') return payload.error;
   if (typeof payload.error.message === 'string') return payload.error.message;
   return '接口返回错误。';
-}
-
-// 流式增量：OpenAI 兼容端会把 tool_calls 按 index 分片下发，
-// 首片带 id/name，其余片只带 arguments 片段。
-function extractToolCallDeltas(payload) {
-  const list = payload?.choices?.[0]?.delta?.tool_calls;
-  return Array.isArray(list) ? list : [];
-}
-
-// 非流式正文：message.tool_calls 是一次性给全的完整数组。
-function extractMessageToolCalls(message) {
-  const list = message?.tool_calls;
-  if (!Array.isArray(list)) return [];
-  return list.map((call, index) => ({
-    index,
-    id: typeof call?.id === 'string' ? call.id : '',
-    function: {
-      name: typeof call?.function?.name === 'string' ? call.function.name : '',
-      arguments: typeof call?.function?.arguments === 'string' ? call.function.arguments : '',
-    },
-  }));
-}
-
-function extractFinishReason(payload) {
-  const reason = payload?.choices?.[0]?.finish_reason;
-  return typeof reason === 'string' ? reason : null;
 }
 
 export function createAbortError() {
@@ -229,11 +197,9 @@ export async function streamChatCompletion(messages, options = {}) {
   if (!hasModel) {
     throw new Error('请先在“设置 → API 配置”里添加并选择模型。');
   }
-  if (config.protocol === 'anthropic') {
-    throw new Error('Claude 协议暂未开放，请在「设置 → API 配置」改用 OpenAI 兼容协议。');
-  }
+  const protocol = normalizeProtocol(config.protocol);
 
-  const url = normalizeChatUrl(config.baseUrl);
+  const url = normalizeProtocolUrl(protocol, config.baseUrl);
   if (!/^https?:\/\/[^/\s]+/i.test(url)) {
     throw new Error('请填写有效的 HTTP(S) API 地址。');
   }
@@ -272,14 +238,15 @@ export async function streamChatCompletion(messages, options = {}) {
     let idleTimer = null;
     let removeAbortListener = null;
 
+    // parseStreamPayload 已把三种协议的增量归一成 { index, id, name, arguments }，
+    // 这里只负责按 index 归并 arguments 分片。
     const mergeToolCallDeltas = list => {
       for (const raw of list) {
         const index = Number.isInteger(raw && raw.index) ? raw.index : 0;
         const entry = toolCallEntries.get(index) || { index, id: '', name: '', arguments: '' };
         if (raw && typeof raw.id === 'string' && raw.id) entry.id = raw.id;
-        const fn = (raw && raw.function) || {};
-        if (typeof fn.name === 'string' && fn.name) entry.name = fn.name;
-        if (typeof fn.arguments === 'string') entry.arguments += fn.arguments;
+        if (raw && typeof raw.name === 'string' && raw.name) entry.name = raw.name;
+        if (raw && typeof raw.arguments === 'string') entry.arguments += raw.arguments;
         toolCallEntries.set(index, entry);
       }
     };
@@ -421,22 +388,25 @@ export async function streamChatCompletion(messages, options = {}) {
       }
       sawPayloadData = true;
 
-      const errorMessage = extractErrorMessage(payload);
+      // 各协议的错误体位置不同；先看协议通用错误，再看 OpenAI 兼容的顶层 error。
+      const parsed = parseStreamPayload(protocol, payload);
+      const errorMessage = (parsed && parsed.error)
+        || extractErrorMessage(payload);
       if (errorMessage) {
         throw new Error(errorMessage);
       }
 
-      const reasoningDelta = extractReasoningDelta(payload);
-      if (reasoningDelta) {
-        fullReasoning += reasoningDelta;
+      if (parsed.reasoning) {
+        fullReasoning += parsed.reasoning;
         if (onReasoning) onReasoning(fullReasoning);
       }
 
-      mergeToolCallDeltas(extractToolCallDeltas(payload));
-      const reason = extractFinishReason(payload);
-      if (reason) finishReason = reason;
+      if (Array.isArray(parsed.toolCalls) && parsed.toolCalls.length) {
+        mergeToolCallDeltas(parsed.toolCalls);
+      }
+      if (parsed.finishReason) finishReason = parsed.finishReason;
 
-      const delta = extractDeltaContent(payload);
+      const delta = parsed.text;
       if (!delta) return;
       fullText += delta;
       if (onChunk) onChunk(fullText);
@@ -472,11 +442,8 @@ export async function streamChatCompletion(messages, options = {}) {
     };
 
     xhr.open('POST', url);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Accept', 'text/event-stream');
-    const authHeader = String(config.authHeader || 'Authorization');
-    const authScheme = config.authScheme === undefined ? 'Bearer ' : String(config.authScheme);
-    xhr.setRequestHeader(authHeader, `${authScheme}${config.apiKey}`);
+    const headers = buildRequestHeaders(protocol, config, { stream });
+    Object.keys(headers).forEach(name => xhr.setRequestHeader(name, headers[name]));
 
     if (signal) {
       const onAbortSignal = () => {
@@ -540,23 +507,21 @@ export async function streamChatCompletion(messages, options = {}) {
         const data = JSON.parse(body);
         // HTTP 200 也可能带 error（网关/服务商的错误体），必须按失败处理，
         // 否则会被当成“空回复”继续朗读、记账、写总结。
-        const errorMessage = extractErrorMessage(data);
+        const errorMessage = parseProtocolError(protocol, data) || extractErrorMessage(data);
         if (errorMessage) {
           fail(new Error(errorMessage));
           return;
         }
-        const message = data?.choices?.[0]?.message || {};
-        const reasoning = typeof message.reasoning_content === 'string'
-          ? message.reasoning_content
-          : (typeof message.reasoning === 'string' ? message.reasoning : '');
-        if (reasoning) {
-          fullReasoning = reasoning;
-          if (onReasoning) onReasoning(reasoning);
+        const parsed = parseFinalPayload(protocol, data);
+        if (parsed.reasoning) {
+          fullReasoning = parsed.reasoning;
+          if (onReasoning) onReasoning(parsed.reasoning);
         }
-        mergeToolCallDeltas(extractMessageToolCalls(message));
-        const reason = extractFinishReason(data);
-        if (reason) finishReason = reason;
-        fullText = normalizeAssistantContent(message.content);
+        if (Array.isArray(parsed.toolCalls) && parsed.toolCalls.length) {
+          mergeToolCallDeltas(parsed.toolCalls);
+        }
+        if (parsed.finishReason) finishReason = parsed.finishReason;
+        fullText = parsed.text;
         finishWithConfig(() => succeed(makeResult()));
       } catch (error) {
         fail(new Error('接口返回了无法解析的内容。'));
@@ -568,11 +533,18 @@ export async function streamChatCompletion(messages, options = {}) {
 
     if (settled) return;
     try {
-      const body = { model, messages, stream, ...thinkingParams, ...samplingParams };
-      if (tools && tools.length > 0) {
-        body.tools = tools;
-        if (toolChoice !== undefined) body.tool_choice = toolChoice;
-      }
+      const body = buildRequestBody({
+        protocol,
+        model,
+        messages,
+        stream,
+        tools,
+        toolChoice,
+        samplingParams,
+        thinkingParams,
+        thinkingSettings,
+        config,
+      });
       xhr.send(JSON.stringify(body));
       armIdleTimer();
     } catch (error) {
