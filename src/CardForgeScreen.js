@@ -33,7 +33,7 @@ import {
   recordAnswer,
   summarizeAnswers,
 } from './cardForge/forge.js';
-import { promoteForgeImageToAvatar, deleteForgeDraftImages } from './cardForge/media.js';
+import { promoteForgeImageToAvatar, deleteForgeDraftImages, deleteForgeImage } from './cardForge/media.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import {
   clearCardForge,
@@ -485,9 +485,22 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       patch.bgUri = bgUri;
        const created = await addCharacter(patch);
        if (!mountedRef.current || !activeRef.current) return;
+       // 角色确实建好了，草稿目录里的副本才可以清理（复制与删除分开做，
+       // 是为了让落库失败时草稿仍指向存在的文件，界面不会变成破图）。
+       await Promise.all([
+         deleteForgeImage(draft.avatarUri),
+         deleteForgeImage(draft.bgUri),
+       ]);
        await ensureCharacterSession(created.id).catch(() => {});
        if (!mountedRef.current || !activeRef.current) return;
-       update(appendTranscript(stateRef.current, {
+       // 草稿里要把路径换成提升后的 avatars/ 路径：草稿目录里的副本已被删除，
+       // 留着旧路径再点一次「导入」会去复制不存在的文件而报错。
+       const nextState = {
+         ...stateRef.current,
+         draft: { ...(stateRef.current && stateRef.current.draft), avatarUri, bgUri },
+         updatedAt: Date.now(),
+       };
+       await update(appendTranscript(nextState, {
 
         role: 'note',
         text: `已导入角色库：${created.name}。可以去「角色」页查看，或继续修改后再次导入。`,

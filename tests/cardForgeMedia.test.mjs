@@ -128,6 +128,18 @@ test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片�
   assert.match(screen, /promoteForgeImageToAvatar\(draft\.avatarUri/, '导入时提升头像');
   assert.match(screen, /promoteForgeImageToAvatar\(draft\.bgUri/, '导入时提升背景');
   assert.match(screen, /patch\.avatarUri = avatarUri/, '提升后的路径写回角色补丁');
+  // 顺序必须是「复制到 avatars → 落库成功 → 才删草稿副本」：
+  // 先删后落库的话，落库失败时草稿会指向已被删掉的文件（界面变破图）。
+  const importBlock = screen.slice(
+    screen.indexOf('const [avatarUri, bgUri] = await Promise.all('),
+    screen.indexOf('已导入角色库')
+  );
+  const promoteAt = importBlock.indexOf('promoteForgeImageToAvatar(draft.avatarUri');
+  const createAt = importBlock.indexOf('await addCharacter(patch)');
+  const cleanupAt = importBlock.indexOf('deleteForgeImage(draft.avatarUri');
+  assert.ok(promoteAt >= 0 && createAt >= 0 && cleanupAt >= 0, '提升/落库/清理三步都应存在');
+  assert.ok(promoteAt < createAt && createAt < cleanupAt, '顺序应为 提升 → 落库 → 清理草稿副本');
+  assert.match(screen, /await update\(appendTranscript\(nextState/, '草稿路径要换成提升后的路径并落盘');
   // 重新开始时清理草稿图
   assert.match(screen, /await deleteForgeDraftImages\(\)/, '重新开始应清理草稿图');
 

@@ -58,7 +58,10 @@ export async function deleteForgeImage(uri) {
   } catch (error) {}
 }
 
-// 导入角色库时把草稿图提升到 avatars/：复制后删掉草稿副本，返回新 uri。
+// 导入角色库时把草稿图复制到 avatars/，返回新 uri。
+// 刻意只复制、不删草稿副本：落库失败时草稿仍指向存在的文件（界面不会变成破图），
+// 调用方在角色确实创建成功后调 deleteForgeImage 收尾；万一没走到那一步，
+// 提升出来的副本没被任何角色引用，下次孤儿回收会清掉它。
 // 不是草稿图（如「角色 → 制卡」带回的、已在 avatars/ 的图）原样返回，不做多余复制。
 export async function promoteForgeImageToAvatar(uri, { now = Date.now() } = {}) {
   const source = String(uri || '');
@@ -74,7 +77,6 @@ export async function promoteForgeImageToAvatar(uri, { now = Date.now() } = {}) 
     await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
     throw error;
   }
-  await FileSystem.deleteAsync(source, { idempotent: true }).catch(() => {});
   return destination;
 }
 
