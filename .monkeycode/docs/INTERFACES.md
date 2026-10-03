@@ -622,6 +622,25 @@ data: [DONE]
 
 工具执行上下文 `ctx = { signal, mode, characterId, sessionId, workspaceMode }`；文件类工具的沙盒边界由第 6 项（工作区）实现。`useChatSend.js` 的 `onlineSend → runAgentTurn` 接线归 `src/chat/`（第 8 项接入时做）。
 
+## 工作区接口
+
+### 工作区文件工具
+**位置**: `src/workspace/tools.js`、`src/workspace/store.js`、`src/workspace/paths.js`
+
+工作区是 agent 的受控文件沙盒，根目录 `<documentDirectory>/workspace/<sandboxId>/`（`sandboxId` 由 `characterId` 归一，缺省 `default`）。第一版只支持 `.txt` / `.md` / `.markdown` 纯文本读写。
+
+| 工具 | readOnly | 说明 |
+|------|----------|------|
+| `list_workspace_files({ subdir? })` | 是 | 递归列出文件（相对沙盒根；目录以 `/` 结尾），过滤非白名单扩展名 |
+| `read_workspace_file({ path })` | 是 | 读取文件内容；超过 1MB 截断 |
+| `write_workspace_file({ path, content })` | 否 | 新建/覆盖文件；仅「可改」模式可用 |
+
+- 路径安全由 `paths.js` 统一把关：拒绝 `..`、绝对路径、NUL、超长；扩展名白名单（`assertAllowedWorkspaceFile`）。
+- `registerWorkspaceTools({ root, fileSystem })` 注入依赖；原生默认入口为 `native.js` 的 `registerDefaultWorkspaceTools()`（惰性加载 `expo-file-system/legacy`）。
+- 工具执行时以 `ctx.characterId` 作为沙盒，故同一注册表可服务多角色且彼此隔离。
+- 模式门控由 `src/agent/tools/registry.js` 负责（`ask` 不暴露、`read` 仅只读、`write` 全部）。
+- `store.js` 的 `listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` 均接收注入的 `fileSystem`（原生 `expo-file-system/legacy`，测试用内存实现）；文件落在磁盘而非 AsyncStorage。
+
 ## 向量记忆接口
 
 **位置**: `src/vectorMemory/`
