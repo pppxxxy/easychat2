@@ -50,6 +50,7 @@ import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { pickWorkspaceFolder } from './workspace/picker.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
+import { isShellAvailable } from './workspace/shell.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors.js';
 import {
   Card,
@@ -70,6 +71,7 @@ import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
 import WorkspacePanel from './WorkspacePanel.js';
+import WorkspaceCapabilitiesCard from './WorkspaceCapabilitiesCard.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
@@ -1235,6 +1237,15 @@ export default function SettingsScreen() {
             small
             style={{ alignSelf: 'flex-start', marginTop: 12 }}
             onPress={() => setWorkspaceOpen(true)}
+          />
+
+          <WorkspaceCapabilitiesCard
+            settings={{
+              mode: workspaceMode,
+              location: workspaceFolder,
+              allowCommandExecution: commandExecution,
+            }}
+            shellAvailable={isShellAvailable()}
           />
         </Card>
 

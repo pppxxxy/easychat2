@@ -135,11 +135,20 @@ npm test             # 运行 Node 单元与回归测试
 | `src/agent/loop.js` | Agent 工具调用循环（跨轮累积、上限收尾、取消） |
 | `src/agent/tools/registry.js` | 工具注册表与 ask/read/write 模式门控 |
 | `src/workspace/paths.js` | 工作区路径安全（沙盒相对路径 + 扩展名白名单） |
-| `src/workspace/store.js` | 工作区文件 list/read/write（fileSystem 注入，可 Node 直测） |
-| `src/workspace/tools.js` | 工作区三工具定义与注册（list/read/write） |
+| `src/workspace/location.js` | 工作区根策略（应用内 / 外部 SAF 文件夹）+ 能力矩阵（纯函数） |
+| `src/workspace/store.js` | 工作区文件 list/read/write/edit（应用私有根后端；fileSystem 注入，可 Node 直测） |
+| `src/workspace/safStore.js` | 工作区外部根后端（expo-file-system v19 Directory/File，content:// 逐段解析） |
+| `src/workspace/picker.js` | 系统文件夹选择器（SAF，授权持久化；取消返回 null） |
+| `src/workspace/edit.js` | 精确文本替换（默认要求唯一匹配；replace 为空拒绝） |
+| `src/workspace/tools.js` | 工作区工具定义与注册（list/read/write/edit/export_docx + 可选 run_shell） |
+| `src/workspace/shell.js` | 命令执行 JS 桥（三层门控、输出截断、中止即 kill） |
+| `src/workspace/capabilities.js` | 工作区能力说明数据（1→5 循环 + 当前边界，纯数据） |
 | `src/workspace/docx.js` | Word(.docx) 导出：fflate 自拼最小 OOXML |
-| `src/workspace/native.js` | 工作区原生默认入口（惰性加载 expo-file-system） |
-| `src/WorkspacePanel.js` | 工作区面板（浏览/预览/分享/新建/导出 Word） |
+| `src/workspace/native.js` | 工作区后端装配与工具注册（按设置选根；shellGateReason 门控） |
+| `src/WorkspacePanel.js` | 工作区面板（浏览/预览/分享/新建/导出 Word；按当前根走后端） |
+| `src/WorkspaceCapabilitiesCard.js` | 工作区能力说明卡片（设置页内，可折叠） |
+| `src/chat/toolApproval.js` | 工具执行前的人工确认（可等待的 Alert；中止即结算为拒绝） |
+| `plugins/withShellExecutor.js` + `plugins/shellExecutor/android/` | 命令执行原生模块（Kotlin，prebuild 时注入 android/） |
 | `src/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
 | `src/context/AppContext.js` | 全局角色库状态 |
 | `src/context/characterLibrary.js` | 角色库状态迁移纯函数 |

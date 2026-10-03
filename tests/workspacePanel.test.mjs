@@ -77,3 +77,22 @@ test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', asyn
   assert.ok(zhCN['chat.tool.status.reading'] && en['chat.tool.status.reading'], '工具气泡词条中英齐全');
   assert.equal(placeholders(zhCN['chat.tool.status.reading']), placeholders(en['chat.tool.status.reading']));
 });
+test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲染', () => {
+  const source = readSource('src/WorkspaceCapabilitiesCard.js');
+  assert.ok(source.includes('useTranslation') && /const \{ t \} = useTranslation\(\)/.test(source), '接入 i18n');
+  assert.ok(source.includes('capabilityViewModel'), '结构来自纯数据模块');
+  const CJK = /[\u4e00-\u9fff]/;
+  const offenders = [];
+  source.split('\n').forEach((line, index) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+    const code = line.replace(/\/\/.*$/, '').replace(/\/\*[^*]*\*\//g, '');
+    if (CJK.test(code)) offenders.push(`${index + 1}  ${trimmed.slice(0, 80)}`);
+  });
+  assert.deepEqual(offenders, [], `能力说明卡片仍有硬编码中文：\n${offenders.join('\n')}`);
+  // 设置页必须把它渲染进工作区卡片，并传入当前设置与 shell 可用性
+  const settings = readSource('src/SettingsScreen.js');
+  assert.ok(settings.includes('<WorkspaceCapabilitiesCard'), '设置页渲染能力说明卡片');
+  assert.ok(/settings=\{\{[\s\S]{0,200}allowCommandExecution: commandExecution/.test(settings), '传入当前工作区设置');
+  assert.ok(/shellAvailable=\{isShellAvailable\(\)\}/.test(settings), '传入 shell 是否可用');
+});
