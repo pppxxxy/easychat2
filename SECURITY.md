@@ -66,7 +66,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 ## 5. Android 权限说明
 
-应用使用系统文件选择器和系统图片选择器，不申请相机或传统存储权限。`expo-image-picker` 仅声明图片选择用途文案，Android 的传统读写媒体权限通过 `blockedPermissions` 排除：
+应用使用系统文件选择器和系统图片选择器，不申请传统存储权限；**拍照附件功能需要相机权限**（见下）。`expo-image-picker` 声明图片选择与相机的用途文案，Android 的传统读写媒体权限通过 `blockedPermissions` 排除：
 
 | 权限 | 处理 |
 |------|------|
@@ -76,6 +76,8 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `MODIFY_AUDIO_SETTINGS` | 已排除 |
 
 **麦克风（`RECORD_AUDIO`）**：语音消息功能需要，由 `expo-audio` 插件声明（`recordAudioAndroid:true`），用途文案为「录制语音消息需要访问麦克风」。仅在首次点麦克风录音时由系统弹窗请求；拒绝后不启动录音，其他功能不受影响。**不使用语音消息即不会请求该权限。**
+
+**相机（`CAMERA`）**：聊天页「添加附件 → 拍照」功能需要，由 `expo-image-picker` 插件声明，用途文案为「拍摄照片发送到聊天」（iOS 对应 `NSCameraUsageDescription`）。仅在首次点「拍照」时由系统弹窗请求；拒绝后不打开相机并提示到系统设置开启，从相册选图、语音等其他功能不受影响。**不使用拍照即不会请求该权限。**注意：**曾装过 `cameraPermission:false` 旧版本的设备**，插件当时把 CAMERA 写成了屏蔽权限（`tools:node="remove"`），必须卸载重装（或覆盖安装新 release）后系统设置里才会出现相机开关。
 
 **主动消息与通知**：开启主动消息后，由 `withProactiveMessage` 插件声明下列权限（不开启该功能则不占用）：
 
@@ -93,6 +95,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `INTERNET` | 发送 API 请求所必需（`withLocalApiServer` 亦声明，用于本机回环服务） |
 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`SCHEDULE_EXACT_ALARM`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC` | 主动消息（见上表） |
 | `RECORD_AUDIO` | 语音消息录音（见上） |
+| `CAMERA` | 拍照附件（见上） |
 | `SYSTEM_ALERT_WINDOW`、`VIBRATE` | Expo / React Native 模板默认值，非本应用功能所需；如需可继续通过 `blockedPermissions` 排除（`SYSTEM_ALERT_WINDOW` 与开发菜单相关，请在真机上验证后再决定） |
 
 其他加固：
@@ -100,7 +103,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - `android:allowBackup="false"`，避免 API Key 等数据进入系统备份。
 - 角色卡导入使用 Storage Access Framework，不需要存储权限。
 - 建议在每次发布前核对 release 包的实际清单，确认没有额外被引入的权限。
-- iOS 侧声明图片库用途文案，用于系统图片选择器；不申请相机权限，录音权限由语音消息触发。
+- iOS 侧声明图片库用途文案（系统图片选择器）、相机用途文案（拍照附件）与麦克风用途文案（语音消息录音），均在对应功能首次使用时由系统弹窗请求。
 
 ## 5.5 各功能向第三方发送的内容
 
@@ -108,7 +111,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 | 功能 | 发送内容 | 默认是否启用 |
 |------|---------|------------|
-| 聊天（含群聊） | 系统提示词、命中的世界书、历史消息与输入、模型名、`Authorization` 头 | 配置 API 后即启用 |
+| 聊天（含群聊） | 系统提示词、命中的世界书、历史消息与输入（**含图片附件**——拍照、相册选图与表情包在开启识图时以多模态内容发送）、模型名、`Authorization` 头 | 配置 API 后即启用 |
 | 对话配图 / 生图 | 提示词、可选的原图（图生图） | 关闭，需手动开启 |
 | 语音播报（TTS） | 待朗读的回复文本（经清洗去 Markdown） | 关闭 |
 | 语音转写 | 录音音频文件 | 发送语音时 |
