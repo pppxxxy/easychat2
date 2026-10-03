@@ -22,6 +22,7 @@ import * as Sharing from 'expo-sharing';
 
 import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHeader, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { getWorkspaceSettings } from './storage.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
 import { getWorkspaceFileSystem, defaultWorkspaceRoot } from './workspace/native.js';
@@ -34,10 +35,11 @@ import {
   writeWorkspaceFile,
 } from './workspace/store.js';
 
-const MODE_LABEL = { ask: '询问', read: '只读', write: '可改' };
+const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
 export default function WorkspacePanel({ visible, onClose, characterId = 'default' }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const fileSystem = useMemo(() => getWorkspaceFileSystem(), []);
@@ -58,7 +60,7 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
 
   const refresh = useCallback(async () => {
     if (!fileSystem) {
-      setError('当前环境无法访问工作区文件系统。');
+      setError(t('workspace.panel.err.fileSystem'));
       return;
     }
     setLoading(true);
@@ -67,11 +69,11 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
       setFiles(list);
       setError('');
     } catch (caught) {
-      setError('读取工作区失败，请稍后重试。');
+      setError(t('workspace.panel.err.read'));
     } finally {
       setLoading(false);
     }
-  }, [characterId, fileSystem, root]);
+  }, [characterId, fileSystem, root, t]);
 
   useEffect(() => {
     if (!visible) return;
@@ -87,20 +89,20 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
     try {
       const available = await Sharing.isAvailableAsync();
       if (available) {
-        await Sharing.shareAsync(fileUri(name), { dialogTitle: `分享 ${name}` });
+        await Sharing.shareAsync(fileUri(name), { dialogTitle: t('workspace.panel.share.dialog', { name }) });
         return;
       }
       if (isAllowedWorkspaceFile(name)) {
         const result = await readWorkspaceFile({ root, characterId, path: name, fileSystem });
         await Clipboard.setStringAsync(result.content);
-        Alert.alert('已复制', '当前环境不支持分享，文本内容已复制到剪贴板。');
+        Alert.alert(t('workspace.panel.copied.title'), t('workspace.panel.copied.body'));
         return;
       }
-      Alert.alert('无法分享', '当前环境不支持文件分享。');
+      Alert.alert(t('workspace.panel.err.share'), t('workspace.panel.err.shareUnsupported'));
     } catch (caught) {
-      Alert.alert('分享失败', '无法分享该文件，请稍后重试。');
+      Alert.alert(t('workspace.panel.err.share'), t('workspace.panel.err.share'));
     }
-  }, [characterId, fileSystem, fileUri, root]);
+  }, [characterId, fileSystem, fileUri, root, t]);
 
   const openFile = useCallback(async name => {
     if (String(name || '').endsWith('/')) return;
@@ -112,15 +114,15 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
       const result = await readWorkspaceFile({ root, characterId, path: name, fileSystem });
       setPreview(result);
     } catch (caught) {
-      Alert.alert('打开失败', '文件读取失败，可能已被清理。');
+      Alert.alert(t('workspace.panel.err.open'), t('workspace.panel.err.open'));
     }
-  }, [characterId, fileSystem, root, shareFile]);
+  }, [characterId, fileSystem, root, shareFile, t]);
 
   const handleDelete = useCallback(name => {
-    Alert.alert('删除文件', `确定从工作区删除「${name}」吗？`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('workspace.panel.delete.title'), t('workspace.panel.delete.body', { name }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           FileSystem.deleteAsync(fileUri(name), { idempotent: true })
@@ -128,27 +130,27 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
               setFiles(list => list.filter(entry => entry !== name));
               if (preview && preview.path === name) setPreview(null);
             })
-            .catch(() => Alert.alert('删除失败', '文件删除失败，请稍后重试。'));
+            .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
         },
       },
     ]);
-  }, [fileUri, preview]);
+  }, [fileUri, preview, t]);
 
   const startTextForm = useCallback(() => {
     if (!canWrite) {
-      Alert.alert('当前模式不可写', '请到「设置 → 工作区」把模式切换为「可改」。');
+      Alert.alert(t('workspace.panel.locked.title'), t('workspace.panel.locked.body'));
       return;
     }
     setForm({ kind: 'text', name: '', content: '' });
-  }, [canWrite]);
+  }, [canWrite, t]);
 
   const startDocxForm = useCallback(() => {
     if (!canWrite) {
-      Alert.alert('当前模式不可写', '请到「设置 → 工作区」把模式切换为「可改」。');
+      Alert.alert(t('workspace.panel.locked.title'), t('workspace.panel.locked.body'));
       return;
     }
     setForm({ kind: 'docx', name: '', content: '' });
-  }, [canWrite]);
+  }, [canWrite, t]);
 
   const submitForm = useCallback(async () => {
     if (!form) return;
@@ -168,24 +170,26 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
       setForm(null);
       await refresh();
     } catch (caught) {
-      Alert.alert('保存失败', '写入失败，请检查是否越出工作区或磁盘空间不足。');
+      Alert.alert(t('workspace.panel.err.save'), t('workspace.panel.err.save'));
     }
-  }, [characterId, fileSystem, form, refresh, root]);
+  }, [characterId, fileSystem, form, refresh, root, t]);
+
+  const modeLabel = t(MODE_LABEL_KEY[mode] || MODE_LABEL_KEY.ask);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
-        <SheetHeader title="工作区" onClose={onClose} />
+        <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />
 
         <ScrollView contentContainerStyle={styles.body}>
           <View style={styles.modeRow}>
             <Ionicons name="briefcase-outline" size={15} color={theme.colors.primaryMuted} />
             <Text style={styles.modeText}>
-              当前模式：{MODE_LABEL[mode] || mode}
-              {canWrite ? '（可新建/修改/导出）' : '（只读浏览；要写入请到设置改为「可改」）'}
+              {t('workspace.panel.mode.prefix')}{modeLabel}
+              {canWrite ? t('workspace.panel.mode.suffixWrite') : t('workspace.panel.mode.suffixReadonly')}
             </Text>
           </View>
-          <Text style={styles.sandboxHint} numberOfLines={1}>沙盒：{characterId}</Text>
+          <Text style={styles.sandboxHint} numberOfLines={1}>{t('workspace.panel.sandbox', { id: characterId })}</Text>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -196,7 +200,7 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
               activeOpacity={0.85}
             >
               <Ionicons name="document-text-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>新建文本</Text>
+              <Text style={styles.actionText}>{t('workspace.panel.newText')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, !canWrite && styles.actionButtonDisabled]}
@@ -204,29 +208,29 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
               activeOpacity={0.85}
             >
               <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>导出 Word</Text>
+              <Text style={styles.actionText}>{t('workspace.panel.exportWord')}</Text>
             </TouchableOpacity>
           </View>
 
           {form ? (
             <View style={styles.formCard}>
-              <FieldLabel>{form.kind === 'text' ? '新建文本文件' : '导出 Word 文档'}</FieldLabel>
+              <FieldLabel>{form.kind === 'text' ? t('workspace.panel.form.newText') : t('workspace.panel.form.exportWord')}</FieldLabel>
               <TextField
                 style={styles.input}
-                placeholder={form.kind === 'text' ? '文件名（如 笔记.txt）' : '文档标题'}
+                placeholder={form.kind === 'text' ? t('workspace.panel.form.nameText') : t('workspace.panel.form.nameDocx')}
                 value={form.name}
                 onChangeText={value => setForm(current => ({ ...current, name: value }))}
               />
               <TextField
                 style={[styles.input, styles.contentInput]}
-                placeholder="正文内容（换行分段）"
+                placeholder={t('workspace.panel.form.content')}
                 value={form.content}
                 onChangeText={value => setForm(current => ({ ...current, content: value }))}
                 multiline
               />
               <View style={styles.formActions}>
-                <GhostButton title="取消" small onPress={() => setForm(null)} />
-                <PrimaryButton title="保存" small onPress={submitForm} />
+                <GhostButton title={t('common.cancel')} small onPress={() => setForm(null)} />
+                <PrimaryButton title={t('common.save')} small onPress={submitForm} />
               </View>
             </View>
           ) : null}
@@ -238,10 +242,10 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
           {!loading && files.length === 0 && !error ? (
             <EmptyState
               icon="briefcase-outline"
-              title="工作区还是空的"
+              title={t('workspace.panel.empty.title')}
               description={canWrite
-                ? '新建文本或导出 Word 后，文件会出现在这里；开启 agent 后角色也能读写它们。'
-                : '角色在「可改」模式下写入的文件会出现在这里。'}
+                ? t('workspace.panel.empty.write')
+                : t('workspace.panel.empty.read')}
             />
           ) : null}
 
@@ -257,10 +261,10 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
               </TouchableOpacity>
               {!String(name).endsWith('/') ? (
                 <>
-                  <TouchableOpacity style={styles.fileAction} onPress={() => shareFile(name)} accessibilityLabel={`分享 ${name}`}>
+                  <TouchableOpacity style={styles.fileAction} onPress={() => shareFile(name)} accessibilityLabel={t('workspace.panel.a11y.share', { name })}>
                     <Ionicons name="share-outline" size={16} color={theme.colors.textMuted} />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.fileAction} onPress={() => handleDelete(name)} accessibilityLabel={`删除 ${name}`}>
+                  <TouchableOpacity style={styles.fileAction} onPress={() => handleDelete(name)} accessibilityLabel={t('workspace.panel.a11y.delete', { name })}>
                     <Ionicons name="trash-outline" size={16} color={theme.colors.textMuted} />
                   </TouchableOpacity>
                 </>
@@ -273,17 +277,17 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
           <View style={styles.container}>
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
             <ScrollView contentContainerStyle={styles.body}>
-              <FieldHint>{preview && preview.truncated ? '内容较长，仅显示前 1MB。' : '文本预览（只读）'}</FieldHint>
+              <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
               <Text style={styles.previewText}>{preview ? preview.content : ''}</Text>
               <View style={styles.formActions}>
                 <GhostButton
-                  title="复制"
+                  title={t('common.copy')}
                   small
                   onPress={() => {
                     if (preview) Clipboard.setStringAsync(preview.content).catch(() => {});
                   }}
                 />
-                <GhostButton title="分享" small onPress={() => { if (preview) shareFile(preview.path); }} />
+                <GhostButton title={t('workspace.panel.a11y.share', { name: preview ? preview.path : '' })} small onPress={() => { if (preview) shareFile(preview.path); }} />
               </View>
             </ScrollView>
           </View>

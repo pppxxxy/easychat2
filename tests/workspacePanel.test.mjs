@@ -29,3 +29,30 @@ test('SettingsScreen：工作区卡片提供面板入口', () => {
   assert.ok(/setWorkspaceOpen\(true\)/.test(source), '卡片按钮打开面板');
   assert.ok(source.includes('characterId={characterId}'), '面板按当前角色沙盒传入');
 });
+
+test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', async () => {
+  const source = readSource('src/WorkspacePanel.js');
+  assert.ok(source.includes('useTranslation'), '接入 useTranslation');
+  assert.ok(/const \{ t \} = useTranslation\(\)/.test(source), '取 t');
+  const CJK = /[\u4e00-\u9fff]/;
+  const offenders = [];
+  source.split('\n').forEach((line, index) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+    const code = line.replace(/\/\/.*$/, '').replace(/\/\*[^*]*\*\//g, '');
+    if (CJK.test(code)) offenders.push(`${index + 1}  ${trimmed.slice(0, 80)}`);
+  });
+  assert.deepEqual(offenders, [], `WorkspacePanel 仍有硬编码中文：\n${offenders.join('\n')}`);
+
+  const { zhCN } = await import('../src/i18n/locales/zh-CN.js');
+  const { en } = await import('../src/i18n/locales/en.js');
+  const keys = Object.keys(zhCN).filter(key => key.startsWith('workspace.panel.'));
+  assert.ok(keys.length >= 20, `workspace.panel.* 词条数量异常：${keys.length}`);
+  assert.deepEqual(keys.filter(key => typeof en[key] !== 'string' || !en[key]), [], '英文缺词条');
+  // 占位符中英一致
+  const placeholders = text => (String(text).match(/\{(\w+)\}/g) || []).sort().join(',');
+  const mismatched = keys.filter(key => placeholders(zhCN[key]) !== placeholders(en[key]));
+  assert.deepEqual(mismatched, [], `占位符不一致：${mismatched.join(', ')}`);
+  assert.ok(zhCN['chat.tool.status.reading'] && en['chat.tool.status.reading'], '工具气泡词条中英齐全');
+  assert.equal(placeholders(zhCN['chat.tool.status.reading']), placeholders(en['chat.tool.status.reading']));
+});

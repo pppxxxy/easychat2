@@ -21,6 +21,7 @@ import {
   sendChatMessage,
 } from '../api.js';
 import { buildRequestMessages, filterRequestMedia } from '../chatPipeline.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { isStaleReply } from '../chatRace.js';
 import { getEditResendPlan } from '../messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../modelProvider.js';
@@ -151,6 +152,11 @@ export default function useChatSend({
     setAttachments,
     setQuoteTarget,
 }) {
+  // 翻译在 hook 顶层取，经 ref 传给 requestReply：requestReply 是空依赖 useCallback，
+  // 直接闭包 t 会在切换语言后继续用旧语言；ref 保证取到当前语言。
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  tRef.current = t;
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false, voiceAudio = null }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
@@ -395,7 +401,7 @@ export default function useChatSend({
               onToolEvent: event => {
                 // 轻提示：start 打一条临时气泡，end 清掉（不落库，pending 过滤兜底）。
                 if (!event) return;
-                if (event.phase === 'start') setToolStatus(`正在读取工作区（${event.name}）…`);
+                if (event.phase === 'start') setToolStatus(tRef.current('chat.tool.status.reading', { name: event.name }));
                 else setToolStatus('');
               },
               context: { characterId: character.id, sessionId: sendSessionId },
