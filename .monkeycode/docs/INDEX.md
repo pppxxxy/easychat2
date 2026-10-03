@@ -2,7 +2,7 @@
 
 本目录是 EasyChat2 的项目文档，面向希望了解系统结构、集成接口或参与开发的读者。文档基于当前代码仓库生成，描述实际实现。
 
-**快速链接**: [架构](./ARCHITECTURE.md) | [接口](./INTERFACES.md) | [开发者指南](./DEVELOPER_GUIDE.md) | [进度交接](./进度交接.md)
+**快速链接**: [架构](./ARCHITECTURE.md) | [接口](./INTERFACES.md) | [开发者指南](./DEVELOPER_GUIDE.md) | [进度交接](./进度交接.md) | [工具循环契约](./agent-loop.md)
 
 ---
 
@@ -22,6 +22,9 @@
 
 ### [开发者指南](./DEVELOPER_GUIDE.md)
 环境搭建、运行与构建、编码规范与常见任务。贡献者必读。
+
+### [工具循环契约](./agent-loop.md)
+Agent 工具调用循环 v1 接口契约（数据结构、SSE 累积、循环算法、取消语义、模式门控、本地模型策略）。
 
 ---
 
