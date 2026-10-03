@@ -20,16 +20,17 @@ test('测试环境无 expo-file-system 时安全降级为 null', () => {
   assert.equal(defaultWorkspaceRoot(), 'workspace/');
 });
 
-test('registerDefaultWorkspaceTools 仍能登记四个工具（原生就绪后即可用）', () => {
+test('registerDefaultWorkspaceTools 仍能登记五个工具（原生就绪后即可用）', () => {
   const names = registerDefaultWorkspaceTools();
   assert.deepEqual(names, [
     'list_workspace_files',
     'read_workspace_file',
     'write_workspace_file',
+    'edit_workspace_file',
     'export_workspace_docx',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 4);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 5);
   // 只读模式只放开两个读工具：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
@@ -42,7 +43,7 @@ test('默认（无设置/应用内根）走后端接口，且不再依赖 legacy
   // 只断言后端形态与接口齐备（真正的读写由 workspaceStore 的假实现覆盖）。
   const store = createWorkspaceStore(null);
   assert.equal(store.rootKind, 'app');
-  for (const method of ['listWorkspaceFiles', 'readWorkspaceFile', 'writeWorkspaceFile', 'writeWorkspaceBinaryFile', 'fileUri', 'deleteFile']) {
+  for (const method of ['listWorkspaceFiles', 'readWorkspaceFile', 'writeWorkspaceFile', 'writeWorkspaceBinaryFile', 'editWorkspaceFile', 'fileUri', 'deleteFile']) {
     assert.equal(typeof store[method], 'function', `后端必须实现 ${method}`);
   }
 });

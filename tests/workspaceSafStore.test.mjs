@@ -112,6 +112,23 @@ test('读回与列目录：目录带 /、非白名单扩展名不出现', async 
   );
 });
 
+test('edit：精确替换复用同一规则，多处匹配默认拒绝', async () => {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: ROOT, adapter });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'a.md', content: '猫 猫' });
+
+  await assert.rejects(
+    store.editWorkspaceFile({ characterId: 'c1', path: 'a.md', find: '猫', replace: '狗' }),
+    /匹配到 2 处/,
+  );
+  // 拒绝之后文件必须原样：不能被半途写坏
+  assert.equal((await store.readWorkspaceFile({ characterId: 'c1', path: 'a.md' })).content, '猫 猫');
+
+  const edited = await store.editWorkspaceFile({ characterId: 'c1', path: 'a.md', find: '猫', replace: '狗', all: true });
+  assert.equal(edited.count, 2);
+  assert.equal((await store.readWorkspaceFile({ characterId: 'c1', path: 'a.md' })).content, '狗 狗');
+});
+
 test('docx 走二进制写入（base64 直传，非文本）', async () => {
   const adapter = createFakeSaf();
   const store = createSafWorkspaceStore({ root: ROOT, adapter });

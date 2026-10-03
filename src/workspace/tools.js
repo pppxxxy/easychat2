@@ -66,6 +66,28 @@ const WORKSPACE_TOOL_DEFINITIONS = [
     }).then(result => `已写入 ${result.path}（${result.length} 字符）`),
   },
   {
+    name: 'edit_workspace_file',
+    description: '在工作区内按精确文本替换修改文件：把 find 换成 replace。默认要求 find 恰好出现一次；要一次替换多处须显式传 all:true。仅「可改」模式可用。',
+    readOnly: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '工作区内的相对路径（.txt/.md/.markdown）。' },
+        find: { type: 'string', description: '要被替换的原文（须与文件内容逐字一致，含缩进与换行）。' },
+        replace: { type: 'string', description: '替换成的新文本。' },
+        all: { type: 'boolean', description: '可选：true 时替换全部匹配（默认只替换唯一一处，多处匹配会报错）。' },
+      },
+      required: ['path', 'find', 'replace'],
+    },
+    execute: (options, args, ctx) => options.store.editWorkspaceFile({
+      characterId: ctx && ctx.characterId,
+      path: args.path,
+      find: args.find,
+      replace: args.replace,
+      all: args.all === true,
+    }).then(result => `已修改 ${result.path}（替换 ${result.count} 处）`),
+  },
+  {
     name: 'export_workspace_docx',
     description: '把一段文本导出为工作区内的 Word 文档（.docx）。仅「可改」模式可用。',
     readOnly: false,

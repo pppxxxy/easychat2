@@ -21,6 +21,7 @@ import {
   normalizeWorkspacePath,
   sanitizeSandboxId,
 } from './paths.js';
+import { applyWorkspaceEdit } from './edit.js';
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 6;
@@ -185,6 +186,14 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       if (typeof adapter.writeBase64 === 'function') await adapter.writeBase64(target.uri, payload);
       else await adapter.writeText(target.uri, payload);
       return { path: relative, base64Length: payload.length };
+    },
+
+    // 精确替换：与 legacy 后端同一规则（edit.js），只是读写都走 SAF。
+    async editWorkspaceFile({ characterId, path, find, replace, all = false } = {}) {
+      const current = await this.readWorkspaceFile({ characterId, path });
+      const edited = applyWorkspaceEdit({ content: current.content, find, replace, all });
+      const written = await this.writeWorkspaceFile({ characterId, path, content: edited.content });
+      return { path: written.path, count: edited.count, length: written.length };
     },
 
     // 面板分享/删除要拿到具体文件 uri；找不到返回 null（文件已被用户在文件管理器里删掉）。

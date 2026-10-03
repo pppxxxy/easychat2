@@ -8,6 +8,7 @@ import {
   normalizeWorkspacePath,
   sandboxDirectory,
 } from './paths.js';
+import { applyWorkspaceEdit } from './edit.js';
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 6;
@@ -114,6 +115,14 @@ export async function writeWorkspaceBinaryFile({ root, characterId, path, base64
 
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS });
 
+// 精确文本替换：读 → 替换 → 写回。匹配规则见 edit.js（默认要求唯一匹配）。
+export async function editWorkspaceFile({ root, characterId, path, find, replace, all = false, fileSystem } = {}) {
+  const current = await readWorkspaceFile({ root, characterId, path, fileSystem });
+  const edited = applyWorkspaceEdit({ content: current.content, find, replace, all });
+  const written = await writeWorkspaceFile({ root, characterId, path, content: edited.content, fileSystem });
+  return { path: written.path, count: edited.count, length: written.length };
+}
+
 // 应用私有根的后端。与 safStore.js 的 createSafWorkspaceStore 暴露**同一组方法名**：
 // 上层（tools.js / WorkspacePanel.js）只认这套接口，根是应用私有目录还是
 // 用户自选的外部文件夹，对它都是同一件事——换的只是后端。
@@ -135,6 +144,10 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
 
     writeWorkspaceBinaryFile: ({ characterId, path, base64 } = {}) => writeWorkspaceBinaryFile({
       root, characterId, path, base64, fileSystem,
+    }),
+
+    editWorkspaceFile: ({ characterId, path, find, replace, all } = {}) => editWorkspaceFile({
+      root, characterId, path, find, replace, all, fileSystem,
     }),
 
     // 面板的分享/删除要拿到具体文件 uri。legacy 后端里 uri 就是拼出来的字符串。
