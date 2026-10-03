@@ -154,6 +154,9 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
   let mediaSeen = 0;
   // 媒体目录清单：新增媒体目录必须同步登记，否则备份会静默丢文件
   // （恢复侧按备份载荷泛化处理，无需改动）。
+  // screen-watch/ 刻意不登记：截图是临时运行文件（滚动保留 20 张自动清扫），
+  // 不是用户创作内容；备份带上应用界面截图只有隐私暴露没有价值。评论文本在
+  // AsyncStorage 键里随备份走，恢复后 imageUri 悬空不影响阅读。
   for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge', 'music', 'books']) {
     throwIfAborted(signal);
     const collected = await collectMedia(directory, '', {
