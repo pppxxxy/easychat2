@@ -54,6 +54,28 @@ test('无法识别编码时抛 ENCODING', () => {
   assert.throws(() => decodeBytes(Buffer.alloc(16, 0xff)), (error) => error && error.code === 'ENCODING');
 });
 
+test('纯 CJK 无 BOM UTF-16（零字节启发失效）不落成 GB18030 乱码', () => {
+  // 纯中文的 UTF-16 原始字节不含 ASCII 零字节，looksLikeUtf16 判定为 null；
+  // 修复前会被 GB18030 胜出解出成片 NUL 乱码且不报错。
+  const text = '中文测试内容一段';
+  const le = Buffer.from(text, 'utf16le');
+  assert.equal(looksLikeUtf16(le), null, '前提：该输入确实绕过零字节启发');
+  const rLe = decodeBytes(le);
+  assert.equal(rLe.encoding, 'utf-16le');
+  assert.equal(rLe.text, text);
+  assert.equal(/[\u0000\uFFFD]/.test(rLe.text), false, '不得含 NUL/替换符');
+
+  const be = Buffer.from(le);
+  for (let i = 0; i + 1 < be.length; i += 2) {
+    const swap = be[i];
+    be[i] = be[i + 1];
+    be[i + 1] = swap;
+  }
+  const rBe = decodeBytes(be);
+  assert.equal(rBe.encoding, 'utf-16be');
+  assert.equal(rBe.text, text);
+});
+
 test('UTF-8 严格校验与 UTF-16 启发', () => {
   assert.equal(isStrictUtf8(Buffer.from('中文', 'utf8')), true);
   assert.equal(isStrictUtf8(Buffer.from([0xd6, 0xd0])), false, 'GBK 首字节非合法 UTF-8 起始');

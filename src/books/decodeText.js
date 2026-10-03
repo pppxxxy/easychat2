@@ -5,8 +5,10 @@
 // jschardet（体积 7.3M）。支持 UTF-8（含 BOM）/ UTF-16LE/BE（含 BOM 或无 BOM 启发）
 // / GB18030 / BIG5。
 //
-// 探测策略：BOM 优先 → 严格 UTF-8 校验 → UTF-16 零字节启发 → GB18030/BIG5 候选按
-// U+FFFD 替换符占比择优。全部候选超阈值则抛 { code:'ENCODING' }。
+// 探测策略：BOM 优先 → 严格 UTF-8 校验 → UTF-16 零字节启发 → GB18030/BIG5/UTF-16LE/BE
+// 候选按「可疑码位占比（U+FFFD/U+0000/非字符）→ 汉字占比」择优。可疑占比超阈值抛
+// { code:'ENCODING' }。把 UTF-16 候选并入评分是为了兜住「纯 CJK 无 BOM UTF-16」——
+// 其原始字节不含零字节，零字节启发失效，只靠 GB18030 会解出静默乱码。
 
 // text-encoding 是 CommonJS/UMD：Node ESM 下不能具名导入，用默认导入解构
 // （Metro/Babel 的 interop 同样适用）。
@@ -121,10 +123,31 @@ export function cjkRatio(text) {
   return total ? cjk / total : 0;
 }
 
+// 可疑码位占比：U+FFFD 替换符、U+0000 NUL、以及无字符（U+FFFE/U+FFFF、U+FDD0–U+FDEF）。
+// 合法书籍文本几乎不含这些；用于识别「按单字节编码误读双字节文本」与全 0xFF 之类
+// 任何候选都解不出正常文本的输入。纯 CJK 的 UTF-16（无 ASCII）零字节不足，looksLikeUtf16
+// 启发失效，会解成带成片 NUL 的乱码——该指标正是为这个静默乱码兜底。
+export function undesirableRatio(text) {
+  const source = String(text || '');
+  if (!source) return 0;
+  let bad = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    if (
+      code === REPLACEMENT_CODE
+      || code === 0
+      || code === 0xfffe
+      || code === 0xffff
+      || (code >= 0xfdd0 && code <= 0xfdef)
+    ) bad += 1;
+  }
+  return bad / source.length;
+}
+
 function isBetter(candidate, current) {
   if (!current) return true;
-  if (candidate.replacementRatio !== current.replacementRatio) {
-    return candidate.replacementRatio < current.replacementRatio;
+  if (candidate.undesirableRatio !== current.undesirableRatio) {
+    return candidate.undesirableRatio < current.undesirableRatio;
   }
   return candidate.cjkRatio > current.cjkRatio;
 }
@@ -162,8 +185,13 @@ export function decodeBytes(input) {
     if (ratio <= ENCODING_FFFD_THRESHOLD) return { text, encoding: utf16, replacementRatio: ratio };
   }
 
+  // 纯 CJK 的 UTF-16 原始字节不含零字节（如 U+4E2D = 2D 4E），looksLikeUtf16 启发失效；
+  // 把 UTF-16LE/BE 与 GB18030/BIG5 一起纳入评分：按替换符占比、NUL 占比、汉字占比依次择优。
+  // 正常 GBK/BIG5 文本的 UTF-16 解读会落到替换符/低汉字占比，不会反超。
+  const candidates = ['gb18030', 'big5', 'utf-16le', 'utf-16be'];
+
   let best = null;
-  for (const encoding of ['gb18030', 'big5']) {
+  for (const encoding of candidates) {
     let text = '';
     try {
       text = normalizeNewlines(decodeWith(encoding, bytes));
@@ -173,14 +201,14 @@ export function decodeBytes(input) {
     const candidate = {
       text,
       encoding,
-      replacementRatio: replacementRatio(text),
+      undesirableRatio: undesirableRatio(text),
       cjkRatio: cjkRatio(text),
     };
     if (isBetter(candidate, best)) best = candidate;
   }
 
-  if (best && best.replacementRatio <= ENCODING_FFFD_THRESHOLD) {
-    return { text: best.text, encoding: best.encoding, replacementRatio: best.replacementRatio };
+  if (best && best.undesirableRatio <= ENCODING_FFFD_THRESHOLD) {
+    return { text: best.text, encoding: best.encoding, replacementRatio: replacementRatio(best.text) };
   }
 
   const error = new Error('无法识别文件编码');
