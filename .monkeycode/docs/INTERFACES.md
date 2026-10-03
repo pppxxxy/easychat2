@@ -451,6 +451,9 @@
 | `@easychat2_music_index` | 音乐库 ID 索引（提交点，最后写；新导入置顶） |
 | `@easychat2_music_item::<id>` | 单曲记录 `{ id, name, uri, size, mime, durationMs, addedAt, triggers: [{ id, atMs, note }] }`；音频文件复制到 `documentDirectory/music/<id>.<ext>`，时长首播后回填 |
 | `@easychat2_music_comments::<songId>` | 听歌陪伴评论 `[{ id, characterId, characterName, text, atMs, createdAt, source: 'trigger' \| 'opening' \| 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |
+| `@easychat2_books_index` | 书架 ID 索引（提交点，最后写；新导入置顶） |
+| `@easychat2_books_item::<id>` | 书目 `{ id, name, uri, size, chars, addedAt, progress: { blockIndex, pageIndex, anchorText }, chapters: [{ title, blockIndex }] }`；正文**恒走文件** `documentDirectory/books/<id>.txt`（UTF-8 专用），进度只存块号+页号+锚文本（百分比随排版变化，不持久化） |
+| `@easychat2_book_comments::<bookId>` | 陪读评论 `[{ id, characterId, characterName, text, anchor: { blockIndex, anchorText, excerpt }, chapterTitle, createdAt, source: 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
 | `@easychat2_diary_settings` | 日记设置 `{ roles: { [characterId]: { enabled, roleName, lastDiaryDate, apiConfigId } }, apiConfigId, model, lastRunDate }` |
 | `@easychat2_diary_index` | 日记条目 ID 索引（提交点，最后写） |

@@ -17,6 +17,7 @@ import DiaryPanel from './DiaryPanel.js';
 import ImageGenScreen from './ImageGenScreen.js';
 import MapPanel from './MapPanel.js';
 import MomentsView from './MomentsView.js';
+import BookScreen from './books/BookScreen.js';
 import MusicScreen from './music/MusicScreen.js';
 import ProactivePanel from './ProactivePanel.js';
 import { GAMES } from './games/games.js';
@@ -146,7 +147,7 @@ function GamesView() {
 
 // 「世界」折叠分组：赋予角色生命力的扩展都收拢在这里。
 // 互动在分组内就地展开编辑；动态是虚拟化长列表，展开会切到独立面板（避免 FlatList 嵌套滚动）。
-function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic }) {
+function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic, onOpenBooks }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   // 互动分组初始保持折叠：进入页面先看到分组列表，不默认展开编辑面板。
@@ -158,8 +159,9 @@ function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic }) {
       list.push({ id: 'moments', label: '动态', icon: 'planet-outline', description: '角色会随时间生成自己的动态' });
     }
     list.push({ id: 'music', label: '听歌', icon: 'musical-notes-outline', description: '导入本地音乐，和角色一起听、在打点处聊感受' });
+    list.push({ id: 'books', label: '看书', icon: 'book-outline', description: '导入本地小说，和角色一起读、随页聊内容' });
     list.push({ id: 'interactive', label: '互动', icon: 'chatbubbles-outline', description: '角色在指定时间主动发来消息' });
-    list.push({ id: 'diary', label: '日记', icon: 'book-outline', description: '角色为你和它的对话写日记' });
+    list.push({ id: 'diary', label: '日记', icon: 'create-outline', description: '角色为你和它的对话写日记' });
     list.push({ id: 'map', label: '地图', icon: 'map-outline', description: '在网格地图上为自己和角色安家' });
     return list;
   }, [momentsEnabled]);
@@ -170,6 +172,8 @@ function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic }) {
         const expanded = openSection === section.id;
         const isMoments = section.id === 'moments';
         const isMusic = section.id === 'music';
+        const isBooks = section.id === 'books';
+        const jumpsOut = isMoments || isMusic || isBooks;
         return (
           <View key={section.id} style={styles.worldGroup}>
             <TouchableOpacity
@@ -181,6 +185,10 @@ function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic }) {
                 }
                 if (isMusic) {
                   onOpenMusic();
+                  return;
+                }
+                if (isBooks) {
+                  onOpenBooks();
                   return;
                 }
                 setOpenSection(expanded ? '' : section.id);
@@ -195,12 +203,12 @@ function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic }) {
                 <Text style={styles.gameDescription}>{section.description}</Text>
               </View>
               <Ionicons
-                name={isMoments || isMusic ? 'chevron-forward' : (expanded ? 'chevron-down' : 'chevron-forward')}
+                name={jumpsOut ? 'chevron-forward' : (expanded ? 'chevron-down' : 'chevron-forward')}
                 size={18}
                 color={theme.colors.textFaint}
               />
             </TouchableOpacity>
-            {!isMoments && !isMusic && expanded ? (
+            {!jumpsOut && expanded ? (
               <View style={styles.worldBody}>
                 {section.id === 'diary'
                   ? <DiaryPanel embedded />
@@ -306,6 +314,7 @@ export default function ExtensionScreen({ route }) {
             momentsEnabled={momentsEnabled}
             onOpenMoments={() => setSegment('moments')}
             onOpenMusic={() => setSegment('music')}
+            onOpenBooks={() => setSegment('books')}
           />
         </View>
         {momentsEnabled ? (
@@ -343,6 +352,23 @@ export default function ExtensionScreen({ route }) {
             <Text style={styles.gameBarTitle}>听歌</Text>
           </View>
           <MusicScreen />
+        </View>
+        <View
+          style={[styles.pane, segment === 'books' ? styles.paneVisible : styles.paneHidden]}
+          pointerEvents={segment === 'books' ? 'auto' : 'none'}
+        >
+          <View style={styles.gameBar}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setSegment('world')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
+              <Text style={styles.backButtonText}>世界</Text>
+            </TouchableOpacity>
+            <Text style={styles.gameBarTitle}>看书</Text>
+          </View>
+          <BookScreen />
         </View>
       </View>
     </SafeAreaView>
