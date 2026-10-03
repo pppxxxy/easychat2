@@ -13,6 +13,7 @@ import { getPickedAsset } from '../character/cardHelpers.js';
 import { buildChapterList, splitBookIntoBlocks } from './blocks.js';
 import { extractPlainText } from './extractText.js';
 import { booksDirectory, saveBookItem } from './library.js';
+import { MARKDOWN_FORMATS } from './markdownBook.js';
 
 export { BOOK_EXTENSIONS, isSupportedBookFile } from './extractText.js';
 
@@ -50,12 +51,12 @@ export async function importBookFromPicker({ now = Date.now() } = {}) {
     // 以 base64 读原始字节，再按格式/编码提取（字节是编码探测与 zip 解包的前提）。
     const base64 = await FileSystem.readAsStringAsync(dest, { encoding: FileSystem.EncodingType.Base64 });
     const bytes = Buffer.from(base64, 'base64');
-    const { text, encoding } = extractPlainText({ fileName, bytes });
+    const { text, encoding, format } = extractPlainText({ fileName, bytes });
     if (!text || !text.trim()) {
       throw new Error('文件没有可导入的文本内容');
     }
     await FileSystem.writeAsStringAsync(dest, text);
-    const blocks = splitBookIntoBlocks(text);
+    const blocks = splitBookIntoBlocks(text, { markdown: MARKDOWN_FORMATS.includes(format) });
     const item = await saveBookItem({
       id,
       name: bookDisplayName(fileName),
@@ -65,6 +66,7 @@ export async function importBookFromPicker({ now = Date.now() } = {}) {
       addedAt: now,
       chapters: buildChapterList(blocks),
       encoding,
+      format,
     });
     return { item, blocks };
   } catch (error) {

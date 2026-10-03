@@ -79,3 +79,22 @@ test('BookScreen：打开按需读文件、错误按 code 分流', () => {
   assert.ok(source.includes('deleteBookCommentsForBooks'), '删书同步清理评论键');
   assert.ok(source.includes('deleteAsync(item.uri'), '删书清理正文文件');
 });
+
+test('Markdown 渲染：按 format 切换渲染模式，进度/评论统一到块', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(view.includes('BookMarkdownList'), 'Markdown 书籍走连续滚动渲染列表');
+  assert.ok(view.includes('isMarkdownBook') && view.includes('handleToggleRenderMode'),
+    '按格式提供渲染/纯文本切换');
+  assert.ok(view.includes('markdownExcerpt') && view.includes('createBookMarkdownStyles'),
+    'Markdown 模式复用摘录与样式工厂');
+  assert.ok(/paged\s*\?\s*blocks\s*:\s*EMPTY_BLOCKS/.test(view),
+    '非分页模式给分页 hook 传空块（保持惰性）');
+
+  const imp = readSource('src/books/importBook.js');
+  assert.ok(imp.includes('MARKDOWN_FORMATS') && /markdown:\s*MARKDOWN_FORMATS/.test(imp),
+    '导入按 Markdown 格式分块');
+  assert.ok(/\bformat,\s*$/m.test(imp) || imp.includes('format,'), '导入落库 format 字段');
+
+  const lib = readSource('src/books/library.js');
+  assert.ok(lib.includes('format: String(source.format'), '书籍条目归一 format');
+});

@@ -28,12 +28,22 @@ import { splitBookIntoBlocks } from './blocks.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
 import { pageText } from './pagination.js';
+import BookMarkdownList from './BookMarkdownList.js';
+import { createBookMarkdownStyles, isMarkdownBook, markdownExcerpt } from './markdownBook.js';
 import { useBookComments } from './useBookComments.js';
 import { buildPageTextProps, LINE_HEIGHT_RATIO, MEASURE_READY, useBookReader } from './useBookReader.js';
 
 const FONT_MIN = 13;
 const FONT_MAX = 26;
 const TAP_ZONE_RATIO = 0.3;
+
+// 分页 hook 在 Markdown 模式下传空块数组；用模块级常量避免逐渲染新建数组引用。
+const EMPTY_BLOCKS = [];
+
+function clampBlockIndex(value, size) {
+  const index = Math.floor(Number(value)) || 0;
+  return Math.min(Math.max(0, index), Math.max(0, size - 1));
+}
 
 function changeFontSize(current, delta) {
   return Math.min(FONT_MAX, Math.max(FONT_MIN, (Math.floor(Number(current)) || 17) + delta));
@@ -46,21 +56,33 @@ export default function BookReaderView({ item, content, onBack }) {
   const { t } = useTranslation();
   const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
 
+  const mdCapable = isMarkdownBook(item);
+  const [renderMode, setRenderMode] = useState(mdCapable ? 'md' : 'text');
+  const paged = renderMode === 'text';
   const [fontSize, setFontSize] = useState(17);
   const [showControls, setShowControls] = useState(true);
   const [showChapters, setShowChapters] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [contentArea, setContentArea] = useState({ width: 0, height: 0 });
 
-  const blocks = useMemo(() => splitBookIntoBlocks(content), [content]);
+  const blocks = useMemo(() => splitBookIntoBlocks(content, { markdown: mdCapable }), [content, mdCapable]);
+  const [mdBlockIndex, setMdBlockIndex] = useState(
+    () => clampBlockIndex(item.progress && item.progress.blockIndex, blocks.length)
+  );
+  const mdListRef = useRef(null);
   const lineHeight = Math.round(fonts.scaled(fontSize) * LINE_HEIGHT_RATIO);
   const reader = useBookReader({
-    blocks,
+    // 非分页模式传空块：hook 保持惰性，不必测量不会显示的隐藏 Text。
+    blocks: paged ? blocks : EMPTY_BLOCKS,
     initial: item.progress || {},
     pageWidth: contentArea.width,
     pageHeight: contentArea.height,
     lineHeight,
   });
+  const markdownStyles = useMemo(
+    () => createBookMarkdownStyles({ colors: theme.colors, fontSize: fonts.scaled(fontSize), lineHeight, tokens }),
+    [theme.colors, fonts, fontSize, lineHeight, tokens]
+  );
   const {
     comments,
     generating,
@@ -71,16 +93,35 @@ export default function BookReaderView({ item, content, onBack }) {
     retry,
   } = useBookComments({ book: item, characters, defaultCharacterId: activeId });
 
-  // 生成请求取「当前页」快照：翻页后重试也以失败时的页为准（lastFailedRef 语义）。
+  // 统一阅读位置：分页模式取 hook 的 location；Markdown 模式以可见块为准。
+  const currentBlockIndex = paged ? reader.blockIndex : mdBlockIndex;
+  const currentBlock = blocks[currentBlockIndex] || null;
+  // useMemo 固定引用：进度防抖 effect 以 location 为依赖，逐渲染新建对象会不断重置计时器。
+  const location = useMemo(() => (
+    paged
+      ? reader.location
+      : (blocks.length > 0 ? { blockIndex: mdBlockIndex, pageIndex: 0, anchorText: '' } : null)
+  ), [paged, reader.location, mdBlockIndex, blocks.length]);
+
+  // 生成请求取「当前页/当前段」快照：翻页后重试也以失败时的位置为准（lastFailedRef 语义）。
   const handleCommentOnPage = useCallback(() => {
-    if (reader.status !== MEASURE_READY || !reader.page) return;
+    if (paged) {
+      if (reader.status !== MEASURE_READY || !reader.page) return;
+      return generate({
+        excerpt: pageText(reader.lines, reader.page, { maxChars: 600 }),
+        chapterTitle: (reader.block && reader.block.title) || '',
+        blockIndex: reader.blockIndex,
+        anchorText: reader.page.anchorText || '',
+      });
+    }
+    if (!currentBlock) return;
     return generate({
-      excerpt: pageText(reader.lines, reader.page, { maxChars: 600 }),
-      chapterTitle: (reader.block && reader.block.title) || '',
-      blockIndex: reader.blockIndex,
-      anchorText: reader.page.anchorText || '',
+      excerpt: markdownExcerpt(currentBlock.text, 600),
+      chapterTitle: currentBlock.title || '',
+      blockIndex: mdBlockIndex,
+      anchorText: '',
     });
-  }, [generate, reader]);
+  }, [currentBlock, generate, mdBlockIndex, paged, reader]);
 
   // 接话：切到该角色当前会话并把评论作为引用带入输入区（评论本体不进会话存储）。
   const handleQuoteComment = useCallback(async comment => {
@@ -116,16 +157,41 @@ export default function BookReaderView({ item, content, onBack }) {
     setFontSize(next);
   }, [fontSize, reader]);
 
-  // 阅读进度落库：翻页位置变化防抖 800ms 保存，退出阅读器时兜底保存一次。
+  const handleMdBlockChange = useCallback(index => {
+    setMdBlockIndex(prev => (prev === index ? prev : index));
+  }, []);
+
+  // 分页 hook 是同一实例：从 Markdown 切回分页时用 ref 记下要跳转到的块，等 paged
+  // 生效后交给 jumpToChapter（初次进入分页由 hook 的 initial 处理）。
+  const pendingTextJumpRef = useRef(null);
+  useEffect(() => {
+    if (!paged) return;
+    const target = pendingTextJumpRef.current;
+    if (target == null) return;
+    pendingTextJumpRef.current = null;
+    if (target === reader.blockIndex) return;
+    reader.jumpToChapter(target);
+  }, [paged, reader]);
+
+  const handleToggleRenderMode = useCallback(() => {
+    if (paged) {
+      setMdBlockIndex(reader.blockIndex);
+      setRenderMode('md');
+    } else {
+      pendingTextJumpRef.current = mdBlockIndex;
+      setRenderMode('text');
+    }
+  }, [mdBlockIndex, paged, reader.blockIndex]);
+
+  // 阅读进度落库：翻页/滚动位置变化防抖 800ms 保存，退出阅读器时兜底保存一次。
   // 只存 { blockIndex, pageIndex, anchorText } —— 字号变化会改变页数，
   // 百分比是显示期计算值（见 library.js 注释）。
-  const readerRef = useRef(reader);
-  readerRef.current = reader;
+  const locationRef = useRef(null);
+  locationRef.current = location;
   const progressTimerRef = useRef(null);
   const progressSavedRef = useRef('');
 
   useEffect(() => {
-    const location = reader.location;
     if (!location) return undefined;
     const stamp = `${location.blockIndex}:${location.pageIndex}:${location.anchorText}`;
     if (stamp === progressSavedRef.current) return undefined;
@@ -136,7 +202,7 @@ export default function BookReaderView({ item, content, onBack }) {
     return () => {
       if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
     };
-  }, [item.id, reader.location]);
+  }, [item.id, location]);
 
   // 退出兜底：防抖窗口内退出时立刻补写当前位置（fire-and-forget，失败不阻塞返回）。
   const flushProgress = useCallback(() => {
@@ -144,12 +210,12 @@ export default function BookReaderView({ item, content, onBack }) {
       clearTimeout(progressTimerRef.current);
       progressTimerRef.current = null;
     }
-    const location = readerRef.current ? readerRef.current.location : null;
-    if (!location) return;
-    const stamp = `${location.blockIndex}:${location.pageIndex}:${location.anchorText}`;
+    const pending = locationRef.current;
+    if (!pending) return;
+    const stamp = `${pending.blockIndex}:${pending.pageIndex}:${pending.anchorText}`;
     if (stamp === progressSavedRef.current) return;
     progressSavedRef.current = stamp;
-    saveBookProgress(item.id, location).catch(() => {});
+    saveBookProgress(item.id, pending).catch(() => {});
   }, [item.id]);
 
   // 组件卸载（切页/换书等路径）同样兜底一次。flushProgress 幂等：
@@ -162,10 +228,10 @@ export default function BookReaderView({ item, content, onBack }) {
   }, [flushProgress, onBack]);
 
   const percent = formatReadingPercent(
-    reader.blockIndex,
-    Math.max(1, reader.blockCount),
-    reader.pageIndex,
-    Math.max(1, reader.pageCount)
+    currentBlockIndex,
+    Math.max(1, paged ? reader.blockCount : blocks.length),
+    paged ? reader.pageIndex : 0,
+    paged ? Math.max(1, reader.pageCount) : 1
   );
 
   const handleTap = useCallback(event => {
@@ -197,6 +263,17 @@ export default function BookReaderView({ item, content, onBack }) {
           </TouchableOpacity>
           <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
           <View style={styles.topActions}>
+            {mdCapable ? (
+              <TouchableOpacity
+                style={[styles.iconButton, !paged && styles.iconButtonActive]}
+                onPress={handleToggleRenderMode}
+                accessibilityLabel={paged ? t('books.reader.a11y.toRendered') : t('books.reader.a11y.toPlain')}
+              >
+                <Text style={[styles.modeButtonText, !paged && styles.modeButtonTextActive]}>
+                  {paged ? 'MD' : 'TXT'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity style={styles.iconButton} onPress={() => handleFontSize(-1)} accessibilityLabel={t('books.reader.a11y.shrink')}>
               <Text style={styles.fontButtonText}>A-</Text>
             </TouchableOpacity>
@@ -223,36 +300,47 @@ export default function BookReaderView({ item, content, onBack }) {
       ) : null}
 
       <View style={styles.contentWrap}>
-        <TouchableWithoutFeedback onPress={handleTap}>
-          <View
-            style={styles.pageArea}
-            onLayout={event => {
-              const { width, height } = event.nativeEvent.layout;
-              setContentArea(current => (current.width === width && current.height === height ? current : { width, height }));
-            }}
-          >
-            {pageBody ? (
-              <Text style={[styles.pageText, textProps]}>{pageBody}</Text>
-            ) : (
-              <View style={styles.center}>
-                <ActivityIndicator color={theme.colors.primary} />
-              </View>
-            )}
-            <Text
-              style={[styles.pageText, textProps, styles.measureText]}
-              onTextLayout={reader.handleTextLayout}
+        {paged ? (
+          <TouchableWithoutFeedback onPress={handleTap}>
+            <View
+              style={styles.pageArea}
+              onLayout={event => {
+                const { width, height } = event.nativeEvent.layout;
+                setContentArea(current => (current.width === width && current.height === height ? current : { width, height }));
+              }}
             >
-              {reader.measureText}
-            </Text>
-          </View>
-        </TouchableWithoutFeedback>
+              {pageBody ? (
+                <Text style={[styles.pageText, textProps]}>{pageBody}</Text>
+              ) : (
+                <View style={styles.center}>
+                  <ActivityIndicator color={theme.colors.primary} />
+                </View>
+              )}
+              <Text
+                style={[styles.pageText, textProps, styles.measureText]}
+                onTextLayout={reader.handleTextLayout}
+              >
+                {reader.measureText}
+              </Text>
+            </View>
+          </TouchableWithoutFeedback>
+        ) : (
+          <BookMarkdownList
+            blocks={blocks}
+            markdownStyles={markdownStyles}
+            initialIndex={mdBlockIndex}
+            onBlockChange={handleMdBlockChange}
+            listRef={mdListRef}
+            contentContainerStyle={styles.mdContent}
+          />
+        )}
       </View>
 
       {showControls ? (
         <View style={styles.bottomBar}>
           <Text style={styles.progressText}>
-            {percent}%{reader.block && reader.block.title ? ` · ${reader.block.title}` : ''}
-            {reader.pageCount > 0
+            {percent}%{currentBlock && currentBlock.title ? ` · ${currentBlock.title}` : ''}
+            {paged && reader.pageCount > 0
               ? ` · ${t('books.reader.progress.blockPage', { page: reader.pageIndex + 1, total: reader.pageCount })}`
               : ''}
           </Text>
@@ -286,7 +374,12 @@ export default function BookReaderView({ item, content, onBack }) {
                   <TouchableOpacity
                     style={[styles.chapterRow, active && styles.chapterRowActive]}
                     onPress={() => {
-                      reader.jumpToChapter(chapter.blockIndex);
+                      if (paged) {
+                        reader.jumpToChapter(chapter.blockIndex);
+                      } else {
+                        setMdBlockIndex(chapter.blockIndex);
+                        if (mdListRef.current) mdListRef.current.scrollToIndex({ index: chapter.blockIndex, animated: false });
+                      }
                       setShowChapters(false);
                     }}
                     activeOpacity={0.8}
@@ -335,7 +428,7 @@ export default function BookReaderView({ item, content, onBack }) {
             <TouchableOpacity
               style={styles.generateButton}
               onPress={handleCommentOnPage}
-              disabled={generating || reader.status !== MEASURE_READY}
+              disabled={generating || (paged ? reader.status !== MEASURE_READY : blocks.length === 0)}
               activeOpacity={0.85}
             >
               {generating
@@ -412,8 +505,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
   },
+  iconButtonActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  modeButtonText: { color: theme.colors.text, fontSize: fonts.scaled(10), fontWeight: '700' },
+  modeButtonTextActive: { color: theme.colors.primaryContrast },
   fontButtonText: { color: theme.colors.text, fontSize: fonts.scaled(11), fontWeight: '700' },
   contentWrap: { flex: 1 },
+  mdContent: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 30 },
   pageArea: { flex: 1 },
   pageText: { flex: 1 },
   measureText: {
