@@ -131,7 +131,9 @@ npm test             # 运行 Node 单元与回归测试
 | `src/characterPresets.js` | 角色卡预设规范化与解析 |
 | `src/storage.js` | 持久化门面（转发 `src/storage/`） |
 | `src/secretStore.js` | 密钥安全存储（AsyncStorage 只留引用） |
-| `src/api.js` | 大模型接口调用 |
+| `src/api.js` | 大模型接口调用（`streamChatCompletion` 结构化 + `sendChatMessage` 薄包装） |
+| `src/agent/loop.js` | Agent 工具调用循环（跨轮累积、上限收尾、取消） |
+| `src/agent/tools/registry.js` | 工具注册表与 ask/read/write 模式门控 |
 | `src/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
 | `src/context/AppContext.js` | 全局角色库状态 |
 | `src/context/characterLibrary.js` | 角色库状态迁移纯函数 |

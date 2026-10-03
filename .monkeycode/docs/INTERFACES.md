@@ -569,6 +569,59 @@ data: [DONE]
 
 **超时**: 采用空闲超时。每次收到增量数据都会重置 30 秒计时器；30 秒无数据则判定为超时。
 
+### `streamChatCompletion(messages, options?)`
+**位置**: `src/api.js`
+
+与 `sendChatMessage` 同一实现，但返回结构化结果，供 agent 工具循环使用。`options` 在 `sendChatMessage` 基础上增加：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `options.tools` | `ToolDefinition[]?` | OpenAI function 形工具定义；提供且非空时请求体携带 `tools` |
+| `options.toolChoice` | `string \| object?` | 提供时请求体携带 `tool_choice` |
+
+**返回**: `Promise<{ text, reasoning, toolCalls: [{ id, name, arguments }], finishReason }>`
+- `text` 为**原始空串**，不做 `EMPTY_REPLY_TEXT` 兜底（工具轮「空文本 + tool_calls」是正常形态）。
+- 流式按 `delta.tool_calls[].index` 归并 `arguments` 分片；非流式解析 `message.tool_calls`。
+- `sendChatMessage` 现为薄包装 `(await streamChatCompletion(...)).text || EMPTY_REPLY_TEXT`。
+
+**辅助导出**: `createAbortError()` - 构造与取消路径一致的 `AbortError`。
+
+## Agent 工具循环接口
+
+### `runAgentTurn(messages, options?)`
+**位置**: `src/agent/loop.js`
+
+驱动「请求 → 执行工具 → 回喂 → 再请求」循环，直到模型不再请求工具或触及轮次上限。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `options.mode` | `'ask' \| 'read' \| 'write'?` | 工作区模式，决定默认暴露与可执行的工具集合 |
+| `options.tools` | `ToolDefinition[]?` | 显式覆盖工具集；缺省由 `mode` 从注册表派生 |
+| `options.maxRounds` | `number?` | 工具轮上限，默认 `5`（`DEFAULT_MAX_TOOL_ROUNDS`） |
+| `options.signal` | `AbortSignal?` | 取消信号；中止时抛 `AbortError`，不回喂半成品 |
+| `options.onToken` | `(accumulatedText) => void?` | 跨轮累积助手文本，供 UI 覆盖渲染 |
+| `options.onReasoning` | `(accumulatedReasoning) => void?` | 跨轮累积思考文本 |
+| `options.onToolEvent` | `(event) => void?` | `{ phase:'start'\|'end', name, round, ok, error? }` |
+| `options.requestOptions` | `object?` | 透传给 `streamChatCompletion`（如配置守卫）；`tools`/`toolChoice` 会被剥离 |
+| `options.context` | `{ characterId, sessionId }?` | 透传给工具执行器的上下文 |
+
+**返回**: `Promise<string>` 跨轮累积的助手文本。
+
+**行为**: 上限轮整体省略 `tools` 字段强制文字收尾（不发 `tool_choice:'none'`）；工具失败以 `role:'tool'` 回喂不中断循环；单条工具结果超 16KB 截断；UI 回调抛错被吞掉不打断循环；assistant 空文本 + tool_calls 时 `content` 置 `null`。
+
+### 工具注册表
+**位置**: `src/agent/tools/registry.js`
+
+| 导出 | 说明 |
+|------|------|
+| `AGENT_MODES` | `{ ASK:'ask', READ:'read', WRITE:'write' }` |
+| `registerTool(definition)` | 注册工具；`name` 匹配 `^[a-zA-Z0-9_-]{1,64}$`，`execute(args, ctx)` 必填；`readOnly` 默认 `false`，`timeoutMs` 默认 15000 |
+| `listToolsForMode(mode)` | 按模式生成发往模型的 `[{ type:'function', function:{...} }]` |
+| `runTool(call, ctx)` | 执行工具，返回 `{ content, isError }`；未知工具/非法 JSON/模式越权/超时/execute 抛错都转成错误结果；执行中 `signal` 中止则抛 `AbortError` |
+| `getTool` / `listRegisteredTools` / `unregisterTool` / `clearTools` | 查询与测试辅助 |
+
+工具执行上下文 `ctx = { signal, mode, characterId, sessionId, workspaceMode }`；文件类工具的沙盒边界由第 6 项（工作区）实现。`useChatSend.js` 的 `onlineSend → runAgentTurn` 接线归 `src/chat/`（第 8 项接入时做）。
+
 ## 向量记忆接口
 
 **位置**: `src/vectorMemory/`
