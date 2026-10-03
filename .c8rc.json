@@ -96,6 +96,7 @@
     "src/screenWatch/ScreenWatchScreen.js",
     "src/screenWatch/useScreenWatchComments.js",
     "src/screenWatch/capture.js",
+    "src/WorkspaceCapabilitiesCard.js",
     "src/WorkspacePanel.js"
   ],
   "reporter": ["text-summary", "lcov"],
