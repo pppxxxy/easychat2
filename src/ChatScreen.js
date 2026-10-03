@@ -173,6 +173,8 @@ export default function ChatScreen() {
     messageRefreshTick,
     pendingTarget,
     consumePendingTarget,
+    pendingQuote,
+    consumePendingQuote,
   } = useApp();
   const characterId = character.id || 'default';
   const activeCharacterIdRef = useRef(characterId);
@@ -731,6 +733,15 @@ export default function ChatScreen() {
     setFocusedMessageId(pendingTarget.messageId);
     scrollToMessage(pendingTarget.messageId);
   }, [ready, pendingTarget, activeSessionId, messages, consumePendingTarget, scrollToMessage]);
+
+  // 听歌评论「接话」带入的引用：只在目标会话真正激活时消费一次，避免用户接话后
+  // 又手动切走会话时引用串场。payload.id 为空（评论不是会话内消息），点引用块不定位。
+  useEffect(() => {
+    if (!ready || !pendingQuote) return;
+    if (pendingQuote.sessionId !== activeSessionId) return;
+    const value = consumePendingQuote();
+    if (value && value.payload && value.payload.text) setQuoteTarget(value.payload);
+  }, [ready, pendingQuote, activeSessionId, consumePendingQuote]);
 
   useEffect(() => {
     if (!navigation) return undefined;

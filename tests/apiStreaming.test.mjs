@@ -230,3 +230,140 @@ test('真正的接口失败仍会记录一次诊断', async () => {
     FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
   }
 });
+
+const TOOL_SSE_DEFAULT = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
+const buildSse = events => `${events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')}data: [DONE]\n\n`;
+
+test('streamChatCompletion 累积流式 tool_calls 并按 index 归并 arguments 分片', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = buildSse([
+    { choices: [{ delta: { content: '让我读一下。' } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{"pa' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"a.txt"}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+  ]);
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }], {
+      tools: [{ type: 'function', function: { name: 'read_file', parameters: {} } }],
+    });
+    assert.equal(result.text, '让我读一下。');
+    assert.equal(result.finishReason, 'tool_calls');
+    assert.equal(result.toolCalls.length, 1);
+    assert.deepEqual(result.toolCalls[0], { id: 'call_1', name: 'read_file', arguments: '{"path":"a.txt"}' });
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = TOOL_SSE_DEFAULT;
+  }
+});
+
+test('streamChatCompletion 空文本 + tool_calls 返回原始空串而非占位文本', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = buildSse([
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c', function: { name: 'noop', arguments: '{}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+  ]);
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion, EMPTY_REPLY_TEXT } = loadApi();
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }], {
+      tools: [{ type: 'function', function: { name: 'noop', parameters: {} } }],
+    });
+    assert.equal(result.text, '');
+    assert.notEqual(result.text, EMPTY_REPLY_TEXT);
+    assert.equal(result.toolCalls[0].name, 'noop');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = TOOL_SSE_DEFAULT;
+  }
+});
+
+test('streamChatCompletion 非流式正文解析 message.tool_calls 与 finish_reason', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = JSON.stringify({
+    choices: [{
+      message: {
+        content: null,
+        tool_calls: [{ id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"q":"x"}' } }],
+      },
+      finish_reason: 'tool_calls',
+    }],
+  });
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }], { stream: false });
+    assert.equal(result.text, '');
+    assert.equal(result.finishReason, 'tool_calls');
+    assert.deepEqual(result.toolCalls, [{ id: 'call_9', name: 'search', arguments: '{"q":"x"}' }]);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = TOOL_SSE_DEFAULT;
+  }
+});
+
+test('sendChatMessage 薄包装在空文本无工具时仍返回 EMPTY_REPLY_TEXT', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = 'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { sendChatMessage, EMPTY_REPLY_TEXT } = loadApi();
+    const result = await sendChatMessage([{ role: 'user', content: 'hi' }]);
+    assert.equal(result, EMPTY_REPLY_TEXT);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = TOOL_SSE_DEFAULT;
+  }
+});
+
+test('streamChatCompletion 请求体在提供 tools 时携带 tools 与 tool_choice', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = TOOL_SSE_DEFAULT;
+  let sentBody = null;
+  const originalSend = FakeXHR.prototype.send;
+  FakeXHR.prototype.send = function patchedSend(body) {
+    sentBody = body;
+    return originalSend.call(this, body);
+  };
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    const tools = [{ type: 'function', function: { name: 'noop', parameters: {} } }];
+    await streamChatCompletion([{ role: 'user', content: 'hi' }], { tools, toolChoice: 'auto' });
+    const parsed = JSON.parse(sentBody);
+    assert.deepEqual(parsed.tools, tools);
+    assert.equal(parsed.tool_choice, 'auto');
+  } finally {
+    FakeXHR.prototype.send = originalSend;
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('streamChatCompletion 省略 tools 时不携带 tools 字段', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = TOOL_SSE_DEFAULT;
+  let sentBody = null;
+  const originalSend = FakeXHR.prototype.send;
+  FakeXHR.prototype.send = function patchedSend(body) {
+    sentBody = body;
+    return originalSend.call(this, body);
+  };
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    await streamChatCompletion([{ role: 'user', content: 'hi' }]);
+    const parsed = JSON.parse(sentBody);
+    assert.equal('tools' in parsed, false);
+    assert.equal('tool_choice' in parsed, false);
+  } finally {
+    FakeXHR.prototype.send = originalSend;
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});

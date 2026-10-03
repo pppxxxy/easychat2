@@ -77,6 +77,14 @@ export const en = {
   'settings.appearance.fontScale': 'Font size',
   'settings.language.zh': '简体中文',
   'settings.language.en': 'English',
+  'settings.workspace.title': 'Workspace',
+  'settings.workspace.mode': 'Assistant mode',
+  'settings.workspace.mode.ask': 'Ask',
+  'settings.workspace.mode.read': 'Read-only',
+  'settings.workspace.mode.write': 'Editable',
+  'settings.workspace.hint.ask': 'Chat only; the assistant does not read workspace files.',
+  'settings.workspace.hint.read': 'The assistant may read text/Markdown files in the workspace.',
+  'settings.workspace.hint.write': 'The assistant may create or edit text/Markdown files and export Word.',
 
   // ---- Common ----
   'common.cancel': 'Cancel',

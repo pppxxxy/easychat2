@@ -84,7 +84,17 @@
     "src/chat/chatStyles.js",
     "src/localModel/ModelSearchModal.js",
     "src/localModel/ModelLogsModal.js",
-    "src/localModel/deviceMemory.js"
+    "src/localModel/deviceMemory.js",
+    "src/music/MusicScreen.js",
+    "src/music/useMusicPlayer.js",
+    "src/music/importMusic.js",
+    "src/books/BookScreen.js",
+    "src/books/BookReaderView.js",
+    "src/books/useBookReader.js",
+    "src/books/importBook.js",
+    "src/screenWatch/ScreenWatchScreen.js",
+    "src/screenWatch/useScreenWatchComments.js",
+    "src/screenWatch/capture.js"
   ],
   "reporter": ["text-summary", "lcov"],
   "check-coverage": true,
