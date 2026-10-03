@@ -298,7 +298,7 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   body: { paddingHorizontal: 20, paddingBottom: 40 },
   modeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   modeText: { color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 6, flex: 1 },
