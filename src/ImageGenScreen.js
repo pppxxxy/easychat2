@@ -168,8 +168,16 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
 
   const persistProvider = useCallback((id, patch) => {
     if (!loaded) return Promise.resolve(false);
+    const hadGeneration = generationControllerRef.current != null;
     generationControllerRef.current?.abort();
     generationControllerRef.current = null;
+    // abort 后把生成中状态复位：onGenerate 的 finally 靠
+    // `generationControllerRef.current === controller` 判断，ref 已被置 null 就不会再复位，
+    // 否则改配置后 generating 永久卡 true，后续生成被 `if (generating) return` 全拦下。
+    if (hadGeneration && mountedRef.current) {
+      setGenerating(false);
+      setGenerateProgress(null);
+    }
     const base = settingsRef.current;
     const next = {
       ...base,

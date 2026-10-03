@@ -15,6 +15,7 @@ import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -73,7 +74,10 @@ object DailyWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             DailyMessageWorker.uniqueName(slotId),
-            ExistingPeriodicWorkPolicy.UPDATE,
+            // UPDATE 会保留原始 enqueue 时刻，setInitialDelay 的新对齐不会应用——用户改了
+            // 槽时间当天不生效（upsert 已清「今天已发」，却仍在旧时刻才触发）。改用
+            // CANCEL_AND_REENQUEUE 让 initialDelay 重新生效。
+            ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
             request
         )
     }
@@ -86,6 +90,22 @@ object DailyWorkScheduler {
         MessageStore(context).loadSchedules()
             .filter { it.enabled && it.mode == ScheduleMode.WORK }
             .forEach { schedule(context, it) }
+    }
+
+    // 前台服务无法启动时的降级路径：用一次性 WorkManager 任务完成本次发送（内部同样落库+通知）。
+    fun enqueueOnce(context: Context, slotId: String, revision: String) {
+        val request = OneTimeWorkRequestBuilder<DailyMessageWorker>()
+            .setConstraints(
+                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            )
+            .setInputData(
+                workDataOf(
+                    DailyMessageWorker.KEY_SLOT_ID to slotId,
+                    DailyMessageWorker.KEY_REVISION to revision
+                )
+            )
+            .build()
+        WorkManager.getInstance(context).enqueue(request)
     }
 }
 
@@ -157,7 +177,14 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra(MessageForegroundService.EXTRA_SLOT_ID, slotId)
             putExtra(MessageForegroundService.EXTRA_REVISION, revision)
         }
-        ContextCompat.startForegroundService(context, serviceIntent)
+        // Android 12+ 后台启动 dataSync 前台服务可能抛 ForegroundServiceStartNotAllowedException。
+        // 不捕获会直接崩溃广播接收进程，且本次消息既不落库也不通知。
+        try {
+            ContextCompat.startForegroundService(context, serviceIntent)
+        } catch (e: Exception) {
+            Log.e("AlarmReceiver", "启动前台服务失败，降级为一次性任务", e)
+            DailyWorkScheduler.enqueueOnce(context, slotId, revision)
+        }
     }
 
     companion object {
@@ -179,6 +206,7 @@ class MessageForegroundService : Service() {
 
         // 必须立刻 startForeground；通知权限被拒也要调用（系统规则要求）
         Notifier.ensureChannel(this)
+        Notifier.ensureServiceChannel(this)
         startForeground(FOREGROUND_NOTIFICATION_ID, buildServiceNotification())
 
         if (slotId.isNullOrBlank()) {
@@ -198,7 +226,7 @@ class MessageForegroundService : Service() {
     }
 
     private fun buildServiceNotification(): Notification {
-        return NotificationCompat.Builder(this, Notifier.CHANNEL_ID)
+        return NotificationCompat.Builder(this, Notifier.SERVICE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_proactive)
             .setContentTitle("正在准备消息")
             .setContentText("正在生成角色的主动消息…")

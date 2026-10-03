@@ -68,7 +68,9 @@ export async function reconcileVectorIndexes() {
   }
   const prefix = `${VECTOR_INDEX_PREFIX}::`;
   const vectorKeys = (Array.isArray(keys) ? keys : [])
-    .filter(key => typeof key === 'string' && key.startsWith(prefix));
+    // 排除损坏备份键：其形状是 `@easychat2_vector_index::<id>__corrupt_backup`，
+    // 若不排除会被当成角色 id，readVectorIndexStatus 又会再备份一层，逐次启动无限嵌套。
+    .filter(key => typeof key === 'string' && key.startsWith(prefix) && !key.endsWith(CORRUPT_BACKUP_SUFFIX));
   const report = {
     scannedKeys: vectorKeys.length,
     removed: 0,
@@ -542,6 +544,13 @@ async function migrateLegacyMessagesInternal(characters) {
   }
   if (migrated.length > 0) {
     await saveSessionsInternal(sortSessions([...sessions, ...migrated]));
+    // 会话登记成功后才删源键：确保删除是持久的（否则用户删掉自动迁移的会话后，
+    // 源键仍在，下次启动会重新迁移让对话复活）。放在 saveSessions 之后，
+    // 即使保存失败也不会先删源数据。
+    for (const session of migrated) {
+      const characterId = String(session.characterId || '');
+      if (characterId) await AsyncStorage.removeItem(messagesKey(characterId));
+    }
   }
   return migrated;
 }

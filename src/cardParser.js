@@ -2,6 +2,7 @@ import { readJsonFromPNG } from 'parsecard';
 import { Buffer } from 'buffer';
 
 import { extractCharacterPresets } from './characterPresets.js';
+import { isValidAigcMeta } from './aigc/attribution.js';
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -563,6 +564,10 @@ export function normalizeCard(raw) {
   const worldInfo = ensureUniqueIds(extractWorldInfo(source, data), 'entry');
   const regexScripts = ensureUniqueIds(extractRegexScripts(source, data), 'regex');
   const presets = extractCharacterPresets(source, data, extensions);
+  // 隐式 AI 标识：导出时写在 extensions.easychat2.aigc_meta。不读回来的话，
+  // 「导入 → 再导出」会丢掉该标识，角色页的「本卡由 AI 生成」徽标消失、追溯链断裂。
+  const easychat2 = isPlainObject(extensions.easychat2) ? extensions.easychat2 : {};
+  const aigcMeta = isValidAigcMeta(easychat2.aigc_meta) ? easychat2.aigc_meta : null;
   return {
     name: fields.name,
     fields,
@@ -570,6 +575,7 @@ export function normalizeCard(raw) {
     worldInfo,
     regexScripts,
     presets,
+    aigcMeta,
     // 应用能识别的是上面这些字段；其余第三方扩展与顶层字段原样带回，
     // 导出时再写回，避免 card forge / 重新导出把作者信息、talkativeness 等丢掉。
     extensions: collectPassthroughExtensions(extensions),

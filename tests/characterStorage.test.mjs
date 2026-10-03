@@ -1254,6 +1254,32 @@ test('孤儿会话扫描隔离备份键并跳过单个读取失败', async () =>
   assert.deepEqual(result.map(item => item.sessionId), ['orphan-good']);
 });
 
+test('向量对账忽略损坏备份键，不逐次嵌套备份', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([]));
+  const corruptKey = '@easychat2_vector_index::character-a__corrupt_backup';
+  store.set(corruptKey, '{broken');
+  const report = await storage.reconcileVectorIndexes();
+  // 损坏备份键不是角色索引，不应被扫描（否则 readVectorIndexStatus 会再备份一层）
+  assert.equal(report.scannedKeys, 0);
+  assert.equal(report.failedKeys.length, 0);
+  assert.equal(store.has(`${corruptKey}__corrupt_backup`), false);
+  assert.equal(store.has(corruptKey), true);
+});
+
+test('旧版角色消息迁移后删除源键，已删除的迁移会话不会复活', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_sessions', JSON.stringify([]));
+  store.set('@easychat2_messages::character-a', JSON.stringify([
+    { id: 'm1', role: 'user', text: '旧消息', timestamp: 1 },
+  ]));
+  const migrated = await storage.migrateLegacyMessages([{ id: 'character-a' }]);
+  assert.equal(migrated.length, 1);
+  assert.equal(store.has('@easychat2_messages::legacy-character-a'), true);
+  // 源键必须删除：否则删除迁移出的会话后下次启动会再次迁移，对话复活
+  assert.equal(store.has('@easychat2_messages::character-a'), false);
+});
+
 test('恢复会话接入最后摘要边界', async () => {
   const storage = loadStorage();
   store.set('@easychat2_messages::restore-boundary', JSON.stringify([

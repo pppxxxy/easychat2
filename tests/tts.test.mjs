@@ -267,8 +267,11 @@ test('chat 模式把合成文本作为 assistant 消息发送', () => {
 test('hex 响应按 hex 解码为 base64 音频', async () => {
   const originalXHR = globalThis.XMLHttpRequest;
   const hexAudio = Buffer.from('fake-audio-bytes').toString('hex');
+  let responseTypeSet = null;
   class HexXHR {
     constructor() { this.status = 200; this.responseText = JSON.stringify({ choices: [], data: { audio: hexAudio } }); }
+    set responseType(value) { responseTypeSet = value; }
+    get responseType() { return responseTypeSet; }
     open() {}
     setRequestHeader() {}
     send() { queueMicrotask(() => this.onload && this.onload()); }
@@ -295,6 +298,8 @@ test('hex 响应按 hex 解码为 base64 音频', async () => {
       text: '你好',
     });
     assert.equal(result.base64, Buffer.from('fake-audio-bytes').toString('base64'));
+    // hex 走 responseText 解析：绝不能设 arraybuffer，否则 RN 的 responseText getter 抛错
+    assert.notEqual(responseTypeSet, 'arraybuffer');
   } finally {
     globalThis.XMLHttpRequest = originalXHR;
   }

@@ -5,11 +5,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { isKnownImageProvider } from '../imageGen/providers.js';
 import { normalizeImagePosition } from '../inlineImagePrompt.js';
+import { THEMES } from '../theme/themes.js';
 import {
   backupCorruptValue,
   readJson,
   readJsonStatusWithSecrets,
-  readJsonWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
 
@@ -132,8 +132,14 @@ function normalizeImageGenSettings(raw) {
 }
 
 export async function getImageGenSettings() {
-  const raw = await readJsonWithSecrets(IMAGE_GEN_KEY, null);
-  return normalizeImageGenSettings(raw);
+  // 与 TTS/转写/插件一致：损坏时先另存原始值再回落默认，避免下次保存把损坏内容
+  // 不可逆覆盖（图像生成配置里的 providers 会丢）。
+  const stored = await readJsonStatusWithSecrets(IMAGE_GEN_KEY);
+  if (stored.status === 'corrupt') {
+    await backupCorruptValue(IMAGE_GEN_KEY);
+    return normalizeImageGenSettings(null);
+  }
+  return normalizeImageGenSettings(stored.value);
 }
 
 export async function saveImageGenSettings(settings) {
@@ -167,7 +173,9 @@ export async function saveChatOptions(options) {
   return normalized;
 }
 
-const THEME_IDS = ['dark', 'light', 'blue', 'pink', 'crimson'];
+// 主题白名单以 themes.js 为单一来源：硬编码列表漏掉新主题时，选中的主题会被规范化回 dark，
+// 界面当场看似切换成功、冷启动却读回深色（用户选择丢失）。
+const THEME_IDS = THEMES.map(theme => theme.id);
 const FONT_SCALE_IDS = ['default', 'system', 'small', 'medium', 'large', 'xlarge'];
 // 语言与主题/字号同属「外观」配置。新增 localeId 时**不能**把它做成必填字段：
 // 旧版本写入的 JSON 没有这个 key，归一化必须容忍缺失并回落到默认值，
@@ -312,6 +320,9 @@ export function normalizeTranscriptionSettings(raw) {
       baseUrl: String((item && item.baseUrl) || '').trim(),
       apiKey: String((item && item.apiKey) || ''),
       model: String((item && item.model) || '').trim() || 'whisper-1',
+      // 保留厂商来源：TranscriptionPanel 用它命中预设、显示「获取密钥」链接；
+      // 丢掉后只剩 baseUrl 相等兜底，用户改过地址就再也找不到密钥链接。
+      vendorId: String((item && item.vendorId) || ''),
     }))
     .filter(item => item.id);
   const activeId = configs.some(item => item.id === source.activeId)

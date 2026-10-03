@@ -74,6 +74,20 @@ test('短窗口去重：连续同错误只留一条', async () => {
   assert.equal(list.length, 1);
 });
 
+test('并发记录不丢日志（读-改-写整体串行化）', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  await Promise.all([
+    recordDiagnostic('api', new Error('并发A')),
+    recordDiagnostic('api', new Error('并发B')),
+    recordDiagnostic('api', new Error('并发C')),
+  ]);
+  const messages = (await getDiagnostics()).map(entry => entry.message);
+  assert.ok(messages.includes('并发A'));
+  assert.ok(messages.includes('并发B'));
+  assert.ok(messages.includes('并发C'));
+});
+
 test('上限裁剪：只保留最近 MAX 条', async () => {
   __resetDiagnosticsForTests();
   store.clear();

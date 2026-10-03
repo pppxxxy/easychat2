@@ -152,6 +152,11 @@ async function hydrateValue(value, namespace, path) {
         out[key] = await readSecret(refId(item));
         registerSecretValues([out[key]]);
       } else {
+        // legacy 明文（非引用）也要登记：否则密钥进入内存却未登记，错误文本里
+        // 一旦带出就只能靠最佳努力的正则兜底，对 sk-ant- 等形态会漏。
+        if (SECRET_FIELDS.has(key) && typeof item === 'string' && item) {
+          registerSecretValues([item]);
+        }
         out[key] = await hydrateValue(item, namespace, childPath(path, key));
       }
     }

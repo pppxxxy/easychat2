@@ -82,10 +82,11 @@ export default function useChatTts() {
       const dir = `${FileSystem.documentDirectory}voice/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       const uri = `${dir}role-${messageId}.${ext}`;
+      // 先登记保护再写盘：否则写盘与登记之间若并发回收会误删这个新文件。
+      markMediaWrite(uri);
       await FileSystem.writeAsStringAsync(uri, result.base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      markMediaWrite(uri);
       return { uri, mime: result.mime || 'audio/mp3' };
     } catch (error) {
       return null;

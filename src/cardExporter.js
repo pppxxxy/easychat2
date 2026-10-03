@@ -251,7 +251,11 @@ function mapWorldEntry(entry) {
       useProbability: source.useProbability !== false,
       match_whole_words: source.matchWholeWords === true,
       case_sensitive: source.caseSensitive === true,
-     scan_depth: Number.isFinite(Number(source.scanDepth)) ? Number(source.scanDepth) : null,
+      // 显式判断 null/undefined：Number(null)===0 会让「未设置」被导出成 0，
+      // 重新导入后从默认扫描深度 4 退化为 1（lorebook 的 Math.max(1,0)）。
+      scan_depth: source.scanDepth === null || source.scanDepth === undefined
+        ? null
+        : (Number.isFinite(Number(source.scanDepth)) ? Number(source.scanDepth) : null),
        boundary: source.boundary ? String(source.boundary) : '',
      },
      boundary: source.boundary ? String(source.boundary) : '',
@@ -265,7 +269,9 @@ function mapRegexScript(script) {
     scriptName: String(source.name || ''),
     findRegex: String(source.findRegex || ''),
     replaceString: String(source.replaceString || ''),
-    flags: String(source.flags || 'g'),
+    // flags 为空串是有意义的值（只替换首个匹配）。用 nullish 判断而不是 ||，
+    // 否则空串会被改写成 'g'，导入→导出往返后替换语义从「首个」变成「全部」。
+    flags: source.flags === null || source.flags === undefined ? 'g' : String(source.flags),
     placement: Array.isArray(source.placement) ? source.placement.map(Number) : [1, 2],
     disabled: source.enabled === false,
     markdownOnly: source.markdownOnly === true,

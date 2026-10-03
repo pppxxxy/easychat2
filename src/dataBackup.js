@@ -5,10 +5,16 @@ export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_MAX_BYTES = 2048 * 1024 * 1024;
 export const BACKUP_MEDIA_DIRECTORIES = ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge'];
 
-const SECRET_KEY_PATTERN = /(apiKey|appSecretKey|secret|password|token)/i;
+// 精确匹配密钥字段名，不做子串匹配：否则 `maxTokens`（含 token）、`apiKeyUrl`（含 apiKey）
+// 这类正常字段会被整段清空，导出/恢复后用户配置静默丢失。与 secretStore.SECRET_FIELDS 对齐。
+const SECRET_FIELD_NAMES = new Set(['apiKey', 'appSecretKey', 'secretKey', 'secret', 'password', 'token', 'accessToken', 'refreshToken']);
+
+function isSecretFieldName(key) {
+  return SECRET_FIELD_NAMES.has(String(key));
+}
 
 export function sanitizeBackupValue(value, key = '') {
-  if (SECRET_KEY_PATTERN.test(String(key))) return '';
+  if (isSecretFieldName(key)) return '';
   if (typeof value === 'string') {
     return value.startsWith('secure:v1:') ? '' : value;
   }
@@ -40,7 +46,7 @@ export function filterPendingMessages(value) {
 // 递归两遍（sanitize 一遍、filter 一遍），显著降低 CPU 与临时对象分配。
 // 语义与分别调用 sanitizeBackupValue / filterPendingMessages 等价。
 export function sanitizeAndFilterBackupValue(value, key = '') {
-  if (SECRET_KEY_PATTERN.test(String(key))) return '';
+  if (isSecretFieldName(key)) return '';
   if (typeof value === 'string') {
     return value.startsWith('secure:v1:') ? '' : value;
   }
@@ -118,7 +124,12 @@ export function planBackupImport(payload, mode = 'merge') {
     valid: true,
     error: '',
     mode: mode === 'replace' ? 'replace' : 'merge',
-    storage: payload.storage,
+    // 导入是独立于导出的防线：即便备份来自旧版本或被手工构造，也在此剥离密钥字段
+    // 并丢弃 pending 占位消息，避免绕过「pending 不落盘」与密钥保险箱约束。
+    storage: payload.storage.map(item => ({
+      key: item.key,
+      value: sanitizeAndFilterBackupValue(item.value),
+    })),
     media: payload.media,
   };
 }

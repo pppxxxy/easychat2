@@ -536,11 +536,12 @@ function matchSpeaker(name, characters) {
   const list = (Array.isArray(characters) ? characters : []).filter(Boolean);
   const exact = list.find(character => String(character.name || '').trim() === target);
   if (exact) return exact;
-  const contained = list.find(character => {
-    const candidate = String(character.name || '').trim();
-    return candidate && (target.includes(candidate) || candidate.includes(target));
-  });
-  return contained || null;
+  // 包含匹配按候选名长度降序：否则 `Alice` 与 `Al` 同时存在时，前缀短名会先命中误配。
+  const contained = list
+    .map(character => ({ character, candidate: String(character.name || '').trim() }))
+    .filter(item => item.candidate && (target.includes(item.candidate) || item.candidate.includes(target)))
+    .sort((left, right) => right.candidate.length - left.candidate.length)[0];
+  return contained ? contained.character : null;
 }
 
 export function parseEnsembleReply(text, characters) {
@@ -561,7 +562,9 @@ export function parseEnsembleReply(text, characters) {
     const match = line.match(/^\s*\**([^：:\n]{1,24})\**\s*[：:]\s*(.*)$/);
     if (match && match[1] && !/^https?$/.test(match[1])) {
       flush();
-      current = { name: match[1].trim(), lines: [] };
+      // 贪婪的 ([^：:\n]{1,24}) 会把闭合的 ** 也吃进名字（**Alice**：→ Alice**），
+      // 剥离首尾星号，避免 speakerName 带 * 或按前缀误配。
+      current = { name: match[1].replace(/^\*+|\*+$/g, '').trim(), lines: [] };
       if (match[2]) current.lines.push(match[2]);
       continue;
     }

@@ -243,6 +243,32 @@ test('草稿为空时给角色名兜底，且 hasCardContent 为假', () => {
   assert.equal(hasCardContent({ name: '晚星' }), true);
 });
 
+test('制卡往返保留 AI 标识、语音形态与扩展字段', () => {
+  const character = {
+    name: 'AI 卡',
+    voiceDisplay: 'voice',
+    aigcMeta: { producer: 'EasyChat2', source: 'easychat2-card-forge', contentCode: 'AIGC-X' },
+    cardExtensions: { talkativeness: 0.8 },
+    cardExtra: { creator: '某作者' },
+    alternateGreetings: ['备用 1'],
+  };
+  const draft = draftFromCharacter(character);
+  assert.equal(draft.voiceDisplay, 'voice');
+  assert.equal(draft.aigcMeta.contentCode, 'AIGC-X');
+  assert.deepEqual(draft.cardExtensions, { talkativeness: 0.8 });
+  assert.deepEqual(draft.cardExtra, { creator: '某作者' });
+  const patch = draftToCharacterPatch(draft, { composedPrompt: '组合' });
+  assert.equal(patch.voiceDisplay, 'voice');
+  assert.equal(patch.aigcMeta.contentCode, 'AIGC-X');
+  assert.deepEqual(patch.cardExtensions, { talkativeness: 0.8 });
+  assert.deepEqual(patch.cardExtra, { creator: '某作者' });
+});
+
+test('hasCardContent 认备用开场白：只有备用开场白不算空', () => {
+  assert.equal(hasCardContent({ alternateGreetings: ['只有这条'] }), true);
+  assert.equal(hasCardContent({ alternateGreetings: [''] }), false);
+});
+
 test('提示词包含问答结果与硬性输出要求', () => {
   let state = createForgeState(1000);
   state = recordAnswer(state, 'name', '晚星', 2000);

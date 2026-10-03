@@ -68,7 +68,9 @@ export function chunkMessages(messages, options = {}) {
       if (!slice) continue;
       segments.push({
         id: `${messageKey}-${start}`,
-        messageId: String(message.id || ''),
+        // 与 id 用同一兜底：否则无 id 的历史消息 messageId 恒为空，删除时
+        // （removeVectorIndexForMessages 会 filter(Boolean) 掉空 id）永远清不掉，成为残留记忆。
+        messageId: String(message.id || `msg-${messageIndex}`),
         sessionId: String(options.sessionId || ''),
         role,
         at: Number(message.timestamp) || 0,

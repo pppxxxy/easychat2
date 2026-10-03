@@ -339,6 +339,12 @@ export function createForgeDraft() {
   draft.worldInfo = [];
   draft.regexScripts = [];
   draft.presets = [];
+  // 往返保留但不由 AI 改写：语音形态、AI 生成标识、第三方扩展与顶层透传字段。
+  // 不带这些字段时，用制卡改一遍会把语音形态打回纯文字、并丢掉 AI 标识与作者扩展。
+  draft.voiceDisplay = 'text';
+  draft.aigcMeta = null;
+  draft.cardExtensions = {};
+  draft.cardExtra = {};
   return draft;
 }
 
@@ -643,6 +649,18 @@ export function draftFromCharacter(character) {
   draft.presets = Array.isArray(source.presets)
     ? source.presets.filter(item => item && typeof item === 'object').slice(0, MAX_PRESERVED_ITEMS)
     : [];
+  draft.voiceDisplay = ['text', 'voice-text', 'voice'].includes(source.voiceDisplay)
+    ? source.voiceDisplay
+    : 'text';
+  draft.aigcMeta = source.aigcMeta && typeof source.aigcMeta === 'object' && !Array.isArray(source.aigcMeta)
+    ? source.aigcMeta
+    : null;
+  draft.cardExtensions = source.cardExtensions && typeof source.cardExtensions === 'object' && !Array.isArray(source.cardExtensions)
+    ? source.cardExtensions
+    : {};
+  draft.cardExtra = source.cardExtra && typeof source.cardExtra === 'object' && !Array.isArray(source.cardExtra)
+    ? source.cardExtra
+    : {};
   return draft;
 }
 
@@ -670,6 +688,13 @@ export function draftToCharacterPatch(draft, { composedPrompt = '', now = Date.n
     worldInfo: Array.isArray(source.worldInfo) ? source.worldInfo.slice(0, MAX_PRESERVED_ITEMS) : [],
     regexScripts: Array.isArray(source.regexScripts) ? source.regexScripts.slice(0, MAX_PRESERVED_ITEMS) : [],
     presets: Array.isArray(source.presets) ? source.presets.slice(0, MAX_PRESERVED_ITEMS) : [],
+    voiceDisplay: ['text', 'voice-text', 'voice'].includes(source.voiceDisplay) ? source.voiceDisplay : 'text',
+    cardExtensions: source.cardExtensions && typeof source.cardExtensions === 'object' && !Array.isArray(source.cardExtensions)
+      ? source.cardExtensions
+      : {},
+    cardExtra: source.cardExtra && typeof source.cardExtra === 'object' && !Array.isArray(source.cardExtra)
+      ? source.cardExtra
+      : {},
     aigcMeta: source.aigcMeta && typeof source.aigcMeta === 'object' ? source.aigcMeta : null,
   };
 }
@@ -678,6 +703,7 @@ export function hasCardContent(draft) {
   const source = draft && typeof draft === 'object' ? draft : {};
   return FORGE_FIELDS.some(key => clean(source[key]).length > 0)
     || clean(source.systemPrompt).length > 0
+    || (Array.isArray(source.alternateGreetings) && source.alternateGreetings.some(item => clean(item).length > 0))
     || (Array.isArray(source.worldInfo) && source.worldInfo.length > 0)
     || (Array.isArray(source.regexScripts) && source.regexScripts.length > 0)
     || (Array.isArray(source.presets) && source.presets.length > 0);

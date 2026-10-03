@@ -138,6 +138,25 @@ test('世界书导出保留默认的 selective/useRegex 关闭状态', () => {
   assert.equal(entry.selective, false);
   assert.equal(entry.useRegex, false);
 });
+
+test('世界书 scanDepth 未设置时导出 null，不变成 0', () => {
+  const exporter = loadExporter();
+  const card = exporter.buildCardV2({
+    name: '角色',
+    presets: [],
+    regexScripts: [],
+    worldInfo: [{ keys: ['k'], content: 'c' }],
+  });
+  // null 保留「未设置」，0 会被 lorebook 当作 scanDepth=1（默认应为 4）
+  assert.equal(card.data.character_book.entries[0].extensions.scan_depth, null);
+  const withDepth = exporter.buildCardV2({
+    name: '角色',
+    presets: [],
+    regexScripts: [],
+    worldInfo: [{ keys: ['k'], content: 'c', scanDepth: 9 }],
+  });
+  assert.equal(withDepth.data.character_book.entries[0].extensions.scan_depth, 9);
+});
 test('导出会移除 iTXt 里的旧 chara 块，不再携带双份卡数据', () => {
   const exporter = loadExporter();
 
@@ -202,6 +221,33 @@ test('导出会移除 iTXt 里的旧 chara 块，不再携带双份卡数据', (
   assert.deepEqual(itxtKeywords(exported), []);
   const parsed = JSON.parse(readJsonFromPNG(exported));
   assert.equal(parsed.name, '新角色');
+});
+
+test('正则 flags 为空串时导出保留空串（往返不改变替换语义）', () => {
+  const exporter = loadExporter();
+  const card = exporter.buildCardV2({
+    name: '卡',
+    presets: [],
+    regexScripts: [{ id: 'r1', name: '首个', findRegex: 'x', replaceString: 'y', flags: '' }],
+  });
+  // 空串表示「只替换首个匹配」，不能被 || 改写成 'g'（全部替换）
+  assert.equal(card.data.extensions.regex_scripts[0].flags, '');
+});
+
+test('AI 隐式标识可被解析回来（导入后 aigcMeta 不再丢失）', () => {
+  const aigcMeta = {
+    label: '本内容由 AI 生成',
+    producer: 'EasyChat2',
+    producerCode: 'easychat2',
+    source: 'easychat2-card-forge',
+    model: 'deepseek-chat',
+    contentCode: 'AIGC-ROUNDTRIP',
+    generatedAt: 1700000000000,
+  };
+  const exporter = loadExporter();
+  const json = exporter.cardToJson({ name: 'AI 卡', presets: [], regexScripts: [], aigcMeta });
+  const parsed = parseCardFromJson(json);
+  assert.equal(parsed.aigcMeta && parsed.aigcMeta.contentCode, 'AIGC-ROUNDTRIP');
 });
 
 test('AI 生成卡导出时写入隐式标识与显式标识行', () => {

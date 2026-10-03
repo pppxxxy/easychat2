@@ -158,6 +158,7 @@ export default function CharacterScreen() {
   // 只落库了旧表单，界面表单仍与已保存内容不同，于是切回再切走又弹窗。
   // 用 ref 持有最新引用，effect 只依赖 dirty 闸门，始终调用最新 save。
   const saveRef = useRef(null);
+  const saveInFlightRef = useRef(false);
   const formOwnerIdRef = useRef(activeId);
   const formSessionIdRef = useRef(activeSessionId);
   const revertingToRef = useRef('');
@@ -381,6 +382,12 @@ export default function CharacterScreen() {
     }).catch(() => {});
   }, [loaded, activeId, character, currentFormSignature, switchAuthorization, switchCharacter, applyDraftFormState]);
 
+  // 会话切换时同步「表单所属会话」ref：seed effect 只在角色变化时跑，同一角色内
+  // 切换会话不会更新它。否则「有未保存编辑→切角色→取消回滚」会跳回旧会话。
+  useEffect(() => {
+    formSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
   const updateWorldEntry = (id, patch) => {
     setWorldInfo(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
   };
@@ -425,7 +432,7 @@ export default function CharacterScreen() {
 
   // 返回布尔：true = 已落库（UI 同步可跳过不算失败）；false = 未保存。
   // 供 Tab 切换拦截的「保存并离开」判断是否切换。
-  const save = async (options = {}) => {
+  const saveInternal = async (options = {}) => {
     if (!loaded) {
       Alert.alert('角色加载中', '请稍候再保存。');
       return false;
@@ -576,6 +583,18 @@ setWorldInfo(next.worldInfo);
        return false;
      }
    };
+  // 保存闸门：保存进行中再次点击（连点/保存后未重渲染再次触发）会以旧角色签名
+  // 发起第二次 updateCharacter，必然抛 CHARACTER_CONFLICT，弹出误导性的「其他页面已修改」。
+  // 直接忽略并发保存；强制覆盖走 Alert 回调（此时上一次已结束）。
+  const save = async (options = {}) => {
+    if (saveInFlightRef.current) return false;
+    saveInFlightRef.current = true;
+    try {
+      return await saveInternal(options);
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  };
   saveRef.current = save;
 
   const importCard = async () => {
@@ -2170,7 +2189,13 @@ setWorldInfo(next.worldInfo);
       />
 
       <GreetingPickerModal
-        visible={!!pendingImport && !importing}
+        /*
+         * 不要用 importing 控制 visible：导入失败时 visible 从 false 回到 true 会让
+         * GreetingPickerModal 的 effect 用原始 candidates 重设 drafts，把用户改过/新增的
+         * 开场白覆盖掉（与「你编辑的开场白仍会保留」的提示矛盾）。导入进度由下方
+         * importStatus 遮罩单独承载，弹窗保持挂载即可保住草稿。
+         */
+        visible={!!pendingImport}
         candidates={pendingImport ? pendingImport.candidates : []}
         onCancel={() => setPendingImport(null)}
         onConfirm={confirmImport}

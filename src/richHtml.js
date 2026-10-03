@@ -13,7 +13,7 @@ const MARKDOWN_FENCE_LINE_PATTERN = /^[ \t]*```[^\n]*$/gm;
 export function stripMarkdownFences(text) {
   const source = String(text || '');
   const protectedBlocks = [];
-  const protectedText = source.replace(/<(pre|code)\b[\s\S]*?<\/\1\s*>/gi, block => {
+  const protectedText = source.replace(/<(pre|code)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, block => {
     const token = `\uE000RICHHTML${protectedBlocks.length}\uE001`;
     protectedBlocks.push(block);
     return token;
@@ -109,7 +109,13 @@ export function buildRichHtmlCommandBridge(commandToken = '') {
     '  document.addEventListener("pointerdown", markGesture, true);',
     '  document.addEventListener("keydown", markGesture, true);',
     '  document.addEventListener("click", function(ev){',
-    '    if (!ev.isTrusted || !userGestureActive) return;',
+    // pointerdown 里置真后 setTimeout(...,0) 会在同一轮的微/宏任务间清零，
+    // 而 click 是之后独立的事件任务：到 click 时 userGestureActive 已为假，
+    // 按钮与 onclick="triggerSlash(...)" 全被拦掉。这里在 click 本身重新置真，
+    // 且在同一个事件任务内（捕获阶段先于目标 inline onclick）保持有效。
+    '    if (!ev.isTrusted) return;',
+    '    userGestureActive = true;',
+    '    setTimeout(function(){ userGestureActive = false; }, 0);',
     '    var el = ev.target;',
     '    while (el && el !== document.body) {',
     '      if (el.tagName === "BUTTON" && el.dataset && typeof el.dataset.command === "string" && el.dataset.command.trim()) {',
@@ -211,7 +217,9 @@ function isZeroValue(value) {
 function isViewportPinned(rule) {
   const declarations = String(rule || '').split(';');
   const readValue = property => {
-    const pattern = new RegExp(`^\\s*${property}\\s*:\\s*(.*)$`, 'i');
+    // 前缀允许任意非标识符字符：样式块规则首条声明带选择器前缀（.x{inset:0），
+    // 内联 style 首条带引号（style="inset:0）。只锚 ^ 会漏掉这两种「钉死声明写在最前」。
+    const pattern = new RegExp(`(?:^|[^a-zA-Z0-9_-])\\s*${property}\\s*:\\s*(.*)$`, 'i');
     for (const declaration of declarations) {
       const match = declaration.match(pattern);
       if (match) return match[1].replace(/["'}\s]+$/, '').trim();
@@ -243,7 +251,7 @@ export function isViewportRichHtml(text) {
   const source = stripCssComments(String(text || ''))
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script>|$)/gi, '');
-  const blocks = (source.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || []).map(stripCssComments);
+  const blocks = (source.match(/<style\b[^>]*>[\s\S]*?(?:<\/style>|$)/gi) || []).map(stripCssComments);
   const inlineStyles = (source.match(/<[a-z][^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi) || [])
     .map(stripCssComments);
   // 视口单位出现在任意元素上都说明文档依赖视口高度，保持强信号。
@@ -286,12 +294,14 @@ function injectFullDocumentSupport(documentHtml, layoutStyle, heightToken = '', 
     return null;
   }
   if (/<body\b[^>]*>/i.test(output)) {
-    output = output.replace(/(<body\b[^>]*>)/i, `$1${beforeHtml}`);
+    // 用函数式替换：beforeHtml 来自助手正文，若含 $&/$`/$1 会被 String.replace
+    // 当作替换模式展开，破坏文档结构甚至按指数放大体积。
+    output = output.replace(/(<body\b[^>]*>)/i, match => `${match}${beforeHtml}`);
   } else if (beforeHtml) {
-    output = output.replace(/(<html\b[^>]*>)/i, `$1<body>${beforeHtml}</body>`);
+    output = output.replace(/(<html\b[^>]*>)/i, match => `${match}<body>${beforeHtml}</body>`);
   }
   if (/<\/body>/i.test(output)) {
-    output = output.replace(/<\/body>/i, `${afterHtml}${renderRichHtmlBridge(heightToken)}</body>`);
+    output = output.replace(/<\/body>/i, () => `${afterHtml}${renderRichHtmlBridge(heightToken)}</body>`);
   } else {
     output += `${afterHtml}${renderRichHtmlBridge(heightToken)}`;
   }

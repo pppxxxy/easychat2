@@ -144,6 +144,17 @@ test('群聊回复解析：分段、粗体标记、URL 不算发言人与相邻�
   assert.equal(merged[1].speakerId, 'b');
 });
 
+test('群聊回复解析：粗体未匹配角色时名字不带星号，前缀名不误配', () => {
+  const { parseEnsembleReply } = loadGroupChat();
+  const characters = [{ id: 'al', name: 'Al' }, { id: 'alice', name: 'Alice' }];
+  // 贪婪分组会把闭合 ** 吃进名字，未知说话人会展示成「旁白**」
+  const bold = parseEnsembleReply('**旁白**：你好', characters);
+  assert.equal(bold[0].speakerName, '旁白');
+  // 前缀包含：Alice 不能误配到 Al
+  const prefix = parseEnsembleReply('**Alice**：你好', characters);
+  assert.equal(prefix[0].speakerId, 'alice');
+});
+
 test('群聊选人：模型失败时回退（点名 → 最近发言人轮换 → 首位成员）', async () => {
   const { selectSpeakers } = loadGroupChat();
   lastChatCall = null;

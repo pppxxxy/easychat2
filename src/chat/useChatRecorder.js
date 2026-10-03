@@ -24,8 +24,10 @@ async function persistVoiceFile(sourceUri) {
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
     const name = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.m4a`;
     const dest = `${dir}${name}`;
-    await FileSystem.copyAsync({ from: sourceUri, to: dest });
+    // 先登记保护再写盘：copy 与 mark 之间的 await 窗口若并发跑回收，
+    // 这个刚写入、尚未被消息引用的文件会被当成孤儿删掉。
     markMediaWrite(dest);
+    await FileSystem.copyAsync({ from: sourceUri, to: dest });
     FileSystem.deleteAsync(sourceUri, { idempotent: true }).catch(() => {});
     return dest;
   } catch (error) {

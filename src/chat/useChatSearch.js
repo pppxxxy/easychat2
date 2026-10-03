@@ -17,6 +17,10 @@ export default function useChatSearch({ messages, scrollToMessage, setFocusedMes
     () => collectSearchMatchIds(messages, searchQuery),
     [messages, searchQuery]
   );
+  // 用「命中 id 拼接」作为稳定依赖：messages 在流式回复期间每个 token 都会变，
+  // 直接依赖 searchMatches 数组引用会让 effect 反复重跑，把用户点「下一条」的
+  // activeMatchIndex 不断重置回 0。只有在命中集合真正变化时才重定位。
+  const searchMatchSignature = useMemo(() => searchMatches.join('\n'), [searchMatches]);
 
   const goToMatch = useCallback(delta => {
     if (searchMatches.length === 0) return;
@@ -41,7 +45,7 @@ export default function useChatSearch({ messages, scrollToMessage, setFocusedMes
     } else {
       setFocusedMessageId('');
     }
-  }, [searchOpen, searchQuery, searchMatches, scrollToMessage]);
+  }, [searchOpen, searchQuery, searchMatchSignature, scrollToMessage, setFocusedMessageId]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);

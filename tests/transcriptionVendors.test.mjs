@@ -33,6 +33,15 @@ test('getTranscriptionVendor：未知 id 返回 null', () => {
   assert.equal(getTranscriptionVendor(''), null);
 });
 
+test('normalizeTranscriptionSettings 保留 vendorId（否则改过端点后密钥链接消失）', () => {
+  const source = read('src/storage/settings.js');
+  assert.match(
+    source,
+    /vendorId: String\(\(item && item\.vendorId\) \|\| ''\)/,
+    '规范化映射必须保留 vendorId，供面板命中厂商预设'
+  );
+});
+
 test('TranscriptionPanel 接入厂商预设芯片：点选即预填端点与模型', () => {
   const source = read('src/TranscriptionPanel.js');
   assert.match(source, /TRANSCRIPTION_API_VENDORS/, '面板应引用厂商预设表');

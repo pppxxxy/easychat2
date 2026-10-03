@@ -30,7 +30,8 @@ export function parseMentions(text, characters) {
     .sort((a, b) => b.name.length - a.name.length);
   for (const item of names) {
     const pattern = new RegExp(
-      `@${escapeRegExp(item.name)}(?=$|[\\s,，。！？!?、;；:：)）\\]}»]|@)`,
+      // 结束字符含中英文引号：@Alice「你好」这类「提及后紧跟引号」的常见写法也要命中。
+      `@${escapeRegExp(item.name)}(?=$|[\\s,，。！？!?、;；:：)）\\]}»」』“”‘’"']|@)`,
       'u'
     );
     if (pattern.test(source)) matched.add(String(item.id));

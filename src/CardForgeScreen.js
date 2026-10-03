@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
 import { buildSystemPrompt } from './cardParser.js';
 import { buildRequestMessages } from './chatPipeline.js';
 import { useApp } from './context/AppContext.js';
@@ -163,7 +163,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const sendAssistPrompt = useCallback(async (prompt, signal) => {
     const { configs, activeId } = await getApiConfigs();
     const current = configs.find(item => item.id === activeId) || configs[0];
-    return sendChatMessage([
+    const raw = await sendChatMessage([
       { role: 'system', content: FIELD_ASSIST_SYSTEM },
       { role: 'user', content: prompt },
     ], {
@@ -172,6 +172,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       expectedConfigId: String(current && current.id || ''),
       expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
     });
+    // 空回复会被 api 层替换成占位文案，直接写回会把「没有收到回复。」当成模型内容
+    // 塞进字段/标签。这里按生成失败抛出，让编辑器统一提示重试。
+    const text = String(raw == null ? '' : raw).trim();
+    if (!text || text === EMPTY_REPLY_TEXT) {
+      throw new Error('AI 没有返回有效内容，请重试。');
+    }
+    return raw;
   }, []);
 
   // 制卡预览的模拟对话：把当前草稿组装成角色结构，走真实聊天管道请求模型。

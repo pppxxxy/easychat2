@@ -128,9 +128,11 @@ test('MessageList 窗口化虚拟化：尾部窗口、扩窗入口与真实动�
   const messageListSource = readFileSync(path.join(HERE, '..', 'src', 'chat', 'MessageList.js'), 'utf8');
   // 只渲染尾部 windowSize 条
   assert.ok(messageListSource.includes('renderedMessages.slice(totalCount - windowSize)'));
-  // 有隐藏消息时提供「加载更早消息」入口
+  // 有隐藏消息时提供「加载更早消息」入口；必须包一层箭头函数，不能直接传
+  // onExpandWindow——RN onPress 会传事件对象，会被当作 step 让窗口尺寸变 NaN。
   assert.ok(messageListSource.includes('hiddenCount > 0 ? ('));
-  assert.ok(messageListSource.includes('onPress={onExpandWindow}'));
+  assert.ok(messageListSource.includes('onPress={() => onExpandWindow()}'));
+  assert.ok(!messageListSource.includes('onPress={onExpandWindow}'));
   // 入场动画距离按全量列表计算（窗口内 index 加上被切走的偏移）
   assert.ok(messageListSource.includes('totalCount - 1 - (hiddenCount + index)'));
   // ChatScreen：定位窗口外消息时扩窗重试；切会话重置窗口

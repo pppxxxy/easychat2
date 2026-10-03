@@ -156,17 +156,25 @@ export async function unloadLocalModel() {
   if (!current) return;
   const { context, key } = current;
   current = null;
+  let releaseFailed = false;
   try {
     if (context && typeof context.releaseMultimodal === 'function') await context.releaseMultimodal();
-  } catch (error) {}
+  } catch (error) {
+    releaseFailed = true;
+    recordModelLog('unload', `释放多模态失败：${describeModelError(error)}`, { level: 'warn', context: key });
+  }
   try {
     if (context && typeof context.release === 'function') await context.release();
     else {
       const module = getModule();
       if (module && typeof module.releaseAllLlama === 'function') await module.releaseAllLlama();
     }
-  } catch (error) {}
-  recordModelLog('unload', '模型已释放', { context: key });
+  } catch (error) {
+    releaseFailed = true;
+    recordModelLog('unload', `释放模型失败：${describeModelError(error)}`, { level: 'warn', context: key });
+  }
+  // 释放失败时上下文可能泄漏在原生侧，不能记成「已释放」误导排查。
+  recordModelLog('unload', releaseFailed ? '模型释放未完全成功' : '模型已释放', { context: key });
 }
 
 export function getLoadedLocalModelKey() {
@@ -227,6 +235,10 @@ export async function runLocalModel(messages, model, { onToken, onReasoning, sig
       recordModelLog('chat', `清空上下文缓存失败：${describeModelError(error)}`, { level: 'warn' });
     }
   }
+
+  // 清缓存是 await 点：期间用户可能取消。AbortSignal 若已 aborted，之后再
+  // addEventListener 不会触发回调，必须在这里复查，否则会白跑一整轮推理。
+  if (signal && signal.aborted) throw abortError();
 
   const completionParams = {
     messages: Array.isArray(messages) ? messages : [],

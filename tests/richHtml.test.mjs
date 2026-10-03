@@ -259,6 +259,27 @@ test('钉死判定兼容 !important、四值简写、小数与 CSS 注释', () =
     isViewportRichHtml('<style>.badge{position:fixed;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;top:8px}</style>'),
     false
   );
+  // inset 写在规则第一条（声明前缀带选择器/引号）也要识别，否则整屏卡会锁死高度
+  assert.equal(isViewportRichHtml('<style>.x{inset:0;position:fixed}</style>'), true);
+  assert.equal(isViewportRichHtml('<style>#app{inset:0;position:fixed}</style>'), true);
+  assert.equal(isViewportRichHtml('<div style="inset:0;position:fixed"></div>'), true);
+});
+
+test('完整文档前后的正文含 $ 时不被当作替换模式展开', () => {
+  const doc = buildRichHtmlDocument({
+    bodyHtml: '前缀 $& 文本<!DOCTYPE html><html><head></head><body>正文</body></html>后缀',
+  });
+  // 旧的模板字符串替换会把 $& 展开成匹配内容，破坏结构并放大体积
+  assert.ok(doc.includes('前缀 $& 文本'));
+  assert.ok(!doc.includes('前缀 <body>文本'));
+});
+
+test('命令桥在 click 里重新置真手势标志（否则按钮与 triggerSlash 全失效）', () => {
+  const bridge = buildRichHtmlCommandBridge('token');
+  // click 是 pointerdown 之后独立的事件任务，旧写法只在 pointerdown 置真，
+  // 到 click 时标志已被 setTimeout(...,0) 清零。
+  assert.match(bridge, /addEventListener\("click", function\(ev\)\{/);
+  assert.match(bridge, /if \(!ev\.isTrusted\) return;\n\s*userGestureActive = true;/);
 });
 
 test('全屏交互机制已移除：视口卡在列表内直接渲染', () => {

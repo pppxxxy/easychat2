@@ -254,7 +254,18 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
             server?.stop()
         } catch (error: Exception) {}
         server = null
+        // 唤醒等待 JS 回写的 HTTP 线程：只 clear 不 countDown 会让这些线程
+        // 一直阻塞到 120s 超时，停止/重启期间空占线程。
+        pending.values.forEach { it.latch.countDown() }
         pending.clear()
+    }
+
+    // RN 0.81 在实例销毁时调用的是 invalidate()，不再调用 onCatalystInstanceDestroy()。
+    // 若把清理只挂在后者，服务端口与监听 socket 在 React 实例销毁后不会停止。
+    // 两个都覆写以兼容新旧架构。
+    override fun invalidate() {
+        stopServer()
+        super.invalidate()
     }
 
     override fun onCatalystInstanceDestroy() {

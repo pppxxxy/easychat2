@@ -128,7 +128,7 @@ function MessageList({
               <TouchableOpacity
                 key="load-earlier"
                 style={styles.loadEarlierButton}
-                onPress={onExpandWindow}
+                onPress={() => onExpandWindow()}
                 accessibilityRole="button"
                 accessibilityLabel="加载更早消息"
               >

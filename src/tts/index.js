@@ -340,7 +340,10 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path, signal })
     signal,
     timeoutMs,
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    responseType: mode !== 'base64' ? 'arraybuffer' : undefined,
+    // 只有 binary 需要 arraybuffer；hex/base64 走 responseText 解析。若给 hex 也设
+    // arraybuffer，RN 的 XHR.responseText getter 会直接抛错（非 text 类型），
+    // 被 parseAudioResponse 的 try/catch 吞掉后变成「未获取到音频数据」。
+    responseType: mode === 'binary' ? 'arraybuffer' : undefined,
     onTimeoutError: () => new Error('播报超时，请稍后重试'),
     onAbortError: () => createTtsAbortError(),
     onAbortEventError: () => new Error('播报已中断'),

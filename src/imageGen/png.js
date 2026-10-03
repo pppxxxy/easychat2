@@ -73,7 +73,11 @@ export function encodePngFromRgb(pixels, width, height, channels = 3) {
   const h = Math.trunc(Number(height));
   const c = Math.trunc(Number(channels));
   if (!(w > 0) || !(h > 0)) throw new Error('图片尺寸无效');
-  if (!COLOR_TYPE_BY_CHANNELS[c]) throw new Error(`不支持的通道数：${channels}`);
+  // 不能写成 `!COLOR_TYPE_BY_CHANNELS[c]`：灰度通道 1 映射到颜色类型 0（falsy），
+  // 会被误判为「不支持」而拒绝。用 hasOwnProperty 精确判定键是否存在。
+  if (!Object.prototype.hasOwnProperty.call(COLOR_TYPE_BY_CHANNELS, c)) {
+    throw new Error(`不支持的通道数：${channels}`);
+  }
   const source = pixels instanceof Uint8Array ? pixels : Uint8Array.from(pixels || []);
   const expected = w * h * c;
   if (source.length < expected) {

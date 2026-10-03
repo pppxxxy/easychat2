@@ -227,9 +227,13 @@ export function canAddResident(houses, characterId, houseId) {
 export function housemateCharacterIds(houses, characterId) {
   const id = clean(characterId, 80);
   if (!id) return [];
-  const house = normalizeMapHouses(houses).find(houseItem => (
-    (houseItem.ownerType === 'character' && houseItem.ownerId === id)
-    || (Array.isArray(houseItem.residents) && houseItem.residents.includes(id))
+  const list = normalizeMapHouses(houses);
+  // 住户优先、其次屋主：一个角色可能同时「拥有 A」又「住进 B」，其住所应取 B。
+  // 用 .find 只认第一栋会随数组顺序漏掉某一边的同住角色，这里显式定唯一住所。
+  const house = list.find(houseItem => (
+    Array.isArray(houseItem.residents) && houseItem.residents.includes(id)
+  )) || list.find(houseItem => (
+    houseItem.ownerType === 'character' && houseItem.ownerId === id
   ));
   if (!house) return [];
   const ids = [];

@@ -51,6 +51,19 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
 
     override fun getName() = "ProactiveMessage"
 
+    // 对称注销监听：ReactContext 的生命周期可能长于模块实例（reload / 旧架构）。
+    // 不注销会留下「僵尸」实例继续收到 onNewIntent/onHostResume，它们会先于存活实例
+    // 消费并 removeExtra 掉通知里的 roleId，导致活实例的 JS 收不到 onOpenRole。
+    override fun invalidate() {
+        try {
+            reactContext.removeActivityEventListener(this)
+        } catch (error: Exception) {}
+        try {
+            reactContext.removeLifecycleEventListener(this)
+        } catch (error: Exception) {}
+        super.invalidate()
+    }
+
     /** 从当前 Activity 的启动 intent 取 roleId；取到即消费并清掉 extra，防止重复处理。 */
     private fun captureLaunchIntent() {
         val intent = reactContext.currentActivity?.intent ?: return

@@ -194,6 +194,16 @@ test('嵌套无界量词会被识别为潜在灾难性回溯', () => {
   assert.equal(isUnsafeRegexPattern('a(b+c)d'), false);
 });
 
+test('无上界 {n,} 外层量词也被识别（{n,m} 有界仍放行）', () => {
+  assert.equal(isUnsafeRegexPattern('(a+){2,}'), true);
+  assert.equal(isUnsafeRegexPattern('(\\d*){2,}'), true);
+  assert.equal(isUnsafeRegexPattern('/(a+){2,}b/g'), true);
+  // 有上界不误伤
+  assert.equal(isUnsafeRegexPattern('(a+){2,3}'), false);
+  assert.equal(isUnsafeRegexPattern('(a+){2}'), false);
+  assert.equal(isUnsafeRegexPattern('(a{2,3})+'), false);
+});
+
 test('安全检查与编译按同一 /pattern/ 解析口径：模式体内未转义斜杠不漏检', () => {
   // 模式体含未转义斜杠、尾部是灾难性回溯结构：按第一个 / 截断会漏检
   assert.equal(isUnsafeRegexPattern('/a(?:b+)+c/g'), true);
