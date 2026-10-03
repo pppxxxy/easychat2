@@ -146,9 +146,22 @@ class ShellExecutorModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // 与 localApiServer / proactiveMessage 同一处置：RN 0.81 在实例销毁时调用的是
+    // invalidate()，**不再调用 onCatalystInstanceDestroy()**。只挂后者的话，热重载或
+    // 退出时正在跑的命令不会被终止，会变成孤儿进程继续占 CPU —— 这正是本项目里
+    // 已经踩过一次的坑（见 LocalApiServerModule 同处注释）。两个都覆写以兼容新旧架构。
+    override fun invalidate() {
+        terminateAll()
+        super.invalidate()
+    }
+
     override fun onCatalystInstanceDestroy() {
+        terminateAll()
         super.onCatalystInstanceDestroy()
-        // JS 实例销毁（热重载/退出）时不能留下孤儿进程。
+    }
+
+    /** 杀掉全部在跑的命令并清空运行表（销毁/热重载时的兜底清理）。 */
+    private fun terminateAll() {
         for ((_, process) in running) {
             try {
                 process.destroyForcibly()

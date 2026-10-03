@@ -123,7 +123,16 @@ test('原生实现必须守住四条硬约束（每条都对应一个真实故�
   assert.ok(source.includes('destroyForcibly()'), '超时/中止必须强杀');
   assert.ok(/fun kill\(requestId: String/.test(source), '必须能按 requestId 精确终止');
   assert.ok(source.includes('running.remove(key)'), '终止要从运行表移除，避免句柄泄漏');
-  assert.ok(source.includes('onCatalystInstanceDestroy'), 'JS 实例销毁时不能留下孤儿进程');
+  // 5. 销毁清理必须同时挂 invalidate()：RN 0.81 不再调用 onCatalystInstanceDestroy()
+  //    （本项目在 localApiServer 上已经踩过），只挂后者等于热重载时留下孤儿进程。
+  assert.ok(/override fun invalidate\(\)/.test(source), '必须覆写 invalidate()（RN 0.81 的销毁回调）');
+  assert.ok(/override fun onCatalystInstanceDestroy\(\)/.test(source), '同时保留旧回调以兼容旧架构');
+  assert.ok(/private fun terminateAll\(\)/.test(source), '清理逻辑抽出来供两个回调共用');
+  // 两个回调都必须真的调用清理，不能有一条空挂
+  const invalidateBody = source.slice(source.indexOf('override fun invalidate()'));
+  const catalystBody = source.slice(source.indexOf('override fun onCatalystInstanceDestroy()'));
+  assert.ok(invalidateBody.slice(0, 200).includes('terminateAll()'), 'invalidate 必须调 terminateAll()');
+  assert.ok(catalystBody.slice(0, 200).includes('terminateAll()'), 'onCatalystInstanceDestroy 必须调 terminateAll()');
 });
 
 test('原生实现把执行放到后台线程（不阻塞 RN 线程）', () => {
