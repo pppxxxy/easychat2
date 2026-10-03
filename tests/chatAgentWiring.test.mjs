@@ -52,3 +52,25 @@ test('工具状态气泡：临时不落库 + 三个出口清理', () => {
   const clears = (source.match(/clearToolStatus\(\)/g) || []).length;
   assert.ok(clears >= 3, `至少三处清理（中止/成功/异常），实际 ${clears}`);
 });
+
+// 气泡文案必须走 t()：只断言词条存在是不够的，调用点换回硬编码中文时上面那组
+// 断言全绿（词条仍在 locales 里），注入验证实测漏过——这里把调用点钉死。
+test('工具气泡文案：调用点走 t()，且当前语言经 ref 取（不用闭包旧 t）', () => {
+  const call = /setToolStatus\(\s*tRef\.current\(\s*'chat\.tool\.status\.reading'\s*,\s*\{\s*name:\s*event\.name\s*\}\s*\)\s*\)/;
+  assert.ok(call.test(source), '气泡文案必须 tRef.current(\'chat.tool.status.reading\', { name })');
+
+  // ref 必须在渲染期同步：只 useRef(t) 不赋值会永久停在首启语言。
+  assert.ok(/const tRef = useRef\(t\)/.test(source), 'tRef 初始化为当前 t');
+  assert.ok(/^\s*tRef\.current = t;?\s*$/m.test(source), 'tRef.current 每次渲染同步当前语言');
+
+  // onToolEvent 回调体内不得残留硬编码中文（气泡文案正是从那里漏出去的）。
+  const start = source.indexOf('onToolEvent:');
+  assert.ok(start >= 0, '存在 onToolEvent');
+  const block = source.slice(start, start + 900);
+  const CJK = /[\u4e00-\u9fff]/;
+  const offenders = block.split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .map(line => line.replace(/\/\/.*$/, ''))
+    .filter(line => CJK.test(line));
+  assert.deepEqual(offenders, [], `onToolEvent 回调仍含硬编码中文：\n${offenders.join('\n')}`);
+});
