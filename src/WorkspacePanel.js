@@ -4,7 +4,7 @@
 // - 顶部只读展示当前工作模式（在设置页修改），提示只读/询问模式下不可写。
 // 入口在「设置 → 工作区」卡片。
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHeader, TextField } from './ui/index.js';
@@ -25,15 +24,10 @@ import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { getWorkspaceSettings } from './storage.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
-import { getWorkspaceFileSystem, defaultWorkspaceRoot } from './workspace/native.js';
-import { isAllowedWorkspaceFile, sandboxDirectory } from './workspace/paths.js';
+import { createWorkspaceStore, describeWorkspaceRoot } from './workspace/native.js';
+import { isAllowedWorkspaceFile } from './workspace/paths.js';
 import { ensureDocxFileName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
-import {
-  listWorkspaceFiles,
-  readWorkspaceFile,
-  writeWorkspaceBinaryFile,
-  writeWorkspaceFile,
-} from './workspace/store.js';
+import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -42,58 +36,100 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
-  const fileSystem = useMemo(() => getWorkspaceFileSystem(), []);
-  const root = useMemo(() => defaultWorkspaceRoot(), []);
-
   const [mode, setMode] = useState('ask');
+  // 根可能被用户在设置里改（应用内默认 ↔ 外部文件夹），故随设置变化而不是一次算死。
+  const [root, setRoot] = useState(() => describeWorkspaceRoot(null));
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
   // 编辑表单：{ kind:'text'|'docx', name, content } | null
   const [form, setForm] = useState(null);
+  // 打开面板那一刻的后端。中途用户在设置里改根时，面板内的操作仍按打开时的根走，
+  // 避免「列出来的是 A 文件夹的文件、删的却是 B 文件夹」。
+  const storeRef = useRef(null);
+  const mountedRef = useRef(true);
 
   const canWrite = mode === 'write';
-  const sandboxRoot = useMemo(() => sandboxDirectory(root, characterId), [root, characterId]);
-
-  const fileUri = useCallback(name => `${sandboxRoot}${name}`, [sandboxRoot]);
+  const external = root.kind === WORKSPACE_ROOT_KINDS.SAF;
 
   const refresh = useCallback(async () => {
-    if (!fileSystem) {
+    const store = storeRef.current;
+    if (!store) {
       setError(t('workspace.panel.err.fileSystem'));
       return;
     }
     setLoading(true);
     try {
-      const list = await listWorkspaceFiles({ root, characterId, fileSystem });
+      const list = await store.listWorkspaceFiles({ characterId });
+      if (!mountedRef.current) return;
       setFiles(list);
       setError('');
     } catch (caught) {
+      if (!mountedRef.current) return;
       setError(t('workspace.panel.err.read'));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  }, [characterId, fileSystem, root, t]);
+  }, [characterId, t]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!visible) return;
-    getWorkspaceSettings()
-      .then(settings => setMode(settings.mode))
-      .catch(() => {});
     setPreview(null);
     setForm(null);
-    refresh();
-  }, [visible, refresh]);
+    getWorkspaceSettings()
+      .then(settings => {
+        if (!mountedRef.current) return;
+        setMode(settings.mode);
+        setRoot(describeWorkspaceRoot(settings));
+        try {
+          storeRef.current = createWorkspaceStore(settings);
+        } catch (caught) {
+          // 外部根但新 API 不可用（例如装了旧版原生模块）：如实报错，绝不偷偷写回应用沙盒。
+          storeRef.current = null;
+          setError(t('workspace.panel.err.externalUnavailable'));
+          setFiles([]);
+          setLoading(false);
+          return;
+        }
+        refresh();
+      })
+      .catch(() => {
+        if (!mountedRef.current) return;
+        setError(t('workspace.panel.err.read'));
+      });
+  }, [visible, refresh, t]);
+
+  const fileUri = useCallback(async name => {
+    const store = storeRef.current;
+    if (!store) return null;
+    try {
+      return await store.fileUri({ characterId, path: name });
+    } catch (caught) {
+      return null;
+    }
+  }, [characterId]);
 
   const shareFile = useCallback(async name => {
+    const store = storeRef.current;
     try {
+      const uri = await fileUri(name);
+      if (!uri) {
+        Alert.alert(t('workspace.panel.err.share'), t('workspace.panel.err.open'));
+        return;
+      }
       const available = await Sharing.isAvailableAsync();
       if (available) {
-        await Sharing.shareAsync(fileUri(name), { dialogTitle: t('workspace.panel.share.dialog', { name }) });
+        await Sharing.shareAsync(uri, { dialogTitle: t('workspace.panel.share.dialog', { name }) });
         return;
       }
       if (isAllowedWorkspaceFile(name)) {
-        const result = await readWorkspaceFile({ root, characterId, path: name, fileSystem });
+        const result = await store.readWorkspaceFile({ characterId, path: name });
         await Clipboard.setStringAsync(result.content);
         Alert.alert(t('workspace.panel.copied.title'), t('workspace.panel.copied.body'));
         return;
@@ -102,7 +138,7 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
     } catch (caught) {
       Alert.alert(t('workspace.panel.err.share'), t('workspace.panel.err.share'));
     }
-  }, [characterId, fileSystem, fileUri, root, t]);
+  }, [characterId, fileUri, t]);
 
   const openFile = useCallback(async name => {
     if (String(name || '').endsWith('/')) return;
@@ -110,13 +146,15 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
       shareFile(name);
       return;
     }
+    const store = storeRef.current;
+    if (!store) return;
     try {
-      const result = await readWorkspaceFile({ root, characterId, path: name, fileSystem });
-      setPreview(result);
+      const result = await store.readWorkspaceFile({ characterId, path: name });
+      if (mountedRef.current) setPreview(result);
     } catch (caught) {
       Alert.alert(t('workspace.panel.err.open'), t('workspace.panel.err.open'));
     }
-  }, [characterId, fileSystem, root, shareFile, t]);
+  }, [characterId, shareFile, t]);
 
   const handleDelete = useCallback(name => {
     Alert.alert(t('workspace.panel.delete.title'), t('workspace.panel.delete.body', { name }), [
@@ -125,8 +163,11 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
         text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
-          FileSystem.deleteAsync(fileUri(name), { idempotent: true })
+          const store = storeRef.current;
+          if (!store) return;
+          store.deleteFile({ characterId, path: name })
             .then(() => {
+              if (!mountedRef.current) return;
               setFiles(list => list.filter(entry => entry !== name));
               if (preview && preview.path === name) setPreview(null);
             })
@@ -134,7 +175,7 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
         },
       },
     ]);
-  }, [fileUri, preview, t]);
+  }, [characterId, preview, t]);
 
   const startTextForm = useCallback(() => {
     if (!canWrite) {
@@ -154,25 +195,28 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
 
   const submitForm = useCallback(async () => {
     if (!form) return;
+    const store = storeRef.current;
+    if (!store) return;
     const content = String(form.content || '');
     try {
       if (form.kind === 'text') {
         const path = ensureTextFileName(form.name);
-        await writeWorkspaceFile({ root, characterId, path, content, fileSystem });
+        await store.writeWorkspaceFile({ characterId, path, content });
       } else {
         const path = ensureDocxFileName(form.name);
         const bytes = buildDocxBytes({
           title: sanitizeWorkspaceFileName(form.name, ''),
           paragraphs: splitDocxParagraphs(content),
         });
-        await writeWorkspaceBinaryFile({ root, characterId, path, base64: bytesToBase64(bytes), fileSystem });
+        await store.writeWorkspaceBinaryFile({ characterId, path, base64: bytesToBase64(bytes) });
       }
+      if (!mountedRef.current) return;
       setForm(null);
       await refresh();
     } catch (caught) {
       Alert.alert(t('workspace.panel.err.save'), t('workspace.panel.err.save'));
     }
-  }, [characterId, fileSystem, form, refresh, root, t]);
+  }, [characterId, form, refresh, t]);
 
   const modeLabel = t(MODE_LABEL_KEY[mode] || MODE_LABEL_KEY.ask);
 
@@ -189,7 +233,14 @@ export default function WorkspacePanel({ visible, onClose, characterId = 'defaul
               {canWrite ? t('workspace.panel.mode.suffixWrite') : t('workspace.panel.mode.suffixReadonly')}
             </Text>
           </View>
-          <Text style={styles.sandboxHint} numberOfLines={1}>{t('workspace.panel.sandbox', { id: characterId })}</Text>
+          <Text style={styles.sandboxHint} numberOfLines={1}>
+            {external
+              ? t('workspace.panel.sandbox.external', { name: root.name || t('settings.workspace.folder.custom'), id: characterId })
+              : t('workspace.panel.sandbox', { id: characterId })}
+          </Text>
+          {external ? (
+            <Text style={styles.sandboxHint} numberOfLines={2}>{t('workspace.panel.sandbox.externalHint')}</Text>
+          ) : null}
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

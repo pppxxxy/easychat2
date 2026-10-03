@@ -118,15 +118,26 @@ registerTool({
 
 ## 10. 安全边界
 
-- 文件工具根目录锁定 `documentDirectory/workspace/<sandbox>/`，路径规范化后必须落在根内，拒绝 `..` 与绝对路径越界。
-- 不做 shell、不执行任意代码、不发起网络请求类工具。
-- 工具入参/结果进入诊断日志前必须脱敏（复用 `SECRET_PATTERN` 链路）。
+- 文件工具根目录锁定 `documentDirectory/workspace/<sandbox>/`，路径规范化后必须落在根内，拒绝 `..` 与绝对路径越界。**（v1.2 起）** 根可以改到用户自选的外部文件夹（Android SAF）：此时走 `src/workspace/safStore.js` 的 `Directory`/`File` 后端，路径守卫不变（越界/绝对路径/非白名单扩展名照旧拒绝），但授权范围是用户所选文件夹及其全部子目录——已在 `SECURITY.md` §1.1 如实披露。
+- ~~不做 shell、不执行任意代码、不发起网络请求类工具。~~ **（v1.2 修订）** 新增可选的 `run_shell`，但受三层门控：**不注册**（开关关 / 非「可改」模式 / 外部 SAF 根 / 原生模块缺失，判定见 `native.js` 的 `shellGateReason`）→ **不进工具列表**（`listToolsForMode`）→ **逐条确认**（`requiresConfirmation` + `runTool` 的 `ctx.confirm`，拒绝则绝不执行）。外部根下禁用是因为无 root 的 shell 访问不到 `content://`；命令只在应用沙盒内执行。不发起网络请求类工具。
+- 工具入参/结果进入诊断日志前必须脱敏（复用 `SECRET_PATTERN` 链路）。命令原文会完整显示在**确认弹框**里（那是给用户做授权决定用的，不截断、不进日志）。
+
+## 10.1 审批钩子（v1.2）
+
+| 项 | 契约 |
+|----|------|
+| `runTool(call, ctx)` | `tool.requiresConfirmation` 为真时，**在超时竞速之外** `await ctx.confirm({ name, args })` |
+| 返回值 | 假值 → `toErrorResult('用户拒绝了此操作（未执行）')`，**绝不执行**；真值 → 继续正常执行 |
+| `ctx.confirm` 缺失 | **按拒绝处理**（不是放行）：漏接钩子的循环只会「跑不了」 |
+| `ctx.confirm` 抛错 | 按中止处理（`AbortError`）；`signal.aborted` → 抛 `AbortError`（审批本身也参与中止竞速，避免弹框开着时循环卡住） |
+| `runAgentTurn({ onToolApproval })` | 可选，**必须 await**（与同步、不 await 的 `onToolEvent` 区别开） |
+| `requestToolApproval`（`src/chat/toolApproval.js`） | 返回 `Promise<boolean>`；正文显示完整命令；点外部/返回键 = 拒绝；无弹框能力 = 拒绝；监听 `signal` 中止立即结算 |
 
 ## 11. 存储与文档登记
 
 - 循环本身不新增持久化键。
-- 工作区文件落在 `documentDirectory/workspace/`；其元数据索引键由第 6 项定，届时同步登记 `SECURITY.md` §1 与 `INTERFACES.md`。
-- 新模块 `src/agent/` 加入 `.c8rc.json` 覆盖白名单（纯逻辑部分可在 Node 测试）。
+- 工作区文件落在 `documentDirectory/workspace/`（或用户自选的外部文件夹）；设置键 `@easychat2_workspace` 现含 `mode` / `location` / `allowCommandExecution`，已同步登记 `SECURITY.md` §1 与 `INTERFACES.md`「工作区设置」。
+- 新模块 `src/agent/` 加入 `.c8rc.json` 覆盖白名单（纯逻辑部分可在 Node 测试）。**（v1.2）** `src/workspace/` 新增 `location.js` / `safStore.js` / `picker.js` / `edit.js` / `shell.js` / `capabilities.js`，全部纯逻辑或依赖注入，均可在 Node 直测。
 
 ## 12. 审阅结论（Zcode，2026-10-03）
 

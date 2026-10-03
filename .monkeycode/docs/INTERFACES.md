@@ -632,37 +632,90 @@ data: [DONE]
 ## 工作区接口
 
 ### 工作区文件工具
-**位置**: `src/workspace/tools.js`、`src/workspace/store.js`、`src/workspace/paths.js`
+**位置**: `src/workspace/tools.js`、`src/workspace/store.js`、`src/workspace/safStore.js`、`src/workspace/paths.js`
 
-工作区是 agent 的受控文件沙盒，根目录 `<documentDirectory>/workspace/<sandboxId>/`（`sandboxId` 由 `characterId` 归一，缺省 `default`）。第一版可读 `.txt` / `.md` / `.markdown`；可额外生成 `.docx`（Word 导出）。
+工作区是 agent 的受控文件沙盒。**根有两种**（`src/workspace/location.js`）：
+- 应用私有根（默认）：`<documentDirectory>/workspace/<sandboxId>/`；
+- 外部根（用户自选）：手机上的一个文件夹（Android SAF `content://`），角色文件在其 `<sandboxId>/` 子目录内。
+
+`sandboxId` 由 `characterId` 归一（`sanitizeSandboxId`），缺省 `default`。可读 `.txt` / `.md` / `.markdown`；可额外生成 `.docx`（Word 导出）。
 
 | 工具 | readOnly | 说明 |
 |------|----------|------|
 | `list_workspace_files({ subdir? })` | 是 | 递归列出文件（相对沙盒根；目录以 `/` 结尾），过滤非白名单扩展名 |
 | `read_workspace_file({ path })` | 是 | 读取文本文件内容；超过 1MB 截断 |
 | `write_workspace_file({ path, content })` | 否 | 新建/覆盖文本文件；仅「可改」模式可用 |
+| `edit_workspace_file({ path, find, replace, all? })` | 否 | 精确文本替换（规则见 `src/workspace/edit.js`）：默认要求 `find` 唯一匹配，多处匹配报错；`all:true` 全替换；`replace` 为空拒绝；仅「可改」模式可用 |
 | `export_workspace_docx({ path, content, title? })` | 否 | 用 `fflate` 自拼最小 OOXML 生成 `.docx`；仅「可改」模式可用 |
+| `run_shell({ command })` | 否 | **仅在开关开启 + 可改模式 + 应用私有根 + 原生模块可用时注册**；`requiresConfirmation:true`，每条命令先弹框（见下） |
 
-- 路径安全由 `paths.js` 统一把关：拒绝 `..`、绝对路径、NUL、超长；扩展名白名单（`assertAllowedWorkspaceFile`）。
-- `registerWorkspaceTools({ root, fileSystem })` 注入依赖；原生默认入口为 `native.js` 的 `registerDefaultWorkspaceTools()`（惰性加载 `expo-file-system/legacy`）。
+- **后端接口**：`store` / `fileSystem` 由调用方注入。`native.js` 的 `createWorkspaceStore(settings)` 按设置返回两种实现之一，二者暴露同一组方法（`listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` / `writeWorkspaceBinaryFile` / `editWorkspaceFile` / `fileUri` / `deleteFile`），故**换根不换工具**。
+  - 应用私有根 = `store.js` 的 `createLegacyWorkspaceStore`（`expo-file-system/legacy`，`fileSystem` 注入，可 Node 直测）；
+  - 外部根 = `safStore.js` 的 `createSafWorkspaceStore`（`expo-file-system` v19 的 `Directory`/`File`，adapter 注入）。**为什么外部根不能复用 legacy**：legacy 的 `readDirectoryAsync` 对 `content://` 抛 `UnsupportedSchemeException`，列目录做不到；新 API 走 `DocumentFile` 且 `pickDirectoryAsync` 用 `takePersistableUriPermission`（Android 重启后授权仍有效）。
+  - `content://` 不是路径，**不能字符串拼接**：safStore 逐段解析（列出父目录 → 按显示名找同名子项 → 没有就 `createDirectory`）；读路径 `create=false`，不产生副作用。
+- 路径安全由 `paths.js` 统一把关：拒绝 `..`、绝对路径、NUL、超长；扩展名白名单（`assertAllowedWorkspaceFile`）。外部根不放宽。
 - 工具执行时以 `ctx.characterId` 作为沙盒，故同一注册表可服务多角色且彼此隔离。
 - 模式门控由 `src/agent/tools/registry.js` 负责（`ask` 不暴露、`read` 仅只读、`write` 全部）。
-- `store.js` 的 `listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` / `writeWorkspaceBinaryFile` 均接收注入的 `fileSystem`（原生 `expo-file-system/legacy`，测试用内存实现）；文件落在磁盘而非 AsyncStorage。
 - Word 导出由 `src/workspace/docx.js` 的 `buildDocxBytes` 生成（纯函数，`fflate` 打包 `[Content_Types].xml` / `_rels/.rels` / `word/document.xml` / `word/_rels/document.xml.rels` / `word/styles.xml`；`bytesToBase64` 落盘）。边界：只生成新 `.docx`，不做保格式编辑。
+
+### 工具执行审批（requiresConfirmation）
+**位置**: `src/agent/tools/registry.js`（`runTool`）、`src/agent/loop.js`（`onToolApproval`）、`src/chat/toolApproval.js`（弹框）
+
+| 项 | 契约 |
+|----|------|
+| `registerTool({ requiresConfirmation })` | 布尔，缺省 `false`（既有工具零变化） |
+| `runTool(call, ctx)` | 若 `tool.requiresConfirmation`：**在超时竞速之外** `await ctx.confirm({ name, args })`；返回假值 → `toErrorResult('用户拒绝了此操作（未执行）')`，**绝不执行** |
+| `ctx.confirm` 缺失 | **按拒绝处理**（`工具需要用户确认，但当前环境无法询问用户（未执行）`）——漏接钩子只会「跑不了」，不会「不用问就跑」 |
+| `ctx.confirm` 抛错 | 按中止处理（`AbortError`），绝不默认放行 |
+| `signal` 中止 | 审批本身参与中止竞速：抛 `AbortError`（否则弹框开着时循环会卡在永远等不到的 Promise 上） |
+| `runAgentTurn({ onToolApproval })` | 可选，须 `await`（与同步不 await 的 `onToolEvent` 不同）；已中止时 `true` → 抛 `AbortError`、`false` → 拒绝、抛错 → `工具确认失败（未执行）` |
+| `requestToolApproval({ name, args, t, signal, showAlert? })` | 返回 `Promise<boolean>`；正文显示**完整命令原文**；点外部/返回键 = 拒绝；无弹框能力 = 拒绝；中止立即结算为拒绝 |
+
+三层门控（`run_shell`）：**不注册**（`native.js` 的 `shellGateReason`：开关关 / 非可改 / 外部根 / 原生缺失）→ **不进列表**（`listToolsForMode`）→ **逐条确认**（`requiresConfirmation`）。
+
+### 命令执行（run_shell）
+**位置**: `src/workspace/shell.js`（JS 桥）、`plugins/shellExecutor/android/`（Kotlin）、`plugins/withShellExecutor.js`（prebuild 插件）
+
+| 导出 | 说明 |
+|------|------|
+| `isShellAvailable()` | 原生模块（`NativeModules.ShellExecutor`）是否可用；仅 Android |
+| `sandboxPathFromUri(uri)` | `file://` → 绝对路径（含百分号解码）；非 `file://` 明确拒绝 |
+| `execShellCommand({ command, cwdPath, signal, timeoutMs, native, requestId })` | 起命令；中止时先 `native.kill(requestId)` 再抛 `AbortError` |
+| `createShellRunner({ sandboxRoot, native })` | 工具用运行器：按 `characterId` 拼子目录，stdout/stderr 截断后格式化 |
+| `formatShellResult(result)` | 退出码 + 超时标记 + 标准输出/错误；退出码非 0 或超时 → `isError:true` |
+| `shellGateReason(settings, { shellAvailable })` | 纯判定：`''` 可注册，否则 `SWITCH_OFF` / `NOT_WRITE_MODE` / `EXTERNAL_ROOT` / `SHELL_NOT_AVAILABLE` |
+
+原生侧（`ShellExecutorModule.kt`）约束：`ProcessBuilder("/system/bin/sh","-c",cmd)`，cwd = 传入沙盒；stdout/stderr **并发**读取（防管道死锁）；输出上限 64KB 且超限继续排空；超时/中止 `destroyForcibly`；按 `requestId` 精确 kill；JS 实例销毁时清理全部子进程。**不需要任何 Manifest 权限**。
 
 ### 工作区设置
 **位置**: `src/storage/workspace.js`（持久化）、`src/workspace/settings.js`（纯归一）
 
 | 导出 | 说明 |
 |------|------|
-| `getWorkspaceSettings()` | 读取模式设置，损坏/缺失/非法一律回默认 `{ mode: 'ask' }` |
-| `saveWorkspaceSettings(settings)` | 归一后写入 `@easychat2_workspace`，返回归一结果 |
+| `getWorkspaceSettings()` | 读取设置，损坏/缺失/非法一律回默认（`mode:'ask'` + 应用内根 + 命令执行关） |
+| `saveWorkspaceSettings(settings)` | 归一后**整体**写入 `@easychat2_workspace`，返回归一结果 |
+| `patchWorkspaceSettings(patch)` | 读-合并-写。**写入方一律用它**：本键现在承载模式 + 根位置 + 命令开关，整体 save 会把未传字段打回默认（表现为「改模式把已选文件夹和 bash 开关清掉」） |
 | `WORKSPACE_MODES` / `normalizeWorkspaceMode` | `['ask','read','write']`，与 agent 工具门控共用 `AGENT_MODES` |
+| `normalizeWorkspaceLocation` / `resolveWorkspaceRoot` / `workspaceCapabilities` | 根归一（只认 `content://` 的 SAF，其余回应用内）、根 uri 解析、能力矩阵（外部根 `canShell:false`） |
+| `normalizeAllowCommandExecution(value, mode)` | 命令执行只在「可改」模式成立，其余模式一律归零 |
 
 ### 工作区面板
-**位置**: `src/WorkspacePanel.js`（设置页「工作区」卡片打开）
+**位置**: `src/WorkspacePanel.js`（设置页「工作区」卡片打开）、`src/WorkspaceCapabilitiesCard.js`（能力说明）
 
-浏览当前角色沙盒（`characterId` 维度）：文本文件预览/复制/分享/删除；「可改」模式下可新建文本、把文本导出为 Word（`.docx`）并分享。只读顶栏显示当前模式（在设置页修改）。依赖 `expo-sharing` / `expo-clipboard`；文件名净化见 `src/workspace/naming.js`（`sanitizeWorkspaceFileName` / `ensureTextFileName` / `ensureDocxFileName`）。
+浏览当前角色沙盒（`characterId` 维度）：文本文件预览/复制/分享/删除；「可改」模式下可新建文本、把文本导出为 Word（`.docx`）并分享。只读顶栏显示当前模式（在设置页修改）。**面板不再自己拼 uri、不直连 `expo-file-system/legacy`**：打开时按当前设置解析后端（`createWorkspaceStore` / `describeWorkspaceRoot`），中途改根不影响已打开的面板（操作仍按打开时的根）。依赖 `expo-sharing` / `expo-clipboard`；文件名净化见 `src/workspace/naming.js`。
+
+设置页工作区卡片新增：**工作区文件夹**（选择/恢复默认，`src/workspace/picker.js`）、**允许执行命令**开关（需二次确认，只读模式/外部根下置灰）、**能力说明卡片**（1→5 循环 + 当前边界，数据在 `src/workspace/capabilities.js`）。
+
+### 文件夹选择器
+**位置**: `src/workspace/picker.js`
+
+| 导出 | 说明 |
+|------|------|
+| `getFileSystemNext()` | 惰性加载 `expo-file-system`（v19；测试环境返回 `null`） |
+| `isPickerAvailable()` | `Directory.pickDirectoryAsync` 是否存在 |
+| `isPickerCancelled(error)` | 认「取消」：`PickerCancelledException` 或文案含 cancelled；真失败一律放行（不吞错误） |
+| `normalizePickedDirectory(directory)` | → `{ uri, name }`；uri 为空返回 `null`；名字做百分号解码，失败退回原串 |
+| `pickWorkspaceFolder()` | 打开系统选择器；**取消返回 `null`**（不弹错误框），能力不可用或真实失败则抛错 |
 
 ## 向量记忆接口
 

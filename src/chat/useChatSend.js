@@ -27,6 +27,7 @@ import { getEditResendPlan } from '../messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn } from '../agent/loop.js';
+import { requestToolApproval } from './toolApproval.js';
 import { registerDefaultWorkspaceTools } from '../workspace/native.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
@@ -204,8 +205,9 @@ export default function useChatSend({
      // 工作区模式（ask/read/write）：决定在线路径是否走 agent 工具循环。
      // 读取失败按默认 ask 处理（零行为变化，绝不因设置读失败而改变发送行为）。
      let workspaceMode = 'ask';
+     let workspaceSettings = null;
      try {
-       const workspaceSettings = await getWorkspaceSettings();
+       workspaceSettings = await getWorkspaceSettings();
        workspaceMode = (workspaceSettings && workspaceSettings.mode) || 'ask';
      } catch (error) {
        workspaceMode = 'ask';
@@ -370,7 +372,7 @@ export default function useChatSend({
         let agentTools = [];
         if (workspaceMode !== 'ask') {
           try {
-            registerDefaultWorkspaceTools();
+            registerDefaultWorkspaceTools(workspaceSettings);
           } catch (error) {}
           agentTools = listToolsForMode(workspaceMode);
         }
@@ -404,6 +406,16 @@ export default function useChatSend({
                 if (event.phase === 'start') setToolStatus(tRef.current('chat.tool.status.reading', { name: event.name }));
                 else setToolStatus('');
               },
+              // 逐条确认（目前只有 run_shell）：这里是唯一能问到用户的出口，
+              // 所以必须接上——不接的话 registry 会把需要确认的工具一律拒绝。
+              // 用户在弹框上犹豫多久都不算超时：runTool 把审批放在超时竞速之外。
+              onToolApproval: call => requestToolApproval({
+                name: call && call.name,
+                args: call && call.args,
+                t: tRef.current,
+                // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
+                signal: controller.signal,
+              }),
               context: { characterId: character.id, sessionId: sendSessionId },
             })
           : sendChatMessage(onlineMessages, {

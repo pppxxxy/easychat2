@@ -129,3 +129,128 @@ test('listRegisteredTools 返回全部注册项', () => {
   registerTool({ name: 'b', readOnly: false, parameters: {}, execute: async () => '' });
   assert.deepEqual(listRegisteredTools().map(t => t.name).sort(), ['a', 'b']);
 });
+// ---- 审批钩子（requiresConfirmation）----
+//
+// 这一组盯住三件事，每件都对应一个真实会出事的写法：
+// 1. 拒绝后**绝不执行**（execute 一次都不能被调到）；
+// 2. 没有审批钩子时是**拒绝**而不是放行（漏传 confirm 的循环不能变成免确认）；
+// 3. 审批在超时竞速**之外**（用户多想几秒不能被判成工具超时）。
+
+test('registerTool 归一化 requiresConfirmation（缺省 false，既有工具行为不变）', () => {
+  const plain = registerTool({ name: 'plain', parameters: {}, execute: async () => '' });
+  assert.equal(plain.requiresConfirmation, false);
+  const guarded = registerTool({ name: 'guarded', parameters: {}, requiresConfirmation: true, execute: async () => '' });
+  assert.equal(guarded.requiresConfirmation, true);
+  // 非 true 的取值一律当 false（'yes' / 1 之类不能被当成开启）
+  assert.equal(registerTool({ name: 'g2', parameters: {}, requiresConfirmation: 'yes', execute: async () => '' }).requiresConfirmation, false);
+});
+
+test('拒绝时返回错误结果，且 execute 绝不被调用', async () => {
+  let executed = 0;
+  registerTool({
+    name: 'shell',
+    parameters: {},
+    requiresConfirmation: true,
+    execute: async () => { executed += 1; return 'ran'; },
+  });
+  const result = await runTool(
+    { name: 'shell', arguments: '{"command":"rm -rf /"}' },
+    { mode: AGENT_MODES.WRITE, confirm: async () => false },
+  );
+  assert.equal(result.isError, true);
+  assert.match(result.content, /用户拒绝了此操作（未执行）/);
+  assert.equal(executed, 0, '拒绝后绝不能执行');
+});
+
+test('允许时正常执行，且 confirm 收到工具名与原参数', async () => {
+  const seen = [];
+  registerTool({
+    name: 'shell',
+    parameters: {},
+    requiresConfirmation: true,
+    execute: async args => `ran:${args.command}`,
+  });
+  const result = await runTool(
+    { name: 'shell', arguments: '{"command":"ls -al"}' },
+    { mode: AGENT_MODES.WRITE, confirm: async call => { seen.push(call); return true; } },
+  );
+  assert.deepEqual(result, { content: 'ran:ls -al', isError: false });
+  assert.deepEqual(seen, [{ name: 'shell', args: { command: 'ls -al' } }]);
+});
+
+test('没接审批钩子 = 拒绝，绝不是放行', async () => {
+  let executed = 0;
+  registerTool({
+    name: 'shell',
+    parameters: {},
+    requiresConfirmation: true,
+    execute: async () => { executed += 1; return 'ran'; },
+  });
+  const result = await runTool({ name: 'shell', arguments: '{"command":"ls"}' }, { mode: AGENT_MODES.WRITE });
+  assert.equal(result.isError, true);
+  assert.match(result.content, /无法询问用户（未执行）/);
+  assert.equal(executed, 0);
+});
+
+test('不需要确认的工具完全不问用户（不能顺手拦下普通工具）', async () => {
+  let asked = 0;
+  registerTool({ name: 'plain', parameters: {}, readOnly: true, execute: async () => 'ok' });
+  const result = await runTool(
+    { name: 'plain', arguments: '{}' },
+    { mode: AGENT_MODES.READ, confirm: async () => { asked += 1; return true; } },
+  );
+  assert.equal(result.content, 'ok');
+  assert.equal(asked, 0);
+});
+
+test('审批钩子抛错按中止处理，绝不默认放行', async () => {
+  let executed = 0;
+  registerTool({
+    name: 'shell',
+    parameters: {},
+    requiresConfirmation: true,
+    execute: async () => { executed += 1; return 'ran'; },
+  });
+  const result = await runTool(
+    { name: 'shell', arguments: '{"command":"ls"}' },
+    { mode: AGENT_MODES.WRITE, confirm: async () => { throw new Error('UI 已卸载'); } },
+  );
+  assert.equal(result.isError, true);
+  assert.match(result.content, /工具确认失败（未执行）/);
+  assert.equal(executed, 0);
+});
+
+test('审批耗时不计入工具的 timeoutMs（用户慢慢想不算超时）', async () => {
+  // 工具的 timeoutMs 给 1ms，而 confirm 等 30ms：若审批在竞速之内，必然误判超时。
+  registerTool({
+    name: 'shell',
+    parameters: {},
+    requiresConfirmation: true,
+    timeoutMs: 1,
+    execute: async () => 'ran',
+  });
+  const result = await runTool(
+    { name: 'shell', arguments: '{"command":"ls"}' },
+    { mode: AGENT_MODES.WRITE, confirm: () => new Promise(resolve => setTimeout(() => resolve(true), 30)) },
+  );
+  assert.deepEqual(result, { content: 'ran', isError: false });
+});
+
+test('审批期间中止：抛 AbortError 供循环停止（不执行也不留悬挂）', async () => {
+  let executed = 0;
+  registerTool({
+    name: 'shell',
+    parameters: {},
+    requiresConfirmation: true,
+    execute: async () => { executed += 1; return 'ran'; },
+  });
+  const controller = new AbortController();
+  // confirm 永不结算：模拟弹框还开着
+  const pending = runTool(
+    { name: 'shell', arguments: '{"command":"ls"}' },
+    { mode: AGENT_MODES.WRITE, signal: controller.signal, confirm: () => new Promise(() => {}) },
+  );
+  controller.abort();
+  await assert.rejects(pending, error => error && error.name === 'AbortError');
+  assert.equal(executed, 0);
+});
