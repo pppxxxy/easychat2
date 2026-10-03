@@ -506,15 +506,16 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     padding: 4,
     backgroundColor: theme.colors.surface,
   },
-  userMediaBox: {
+  // 媒体消息（图片/表情包）用户与角色共用同一组样式：角色也能发表情包。
+  mediaBox: {
     alignItems: 'center',
   },
-   userMessageImage: {
+   messageImage: {
      maxWidth: '100%',
      borderRadius: tokens.radius.md,
      backgroundColor: theme.colors.surfaceBorder,
    },
-  userMediaName: {
+  mediaName: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(10),
     marginTop: 3,

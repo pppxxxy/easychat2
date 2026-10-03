@@ -173,9 +173,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
     [message.id, onSlashCommand, styles]
   );
 
-  // 图片/表情包消息走独立菜单：没有正文，复制/选择文本/引用原文都无意义，
-  // 改为「保存 / 保存为表情包 / 删除消息」，把原先只挂在长按手势上的操作
+  // 图片/表情包消息走独立菜单：没有正文，复制/选择文本无意义，改为
+  // 「保存 / 保存为表情包 / 引用 / 删除消息」，把原先只挂在长按手势上的操作
   // 摆到明面上（长按是隐藏手势，用户不容易发现）。
+  // 引用对媒体消息同样成立：buildQuotePayload 用占位文本（【图片】/【表情包：名字】）
+  // 参与引用，和文字消息引用一样能进输入区的引用条。
   const isMediaMessage = !!message.image;
   const messageActionItems = isMediaMessage
     ? [
@@ -184,6 +186,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
           : null,
         onSaveAsSticker && !message.image.stickerId
           ? { key: 'sticker', label: '保存为表情包', icon: 'happy-outline', onPress: () => onSaveAsSticker(message.image) }
+          : null,
+        onQuote
+          ? { key: 'quote', label: '引用', icon: 'chatbubble-ellipses-outline', onPress: () => onQuote(message) }
           : null,
         isUser && onEditUserMessage
           ? { key: 'edit', label: '修改重发', icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
@@ -364,17 +369,20 @@ const fullWidthAssistant = !isUser && fullWidth;
             <VoiceBubble message={message} isUser={isUser} />
           ) : hideAssistantBody ? (
             <VoiceBubble message={message} isUser={false} />
-          ) : isUser && message.image?.uri ? (
-            <View style={styles.userMediaBox}>
+          ) : message.image?.uri ? (
+            // 媒体消息不区分发送方：角色也能真的把表情包发出来（[[表情包:名称]] 指令），
+            // 渲染分支若只认 isUser，助手表情包会落进下面的文本/Markdown 分支，
+            // text 为空 → 渲染成一个空气泡，图片永远不出现。
+            <View style={styles.mediaBox}>
               <View>
                 <Image
                   source={{ uri: message.image.uri }}
-                  style={[styles.userMessageImage, { width: mediaWidth, height: mediaHeight }]}
+                  style={[styles.messageImage, { width: mediaWidth, height: mediaHeight }]}
                   resizeMode="contain"
                 />
               </View>
               {message.image.stickerName ? (
-                <Text style={styles.userMediaName} numberOfLines={1}>{message.image.stickerName}</Text>
+                <Text style={styles.mediaName} numberOfLines={1}>{message.image.stickerName}</Text>
               ) : null}
             </View>
           ) : isUser ? (
