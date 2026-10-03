@@ -7,11 +7,17 @@ web-build/
 coverage/
 android/
 ios/
-# 预构建插件内保存的 Kotlin 源码不是生成产物，必须入库
+# 预构建插件内保存的 Kotlin 源码不是生成产物，必须入库。
+# 注意顺序与粒度：`android/` 规则连目录本身一起排除，git 就不再往下看，
+# 所以必须先免掉目录再免掉里面（只写 `**` 那行是无效的）——新增插件时
+# 这两行必须成对补上，否则源码只在本地工作区存在、干净检出会缺文件
+# （测试 ENOENT、prebuild 的 readdirSync 当场抛错，APK 都打不了）。
 !plugins/proactiveMessage/android/
 !plugins/proactiveMessage/android/**
 !plugins/localApiServer/android/
 !plugins/localApiServer/android/**
+!plugins/shellExecutor/android/
+!plugins/shellExecutor/android/**
 *.jks
 *.keystore
 .env
