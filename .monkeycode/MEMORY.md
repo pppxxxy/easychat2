@@ -77,3 +77,22 @@ Entries discovered by the Agent during task execution should follow this format:
   - `/v1/extract` 只能抓静态页与原始文件（GitHub raw / 静态博客有效，实测 llama.rn README 抓到 32KB 全文）；对 JS 渲染的 SPA 文档站会返回 `code:-1 / extract_failed: Unable to extract content from the URL`（如 `docs.expo.dev`）。
   - 遇到抓不动的 SPA 文档站：退回用 search snippet 佐证，或换 GitHub / raw / 镜像源，不要反复重试 extract。
   - 新增或修改 opencode 配置后需重启 opencode 才生效（配置不热重载）。
+
+[Project Knowledge Summary]
+- Date: 2026-10-03
+- Context: 并合 Z-workspace-folder / Z-media-cards 时连环踩到的 git 坑（Zcode 合并报告复盘的四个高危点）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **`.gitignore` 目录级规则的陷阱**：`android/` 这类规则连目录本身一起排除，git 不再往里面看；单独写 `!plugins/<name>/android/**` 无效，必须「免目录 + 免内容」两行成对（`!plugins/<name>/android/` + `!plugins/<name>/android/**`）。本仓库已有 proactiveMessage/localApiServer/shellExecutor 三组样例；守卫测试 `tests/pluginKotlinTracked.test.mjs` 会拦「目录存在但 .kt 未被跟踪」。
+  - **本地绿灯 ≠ 可合**：工作区里有但未 `git add` 的源码会让本地测试全绿，干净检出里红（典型：`ENOENT: scandir 插件/...`）。复审流程必须**干净分离检出**（`git worktree add --detach <tip>`）再跑门禁，不能只看当前工作区。
+  - **复审他人分支前必双查 tip**：先 `git fetch`，再用 `git ls-remote` + `%ci`（committer date）确认 tip 是最新；本仓库已发生三次陈旧 tip 误判（两次扯出误判）。
+  - **门禁要跑在合并树上**：`git merge --no-commit` 预演后，在预演出的合并树上跑 lint / test / cov / export；不要只对单分支跑。两个分支各自绿不等于合并树绿（本仓库出现过 §9.9 撞号）。
+  - **同编号章节"撞号不撞行"**：并行分支各自往同一文档加新节（如 SMOKE_TEST.md 的 §9.9）不会触发 git 冲突，但合并后会出现两个同号 section。合并后要检查章节号唯一性——媒体那节已改 §9.10。
+
+[User Instruction Summary]
+- Date: 2026-10-03
+- Context: monkey 推 `m-merge-media-cards-workspace-folder` 与 Zcode 并行合并 main 时的跨代理分工
+- Instructions:
+  - 跨代理分支（m-* 为 monkeycode，Z-* 为 Zcode）的合并由用户决定，不只作主张推进别人的分支。
+  - 如果另一个代理分支里有价值的只是某个文档提交（如本仓库的 `f1d5c89` 只改 README / 审查待办 / MEMORY / 依赖注释），**摘那个文档提交而不是整枝合并**——整枝合并会把对方已修的撞号退回，并在已惊过的冲突文件上再冲一次。
+  - 合并冲突的默认解法是「两节都留、各自标记归属」；节号冲突时再手工改号并同步其他文件里的引用（不要只改正文，引用处同样会指向旧号）。
