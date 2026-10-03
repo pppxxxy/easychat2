@@ -20,6 +20,18 @@ EasyChat2 是一个基于 Expo + React Native 的移动端 AI 聊天应用。它
 - **图片与表情包**：图片附件会拆分为媒体消息，表情包可从相册添加、缩放并重复发送。
 - **富 HTML 与大角色卡**：支持大型本地角色文件、独立 HTML 开场白、CSP 限制和全宽消息布局。
 - **报错可复制**：请求失败以可折叠气泡展示，复制前会对疑似密钥做脱敏。
+- **AI 生图**：扩展页「生图」按提示词生成图片，支持多种在线厂商与本地模型（如 Local Dream），结果可保存、作表情包或重发；角色可在回复中内联配图。
+- **语音**：助手回复可 TTS 播报（多家云引擎与系统语音）；可录音并转写为消息。
+- **本地模型**：可选 `llama.rn` 原生构建，在本机离线推理（含多模态识别），并可开启本地 OpenAI 兼容 API 服务供其他客户端调用。
+- **向量记忆**：把对话片段向量化，按相关度召回并注入上下文。
+- **联网搜索**：把搜索关键词发往所选搜索服务，结果注入对话。
+- **日记**：跨天后为开启的角色自动生成当天日记。
+- **朋友圈（动态）**：发布动态，角色可评论与「接话」。
+- **世界地图**：扩展页「世界」中的网格地图，可为自己或角色放置房子与住户。
+- **书架 / 音乐库**：导入本地 txt/md/docx/html 书籍与本地音频，角色可陪伴阅读、听歌并评论。
+- **看屏幕**：App 内截图并让识图模型评论。
+- **工作区与 Agent 工具**：可把工作区指向应用沙盒或用户选择的系统文件夹，按「询问 / 只读 / 可改」模式读写文本与 Markdown、导出 Word；「可改」模式 + 单独开关下可执行 shell 命令（每条命令逐条弹框确认）。
+- **中英双语**：界面支持简体中文 / English 切换。
 
 ## 环境要求
 
@@ -59,7 +71,7 @@ npm run build:apk    # EAS 预览 APK 构建
 |------|------|
 | **API 地址** | 兼容 OpenAI 格式的端点，例如 `https://api.deepseek.com` |
 | **模型** | 模型名称，例如 `deepseek-chat`、`gpt-4o` |
-| **API Key** | 对应的密钥（明文存于本机） |
+| **API Key** | 对应的密钥。经系统安全存储（`expo-secure-store`，Android Keystore / iOS Keychain）保存，AsyncStorage 只保留引用；安全存储不可用的旧设备会降级为明文（见 [SECURITY.md](./SECURITY.md)） |
 
 可保存多套配置并随时切换；填写完成后可拉取可用模型列表并直接选用。
 
@@ -123,38 +135,37 @@ npm run build:apk
 
 ## 技术栈
 
-- React 18.2.0 / React Native 0.73.6 / Expo SDK ~50
+- React 19.1.0 / React Native 0.81.5 / Expo SDK ~54（新架构，Interop 兼容旧式原生模块）
 - 导航：`@react-navigation/native` + `@react-navigation/bottom-tabs`
-- 富文本：`react-native-markdown-display`、`react-native-render-html`
+- 富文本：`react-native-markdown-display`（助手 Markdown）、`react-native-render-html`（富 HTML 卡片）
 - 图标：`@expo/vector-icons`（Ionicons）
-- 存储：`@react-native-async-storage/async-storage`
+- 存储：`@react-native-async-storage/async-storage`，`expo-sqlite`（大值读取兜底），`expo-secure-store`（密钥）
+- 本地模型：`llama.rn`（可选原生构建）
 - 角色卡解析：`parsecard`
 - 打包：Metro（开启 `unstable_enablePackageExports`，以解析 `parsecard` 的 ESM 导出）
+
+> 版本以 `package.json` 为准，上文为撰写时快照。
 
 ## 项目结构
 
 ```
 easychat2/
-├── App.js                    # 应用入口：垫片、导航容器、全局 Provider
-├── app.json                  # Expo 应用元数据与 Android 权限
-├── eas.json                  # EAS Build 配置
-├── metro.config.js           # Metro 打包配置（开启 package exports）
-├── assets/                   # 图标、自适应图标与启动图
-├── src/
-│   ├── ChatScreen.js         # 聊天界面：角色切换、消息列表、发送、错误气泡、持久化
-│   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
-│   ├── SettingsScreen.js     # API 配置 / 用户人设 / 对话预设
-│   ├── api.js                # 大模型接口调用（XHR 流式）与错误格式化
-│   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
-│   ├── lorebook.js           # 世界书条目激活判定
-│   ├── regexEngine.js        # 正则脚本作用范围与应用
-│   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
-│   ├── storage.js            # AsyncStorage 读写封装与默认值
-│   ├── disclaimer.js         # 免责条款文本与弹窗组件
-│   ├── polyfills.js          # Buffer 运行时兼容垫片（必须最先加载）
-│   └── context/AppContext.js # 全局角色库状态与更新逻辑
-└── .github/workflows/        # APK 构建流水线
+├── App.js                  # 应用入口：垫片、导航容器、全局 Provider 与启动期桥
+├── app.json                # Expo 应用元数据、config plugins 与 Android 权限
+├── eas.json                # EAS Build 配置
+├── metro.config.js         # Metro 打包配置（开启 package exports）
+├── plugins/                # 本地 config plugin：原生模块注入（主动消息 / 本地 API / 命令执行）
+├── assets/                 # 图标、自适应图标与启动图
+├── src/                    # 业务代码：约 25 个领域子目录 + 各 Screen 入口
+│   ├── ChatScreen.js       # 聊天页入口（UI 细节拆在 src/chat/）
+│   ├── CharacterScreen.js  # 角色库与角色卡导入
+│   ├── SettingsScreen.js   # 设置
+│   ├── ...                 # 其余屏幕（记忆 / 扩展 / 搜索 / 生图 / 各面板）
+│   └── <domain>/           # agent / storage / chat / workspace / localModel / moments / ...
+└── .github/workflows/      # CI（单元测试门禁 + APK 构建）
 ```
+
+> 完整模块清单见 `.monkeycode/docs/INTERFACES.md` 与 `AGENTS.md` 的「Architecture map」。
 
 ## 文档
 
