@@ -204,8 +204,9 @@ export default function useChatSend({
      // 工作区模式（ask/read/write）：决定在线路径是否走 agent 工具循环。
      // 读取失败按默认 ask 处理（零行为变化，绝不因设置读失败而改变发送行为）。
      let workspaceMode = 'ask';
+     let workspaceSettings = null;
      try {
-       const workspaceSettings = await getWorkspaceSettings();
+       workspaceSettings = await getWorkspaceSettings();
        workspaceMode = (workspaceSettings && workspaceSettings.mode) || 'ask';
      } catch (error) {
        workspaceMode = 'ask';
@@ -370,7 +371,7 @@ export default function useChatSend({
         let agentTools = [];
         if (workspaceMode !== 'ask') {
           try {
-            registerDefaultWorkspaceTools();
+            registerDefaultWorkspaceTools(workspaceSettings);
           } catch (error) {}
           agentTools = listToolsForMode(workspaceMode);
         }

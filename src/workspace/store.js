@@ -113,3 +113,46 @@ export async function writeWorkspaceBinaryFile({ root, characterId, path, base64
 }
 
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS });
+
+// 应用私有根的后端。与 safStore.js 的 createSafWorkspaceStore 暴露**同一组方法名**：
+// 上层（tools.js / WorkspacePanel.js）只认这套接口，根是应用私有目录还是
+// 用户自选的外部文件夹，对它都是同一件事——换的只是后端。
+export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
+  return {
+    rootKind: 'app',
+
+    listWorkspaceFiles: ({ characterId, subdir = '' } = {}) => listWorkspaceFiles({
+      root, characterId, fileSystem, subdir,
+    }),
+
+    readWorkspaceFile: ({ characterId, path, maxChars } = {}) => readWorkspaceFile({
+      root, characterId, path, fileSystem, maxChars,
+    }),
+
+    writeWorkspaceFile: ({ characterId, path, content } = {}) => writeWorkspaceFile({
+      root, characterId, path, content, fileSystem,
+    }),
+
+    writeWorkspaceBinaryFile: ({ characterId, path, base64 } = {}) => writeWorkspaceBinaryFile({
+      root, characterId, path, base64, fileSystem,
+    }),
+
+    // 面板的分享/删除要拿到具体文件 uri。legacy 后端里 uri 就是拼出来的字符串。
+    async fileUri({ characterId, path } = {}) {
+      const relative = normalizeWorkspacePath(path);
+      const uri = `${sandboxDirectory(root, characterId)}${relative}`;
+      const info = await getInfo(fileSystem, uri);
+      return info && info.exists ? uri : null;
+    },
+
+    async deleteFile({ characterId, path } = {}) {
+      assertFileSystem(fileSystem);
+      const relative = normalizeWorkspacePath(path);
+      const uri = `${sandboxDirectory(root, characterId)}${relative}`;
+      const info = await getInfo(fileSystem, uri);
+      if (!info || !info.exists) return { path: relative, deleted: false };
+      await fileSystem.deleteAsync(uri, { idempotent: true });
+      return { path: relative, deleted: true };
+    },
+  };
+}

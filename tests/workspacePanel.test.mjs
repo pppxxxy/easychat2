@@ -14,8 +14,12 @@ function readSource(relativePath) {
 test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () => {
   const source = readSource('src/WorkspacePanel.js');
   assert.ok(source.includes("mode === 'write'"), '写操作必须仅可改模式');
-  assert.ok(source.includes('sandboxDirectory(root, characterId)'), '按 characterId 分沙盒');
-  assert.ok(source.includes('listWorkspaceFiles') && source.includes('readWorkspaceFile'), '复用存储层列举/读取');
+  // 面板不再自己拼 uri：换成后端接口，角色隔离由 store 以 characterId 分沙盒保证。
+  assert.ok(/listWorkspaceFiles\(\{ characterId \}\)/.test(source), '列表按 characterId 分沙盒');
+  assert.ok(/readWorkspaceFile\(\{ characterId, path/.test(source), '读取按 characterId 分沙盒');
+  assert.ok(source.includes('createWorkspaceStore') && source.includes('describeWorkspaceRoot'),
+    '根与后端按当前设置解析（应用内 / 外部文件夹）');
+  assert.ok(!source.includes('expo-file-system/legacy'), '面板不得直连 legacy 文件系统：读写须经后端');
   assert.ok(source.includes('writeWorkspaceBinaryFile') && source.includes('buildDocxBytes'),
     'Word 导出复用 docx 纯函数与二进制写');
   assert.ok(source.includes('Sharing.shareAsync'), '分享接 expo-sharing');
@@ -28,6 +32,23 @@ test('SettingsScreen：工作区卡片提供面板入口', () => {
   assert.ok(source.includes('<WorkspacePanel'), '渲染工作区面板');
   assert.ok(/setWorkspaceOpen\(true\)/.test(source), '卡片按钮打开面板');
   assert.ok(source.includes('characterId={characterId}'), '面板按当前角色沙盒传入');
+});
+
+test('SettingsScreen：选文件夹 + 命令开关都走 patch（不许整体 save 冲掉彼此）', () => {
+  const source = readSource('src/SettingsScreen.js');
+  assert.ok(source.includes("from './workspace/picker.js'"), '接入选文件夹能力');
+  assert.ok(source.includes('pickWorkspaceFolder()'), '调用系统目录选择器');
+  assert.ok(/patchWorkspaceSettings\(\{ location:/.test(source), '文件夹走局部更新');
+  assert.ok(/patchWorkspaceSettings\(\{ allowCommandExecution/.test(source), '命令开关走局部更新');
+  // 改模式那次是最容易踩坑的地方：必须是 patch，不能是整体 save
+  assert.ok(/await patchWorkspaceSettings\(\{ mode \}\)/.test(source), '改模式必须走 patchWorkspaceSettings');
+  assert.equal(/saveWorkspaceSettings\(/.test(source), false, '设置页不得再整体写工作区设置');
+  // 命令开关要有二次确认，且只在可改模式、非外部根时可点
+  assert.ok(source.includes("t('settings.workspace.shell.confirm.title')"), '开启命令执行要二次确认');
+  assert.ok(/disabled=\{workspaceMode !== 'write' \|\| workspaceFolder\.kind === WORKSPACE_ROOT_KINDS\.SAF\}/.test(source),
+    '只读模式或外部根下开关不可点');
+  // 工作区卡片里的硬编码「打开工作区」必须已迁到 t()
+  assert.equal(source.includes('title="打开工作区"'), false, '工作区卡片的按钮文案必须走 i18n');
 });
 
 test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', async () => {

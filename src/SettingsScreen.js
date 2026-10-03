@@ -38,22 +38,25 @@ import {
   saveMomentsSettings,
   getThinkingSettings,
   getWorkspaceSettings,
+  patchWorkspaceSettings,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
-  saveWorkspaceSettings,
   THINKING_DISPLAYS,
 } from './storage.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
+import { pickWorkspaceFolder } from './workspace/picker.js';
+import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors.js';
 import {
   Card,
   DangerButton,
   FieldHint,
   FieldLabel,
+  GhostButton,
   PrimaryButton,
   SecondaryButton,
   TextField,
@@ -149,6 +152,11 @@ export default function SettingsScreen() {
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
   const [workspaceMode, setWorkspaceMode] = useState('ask');
   const workspaceModeRef = useRef('ask');
+  const [workspaceFolder, setWorkspaceFolder] = useState({ kind: 'app', uri: '', name: '' });
+  const [commandExecution, setCommandExecution] = useState(false);
+  const [workspaceFolderBusy, setWorkspaceFolderBusy] = useState(false);
+  // 异步保存（选文件夹 / 命令开关）回来时组件可能已卸载，setState 前先查这个 ref。
+  const settingsMountedRef = useRef(true);
   const characterId = (character && character.id) || 'default';
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
@@ -219,6 +227,8 @@ export default function SettingsScreen() {
       .then(settings => {
         workspaceModeRef.current = settings.mode;
         setWorkspaceMode(settings.mode);
+        setWorkspaceFolder(settings.location);
+        setCommandExecution(settings.allowCommandExecution);
       })
       .catch(() => {});
     loadVectorSettings();
@@ -360,10 +370,77 @@ export default function SettingsScreen() {
     workspaceModeRef.current = mode;
     setWorkspaceMode(mode);
     try {
-      await saveWorkspaceSettings({ mode });
+      // 局部更新：整体 save 会把 location / allowCommandExecution 归一化回默认值，
+      // 表现为「切一下模式，刚选好的文件夹和命令开关就没了」。
+      const saved = await patchWorkspaceSettings({ mode });
+      setCommandExecution(saved.allowCommandExecution);
     } catch (error) {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
+  }, []);
+
+  // 选文件夹：系统选择器（SAF）已经带 takePersistableUriPermission，重启后仍有效。
+  // 取消不是错误，不提示；失败才提示。
+  const chooseWorkspaceFolder = useCallback(async () => {
+    if (workspaceFolderBusy) return;
+    setWorkspaceFolderBusy(true);
+    try {
+      const picked = await pickWorkspaceFolder();
+      if (!picked) return;
+      const saved = await patchWorkspaceSettings({ location: { kind: 'saf', uri: picked.uri, name: picked.name } });
+      setWorkspaceFolder(saved.location);
+      setCommandExecution(saved.allowCommandExecution);
+    } catch (error) {
+      Alert.alert(t('settings.workspace.folder.err.title'), (error && error.message) || t('settings.workspace.folder.err.body'));
+    } finally {
+      setWorkspaceFolderBusy(false);
+    }
+  }, [t, workspaceFolderBusy]);
+
+  const resetWorkspaceFolder = useCallback(async () => {
+    try {
+      const saved = await patchWorkspaceSettings({ location: { kind: 'app', uri: '', name: '' } });
+      setWorkspaceFolder(saved.location);
+      setCommandExecution(saved.allowCommandExecution);
+    } catch (error) {
+      Alert.alert('保存失败', '请检查存储空间或权限。');
+    }
+  }, []);
+
+  // 命令执行的开关放在确认弹框之后：这是「模型生成的命令会在手机里真的跑」的开关，
+  // 不能一点就生效。
+  const toggleCommandExecution = useCallback((value) => {
+    if (!value) {
+      patchWorkspaceSettings({ allowCommandExecution: false })
+        .then(saved => {
+          if (settingsMountedRef.current) setCommandExecution(saved.allowCommandExecution);
+        })
+        .catch(() => Alert.alert('保存失败', '请检查存储空间或权限。'));
+      return;
+    }
+    Alert.alert(
+      t('settings.workspace.shell.confirm.title'),
+      t('settings.workspace.shell.confirm.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.workspace.shell.confirm.ok'),
+          style: 'destructive',
+          onPress: () => {
+            patchWorkspaceSettings({ allowCommandExecution: true })
+              .then(saved => {
+                if (settingsMountedRef.current) setCommandExecution(saved.allowCommandExecution);
+              })
+              .catch(() => Alert.alert('保存失败', '请检查存储空间或权限。'));
+          },
+        },
+      ]
+    );
+  }, [t]);
+
+  useEffect(() => {
+    settingsMountedRef.current = true;
+    return () => { settingsMountedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -1100,8 +1177,61 @@ export default function SettingsScreen() {
           <FieldHint style={styles.hint}>
             {t((WORKSPACE_MODE_OPTIONS.find(option => option.id === workspaceMode) || WORKSPACE_MODE_OPTIONS[0]).hintKey)}
           </FieldHint>
+
+          <FieldLabel style={styles.label}>{t('settings.workspace.folder')}</FieldLabel>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons
+                name={workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF ? 'folder-outline' : 'phone-portrait-outline'}
+                size={17}
+                color={theme.colors.primaryMuted}
+              />
+              <Text style={styles.linkText} numberOfLines={1}>
+                {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF
+                  ? (workspaceFolder.name || t('settings.workspace.folder.custom'))
+                  : t('settings.workspace.folder.app')}
+              </Text>
+            </View>
+            {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF ? (
+              <GhostButton title={t('settings.workspace.folder.reset')} small onPress={resetWorkspaceFolder} />
+            ) : null}
+          </View>
+          <FieldHint style={styles.hint}>
+            {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF
+              ? t('settings.workspace.folder.hintExternal', { name: workspaceFolder.name || t('settings.workspace.folder.custom') })
+              : t('settings.workspace.folder.hintApp')}
+          </FieldHint>
           <SecondaryButton
-            title="打开工作区"
+            title={workspaceFolderBusy ? t('settings.workspace.folder.picking') : t('settings.workspace.folder.pick')}
+            small
+            disabled={workspaceFolderBusy}
+            style={{ alignSelf: 'flex-start', marginTop: 8 }}
+            onPress={chooseWorkspaceFolder}
+          />
+
+          <View style={[styles.capabilityRow, { marginTop: 16 }]}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="terminal-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('settings.workspace.shell')}</Text>
+            </View>
+            <Switch
+              value={commandExecution}
+              disabled={workspaceMode !== 'write' || workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF}
+              onValueChange={toggleCommandExecution}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <FieldHint style={styles.hint}>
+            {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF
+              ? t('settings.workspace.shell.hintExternal')
+              : (workspaceMode === 'write'
+                ? t('settings.workspace.shell.hint')
+                : t('settings.workspace.shell.hintReadonly'))}
+          </FieldHint>
+
+          <SecondaryButton
+            title={t('settings.workspace.open')}
             small
             style={{ alignSelf: 'flex-start', marginTop: 12 }}
             onPress={() => setWorkspaceOpen(true)}

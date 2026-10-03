@@ -1,14 +1,19 @@
-// 工作区工具定义与注册。纯逻辑：root/fileSystem 由调用方注入（原生见 native.js）。
+// 工作区工具定义与注册。纯逻辑：store 由调用方注入（原生见 native.js）。
+//
+// store 是「工作区后端」接口（list/read/write/writeBinary/edit），有两种实现：
+// 应用私有根走 legacy（store.js 的 createLegacyWorkspaceStore），
+// 用户自选的外部文件夹走 SAF（safStore.js 的 createSafWorkspaceStore）。
+// 工具定义只认接口，不知道根在哪——换根不需要换工具。
 
 import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
 import { fileExtension } from './paths.js';
-import {
-  listWorkspaceFiles,
-  readWorkspaceFile,
-  writeWorkspaceBinaryFile,
-  writeWorkspaceFile,
-} from './store.js';
+import { createLegacyWorkspaceStore } from './store.js';
+
+function resolveStore({ store, root, fileSystem } = {}) {
+  if (store) return store;
+  return createLegacyWorkspaceStore({ root, fileSystem });
+}
 
 const WORKSPACE_TOOL_DEFINITIONS = [
   {
@@ -21,10 +26,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
         subdir: { type: 'string', description: '可选：只列出该子目录下的内容。' },
       },
     },
-    execute: (options, args, ctx) => listWorkspaceFiles({
-      root: options.root,
+    execute: (options, args, ctx) => options.store.listWorkspaceFiles({
       characterId: ctx && ctx.characterId,
-      fileSystem: options.fileSystem,
       subdir: typeof args.subdir === 'string' ? args.subdir : '',
     }).then(files => (files.length ? files.join('\n') : '（工作区为空）')),
   },
@@ -39,10 +42,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
       },
       required: ['path'],
     },
-    execute: (options, args, ctx) => readWorkspaceFile({
-      root: options.root,
+    execute: (options, args, ctx) => options.store.readWorkspaceFile({
       characterId: ctx && ctx.characterId,
-      fileSystem: options.fileSystem,
       path: args.path,
     }).then(result => (result.truncated ? `${result.content}\n…（已截断）` : result.content)),
   },
@@ -58,10 +59,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
       },
       required: ['path', 'content'],
     },
-    execute: (options, args, ctx) => writeWorkspaceFile({
-      root: options.root,
+    execute: (options, args, ctx) => options.store.writeWorkspaceFile({
       characterId: ctx && ctx.characterId,
-      fileSystem: options.fileSystem,
       path: args.path,
       content: args.content,
     }).then(result => `已写入 ${result.path}（${result.length} 字符）`),
@@ -87,10 +86,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
         title: typeof args.title === 'string' ? args.title : '',
         paragraphs: splitDocxParagraphs(args.content),
       });
-      return writeWorkspaceBinaryFile({
-        root: options.root,
+      return options.store.writeWorkspaceBinaryFile({
         characterId: ctx && ctx.characterId,
-        fileSystem: options.fileSystem,
         path: args.path,
         base64: bytesToBase64(bytes),
       }).then(result => `已导出 ${result.path}（${bytes.length} 字节）`);
@@ -100,8 +97,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
 
 export const WORKSPACE_TOOL_NAMES = Object.freeze(WORKSPACE_TOOL_DEFINITIONS.map(item => item.name));
 
-export function createWorkspaceToolDefinitions({ root, fileSystem } = {}) {
-  const options = { root, fileSystem };
+export function createWorkspaceToolDefinitions({ store, root, fileSystem } = {}) {
+  const options = { store: resolveStore({ store, root, fileSystem }) };
   return WORKSPACE_TOOL_DEFINITIONS.map(definition => ({
     name: definition.name,
     description: definition.description,
@@ -111,8 +108,8 @@ export function createWorkspaceToolDefinitions({ root, fileSystem } = {}) {
   }));
 }
 
-export function registerWorkspaceTools({ root, fileSystem } = {}) {
-  for (const definition of createWorkspaceToolDefinitions({ root, fileSystem })) {
+export function registerWorkspaceTools({ store, root, fileSystem } = {}) {
+  for (const definition of createWorkspaceToolDefinitions({ store, root, fileSystem })) {
     registerTool(definition);
   }
   return WORKSPACE_TOOL_NAMES;

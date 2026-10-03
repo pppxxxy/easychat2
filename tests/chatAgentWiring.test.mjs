@@ -23,7 +23,9 @@ test('接线导入与 mode 读取', () => {
 
 test('ask 零变化：不注册工具、走 sendChatMessage；read/write 走 runAgentTurn', () => {
   assert.ok(source.includes("if (workspaceMode !== 'ask')"), '仅非 ask 才注册/派生工具');
-  assert.ok(source.includes('registerDefaultWorkspaceTools()'), '注册默认工作区工具');
+  // 必须把当前工作区设置一并传入：后端（应用内 / 外部文件夹）由设置决定，
+  // 不传等于永远走应用私有根，用户选的文件夹会被静默忽略。
+  assert.ok(source.includes('registerDefaultWorkspaceTools(workspaceSettings)'), '注册默认工作区工具并带上设置');
   assert.ok(/agentTools\.length > 0[\s\S]{0,80}runAgentTurn/.test(source), '有工具才走循环');
   assert.ok(source.includes('sendChatMessage(onlineMessages'), 'ask 路径仍是 sendChatMessage');
   assert.ok(source.includes('listToolsForMode(workspaceMode)'), '工具集按当前模式派生');
