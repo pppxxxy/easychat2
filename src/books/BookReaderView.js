@@ -5,22 +5,27 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EmptyState } from '../ui/index.js';
+import { EmptyState, GhostButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useApp } from '../context/AppContext.js';
 
 import { splitBookIntoBlocks } from './blocks.js';
 import { formatReadingPercent } from './commentPrompts.js';
 import { pageText } from './pagination.js';
+import { useBookComments } from './useBookComments.js';
 import { buildPageTextProps, LINE_HEIGHT_RATIO, MEASURE_READY, useBookReader } from './useBookReader.js';
 
 const FONT_MIN = 13;
@@ -34,10 +39,13 @@ function changeFontSize(current, delta) {
 export default function BookReaderView({ item, content, onBack }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const navigation = useNavigation();
+  const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
 
   const [fontSize, setFontSize] = useState(17);
   const [showControls, setShowControls] = useState(true);
   const [showChapters, setShowChapters] = useState(false);
+  const [showComments, setShowComments] = useState(false);
   const [contentArea, setContentArea] = useState({ width: 0, height: 0 });
 
   const blocks = useMemo(() => splitBookIntoBlocks(content), [content]);
@@ -49,6 +57,48 @@ export default function BookReaderView({ item, content, onBack }) {
     pageHeight: contentArea.height,
     lineHeight,
   });
+  const {
+    comments,
+    generating,
+    error: commentError,
+    characterId,
+    setCharacterId,
+    generate,
+    retry,
+  } = useBookComments({ book: item, characters, defaultCharacterId: activeId });
+
+  // 生成请求取「当前页」快照：翻页后重试也以失败时的页为准（lastFailedRef 语义）。
+  const handleCommentOnPage = useCallback(() => {
+    if (reader.status !== MEASURE_READY || !reader.page) return;
+    return generate({
+      excerpt: pageText(reader.lines, reader.page, { maxChars: 600 }),
+      chapterTitle: (reader.block && reader.block.title) || '',
+      blockIndex: reader.blockIndex,
+      anchorText: reader.page.anchorText || '',
+    });
+  }, [generate, reader]);
+
+  // 接话：切到该角色当前会话并把评论作为引用带入输入区（评论本体不进会话存储）。
+  const handleQuoteComment = useCallback(async comment => {
+    if (!comment || !comment.characterId) return;
+    try {
+      const session = await ensureCharacterSession(comment.characterId);
+      if (!session || !session.id) throw new Error('no-session');
+      setPendingQuote({
+        sessionId: session.id,
+        payload: {
+          id: '',
+          name: comment.characterName || '角色',
+          role: 'assistant',
+          text: comment.text,
+        },
+      });
+      setShowComments(false);
+      navigation.navigate('聊天');
+    } catch (error) {
+      Alert.alert('无法接话', '没能打开该角色的会话，请稍后重试。');
+    }
+  }, [ensureCharacterSession, navigation, setPendingQuote]);
 
   const textProps = useMemo(
     () => buildPageTextProps({ fonts, fontSize, colors: theme.colors }),
@@ -111,6 +161,13 @@ export default function BookReaderView({ item, content, onBack }) {
               accessibilityLabel="章节目录"
             >
               <Ionicons name="list-outline" size={18} color={theme.colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => setShowComments(true)}
+              accessibilityLabel="陪读评论"
+            >
+              <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -191,6 +248,82 @@ export default function BookReaderView({ item, content, onBack }) {
           )}
         </View>
       </Modal>
+
+      <Modal visible={showComments} animationType="slide" onRequestClose={() => setShowComments(false)}>
+        <View style={[styles.container, styles.modalRoot]}>
+          <View style={styles.topBar}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setShowComments(false)}>
+              <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
+              <Text style={styles.backText}>返回阅读</Text>
+            </TouchableOpacity>
+            <Text style={styles.title}>陪读评论</Text>
+            <View style={styles.topActions} />
+          </View>
+          <View style={styles.commentsBody}>
+            <Text style={styles.sectionHint}>一起读的角色</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+              {characters.map(entry => {
+                const selected = entry.id === characterId;
+                return (
+                  <TouchableOpacity
+                    key={entry.id}
+                    style={[styles.characterChip, selected && styles.characterChipActive]}
+                    onPress={() => setCharacterId(entry.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[styles.characterChipText, selected && styles.characterChipTextActive]}
+                      numberOfLines={1}
+                    >
+                      {String(entry.name || '').trim() || '角色'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.generateButton}
+              onPress={handleCommentOnPage}
+              disabled={generating || reader.status !== MEASURE_READY}
+              activeOpacity={0.85}
+            >
+              {generating
+                ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+                : <Ionicons name="chatbubbles" size={15} color={theme.colors.primaryContrast} />}
+              <Text style={styles.generateText}>让TA聊聊这一页</Text>
+            </TouchableOpacity>
+            {commentError ? (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorText}>{commentError}</Text>
+                <GhostButton title="重试" small onPress={retry} />
+              </View>
+            ) : null}
+            {comments.length === 0 && !generating ? (
+              <Text style={styles.emptyComments}>
+                还没有评论。翻到想聊的一页，点上面的按钮，{characters.length > 0 ? '角色' : '选好角色后'}会在这里聊这段内容。
+              </Text>
+            ) : null}
+            {comments.map(comment => (
+              <View key={comment.id} style={styles.commentCard}>
+                <View style={styles.commentHead}>
+                  <Text style={styles.commentName} numberOfLines={1}>
+                    {comment.characterName || '角色'}
+                    {comment.chapterTitle ? ` · ${comment.chapterTitle}` : ''}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.quoteButton}
+                    onPress={() => handleQuoteComment(comment)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.quoteButtonText}>接话</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.commentText}>{comment.text}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -254,4 +387,57 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   chapterRowActive: { backgroundColor: theme.colors.surface },
   chapterText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
+  commentsBody: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
+  sectionHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
+  chipScroll: { flexGrow: 0, marginBottom: 10 },
+  characterChip: {
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+  },
+  characterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  characterChipText: { color: theme.colors.text, fontSize: fonts.scaled(12), maxWidth: 120 },
+  characterChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '600' },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: tokens.metrics.buttonRadius,
+    paddingVertical: 10,
+  },
+  generateText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6 },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: tokens.radius.sm,
+    backgroundColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  errorText: { color: theme.colors.danger || theme.colors.text, fontSize: fonts.scaled(12), flex: 1, marginRight: 8 },
+  emptyComments: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 12, lineHeight: fonts.scaled(17) },
+  commentCard: {
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    padding: 10,
+    marginTop: 10,
+  },
+  commentHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  commentName: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1, marginRight: 8 },
+  quoteButton: {
+    borderRadius: tokens.metrics.buttonRadius,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  quoteButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(11), fontWeight: '600' },
+  commentText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
 });
