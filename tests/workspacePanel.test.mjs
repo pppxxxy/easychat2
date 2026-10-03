@@ -14,8 +14,12 @@ function readSource(relativePath) {
 test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () => {
   const source = readSource('src/WorkspacePanel.js');
   assert.ok(source.includes("mode === 'write'"), '写操作必须仅可改模式');
-  assert.ok(source.includes('sandboxDirectory(root, characterId)'), '按 characterId 分沙盒');
-  assert.ok(source.includes('listWorkspaceFiles') && source.includes('readWorkspaceFile'), '复用存储层列举/读取');
+  // 面板不再自己拼 uri：换成后端接口，角色隔离由 store 以 characterId 分沙盒保证。
+  assert.ok(/listWorkspaceFiles\(\{ characterId \}\)/.test(source), '列表按 characterId 分沙盒');
+  assert.ok(/readWorkspaceFile\(\{ characterId, path/.test(source), '读取按 characterId 分沙盒');
+  assert.ok(source.includes('createWorkspaceStore') && source.includes('describeWorkspaceRoot'),
+    '根与后端按当前设置解析（应用内 / 外部文件夹）');
+  assert.ok(!source.includes('expo-file-system/legacy'), '面板不得直连 legacy 文件系统：读写须经后端');
   assert.ok(source.includes('writeWorkspaceBinaryFile') && source.includes('buildDocxBytes'),
     'Word 导出复用 docx 纯函数与二进制写');
   assert.ok(source.includes('Sharing.shareAsync'), '分享接 expo-sharing');
@@ -28,6 +32,23 @@ test('SettingsScreen：工作区卡片提供面板入口', () => {
   assert.ok(source.includes('<WorkspacePanel'), '渲染工作区面板');
   assert.ok(/setWorkspaceOpen\(true\)/.test(source), '卡片按钮打开面板');
   assert.ok(source.includes('characterId={characterId}'), '面板按当前角色沙盒传入');
+});
+
+test('SettingsScreen：选文件夹 + 命令开关都走 patch（不许整体 save 冲掉彼此）', () => {
+  const source = readSource('src/SettingsScreen.js');
+  assert.ok(source.includes("from './workspace/picker.js'"), '接入选文件夹能力');
+  assert.ok(source.includes('pickWorkspaceFolder()'), '调用系统目录选择器');
+  assert.ok(/patchWorkspaceSettings\(\{ location:/.test(source), '文件夹走局部更新');
+  assert.ok(/patchWorkspaceSettings\(\{ allowCommandExecution/.test(source), '命令开关走局部更新');
+  // 改模式那次是最容易踩坑的地方：必须是 patch，不能是整体 save
+  assert.ok(/await patchWorkspaceSettings\(\{ mode \}\)/.test(source), '改模式必须走 patchWorkspaceSettings');
+  assert.equal(/saveWorkspaceSettings\(/.test(source), false, '设置页不得再整体写工作区设置');
+  // 命令开关要有二次确认，且只在可改模式、非外部根时可点
+  assert.ok(source.includes("t('settings.workspace.shell.confirm.title')"), '开启命令执行要二次确认');
+  assert.ok(/disabled=\{workspaceMode !== 'write' \|\| workspaceFolder\.kind === WORKSPACE_ROOT_KINDS\.SAF\}/.test(source),
+    '只读模式或外部根下开关不可点');
+  // 工作区卡片里的硬编码「打开工作区」必须已迁到 t()
+  assert.equal(source.includes('title="打开工作区"'), false, '工作区卡片的按钮文案必须走 i18n');
 });
 
 test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', async () => {
@@ -55,4 +76,23 @@ test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', asyn
   assert.deepEqual(mismatched, [], `占位符不一致：${mismatched.join(', ')}`);
   assert.ok(zhCN['chat.tool.status.reading'] && en['chat.tool.status.reading'], '工具气泡词条中英齐全');
   assert.equal(placeholders(zhCN['chat.tool.status.reading']), placeholders(en['chat.tool.status.reading']));
+});
+test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲染', () => {
+  const source = readSource('src/WorkspaceCapabilitiesCard.js');
+  assert.ok(source.includes('useTranslation') && /const \{ t \} = useTranslation\(\)/.test(source), '接入 i18n');
+  assert.ok(source.includes('capabilityViewModel'), '结构来自纯数据模块');
+  const CJK = /[\u4e00-\u9fff]/;
+  const offenders = [];
+  source.split('\n').forEach((line, index) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+    const code = line.replace(/\/\/.*$/, '').replace(/\/\*[^*]*\*\//g, '');
+    if (CJK.test(code)) offenders.push(`${index + 1}  ${trimmed.slice(0, 80)}`);
+  });
+  assert.deepEqual(offenders, [], `能力说明卡片仍有硬编码中文：\n${offenders.join('\n')}`);
+  // 设置页必须把它渲染进工作区卡片，并传入当前设置与 shell 可用性
+  const settings = readSource('src/SettingsScreen.js');
+  assert.ok(settings.includes('<WorkspaceCapabilitiesCard'), '设置页渲染能力说明卡片');
+  assert.ok(/settings=\{\{[\s\S]{0,200}allowCommandExecution: commandExecution/.test(settings), '传入当前工作区设置');
+  assert.ok(/shellAvailable=\{isShellAvailable\(\)\}/.test(settings), '传入 shell 是否可用');
 });

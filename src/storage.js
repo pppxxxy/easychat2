@@ -103,6 +103,7 @@ export {
 export {
   WORKSPACE_KEY,
   getWorkspaceSettings,
+  patchWorkspaceSettings,
   saveWorkspaceSettings,
 } from './storage/workspace.js';
 export {

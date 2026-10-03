@@ -52,6 +52,8 @@ export function registerTool(definition) {
     timeoutMs: Number.isFinite(source.timeoutMs) && source.timeoutMs > 0
       ? source.timeoutMs
       : DEFAULT_TOOL_TIMEOUT_MS,
+    // 需要用户逐次点头的工具（目前只有 run_shell）。缺省 false，故既有工具行为不变。
+    requiresConfirmation: source.requiresConfirmation === true,
   };
   registry.set(name, normalized);
   return normalized;
@@ -115,6 +117,51 @@ export async function runTool(call, ctx = {}) {
   }
 
   const signal = ctx.signal || null;
+
+  // 人工审批必须在超时竞速**之外**：这里的等待时长取决于用户什么时候点按钮，
+  // 几秒到几十秒都正常。若放进下面那个 15s 竞速里，用户多犹豫一下就变成
+  // 「工具执行超时」，而工具其实一次都没跑。
+  //
+  // 拒绝与中止的语义都是「绝不执行」：返回错误结果让模型知道没执行，
+  // 而不是抛异常中断整轮对话（中止信号才抛，那由上层处理）。
+  //
+  // **没有审批钩子 = 拒绝**，不是放行：需要确认的工具只可能在能问到用户的
+  // 界面里执行。漏传 confirm（例如别处新起的 agent 循环）时应当是「跑不了」，
+  // 绝不能变成「不用问就跑」。
+  if (tool.requiresConfirmation) {
+    if (typeof ctx.confirm !== 'function') {
+      return toErrorResult(`工具需要用户确认，但当前环境无法询问用户（未执行）：${name}`);
+    }
+    if (signal && signal.aborted) throw makeAbortError();
+    // 审批也要能被中止竞速：用户点「停止生成」时弹框可能还开着，弹框的按钮回调
+    // 不会因为 abort 而触发，只 await confirm 会让循环卡在一个永远等不到答案的
+    // Promise 上。用一个哨兵值做竞速，避免在 Promise 里 reject 造成未捕获拒绝。
+    let onApprovalAbort = null;
+    const abortSentinel = Symbol('abort');
+    const approvalAbort = new Promise(resolve => {
+      if (!signal || typeof signal.addEventListener !== 'function') return;
+      onApprovalAbort = () => resolve(abortSentinel);
+      signal.addEventListener('abort', onApprovalAbort);
+    });
+    let approved;
+    try {
+      approved = await Promise.race([
+        Promise.resolve().then(() => ctx.confirm({ name: tool.name, args })),
+        approvalAbort,
+      ]);
+    } catch (error) {
+      // 审批钩子自身抛错（例如 UI 已卸载）：按中止处理，绝不默认放行。
+      if (isAbortError(error) || (signal && signal.aborted)) throw makeAbortError();
+      return toErrorResult(`工具确认失败（未执行）：${name}`);
+    } finally {
+      if (onApprovalAbort && signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onApprovalAbort);
+      }
+    }
+    if (approved === abortSentinel || (signal && signal.aborted)) throw makeAbortError();
+    if (!approved) return toErrorResult('用户拒绝了此操作（未执行）');
+  }
+
   let timer = null;
   let onAbort = null;
   const timeoutReason = `工具执行超时（${tool.timeoutMs}ms）：${name}`;
