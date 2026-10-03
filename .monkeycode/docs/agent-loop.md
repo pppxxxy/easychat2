@@ -1,6 +1,6 @@
 # Agent 工具调用循环（接口契约 v1）
 
-状态：**待 Zcode 审**。归属：monkey code（C 线，`api.js` / `modelProvider` / 新增 `src/agent/`）。
+状态：**已审（v1.1），实现中**。归属：monkey code（C 线，`api.js` / `modelProvider` / 新增 `src/agent/`）。
 上游规划见 [审查待办](./审查待办.md) 的「2026-10-03 长程功能规划」第 5 项；本文是其接口契约。
 
 ## 1. 范围
@@ -17,14 +17,17 @@
 export async function streamChatCompletion(messages, opts)
   // -> { text, reasoning, toolCalls: [{ id, name, arguments }], finishReason }
 
-// 兼容：语义、返回类型（string）均不变
+// 兼容：语义、返回类型（string）均不变；兜底只在这一层做
 export async function sendChatMessage(messages, opts) {
-  return (await streamChatCompletion(messages, opts)).text;
+  return (await streamChatCompletion(messages, opts)).text || EMPTY_REPLY_TEXT;
 }
 ```
 
 `opts` 在现有 `onChunk` / `onReasoning` / `signal` / `stream` / `expectedConfig*` 基础上增加：
 `tools`（ToolDefinition[]）、`toolChoice`（`'auto' | 'none' | { type:'function', function:{ name } }`）。
+
+- **`EMPTY_REPLY_TEXT` 兜底只留在 `sendChatMessage` 包装层**；`streamChatCompletion` 返回原始空串——工具轮「空文本 + tool_calls」是正常形态，占位文本污染 assistant 历史会把循环带歪。
+- **配置守卫随调用进 `streamChatCompletion` 内部**（入口 + 流后检查），循环每轮各查一次。
 
 ## 3. 数据结构
 
@@ -56,20 +59,21 @@ runAgentTurn(messages, { tools, mode, signal, maxRounds = 5, onToken, onReasonin
   for round in 1..maxRounds:
     if signal.aborted -> throw AbortError
     res = streamChatCompletion(messages, { tools, toolChoice: 'auto', signal, onChunk: onToken, onReasoning })
-    messages.push({ role:'assistant', content: res.text, tool_calls: res.toolCalls })   // 原样入 history
+    messages.push({ role:'assistant', content: res.text || null, tool_calls: res.toolCalls })   // 空文本置 null
     if res.toolCalls.length === 0: return res.text
     for call in res.toolCalls:
       if signal.aborted -> throw AbortError
       result = await runTool(call, { signal, mode, ...context })   // 见 §9
       messages.push({ role:'tool', tool_call_id: call.id, content: serialize(result, 16 * 1024) })
-  // 上限兜底：强制文字收尾
+  // 上限兜底：整体省略 tools 字段（不发 tool_choice:'none'——兼容面更宽），强制文字收尾
   messages.push({ role:'system', content:'工具调用轮次已达上限，请直接用文字回答。' })
-  final = streamChatCompletion(messages, { tools, toolChoice: 'none', signal, onToken, onReasoning })
+  final = streamChatCompletion(messages, { signal, onToken, onReasoning })
   return final.text
 ```
 
-- `onToken` / `onReasoning`：每轮各自的增量文本实时上抛，UI 可见「模型正在想 / 正在说」。
-- `onToolEvent`：工具执行生命周期（`{ phase:'start'|'end', name, ok }`），供 UI 显示「正在读取文件…」。
+- `onToken` / `onReasoning`：**跨轮累积**后上抛（`streamChatCompletion` 每轮只给该轮全量，`runAgentTurn` 负责叠加），否则第 2 轮首个增量会冲掉第 1 轮 UI 文本。
+- `onToolEvent`：`{ phase:'start'|'end', name, round, ok, error? }`；`round` 从 1 起，`ok:false` 时带脱敏 `error`。
+- **UI 回调（`onToken`/`onReasoning`/`onToolEvent`）一律 try/catch 包裹**：信息性回调抛错不得打断循环。
 
 ## 6. provider 路由
 
@@ -124,9 +128,18 @@ registerTool({
 - 工作区文件落在 `documentDirectory/workspace/`；其元数据索引键由第 6 项定，届时同步登记 `SECURITY.md` §1 与 `INTERFACES.md`。
 - 新模块 `src/agent/` 加入 `.c8rc.json` 覆盖白名单（纯逻辑部分可在 Node 测试）。
 
-## 12. 待 Zcode 确认
+## 12. 审阅结论（Zcode，2026-10-03）
 
-1. `streamChatCompletion` 结构化返回值与 `sendChatMessage` 兼容包装的分层是否认可。
-2. 循环上限默认 5 轮 + 上限时 `tool_choice:'none'` 强制收尾，是否够用。
-3. 本地模型 v1 不支持工具调用（降级纯对话 + 提示），是否接受。
-4. 工具事件 `onToolEvent` 的形状（`{ phase, name, ok }`）是否满足第 8 项 UI 需要，需要补充哪些字段。
+4 点全部认可，并折入以下修订（v1.1）：
+
+1. **分层 —— 认可**：`EMPTY_REPLY_TEXT` 兜底只留包装层、配置守卫进 `streamChatCompletion`（已写入 §2）。
+2. **五轮上限 —— 认可**：上限轮**整体省略 `tools` 字段**（不再发 `tool_choice:'none'`），兼容面更宽；系统提示注入照旧（已写入 §5）。
+3. **本地模型降级 —— 接受**（§6）。
+4. **`onToolEvent` —— 补 2 字段**：`error?`（`ok:false` 时，脱敏短句）与 `round?`（1 起始）；并加纪律：UI 回调 try/catch，抛错不打断循环（已写入 §5）。
+
+契约外两点已并入实现：
+
+- **跨轮累积**：`runAgentTurn` 自维护累积串再上抛（§5）。
+- **assistant 历史消息空 content 置 `null`**，避免兼容端点拒绝空串（§5）。
+
+边界：`useChatSend.js` 的 `onlineSend` → `runAgentTurn` 接线归 `src/chat/`（Zcode 在第 8 项接入时做）；本项交付到 `src/agent/` + `api.js` / `modelProvider` 为止。
