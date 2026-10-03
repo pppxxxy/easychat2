@@ -101,6 +101,12 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   const [expandedEntries, setExpandedEntries] = useState(() => new Set());
   const wasVisibleRef = useRef(false);
   const assistAbortRef = useRef(null);
+  // 选图守卫：mountedRef 防写到已卸载组件、editorSessionRef 防迟到结果写进新一轮、
+  // imageOperationRef 按操作序号丢弃过期结果、imageBusyRef 做同 tick 重入闸门。
+  const mountedRef = useRef(true);
+  const editorSessionRef = useRef(0);
+  const imageOperationRef = useRef(0);
+  const imageBusyRef = useRef(false);
   // 预览要拿"当前表单"（含未保存的改动），用 ref 避免回调里读到旧快照。
   const formRef = useRef(form);
   formRef.current = form;
@@ -108,14 +114,31 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   // 只在"打开的那一刻"用最新草稿填充：弹窗开着时草稿若被 AI 回复更新，
   // 不能把用户正在输入的内容冲掉。
   useEffect(() => {
-    const justOpened = visible && !wasVisibleRef.current;
+    const wasVisible = wasVisibleRef.current;
     wasVisibleRef.current = visible;
-    if (!justOpened) return;
+    if (wasVisible === visible) return;
+    // 开与关都算一轮结束：关掉弹窗意味着本轮未保存的改动被丢弃（只有 onSave 才回写
+    // 草稿），此时还在系统选图器里挂着的结果回来必须作废——否则它会写进一个已经
+    // 隐藏的表单（用户再打开时又被草稿重置丢掉），草稿目录里那份副本也永远没人引用。
+    editorSessionRef.current += 1;
+    imageOperationRef.current += 1;
+    imageBusyRef.current = false;
+    setImageBusy(false);
+    if (!visible) return;
     const next = { ...createForgeDraft(), ...(draft || {}) };
     setForm(next);
     setTagText(Array.isArray(next.tags) ? next.tags.join('、') : '');
     setExpandedEntries(new Set());
   }, [draft, visible]);
+
+  // 卸载标记：迟到的选图结果不得 setState 到已卸载组件。
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      editorSessionRef.current += 1;
+    };
+  }, []);
 
   // 卸载时中止挂着的辅助生成/按图生成请求，避免写回已卸载的表单。
   useEffect(() => () => {
@@ -124,20 +147,42 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   }, []);
 
   // ---- 头像 / 背景图 ----
+  // 选图走的是系统界面：用户可能在选图器开着时关掉弹窗，或同 tick 连点两次。
+  // 对齐 CharacterScreen.pickImage 的成熟模式：挂载标记 + 会话号 + 操作序号三重守卫，
+  // 迟到的结果既不写已卸载的组件，也不写已经关掉又重新打开的旧会话。
+  // 闸门用 ref 而非 imageBusy 闭包布尔：setState 是异步的，同一 tick 的两次点击
+  // 读到的还是旧值，会开出两个选择器。
   const pickImage = async key => {
-    if (imageBusy) return;
+    if (imageBusyRef.current) return;
+    imageBusyRef.current = true;
     setImageBusy(true);
+    const operation = ++imageOperationRef.current;
+    const session = editorSessionRef.current;
+    const isCurrent = () => (
+      mountedRef.current
+      && imageOperationRef.current === operation
+      && editorSessionRef.current === session
+    );
     try {
-      const previous = String(form[key] || '');
+      const previous = String(formRef.current[key] || '');
       const uri = await pickForgeImage({ key });
+      if (!isCurrent()) {
+        // 结果来晚了（弹窗已关/又开了新一轮）：刚写进草稿目录的副本已无人引用，
+        // 就地清掉，避免留下永远不显示的垃圾文件。
+        if (uri) await deleteForgeImage(uri).catch(() => {});
+        return;
+      }
       if (!uri) return;
       // 换了新图就删旧草稿副本（deleteForgeImage 只删草稿目录内的文件）。
       if (previous && previous !== uri) await deleteForgeImage(previous);
       setForm(current => ({ ...current, [key]: uri }));
     } catch (error) {
-      Alert.alert('图片读取失败', '请重试，或换一张图片。');
+      if (isCurrent()) Alert.alert('图片读取失败', '请重试，或换一张图片。');
     } finally {
-      setImageBusy(false);
+      if (imageOperationRef.current === operation) {
+        imageBusyRef.current = false;
+        if (mountedRef.current) setImageBusy(false);
+      }
     }
   };
 

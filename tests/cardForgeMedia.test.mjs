@@ -116,6 +116,33 @@ test('制卡编辑器：图片选择/清除/按图生成三处接线齐备', () 
   assert.match(editor, /source: 'easychat2-image-to-card'/, '按图生成应打自己的生成标识来源');
 });
 
+test('制卡编辑器选图带三重守卫（monkey 审查点 3）：卸载/换轮/过期结果都不写表单', () => {
+  const editor = read('src/CardForgeEditor.js');
+  // 闸门必须是 ref：setState 异步，同 tick 两次点击读到的还是旧值会开两个选择器
+  assert.match(editor, /if \(imageBusyRef\.current\) return;/, '重入闸门用 ref 而非闭包布尔');
+  assert.equal(/if \(imageBusy\) return;/.test(editor), false, '旧的闭包布尔闸门必须不复存在');
+  assert.match(editor, /const imageBusyRef = useRef\(false\)/, 'imageBusyRef 声明');
+  // 三重守卫：挂载标记 + 会话号 + 操作序号
+  assert.match(editor, /const mountedRef = useRef\(true\)/, 'mountedRef 声明');
+  assert.match(editor, /const editorSessionRef = useRef\(0\)/, 'editorSessionRef 声明');
+  assert.match(editor, /const imageOperationRef = useRef\(0\)/, 'imageOperationRef 声明');
+  assert.match(
+    editor,
+    /mountedRef\.current\s*\n\s*&& imageOperationRef\.current === operation\s*\n\s*&& editorSessionRef\.current === session/,
+    'isCurrent 必须同时看挂载、操作序号与会话号'
+  );
+  // 过期结果：既不能写表单，也不能留下无人引用的草稿副本
+  assert.match(
+    editor,
+    /if \(!isCurrent\(\)\) \{[\s\S]{0,240}deleteForgeImage\(uri\)/,
+    '过期结果应丢弃并清理刚写入的草稿副本'
+  );
+  // 卸载与关闭都要让挂着的这一轮失效（关闭同样丢弃未保存改动，见 onClose 契约）
+  assert.match(editor, /mountedRef\.current = false;\s*\n\s*editorSessionRef\.current \+= 1;/, '卸载时失效当前轮');
+  assert.match(editor, /if \(wasVisible === visible\) return;/, '开与关都要推进会话号');
+  assert.match(editor, /if \(isCurrent\(\)\) Alert\.alert\('图片读取失败'/, '失败提示只在仍是当前轮时弹');
+});
+
 test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片目录', () => {
   const screen = read('src/CardForgeScreen.js');
   // 多模态请求：文本 + image_url 一起发

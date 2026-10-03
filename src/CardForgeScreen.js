@@ -292,7 +292,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   // AI 生成/改写后统一处理：给草稿打生成标识（随卡入库与导出），
   // 并对文本做知名 IP 关键词提示——命中只提醒不阻断，责任约定见免责条款。
-  const applyAigcAttribution = useCallback((draft, model) => {    const stamped = { ...draft, [AIGC_META_FIELD]: buildAigcMeta({ model }) };
+  const applyAigcAttribution = useCallback((draft, model) => {
+    const stamped = { ...draft, [AIGC_META_FIELD]: buildAigcMeta({ model }) };
     const worldTexts = (Array.isArray(stamped.worldInfo) ? stamped.worldInfo : [])
       .map(entry => `${(entry && entry.comment) || ''} ${(entry && Array.isArray(entry.keys) ? entry.keys.join(' ') : '')} ${(entry && entry.content) || ''}`);
     const hits = findIpKeywords([
