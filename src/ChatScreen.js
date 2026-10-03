@@ -1780,13 +1780,17 @@ export default function ChatScreen() {
 
   const openImageActions = useCallback((image, messageId) => {
     if (!image || !image.uri) return;
+    // 长按是隐藏手势，这里是媒体消息的第二入口；菜单项与气泡「⋯」保持一致
+    // （含「引用」——媒体消息的引用走 buildQuotePayload 的占位文本）。
+    const target = messagesRef.current.find(item => item && item.id === messageId);
     Alert.alert('图片操作', image.stickerName ? `「${image.stickerName}」` : '选择图片操作', [
       { text: '取消', style: 'cancel' },
       { text: '保存', onPress: () => saveImage(image) },
       { text: '保存为表情包', onPress: () => openStickerNamePrompt(image) },
+      ...(target ? [{ text: '引用', onPress: () => onQuoteMessage(target) }] : []),
       { text: '删除消息', style: 'destructive', onPress: () => confirmDeleteImageMessage(messageId) },
     ]);
-  }, [confirmDeleteImageMessage, openStickerNamePrompt, saveImage]);
+  }, [confirmDeleteImageMessage, onQuoteMessage, openStickerNamePrompt, saveImage]);
 
   const sendSticker = useCallback(async sticker => {
      if (!sticker || messageSelectionOpen || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;

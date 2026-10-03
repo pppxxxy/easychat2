@@ -195,6 +195,29 @@ test('无识图模型收到表情包名称提示', () => {
   assert.equal(userMessages[0].content.includes('image_url'), false);
 });
 
+test('有识图能力时表情包以真实图片发给模型（名字只是无识图模型的退路）', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    imageMessages: [{
+      kind: 'sticker',
+      image: { stickerId: 's1', stickerName: '开心' },
+      dataUri: 'data:image/jpeg;base64,abc',
+      includeImage: true,
+    }],
+    userText: '',
+    userProfile: {},
+  });
+  const userMessages = messages.filter(item => item.role === 'user');
+  assert.equal(userMessages.length, 1);
+  assert.ok(Array.isArray(userMessages[0].content), '多模态内容应为数组');
+  const imagePart = userMessages[0].content.find(part => part.type === 'image_url');
+  assert.ok(imagePart, '表情包必须作为 image_url 随请求发出');
+  assert.equal(imagePart.image_url.url, 'data:image/jpeg;base64,abc');
+  // 名称仍在同一轮里作为文字给出：模型能对上「这个图案叫什么」。
+  assert.match(userMessages[0].content.find(part => part.type === 'text').text, /表情包：开心/);
+});
+
 test('当前媒体名称经过用户输入正则处理', () => {
   const messages = buildRequestMessages({
     character: {

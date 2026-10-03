@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -26,6 +27,7 @@ import {
   parseEntryAssistPatch,
   parseFieldAssistText,
 } from './cardForge/forge.js';
+import { deleteForgeImage, pickForgeImage } from './cardForge/media.js';
 import { createRegexScript, createWorldEntry } from './cardParser.js';
 import CardPreviewModal from './CardPreviewModal.js';
 import { makeCharacterPresetId } from './characterPresets.js';
@@ -81,7 +83,7 @@ function AssistButton({ onPress, label }) {
   );
 }
 
-export default function CardForgeEditor({ visible, draft, onClose, onSave, onAssistPrompt, onSimulateChat }) {
+export default function CardForgeEditor({ visible, draft, onClose, onSave, onAssistPrompt, onSimulateChat, onImageGenerate, visionAvailable = false }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [form, setForm] = useState(() => ({ ...createForgeDraft(), ...(draft || {}) }));
@@ -90,6 +92,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   const [assistText, setAssistText] = useState('');
   const [assistBusy, setAssistBusy] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageGenTarget, setImageGenTarget] = useState(null);
+  const [imageGenHint, setImageGenHint] = useState('');
+  const [imageGenBusy, setImageGenBusy] = useState(false);
+  const imageAbortRef = useRef(null);
   // 集合条目默认折叠，点标题展开（可同时展开多条）；新增条目自动展开。
   const [expandedEntries, setExpandedEntries] = useState(() => new Set());
   const wasVisibleRef = useRef(false);
@@ -110,10 +117,100 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     setExpandedEntries(new Set());
   }, [draft, visible]);
 
-  // 卸载时中止挂着的辅助生成请求，避免写回已卸载的表单。
+  // 卸载时中止挂着的辅助生成/按图生成请求，避免写回已卸载的表单。
   useEffect(() => () => {
     if (assistAbortRef.current) assistAbortRef.current.abort();
+    if (imageAbortRef.current) imageAbortRef.current.abort();
   }, []);
+
+  // ---- 头像 / 背景图 ----
+  const pickImage = async key => {
+    if (imageBusy) return;
+    setImageBusy(true);
+    try {
+      const previous = String(form[key] || '');
+      const uri = await pickForgeImage({ key });
+      if (!uri) return;
+      // 换了新图就删旧草稿副本（deleteForgeImage 只删草稿目录内的文件）。
+      if (previous && previous !== uri) await deleteForgeImage(previous);
+      setForm(current => ({ ...current, [key]: uri }));
+    } catch (error) {
+      Alert.alert('图片读取失败', '请重试，或换一张图片。');
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const clearImage = key => {
+    const previous = String(form[key] || '');
+    if (previous) deleteForgeImage(previous).catch(() => {});
+    setForm(current => ({ ...current, [key]: '' }));
+  };
+
+  // ---- 按图片生成角色卡 ----
+  const openImageGenerate = target => {
+    if (imageGenBusy) return;
+    const source = target === 'bg' ? form.bgUri : form.avatarUri;
+    if (!String(source || '').trim()) {
+      Alert.alert('先选一张图片', target === 'bg' ? '请先选择背景图。' : '请先选择头像。');
+      return;
+    }
+    setImageGenTarget(target);
+    setImageGenHint('');
+  };
+
+  const closeImageGenerate = () => {
+    if (imageAbortRef.current) {
+      imageAbortRef.current.abort();
+      imageAbortRef.current = null;
+    }
+    setImageGenBusy(false);
+    setImageGenTarget(null);
+    setImageGenHint('');
+  };
+
+  const submitImageGenerate = async () => {
+    const target = imageGenTarget;
+    if (!target) return;
+    if (typeof onImageGenerate !== 'function') {
+      Alert.alert('功能不可用', '当前没有可用的模型配置。');
+      return;
+    }
+    const controller = new AbortController();
+    imageAbortRef.current = controller;
+    setImageGenBusy(true);
+    try {
+      const uri = target === 'bg' ? form.bgUri : form.avatarUri;
+      const patch = await onImageGenerate({
+        uri,
+        hint: imageGenHint.trim(),
+        hasAvatar: target === 'avatar',
+        hasBg: target === 'bg',
+        signal: controller.signal,
+      });
+      if (!patch) {
+        Alert.alert('生成失败', 'AI 没有返回有效的卡片内容，请重试。');
+        return;
+      }
+      // 图片字段由这里填（模型的 JSON 里不含图片路径）。
+      const images = { avatarUri: form.avatarUri || '', bgUri: form.bgUri || '' };
+      setForm(current => ({
+        ...current,
+        ...patch,
+        ...images,
+        [AIGC_META_FIELD]: buildAigcMeta({ source: 'easychat2-image-to-card' }),
+      }));
+      closeImageGenerate();
+    } catch (error) {
+      if (isCanceledError(error)) return;
+      Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
+    } finally {
+      if (imageAbortRef.current === controller) {
+        imageAbortRef.current = null;
+        setImageGenBusy(false);
+      }
+    }
+  };
 
   const save = () => {
     const tags = tagText
@@ -374,6 +471,90 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           {isValidAigcMeta(form[AIGC_META_FIELD]) ? (
             <Text style={styles.aigcBadge}>{`本卡由 AI 生成 · 内容编号 ${form[AIGC_META_FIELD].contentCode || ''}`}</Text>
           ) : null}
+          <FieldGroup
+            label="头像"
+            hint="角色列表与聊天气泡里显示的头像；支持 PNG / JPEG"
+          >
+            <View style={styles.imageRow}>
+              {form.avatarUri ? (
+                <Image source={{ uri: String(form.avatarUri) }} style={styles.avatarPreview} />
+              ) : (
+                <View style={[styles.avatarPreview, styles.imagePlaceholder]}>
+                  <Ionicons name="person-outline" size={18} color={theme.colors.textFaint} />
+                </View>
+              )}
+              <View style={styles.imageButtons}>
+                <TouchableOpacity
+                  style={styles.smallButton}
+                  onPress={() => pickImage('avatarUri')}
+                  disabled={imageBusy}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.smallButtonText}>{form.avatarUri ? '更换' : '选择头像'}</Text>
+                </TouchableOpacity>
+                {form.avatarUri ? (
+                  <TouchableOpacity style={styles.smallButton} onPress={() => clearImage('avatarUri')} hitSlop={6} activeOpacity={0.8}>
+                    <Text style={styles.removeText}>清除</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {visionAvailable ? (
+                  <TouchableOpacity
+                    style={styles.imageGenButton}
+                    onPress={() => openImageGenerate('avatar')}
+                    disabled={!form.avatarUri || imageGenBusy}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="根据头像图片生成角色卡"
+                  >
+                    <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
+                    <Text style={styles.imageGenText}>按头像生成角色</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          </FieldGroup>
+          <FieldGroup
+            label="背景图"
+            hint="聊天页的背景图；支持 PNG / JPEG"
+          >
+            <View style={styles.imageRow}>
+              {form.bgUri ? (
+                <Image source={{ uri: String(form.bgUri) }} style={styles.bgPreview} />
+              ) : (
+                <View style={[styles.bgPreview, styles.imagePlaceholder]}>
+                  <Ionicons name="image-outline" size={18} color={theme.colors.textFaint} />
+                </View>
+              )}
+              <View style={styles.imageButtons}>
+                <TouchableOpacity
+                  style={styles.smallButton}
+                  onPress={() => pickImage('bgUri')}
+                  disabled={imageBusy}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.smallButtonText}>{form.bgUri ? '更换' : '选择背景'}</Text>
+                </TouchableOpacity>
+                {form.bgUri ? (
+                  <TouchableOpacity style={styles.smallButton} onPress={() => clearImage('bgUri')} hitSlop={6} activeOpacity={0.8}>
+                    <Text style={styles.removeText}>清除</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {visionAvailable ? (
+                  <TouchableOpacity
+                    style={styles.imageGenButton}
+                    onPress={() => openImageGenerate('bg')}
+                    disabled={!form.bgUri || imageGenBusy}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="根据背景图生成角色卡"
+                  >
+                    <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
+                    <Text style={styles.imageGenText}>按背景生成角色</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          </FieldGroup>
           {FORGE_FIELDS.map(key => (
             <FieldGroup
               key={key}
@@ -707,6 +888,52 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         </KeyboardAvoidingView>
       </Modal>
 
+      <Modal
+        visible={!!imageGenTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={closeImageGenerate}
+      >
+        <KeyboardAvoidingView
+          style={styles.assistOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.assistCard}>
+            <Text style={styles.assistTitle}>
+              {imageGenTarget === 'bg' ? '按背景图生成角色卡' : '按头像生成角色卡'}
+            </Text>
+            <Text style={styles.assistCurrent}>
+              会把这张图片作为识图输入交给当前模型，读图后写出一整张角色卡覆盖当前草稿的文本字段（图片保持不变）。
+            </Text>
+            <ScrollView
+              style={styles.assistScroll}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <TextField
+                style={styles.assistInput}
+                value={imageGenHint}
+                onChangeText={setImageGenHint}
+                placeholder="可选的补充要求，例如：这是个清冷剑客，背景放在雪山"
+                multiline
+                autoFocus
+                scrollEnabled={false}
+              />
+            </ScrollView>
+            {imageGenBusy ? (
+              <View style={styles.assistBusyRow}>
+                <ActivityIndicator color={theme.colors.primary} />
+                <Text style={styles.assistBusyText}>AI 正在读图写卡…</Text>
+              </View>
+            ) : null}
+            <View style={styles.assistActions}>
+              <SecondaryButton title="取消" onPress={closeImageGenerate} style={styles.footerButton} />
+              <PrimaryButton title="生成" onPress={submitImageGenerate} disabled={imageGenBusy} style={styles.footerButton} />
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <CardPreviewModal
         visible={previewOpen}
         draft={previewDraft}
@@ -846,6 +1073,64 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   entryContent: {
     marginBottom: tokens.spacing.sm,
     minHeight: tokens.metrics.fieldHeight * 2,
+  },
+  imageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  avatarPreview: {
+    width: 56,
+    height: 56,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceBorder,
+  },
+  bgPreview: {
+    width: 96,
+    height: 56,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceBorder,
+  },
+  imagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  imageButtons: {
+    flex: 1,
+    marginLeft: tokens.spacing.md,
+  },
+  smallButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+    marginBottom: tokens.spacing.xs,
+  },
+  smallButtonText: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(12),
+  },
+  imageGenButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: tokens.spacing.xs,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surface,
+  },
+  imageGenText: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(11),
+    fontWeight: '700',
+    marginLeft: 3,
   },
   switchRow: {
     flexDirection: 'row',

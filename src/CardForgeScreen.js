@@ -15,12 +15,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
 import { buildSystemPrompt } from './cardParser.js';
 import { buildRequestMessages } from './chatPipeline.js';
+import { readImageDataUri } from './attachments.js';
 import { useApp } from './context/AppContext.js';
 import CardForgeEditor from './CardForgeEditor.js';
 import {
   appendTranscript,
   buildEditPrompt,
   buildGeneratePrompt,
+  buildImageCardPrompt,
   createForgeState,
   currentQuestion,
   draftToCharacterPatch,
@@ -31,7 +33,17 @@ import {
   recordAnswer,
   summarizeAnswers,
 } from './cardForge/forge.js';
-import { clearCardForge, getActiveModel, getApiConfigs, getCardForgeStatus, saveCardForge } from './storage.js';
+import { promoteForgeImageToAvatar, deleteForgeDraftImages } from './cardForge/media.js';
+import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
+import {
+  clearCardForge,
+  getActiveLocalModel,
+  getActiveModel,
+  getApiConfigs,
+  getCardForgeStatus,
+  getLocalModelSettings,
+  saveCardForge,
+} from './storage.js';
 import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution.js';
 import { maskSecrets } from './secrets.js';
 import { Chip, PrimaryButton, TextField } from './ui/index.js';
@@ -50,6 +62,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const [freeQuestionId, setFreeQuestionId] = useState('');
   const [busy, setBusy] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  // 当前来源是否有识图能力：决定编辑器里是否展示「按图片生成角色」按钮。
+  // 只影响按钮可见性，真正发送前 imageToCard 会再判一次（能力可能在期间被改）。
+  const [visionAvailable, setVisionAvailable] = useState(false);
   const importingRef = useRef(false);
   const busyRef = useRef(false);
   const loadErrorRef = useRef(false);
@@ -213,10 +228,71 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     return getActiveModel(current);
   }, []);
 
+  // 当前来源是否具备识图能力：在线 supportsVision 或本地模型多模态（与聊天附件、
+  // 看屏幕同一口径）。制卡「按图片生成」需要它来决定是否把图片真的发给模型。
+  const activeForgeVision = useCallback(async () => {
+    const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
+      getApiConfigs(),
+      getLocalModelSettings().catch(() => null),
+      getActiveLocalModel().catch(() => null),
+    ]);
+    const current = configs.find(item => item.id === activeId) || configs[0];
+    const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+    return !!(current && current.supportsVision === true) || localMedia.vision;
+  }, []);
+
+  // 打开编辑器前刷新识图能力（能力可能在设置里改过；同聊天附件菜单的做法）。
+  const openEditor = useCallback(() => {
+    if (busyRef.current) return;
+    setEditorOpen(true);
+    activeForgeVision()
+      .then(value => { if (mountedRef.current) setVisionAvailable(value); })
+      .catch(() => {});
+  }, [activeForgeVision]);
+
+  // 「按图片生成角色」：把草稿里选的图作为识图输入发给当前模型，读图后写回整卡字段。
+  // 与「辅助生成」同源的配置守卫与取消语义；无识图能力时明确拒绝而不是发纯文字。
+  const imageToCard = useCallback(async ({ uri, hint, hasAvatar, hasBg, signal }) => {
+    const source = String(uri || '');
+    if (!source) throw new Error('图片路径无效。');
+    const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
+      getApiConfigs(),
+      getLocalModelSettings().catch(() => null),
+      getActiveLocalModel().catch(() => null),
+    ]);
+    const current = configs.find(item => item.id === activeId) || configs[0];
+    const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+    const vision = !!(current && current.supportsVision === true) || localMedia.vision;
+    if (!vision) {
+      throw new Error('当前来源未标记为支持识图，无法按图片生成角色；请在设置中换用支持识图的模型。');
+    }
+    const dataUri = await readImageDataUri(source);
+    if (!dataUri) throw new Error('读取图片失败，请重新选择图片。');
+    const prompt = buildImageCardPrompt({ hint, hasAvatar, hasBg });
+    const raw = await sendChatMessage([
+      { role: 'system', content: FORGE_SYSTEM },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: dataUri } },
+        ],
+      },
+    ], {
+      stream: false,
+      signal,
+      expectedConfigId: String(current && current.id || ''),
+      expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+    });
+    const patch = parseCardPatch(raw);
+    if (!patch) return null;
+    // 草稿的集合字段（世界书/正则/预设）保持原样：按图生成只负责文本字段。
+    return patch;
+  }, []);
+
   // AI 生成/改写后统一处理：给草稿打生成标识（随卡入库与导出），
   // 并对文本做知名 IP 关键词提示——命中只提醒不阻断，责任约定见免责条款。
-  const applyAigcAttribution = useCallback((draft, model) => {
-    const stamped = { ...draft, [AIGC_META_FIELD]: buildAigcMeta({ model }) };
+  const applyAigcAttribution = useCallback((draft, model) => {    const stamped = { ...draft, [AIGC_META_FIELD]: buildAigcMeta({ model }) };
     const worldTexts = (Array.isArray(stamped.worldInfo) ? stamped.worldInfo : [])
       .map(entry => `${(entry && entry.comment) || ''} ${(entry && Array.isArray(entry.keys) ? entry.keys.join(' ') : '')} ${(entry && entry.content) || ''}`);
     const hits = findIpKeywords([
@@ -397,7 +473,16 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         systemPrompt: draft.systemPrompt || '',
         postHistoryInstructions: draft.postHistoryInstructions,
       });
+      // 草稿图放 card-forge/（不进孤儿回收扫描），导入时要提升到 avatars/——
+      // 新角色随后引用它们，回收器才不会把它们当孤儿删掉。
+      const stamp = Date.now();
+      const [avatarUri, bgUri] = await Promise.all([
+        promoteForgeImageToAvatar(draft.avatarUri, { now: stamp }),
+        promoteForgeImageToAvatar(draft.bgUri, { now: stamp + 1 }),
+      ]);
       const patch = draftToCharacterPatch(draft, { composedPrompt });
+      patch.avatarUri = avatarUri;
+      patch.bgUri = bgUri;
        const created = await addCharacter(patch);
        if (!mountedRef.current || !activeRef.current) return;
        await ensureCharacterSession(created.id).catch(() => {});
@@ -436,6 +521,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
              if (!mountedRef.current || !activeRef.current) return;
              loadErrorRef.current = false;
              await update(createForgeState());
+             // 草稿图一并清掉：clearCardForge 只删 .json 载荷，图不清理会长期占空间。
+             await deleteForgeDraftImages();
              } catch (error) {
                if (mountedRef.current) {
                  Alert.alert('清空失败', '请检查存储空间或权限。');
@@ -512,7 +599,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={[styles.action, busy && styles.actionDisabled]}
-            onPress={() => { if (!busy) setEditorOpen(true); }}
+            onPress={openEditor}
             disabled={busy}
             activeOpacity={0.8}
             accessibilityLabel="查看当前角色卡"
@@ -620,6 +707,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         onSave={onSaveDraft}
         onAssistPrompt={sendAssistPrompt}
         onSimulateChat={simulateChat}
+        onImageGenerate={imageToCard}
+        visionAvailable={visionAvailable}
       />
     </KeyboardAvoidingView>
   );
