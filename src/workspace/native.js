@@ -9,8 +9,11 @@
 import { normalizeWorkspaceLocation, resolveWorkspaceRoot, WORKSPACE_ROOT_KINDS } from './location.js';
 import { getFileSystemNext } from './picker.js';
 import { createExpoSafAdapter, createSafWorkspaceStore } from './safStore.js';
+import { createShellRunner, getShellNative, isShellAvailable, sandboxPathFromUri } from './shell.js';
 import { createLegacyWorkspaceStore } from './store.js';
 import { registerWorkspaceTools } from './tools.js';
+import { normalizeWorkspaceMode } from './settings.js';
+import { AGENT_MODES } from '../agent/tools/registry.js';
 
 let fileSystemModule;
 let fileSystemLoaded = false;
@@ -64,5 +67,40 @@ export function describeWorkspaceRoot(settings) {
 }
 
 export function registerDefaultWorkspaceTools(settings) {
-  return registerWorkspaceTools({ store: createWorkspaceStore(settings) });
+  return registerWorkspaceTools({
+    store: createWorkspaceStore(settings),
+    shell: resolveShellRunner(settings),
+  });
+}
+
+// 命令执行门控（纯判定，可单测）。返回 '' 表示「可以注册」，否则是不注册的原因。
+// 三层里任何一层不过，run_shell 都不会进注册表：
+// 1) 设置开关（且只在「可改」模式下成立）；
+// 2) 根必须是应用私有目录——无 root 的 sh 访问不了 SAF 的 content://；
+// 3) 原生模块真的可用（否则注册了也只是每次报「不支持」）。
+//
+// 抽成纯函数是因为它**只是判定**：真实环境里「原生模块不可用」会把其它原因掩盖掉，
+// 于是把 SAF 那条判断写坏也测不出来（注入验证实测如此）。分开之后每条都钉得住。
+export function shellGateReason(settings, { shellAvailable = false } = {}) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  if (source.allowCommandExecution !== true) return 'SWITCH_OFF';
+  if (normalizeWorkspaceMode(source.mode) !== AGENT_MODES.WRITE) return 'NOT_WRITE_MODE';
+  if (normalizeWorkspaceLocation(source.location).kind === WORKSPACE_ROOT_KINDS.SAF) return 'EXTERNAL_ROOT';
+  if (!shellAvailable) return 'SHELL_NOT_AVAILABLE';
+  return '';
+}
+
+// 返回 null 表示「不注册」，而不是「注册了再报错」。
+export function resolveShellRunner(settings) {
+  if (shellGateReason(settings, { shellAvailable: isShellAvailable() }) !== '') return null;
+  const native = getShellNative();
+  let sandboxRoot;
+  try {
+    // 工作目录是应用私有工作区根；具体执行时 runner 会再拼上角色子目录，
+    // 与文件工具同一沙盒——模型 ls 看到的就是它自己的工作区。
+    sandboxRoot = sandboxPathFromUri(defaultWorkspaceRoot()).replace(/\/+$/, '');
+  } catch (error) {
+    return null;
+  }
+  return createShellRunner({ native, sandboxRoot });
 }

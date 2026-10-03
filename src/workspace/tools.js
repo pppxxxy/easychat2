@@ -9,6 +9,7 @@ import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
 import { fileExtension } from './paths.js';
 import { createLegacyWorkspaceStore } from './store.js';
+import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
 
 function resolveStore({ store, root, fileSystem } = {}) {
   if (store) return store;
@@ -117,26 +118,56 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   },
 ];
 
-export const WORKSPACE_TOOL_NAMES = Object.freeze(WORKSPACE_TOOL_DEFINITIONS.map(item => item.name));
+// 命令执行工具单独列：它只在「开关开 + 应用私有根 + 原生模块可用」时被加进来，
+// 所以它的存在本身就是第一层门控。requiresConfirmation 是第三层（逐条弹框）。
+const SHELL_TOOL_DEFINITION = {
+  name: 'run_shell',
+  description: '在应用私有工作区内执行一条 shell（sh）命令。仅「可改」模式且用户开启命令执行时可用，每条命令都会先请用户确认。注意：它只能访问应用自己的沙盒与系统公开路径，看不到你选的手机文件夹；输出过大时会截断。',
+  readOnly: false,
+  requiresConfirmation: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: '要执行的命令（经 /system/bin/sh -c 执行）。' },
+    },
+    required: ['command'],
+  },
+  execute: (options, args, ctx) => options.shell.run({
+    command: args.command,
+    signal: ctx && ctx.signal,
+    characterId: ctx && ctx.characterId,
+  }),
+};
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem } = {}) {
+export const WORKSPACE_TOOL_NAMES = Object.freeze(WORKSPACE_TOOL_DEFINITIONS.map(item => item.name));
+export const SHELL_TOOL_NAME = SHELL_TOOL_DEFINITION.name;
+
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell } = {}) {
   const options = { store: resolveStore({ store, root, fileSystem }) };
-  return WORKSPACE_TOOL_DEFINITIONS.map(definition => ({
+  const definitions = shell && typeof shell.run === 'function'
+    ? [...WORKSPACE_TOOL_DEFINITIONS, SHELL_TOOL_DEFINITION]
+    : WORKSPACE_TOOL_DEFINITIONS;
+  return definitions.map(definition => ({
     name: definition.name,
     description: definition.description,
     parameters: definition.parameters,
     readOnly: definition.readOnly,
+    // 只有 shell 会带 true；其余工具保持 undefined，注册表归一化成 false。
+    ...(definition.requiresConfirmation ? { requiresConfirmation: true } : {}),
+    // 命令执行比文件操作慢得多（用户确认 + 命令本身），给更长的执行超时。
+    ...(definition.name === SHELL_TOOL_NAME ? { timeoutMs: SHELL_TOOL_TIMEOUT_MS } : {}),
     execute: async (args, ctx) => definition.execute(options, args || {}, ctx || {}),
   }));
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem } = {}) {
-  for (const definition of createWorkspaceToolDefinitions({ store, root, fileSystem })) {
-    registerTool(definition);
-  }
-  return WORKSPACE_TOOL_NAMES;
+export function registerWorkspaceTools({ store, root, fileSystem, shell } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell });
+  for (const definition of definitions) registerTool(definition);
+  return definitions.map(item => item.name);
 }
 
 export function unregisterWorkspaceTools() {
-  for (const name of WORKSPACE_TOOL_NAMES) unregisterTool(name);
+  // run_shell 不在基础清单里（它按开关单独加），但注册过就必须能摘掉，
+  // 否则关掉开关后它仍留在注册表里——门控就漏了第一层。
+  for (const name of [...WORKSPACE_TOOL_NAMES, SHELL_TOOL_NAME]) unregisterTool(name);
 }

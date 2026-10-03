@@ -48,6 +48,10 @@ export async function runAgentTurn(messages, options = {}) {
   const onToken = options.onToken;
   const onReasoning = options.onReasoning;
   const onToolEvent = options.onToolEvent;
+  // 审批钩子（目前只有 run_shell 用得上）：与 onToolEvent 不同，它必须被 await——
+  // 循环要停在这里等用户点头，所以不能塞进那个同步、不 await 的信息性回调。
+  // 没接钩子时，requiresConfirmation 的工具在 runTool 里按「未确认」被拒绝。
+  const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
   const context = options.context || {};
   const maxRounds = Number.isInteger(options.maxRounds) && options.maxRounds > 0
     ? options.maxRounds
@@ -109,6 +113,9 @@ export async function runAgentTurn(messages, options = {}) {
           mode,
           characterId: context.characterId,
           sessionId: context.sessionId,
+          // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
+          // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
+          ...(onToolApproval ? { confirm: onToolApproval } : {}),
         });
       } catch (error) {
         if (isCanceledError(error) || (signal && signal.aborted)) throw createAbortError();

@@ -45,6 +45,28 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
   assert.ok(/context:\s*\{[\s\S]*characterId[\s\S]*sessionId/.test(block), '工具沙盒上下文');
 });
 
+// 审批钩子漏接 = 需要确认的工具全部跑不了（registry 的无 confirm 即拒绝）。
+// 漏接时的表现是「模型一直说命令被拒绝」，界面不报错，很难查——所以把接线钉死。
+test('runAgentTurn 接了 onToolApproval，并把中止信号一并传下去', () => {
+  const idx = source.indexOf('runAgentTurn(onlineMessages');
+  const block = source.slice(idx, idx + 2600);
+  assert.ok(/onToolApproval:\s*call => requestToolApproval\(/.test(block), '必须接上审批钩子');
+  assert.ok(/signal:\s*controller\.signal/.test(block.slice(block.indexOf('onToolApproval'))),
+    '审批要拿到中止信号：用户点停止时不留悬挂弹框');
+  assert.ok(/t:\s*tRef\.current/.test(block), '审批文案走 tRef（跟当前语言，不用闭包旧 t）');
+});
+
+test('审批钩子无硬编码中文（注释除外）', () => {
+  const start = source.indexOf('onToolApproval:');
+  const block = source.slice(start, start + 700);
+  const CJK = /[\u4e00-\u9fff]/;
+  const offenders = block.split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .map(line => line.replace(/\/\/.*$/, ''))
+    .filter(line => CJK.test(line));
+  assert.deepEqual(offenders, [], `onToolApproval 回调仍含硬编码中文：\n${offenders.join('\n')}`);
+});
+
 test('工具状态气泡：临时不落库 + 三个出口清理', () => {
   assert.ok(source.includes("kind: 'tool-status'"), '工具状态有独立 kind');
   assert.ok(/text,\s*\n\s*kind: 'tool-status',\s*\n\s*pending: true,\s*\n\s*transient: true/.test(source),

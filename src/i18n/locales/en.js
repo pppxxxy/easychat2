@@ -68,7 +68,12 @@ export const en = {
 
   // ---- Thinking indicator ----
   'chat.thinking.placeholder': 'Thinking...',
-  'chat.tool.status.reading': 'Reading the workspace ({name})…',
+  'chat.tool.status.reading': 'Using tool ({name})…',
+  'chat.tool.approval.title': 'Allow this command?',
+  'chat.tool.approval.body': 'The model wants to run this command:\n\n{command}\n\nIt will run inside the app’s workspace folder, and every command needs your confirmation.',
+  'chat.tool.approval.bodyEmpty': 'The model wants to run a command but did not provide the command text.',
+  'chat.tool.approval.deny': 'Deny',
+  'chat.tool.approval.allow': 'Allow',
 
   // ---- Settings shell ----
   'settings.title': 'Settings',

@@ -24,6 +24,7 @@
       ],
       "./plugins/withProactiveMessage",
       "./plugins/withLocalApiServer",
+      "./plugins/withShellExecutor",
       [
         "expo-image-picker",
         {

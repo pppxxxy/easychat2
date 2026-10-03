@@ -72,7 +72,12 @@ export const zhCN = {
 
   // ---- 思考指示（chat/ThinkingIndicator.js）----
   'chat.thinking.placeholder': '正在思考...',
-  'chat.tool.status.reading': '正在读取工作区（{name}）…',
+  'chat.tool.status.reading': '正在使用工具（{name}）…',
+  'chat.tool.approval.title': '允许执行命令？',
+  'chat.tool.approval.body': '模型请求执行以下命令：\n\n{command}\n\n命令会在应用的工作区目录内执行，每次都需要你单独确认。',
+  'chat.tool.approval.bodyEmpty': '模型请求执行一条命令，但没有给出命令内容。',
+  'chat.tool.approval.deny': '拒绝',
+  'chat.tool.approval.allow': '允许',
 
   // ---- 设置页外壳（SettingsScreen）----
   'settings.title': '设置',
