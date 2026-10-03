@@ -91,7 +91,10 @@
     "src/books/BookScreen.js",
     "src/books/BookReaderView.js",
     "src/books/useBookReader.js",
-    "src/books/importBook.js"
+    "src/books/importBook.js",
+    "src/screenWatch/ScreenWatchScreen.js",
+    "src/screenWatch/useScreenWatchComments.js",
+    "src/screenWatch/capture.js"
   ],
   "reporter": ["text-summary", "lcov"],
   "check-coverage": true,
