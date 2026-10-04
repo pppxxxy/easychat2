@@ -3,7 +3,7 @@
 // 依赖注入面：`streamChatCompletion`（api.js）与工具执行器（tools/registry.js）。
 // 循环本身不做持久化，也不直接接触 RN UI。
 
-import { createAbortError, isCanceledError, streamChatCompletion } from '../api.js';
+import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 5;

@@ -3,7 +3,7 @@
 // 设计约束：
 // - 与同住反应一样，这是增值功能，绝不写回会话消息或记忆；失败静默；
 // - 逐角色串行调用模型，合并进动态评论；每条动态同一时刻只跑一轮（防并发重复扣费）。
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../api.js';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
 import {
   getApiConfigs,
   getCharacterLibrary,

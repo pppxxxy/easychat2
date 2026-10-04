@@ -68,7 +68,7 @@ const registryStub = {
 
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === '../api.js') return apiStub;
+  if (request === '../network/api.js') return apiStub;
   if (request === './tools/registry.js') return registryStub;
   return originalLoad.call(this, request, parent, isMain);
 };

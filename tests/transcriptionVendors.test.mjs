@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { TRANSCRIPTION_API_VENDORS, getTranscriptionVendor } from '../src/apiVendors.js';
+import { TRANSCRIPTION_API_VENDORS, getTranscriptionVendor } from '../src/network/apiVendors.js';
 
 const read = relPath => fs.readFileSync(path.resolve(relPath), 'utf8');
 
