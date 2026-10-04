@@ -1,5 +1,6 @@
 // 看屏幕评论链路源码断言：
-// - 请求必须以 images:[uri] 携带截图（多模态），prompt 走纯函数；
+// - 请求必须以 images:[dataUri] 携带截图（接口只认 data:/http URL，file:// 会被拒），
+//   prompt 走纯函数；
 // - 视觉门控与聊天附件菜单同一口径（supportsVision 或本地多模态），无视觉能力
 //   必须给 NO_VISION 明确错误而不是发一个看不懂的请求；
 // - 截图先落本地、重试复用同一张（评论针对同一画面）；
@@ -16,7 +17,8 @@ function readSource(relativePath) {
 
 test('useScreenWatchComments：多模态带图 + 视觉门控 + 链路守卫', () => {
   const source = readSource('src/screenWatch/useScreenWatchComments.js');
-  assert.ok(source.includes('images: uris'), '截图以 images 参数走多模态');
+  assert.ok(source.includes('images: dataUris'), '截图读成 data URI 后以 images 参数走多模态');
+  assert.ok(source.includes('readImageDataUri'), '本地 file:// 截图先转 data URI（接口只认 data:/http URL）');
   assert.ok(source.includes('imageUris'), '支持视频帧序列（多图）');
   assert.ok(source.includes('getLocalModelMediaCapabilities'), '视觉判定含本地模型多模态');
   assert.ok(source.includes('supportsVision === true'), '视觉判定含在线来源标记');
