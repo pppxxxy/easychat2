@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { ONBOARDING_CHAPTERS } from './onboardingContent.js';
+import { ONBOARDING_CHAPTERS } from './onboarding/onboardingContent.js';
 import { getOnboardingImages } from './onboarding/images.js';
 import ChapterImages from './books/ChapterImages.js';
 import ChapterNotice from './books/ChapterNotice.js';

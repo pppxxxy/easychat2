@@ -14,7 +14,7 @@ import {
   ipKeywordNotice,
   isValidAigcMeta,
 } from '../src/aigc/attribution.js';
-import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from '../src/disclaimerContent.js';
+import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from '../src/onboarding/disclaimerContent.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const readSource = name => readFileSync(path.join(HERE, '..', ...name), 'utf8');

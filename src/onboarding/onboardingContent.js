@@ -1,5 +1,5 @@
-import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from './apiVendors.js';
-import { IMAGE_PROVIDERS } from './imageGen/providers.js';
+import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from '../network/apiVendors.js';
+import { IMAGE_PROVIDERS } from '../imageGen/providers.js';
 import { DISCLAIMER_SECTIONS } from './disclaimer.js';
 
 // 新手教学 / 使用教程共用内容。

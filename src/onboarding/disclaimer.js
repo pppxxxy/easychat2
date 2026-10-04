@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import ChapterSections from './books/ChapterSections.js';
+import ChapterSections from '../books/ChapterSections.js';
 import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from './disclaimerContent.js';
-import { useTheme } from './theme/ThemeContext.js';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 条款文本与结构化章节在 `disclaimerContent.js`（零依赖纯数据模块，Node 可测）。
 // 这里只保留展示组件并原样再导出，既有 `from './disclaimer.js'` 的引用无需改动。

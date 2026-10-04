@@ -173,6 +173,6 @@ test('面板与引导：留空自动生成的接线与文案（源码守护）',
   assert.ok(panel.includes('persistApiServer({ enabled: true, apiKey: effectiveKey })'), '生成的密钥应幂等持久化');
   assert.ok(panel.includes('留空将自动生成随机密钥'), '占位文案应说明自动生成');
   assert.ok(panel.includes('Authorization: Bearer'), '复制提示应说明鉴权方式');
-  const onboarding = fs.readFileSync(path.join(HERE, '..', 'src', 'onboardingContent.js'), 'utf8');
+  const onboarding = fs.readFileSync(path.join(HERE, '..', 'src', 'onboarding', 'onboardingContent.js'), 'utf8');
   assert.ok(onboarding.includes('留空会自动生成随机密钥'), '引导章节文案应更新');
 });
