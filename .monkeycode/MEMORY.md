@@ -96,3 +96,12 @@ Entries discovered by the Agent during task execution should follow this format:
   - 跨代理分支（m-* 为 monkeycode，Z-* 为 Zcode）的合并由用户决定，不只作主张推进别人的分支。
   - 如果另一个代理分支里有价值的只是某个文档提交（如本仓库的 `f1d5c89` 只改 README / 审查待办 / MEMORY / 依赖注释），**摘那个文档提交而不是整枝合并**——整枝合并会把对方已修的撞号退回，并在已惊过的冲突文件上再冲一次。
   - 合并冲突的默认解法是「两节都留、各自标记归属」；节号冲突时再手工改号并同步其他文件里的引用（不要只改正文，引用处同样会指向旧号）。
+
+[Project Knowledge Summary]
+- Date: 2026-10-03
+- Context: `src/` 归组 codemod（Chapter*→books/、proactive*→proactive/）实践
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 搬迁模块时，**相对路径的 codemod 必须同时覆盖动态 `import('./x.js')` 与 `require('./x.js')`**，不能只改静态 `import ... from`。静态 lint 与 Node 单测都可能放过未执行的动态分支，只有 `npx expo export`（Metro 解析全图）会暴露 `Unable to resolve module ./x.js`。
+  - 每批归组后按顺序验证：`npm run lint` → `npm test` → `npx expo export --platform android`，三关都过再提交。前两关不足以保证 Metro 能打包。
+  - 搬迁还需同步的非代码处：`.c8rc.json` 覆盖排除路径、`AGENTS.md`、`.monkeycode/docs/ARCHITECTURE.md`/`INTERFACES.md`/`模块/*.md`，以及 `scripts/guard-structure.mjs` 的根文件数阈值（迁移后下调）。

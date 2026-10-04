@@ -5,7 +5,7 @@ import {
   buildProactiveMessageId,
   mergeProactiveMessage,
   normalizePendingMessages,
-} from '../src/proactiveInbox.js';
+} from '../src/proactive/proactiveInbox.js';
 
 test('buildProactiveMessageId：slotId + 本地日期', () => {
   const id = buildProactiveMessageId('slot-abc', new Date(2026, 8, 29, 10, 30));

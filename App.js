@@ -37,7 +37,7 @@ import {
   consumeInitialRole,
   consumePendingMessages,
   isProactiveMessageAvailable,
-} from './src/proactiveMessage.js';
+} from './src/proactive/proactiveMessage.js';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
 import { I18nProvider, useTranslation } from './src/i18n/I18nContext.js';
 import { maskSecrets } from './src/secrets.js';

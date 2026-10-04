@@ -259,8 +259,8 @@ easychat2/
 
 ### 主动消息
 **目的**: 由原生闹钟在设定时段触发角色主动发消息，支持消息类型（默认 / 关心心情 / 问好 / 自定义）与「衔接对话」（续写指定历史会话）；点击通知跳转到含新消息的那段会话
-**位置**: `src/proactiveMessage.js`、`src/proactiveInbox.js`、`src/proactiveRequest.js`、`src/ProactivePanel.js`、`plugins/withProactiveMessage.js`、`plugins/proactiveMessage/`（Kotlin）
-**关键文件**: `src/proactiveInbox.js`、`plugins/withProactiveMessage.js`
+**位置**: `src/proactive/proactiveMessage.js`、`src/proactive/proactiveInbox.js`、`src/proactive/proactiveRequest.js`、`src/ProactivePanel.js`、`plugins/withProactiveMessage.js`、`plugins/proactiveMessage/`（Kotlin）
+**关键文件**: `src/proactive/proactiveInbox.js`、`plugins/withProactiveMessage.js`
 **依赖**: `react-native`（NativeModules/DeviceEventEmitter/AppState）、`expo-notifications`、`src/storage.js`、`src/api.js`
 **被依赖**: `App.js`（`StartupSession` 消费 + 前台消费）、`src/ExtensionScreen.js`
 **说明**: 原生侧用 `EncryptedSharedPreferences` 保存槽位与待写队列，闹钟按 1-4 权限申请。**两个已验证的契约要点**：① `consumePendingMessages` 返回 **JSON 字符串**而非数组——新架构 Interop 下 `WritableArray<WritableMap>` 到 JS 的 `Array.isArray` 不成立会导致静默丢消息，`proactiveInbox.js` 的 `normalizePendingMessages` 兼容数组/字符串/类数组三种形态；② 冷启动时多个消费入口并发，`ingestPending` 用 **in-flight Promise 合并**避免先完成方 ack 清空导致另一方取空，并把 `roleId → sessionId` 缓存进 `targetSessionRef` 供 `openRole` 回退。

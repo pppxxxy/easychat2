@@ -45,7 +45,7 @@
     "src/ScrollScrubber.js",
     "src/assistantRender.js",
     "src/disclaimer.js",
-    "src/proactiveMessage.js",
+    "src/proactive/proactiveMessage.js",
     "src/stickerImages.js",
     "src/cardForge/media.js",
     "src/theme/ThemeContext.js",

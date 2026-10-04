@@ -9,7 +9,7 @@ import {
   stripFormatDirectiveEntries,
   PROACTIVE_HISTORY_LIMIT,
   PROACTIVE_TIME_TOKEN,
-} from '../src/proactiveRequest.js';
+} from '../src/proactive/proactiveRequest.js';
 
 const character = { name: '小雨', systemPrompt: '你是小雨。', regexScripts: [{ id: 'r1' }] };
 
