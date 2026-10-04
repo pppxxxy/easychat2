@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
+import { ROUTE_NAMES } from './navigation/routeNames.js';
 import {
   Alert,
   Image,
@@ -2318,7 +2319,7 @@ export default function ChatScreen() {
       <ChatSettingsModal
         visible={chatSettingsOpen}
         onClose={() => setChatSettingsOpen(false)}
-        onOpenSystemSettings={() => { if (navigation) navigation.navigate('设置'); }}
+        onOpenSystemSettings={() => { if (navigation) navigation.navigate(ROUTE_NAMES.settings); }}
         editLabel={isGroup ? '编辑群聊' : '编辑角色'}
         onOpenEditor={() => {
           if (isGroup) setGroupEditOpen(true);

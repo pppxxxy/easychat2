@@ -74,6 +74,10 @@ export function I18nProvider({ children }) {
   }, [persist]);
 
   const value = useMemo(() => {
+    // 同步活动语言到模块级：崩溃页（StartupErrorBoundary）在 Provider 外面，
+    // 拿不到 hook，只能经 tActive() 同步取词。放在这里可覆盖全部更新路径
+    // （初载回填 / changeLocale / 未来新增），不会漏。
+    setActiveLocale(localeId);
     const t = (key, params) => translate(localeId, key, params);
     return {
       localeId,

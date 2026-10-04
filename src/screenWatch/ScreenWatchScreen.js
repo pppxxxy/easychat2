@@ -4,6 +4,7 @@
 // 评论只在面板内呈现、接话才进会话引用（与听歌/看书同一裁决）。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import {
   ActivityIndicator,
   Alert,
@@ -219,7 +220,7 @@ export default function ScreenWatchScreen() {
           text: comment.text,
         },
       });
-      navigation.navigate('聊天');
+      navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
       Alert.alert(t('screenWatch.quoteFailed.title'), t('screenWatch.quoteFailed.body'));
     }

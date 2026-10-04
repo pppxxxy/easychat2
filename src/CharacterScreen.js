@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ROUTE_NAMES } from './navigation/routeNames.js';
 import {
   ActivityIndicator,
   Alert,
@@ -803,7 +804,7 @@ setWorldInfo(next.worldInfo);
         ],
         updatedAt: Date.now(),
       })
-        .then(() => navigation.navigate('扩展', { segment: 'forge', ts: Date.now() }))
+        .then(() => navigation.navigate(ROUTE_NAMES.extension, { segment: 'forge', ts: Date.now() }))
         .catch(() => Alert.alert('载入失败', '请检查存储空间或权限。'));
     };
     Alert.alert(
@@ -909,7 +910,7 @@ setWorldInfo(next.worldInfo);
        setGroupName('');
        setGroupAvatarUri('');
        setGroupBgUri('');
-       navigation.navigate('聊天');
+       navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
       Alert.alert('创建失败', '请检查存储空间或权限。');
     } finally {
@@ -1135,7 +1136,7 @@ setWorldInfo(next.worldInfo);
 
   const onOpenGroup = useCallback(group => {
     switchSession(group.id)
-      .then(() => navigation.navigate('聊天'))
+      .then(() => navigation.navigate(ROUTE_NAMES.chat))
       .catch(() => {
         Alert.alert('切换失败', '请检查存储空间或权限。');
       });

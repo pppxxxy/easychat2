@@ -1,6 +1,8 @@
 import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 
+import noHardcodedChinese from './eslint-rules/no-hardcoded-chinese.mjs';
+
 export default [
   {
     files: ['**/*.js', '**/*.mjs'],
@@ -36,6 +38,54 @@ export default [
         caughtErrors: 'none',
         varsIgnorePattern: '^React$',
       }],
+    },
+  },
+  {
+    // i18n 防复发：用户可见文案（Alert.alert / throw new Error）不得硬编码中文。
+    // 判定用本地规则 eslint-rules/no-hardcoded-chinese.mjs（AST 级，注释不算）。
+    //
+    // 下面的 `ignores` 是**存量迁移清单（只减不增）**：用规则实测跑出的 32 个
+    // 尚有硬编码的文件（共 559 处）。迁移方式 = 把文案换成 t('<key>') 并补
+    // src/i18n/locales 双语言词条，然后从这里删掉该行；清单只允许变短。
+    // 新文件一律不得加入。完整清单与分批计划见 .monkeycode/docs/审查待办.md。
+    files: ['src/**/*.js', 'App.js'],
+    ignores: [
+      'src/i18n/**',
+      // ---- 存量迁移清单（只减不增）----
+      'src/BackupPanel.js',
+      'src/CardForgeEditor.js',
+      'src/CardForgeScreen.js',
+      'src/CardPreviewModal.js',
+      'src/CharacterEditForm.js',
+      'src/CharacterScreen.js',
+      'src/ChatScreen.js',
+      'src/DiagnosticsModal.js',
+      'src/GroupEditForm.js',
+      'src/ImageGenScreen.js',
+      'src/LocalModelPanel.js',
+      'src/MapPanel.js',
+      'src/MemoryScreen.js',
+      'src/MomentsView.js',
+      'src/PluginPanel.js',
+      'src/PresetPanel.js',
+      'src/SearchScreen.js',
+      'src/SettingsScreen.js',
+      'src/TranscriptionPanel.js',
+      'src/TtsPanel.js',
+      'src/chat/useChatModelThinking.js',
+      'src/chat/useChatSend.js',
+      'src/chat/useChatTts.js',
+      'src/chat/useSessionMessages.js',
+      'src/chat/useSessionSwitch.js',
+      'src/localModel/ModelLogsModal.js',
+      'src/settings/SamplingCard.js',
+      'src/settings/useUserProfile.js',
+      'src/settings/useVectorSettings.js',
+      'src/theme/ThemeContext.js',
+    ],
+    plugins: { local: { rules: { 'no-hardcoded-chinese': noHardcodedChinese } } },
+    rules: {
+      'local/no-hardcoded-chinese': 'error',
     },
   },
   {
