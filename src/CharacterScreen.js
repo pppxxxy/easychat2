@@ -25,11 +25,11 @@ import {
   createWorldEntry,
   parseCardFromJson,
   parseCardFromPng,
-} from './cardParser.js';
-import { exportCardFile } from './cardExporter.js';
+} from './character/cardParser.js';
+import { exportCardFile } from './character/cardExporter.js';
 import ChapterModal from './books/ChapterModal.js';
 import GreetingPickerModal from './GreetingPickerModal.js';
-import { listGreetingCandidates } from './cardGreetings.js';
+import { listGreetingCandidates } from './character/cardGreetings.js';
 import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui/index.js';
 import { useApp } from './context/AppContext.js';
 import { selectSessionsForCharacters } from './context/sessionLibrary.js';

@@ -13,7 +13,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const MAX_ROOT_FILES = 79;
+const MAX_ROOT_FILES = 76;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.join(here, '..', 'src');

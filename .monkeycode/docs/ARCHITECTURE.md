@@ -107,8 +107,12 @@ easychat2/
 │   ├── modelProvider.js      # 在线/本地 provider 选择与推理回退
 │   ├── resourceMutex.js      # 本地推理/录音等原生重负载资源互斥
 │   ├── secretStore.js        # 密钥抽取到 expo-secure-store，AsyncStorage 只留引用
-│   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
-│   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
+│   ├── character/            # 角色卡 schema 与角色编辑
+│   │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
+│   │   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
+│   │   ├── cardGreetings.js      # 备用开场白导入与候选
+│   │   ├── cardHelpers.js        # 角色卡字段辅助
+│   │   └── editors.js / characterStyles.js
 │   ├── lorebook.js           # 世界书条目激活判定
 │   ├── regexEngine.js        # 正则脚本作用范围、应用与灾难性回溯模式拦截
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
@@ -213,13 +217,13 @@ easychat2/
 **目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本，并把角色导出为标准 V2 卡
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
-**依赖**: `src/cardParser.js`、`src/cardExporter.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sqlite`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
+**依赖**: `src/character/cardParser.js`、`src/character/cardExporter.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sqlite`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
 **被依赖**: `App.js`
 
 ### 卡解析与提示管线
 **目的**: 解析角色卡并标准化字段，判定世界书激活，应用正则，组装最终请求消息
-**位置**: `src/cardParser.js`、`src/lorebook.js`、`src/regexEngine.js`、`src/chatPipeline.js`
-**关键文件**: `src/cardParser.js`、`src/chatPipeline.js`
+**位置**: `src/character/cardParser.js`、`src/lorebook.js`、`src/regexEngine.js`、`src/chatPipeline.js`
+**关键文件**: `src/character/cardParser.js`、`src/chatPipeline.js`
 **依赖**: `parsecard`、`buffer`
 **被依赖**: `ChatScreen`、`CharacterScreen`
 

@@ -34,7 +34,7 @@ import { createMediaMessage, STICKER_MESSAGE_KIND } from './chatMedia.js';
 import { extractStickerDirectives, resolveStickerNames } from './stickerDirectives.js';
 import { createStickerImage, deleteStickerImage } from './stickerImages.js';
 import { getCachedDisplayText } from './memory/displayTextCache.js';
-import { isGreetingMessage, listGreetingCandidates } from './cardGreetings.js';
+import { isGreetingMessage, listGreetingCandidates } from './character/cardGreetings.js';
 import {
   removeMessagesByIds,
   selectableMessageIds,

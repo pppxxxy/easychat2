@@ -126,7 +126,7 @@ npm test             # 运行 Node 单元与回归测试
 | `src/modelProvider.js` | 在线/本地推理选择与回退 |
 | `src/storage/` | 存储域实现（io / backupStream / 各数据域） |
 | `src/storage/backupStream.js` | 备份导出分块生成器（逐块可取消） |
-| `src/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
+| `src/character/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
 | `src/chatPipeline.js` | 世界书/正则/角色预设提示词组装 |
 | `src/characterPresets.js` | 角色卡预设规范化与解析 |
 | `src/storage.js` | 持久化门面（转发 `src/storage/`） |

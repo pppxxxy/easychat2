@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
-import { appendExportNotice, isValidAigcMeta } from './aigc/attribution.js';
+import { appendExportNotice, isValidAigcMeta } from '../aigc/attribution.js';
 
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 export const MAX_CARD_FILE_BYTES = 32 * 1024 * 1024;

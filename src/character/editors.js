@@ -6,7 +6,7 @@ import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { TextField } from '../ui/index.js';
-import { REGEX_PLACEMENT_LABELS, WORLD_POSITION_LABELS } from '../cardParser.js';
+import { REGEX_PLACEMENT_LABELS, WORLD_POSITION_LABELS } from './cardParser.js';
 import { isUnsafeRegexPattern } from '../regexEngine.js';
 import { getUnsafeWorldEntryKeys } from '../lorebook.js';
 import { useTheme } from '../theme/ThemeContext.js';

@@ -16,7 +16,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { markMediaWrite } from './mediaProtection.js';
-import { buildSystemPrompt } from './cardParser.js';
+import { buildSystemPrompt } from './character/cardParser.js';
 import { useApp } from './context/AppContext.js';
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';

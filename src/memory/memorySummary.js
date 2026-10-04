@@ -1,5 +1,5 @@
 import { sendChatMessage } from '../api.js';
-import { createWorldEntry } from '../cardParser.js';
+import { createWorldEntry } from '../character/cardParser.js';
 import {
   appendSessionSummary,
   getSessionSummariesStatus,

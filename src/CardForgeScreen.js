@@ -13,7 +13,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
-import { buildSystemPrompt } from './cardParser.js';
+import { buildSystemPrompt } from './character/cardParser.js';
 import { buildRequestMessages } from './chatPipeline.js';
 import { readImageDataUri } from './attachments.js';
 import { useApp } from './context/AppContext.js';

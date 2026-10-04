@@ -11,7 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
-import { buildGreetingImport, removeGreetingDraftIndex } from './cardGreetings.js';
+import { buildGreetingImport, removeGreetingDraftIndex } from './character/cardGreetings.js';
 
 // 导入角色卡时选择开场白：挑一条、就地修改，或新增。确认后返回
 // { firstMes, alternateGreetings }。

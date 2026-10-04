@@ -6,12 +6,12 @@ import Module from 'node:module';
 import { createRequire } from 'node:module';
 import { readJsonFromPNG, WorldBookEntry, writeJsonToPNG } from 'parsecard';
 
-import { parseCardFromJson } from '../src/cardParser.js';
+import { parseCardFromJson } from '../src/character/cardParser.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
-const sourcePath = path.resolve('src/cardExporter.js');
+const sourcePath = path.resolve('src/character/cardExporter.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -26,7 +26,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadExporter() {
-  const filename = path.resolve('src/cardExporter.js');
+  const filename = path.resolve('src/character/cardExporter.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

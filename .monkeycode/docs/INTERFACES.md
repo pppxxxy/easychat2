@@ -281,7 +281,7 @@
 | `buildClonedSession(sessions, source, messages, now?)` | 构造克隆会话（未置顶、记录 `clonedFrom`） |
 
 ### `cardGreetings` 辅助函数
-**位置**: `src/cardGreetings.js`（纯函数，供 `CharacterScreen`/`GreetingPickerModal` 与测试使用）
+**位置**: `src/character/cardGreetings.js`（纯函数，供 `CharacterScreen`/`GreetingPickerModal` 与测试使用）
 
 | 函数 | 说明 |
 |------|------|
@@ -763,22 +763,22 @@ data: [DONE]
 ## 卡解析与提示管线接口
 
 ### `parseCardFromJson(text)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **返回**: 标准化角色卡 `{ name, fields, systemPrompt, worldInfo, regexScripts, presets, extensions, extra }`
 **说明**: 兼容标准 V2/V3、扁平结构、织语 `zhiyu_agent_v1`，并对纯文本 JSON 的 BOM、围栏、全角空白和字符串换行做容错；`extensions`/`extra` 是未知第三方扩展与顶层字段的透传桶，导出时原样写回
 **异常**: JSON 语法错误时抛出 `Error('JSON 语法错误：...')`
 
 ### `parseCardFromPng(bytes)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **返回**: 标准化角色卡；PNG 无 `chara`/`ccv3` 文本块时返回 `null`
 **异常**: 非 PNG 签名、base64 解码失败、JSON 语法错误时抛出
 
 ### `readCardJsonFromPng(bytes)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **说明**: 先用 `parsecard.readJsonFromPNG` 读取 `tEXt`，为空时用本地无压缩 `iTXt` 兜底；均无数据返回 `null`
 
 ### 角色卡导出接口
-**位置**: `src/cardExporter.js`
+**位置**: `src/character/cardExporter.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -791,12 +791,12 @@ data: [DONE]
 | `injectCharaChunk(pngBytes, jsonText)` | 在 `IHDR` 之后、`IDAT` 之前插入 `chara` 文本块 |
 
 ### `createWorldEntry(partial?, index?)` / `createRegexScript(partial?, index?)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **返回**: 经标准化补全默认值的一条世界书条目 / 正则脚本；用于角色页新增条目
 **辅助导出**: `WORLD_POSITION_LABELS`、`REGEX_PLACEMENT_LABELS`
 
 ### `ensureUniqueIds(items, prefix)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets })`

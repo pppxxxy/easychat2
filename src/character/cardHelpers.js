@@ -5,7 +5,7 @@ import {
   buildSystemPrompt,
   ensureUniqueIds,
   REGEX_PLACEMENT_LABELS,
-} from '../cardParser.js';
+} from './cardParser.js';
 
 export const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';

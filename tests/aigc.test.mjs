@@ -21,7 +21,7 @@ const readSource = name => readFileSync(path.join(HERE, '..', ...name), 'utf8');
 const FORGE_SCREEN = readSource(['src', 'CardForgeScreen.js']);
 const FORGE_EDITOR = readSource(['src', 'CardForgeEditor.js']);
 const CHARACTER_SCREEN = readSource(['src', 'CharacterScreen.js']);
-const CARD_EXPORTER = readSource(['src', 'cardExporter.js']);
+const CARD_EXPORTER = readSource(['src', 'character', 'cardExporter.js']);
 const MOMENTS_VIEW = readSource(['src', 'MomentsView.js']);
 const IMAGE_GEN = readSource(['src', 'ImageGenScreen.js']);
 const STORAGE_SETTINGS = readSource(['src', 'storage', 'settings.js']);

@@ -28,7 +28,7 @@ import {
   parseFieldAssistText,
 } from './cardForge/forge.js';
 import { deleteForgeImage, pickForgeImage } from './cardForge/media.js';
-import { createRegexScript, createWorldEntry } from './cardParser.js';
+import { createRegexScript, createWorldEntry } from './character/cardParser.js';
 import CardPreviewModal from './CardPreviewModal.js';
 import { makeCharacterPresetId } from './characterPresets.js';
 import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution.js';
