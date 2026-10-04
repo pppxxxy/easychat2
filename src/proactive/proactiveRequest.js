@@ -126,7 +126,7 @@ export async function buildProactiveRequestJson({
     getEnabledGlobalPresetPrompts,
     getUserProfile,
   } = await import('../storage.js');
-  const { buildMemorySummaryText } = await import('../memorySummary.js');
+  const { buildMemorySummaryText } = await import('../memory/memorySummary.js');
 
   let historyMessages = [];
   let summaryText = '';

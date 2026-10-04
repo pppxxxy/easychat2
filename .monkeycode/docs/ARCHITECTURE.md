@@ -111,7 +111,6 @@ easychat2/
 │   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
 │   ├── lorebook.js           # 世界书条目激活判定
 │   ├── regexEngine.js        # 正则脚本作用范围、应用与灾难性回溯模式拦截
-│   ├── displayTextCache.js   # 展示正则结果按消息对象缓存，减少流式重算
 │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
 │   ├── attachments.js        # 聊天附件：文本读取、图片预检/持久化、pending 结果与合并
@@ -149,10 +148,14 @@ easychat2/
 │   ├── transcription.js      # 语音转写（多厂商 + 复用聊天来源）
 │   ├── voiceMessages.js      # 语音消息结构与播放
 │   ├── moments/              # 本地好感启发式与动态触发
-│   ├── memorySummary.js      # 记忆总结：摘要生成、世界书写入与请求压缩
-│   ├── proactiveInbox.js     # 主动消息队列消费（JSON 契约 + 并发合并）
-│   ├── proactiveMessage.js   # 主动消息槽位设置与原生桥（时段/消息类型/衔接会话）
-│   ├── proactiveRequest.js   # 主动消息提示词与请求组装
+│   ├── memory/               # 记忆：摘要、时间分档与展示文本缓存
+│   │   ├── memorySummary.js      # 摘要生成、世界书写入与请求压缩
+│   │   ├── memoryBuckets.js      # 会话按时间分档折叠
+│   │   └── displayTextCache.js   # 展示正则结果按消息对象缓存，减少流式重算
+│   ├── proactive/            # 主动消息：队列消费、槽位设置与请求组装
+│   │   ├── proactiveInbox.js     # 队列消费（JSON 契约 + 并发合并）
+│   │   ├── proactiveMessage.js   # 槽位设置与原生桥（时段/消息类型/衔接会话）
+│   │   └── proactiveRequest.js   # 提示词与请求组装
 │   ├── plugins/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
 │   │   ├── registry.js       # 插件注册表：触发词、执行与背景资料格式化
@@ -191,7 +194,7 @@ easychat2/
 **目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理图片/文字/语音消息、表情包、长按多选删除、带确认的修改重发、全宽布局与大型 HTML 开场白、发送请求、展示助手 Markdown 回复与系统报错气泡，并按会话持久化
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`、`src/chat/useChatSend.js`、`src/chat/useSessionMessages.js`、`src/chat/useSessionSwitch.js`、`src/chat/useSessionGuard.js`、`src/chat/MessageList.js`、`src/chat/replyFlow.js`、`src/chat/useChatSearch.js`、`src/chat/useChatModelThinking.js`、`src/chat/useChatRecorder.js`、`src/chat/useChatTts.js`、`src/chat/useScrollScrubber.js`、`src/chat/chatConstants.js`、`src/chat/chatHelpers.js`、`src/chat/chatStyles.js`、`src/chat/MessageBubble.js`、`src/chat/ErrorBubble.js`、`src/chat/ThinkingIndicator.js`
-**依赖**: `src/api.js`、`src/modelProvider.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/vectorMemory/`、`src/memorySummary.js`、`src/groupChat.js`、`src/attachments.js`、`src/voiceMessages.js`、`src/transcription.js`、`src/tts/index.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`src/chat/*`、`@expo/vector-icons`、`expo-clipboard`、`expo-audio`、`react-native-markdown-display`
+**依赖**: `src/api.js`、`src/modelProvider.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/vectorMemory/`、`src/memory/memorySummary.js`、`src/groupChat.js`、`src/attachments.js`、`src/voiceMessages.js`、`src/transcription.js`、`src/tts/index.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`src/chat/*`、`@expo/vector-icons`、`expo-clipboard`、`expo-audio`、`react-native-markdown-display`
 **被依赖**: `App.js`
 **说明**: 2026-09-27 起把常量、纯辅助函数、样式工厂与展示组件拆到 `src/chat/`（ChatScreen 6112 → 4506 行）；2026-10-02 A 线重构再把有状态逻辑按职责抽成六个模块——`useChatSend`（发送/接收/流式/重生成/群聊调度）、`useSessionMessages`（消息加载、落盘队列、草稿、附件引用）、`useSessionSwitch`（切换角色/会话/群聊、新建、开场白确认）、`useSessionGuard`（版本号与单飞锁竞态守卫）、`MessageList`（列表渲染 + 窗口化）、`replyFlow`（流式合并与错误分类纯函数），`ChatScreen.js` 收敛到约 2358 行，只保留接线与渲染。拆分遵循「回调保留在 ChatScreen、数据与时序归 hook」，行为不变；默认导出仍是 `function ChatScreen()`。
 

@@ -1,5 +1,5 @@
-import { sendChatMessage } from './api.js';
-import { createWorldEntry } from './cardParser.js';
+import { sendChatMessage } from '../api.js';
+import { createWorldEntry } from '../cardParser.js';
 import {
   appendSessionSummary,
   getSessionSummariesStatus,
@@ -7,7 +7,7 @@ import {
   invalidateSessionSummaries,
   isSessionSummaryRevisionCurrent,
   setSessionSummarizedUpTo,
-} from './storage.js';
+} from '../storage.js';
 
 export const MEMORY_SUMMARY_PREFIX = '记忆总结';
 export const KEEP_RECENT = 6;

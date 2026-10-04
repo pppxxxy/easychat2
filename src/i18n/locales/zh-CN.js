@@ -4,7 +4,7 @@
 // - key 用「域.语义」的点分命名（app.tab.chat / chat.attach.title），便于按域分批迁移；
 // - 中文是基准：其余语言缺某个 key 时回退到中文，界面不会出现空白文案；
 // - **只收 UI 文案**。发给模型的提示词（src/presets.js、src/cardForge/forge.js、
-//   src/moments/affinity.js、src/memorySummary.js 等）不在此列——翻译它们会改变
+//   src/moments/affinity.js、src/memory/memorySummary.js 等）不在此列——翻译它们会改变
 //   角色行为，中文对话场景下英文关键词表会直接失灵；
 // - 本文件随迁移批次增长，不要求一次补全。
 

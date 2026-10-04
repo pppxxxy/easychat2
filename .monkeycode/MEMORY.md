@@ -105,3 +105,11 @@ Entries discovered by the Agent during task execution should follow this format:
   - 搬迁模块时，**相对路径的 codemod 必须同时覆盖动态 `import('./x.js')` 与 `require('./x.js')`**，不能只改静态 `import ... from`。静态 lint 与 Node 单测都可能放过未执行的动态分支，只有 `npx expo export`（Metro 解析全图）会暴露 `Unable to resolve module ./x.js`。
   - 每批归组后按顺序验证：`npm run lint` → `npm test` → `npx expo export --platform android`，三关都过再提交。前两关不足以保证 Metro 能打包。
   - 搬迁还需同步的非代码处：`.c8rc.json` 覆盖排除路径、`AGENTS.md`、`.monkeycode/docs/ARCHITECTURE.md`/`INTERFACES.md`/`模块/*.md`，以及 `scripts/guard-structure.mjs` 的根文件数阈值（迁移后下调）。
+
+[Project Knowledge Summary]
+- Date: 2026-10-03
+- Context: `memory*` 迁入 `src/memory/` 时测试加载器被打断
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 用 `Module._load` 打桩/拦截的测试（如 `tests/memorySummary.test.mjs`）若按**精确相对说明符**匹配（`request === './storage.js'`），模块搬迁改成 `../storage.js` 后拦截会失效，测试会去加载真实模块并失败。搬迁时这类加载器要改成**按 basename 匹配**（`String(request).split('/').pop() === 'storage.js'`）。
+  - 同理，源码断言测试里写死的相对路径字符串（如 `SCREEN_SOURCE.includes("from './memoryBuckets.js'")`）也要随搬迁更新。

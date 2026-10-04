@@ -28,7 +28,7 @@ import {
   buildMomentReplyPrompt,
   normalizeMomentReply,
 } from './moments/momentReply.js';
-import { buildMemorySummaryText, isSessionScopedMemory } from './memorySummary.js';
+import { buildMemorySummaryText, isSessionScopedMemory } from './memory/memorySummary.js';
 import { runUserMomentComments } from './moments/runUserMomentComments.js';
 import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';

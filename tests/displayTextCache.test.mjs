@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getCachedDisplayText } from '../src/displayTextCache.js';
+import { getCachedDisplayText } from '../src/memory/displayTextCache.js';
 
 test('同一消息与脚本只计算一次展示文本', () => {
   const message = { id: 'm1', text: '原文' };

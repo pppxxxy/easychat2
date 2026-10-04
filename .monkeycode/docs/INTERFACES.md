@@ -149,7 +149,7 @@
 **Props**: `navigation`（由导航注入）
 **行为**:
 - 从 `useApp()` 读取 `sessions`、`characters`、`loaded` 与会话操作；展示全部会话，顺序沿用存储层的置顶优先 + 更新时间降序（不再按 preview 是否为空重排）
-- 按会话 `updatedAt` 分档折叠（`memoryBuckets.js` 的 `groupSessionsByAge`）：置顶单独一组，其余分为「最近（<1 天）/ 一天前（<7 天）/ 一周前（<30 天）/ 一个月前（<180 天）/ 半年前（<365 天）/ 一年前」；空档不显示；分组默认全部折叠，点组标题展开/收起该组全部记忆，头部「展开全部 / 折叠全部」一键切换所有分组
+- 按会话 `updatedAt` 分档折叠（`src/memory/memoryBuckets.js` 的 `groupSessionsByAge`）：置顶单独一组，其余分为「最近（<1 天）/ 一天前（<7 天）/ 一周前（<30 天）/ 一个月前（<180 天）/ 半年前（<365 天）/ 一年前」；空档不显示；分组默认全部折叠，点组标题展开/收起该组全部记忆，头部「展开全部 / 折叠全部」一键切换所有分组
 - 聚焦时调用 `refreshSessions()` 重读会话列表：聊天页保存消息只写存储、不同步 Context，不重读会看到过期的 preview 与更新时间
 - 空 preview 的会话读一次消息体兜底补出摘要；仍为空才显示「（空会话，可删除）」
 - 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标；群聊会话展示叠放成员头像与群名
@@ -747,12 +747,12 @@ data: [DONE]
 ## 渲染性能与摘要接口
 
 ### `getCachedDisplayText(message, scripts, placement, depth, compute)`
-**位置**: `src/displayTextCache.js`
+**位置**: `src/memory/displayTextCache.js`
 **返回**: `string` - 展示正则处理后的文本
 **说明**: 以消息对象为键缓存结果；仅当 `scripts` 引用、`placement` 或 `depth` 变化时重算，避免每个流式 token 重跑全部历史消息的展示正则
 
 ### `invalidateHistorySummaries({ session, messages, removedIds, scoped, character, updateCharacter })`
-**位置**: `src/memorySummary.js`
+**位置**: `src/memory/memorySummary.js`
 **说明**: 删除/替换历史后统一失效摘要：按 boundary 精确保留幸存会话摘要、写出新边界；非会话隔离模式下同时禁用受影响的世界书总结条目；会话摘要写失败时按记录的原始开关状态精确回滚
 
 ### `getNextRecentMediaExpiry()`
@@ -1089,7 +1089,7 @@ data: [DONE]
 **触发词**: `TRIGGER_KEYWORDS`（最新、今天、新闻、股价、天气、汇率等）。
 
 ### 记忆总结接口
-**位置**: `src/memorySummary.js`
+**位置**: `src/memory/memorySummary.js`
 
 | 函数 | 说明 |
 |------|------|
