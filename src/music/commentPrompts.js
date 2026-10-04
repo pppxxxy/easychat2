@@ -54,24 +54,32 @@ export function buildOpeningCommentPrompt({ songName = '', durationMs = 0, withA
   ].filter(Boolean).join('');
 }
 
-// 附音频的体积上限（原始文件字节）：超过则放弃附音频，退回纯文字评论。
+// 不裁剪、整首直接发送时的原始文件体积上限：超过退回纯文字评论。
 // 一首 5 分钟 320kbps MP3 约 12MB，base64 后约 16MB；25MB 留出余量。
 export const MUSIC_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 
+// 允许送进 WebView 解码裁剪的原始文件体积上限：裁剪后只发 30 秒，可放宽到 80MB。
+// 超过则退回整首发送（若在 25MB 内）或纯文字。
+export const MUSIC_DECODE_MAX_BYTES = 80 * 1024 * 1024;
+
 // 歌曲是否可随消息附给模型：有 uri 且体积不超上限。纯体积判断，不读盘。
-export function canAttachSongAudio(song) {
+// maxBytes 默认整首发送上限；裁剪路径可传 MUSIC_DECODE_MAX_BYTES。
+export function canAttachSongAudio(song, maxBytes = MUSIC_AUDIO_MAX_BYTES) {
   const source = song && typeof song === 'object' ? song : {};
   const uri = String(source.uri || '');
   if (!uri) return false;
   const size = Math.max(0, Math.floor(Number(source.size)) || 0);
-  return size > 0 && size <= MUSIC_AUDIO_MAX_BYTES;
+  const limit = Number(maxBytes) > 0 ? Number(maxBytes) : MUSIC_AUDIO_MAX_BYTES;
+  return size > 0 && size <= limit;
 }
 
-// 当前来源是否具备「听音频」能力。一起听歌的评论与动态/看屏幕评论一致，走在线 API
-// 配置（sendChatMessage），故以在线配置的 supportsAudio 为准。纯函数便于 Node 直测。
-export function resolveAudioSupport(apiConfig) {
+// 当前来源是否具备「听音频」能力：在线配置 supportsAudio，或本地活动模型可推理且
+// 带音频 mmproj 并开启了媒体输入（与聊天附件同口径）。纯函数便于 Node 直测。
+export function resolveAudioSupport(apiConfig, localMedia) {
   const current = apiConfig && Array.isArray(apiConfig.configs)
     ? (apiConfig.configs.find(item => item.id === apiConfig.activeId) || apiConfig.configs[0])
     : null;
-  return !!(current && current.supportsAudio === true);
+  const online = !!(current && current.supportsAudio === true);
+  const local = !!(localMedia && localMedia.audio);
+  return online || local;
 }

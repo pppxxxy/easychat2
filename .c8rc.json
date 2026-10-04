@@ -87,6 +87,7 @@
     "src/localModel/ModelLogsModal.js",
     "src/localModel/deviceMemory.js",
     "src/music/MusicScreen.js",
+    "src/music/AudioClipWebView.js",
     "src/music/useMusicPlayer.js",
     "src/music/importMusic.js",
     "src/books/BookScreen.js",

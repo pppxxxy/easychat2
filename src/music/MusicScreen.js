@@ -26,7 +26,7 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import { deleteMusicCommentsForSongs } from './comments.js';
 import { deleteMusicItems, getMusicItems, saveMusicDuration, saveMusicTriggers } from './library.js';
 import { importMusicFromPicker } from './importMusic.js';
-import { canAttachSongAudio, formatPlaybackPosition } from './commentPrompts.js';
+import { canAttachSongAudio, formatPlaybackPosition, MUSIC_DECODE_MAX_BYTES } from './commentPrompts.js';
 import {
   collectTriggersToCross,
   isSeekJump,
@@ -35,6 +35,7 @@ import {
 } from './triggers.js';
 import { useMusicComments } from './useMusicComments.js';
 import { useMusicPlayer } from './useMusicPlayer.js';
+import AudioClipWebView from './AudioClipWebView.js';
 
 function formatFileSize(size) {
   const bytes = Math.max(0, Math.floor(Number(size)) || 0);
@@ -89,6 +90,14 @@ export default function MusicScreen() {
   const [currentId, setCurrentId] = useState('');
   const { status, load, toggle, seekToSeconds, stop } = useMusicPlayer();
 
+  // 隐藏 WebView 裁剪器：把歌曲裁成 30 秒 WAV 片段再送模型。
+  const clipRef = useRef(null);
+  const clipAudio = useCallback(args => (
+    clipRef.current && clipRef.current.clip
+      ? clipRef.current.clip(args)
+      : Promise.reject(new Error('clip-unavailable'))
+  ), []);
+
   const current = useMemo(
     () => items.find(item => item.id === currentId) || null,
     [items, currentId]
@@ -102,7 +111,7 @@ export default function MusicScreen() {
     generate,
     retry,
     audioSupported,
-  } = useMusicComments({ song: current, characters, defaultCharacterId: activeId });
+  } = useMusicComments({ song: current, characters, defaultCharacterId: activeId, clipAudio });
 
   const reload = useCallback(async () => {
     try {
@@ -317,7 +326,8 @@ export default function MusicScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.listContent}>
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.listContent}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t('music.title')}</Text>
         <TouchableOpacity
@@ -412,7 +422,7 @@ export default function MusicScreen() {
               <Ionicons name="volume-mute-outline" size={14} color={theme.colors.textFaint} />
               <Text style={styles.noAudioHintText}>{t('music.comments.noAudio')}</Text>
             </View>
-          ) : (audioSupported === true && current && !canAttachSongAudio(current)) ? (
+          ) : (audioSupported === true && current && !canAttachSongAudio(current, MUSIC_DECODE_MAX_BYTES)) ? (
             <View style={styles.noAudioHint}>
               <Ionicons name="volume-mute-outline" size={14} color={theme.colors.textFaint} />
               <Text style={styles.noAudioHintText}>{t('music.comments.audioTooLarge')}</Text>
@@ -494,6 +504,8 @@ export default function MusicScreen() {
         />
       ))}
     </ScrollView>
+      <AudioClipWebView ref={clipRef} />
+    </>
   );
 }
 
