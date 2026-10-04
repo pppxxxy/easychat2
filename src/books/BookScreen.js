@@ -112,6 +112,8 @@ export default function BookScreen() {
       const code = error && error.code;
       if (code === 'UNSUPPORTED_FORMAT') {
         Alert.alert(t('books.import.unsupported.title'), t('books.import.unsupported.body'));
+      } else if (code === 'NOT_TEXT') {
+        Alert.alert(t('books.import.notText.title'), t('books.import.notText.body'));
       } else if (code === 'ENCODING') {
         Alert.alert(t('books.import.encoding.title'), t('books.import.encoding.body'));
       } else if (code === 'DOCX_TOO_LARGE') {
