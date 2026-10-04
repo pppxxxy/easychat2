@@ -397,3 +397,28 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   // 选用勾：当前模型操作行左侧
   assert.ok(panel.includes('checkmark-circle'), '选中的模型应有勾标识');
 });
+
+test('adapter 参数构造：buildContextParams/buildCompletionParams 纯函数', async () => {
+  const { buildContextParams, buildCompletionParams } = await import('../src/localModel/adapter.js');
+  const model = {
+    modelPath: 'file:///m/q4.gguf',
+    contextSize: 4096,
+    gpuLayers: 12,
+    params: { maxTokens: 256, temperature: 0.7, topP: 0.9, topK: 40, threads: 6 },
+  };
+  const ctx = buildContextParams(model);
+  assert.equal(ctx.model, 'file:///m/q4.gguf');
+  assert.equal(ctx.n_ctx, 4096);
+  assert.equal(ctx.n_gpu_layers, 12);
+  assert.equal(ctx.use_mlock, true);
+
+  const completion = buildCompletionParams(model);
+  assert.equal(completion.n_predict, 256);
+  assert.equal(completion.temperature, 0.7);
+  assert.equal(completion.top_p, 0.9);
+  assert.equal(completion.n_threads, 6);
+
+  const overridden = buildCompletionParams(model, { maxTokens: 64, temperature: 0.2 });
+  assert.equal(overridden.n_predict, 64);
+  assert.equal(overridden.temperature, 0.2);
+});

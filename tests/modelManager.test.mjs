@@ -275,3 +275,63 @@ test('getLocalModelFileInfo：无路径返回不存在，有路径读文件信�
   assert.equal(info.exists, true);
   assert.equal(info.size, 7);
 });
+
+test('verifyDownloadedSize：大小强校验（无声明大小则放行）', () => {
+  assert.deepEqual(manager.verifyDownloadedSize(2048, 2048), { ok: true, reason: '' });
+  assert.deepEqual(manager.verifyDownloadedSize(2048, 0), { ok: true, reason: '' }, '未声明大小不判');
+  assert.deepEqual(manager.verifyDownloadedSize(0, 0), { ok: true, reason: '' });
+  const bad = manager.verifyDownloadedSize(1800, 2048);
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /下载不完整/);
+});
+
+test('downloadLocalModel：声明大小与实际不符 → 拒绝登记并清理临时文件', async () => {
+  reset();
+  await assert.rejects(
+    () => manager.downloadLocalModel({
+      modelId: 'q4-truncated',
+      modelUrl: 'https://example.com/q4.gguf',
+      modelExpectedBytes: 9999,
+    }),
+    error => error && error.code === 'INCOMPLETE_DOWNLOAD'
+  );
+  assert.equal(storage.saved.length, 0, '不登记残缺模型');
+  assert.ok(
+    deleted.some(key => String(key).endsWith('.download')),
+    '临时下载文件必须清理'
+  );
+  assert.equal(files.has(`${DOCUMENT_DIR}local-models/q4-truncated.gguf`), false, '不得留下半成品目标文件');
+});
+
+test('downloadLocalModel：声明大小一致 → 正常登记', async () => {
+  reset();
+  const item = await manager.downloadLocalModel({
+    modelId: 'q4-ok',
+    modelUrl: 'https://example.com/q4.gguf',
+    modelExpectedBytes: 2048,
+  });
+  assert.equal(storage.saved.length, 1);
+  assert.equal(files.get(item.modelPath).size, 2048);
+});
+
+test('isOrphanLocalModelTempFile：只认中间产物后缀', () => {
+  assert.equal(manager.isOrphanLocalModelTempFile('a.gguf.download'), true);
+  assert.equal(manager.isOrphanLocalModelTempFile('a.gguf.old'), true);
+  assert.equal(manager.isOrphanLocalModelTempFile('a.gguf.import'), true);
+  assert.equal(manager.isOrphanLocalModelTempFile('a.gguf'), false);
+  assert.equal(manager.isOrphanLocalModelTempFile('a.mmproj.gguf'), false);
+});
+
+test('cleanupOrphanLocalModelFiles：删除残留并统计释放空间', async () => {
+  const removed = [];
+  const fs = {
+    documentDirectory: DOCUMENT_DIR,
+    readDirectoryAsync: async () => ['keep.gguf', 'stale.gguf.download', 'old.gguf.old', 'imp.gguf.import'],
+    getInfoAsync: async path => ({ exists: true, size: path.includes('stale') ? 100 : path.includes('old') ? 200 : 300 }),
+    deleteAsync: async path => { removed.push(path); },
+  };
+  const result = await manager.cleanupOrphanLocalModelFiles({ fileSystem: fs });
+  assert.equal(result.removed, 3);
+  assert.equal(result.freedBytes, 600);
+  assert.ok(removed.every(path => !path.endsWith('keep.gguf')), '不得删除正常模型文件');
+});

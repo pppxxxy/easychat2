@@ -176,3 +176,29 @@ test('面板与引导：留空自动生成的接线与文案（源码守护）',
   const onboarding = fs.readFileSync(path.join(HERE, '..', 'src', 'onboarding', 'onboardingContent.js'), 'utf8');
   assert.ok(onboarding.includes('留空会自动生成随机密钥'), '引导章节文案应更新');
 });
+
+test('attachLocalApiServerInference：并发请求串行执行（不重叠打同一 context）', async () => {
+  let handler = null;
+  const events = [];
+  let active = 0;
+  let maxActive = 0;
+  attachLocalApiServerInference({
+    model: { id: 'm' },
+    runInference: async messages => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      events.push(`start:${messages[0].content}`);
+      await new Promise(resolve => setTimeout(resolve, 15));
+      events.push(`end:${messages[0].content}`);
+      active -= 1;
+      return messages[0].content;
+    },
+    addListener: cb => { handler = cb; return () => {}; },
+    respond: async () => true,
+  });
+  const first = handler({ requestId: '1', body: { messages: [{ role: 'user', content: 'A' }] } });
+  const second = handler({ requestId: '2', body: { messages: [{ role: 'user', content: 'B' }] } });
+  await Promise.all([first, second]);
+  assert.equal(maxActive, 1, '同一时刻至多一个推理在跑');
+  assert.deepEqual(events, ['start:A', 'end:A', 'start:B', 'end:B'], '严格 FIFO 串行');
+});

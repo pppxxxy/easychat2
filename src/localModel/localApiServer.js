@@ -139,12 +139,16 @@ export async function respondLocalApiServer(requestId, response) {
 
 // 把原生请求接到推理函数：收到请求 -> runInference(messages, model) -> 回写 { text, model }。
 // addListener/respond 可注入（便于单测），默认走真实原生桥。
+// 串行化：外部 OpenAI 客户端可能并发打本机端点；llama.rn 的常驻 context **非并发安全**
+// （两个 completion 同时跑轻则串话、重则原生崩溃）。这里用一条 FIFO promise 链把请求排队，
+// 同一时刻只处理一个；跨模块（与聊天推理争用）仍靠 App 侧 tryAcquireResource 兜底。
 export function attachLocalApiServerInference({ model, runInference, addListener, respond } = {}) {
   if (typeof runInference !== 'function') return () => {};
   const listen = typeof addListener === 'function' ? addListener : addLocalApiServerRequestListener;
   const reply = typeof respond === 'function' ? respond : respondLocalApiServer;
   const modelId = String((model && model.id) || 'local-model');
-  return listen(async event => {
+  let queue = Promise.resolve();
+  const handle = async event => {
     try {
       const messages = Array.isArray(event.body && event.body.messages) ? event.body.messages : [];
       const text = await runInference(messages, model);
@@ -153,5 +157,9 @@ export function attachLocalApiServerInference({ model, runInference, addListener
       recordModelLog('api', `本地 API 推理失败：${describeModelError(error)}`, { level: 'error' });
       await reply(event.requestId, { text: '', model: modelId });
     }
+  };
+  return listen(event => {
+    queue = queue.then(() => handle(event)).catch(() => {});
+    return queue;
   });
 }

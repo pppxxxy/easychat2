@@ -3,6 +3,7 @@
 
 import { normalizeLocalModelParams } from './modelParams.js';
 import { describeModelError, formatBytes, recordModelLog } from './modelLogs.js';
+import { trimMessagesToContext } from './localContext.js';
 import { createThinkSplitter, splitThinkContent } from './thinkStream.js';
 
 let moduleState;
@@ -51,7 +52,7 @@ function modelKey(model) {
   ].join('|');
 }
 
-function buildContextParams(model) {
+export function buildContextParams(model) {
   const params = effectiveParams(model);
   return {
     model: String(model.modelPath || ''),
@@ -91,7 +92,7 @@ function getTotalDeviceMemoryBytes() {
   return deviceMemoryBytesCache;
 }
 
-function buildCompletionParams(model, override) {
+export function buildCompletionParams(model, override) {
   const params = normalizeLocalModelParams({
     ...(model && model.params && typeof model.params === 'object' ? model.params : {}),
     ...(override && typeof override === 'object' ? override : {}),
@@ -212,9 +213,12 @@ function abortError() {
   return error;
 }
 
-export async function runLocalModel(messages, model, { onToken, onReasoning, signal, params, conversationKey } = {}) {
+export async function runLocalModel(messages, model, { onToken, onReasoning, signal, params, conversationKey, onModelLoadProgress } = {}) {
   if (signal && signal.aborted) throw abortError();
-  const loaded = await loadLocalModel(model);
+  // 加载进度透传：聊天路径此前完全没有钩子，首条消息的 mmap 加载期间用户只看到「正在思考」。
+  const loaded = await loadLocalModel(model, {
+    onProgress: typeof onModelLoadProgress === 'function' ? onModelLoadProgress : undefined,
+  });
   // 加载耗时较长：期间用户可能已取消，进入生成前必须复查，否则会白跑一整轮。
   if (signal && signal.aborted) throw abortError();
 
@@ -244,6 +248,22 @@ export async function runLocalModel(messages, model, { onToken, onReasoning, sig
     messages: Array.isArray(messages) ? messages : [],
     ...buildCompletionParams(model, params),
   };
+
+  // 上下文预算：本地模型 n_ctx 是硬上限，全量历史迟早溢出（llama.cpp 静默截断/报错）。
+  // 推理前按 contextSize 裁剪，保留 system 与最近若干轮；同时把要生成的最大 token 数
+  // 预留下来，避免「提示刚好占满、生成无处可放」。
+  const contextBudget = trimMessagesToContext(completionParams.messages, {
+    contextSize: effectiveParams(model).contextSize,
+    reserveOutputTokens: completionParams.n_predict,
+  });
+  if (contextBudget.removedCount > 0) {
+    recordModelLog(
+      'chat',
+      `历史超上下文，裁剪 ${contextBudget.removedCount} 条（预算≈${contextBudget.budget} tokens，保留 ${contextBudget.messages.length} 条）`,
+      { level: 'warn', context: `contextSize=${effectiveParams(model).contextSize}` }
+    );
+    completionParams.messages = contextBudget.messages;
+  }
 
   let aborted = false;
   const onAbort = () => {

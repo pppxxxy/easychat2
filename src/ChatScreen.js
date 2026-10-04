@@ -978,6 +978,7 @@ export default function ChatScreen() {
     sendText,
     onRegenerateMessage,
     onEditUserMessage,
+    modelLoadProgress,
   } = useChatSend({
     beginSendOperation,
     endSendOperation,
@@ -2142,6 +2143,15 @@ export default function ChatScreen() {
         ready={ ready }
         isSending={ isSending }
       />
+
+      {modelLoadProgress != null ? (
+        <View style={styles.modelLoadBanner} accessibilityLabel={`本地模型加载中 ${modelLoadProgress}%`}>
+          <Text style={styles.modelLoadText}>{`本地模型加载中 ${modelLoadProgress}%`}</Text>
+          <View style={styles.modelLoadTrack}>
+            <View style={[styles.modelLoadFill, { width: `${modelLoadProgress}%` }]} />
+          </View>
+        </View>
+      ) : null}
 
       <ChatComposer
         quoteTarget={quoteTarget}

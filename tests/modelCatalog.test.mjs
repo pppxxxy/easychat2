@@ -77,6 +77,18 @@ test('parseHuggingFaceTree：只取 gguf/mmproj 并按体积排序', () => {
   assert.equal(parsed.projectorFiles[0].kind, 'projector');
 });
 
+test('parseHuggingFaceTree：解析 lfs.sha256（供下载完整性校验）', () => {
+  const json = [
+    { type: 'file', path: 'a.gguf', lfs: { size: 5000, sha256: 'ABCDEF0123' } },
+    { type: 'file', path: 'b.gguf', size: 10 },
+  ];
+  const parsed = parseHuggingFaceTree(json, 'org/repo');
+  const a = parsed.modelFiles.find(file => file.path === 'a.gguf');
+  assert.equal(a.sha256, 'abcdef0123', 'sha256 小写归一');
+  const b = parsed.modelFiles.find(file => file.path === 'b.gguf');
+  assert.equal(b.sha256, '', '普通文件无 sha256 时为空串');
+});
+
 test('parseModelScopeSearch：读取 Data.Model.Models 并过滤 gguf 库', () => {
   const json = {
     Data: {
