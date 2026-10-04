@@ -252,6 +252,10 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   },
   smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13) },
   removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
+  versionText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
+  secretRow: { flexDirection: 'row', alignItems: 'center' },
+  secretInput: { flex: 1 },
+  secretToggle: { paddingLeft: 10, paddingVertical: 8 },
 
   modalBackdrop: {
     flex: 1,
