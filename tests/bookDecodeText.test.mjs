@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 
 import {
   decodeBytes,
+  decodeHz,
   detectBom,
   isStrictUtf8,
+  looksLikeHz,
+  looksLikeIso2022Jp,
   looksLikeUtf16,
   replacementRatio,
+  sniffBinary,
+  sniffBinaryMagic,
 } from '../src/books/decodeText.js';
 
 test('BOM 识别（UTF-8 / UTF-16LE / UTF-16BE）', () => {
@@ -130,4 +135,60 @@ test('GBK 夹杂少量损坏字节仍能识别（容忍零星坏字节）', () =
   const r = decodeBytes(Buffer.from(bytes));
   assert.equal(r.encoding, 'gb18030');
   assert.ok(r.text.includes('中文的人'));
+});
+
+test('HZ-GB-2312（~{...~} 转义）识别与解码', () => {
+  // 「中文」的 GB2312 双字节是 D6D0 CEC4；HZ 段存剥掉高位后的 56 50 4E 44。
+  assert.deepEqual(
+    [...Buffer.from([0xd6, 0xd0, 0xce, 0xc4])].map(byte => (byte & 0x7f).toString(16)),
+    ['56', '50', '4e', '44'],
+    '前提：HZ 段字节 = GB2312 剥高位'
+  );
+  assert.equal(looksLikeHz(Buffer.from('pre ~{VPND~} post', 'ascii')), true);
+  assert.equal(looksLikeHz(Buffer.from('no tilde here', 'ascii')), false);
+  const r = decodeBytes(Buffer.from('pre ~{VPND~} post', 'ascii'));
+  assert.equal(r.encoding, 'hz-gb-2312');
+  assert.equal(r.text, 'pre 中文 post');
+});
+
+test('HZ 解码从严：高位字节/非法转义/奇数 GB 段一律拒绝', () => {
+  assert.equal(decodeHz(Buffer.from([0xd6, 0xd0])), null, '高位字节不是 HZ');
+  assert.equal(decodeHz(Buffer.from('~{VPN~}', 'ascii')), null, '奇数 GB 字节');
+  assert.equal(decodeHz(Buffer.from('~{VPND~}', 'ascii')), '中文');
+  assert.equal(decodeHz(Buffer.from('a~~b', 'ascii')), 'a~b', '~~ 转义为字面波浪号');
+  // GBK 文本里的字面 ~{：高位字节让 decodeHz 拒绝，落回候选评分，不得误判 HZ。
+  assert.equal(decodeBytes(Buffer.from([0xd6, 0xd0, 0x7e, 0x7b, 0xb1, 0xb8])).encoding, 'gb18030');
+});
+
+test('ISO-2022-JP 识别与解码', () => {
+  assert.equal(looksLikeIso2022Jp(Buffer.from([0x41, 0x1b, 0x24, 0x42, 0x24, 0x22, 0x1b, 0x28, 0x42])), true);
+  assert.equal(looksLikeIso2022Jp(Buffer.from('plain ascii text', 'ascii')), false);
+  // ESC $ B 进 JIS 区（0x24 0x22 = あ），ESC ( B 回 ASCII。真实文本的转义块之间总有
+  // ASCII 字符；背靠背的 ESC ( B + ESC $ B 会触发 polyfill 的 FFFD 怪癖并被坏字节
+  // 守卫拒绝（宁可回退也不导入缺字文本）。
+  const bytes = [];
+  for (let i = 0; i < 3; i += 1) bytes.push(0x1b, 0x24, 0x42, 0x24, 0x22, 0x1b, 0x28, 0x42, 0x41);
+  const r = decodeBytes(Buffer.from(bytes));
+  assert.equal(r.encoding, 'iso-2022-jp');
+  assert.ok(r.text.includes('\u3042'), 'JIS 段应还原为假名');
+});
+
+test('BOM 与正文不符时回退候选评分（UTF-8 BOM + GBK 正文）', () => {
+  const bytes = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0xb5, 0xc4, 0xc8, 0xcb]),
+  ]);
+  const r = decodeBytes(bytes);
+  assert.equal(r.encoding, 'gb18030', '不得按 BOM 静默解成乱码');
+  assert.equal(r.text, '中文的人', '候选评分应使用去 BOM 后的正文');
+});
+
+test('二进制文件抛 NOT_TEXT（魔数），普通文本不误伤', () => {
+  const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]);
+  assert.throws(() => decodeBytes(zip), (error) => error && error.code === 'NOT_TEXT');
+  const pdf = Buffer.from('%PDF-1.4\n%', 'latin1');
+  assert.throws(() => decodeBytes(pdf), (error) => error && error.code === 'NOT_TEXT');
+  assert.equal(sniffBinaryMagic(Buffer.from('普通文本', 'utf8')), false);
+  assert.equal(sniffBinary(Buffer.alloc(1024, 0x00)), true, '高 NUL 兜底');
+  assert.equal(sniffBinary(Buffer.from('abc', 'utf8')), false);
 });
