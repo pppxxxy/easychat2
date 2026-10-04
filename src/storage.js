@@ -42,6 +42,13 @@ import {
 import { SESSIONS_KEY, collectChatImageFiles, messagesKey, readSessionsStatus } from './storage/sessions.js';
 
 export { markMediaWrite } from './mediaProtection.js';
+export {
+  getLocationSettings,
+  normalizeLocationSettings,
+  saveLocationSettings,
+  setLastLocation,
+  updateLocationSettings,
+} from './storage/location.js';
 export { detachCharacterFromWorldMap, getWorldMap, getWorldMapStatus, updateWorldMap };
 export {
   deleteDiariesForCharacterDeletion,

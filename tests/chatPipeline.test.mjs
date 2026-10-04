@@ -450,3 +450,30 @@ test('filterRequestMedia：只剩媒体无文本时保留媒体；空数组消�
   ], {});
   assert.deepEqual(dropped.map(item => item.content), ['纯文本']);
 });
+
+test('位置感知：locationText 注入系统提示最前，缺省不注入', () => {
+  const withLocation = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: [],
+    currentTimeText: '[当前时间] 2026-10-03 周六 12:00',
+    locationText: '[当前位置] 北京市东城区',
+  });
+  const system = withLocation.find(item => item.role === 'system');
+  assert.ok(system.content.startsWith('[当前位置] 北京市东城区'), '位置行位于系统提示最前');
+  assert.ok(system.content.includes('[当前时间]'), '时间行仍在');
+  assert.ok(system.content.indexOf('[当前位置]') < system.content.indexOf('[当前时间]'),
+    '位置行在时间行之前');
+
+  const withoutLocation = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: [],
+  });
+  assert.equal(withoutLocation.find(item => item.role === 'system').content.includes('[当前位置]'), false);
+});
+

@@ -57,7 +57,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, extraSystemPrompt, voiceAudio }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, locationText, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
@@ -94,6 +94,11 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const timeText = String(currentTimeText || '').trim();
   if (timeText) {
     systemContent = `${replaceUser(timeText)}\n\n${systemContent}`;
+  }
+  // 位置感知：开启且存在最近一次成功位置时附上「[当前位置] …」，置于提示最前。
+  const locationLine = String(locationText || '').trim();
+  if (locationLine) {
+    systemContent = `${replaceUser(locationLine)}\n\n${systemContent}`;
   }
   if (userPersona) {
     systemContent = `${systemContent}\n\n[用户设定]\n${replaceUser(userPersona)}`;

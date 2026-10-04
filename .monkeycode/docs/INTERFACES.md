@@ -393,7 +393,7 @@
 **导出的默认值**:
 - `DEFAULT_CHARACTER` 含 `id`、`builtin`（初始卡标记，改名/改提示后仍可识别）、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
-**存储域模块（`src/storage/`）**: `src/storage.js` 是门面，实际读写按域拆分在 `src/storage/` 下（`characters.js` / `apiConfigs.js` / `sessionCore.js` / `sessionList.js` / `sessionMessages.js` / `sessionFiles.js` / `sessions.js` / `settings.js` / `localModels.js` / `vector.js` / `stickers.js` / `moments.js` / `diary.js` / `affinity.js` / `worldMap.js` / `globalPresets.js` / `personas.js` / `cardForge.js` / `backup.js` / `backupStream.js`）。测试加载这些子模块时**必须写回 `Module._cache`**，否则模块级共享状态会被复制（见 AGENTS.md）。
+**存储域模块（`src/storage/`）**: `src/storage.js` 是门面，实际读写按域拆分在 `src/storage/` 下（`characters.js` / `apiConfigs.js` / `sessionCore.js` / `sessionList.js` / `sessionMessages.js` / `sessionFiles.js` / `sessions.js` / `settings.js` / `localModels.js` / `vector.js` / `stickers.js` / `moments.js` / `diary.js` / `affinity.js` / `worldMap.js` / `location.js` / `globalPresets.js` / `personas.js` / `cardForge.js` / `backup.js` / `backupStream.js`）。测试加载这些子模块时**必须写回 `Module._cache`**，否则模块级共享状态会被复制（见 AGENTS.md）。
 
 **写队列工厂（`src/storage/io.js`）**:
 
@@ -460,6 +460,7 @@
 | `@easychat2_diary_index` | 日记条目 ID 索引（提交点，最后写） |
 | `@easychat2_diary_item::<id>` | 单篇日记 `{ id, characterId, characterName, date, text, createdAt }` |
 | `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
+| `@easychat2_location` | 真实位置 `{ enabled, last: { latitude, longitude, description, updatedAt } \| null, tileUrl }`；`enabled` 为全局开关（关闭时不取点、不注入对话），`last` 为最近一次成功位置（WGS-84，description 可为空、展示时退回坐标），`tileUrl` 为空用默认高德栅格模板 |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast`；`providers[].apiKey` / `.appSecretKey` 落盘为安全存储引用 |
 | `@easychat2_transcription` | 语音转文字配置 `{ activeId, configs: [{ id, name, baseUrl, apiKey, model }] }`；`activeId` 为空串表示「仅复用当前聊天来源」；`apiKey` 落盘为安全存储引用 |
@@ -1039,6 +1040,20 @@ data: [DONE]
 | `describeHouseOwner` / `houseResidentNames` | 屋主描述（`我的房子` / `<名>的房子`）、住户名解析 |
 
 **说明**: 地图数据量小，整体存单键 `@easychat2_world_map`，`updateWorldMap` 串行读改写。规则：自己固定住 `000` 号房；每个人（自己与角色）最多拥有 1 栋房子（角色可在拥有自己房子的同时住进别人家的一栋）；每个角色最多住 1 栋房子（用户不占住户名额）。`MapPanel` 点格子弹面板编辑屋主/住户/名称，顶部「查看」展开房子列表（`000` 起连续编号），点房子可看房主与住户并转让/增删；屋主与住户都用 `CollapsibleSelect` 折叠选择。挂在「世界 → 地图」折叠分组内。
+
+### 真实地图与位置接口
+**位置**: `src/worldMap/realMapHtml.js`、`src/worldMap/RealMapView.js`、`src/location/geo.js`、`src/location/service.js`、`src/storage/location.js`
+
+| 函数 | 说明 |
+|------|------|
+| `buildRealMapHtml({ tileUrl, subdomains })` | 返回自绘 slippy map 的完整 HTML（Web Mercator + 绝对定位 `<img>` 瓦片；`{s}/{x}/{y}/{z}` 占位）；暴露 `__setView` / `__setMarker` / `__setTile` 供 RN 注入；默认高德栅格瓦片，不依赖外部 CDN |
+| `RealMapView` | 真实地图视图：全局开关 / 刷新 / 标注；开启先请求前台定位权限，再 `captureLocation` 落 `@easychat2_location.last`；标注前把 WGS-84 转 GCJ-02 |
+| `isOutOfChina` / `wgs84ToGcj02` | 境外判定与火星坐标转换（纯函数；境外或非法输入原样返回） |
+| `formatCoordinate` / `describeLocation` / `buildLocationText` | 坐标格式化、可读地点（反地理编码优先、退回坐标）、`[当前位置] …` 注入行（未开启或无位置为空串） |
+| `ensureLocationPermission` / `captureLocation` | `expo-location` 前台权限 / 取点（平衡精度）+ 反地理编码（失败退空描述） |
+| `getLocationSettings` / `updateLocationSettings` / `setLastLocation` | 位置存储域（迁移队列串行、损坏先备份），经 `storage.js` barrel 导出 |
+
+**说明**: `MapPanel` 顶部「网格地图 / 真实地图」切换；网格地图及其存储键不变。普通聊天（`useChatSend` 单聊路径）在开关开启且存在最近位置时把位置行注入系统提示最前（与「时间感知」同区，先位置后时间）；群聊与阅读/听歌/看屏幕陪伴评论不注入。开关与最近位置存 `@easychat2_location`；`SECURITY.md` 已披露位置描述随消息发送至所选模型、瓦片请求由 WebView 直连地图服务商。原生依赖 `expo-location`（前台 `ACCESS_COARSE_LOCATION` / `ACCESS_FINE_LOCATION`）。
 
 ### 语音播报接口
 **位置**: `src/tts/providers.js`、`src/tts/index.js`

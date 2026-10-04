@@ -31,6 +31,8 @@ import {
 import { useApp } from './context/AppContext.js';
 import { FieldGroup, PrimaryButton, SecondaryButton, TextField, CollapsibleSelect } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
+import RealMapView from './worldMap/RealMapView.js';
 
 const CELL_SIZE = 26;
 
@@ -43,7 +45,9 @@ export default function MapPanel({ embedded = false }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { characters } = useApp();
+  const { t } = useTranslation();
 
+  const [mapMode, setMapMode] = useState('grid');
   const [loading, setLoading] = useState(true);
   const [houses, setHouses] = useState([]);
   const [notice, setNotice] = useState('');
@@ -238,99 +242,126 @@ export default function MapPanel({ embedded = false }) {
     <Container {...containerProps}>
       <View style={styles.titleRow}>
         <Text style={styles.title}>地图</Text>
+        {mapMode === 'grid' ? (
+          <TouchableOpacity
+            style={styles.viewButton}
+            onPress={() => setListOpen(v => !v)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+          >
+            <Ionicons name="list-outline" size={15} color={theme.colors.primarySoft} />
+            <Text style={styles.viewButtonText}>{listOpen ? '收起' : '查看'}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      <View style={styles.modeRow}>
         <TouchableOpacity
-          style={styles.viewButton}
-          onPress={() => setListOpen(v => !v)}
+          style={[styles.modeTab, mapMode === 'grid' && styles.modeTabActive]}
+          onPress={() => setMapMode('grid')}
           activeOpacity={0.85}
-          accessibilityRole="button"
         >
-          <Ionicons name="list-outline" size={15} color={theme.colors.primarySoft} />
-          <Text style={styles.viewButtonText}>{listOpen ? '收起' : '查看'}</Text>
+          <Text style={[styles.modeTabText, mapMode === 'grid' && styles.modeTabTextActive]}>
+            {t('world.map.tab.grid')}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeTab, mapMode === 'real' && styles.modeTabActive]}
+          onPress={() => setMapMode('real')}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.modeTabText, mapMode === 'real' && styles.modeTabTextActive]}>
+            {t('world.map.tab.real')}
+          </Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.hint}>
-        {`${MAP_GRID_SIZE}×${MAP_GRID_SIZE} 的网格。点任意格子放置房子。自己固定住在 000 号房，`}
-        其余房子按 001、002… 编号；每个人最多拥有 1 栋房子、每个角色最多住 1 栋（可同时拥有自己的房并住在别人家）。左右滑动查看整张地图。
-      </Text>
-      <Text style={styles.legend}>
-        {`共 ${houses.length} 座房子 · 我的 ${selfCount} · 角色的 ${roleCount}`}
-      </Text>
 
-      {listOpen ? (
-        <View style={styles.houseList}>
-          {numberedHouses.length === 0 ? (
-            <Text style={styles.hint}>还没有房子，点网格格子放置第一栋吧。</Text>
-          ) : (
-            numberedHouses.map(({ house, label }) => (
-              <TouchableOpacity
-                key={house.id}
-                style={styles.houseRow}
-                onPress={() => openHouse(house)}
-                activeOpacity={0.85}
-              >
-                <View style={styles.houseNumberBadge}>
-                  <Text style={styles.houseNumberText}>{label}</Text>
-                </View>
-                <View style={styles.houseInfo}>
-                  <Text style={styles.houseOwner} numberOfLines={1}>
-                    {house.name || describeHouseOwner(house, characters)}
-                  </Text>
-                  <Text style={styles.houseMeta} numberOfLines={1}>
-                    {`屋主：${describeHouseOwner(house, characters)} · 住户：${houseResidentNames(house, characters).join('、') || '无'}`}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
-      ) : null}
+      {mapMode === 'real' ? <RealMapView /> : (
+        <>
+          <Text style={styles.hint}>
+            {`${MAP_GRID_SIZE}×${MAP_GRID_SIZE} 的网格。点任意格子放置房子。自己固定住在 000 号房，`}
+            其余房子按 001、002… 编号；每个人最多拥有 1 栋房子、每个角色最多住 1 栋（可同时拥有自己的房并住在别人家）。左右滑动查看整张地图。
+          </Text>
+          <Text style={styles.legend}>
+            {`共 ${houses.length} 座房子 · 我的 ${selfCount} · 角色的 ${roleCount}`}
+          </Text>
 
-      <ScrollView
-        horizontal
-        style={styles.gridScroll}
-        contentContainerStyle={styles.gridScrollContent}
-        showsHorizontalScrollIndicator
-      >
-        {/* 用一整块 Pressable 承接点击、按触点坐标换算格子：避免在 40×40 网格里
-            渲染 1600 个 TouchableOpacity，低端机上会明显掉帧。
-            内层整体 pointerEvents="none"：否则触摸目标会落到某个单元格上，
-            locationX/locationY 变成相对小格（恒为个位数），换算出来永远是左上角。 */}
-        <Pressable
-          onPress={onGridPress}
-          style={styles.grid}
-          accessibilityLabel="地图网格，点格子放置或编辑房子"
-        >
-          <View pointerEvents="none">
-            {Array.from({ length: MAP_GRID_SIZE }).map((_, y) => (
-              <View key={y} style={styles.gridRow}>
-                {Array.from({ length: MAP_GRID_SIZE }).map((_, x) => {
-                  const house = houseLookup.get(`${x}:${y}`) || null;
-                  const isRoleHouse = !!house && house.ownerType === 'character';
-                  return (
-                    <View
-                      key={x}
-                      style={[
-                        styles.cell,
-                        house && styles.cellHouse,
-                        house && (isRoleHouse ? styles.cellRole : styles.cellSelf),
-                      ]}
-                    >
-                      {house ? (
-                        <Ionicons
-                          name="home"
-                          size={12}
-                          color={isRoleHouse ? theme.colors.star : theme.colors.primaryContrast}
-                        />
-                      ) : null}
+          {listOpen ? (
+            <View style={styles.houseList}>
+              {numberedHouses.length === 0 ? (
+                <Text style={styles.hint}>还没有房子，点网格格子放置第一栋吧。</Text>
+              ) : (
+                numberedHouses.map(({ house, label }) => (
+                  <TouchableOpacity
+                    key={house.id}
+                    style={styles.houseRow}
+                    onPress={() => openHouse(house)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.houseNumberBadge}>
+                      <Text style={styles.houseNumberText}>{label}</Text>
                     </View>
-                  );
-                })}
+                    <View style={styles.houseInfo}>
+                      <Text style={styles.houseOwner} numberOfLines={1}>
+                        {house.name || describeHouseOwner(house, characters)}
+                      </Text>
+                      <Text style={styles.houseMeta} numberOfLines={1}>
+                        {`屋主：${describeHouseOwner(house, characters)} · 住户：${houseResidentNames(house, characters).join('、') || '无'}`}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          ) : null}
+
+          <ScrollView
+            horizontal
+            style={styles.gridScroll}
+            contentContainerStyle={styles.gridScrollContent}
+            showsHorizontalScrollIndicator
+          >
+            {/* 用一整块 Pressable 承接点击、按触点坐标换算格子：避免在 40×40 网格里
+                渲染 1600 个 TouchableOpacity，低端机上会明显掉帧。
+                内层整体 pointerEvents="none"：否则触摸目标会落到某个单元格上，
+                locationX/locationY 变成相对小格（恒为个位数），换算出来永远是左上角。 */}
+            <Pressable
+              onPress={onGridPress}
+              style={styles.grid}
+              accessibilityLabel="地图网格，点格子放置或编辑房子"
+            >
+              <View pointerEvents="none">
+                {Array.from({ length: MAP_GRID_SIZE }).map((_, y) => (
+                  <View key={y} style={styles.gridRow}>
+                    {Array.from({ length: MAP_GRID_SIZE }).map((_, x) => {
+                      const house = houseLookup.get(`${x}:${y}`) || null;
+                      const isRoleHouse = !!house && house.ownerType === 'character';
+                      return (
+                        <View
+                          key={x}
+                          style={[
+                            styles.cell,
+                            house && styles.cellHouse,
+                            house && (isRoleHouse ? styles.cellRole : styles.cellSelf),
+                          ]}
+                        >
+                          {house ? (
+                            <Ionicons
+                              name="home"
+                              size={12}
+                              color={isRoleHouse ? theme.colors.star : theme.colors.primaryContrast}
+                            />
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
-        </Pressable>
-      </ScrollView>
+            </Pressable>
+          </ScrollView>
+        </>
+      )}
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
@@ -448,6 +479,18 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderRadius: 14,
   },
   viewButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
+  modeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  modeTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    marginRight: 8,
+  },
+  modeTabActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  modeTabText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  modeTabTextActive: { color: theme.colors.primaryContrast },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 8 },
   legend: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 10 },
   houseList: { marginTop: 10 },
