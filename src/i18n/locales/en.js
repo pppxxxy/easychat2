@@ -245,6 +245,8 @@ export const en = {
   'books.import.unsupported.body': 'Only txt / Markdown / Word(.docx) / HTML text files are supported for now.',
   'books.import.encoding.title': 'Unsupported encoding',
   'books.import.encoding.body': 'Could not detect the file encoding. Re-save it as UTF-8 and try again.',
+  'books.import.docxTooLarge.title': 'Document too large',
+  'books.import.docxTooLarge.body': 'The document body exceeds the 32MB limit after extraction, so the import was refused.',
   'books.import.empty.title': 'Nothing to import',
   'books.import.empty.body': 'The file contains no importable text.',
   'books.import.failed.title': 'Import failed',

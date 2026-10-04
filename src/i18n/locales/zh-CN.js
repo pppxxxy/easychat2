@@ -249,6 +249,8 @@ export const zhCN = {
   'books.import.unsupported.body': '目前只支持 txt / Markdown / Word(.docx) / HTML 文本文件。',
   'books.import.encoding.title': '编码不支持',
   'books.import.encoding.body': '无法识别文件编码，请另存为 UTF-8 后重试。',
+  'books.import.docxTooLarge.title': '文档过大',
+  'books.import.docxTooLarge.body': '文档正文解压后超过 32MB 上限，已拒绝导入。',
   'books.import.empty.title': '没有可导入的文本',
   'books.import.empty.body': '文件里没有可导入的文本内容。',
   'books.import.failed.title': '导入失败',

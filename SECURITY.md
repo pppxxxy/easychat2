@@ -33,6 +33,7 @@
    | `documentDirectory/characters/`、`documentDirectory/card-forge/` | 超大角色正文与制卡草稿的大字段文件 |
 
 - 卸载应用或清除应用数据即可删除上述内容。开发者侧没有可删除的副本。导出的备份包由你自行保管，包含角色、会话、消息与媒体；密钥字段在导出时一律置空。
+- 本地书籍导入的解析边界：`.txt`/`.md`/`.html` 在本机解码与剥离标签（`.html` 的 `<script>`/`<style>` 会先被移除，不执行其中脚本）；`.docx` 在本机解压，**只解压 `word/document.xml` 并按解压后实际字节数设 32MB 上限**（超出即拒绝导入），包里其他条目（图片、附件）一概不解压——这既避免大文件占用内存，也挡住压缩比极高的恶意文档（zip 炸弹）。文件一律以 UTF-8 落盘到 `documentDirectory/books/`，内容不会离开设备；只有你在书架里点「让TA聊聊」时，当前页文本才会随请求发给**你自己配置的模型服务**。
 - 需要留意的本地风险：
   - API Key 存于系统安全存储（Android Keystore / iOS Keychain，`expo-secure-store`），AsyncStorage 只保留引用 `secure:v1:<id>`，不再明文保存。安全存储不可用的旧设备（如未配置锁屏的模拟器）会透明降级为明文，此时应用私有目录受系统沙箱保护，但 root / 越狱设备、或调试工具仍可能读取。
   - 应用已设置 `android:allowBackup="false"`，系统云备份不会包含应用数据（含 API Key）。

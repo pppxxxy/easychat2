@@ -111,6 +111,8 @@ test('导入失败提示按 code 走文案键，不渲染原始 error.message', 
 
   const keys = [
     'books.import.encoding.body',
+    'books.import.docxTooLarge.title',
+    'books.import.docxTooLarge.body',
     'books.import.empty.title',
     'books.import.empty.body',
   ];
@@ -118,6 +120,7 @@ test('导入失败提示按 code 走文案键，不渲染原始 error.message', 
     assert.ok(handler.includes(`t('${key}')`), `handleImport 必须使用 ${key}`);
   }
   assert.ok(handler.includes("code === 'EMPTY_BOOK'"), '空内容错误要有独立分支，而不是落到泛化提示');
+  assert.ok(handler.includes("code === 'DOCX_TOO_LARGE'"), 'docx 超限要有独立分支，提示具体原因');
 
   const imp = readSource('src/books/importBook.js');
   assert.ok(/error\.code = 'EMPTY_BOOK'/.test(imp), '空内容错误必须带 code 才能被上层的文案分支识别');

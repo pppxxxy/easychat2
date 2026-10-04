@@ -114,6 +114,8 @@ export default function BookScreen() {
         Alert.alert(t('books.import.unsupported.title'), t('books.import.unsupported.body'));
       } else if (code === 'ENCODING') {
         Alert.alert(t('books.import.encoding.title'), t('books.import.encoding.body'));
+      } else if (code === 'DOCX_TOO_LARGE') {
+        Alert.alert(t('books.import.docxTooLarge.title'), t('books.import.docxTooLarge.body'));
       } else if (code === 'EMPTY_BOOK') {
         Alert.alert(t('books.import.empty.title'), t('books.import.empty.body'));
       } else {
