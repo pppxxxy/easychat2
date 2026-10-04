@@ -3,6 +3,7 @@
 // 左右 30% 点按翻页，中间点按呼出/收起控制条；页脚显示进度与章题。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import {
   ActivityIndicator,
   Alert,
@@ -139,7 +140,7 @@ export default function BookReaderView({ item, content, onBack }) {
         },
       });
       setShowComments(false);
-      navigation.navigate('聊天');
+      navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
       Alert.alert(t('books.comments.quoteFailed.title'), t('books.comments.quoteFailed.body'));
     }

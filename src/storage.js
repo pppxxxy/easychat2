@@ -1,11 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { removeRolesFromDiarySettings } from './diary/diary.js';
 import {
   getMediaWriteRevision,
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
+  isRecentlyModifiedFile,
   markMediaWrite,
 } from './storage/mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX } from './storage/io.js';
@@ -40,6 +40,7 @@ import {
   setActiveCharacterId,
 } from './storage/characters.js';
 import { SESSIONS_KEY, collectChatImageFiles, messagesKey, readSessionsStatus } from './storage/sessions.js';
+import { runCharacterCleanup } from './storage/characterLifecycle.js';
 
 export { markMediaWrite } from './storage/mediaProtection.js';
 export {
@@ -263,27 +264,12 @@ export async function saveCharacterState(list, activeId, deletedIds, clearVector
       } catch (error) {}
     }
   }
-  // 角色删除后联动清掉它的日记条目与日记开关，避免设置里残留孤儿角色。
+  // 角色删除后的跨域清理交给注册机制：各域在自己模块里注册（见 storage/characterLifecycle.js），
+  // 这里只负责跑钩子。此前是硬编码清单，新增域必须记得回来改本函数——@easychat2_affinity
+  // （好感度）就是这么漏掉的；moments 的清理更是写在 CharacterScreen 里、门面不知道。
+  // 钩子内部各自容错，单个域失败不阻断其余域（runCharacterCleanup 逐个 try/catch）。
   const removedCharacters = removed.filter(id => id && id !== DEFAULT_CHARACTER.id);
-  if (removedCharacters.length > 0) {
-    try {
-      await deleteDiariesForCharacterDeletion(removedCharacters);
-    } catch (error) {
-      if (__DEV__) console.warn('[diary] character cleanup failed', error);
-    }
-    try {
-      const settings = await getDiarySettings();
-      await saveDiarySettings(removeRolesFromDiarySettings(settings, removedCharacters));
-    } catch (error) {
-      if (__DEV__) console.warn('[diary] settings cleanup failed', error);
-    }
-    // 角色删除后从地图里摘掉它：不再作为屋主，也不再是任何房子的住户。
-    try {
-      await detachCharacterFromWorldMap(removedCharacters);
-    } catch (error) {
-      if (__DEV__) console.warn('[map] character cleanup failed', error);
-    }
-  }
+  await runCharacterCleanup(removedCharacters);
 }
 
 // 向量记忆配置与索引 CRUD 见 src/storage/vector.js。
@@ -323,6 +309,9 @@ export async function collectStickerImageFiles() {
     const uri = `${directory}${entry}`;
     if (isRecentMediaUri(uri)) continue;
     if (referenced.has(uri)) continue;
+    // mtime 双保险：recentUris 是内存态，冷启动后失效——宽限窗内写入的文件一律跳过
+    //（删除可推迟，误删不可逆）。
+    if (await isRecentlyModifiedFile(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (error) {}
@@ -366,6 +355,9 @@ export async function collectAvatarImageFiles() {
     const uri = `${directory}${entry}`;
     if (isRecentMediaUri(uri)) continue;
     if (referenced.has(uri)) continue;
+    // mtime 双保险：recentUris 是内存态，冷启动后失效——宽限窗内写入的文件一律跳过
+    //（删除可推迟，误删不可逆）。
+    if (await isRecentlyModifiedFile(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (error) {}

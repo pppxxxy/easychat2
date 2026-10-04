@@ -16,6 +16,7 @@ import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessag
 import { buildSystemPrompt } from './character/cardParser.js';
 import { buildRequestMessages } from './prompt/chatPipeline.js';
 import { readImageDataUri } from './chat/attachments.js';
+import { NEAR_BOTTOM_THRESHOLD } from './chat/chatConstants.js';
 import { useApp } from './context/AppContext.js';
 import CardForgeEditor from './CardForgeEditor.js';
 import {
@@ -71,12 +72,22 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const draftRevisionRef = useRef(0);
   const stateRef = useRef(null);
   const scrollRef = useRef(null);
+  // 自动滚动策略（与聊天页一致）：只有贴着底部时才跟随新内容，用户主动发送则强制
+  // 跟随；否则翻看历史时，任何新写入都会把列表硬拽回底部。
+  const atBottomRef = useRef(true);
   const mountedRef = useRef(true);
   const activeRef = useRef(active);
   const requestControllerRef = useRef(null);
   const requestTokenRef = useRef(0);
   activeRef.current = active;
   stateRef.current = state;
+
+  const handleScroll = useCallback(({ nativeEvent }) => {
+    const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - layoutMeasurement.height - contentOffset.y;
+    atBottomRef.current = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD;
+  }, []);
 
   const applyState = useCallback(next => {
     stateRef.current = next;
@@ -395,6 +406,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再发送。');
       return;
     }
+    atBottomRef.current = true;
     busyRef.current = true;
     const token = ++requestTokenRef.current;
     const controller = new AbortController();
@@ -655,8 +667,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         onContentSizeChange={() => {
-          if (scrollRef.current) scrollRef.current.scrollToEnd({ animated: true });
+          if (atBottomRef.current && scrollRef.current) scrollRef.current.scrollToEnd({ animated: true });
         }}
       >
         {state.transcript.map(entry => {

@@ -25,6 +25,7 @@ import { generateImage, detectImageProvider, probeImageProvider } from './imageG
 import { getImageGenSettings, saveImageGenSettings } from './storage.js';
 import { resolveImageFormat } from './imageGen/imageResultFormat.js';
 import ChapterModal from './books/ChapterModal.js';
+import { getImageDimensions } from './chat/attachments.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { maskSecrets } from './storage/secrets.js';
@@ -54,12 +55,6 @@ function isImageLike(name, mime) {
   const type = String(mime || '').toLowerCase();
   if (type.startsWith('image/')) return true;
   return /\.(png|jpe?g|webp|bmp|gif)$/i.test(String(name || ''));
-}
-
-function getImageDimensions(uri) {
-  return new Promise((resolve, reject) => {
-    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
-  });
 }
 
 export default function ImageGenScreen({ embedded = false, active = true }) {
@@ -655,7 +650,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         ) : null}
       </ScrollView>
 
-      <Modal visible={providerOpen} transparent animationType="fade" onRequestClose={() => setProviderOpen(false)}>
+      <Modal visible={providerOpen} transparent animationType="slide" onRequestClose={() => setProviderOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setProviderOpen(false)}>
           <Pressable style={styles.modalSheet} onPress={() => {}}>
             <Text style={styles.modalTitle}>选择服务</Text>
@@ -677,7 +672,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         </Pressable>
       </Modal>
 
-      <Modal visible={modelOpen} transparent animationType="fade" onRequestClose={() => setModelOpen(false)}>
+      <Modal visible={modelOpen} transparent animationType="slide" onRequestClose={() => setModelOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setModelOpen(false)}>
           <Pressable style={styles.modalSheet} onPress={() => {}}>
             <Text style={styles.modalTitle}>选择模型</Text>
@@ -700,7 +695,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         </Pressable>
       </Modal>
 
-      <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>
+      <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>{provider.label} 设置</Text>

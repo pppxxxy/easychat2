@@ -17,6 +17,16 @@ export const en = {
   'app.save.failed.body': 'Could not save progress. Please try again.',
   'app.migration.failed.title': 'Startup migration failed',
   'app.migration.failed.body': 'Old chat history could not be organized. Check your storage space and restart the app.',
+  'app.crash.copy': 'Copy report',
+  'app.crash.copied.title': 'Copied',
+  'app.crash.copied.body': 'Crash info copied to clipboard; paste it into your report.',
+  'app.openRole.failed.title': 'Could not open',
+  'app.openRole.failed.body': 'This character may have been deleted, so the proactive chat cannot be opened.',
+  'app.tabLeave.title': 'Unsaved changes',
+  'app.tabLeave.body': 'Character edits are not saved yet and will not take effect in chat. Switching tabs keeps your edits; quitting the app discards them.',
+  'app.tabLeave.stay': 'Keep editing',
+  'app.tabLeave.leave': 'Leave anyway',
+  'app.tabLeave.saveAndLeave': 'Save and leave',
   'app.default.userName': 'User',
 
   // ---- Chat top bar ----

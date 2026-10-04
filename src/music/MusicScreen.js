@@ -4,6 +4,7 @@
 // 入口在「扩展 → 世界」分组（独立面板页，动态同款跳转模式）。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import {
   ActivityIndicator,
   Alert,
@@ -283,7 +284,7 @@ export default function MusicScreen() {
           text: comment.text,
         },
       });
-      navigation.navigate('聊天');
+      navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
       Alert.alert(t('music.comments.quoteFailed.title'), t('music.comments.quoteFailed.body'));
     }

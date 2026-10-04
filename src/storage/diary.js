@@ -3,11 +3,13 @@
 // 设置单键保存：每角色的开关与全局 API 来源。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onCharacterDeleted } from './characterLifecycle.js';
 
 import {
   normalizeDiaryEntry,
   normalizeDiarySettings,
   removeDiariesForCharacter,
+  removeRolesFromDiarySettings,
 } from '../diary/diary.js';
 import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
@@ -139,3 +141,10 @@ export async function deleteDiariesForCharacterDeletion(characterIds) {
   });
   return removed;
 }
+
+// 删除角色时清掉它的日记条目与日记开关里的角色（原在 storage.js 级联清单里硬编码）。
+onCharacterDeleted('diary', async characterIds => {
+  await deleteDiariesForCharacterDeletion(characterIds);
+  const settings = await getDiarySettings();
+  await saveDiarySettings(removeRolesFromDiarySettings(settings, characterIds));
+});

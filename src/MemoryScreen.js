@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ROUTE_NAMES } from './navigation/routeNames.js';
 import {
   Alert,
   FlatList,
@@ -223,7 +224,7 @@ export default function MemoryScreen({ navigation }) {
         await switchCharacter(session.characterId);
       }
       await switchSession(session.id);
-      navigation.navigate('聊天');
+      navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
       try {
         await switchCharacter(previousCharacterId);
@@ -333,7 +334,7 @@ export default function MemoryScreen({ navigation }) {
       await switchSession(target.id);
       setPendingTarget({ sessionId: target.id, messageId: result.messageId });
       setSearchOpen(false);
-      navigation.navigate('聊天');
+      navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
       try {
         if (previousSession?.type === 'group') {

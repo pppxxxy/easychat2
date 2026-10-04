@@ -36,7 +36,7 @@ test('MusicScreen：触发评估与接话接线', () => {
     && source.includes('resolveFiredIdsAtPosition'), '触发判定必须复用 triggers.js 纯函数');
   assert.ok(source.includes('firedRef.current.has(trigger.id)'), '同一次播放内同一打点不得重复触发');
   assert.ok(source.includes('ensureCharacterSession'), '接话前必须确保该角色会话存在');
-  assert.ok(source.includes("navigation.navigate('聊天')"), '接话切到聊天页');
+  assert.ok(source.includes('navigation.navigate(ROUTE_NAMES.chat)'), '接话切到聊天页（路由名走常量）');
   assert.ok(source.includes("kind: 'opening'"), '开播自动请求开场评论');
 });
 

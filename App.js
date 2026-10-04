@@ -2,8 +2,9 @@ import './src/polyfills';
 import 'react-native-gesture-handler';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Animated } from 'react-native';
@@ -40,6 +41,8 @@ import {
 } from './src/proactive/proactiveMessage.js';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
 import { I18nProvider, useTranslation } from './src/i18n/I18nContext.js';
+import { tActive } from './src/i18n/index.js';
+import { ROUTE_NAMES } from './src/navigation/routeNames.js';
 import { maskSecrets } from './src/storage/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/character/characterEditGuard.js';
 import { recordDiagnostic } from './src/storage/diagnostics.js';
@@ -94,17 +97,29 @@ class StartupErrorBoundary extends React.Component {
 
   render() {
     if (this.state.error) {
+      const crashText = `${maskSecrets(String(this.state.error && this.state.error.message))}\n\n`
+        + maskSecrets(String(this.state.error && this.state.error.stack));
       return (
         <View style={styles.crashScreen}>
-          <Text style={styles.crashTitle}>启动失败</Text>
-          <Text style={styles.crashHint}>请把以下内容截图反馈：</Text>
+          <Text style={styles.crashTitle}>{tActive('app.crash.title')}</Text>
+          <Text style={styles.crashHint}>{tActive('app.crash.hint')}</Text>
           <ScrollView style={styles.crashScroll}>
             <Text style={styles.crashText} selectable>
-              {maskSecrets(String(this.state.error && this.state.error.message))}
-              {'\n\n'}
-              {maskSecrets(String(this.state.error && this.state.error.stack))}
+              {crashText}
             </Text>
           </ScrollView>
+          {/* 复制按钮：测试者反馈崩溃时不必截图，直接复制脱敏后的文本。 */}
+          <Pressable
+            style={styles.crashCopyButton}
+            onPress={async () => {
+              try {
+                await Clipboard.setStringAsync(crashText);
+                Alert.alert(tActive('app.crash.copied.title'), tActive('app.crash.copied.body'));
+              } catch (error) {}
+            }}
+          >
+            <Text style={styles.crashCopyText}>{tActive('app.crash.copy')}</Text>
+          </Pressable>
         </View>
       );
     }
@@ -143,6 +158,7 @@ function Header() {
 }
 
 function StartupFlow({ onReady }) {
+  const { t } = useTranslation();
   const [stage, setStage] = useState('loading');
 
   useEffect(() => {
@@ -177,7 +193,7 @@ function StartupFlow({ onReady }) {
       const done = await isOnboardingDone();
       setStage(done ? 'done' : 'onboarding');
     } catch (error) {
-      Alert.alert('保存失败', '完成状态保存失败，请重试。');
+      Alert.alert(t('app.save.failed.title'), t('app.save.failed.body'));
     }
   }, []);
 
@@ -186,7 +202,7 @@ function StartupFlow({ onReady }) {
       await completeOnboarding();
       setStage('done');
     } catch (error) {
-      Alert.alert('保存失败', '完成状态保存失败，请重试。');
+      Alert.alert(t('app.save.failed.title'), t('app.save.failed.body'));
     }
   }, []);
 
@@ -199,6 +215,7 @@ function StartupFlow({ onReady }) {
 }
 
 function StartupSession() {
+  const { t } = useTranslation();
   const { characters, loaded, refreshSessions, ensureCharacterSession } = useApp();
   const [retry, setRetry] = useState(0);
   const charactersRef = useRef(characters);
@@ -256,7 +273,7 @@ function StartupSession() {
           if (retryAttemptsRef.current >= 5) {
             // 迁移反复失败不能无限静默重试：停下并明确告知，避免每次启动都空转。
             startedRef.current = true;
-            Alert.alert('启动迁移失败', '旧聊天记录整理未能完成，请检查存储空间后重启应用。');
+            Alert.alert(t('app.migration.failed.title'), t('app.migration.failed.body'));
           } else {
             retryTimerRef.current = setTimeout(() => {
               retryTimerRef.current = null;
@@ -299,6 +316,7 @@ function DiaryStartup() {
 // 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
 // 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
 function ProactiveMessageBridge({ navigationReady }) {
+  const { t } = useTranslation();
   const { loaded, switchCharacter, switchSession, ingestProactiveMessages } = useApp();
   const pendingRoleRef = useRef(null);
   // 最近一轮落库得到的 roleId → sessionId 映射。冷启动时启动 effect 会先消费并 ack，
@@ -376,11 +394,11 @@ function ProactiveMessageBridge({ navigationReady }) {
         // 会话不存在时静默忽略（switchCharacter 已切到该角色的会话）。
         await switchSession(targetSessionId).catch(() => {});
       }
-      navigationRef.navigate('聊天');
+      navigationRef.navigate(ROUTE_NAMES.chat);
     } catch (error) {
-      Alert.alert('打开失败', '该角色可能已删除，无法打开主动消息会话。');
+      Alert.alert(t('app.openRole.failed.title'), t('app.openRole.failed.body'));
     }
-  }, [loaded, navigationReady, switchCharacter, switchSession, ingestPending]);
+  }, [loaded, navigationReady, switchCharacter, switchSession, ingestPending, t]);
 
   // 加载与导航都就绪后再消费排队中的角色。
   useEffect(() => {
@@ -433,9 +451,9 @@ function LocalApiServerBridge() {
     const unsubscribe = attachLocalApiServerInference({
       runInference: async messages => {
         const item = await getActiveLocalModel().catch(() => null);
-        if (!item) throw new Error('未选择本地模型');
+        if (!item) throw new Error('No local model selected');
         const release = tryAcquireResource('local-model');
-        if (!release) throw new Error('本地模型资源被占用');
+        if (!release) throw new Error('Local model is busy');
         try {
           // OpenAI 语义是无状态：每个请求用独立会话标识，跨请求必清 KV cache，
           // 避免上一个客户端请求的内容串进下一个请求。
@@ -482,6 +500,10 @@ function TabBarIcon({ routeName, color, focused, palette }) {
 function AppShell() {
   const { theme: palette, tokens } = useTheme();
   const { t } = useTranslation();
+  // handleTabPress 是空依赖 useCallback：闭包 t 会在切换语言后继续用旧语言，
+  // 经 ref 取当前值（与 useChatSend 的 tRef 同一模式）。
+  const tRef = useRef(t);
+  tRef.current = t;
   const [navigationReady, setNavigationReady] = useState(false);
   const navTheme = {
     ...DefaultTheme,
@@ -518,13 +540,13 @@ function AppShell() {
     if (!shouldConfirmTabLeave({ dirty: guard.dirty, currentName, targetName })) return;
     event.preventDefault();
     Alert.alert(
-      '未保存的修改',
-      '角色编辑尚未保存，修改不会在聊天中生效。切换标签不会丢失编辑，退出应用会丢失。',
+      tRef.current('app.tabLeave.title'),
+      tRef.current('app.tabLeave.body'),
       [
-        { text: '留下编辑', style: 'cancel' },
-        { text: '直接离开', onPress: () => navigationRef.navigate(targetName) },
+        { text: tRef.current('app.tabLeave.stay'), style: 'cancel' },
+        { text: tRef.current('app.tabLeave.leave'), onPress: () => navigationRef.navigate(targetName) },
         {
-          text: '保存并离开',
+          text: tRef.current('app.tabLeave.saveAndLeave'),
           onPress: async () => {
             const saved = await guard.save();
             if (saved) navigationRef.navigate(targetName);
@@ -559,14 +581,14 @@ function AppShell() {
           ),
         })}
       >
-        {/* 路由名保持中文不动：它是内部标识符，被 navigation.navigate('聊天') 等
+        {/* 路由名保持中文不动（值来自 src/navigation/routeNames.js）：它是内部标识符，被 navigate(ROUTE_NAMES.*) 等
             多处引用（含 App.js 的离页确认与各 Screen）。只翻译可见的 tabBarLabel，
             避免为 i18n 重命名路由带来的连锁改动风险。 */}
-        <Tab.Screen name="聊天" component={ChatScreen} options={{ tabBarLabel: t('app.tab.chat') }} />
-        <Tab.Screen name="记忆" component={MemoryScreen} options={{ tabBarLabel: t('app.tab.memory') }} />
-        <Tab.Screen name="角色" component={CharacterScreen} options={{ tabBarLabel: t('app.tab.character') }} />
-        <Tab.Screen name="扩展" component={ExtensionScreen} options={{ tabBarLabel: t('app.tab.extension') }} />
-        <Tab.Screen name="设置" component={SettingsScreen} options={{ tabBarLabel: t('app.tab.settings') }} />
+        <Tab.Screen name={ROUTE_NAMES.chat} component={ChatScreen} options={{ tabBarLabel: t('app.tab.chat') }} />
+        <Tab.Screen name={ROUTE_NAMES.memory} component={MemoryScreen} options={{ tabBarLabel: t('app.tab.memory') }} />
+        <Tab.Screen name={ROUTE_NAMES.character} component={CharacterScreen} options={{ tabBarLabel: t('app.tab.character') }} />
+        <Tab.Screen name={ROUTE_NAMES.extension} component={ExtensionScreen} options={{ tabBarLabel: t('app.tab.extension') }} />
+        <Tab.Screen name={ROUTE_NAMES.settings} component={SettingsScreen} options={{ tabBarLabel: t('app.tab.settings') }} />
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -607,6 +629,16 @@ const styles = StyleSheet.create({
   crashHint: { color: '#c9c9e0', fontSize: 13, marginBottom: 12 },
   crashScroll: { flex: 1 },
   crashText: { color: '#e6e6f2', fontSize: 12, lineHeight: 18 },
+  crashCopyButton: {
+    marginTop: 12,
+    marginBottom: 24,
+    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    backgroundColor: '#3a3a5c',
+  },
+  crashCopyText: { color: '#e6e6f2', fontSize: 14, fontWeight: '600' },
   header: {
     paddingBottom: 16,
     paddingHorizontal: 20,

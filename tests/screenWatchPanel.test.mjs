@@ -32,7 +32,7 @@ test('ScreenWatchScreen：截屏→评论→接话接线', () => {
   const source = readSource('src/screenWatch/ScreenWatchScreen.js');
   assert.ok(source.includes('captureAppScreen'), '截屏链路接线');
   assert.ok(source.includes('generate({ imageUri: uri })'), '截图 uri 传入评论生成（失败重试由 hook 的 lastFailedRef 复用）');
-  assert.ok(source.includes('ensureCharacterSession') && source.includes("navigation.navigate('聊天')"),
+  assert.ok(source.includes('ensureCharacterSession') && source.includes('navigation.navigate(ROUTE_NAMES.chat)'),
     '接话 = 确保会话 + 切聊天页');
   assert.ok(source.includes('setPendingQuote'), '接话复用 pendingQuote');
   // 限制文案已迁 i18n：断言 key 存在，并断言基准语言词条确实说明了限制

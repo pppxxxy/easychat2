@@ -48,9 +48,10 @@ test('信箱规范化非法输入', () => {
 test('Tab 切换拦截：确认框提供保存并离开', () => {
   assert.ok(APP_SOURCE.includes("screenListeners={{ tabPress: handleTabPress }}"));
   assert.ok(APP_SOURCE.includes('event.preventDefault();'));
-  assert.ok(APP_SOURCE.includes("text: '保存并离开'"));
-  assert.ok(APP_SOURCE.includes("text: '直接离开'"));
-  assert.ok(APP_SOURCE.includes("text: '留下编辑'"));
+  // 文案改走 i18n key（值在 src/i18n/locales）
+  assert.ok(APP_SOURCE.includes("text: tRef.current('app.tabLeave.saveAndLeave')"));
+  assert.ok(APP_SOURCE.includes("text: tRef.current('app.tabLeave.leave')"));
+  assert.ok(APP_SOURCE.includes("text: tRef.current('app.tabLeave.stay')"));
   // 保存成功才切换；失败留在角色页由 save 内部弹错误
   assert.ok(APP_SOURCE.includes('const saved = await guard.save();'));
   assert.ok(APP_SOURCE.includes('if (saved) navigationRef.navigate(targetName);'));

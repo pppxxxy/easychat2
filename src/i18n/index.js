@@ -73,6 +73,27 @@ export function translate(localeId, key, params) {
   return id;
 }
 
+// ---- 活动语言（模块级，供 React 树之外的同步取词）----
+//
+// 崩溃页（StartupErrorBoundary）必须挂在 I18nProvider **外面**才能兜住 Provider
+// 自身的崩溃，因此拿不到 useTranslation()；它需要在渲染时同步取词。这里由
+// I18nProvider 在语言变化时写入当前值，`tActive` 是等价的同步入口。
+let activeLocaleId = BASE_LOCALE;
+
+export function setActiveLocale(localeId) {
+  activeLocaleId = resolveLocale(localeId);
+  return activeLocaleId;
+}
+
+export function getActiveLocale() {
+  return activeLocaleId;
+}
+
+// React 树之外的同步翻译（崩溃页/原生桥等无法用 hook 的场景）。
+export function tActive(key, params) {
+  return translate(activeLocaleId, key, params);
+}
+
 // 供测试与漏译统计：某语言相对基准语言缺哪些 key。
 export function missingKeys(localeId, baseId = BASE_LOCALE) {
   const target = getBundle(localeId);

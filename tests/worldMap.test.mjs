@@ -172,8 +172,10 @@ test('地图存储：单键读写、损坏备份、删除联动', () => {
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('backupCorruptValue(WORLD_MAP_KEY)'));
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('detachCharacterFromWorldMap'));
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('enqueueWorldMapMutation'));
-  // 角色删除时联动（barrel storage.js 调用拆分后的模块）
-  assert.ok(STORAGE_SOURCE.includes('await detachCharacterFromWorldMap(removedCharacters)'));
+  // 角色删除时联动：改由 worldMap 域注册生命周期钩子（storage.js 只跑钩子）
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('onCharacterDeleted'), '地图域必须注册角色删除钩子');
+  assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('detachCharacterFromWorldMap'));
+  assert.ok(STORAGE_SOURCE.includes('runCharacterCleanup'), 'barrel 必须调用钩子运行器');
 });
 
 test('世界分组新增地图入口并就地展开', () => {

@@ -81,9 +81,16 @@ Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easyc
 - Only assistant messages render Markdown; user and error messages stay plain `Text`.
 - Commit messages use Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`). Main branch is `main`.
 - Never commit or print real API keys or tokens; use placeholders.
+- Testing convention (enforced by review, see 审查待办 for the ratio):
+  - Source-string assertions (reading the source with `readFileSync` and asserting `includes(...)`) are allowed ONLY to pin a fixed regression bug (they are cheap and effective for that). New-feature tests must be behavior tests (import the module and run it).
+  - Do not add new source-assertion tests; the existing ~66 are legacy and migrate gradually.
+  - User-visible strings (Alert.alert / throw new Error) must go through i18n `t()` — `eslint-rules/no-hardcoded-chinese.mjs` enforces this; files still on the migration list in `eslint.config.mjs` are legacy (list only shrinks).
+- Error-shape convention: storage layer returns `{ status }` objects; agent tools return result objects (`toErrorResult`); everything else `throw new Error(...)`. Pick per layer — don't mix within one layer.
+- File-system imports are layer-restricted like persistence primitives (see `eslint.config.mjs`): new files must not import `expo-file-system(\/legacy)?` directly; write through the domain's own wrapper that calls `markMediaWrite` after every file write (media GC protection).
 - New-file placement (enforced, not just convention):
   - Business logic goes into its domain dir (`src/chat/`, `src/storage/`, `src/workspace/`, `src/books/`, ...). Do not pile new files onto `src/` root; only screen entrypoints and a few top-level pure modules live there.
   - Persistence primitives (`@react-native-async-storage/async-storage`, `expo-sqlite`, `expo-secure-store`) are imported only inside `src/storage/**` and `src/storage.js` (plus the not-yet-migrated `src/books|music|screenWatch/**`). ESLint `no-restricted-imports` blocks the rest.
+  - Per-character data cleanup on character deletion is registered via `onCharacterDeleted(name, fn)` from `src/storage/characterLifecycle.js` inside the domain module itself — `saveCharacterState` runs the hooks. Do not add cascade entries to `storage.js` by hand.
   - Startup-period components/bridges go under `src/startup/` (target state).
   - `npm run guard:structure` (also run in CI) fails when `src/` root `.js` count exceeds the cap in `scripts/guard-structure.mjs`. Lower the cap after each migration batch; raise it only with a stated reason.
 

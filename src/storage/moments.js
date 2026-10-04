@@ -1,6 +1,7 @@
 // 动态（朋友圈）与互动（定时主动消息）存储领域。从 src/storage.js 原样外提（无行为变化）。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onCharacterDeleted } from './characterLifecycle.js';
 
 import {
   removeMomentsForCharacterDeletion,
@@ -232,3 +233,7 @@ export async function deleteMomentsForCharacterDeletion(characterIds, sessionIds
   });
   return removedIds;
 }
+
+// 删除角色时清掉它的动态（原散落在 CharacterScreen 的删除流程里，门面级联不知道它存在）。
+// 会话维度的动态由 removeMomentsBySessionIds 覆盖，这里只按角色 id 兜底。
+onCharacterDeleted('moments', characterIds => deleteMomentsForCharacterDeletion(characterIds));
