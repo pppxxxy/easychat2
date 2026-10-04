@@ -104,6 +104,8 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderRadius: 10,
   },
   detectButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 6 },
+  // 模型输入行里的「搜索」按钮：与「添加」并排，稍作间距。
+  modelSearchButton: { marginLeft: 8 },
 
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 4 },
   savedHint: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 8 },
