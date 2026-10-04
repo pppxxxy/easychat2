@@ -59,6 +59,10 @@ export function normalizeBookItem(raw) {
     size: Math.max(0, Math.floor(Number(source.size)) || 0),
     chars: Math.max(0, Math.floor(Number(source.chars)) || 0),
     addedAt: Math.floor(Number(source.addedAt)) || 0,
+    // 导入时探测到的源编码（utf-8/gb18030/big5/utf-16le/docx 等），仅供排查展示。
+    encoding: String(source.encoding || '').trim(),
+    // 源格式（txt/md/markdown/docx/html），决定阅读器是否走 Markdown 渲染；旧条目为空。
+    format: String(source.format || '').trim().toLowerCase(),
     progress: normalizeProgress(source.progress),
     chapters: normalizeChapters(source.chapters),
   };

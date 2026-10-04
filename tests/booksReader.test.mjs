@@ -38,18 +38,26 @@ test('BookReaderView：可见页只渲染本页行，测量 Text 参与布局但
     '换书重挂载（key）省去复位逻辑');
 });
 
-test('importBook：宽松选择器 + 严格校验 + 编码检测 + 失败清理', () => {
+test('importBook：宽松选择器 + base64 读字节 + 多格式提取 + 失败清理', () => {
   const source = readSource('src/books/importBook.js');
   assert.ok(source.includes("type: '*/*'"), '选择器必须 *.*（厂商把 .txt 标成 octet-stream，text/* 会选不中）');
-  assert.ok(source.includes("'.txt'") && source.includes("'.md'"), '扩展名校验兜底');
-  assert.ok(source.includes('looksLikeBrokenDecoding'), '编码检测函数存在');
-  assert.ok(/0xfffd|0xFFFD/.test(source), '按 U+FFFD 比例判定');
-  assert.ok(source.includes('UNSUPPORTED_FORMAT') && source.includes("'ENCODING'"), '错误必须带可区分 code');
-  const importLines = source.split('\n').filter(line => line.trim().startsWith('import '));
-  assert.ok(importLines.every(line => !/iconv|text-encoding|gbk/i.test(line)), '不得引入转码表依赖（v1 只支持 UTF-8）');
+  assert.ok(source.includes("from './extractText.js'"), '格式/编码处理下沉到 extractText');
+  assert.ok(source.includes('extractPlainText'), '调用纯函数提取纯文本');
+  assert.ok(/EncodingType\.Base64/.test(source), '以 base64 读原始字节（编码探测与 zip 解包的前提）');
+  assert.ok(source.includes('writeAsStringAsync(dest, text)'), '提取后写回 UTF-8 正文');
   const catchBlocks = source.split('catch (error)');
   assert.ok(catchBlocks.length >= 3 && catchBlocks.slice(1).some(block => block.includes('deleteAsync(dest')),
-    '复制/校验失败都必须清理半成品文件');
+    '复制/提取/落库失败都必须清理半成品文件');
+});
+
+test('extractText/decodeText：纯函数承担多格式与多编码（错误码可区分）', () => {
+  const extract = readSource('src/books/extractText.js');
+  const decode = readSource('src/books/decodeText.js');
+  assert.ok(extract.includes("'.docx'") && extract.includes("'.html'"), 'docx/html 格式在支持列表');
+  assert.ok(extract.includes('unzipSync'), 'docx 用 fflate 解压');
+  assert.ok(/UNSUPPORTED_FORMAT/.test(extract), '不支持格式错误码');
+  assert.ok(decode.includes("'gb18030'") && decode.includes("'big5'"), 'GBK/BIG5 候选解码');
+  assert.ok(/code = 'ENCODING'/.test(decode), '无法识别编码错误码');
 });
 
 test('阅读进度落库：防抖保存 + 退出/卸载兜底（monkey 审查缺陷 1 回归）', () => {
@@ -70,4 +78,23 @@ test('BookScreen：打开按需读文件、错误按 code 分流', () => {
     '导入错误按 code 分流提示');
   assert.ok(source.includes('deleteBookCommentsForBooks'), '删书同步清理评论键');
   assert.ok(source.includes('deleteAsync(item.uri'), '删书清理正文文件');
+});
+
+test('Markdown 渲染：按 format 切换渲染模式，进度/评论统一到块', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(view.includes('BookMarkdownList'), 'Markdown 书籍走连续滚动渲染列表');
+  assert.ok(view.includes('isMarkdownBook') && view.includes('handleToggleRenderMode'),
+    '按格式提供渲染/纯文本切换');
+  assert.ok(view.includes('markdownExcerpt') && view.includes('createBookMarkdownStyles'),
+    'Markdown 模式复用摘录与样式工厂');
+  assert.ok(/paged\s*\?\s*blocks\s*:\s*EMPTY_BLOCKS/.test(view),
+    '非分页模式给分页 hook 传空块（保持惰性）');
+
+  const imp = readSource('src/books/importBook.js');
+  assert.ok(imp.includes('MARKDOWN_FORMATS') && /markdown:\s*MARKDOWN_FORMATS/.test(imp),
+    '导入按 Markdown 格式分块');
+  assert.ok(/\bformat,\s*$/m.test(imp) || imp.includes('format,'), '导入落库 format 字段');
+
+  const lib = readSource('src/books/library.js');
+  assert.ok(lib.includes('format: String(source.format'), '书籍条目归一 format');
 });

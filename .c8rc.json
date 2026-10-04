@@ -91,6 +91,7 @@
     "src/music/importMusic.js",
     "src/books/BookScreen.js",
     "src/books/BookReaderView.js",
+    "src/books/BookMarkdownList.js",
     "src/books/useBookReader.js",
     "src/books/importBook.js",
     "src/screenWatch/ScreenWatchScreen.js",

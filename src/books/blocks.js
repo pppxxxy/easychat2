@@ -37,6 +37,21 @@ export function detectChapterTitle(line) {
   return text;
 }
 
+// Markdown ATX 标题（`#`~`######`）判定：仅在 markdown 模式下启用，避免纯文本书里
+// 行首 `#` 被误当章节。允许行尾闭合 `###`；标题文本本身可含行内 Markdown，原样保留。
+const MARKDOWN_HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+const MARKDOWN_HEADING_MAX = 60;
+
+export function detectMarkdownHeading(line) {
+  const text = String(line || '').trim();
+  if (!text) return '';
+  const match = MARKDOWN_HEADING_PATTERN.exec(text);
+  if (!match) return '';
+  const heading = match[2].trim();
+  if (!heading || heading.length > MARKDOWN_HEADING_MAX) return '';
+  return heading;
+}
+
 // 代理对安全切点：切点前若是高位代理则回退一位，避免把 emoji 生劈成 U+FFFD。
 export function safeCharCut(text, end) {
   const source = String(text || '');
@@ -67,9 +82,11 @@ function splitLongLine(line, maxChars) {
 // - 单行（无换行的巨段）超限时按字符硬切，代理对安全。
 // 返回块数组：{ index, text, charStart, title }；charStart 是块首在全文的偏移，
 // 全文不变时分块结果确定不变，进度按块号持久化是稳定的。
-export function splitBookIntoBlocks(rawText, { maxBlockChars = 12000 } = {}) {
+export function splitBookIntoBlocks(rawText, { maxBlockChars = 12000, markdown = false } = {}) {
   const text = String(rawText || '');
   const limit = Math.max(2000, Math.floor(maxBlockChars) || 12000);
+  // Markdown 书优先按 ATX 标题分章，其次才退回「第X章」等中文命名。
+  const blockTitleOf = line => (markdown ? detectMarkdownHeading(line) : '') || detectChapterTitle(line);
   if (!text) return [];
 
   const lines = text.split('\n');
@@ -118,10 +135,10 @@ export function splitBookIntoBlocks(rawText, { maxBlockChars = 12000 } = {}) {
 
   // 主流程：章节行开新块；缓冲 ≥ limit 且落在空行（段落边界）时收块。
   let blockStartLine = 0;
-  let currentTitle = detectChapterTitle(lines[0] || '');
+  let currentTitle = blockTitleOf(lines[0] || '');
   let buffered = 0;
   for (let index = 0; index < lines.length; index += 1) {
-    const chapterTitle = index > 0 ? detectChapterTitle(lines[index]) : '';
+    const chapterTitle = index > 0 ? blockTitleOf(lines[index]) : '';
     if (chapterTitle) {
       emitLines(blockStartLine, index, currentTitle);
       blockStartLine = index;
