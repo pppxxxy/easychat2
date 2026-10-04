@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { getScrollRange, indexFromRatio } from '../src/scrollScrubberMath.js';
+import { getScrollRange, indexFromRatio } from '../src/chat/scrollScrubberMath.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');

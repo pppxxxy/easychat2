@@ -7,7 +7,7 @@ import {
   QUOTE_TEXT_MAX,
   THINKING_PLACEHOLDER,
 } from './chatConstants.js';
-import { STICKER_MESSAGE_KIND } from '../chatMedia.js';
+import { STICKER_MESSAGE_KIND } from './chatMedia.js';
 
 // 拼生图提示词：风格前缀 + 场景描述（场景描述由模型转写或本地兜底得到）。
 export function buildInlineImagePrompt(sceneText, stylePrefix, maxChars) {

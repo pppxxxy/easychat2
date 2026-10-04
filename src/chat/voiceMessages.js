@@ -1,6 +1,6 @@
 // 语音消息的纯函数：消息构造与上下文投影。
 // 用户录音转写后仍以普通文本进入上下文；音频仅作本机回放引用，历史消息不重新回传音频。
-// 与 src/chatMedia.js（图片/表情包）同构，便于 chatPipeline 统一处理。
+// 与 src/chat/chatMedia.js（图片/表情包）同构，便于 chatPipeline 统一处理。
 
 export const VOICE_MESSAGE_KIND = 'voice';
 

@@ -8,7 +8,7 @@ import {
   formatVoiceDuration,
   getVoicePromptText,
   isVoiceMessage,
-} from '../src/voiceMessages.js';
+} from '../src/chat/voiceMessages.js';
 
 test('createVoiceMessage：构造 voice 消息并规整音频引用', () => {
   const message = createVoiceMessage({

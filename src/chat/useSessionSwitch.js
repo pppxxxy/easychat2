@@ -6,7 +6,7 @@
 import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { deleteLocalImage, deleteTemporaryImage } from '../attachments.js';
+import { deleteLocalImage, deleteTemporaryImage } from './attachments.js';
 import { buildGreetingMessage } from './chatHelpers.js';
 import { isGreetingMessage } from '../character/cardGreetings.js';
 import {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hasEveryoneMention, parseMentions } from '../src/groupMentions.js';
+import { hasEveryoneMention, parseMentions } from '../src/chat/groupMentions.js';
 
 const characters = [
   { id: 'al', name: 'Al' },

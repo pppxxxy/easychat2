@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 
-import { getMessagePromptText } from '../chatMedia.js';
+import { getMessagePromptText } from './chatMedia.js';
 import { ASSISTANT_ID, USER_ID } from './chatConstants.js';
 import { formatScrubberTime, messageTimestamp } from './chatHelpers.js';
 

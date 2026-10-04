@@ -11,8 +11,8 @@ import AnimatedEntry from './AnimatedEntry.js';
 import ErrorBubble from './ErrorBubble.js';
 import MessageBubble from './MessageBubble.js';
 import { SYSTEM_ERROR_ID } from './chatConstants.js';
-import { containsHtml } from '../plainText.js';
-import { shouldRenderRichHtml } from '../richHtml.js';
+import { containsHtml } from './plainText.js';
+import { shouldRenderRichHtml } from './richHtml.js';
 
 function MessageList({
   scrollRef,

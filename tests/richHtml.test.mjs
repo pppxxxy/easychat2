@@ -16,7 +16,7 @@ import {
   RICH_HTML_LIST_PREVIEW_MAX_HEIGHT,
   RICH_HTML_SCROLL_PREVIEW_HEIGHT,
   RICH_HTML_SCROLL_THRESHOLD,
-} from '../src/richHtml.js';
+} from '../src/chat/richHtml.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 聊天渲染路径的源码：主屏 + 抽出后的消息气泡（2026-09-27 从 ChatScreen 拆分）。

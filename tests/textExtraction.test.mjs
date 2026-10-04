@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { containsHtml, messageCopyText, toPlainText } from '../src/plainText.js';
-import { toSpeechText } from '../src/speechText.js';
+import { containsHtml, messageCopyText, toPlainText } from '../src/chat/plainText.js';
+import { toSpeechText } from '../src/chat/speechText.js';
 
 test('toPlainText 移除 script 内容而不是只删标签', () => {
   const text = '<div>正文</div><script>window.secret = "x"</script><style>body { color: red }</style>';

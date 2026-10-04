@@ -1,7 +1,7 @@
-import { isCanceledError, isConfigChangedError, sendChatMessage } from './api.js';
-import { buildRequestMessages } from './chatPipeline.js';
+import { isCanceledError, isConfigChangedError, sendChatMessage } from '../network/api.js';
+import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import { getMessagePromptText } from './chatMedia.js';
-import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
+import { applyRegexScripts, REGEX_PLACEMENT } from '../prompt/regexEngine.js';
 import {
   EVERYONE_MENTION,
   MENTION_PREFIX,
