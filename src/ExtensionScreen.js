@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  BackHandler,
   FlatList,
   ScrollView,
   StyleSheet,
@@ -7,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -46,6 +47,10 @@ const SEGMENT_IDS = [
 // 「世界」把赋予角色生命力的扩展收拢在一处：动态、互动，后续新增也归到这里。
 const WORLD_SEGMENT = { id: 'world', labelKey: 'ext.segment.world', icon: 'earth-outline' };
 
+// 「世界」入口下的子板块（由世界页跳入的独立面板）。物理返回键在这些面板里
+// 等价于面板左上角的返回按钮——回世界页；子板块内不再拦截。
+const SUB_SEGMENT_IDS = ['moments', 'music', 'books', 'screen'];
+
 function GamesView() {
   const [activeGameId, setActiveGameId] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -69,6 +74,19 @@ function GamesView() {
     setActiveGameId('');
     setFailed(false);
   }, []);
+
+  // 游戏详情里的物理返回 = 面板内的返回按钮（回游戏列表），
+  // 而不是退应用或切走 Tab；只在扩展页处于前台且确实开着游戏时拦截。
+  useFocusEffect(
+    useCallback(() => {
+      if (!activeGameId) return undefined;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        backToList();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [activeGameId, backToList])
+  );
 
   if (activeGame && activeGame.native === 'daily-wife') {
     // 原生游戏：需要读角色库，WebView 拿不到存储，走独立面板。
@@ -172,6 +190,18 @@ function WorldView({ momentsEnabled, onOpenMoments, onOpenMusic, onOpenBooks, on
     list.push({ id: 'map', label: t('ext.world.map.label'), icon: 'map-outline', description: t('ext.world.map.desc') });
     return list;
   }, [momentsEnabled, t]);
+
+  // 展开分组里的物理返回 = 收起该分组，而不是离开扩展页。
+  useFocusEffect(
+    useCallback(() => {
+      if (!openSection) return undefined;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        setOpenSection('');
+        return true;
+      });
+      return () => subscription.remove();
+    }, [openSection])
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.listContent}>
@@ -278,11 +308,27 @@ export default function ExtensionScreen({ route }) {
     if (!momentsEnabled && segment === 'moments') setSegment('world');
   }, [momentsEnabled, segment]);
 
+  // 子板块里的物理返回等价于左上角返回（回世界页）；不在子板块时不注册，
+  // 保留 Tab 导航的默认返回行为。
+  useFocusEffect(
+    useCallback(() => {
+      if (!SUB_SEGMENT_IDS.includes(segment)) return undefined;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        setSegment('world');
+        return true;
+      });
+      return () => subscription.remove();
+    }, [segment])
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.segmentRow}>
         {segments.map(item => {
-          const active = item.id === segment;
+          // 子板块住在「世界」的下一级：进子板块时高亮父级，
+          // 避免分段条整排无高亮、看起来像纯装饰。
+          const active = item.id === segment
+            || (item.id === 'world' && SUB_SEGMENT_IDS.includes(segment));
           return (
             <TouchableOpacity
               key={item.id}
