@@ -87,9 +87,13 @@ export default function RealMapView() {
     }
     setBusy(true);
     try {
+      // 先授权 + 取点，成功后才把 enabled 写盘：用户拒绝授权时必须保持关闭
+      // （需求 1.2 与 SECURITY.md 的「拒绝后保持关闭」），不能在未授权时就写成开。
+      // capture() 失败时已设好对应文案（拒绝/失败），这里直接返回、不改设置。
+      const ok = await capture();
+      if (!ok) return;
       const saved = await updateLocationSettings(current => ({ ...current, enabled: true }));
       setSettings(saved);
-      await capture();
     } catch (caught) {
       setError(t('world.map.real.failed'));
     } finally {
@@ -101,7 +105,9 @@ export default function RealMapView() {
     if (busy) return;
     setBusy(true);
     try {
-      const saved = await updateLocationSettings(current => ({ ...current, enabled: false }));
+      // 关闭时一并清掉最近位置：位置是敏感数据，开关关掉后不该继续留在盘上
+      // 等着被重新注入（与「关闭时不取点、不注入对话」的披露一致）。
+      const saved = await updateLocationSettings(current => ({ ...current, enabled: false, last: null }));
       setSettings(saved);
       setError('');
     } catch (caught) {

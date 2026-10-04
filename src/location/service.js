@@ -35,6 +35,24 @@ export async function ensureLocationPermission() {
   }
 }
 
+// 取点与反地理编码的等待上限。没有它，卡住的定位会让界面永远 busy，
+// 之后重开开关还可能把上一次的旧位置当成本次结果注入
+//（需求 2.4 只要求「失败时保留旧位置」，不要求无限期等待）。
+export const LOCATION_TIMEOUT_MS = 15000;
+
+// 给任意 Promise 加超时；timeoutMs 非正数时原样透传（便于测试与显式关闭）。
+// 超时用 reject 表达，调用方按普通失败处理；无论胜负都清掉定时器，避免悬挂。
+export function withTimeout(promise, timeoutMs, message = '定位超时') {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timer = null;
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
+}
+
 // 反地理编码结果 → 一行地点：城市+区+街道+名称，去重后拼接；失败返回空串。
 export function formatPlace(place) {
   if (!place || typeof place !== 'object') return '';
@@ -49,10 +67,14 @@ export function formatPlace(place) {
 }
 
 // 获取一次当前位置（平衡精度）并尽力反地理编码。
-// 位置获取失败会抛错（由 UI 提示并保留旧位置）；反地理编码失败只退空描述。
-export async function captureLocation() {
+// 位置获取失败/超时会抛错（由 UI 提示并保留旧位置）；反地理编码失败只退空描述。
+export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) {
   const Location = loadLocationModule();
-  const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  const position = await withTimeout(
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+    timeoutMs,
+    '定位超时'
+  );
   const latitude = Number(position && position.coords && position.coords.latitude);
   const longitude = Number(position && position.coords && position.coords.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -60,7 +82,11 @@ export async function captureLocation() {
   }
   let description = '';
   try {
-    const places = await Location.reverseGeocodeAsync({ latitude, longitude });
+    const places = await withTimeout(
+      Location.reverseGeocodeAsync({ latitude, longitude }),
+      timeoutMs,
+      '反地理编码超时'
+    );
     description = formatPlace(Array.isArray(places) ? places[0] : null);
   } catch (error) {
     description = '';
