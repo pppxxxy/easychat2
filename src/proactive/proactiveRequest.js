@@ -8,6 +8,7 @@
 // - 时间感知开启时附上当前时间。
 
 import { buildRequestMessages } from '../prompt/chatPipeline.js';
+import { normalizeProtocol, normalizeProtocolUrl, toAnthropicRequest, toResponsesRequest } from '../apiProtocols.js';
 
 // 世界书「格式模板」过滤：主动消息只发一句自然的话，不该被「每轮必须输出【时间】/
 // 状态栏/课程表」这类输出格式规定带偏——否则模型会把模板示例值原样抄成正文。
@@ -67,6 +68,66 @@ export function buildProactiveExtraPrompt(options) {
 // 与请求体都有体积压力）。
 export const PROACTIVE_HISTORY_LIMIT = 20;
 
+// 主动消息的后台生成参数：短回复（≤80 字）且不需要工具/流式。
+// anthropic 的 max_tokens 是必填项，三种协议统一由 JS 写进快照请求体。
+export const PROACTIVE_MAX_TOKENS = 120;
+export const PROACTIVE_TEMPERATURE = 0.9;
+
+// 按协议把消息数组转成**完整请求体**（含 model 与生成参数）。
+// 协议大脑在 apiProtocols：转换逻辑与聊天路径共用同一份实现，这里只补主动消息的
+// 生成参数与形态差异（anthropic 的 system 提顶层、responses 的 instructions/input）。
+export function buildProactiveRequestBody({ protocol, model, messages } = {}) {
+  const p = normalizeProtocol(protocol);
+  if (p === 'anthropic') {
+    const { system, messages: turns } = toAnthropicRequest(messages);
+    return {
+      model,
+      max_tokens: PROACTIVE_MAX_TOKENS,
+      temperature: PROACTIVE_TEMPERATURE,
+      ...(system ? { system } : {}),
+      messages: turns,
+    };
+  }
+  if (p === 'openai-responses') {
+    const { instructions, input } = toResponsesRequest(messages);
+    return {
+      model,
+      input,
+      store: false,
+      max_output_tokens: PROACTIVE_MAX_TOKENS,
+      temperature: PROACTIVE_TEMPERATURE,
+      ...(instructions ? { instructions } : {}),
+    };
+  }
+  return {
+    model,
+    messages,
+    max_tokens: PROACTIVE_MAX_TOKENS,
+    temperature: PROACTIVE_TEMPERATURE,
+  };
+}
+
+// 按协议计算后台请求端点（normalizeProtocolUrl 的主动消息口径薄包装）。
+export function buildProactiveEndpoint(protocol, baseUrl) {
+  return normalizeProtocolUrl(protocol, baseUrl);
+}
+
+// 按协议与用户配置计算鉴权头/额外头；apiKey 不在此出现（原生经加密存储持有）。
+// 默认值与 apiProtocols.buildRequestHeaders 同口径。
+export function buildProactiveAuthSettings({ protocol, config } = {}) {
+  const p = normalizeProtocol(protocol);
+  const source = config && typeof config === 'object' ? config : {};
+  const defaultHeader = p === 'anthropic' ? 'x-api-key' : 'Authorization';
+  const header = String(source.authHeader || defaultHeader) || defaultHeader;
+  const scheme = source.authScheme === undefined || source.authScheme === null
+    ? (p === 'anthropic' ? '' : 'Bearer ')
+    : String(source.authScheme);
+  const extraHeaders = p === 'anthropic'
+    ? { 'anthropic-version': String(source.anthropicVersion || '2023-06-01') }
+    : {};
+  return { protocol: p, authHeader: header, authScheme: scheme, extraHeaders };
+}
+
 // 时间感知占位符：保存槽时不能写入真实时间（快照会在未来任意时刻触发），
 // 原生在发送时把该占位符替换成触发时刻的「[当前时间] …」。
 export const PROACTIVE_TIME_TOKEN = '{{proactive_now}}';
@@ -109,7 +170,7 @@ export function buildProactiveRequestMessages({
   });
 }
 
-// 保存槽时从本地存储读取该角色/该目标会话的上下文，组装成可直接发送的消息数组 JSON。
+// 保存槽时从本地存储读取该角色/该目标会话的上下文，组装成**按协议可直接发送的完整请求体 JSON**。
 // 目标会话为空（新建对话）时只用角色设定等静态上下文，不含历史。
 // 存储依赖用动态 import 延迟加载：纯函数（上面的 build*）因此可在纯 Node 下独立测试，
 // 不被 expo-file-system 等原生模块拖入。
@@ -119,6 +180,8 @@ export async function buildProactiveRequestJson({
   messageType = 'DEFAULT',
   customPrompt = '',
   timeAware = false,
+  protocol = 'openai',
+  model = '',
 } = {}) {
   const {
     getMessagesBySession,
@@ -168,7 +231,9 @@ export async function buildProactiveRequestJson({
     timeAware,
   });
   try {
-    return JSON.stringify(messages);
+    // 快照升级为按协议组好的完整请求体（含 model/生成参数）；原生直接发送。
+    // 时间占位符原样保留在体内，由原生在触发时刻整串替换。
+    return JSON.stringify(buildProactiveRequestBody({ protocol, model, messages }));
   } catch (error) {
     return '';
   }

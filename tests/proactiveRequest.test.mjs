@@ -9,6 +9,11 @@ import {
   stripFormatDirectiveEntries,
   PROACTIVE_HISTORY_LIMIT,
   PROACTIVE_TIME_TOKEN,
+  PROACTIVE_MAX_TOKENS,
+  PROACTIVE_TEMPERATURE,
+  buildProactiveRequestBody,
+  buildProactiveAuthSettings,
+  buildProactiveEndpoint,
 } from '../src/proactive/proactiveRequest.js';
 
 const character = { name: '小雨', systemPrompt: '你是小雨。', regexScripts: [{ id: 'r1' }] };
@@ -126,4 +131,71 @@ test('主动消息组装时剔除格式模板世界书，保留普通世界书',
   assert.ok(system.content.includes('小雨住在海边小镇'));
   assert.ok(!system.content.includes('数值状态栏'));
   assert.ok(!system.content.includes('35/200'));
+});
+
+test('buildProactiveRequestBody：openai 形态带 model 与生成参数', () => {
+  const messages = [{ role: 'system', content: '你是小雨。' }, { role: 'user', content: '（请现在主动开口）' }];
+  const body = buildProactiveRequestBody({ protocol: 'openai', model: 'deepseek-chat', messages });
+  assert.equal(body.model, 'deepseek-chat');
+  assert.deepEqual(body.messages, messages);
+  assert.equal(body.max_tokens, PROACTIVE_MAX_TOKENS);
+  assert.equal(body.temperature, PROACTIVE_TEMPERATURE);
+});
+
+test('buildProactiveRequestBody：anthropic 抽顶层 system 且必带 max_tokens', () => {
+  const messages = [
+    { role: 'system', content: `你是小雨。${PROACTIVE_TIME_TOKEN}` },
+    { role: 'user', content: '（请现在主动开口）' },
+  ];
+  const body = buildProactiveRequestBody({ protocol: 'anthropic', model: 'claude-x', messages });
+  assert.equal(body.model, 'claude-x');
+  assert.ok(body.system.includes(PROACTIVE_TIME_TOKEN), 'system 顶层必须保留时间占位符（原生整串替换的前提）');
+  assert.equal(body.max_tokens, PROACTIVE_MAX_TOKENS, 'anthropic 的 max_tokens 必填');
+  assert.equal(body.temperature, PROACTIVE_TEMPERATURE);
+  assert.ok(Array.isArray(body.messages) && body.messages.every(m => m.role !== 'system'), 'system 不得残留在 messages');
+  assert.equal(body.stream, undefined, '后台主动消息不走流式');
+});
+
+test('buildProactiveRequestBody：responses 走 instructions/input 且 store=false', () => {
+  const messages = [
+    { role: 'system', content: `你是小雨。${PROACTIVE_TIME_TOKEN}` },
+    { role: 'user', content: '（请现在主动开口）' },
+  ];
+  const body = buildProactiveRequestBody({ protocol: 'openai-responses', model: 'gpt-5', messages });
+  assert.equal(body.model, 'gpt-5');
+  assert.equal(body.store, false);
+  assert.equal(body.max_output_tokens, PROACTIVE_MAX_TOKENS);
+  assert.ok(body.instructions.includes(PROACTIVE_TIME_TOKEN), 'instructions 必须保留时间占位符');
+  assert.ok(Array.isArray(body.input) && body.input.length >= 1);
+  assert.equal(body.messages, undefined, 'responses 没有 messages 字段');
+});
+
+test('buildProactiveAuthSettings：按协议给默认鉴权头并尊重配置覆盖', () => {
+  const openai = buildProactiveAuthSettings({ protocol: 'openai', config: { authHeader: '', authScheme: null } });
+  assert.equal(openai.protocol, 'openai');
+  assert.equal(openai.authHeader, 'Authorization');
+  assert.equal(openai.authScheme, 'Bearer ');
+  assert.deepEqual(openai.extraHeaders, {});
+
+  const anthropic = buildProactiveAuthSettings({ protocol: 'anthropic', config: { authScheme: null } });
+  assert.equal(anthropic.protocol, 'anthropic');
+  assert.equal(anthropic.authHeader, 'x-api-key');
+  assert.equal(anthropic.authScheme, '');
+  assert.equal(anthropic.extraHeaders['anthropic-version'], '2023-06-01', 'anthropic 必须带版本头');
+
+  const custom = buildProactiveAuthSettings({
+    protocol: 'anthropic',
+    config: { authHeader: 'api-key', authScheme: '', anthropicVersion: '2040-01-01' },
+  });
+  assert.equal(custom.authHeader, 'api-key', '用户自定义头优先');
+  assert.equal(custom.extraHeaders['anthropic-version'], '2040-01-01', '版本可覆盖');
+
+  // 非法协议归一为 openai，不会抛错
+  assert.equal(buildProactiveAuthSettings({ protocol: 'unknown', config: null }).protocol, 'openai');
+});
+
+test('buildProactiveEndpoint：按协议补端点', () => {
+  assert.equal(buildProactiveEndpoint('openai', 'https://api.x.com'), 'https://api.x.com/v1/chat/completions');
+  assert.equal(buildProactiveEndpoint('anthropic', 'https://api.x.com'), 'https://api.x.com/v1/messages');
+  assert.equal(buildProactiveEndpoint('openai-responses', 'https://api.x.com'), 'https://api.x.com/v1/responses');
 });
