@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
-import { maskSecrets } from '../src/secrets.js';
+import { maskSecrets } from '../src/storage/secrets.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
-const sourcePath = path.resolve('src/secretStore.js');
+const sourcePath = path.resolve('src/storage/secretStore.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -33,7 +33,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadModule() {
-  const filename = path.resolve('src/secretStore.js');
+  const filename = path.resolve('src/storage/secretStore.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

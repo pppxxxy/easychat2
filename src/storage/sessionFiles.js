@@ -10,7 +10,7 @@ import {
   getNextRecentMediaExpiry,
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
-} from '../mediaProtection.js';
+} from './mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX, createMutationQueue, readLargeAsyncStorageValue } from './io.js';
 import {
   MESSAGES_KEY_PREFIX,

@@ -4,8 +4,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { hydrateSecrets, protectSecrets } from '../secretStore.js';
-import { recordDiagnostic } from '../diagnostics.js';
+import { hydrateSecrets, protectSecrets } from './secretStore.js';
+import { recordDiagnostic } from './diagnostics.js';
 
 export const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
 

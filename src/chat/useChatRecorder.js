@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 import { getAudioModule, getFileSystem } from './audioModules.js';
 
 const MIN_DURATION_MS = 500;

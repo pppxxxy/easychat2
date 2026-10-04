@@ -7,7 +7,7 @@ import {
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
   markMediaWrite,
-} from './mediaProtection.js';
+} from './storage/mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX } from './storage/io.js';
 import {
   detachCharacterFromWorldMap,
@@ -41,7 +41,7 @@ import {
 } from './storage/characters.js';
 import { SESSIONS_KEY, collectChatImageFiles, messagesKey, readSessionsStatus } from './storage/sessions.js';
 
-export { markMediaWrite } from './mediaProtection.js';
+export { markMediaWrite } from './storage/mediaProtection.js';
 export { detachCharacterFromWorldMap, getWorldMap, getWorldMapStatus, updateWorldMap };
 export {
   deleteDiariesForCharacterDeletion,

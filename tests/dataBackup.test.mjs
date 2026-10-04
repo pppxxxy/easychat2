@@ -10,7 +10,7 @@ import {
   sanitizeAndFilterBackupValue,
   sanitizeBackupValue,
   validateBackupPayload,
-} from '../src/dataBackup.js';
+} from '../src/storage/dataBackup.js';
 
 test('备份上限放宽到足以容纳多张大角色卡与媒体', () => {
   assert.ok(BACKUP_MAX_BYTES >= 1024 * 1024 * 1024, '上限应不低于 1GB');

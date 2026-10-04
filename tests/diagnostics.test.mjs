@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
-const sourcePath = path.resolve('src/diagnostics.js');
+const sourcePath = path.resolve('src/storage/diagnostics.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -33,7 +33,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadModule() {
-  const filename = path.resolve('src/diagnostics.js');
+  const filename = path.resolve('src/storage/diagnostics.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

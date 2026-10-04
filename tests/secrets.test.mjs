@@ -5,7 +5,7 @@ import {
   clearRegisteredSecrets,
   maskSecrets,
   registerSecretValues,
-} from '../src/secrets.js';
+} from '../src/storage/secrets.js';
 
 const MASK = '[API_KEY已隐藏]';
 

@@ -25,7 +25,7 @@ import {
   updateVectorIndex,
 } from './vector.js';
 import { CORRUPT_BACKUP_SUFFIX, readJson } from './io.js';
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from './mediaProtection.js';
 import { collectChatImageFiles, collectVoiceFiles } from './sessionFiles.js';
 import {
   getMessagesBySession,

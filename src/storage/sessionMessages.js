@@ -14,7 +14,7 @@ import {
   backupCorruptValue,
   readJsonStatus,
 } from './io.js';
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from './mediaProtection.js';
 import { mergeProactiveMessage } from '../proactive/proactiveInbox.js';
 import {
   collectChatImageFiles,

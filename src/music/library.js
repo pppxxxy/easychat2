@@ -5,7 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
 
 import { normalizeTriggers } from './triggers.js';
