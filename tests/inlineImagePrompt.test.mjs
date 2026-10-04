@@ -12,7 +12,7 @@ import {
   normalizeScenePrompt,
   selectReplySegment,
   splitReplyParagraphs,
-} from '../src/inlineImagePrompt.js';
+} from '../src/imageGen/inlineImagePrompt.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_MESSAGES_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionMessages.js'), 'utf8');

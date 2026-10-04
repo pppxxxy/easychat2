@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveImageFormat } from '../src/imageResultFormat.js';
+import { resolveImageFormat } from '../src/imageGen/imageResultFormat.js';
 
 test('生图结果按 mimeType 或 URL 后缀决定扩展名与 MIME', () => {
   assert.deepEqual(resolveImageFormat({ mimeType: 'image/jpeg' }), { ext: 'jpg', mime: 'image/jpeg' });
