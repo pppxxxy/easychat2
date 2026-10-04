@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Constants from 'expo-constants';
 
 import { normalizeChatUrl } from './network/api.js';
 import vendorXhr from './network/vendorHttp.js';
@@ -97,6 +98,43 @@ const CHAT_PROTOCOL_OPTIONS = [
   { id: 'openai-responses', label: 'Responses', auth: { header: 'Authorization', prefix: 'Bearer ' } },
   { id: 'anthropic', label: 'Anthropic', auth: { header: 'x-api-key', prefix: '' } },
 ];
+
+// 应用版本号：报 bug / 对「检测更新」时都需要它能被一眼看到（expo-constants 读取
+// app.json 的 expo.version）。
+const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || '') : '';
+
+// 当前生效配置的快照：识别「有未保存的修改」的基线，加载/落盘后刷新。
+function snapshotActiveConfig(state) {
+  const active = state && state.configs ? state.configs.find(item => item.id === state.activeId) : null;
+  return active ? JSON.stringify(active) : '';
+}
+
+// 密钥输入的显隐切换：填 Key 时核对内容是高频动作，secureTextEntry 一锁到底只能盲填。
+function SecretTextField({ value, onChangeText, placeholder, onEndEditing, theme, styles }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <View style={styles.secretRow}>
+      <TextField
+        value={value}
+        onChangeText={onChangeText}
+        onEndEditing={onEndEditing}
+        placeholder={placeholder}
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry={!visible}
+        style={styles.secretInput}
+      />
+      <TouchableOpacity
+        style={styles.secretToggle}
+        onPress={() => setVisible(next => !next)}
+        activeOpacity={0.7}
+        accessibilityLabel={visible ? '隐藏密钥' : '显示密钥'}
+      >
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={17} color={theme.colors.textMuted} />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function SettingsScreen() {
   const [configs, setConfigs] = useState([]);
@@ -194,6 +232,8 @@ export default function SettingsScreen() {
     imagePosition: 'end',
   });
   const apiStateRef = useRef({ configs: [], activeId: '', loaded: false });
+  // 未保存修改的判定基线：最近一次加载/落盘时的当前配置快照。
+  const apiBaselineRef = useRef('');
   const apiBusyRef = useRef(false);
   const apiMountedRef = useRef(true);
   const modelRequestRef = useRef(null);
@@ -461,6 +501,7 @@ export default function SettingsScreen() {
       .then(({ configs: list, activeId: id }) => {
         if (!apiMountedRef.current) return;
         apiStateRef.current = { configs: list, activeId: id, loaded: true };
+        apiBaselineRef.current = snapshotActiveConfig(apiStateRef.current);
         setConfigs(list);
         setActiveId(id);
         setLoaded(true);
@@ -504,6 +545,7 @@ export default function SettingsScreen() {
     if (!apiMountedRef.current) return saved;
     invalidateModels();
     apiStateRef.current = { ...saved, loaded: true };
+    apiBaselineRef.current = snapshotActiveConfig(apiStateRef.current);
     setConfigs(saved.configs);
     setActiveId(saved.activeId);
     return saved;
@@ -548,11 +590,44 @@ export default function SettingsScreen() {
     });
   };
 
-  const selectConfig = id => {
+  // 切走前确认未保存的修改。selectConfig/applyVendorPreset 原本会把改了一半的草稿
+  // 连同整个列表静默落盘（未经校验），现在让用户显式选择：继续编辑，或还原到基线
+  // 快照后再切换。
+  const confirmDiscardDirtyApi = () => new Promise(resolve => {
+    const state = apiStateRef.current;
+    if (snapshotActiveConfig(state) === apiBaselineRef.current) {
+      resolve(true);
+      return;
+    }
+    Alert.alert(
+      '有未保存的修改',
+      '当前配置的改动还没有保存。要放弃这些修改并切换吗？',
+      [
+        { text: '继续编辑', style: 'cancel', onPress: () => resolve(false) },
+        {
+          text: '放弃并切换',
+          style: 'destructive',
+          onPress: () => {
+            const baseline = apiBaselineRef.current ? JSON.parse(apiBaselineRef.current) : null;
+            const list = baseline
+              ? state.configs.map(item => (item.id === state.activeId ? { ...baseline } : item))
+              : state.configs;
+            apiStateRef.current = { ...state, configs: list };
+            setConfigs(list);
+            resolve(true);
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  });
+
+  const selectConfig = async id => {
     if (!canChangeApi()) return;
     const current = apiStateRef.current;
     if (id === current.activeId || !current.configs.some(item => item.id === id)) return;
-    return changeConfig(current.configs, id);
+    if (!(await confirmDiscardDirtyApi())) return;
+    return changeConfig(apiStateRef.current.configs, id);
   };
 
   const addConfig = () => {
@@ -560,8 +635,9 @@ export default function SettingsScreen() {
     setVendorPickerOpen(true);
   };
 
-  const applyVendorPreset = preset => {
+  const applyVendorPreset = async preset => {
     if (!canChangeApi() || !preset) return;
+    if (!(await confirmDiscardDirtyApi())) return;
     setVendorPickerOpen(false);
     const list = apiStateRef.current.configs;
     const auth = preset.auth || {};
@@ -996,13 +1072,12 @@ export default function SettingsScreen() {
                 </Text>
               </TouchableOpacity>
               <FieldLabel style={styles.label}>API Key</FieldLabel>
-              <TextField
+              <SecretTextField
                 value={active.apiKey}
                 onChangeText={apiKey => updateField({ apiKey })}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
                 placeholder="sk-..."
+                theme={theme}
+                styles={styles}
               />
               {active.apiKeyUrl ? (
                 <TouchableOpacity
@@ -1357,13 +1432,12 @@ export default function SettingsScreen() {
                 placeholder={activeImageProvider.baseUrlPlaceholder || activeImageProvider.baseUrl || 'https://example.com/v1/images/generations'}
               />
               <FieldLabel style={styles.label}>API Key</FieldLabel>
-              <TextField
+              <SecretTextField
                 value={String((imageGenProviders[activeImageProvider.id] || {}).apiKey || '')}
                 onChangeText={text => updateImageGenProvider(activeImageProvider.id, { apiKey: text })}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
                 placeholder="sk-..."
+                theme={theme}
+                styles={styles}
               />
               {activeImageProvider.apiKeyUrl ? (
                 <TouchableOpacity
@@ -1698,14 +1772,13 @@ export default function SettingsScreen() {
                 autoCorrect={false}
               />
               <FieldLabel style={styles.label}>密钥</FieldLabel>
-              <TextField
+              <SecretTextField
                 value={currentVectorConfig.apiKey}
                 onChangeText={text => updateVectorConfig({ apiKey: text })}
                 onEndEditing={() => flushVectorMemory()}
                 placeholder="sk-..."
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
+                theme={theme}
+                styles={styles}
               />
               <FieldLabel style={styles.label}>模型</FieldLabel>
               <TextField
@@ -1787,6 +1860,13 @@ export default function SettingsScreen() {
           <View style={styles.cardTitleRow}>
             <Ionicons name="information-circle-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>关于</Text>
+          </View>
+          <View style={styles.linkRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="pricetag-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>当前版本</Text>
+            </View>
+            <Text style={styles.versionText}>{APP_VERSION || '未知'}</Text>
           </View>
           <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
