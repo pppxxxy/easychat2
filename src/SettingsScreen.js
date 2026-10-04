@@ -89,6 +89,14 @@ const WORKSPACE_MODE_OPTIONS = [
   { id: 'write', labelKey: 'settings.workspace.mode.write', hintKey: 'settings.workspace.hint.write' },
 ];
 
+// 接口协议选项：openai（Chat Completions，最通用）、openai-responses（/v1/responses）、
+// anthropic（/v1/messages）。切换时按协议给出对应默认鉴权头。
+const CHAT_PROTOCOL_OPTIONS = [
+  { id: 'openai', label: 'OpenAI', auth: { header: 'Authorization', prefix: 'Bearer ' } },
+  { id: 'openai-responses', label: 'Responses', auth: { header: 'Authorization', prefix: 'Bearer ' } },
+  { id: 'anthropic', label: 'Anthropic', auth: { header: 'x-api-key', prefix: '' } },
+];
+
 export default function SettingsScreen() {
   const [configs, setConfigs] = useState([]);
   const [activeId, setActiveId] = useState('');
@@ -524,6 +532,20 @@ export default function SettingsScreen() {
     setConfigs(list);
   };
 
+  // 切换接口协议：顺带按协议重置默认鉴权头（用户仍可在保存前手改）。
+  // 切换协议会改变端点与请求格式，视为与地址变更同级，需作废已探测的模型列表。
+  const changeProtocol = protocol => {
+    if (!canChangeApi()) return;
+    const option = CHAT_PROTOCOL_OPTIONS.find(item => item.id === protocol);
+    if (!option) return;
+    invalidateModels();
+    updateField({
+      protocol,
+      authHeader: option.auth.header,
+      authScheme: option.auth.prefix,
+    });
+  };
+
   const selectConfig = id => {
     if (!canChangeApi()) return;
     const current = apiStateRef.current;
@@ -696,6 +718,7 @@ export default function SettingsScreen() {
     modelRequestRef.current = request;
     const isCurrent = () => apiMountedRef.current && modelRequestRef.current === request;
     setDetectingModels(true);
+    const selectedProtocol = selected.protocol || 'openai';
     const base = normalizeChatUrl(selected.baseUrl).replace(/\/chat\/completions$/i, '');
     const fallback = /\/v1$/i.test(base) ? base.replace(/\/v1$/i, '') : `${base}/v1`;
     const urls = [`${base}/models`, `${fallback}/models`];
@@ -704,12 +727,16 @@ export default function SettingsScreen() {
       if (!isCurrent()) return;
       if (result.length) break;
       try {
-        const detectAuthHeader = String(selected.authHeader || 'Authorization');
-        const detectAuthScheme = selected.authScheme === undefined ? 'Bearer ' : String(selected.authScheme);
+        const detectAuthHeader = String(selected.authHeader || (selectedProtocol === 'anthropic' ? 'x-api-key' : 'Authorization'));
+        const detectAuthScheme = selected.authScheme === undefined
+          ? (selectedProtocol === 'anthropic' ? '' : 'Bearer ')
+          : String(selected.authScheme);
+        const headers = { [detectAuthHeader]: `${detectAuthScheme}${selected.apiKey.trim()}` };
+        if (selectedProtocol === 'anthropic') headers['anthropic-version'] = String(selected.anthropicVersion || '2023-06-01');
         const text = await vendorXhr({
           method: 'GET',
           url,
-          headers: { [detectAuthHeader]: `${detectAuthScheme}${selected.apiKey.trim()}` },
+          headers,
           timeoutMs: 15000,
           nativeTimeout: true,
           cancelHandle: request,
@@ -880,6 +907,31 @@ export default function SettingsScreen() {
                 placeholder="https://api.deepseek.com"
               />
               <FieldHint style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</FieldHint>
+              <FieldLabel style={styles.label}>接口协议</FieldLabel>
+              <View style={styles.thinkingFormatRow}>
+                {CHAT_PROTOCOL_OPTIONS.map(option => {
+                  const isActive = (active.protocol || 'openai') === option.id;
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[styles.formatChip, isActive && styles.formatChipActive]}
+                      onPress={() => changeProtocol(option.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.formatChipText, isActive && styles.formatChipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <FieldHint style={styles.hint}>
+                {(active.protocol || 'openai') === 'anthropic'
+                  ? 'Anthropic Messages 协议：端点 /v1/messages，鉴权 x-api-key；不支持内联音频。'
+                  : (active.protocol === 'openai-responses'
+                    ? 'OpenAI Responses 协议：端点 /v1/responses，事件式流式。'
+                    : 'OpenAI 兼容协议：端点 /v1/chat/completions，最通用。')}
+              </FieldHint>
               <FieldLabel style={styles.label}>模型列表</FieldLabel>
               <View style={styles.modelRow}>
                 <TextField

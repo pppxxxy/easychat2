@@ -367,3 +367,152 @@ test('streamChatCompletion 省略 tools 时不携带 tools 字段', async () => 
     globalThis.XMLHttpRequest = originalXHR;
   }
 });
+
+// 用一个能记录 URL 与请求头的 FakeXHR 跑协议集成测试。
+function withRecordingXhr(run, responseText) {
+  return async () => {
+    const originalXHR = globalThis.XMLHttpRequest;
+    FakeXHR.autoRespond = true;
+    FakeXHR.responseText = responseText;
+    const record = { url: '', headers: {}, body: null };
+    const originalOpen = FakeXHR.prototype.open;
+    const originalSetHeader = FakeXHR.prototype.setRequestHeader;
+    const originalSend = FakeXHR.prototype.send;
+    FakeXHR.prototype.open = function patchedOpen(method, url) { record.url = url; record.method = method; };
+    FakeXHR.prototype.setRequestHeader = function patchedHeader(name, value) { record.headers[name] = value; };
+    FakeXHR.prototype.send = function patchedSend(body) { record.body = body; return originalSend.call(this, body); };
+    globalThis.XMLHttpRequest = FakeXHR;
+    try {
+      return await run(record);
+    } finally {
+      FakeXHR.prototype.open = originalOpen;
+      FakeXHR.prototype.setRequestHeader = originalSetHeader;
+      FakeXHR.prototype.send = originalSend;
+      globalThis.XMLHttpRequest = originalXHR;
+      FakeXHR.responseText = TOOL_SSE_DEFAULT;
+    }
+  };
+}
+
+test('Anthropic 协议：URL / 鉴权头 / system 顶层 / SSE 文本与思考解析', withRecordingXhr(async record => {
+  const previous = activeConfig;
+  activeConfig = { ...previous, protocol: 'anthropic', baseUrl: 'https://api.anthropic.com', activeModel: 'claude-x', apiKey: 'sk-ant-1', authHeader: 'x-api-key', authScheme: '' };
+  try {
+    const { streamChatCompletion } = loadApi();
+    const events = [
+      { type: 'message_start', message: { id: 'm' } },
+      { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '想' } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: '你好' } },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+      { type: 'message_stop' },
+    ];
+    FakeXHR.responseText = `${events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('')}data: [DONE]\n\n`;
+    const result = await streamChatCompletion([
+      { role: 'system', content: '你是助手' },
+      { role: 'user', content: 'hi' },
+    ], { onChunk: () => {} });
+    assert.equal(record.url, 'https://api.anthropic.com/v1/messages');
+    assert.equal(record.headers['x-api-key'], 'sk-ant-1');
+    assert.equal(record.headers.Authorization, undefined);
+    assert.equal(record.headers['anthropic-version'], '2023-06-01');
+    const body = JSON.parse(record.body);
+    assert.equal(body.system, '你是助手');
+    assert.equal(body.messages[0].role, 'user');
+    assert.equal(body.stream, true);
+    assert.equal(result.text, '你好');
+    assert.equal(result.reasoning, '想');
+    assert.equal(result.finishReason, 'stop');
+  } finally {
+    activeConfig = previous;
+  }
+}, TOOL_SSE_DEFAULT));
+
+test('Anthropic 协议非流式：tool_use → toolCalls', withRecordingXhr(async () => {
+  const previous = activeConfig;
+  activeConfig = { ...previous, protocol: 'anthropic', baseUrl: 'https://api.anthropic.com', activeModel: 'claude-x' };
+  try {
+    const { streamChatCompletion } = loadApi();
+    FakeXHR.responseText = JSON.stringify({
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'text', text: '让我看看' },
+        { type: 'tool_use', id: 'tu_1', name: 'read_file', input: { path: 'a.txt' } },
+      ],
+    });
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }], { stream: false });
+    assert.equal(result.text, '让我看看');
+    assert.equal(result.finishReason, 'tool_calls');
+    assert.deepEqual(result.toolCalls, [{ id: 'tu_1', name: 'read_file', arguments: '{"path":"a.txt"}' }]);
+  } finally {
+    activeConfig = previous;
+  }
+}, TOOL_SSE_DEFAULT));
+
+test('OpenAI Responses 协议：URL / reasoning / input 形态 / SSE 解析', withRecordingXhr(async record => {
+  const previous = activeConfig;
+  activeConfig = { ...previous, protocol: 'openai-responses', baseUrl: 'https://api.openai.com/v1', activeModel: 'gpt-5', apiKey: 'sk-1' };
+  try {
+    const { streamChatCompletion } = loadApi();
+    const events = [
+      { type: 'response.output_item.added', item: { type: 'reasoning' }, output_index: 0 },
+      { type: 'response.reasoning_summary_text.delta', output_index: 0, delta: '推' },
+      { type: 'response.output_text.delta', output_index: 1, delta: '你好' },
+      { type: 'response.completed', response: { status: 'completed' } },
+    ];
+    FakeXHR.responseText = `${events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('')}data: [DONE]\n\n`;
+    const result = await streamChatCompletion([
+      { role: 'system', content: '系统' },
+      { role: 'user', content: 'hi' },
+    ], { onChunk: () => {} });
+    assert.equal(record.url, 'https://api.openai.com/v1/responses');
+    assert.equal(record.headers.Authorization, 'Bearer sk-1');
+    const body = JSON.parse(record.body);
+    assert.equal(body.instructions, '系统');
+    assert.equal(body.input[0].role, 'user');
+    assert.equal(body.input[0].content[0].type, 'input_text');
+    assert.equal(body.store, false);
+    assert.equal(body.stream, true);
+    assert.equal(result.text, '你好');
+    assert.equal(result.reasoning, '推');
+    assert.equal(result.finishReason, 'stop');
+  } finally {
+    activeConfig = previous;
+  }
+}, TOOL_SSE_DEFAULT));
+
+test('OpenAI Responses 协议非流式：output 数组解析', withRecordingXhr(async () => {
+  const previous = activeConfig;
+  activeConfig = { ...previous, protocol: 'openai-responses', baseUrl: 'https://api.openai.com/v1', activeModel: 'gpt-5' };
+  try {
+    const { streamChatCompletion } = loadApi();
+    FakeXHR.responseText = JSON.stringify({
+      status: 'completed',
+      output: [
+        { type: 'reasoning', summary: [{ text: '想' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '答复' }] },
+      ],
+    });
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }], { stream: false });
+    assert.equal(result.text, '答复');
+    assert.equal(result.reasoning, '想');
+    assert.deepEqual(result.toolCalls, []);
+  } finally {
+    activeConfig = previous;
+  }
+}, TOOL_SSE_DEFAULT));
+
+test('配置切换协议会改变指纹（旧来源回复被丢弃）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = false;
+  globalThis.XMLHttpRequest = FakeXHR;
+  const previous = activeConfig;
+  try {
+    const { getConfigFingerprint } = loadApi();
+    const before = getConfigFingerprint({ ...previous, protocol: 'openai' });
+    const after = getConfigFingerprint({ ...previous, protocol: 'anthropic' });
+    assert.notEqual(before, after);
+  } finally {
+    activeConfig = previous;
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});

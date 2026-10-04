@@ -415,7 +415,7 @@
 
 | 键 | 内容 |
 |----|------|
-| `@easychat2_api_configs` | API 多配置 `{ configs, activeId }`；`configs[].apiKey` 落盘为安全存储引用 `secure:v1:<id>` |
+| `@easychat2_api_configs` | API 多配置 `{ configs, activeId }`；`configs[].protocol` ∈ `openai` / `openai-responses` / `anthropic`（归一化由 `normalizeProtocol` 负责）；`configs[].apiKey` 落盘为安全存储引用 `secure:v1:<id>` |
 | `@easychat2_api_config` | 旧版单条 API 配置（仅迁移读取，保留） |
 | `@easychat2_character_index` | 角色库索引：角色 `id` 字符串数组（新格式） |
 | `@easychat2_character_item::<id>` | 单个角色 JSON；超大角色改为 `{ storage: 'file', version, id, fileName }` 描述符，正文位于 `characters/<fileName>` |
@@ -525,21 +525,32 @@
 - SSE 流内 `error` 负载：抛出其 `message`
 - SSE 流内所有 `data:` 行都无法解析为 JSON：`Error('接口返回了无法解析的内容。')`
 
-**地址归一化规则** `normalizeChatUrl(baseUrl)`:
+**地址归一化规则** `normalizeProtocolUrl(protocol, baseUrl)`（纯函数在 `src/apiProtocols.js`；`src/api.js` 仍导出旧名 `normalizeChatUrl` 供设置页/主动面板探测模型用）：
 
-| 输入结尾 | 归一化结果 |
-|----------|-----------|
-| `/chat/completions` | 原样使用 |
-| `/v1` | 追加 `/chat/completions` |
-| 其他（含根地址） | 追加 `/v1/chat/completions` |
+| 协议 | 输入结尾 | 归一化结果 |
+|------|----------|-----------|
+| openai | `/chat/completions` | 原样使用 |
+| openai | `/v1` | 追加 `/chat/completions` |
+| openai | 其他（含根地址） | 追加 `/v1/chat/completions` |
+| openai-responses | `/responses` | 原样使用 |
+| openai-responses | `/v1` | 追加 `/responses` |
+| openai-responses | 其他 | 追加 `/v1/responses` |
+| anthropic | `/messages` | 原样使用 |
+| anthropic | `/v1` | 追加 `/messages` |
+| anthropic | 其他 | 追加 `/v1/messages` |
 
-**外部 HTTP 契约**:
+**协议适配层** `src/apiProtocols.js`（纯函数，零 RN/存储依赖）：内部统一用 OpenAI Chat Completions 形态的消息与结果，由 `buildRequestBody` / `buildRequestHeaders` / `normalizeProtocolUrl` 翻译成各协议，由 `parseStreamPayload`（单条 SSE payload）与 `parseFinalPayload`（非流式整包）解析回统一结果。导出：`API_PROTOCOLS`、`normalizeProtocol`、`isKnownProtocol`、`normalizeProtocolUrl`、`buildRequestHeaders`、`buildRequestBody`、`parseStreamPayload`、`parseFinalPayload`、`parseProtocolError`、`toAnthropicRequest`、`toResponsesRequest`、`parseDataUri`、`normalizeAssistantValue`。要点：
+- `openai`：请求体 `{ model, messages, stream, ...thinking, ...sampling, tools?, tool_choice? }`；SSE 解析 `choices[0].delta.{content, reasoning_content|reasoning, tool_calls}`。
+- `openai-responses`：`{ model, input[], instructions, stream, store:false, max_output_tokens, reasoning? }`；system 抽到 `instructions`，消息转 `input`（文本 `input_text`、图片 `input_image`、函数调用 `function_call`/`function_call_output`）；SSE 事件 `response.output_text.delta`/`response.reasoning_summary_text.delta`/`response.function_call_arguments.delta`/`response.completed`。
+- `anthropic`：`{ model, max_tokens, messages, system?, tools?, tool_choice?, thinking? }`；system 抽顶层、`tool_calls`→`tool_use`、`tool`→`tool_result`、连续同角色合并、首轮强制为 user（开头 assistant 文本并入 system）；开思考时 `max_tokens` 自动抬高到 `budget_tokens + 1024` 并省略 `temperature`；SSE 事件 `content_block_delta.text_delta`/`thinking_delta`/`input_json_delta`、`message_delta.stop_reason`。内联音频（`input_audio`）被丢弃，仅保留文本。
+
+**外部 HTTP 契约**（以 openai 为例，其余协议见上）：
 
 ```http
 POST {normalizedUrl}
 Content-Type: application/json
 Accept: text/event-stream
-{authHeader}: {authScheme}<API_KEY>    # 默认 Authorization: Bearer <KEY>；小红书 Dots Studio 为 api-key: <KEY>
+{authHeader}: {authScheme}<API_KEY>    # openai 默认 Authorization: Bearer <KEY>；anthropic 默认 x-api-key: <KEY> + anthropic-version: 2023-06-01
 
 {
   "model": "<model>",
@@ -548,7 +559,7 @@ Accept: text/event-stream
 }
 ```
 
-**发送前校验**: `baseUrl` 为空抛「请先填写 API 地址」；无可用模型抛「请先添加并选择模型」；`protocol === 'anthropic'` 抛「Claude 协议暂未开放」。避免空地址或空模型静默回退到默认端点与模型。
+**发送前校验**: `baseUrl` 为空抛「请先填写 API 地址」；无可用模型抛「请先添加并选择模型」。`config.protocol` 归一为 `openai`/`openai-responses`/`anthropic`，并计入 `getConfigFingerprint`（切换协议会作废旧来源回复）。
 
 流式响应为 SSE，事件以空行分隔，数据行形如：
 

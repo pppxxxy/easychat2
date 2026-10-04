@@ -7,6 +7,7 @@ import {
   readJsonStatusWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
+import { normalizeProtocol } from '../apiProtocols.js';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
@@ -45,7 +46,7 @@ function normalizeApiConfig(raw, index = 0) {
     baseUrl: typeof source.baseUrl === 'string' ? source.baseUrl : DEFAULT_API_CONFIG.baseUrl,
     apiKey: String(source.apiKey || ''),
     vendorId: String(source.vendorId || ''),
-    protocol: source.protocol === 'anthropic' ? 'anthropic' : 'openai',
+    protocol: normalizeProtocol(source.protocol),
     authHeader: String(source.authHeader || 'Authorization'),
     authScheme: source.authScheme === undefined || source.authScheme === null
       ? 'Bearer '
