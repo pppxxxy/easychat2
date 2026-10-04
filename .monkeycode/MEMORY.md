@@ -113,3 +113,13 @@ Entries discovered by the Agent during task execution should follow this format:
 - Instructions:
   - 用 `Module._load` 打桩/拦截的测试（如 `tests/memorySummary.test.mjs`）若按**精确相对说明符**匹配（`request === './storage.js'`），模块搬迁改成 `../storage.js` 后拦截会失效，测试会去加载真实模块并失败。搬迁时这类加载器要改成**按 basename 匹配**（`String(request).split('/').pop() === 'storage.js'`）。
   - 同理，源码断言测试里写死的相对路径字符串（如 `SCREEN_SOURCE.includes("from './memoryBuckets.js'")`）也要随搬迁更新。
+
+[Project Knowledge Summary]
+- Date: 2026-10-04
+- Context: main（23ff019）Release 打包 `:app:compileReleaseKotlin` 失败：ScreenOverlayModule.kt 报 `Unresolved reference 'currentActivity'`
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - RN 0.81 把 `ReactContextBaseJavaModule.getCurrentActivity()` 从 Java 方法改成了**带 `@Deprecated` 的 Kotlin 函数**。Kotlin 只会为 Java getter 合成属性，因此原生模块子类里裸写 `currentActivity` 不再解析（编译报 Unresolved reference）；旧版本能编译是因为那时是 Java getter。
+  - 正确写法是走 `ReactApplicationContext` 的 Java getter：`reactContext.currentActivity`（或官方向导说的 `reactApplicationContext.currentActivity`），不要用 `currentActivity`，也尽量别调用已过时的 `getCurrentActivity()`。
+  - 同类坑排查面：所有 `plugins/*/android/*.kt` 里凡引用宿主 Activity 的地方都要按此改；`android/` 是 prebuild 生成、gitignored，改的是 `plugins/` 下的源文件。
+  - 本地无 Android SDK/Java/Gradle 时无法编译 Kotlin 验证；此类原生编译修复只能靠 CI（workflow_dispatch 的 Gradle workflow）或真机 prebuild 构建确认。
