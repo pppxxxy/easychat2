@@ -144,13 +144,105 @@ export function undesirableRatio(text) {
   return bad / source.length;
 }
 
-function isBetter(candidate, current) {
-  if (!current) return true;
-  if (candidate.undesirableRatio !== current.undesirableRatio) {
-    return candidate.undesirableRatio < current.undesirableRatio;
+// UTF-32 BOM（text-encoding 无 utf-32 解码器，命中后手动按 4 字节还原码位）。
+export function detectUtf32Bom(input) {
+  const bytes = toUint8(input);
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xfe && bytes[2] === 0x00 && bytes[3] === 0x00) {
+    return { encoding: 'utf-32le', offset: 4 };
   }
-  return candidate.cjkRatio > current.cjkRatio;
+  if (bytes.length >= 4 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0xfe && bytes[3] === 0xff) {
+    return { encoding: 'utf-32be', offset: 4 };
+  }
+  return null;
 }
+
+function decodeUtf32(bytes, littleEndian) {
+  const out = [];
+  for (let index = 0; index + 3 < bytes.length; index += 4) {
+    const code = littleEndian
+      ? (bytes[index] | (bytes[index + 1] << 8) | (bytes[index + 2] << 16) | (bytes[index + 3] << 24)) >>> 0
+      : ((bytes[index] << 24) | (bytes[index + 1] << 16) | (bytes[index + 2] << 8) | bytes[index + 3]) >>> 0;
+    if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) out.push('\uFFFD');
+    else out.push(String.fromCodePoint(code));
+  }
+  return out.join('');
+}
+
+// 文本脚本画像：为每种候选编码打分，避免「替换符占比」单指标把日/韩/西欧编码
+// 误判成 GB18030/BIG5 或 UTF-16 乱码。
+export function textStats(text) {
+  const source = String(text || '');
+  let total = 0;
+  let han = 0;
+  let kana = 0;
+  let hangul = 0;
+  let latin = 0;
+  let ascii = 0;
+  let bad = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    const point = source.codePointAt(index);
+    if (point > 0xffff) index += 1;
+    total += 1;
+    if (code < 0x80) ascii += 1;
+    if (
+      code === 0xfffd
+      || code === 0
+      || code === 0xfffe
+      || code === 0xffff
+      || (code >= 0xfdd0 && code <= 0xfdef)
+      || (code < 0x20 && code !== 9 && code !== 10 && code !== 13)
+    ) bad += 1;
+    if ((point >= 0x4e00 && point <= 0x9fff) || (point >= 0x3400 && point <= 0x4dbf) || (point >= 0xf900 && point <= 0xfaff)) han += 1;
+    else if (point >= 0x3040 && point <= 0x30ff) kana += 1;
+    else if (point >= 0xac00 && point <= 0xd7af) hangul += 1;
+    else if ((code >= 0xc0 && code <= 0xff) || (code >= 0x100 && code <= 0x17f)) latin += 1;
+  }
+  const divisor = total || 1;
+  return {
+    total,
+    han: han / divisor,
+    kana: kana / divisor,
+    hangul: hangul / divisor,
+    latin: latin / divisor,
+    ascii: ascii / divisor,
+    bad: bad / divisor,
+  };
+}
+
+// 候选编码集合：中日韩双字节 + 西欧单字节 + UTF-16（无 BOM）。
+const CANDIDATE_ENCODINGS = [
+  'gb18030', 'big5', 'shift_jis', 'euc-jp', 'euc-kr', 'windows-1252', 'utf-16le', 'utf-16be',
+];
+
+// 分数越高越可信；bad 惩罚很重（替换符/NUL/控制符是乱码强信号），
+// 脚本占比是正信号（日文假名/韩文谚文加倍权重，令其能压过「GB 解读像汉字」的巧合）。
+export function candidateScore(encoding, stats) {
+  const badPenalty = stats.bad * 6;
+  const japanese = stats.kana >= 0.3;
+  if (encoding === 'gb18030' || encoding === 'big5') {
+    // 出现明显假名时不再给中文加分（否则 Shift_JIS 假名会被 GB 解成汉字而胜出）。
+    const bonus = japanese ? 0 : (encoding === 'big5' ? 0.19 : 0.2);
+    return stats.han + bonus - badPenalty;
+  }
+  if (encoding === 'shift_jis' || encoding === 'euc-jp') {
+    // 真日文必含汉字（假名+汉字混排）。纯假名的短样本多为别的编码被误读成假名，
+    // 不给满权重，避免 4 字节级样本把 BIG5/GBK 抢走。
+    return (stats.han >= 0.05 ? 2.5 * stats.kana + 0.5 * stats.han : 0.5 * stats.kana) - badPenalty;
+  }
+  // 韩文：要求谚文压过汉字（GBK 被 euc-kr 误读时通常是「谚文与汉字各半」，不满足）。
+  if (encoding === 'euc-kr') return 1.5 * stats.hangul - stats.han - badPenalty;
+  if (encoding === 'windows-1252') {
+    return (stats.ascii >= 0.6 ? stats.latin + 0.5 * stats.ascii : -1) - badPenalty;
+  }
+  // UTF-16（无 BOM）：只认「干净的 CJK」；被误读的输入会落成成片谚文/假名而被扣分。
+  // 若原始字节以可打印 ASCII 为主（如西欧单字节文本），UTF-16CJK 只是巧合，重罚。
+  const latinBytes = stats.byteAscii >= 0.7 ? 0.8 : 0;
+  return stats.han - stats.hangul - stats.kana - latinBytes - badPenalty;
+}
+
+// 低于此分视为「没有可信编码」→ 抛 ENCODING；用于挡住全 0xFF / UTF-32 等二进制式输入。
+const CANDIDATE_ACCEPT_FLOOR = 0.3;
 
 function normalizeNewlines(text) {
   return String(text || '').replace(/\r\n?/g, '\n');
@@ -166,6 +258,12 @@ function decodeWith(encoding, bytes) {
 export function decodeBytes(input) {
   const bytes = toUint8(input);
   if (bytes.length === 0) return { text: '', encoding: 'utf-8', replacementRatio: 0 };
+
+  const utf32 = detectUtf32Bom(bytes);
+  if (utf32) {
+    const text = normalizeNewlines(decodeUtf32(bytes.subarray(utf32.offset), utf32.encoding === 'utf-32le'));
+    return { text, encoding: utf32.encoding, replacementRatio: replacementRatio(text) };
+  }
 
   const bom = detectBom(bytes);
   if (bom) {
@@ -185,29 +283,28 @@ export function decodeBytes(input) {
     if (ratio <= ENCODING_FFFD_THRESHOLD) return { text, encoding: utf16, replacementRatio: ratio };
   }
 
-  // 纯 CJK 的 UTF-16 原始字节不含零字节（如 U+4E2D = 2D 4E），looksLikeUtf16 启发失效；
-  // 把 UTF-16LE/BE 与 GB18030/BIG5 一起纳入评分：按替换符占比、NUL 占比、汉字占比依次择优。
-  // 正常 GBK/BIG5 文本的 UTF-16 解读会落到替换符/低汉字占比，不会反超。
-  const candidates = ['gb18030', 'big5', 'utf-16le', 'utf-16be'];
+  // 无 BOM 且非 UTF-8：逐个候选解码打分择优。可容忍少量坏字节（真实小说常有零星损坏
+  // 字节），只有连最高分都低于下限（全 0xFF/UTF-32 等）才判为无法识别。
+  let printableAscii = 0;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] >= 0x20 && bytes[index] < 0x80) printableAscii += 1;
+  }
+  const byteAscii = bytes.length ? printableAscii / bytes.length : 0;
 
   let best = null;
-  for (const encoding of candidates) {
+  for (const encoding of CANDIDATE_ENCODINGS) {
     let text = '';
     try {
       text = normalizeNewlines(decodeWith(encoding, bytes));
     } catch (error) {
       continue;
     }
-    const candidate = {
-      text,
-      encoding,
-      undesirableRatio: undesirableRatio(text),
-      cjkRatio: cjkRatio(text),
-    };
-    if (isBetter(candidate, best)) best = candidate;
+    const stats = { ...textStats(text), byteAscii };
+    const score = candidateScore(encoding, stats);
+    if (!best || score > best.score) best = { encoding, text, score };
   }
 
-  if (best && best.undesirableRatio <= ENCODING_FFFD_THRESHOLD) {
+  if (best && best.score >= CANDIDATE_ACCEPT_FLOOR) {
     return { text: best.text, encoding: best.encoding, replacementRatio: replacementRatio(best.text) };
   }
 

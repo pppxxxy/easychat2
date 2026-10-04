@@ -91,3 +91,43 @@ test('UTF-8 严格校验与 UTF-16 启发', () => {
   assert.equal(looksLikeUtf16(Buffer.from('abcdef', 'utf8')), null);
   assert.equal(replacementRatio('中文\uFFFD'), 1 / 3);
 });
+
+test('UTF-32 BOM（LE/BE）解码正确', () => {
+  const le = Buffer.from([0xff, 0xfe, 0x00, 0x00, 0x2d, 0x4e, 0x00, 0x00, 0x87, 0x65, 0x00, 0x00]);
+  const rLe = decodeBytes(le);
+  assert.equal(rLe.encoding, 'utf-32le');
+  assert.equal(rLe.text, '中文');
+  const be = Buffer.from([0x00, 0x00, 0xfe, 0xff, 0x00, 0x00, 0x4e, 0x2d, 0x00, 0x00, 0x65, 0x87]);
+  const rBe = decodeBytes(be);
+  assert.equal(rBe.encoding, 'utf-32be');
+  assert.equal(rBe.text, '中文');
+});
+
+test('Shift_JIS / EUC-KR / Windows-1252 常见编码识别', () => {
+  // Shift_JIS「漢字あい」（含假名）：GB18030 解读会是汉字假名混淆，应判为 shift_jis。
+  const sjis = decodeBytes(Buffer.from([0x8a, 0xbf, 0x8e, 0x9a, 0x82, 0xa0, 0x82, 0xa2]));
+  assert.equal(sjis.encoding, 'shift_jis');
+  assert.equal(sjis.text, '漢字あい');
+
+  // EUC-KR「한국어」：GB18030 会解成汉字，应判为 euc-kr。
+  const kr = decodeBytes(Buffer.from([0xc7, 0xd1, 0xb1, 0xb9, 0xbe, 0xee]));
+  assert.equal(kr.encoding, 'euc-kr');
+  assert.equal(kr.text, '한국어');
+
+  // Windows-1252「café」：此前会被误判为 UTF-16LE 乱码。
+  const latin = decodeBytes(Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20, 0x6e, 0x61, 0xef, 0x76, 0x65]));
+  assert.equal(latin.encoding, 'windows-1252');
+  assert.equal(latin.text, 'café naïve');
+});
+
+test('GBK 夹杂少量损坏字节仍能识别（容忍零星坏字节）', () => {
+  // 真实小说常有零星 0xFF 等损坏字节：不应整本判为「无法识别」。
+  const good = [0xd6, 0xd0, 0xce, 0xc4, 0xb5, 0xc4, 0xc8, 0xcb];
+  const bytes = [];
+  for (let i = 0; i < 1000; i += 1) bytes.push(...good);
+  bytes.splice(100, 0, 0xff, 0xff);
+  bytes.splice(4000, 0, 0xff);
+  const r = decodeBytes(Buffer.from(bytes));
+  assert.equal(r.encoding, 'gb18030');
+  assert.ok(r.text.includes('中文的人'));
+});

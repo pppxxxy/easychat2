@@ -244,6 +244,7 @@ export const en = {
   'books.import.unsupported.title': 'Unsupported format',
   'books.import.unsupported.body': 'Only txt / Markdown / Word(.docx) / HTML text files are supported for now.',
   'books.import.encoding.title': 'Unsupported encoding',
+  'books.import.encoding.body': 'Could not detect the file encoding. Please save it as UTF-8 / GBK / UTF-16 and try again.',
   'books.import.failed.title': 'Import failed',
   'books.import.failed.body': 'Could not read the selected file. Please retry.',
   'books.load.failed.title': 'Bookshelf failed to load',

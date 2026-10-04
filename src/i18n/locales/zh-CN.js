@@ -248,6 +248,7 @@ export const zhCN = {
   'books.import.unsupported.title': '格式不支持',
   'books.import.unsupported.body': '目前只支持 txt / Markdown / Word(.docx) / HTML 文本文件。',
   'books.import.encoding.title': '编码不支持',
+  'books.import.encoding.body': '无法识别文件编码，请把文件另存为 UTF-8 / GBK / UTF-16 后重试。',
   'books.import.failed.title': '导入失败',
   'books.import.failed.body': '无法读取所选文件，请重试。',
   'books.load.failed.title': '书架读取失败',

@@ -111,7 +111,7 @@ export default function BookScreen() {
       if (code === 'UNSUPPORTED_FORMAT') {
         Alert.alert(t('books.import.unsupported.title'), t('books.import.unsupported.body'));
       } else if (code === 'ENCODING') {
-        Alert.alert(t('books.import.encoding.title'), error.message);
+        Alert.alert(t('books.import.encoding.title'), t('books.import.encoding.body'));
       } else {
         Alert.alert(t('books.import.failed.title'), t('books.import.failed.body'));
       }
