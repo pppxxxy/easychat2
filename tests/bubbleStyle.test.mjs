@@ -31,6 +31,7 @@ test('rounded：大圆角 + 尾角、彩色底、带阴影、用户文字用 pri
   assert.equal(r.userTextColor, dark.colors.primaryContrast);
   assert.equal(r.hasShadow, true);
   assert.equal(r.bubblePaddingHorizontal, 14);
+  assert.equal(r.mediaRadius, tokens.radius.md, '媒体圆角用中等圆角（与现状一致）');
 });
 
 test('card：统一中等圆角、无尾角（四角一致）、彩色底与阴影保留', () => {
@@ -42,6 +43,7 @@ test('card：统一中等圆角、无尾角（四角一致）、彩色底与阴�
   assert.equal(r.assistantBackground, dark.colors.bubbleAssistant);
   assert.equal(r.userTextColor, dark.colors.primaryContrast);
   assert.equal(r.hasShadow, true);
+  assert.equal(r.mediaRadius, tokens.radius.md, '媒体圆角与卡片气泡一致');
 });
 
 test('plain：直角透明、无阴影无内边距、文字改用正文色（落在页面背景上）', () => {
@@ -55,6 +57,7 @@ test('plain：直角透明、无阴影无内边距、文字改用正文色（落
   assert.equal(r.hasShadow, false);
   assert.equal(r.bubblePaddingHorizontal, 0);
   assert.equal(r.bubblePaddingVertical, 2);
+  assert.equal(r.mediaRadius, 0, '无底纹下媒体也应为直角，避免透明气泡里飘圆角图');
 });
 
 test('用户文字可读性：非无底纹时 primaryContrast 压在 primary 上达正文级对比', () => {

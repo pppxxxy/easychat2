@@ -17,6 +17,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     hasShadow,
     userBackground,
     assistantBackground,
+    mediaRadius,
   } = resolveBubbleStyle(options.bubbleStyle, theme, tokens);
   return StyleSheet.create({
   aiNoticeBar: {
@@ -516,8 +517,8 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
      alignSelf: 'stretch',
    },
   mediaBubble: {
-    padding: 4,
-    backgroundColor: theme.colors.surface,
+    padding: plainBubble ? 0 : 4,
+    backgroundColor: plainBubble ? 'transparent' : theme.colors.surface,
   },
   // 媒体消息（图片/表情包）用户与角色共用同一组样式：角色也能发表情包。
   mediaBox: {
@@ -525,7 +526,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   },
    messageImage: {
      maxWidth: '100%',
-     borderRadius: tokens.radius.md,
+     borderRadius: mediaRadius,
      backgroundColor: theme.colors.surfaceBorder,
    },
   mediaName: {
@@ -579,7 +580,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   inlineImage: {
     width: 220,
     height: 300,
-    borderRadius: tokens.radius.md,
+    borderRadius: mediaRadius,
     backgroundColor: theme.colors.surface,
   },
   quoteBlock: {

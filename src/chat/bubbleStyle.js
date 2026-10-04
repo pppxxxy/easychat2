@@ -34,5 +34,8 @@ export function resolveBubbleStyle(bubbleStyle, theme, tokens) {
     bubblePaddingHorizontal: plain ? 0 : 14,
     bubblePaddingVertical: plain ? 2 : 10,
     hasShadow: !plain,
+    // 媒体消息（图片/表情包/内联配图）圆角：随风格走。圆润/卡片用中等圆角（与现状一致），
+    // 无底纹去底色后图片也应为直角，避免「透明气泡里飘一张圆角图」的割裂。
+    mediaRadius: plain ? 0 : radius.md,
   };
 }
