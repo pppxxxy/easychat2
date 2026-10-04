@@ -47,6 +47,7 @@ import {
   THINKING_DISPLAYS,
 } from './storage.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
+import { BUBBLE_STYLES } from './theme/themes.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { pickWorkspaceFolder } from './workspace/picker.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
@@ -159,8 +160,8 @@ export default function SettingsScreen() {
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
-  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
+  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
   const [workspaceMode, setWorkspaceMode] = useState('ask');
   const workspaceModeRef = useRef('ask');
   const [workspaceFolder, setWorkspaceFolder] = useState({ kind: 'app', uri: '', name: '' });
@@ -1558,6 +1559,31 @@ export default function SettingsScreen() {
               })}
             </View>
           </View>
+          <View style={styles.thinkingDisplayRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="chatbubbles-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>气泡风格</Text>
+            </View>
+            <View style={styles.thinkingDisplayChips}>
+              {BUBBLE_STYLES.map(style => {
+                const active = (chatOptions.bubbleStyle || 'rounded') === style;
+                const label = style === 'rounded' ? '圆润' : style === 'card' ? '卡片' : '无底纹';
+                return (
+                  <TouchableOpacity
+                    key={style}
+                    style={[styles.formatChip, active && styles.formatChipActive]}
+                    onPress={() => updateChatOption('bubbleStyle', style)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+          <Text style={styles.fieldHint}>{'圆润：大圆角气泡（默认）；卡片：统一中等圆角、无尾角，偏阅读；无底纹：去掉气泡底色与阴影，仅靠左右对齐区分角色。'}</Text>
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => setPluginEntryOpen(true)}

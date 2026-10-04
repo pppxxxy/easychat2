@@ -209,12 +209,8 @@ export default function MomentsView({ active = true }) {
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
       // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
-      // 作用域判定必须带上动态来源会话与它的消息——会话行的 preview 可能尚未同步，
-      // 少传这两参会让动态页与聊天页得到不同的 scoped 结论，记忆写入通道分叉。
-      const momentSession = sessionId
-        ? (sessionsRef.current.find(item => item && item.id === sessionId) || null)
-        : null;
-      const scoped = isSessionScopedMemory(sessionsRef.current, character.id, momentSession, messages);
+      // 作用域只由该角色的单聊会话数决定（与具体来源会话无关），故无需传入会话。
+      const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
       const memoryText = buildMemorySummaryText(character, summaries, scoped)
         || buildMomentMemoryText({ summaries, messages, charName, userName });
       const prompt = buildMomentReplyPrompt({

@@ -302,15 +302,10 @@ export default function useChatSend({
         );
         const characterExists = (Array.isArray(characters) ? characters : [])
           .some(item => item.id === sessionCharacterId);
-        // 读取沿用原作用域判定：单会话角色继续带上已有世界书记忆（不做迁移/丢弃），
+        // 读取作用域：单会话角色继续带上已有世界书记忆（不做迁移/丢弃），
         // 多会话角色只读本会话。写入侧的降级见 runSummarize，两者解耦。
         const scoped = !characterExists
-          || isSessionScopedMemory(
-            sessionsRef.current,
-            sessionCharacterId,
-            currentSession,
-            historyMessages
-          );
+          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
         const sessionSummaries = await getSessionSummaries(sendSessionId);
         summaryText = buildMemorySummaryText(
           character,
@@ -1277,7 +1272,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
               .some(item => item.id === sessionCharacterId);
             const scoped = !characterExists
-              || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, originalMessages);
+              || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
             try {
               await invalidateHistorySummaries({
                 session,
@@ -1330,7 +1325,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
                 const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
                   .some(item => item.id === sessionCharacterId);
                 const scoped = !characterExists
-                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, messagesRef.current);
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
                 await invalidateHistorySummaries({
                   session,
                   messages: latestPlan.messages,

@@ -185,3 +185,42 @@ test('patchAppearanceSettings：无补丁 / 非法补丁不破坏现有值', asy
   assert.equal(badValue.themeId, 'crimson', '其余字段不受影响');
   store.clear();
 });
+
+test('音乐片段设置：默认 30 秒 / 16kHz，非法值归一，读写往返', async () => {
+  store.delete('@easychat2_music_clip');
+  assert.deepEqual(await settings.getMusicClipSettings(), { clipSeconds: 30, sampleRate: 16000 },
+    '缺省 30 秒 / 16kHz');
+
+  const saved = await settings.saveMusicClipSettings({ clipSeconds: 60, sampleRate: 44100 });
+  assert.deepEqual(saved, { clipSeconds: 60, sampleRate: 44100 });
+  assert.deepEqual(await settings.getMusicClipSettings(), { clipSeconds: 60, sampleRate: 44100 });
+
+  // 非白名单值必须归一回默认，避免把任意数字当采样率传进 WebView
+  const bad = await settings.saveMusicClipSettings({ clipSeconds: 45, sampleRate: 12345 });
+  assert.deepEqual(bad, { clipSeconds: 30, sampleRate: 16000 }, '非法值归一为默认');
+
+  store.set('@easychat2_music_clip', '{ not json');
+  assert.deepEqual(await settings.getMusicClipSettings(), { clipSeconds: 30, sampleRate: 16000 },
+    '损坏回退默认');
+  store.delete('@easychat2_music_clip');
+});
+
+test('聊天选项 bubbleStyle：白名单归一，非法回退圆润', async () => {
+  store.delete('@easychat2_chat_options');
+  const def = await settings.getChatOptions();
+  assert.equal(def.bubbleStyle, 'rounded', '缺省圆润');
+
+  for (const style of ['rounded', 'card', 'plain']) {
+    const saved = await settings.saveChatOptions({ ...def, bubbleStyle: style });
+    assert.equal(saved.bubbleStyle, style, `合法值 ${style} 保留`);
+  }
+  const bad = await settings.saveChatOptions({ ...def, bubbleStyle: 'neon' });
+  assert.equal(bad.bubbleStyle, 'rounded', '非法值归一为 rounded');
+
+  // 写 bubbleStyle 不得抹掉其它聊天选项
+  const next = await settings.saveChatOptions({ ...def, bubbleStyle: 'card', streaming: false, timeAware: true });
+  assert.equal(next.streaming, false);
+  assert.equal(next.timeAware, true);
+  assert.equal(next.bubbleStyle, 'card');
+  store.delete('@easychat2_chat_options');
+});

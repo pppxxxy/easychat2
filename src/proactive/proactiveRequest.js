@@ -186,22 +186,26 @@ export async function buildProactiveRequestJson({
   const {
     getMessagesBySession,
     getSessionSummaries,
+    getSessions,
     getEnabledGlobalPresetPrompts,
     getUserProfile,
   } = await import('../storage.js');
-  const { buildMemorySummaryText } = await import('../memory/memorySummary.js');
+  const { buildMemorySummaryText, isSessionScopedMemory } = await import('../memory/memorySummary.js');
 
   let historyMessages = [];
   let summaryText = '';
   const targetId = String(sessionTargetId || '');
   if (targetId) {
     try {
-      const [messages, summaries] = await Promise.all([
+      const [messages, summaries, sessions] = await Promise.all([
         getMessagesBySession(targetId),
         getSessionSummaries(targetId),
+        getSessions(),
       ]);
       historyMessages = Array.isArray(messages) ? messages : [];
-      summaryText = buildMemorySummaryText(character, summaries, false);
+      // 与聊天读侧同口径：多会话角色只带本会话摘要，单会话角色才兼容世界书记忆。
+      const scoped = isSessionScopedMemory(sessions, character && character.id);
+      summaryText = buildMemorySummaryText(character, summaries, scoped);
     } catch (error) {
       historyMessages = [];
       summaryText = '';

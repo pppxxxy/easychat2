@@ -72,7 +72,7 @@ export function createBookMarkdownStyles({ colors = {}, fontSize = 17, lineHeigh
     bullet_list_content: { flex: 1, color: text },
     ordered_list_content: { flex: 1, color: text },
     code_inline: {
-      color: '#c7254e',
+      color: colors.codeText || text,
       backgroundColor: surface,
       borderWidth: 0,
       borderRadius: radius,

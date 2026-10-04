@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { isKnownImageProvider } from '../imageGen/providers.js';
 import { normalizeImagePosition } from '../imageGen/inlineImagePrompt.js';
-import { THEMES } from '../theme/themes.js';
+import { BUBBLE_STYLES, THEMES } from '../theme/themes.js';
 import {
   backupCorruptValue,
   readJson,
@@ -25,6 +25,7 @@ const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const TTS_KEY = '@easychat2_tts';
 const SAMPLING_KEY = '@easychat2_sampling';
 const TRANSCRIPTION_KEY = '@easychat2_transcription';
+const MUSIC_CLIP_KEY = '@easychat2_music_clip';
 
 const DEFAULT_THINKING = { enabled: false, level: 'medium', display: 'fold' };
 export const THINKING_LEVELS = ['low', 'medium', 'high'];
@@ -159,6 +160,8 @@ function normalizeChatOptions(raw) {
     keepDraft: source.keepDraft === true,
     // 时间感知：开启后在每次请求系统提示里附上当前日期时间；缺省关闭。
     timeAware: source.timeAware === true,
+    // 气泡风格：圆润（默认）/ 卡片 / 无底纹；非法值回落默认。
+    bubbleStyle: BUBBLE_STYLES.includes(source.bubbleStyle) ? source.bubbleStyle : 'rounded',
   };
 }
 
@@ -170,6 +173,34 @@ export async function getChatOptions() {
 export async function saveChatOptions(options) {
   const normalized = normalizeChatOptions(options);
   await AsyncStorage.setItem(CHAT_OPTIONS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+// 一起听歌「音频片段」设置：送给模型的音频时长与采样率。只影响发往模型的片段，
+// 不影响本地播放。缺省 30 秒 / 16kHz 单声道（体积小、够理解歌词与旋律）。
+export const MUSIC_CLIP_SECONDS = [15, 30, 60];
+export const MUSIC_CLIP_SAMPLE_RATES = [16000, 24000, 44100];
+export const DEFAULT_MUSIC_CLIP = { clipSeconds: 30, sampleRate: 16000 };
+
+function normalizeMusicClip(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const clipSeconds = MUSIC_CLIP_SECONDS.includes(source.clipSeconds)
+    ? source.clipSeconds
+    : DEFAULT_MUSIC_CLIP.clipSeconds;
+  const sampleRate = MUSIC_CLIP_SAMPLE_RATES.includes(source.sampleRate)
+    ? source.sampleRate
+    : DEFAULT_MUSIC_CLIP.sampleRate;
+  return { clipSeconds, sampleRate };
+}
+
+export async function getMusicClipSettings() {
+  const raw = await readJson(MUSIC_CLIP_KEY, null);
+  return normalizeMusicClip(raw);
+}
+
+export async function saveMusicClipSettings(settings) {
+  const normalized = normalizeMusicClip(settings);
+  await AsyncStorage.setItem(MUSIC_CLIP_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

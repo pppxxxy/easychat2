@@ -54,7 +54,7 @@
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿；`timeAware`（缺省关闭）决定每次请求的系统提示是否前置一行 `[当前时间] YYYY-MM-DD 周X HH:mm`（`src/chat/currentTime.js`），让角色感知当前日期时间，普通对话与主动消息共用同一格式
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿；`timeAware`（缺省关闭）决定每次请求的系统提示是否前置一行 `[当前时间] YYYY-MM-DD 周X HH:mm`（`src/chat/currentTime.js`），让角色感知当前日期时间，普通对话与主动消息共用同一格式；`bubbleStyle`（缺省 `rounded`）决定气泡视觉：`rounded` 大圆角+尾角、`card` 统一中等圆角无尾角、`plain` 去底色与阴影仅靠左右对齐区分（`plain` 下助手正文与用户文字改用正文色，代码块/引用块改用 `theme.colors.text` 以免透明底不可读）
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消 / 全选（全选后按钮变为「取消全选」）/ 删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择且不计入全选，选择态暂时隐藏消息行内操作并禁用输入发送。当选中并删除当前会话的全部消息时，语义等同旧「清空聊天」：同时重置开场白选择、失效记忆摘要并清理整段向量索引——输入区的「清空」按钮已移除，清空改由「全选 + 删除」承担
 - 消息多选进入后原地松手不会退出：消息行的 `onLongPress` 始终保持非空（多选态下作为「本次手势已被长按消费」的标记），避免 RN 在松手时补发 `onPress` 取消刚选中的消息
@@ -445,14 +445,15 @@
 | `@easychat2_vector_memory`（legacy） | 旧的单条向量配置对象 `{ enabled, providerId, baseUrl, apiKey, model, topK, maxChars, batchSize }`，读取时迁为多配置首条，不再写入 |
 | `@easychat2_vector_index::<characterId>` | 角色级记忆片段索引 `[{ id, messageId, sessionId, role, at, text, vector }]`；清理按 `sessionId` 分片 |
 | `@easychat2_image_gen` | 生图设置 `{ activeProvider, providers: { [id]: { apiKey, baseUrl, model, extra } } }`；`providers[].apiKey` 落盘为安全存储引用 |
-| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean, keepDraft: boolean, timeAware: boolean }`，默认 `{ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false }` |
+| `@easychat2_chat_options` | 对话选项 `{ streaming: boolean, fullWidth: boolean, richHtml: boolean, keepDraft: boolean, timeAware: boolean, bubbleStyle: 'rounded' \| 'card' \| 'plain' }`，默认 `{ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' }` |
 | `@easychat2_session_draft::<sessionId>` | 会话级输入框草稿（纯文本，仅 `keepDraft` 开启时写入与回填；删除会话时一并清理） |
 | `@easychat2_moments_settings` | 动态开关 `{ enabled: boolean }`，缺省 `true`（默认开启） |
 | `@easychat2_music_index` | 音乐库 ID 索引（提交点，最后写；新导入置顶） |
 | `@easychat2_music_item::<id>` | 单曲记录 `{ id, name, uri, size, mime, durationMs, addedAt, triggers: [{ id, atMs, note }] }`；音频文件复制到 `documentDirectory/music/<id>.<ext>`，时长首播后回填 |
 | `@easychat2_music_comments::<songId>` | 听歌陪伴评论 `[{ id, characterId, characterName, text, atMs, createdAt, source: 'trigger' \| 'opening' \| 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |
+| `@easychat2_music_clip` | 听歌音频片段设置 `{ clipSeconds: 15/30/60, sampleRate: 16000/24000/44100 }`；只影响发往模型的片段（隐藏 WebView 裁剪为 WAV），不影响本地播放 |
 | `@easychat2_books_index` | 书架 ID 索引（提交点，最后写；新导入置顶） |
-| `@easychat2_books_item::<id>` | 书目 `{ id, name, uri, size, chars, addedAt, encoding, format, progress: { blockIndex, pageIndex, anchorText }, chapters: [{ title, blockIndex }] }`；`encoding` 为导入时探测的源编码（utf-8/gb18030/big5/utf-16le/docx），`format` 为源格式（txt/md/markdown/docx/html，旧条目为空）；正文**恒走文件** `documentDirectory/books/<id>.txt`（导入即转为 UTF-8），进度只存块号+页号+锚文本（百分比随排版变化，不持久化）。`.md`/`.markdown` 书籍阅读器默认走**连续滚动 Markdown 渲染**（可按块号切回纯文本分页），进度/评论/目录统一按块号定位 |
+| `@easychat2_books_item::<id>` | 书目 `{ id, name, uri, size, chars, addedAt, encoding, format, progress: { blockIndex, pageIndex, anchorText }, chapters: [{ title, blockIndex }] }`；`encoding` 为导入时探测的源编码（utf-8/gb18030/big5/shift_jis/euc-jp/euc-kr/windows-1252/utf-16le/utf-16be/utf-32le/utf-32be/docx），`format` 为源格式（txt/md/markdown/docx/html，旧条目为空）；正文**恒走文件** `documentDirectory/books/<id>.txt`（导入即转为 UTF-8），进度只存块号+页号+锚文本（百分比随排版变化，不持久化）。`.md`/`.markdown` 书籍阅读器默认走**连续滚动 Markdown 渲染**（可按块号切回纯文本分页），进度/评论/目录统一按块号定位 |
 | `@easychat2_book_comments::<bookId>` | 陪读评论 `[{ id, characterId, characterName, text, anchor: { blockIndex, anchorText, excerpt }, chapterTitle, createdAt, source: 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |
 | `@easychat2_screen_watch_comments` | 看屏幕评论 `[{ id, characterId, characterName, text, imageUri, createdAt }]`（单键，无对象分键语义），上限 30 条丢最旧；截图在 `documentDirectory/screen-watch/` 按滚动保留 20 张清扫、不进备份（评论文本仍在备份内，恢复后 imageUri 悬空不影响阅读） |
 | `@easychat2_moments` | 动态列表（按时间倒序，含点赞与评论） |
@@ -1129,14 +1130,15 @@ data: [DONE]
 | `generateSummary({ character, messages, userName?, memories? })` | 调用 `sendChatMessage` 生成新增记忆行 |
 | `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：无记忆正文时返回 `skipped` 且不写盘；有内容时 `scoped` 为真写会话级总结，否则写角色世界书（`记忆总结 N`），两者都更新会话边界 |
 | `countCharacterMemories(sessions, characterId)` | 统计该角色在记忆页可见的会话数（单聊、`preview` 非空） |
-| `isSessionScopedMemory(sessions, characterId)` | 记忆数 ≥ 2 时返回 `true`，启用按会话作用域 |
+| `countCharacterSessions(sessions, characterId)` | 统计该角色的单聊会话总数（群聊不计），供记忆作用域判定 |
+| `isSessionScopedMemory(sessions, characterId, override?)` | 该角色单聊会话数 ≥ 2 时返回 `true`（启用按会话作用域）；`override=true` 恒为会话级 |
 | `buildWorldSummaryText(character)` | 拼接世界书中「记忆总结」条目内容 |
 | `buildSessionSummaryText(sessionSummaries)` | 拼接会话级总结内容 |
 | `buildMemorySummaryText(character, sessionSummaries?, scoped?)` | `scoped` 为真取会话总结，否则取世界书总结 |
 
 **常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`MEMORY_SCOPE_THRESHOLD = 2`、`FALLBACK_KEYWORDS`（占位关键词「前情提要」）。
 
-**作用域规则**: 当同一角色在记忆页存在 ≥ 2 条记忆（单聊、摘要非空的会话）时，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止新增。**当会话所属角色已被删除（`characters` 中不存在该 `characterId`）时，同样强制按会话作用域处理**，避免写入不存在的角色世界书。
+**作用域规则**: 仅当角色只有一个单聊会话时才读写该角色的世界书记忆（单会话时等价「本会话记忆」，保留兼容既有数据）；一旦出现 ≥ 2 个单聊会话，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止读写。**当会话所属角色已被删除（`characters` 中不存在该 `characterId`）时，同样强制按会话作用域处理**，避免写入不存在的角色世界书。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/prompt/lorebook.js`

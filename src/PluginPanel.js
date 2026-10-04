@@ -163,7 +163,9 @@ export default function PluginPanel({ visible, onClose }) {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
       <KeyboardAvoidingView
         style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        // Android 用 undefined：app.json 的 softwareKeyboardLayoutMode 已是 resize，
+        // 再叠一层 behavior="height" 会在输入法收起时反复重算高度，表现为界面疯狂上下闪动。
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.sheet}>
           <View style={styles.header}>

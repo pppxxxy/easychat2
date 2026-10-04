@@ -14,6 +14,21 @@ export function makeMusicItemId(now = Date.now()) {
   return `m-${now}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 读取本地音频文件为 base64：供「一起听歌」把歌曲/片段送多模态模型使用。
+// 收在本模块（音乐文件 I/O 的归属处），避免 UI/hook 直接 import expo-file-system。
+// 只读、不写，无需 markMediaWrite。
+export async function readAudioFileBase64(uri) {
+  const target = String(uri || '');
+  if (!target) return null;
+  try {
+    return await FileSystem.readAsStringAsync(target, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+  } catch (error) {
+    return null;
+  }
+}
+
 // 展示名去掉扩展名；落盘文件的扩展名另行从原始文件名/枚举类型推导。
 export function musicDisplayName(fileName) {
   const name = String(fileName || '').replace(/\.[a-z0-9]{1,8}$/i, '').trim();

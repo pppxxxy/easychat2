@@ -3,6 +3,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { markMediaWrite } from '../storage/mediaProtection.js';
+import { decodeBytes } from '../books/decodeText.js';
 
 export const TEXT_EXTENSIONS = [
   'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
@@ -299,7 +300,15 @@ export async function readTextAttachment(uri, maxBytes = MAX_TEXT_BYTES) {
   const info = await FileSystem.getInfoAsync(uri);
   if (!info || info.exists === false) throw new Error('文件不存在');
   if (Number(info.size) > maxBytes) throw new Error('文件过大');
-  return FileSystem.readAsStringAsync(uri);
+  // 以 base64 读原始字节再按编码探测解码：纯 UTF-8 读取会让 GBK/BIG5/UTF-16
+  // 文本变成乱码。复用书籍导入同一套 decodeBytes（BOM → 严格 UTF-8 → UTF-16 启发 →
+  // GB18030/BIG5/UTF-16 评分择优）；识别失败时抛 { code:'ENCODING' } 由界面提示。
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bytes = Buffer.from(base64, 'base64');
+  const { text } = decodeBytes(bytes);
+  return text;
 }
 
 export async function readImageDataUri(uri, mime) {

@@ -72,13 +72,13 @@ export default function AssistantMessageBody({
       return (
         <Pressable
           onPress={onPress}
-          style={{ marginTop: 6, borderRadius: tokens.radius.sm, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#344f5d' }}
+          style={{ marginTop: 6, borderRadius: tokens.radius.sm, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: theme.colors.panelButtonBg }}
         >
-          <Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>{label}</Text>
+          <Text style={{ color: theme.colors.panelButtonText, fontSize: 13, lineHeight: 18 }}>{label}</Text>
         </Pressable>
       );
     },
-  }), [onCommand, theme.colors.text, tokens.radius.sm]);
+  }), [onCommand, theme.colors.panelButtonBg, theme.colors.panelButtonText, tokens.radius.sm]);
 
   const renderHtml = containsHtml(text);
   const renderRichHtml = renderHtml && shouldRenderRichHtml(text, richHtmlEnabled);

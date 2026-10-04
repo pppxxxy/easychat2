@@ -194,8 +194,8 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const quoteText = quote && String(quote.text || '').trim()
     ? `[引用${String(quote.name || '').trim() || '对方'}的消息] ${String(quote.text).trim()}\n\n${promptUserText}`
     : promptUserText;
-  // 语音兜底（需求 6.2）：来源标记 supportsAudio 且转写失败时，音频按 OpenAI
-  // input_audio 多模态内容随当前用户消息直接发送（仅当前一条，历史不回传）。
+  // 音频多模态：语音兜底（需求 6.2，转写失败）与「一起听歌」附整首歌共用此通道，
+  // 音频按 OpenAI input_audio 随当前用户消息发送（仅当前一条，历史不回传）。
   const voiceBase64 = String(voiceAudio?.base64 || '').trim();
   const voiceMime = String(voiceAudio?.mime || '').trim();
   const voiceFormat = voiceBase64 ? resolveVoiceFormat(voiceMime) : '';
@@ -203,7 +203,7 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     ? [{
         role: 'user',
         content: [
-          { type: 'text', text: quoteText || '[用户发来一段语音]' },
+          { type: 'text', text: quoteText || '[用户发来一段音频]' },
           { type: 'input_audio', input_audio: { data: voiceBase64, format: voiceFormat } },
         ],
       }]

@@ -113,3 +113,24 @@ Entries discovered by the Agent during task execution should follow this format:
 - Instructions:
   - 用 `Module._load` 打桩/拦截的测试（如 `tests/memorySummary.test.mjs`）若按**精确相对说明符**匹配（`request === './storage.js'`），模块搬迁改成 `../storage.js` 后拦截会失效，测试会去加载真实模块并失败。搬迁时这类加载器要改成**按 basename 匹配**（`String(request).split('/').pop() === 'storage.js'`）。
   - 同理，源码断言测试里写死的相对路径字符串（如 `SCREEN_SOURCE.includes("from './memoryBuckets.js'")`）也要随搬迁更新。
+
+[Project Knowledge Summary]
+- Date: 2026-10-04
+- Context: main（23ff019）Release 打包 `:app:compileReleaseKotlin` 失败：ScreenOverlayModule.kt 报 `Unresolved reference 'currentActivity'`
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - RN 0.81 把 `ReactContextBaseJavaModule.getCurrentActivity()` 从 Java 方法改成了**带 `@Deprecated` 的 Kotlin 函数**。Kotlin 只会为 Java getter 合成属性，因此原生模块子类里裸写 `currentActivity` 不再解析（编译报 Unresolved reference）；旧版本能编译是因为那时是 Java getter。
+  - 正确写法是走 `ReactApplicationContext` 的 Java getter：`reactContext.currentActivity`（或官方向导说的 `reactApplicationContext.currentActivity`），不要用 `currentActivity`，也尽量别调用已过时的 `getCurrentActivity()`。
+  - 同类坑排查面：所有 `plugins/*/android/*.kt` 里凡引用宿主 Activity 的地方都要按此改；`android/` 是 prebuild 生成、gitignored，改的是 `plugins/` 下的源文件。
+  - 本地无 Android SDK/Java/Gradle 时无法编译 Kotlin 验证；此类原生编译修复只能靠 CI（workflow_dispatch 的 Gradle workflow）或真机 prebuild 构建确认。
+
+[Project Knowledge Summary]
+- Date: 2026-10-04
+- Context: main（6ab5143）Release 打包再报 Kotlin 编译错误：ProactiveCore.kt 两处类型不匹配 + OverlayService.kt 一处构造器候选无一适用
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **Kotlin `?:`（elvis）优先级低于链式调用**：`a() ?: b().let{...}.toRequestBody()` 中的 `.let/.toRequestBody` 只作用于 `b()`，导致左侧 `String?` 与右侧 `RequestBody` 合流为 `Any`，后续按 `String` 用就报 `actual type is 'Any'`。快照/回退这类「两分支合流再加工」的写法必须先把 elvis 结果落到一个变量，再对变量做链式加工。
+  - **OkHttp 的 `Request.Builder.post()` 只接受 `RequestBody`**：别把 `String` 直接 post；`"...".toRequestBody(mediaType)` 后传，并 `import okhttp3.RequestBody`（`toRequestBody` 的 import 不等于类型 import）。
+  - **Kotlin 没有 `String(String)` 构造器**：`String(x)` 只接受 ByteArray/CharArray/StringBuffer/StringBuilder；x 已是 String 时应直接 `x.trim()`，否则报「None of the following candidates is applicable」。
+  - **Z 链并入 main 后原生未编译即合入**：这两处错误都是 Z 线新加的原生代码，JS 门禁（lint/test/export）全绿却编译不过。凡是改动 `plugins/*/android/*.kt` 的提交，CI 的 Gradle workflow 是唯一可信验证；合并前应至少跑一次 APK 构建。
+  - 教训：main 自 Z 三链并入起未成功构建过，Native 错误是逐个暴露的；这类修复要一次把同一批新增 Kotlin 全审一遍，别只修 CI 报的第一处。

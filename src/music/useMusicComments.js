@@ -1,5 +1,5 @@
-// 一起听歌的角色评论 hook：打点/开场触发 → 组 prompt → 走与动态同款的
-// buildRequestMessages + sendChatMessage(stream:false) 链路 → appendMusicComment 落库。
+// 一起听歌的角色评论 hook：打点/开场触发 → 组 prompt → 组装消息（可含歌曲音频片段）
+// → 经 sendWithModelProvider 路由（本地多模态模型优先，失败回退在线）→ appendMusicComment 落库。
 // 评论只在面板内呈现、不进聊天会话（2026-10-03 用户裁决）；「接话」由界面层处理。
 // 生成串行：同一时刻至多一次请求，新的触发在生成期间直接跳过（触发位已记 fired，
 // 失败可从错误条重试，不会因跳过而永久丢失——重试走直调，不依赖 crossing）。
@@ -7,24 +7,76 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
-import { buildRequestMessages } from '../prompt/chatPipeline.js';
+import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
+import { buildRequestMessages, filterRequestMedia } from '../prompt/chatPipeline.js';
 import {
+  getActiveLocalModel,
   getApiConfigs,
   getEnabledGlobalPresetPrompts,
+  getLocalModelSettings,
   getUserProfile,
 } from '../storage.js';
+import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
+import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 
 import { appendMusicComment, getMusicComments } from './comments.js';
-import { buildOpeningCommentPrompt, buildTriggerCommentPrompt } from './commentPrompts.js';
+import { readAudioFileBase64 } from './importMusic.js';
+import {
+  MUSIC_AUDIO_MAX_BYTES,
+  MUSIC_DECODE_MAX_BYTES,
+  buildOpeningCommentPrompt,
+  buildTriggerCommentPrompt,
+  canAttachSongAudio,
+  resolveAudioSupport,
+} from './commentPrompts.js';
+import { CLIP_DURATION_MS, CLIP_SAMPLE_RATE } from './audioClip.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
 
-export function useMusicComments({ song, characters, defaultCharacterId = '' }) {
+// 读取歌曲文件为 base64（走 music 域的文件读取封装）。读盘失败返回 null。
+async function readSongBase64(currentSong) {
+  const song = currentSong && typeof currentSong === 'object' ? currentSong : {};
+  const base64 = await readAudioFileBase64(song.uri);
+  return base64 || null;
+}
+
+// 准备随评论发送的音频：优先用 WebView 裁剪出从 startMs 起的一段 WAV（体积小、
+// 规避端点时长上限）；无法裁剪时退回整首原文件（仅当不超 25MB）。都不可用返回 null，
+// 调用方退回纯文字评论（不阻断功能）。
+export async function prepareSongAudioForModel(
+  currentSong,
+  clipAudio,
+  { startMs = 0, durationMs = CLIP_DURATION_MS, sampleRate = CLIP_SAMPLE_RATE } = {}
+) {
+  const song = currentSong && typeof currentSong === 'object' ? currentSong : {};
+  if (!canAttachSongAudio(song, MUSIC_DECODE_MAX_BYTES)) return null;
+  const canClip = typeof clipAudio === 'function';
+  // 裁剪路径读取整首解码；整首发送路径只在体积达标时读取。
+  if (!canClip && !canAttachSongAudio(song, MUSIC_AUDIO_MAX_BYTES)) return null;
+  const base64 = await readSongBase64(song);
+  if (!base64) return null;
+  if (canClip) {
+    try {
+      const clipped = await clipAudio({ base64, startMs, durationMs, sampleRate });
+      if (clipped && clipped.base64) return { base64: clipped.base64, mime: clipped.mime || 'audio/wav' };
+    } catch (error) {
+      // 裁剪失败（编解码不支持等）→ 退回整首原始音频。
+    }
+  }
+  if (canAttachSongAudio(song, MUSIC_AUDIO_MAX_BYTES)) {
+    return { base64, mime: String(song.mime || '').trim() };
+  }
+  return null;
+}
+
+export function useMusicComments({ song, characters, defaultCharacterId = '', clipAudio = null, clipSettings = null }) {
   const [comments, setComments] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [characterId, setCharacterId] = useState(String(defaultCharacterId || ''));
+  // null = 能力未知（尚未读出配置）；false = 当前来源不具备听音频能力。
+  const [audioSupported, setAudioSupported] = useState(null);
   const { t } = useTranslation();
 
   const songRef = useRef(song);
@@ -33,6 +85,10 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
   charactersRef.current = characters;
   const characterIdRef = useRef(characterId);
   characterIdRef.current = characterId;
+  const clipAudioRef = useRef(clipAudio);
+  clipAudioRef.current = clipAudio;
+  const clipSettingsRef = useRef(clipSettings);
+  clipSettingsRef.current = clipSettings;
   const generatingRef = useRef(false);
   const abortRef = useRef(null);
   const lastFailedRef = useRef(null);
@@ -64,6 +120,23 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
     };
   }, [songId]);
 
+  // 音频能力探测：面板打开/切歌时读一次在线配置与本地模型能力，供「听不到音频」提示。
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      getApiConfigs().catch(() => null),
+      getLocalModelSettings().catch(() => null),
+      getActiveLocalModel().catch(() => null),
+    ]).then(([apiConfig, localSettings, localItem]) => {
+      if (cancelled) return;
+      const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+      setAudioSupported(resolveAudioSupport(apiConfig, localMedia));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [songId]);
+
   const generate = useCallback(async ({ kind, atMs = 0, note = '' }) => {
     const currentSong = songRef.current;
     if (!currentSong || generatingRef.current) return false;
@@ -78,19 +151,36 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
     setGenerating(true);
     setError('');
     try {
-      const [profile, presets, apiConfig] = await Promise.all([
+      const [profile, presets, apiConfig, localSettings, localItem] = await Promise.all([
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
         getApiConfigs(),
+        getLocalModelSettings().catch(() => null),
+        getActiveLocalModel().catch(() => null),
       ]);
       if (controller.signal.aborted) return false;
+      const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+      const canHear = resolveAudioSupport(apiConfig, localMedia);
+      // 具备听音频能力时准备音频片段（默认从当前播放位置起 30 秒）；否则纯文字评论。
+      const startMs = kind === 'opening' ? 0 : Math.max(0, Math.floor(Number(atMs)) || 0);
+      const settings = clipSettingsRef.current || {};
+      const songAudio = canHear
+        ? await prepareSongAudioForModel(currentSong, clipAudioRef.current, {
+          startMs,
+          durationMs: Math.max(1, Math.floor(Number(settings.clipSeconds) || 0) * 1000) || CLIP_DURATION_MS,
+          sampleRate: Math.max(1, Math.floor(Number(settings.sampleRate) || 0)) || CLIP_SAMPLE_RATE,
+        })
+        : null;
+      if (controller.signal.aborted) return false;
+      const withAudio = !!songAudio;
       const prompt = kind === 'opening'
-        ? buildOpeningCommentPrompt({ songName: currentSong.name, durationMs: currentSong.durationMs })
+        ? buildOpeningCommentPrompt({ songName: currentSong.name, durationMs: currentSong.durationMs, withAudio })
         : buildTriggerCommentPrompt({
           songName: currentSong.name,
           positionMs: atMs,
           durationMs: currentSong.durationMs,
           note,
+          withAudio,
         });
       const requestMessages = buildRequestMessages({
         character,
@@ -103,14 +193,41 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
         pluginContext: '',
         images: [],
         quote: null,
+        voiceAudio: songAudio,
       });
       const activeConfig = apiConfig.configs.find(item => item.id === apiConfig.activeId)
         || apiConfig.configs[0];
-      const raw = await sendChatMessage(requestMessages, {
+      const expectedConfigId = String((activeConfig && activeConfig.id) || '');
+      const expectedConfigFingerprint = activeConfig ? getConfigFingerprint(activeConfig) : '';
+      // 本地路径：按本地模型能力裁剪媒体（音频）；在线路径：按在线配置能力裁剪。
+      const localFileInfo = (localItem || localSettings)
+        ? await getLocalModelFileInfo(localItem || localSettings).catch(() => null)
+        : null;
+      const localReady = canUseLocalModel(localSettings, localFileInfo, localItem);
+      const localMessages = localReady
+        ? filterRequestMedia(requestMessages, {
+          allowVision: false,
+          allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
+        })
+        : requestMessages;
+      const onlineMessages = filterRequestMedia(requestMessages, {
+        allowVision: false,
+        allowAudio: Boolean(activeConfig && activeConfig.supportsAudio),
+      });
+      const onlineSend = () => sendChatMessage(onlineMessages, {
         stream: false,
         signal: controller.signal,
-        expectedConfigId: String((activeConfig && activeConfig.id) || ''),
-        expectedConfigFingerprint: activeConfig ? getConfigFingerprint(activeConfig) : '',
+        expectedConfigId,
+        expectedConfigFingerprint,
+      });
+      const raw = await sendWithModelProvider({
+        messages: localMessages,
+        localSettings,
+        localItem,
+        localFileInfo,
+        signal: controller.signal,
+        conversationKey: `music:${String(currentSong.id || '')}`,
+        onlineSend,
       });
       if (controller.signal.aborted) return false;
       // 接口空响应返回占位文本：那不是角色评论，按失败处理。
@@ -158,5 +275,6 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
     setCharacterId,
     generate,
     retry,
-  }), [comments, generating, error, characterId, generate, retry]);
+    audioSupported,
+  }), [comments, generating, error, characterId, generate, retry, audioSupported]);
 }

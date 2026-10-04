@@ -80,3 +80,14 @@ test('createBookMarkdownStyles：跟随字号缩放、关键节点齐全、缺�
   const fallback = createBookMarkdownStyles();
   assert.ok(fallback.body.fontSize > 0, '缺省参数不得抛错');
 });
+
+test('createBookMarkdownStyles：行内代码用主题 codeText，深色主题不再黑底暗红', () => {
+  const styles = createBookMarkdownStyles({
+    colors: { text: '#fff', surfaceAlt: '#20203a', codeText: '#ff9b9b' },
+    fontSize: 18,
+    tokens: { radius: { sm: 6 } },
+  });
+  assert.equal(styles.code_inline.color, '#ff9b9b', '行内代码取主题 codeText');
+  const noToken = createBookMarkdownStyles({ colors: { text: '#fff' } });
+  assert.equal(noToken.code_inline.color, '#fff', '缺 codeText 时回退正文色，不得用硬编码暗红');
+});

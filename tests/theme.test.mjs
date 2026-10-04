@@ -18,7 +18,7 @@ test('主题 id 唯一且非空', () => {
 
 test('外观设置的白名单以 THEMES 为单一来源，新增主题不会被规范化回 dark', () => {
   const source = read('src/storage/settings.js');
-  assert.match(source, /import \{ THEMES \} from '\.\.\/theme\/themes\.js'/, '应从 themes.js 导入主题表');
+  assert.match(source, /import \{[^}]*THEMES[^}]*\} from '\.\.\/theme\/themes\.js'/, '应从 themes.js 导入主题表');
   assert.match(source, /const THEME_IDS = THEMES\.map/, '白名单应从 THEMES 派生，避免硬编码漏项');
 });
 
