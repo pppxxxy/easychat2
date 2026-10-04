@@ -35,9 +35,14 @@ import {
   getImageFileInfo,
   MAX_IMAGE_ATTACHMENTS,
   MAX_IMAGE_BASE64_BYTES,
+  MAX_VIDEO_ATTACHMENTS,
+  MAX_VIDEO_BASE64_BYTES,
+  MAX_VIDEO_BYTES,
   mergeTextAttachments,
   readImageDataUri,
+  readVideoDataUri,
   validateImageBatch,
+  validateVideoSize,
 } from './attachments.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
 import { createVoiceMessage } from './voiceMessages.js';
@@ -879,16 +884,21 @@ if (!isCurrent() || controller.signal.aborted) return false;
     const imageAttachments = allAttachments.filter(item => (
       item && (item.kind === 'image' || item.kind === STICKER_MESSAGE_KIND)
     ));
+    const videoAttachments = allAttachments.filter(item => item && item.kind === 'video');
     const textAttachments = allAttachments.filter(item => item && item.kind === 'text');
     if (imageAttachments.length > MAX_IMAGE_ATTACHMENTS) {
       Alert.alert('图片过多', `一次最多发送 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+      return false;
+    }
+    if (videoAttachments.length > MAX_VIDEO_ATTACHMENTS) {
+      Alert.alert('视频过多', `一次最多发送 ${MAX_VIDEO_ATTACHMENTS} 条视频。`);
       return false;
     }
     if (!isSessionGuardCurrent(sessionGuard)
        || messageSelectionOpen
        || isSwitching
        || sessionTransitionPending
-       || (!text && imageAttachments.length === 0 && textAttachments.length === 0 && !voice)
+       || (!text && imageAttachments.length === 0 && videoAttachments.length === 0 && textAttachments.length === 0 && !voice)
       || !sendLockRef.current
        || !ready
        || (abortRef.current && abortRef.current.signal.aborted)) return false;
@@ -904,6 +914,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     }
       let visionEnabled = false;
       let audioInputEnabled = false;
+      let videoEnabled = false;
      let expectedConfigId = '';
      let expectedConfigFingerprint = '';
     try {
@@ -914,6 +925,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
        expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
         visionEnabled = !!(current && current.supportsVision);
         audioInputEnabled = !!(current && current.supportsAudio);
+        // 视频附件：仅当配置声明 supportsVideo 且线协议为 OpenAI 兼容（video_url 是
+        // 兼容端点的扩展类型，Responses/Anthropic 都没有视频输入）。本地模型无视频能力。
+        videoEnabled = !!(current && current.supportsVideo === true)
+          && String(current.protocol || 'openai') === 'openai';
       } catch (error) {}
       // 在线配置与本地活动模型可能是两套能力声明：本地模型带 mmproj 且开启多模态时，
       // 附件校验应使用本地能力，不能被在线配置的 supportsVision/supportsAudio 提前拦截。
@@ -1004,6 +1019,66 @@ if (!isCurrent() || controller.signal.aborted) return false;
         dataUri,
         includeImage: visionEnabled,
       });
+    }
+    // 视频附件：能力/数量/大小三重校验后读成数据 URI。预算与图片分列——
+    // 视频请求体大得多，单独用 MAX_VIDEO_BASE64_BYTES 控住，避免一条视频
+    // 把图片的额度连带吃光。
+    if (videoAttachments.length > 0) {
+      if (!videoEnabled) {
+        Alert.alert('不支持看视频', '当前来源未标记为支持看视频（且需 OpenAI 兼容协议），请在设置中确认模型能力。');
+        return false;
+      }
+      let totalVideoBase64Bytes = 0;
+      for (let index = 0; index < videoAttachments.length; index += 1) {
+        const item = videoAttachments[index];
+        let size = Number(item.size || 0);
+        try {
+          const info = await getImageFileInfo(item.uri);
+          if (!info.exists) throw new Error('视频不存在');
+          size = info.size || size;
+          validateVideoSize({ size });
+        } catch (error) {
+          if (error && error.message === '视频不存在') {
+            Alert.alert('视频已失效', '这条视频的文件已不存在，请重新选择视频。');
+          } else {
+            Alert.alert('视频过大', `视频需小于 ${Math.round(MAX_VIDEO_BYTES / (1024 * 1024))}MB，请选择更短的视频。`);
+          }
+          return false;
+        }
+        let dataUri = '';
+        try {
+          const estimatedBase64Bytes = Math.ceil(size * 4 / 3);
+          if (totalVideoBase64Bytes + estimatedBase64Bytes > MAX_VIDEO_BASE64_BYTES) {
+            throw new Error('视频总大小过大');
+          }
+          totalVideoBase64Bytes += estimatedBase64Bytes;
+          dataUri = await readVideoDataUri(item.uri, item.mime);
+          const separator = dataUri.indexOf(',');
+          const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
+          totalVideoBase64Bytes = Math.max(
+            totalVideoBase64Bytes,
+            totalVideoBase64Bytes - estimatedBase64Bytes + Math.ceil(base64Length * 3 / 4)
+          );
+          if (totalVideoBase64Bytes > MAX_VIDEO_BASE64_BYTES) throw new Error('视频总大小过大');
+          if (isCanceled()) return false;
+        } catch (error) {
+          Alert.alert('视频读取失败', '请重新选择视频。');
+          return false;
+        }
+        if (!isSessionGuardCurrent(sessionGuard)) return false;
+        const videoMessage = createMediaMessage({
+          id: `${now}-video-${index}`,
+          kind: 'video',
+          uri: item.uri,
+          mime: item.mime,
+          name: item.name,
+          width: item.width,
+          height: item.height,
+          timestamp: now + imageAttachments.length + index,
+        });
+        mediaMessages.push(videoMessage);
+        imageMessages.push({ ...videoMessage, dataUri, includeVideo: videoEnabled });
+      }
     }
      const mergedText = mergeTextAttachments(text, textAttachments);
      if (!mergedText && mediaMessages.length === 0 && !voice) return false;

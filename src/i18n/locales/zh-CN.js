@@ -62,6 +62,11 @@ export const zhCN = {
   'chat.attach.camera.hint': '拍摄照片发送给角色',
   'chat.attach.image.title': '图片',
   'chat.attach.image.hint': '从相册中选择图片',
+  'chat.attach.videoCamera.title': '拍摄视频',
+  'chat.attach.videoCamera.hint': '录制一段短视频发送给角色（最长 60 秒）',
+  'chat.attach.video.title': '上传视频',
+  'chat.attach.video.hint': '从相册中选择视频发送给角色',
+  'chat.attach.videoRequired': '当前来源未标记为支持看视频（且需 OpenAI 兼容协议），请先在「设置 → API」确认模型能力',
   'chat.attach.visionRequired': '当前来源未标记为支持识图，请先在「设置 → API」确认模型能力',
 
   // ---- 聊天输入区（chat/ChatComposer.js）----

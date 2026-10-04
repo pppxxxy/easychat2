@@ -58,6 +58,11 @@ export const en = {
   'chat.attach.camera.hint': 'Capture a photo and send it to your character',
   'chat.attach.image.title': 'Photo library',
   'chat.attach.image.hint': 'Pick an image from your library',
+  'chat.attach.videoCamera.title': 'Record video',
+  'chat.attach.videoCamera.hint': 'Record a short clip for your character (up to 60s)',
+  'chat.attach.video.title': 'Upload video',
+  'chat.attach.video.hint': 'Pick a video from your library to send',
+  'chat.attach.videoRequired': 'The current source is not marked as video-capable (and must use the OpenAI-compatible protocol). Confirm model capabilities in Settings → API.',
   'chat.attach.visionRequired': 'The current source is not marked as vision-capable. Confirm model capabilities in Settings → API.',
 
   // ---- Composer ----

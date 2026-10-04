@@ -67,6 +67,8 @@ export default function ChatComposer({
             <View key={item.id} style={styles.attachmentChip}>
               {item.kind === 'image' && item.uri ? (
                 <Image source={{ uri: item.uri }} style={styles.attachmentThumb} />
+              ) : item.kind === 'video' ? (
+                <Ionicons name="videocam-outline" size={14} color={theme.colors.primarySoft} />
               ) : (
                 <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
               )}
