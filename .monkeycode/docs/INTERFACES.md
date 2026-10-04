@@ -1129,14 +1129,15 @@ data: [DONE]
 | `generateSummary({ character, messages, userName?, memories? })` | 调用 `sendChatMessage` 生成新增记忆行 |
 | `applySummary({ session, character, messages, updateCharacter, userName?, scoped? })` | 生成新增记忆：无记忆正文时返回 `skipped` 且不写盘；有内容时 `scoped` 为真写会话级总结，否则写角色世界书（`记忆总结 N`），两者都更新会话边界 |
 | `countCharacterMemories(sessions, characterId)` | 统计该角色在记忆页可见的会话数（单聊、`preview` 非空） |
-| `isSessionScopedMemory(sessions, characterId)` | 记忆数 ≥ 2 时返回 `true`，启用按会话作用域 |
+| `countCharacterSessions(sessions, characterId)` | 统计该角色的单聊会话总数（群聊不计），供记忆作用域判定 |
+| `isSessionScopedMemory(sessions, characterId, override?)` | 该角色单聊会话数 ≥ 2 时返回 `true`（启用按会话作用域）；`override=true` 恒为会话级 |
 | `buildWorldSummaryText(character)` | 拼接世界书中「记忆总结」条目内容 |
 | `buildSessionSummaryText(sessionSummaries)` | 拼接会话级总结内容 |
 | `buildMemorySummaryText(character, sessionSummaries?, scoped?)` | `scoped` 为真取会话总结，否则取世界书总结 |
 
 **常量**: `MEMORY_SUMMARY_PREFIX = '记忆总结'`、`KEEP_RECENT = 6`、`DEFAULT_THRESHOLD = 40`、`MEMORY_SCOPE_THRESHOLD = 2`、`FALLBACK_KEYWORDS`（占位关键词「前情提要」）。
 
-**作用域规则**: 当同一角色在记忆页存在 ≥ 2 条记忆（单聊、摘要非空的会话）时，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止新增。**当会话所属角色已被删除（`characters` 中不存在该 `characterId`）时，同样强制按会话作用域处理**，避免写入不存在的角色世界书。
+**作用域规则**: 仅当角色只有一个单聊会话时才读写该角色的世界书记忆（单会话时等价「本会话记忆」，保留兼容既有数据）；一旦出现 ≥ 2 个单聊会话，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止读写。**当会话所属角色已被删除（`characters` 中不存在该 `characterId`）时，同样强制按会话作用域处理**，避免写入不存在的角色世界书。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
 **位置**: `src/prompt/lorebook.js`

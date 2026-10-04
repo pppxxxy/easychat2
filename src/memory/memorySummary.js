@@ -9,7 +9,9 @@ import {
   setSessionSummarizedUpTo,
 } from '../storage.js';
 
-export const MEMORY_SUMMARY_PREFIX = '记忆总结';
+import { MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
+
+export { MEMORY_SUMMARY_PREFIX };
 export const KEEP_RECENT = 6;
 export const DEFAULT_THRESHOLD = 40;
 export const FALLBACK_KEYWORDS = ['前情提要'];
@@ -220,16 +222,23 @@ export function countCharacterMemories(sessions, characterId, activeSession = nu
   )).length;
 }
 
-export function isSessionScopedMemory(
-  sessions,
-  characterId,
-  activeSession = null,
-  activeMessages = [],
-  override = undefined
-) {
+// 该角色在「记忆页可见的单聊会话」数量（群聊不计）。用于记忆作用域判定。
+export function countCharacterSessions(sessions, characterId) {
+  const id = String(characterId || '');
+  if (!id) return 0;
+  return (Array.isArray(sessions) ? sessions : []).filter(session => (
+    session
+    && session.type !== 'group'
+    && String(session.characterId || '') === id
+  )).length;
+}
+
+// 记忆作用域：只有当角色只有一个单聊会话时才读取/写入世界书记忆（兼容旧的单会话角色），
+// 一旦出现第二个会话就一律按会话级隔离。世界书记忆由角色全局生效，多会话共享必然串味；
+// 单会话时世界书写入等价于「本会话记忆」，故保留以兼容既有数据。
+export function isSessionScopedMemory(sessions, characterId, override = undefined) {
   if (override === true) return true;
-  return countCharacterMemories(sessions, characterId, activeSession, activeMessages)
-    >= MEMORY_SCOPE_THRESHOLD;
+  return countCharacterSessions(sessions, characterId) >= MEMORY_SCOPE_THRESHOLD;
 }
 
 export function shouldInvalidateWorldSummary(entry, messages, removedIds) {

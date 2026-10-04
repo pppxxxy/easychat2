@@ -813,7 +813,7 @@ export default function ChatScreen() {
        } catch (error) {}
        const scopeOverride = !manual && vectorEnabled;
        const scoped = !characterExists
-         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list, scopeOverride);
+         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride);
        let expectedConfigId = '';
        let expectedConfigFingerprint = '';
        try {
@@ -838,7 +838,7 @@ export default function ChatScreen() {
             const latestCharacterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
               .some(item => item.id === sessionCharacterId);
              return !latestCharacterExists
-               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, list, scopeOverride);
+               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride);
           },
         });
       await refreshSessions().catch(() => {});
@@ -1139,7 +1139,7 @@ export default function ChatScreen() {
                 const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
                 const characterExists = latestCharacters.some(item => item.id === sessionCharacterId);
                 const scoped = !characterExists
-                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, session, messagesRef.current);
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
                 const latestCharacter = latestCharacters.find(item => item.id === sessionCharacterId)
                   || character;
                 await invalidateHistorySummaries({
@@ -1532,12 +1532,19 @@ export default function ChatScreen() {
         deleteLocalImage(durableUri);
       }
       if (picked && picked.uri) deleteTemporaryImage(picked.uri);
-      Alert.alert(
-        '文件读取失败',
-        ['文件过大', '图片过大', '图片分辨率过大', '图片总大小过大'].includes(error && error.message)
-          ? '文件过大，请选择更小的文件。'
-          : '请重试。'
-       );
+      if (error && error.code === 'ENCODING') {
+        Alert.alert(
+          '无法识别文件编码',
+          '请确认文件为 UTF-8、UTF-16、GBK 或 BIG5 编码的纯文本文件。'
+        );
+      } else {
+        Alert.alert(
+          '文件读取失败',
+          ['文件过大', '图片过大', '图片分辨率过大', '图片总大小过大'].includes(error && error.message)
+            ? '文件过大，请选择更小的文件。'
+            : '请重试。'
+        );
+      }
      } finally {
        attachmentPickerLockRef.current = false;
        setAttachmentLoading(false);

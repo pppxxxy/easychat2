@@ -51,10 +51,12 @@ const FileSystem = {
   documentDirectory: 'file:///documents/',
   cacheDirectory: 'file:///cache/',
   EncodingType: { Base64: 'base64', UTF8: 'utf8' },
-  getInfoAsync: async () => ({ exists: true, size: 1 }),
+  infoResult: { exists: true, size: 1 },
+  readResult: '',
+  getInfoAsync: async () => FileSystem.infoResult,
   makeDirectoryAsync: async () => {},
   copyAsync: async () => {},
-  readAsStringAsync: async () => '',
+  readAsStringAsync: async () => FileSystem.readResult,
   deleteAsync: async () => {},
 };
 
@@ -195,4 +197,30 @@ test('拍照结果缺失 uri 时返回 null（不产生空附件）', async () =
   ImagePicker.cameraPermission = { granted: true, status: 'granted' };
   ImagePicker.cameraResult = { canceled: false, assets: [{}] };
   assert.equal(await attachments.takePhoto(), null);
+});
+
+test('文本附件按编码探测解码：GBK 不再是乱码', async () => {
+  FileSystem.infoResult = { exists: true, size: 4 };
+  // “中文”的 GBK 字节：0xD6D0 0xCEC4，纯 UTF-8 读取会得到替换符乱码。
+  FileSystem.readResult = Buffer.from([0xd6, 0xd0, 0xce, 0xc4]).toString('base64');
+  assert.equal(await attachments.readTextAttachment('file:///documents/gbk.txt'), '中文');
+});
+
+test('文本附件按编码探测解码：UTF-16LE（含 BOM）', async () => {
+  const text = '这是UTF-16文本';
+  const bytes = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(text, 'utf16le'),
+  ]);
+  FileSystem.infoResult = { exists: true, size: bytes.length };
+  FileSystem.readResult = bytes.toString('base64');
+  assert.equal(await attachments.readTextAttachment('file:///documents/u16.txt'), text);
+});
+
+test('文本附件仍受大小上限约束', async () => {
+  FileSystem.infoResult = { exists: true, size: attachments.MAX_TEXT_BYTES + 1 };
+  await assert.rejects(
+    () => attachments.readTextAttachment('file:///documents/big.txt'),
+    /文件过大/
+  );
 });

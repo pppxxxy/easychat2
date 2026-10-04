@@ -91,6 +91,18 @@ test('collectActiveWorldInfo 按 position 分组并保留顺序', () => {
   assert.deepEqual(result.depth.map(item => item.content), ['depth']);
 });
 
+test('collectActiveWorldInfo 剔除记忆总结条目（记忆只经 [记忆摘要] 作用域注入）', () => {
+  const character = {
+    worldInfo: [
+      entry({ id: 'mem', comment: '记忆总结 1', keys: ['apple'], content: '用户22岁' }),
+      entry({ id: 'ok', keys: ['apple'], content: '普通世界书' }),
+    ],
+  };
+  const result = collectActiveWorldInfo(character, [], 'apple');
+  const contents = [...result.before, ...result.after, ...result.depth].map(item => item.content);
+  assert.deepEqual(contents, ['普通世界书']);
+});
+
 test('getUnsafeWorldEntryKeys 只标记会触发正则防护的关键词', () => {
   // useRegex 默认关闭：裸表达式按普通文本处理，只有 /pattern/ 写法才走正则防护
   const slashOnly = entry({ keys: ['(a+)+$', '安全词', '/(\\w+)*$/g'] });

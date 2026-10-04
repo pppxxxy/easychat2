@@ -314,7 +314,29 @@ test('启用向量记忆后自动总结强制降级为会话级', () => {
   // 默认（未启用向量）单会话写世界书
   assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c'), false);
   // override=true（启用向量）时恒为会话级，跨会话召回交给向量
-  assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c', null, [], true), true);
+  assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c', true), true);
+});
+
+test('记忆作用域：仅当角色只有一个单聊会话时才读世界书记忆', () => {
+  const one = [{ id: 's1', characterId: 'c', preview: 'hi' }];
+  assert.equal(memorySummary.countCharacterSessions(one, 'c'), 1);
+  assert.equal(memorySummary.isSessionScopedMemory(one, 'c'), false);
+
+  // 出现第二个单聊会话即一律会话级，世界书记忆不再共享（避免串味）
+  const two = [
+    { id: 's1', characterId: 'c', preview: 'hi' },
+    { id: 's2', characterId: 'c' },
+  ];
+  assert.equal(memorySummary.countCharacterSessions(two, 'c'), 2);
+  assert.equal(memorySummary.isSessionScopedMemory(two, 'c'), true);
+
+  // 群聊不计入单聊会话数；其它角色的会话也不计入
+  assert.equal(
+    memorySummary.countCharacterSessions([...two, { id: 'g', characterId: 'c', type: 'group' }], 'c'),
+    2
+  );
+  assert.equal(memorySummary.countCharacterSessions(two, 'other'), 0);
+  assert.equal(memorySummary.isSessionScopedMemory(two, 'other'), false);
 });
 
 test('记忆预算按向量命中与否分账且不会超支', () => {
@@ -361,7 +383,9 @@ test('preview 为空但已推进边界或当前有消息的会话仍计入记忆
     memorySummary.countCharacterMemories(sessions, 'c', { id: 's1' }, [{ role: 'user', text: 'hi' }]),
     2
   );
-  assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c', { id: 's1' }, [{ role: 'user', text: 'hi' }]), true);
+  // 该角色有 2 个单聊会话（s1、s2；s3 群聊不计）→ 会话级
+  assert.equal(memorySummary.countCharacterSessions(sessions, 'c'), 2);
+  assert.equal(memorySummary.isSessionScopedMemory(sessions, 'c'), true);
 });
 
 test('摘要失效规划与幸存会话摘要选择不误伤边界后的消息', () => {

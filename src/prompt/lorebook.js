@@ -1,5 +1,6 @@
 // 显式带 .js 扩展名：Metro 与 Node ESM 都能解析，便于对世界书匹配逻辑做单测
 import { compileRegexCached, isUnsafeRegexPattern } from './regexEngine.js';
+import { MEMORY_SUMMARY_PREFIX } from '../memory/memoryConstants.js';
 
 const DEFAULT_SCAN_DEPTH = 4;
 
@@ -107,8 +108,15 @@ export function isEntryActive(entry, messageTexts) {
   return rollProbability(entry);
 }
 
+// 记忆总结条目也存于角色世界书（comment 以「记忆总结」开头），但它属于会话记忆，
+// 必须只经 [记忆摘要] 作用域注入；若按普通关键词世界书注入，会绕过会话隔离、跨会话串味。
+export function isMemorySummaryEntry(entry) {
+  return String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX);
+}
+
 export function collectActiveWorldInfo(character, historyMessages, latestUserText) {
-  const entries = Array.isArray(character?.worldInfo) ? character.worldInfo : [];
+  const entries = (Array.isArray(character?.worldInfo) ? character.worldInfo : [])
+    .filter(entry => !isMemorySummaryEntry(entry));
   if (entries.length === 0) {
     return { before: [], after: [], depth: [] };
   }
