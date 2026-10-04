@@ -3,16 +3,21 @@
 
 import { StyleSheet } from 'react-native';
 
-import { BUBBLE_STYLES, hexToRgba } from '../theme/themes.js';
+import { hexToRgba } from '../theme/themes.js';
+import { resolveBubbleStyle } from './bubbleStyle.js';
 
 export const createChatStyles = (theme, fonts, tokens, options = {}) => {
-  const bubbleStyle = BUBBLE_STYLES.includes(options.bubbleStyle) ? options.bubbleStyle : 'rounded';
-  const plainBubble = bubbleStyle === 'plain';
-  const cardBubble = bubbleStyle === 'card';
-  // 圆润：大圆角 + 尾角；卡片：统一中等圆角、无尾角；无底纹：直角透明、只靠对齐区分。
-  const bubbleRadius = plainBubble ? 0 : (cardBubble ? tokens.radius.md : tokens.radius.bubble);
-  const tailRadius = (plainBubble || cardBubble) ? bubbleRadius : tokens.radius.tail;
-  const userTextColor = plainBubble ? theme.colors.text : theme.colors.primaryContrast;
+  const {
+    plain: plainBubble,
+    userTextColor,
+    bubbleRadius,
+    tailRadius,
+    bubblePaddingHorizontal,
+    bubblePaddingVertical,
+    hasShadow,
+    userBackground,
+    assistantBackground,
+  } = resolveBubbleStyle(options.bubbleStyle, theme, tokens);
   return StyleSheet.create({
   aiNoticeBar: {
     paddingHorizontal: 16,
@@ -712,12 +717,12 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   bubble: {
     maxWidth: '95%',
     borderRadius: bubbleRadius,
-    paddingHorizontal: plainBubble ? 0 : 14,
-    paddingVertical: plainBubble ? 2 : 10,
-    ...(plainBubble ? {} : tokens.elevation(1, theme)),
-    shadowColor: plainBubble ? 'transparent' : theme.colors.primary,
+    paddingHorizontal: bubblePaddingHorizontal,
+    paddingVertical: bubblePaddingVertical,
+    ...(hasShadow ? tokens.elevation(1, theme) : {}),
+    shadowColor: hasShadow ? theme.colors.primary : 'transparent',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: plainBubble ? 0 : (theme.id === 'light' ? 0.06 : 0.12),
+    shadowOpacity: hasShadow ? (theme.id === 'light' ? 0.06 : 0.12) : 0,
     shadowRadius: 6,
   },
   bubbleBounded: {
@@ -731,7 +736,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     alignSelf: 'stretch',
   },
   userBubble: {
-    backgroundColor: plainBubble ? 'transparent' : theme.colors.primary,
+    backgroundColor: userBackground,
     borderBottomRightRadius: tailRadius,
     ...(plainBubble ? {} : {
       shadowColor: theme.colors.primary,
@@ -741,7 +746,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     }),
   },
   assistantBubble: {
-    backgroundColor: plainBubble ? 'transparent' : theme.colors.bubbleAssistant,
+    backgroundColor: assistantBackground,
     borderBottomLeftRadius: tailRadius,
     ...(plainBubble ? {} : {
       shadowColor: theme.colors.text,
