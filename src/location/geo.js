@@ -1,6 +1,10 @@
 // 位置相关的纯函数：坐标格式、WGS-84 → GCJ-02（火星坐标）转换、注入对话的位置行。
 // 默认高德栅格瓦片是 GCJ-02，用 GPS（WGS-84）直接标注会有数百米偏移，展示前需转换。
 // 全部为纯计算，供 Node 直测。
+//
+// 注入隐私设计：发给角色的位置**尽可能模糊**——优先用反地理编码的区县级描述
+// （`coarse`，如「北京市东城区」），旧数据没有 coarse 时退全量描述，再退模糊坐标
+// （2 位小数 ≈ 1.1km 网格）。精确坐标只用于本地地图标注，不进对话。
 
 const PI = Math.PI;
 const AXIS = 6378245.0;
@@ -74,15 +78,24 @@ export function describeLocation(location) {
 // 会自信地说错，宁可这一轮不注入（取点失败保留旧位置只服务于地图显示）。
 export const LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 
+// 注入对话的坐标兜底精度：2 位小数 ≈ 1.1km 网格。够角色知道「大概在哪」，
+// 又不足以定位到楼栋（精确坐标只留在本地地图上）。
+export const INJECT_COORD_DIGITS = 2;
+
 // 注入对话系统提示的位置行；未开启、无有效位置或位置过旧返回空串
 //（保证关闭态与现状一致）。`maxAgeMs` 传 null/Infinity 可显式不限龄（测试用）。
 export function buildLocationText(enabled, location, { maxAgeMs = LOCATION_MAX_AGE_MS, now = Date.now() } = {}) {
   if (!enabled) return '';
-  const description = describeLocation(location);
+  const source = location && typeof location === 'object' ? location : null;
+  if (!source) return '';
+  // 模糊优先：区县级 coarse → 旧数据退全量描述 → 再退模糊坐标（都取不到才空）。
+  const description = String(source.coarse || '').trim()
+    || String(source.description || '').trim()
+    || formatCoordinate(source.latitude, source.longitude, INJECT_COORD_DIGITS);
   if (!description) return '';
   const unlimited = maxAgeMs === null || maxAgeMs === undefined || !Number.isFinite(maxAgeMs);
   if (!unlimited) {
-    const updatedAt = Number(location && location.updatedAt);
+    const updatedAt = Number(source.updatedAt);
     // 没有可信时间戳的位置无法判龄，按过期处理（宁缺毋错）。
     if (!Number.isFinite(updatedAt) || updatedAt <= 0) return '';
     if (now - updatedAt > maxAgeMs) return '';
