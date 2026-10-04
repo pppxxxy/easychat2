@@ -47,17 +47,23 @@ export default function RealMapView() {
     return () => { alive = false; };
   }, []);
 
-  const html = useMemo(
-    () => buildRealMapHtml({ tileUrl: settings && settings.tileUrl ? settings.tileUrl : undefined }),
-    [settings]
-  );
+  // html 只依赖瓦片模板。若依赖整个 settings，开关/位置每次变化都会重建 source，
+  // WebView 的 source 一变就可能整页重载——而 webReady 还是 true，标记会被注进旧文档。
+  const tileUrl = settings && settings.tileUrl ? settings.tileUrl : undefined;
+  const html = useMemo(() => buildRealMapHtml({ tileUrl }), [tileUrl]);
+
+  // 换了瓦片模板（source 变化 → 页面会重载）时先回到「未就绪」；
+  // 等 onLoadEnd 把 webReady 置回 true，下面的标记注入才会执行到新文档上。
+  useEffect(() => {
+    setWebReady(false);
+  }, [html]);
 
   const inject = useCallback(script => {
     const ref = webRef.current;
     if (ref && ref.injectJavaScript) ref.injectJavaScript(`${script};true;`);
   }, []);
 
-  // 位置/就绪变化时把标记（转 GCJ-02）同步进 WebView。
+  // 位置/就绪变化时把标记（转 GCJ-02）同步进 WebView；页面重载完成后（webReady 回 true）会重新注入。
   useEffect(() => {
     const last = settings && settings.last;
     if (!webReady || !last) return;

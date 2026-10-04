@@ -70,9 +70,22 @@ export function describeLocation(location) {
   return formatCoordinate(source.latitude, source.longitude);
 }
 
-// 注入对话系统提示的位置行；未开启或无有效位置返回空串（保证关闭态与现状一致）。
-export function buildLocationText(enabled, location) {
+// 位置注入的默认年龄上限。过期位置不如没有位置：模型拿到「三天前」的坐标
+// 会自信地说错，宁可这一轮不注入（取点失败保留旧位置只服务于地图显示）。
+export const LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
+
+// 注入对话系统提示的位置行；未开启、无有效位置或位置过旧返回空串
+//（保证关闭态与现状一致）。`maxAgeMs` 传 null/Infinity 可显式不限龄（测试用）。
+export function buildLocationText(enabled, location, { maxAgeMs = LOCATION_MAX_AGE_MS, now = Date.now() } = {}) {
   if (!enabled) return '';
   const description = describeLocation(location);
-  return description ? `[当前位置] ${description}` : '';
+  if (!description) return '';
+  const unlimited = maxAgeMs === null || maxAgeMs === undefined || !Number.isFinite(maxAgeMs);
+  if (!unlimited) {
+    const updatedAt = Number(location && location.updatedAt);
+    // 没有可信时间戳的位置无法判龄，按过期处理（宁缺毋错）。
+    if (!Number.isFinite(updatedAt) || updatedAt <= 0) return '';
+    if (now - updatedAt > maxAgeMs) return '';
+  }
+  return `[当前位置] ${description}`;
 }

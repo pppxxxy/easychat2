@@ -43,11 +43,23 @@ test('formatCoordinate 与 describeLocation', () => {
   assert.equal(describeLocation(undefined), '');
 });
 
-test('buildLocationText：开关与空位置矩阵', () => {
-  const last = { latitude: 39.9042, longitude: 116.4074, description: '北京市东城区' };
-  assert.equal(buildLocationText(true, last), '[当前位置] 北京市东城区');
-  assert.equal(buildLocationText(true, { latitude: 1.5, longitude: 2.5 }), '[当前位置] 1.500000, 2.500000');
-  assert.equal(buildLocationText(false, last), '', '关闭时不注入');
-  assert.equal(buildLocationText(true, null), '', '无位置不注入');
-  assert.equal(buildLocationText(true, { latitude: Number.NaN, longitude: Number.NaN }), '');
+test('buildLocationText：开关、空位置与位置年龄矩阵', () => {
+  const now = 1_700_000_000_000;
+  const fresh = { latitude: 39.9042, longitude: 116.4074, description: '北京市东城区', updatedAt: now - 60_000 };
+  assert.equal(buildLocationText(true, fresh, { now }), '[当前位置] 北京市东城区', '默认 30 分钟内的新位置照常注入');
+  assert.equal(buildLocationText(true, { latitude: 1.5, longitude: 2.5, updatedAt: now }, { now }), '[当前位置] 1.500000, 2.500000');
+  assert.equal(buildLocationText(false, fresh, { now }), '', '关闭时不注入');
+  assert.equal(buildLocationText(true, null, { now }), '', '无位置不注入');
+  assert.equal(buildLocationText(true, { latitude: Number.NaN, longitude: Number.NaN, updatedAt: now }, { now }), '');
+});
+
+test('buildLocationText：过期/无时间戳的位置不注入（宁缺毋错）', () => {
+  const now = 1_700_000_000_000;
+  const at = ms => ({ latitude: 39.9042, longitude: 116.4074, description: '北京市东城区', updatedAt: now - ms });
+  assert.equal(buildLocationText(true, at(31 * 60_000), { now }), '', '默认上限 30 分钟，超龄不注入');
+  assert.equal(buildLocationText(true, at(29 * 60_000), { now }), '[当前位置] 北京市东城区', '上限边缘内照常注入');
+  assert.equal(buildLocationText(true, at(60_000), { now, maxAgeMs: 30_000 }), '', '上限可调');
+  assert.equal(buildLocationText(true, at(60_000), { now, maxAgeMs: null }), '[当前位置] 北京市东城区', '显式不限龄可用');
+  assert.equal(buildLocationText(true, { latitude: 1.5, longitude: 2.5 }, { now }), '', '缺 updatedAt 无法判龄 → 视为过期');
+  assert.equal(buildLocationText(true, { latitude: 1.5, longitude: 2.5, updatedAt: 0 }, { now }), '', 'updatedAt=0 视为过期');
 });

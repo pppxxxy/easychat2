@@ -65,3 +65,15 @@ test('RealMapView：先授权取点成功才落盘 enabled，关闭时清除最�
   assert.ok(/enabled:\s*false,\s*last:\s*null/.test(disable),
     '关闭开关时必须同时清除最近位置，避免旧位置留在盘上等待被注入');
 });
+
+test('RealMapView：html 只依赖瓦片模板，换模板后必须回退 webReady 再注入', () => {
+  const source = read('src/worldMap/RealMapView.js');
+  const htmlMemo = source.slice(source.indexOf('const tileUrl'), source.indexOf('const inject'));
+  assert.ok(htmlMemo.length > 0, '必须能定位到 html 的 useMemo');
+  assert.ok(htmlMemo.includes('[tileUrl]'), 'html memo 依赖必须收窄到 tileUrl');
+  assert.ok(!/\[settings\]/.test(htmlMemo),
+    '不得以整个 settings 作为 html 依赖：开关/位置每次变化都会重建 source → WebView 整页重载');
+  assert.ok(/useEffect\(\(\) => \{\s*setWebReady\(false\);\s*\}, \[html\]\)/.test(source),
+    'html 变化时必须先把 webReady 置回 false，等 onLoadEnd 后再向新文档注入标记');
+  assert.ok(source.includes('onLoadEnd={() => setWebReady(true)}'), 'onLoadEnd 负责把 webReady 置回 true');
+});
