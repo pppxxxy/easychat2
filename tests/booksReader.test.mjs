@@ -98,3 +98,34 @@ test('Markdown 渲染：按 format 切换渲染模式，进度/评论统一到�
   const lib = readSource('src/books/library.js');
   assert.ok(lib.includes('format: String(source.format'), '书籍条目归一 format');
 });
+
+test('导入失败提示按 code 走文案键，不渲染原始 error.message', () => {
+  const screen = readSource('src/books/BookScreen.js');
+  assert.ok(!screen.includes('error.message'),
+    '不得把 error.message 渲染给用户：抛错信息面向开发者且是中文，会漏进英文界面');
+
+  // 精确钉住导入处理体本身（避免只靠全文件扫描——注释里出现同名字样会造成假红/假绿）。
+  const handler = screen.slice(screen.indexOf('const handleImport'), screen.indexOf('const handleOpen'));
+  assert.ok(handler.length > 0, '必须能定位到 handleImport 处理体');
+  assert.ok(!handler.includes('error.message'), 'handleImport 内不得把原始报错文本交给 Alert');
+
+  const keys = [
+    'books.import.encoding.body',
+    'books.import.empty.title',
+    'books.import.empty.body',
+  ];
+  for (const key of keys) {
+    assert.ok(handler.includes(`t('${key}')`), `handleImport 必须使用 ${key}`);
+  }
+  assert.ok(handler.includes("code === 'EMPTY_BOOK'"), '空内容错误要有独立分支，而不是落到泛化提示');
+
+  const imp = readSource('src/books/importBook.js');
+  assert.ok(/error\.code = 'EMPTY_BOOK'/.test(imp), '空内容错误必须带 code 才能被上层的文案分支识别');
+
+  for (const locale of ['zh-CN', 'en']) {
+    const table = readSource(`src/i18n/locales/${locale}.js`);
+    for (const key of keys) {
+      assert.ok(table.includes(`'${key}'`), `${locale} 缺少文案键 ${key}`);
+    }
+  }
+});
