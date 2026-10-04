@@ -101,6 +101,7 @@ export default function MusicScreen() {
     setCharacterId,
     generate,
     retry,
+    audioSupported,
   } = useMusicComments({ song: current, characters, defaultCharacterId: activeId });
 
   const reload = useCallback(async () => {
@@ -406,6 +407,12 @@ export default function MusicScreen() {
             <Text style={styles.commentsTitle}>{t('music.comments.title')}</Text>
             {generating ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
           </View>
+          {audioSupported === false ? (
+            <View style={styles.noAudioHint}>
+              <Ionicons name="volume-mute-outline" size={14} color={theme.colors.textFaint} />
+              <Text style={styles.noAudioHintText}>{t('music.comments.noAudio')}</Text>
+            </View>
+          ) : null}
           <Text style={styles.triggerTitle}>{t('music.comments.characterLabel')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.triggerScroll}>
             {characters.map(item => {
@@ -579,6 +586,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 8,
   },
   errorText: { color: theme.colors.danger || theme.colors.text, fontSize: fonts.scaled(12), flex: 1, marginRight: 8 },
+  noAudioHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  noAudioHintText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), flex: 1, lineHeight: fonts.scaled(17) },
   emptyComments: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 8, lineHeight: fonts.scaled(17) },
   commentCard: {
     borderRadius: tokens.radius.sm,

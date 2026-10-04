@@ -9,13 +9,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
 import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import {
+  getActiveLocalModel,
   getApiConfigs,
   getEnabledGlobalPresetPrompts,
+  getLocalModelSettings,
   getUserProfile,
 } from '../storage.js';
+import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 
 import { appendMusicComment, getMusicComments } from './comments.js';
-import { buildOpeningCommentPrompt, buildTriggerCommentPrompt } from './commentPrompts.js';
+import { buildOpeningCommentPrompt, buildTriggerCommentPrompt, resolveAudioSupport } from './commentPrompts.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
@@ -25,6 +28,8 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [characterId, setCharacterId] = useState(String(defaultCharacterId || ''));
+  // null = 能力未知（尚未读出配置）；false = 当前来源不具备听音频能力。
+  const [audioSupported, setAudioSupported] = useState(null);
   const { t } = useTranslation();
 
   const songRef = useRef(song);
@@ -59,6 +64,23 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
         if (!cancelled) setComments(list);
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [songId]);
+
+  // 音频能力探测：面板打开/切歌时读一次在线配置与本地模型能力，供「听不到音频」提示。
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      getApiConfigs().catch(() => null),
+      getLocalModelSettings().catch(() => null),
+      getActiveLocalModel().catch(() => null),
+    ]).then(([apiConfig, localSettings, localItem]) => {
+      if (cancelled) return;
+      const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
+      setAudioSupported(resolveAudioSupport(apiConfig, localMedia));
+    });
     return () => {
       cancelled = true;
     };
@@ -158,5 +180,6 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
     setCharacterId,
     generate,
     retry,
-  }), [comments, generating, error, characterId, generate, retry]);
+    audioSupported,
+  }), [comments, generating, error, characterId, generate, retry, audioSupported]);
 }

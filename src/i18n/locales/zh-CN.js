@@ -237,6 +237,7 @@ export const zhCN = {
   'music.comments.empty.noCharacter': '选择一位角色，打点或开播时它会陪你聊。',
   'music.comments.empty': '还没有评论。开播时会自动开场，在进度条上打点，{character}会在这里聊到那个位置。',
   'music.comments.quote': '接话',
+  'music.comments.noAudio': '当前模型不具备听音频的多模态能力，角色听不到这首歌，只能根据歌名与播放进度来评论。',
   'music.comments.quoteFailed.title': '无法接话',
   'music.comments.quoteFailed.body': '没能打开该角色的会话，请稍后重试。',
   'music.error.noCharacter': '请先选择一位一起听歌的角色',

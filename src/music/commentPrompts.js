@@ -43,3 +43,13 @@ export function buildOpeningCommentPrompt({ songName = '', durationMs = 0 } = {}
     '请用一两句口语化的中文自然地开场，说出你对这首歌的第一感受或想陪用户听歌的心情；不要复述进度信息，不要使用任何格式标记，直接输出要说的话。',
   ].join('');
 }
+
+// 当前来源是否具备「听音频」能力：在线配置标记 supportsAudio，或本地活动模型带
+// 音频 mmproj 且用户开启媒体输入（localMedia.audio 已含开关判定）。纯函数便于 Node 直测。
+// 注意：一起听歌的评论只送歌名+进度，本函数仅用于界面提示「角色听不到音频」。
+export function resolveAudioSupport(apiConfig, localMedia) {
+  const current = apiConfig && Array.isArray(apiConfig.configs)
+    ? (apiConfig.configs.find(item => item.id === apiConfig.activeId) || apiConfig.configs[0])
+    : null;
+  return !!(current && current.supportsAudio === true) || !!(localMedia && localMedia.audio);
+}

@@ -52,3 +52,31 @@ test('AppContext + ChatScreen：pendingQuote 生产/消费对称', () => {
   assert.ok(/consumePendingQuote\(\)[\s\S]{0,120}setQuoteTarget\(/.test(chat),
     '消费后写入引用条，且一次性');
 });
+
+test('resolveAudioSupport：在线/本地能力与开关的组合判定', async () => {
+  const { resolveAudioSupport } = await import('../src/music/commentPrompts.js');
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: true }], activeId: 'a' }, null), true,
+    '在线配置标记 supportsAudio 即视为可听音频');
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: false }], activeId: 'a' }, null), false,
+    '在线配置未标记音频能力时不支持');
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }, { id: 'b', supportsAudio: true }], activeId: 'b' }, null), true,
+    '按 activeId 选中配置判定');
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }], activeId: 'missing' }, null), false,
+    'activeId 失配时退回首个配置');
+  assert.equal(resolveAudioSupport(null, { audio: true }), true, '本地模型带音频能力时支持');
+  assert.equal(resolveAudioSupport(null, { audio: false }), false, '本地模型无音频能力时不支持');
+  assert.equal(resolveAudioSupport(undefined, undefined), false, '都拿不到能力时按不支持处理');
+});
+
+test('听歌面板：无音频能力时给出提示接线', () => {
+  const source = readSource('src/music/MusicScreen.js');
+  assert.ok(source.includes('audioSupported'), '面板读取音频能力');
+  assert.ok(source.includes("t('music.comments.noAudio')"), '无音频能力时渲染提示文案');
+  const hook = readSource('src/music/useMusicComments.js');
+  assert.ok(hook.includes('resolveAudioSupport'), 'hook 复用纯函数判定');
+  assert.ok(hook.includes('getLocalModelMediaCapabilities'), '本地模型能力与聊天同口径');
+  const zh = readSource('src/i18n/locales/zh-CN.js');
+  const en = readSource('src/i18n/locales/en.js');
+  assert.ok(zh.includes("'music.comments.noAudio'") && en.includes("'music.comments.noAudio'"),
+    '中英文案齐备');
+});

@@ -233,6 +233,7 @@ export const en = {
   'music.comments.empty.noCharacter': 'Pick a character; they will chat with you at markers or when playback starts.',
   'music.comments.empty': 'No comments yet. Playback opens with a greeting; add markers on the progress bar and {character} will chat about those moments.',
   'music.comments.quote': 'Reply to this',
+  'music.comments.noAudio': 'The current model has no audio multimodal capability, so the character cannot hear this song and can only comment from its title and playback position.',
   'music.comments.quoteFailed.title': 'Could not open chat',
   'music.comments.quoteFailed.body': 'Could not open this character\'s session. Please retry later.',
   'music.error.noCharacter': 'Please pick a character to listen with',
