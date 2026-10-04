@@ -1,11 +1,15 @@
 package com.pppxxxy.easychat2.screenoverlay
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
@@ -39,6 +43,13 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             reactContext.removeActivityEventListener(this)
         } catch (error: Exception) {}
         if (contextRef?.get() === reactContext) contextRef = null
+        // JS 实例销毁（热重载/退出）时不能留下孤儿前台服务 + 悬浮窗。
+        // RN 0.81 只回调 invalidate()、不再回调 onCatalystInstanceDestroy()（与
+        // ShellExecutorModule 同一个坑）。stopService 走 OverlayService.onDestroy
+        // 统一释放采集、悬浮窗与前台通知；服务未在运行时是安全空操作。
+        try {
+            reactContext.stopService(Intent(reactContext, OverlayService::class.java))
+        } catch (error: Exception) {}
         super.invalidate()
     }
 
@@ -117,11 +128,27 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
                 putExtra(OverlayService.EXTRA_RESULT_CODE, resultCode)
                 putExtra(OverlayService.EXTRA_RESULT_DATA, data)
             }
+            requestNotificationPermissionIfNeeded()
             ContextCompat.startForegroundService(reactContext, intent)
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("ERR_START_OVERLAY", e.message, e)
         }
+    }
+
+    // Android 13+ 的通知权限需要运行时请求；不请求的话前台服务的常驻通知不显示
+    // （服务本身仍运行）。请求是异步的：不阻塞启动，用户拒绝也只是通知被抑制，
+    // 悬浮窗与截屏功能不受影响。
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val activity = currentActivity ?: return
+        val granted = ContextCompat.checkSelfPermission(reactContext, Manifest.permission.POST_NOTIFICATIONS)
+        if (granted == PackageManager.PERMISSION_GRANTED) return
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_POST_NOTIFICATIONS
+        )
     }
 
     @ReactMethod
@@ -166,6 +193,7 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
 
     companion object {
         private const val REQUEST_CAPTURE_PERMISSION = 0x5C01
+        private const val REQUEST_POST_NOTIFICATIONS = 0x5C03
         private const val TAG = "ScreenOverlay"
         @Volatile private var contextRef: WeakReference<ReactApplicationContext>? = null
 

@@ -16,6 +16,7 @@ const require = createRequire(import.meta.url);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const KOTLIN_DIR = path.join(HERE, '..', 'plugins', 'screenOverlay', 'android');
 const KOTLIN_PACKAGE = 'com.pppxxxy.easychat2.screenoverlay';
+const kotlinSource = name => readKotlinFiles(KOTLIN_DIR).find(item => item.file === name).source;
 
 const plugin = require('../plugins/withScreenOverlay.js');
 const {
@@ -35,9 +36,40 @@ test('权限清单覆盖悬浮窗与前台服务（mediaProjection）', () => {
     'android.permission.SYSTEM_ALERT_WINDOW',
     'android.permission.FOREGROUND_SERVICE',
     'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
+    // Android 13+ 前台服务的常驻通知必须拿到运行时通知权限才可见（Play 政策同样要求）。
+    'android.permission.POST_NOTIFICATIONS',
   ]) {
     assert.ok(PERMISSIONS.includes(required), `缺少权限 ${required}`);
   }
+});
+
+test('投屏被系统停止（onStop）必须整体收口：stopSelf 走 onDestroy，不能只释放采集', () => {
+  const module_ = kotlinSource('OverlayService.kt');
+  assert.ok(
+    /override fun onStop\(\) \{[\s\S]{0,400}?stopSelf\(\)/.test(module_),
+    'MediaProjection.onStop 必须调用 stopSelf()（onDestroy 统一释放采集/悬浮窗/前台服务/状态）',
+  );
+  const stopBlock = module_.slice(module_.indexOf('override fun onStop()'), module_.indexOf('}, Handler(Looper.getMainLooper())'));
+  assert.ok(!/^\s*releaseCapture\(\)\s*$/m.test(stopBlock),
+    'onStop 里不得只调 releaseCapture()：那会留下孤儿悬浮窗与前台服务');
+});
+
+test('JS 实例销毁（invalidate）必须停掉 OverlayService，不留孤儿前台服务', () => {
+  const module_ = kotlinSource('ScreenOverlayModule.kt');
+  const invalidate = module_.slice(module_.indexOf('override fun invalidate()'), module_.indexOf('override fun onActivityResult'));
+  assert.ok(invalidate.length > 0, '必须能定位到 invalidate()');
+  assert.ok(
+    invalidate.includes('reactContext.stopService(Intent(reactContext, OverlayService::class.java))'),
+    'invalidate() 必须停服务：RN 0.81 只回调 invalidate()、不再回调 onCatalystInstanceDestroy()',
+  );
+});
+
+test('Android 13+ 启动悬浮窗时必须请求运行时通知权限', () => {
+  const module_ = kotlinSource('ScreenOverlayModule.kt');
+  assert.ok(module_.includes('Manifest.permission.POST_NOTIFICATIONS'), '模块内要有通知权限请求');
+  assert.ok(module_.includes('Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU'), '仅 Android 13+ 需要请求');
+  const start = module_.slice(module_.indexOf('fun startOverlay('), module_.indexOf('fun stopOverlay('));
+  assert.ok(start.includes('requestNotificationPermissionIfNeeded()'), 'startOverlay 必须先请求通知权限再启前台服务');
 });
 
 test('applyPermissions 能注入且幂等', () => {

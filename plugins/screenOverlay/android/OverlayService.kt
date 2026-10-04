@@ -308,7 +308,11 @@ class OverlayService : Service() {
         projection = mp
         mp.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                releaseCapture()
+                // 投屏被系统停止（锁屏、系统弹窗点「停止」、被其他应用抢占）时，
+                // 只 releaseCapture() 会留下孤儿悬浮窗 + 前台服务，UI 仍显示「已开启」
+                // 而采集已死。stopSelf() 走 onDestroy 统一收口（释放采集、移除悬浮窗、
+                // 停前台通知、复位 isRunning 并广播状态）；不能在回调里再 projection.stop()。
+                stopSelf()
             }
         }, Handler(Looper.getMainLooper()))
 

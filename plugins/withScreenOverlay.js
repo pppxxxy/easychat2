@@ -17,6 +17,9 @@ const PERMISSIONS = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
+  // Android 13+ 前台服务的常驻通知需要运行时通知权限才可见；清单声明 + 模块内
+  // startOverlay 时的运行时请求（ScreenOverlayModule.requestNotificationPermissionIfNeeded）。
+  'android.permission.POST_NOTIFICATIONS',
 ];
 
 const SERVICE_NAME = '.screenoverlay.OverlayService';
