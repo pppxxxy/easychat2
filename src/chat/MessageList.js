@@ -200,6 +200,7 @@ function MessageList({
                       isActiveMatch={focusedMessageId === message.id}
                       fullWidth={chatOptions.fullWidth}
                       richHtmlEnabled={chatOptions.richHtml !== false}
+                      bubbleStyle={chatOptions.bubbleStyle || 'rounded'}
                       onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}
                       onStartSelection={richInteractive ? startMessageSelection : undefined}
                       thinkingDisplay={thinkingDisplay}

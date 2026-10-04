@@ -195,6 +195,9 @@ export const THEMES = [
 
 export const DEFAULT_THEME_ID = 'dark';
 
+// 聊天气泡风格偏好（存储于聊天设置）：圆润（默认）/ 卡片 / 无底纹。
+export const BUBBLE_STYLES = ['rounded', 'card', 'plain'];
+
 export function hexToRgba(hex, alpha = 1) {
   if (!hex || typeof hex !== 'string') return `rgba(108,99,255,${alpha})`;
   const clean = hex.replace('#', '').trim();

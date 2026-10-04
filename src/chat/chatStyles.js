@@ -3,9 +3,17 @@
 
 import { StyleSheet } from 'react-native';
 
-import { hexToRgba } from '../theme/themes.js';
+import { BUBBLE_STYLES, hexToRgba } from '../theme/themes.js';
 
-export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
+export const createChatStyles = (theme, fonts, tokens, options = {}) => {
+  const bubbleStyle = BUBBLE_STYLES.includes(options.bubbleStyle) ? options.bubbleStyle : 'rounded';
+  const plainBubble = bubbleStyle === 'plain';
+  const cardBubble = bubbleStyle === 'card';
+  // 圆润：大圆角 + 尾角；卡片：统一中等圆角、无尾角；无底纹：直角透明、只靠对齐区分。
+  const bubbleRadius = plainBubble ? 0 : (cardBubble ? tokens.radius.md : tokens.radius.bubble);
+  const tailRadius = (plainBubble || cardBubble) ? bubbleRadius : tokens.radius.tail;
+  const userTextColor = plainBubble ? theme.colors.text : theme.colors.primaryContrast;
+  return StyleSheet.create({
   aiNoticeBar: {
     paddingHorizontal: 16,
     paddingTop: 6,
@@ -703,13 +711,13 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   bubble: {
     maxWidth: '95%',
-    borderRadius: tokens.radius.bubble,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    ...tokens.elevation(1, theme),
-    shadowColor: theme.colors.primary,
+    borderRadius: bubbleRadius,
+    paddingHorizontal: plainBubble ? 0 : 14,
+    paddingVertical: plainBubble ? 2 : 10,
+    ...(plainBubble ? {} : tokens.elevation(1, theme)),
+    shadowColor: plainBubble ? 'transparent' : theme.colors.primary,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: theme.id === 'light' ? 0.06 : 0.12,
+    shadowOpacity: plainBubble ? 0 : (theme.id === 'light' ? 0.06 : 0.12),
     shadowRadius: 6,
   },
   bubbleBounded: {
@@ -723,20 +731,24 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignSelf: 'stretch',
   },
   userBubble: {
-    backgroundColor: theme.colors.primary,
-    borderBottomRightRadius: tokens.radius.tail,
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: theme.id === 'light' ? 0.18 : 0.28,
-    shadowRadius: 8,
+    backgroundColor: plainBubble ? 'transparent' : theme.colors.primary,
+    borderBottomRightRadius: tailRadius,
+    ...(plainBubble ? {} : {
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: theme.id === 'light' ? 0.18 : 0.28,
+      shadowRadius: 8,
+    }),
   },
   assistantBubble: {
-    backgroundColor: theme.colors.bubbleAssistant,
-    borderBottomLeftRadius: tokens.radius.tail,
-    shadowColor: theme.colors.text,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: theme.id === 'light' ? 0.04 : 0.08,
-    shadowRadius: 5,
+    backgroundColor: plainBubble ? 'transparent' : theme.colors.bubbleAssistant,
+    borderBottomLeftRadius: tailRadius,
+    ...(plainBubble ? {} : {
+      shadowColor: theme.colors.text,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: theme.id === 'light' ? 0.04 : 0.08,
+      shadowRadius: 5,
+    }),
   },
   bubbleMatch: {
     borderWidth: 2,
@@ -834,7 +846,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontWeight: '700',
   },
   messageText: {
-    color: theme.colors.text,
+    color: userTextColor,
     fontSize: 15,
     lineHeight: 21,
   },
@@ -1154,3 +1166,4 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     shadowRadius: 7,
   },
 });
+};

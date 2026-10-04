@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { isKnownImageProvider } from '../imageGen/providers.js';
 import { normalizeImagePosition } from '../imageGen/inlineImagePrompt.js';
-import { THEMES } from '../theme/themes.js';
+import { BUBBLE_STYLES, THEMES } from '../theme/themes.js';
 import {
   backupCorruptValue,
   readJson,
@@ -160,6 +160,8 @@ function normalizeChatOptions(raw) {
     keepDraft: source.keepDraft === true,
     // 时间感知：开启后在每次请求系统提示里附上当前日期时间；缺省关闭。
     timeAware: source.timeAware === true,
+    // 气泡风格：圆润（默认）/ 卡片 / 无底纹；非法值回落默认。
+    bubbleStyle: BUBBLE_STYLES.includes(source.bubbleStyle) ? source.bubbleStyle : 'rounded',
   };
 }
 

@@ -332,7 +332,7 @@ export default function ChatScreen() {
    const stickerSaveLockRef = useRef(false);
    const stickerPickerLockRef = useRef(false);
    const pendingStickerResultRef = useRef(null);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
   const chatOptionsRef = useRef(chatOptions);
   chatOptionsRef.current = chatOptions;
 

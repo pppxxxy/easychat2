@@ -204,3 +204,23 @@ test('音乐片段设置：默认 30 秒 / 16kHz，非法值归一，读写往�
     '损坏回退默认');
   store.delete('@easychat2_music_clip');
 });
+
+test('聊天选项 bubbleStyle：白名单归一，非法回退圆润', async () => {
+  store.delete('@easychat2_chat_options');
+  const def = await settings.getChatOptions();
+  assert.equal(def.bubbleStyle, 'rounded', '缺省圆润');
+
+  for (const style of ['rounded', 'card', 'plain']) {
+    const saved = await settings.saveChatOptions({ ...def, bubbleStyle: style });
+    assert.equal(saved.bubbleStyle, style, `合法值 ${style} 保留`);
+  }
+  const bad = await settings.saveChatOptions({ ...def, bubbleStyle: 'neon' });
+  assert.equal(bad.bubbleStyle, 'rounded', '非法值归一为 rounded');
+
+  // 写 bubbleStyle 不得抹掉其它聊天选项
+  const next = await settings.saveChatOptions({ ...def, bubbleStyle: 'card', streaming: false, timeAware: true });
+  assert.equal(next.streaming, false);
+  assert.equal(next.timeAware, true);
+  assert.equal(next.bubbleStyle, 'card');
+  store.delete('@easychat2_chat_options');
+});

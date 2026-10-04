@@ -54,6 +54,7 @@ export default function RichHtmlMessage({
   fullWidth = false,
   allowFullscreenVideo = false,
   hostHeight = 0,
+  textColor,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -86,11 +87,11 @@ export default function RichHtmlMessage({
   );
   const document = useMemo(() => buildRichHtmlDocument({
     bodyHtml: html,
-    textColor: theme.colors.bubbleAssistantText,
+    textColor: textColor || theme.colors.bubbleAssistantText,
     linkColor: theme.colors.primary,
     fontSize: fonts.scaled(15),
     heightToken,
-  }), [heightToken, html, theme, fonts]);
+  }), [heightToken, html, theme, fonts, textColor]);
   const commandBridge = useMemo(
     () => buildRichHtmlCommandBridge(commandToken),
     [commandToken]

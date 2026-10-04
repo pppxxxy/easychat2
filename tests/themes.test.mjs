@@ -117,3 +117,17 @@ test('chatStyles 不再有硬编码颜色（回归护栏）', async () => {
   const hexes = source.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
   assert.deepEqual(hexes, [], `chatStyles 出现硬编码颜色：${hexes.join(',')}`);
 });
+
+test('BUBBLE_STYLES 单一来源且被聊天样式工厂与设置层共用', async () => {
+  const { BUBBLE_STYLES } = await import('../src/theme/themes.js');
+  assert.deepEqual(BUBBLE_STYLES, ['rounded', 'card', 'plain']);
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const chatStyles = fs.readFileSync(path.resolve('src/chat/chatStyles.js'), 'utf8');
+  assert.ok(chatStyles.includes('BUBBLE_STYLES'), 'chatStyles 从主题层导入，不再自行定义');
+  assert.ok(!/export const BUBBLE_STYLES/.test(chatStyles), '不得重复定义');
+  const settings = fs.readFileSync(path.resolve('src/storage/settings.js'), 'utf8');
+  assert.ok(settings.includes('BUBBLE_STYLES'), '设置层用同一白名单归一');
+  const msg = fs.readFileSync(path.resolve('src/chat/MessageBubble.js'), 'utf8');
+  assert.ok(msg.includes('plainBubbles') && msg.includes('assistantTextColor'), '无底纹时助手正文改用正文色');
+});

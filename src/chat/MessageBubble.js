@@ -56,10 +56,12 @@ function renderHighlightedText(text, keyword, styles) {
 }
 
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, onReselectGreeting, onStartSelection, selectionMode, selected, onSaveImage, onSaveAsSticker, onDeleteImageMessage }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, bubbleStyle = 'rounded', onReselectGreeting, onStartSelection, selectionMode, selected, onSaveImage, onSaveAsSticker, onDeleteImageMessage }) {
   const { theme, fonts, tokens } = useTheme();
-  const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const plainBubbles = bubbleStyle === 'plain';
+  const assistantTextColor = plainBubbles ? theme.colors.text : theme.colors.bubbleAssistantText;
+  const styles = useMemo(() => createChatStyles(theme, fonts, tokens, { bubbleStyle }), [theme, fonts, tokens, bubbleStyle]);
+   const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens, assistantTextColor), [theme, fonts, tokens, assistantTextColor]);
    const markdownRules = useMemo(() => {
      const codeRule = (node, children, parent, ruleStyles, inheritedStyles, styleKey) => {
        let content = typeof node.content === 'string' ? node.content : '';
@@ -94,8 +96,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
        ),
      };
    }, [styles.markdownCodeScroll, styles.markdownTableScroll]);
-   const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
-  const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
+   const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts, assistantTextColor), [theme, fonts, assistantTextColor]);
+  const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts, assistantTextColor), [theme, fonts, assistantTextColor]);
   const isUser = message.role === USER_ID;
   const isGreeting = !isUser && (message.kind === 'greeting' || String(message.id || '').startsWith('greeting-'));
   const { width } = useWindowDimensions();
@@ -398,21 +400,23 @@ const fullWidthAssistant = !isUser && fullWidth;
                  {/* 视口型卡与普通富 HTML 同一条渲染路径：视口判定收敛在
                      RichHtmlMessage 内部（file:// 源、固定高度、内滚），
                      列表内直接渲染、按钮直接可交互，不再提供全屏入口。 */}
-                 <RichHtmlMessage
-                   html={richHtmlParts.document}
-                   onCommand={(command, token) => onSlashCommand(command, token, message.id)}
-                   fullWidth={fullWidth}
-                   allowFullscreenVideo
-                 />
+<RichHtmlMessage
+                    html={richHtmlParts.document}
+                    onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                    fullWidth={fullWidth}
+                    allowFullscreenVideo
+                    textColor={plainBubbles ? theme.colors.text : undefined}
+                  />
                  {renderAssistantSegment(richHtmlParts.after)}
                </View>
              ) : (
-               <RichHtmlMessage
-                 html={message.text}
-                 onCommand={(command, token) => onSlashCommand(command, token, message.id)}
-                 fullWidth={fullWidth}
-                 allowFullscreenVideo
-               />
+<RichHtmlMessage
+                  html={message.text}
+                  onCommand={(command, token) => onSlashCommand(command, token, message.id)}
+                  fullWidth={fullWidth}
+                  allowFullscreenVideo
+                  textColor={plainBubbles ? theme.colors.text : undefined}
+                />
              )
           ) : renderHtml ? (
             <RenderHtml

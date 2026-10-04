@@ -8,14 +8,14 @@ import { stripMarkdownFences } from './richHtml.js';
 
 export const MONO_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
-export const createMarkdownStyles = (theme, fonts, tokens) => ({
-  body: { color: theme.colors.bubbleAssistantText, fontSize: fonts.scaled(15), lineHeight: fonts.scaled(22) },
-  heading1: { color: theme.colors.bubbleAssistantText },
-  heading2: { color: theme.colors.bubbleAssistantText },
-  heading3: { color: theme.colors.bubbleAssistantText },
-  heading4: { color: theme.colors.bubbleAssistantText },
-  heading5: { color: theme.colors.bubbleAssistantText },
-  heading6: { color: theme.colors.bubbleAssistantText },
+export const createMarkdownStyles = (theme, fonts, tokens, assistantTextColor = theme.colors.bubbleAssistantText) => ({
+  body: { color: assistantTextColor, fontSize: fonts.scaled(15), lineHeight: fonts.scaled(22) },
+  heading1: { color: assistantTextColor },
+  heading2: { color: assistantTextColor },
+  heading3: { color: assistantTextColor },
+  heading4: { color: assistantTextColor },
+  heading5: { color: assistantTextColor },
+  heading6: { color: assistantTextColor },
   hr: { backgroundColor: theme.colors.surfaceBorder },
   blockquote: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.primary },
   code_inline: {
@@ -28,7 +28,7 @@ export const createMarkdownStyles = (theme, fonts, tokens) => ({
     fontFamily: MONO_FONT,
   },
   code_block: {
-    color: theme.colors.bubbleAssistantText,
+    color: theme.colors.text,
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 0,
     borderRadius: tokens.radius.sm,
@@ -36,7 +36,7 @@ export const createMarkdownStyles = (theme, fonts, tokens) => ({
     fontFamily: MONO_FONT,
   },
   fence: {
-    color: theme.colors.bubbleAssistantText,
+    color: theme.colors.text,
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 0,
     borderRadius: tokens.radius.sm,
@@ -44,10 +44,10 @@ export const createMarkdownStyles = (theme, fonts, tokens) => ({
     fontFamily: MONO_FONT,
   },
   link: { color: theme.colors.primary },
-  bullet_list_icon: { color: theme.colors.bubbleAssistantText },
-  ordered_list_icon: { color: theme.colors.bubbleAssistantText },
-  bullet_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
-  ordered_list_content: { flex: 1, color: theme.colors.bubbleAssistantText },
+  bullet_list_icon: { color: assistantTextColor },
+  ordered_list_icon: { color: assistantTextColor },
+  bullet_list_content: { flex: 1, color: assistantTextColor },
+  ordered_list_content: { flex: 1, color: assistantTextColor },
 });
 
 const STYLE_BLOCK_PATTERN = /<style\b[^>]*>[\s\S]*?(?:<\/style>|$)/gi;
@@ -57,18 +57,18 @@ const SLASH_SEND_PATTERN = /\/send\s+([^'"]+)/i;
 const GRADIENT_DECLARATION_PATTERN = /(?:background(?:-image)?)\s*:\s*(?:repeating-)?(?:linear|radial)-gradient\(((?:[^()]|\([^()]*\))*)\)/gi;
 const GRADIENT_COLOR_STOP_PATTERN = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/;
 
-export const createHtmlBaseStyle = (theme, fonts) => ({
-  color: theme.colors.bubbleAssistantText,
+export const createHtmlBaseStyle = (theme, fonts, assistantTextColor = theme.colors.bubbleAssistantText) => ({
+  color: assistantTextColor,
   fontSize: fonts.scaled(15),
   lineHeight: fonts.scaled(22),
 });
 
-export const createHtmlTagsStyles = (theme, fonts) => ({
+export const createHtmlTagsStyles = (theme, fonts, assistantTextColor = theme.colors.bubbleAssistantText) => ({
   a: { color: theme.colors.primary },
   code: { fontFamily: MONO_FONT, color: theme.colors.codeText, backgroundColor: theme.colors.surfaceAlt },
-  pre: { fontFamily: MONO_FONT, color: theme.colors.bubbleAssistantText, backgroundColor: theme.colors.surfaceAlt },
-  q: { color: theme.colors.bubbleAssistantText },
-  h4: { color: theme.colors.bubbleAssistantText, fontSize: fonts.scaled(13), marginTop: 0, marginBottom: 6 },
+  pre: { fontFamily: MONO_FONT, color: theme.colors.text, backgroundColor: theme.colors.surfaceAlt },
+  q: { color: assistantTextColor },
+  h4: { color: assistantTextColor, fontSize: fonts.scaled(13), marginTop: 0, marginBottom: 6 },
 });
 
 const PANEL_CLASS_STYLES = {
