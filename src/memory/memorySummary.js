@@ -1,4 +1,4 @@
-import { sendChatMessage } from '../api.js';
+import { sendChatMessage } from '../network/api.js';
 import { createWorldEntry } from '../character/cardParser.js';
 import {
   appendSessionSummary,

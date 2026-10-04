@@ -1,8 +1,8 @@
 import { Buffer } from 'buffer';
 
 import { TTS_MAX_CHARS, getTtsProvider } from './providers.js';
-import { registerSecretValues } from '../secrets.js';
-import vendorXhr from '../vendorHttp.js';
+import { registerSecretValues } from '../storage/secrets.js';
+import vendorXhr from '../network/vendorHttp.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 

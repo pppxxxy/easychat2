@@ -7,7 +7,7 @@
 import { captureScreen, releaseCapture } from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 
 export const SCREEN_WATCH_DIR_NAME = 'screen-watch';
 const SWEEP_KEEP = 20;

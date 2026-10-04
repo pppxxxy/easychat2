@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
-const sourcePath = path.resolve('src/onboardingContent.js');
+const sourcePath = path.resolve('src/onboarding/onboardingContent.js');
 const sourceCode = fs.readFileSync(sourcePath, 'utf8');
 const transformed = babel.transformSync(sourceCode, {
   babelrc: false,
@@ -23,7 +23,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
   }
   return originalLoad.call(this, request, parent, isMain);
 };
-const filename = path.resolve('src/onboardingContent.js');
+const filename = path.resolve('src/onboarding/onboardingContent.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

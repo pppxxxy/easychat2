@@ -1,5 +1,5 @@
 import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
-import { getMessagePromptText } from './chatMedia.js';
+import { getMessagePromptText } from '../chat/chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';

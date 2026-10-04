@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatCurrentTime, buildTimeAwareText } from '../src/currentTime.js';
+import { formatCurrentTime, buildTimeAwareText } from '../src/chat/currentTime.js';
 
 test('formatCurrentTime：本地日期与星期', () => {
   const text = formatCurrentTime(new Date(2026, 8, 30, 15, 4));

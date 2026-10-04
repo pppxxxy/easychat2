@@ -37,7 +37,7 @@ import {
   tryAcquireResource,
   withResource,
 } from '../src/resourceMutex.js';
-import { canUseLocalModel, resolveLocalModelReadiness, sendWithModelProvider } from '../src/modelProvider.js';
+import { canUseLocalModel, resolveLocalModelReadiness, sendWithModelProvider } from '../src/network/modelProvider.js';
 
 test('normalizeLocalModelSettings：非法值回退安全默认值', () => {
   const settings = normalizeLocalModelSettings({ enabled: true, modelId: 'q4', contextSize: 1, gpuLayers: -2 });
@@ -369,7 +369,7 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   assert.ok(adapter.includes('onToken(splitter.text())'), '正文应走 onToken（已剥离思考）');
   assert.ok(adapter.includes('const split = splitThinkContent(rawText)'), '最终文本也要剥离思考标签');
 
-  const provider = read('modelProvider.js');
+  const provider = read('network/modelProvider.js');
   assert.ok(provider.includes('onReasoning,'), '路由层应透传 onReasoning');
   assert.ok(provider.includes('conversationKey,'), '路由层应透传 conversationKey');
 

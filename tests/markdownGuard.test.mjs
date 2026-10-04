@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clampMarkdownText, MAX_MARKDOWN_CHARS } from '../src/markdownGuard.js';
+import { clampMarkdownText, MAX_MARKDOWN_CHARS } from '../src/chat/markdownGuard.js';
 
 test('未超长时原样返回', () => {
   const text = '普通回复';

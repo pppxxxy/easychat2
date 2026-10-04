@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   createMediaMessage,
   getMessagePromptText,
-} from '../src/chatMedia.js';
+} from '../src/chat/chatMedia.js';
 
 test('媒体消息保留空正文并生成名称提示', () => {
   const image = createMediaMessage({

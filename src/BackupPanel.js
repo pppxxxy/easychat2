@@ -16,7 +16,7 @@ import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { exportBackup, importBackup } from './storage.js';
-import { validateBackupPayload } from './dataBackup.js';
+import { validateBackupPayload } from './storage/dataBackup.js';
 import { useTheme } from './theme/ThemeContext.js';
 
 const PHASE_LABELS = {

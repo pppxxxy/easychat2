@@ -7,7 +7,7 @@ import React, { useCallback, useRef } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 
-import { clampMarkdownText } from '../markdownGuard.js';
+import { clampMarkdownText } from '../chat/markdownGuard.js';
 
 const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10, minimumViewTime: 120 };
 

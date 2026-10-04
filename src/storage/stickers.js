@@ -3,7 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from './mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
 const STICKERS_KEY = '@easychat2_stickers';

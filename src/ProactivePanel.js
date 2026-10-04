@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { normalizeChatUrl } from './api.js';
+import { normalizeChatUrl } from './network/api.js';
 import {
   getProactiveSettings,
   makeProactiveSlotId,

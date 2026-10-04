@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from './theme/ThemeContext.js';
+import { useTheme } from '../theme/ThemeContext.js';
 import { indexFromRatio } from './scrollScrubberMath.js';
 
 export { getScrollRange, indexFromRatio } from './scrollScrubberMath.js';

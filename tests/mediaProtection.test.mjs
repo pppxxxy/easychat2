@@ -7,7 +7,7 @@ import {
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
   markMediaWrite,
-} from '../src/mediaProtection.js';
+} from '../src/storage/mediaProtection.js';
 
 test('媒体写入 revision 与最近 URI 保护会更新', () => {
   const before = getMediaWriteRevision();

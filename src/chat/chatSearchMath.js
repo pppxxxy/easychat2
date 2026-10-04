@@ -1,6 +1,6 @@
 // 聊天内搜索的纯逻辑：匹配消息与循环推进匹配下标。从 useChatSearch 抽出便于单测。
 
-import { getMessagePromptText } from '../chatMedia.js';
+import { getMessagePromptText } from './chatMedia.js';
 import { ASSISTANT_ID, USER_ID } from './chatConstants.js';
 
 // 命中消息的 id 列表（保持消息顺序）。query 去空白并小写，空查询返回空数组。

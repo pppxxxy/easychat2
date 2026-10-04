@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
-const sourcePath = path.resolve('src/api.js');
+const sourcePath = path.resolve('src/network/api.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -26,7 +26,9 @@ let activeConfig = {
 const originalLoad = Module._load;
 const recordedDiagnostics = [];
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './storage.js') {
+  // 按 basename 匹配，兼容源码搬迁后 `./x.js` → `../x.js` 的相对路径变化。
+  const base = String(request).split('/').pop();
+  if (base === 'storage.js') {
     return {
       getActiveApiConfig: async () => activeConfig,
       getActiveModel: config => config.activeModel,
@@ -34,10 +36,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
       getThinkingSettings: async () => ({ enabled: false }),
     };
   }
-  if (request === './secrets.js') {
+  if (base === 'secrets.js') {
     return { registerSecretValues: () => {} };
   }
-  if (request === './diagnostics.js') {
+  if (base === 'diagnostics.js') {
     return {
       recordDiagnostic: (kind, error, context) => {
         recordedDiagnostics.push({ kind, message: String((error && error.message) || error), context });
@@ -48,7 +50,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadApi() {
-  const filename = path.resolve('src/api.js');
+  const filename = path.resolve('src/network/api.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

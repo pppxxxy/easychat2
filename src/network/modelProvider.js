@@ -1,10 +1,10 @@
 // 在线 API / 本地模型路由。在线 API 是默认路径，本地失败只回退一次。
 
-import { recordDiagnostic } from './diagnostics.js';
-import { isLocalModelModuleAvailable, runLocalModel } from './localModel/adapter.js';
-import { classifyLocalModelError, recordModelLog } from './localModel/modelLogs.js';
-import { isLocalModelItemReady, isLocalModelReady, normalizeLocalModelSettings } from './localModel/modelState.js';
-import { tryAcquireResource } from './resourceMutex.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
+import { isLocalModelModuleAvailable, runLocalModel } from '../localModel/adapter.js';
+import { classifyLocalModelError, recordModelLog } from '../localModel/modelLogs.js';
+import { isLocalModelItemReady, isLocalModelReady, normalizeLocalModelSettings } from '../localModel/modelState.js';
+import { tryAcquireResource } from '../resourceMutex.js';
 
 // 就绪判定（纯函数，便于单测）：优先按活动条目，其次回退旧单模型设置。
 export function resolveLocalModelReadiness({ settings, item = null, fileInfo = null, moduleAvailable = false } = {}) {

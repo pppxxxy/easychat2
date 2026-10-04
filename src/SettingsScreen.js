@@ -15,12 +15,12 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { normalizeChatUrl } from './api.js';
-import vendorXhr from './vendorHttp.js';
+import { normalizeChatUrl } from './network/api.js';
+import vendorXhr from './network/vendorHttp.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useApp } from './context/AppContext.js';
 import { hexToRgba } from './theme/themes.js';
-import DisclaimerModal from './disclaimer.js';
+import DisclaimerModal from './onboarding/disclaimer.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import PluginPanel from './PluginPanel.js';
 import PresetPanel from './PresetPanel.js';
@@ -51,7 +51,7 @@ import { detectImageProvider } from './imageGen/index.js';
 import { pickWorkspaceFolder } from './workspace/picker.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
 import { isShellAvailable } from './workspace/shell.js';
-import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './apiVendors.js';
+import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './network/apiVendors.js';
 import {
   Card,
   DangerButton,

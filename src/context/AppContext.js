@@ -45,7 +45,7 @@ import {
   withUpdatedCharacter,
 } from './characterLibrary.js';
 import { resolveActiveSessionId, sortSessions } from './sessionLibrary.js';
-import { materializeDefaultArtwork } from '../defaultCharacterAssets.js';
+import { materializeDefaultArtwork } from '../character/defaultCharacterAssets.js';
 
 const AppContext = createContext(null);
 

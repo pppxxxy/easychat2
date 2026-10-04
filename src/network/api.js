@@ -1,6 +1,6 @@
-import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from './storage.js';
-import { registerSecretValues } from './secrets.js';
-import { recordDiagnostic } from './diagnostics.js';
+import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from '../storage.js';
+import { registerSecretValues } from '../storage/secrets.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
 import {
   buildRequestBody,
   buildRequestHeaders,
@@ -9,7 +9,7 @@ import {
   parseFinalPayload,
   parseProtocolError,
   parseStreamPayload,
-} from './apiProtocols.js';
+} from '../apiProtocols.js';
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
 // 用同一个 30s 阈值会误报“请求超时”。

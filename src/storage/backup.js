@@ -8,8 +8,8 @@ import {
   BACKUP_MAX_BYTES,
   buildBackupPayload,
   planBackupImport,
-} from '../dataBackup.js';
-import { recordDiagnostic } from '../diagnostics.js';
+} from './dataBackup.js';
+import { recordDiagnostic } from './diagnostics.js';
 import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
 import { createBackupChunkGenerator } from './backupStream.js';
 

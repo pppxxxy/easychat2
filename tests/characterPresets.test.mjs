@@ -5,7 +5,7 @@ import {
   extractCharacterPresets,
   makeCharacterPresetId,
   normalizeCharacterPresets,
-} from '../src/characterPresets.js';
+} from '../src/character/characterPresets.js';
 
 test('角色预设规范化并补默认启用状态', () => {
   const presets = normalizeCharacterPresets([

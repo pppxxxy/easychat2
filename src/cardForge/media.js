@@ -7,7 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { getPickedAsset } from '../character/cardHelpers.js';
-import { markMediaWrite } from '../mediaProtection.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 
 import {
   avatarDirectory,

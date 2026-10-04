@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import vendorXhr from '../src/vendorHttp.js';
+import vendorXhr from '../src/network/vendorHttp.js';
 
 function installXhr(Impl) {
   const original = globalThis.XMLHttpRequest;

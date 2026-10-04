@@ -5,7 +5,7 @@ import { Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-na
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
-import { EVERYONE_MENTION } from '../groupMentions.js';
+import { EVERYONE_MENTION } from './groupMentions.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function MentionPickerModal({

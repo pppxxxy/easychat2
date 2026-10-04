@@ -13,10 +13,10 @@ import { Asset } from 'expo-asset';
 // 且 getInfoAsync/copyAsync 等在主入口是会抛错的弃用桩，会导致内置头像/背景永远落盘失败。
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { markMediaWrite } from './mediaProtection.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 
-const AVATAR_MODULE = require('../assets/easychat-assistant-avatar.jpg');
-const BG_MODULE = require('../assets/easychat-assistant-bg.jpg');
+const AVATAR_MODULE = require('../../assets/easychat-assistant-avatar.jpg');
+const BG_MODULE = require('../../assets/easychat-assistant-bg.jpg');
 
 async function materialize(moduleRef, fileName) {
   const dir = `${FileSystem.documentDirectory || ''}avatars/`;

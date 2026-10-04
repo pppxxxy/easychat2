@@ -84,11 +84,15 @@ easychat2/
 │   │   ├── ThinkingPanelModal.js / VoiceSettingsModal.js / SelectionTextModal.js
 │   │   ├── FullScreenInputModal.js / chatConstants.js / chatHelpers.js / chatStyles.js
 │   │   ├── chatSearchMath.js / audioModules.js
-│   ├── chatMedia.js          # 图片/表情包消息结构与模型提示
-│   ├── stickerImages.js      # 表情包图片缩小与本地文件保存
+│   │   ├── groupChat.js / groupMentions.js / chatRace.js / messageSelection.js
+│   │   ├── chatMedia.js      # 图片/表情包消息结构与模型提示
+│   │   ├── attachments.js / stickerImages.js / stickerDirectives.js
+│   │   │   / voiceMessages.js / speechText.js   # 附件、表情包、语音与朗读文本
+│   │   ├── richHtml.js / markdownGuard.js / assistantRender.js  # 富 HTML 判定 / Markdown 限长 / 渲染配置
+│   │   ├── AssistantMessageBody.js / RichHtmlMessage.js         # 助手正文与富 HTML 消息渲染
+│   │   └── ScrollScrubber.js     # 快速定位滑动条：拖动跳转会话任意位置
 │   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
 │   ├── SearchScreen.js       # 跨会话搜索：关键词检索历史消息并跳转定位
-│   ├── ScrollScrubber.js     # 快速定位滑动条：拖动跳转会话任意位置
 │   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
 │   ├── ImageGenScreen.js     # 生图界面：服务/模型选择、图生图与结果画廊
 │   ├── ExtensionScreen.js    # 扩展页：切换内嵌小游戏、生图、制卡与世界分组
@@ -101,29 +105,29 @@ easychat2/
 │   ├── DiaryPanel.js         # 角色日记面板
 │   ├── MapPanel.js           # 世界地图面板
 │   ├── MomentsView.js        # 动态时间线
-│   ├── api.js                # 大模型接口调用与错误格式化
-│   ├── apiVendors.js         # 聊天 API 厂商与协议预设
-│   ├── vendorHttp.js         # 厂商请求统一层（地址归一化、鉴权、SSE 解析）
-│   ├── modelProvider.js      # 在线/本地 provider 选择与推理回退
+│   ├── network/              # 网络层：接口调用、厂商预设与在线/本地路由
+│   │   ├── api.js                # 大模型接口调用（XHR 流式）与错误格式化
+│   │   ├── apiVendors.js         # 聊天 API 厂商与协议预设
+│   │   ├── vendorHttp.js         # 厂商请求统一层（地址归一化、鉴权、SSE 解析）
+│   │   └── modelProvider.js      # 在线/本地 provider 选择与推理回退
 │   ├── resourceMutex.js      # 本地推理/录音等原生重负载资源互斥
-│   ├── secretStore.js        # 密钥抽取到 expo-secure-store，AsyncStorage 只留引用
 │   ├── character/            # 角色卡 schema 与角色编辑
 │   │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
 │   │   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
 │   │   ├── cardGreetings.js      # 备用开场白导入与候选
 │   │   ├── cardHelpers.js        # 角色卡字段辅助
 │   │   └── editors.js / characterStyles.js
-│   ├── lorebook.js           # 世界书条目激活判定
-│   ├── regexEngine.js        # 正则脚本作用范围、应用与灾难性回溯模式拦截
-│   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
-│   ├── groupChat.js          # 群聊：@ 解析、发言调度、开场与请求构造
-│   ├── attachments.js        # 聊天附件：文本读取、图片预检/持久化、pending 结果与合并
-│   ├── dataBackup.js         # 备份包构造/校验/导入计划的纯函数
+│   ├── prompt/               # 提示词管线：世界书 + 正则 + 消息组装
+│   │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
+│   │   ├── lorebook.js           # 世界书条目激活判定
+│   │   └── regexEngine.js        # 正则脚本作用范围、应用与灾难性回溯模式拦截
 │   ├── imageGen/             # 生图：声明式 Provider 与统一适配层
 │   │   ├── providers.js          # 云端生图平台声明表
 │   │   ├── index.js              # 统一生成入口与响应解析
 │   │   ├── localDream.js         # Local Dream 端侧生图（SSE + 原始 RGB）
-│   │   └── png.js                # 纯 JS PNG 编码与 base64 解码
+│   │   ├── png.js                # 纯 JS PNG 编码与 base64 解码
+│   │   ├── inlineImagePrompt.js  # 内联配图位置与提示
+│   │   └── imageResultFormat.js  # 生图结果扩展名/MIME 解析
 │   ├── localModel/           # 本地大模型（llama.rn）
 │   │   ├── modelManager.js       # 模型下载/导入/删除与文件信息
 │   │   ├── modelCatalog.js       # GGUF 目录搜索（HF/魔搭）
@@ -140,17 +144,20 @@ easychat2/
 │   │   ├── io.js                 # 读写原语、损坏备份、字节统计、createMutationQueue
 │   │   ├── backupStream.js       # 备份导出分块生成器（逐块可取消）
 │   │   ├── backup.js             # 备份导出/恢复编排（流式写盘）
+│   │   ├── dataBackup.js         # 备份包构造/校验/导入计划的纯函数
+│   │   ├── mediaProtection.js    # 媒体写入 revision 与最近 URI 保护、回收重试时点
+│   │   ├── secretStore.js        # 密钥抽取到 expo-secure-store，AsyncStorage 只留引用
+│   │   ├── secrets.js            # 共享密钥脱敏登记表与 maskSecrets
+│   │   ├── diagnostics.js        # 本地脱敏诊断日志（无顶层 import、惰性 require）
 │   │   ├── characters.js / apiConfigs.js / sessionCore.js / sessionList.js
 │   │   ├── sessionMessages.js / sessionFiles.js / sessions.js / settings.js
 │   │   ├── localModels.js / vector.js / stickers.js / moments.js / diary.js
 │   │   ├── affinity.js / worldMap.js / globalPresets.js / personas.js / cardForge.js
 │   ├── vectorMemory/         # 向量记忆：声明式 Provider、召回与作用域
-│   ├── imageResultFormat.js  # 生图结果扩展名/MIME 解析
 │   ├── games/games.js        # 内嵌 HTML 小游戏清单
 │   ├── theme/                # 五套主题语义色板与字体缩放上下文
 │   ├── tts/                  # 声明式语音播报 Provider 与统一适配层
 │   ├── transcription.js      # 语音转写（多厂商 + 复用聊天来源）
-│   ├── voiceMessages.js      # 语音消息结构与播放
 │   ├── moments/              # 本地好感启发式与动态触发
 │   ├── memory/               # 记忆：摘要、时间分档与展示文本缓存
 │   │   ├── memorySummary.js      # 摘要生成、世界书写入与请求压缩
@@ -164,14 +171,12 @@ easychat2/
 │   │   ├── providers.js      # 搜索服务声明表（地址、认证、字段映射）
 │   │   ├── registry.js       # 插件注册表：触发词、执行与背景资料格式化
 │   │   └── webSearch.js      # 通用请求器：构造、解析、缓存、重试与限流
-│   ├── chatRace.js           # 切换角色时丢弃迟到回复的守卫
-│   ├── messageSelection.js   # 消息多选与修改重发撤回计划
-│   ├── mediaProtection.js    # 媒体写入 revision 与最近 URI 保护、回收重试时点
-│   ├── secrets.js            # 共享密钥脱敏
-│   ├── diagnostics.js        # 本地脱敏诊断日志
-│   ├── disclaimer.js         # 免责条款文本与弹窗组件
 │   ├── storage.js            # AsyncStorage 读写门面（转发 storage/ 各域）
-│   ├── characterPresets.js   # 角色卡预设规范化与扩展字段解析
+│   ├── onboarding/           # 新手引导、免责条款与教程内容
+│   │   ├── onboardingContent.js  # 章节数据（向导与教程共用）
+│   │   ├── disclaimer.js         # 免责条款弹窗组件
+│   │   ├── disclaimerContent.js  # 免责条款文本与分节
+│   │   └── images.js             # 章节图片解析
 │   ├── polyfills.js          # Buffer 运行时兼容垫片
 │   └── context/
 │       ├── AppContext.js     # 全局角色库与会话状态
@@ -191,14 +196,14 @@ easychat2/
 **目的**: 初始化运行时垫片、全局 Provider，并组织五个标签页；首次启动时经 `StartupFlow` 先弹免责条款、再进入新手教学向导，`StartupSession` 迁移旧消息并开启新会话
 **位置**: `App.js`
 **关键文件**: `App.js`
-**依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`@expo/vector-icons`、`src/context/AppContext.js`、`src/disclaimer.js`、`src/storage.js`
+**依赖**: `src/polyfills.js`、`react-native-gesture-handler`、`@react-navigation/*`、`@expo/vector-icons`、`src/context/AppContext.js`、`src/onboarding/disclaimer.js`、`src/storage.js`
 **被依赖**: 全体界面通过导航挂载
 
 ### 聊天界面
 **目的**: 顶部展示并可切换当前角色，右上角提供「公告」入口，管理图片/文字/语音消息、表情包、长按多选删除、带确认的修改重发、全宽布局与大型 HTML 开场白、发送请求、展示助手 Markdown 回复与系统报错气泡，并按会话持久化
 **位置**: `src/ChatScreen.js`
 **关键文件**: `src/ChatScreen.js`、`src/chat/useChatSend.js`、`src/chat/useSessionMessages.js`、`src/chat/useSessionSwitch.js`、`src/chat/useSessionGuard.js`、`src/chat/MessageList.js`、`src/chat/replyFlow.js`、`src/chat/useChatSearch.js`、`src/chat/useChatModelThinking.js`、`src/chat/useChatRecorder.js`、`src/chat/useChatTts.js`、`src/chat/useScrollScrubber.js`、`src/chat/chatConstants.js`、`src/chat/chatHelpers.js`、`src/chat/chatStyles.js`、`src/chat/MessageBubble.js`、`src/chat/ErrorBubble.js`、`src/chat/ThinkingIndicator.js`
-**依赖**: `src/api.js`、`src/modelProvider.js`、`src/chatPipeline.js`、`src/chatRace.js`、`src/regexEngine.js`、`src/secrets.js`、`src/storage.js`、`src/vectorMemory/`、`src/memory/memorySummary.js`、`src/groupChat.js`、`src/attachments.js`、`src/voiceMessages.js`、`src/transcription.js`、`src/tts/index.js`、`src/disclaimer.js`、`src/context/AppContext.js`、`src/chat/*`、`@expo/vector-icons`、`expo-clipboard`、`expo-audio`、`react-native-markdown-display`
+**依赖**: `src/network/api.js`、`src/network/modelProvider.js`、`src/prompt/chatPipeline.js`、`src/chat/chatRace.js`、`src/prompt/regexEngine.js`、`src/storage/secrets.js`、`src/storage.js`、`src/vectorMemory/`、`src/memory/memorySummary.js`、`src/chat/groupChat.js`、`src/chat/attachments.js`、`src/chat/voiceMessages.js`、`src/transcription.js`、`src/tts/index.js`、`src/onboarding/disclaimer.js`、`src/context/AppContext.js`、`src/chat/*`、`@expo/vector-icons`、`expo-clipboard`、`expo-audio`、`react-native-markdown-display`
 **被依赖**: `App.js`
 **说明**: 2026-09-27 起把常量、纯辅助函数、样式工厂与展示组件拆到 `src/chat/`（ChatScreen 6112 → 4506 行）；2026-10-02 A 线重构再把有状态逻辑按职责抽成六个模块——`useChatSend`（发送/接收/流式/重生成/群聊调度）、`useSessionMessages`（消息加载、落盘队列、草稿、附件引用）、`useSessionSwitch`（切换角色/会话/群聊、新建、开场白确认）、`useSessionGuard`（版本号与单飞锁竞态守卫）、`MessageList`（列表渲染 + 窗口化）、`replyFlow`（流式合并与错误分类纯函数），`ChatScreen.js` 收敛到约 2358 行，只保留接线与渲染。拆分遵循「回调保留在 ChatScreen、数据与时序归 hook」，行为不变；默认导出仍是 `function ChatScreen()`。
 
@@ -217,13 +222,13 @@ easychat2/
 **目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本，并把角色导出为标准 V2 卡
 **位置**: `src/CharacterScreen.js`
 **关键文件**: `src/CharacterScreen.js`
-**依赖**: `src/character/cardParser.js`、`src/character/cardExporter.js`、`src/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sqlite`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
+**依赖**: `src/character/cardParser.js`、`src/character/cardExporter.js`、`src/storage/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sqlite`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
 **被依赖**: `App.js`
 
 ### 卡解析与提示管线
 **目的**: 解析角色卡并标准化字段，判定世界书激活，应用正则，组装最终请求消息
-**位置**: `src/character/cardParser.js`、`src/lorebook.js`、`src/regexEngine.js`、`src/chatPipeline.js`
-**关键文件**: `src/character/cardParser.js`、`src/chatPipeline.js`
+**位置**: `src/character/cardParser.js`、`src/prompt/lorebook.js`、`src/prompt/regexEngine.js`、`src/prompt/chatPipeline.js`
+**关键文件**: `src/character/cardParser.js`、`src/prompt/chatPipeline.js`
 **依赖**: `parsecard`、`buffer`
 **被依赖**: `ChatScreen`、`CharacterScreen`
 
@@ -245,8 +250,8 @@ easychat2/
 
 ### 本地模型（llama.rn）
 **目的**: 在设备上运行 GGUF 大模型，作为在线 API 的可选替代；提供模型下载/导入/删除、参数、内存估算与兼容分级、运行日志，并对外暴露一个本地 OpenAI 兼容 HTTP 服务
-**位置**: `src/localModel/`、`src/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`、`plugins/withLocalApiServer.js`、`plugins/proactiveMessage/`（Kotlin）
-**关键文件**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/modelProvider.js`
+**位置**: `src/localModel/`、`src/network/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`、`plugins/withLocalApiServer.js`、`plugins/proactiveMessage/`（Kotlin）
+**关键文件**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/network/modelProvider.js`
 **依赖**: `llama.rn@0.12.9`（可选原生依赖）、`expo-file-system`、`buffer`、`react-native`（NativeModules/EventEmitter）
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`、`src/ExtensionScreen.js`
 **说明**:
@@ -258,9 +263,9 @@ easychat2/
 
 ### 语音消息与转写
 **目的**: 录音 → 转写 → 语音气泡回放闭环；角色可按卡选择回复形态（纯文字 / 文字+语音 / 纯语音），失败降级为纯文字
-**位置**: `src/chat/useChatRecorder.js`、`src/chat/VoiceBubble.js`、`src/chat/VoiceSettingsModal.js`、`src/voiceMessages.js`、`src/transcription.js`、`src/TranscriptionPanel.js`、`src/speechText.js`、`src/tts/`
-**关键文件**: `src/voiceMessages.js`、`src/transcription.js`、`src/tts/index.js`
-**依赖**: `expo-audio`（录音与播放）、`expo-media-library`/`expo-document-picker`（按需）、`src/storage.js`、`src/secretStore.js`
+**位置**: `src/chat/useChatRecorder.js`、`src/chat/VoiceBubble.js`、`src/chat/VoiceSettingsModal.js`、`src/chat/voiceMessages.js`、`src/transcription.js`、`src/TranscriptionPanel.js`、`src/chat/speechText.js`、`src/tts/`
+**关键文件**: `src/chat/voiceMessages.js`、`src/transcription.js`、`src/tts/index.js`
+**依赖**: `expo-audio`（录音与播放）、`expo-media-library`/`expo-document-picker`（按需）、`src/storage.js`、`src/storage/secretStore.js`
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`
 **说明**: 录音走 `expo-audio`（非 spec 原写的 expo-av），时长上下限 0.5s ~ 60s，结束时落盘 `voice/`。转写支持复用当前聊天来源或独立配置（`@easychat2_transcription`），失败有可见反馈与占位回退。`supportsAudio` 能力标记决定角色卡 `voiceDisplay` 三档（text / voice-text / voice）。TTS 播报为独立子系统（`@easychat2_tts`，九家云端引擎 + 系统引擎），播放经 `createAudioPlayer`。
 
@@ -268,13 +273,13 @@ easychat2/
 **目的**: 由原生闹钟在设定时段触发角色主动发消息，支持消息类型（默认 / 关心心情 / 问好 / 自定义）与「衔接对话」（续写指定历史会话）；点击通知跳转到含新消息的那段会话
 **位置**: `src/proactive/proactiveMessage.js`、`src/proactive/proactiveInbox.js`、`src/proactive/proactiveRequest.js`、`src/ProactivePanel.js`、`plugins/withProactiveMessage.js`、`plugins/proactiveMessage/`（Kotlin）
 **关键文件**: `src/proactive/proactiveInbox.js`、`plugins/withProactiveMessage.js`
-**依赖**: `react-native`（NativeModules/DeviceEventEmitter/AppState）、`expo-notifications`、`src/storage.js`、`src/api.js`
+**依赖**: `react-native`（NativeModules/DeviceEventEmitter/AppState）、`expo-notifications`、`src/storage.js`、`src/network/api.js`
 **被依赖**: `App.js`（`StartupSession` 消费 + 前台消费）、`src/ExtensionScreen.js`
 **说明**: 原生侧用 `EncryptedSharedPreferences` 保存槽位与待写队列，闹钟按 1-4 权限申请。**两个已验证的契约要点**：① `consumePendingMessages` 返回 **JSON 字符串**而非数组——新架构 Interop 下 `WritableArray<WritableMap>` 到 JS 的 `Array.isArray` 不成立会导致静默丢消息，`proactiveInbox.js` 的 `normalizePendingMessages` 兼容数组/字符串/类数组三种形态；② 冷启动时多个消费入口并发，`ingestPending` 用 **in-flight Promise 合并**避免先完成方 ack 清空导致另一方取空，并把 `roleId → sessionId` 缓存进 `targetSessionRef` 供 `openRole` 回退。
 
 ### 全量备份与恢复
 **目的**: 导出/恢复应用数据与媒体（avatars/stickers/chat-images/voice/characters/card-forge），支持合并与覆盖两种恢复模式，导出可取消并显示进度
-**位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/storage/backupStream.js`、`src/BackupPanel.js`
+**位置**: `src/storage/dataBackup.js`、`src/storage/backup.js`、`src/storage/backupStream.js`、`src/BackupPanel.js`
 **关键文件**: `src/storage/backup.js`、`src/storage/backupStream.js`
 **依赖**: `@react-native-async-storage/async-storage`、`expo-file-system`、`expo-sharing`、`expo-document-picker`
 **被依赖**: `src/SettingsScreen.js`
@@ -282,8 +287,8 @@ easychat2/
 
 ### 密钥安全存储
 **目的**: 含密钥的配置在落盘前把 `apiKey` 等字段抽到系统安全存储，AsyncStorage 中只留引用，避免明文密钥留在普通键值库
-**位置**: `src/secretStore.js`、`src/storage/io.js` 的 `setJsonWithSecrets` / `readJsonWithSecrets` / `readJsonStatusWithSecrets`
-**关键文件**: `src/secretStore.js`
+**位置**: `src/storage/secretStore.js`、`src/storage/io.js` 的 `setJsonWithSecrets` / `readJsonWithSecrets` / `readJsonStatusWithSecrets`
+**关键文件**: `src/storage/secretStore.js`
 **依赖**: `expo-secure-store`
 **被依赖**: `src/storage.js` 中所有含密钥的配置域（API 配置 / 向量记忆 / 生图 / TTS / 插件 / 转写）
 **说明**: 密钥 id 由「存储键命名空间 + 字段路径」确定性推导（数组优先用条目自身 `id`），重复保存覆盖同一条、不产生孤儿。旧明文数据读取原样返回、下次保存自动转引用；SecureStore 不可用或写入失败时透明降级为明文，不丢密钥、不阻断保存。
@@ -313,7 +318,7 @@ easychat2/
 **目的**: 基于本地关键词启发式评估好感与对话轮次，在重要节点生成角色动态；动态保存发送者身份快照，角色改名或删除后保持历史名称；提供全局时间线与点赞、评论、删除；同一栋房子的其他角色会对动态自动点赞、评论
 **位置**: `src/moments/affinity.js`、`src/moments/moments.js`、`src/moments/housemateReactions.js`、`src/moments/runHousemateReactions.js`、`src/MomentsView.js`
 **关键文件**: `src/moments/moments.js`、`src/moments/runHousemateReactions.js`
-**依赖**: `src/storage.js`、`src/api.js`、`src/worldMap/map.js`
+**依赖**: `src/storage.js`、`src/network/api.js`、`src/worldMap/map.js`
 **被依赖**: `src/ChatScreen.js`、`src/ExtensionScreen.js`、`src/SettingsScreen.js`
 
 ### 世界地图
@@ -325,8 +330,8 @@ easychat2/
 
 ### 免责条款与公告
 **目的**: 集中维护免责条款文本；首次启动时弹出一次并要求确认，聊天页右上角「公告」可随时再次查看
-**位置**: `src/disclaimer.js`
-**关键文件**: `src/disclaimer.js`
+**位置**: `src/onboarding/disclaimer.js`
+**关键文件**: `src/onboarding/disclaimer.js`
 **依赖**: `react-native`
 **被依赖**: `App.js`、`src/ChatScreen.js`、`src/SettingsScreen.js`
 
@@ -346,8 +351,8 @@ easychat2/
 
 ### 网络请求
 **目的**: 归一化接口地址、以 SSE 流式发起请求、按空闲超时中断、格式化错误响应
-**位置**: `src/api.js`
-**关键文件**: `src/api.js`
+**位置**: `src/network/api.js`
+**关键文件**: `src/network/api.js`
 **依赖**: `src/storage.js`、全局 `XMLHttpRequest`
 **被依赖**: `ChatScreen`
 
@@ -486,7 +491,7 @@ stateDiagram-v2
 - **请求可取消**：`sendChatMessage` 接受 `AbortSignal`，取消时以 `AbortError` 拒绝并清理监听；`ChatScreen` 为每次发送创建 `AbortController`，在用户点击「停止」、切换角色或组件卸载时中断，已收到的部分文本按失败保留规则处理。
 - **运行时垫片先行**：`Buffer` 垫片置于 `App.js` 首行导入，规避 ES 模块提升导致的求值顺序问题；Metro 全局开启 `unstable_enablePackageExports` 以解析 `parsecard` 的 `exports` 字段。
 - **解析与解析库解耦**：`parsecard` 只用于 PNG `tEXt` 文本块主读取；字段映射、世界书与正则标准化全部在 `cardParser.js` 完成，避免 `parsecard` 构造时丢弃 `character_book`/`regex_scripts` 或忽略顶层字段。`iTXt` 无压缩块由本地兜底读取，压缩块因 RN 无 zlib 而跳过。
-- **解析错误与无数据分离**：PNG 未找到 `chara`/`ccv3` 文本块属于「无数据」，返回 `null` 并由界面给出友好提示；文件损坏、base64 解码失败、JSON 语法错误才抛出并附带脱敏详情。解析错误经共享的 `src/secrets.js` 脱敏后才展示与记录。
+- **解析错误与无数据分离**：PNG 未找到 `chara`/`ccv3` 文本块属于「无数据」，返回 `null` 并由界面给出友好提示；文件损坏、base64 解码失败、JSON 语法错误才抛出并附带脱敏详情。解析错误经共享的 `src/storage/secrets.js` 脱敏后才展示与记录。
 - **世界书独立引擎**：`lorebook.js` 在不引入 UI 依赖的前提下实现常驻/关键词激活、次要关键词、概率与扫描深度，`chatPipeline.js` 按位置与顺序拼装系统消息或按深度插入消息。
 - **正则运行时应用**：助手回复以原始文本落盘，提示词版本与展示版本在发送和渲染时分别计算（`promptOnly`/`markdownOnly` 区分），避免污染历史且保证幂等。
 - **记忆总结压缩上下文**：独立的记忆总结设置达到可总结消息阈值时自动执行；手动触发先确认，并包含边界后的全部消息，不受阈值限制。`memorySummary` 把已有记忆注入提示词的 `<memories>` 区块，调用 LLM 提取**新增记忆行**（每行 `- ` 开头，关键词用占位）。默认写入当前角色世界书（条目名 `记忆总结 N`、关键词触发、可在角色页编辑删除）；当同一角色在记忆页存在 ≥ 2 条记忆时改为写入会话级总结，避免世界书全局生效导致的跨会话串味。只有实际生成非空记忆时才把会话 `summarizedUpTo` 单调前移；无新增记忆或总结失败时保留原状。发送请求时用记忆文本替代边界之前的消息，始终保留最近若干条。

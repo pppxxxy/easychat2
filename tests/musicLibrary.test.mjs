@@ -170,7 +170,7 @@ test('音乐库：索引正常但条目损坏时抛错并备份原值', async ()
 test('音乐库：uri 落库前登记媒体保护', async () => {
   store.clear();
   // markMediaWrite 是真实模块（纯内存）：直接观测保护集合的变化。
-  const protection = await import('../src/mediaProtection.js');
+  const protection = await import('../src/storage/mediaProtection.js');
   const before = protection.isRecentMediaUri('file:///docs/music/protected.mp3');
   await library.saveMusicItem(makeItem({ id: 'p1', uri: 'file:///docs/music/protected.mp3' }));
   assert.equal(before, false);

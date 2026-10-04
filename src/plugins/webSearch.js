@@ -1,6 +1,6 @@
 import { getProvider, missingRequiredFields } from './providers.js';
-import { registerSecretValues } from '../secrets.js';
-import vendorXhr from '../vendorHttp.js';
+import { registerSecretValues } from '../storage/secrets.js';
+import vendorXhr from '../network/vendorHttp.js';
 
 const SEARCH_TIMEOUT_MS = 10000;
 const CACHE_TTL_MS = 60000;

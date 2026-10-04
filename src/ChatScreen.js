@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isConfigChangedError, sendChatMessage } from './api.js';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isConfigChangedError, sendChatMessage } from './network/api.js';
 import {
    deleteLocalImage,
    deleteTemporaryImage,
@@ -29,17 +29,17 @@ import {
    MAX_IMAGE_ATTACHMENTS,
    takePhoto,
    validateImageSize,
-} from './attachments.js';
-import { createMediaMessage, STICKER_MESSAGE_KIND } from './chatMedia.js';
-import { extractStickerDirectives, resolveStickerNames } from './stickerDirectives.js';
-import { createStickerImage, deleteStickerImage } from './stickerImages.js';
+} from './chat/attachments.js';
+import { createMediaMessage, STICKER_MESSAGE_KIND } from './chat/chatMedia.js';
+import { extractStickerDirectives, resolveStickerNames } from './chat/stickerDirectives.js';
+import { createStickerImage, deleteStickerImage } from './chat/stickerImages.js';
 import { getCachedDisplayText } from './memory/displayTextCache.js';
 import { isGreetingMessage, listGreetingCandidates } from './character/cardGreetings.js';
 import {
   removeMessagesByIds,
   selectableMessageIds,
   toggleMessageSelection,
-} from './messageSelection.js';
+} from './chat/messageSelection.js';
 import {
   applySummary,
   invalidateHistorySummaries,
@@ -54,15 +54,15 @@ import { useApp } from './context/AppContext.js';
 import CharacterEditForm from './CharacterEditForm.js';
 import GreetingPickerModal from './GreetingPickerModal.js';
 import GroupEditForm from './GroupEditForm.js';
-import DisclaimerModal from './disclaimer.js';
+import DisclaimerModal from './onboarding/disclaimer.js';
 import {
   MENTION_PREFIX,
-} from './groupChat.js';
-import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
-import ScrollScrubber from './ScrollScrubber.js';
-import { maskSecrets } from './secrets.js';
-import { hideVariantStatusBar } from './speechText.js';
-import { recordDiagnostic } from './diagnostics.js';
+} from './chat/groupChat.js';
+import { applyRegexScripts, REGEX_PLACEMENT } from './prompt/regexEngine.js';
+import ScrollScrubber from './chat/ScrollScrubber.js';
+import { maskSecrets } from './storage/secrets.js';
+import { hideVariantStatusBar } from './chat/speechText.js';
+import { recordDiagnostic } from './storage/diagnostics.js';
 import {
   getApiConfigs,
   getActiveLocalModel,
@@ -113,7 +113,7 @@ import {
   buildScenePrompt,
   normalizeScenePrompt,
   selectReplySegment,
-} from './inlineImagePrompt.js';
+} from './imageGen/inlineImagePrompt.js';
 
 import {
   AI_DISCLAIMER_TEXT,

@@ -17,7 +17,7 @@ import { containsHtml } from './plainText.js';
 import { clampMarkdownText } from './markdownGuard.js';
 import { shouldRenderRichHtml, splitFullHtmlDocument } from './richHtml.js';
 import RichHtmlMessage from './RichHtmlMessage.js';
-import { useTheme } from './theme/ThemeContext.js';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 助手正文渲染：与聊天页共用 assistantRender 的配置，保证制卡预览看到的效果一致。
 // 聊天页因气泡宽度/操作等耦合保留自己的 JSX，这里只服务预览等轻量场景。

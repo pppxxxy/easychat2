@@ -134,7 +134,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
   if (request === 'expo-file-system' || request === 'expo-file-system/legacy') return FileSystem;
   if (request === 'expo-sqlite') return SQLite;
-  if (request.endsWith('/presets') || request === './presets.js') {
+  if (request.endsWith('/presets.js') || request.endsWith('/presets')) {
     return { __esModule: true, default: [] };
   }
   if (request.endsWith('/imageGen/providers') || request === './imageGen/providers.js') {

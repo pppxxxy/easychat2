@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
-import { maskSecrets } from '../secrets.js';
+import { maskSecrets } from '../storage/secrets.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createChatStyles } from './chatStyles.js';
 

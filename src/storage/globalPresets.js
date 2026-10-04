@@ -2,7 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import GLOBAL_PRESETS from '../presets.js';
+import GLOBAL_PRESETS from '../settings/presets.js';
 import { backupCorruptValue, readJsonStatus } from './io.js';
 
 const GLOBAL_PRESETS_KEY = '@easychat2_global_presets';

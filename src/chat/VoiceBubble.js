@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { formatVoiceDuration } from '../voiceMessages.js';
+import { formatVoiceDuration } from './voiceMessages.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { getAudioModule } from './audioModules.js';
 

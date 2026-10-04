@@ -118,20 +118,20 @@ npm test             # 运行 Node 单元与回归测试
 | `src/theme/ThemeContext.js` | 主题与字体缩放的全局上下文 |
 | `src/tts/index.js` | 语音播报适配层与播放控制 |
 | `src/transcription.js` | 语音转写（多厂商 + 复用聊天来源） |
-| `src/voiceMessages.js` | 语音消息结构与播放 |
+| `src/chat/voiceMessages.js` | 语音消息结构与播放 |
 | `src/moments/moments.js` | 动态触发判定与文本模板 |
 | `src/imageGen/index.js` | 生图统一适配与响应解析 |
 | `src/imageGen/localDream.js` | Local Dream 端侧生图（SSE + 原始 RGB） |
 | `src/localModel/` | 本地大模型（模型管理、适配器、本地 API 服务、think 流切分） |
-| `src/modelProvider.js` | 在线/本地推理选择与回退 |
+| `src/network/modelProvider.js` | 在线/本地推理选择与回退 |
 | `src/storage/` | 存储域实现（io / backupStream / 各数据域） |
 | `src/storage/backupStream.js` | 备份导出分块生成器（逐块可取消） |
 | `src/character/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
-| `src/chatPipeline.js` | 世界书/正则/角色预设提示词组装 |
+| `src/prompt/chatPipeline.js` | 世界书/正则/角色预设提示词组装 |
 | `src/characterPresets.js` | 角色卡预设规范化与解析 |
 | `src/storage.js` | 持久化门面（转发 `src/storage/`） |
-| `src/secretStore.js` | 密钥安全存储（AsyncStorage 只留引用） |
-| `src/api.js` | 大模型接口调用（`streamChatCompletion` 结构化 + `sendChatMessage` 薄包装） |
+| `src/storage/secretStore.js` | 密钥安全存储（AsyncStorage 只留引用） |
+| `src/network/api.js` | 大模型接口调用（`streamChatCompletion` 结构化 + `sendChatMessage` 薄包装） |
 | `src/agent/loop.js` | Agent 工具调用循环（跨轮累积、上限收尾、取消） |
 | `src/agent/tools/registry.js` | 工具注册表与 ask/read/write 模式门控 |
 | `src/workspace/paths.js` | 工作区路径安全（沙盒相对路径 + 扩展名白名单） |
@@ -149,10 +149,10 @@ npm test             # 运行 Node 单元与回归测试
 | `src/WorkspaceCapabilitiesCard.js` | 工作区能力说明卡片（设置页内，可折叠） |
 | `src/chat/toolApproval.js` | 工具执行前的人工确认（可等待的 Alert；中止即结算为拒绝） |
 | `plugins/withShellExecutor.js` + `plugins/shellExecutor/android/` | 命令执行原生模块（Kotlin，prebuild 时注入 android/） |
-| `src/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
+| `src/network/vendorHttp.js` | 厂商请求统一层（XHR + SSE） |
 | `src/context/AppContext.js` | 全局角色库状态 |
 | `src/context/characterLibrary.js` | 角色库状态迁移纯函数 |
-| `src/chatRace.js` | 切换角色的迟到回复守卫 |
+| `src/chat/chatRace.js` | 切换角色的迟到回复守卫 |
 | `plugins/withLocalApiServer.js` | 本地 OpenAI 兼容服务原生插件 |
 | `plugins/withProactiveMessage.js` | 主动消息原生插件 |
 | `app.json` | Expo 应用配置（`newArchEnabled: true`、插件链） |

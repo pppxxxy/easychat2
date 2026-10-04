@@ -36,7 +36,7 @@ const DIARY_STORAGE_SOURCE = read('storage/diary.js');
 const RUNNER_SOURCE = read('diary/runDiary.js');
 const PANEL_SOURCE = read('DiaryPanel.js');
 const EXTENSION_SOURCE = read('ExtensionScreen.js');
-const API_SOURCE = read('api.js');
+const API_SOURCE = read('network/api.js');
 const APP_SOURCE = readFileSync(path.join(HERE, '..', 'App.js'), 'utf8');
 
 // 用固定本地时间构造：2026-09-27 10:00 本地时间

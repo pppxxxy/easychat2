@@ -14,7 +14,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldLabel, SecondaryButton, TextField } from './ui/index.js';
-import { makeCharacterPresetId } from './characterPresets.js';
+import { makeCharacterPresetId } from './character/characterPresets.js';
 import { useTheme } from './theme/ThemeContext.js';
 import {
   createGlobalPresetId,

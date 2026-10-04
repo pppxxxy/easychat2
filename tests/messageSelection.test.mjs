@@ -9,7 +9,7 @@ import {
   removeMessagesByIds,
   selectableMessageIds,
   toggleMessageSelection,
-} from '../src/messageSelection.js';
+} from '../src/chat/messageSelection.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');

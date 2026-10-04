@@ -12,10 +12,10 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './network/api.js';
 import { buildSystemPrompt } from './character/cardParser.js';
-import { buildRequestMessages } from './chatPipeline.js';
-import { readImageDataUri } from './attachments.js';
+import { buildRequestMessages } from './prompt/chatPipeline.js';
+import { readImageDataUri } from './chat/attachments.js';
 import { useApp } from './context/AppContext.js';
 import CardForgeEditor from './CardForgeEditor.js';
 import {
@@ -45,7 +45,7 @@ import {
   saveCardForge,
 } from './storage.js';
 import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution.js';
-import { maskSecrets } from './secrets.js';
+import { maskSecrets } from './storage/secrets.js';
 import { Chip, PrimaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 

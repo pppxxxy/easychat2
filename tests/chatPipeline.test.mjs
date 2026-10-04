@@ -10,7 +10,7 @@ import {
   buildRequestMessages,
   filterRequestMedia,
   resolveVoiceFormat,
-} from '../src/chatPipeline.js';
+} from '../src/prompt/chatPipeline.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');

@@ -26,7 +26,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
       getTtsProvider: () => null,
     };
   }
-  if (request === '../secrets.js') {
+  if (request.endsWith('/secrets.js')) {
     return { registerSecretValues: () => {} };
   }
   if (request === 'expo-audio') {

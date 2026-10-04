@@ -77,6 +77,6 @@ test('语音兜底接线：supportsAudio 时转写失败按 input_audio 直发�
   assert.match(chatSource, /voice-transcribe/, '转写失败应记录诊断日志');
   assert.match(chatSource, /语音转写失败/, '网络类转写失败应有可见提示');
   assert.match(chatSource, /未配置语音转写/, '无转写来源时应有补配引导');
-  const pipelineSource = read('src/chatPipeline.js');
+  const pipelineSource = read('src/prompt/chatPipeline.js');
   assert.match(pipelineSource, /type: 'input_audio', input_audio: \{ data: voiceBase64, format: voiceFormat \}/, '兜底应按 OpenAI input_audio 格式构造');
 });

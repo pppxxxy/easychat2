@@ -11,7 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 
-import { clearDiagnostics, formatDiagnostics, getDiagnostics } from './diagnostics.js';
+import { clearDiagnostics, formatDiagnostics, getDiagnostics } from './storage/diagnostics.js';
 import { useTheme } from './theme/ThemeContext.js';
 
 // 本地诊断日志查看器：只读展示本机留存的异常记录（已脱敏），支持复制/清空。

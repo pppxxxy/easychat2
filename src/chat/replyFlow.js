@@ -6,7 +6,7 @@ import {
   buildErrorRawText,
   settlePendingMessage,
 } from './chatHelpers.js';
-import { maskSecrets } from '../secrets.js';
+import { maskSecrets } from '../storage/secrets.js';
 
 // 注意：本模块必须保持 Node 可加载（Node 测试直接 import）。
 // 因此不能 import api.js（expo 依赖链），错误分类器由调用方注入。

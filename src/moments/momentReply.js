@@ -4,7 +4,7 @@
 // - 动态下的评论交流是一次“不进记忆的对话”：这里只负责构造提示词，绝不写回会话消息或记忆；
 // - 模块只依赖纯文本处理工具，便于单测与在纯 Node 环境下运行。
 
-import { messageCopyText } from '../plainText.js';
+import { messageCopyText } from '../chat/plainText.js';
 
 const MOMENT_REPLY_MAX_CHARS = 200;
 const FALLBACK_MESSAGE_COUNT = 8;

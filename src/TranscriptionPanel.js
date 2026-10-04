@@ -22,7 +22,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getTranscriptionSettings, saveTranscriptionSettings } from './storage.js';
-import { TRANSCRIPTION_API_VENDORS } from './apiVendors.js';
+import { TRANSCRIPTION_API_VENDORS } from './network/apiVendors.js';
 import { useTheme } from './theme/ThemeContext.js';
 
 const REUSED_ID = '__reused__';

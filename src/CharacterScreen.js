@@ -35,10 +35,10 @@ import { useApp } from './context/AppContext.js';
 import { selectSessionsForCharacters } from './context/sessionLibrary.js';
 import { useNavigation } from '@react-navigation/native';
 import PresetPanel from './PresetPanel.js';
-import ScrollScrubber, { getScrollRange } from './ScrollScrubber.js';
-import { compileRegex, isUnsafeRegexPattern } from './regexEngine.js';
-import { getUnsafeWorldEntryKeys } from './lorebook.js';
-import { maskSecrets } from './secrets.js';
+import ScrollScrubber, { getScrollRange } from './chat/ScrollScrubber.js';
+import { compileRegex, isUnsafeRegexPattern } from './prompt/regexEngine.js';
+import { getUnsafeWorldEntryKeys } from './prompt/lorebook.js';
+import { maskSecrets } from './storage/secrets.js';
 import {
   createGroupSession,
   deleteMomentsForCharacterDeletion,
@@ -50,10 +50,10 @@ import {
   takeCharacterEditDraft,
   clearCharacterEditDraft,
 } from './storage.js';
-import { isRecentMediaUri } from './mediaProtection.js';
+import { isRecentMediaUri } from './storage/mediaProtection.js';
 import { countMomentsForCharacterDeletion } from './moments/moments.js';
 import { createForgeState, draftFromCharacter } from './cardForge/forge.js';
-import { isFormDirty, setCharacterEditGuard } from './characterEditGuard.js';
+import { isFormDirty, setCharacterEditGuard } from './character/characterEditGuard.js';
 import { isValidAigcMeta } from './aigc/attribution.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { createCharacterStyles } from './character/characterStyles.js';

@@ -2,7 +2,7 @@ import { Image } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { markMediaWrite } from './mediaProtection.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 
 export const TEXT_EXTENSIONS = [
   'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',

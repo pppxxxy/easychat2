@@ -4,7 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { isKnownImageProvider } from '../imageGen/providers.js';
-import { normalizeImagePosition } from '../inlineImagePrompt.js';
+import { normalizeImagePosition } from '../imageGen/inlineImagePrompt.js';
 import { THEMES } from '../theme/themes.js';
 import {
   backupCorruptValue,

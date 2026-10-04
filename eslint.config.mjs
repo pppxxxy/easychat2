@@ -44,18 +44,15 @@ export default [
     // 绕过密钥脱敏 / 绕过 SQLite 大值兜底」，且很难靠 review 拦住。
     //
     // 豁免（既有分散引用，属历史债，新增文件不得再加入）：
-    //   - `src/storage/**`、`src/storage.js`：存储实现本身；
-    //   - `src/secretStore.js`：expo-secure-store 的唯一封装点；
-    //   - `src/diagnostics.js`：按 AGENTS.md 要求惰性 require AsyncStorage，避免
-    //     与 storage/io.js 形成循环依赖；
+    //   - `src/storage/**`、`src/storage.js`：存储实现本身；`secretStore.js`
+    //     （expo-secure-store 唯一封装点）、`diagnostics.js`（惰性 require
+    //     AsyncStorage）与 `secrets.js` 已归入 `src/storage/`；
     //   - `src/books|music|screenWatch/**`：这三个后加域自持存储键，尚未并入
     //     storage 层（见 `.monkeycode/docs/审查待办.md`）。
     files: ['src/**/*.js'],
     ignores: [
       'src/storage/**',
       'src/storage.js',
-      'src/secretStore.js',
-      'src/diagnostics.js',
       'src/books/**',
       'src/music/**',
       'src/screenWatch/**',
@@ -73,7 +70,7 @@ export default [
           },
           {
             name: 'expo-secure-store',
-            message: '安全存储只允许在 src/secretStore.js 内使用。',
+            message: '安全存储只允许在 src/storage/secretStore.js 内使用。',
           },
         ],
       }],

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   extractStickerDirectives,
   resolveStickerNames,
-} from '../src/stickerDirectives.js';
+} from '../src/chat/stickerDirectives.js';
 
 test('名称清单去重、trim、过滤空串并保持顺序', () => {
   const names = resolveStickerNames([
