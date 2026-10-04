@@ -55,7 +55,7 @@ const FileSystem = {
   readResult: '',
   getInfoAsync: async () => FileSystem.infoResult,
   makeDirectoryAsync: async () => {},
-  copyAsync: async () => {},
+  copyAsync: async ({ to }) => { FileSystem.copiedTo = to; },
   readAsStringAsync: async () => FileSystem.readResult,
   deleteAsync: async () => {},
 };
@@ -223,4 +223,39 @@ test('文本附件仍受大小上限约束', async () => {
     () => attachments.readTextAttachment('file:///documents/big.txt'),
     /文件过大/
   );
+});
+
+test('视频：识别、MIME 归一与大小限额', () => {
+  assert.equal(attachments.isVideo('clip.mp4', ''), true);
+  assert.equal(attachments.isVideo('clip', 'video/quicktime'), true);
+  assert.equal(attachments.isVideo('clip.mp4', 'application/octet-stream'), true, 'mime 缺失时按扩展名识别');
+  assert.equal(attachments.isVideo('photo.jpg', 'image/jpeg'), false);
+  assert.equal(attachments.getVideoMime('a.MOV', ''), 'video/mov');
+  assert.equal(attachments.getVideoMime('a.webm', ''), 'video/webm');
+  assert.equal(attachments.getVideoMime('a.3gp', ''), 'video/3gpp');
+  assert.equal(attachments.getVideoMime('a', 'video/quicktime'), 'video/mov');
+  assert.equal(attachments.getVideoMime('a', 'video/mp4'), 'video/mp4');
+  assert.equal(attachments.getVideoMime('a', ''), 'video/mp4', '未知一律按 mp4');
+  assert.equal(attachments.validateVideoSize({ size: attachments.MAX_VIDEO_BYTES }), true);
+  assert.throws(() => attachments.validateVideoSize({ size: attachments.MAX_VIDEO_BYTES + 1 }), /视频过大/);
+  assert.throws(() => attachments.validateVideoSize({ size: 0 }), /无法读取视频大小/);
+  assert.equal(attachments.MAX_VIDEO_ATTACHMENTS, 1, '视频一次只允许一条');
+  assert.ok(attachments.MAX_VIDEO_BASE64_BYTES > attachments.MAX_VIDEO_BYTES, 'base64 预算要覆盖膨胀后的体积');
+});
+
+test('视频落盘：chat-videos 目录、扩展名按 MIME 归一；删除只作用于该目录', async () => {
+  FileSystem.copiedTo = '';
+  const destination = await attachments.persistVideoAttachment('file:///cache/clip.mov', 'video/quicktime', 'clip.mov');
+  assert.ok(destination.includes('/chat-videos/'), '落盘目录必须是 chat-videos（与图片分离）');
+  assert.equal(destination, FileSystem.copiedTo, '实际拷贝目标与返回值一致');
+  assert.ok(destination.endsWith('.mov'), 'MOV 扩展名保留');
+  const webm = await attachments.persistVideoAttachment('file:///cache/a.bin', 'video/webm', 'a.bin');
+  assert.ok(webm.endsWith('.webm'), 'WebM 归一为 webm');
+  await assert.rejects(
+    () => attachments.persistVideoAttachment('', 'video/mp4', 'x.mp4'),
+    /视频路径无效/
+  );
+  // 删除守卫：非 chat-videos 路径即便误传也不动（不抛错即可，真实删除由 FileSystem 承接）。
+  await attachments.deleteLocalVideo('file:///documents/chat-images/photo.jpg');
+  await attachments.deleteLocalVideo('');
 });

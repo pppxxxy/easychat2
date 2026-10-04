@@ -224,11 +224,17 @@ export function buildRequestMessages({ character, historyMessages, userText, use
         REGEX_PLACEMENT.USER_INPUT,
         0
       );
-      const dataUri = item.includeImage === false ? '' : String(item.dataUri || '');
+      // 视频与图片分走各自的 include 开关：视频是更高的带宽/端点门槛，
+      // 关掉视频不能连带把图片也吞掉（反之亦然）。
+      const isVideo = item.kind === 'video';
+      const included = isVideo ? item.includeVideo !== false : item.includeImage !== false;
+      const dataUri = included ? String(item.dataUri || '') : '';
       const content = dataUri
         ? [
             { type: 'text', text },
-            { type: 'image_url', image_url: { url: dataUri } },
+            isVideo
+              ? { type: 'video_url', video_url: { url: dataUri } }
+              : { type: 'image_url', image_url: { url: dataUri } },
           ]
         : text;
       return { role: 'user', content };
@@ -258,7 +264,7 @@ export function resolveVoiceFormat(mime) {
 
 // 本地模型媒体裁剪：按能力/开关只保留允许的多模态部分，其余退化为纯文本。
 // 数组 content 裁剪后若无媒体则折叠成字符串；空消息丢弃；字符串 content 原样返回。
-export function filterRequestMedia(messages, { allowVision = false, allowAudio = false } = {}) {
+export function filterRequestMedia(messages, { allowVision = false, allowAudio = false, allowVideo = false } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   return list
     .map(message => {
@@ -275,10 +281,17 @@ export function filterRequestMedia(messages, { allowVision = false, allowAudio =
           if (allowAudio) parts.push(part);
           return;
         }
+        // 视频（video_url）默认一律裁剪——本地 llama.cpp 链路没有视频输入能力。
+        if (part.type === 'video_url') {
+          if (allowVideo) parts.push(part);
+          return;
+        }
         parts.push(part);
       });
       if (parts.length === 0) return null;
-      const hasMedia = parts.some(part => part.type === 'image_url' || part.type === 'input_audio');
+      const hasMedia = parts.some(part => (
+        part.type === 'image_url' || part.type === 'input_audio' || part.type === 'video_url'
+      ));
       if (!hasMedia) {
         const text = parts
           .map(part => (typeof part.text === 'string' ? part.text : ''))

@@ -2,7 +2,7 @@
 //
 // 内部统一用 OpenAI Chat Completions 形态的消息与结果：
 //   message: { role: 'system'|'user'|'assistant'|'tool', content: string|[part], tool_calls?, tool_call_id? }
-//   part:    { type: 'text', text } | { type: 'image_url', image_url: { url } } | { type: 'input_audio', input_audio: { data, format } }
+//   part:    { type: 'text', text } | { type: 'image_url', image_url: { url } } | { type: 'video_url', video_url: { url } } | { type: 'input_audio', input_audio: { data, format } }
 //   result:  { text, reasoning, toolCalls: [{ id, name, arguments }], finishReason }
 //
 // 本模块负责把上述形态翻译成各协议的 URL / 请求头 / 请求体，并把各协议的
@@ -235,6 +235,8 @@ export function toAnthropicRequest(messages) {
         if (!part || typeof part !== 'object') return;
         if (part.type === 'text' && typeof part.text === 'string') blocks.push({ type: 'text', text: part.text });
         else if (part.type === 'image_url') blocks.push(toAnthropicImagePart(part));
+        // video_url：Anthropic Messages 不支持内联视频，丢弃，文本部分保留
+        //（发送侧只在 OpenAI 兼容协议下解锁视频附件，这里是纵深防御）。
         // input_audio：Anthropic Messages 不支持内联音频，丢弃，文本部分保留。
       });
     }
@@ -324,6 +326,7 @@ export function toResponsesRequest(messages) {
             },
           });
         }
+        // video_url：Responses 协议没有视频输入类型，静默丢弃（纵深防御，见 Anthropic 同注）。
       });
     }
     if (content.length) input.push({ type: 'message', role: 'user', content });
