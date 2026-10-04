@@ -10,7 +10,7 @@ import {
   resolveTabName,
   setCharacterEditGuard,
   shouldConfirmTabLeave,
-} from '../src/characterEditGuard.js';
+} from '../src/character/characterEditGuard.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_SOURCE = readFileSync(path.join(HERE, '..', 'App.js'), 'utf8');
@@ -139,7 +139,7 @@ test('脏判定以 seed 快照为基准，不因角色后台更新误报', () =>
     false
   );
   // formReady 闸门由 isFormDirty 内部处理
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './characterEditGuard.js'"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './character/characterEditGuard.js'"));
 });
 
 test('保存后表单等于已保存内容即视为干净（规范化不致误报未保存）', () => {

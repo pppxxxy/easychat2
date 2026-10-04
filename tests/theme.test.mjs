@@ -23,7 +23,7 @@ test('外观设置的白名单以 THEMES 为单一来源，新增主题不会被
 });
 
 test('内置默认角色资源走 expo-file-system/legacy 入口', () => {
-  const source = read('src/defaultCharacterAssets.js');
+  const source = read('src/character/defaultCharacterAssets.js');
   // SDK 54 主入口不导出 documentDirectory 且弃用方法会抛错，必须走 /legacy
   assert.match(source, /from 'expo-file-system\/legacy'/, '必须使用 legacy 入口');
   assert.doesNotMatch(source, /from 'expo-file-system'/, '不得使用主入口');

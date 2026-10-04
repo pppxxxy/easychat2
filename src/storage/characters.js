@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { assignStableCharacterIds } from '../context/characterIdentity.js';
-import { normalizeCharacterPresets } from '../characterPresets.js';
+import { normalizeCharacterPresets } from '../character/characterPresets.js';
 import { readJsonStatus, utf8ByteLength } from './io.js';
 
 const CHARACTER_KEY = '@easychat2_character';

@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { FORGE_FIELDS, FORGE_QUESTIONS, MAX_PRESERVED_ITEMS, MAX_PRESERVED_TEXT } from '../cardForge/forge.js';
-import { normalizeCharacterPresets } from '../characterPresets.js';
+import { normalizeCharacterPresets } from '../character/characterPresets.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus, utf8ByteLength } from './io.js';
 
 const CARD_FORGE_KEY = '@easychat2_card_forge';
