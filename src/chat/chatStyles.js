@@ -585,10 +585,10 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.primaryAlpha(0.1),
   },
   quoteName: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
-  quoteNameUser: { color: '#f0efff' },
+  quoteNameUser: { color: theme.colors.quoteOnPrimary },
   quoteNameAssistant: { color: theme.colors.primary },
   quoteText: { fontSize: 12, lineHeight: 17 },
-  quoteTextUser: { color: '#e8e6ff' },
+  quoteTextUser: { color: theme.colors.quoteOnPrimaryMuted },
   quoteTextAssistant: { color: theme.colors.textMuted },
   quoteBar: {
     flexDirection: 'row',
@@ -740,11 +740,11 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   bubbleMatch: {
     borderWidth: 2,
-    borderColor: 'rgba(242,193,78,0.9)',
+    borderColor: theme.colors.star,
   },
   bubbleActiveMatch: {
     borderWidth: 2,
-    borderColor: '#ff8c42',
+    borderColor: theme.colors.star,
   },
   bubbleSelected: {
     borderWidth: 2,
@@ -777,25 +777,25 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderRadius: tokens.radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: '#344f5d',
+    backgroundColor: theme.colors.panelButtonBg,
   },
   panelButtonPressed: {
     opacity: 0.75,
   },
   panelButtonText: {
-    color: theme.colors.text,
+    color: theme.colors.panelButtonText,
     fontSize: 13,
     lineHeight: 18,
   },
   errorBubbleBounded: {
-     backgroundColor: theme.id === 'light' ? '#fde8e8' : '#3a1719',
+     backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,
      borderWidth: tokens.border.thin,
      borderBottomLeftRadius: 6,
      maxWidth: '92%',
    },
    errorBubbleFullWidth: {
-     backgroundColor: theme.id === 'light' ? '#fde8e8' : '#3a1719',
+     backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,
      borderWidth: tokens.border.thin,
      borderBottomLeftRadius: 6,
@@ -808,12 +808,12 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginBottom: 6,
   },
   errorSummary: {
-    color: theme.id === 'light' ? '#991b1b' : '#ffcdd2',
+    color: theme.colors.dangerTextStrong,
     fontSize: 15,
     lineHeight: 21,
   },
   errorDetail: {
-    color: theme.id === 'light' ? '#b91c1c' : '#ef9a9a',
+    color: theme.colors.dangerTextSoft,
     fontSize: 13,
     lineHeight: 19,
     marginTop: 10,
@@ -839,8 +839,8 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     lineHeight: 21,
   },
   highlightText: {
-    backgroundColor: 'rgba(255,214,102,0.6)',
-    color: '#3a2a00',
+    backgroundColor: theme.colors.highlightBg,
+    color: theme.colors.highlightText,
     fontWeight: '700',
   },
   attachmentBar: {

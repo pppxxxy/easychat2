@@ -218,11 +218,27 @@ export function getTheme(id) {
   const primary = found.colors.primary;
   const primaryMuted = found.colors.primaryMuted;
   const danger = found.colors.danger;
+  const primaryContrast = found.colors.primaryContrast;
   const colors = {
     ...found.colors,
     primaryAlpha: (alpha = 0.1) => hexToRgba(primary, alpha),
     primaryMutedAlpha: (alpha = 0.35) => hexToRgba(primaryMuted, alpha),
     dangerAlpha: (alpha = 0.1) => hexToRgba(danger, alpha),
+    // 语义派生 token：把散落在样式里的硬编码色收敛回主题体系。
+    // dangerSurface 用于错误气泡底；dangerText* 保证各主题下正文可读。
+    dangerSurface: hexToRgba(danger, 0.12),
+    dangerTextStrong: danger,
+    dangerTextSoft: hexToRgba(danger, 0.82),
+    // 用户气泡底色即 primary，引用名/引用正文用 primaryContrast 派生的半透明，
+    // 避免在浅色/高亮 primary（如紫罗兰 #c084fc）上白色文字对比不足。
+    quoteOnPrimary: hexToRgba(primaryContrast, 0.95),
+    quoteOnPrimaryMuted: hexToRgba(primaryContrast, 0.72),
+    // 搜索命中高亮：暖黄底 + 深字，跨主题可读。
+    highlightBg: 'rgba(255,214,102,0.6)',
+    highlightText: '#3a2a00',
+    // 面板内按钮（HTML 卡片注入的 <button>）：不随主题的深色底，故文字用固定浅色。
+    panelButtonBg: '#344f5d',
+    panelButtonText: '#eef4f7',
   };
   return { ...found, colors };
 }
