@@ -255,11 +255,17 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun setApiSettings(config: ReadableMap, promise: Promise) {
         try {
+            // protocol/authHeader/authScheme/extraHeadersJson 由 JS 按所选协议计算
+            // （快照请求体已是该协议形态，原生只负责发送与解析）；缺省 = 旧版 openai 语义。
             MessageStore(reactContext).saveApiSettings(
                 ApiSettings(
                     endpoint = config.getString("endpoint") ?: "",
                     model = config.getString("model") ?: "",
-                    apiKey = config.getString("apiKey") ?: ""
+                    apiKey = config.getString("apiKey") ?: "",
+                    protocol = config.getString("protocol") ?: "openai",
+                    authHeader = config.getString("authHeader") ?: "Authorization",
+                    authScheme = config.getString("authScheme") ?: "Bearer ",
+                    extraHeadersJson = config.getString("extraHeadersJson") ?: ""
                 )
             )
             promise.resolve(true)

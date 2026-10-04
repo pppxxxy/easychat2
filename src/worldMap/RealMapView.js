@@ -47,17 +47,23 @@ export default function RealMapView() {
     return () => { alive = false; };
   }, []);
 
-  const html = useMemo(
-    () => buildRealMapHtml({ tileUrl: settings && settings.tileUrl ? settings.tileUrl : undefined }),
-    [settings]
-  );
+  // html 只依赖瓦片模板。若依赖整个 settings，开关/位置每次变化都会重建 source，
+  // WebView 的 source 一变就可能整页重载——而 webReady 还是 true，标记会被注进旧文档。
+  const tileUrl = settings && settings.tileUrl ? settings.tileUrl : undefined;
+  const html = useMemo(() => buildRealMapHtml({ tileUrl }), [tileUrl]);
+
+  // 换了瓦片模板（source 变化 → 页面会重载）时先回到「未就绪」；
+  // 等 onLoadEnd 把 webReady 置回 true，下面的标记注入才会执行到新文档上。
+  useEffect(() => {
+    setWebReady(false);
+  }, [html]);
 
   const inject = useCallback(script => {
     const ref = webRef.current;
     if (ref && ref.injectJavaScript) ref.injectJavaScript(`${script};true;`);
   }, []);
 
-  // 位置/就绪变化时把标记（转 GCJ-02）同步进 WebView。
+  // 位置/就绪变化时把标记（转 GCJ-02）同步进 WebView；页面重载完成后（webReady 回 true）会重新注入。
   useEffect(() => {
     const last = settings && settings.last;
     if (!webReady || !last) return;
@@ -87,9 +93,13 @@ export default function RealMapView() {
     }
     setBusy(true);
     try {
+      // 先授权 + 取点，成功后才把 enabled 写盘：用户拒绝授权时必须保持关闭
+      // （需求 1.2 与 SECURITY.md 的「拒绝后保持关闭」），不能在未授权时就写成开。
+      // capture() 失败时已设好对应文案（拒绝/失败），这里直接返回、不改设置。
+      const ok = await capture();
+      if (!ok) return;
       const saved = await updateLocationSettings(current => ({ ...current, enabled: true }));
       setSettings(saved);
-      await capture();
     } catch (caught) {
       setError(t('world.map.real.failed'));
     } finally {
@@ -101,7 +111,9 @@ export default function RealMapView() {
     if (busy) return;
     setBusy(true);
     try {
-      const saved = await updateLocationSettings(current => ({ ...current, enabled: false }));
+      // 关闭时一并清掉最近位置：位置是敏感数据，开关关掉后不该继续留在盘上
+      // 等着被重新注入（与「关闭时不取点、不注入对话」的披露一致）。
+      const saved = await updateLocationSettings(current => ({ ...current, enabled: false, last: null }));
       setSettings(saved);
       setError('');
     } catch (caught) {

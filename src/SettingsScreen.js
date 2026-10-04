@@ -147,6 +147,7 @@ export default function SettingsScreen() {
   const [capabilityDraft, setCapabilityDraft] = useState({
     supportsThinking: false,
     supportsVision: false,
+    supportsVideo: false,
     supportsAudio: false,
     thinkingField: 'reasoning_effort',
     thinkingFormat: 'effort',
@@ -634,6 +635,7 @@ export default function SettingsScreen() {
               activeModel,
               supportsThinking: caps.supportsThinking === true,
               supportsVision: caps.supportsVision === true,
+              supportsVideo: caps.supportsVideo === true,
               supportsAudio: caps.supportsAudio === true,
               thinking: {
                 field: String(caps.thinkingField || '').trim() || 'reasoning_effort',
@@ -693,6 +695,7 @@ export default function SettingsScreen() {
     setCapabilityDraft({
       supportsThinking: selected.supportsThinking === true,
       supportsVision: selected.supportsVision === true,
+      supportsVideo: selected.supportsVideo === true,
       supportsAudio: selected.supportsAudio === true,
       thinkingField: (selected.thinking && selected.thinking.field) || 'reasoning_effort',
       thinkingFormat: (selected.thinking && selected.thinking.format) || 'effort',
@@ -1976,6 +1979,18 @@ export default function SettingsScreen() {
                 onValueChange={value => setCapabilityDraft(current => ({
                   ...current,
                   supportsVision: value,
+                }))}
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
+              />
+            </View>
+            <View style={styles.capabilityRow}>
+              <Text style={styles.capabilityLabel}>支持视频（悬浮窗帧序列观屏）</Text>
+              <Switch
+                value={capabilityDraft.supportsVideo === true}
+                onValueChange={value => setCapabilityDraft(current => ({
+                  ...current,
+                  supportsVideo: value,
                 }))}
                 trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
                 thumbColor={theme.colors.primaryContrast}

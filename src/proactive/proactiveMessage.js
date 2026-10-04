@@ -54,9 +54,26 @@ export async function cancelRoleSchedules(roleId) {
   return requireNative().cancelRole(roleId);
 }
 
-// apiKey 来自用户自己在设置页填写的值
-export async function setProactiveApiSettings({ endpoint, model, apiKey }) {
-  return requireNative().setApiSettings({ endpoint, model, apiKey });
+// apiKey 来自用户自己在设置页填写的值（仍走原生加密存储；本函数不落明文日志）。
+// protocol/authHeader/authScheme/extraHeadersJson 由 JS 按所选协议计算（见 proactiveRequest.js）。
+export async function setProactiveApiSettings({
+  endpoint,
+  model,
+  apiKey,
+  protocol = 'openai',
+  authHeader = 'Authorization',
+  authScheme = 'Bearer ',
+  extraHeadersJson = '{}',
+}) {
+  return requireNative().setApiSettings({
+    endpoint,
+    model,
+    apiKey,
+    protocol,
+    authHeader,
+    authScheme,
+    extraHeadersJson,
+  });
 }
 
 export async function canScheduleExactAlarms() {

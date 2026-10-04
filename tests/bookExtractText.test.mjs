@@ -50,6 +50,34 @@ test('docx 缺 document.xml 报 UNSUPPORTED_FORMAT', () => {
   );
 });
 
+test('docx 解压上限：按正文实际字节判定，且不受包里其他大条目影响', () => {
+  // 正文超限 → 拒绝（用显式的小上限触发，便于构造小样本）
+  const bigBody = zipSync({ 'word/document.xml': strToU8('a'.repeat(4096)) });
+  assert.throws(
+    () => extractPlainText({ fileName: 'big.docx', bytes: bigBody, docxInflateLimitBytes: 1024 }),
+    (error) => error && error.code === 'DOCX_TOO_LARGE',
+    '正文解压后超过上限必须报 DOCX_TOO_LARGE',
+  );
+
+  // 正文很小、但包里另有一个 4MB 条目（zip 炸弹形态）：不该因无关条目被判超限，
+  // 也不该去解压它（实现只读目录元数据 + 只解压正文这一条）。
+  const bomb = zipSync({
+    'word/document.xml': strToU8('<w:p/>'),
+    'word/media/blob.bin': new Uint8Array(4 * 1024 * 1024),
+  });
+  assert.doesNotThrow(
+    () => extractPlainText({ fileName: 'bomb.docx', bytes: bomb, docxInflateLimitBytes: 1024 }),
+    '上限只约束正文条目，包里其他条目既不参与判定也不被解压',
+  );
+
+  // 同一 zip：把上限降到正文之下仍必须被拒（证明判定确实发生在正文上）
+  const smallBody = zipSync({ 'word/document.xml': strToU8('b'.repeat(256)) });
+  assert.throws(
+    () => extractPlainText({ fileName: 'small.docx', bytes: smallBody, docxInflateLimitBytes: 64 }),
+    (error) => error && error.code === 'DOCX_TOO_LARGE',
+  );
+});
+
 test('html 提取：去 script/style，块级标签转换行', () => {
   const html = '<html><head><style>.a{color:red}</style><script>var secret=1;</script></head>'
     + '<body><h1>标题</h1><p>第一段<br>换行</p><div>第二段</div></body></html>';

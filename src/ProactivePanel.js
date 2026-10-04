@@ -12,7 +12,11 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { normalizeChatUrl } from './network/api.js';
+import {
+  buildProactiveAuthSettings,
+  buildProactiveEndpoint,
+  normalizeProtocol,
+} from './proactive/proactiveRequest.js';
 import {
   getProactiveSettings,
   makeProactiveSlotId,
@@ -297,6 +301,17 @@ export default function ProactivePanel({ embedded = false }) {
       setNotice('所选 API 配置缺少地址，请先在设置页补全。');
       return;
     }
+    // 三种协议（openai / openai-responses / anthropic）都支持：端点、鉴权头与
+    // 槽的请求体快照全部按当前所选协议计算（协议转换在 JS 的 apiProtocols，
+    // 原生只负责发送与按协议解析回复）。设计见
+    // .monkeycode/specs/2026-10-04-proactive-multi-protocol/design.md。
+    const proactiveProtocol = normalizeProtocol(currentConfig.protocol);
+    const proactiveAuth = buildProactiveAuthSettings({ protocol: proactiveProtocol, config: currentConfig });
+    const proactiveEndpoint = buildProactiveEndpoint(proactiveProtocol, currentConfig.baseUrl);
+    if (!proactiveAuth.authHeader) {
+      setNotice('所选 API 配置的鉴权头为空，请先在设置页补全。');
+      return;
+    }
     setSaving(true);
     setNotice('');
     // 本轮新加的槽（此前未排定过）：中途失败时必须回滚，
@@ -312,14 +327,20 @@ export default function ProactivePanel({ embedded = false }) {
       }
 
       // 2. 同步 API（原生侧单份：来源是设置页已有配置）
+      // 2. 同步 API（原生侧单份：来源是设置页已有配置；端点/鉴权按当前协议）
       await setProactiveApiSettings({
-        endpoint: normalizeChatUrl(currentConfig.baseUrl),
+        endpoint: proactiveEndpoint,
         model,
         apiKey: currentConfig.apiKey,
+        protocol: proactiveAuth.protocol,
+        authHeader: proactiveAuth.authHeader,
+        authScheme: proactiveAuth.authScheme,
+        extraHeadersJson: JSON.stringify(proactiveAuth.extraHeaders),
       });
 
-      // 3. 逐槽排定；在 JS 侧用「正常对话」的同一管线组装好完整请求消息数组，
-      //    连同槽配置存进原生，使后台主动消息与普通回复共用同一套提示词。
+      // 3. 逐槽排定；在 JS 侧用「正常对话」的同一管线组装消息，并按当前协议
+      //    转成完整请求体快照存进原生，使后台主动消息与普通回复共用同一套提示词，
+      //    且与所选协议始终配套。
       const persisted = [];
       for (const slot of slots) {
         const character = characters.find(item => item.id === slot.roleId);
@@ -340,6 +361,8 @@ export default function ProactivePanel({ embedded = false }) {
               messageType: slot.messageType,
               customPrompt: slot.customPrompt,
               timeAware,
+              protocol: proactiveProtocol,
+              model,
             });
           } catch (error) {
             requestJson = '';

@@ -141,8 +141,18 @@ data class PendingMessage(
     }
 }
 
-// apiKey 只能来自用户在设置页已有的 API 配置，代码里永远只允许占位
-data class ApiSettings(val endpoint: String, val model: String, val apiKey: String)
+// apiKey 只能来自用户在设置页已有的 API 配置，代码里永远只允许占位。
+// protocol/authHeader/authScheme/extraHeadersJson 由 JS 按所选协议计算（快照请求体
+// 已是该协议的完整形态）；缺省值 = 旧版 openai 语义，兼容历史持久化数据。
+data class ApiSettings(
+    val endpoint: String,
+    val model: String,
+    val apiKey: String,
+    val protocol: String = "openai",
+    val authHeader: String = "Authorization",
+    val authScheme: String = "Bearer ",
+    val extraHeadersJson: String = ""
+)
 
 object MessageClock {
     // 超过 30 分钟就放弃发送，避免半夜收到"早安"
@@ -244,6 +254,10 @@ class MessageStore(context: Context) {
         prefs.edit()
             .putString(KEY_ENDPOINT, settings.endpoint)
             .putString(KEY_MODEL, settings.model)
+            .putString(KEY_PROTOCOL, settings.protocol)
+            .putString(KEY_AUTH_HEADER, settings.authHeader)
+            .putString(KEY_AUTH_SCHEME, settings.authScheme)
+            .putString(KEY_EXTRA_HEADERS, settings.extraHeadersJson)
             .apply()
         // 安全：apiKey 不再明文落盘。优先写加密存储；加密不可用（写入也可能因 Keystore
         // 失效抛错）时降级明文，保证功能不因加密异常而中断。
@@ -258,14 +272,21 @@ class MessageStore(context: Context) {
     fun loadApiSettings(): ApiSettings? {
         val endpoint = prefs.getString(KEY_ENDPOINT, null) ?: return null
         val model = prefs.getString(KEY_MODEL, null) ?: return null
+        // 新字段缺省 = 旧版 openai 语义（旧版本持久化里没有这些键时保持原行为）。
+        val protocol = prefs.getString(KEY_PROTOCOL, "openai") ?: "openai"
+        val authHeader = prefs.getString(KEY_AUTH_HEADER, "Authorization") ?: "Authorization"
+        val authScheme = prefs.getString(KEY_AUTH_SCHEME, "Bearer ") ?: "Bearer "
+        val extraHeadersJson = prefs.getString(KEY_EXTRA_HEADERS, "") ?: ""
         val secret = readSecretApiKey()
-        if (secret != null) return ApiSettings(endpoint, model, secret)
+        if (secret != null) {
+            return ApiSettings(endpoint, model, secret, protocol, authHeader, authScheme, extraHeadersJson)
+        }
         // 加密区没有值（或不可用）：回退明文区，兼作旧数据迁移。
         val legacy = prefs.getString(KEY_API_KEY, null)
         if (legacy != null && secretPrefs != null) {
             if (writeSecretApiKey(legacy)) prefs.edit().remove(KEY_API_KEY).apply()
         }
-        return ApiSettings(endpoint, model, legacy ?: "")
+        return ApiSettings(endpoint, model, legacy ?: "", protocol, authHeader, authScheme, extraHeadersJson)
     }
 
     /** 写入加密存储；成功返回 true，加密不可用或抛错返回 false（调用方降级明文）。 */
@@ -367,6 +388,10 @@ class MessageStore(context: Context) {
         private const val KEY_ENDPOINT = "api_endpoint"
         private const val KEY_MODEL = "api_model"
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_PROTOCOL = "api_protocol"
+        private const val KEY_AUTH_HEADER = "api_auth_header"
+        private const val KEY_AUTH_SCHEME = "api_auth_scheme"
+        private const val KEY_EXTRA_HEADERS = "api_extra_headers"
         private const val KEY_LAST_SENT = "last_sent_"
         private const val KEY_PENDING_MESSAGES = "pending_messages"
         // 待写队列的读-改-写必须整体互斥：MessageStore 每次调用都新实例化，
@@ -423,7 +448,12 @@ class AiApiClient {
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    /** 调用 OpenAI-compatible Chat Completions；返回 null 表示需要本地降级 */
+    /**
+     * 按用户所选协议调用模型接口（openai / openai-responses / anthropic）。
+     * 协议转换在 JS（保存槽时已把完整请求体快照进 requestJson），这里只负责：
+     * 校验快照 → 时间占位符整串替换 → 按 settings 组鉴权头/额外头 → 发送 →
+     * 按协议解析回复文本。返回 null 表示需要本地降级。
+     */
     suspend fun generateProactiveMessage(
         settings: ApiSettings,
         schedule: RoleSchedule
@@ -432,29 +462,16 @@ class AiApiClient {
             return@withContext null
         }
         try {
-            // 优先用 JS 保存槽时组装好的完整消息数组（含正常对话的整套上下文）；
-            // 解析失败或无此字段时退回「角色设定 + 类型提示词」的简版。
-            val messages = parseRequestJson(schedule.requestJson)
-                ?: JSONArray()
-                    .put(JSONObject().put("role", "system").put("content", buildSystemPrompt(schedule)))
-                    .put(JSONObject().put("role", "user").put("content", "请现在主动开口。"))
-            // requestJson 是保存时的快照：JS 侧把时间感知写成了占位符，这里替换成触发时刻。
-            substituteProactiveTime(messages)
-
-            val body = JSONObject()
-                .put("model", settings.model)
-                .put("messages", messages)
-                .put("max_tokens", 120)
-                .put("temperature", 0.9)
-                .toString()
+            // 快照是 JS 按协议组好的完整请求体（JSON 对象，含 model 与生成参数）；
+            // 缺失/非法时按当前协议退回「角色设定 + 类型提示词」的简版体。
+            val bodyText = parseRequestBody(schedule.requestJson)
+                ?: buildFallbackBody(settings, buildSystemPrompt(schedule))
+            // 快照是保存时的：JS 把时间感知写成占位符，这里在整份 body 上替换成触发时刻
+            //（转换后占位符可能落在 system/instructions/messages 任一处，串替换对三种形态都正确）。
+                .let { substituteProactiveTime(it) }
                 .toRequestBody(JSON_MEDIA)
 
-            val request = Request.Builder()
-                .url(settings.endpoint)
-                .header("Authorization", "Bearer ${settings.apiKey}")
-                .header("Content-Type", "application/json")
-                .post(body)
-                .build()
+            val request = buildRequest(settings, bodyText)
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -462,14 +479,7 @@ class AiApiClient {
                     Log.w("AiApiClient", "HTTP ${response.code}，走本地降级")
                     return@withContext null
                 }
-                val text = response.body?.string().orEmpty()
-                JSONObject(text)
-                    .getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-                    .ifBlank { null }
+                extractReplyText(settings.protocol, response.body?.string().orEmpty())
             }
         } catch (e: Exception) {
             Log.w("AiApiClient", "请求失败: ${e.javaClass.simpleName}: ${e.message}")
@@ -477,44 +487,153 @@ class AiApiClient {
         }
     }
 
-    companion object {
-        private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
-
-        // 与 src/proactiveRequest.js 的 PROACTIVE_TIME_TOKEN 保持一致
-        private const val PROACTIVE_TIME_TOKEN = "{{proactive_now}}"
-        private val WEEKDAY_CHARS = arrayOf("日", "一", "二", "三", "四", "五", "六")
-
-        /** 解析 JS 组装的请求消息数组；非法/为空返回 null，由调用方回退简版提示词。 */
-        fun parseRequestJson(raw: String): JSONArray? {
-            if (raw.isBlank()) return null
-            return try {
-                val array = JSONArray(raw)
-                if (array.length() == 0) null else array
+    /** 按协议与设置组装请求头：鉴权头 = authScheme + apiKey，再加 JS 下发的额外头。 */
+    private fun buildRequest(settings: ApiSettings, bodyText: String): Request {
+        val builder = Request.Builder()
+            .url(settings.endpoint)
+            .header(settings.authHeader.ifBlank { "Authorization" }, settings.authScheme + settings.apiKey)
+            .header("Content-Type", "application/json")
+            .post(bodyText)
+        // anthropic-version 等额外头由 JS 按协议算好下发；解析失败不影响主流程。
+        if (settings.extraHeadersJson.isNotBlank()) {
+            try {
+                val extra = JSONObject(settings.extraHeadersJson)
+                val keys = extra.keys()
+                while (keys.hasNext()) {
+                    val name = keys.next()
+                    val value = extra.optString(name)
+                    if (name.isNotBlank() && value != null) builder.header(name, value)
+                }
             } catch (e: Exception) {
-                Log.w("AiApiClient", "requestJson 解析失败，回退简版提示词")
-                null
+                Log.w("AiApiClient", "extraHeaders 解析失败，忽略额外头")
             }
         }
+        return builder.build()
+    }
+
+    /**
+     * 快照必须是 JSON 对象（JS 组好的完整请求体）才可用；
+     * 空串/数组/解析失败返回 null，由调用方按协议组回退简版。
+     */
+    fun parseRequestBody(raw: String): String? {
+        if (raw.isBlank()) return null
+        return try {
+            val obj = JSONObject(raw)
+            if (obj.length() == 0) null else raw
+        } catch (e: Exception) {
+            Log.w("AiApiClient", "requestJson 解析失败，回退简版请求体")
+            null
+        }
+    }
+
+    /** 回退简版：没有 JS 快照时按当前协议组「角色设定 + 类型提示词」的最小请求体。 */
+    private fun buildFallbackBody(settings: ApiSettings, systemPrompt: String): String {
+        val userText = "请现在主动开口。"
+        val body = when (settings.protocol) {
+            "anthropic" -> JSONObject()
+                .put("model", settings.model)
+                .put("max_tokens", PROACTIVE_MAX_TOKENS)
+                .put("temperature", PROACTIVE_TEMPERATURE)
+                .put("system", systemPrompt)
+                .put(
+                    "messages",
+                    JSONArray().put(
+                        JSONObject().put("role", "user").put("content", userText)
+                    )
+                )
+            "openai-responses" -> {
+                val item = JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "content",
+                        JSONArray().put(
+                            JSONObject().put("type", "input_text").put("text", userText)
+                        )
+                    )
+                JSONObject()
+                    .put("model", settings.model)
+                    .put("input", JSONArray().put(item))
+                    .put("store", false)
+                    .put("max_output_tokens", PROACTIVE_MAX_TOKENS)
+                    .put("temperature", PROACTIVE_TEMPERATURE)
+                    .apply { if (systemPrompt.isNotBlank()) put("instructions", systemPrompt) }
+            }
+            else -> JSONObject()
+                .put("model", settings.model)
+                .put(
+                    "messages",
+                    JSONArray()
+                        .put(JSONObject().put("role", "system").put("content", systemPrompt))
+                        .put(JSONObject().put("role", "user").put("content", userText))
+                )
+                .put("max_tokens", PROACTIVE_MAX_TOKENS)
+                .put("temperature", PROACTIVE_TEMPERATURE)
+        }
+        return body.toString()
+    }
+
+    /** 按协议从非流式响应里取出回复文本；解析不出返回 null（走本地降级）。 */
+    private fun extractReplyText(protocol: String, text: String): String? {
+        if (text.isBlank()) return null
+        val json = JSONObject(text)
+        return when (protocol) {
+            "anthropic" -> {
+                val blocks = json.optJSONArray("content") ?: return null
+                val sb = StringBuilder()
+                for (i in 0 until blocks.length()) {
+                    val block = blocks.optJSONObject(i) ?: continue
+                    if (block.optString("type") == "text") sb.append(block.optString("text"))
+                }
+                sb.toString().trim().ifBlank { null }
+            }
+            "openai-responses" -> {
+                val output = json.optJSONArray("output") ?: return null
+                val sb = StringBuilder()
+                for (i in 0 until output.length()) {
+                    val item = output.optJSONObject(i) ?: continue
+                    val content = item.optJSONArray("content") ?: continue
+                    for (j in 0 until content.length()) {
+                        val part = content.optJSONObject(j) ?: continue
+                        if (part.optString("type") == "output_text") sb.append(part.optString("text"))
+                    }
+                }
+                sb.toString().trim().ifBlank { null }
+            }
+            else -> json.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content")
+                .trim()
+                .ifBlank { null }
+        }
+    }
+
+    companion object {
+        private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+        // 与 src/proactive/proactiveRequest.js 的 PROACTIVE_MAX_TOKENS / PROACTIVE_TEMPERATURE 保持一致
+        private const val PROACTIVE_MAX_TOKENS = 120
+        private const val PROACTIVE_TEMPERATURE = 0.9
+
+        // 与 src/proactive/proactiveRequest.js 的 PROACTIVE_TIME_TOKEN 保持一致
+        private const val PROACTIVE_TIME_TOKEN = "{{proactive_now}}"
+        private val WEEKDAY_CHARS = arrayOf("日", "一", "二", "三", "四", "五", "六")
 
         /**
          * 把 JS 保存槽时写入的时间占位符替换成触发时刻的「[当前时间] …」。
          * 快照会在保存后数天的任意时刻触发，JS 侧不能固化真实时间；
          * 格式与 JS 聊天的时间感知一致（yyyy-MM-dd 周X HH:mm）。
+         * 请求体现在是按协议组好的完整 body：占位符可能落在 system（anthropic）/
+         * instructions（responses）/ messages（openai）任一处，所以在**整份 body 文本**上
+         * 串替换（token 含 {}，JSON 字符串里不会转义，直接替换安全）。
          */
-        fun substituteProactiveTime(messages: JSONArray) {
-            if (!messages.toString().contains(PROACTIVE_TIME_TOKEN)) return
+        fun substituteProactiveTime(bodyText: String): String {
+            if (!bodyText.contains(PROACTIVE_TIME_TOKEN)) return bodyText
             val calendar = Calendar.getInstance()
             val week = WEEKDAY_CHARS[calendar.get(Calendar.DAY_OF_WEEK) - 1]
             val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
             val time = SimpleDateFormat("HH:mm", Locale.US).format(calendar.time)
             val nowText = "[当前时间] $date 周$week $time"
-            for (index in 0 until messages.length()) {
-                val message = messages.optJSONObject(index) ?: continue
-                val content = message.opt("content")
-                if (content is String && content.contains(PROACTIVE_TIME_TOKEN)) {
-                    message.put("content", content.replace(PROACTIVE_TIME_TOKEN, nowText))
-                }
-            }
+            return bodyText.replace(PROACTIVE_TIME_TOKEN, nowText)
         }
 
         /** 按消息类型组装系统提示词；问好按当前时段选早/中/晚。 */

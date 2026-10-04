@@ -81,20 +81,56 @@ export function htmlToText(html) {
   return tidyParagraphs(decodeEntities(source));
 }
 
-function extractDocx(bytes) {
-  let files;
+// word/document.xml 解压后的字节上限。docx 是用户任选的外部文件，解压前无从知道真实
+// 大小；不封顶的话，一个压缩比极高的包（zip「炸弹」形态）就能把内存吃光。
+export const DOCX_INFLATE_LIMIT_BYTES = 32 * 1024 * 1024;
+
+function docxTooLarge() {
+  const error = new Error('.docx 正文超过解压上限');
+  error.code = 'DOCX_TOO_LARGE';
+  return error;
+}
+
+// 只取正文条目，且两步都不碰无关数据：
+// 1) 先按 zip 目录元数据判断声明大小（filter 全假 → 只读目录，不解压任何条目）——
+//    包里另有大文件时，不会因为它去 inflate；
+// 2) 再只解压正文这一条，并按实际解出的长度复核（目录里声明的大小可以伪造）。
+// 正文条目不存在返回 null（由调用方转成「缺少正文」）。
+function extractDocxDocument(bytes, inflateLimit) {
+  const bounded = Number.isFinite(inflateLimit) && inflateLimit > 0;
+  const declared = [];
+  unzipSync(bytes, {
+    filter: file => {
+      declared.push(file);
+      return false;
+    },
+  });
+  const target = declared.find(file => file.name === DOCX_DOCUMENT_PATH);
+  if (!target) return null;
+  if (bounded && target.originalSize > inflateLimit) throw docxTooLarge();
+
+  const extracted = unzipSync(bytes, { filter: file => file.name === DOCX_DOCUMENT_PATH });
+  const entry = extracted[DOCX_DOCUMENT_PATH];
+  if (!entry) return null;
+  if (bounded && entry.length > inflateLimit) throw docxTooLarge();
+  return entry;
+}
+
+function extractDocx(bytes, inflateLimit = DOCX_INFLATE_LIMIT_BYTES) {
+  let entry;
   try {
-    files = unzipSync(bytes);
+    entry = extractDocxDocument(bytes, inflateLimit);
   } catch (error) {
+    if (error && error.code === 'DOCX_TOO_LARGE') throw error;
     throw unsupported('.docx 文件无法解压，请确认文件有效');
   }
-  const entry = files[DOCX_DOCUMENT_PATH];
   if (!entry) throw unsupported('.docx 缺少正文（word/document.xml）');
   return documentXmlToText(strFromU8(entry));
 }
 
 // 返回 { text, encoding, format }；不支持/解压失败按 code 抛错。
-export function extractPlainText({ fileName, bytes } = {}) {
+// `docxInflateLimitBytes` 仅测试/特殊场景需要收窄，默认见 DOCX_INFLATE_LIMIT_BYTES。
+export function extractPlainText({ fileName, bytes, docxInflateLimitBytes } = {}) {
   const extension = fileExtension(fileName);
   if (!BOOK_EXTENSIONS.includes(extension)) {
     throw unsupported('目前只支持 txt / Markdown / Word(.docx) / HTML 文本文件');
@@ -102,7 +138,8 @@ export function extractPlainText({ fileName, bytes } = {}) {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
 
   if (extension === '.docx') {
-    return { text: extractDocx(data), encoding: 'docx', format: 'docx' };
+    const limit = docxInflateLimitBytes === undefined ? DOCX_INFLATE_LIMIT_BYTES : docxInflateLimitBytes;
+    return { text: extractDocx(data, limit), encoding: 'docx', format: 'docx' };
   }
 
   const decoded = decodeBytes(data);

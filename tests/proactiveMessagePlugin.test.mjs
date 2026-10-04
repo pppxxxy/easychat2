@@ -270,9 +270,9 @@ test('主动消息类型：原生 messageType/customPrompt 与按时段问好', 
 
 test('主动消息优先用 JS 组装的完整请求（requestJson）', () => {
   const source = readAllKotlinSource();
-  // 槽带 requestJson 字段，发送时优先解析它，解析失败回退简版提示词
+  // 槽带 requestJson 字段（现按协议组好的完整请求体），发送时优先校验它，失败回退简版
   assert.ok(source.includes('val requestJson: String'), '缺少 requestJson 字段');
-  assert.ok(source.includes('fun parseRequestJson'), '缺少 requestJson 解析');
+  assert.ok(source.includes('fun parseRequestBody'), '缺少 requestJson 解析');
   const module = readFileSync(
     path.join(KOTLIN_DIR, 'ProactiveMessageModule.kt'),
     'utf8'
@@ -290,7 +290,9 @@ test('requestJson 时间占位符在触发时由原生替换（不固化保存�
   // JS 快照写 {{proactive_now}}，原生发送前替换成触发时刻
   assert.ok(core.includes('"{{proactive_now}}"'), '缺少时间占位符常量');
   assert.ok(core.includes('fun substituteProactiveTime'), '缺少占位符替换函数');
-  assert.ok(core.includes('substituteProactiveTime(messages)'), '发送前必须调用替换');
+  // 快照现为按协议组好的完整 body：占位符可能落在 system/instructions/messages 任一处，
+  // 因此整份 body 文本串替换（.let 链在发送前执行）
+  assert.ok(core.includes('.let { substituteProactiveTime(it) }'), '发送前必须对整份请求体做替换');
   assert.ok(core.includes('WEEKDAY_CHARS'), '缺少周字表（与 JS 周日~周六对齐）');
   // 简版回退的问好仍按触发时段选早/中/晚（不受占位符方案影响）
   assert.ok(core.includes('in 5..11'), 'fallback 问好时段逻辑被误删');

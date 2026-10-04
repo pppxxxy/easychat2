@@ -107,11 +107,17 @@ export default function BookScreen() {
       if (!item) return;
       setBooks(list => [item, ...list.filter(entry => entry.id !== item.id)]);
     } catch (error) {
+      // 一律走文案键，不把原始报错文本渲染给用户：抛错文本面向开发者且是中文，
+      // 直接透传会让英文界面冒出中文（locale 测试只扫文案表，扫不到运行时抛出的报错文本）。
       const code = error && error.code;
       if (code === 'UNSUPPORTED_FORMAT') {
         Alert.alert(t('books.import.unsupported.title'), t('books.import.unsupported.body'));
       } else if (code === 'ENCODING') {
-        Alert.alert(t('books.import.encoding.title'), error.message);
+        Alert.alert(t('books.import.encoding.title'), t('books.import.encoding.body'));
+      } else if (code === 'DOCX_TOO_LARGE') {
+        Alert.alert(t('books.import.docxTooLarge.title'), t('books.import.docxTooLarge.body'));
+      } else if (code === 'EMPTY_BOOK') {
+        Alert.alert(t('books.import.empty.title'), t('books.import.empty.body'));
       } else {
         Alert.alert(t('books.import.failed.title'), t('books.import.failed.body'));
       }

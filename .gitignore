@@ -18,6 +18,8 @@ ios/
 !plugins/localApiServer/android/**
 !plugins/shellExecutor/android/
 !plugins/shellExecutor/android/**
+!plugins/screenOverlay/android/
+!plugins/screenOverlay/android/**
 *.jks
 *.keystore
 .env

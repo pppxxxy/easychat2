@@ -53,7 +53,9 @@ export async function importBookFromPicker({ now = Date.now() } = {}) {
     const bytes = Buffer.from(base64, 'base64');
     const { text, encoding, format } = extractPlainText({ fileName, bytes });
     if (!text || !text.trim()) {
-      throw new Error('文件没有可导入的文本内容');
+      const error = new Error('文件没有可导入的文本内容');
+      error.code = 'EMPTY_BOOK';
+      throw error;
     }
     await FileSystem.writeAsStringAsync(dest, text);
     const blocks = splitBookIntoBlocks(text, { markdown: MARKDOWN_FORMATS.includes(format) });
