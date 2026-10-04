@@ -93,7 +93,9 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun requestCapturePermission(promise: Promise) {
-        val activity = currentActivity
+        // RN 0.81：ReactContextBaseJavaModule.getCurrentActivity() 已改为（过时的）Kotlin
+        // 函数，裸 currentActivity 不再合成属性；改用 ReactApplicationContext 的 Java getter。
+        val activity = reactContext.currentActivity
         if (activity == null) {
             promise.resolve(false)
             return
@@ -141,7 +143,7 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     // 悬浮窗与截屏功能不受影响。
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        val activity = currentActivity ?: return
+        val activity = reactContext.currentActivity ?: return
         val granted = ContextCompat.checkSelfPermission(reactContext, Manifest.permission.POST_NOTIFICATIONS)
         if (granted == PackageManager.PERMISSION_GRANTED) return
         ActivityCompat.requestPermissions(
