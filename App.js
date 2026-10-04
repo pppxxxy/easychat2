@@ -16,7 +16,7 @@ import CharacterScreen from './src/CharacterScreen.js';
 import MemoryScreen from './src/MemoryScreen.js';
 import ExtensionScreen from './src/ExtensionScreen.js';
 import SettingsScreen from './src/SettingsScreen.js';
-import DisclaimerModal from './src/disclaimer.js';
+import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
   acknowledgeDisclaimer,
@@ -40,9 +40,9 @@ import {
 } from './src/proactive/proactiveMessage.js';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext.js';
 import { I18nProvider, useTranslation } from './src/i18n/I18nContext.js';
-import { maskSecrets } from './src/secrets.js';
-import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/characterEditGuard.js';
-import { recordDiagnostic } from './src/diagnostics.js';
+import { maskSecrets } from './src/storage/secrets.js';
+import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/character/characterEditGuard.js';
+import { recordDiagnostic } from './src/storage/diagnostics.js';
 import { runLocalModel } from './src/localModel/adapter.js';
 import {
   attachLocalApiServerInference,

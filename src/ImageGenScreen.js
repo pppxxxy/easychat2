@@ -23,11 +23,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { IMAGE_PROVIDERS, getImageProvider, providerRequiresApiKey } from './imageGen/providers.js';
 import { generateImage, detectImageProvider, probeImageProvider } from './imageGen/index.js';
 import { getImageGenSettings, saveImageGenSettings } from './storage.js';
-import { resolveImageFormat } from './imageResultFormat.js';
+import { resolveImageFormat } from './imageGen/imageResultFormat.js';
 import ChapterModal from './books/ChapterModal.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
-import { maskSecrets } from './secrets.js';
+import { maskSecrets } from './storage/secrets.js';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
 const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;

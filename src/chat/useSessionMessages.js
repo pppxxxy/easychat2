@@ -8,14 +8,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { getConfigFingerprint } from '../api.js';
+import { getConfigFingerprint } from '../network/api.js';
 import { ASSISTANT_ID } from './chatConstants.js';
 import {
   buildGreetingMessage,
   buildPersistableMessages,
   createPersistableSnapshotCache,
 } from './chatHelpers.js';
-import { generateOpening } from '../groupChat.js';
+import { generateOpening } from './groupChat.js';
 import {
   DEFAULT_CHARACTER,
   getApiConfigs,

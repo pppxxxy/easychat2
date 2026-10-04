@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
-const sourcePath = path.resolve('src/groupChat.js');
+const sourcePath = path.resolve('src/chat/groupChat.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -19,7 +19,9 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
 const originalLoad = Module._load;
 let lastChatCall = null;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './api.js') {
+  // 按 basename 匹配，兼容源码搬迁后 `./x.js` → `../x.js` 的相对路径变化。
+  const base = String(request).split('/').pop();
+  if (base === 'api.js') {
     return {
       isCanceledError: () => false,
       isConfigChangedError: () => false,
@@ -29,19 +31,19 @@ Module._load = function patchedLoad(request, parent, isMain) {
       },
     };
   }
-  if (request === './chatPipeline.js') {
+  if (base === 'chatPipeline.js') {
     return { buildRequestMessages: () => [] };
   }
-  if (request === './chatMedia.js') {
+  if (base === 'chatMedia.js') {
     return { getMessagePromptText: item => String(item?.text || '') };
   }
-  if (request === './regexEngine.js') {
+  if (base === 'regexEngine.js') {
     return {
       applyRegexScripts: text => text,
       REGEX_PLACEMENT: { USER_INPUT: 1, AI_OUTPUT: 2, WORLD_INFO: 5 },
     };
   }
-  if (request === './groupMentions.js') {
+  if (base === 'groupMentions.js') {
     return {
       EVERYONE_MENTION: '全体',
       MENTION_PREFIX: '@',
@@ -53,7 +55,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadGroupChat() {
-  const filename = path.resolve('src/groupChat.js');
+  const filename = path.resolve('src/chat/groupChat.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

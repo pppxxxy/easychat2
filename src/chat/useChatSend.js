@@ -19,12 +19,12 @@ import {
   isCanceledError,
   isConfigChangedError,
   sendChatMessage,
-} from '../api.js';
-import { buildRequestMessages, filterRequestMedia } from '../chatPipeline.js';
+} from '../network/api.js';
+import { buildRequestMessages, filterRequestMedia } from '../prompt/chatPipeline.js';
 import { useTranslation } from '../i18n/I18nContext.js';
-import { isStaleReply } from '../chatRace.js';
-import { getEditResendPlan } from '../messageSelection.js';
-import { canUseLocalModel, sendWithModelProvider } from '../modelProvider.js';
+import { isStaleReply } from './chatRace.js';
+import { getEditResendPlan } from './messageSelection.js';
+import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn } from '../agent/loop.js';
 import { requestToolApproval } from './toolApproval.js';
@@ -38,13 +38,13 @@ import {
   mergeTextAttachments,
   readImageDataUri,
   validateImageBatch,
-} from '../attachments.js';
-import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from '../chatMedia.js';
-import { createVoiceMessage } from '../voiceMessages.js';
+} from './attachments.js';
+import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
+import { createVoiceMessage } from './voiceMessages.js';
 import { stop as ttsStop } from '../tts/index.js';
-import { maskSecrets } from '../secrets.js';
-import { resolveStickerNames } from '../stickerDirectives.js';
-import { buildTimeAwareText } from '../currentTime.js';
+import { maskSecrets } from '../storage/secrets.js';
+import { resolveStickerNames } from './stickerDirectives.js';
+import { buildTimeAwareText } from './currentTime.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
   buildAutoSummaryInput,
@@ -66,7 +66,7 @@ import {
   parseMentions,
   selectSpeakers,
   ENSEMBLE_MODE,
-} from '../groupChat.js';
+} from './groupChat.js';
 import { buildMemoryContext, retrieve } from '../vectorMemory/index.js';
 import { getVectorOwnerId } from '../vectorMemory/scope.js';
 import {

@@ -22,7 +22,7 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 |------|------|
 | 类型/默认值 | `src/storage.js` 的 `DEFAULT_API_CONFIG` |
 | 读写 | `src/storage.js` 的 `getApiConfigs` / `saveApiConfigs` / `getActiveApiConfig` / `getActiveModel` |
-| 消费方 | `src/api.js` 的 `sendChatMessage`（通过 `getActiveApiConfig` 与 `getActiveModel`） |
+| 消费方 | `src/network/api.js` 的 `sendChatMessage`（通过 `getActiveApiConfig` 与 `getActiveModel`） |
 | 界面 | `src/SettingsScreen.js`（模型列表与能力确认）、`src/ChatScreen.js`（模型切换面板） |
 | 持久化 | `@easychat2_api_configs` 键（旧键 `@easychat2_api_config` 用于迁移） |
 

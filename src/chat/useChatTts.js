@@ -7,9 +7,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { markMediaWrite } from '../mediaProtection.js';
-import { maskSecrets } from '../secrets.js';
-import { toSpeechText } from '../speechText.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
+import { maskSecrets } from '../storage/secrets.js';
+import { toSpeechText } from './speechText.js';
 import { saveTtsSettings } from '../storage.js';
 import { synthesize, speak as ttsSpeak, stop as ttsStop, isSystemProvider } from '../tts/index.js';
 import { getTtsProvider } from '../tts/providers.js';

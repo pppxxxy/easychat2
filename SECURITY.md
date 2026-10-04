@@ -175,7 +175,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - 设置页允许填写 `http://` 地址，保存前会二次确认（见 `src/SettingsScreen.js`）。
 - 风险：在明文连接下，**API Key 与全部对话内容**可能被同一网络下的第三方窃听或篡改。请始终优先使用 `https://`。
 - Expo Android 模板默认写入 `android:usesCleartextTraffic="true"`；本项目未显式关闭它，因此 release 包是否允许明文请求取决于生成后的 Manifest 与目标系统策略——发布前请核对实际清单，并在确认所有服务均为 `https://` 后优先禁用明文流量。
-- 报错信息在展示与复制前会经 `src/secrets.js` 的 `maskSecrets` 屏蔽 `sk-...` 与 `Bearer ...`，但仍可能包含其他上下文，公开分享日志前请再次检查。
+- 报错信息在展示与复制前会经 `src/storage/secrets.js` 的 `maskSecrets` 屏蔽 `sk-...` 与 `Bearer ...`，但仍可能包含其他上下文，公开分享日志前请再次检查。
 - 本地聊天记录与 API 配置均以明文 JSON 存储，未加密。
 
 ## 8. 漏洞报告

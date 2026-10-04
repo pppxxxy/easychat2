@@ -54,7 +54,7 @@
 - 依赖 `useApp()` 获取 `character`、`characters`、`activeId`、`loaded`、`switchCharacter`、`activeSessionId`、`ensureCharacterSession`，派生 `characterId = character.id || 'default'`
 - 顶部栏展示当前角色名，点击弹出 `Modal` 角色列表；点选先 `switchCharacter` 再 `ensureCharacterSession`，中断进行中的请求
 - 顶部栏下方常驻一行小号浅灰提示「AI 生成可能有误，仅供参考」，仅聊天页展示，不随消息滚动
-- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿；`timeAware`（缺省关闭）决定每次请求的系统提示是否前置一行 `[当前时间] YYYY-MM-DD 周X HH:mm`（`src/currentTime.js`），让角色感知当前日期时间，普通对话与主动消息共用同一格式
+- 导航聚焦时读取 `@easychat2_chat_options`：`streaming` 决定请求体是否流式，`fullWidth` 决定消息气泡使用全宽还是限宽样式（默认关闭；设置页开启前弹窗提醒「全宽模式下部分角色卡可能出现屏幕滑动问题」，取消则开关回弹不落盘），全宽助手消息将头像/名字置于气泡上方；`richHtml` 决定含 `<style>`/`<script>`/`<details>`/`<audio>`/`<video>` 的助手消息是否用 WebView 渲染；含 `<details>`/`<summary>` 的折叠状态栏始终使用 WebView，避免标题被内置渲染器丢弃；`keepDraft`（缺省关闭）决定是否按会话保留输入框草稿——开启时用户真实输入以 400ms 防抖写入 `@easychat2_session_draft::<sessionId>`，切换/退出会话时回填、发送或清空对话时清除，关闭时离开会话即清除该草稿；`timeAware`（缺省关闭）决定每次请求的系统提示是否前置一行 `[当前时间] YYYY-MM-DD 周X HH:mm`（`src/chat/currentTime.js`），让角色感知当前日期时间，普通对话与主动消息共用同一格式
 - 消息操作行提供「引用」：引用目标以引用块展示在输入区上方，可取消；发送时用户消息写入可选 `quoted` 字段并把引用注入请求；气泡内引用块位于正文之上，点击复用会话内定位滚动到原消息，原消息不存在时提示且不报错
 - 用户长按任意已完成消息进入消息多选选择态：首条消息自动选中，点击其他消息可继续选择或取消选择，顶部显示「已选择 N 条」、取消 / 全选（全选后按钮变为「取消全选」）/ 删除入口；删除前使用确认弹窗，确认后从当前会话批量移除选中消息并复用现有消息持久化流程。生成中的 `pending` 消息不可选择且不计入全选，选择态暂时隐藏消息行内操作并禁用输入发送。当选中并删除当前会话的全部消息时，语义等同旧「清空聊天」：同时重置开场白选择、失效记忆摘要并清理整段向量索引——输入区的「清空」按钮已移除，清空改由「全选 + 删除」承担
 - 消息多选进入后原地松手不会退出：消息行的 `onLongPress` 始终保持非空（多选态下作为「本次手势已被长按消费」的标记），避免 RN 在松手时补发 `onPress` 取消刚选中的消息
@@ -85,12 +85,12 @@
 - 顶部栏「定位」按钮打开 `ScrollScrubber`（无消息时禁用）：拖动或点击轨道任意位置按索引定位，支持回到开头与最新
 - 发送前读取已开启插件并执行 `runPlugins`，命中触发词时把联网搜索结果作为 `pluginContext` 注入；失败静默降级
 - 群聊会话（`type: 'group'`）：顶部展示群名与群头像（未设置头像时回退群图标），聊天背景取会话 `bgUri`；输入栏同时提供附件按钮和 `@` 提及按钮，点击 `@` 弹出成员列表（`@全体` 与逐个成员），选择后在光标处插入 `@名字 `；`@全体` 使全部成员发言。发送时解析 `@`。默认走「群像卡」模式（`groupMode: 'ensemble'`）：合并全部成员设定为单次 LLM 调用，由模型以编剧视角输出「角色名：」分段，前端解析为多条带发言者头像与名字的消息；流式过程中累计文本暂存于单条 pending 消息，解析完成替换为多段。生成失败或解析为空时回退逐角色模式（`groupMode: 'turn'`：调度 1-3 个发言角色逐个回复）。群像卡思考阶段的消息显示为群名，不再显示基础角色名；消息头像优先取该成员角色卡的头像，取不到时用群头像。逐角色模式每个角色的请求注入 `[群聊情境]`（在场成员名单 + 简介 + 最近发言 + 最近对话），简介不足（< 30 字）的成员经 `ensureMemberProfiles` 懒生成人设卡并缓存到会话 `memberProfiles`；同轮后发言角色可见前述角色发言；单角色失败生成错误气泡后继续；空群聊首次进入生成开场白；群聊不提供重新生成
-- 迟到回复由 `src/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
+- 迟到回复由 `src/chat/chatRace.js` 的 `isStaleReply(currentId, sendId)` 与会话 `id` 比对共同守卫，在 `onChunk`、`setMessages` 与错误原文写入处被丢弃
 - `persistableMessages` 过滤 `pending` 后通过快照比对决定是否落盘，写入走 `saveMessagesBySession`
 - `renderedMessages` 对助手消息应用 placement 2、对用户消息应用 placement 1 的展示正则（mode `display`），原始文本仍用于落盘
 
 **消息角色常量**: `user`、`assistant`、`system-error`
-**密钥脱敏**: 来自 `src/secrets.js` 的 `SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g` 与 `maskSecrets`，替换为 `[API_KEY已隐藏]`
+**密钥脱敏**: 来自 `src/storage/secrets.js` 的 `SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g` 与 `maskSecrets`，替换为 `[API_KEY已隐藏]`
 
 ### `CharacterScreen`（默认导出）
 **位置**: `src/CharacterScreen.js`
@@ -168,7 +168,7 @@
 - 点击结果调用 `onOpenResult(result)`，由记忆页完成切换角色、切换会话与设置定位目标
 
 ### `ScrollScrubber`（默认导出）
-**位置**: `src/ScrollScrubber.js`
+**位置**: `src/chat/ScrollScrubber.js`
 **Props**: `{ visible, onClose, messageCount, previews, onSeek, onToStart, onToEnd }`
 **行为**:
 - 覆盖层内渲染竖向轨道与滑块，用 `PanResponder` 拖动，按滑动比例映射消息或角色卡索引（`indexFromRatio`）
@@ -410,7 +410,7 @@
 
 **AsyncStorage 键约定**:
 
-> 安全存储：含密钥的配置（`@easychat2_api_configs`、`@easychat2_vector_memory_configs`、`@easychat2_image_gen`、`@easychat2_tts`、`@easychat2_plugins`）写盘前由 `src/secretStore.js` 把 `apiKey` / `appSecretKey` / `secretKey` 抽到系统安全存储（`expo-secure-store`，键 `easychat2_secret_<namespace>_<path>`），AsyncStorage 中只留引用 `secure:v1:<id>`；读取时回填明文供内存使用。密钥 id 由「存储键命名空间 + 字段路径」确定性推导（数组优先用条目自身 `id`），重复保存覆盖同一条、不产生孤儿。旧明文数据读取原样返回、下次保存自动转引用；SecureStore 不可用或写入失败时透明降级为明文，不丢密钥、不阻断保存。
+> 安全存储：含密钥的配置（`@easychat2_api_configs`、`@easychat2_vector_memory_configs`、`@easychat2_image_gen`、`@easychat2_tts`、`@easychat2_plugins`）写盘前由 `src/storage/secretStore.js` 把 `apiKey` / `appSecretKey` / `secretKey` 抽到系统安全存储（`expo-secure-store`，键 `easychat2_secret_<namespace>_<path>`），AsyncStorage 中只留引用 `secure:v1:<id>`；读取时回填明文供内存使用。密钥 id 由「存储键命名空间 + 字段路径」确定性推导（数组优先用条目自身 `id`），重复保存覆盖同一条、不产生孤儿。旧明文数据读取原样返回、下次保存自动转引用；SecureStore 不可用或写入失败时透明降级为明文，不丢密钥、不阻断保存。
 
 
 | 键 | 内容 |
@@ -491,7 +491,7 @@
 ## 网络接口
 
 ### `sendChatMessage(messages, options?)`
-**位置**: `src/api.js`
+**位置**: `src/network/api.js`
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
@@ -577,7 +577,7 @@ data: [DONE]
 **超时**: 采用空闲超时。每次收到增量数据都会重置 30 秒计时器；30 秒无数据则判定为超时。
 
 ### `streamChatCompletion(messages, options?)`
-**位置**: `src/api.js`
+**位置**: `src/network/api.js`
 
 与 `sendChatMessage` 同一实现，但返回结构化结果，供 agent 工具循环使用。`options` 在 `sendChatMessage` 基础上增加：
 
@@ -740,7 +740,7 @@ data: [DONE]
 ## 聊天竞态接口
 
 ### `isStaleReply(currentCharacterId, sendCharacterId)`
-**位置**: `src/chatRace.js`
+**位置**: `src/chat/chatRace.js`
 **返回**: `boolean` - 当前角色与发起请求时的角色不同时返回 `true`
 **用途**: `ChatScreen` 在 `onChunk`、`setMessages` 与错误原文写入处据此丢弃切换角色后的迟到回复
 
@@ -756,7 +756,7 @@ data: [DONE]
 **说明**: 删除/替换历史后统一失效摘要：按 boundary 精确保留幸存会话摘要、写出新边界；非会话隔离模式下同时禁用受影响的世界书总结条目；会话摘要写失败时按记录的原始开关状态精确回滚
 
 ### `getNextRecentMediaExpiry()`
-**位置**: `src/mediaProtection.js`
+**位置**: `src/storage/mediaProtection.js`
 **返回**: 最早一条“最近写入”媒体的保护过期时间戳（无则 `0`）
 **用途**: `collectChatImageFiles` 跳过近期文件后，据此在保护窗口结束时安排一次回收重试
 
@@ -800,12 +800,12 @@ data: [DONE]
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets })`
-**位置**: `src/chatPipeline.js`
+**位置**: `src/prompt/chatPipeline.js`
 **返回**: `Array<{ role, content }>`，形如 `[system, ...history, user]`；世界书 `position 4` 条目以独立消息按深度插入
 **说明**: 系统提示词优先取 `character.systemPromptComposed`，为空回退 `character.systemPrompt`，再回退 `DEFAULT_SYSTEM_PROMPT`；随后按顺序追加 `[用户设定]`（用户人设）、`[对话示例]`（`mesExample`，为空跳过）、`[全局预设]`（已开启预设）、`memorySnippets`（`[相关记忆]`，向量召回，为空跳过）、`[记忆摘要]`（`summaryText`）、`groupContext`（群聊情境，单聊为空）、联网搜索背景资料（`pluginContext`），最后恒定追加 `[输出格式]`（`DEFAULT_OUTPUT_FORMAT_PROMPT`，要求自然分段换行，不受预设开关影响）；`images` 非空时会先追加独立的媒体用户消息，再追加文字用户消息；媒体消息的 `content` 为 `[{ type: 'text' }, { type: 'image_url' }]` 多模态数组，无识图时退化为 `【图片：名称】` 或 `【表情包：名称】` 文本；**有识图能力时表情包与图片同等对待**：`includeImage` 为 true 时表情包同样作为 `image_url` 真实图片发出，`【表情包：名称】` 仍作为同轮文字给出（名称只是无识图模型的退路，不是替代品）；`quote` 非空且文本非空时在用户消息文本前追加 `[引用<name>的消息] <text>` 强调段（`name` 缺失回退「对方」），只影响当前用户消息；`voiceAudio` 非空（语音兜底：转写失败且来源 `supportsAudio`）时当前用户消息 `content` 为 `[{ type: 'text' }, { type: 'input_audio', input_audio: { data, format } }]`，`format` 由 `resolveVoiceFormat` 从 mime 推导（wav/mp3/m4a/ogg/flac，缺省 mp3），仅当前一条、历史语音不回传；历史用户消息与当前输入应用 placement 1 正则，历史助手消息（含开场白）应用 placement 2 正则，命中的世界书文本应用 placement 5 正则
 
 ### 群聊接口
-**位置**: `src/groupChat.js`
+**位置**: `src/chat/groupChat.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -828,7 +828,7 @@ data: [DONE]
 **常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`、`ENSEMBLE_MODE = 'ensemble'`、`TURN_MODE = 'turn'`。
 
 ### 附件接口
-**位置**: `src/attachments.js`
+**位置**: `src/chat/attachments.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -861,7 +861,7 @@ data: [DONE]
 | `generateImage({ provider, prompt, imageFile?, imageUrl?, imageUri?, image?, model?, size?, seed?, extra?, config?, imageMime? })` | 统一生成入口，返回 `Promise<{ images: [{ url?, base64? }], raw }>`；含超时与按 `retries` 重试 |
 
 ### `resolveImageFormat(result)`
-**位置**: `src/imageResultFormat.js`
+**位置**: `src/imageGen/imageResultFormat.js`
 **返回**: `{ ext, mime }` - 按结果 `mimeType` 优先、其次 URL 后缀解析图片格式，未知时回退 `png`
 **用途**: `ImageGenScreen.saveResult` 据此决定落盘扩展名、分享 MIME，并配合 60 秒下载超时避免结果永久挂起
 
@@ -910,7 +910,7 @@ data: [DONE]
 
 ### 备份与恢复
 
-**位置**: `src/dataBackup.js`、`src/storage/backup.js`、`src/storage/backupStream.js`、`src/BackupPanel.js`
+**位置**: `src/storage/dataBackup.js`、`src/storage/backup.js`、`src/storage/backupStream.js`、`src/BackupPanel.js`
 
 - 设置 → 关于 → 备份与恢复提供导出、合并恢复和覆盖恢复。
 - 备份包为 `schemaVersion: 1` 的 JSON，包含应用数据和 `avatars/`、`stickers/`、`chat-images/`、`voice/`、`characters/`、`card-forge/` 媒体/大字段文件；整包上限 `BACKUP_MAX_BYTES` 为 2GB（角色卡与媒体单条可达十几 MB）。
@@ -931,7 +931,7 @@ data: [DONE]
 
 ### 本地模型
 
-**位置**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`
+**位置**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/network/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`
 
 - 设置 → 关于 → 本地模型管理模型 id、名称、GGUF 下载地址、下载进度、启用和删除。
 - 下载源预设 `LOCAL_MODEL_DOWNLOAD_SOURCES`：Hugging Face 官方源与 hf-mirror.com 国内镜像，点选后替换地址域名前缀。
@@ -940,7 +940,7 @@ data: [DONE]
 - Android ABI 必须为 `arm64-v8a,x86_64`（`llama.rn` 只提供 64 位预编译库）：由 `expo-build-properties` 的 `android.buildArchs` 强制，`android/gradle.properties` 的 `reactNativeArchitectures` 会随之收窄。
 - `resourceMutex` 保证本地推理、录音和其他原生重负载能力不会同时持有资源。
 
-**在线/本地选择（`src/modelProvider.js`）**:
+**在线/本地选择（`src/network/modelProvider.js`）**:
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
@@ -1047,10 +1047,10 @@ data: [DONE]
 | `listVoices(provider)` | 系统引擎取 `getAvailableVoicesAsync`，云端取声明音色 |
 | `mapHttpError(status)` | 401/403 → 「密钥无效或未授权」；429 → 「请求过于频繁，请稍后重试」；其他 → 「播报失败（HTTP n）」 |
 
-**说明**: 密钥仅存本机 AsyncStorage，不写入日志或文档。播报正文清洗由 `src/speechText.js` 提供：`toSpeechText(text)` 去除 Markdown/HTML/状态栏并折叠空白，`hideVariantStatusBar(text)` 去除 `【数值状态栏】` 等行。
+**说明**: 密钥仅存本机 AsyncStorage，不写入日志或文档。播报正文清洗由 `src/chat/speechText.js` 提供：`toSpeechText(text)` 去除 Markdown/HTML/状态栏并折叠空白，`hideVariantStatusBar(text)` 去除 `【数值状态栏】` 等行。
 
 ### 语音消息接口
-**位置**: `src/transcription.js`、`src/voiceMessages.js`、`src/chat/useChatRecorder.js`、`src/chat/VoiceBubble.js`
+**位置**: `src/transcription.js`、`src/chat/voiceMessages.js`、`src/chat/useChatRecorder.js`、`src/chat/VoiceBubble.js`
 
 用户录音经转写后作为一条 `kind: 'voice'` 的用户消息进入既有发送链路（转写文本进入上下文，音频仅本机回放）。转写采用「先复用当前聊天配置 → 失败引导补配独立转写 → 再失败存占位」的降级顺序（需求 3）。音频落盘到 `documentDirectory/voice/`，消息只存引用。
 
@@ -1113,21 +1113,21 @@ data: [DONE]
 **作用域规则**: 当同一角色在记忆页存在 ≥ 2 条记忆（单聊、摘要非空的会话）时，记忆总结不再写入该角色的世界书（世界书对角色全局生效会造成跨会话串味），改为写入会话级总结并作为 `[记忆摘要]` 随请求发送；既有世界书条目保留、只停止新增。**当会话所属角色已被删除（`characters` 中不存在该 `characterId`）时，同样强制按会话作用域处理**，避免写入不存在的角色世界书。
 
 ### `collectActiveWorldInfo(character, historyMessages, latestUserText)`
-**位置**: `src/lorebook.js`
+**位置**: `src/prompt/lorebook.js`
 **返回**: `{ before, after, depth }` 三组已激活条目，各组按 `order` 升序
 
 ### `getUnsafeWorldEntryKeys(entry)`
-**位置**: `src/lorebook.js`
+**位置**: `src/prompt/lorebook.js`
 **返回**: `string[]` - 该条目中会触发灾难性回溯防护、运行时被跳过的关键词（仅检查 `useRegex` 开启或 `/pattern/` 写法的键）
 **用途**: 世界书编辑页与列表据此显示“疑似回溯，运行时会跳过”提示，避免条目静默失效
 
 ### `isUnsafeRegexPattern(findRegex)`
-**位置**: `src/regexEngine.js`
+**位置**: `src/prompt/regexEngine.js`
 **返回**: `boolean` - 是否为嵌套无界量词的疑似灾难性回溯模式
 **用途**: `applyRegexScripts` 与世界书键匹配命中即跳过；正则脚本编辑页与列表据此显示跳过提示
 
 ### `applyRegexScripts(text, scripts, placement, options?)`
-**位置**: `src/regexEngine.js`
+**位置**: `src/prompt/regexEngine.js`
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
@@ -1141,7 +1141,7 @@ data: [DONE]
 **替换语法**: 替换文本走 JS `String.replace` 语义（`$1`/`$&`/`$$`），并把 `$0` 兼容为整段匹配（映射为 `$&`），以兼容角色卡常见写法。
 
 ### `richHtml` 辅助函数
-**位置**: `src/richHtml.js`（纯函数，供 `ChatScreen`/`RichHtmlMessage` 与测试使用）
+**位置**: `src/chat/richHtml.js`（纯函数，供 `ChatScreen`/`RichHtmlMessage` 与测试使用）
 
 | 函数 | 说明 |
 |------|------|
@@ -1159,21 +1159,21 @@ data: [DONE]
 | `RICH_HTML_LIST_PREVIEW_MAX_HEIGHT` | 列表内视口卡片估算高度的硬上限（520），避免长屏手机挤占聊天区 |
 
 ### `RichHtmlMessage`（默认导出）
-**位置**: `src/RichHtmlMessage.js`
+**位置**: `src/chat/RichHtmlMessage.js`
 **Props**: `{ html, onCommand?, fullWidth?, allowFullscreenVideo?, hostHeight? }`
 
 用 `react-native-webview` 渲染含 `<style>`/`<script>`/媒体标签的助手消息，动态高度由带文档令牌的高度桥回传（`<details>` 展开/收起与点击后都会重新测量，优先使用 `body` 实际边界高度）；普通片段以内联 `source.html` 加载，超过 512 KiB 的完整文档与全部视口型文档先写入应用缓存文件再以本地 URI 加载——内联 `loadDataWithBaseURL` 的不透明源下视口单位（`100vh` 等）在部分机型首帧解析异常，`file://` 行为与浏览器一致，也避免 Android Binder 超限。动态高度上限为 24000；普通富 HTML 实测高度超过 6000 时收成 480 固定高度并允许内部滚动，不再整块撑满聊天列表；视口型卡片高度改由 `resolveViewportCardHeight` 决定——按屏幕比例估算并封顶 520（`hostHeight` 参数保留给未来宿主实测场景，当前无调用方传入）。视口型与普通富 HTML 在聊天列表内走同一条渲染路径：卡片直接在气泡内渲染、内部可滚（`nestedScrollEnabled`）、按钮直接可交互，`file://` 源保证视口单位正常；「全屏交互」入口行、透明覆盖层与全屏 Modal 已整体移除，`allowFullscreenVideo` 由 ChatScreen 两处调用传入 `true`——原生视频全屏按钮可用，由用户主动点击触发、退出即回聊天上下文。加载失败或 Android 渲染进程崩溃（`onRenderProcessGone`）时显示错误提示与「重试」。文档注入盒模型、宽度约束、CSP 与 `injectedJavaScriptBeforeContentLoaded` 命令桥，避免地图等宽内容把正文和卡片挤成左右两列、横向溢出、闪烁和局部白屏。`onCommand` 接收可信用户手势触发的斜杠命令。WebView 仅允许当前内联/本地源，拒绝后续导航和新窗口；`react-native-webview` 缺失时返回 `null`。
 
 ### `maskSecrets(text)`
-**位置**: `src/secrets.js`
+**位置**: `src/storage/secrets.js`
 **说明**: 将 `sk-...` 与 `Bearer ...` 替换为 `[API_KEY已隐藏]`；**辅助导出** `SECRET_PATTERN`
 
 ### 本地诊断日志
-**位置**: `src/diagnostics.js`、`src/DiagnosticsModal.js`
+**位置**: `src/storage/diagnostics.js`、`src/DiagnosticsModal.js`
 **说明**: 隐私友好的本地异常记录，替代第三方崩溃上报（与 SECURITY.md「未接入分析/遥测 SDK」一致，全程不联网）。`recordDiagnostic(kind, error, context)` 把异常消息/堆栈/上下文经 `maskSecrets` 脱敏后写入内存环形缓冲并持久化到 `@easychat2_diagnostics`（最多 50 条，同内容 3 秒内去重）；`getDiagnostics` / `clearDiagnostics` / `formatDiagnostics` / `normalizeDiagnostic`。`kind` 取值 `storage`（存储损坏/读写失败，接入 `storage.js` 的 `backupCorruptValue`）、`api`（接口失败，接入 `api.js` 失败汇聚点，排除中止与配置切换）、`webview`（富 HTML 卡片 `onError`/`onRenderProcessGone`）、`unhandled`（`App.js` 经 `ErrorUtils.setGlobalHandler` 捕获）、`startup`（启动错误边界）。`DiagnosticsModal` 在「设置 → 关于 → 诊断日志」查看/复制/清空；模块顶层无 import（惰性 require），避免纯 Node 测试加载路径解析失败。
 
 ### `DISCLAIMER_TEXT` / `DISCLAIMER_SECTIONS` / `DisclaimerModal`
-**位置**: `src/disclaimer.js`
+**位置**: `src/onboarding/disclaimer.js`
 **说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DISCLAIMER_SECTIONS` 为同源的分节结构 `[{ title?, icon?, body?, bullets? }]`；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, sections?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`、`sections` 缺省为 `DISCLAIMER_SECTIONS`（传入 `content` 时以文本渲染），用于启动弹窗与聊天「公告」。条款含 AI 生成内容标识约定（不得删标传播、仅供个人创作测试用途）、技术局限告知与生成内容责任归属；确认状态按 `DISCLAIMER_VERSION`（`src/storage.js`，当前 2）比对——版本升级后存量用户需重新确认
 
 ### AI 生成内容标识
@@ -1181,7 +1181,7 @@ data: [DONE]
 **说明**: `AIGC_NOTICE_TEXT`（显式标识文案「本内容由 AI 生成」）、`AIGC_META_FIELD`（角色卡上的字段名 `aigcMeta`）；`buildAigcMeta({ model?, generatedAt?, contentCode?, source? })` 构造隐式标识元数据（producer=EasyChat2 生成工具、内容编号、生成时间，`source` 区分整卡生成 `easychat2-card-forge` 与字段辅助生成 `easychat2-field-assist`）；`isValidAigcMeta` 校验；`appendExportNotice(creatorNotes)` 在导出卡 `creator_notes` 尾部追加显式标识行（不重复叠加）；`findIpKeywords(texts)` 扫描知名 IP 黑名单（命中返回去重词条）、`ipKeywordNotice(hits)` 生成提示文案（提醒不阻断）。制卡的两条整卡 AI 路径与字段辅助生成均写 `aigcMeta`，导入角色库随卡保存，导出 PNG/JSON 时经 `cardExporter.buildCardV2` 注入 `extensions.easychat2.aigc_meta` 与 `creator_notes` 标识行；角色页对带标识的卡显示「本卡由 AI 生成 · 内容编号」徽标
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
-**位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`
+**位置**: `src/onboarding/onboardingContent.js` / `src/OnboardingModal.js`
 **说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（13 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, sections?, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`sections` 为结构化条款（免责章取自 `DISCLAIMER_SECTIONS`），经 `ChapterSections` 渲染；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/books/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。`ChapterSections`（`src/books/ChapterSections.js`，默认导出）Props 为 `{ sections: [{ title?, icon?, body?, bullets? }] }`，逐节渲染图标标题、正文与要点，供免责弹窗与免责教学章共用。
 
 ### `ChapterModal` / `ChapterNotice` / `ChapterImages` / `TutorialModal`
@@ -1323,4 +1323,4 @@ data: [DONE]
 | `supportsAudio` | `boolean` | 是否支持语音识别（音频兜底发送），保存前确认；纳入 `getConfigFingerprint` |
 | `thinking` | `{ field, format }` | 思考参数声明；`format` 为 `effort` / `boolean` / `object`，缺省 `reasoning_effort` + `effort` |
 
-厂商与协议预设见 `src/apiVendors.js`：`CHAT_API_VENDORS`（DeepSeek、魔搭、ai.gitee、Agnes、小红书 Dots Studio、NVIDIA NIM、AMD Radeon Cloud）、`API_PROTOCOL_PRESETS` 与 `THIRD_PARTY_RELAY_RISK`；`getChatApiVendor(id)` 按 id 取厂商。语音转文字厂商预设 `TRANSCRIPTION_API_VENDORS`（硅基流动 SenseVoice、Groq whisper、OpenAI whisper-1，均为 OpenAI 兼容 `/audio/transcriptions` 端点）+ `getTranscriptionVendor(id)`；「语音转文字」面板点厂商芯片一键预填端点与模型，「自定义」入口全手填。
+厂商与协议预设见 `src/network/apiVendors.js`：`CHAT_API_VENDORS`（DeepSeek、魔搭、ai.gitee、Agnes、小红书 Dots Studio、NVIDIA NIM、AMD Radeon Cloud）、`API_PROTOCOL_PRESETS` 与 `THIRD_PARTY_RELAY_RISK`；`getChatApiVendor(id)` 按 id 取厂商。语音转文字厂商预设 `TRANSCRIPTION_API_VENDORS`（硅基流动 SenseVoice、Groq whisper、OpenAI whisper-1，均为 OpenAI 兼容 `/audio/transcriptions` 端点）+ `getTranscriptionVendor(id)`；「语音转文字」面板点厂商芯片一键预填端点与模型，「自定义」入口全手填。

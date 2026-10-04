@@ -6,8 +6,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../api.js';
-import { buildRequestMessages } from '../chatPipeline.js';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
+import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import {
   getApiConfigs,
   getEnabledGlobalPresetPrompts,

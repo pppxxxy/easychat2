@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './api.js';
-import { buildRequestMessages } from './chatPipeline.js';
+import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './network/api.js';
+import { buildRequestMessages } from './prompt/chatPipeline.js';
 import {
   getEnabledGlobalPresetPrompts,
   getApiConfigs,
@@ -34,7 +34,7 @@ import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
-import { maskSecrets } from './secrets.js';
+import { maskSecrets } from './storage/secrets.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);

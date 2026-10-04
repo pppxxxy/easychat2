@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GAMES } from '../src/games/games.js';
-import GLOBAL_PRESETS, { GLOBAL_PRESETS as NAMED } from '../src/presets.js';
-import { isStaleReply } from '../src/chatRace.js';
+import GLOBAL_PRESETS, { GLOBAL_PRESETS as NAMED } from '../src/settings/presets.js';
+import { isStaleReply } from '../src/chat/chatRace.js';
 
 test('内置游戏表：id 唯一、字段齐全、HTML 可渲染', () => {
   const ids = GAMES.map(game => game.id);

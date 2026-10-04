@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
-const sourcePath = path.resolve('src/api.js');
+const sourcePath = path.resolve('src/network/api.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -23,11 +23,12 @@ const storageMock = {
 };
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './storage.js' || request.endsWith('/storage')) return storageMock;
-  if (request === './secrets.js' || request.endsWith('/secrets')) return { registerSecretValues: () => {} };
+  const base = String(request).split('/').pop();
+  if (base === 'storage.js') return storageMock;
+  if (base === 'secrets.js') return { registerSecretValues: () => {} };
   return originalLoad.call(this, request, parent, isMain);
 };
-const filename = path.resolve('src/api.js');
+const filename = path.resolve('src/network/api.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

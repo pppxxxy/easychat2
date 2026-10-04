@@ -30,10 +30,10 @@ import {
 import { deleteForgeImage, pickForgeImage } from './cardForge/media.js';
 import { createRegexScript, createWorldEntry } from './character/cardParser.js';
 import CardPreviewModal from './CardPreviewModal.js';
-import { makeCharacterPresetId } from './characterPresets.js';
+import { makeCharacterPresetId } from './character/characterPresets.js';
 import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution.js';
-import { isCanceledError } from './api.js';
-import { maskSecrets } from './secrets.js';
+import { isCanceledError } from './network/api.js';
+import { maskSecrets } from './storage/secrets.js';
 import { FieldGroup, PrimaryButton, SecondaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 

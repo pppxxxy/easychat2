@@ -4,8 +4,8 @@ import {
   getVectorProvider,
   mapEmbeddingError,
 } from './providers.js';
-import { registerSecretValues } from '../secrets.js';
-import vendorXhr from '../vendorHttp.js';
+import { registerSecretValues } from '../storage/secrets.js';
+import vendorXhr from '../network/vendorHttp.js';
 
 const DEFAULT_MAX_CHARS = 400;
 const DEFAULT_BATCH_SIZE = 16;

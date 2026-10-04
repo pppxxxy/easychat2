@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { isCanceledError } from './api.js';
-import AssistantMessageBody from './AssistantMessageBody.js';
+import { isCanceledError } from './network/api.js';
+import AssistantMessageBody from './chat/AssistantMessageBody.js';
 import {
   buildPreviewDisplayTurns,
   buildPreviewOpeningTurns,
@@ -22,7 +22,7 @@ import {
   capPreviewHistory,
   previewAdvancedCounts,
 } from './cardForge/preview.js';
-import { maskSecrets } from './secrets.js';
+import { maskSecrets } from './storage/secrets.js';
 import { PrimaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 

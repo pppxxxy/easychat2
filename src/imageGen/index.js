@@ -1,6 +1,6 @@
 import { getImageProvider } from './providers.js';
-import { registerSecretValues } from '../secrets.js';
-import vendorXhr from '../vendorHttp.js';
+import { registerSecretValues } from '../storage/secrets.js';
+import vendorXhr from '../network/vendorHttp.js';
 import {
   buildLocalDreamBody,
   completeEventToImage,
