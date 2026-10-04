@@ -315,6 +315,14 @@ export function toResponsesRequest(messages) {
             type: 'input_image',
             image_url: String((part.image_url && part.image_url.url) || ''),
           });
+        } else if (part.type === 'input_audio') {
+          content.push({
+            type: 'input_audio',
+            input_audio: {
+              data: String((part.input_audio && part.input_audio.data) || ''),
+              format: String((part.input_audio && part.input_audio.format) || 'mp3'),
+            },
+          });
         }
       });
     }

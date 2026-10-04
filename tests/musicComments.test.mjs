@@ -53,30 +53,47 @@ test('AppContext + ChatScreen：pendingQuote 生产/消费对称', () => {
     '消费后写入引用条，且一次性');
 });
 
-test('resolveAudioSupport：在线/本地能力与开关的组合判定', async () => {
+test('resolveAudioSupport：在线配置音频能力判定', async () => {
   const { resolveAudioSupport } = await import('../src/music/commentPrompts.js');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: true }], activeId: 'a' }, null), true,
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: true }], activeId: 'a' }), true,
     '在线配置标记 supportsAudio 即视为可听音频');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: false }], activeId: 'a' }, null), false,
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: false }], activeId: 'a' }), false,
     '在线配置未标记音频能力时不支持');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }, { id: 'b', supportsAudio: true }], activeId: 'b' }, null), true,
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }, { id: 'b', supportsAudio: true }], activeId: 'b' }), true,
     '按 activeId 选中配置判定');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }], activeId: 'missing' }, null), false,
+  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }], activeId: 'missing' }), false,
     'activeId 失配时退回首个配置');
-  assert.equal(resolveAudioSupport(null, { audio: true }), true, '本地模型带音频能力时支持');
-  assert.equal(resolveAudioSupport(null, { audio: false }), false, '本地模型无音频能力时不支持');
-  assert.equal(resolveAudioSupport(undefined, undefined), false, '都拿不到能力时按不支持处理');
+  assert.equal(resolveAudioSupport(undefined), false, '拿不到配置时按不支持处理');
 });
 
 test('听歌面板：无音频能力时给出提示接线', () => {
   const source = readSource('src/music/MusicScreen.js');
   assert.ok(source.includes('audioSupported'), '面板读取音频能力');
   assert.ok(source.includes("t('music.comments.noAudio')"), '无音频能力时渲染提示文案');
+  assert.ok(source.includes("t('music.comments.audioTooLarge')"), '音频过大时渲染提示文案');
   const hook = readSource('src/music/useMusicComments.js');
   assert.ok(hook.includes('resolveAudioSupport'), 'hook 复用纯函数判定');
-  assert.ok(hook.includes('getLocalModelMediaCapabilities'), '本地模型能力与聊天同口径');
+  assert.ok(hook.includes('readSongAudioForModel') && hook.includes('voiceAudio'), '具备能力时把歌曲音频随请求发送');
   const zh = readSource('src/i18n/locales/zh-CN.js');
   const en = readSource('src/i18n/locales/en.js');
   assert.ok(zh.includes("'music.comments.noAudio'") && en.includes("'music.comments.noAudio'"),
     '中英文案齐备');
+});
+
+test('canAttachSongAudio：体积与 uri 判定', async () => {
+  const { canAttachSongAudio, MUSIC_AUDIO_MAX_BYTES, buildOpeningCommentPrompt, buildTriggerCommentPrompt } =
+    await import('../src/music/commentPrompts.js');
+  assert.equal(canAttachSongAudio({ uri: 'file:///a.mp3', size: 1024 }), true, '正常歌曲可附');
+  assert.equal(canAttachSongAudio({ uri: '', size: 1024 }), false, '无 uri 不可附');
+  assert.equal(canAttachSongAudio({ uri: 'file:///a.mp3', size: 0 }), false, '体积未知不可附');
+  assert.equal(canAttachSongAudio({ uri: 'file:///a.mp3', size: MUSIC_AUDIO_MAX_BYTES + 1 }), false, '超上限不可附');
+  assert.equal(canAttachSongAudio({ uri: 'file:///a.mp3', size: MUSIC_AUDIO_MAX_BYTES }), true, '恰好等于上限可附');
+  assert.equal(canAttachSongAudio(null), false, '空对象安全');
+
+  const withAudio = buildOpeningCommentPrompt({ songName: '晴天', durationMs: 1000, withAudio: true });
+  const noAudio = buildOpeningCommentPrompt({ songName: '晴天', durationMs: 1000 });
+  assert.ok(withAudio.includes('随附') && withAudio.includes('已经听到了'), '有音频时提示词声明已听到');
+  assert.ok(!noAudio.includes('随附'), '无音频时不提音频');
+  const triggerWithAudio = buildTriggerCommentPrompt({ songName: '晴天', positionMs: 500, durationMs: 1000, note: '这里', withAudio: true });
+  assert.ok(triggerWithAudio.includes('随附') && triggerWithAudio.includes('这里'), '打点提示词保留备注并声明音频');
 });

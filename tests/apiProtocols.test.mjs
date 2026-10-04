@@ -105,6 +105,21 @@ test('toResponsesRequest：system→instructions、图片→input_image、函数
   assert.equal(input[2].output, '结果');
 });
 
+test('toResponsesRequest：input_audio 转成音频内容块', () => {
+  const { input } = toResponsesRequest([
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '听这首歌' },
+        { type: 'input_audio', input_audio: { data: 'QUJD', format: 'mp3' } },
+      ],
+    },
+  ]);
+  assert.equal(input[0].content[1].type, 'input_audio');
+  assert.equal(input[0].content[1].input_audio.data, 'QUJD');
+  assert.equal(input[0].content[1].input_audio.format, 'mp3');
+});
+
 test('buildRequestBody：openai 原样、anthropic 用 max_tokens/system、responses 用 instructions', () => {
   const messages = [{ role: 'system', content: 'S' }, { role: 'user', content: 'hi' }];
 

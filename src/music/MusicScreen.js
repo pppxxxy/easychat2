@@ -26,7 +26,7 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import { deleteMusicCommentsForSongs } from './comments.js';
 import { deleteMusicItems, getMusicItems, saveMusicDuration, saveMusicTriggers } from './library.js';
 import { importMusicFromPicker } from './importMusic.js';
-import { formatPlaybackPosition } from './commentPrompts.js';
+import { canAttachSongAudio, formatPlaybackPosition } from './commentPrompts.js';
 import {
   collectTriggersToCross,
   isSeekJump,
@@ -411,6 +411,11 @@ export default function MusicScreen() {
             <View style={styles.noAudioHint}>
               <Ionicons name="volume-mute-outline" size={14} color={theme.colors.textFaint} />
               <Text style={styles.noAudioHintText}>{t('music.comments.noAudio')}</Text>
+            </View>
+          ) : (audioSupported === true && current && !canAttachSongAudio(current)) ? (
+            <View style={styles.noAudioHint}>
+              <Ionicons name="volume-mute-outline" size={14} color={theme.colors.textFaint} />
+              <Text style={styles.noAudioHintText}>{t('music.comments.audioTooLarge')}</Text>
             </View>
           ) : null}
           <Text style={styles.triggerTitle}>{t('music.comments.characterLabel')}</Text>

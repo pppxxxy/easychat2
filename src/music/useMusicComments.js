@@ -5,23 +5,42 @@
 // 失败可从错误条重试，不会因跳过而永久丢失——重试走直调，不依赖 crossing）。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
 import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import {
-  getActiveLocalModel,
   getApiConfigs,
   getEnabledGlobalPresetPrompts,
-  getLocalModelSettings,
   getUserProfile,
 } from '../storage.js';
-import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 
 import { appendMusicComment, getMusicComments } from './comments.js';
-import { buildOpeningCommentPrompt, buildTriggerCommentPrompt, resolveAudioSupport } from './commentPrompts.js';
+import {
+  buildOpeningCommentPrompt,
+  buildTriggerCommentPrompt,
+  canAttachSongAudio,
+  resolveAudioSupport,
+} from './commentPrompts.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
+
+// 读取歌曲文件为 base64，供多模态模型「听」。超过体积上限或读盘失败返回 null，
+// 调用方退回纯文字评论（不阻断功能）。mime 空时交给 resolveVoiceFormat 兜底。
+export async function readSongAudioForModel(currentSong) {
+  const song = currentSong && typeof currentSong === 'object' ? currentSong : {};
+  if (!canAttachSongAudio(song)) return null;
+  try {
+    const base64 = await FileSystem.readAsStringAsync(song.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    if (!base64) return null;
+    return { base64, mime: String(song.mime || '').trim() };
+  } catch (error) {
+    return null;
+  }
+}
 
 export function useMusicComments({ song, characters, defaultCharacterId = '' }) {
   const [comments, setComments] = useState([]);
@@ -69,18 +88,15 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
     };
   }, [songId]);
 
-  // 音频能力探测：面板打开/切歌时读一次在线配置与本地模型能力，供「听不到音频」提示。
+  // 音频能力探测：面板打开/切歌时读一次在线配置，供「听不到音频」提示。
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      getApiConfigs().catch(() => null),
-      getLocalModelSettings().catch(() => null),
-      getActiveLocalModel().catch(() => null),
-    ]).then(([apiConfig, localSettings, localItem]) => {
-      if (cancelled) return;
-      const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
-      setAudioSupported(resolveAudioSupport(apiConfig, localMedia));
-    });
+    getApiConfigs()
+      .catch(() => null)
+      .then(apiConfig => {
+        if (cancelled) return;
+        setAudioSupported(resolveAudioSupport(apiConfig));
+      });
     return () => {
       cancelled = true;
     };
@@ -106,13 +122,19 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
         getApiConfigs(),
       ]);
       if (controller.signal.aborted) return false;
+      const canHear = resolveAudioSupport(apiConfig);
+      // 具备听音频能力时把整首歌随消息发给模型（多模态）；否则纯文字评论。
+      const songAudio = canHear ? await readSongAudioForModel(currentSong) : null;
+      if (controller.signal.aborted) return false;
+      const withAudio = !!songAudio;
       const prompt = kind === 'opening'
-        ? buildOpeningCommentPrompt({ songName: currentSong.name, durationMs: currentSong.durationMs })
+        ? buildOpeningCommentPrompt({ songName: currentSong.name, durationMs: currentSong.durationMs, withAudio })
         : buildTriggerCommentPrompt({
           songName: currentSong.name,
           positionMs: atMs,
           durationMs: currentSong.durationMs,
           note,
+          withAudio,
         });
       const requestMessages = buildRequestMessages({
         character,
@@ -125,6 +147,7 @@ export function useMusicComments({ song, characters, defaultCharacterId = '' }) 
         pluginContext: '',
         images: [],
         quote: null,
+        voiceAudio: songAudio,
       });
       const activeConfig = apiConfig.configs.find(item => item.id === apiConfig.activeId)
         || apiConfig.configs[0];
