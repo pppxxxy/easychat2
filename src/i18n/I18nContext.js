@@ -15,7 +15,7 @@ import React, {
 } from 'react';
 
 import { getAppearanceSettings, patchAppearanceSettings } from '../storage.js';
-import { BASE_LOCALE, LOCALES, resolveLocale, translate } from './index.js';
+import { BASE_LOCALE, LOCALES, resolveLocale, setActiveLocale, translate } from './index.js';
 
 const I18nContext = createContext(null);
 

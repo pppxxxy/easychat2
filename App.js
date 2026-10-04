@@ -451,9 +451,9 @@ function LocalApiServerBridge() {
     const unsubscribe = attachLocalApiServerInference({
       runInference: async messages => {
         const item = await getActiveLocalModel().catch(() => null);
-        if (!item) throw new Error('未选择本地模型');
+        if (!item) throw new Error('No local model selected');
         const release = tryAcquireResource('local-model');
-        if (!release) throw new Error('本地模型资源被占用');
+        if (!release) throw new Error('Local model is busy');
         try {
           // OpenAI 语义是无状态：每个请求用独立会话标识，跨请求必清 KV cache，
           // 避免上一个客户端请求的内容串进下一个请求。

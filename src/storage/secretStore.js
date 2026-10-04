@@ -15,6 +15,7 @@
 // 这里兜住「新接入的密钥字段只走了存储边界、忘了在使用点登记」的漏网情况。
 
 import { registerSecretValues } from './secrets.js';
+import { recordDiagnostic } from './diagnostics.js';
 
 const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey']);
 const REF_PREFIX = 'secure:v1:';
@@ -125,6 +126,10 @@ async function protectValue(value, namespace, path) {
           out[key] = `${REF_PREFIX}${id}`;
         } catch (error) {
           // 安全存储写入失败：保持明文，至少不丢密钥、不阻断保存。
+          // 但这个降级必须可查——静默降级意味着用户以为密钥在 Keystore 里，
+          // 实际已落明文（root/调试工具可读）。recordDiagnostic 内部做了脱敏，
+          // 这里只传字段路径，不传密钥本身。
+          recordDiagnostic('secrets', error, `secure-store 写入失败，密钥降级明文：${namespace}/${childPath(path, key)}`);
           out[key] = item;
         }
       } else {

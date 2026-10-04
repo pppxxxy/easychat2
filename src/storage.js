@@ -5,6 +5,7 @@ import {
   getMediaWriteRevision,
   isMediaWriteRevisionCurrent,
   isRecentMediaUri,
+  isRecentlyModifiedFile,
   markMediaWrite,
 } from './storage/mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX } from './storage/io.js';
@@ -308,6 +309,9 @@ export async function collectStickerImageFiles() {
     const uri = `${directory}${entry}`;
     if (isRecentMediaUri(uri)) continue;
     if (referenced.has(uri)) continue;
+    // mtime 双保险：recentUris 是内存态，冷启动后失效——宽限窗内写入的文件一律跳过
+    //（删除可推迟，误删不可逆）。
+    if (await isRecentlyModifiedFile(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (error) {}
@@ -351,6 +355,9 @@ export async function collectAvatarImageFiles() {
     const uri = `${directory}${entry}`;
     if (isRecentMediaUri(uri)) continue;
     if (referenced.has(uri)) continue;
+    // mtime 双保险：recentUris 是内存态，冷启动后失效——宽限窗内写入的文件一律跳过
+    //（删除可推迟，误删不可逆）。
+    if (await isRecentlyModifiedFile(uri)) continue;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (error) {}
