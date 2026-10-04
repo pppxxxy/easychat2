@@ -13,6 +13,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { normalizeChatUrl } from './network/api.js';
+import { normalizeProtocol } from './apiProtocols.js';
 import {
   getProactiveSettings,
   makeProactiveSlotId,
@@ -295,6 +296,15 @@ export default function ProactivePanel({ embedded = false }) {
     }
     if (!currentConfig || !String(currentConfig.baseUrl || '').trim()) {
       setNotice('所选 API 配置缺少地址，请先在设置页补全。');
+      return;
+    }
+    // 原生主动消息只会按 OpenAI Chat Completions 发后台请求：endpoint 来自
+    // normalizeChatUrl（<base>/v1/chat/completions），请求体也是 JS 侧预组好的
+    // OpenAI 形态存进 requestJson。协议层放开 anthropic / openai-responses 后，
+    // 选了非 openai 协议再排主动消息，后台会打到错误端点/带错误请求体且无从得知——
+    // 这里直接拒绝保存并说明原因，而不是静默失败。
+    if (normalizeProtocol(currentConfig.protocol) !== 'openai') {
+      setNotice('主动消息目前仅支持 OpenAI 兼容协议（Chat Completions）。当前所选配置使用其他协议，请改用 openai 协议后再保存。');
       return;
     }
     setSaving(true);
