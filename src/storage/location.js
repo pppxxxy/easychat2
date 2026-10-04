@@ -1,6 +1,10 @@
-// 真实位置存储领域：全局开关 + 最近一次成功位置 + 可选瓦片模板。
+// 真实位置存储领域：全局开关（真实地图分享）+ 位置感知开关 + 最近一次成功位置 + 可选瓦片模板。
 // 与网格地图（@easychat2_world_map）完全分离，互不影响。数据量小，整体存一个键；
 // 损坏时先备份再回落默认，避免下次保存覆盖损坏内容。
+//
+// 双开关语义（隐私门控）：enabled = 真实地图分享（本地标注），awareness = 位置感知
+// （把模糊位置随对话发给角色）。**只有两者同时开启才注入对话**；awareness 是纯
+// opt-in，缺省 false——不给「开启地图即默认对外分享」留后门。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -25,11 +29,15 @@ export function normalizeLocationSettings(raw) {
   const coordinates = normalizeCoordinates(source.last);
   return {
     enabled: source.enabled === true,
+    // 位置感知：纯 opt-in（缺省/false 一律关闭）。旧数据没有该字段时同样关闭——
+    // 升级后「角色不再自动知道位置」，需要用户到设置里显式打开（隐私默认从严）。
+    awareness: source.awareness === true,
     last: coordinates
       ? {
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
         description: String((source.last && source.last.description) || '').trim().slice(0, 120),
+        coarse: String((source.last && source.last.coarse) || '').trim().slice(0, 120),
         updatedAt: Math.max(0, Math.floor(Number(source.last && source.last.updatedAt)) || 0),
       }
       : null,

@@ -319,12 +319,14 @@ export default function useChatSend({
       } catch (error) {
         summaryText = '';
       }
-       // 位置感知：开启且存在最近一次成功位置时注入「[当前位置] …」（关闭/无位置为空串）。
+       // 位置注入（双开关门控）：真实地图分享（enabled）与位置感知（awareness）都开启、
+       // 且存在最近一次成功位置时，注入「[当前位置] …」（内容为模糊到区县的描述）。
+       // 任一关闭 = 空串——位置感知是独立 opt-in，不给「开地图即默认分享」留后门。
        let locationLine = '';
        try {
          const locationSettings = await getLocationSettings();
          locationLine = buildLocationText(
-           locationSettings && locationSettings.enabled,
+           locationSettings && locationSettings.enabled === true && locationSettings.awareness === true,
            locationSettings && locationSettings.last
          );
        } catch (error) {

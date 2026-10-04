@@ -27,6 +27,7 @@ import PluginPanel from './PluginPanel.js';
 import PresetPanel from './PresetPanel.js';
 import TtsPanel from './TtsPanel.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
+import { useNavigation } from '@react-navigation/native';
 import {
   createApiConfig,
   getApiConfigs,
@@ -35,6 +36,7 @@ import {
   getGlobalPresets,
   getImageGenSettings,
   getInlineImageSettings,
+  getLocationSettings,
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
@@ -45,6 +47,7 @@ import {
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
+  updateLocationSettings,
   THINKING_DISPLAYS,
 } from './storage.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
@@ -265,6 +268,24 @@ export default function SettingsScreen() {
     refreshPresetCount();
   }, [refreshPresetCount]);
 
+  // 位置感知开关：依赖「真实地图分享」（在扩展页开启）的状态，回到本页时需要刷新。
+  // 仅当真实地图开启时该开关才显示（由渲染层判断 locationSettings.enabled）。
+  const navigation = useNavigation();
+  const [locationSettings, setLocationSettings] = useState(null);
+  useEffect(() => {
+    if (!navigation || typeof navigation.addListener !== 'function') return undefined;
+    const load = () => {
+      getLocationSettings()
+        .then(value => setLocationSettings(value))
+        .catch(() => {});
+    };
+    load();
+    const unsubscribe = navigation.addListener('focus', load);
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [navigation]);
+
   useEffect(() => {
     getChatOptions()
       .then(options => {
@@ -417,6 +438,18 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
+
+  // 位置感知开关：单独写 @easychat2_location.awareness（与真实地图分享同域）。
+  // 失败时回读真实值，UI 不会停在「看起来开了其实没写进去」的状态。
+  const toggleLocationAwareness = useCallback(async value => {
+    try {
+      const saved = await updateLocationSettings(current => ({ ...current, awareness: value === true }));
+      setLocationSettings(saved);
+    } catch (error) {
+      Alert.alert(t('settings.location.awareness.title'), t('settings.location.awareness.saveFailed'));
+      getLocationSettings().then(setLocationSettings).catch(() => {});
+    }
+  }, [t]);
 
   const updateWorkspaceMode = useCallback(async mode => {
     workspaceModeRef.current = mode;
@@ -1609,6 +1642,23 @@ export default function SettingsScreen() {
             />
           </View>
           <Text style={styles.fieldHint}>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</Text>
+          {locationSettings && locationSettings.enabled === true ? (
+            <>
+              <View style={styles.capabilityRow}>
+                <View style={styles.linkLeft}>
+                  <Ionicons name="navigate-outline" size={17} color={theme.colors.primaryMuted} />
+                  <Text style={styles.linkText}>{t('settings.location.awareness.title')}</Text>
+                </View>
+                <Switch
+                  value={locationSettings.awareness === true}
+                  onValueChange={toggleLocationAwareness}
+                  trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                  thumbColor={theme.colors.primaryContrast}
+                />
+              </View>
+              <Text style={styles.fieldHint}>{t('settings.location.awareness.hint')}</Text>
+            </>
+          ) : null}
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />
