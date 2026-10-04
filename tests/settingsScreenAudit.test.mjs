@@ -58,3 +58,20 @@ test('删除人设保持有确认弹窗（审查存疑项，核实为已有，�
   assert.ok(PROFILE.includes("'确定删除这个人设吗？'"));
   assert.ok(PROFILE.includes("'destructive'"));
 });
+
+test('模型列表：检测与按输入搜索共用同一拉取逻辑，且搜索按钮已接线', () => {
+  // 拉取逻辑抽成共享函数，检测与搜索都走它（避免两处各写一遍 /models 解析）
+  assert.ok(SETTINGS.includes('const fetchProviderModels = async (selected, request, isCurrent) => {'));
+  assert.ok(SETTINGS.includes('const beginModelRequest = () => {'));
+  assert.ok(SETTINGS.includes('const endModelRequest = () => {'));
+  assert.equal((SETTINGS.match(/await fetchProviderModels\(selected, request, isCurrent\)/g) || []).length, 2,
+    'detectModels 与 searchModels 各调用一次共享拉取');
+  // searchModels：按输入过滤，未匹配给提示，空输入列出全部
+  assert.ok(SETTINGS.includes('const searchModels = async () => {'));
+  assert.ok(SETTINGS.includes('all.filter(model => model.toLowerCase().includes(query))'));
+  assert.ok(SETTINGS.includes("'未找到匹配的模型'"));
+  // 搜索按钮在模型输入行内、紧邻「添加」，并带可访问名
+  assert.ok(SETTINGS.includes('onPress={searchModels}'));
+  assert.ok(SETTINGS.includes('accessibilityLabel="按输入内容搜索接口上的模型"'));
+  assert.ok(STYLES.includes('modelSearchButton:'));
+});
