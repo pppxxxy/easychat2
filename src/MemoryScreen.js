@@ -21,8 +21,8 @@ import {
 } from './storage.js';
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
-import { buildMemoryListData, groupSessionsByAge } from './memoryBuckets.js';
-import ChapterModal from './ChapterModal.js';
+import { buildMemoryListData, groupSessionsByAge } from './memory/memoryBuckets.js';
+import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';

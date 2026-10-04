@@ -25,11 +25,11 @@ import {
   createWorldEntry,
   parseCardFromJson,
   parseCardFromPng,
-} from './cardParser.js';
-import { exportCardFile } from './cardExporter.js';
-import ChapterModal from './ChapterModal.js';
+} from './character/cardParser.js';
+import { exportCardFile } from './character/cardExporter.js';
+import ChapterModal from './books/ChapterModal.js';
 import GreetingPickerModal from './GreetingPickerModal.js';
-import { listGreetingCandidates } from './cardGreetings.js';
+import { listGreetingCandidates } from './character/cardGreetings.js';
 import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui/index.js';
 import { useApp } from './context/AppContext.js';
 import { selectSessionsForCharacters } from './context/sessionLibrary.js';
@@ -1622,8 +1622,8 @@ setWorldInfo(next.worldInfo);
                   </View>
                   {item.tags && item.tags.length > 0 ? (
                     <View style={styles.characterCardTags}>
-                      {item.tags.slice(0, 3).map(tag => (
-                        <Text key={tag} style={styles.characterCardTag} numberOfLines={1}>{tag}</Text>
+                      {item.tags.slice(0, 3).map((tag, index) => (
+                        <Text key={`${tag}-${index}`} style={styles.characterCardTag} numberOfLines={1}>{tag}</Text>
                       ))}
                     </View>
                   ) : null}
@@ -1886,8 +1886,8 @@ setWorldInfo(next.worldInfo);
 
           <FieldLabel style={styles.label}>标签</FieldLabel>
           <View style={styles.tagRow}>
-            {tags.map(tag => (
-              <TouchableOpacity key={tag} style={styles.tagChip} onPress={() => removeTag(tag)} activeOpacity={0.8}>
+            {tags.map((tag, index) => (
+              <TouchableOpacity key={`${tag}-${index}`} style={styles.tagChip} onPress={() => removeTag(tag)} activeOpacity={0.8}>
                 <Text style={styles.tagChipText}>{tag}</Text>
                 <Ionicons name="close" size={12} color={theme.colors.primarySoft} />
               </TouchableOpacity>

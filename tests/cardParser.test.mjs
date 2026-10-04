@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCardFromJson } from '../src/cardParser.js';
+import { parseCardFromJson } from '../src/character/cardParser.js';
 
 test('解析织语纯文本 JSON 并映射角色字段', () => {
   const text = `　{

@@ -31,10 +31,10 @@ import {
   requestNotificationPermission,
   scheduleDailyMessage,
   setProactiveApiSettings,
-} from './proactiveMessage.js';
+} from './proactive/proactiveMessage.js';
 import { useApp } from './context/AppContext.js';
 import { useTheme } from './theme/ThemeContext.js';
-import { buildProactiveRequestJson } from './proactiveRequest.js';
+import { buildProactiveRequestJson } from './proactive/proactiveRequest.js';
 
 // 互动：让角色在指定时间主动发消息。面板负责编辑（角色 / 多个时间 / 模式 / API 来源），
 // 实际调度交给原生（WorkManager 或精确闹钟），原生侧另存一份配置供后台发送。

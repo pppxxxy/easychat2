@@ -8,7 +8,7 @@ import { Alert } from 'react-native';
 
 import { deleteLocalImage, deleteTemporaryImage } from '../attachments.js';
 import { buildGreetingMessage } from './chatHelpers.js';
-import { isGreetingMessage } from '../cardGreetings.js';
+import { isGreetingMessage } from '../character/cardGreetings.js';
 import {
   createGroupSession,
   setProtectedChatImageUris,

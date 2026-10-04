@@ -6,12 +6,12 @@ import Module from 'node:module';
 import { createRequire } from 'node:module';
 import { readJsonFromPNG, WorldBookEntry, writeJsonToPNG } from 'parsecard';
 
-import { parseCardFromJson } from '../src/cardParser.js';
+import { parseCardFromJson } from '../src/character/cardParser.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
-const sourcePath = path.resolve('src/cardExporter.js');
+const sourcePath = path.resolve('src/character/cardExporter.js');
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
@@ -26,7 +26,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 function loadExporter() {
-  const filename = path.resolve('src/cardExporter.js');
+  const filename = path.resolve('src/character/cardExporter.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));
@@ -284,4 +284,48 @@ test('AI 生成卡导出时写入隐式标识与显式标识行', () => {
   });
   assert.equal(manual.data.extensions.easychat2.aigc_meta, undefined);
   assert.equal(manual.data.creator_notes, '作者备注');
+});
+
+test('ST V2/V3 字段往返保真：post_history_instructions 与 extensions.depth_prompt', () => {
+  const exporter = loadExporter();
+
+  // 读入：一张第三方 V2 卡，带 post_history_instructions 与 depth_prompt 扩展
+  const incoming = JSON.stringify({
+    spec: 'chara_card_v2',
+    spec_version: '2.0',
+    data: {
+      name: '往返角色',
+      first_mes: '你好',
+      post_history_instructions: '历史后置指令',
+      extensions: {
+        depth_prompt: { depth: 4, prompt: '持续设定' },
+        talkativeness: 0.7,
+      },
+    },
+  });
+  const parsed = parseCardFromJson(incoming);
+  assert.equal(parsed.fields.postHistoryInstructions, '历史后置指令');
+  assert.deepEqual(parsed.extensions.depth_prompt, { depth: 4, prompt: '持续设定' });
+
+  // 导出：把解析结果再导出为 V2
+  const exported = exporter.cardToJson({
+    name: parsed.name,
+    firstMes: parsed.fields.firstMes,
+    postHistoryInstructions: parsed.fields.postHistoryInstructions,
+    cardExtensions: parsed.extensions,
+    cardExtra: parsed.extra,
+    regexScripts: parsed.regexScripts,
+    worldInfo: parsed.worldInfo,
+  });
+
+  // 结构层保留
+  const raw = JSON.parse(exported);
+  assert.equal(raw.data.post_history_instructions, '历史后置指令');
+  assert.deepEqual(raw.data.extensions.depth_prompt, { depth: 4, prompt: '持续设定' });
+
+  // 再读入：两端字段逐字一致（真正的往返，而非单向解析）
+  const reparsed = parseCardFromJson(exported);
+  assert.equal(reparsed.fields.postHistoryInstructions, '历史后置指令');
+  assert.deepEqual(reparsed.extensions.depth_prompt, { depth: 4, prompt: '持续设定' });
+  assert.equal(reparsed.extensions.talkativeness, 0.7);
 });

@@ -149,7 +149,7 @@
 **Props**: `navigation`（由导航注入）
 **行为**:
 - 从 `useApp()` 读取 `sessions`、`characters`、`loaded` 与会话操作；展示全部会话，顺序沿用存储层的置顶优先 + 更新时间降序（不再按 preview 是否为空重排）
-- 按会话 `updatedAt` 分档折叠（`memoryBuckets.js` 的 `groupSessionsByAge`）：置顶单独一组，其余分为「最近（<1 天）/ 一天前（<7 天）/ 一周前（<30 天）/ 一个月前（<180 天）/ 半年前（<365 天）/ 一年前」；空档不显示；分组默认全部折叠，点组标题展开/收起该组全部记忆，头部「展开全部 / 折叠全部」一键切换所有分组
+- 按会话 `updatedAt` 分档折叠（`src/memory/memoryBuckets.js` 的 `groupSessionsByAge`）：置顶单独一组，其余分为「最近（<1 天）/ 一天前（<7 天）/ 一周前（<30 天）/ 一个月前（<180 天）/ 半年前（<365 天）/ 一年前」；空档不显示；分组默认全部折叠，点组标题展开/收起该组全部记忆，头部「展开全部 / 折叠全部」一键切换所有分组
 - 聚焦时调用 `refreshSessions()` 重读会话列表：聊天页保存消息只写存储、不同步 Context，不重读会看到过期的 preview 与更新时间
 - 空 preview 的会话读一次消息体兜底补出摘要；仍为空才显示「（空会话，可删除）」
 - 每行展示角色头像、角色名、摘要与更新时间；克隆产生的会话在角色名后显示「副本」标识，置顶会话显示星标；群聊会话展示叠放成员头像与群名
@@ -281,7 +281,7 @@
 | `buildClonedSession(sessions, source, messages, now?)` | 构造克隆会话（未置顶、记录 `clonedFrom`） |
 
 ### `cardGreetings` 辅助函数
-**位置**: `src/cardGreetings.js`（纯函数，供 `CharacterScreen`/`GreetingPickerModal` 与测试使用）
+**位置**: `src/character/cardGreetings.js`（纯函数，供 `CharacterScreen`/`GreetingPickerModal` 与测试使用）
 
 | 函数 | 说明 |
 |------|------|
@@ -747,12 +747,12 @@ data: [DONE]
 ## 渲染性能与摘要接口
 
 ### `getCachedDisplayText(message, scripts, placement, depth, compute)`
-**位置**: `src/displayTextCache.js`
+**位置**: `src/memory/displayTextCache.js`
 **返回**: `string` - 展示正则处理后的文本
 **说明**: 以消息对象为键缓存结果；仅当 `scripts` 引用、`placement` 或 `depth` 变化时重算，避免每个流式 token 重跑全部历史消息的展示正则
 
 ### `invalidateHistorySummaries({ session, messages, removedIds, scoped, character, updateCharacter })`
-**位置**: `src/memorySummary.js`
+**位置**: `src/memory/memorySummary.js`
 **说明**: 删除/替换历史后统一失效摘要：按 boundary 精确保留幸存会话摘要、写出新边界；非会话隔离模式下同时禁用受影响的世界书总结条目；会话摘要写失败时按记录的原始开关状态精确回滚
 
 ### `getNextRecentMediaExpiry()`
@@ -763,22 +763,22 @@ data: [DONE]
 ## 卡解析与提示管线接口
 
 ### `parseCardFromJson(text)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **返回**: 标准化角色卡 `{ name, fields, systemPrompt, worldInfo, regexScripts, presets, extensions, extra }`
 **说明**: 兼容标准 V2/V3、扁平结构、织语 `zhiyu_agent_v1`，并对纯文本 JSON 的 BOM、围栏、全角空白和字符串换行做容错；`extensions`/`extra` 是未知第三方扩展与顶层字段的透传桶，导出时原样写回
 **异常**: JSON 语法错误时抛出 `Error('JSON 语法错误：...')`
 
 ### `parseCardFromPng(bytes)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **返回**: 标准化角色卡；PNG 无 `chara`/`ccv3` 文本块时返回 `null`
 **异常**: 非 PNG 签名、base64 解码失败、JSON 语法错误时抛出
 
 ### `readCardJsonFromPng(bytes)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **说明**: 先用 `parsecard.readJsonFromPNG` 读取 `tEXt`，为空时用本地无压缩 `iTXt` 兜底；均无数据返回 `null`
 
 ### 角色卡导出接口
-**位置**: `src/cardExporter.js`
+**位置**: `src/character/cardExporter.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -791,12 +791,12 @@ data: [DONE]
 | `injectCharaChunk(pngBytes, jsonText)` | 在 `IHDR` 之后、`IDAT` 之前插入 `chara` 文本块 |
 
 ### `createWorldEntry(partial?, index?)` / `createRegexScript(partial?, index?)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **返回**: 经标准化补全默认值的一条世界书条目 / 正则脚本；用于角色页新增条目
 **辅助导出**: `WORLD_POSITION_LABELS`、`REGEX_PLACEMENT_LABELS`
 
 ### `ensureUniqueIds(items, prefix)`
-**位置**: `src/cardParser.js`
+**位置**: `src/character/cardParser.js`
 **说明**: 对世界书/正则条目做 id 去重，重复时回退为 `<prefix>-<index>`；`normalizeCard` 已内置调用
 
 ### `buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets })`
@@ -1089,7 +1089,7 @@ data: [DONE]
 **触发词**: `TRIGGER_KEYWORDS`（最新、今天、新闻、股价、天气、汇率等）。
 
 ### 记忆总结接口
-**位置**: `src/memorySummary.js`
+**位置**: `src/memory/memorySummary.js`
 
 | 函数 | 说明 |
 |------|------|
@@ -1182,10 +1182,10 @@ data: [DONE]
 
 ### `ONBOARDING_CHAPTERS` / `OnboardingModal`
 **位置**: `src/onboardingContent.js` / `src/OnboardingModal.js`
-**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（13 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, sections?, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`sections` 为结构化条款（免责章取自 `DISCLAIMER_SECTIONS`），经 `ChapterSections` 渲染；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。`ChapterSections`（`src/ChapterSections.js`，默认导出）Props 为 `{ sections: [{ title?, icon?, body?, bullets? }] }`，逐节渲染图标标题、正文与要点，供免责弹窗与免责教学章共用。
+**说明**: `ONBOARDING_CHAPTERS` 为向导与教程共用的章节数据（13 章），结构 `{ id, title, icon, image?, images?: [{ key, caption? }], summary, disclaimer?, intro, sections?, warning?, links?: [{ label, url }], steps: string[], items: [{ name, where, usage }], note, outro? }`；单图用 `image`，多图用 `images`（优先于 `image`）；`sections` 为结构化条款（免责章取自 `DISCLAIMER_SECTIONS`），经 `ChapterSections` 渲染；`disclaimer` 为章首声明、`warning` 为合规警告、`links` 为可点击外链（如角色卡来源平台），三者经 `ChapterNotice` 渲染；`outro` 为章末附加块 `{ title, body?, bullets?: string[], link?: { label, url }, linkNotice?, disclaimer? }`，经 `ChapterOutro` 渲染（角色卡获取章的「进阶工具」）。聊天厂商与生图服务清单分别由 `apiVendors.js`、`imageGen/providers.js` 生成，免责正文取 `DISCLAIMER_TEXT`。辅助导出 `getOnboardingChapter(id)` 取单章、`getOnboardingChapters(ids)` 取子集（`ids` 为空返回全部）。`OnboardingModal`（默认导出）Props 为 `{ visible, onFinish }`，一次展示一章，含进度条、上一/下一步与跳过，`onFinish` 在末章或跳过时触发；图片经 `getOnboardingImages(chapter)` 解析（`src/onboarding/images.js`）后交给 `ChapterImages` 横向分页渲染，未注册的图直接跳过。`ChapterImages`（`src/books/ChapterImages.js`，默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，按容器宽度分页、多图显示圆点指示、图注跟随当前页。`ChapterSections`（`src/books/ChapterSections.js`，默认导出）Props 为 `{ sections: [{ title?, icon?, body?, bullets? }] }`，逐节渲染图标标题、正文与要点，供免责弹窗与免责教学章共用。
 
 ### `ChapterModal` / `ChapterNotice` / `ChapterImages` / `TutorialModal`
-**位置**: `src/ChapterModal.js` / `src/ChapterNotice.js` / `src/ChapterImages.js` / `src/TutorialModal.js`
+**位置**: `src/books/ChapterModal.js` / `src/books/ChapterNotice.js` / `src/books/ChapterImages.js` / `src/TutorialModal.js`
 **说明**: `ChapterModal`（默认导出）Props 为 `{ visible, onClose, chapterIds, title?, buttonText? }`，全屏 `Modal` + `ScrollView` 渲染指定章节（摘要、正文、合规警告、外链、编号步骤、速查条目、注意事项与已注册图片，`chapterIds` 为空数组时渲染全部）；`chapterIds` 含多章时顶部渲染可横滑的章节目录 chips，点击按 `onLayout` 记录的偏移滚动到对应章节；各界面「教学」按钮以单章子集打开它。`ChapterImages`（默认导出）Props 为 `{ images: [{ source, caption }], height?, style? }`，横向分页、多图圆点指示、图注跟随当前页。`ChapterNotice`（默认导出）Props 为 `{ disclaimer?, warning?, links?: [{ label, url }] }`，依次渲染章首声明、警告框与可点击外链，点击链接先 `Alert` 二次确认再 `Linking.openURL`。`ChapterOutro`（默认导出）Props 为 `{ outro }`，渲染章末附加块（标题、正文、要点列表、外链与免责声明），外链确认文案取 `linkNotice`。`TutorialModal`（默认导出）Props 为 `{ visible, onClose }`，是 `ChapterModal` 展示全部章节的薄封装，由设置页「使用教程」入口打开。
 
 ## 数据结构

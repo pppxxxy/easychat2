@@ -15,7 +15,7 @@ import {
   readJsonStatus,
 } from './io.js';
 import { markMediaWrite } from '../mediaProtection.js';
-import { mergeProactiveMessage } from '../proactiveInbox.js';
+import { mergeProactiveMessage } from '../proactive/proactiveInbox.js';
 import {
   collectChatImageFiles,
   imageUrisFromMessages,

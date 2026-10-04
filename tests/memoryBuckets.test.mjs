@@ -11,7 +11,7 @@ import {
   groupSessionsByAge,
   MEMORY_BUCKETS,
   PINNED_GROUP_ID,
-} from '../src/memoryBuckets.js';
+} from '../src/memory/memoryBuckets.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'MemoryScreen.js'), 'utf8');
@@ -86,7 +86,7 @@ test('档位定义完整', () => {
 });
 
 test('记忆界面接入分组折叠与展开全部', () => {
-  assert.ok(SCREEN_SOURCE.includes("from './memoryBuckets.js'"));
+  assert.ok(SCREEN_SOURCE.includes("from './memory/memoryBuckets.js'"));
   assert.ok(SCREEN_SOURCE.includes('groupSessionsByAge'));
   assert.ok(SCREEN_SOURCE.includes('buildMemoryListData'));
   assert.ok(SCREEN_SOURCE.includes('expandedGroups'));

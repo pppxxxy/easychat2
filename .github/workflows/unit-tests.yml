@@ -12,6 +12,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'plugins/**'
+      - 'scripts/**'
       - 'assets/**'
       - 'eas.json'
       - 'package.json'
@@ -50,6 +51,9 @@ jobs:
 
       - name: Run static checks
         run: npm run lint
+
+      - name: Structure guard
+        run: npm run guard:structure
 
       - name: Export Android bundle
         run: npx expo export --platform android --output-dir /tmp/easychat2-ci-export

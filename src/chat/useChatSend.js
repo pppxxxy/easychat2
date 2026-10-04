@@ -74,7 +74,7 @@ import {
   invalidateHistorySummaries,
   isSessionScopedMemory,
   planMemoryBudget,
-} from '../memorySummary.js';
+} from '../memory/memorySummary.js';
 import {
   getActiveLocalModel,
   getApiConfigs,

@@ -9,14 +9,14 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getOnboardingChapters } from './onboardingContent.js';
-import { getOnboardingImages } from './onboarding/images.js';
+import { getOnboardingChapters } from '../onboardingContent.js';
+import { getOnboardingImages } from '../onboarding/images.js';
 import ChapterImages from './ChapterImages.js';
 import ChapterNotice from './ChapterNotice.js';
 import ChapterOutro from './ChapterOutro.js';
 import ChapterSections from './ChapterSections.js';
-import { Card, PrimaryButton } from './ui/index.js';
-import { useTheme } from './theme/ThemeContext.js';
+import { Card, PrimaryButton } from '../ui/index.js';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export default function ChapterModal({
   visible,

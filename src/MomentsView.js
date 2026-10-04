@@ -28,10 +28,10 @@ import {
   buildMomentReplyPrompt,
   normalizeMomentReply,
 } from './moments/momentReply.js';
-import { buildMemorySummaryText, isSessionScopedMemory } from './memorySummary.js';
+import { buildMemorySummaryText, isSessionScopedMemory } from './memory/memorySummary.js';
 import { runUserMomentComments } from './moments/runUserMomentComments.js';
 import { useApp } from './context/AppContext.js';
-import ChapterModal from './ChapterModal.js';
+import ChapterModal from './books/ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { maskSecrets } from './secrets.js';

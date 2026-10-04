@@ -1,6 +1,6 @@
 import React from 'react';
 
-import ChapterModal from './ChapterModal.js';
+import ChapterModal from './books/ChapterModal.js';
 
 export default function TutorialModal({ visible, onClose }) {
   return (

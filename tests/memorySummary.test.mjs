@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
-const sourcePath = path.resolve('src/memorySummary.js');
+const sourcePath = path.resolve('src/memory/memorySummary.js');
 const sourceCode = fs.readFileSync(sourcePath, 'utf8');
 const transformed = babel.transformSync(sourceCode, {
   babelrc: false,
@@ -35,19 +35,21 @@ const storageMock = {
 };
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === './api.js' || request.endsWith('/api')) {
+  // 按文件名匹配，兼容源码搬迁后 `./x.js` → `../x.js` 的相对路径变化。
+  const base = String(request).split('/').pop();
+  if (base === 'api.js') {
     return { sendChatMessage: async () => summaryText };
   }
-  if (request === './storage.js' || request.endsWith('/storage')) {
+  if (base === 'storage.js') {
     return storageMock;
   }
-  if (request === './cardParser.js' || request.endsWith('/cardParser')) {
+  if (base === 'cardParser.js') {
     return { createWorldEntry: partial => partial };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const filename = path.resolve('src/memorySummary.js');
+const filename = path.resolve('src/memory/memorySummary.js');
 const runtimeModule = new Module(filename);
 runtimeModule.filename = filename;
 runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));

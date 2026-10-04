@@ -33,8 +33,8 @@ import {
 import { createMediaMessage, STICKER_MESSAGE_KIND } from './chatMedia.js';
 import { extractStickerDirectives, resolveStickerNames } from './stickerDirectives.js';
 import { createStickerImage, deleteStickerImage } from './stickerImages.js';
-import { getCachedDisplayText } from './displayTextCache.js';
-import { isGreetingMessage, listGreetingCandidates } from './cardGreetings.js';
+import { getCachedDisplayText } from './memory/displayTextCache.js';
+import { isGreetingMessage, listGreetingCandidates } from './character/cardGreetings.js';
 import {
   removeMessagesByIds,
   selectableMessageIds,
@@ -47,7 +47,7 @@ import {
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
-} from './memorySummary.js';
+} from './memory/memorySummary.js';
 import {
 } from './chat/replyFlow.js';
 import { useApp } from './context/AppContext.js';

@@ -6,7 +6,7 @@ import {
   isGreetingMessage,
   listGreetingCandidates,
   removeGreetingDraftIndex,
-} from '../src/cardGreetings.js';
+} from '../src/character/cardGreetings.js';
 
 test('整理候选：firstMes 在前，备用开场白在后，去空去空白', () => {
   const list = listGreetingCandidates({

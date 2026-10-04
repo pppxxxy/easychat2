@@ -11,10 +11,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { ONBOARDING_CHAPTERS } from './onboardingContent.js';
 import { getOnboardingImages } from './onboarding/images.js';
-import ChapterImages from './ChapterImages.js';
-import ChapterNotice from './ChapterNotice.js';
-import ChapterOutro from './ChapterOutro.js';
-import ChapterSections from './ChapterSections.js';
+import ChapterImages from './books/ChapterImages.js';
+import ChapterNotice from './books/ChapterNotice.js';
+import ChapterOutro from './books/ChapterOutro.js';
+import ChapterSections from './books/ChapterSections.js';
 import { GhostButton, PrimaryButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 

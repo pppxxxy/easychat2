@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useTheme } from './theme/ThemeContext.js';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 章节多图：横向分页浏览，底部圆点指示 + 当前页说明。
 export default function ChapterImages({ images = [], height = 200, style }) {

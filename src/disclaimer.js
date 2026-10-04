@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import ChapterSections from './ChapterSections.js';
+import ChapterSections from './books/ChapterSections.js';
 import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from './disclaimerContent.js';
 import { useTheme } from './theme/ThemeContext.js';
 
