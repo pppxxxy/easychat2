@@ -43,16 +43,19 @@ export default [
   {
     // i18n 防复发：用户可见文案（Alert.alert / throw new Error）不得硬编码中文。
     // 判定用本地规则 eslint-rules/no-hardcoded-chinese.mjs（AST 级，注释不算）。
+    // 已知覆盖边界：只统计 Alert.alert / throw new Error 的**直接**中文字符串参数——
+    // JSX 正文、setNotice 类提示、Alert 按钮配置对象内的文案（如 { text: '取消' }）
+    // 都不在规则内（ProactivePanel 全文件未接 i18n 却不在清单里，即此盲区；详见审查待办）。
     //
-    // 下面的 `ignores` 是**存量迁移清单（只减不增）**：用规则实测跑出的 32 个
-    // 尚有硬编码的文件（共 559 处）。迁移方式 = 把文案换成 t('<key>') 并补
-    // src/i18n/locales 双语言词条，然后从这里删掉该行；清单只允许变短。
-    // 新文件一律不得加入。完整清单与分批计划见 .monkeycode/docs/审查待办.md。
+    // 下面的 `ignores` 是**存量迁移清单（只减不增）**：由规则实测生成——81 个文件、
+    // 763 处（2026-10-02 复测；早期注释里的「32 文件 / 559 处」是 grep 口径的误记，
+    // 已废弃）。迁移方式 = 把文案换成 t('<key>') 并补 src/i18n/locales 双语言词条，
+    // 然后从这里删掉该行；清单只允许变短。新文件一律不得加入。
+    // 按文件的实测计数与分批计划见 .monkeycode/docs/审查待办.md。
     files: ['src/**/*.js', 'App.js'],
     ignores: [
       'src/i18n/**',
       // ---- 存量迁移清单（只减不增）----
-    // 由规则实测生成（51 个文件、190 处）。迁移一个文件就从这里删一行。
       'src/BackupPanel.js',
       'src/books/comments.js',
       'src/books/library.js',
