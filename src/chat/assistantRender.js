@@ -19,7 +19,7 @@ export const createMarkdownStyles = (theme, fonts, tokens) => ({
   hr: { backgroundColor: theme.colors.surfaceBorder },
   blockquote: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.primary },
   code_inline: {
-    color: '#c7254e',
+    color: theme.colors.codeText,
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 0,
     borderRadius: tokens.radius.xs,
@@ -65,7 +65,7 @@ export const createHtmlBaseStyle = (theme, fonts) => ({
 
 export const createHtmlTagsStyles = (theme, fonts) => ({
   a: { color: theme.colors.primary },
-  code: { fontFamily: MONO_FONT, color: '#c7254e', backgroundColor: theme.colors.surfaceAlt },
+  code: { fontFamily: MONO_FONT, color: theme.colors.codeText, backgroundColor: theme.colors.surfaceAlt },
   pre: { fontFamily: MONO_FONT, color: theme.colors.bubbleAssistantText, backgroundColor: theme.colors.surfaceAlt },
   q: { color: theme.colors.bubbleAssistantText },
   h4: { color: theme.colors.bubbleAssistantText, fontSize: fonts.scaled(13), marginTop: 0, marginBottom: 6 },

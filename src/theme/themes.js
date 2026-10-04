@@ -224,6 +224,8 @@ export function getTheme(id) {
     primaryAlpha: (alpha = 0.1) => hexToRgba(primary, alpha),
     primaryMutedAlpha: (alpha = 0.35) => hexToRgba(primaryMuted, alpha),
     dangerAlpha: (alpha = 0.1) => hexToRgba(danger, alpha),
+    // 表面色的半透明版本：用于「浮在滚动内容之上」的浮层/操作条底色。
+    surfaceAlpha: (alpha = 0.3) => hexToRgba(found.colors.surface, alpha),
     // 语义派生 token：把散落在样式里的硬编码色收敛回主题体系。
     // dangerSurface 用于错误气泡底；dangerText* 保证各主题下正文可读。
     dangerSurface: hexToRgba(danger, 0.12),
@@ -239,6 +241,8 @@ export function getTheme(id) {
     // 面板内按钮（HTML 卡片注入的 <button>）：不随主题的深色底，故文字用固定浅色。
     panelButtonBg: '#344f5d',
     panelButtonText: '#eef4f7',
+    // 行内代码/代码块的强调色：需在深色与浅色 surface 上都可读（dangerSoft 两向都够）。
+    codeText: found.colors.dangerSoft,
   };
   return { ...found, colors };
 }

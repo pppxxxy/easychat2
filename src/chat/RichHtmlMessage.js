@@ -55,7 +55,8 @@ export default function RichHtmlMessage({
   allowFullscreenVideo = false,
   hostHeight = 0,
 }) {
-  const { theme, fonts } = useTheme();
+  const { theme, fonts, tokens } = useTheme();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { height: windowHeight } = useWindowDimensions();
   const [height, setHeight] = useState(1);
   const [source, setSource] = useState(null);
@@ -263,7 +264,7 @@ export default function RichHtmlMessage({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: {
     width: '100%',
     minWidth: 0,
@@ -276,40 +277,40 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     backgroundColor: 'transparent',
   },
-   errorText: {
-     color: '#b84a62',
-     fontSize: 12,
-     paddingVertical: 8,
-   },
-   retryButton: {
-     alignSelf: 'flex-start',
-     paddingHorizontal: 12,
-     paddingVertical: 6,
-     borderRadius: 8,
-     backgroundColor: '#2d2d44',
-     marginBottom: 8,
-   },
-   retryButtonText: {
-     color: '#e8e8f0',
-     fontSize: 12,
-     fontWeight: '700',
-   },
-   loadingBox: {
-     alignItems: 'center',
-     justifyContent: 'center',
-   },
-   loadingOverlay: {
-     ...StyleSheet.absoluteFillObject,
-     alignItems: 'center',
-     justifyContent: 'center',
-   },
-   loadingText: {
-     color: '#9d9db8',
-     fontSize: 12,
-     marginTop: 8,
-   },
-   webviewContainer: {
-     width: '100%',
+  errorText: {
+    color: theme.colors.danger,
+    fontSize: 12,
+    paddingVertical: 8,
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: theme.colors.surface,
+    marginBottom: 8,
+  },
+  retryButtonText: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  loadingBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    color: theme.colors.textFaint,
+    fontSize: 12,
+    marginTop: 8,
+  },
+  webviewContainer: {
+    width: '100%',
     minWidth: 0,
     alignSelf: 'stretch',
     backgroundColor: 'transparent',

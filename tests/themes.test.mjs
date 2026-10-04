@@ -87,10 +87,11 @@ test('语义派生 token：各主题都具备且可读（对比度下限）', ()
     for (const key of [
       'dangerSurface', 'dangerTextStrong', 'dangerTextSoft',
       'quoteOnPrimary', 'quoteOnPrimaryMuted', 'highlightBg', 'highlightText',
-      'panelButtonBg', 'panelButtonText',
+      'panelButtonBg', 'panelButtonText', 'codeText',
     ]) {
       assert.ok(t.colors[key], `${theme.id}.${key} 必须存在`);
     }
+    assert.equal(typeof t.colors.surfaceAlpha, 'function', `${theme.id}.surfaceAlpha 派生函数`);
     // 浅色主题下 panelButton 不能再用深色文字配深底（历史 bug）
     assert.ok(
       contrast(composite(t.colors.panelButtonText, t.colors.background), composite(t.colors.panelButtonBg, t.colors.background)) >= 4.5,

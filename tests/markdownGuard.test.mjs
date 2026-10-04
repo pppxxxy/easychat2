@@ -38,3 +38,11 @@ test('空值/非字符串安全处理', () => {
   assert.equal(clampMarkdownText(undefined).text, '');
   assert.equal(clampMarkdownText(42).text, '42');
 });
+
+test('助手 Markdown 行内代码用主题 codeText（回归：深色下不再黑底暗红）', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const source = fs.readFileSync(path.resolve('src/chat/assistantRender.js'), 'utf8');
+  assert.ok(source.includes('theme.colors.codeText'), '行内代码与代码块取主题 codeText');
+  assert.ok(!source.includes('#c7254e'), '不得残留硬编码暗红');
+});

@@ -21,6 +21,8 @@ export const radius = {
   xl: 20,
   pill: 999,
   bubble: 18,
+  // 气泡「收角」：气泡默认 radius.bubble，靠尾角一侧收成更小半径形成方向感。
+  tail: 6,
 };
 
 export const border = {

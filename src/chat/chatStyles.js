@@ -94,7 +94,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   actionDisabled: { opacity: 0.5 },
   modelBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
@@ -206,7 +206,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   searchNav: { paddingHorizontal: tokens.spacing.xs },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     padding: tokens.spacing.xl,
   },
@@ -238,7 +238,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   attachMenuHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2, lineHeight: fonts.scaled(17) },
   moreBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: theme.colors.overlay,
     alignItems: 'flex-end',
     paddingTop: 64,
     paddingRight: tokens.spacing.md,
@@ -374,8 +374,8 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 8,
     marginTop: 8,
     marginBottom: 4,
-    borderRadius: 16,
-    backgroundColor: 'rgba(128,128,128,0.18)',
+    borderRadius: tokens.radius.lg,
+    backgroundColor: hexToRgba(theme.colors.textFaint, 0.18),
   },
   loadEarlierText: {
     fontSize: 13,
@@ -385,7 +385,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 14,
     paddingHorizontal: 18,
     paddingVertical: 9,
-    borderRadius: 18,
+    borderRadius: tokens.radius.bubble,
     backgroundColor: theme.colors.primaryAlpha(0.14),
     borderWidth: 1,
     borderColor: theme.colors.primary,
@@ -672,7 +672,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
   },
   messageActionButtonOverlay: {
-    backgroundColor: 'rgba(45,45,68,0.30)',
+    backgroundColor: theme.colors.surfaceAlpha(0.3),
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
   },
@@ -683,7 +683,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   messageActionsBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
     padding: tokens.spacing.md,
   },
@@ -724,7 +724,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   userBubble: {
     backgroundColor: theme.colors.primary,
-    borderBottomRightRadius: 6,
+    borderBottomRightRadius: tokens.radius.tail,
     shadowColor: theme.colors.primary,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: theme.id === 'light' ? 0.18 : 0.28,
@@ -732,7 +732,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   assistantBubble: {
     backgroundColor: theme.colors.bubbleAssistant,
-    borderBottomLeftRadius: 6,
+    borderBottomLeftRadius: tokens.radius.tail,
     shadowColor: theme.colors.text,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: theme.id === 'light' ? 0.04 : 0.08,
@@ -791,14 +791,14 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
      backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,
      borderWidth: tokens.border.thin,
-     borderBottomLeftRadius: 6,
+     borderBottomLeftRadius: tokens.radius.tail,
      maxWidth: '92%',
    },
    errorBubbleFullWidth: {
      backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,
      borderWidth: tokens.border.thin,
-     borderBottomLeftRadius: 6,
+     borderBottomLeftRadius: tokens.radius.tail,
      maxWidth: '100%',
    },
   errorBadge: {
@@ -871,7 +871,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
   stickerBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: theme.colors.overlay,
   },
   stickerSheet: {
     backgroundColor: theme.colors.surfaceAlt,
@@ -979,7 +979,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     right: 3,
     width: 19,
     height: 19,
-    borderRadius: 10,
+    borderRadius: tokens.radius.pill,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.primary,
     backgroundColor: theme.colors.surface,
@@ -1101,7 +1101,7 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   inputBarOverlay: {
-    backgroundColor: 'rgba(20,20,34,0.26)',
+    backgroundColor: hexToRgba(theme.colors.background, 0.26),
   },
   input: {
     flex: 1,
@@ -1124,8 +1124,8 @@ export const createChatStyles = (theme, fonts, tokens) => StyleSheet.create({
     shadowRadius: 6,
   },
   inputOverlay: {
-    backgroundColor: 'rgba(45,45,68,0.28)',
-    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: theme.colors.surfaceAlpha(0.28),
+    borderColor: hexToRgba(theme.colors.text, 0.22),
   },
   sendButton: {
     marginLeft: tokens.spacing.sm,
