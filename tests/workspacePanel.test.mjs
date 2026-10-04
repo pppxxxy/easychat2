@@ -24,6 +24,7 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
     'Word 导出复用 docx 纯函数与二进制写');
   assert.ok(source.includes('Sharing.shareAsync'), '分享接 expo-sharing');
   assert.ok(source.includes('animationType="slide"'), '面板为滑入式 Modal');
+  assert.ok(/container:\s*\{[^}]*paddingTop/.test(source), '全屏容器需顶部内边距，避免标题/关闭贴到状态栏');
 });
 
 test('SettingsScreen：工作区卡片提供面板入口', () => {
