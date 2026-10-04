@@ -2,6 +2,7 @@
 // 地图是「40×40 网格上的房子」列表，数据量小，整体存一个键；损坏时先备份。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onCharacterDeleted } from './characterLifecycle.js';
 
 import { detachCharacterFromMap, normalizeMapHouses } from '../worldMap/map.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
@@ -46,3 +47,6 @@ export function updateWorldMap(updater) {
 export async function detachCharacterFromWorldMap(characterIds) {
   return updateWorldMap(houses => detachCharacterFromMap(houses, characterIds));
 }
+
+// 删除角色时从地图摘掉它：不再作为屋主，也不再是任何房子的住户（原在 storage.js 硬编码）。
+onCharacterDeleted('worldMap', characterIds => detachCharacterFromWorldMap(characterIds));

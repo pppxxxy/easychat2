@@ -1128,6 +1128,44 @@ test('按消息删除只清理目标消息的向量片段', async () => {
   );
 });
 
+test('角色删除清理好感度：注册式级联覆盖 affinity（此前的孤儿数据 bug）', async () => {
+  const storage = loadStorage();
+  const first = { id: 'character-affinity-1', name: '一号' };
+  const second = { id: 'character-affinity-2', name: '二号' };
+  await storage.saveCharacterLibrary([first, second]);
+  // 两个角色都有好感度数据
+  await storage.saveAffinity({
+    'character-affinity-1': { score: 42, turnCount: 7, triggers: ['affinity-best'] },
+    'character-affinity-2': { score: -3, turnCount: 2, triggers: [] },
+  });
+  assert.ok(store.has('@easychat2_affinity'), '前置：好感度已落库');
+
+  // 删除一号（不带 clearVectorIds——好感度清理不依赖用户勾选「同时删除记忆」）
+  await storage.saveCharacterState([second], second.id, first.id, []);
+
+  const status = await storage.getAffinityStatus();
+  assert.equal(status.map['character-affinity-1'], undefined, '被删角色的好感度必须清掉（此前会永久残留）');
+  assert.equal(status.map['character-affinity-2'].score, -3, '未删角色的好感度不受影响');
+});
+
+test('角色删除清理：钩子机制覆盖日记/地图/moments，且单个域失败不阻断其余', async () => {
+  const storage = loadStorage();
+  const keep = { id: 'character-hook-keep', name: '保留' };
+  const gone = { id: 'character-hook-gone', name: '删除' };
+  await storage.saveCharacterLibrary([keep, gone]);
+  // 日记：给被删角色建条目 + 开日记开关
+  await storage.saveDiaries({ 'character-hook-gone': [{ id: 'd1', date: '2026-10-04', content: '内容' }] });
+  await storage.saveDiarySettings({ roles: { 'character-hook-gone': { enabled: true }, 'character-hook-keep': { enabled: true } } });
+
+  await storage.saveCharacterState([keep], keep.id, gone.id, []);
+
+  const diaries = await storage.getDiaries();
+  assert.equal(diaries['character-hook-gone'], undefined, '被删角色的日记条目必须清掉');
+  const diarySettings = await storage.getDiarySettings();
+  assert.equal(diarySettings.roles['character-hook-gone'], undefined, '日记开关里的被删角色必须清掉');
+  assert.ok(diarySettings.roles['character-hook-keep'], '未删角色的日记开关保留');
+});
+
 test('角色完整删除清理向量，仅删角色保留历史向量', async () => {
   const storage = loadStorage();
   const first = { id: 'character-delete-1', name: '一号' };
