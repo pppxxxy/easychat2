@@ -22,6 +22,22 @@ import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
 
+// 解析当前模型能力：在线来源 supportsVision/supportsVideo 或本地多模态。
+// 供「生成前门控」与悬浮窗「视频帧序列」判定复用；读盘失败按不支持处理。
+export async function resolveScreenWatchCapabilities() {
+  const [apiConfig, localSettings, localItem] = await Promise.all([
+    getApiConfigs(),
+    getLocalModelSettings().catch(() => null),
+    getActiveLocalModel().catch(() => null),
+  ]);
+  const current = apiConfig.configs.find(item => item.id === apiConfig.activeId)
+    || apiConfig.configs[0];
+  const vision = !!(current && current.supportsVision === true)
+    || !!getLocalModelMediaCapabilities(localSettings, localItem).vision;
+  const video = !!(current && current.supportsVideo === true);
+  return { vision, video, current };
+}
+
 export function useScreenWatchComments({ characters, defaultCharacterId = '' }) {
   const [comments, setComments] = useState([]);
   const [generating, setGenerating] = useState(false);
@@ -59,8 +75,12 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     };
   }, []);
 
-  const generate = useCallback(async ({ imageUri }) => {
-    const uri = String(imageUri || '');
+  const generate = useCallback(async ({ imageUri, imageUris } = {}) => {
+    // 兼容单帧（imageUri）与视频帧序列（imageUris）；两者都为空则纯文字。
+    const uris = (Array.isArray(imageUris) ? imageUris : [])
+      .map(item => String(item || ''))
+      .filter(Boolean);
+    if (uris.length === 0 && imageUri) uris.push(String(imageUri));
     if (generatingRef.current) return false;
     const character = (charactersRef.current || []).find(item => item.id === characterIdRef.current);
     if (!character) {
@@ -73,22 +93,17 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     setGenerating(true);
     setError('');
     try {
-      const [profile, presets, apiConfig, localSettings, localItem] = await Promise.all([
+      const [profile, presets, caps] = await Promise.all([
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
-        getApiConfigs(),
-        getLocalModelSettings().catch(() => null),
-        getActiveLocalModel().catch(() => null),
+        resolveScreenWatchCapabilities(),
       ]);
       if (controller.signal.aborted) return false;
       // 视觉门控：与聊天附件菜单同一口径。读盘失败按不支持处理（给明确提示）。
-      const current = apiConfig.configs.find(item => item.id === apiConfig.activeId)
-        || apiConfig.configs[0];
-      const vision = !!(current && current.supportsVision === true)
-        || !!getLocalModelMediaCapabilities(localSettings, localItem).vision;
-      if (!vision) {
+      if (!caps.vision) {
         throw Object.assign(new Error(t('screenWatch.error.noVision')), { code: 'NO_VISION' });
       }
+      const current = caps.current;
       const requestMessages = buildRequestMessages({
         character,
         historyMessages: [],
@@ -98,7 +113,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         summaryText: '',
         memorySnippets: '',
         pluginContext: '',
-        images: uri ? [uri] : [],
+        images: uris,
         quote: null,
       });
       const raw = await sendChatMessage(requestMessages, {
@@ -117,13 +132,13 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         // 名字留空：显示层按当前语言补「角色」，切语言后旧评论也跟着变。
         characterName: String(character.name || '').trim(),
         text: text.slice(0, COMMENT_TEXT_MAX),
-        imageUri: uri,
+        imageUri: uris[0] || '',
         createdAt: Date.now(),
       };
       const next = await appendScreenWatchComment(comment);
       if (mountedRef.current) setComments(next);
       lastFailedRef.current = null;
-      return true;
+      return text;
     } catch (caught) {
       if (controller.signal.aborted || isCanceledError(caught)) return false;
       if (mountedRef.current) {
@@ -131,7 +146,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
           ? caught.message
           : t('screenWatch.comments.failed'));
       }
-      lastFailedRef.current = { imageUri: uri };
+      lastFailedRef.current = { imageUri: uris[0] || '', imageUris: uris };
       return false;
     } finally {
       generatingRef.current = false;

@@ -25,6 +25,7 @@
       "./plugins/withProactiveMessage",
       "./plugins/withLocalApiServer",
       "./plugins/withShellExecutor",
+      "./plugins/withScreenOverlay",
       [
         "expo-image-picker",
         {
