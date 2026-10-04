@@ -7,7 +7,7 @@
 // - 追加一段「主动开话题」的特殊提示，说明这是角色主动给用户发消息；
 // - 时间感知开启时附上当前时间。
 
-import { buildRequestMessages } from '../chatPipeline.js';
+import { buildRequestMessages } from '../prompt/chatPipeline.js';
 
 // 世界书「格式模板」过滤：主动消息只发一句自然的话，不该被「每轮必须输出【时间】/
 // 状态栏/课程表」这类输出格式规定带偏——否则模型会把模板示例值原样抄成正文。

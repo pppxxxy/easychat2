@@ -7,7 +7,7 @@ import {
   compileRegex,
   compileRegexCached,
   isUnsafeRegexPattern,
-} from '../src/regexEngine.js';
+} from '../src/prompt/regexEngine.js';
 
 const script = (patch = {}) => ({
   enabled: true,

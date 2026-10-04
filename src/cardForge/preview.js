@@ -1,6 +1,6 @@
 // 制卡预览：把当前草稿整理成只读展示分区，并生成模拟对话的开场轮次。
 // 与 UI 解耦的纯函数，便于单测；模拟对话本身走 chatPipeline 真实请求，不在这里。
-import { applyRegexScripts, REGEX_PLACEMENT } from '../regexEngine.js';
+import { applyRegexScripts, REGEX_PLACEMENT } from '../prompt/regexEngine.js';
 
 const trim = value => String(value == null ? '' : value).trim();
 

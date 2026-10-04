@@ -74,7 +74,7 @@ test('媒体消息的引用两处入口都接线（菜单 + 长按），且引�
   const helpers = read('src/chat/chatHelpers.js');
   assert.match(helpers, /if \(stickerName\) return `【表情包：\$\{stickerName\}】`/, '表情包引用占位文本');
   assert.match(helpers, /return '【图片】'/, '图片引用占位文本');
-  const pipeline = read('src/chatPipeline.js');
+  const pipeline = read('src/prompt/chatPipeline.js');
   assert.match(pipeline, /\[引用\$\{String\(quote\.name \|\| ''\)\.trim\(\) \|\| '对方'\}的消息\]/, '引用文本进入用户消息提示');
 });
 

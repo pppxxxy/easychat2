@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { collectActiveWorldInfo, getUnsafeWorldEntryKeys, isEntryActive } from '../src/lorebook.js';
+import { collectActiveWorldInfo, getUnsafeWorldEntryKeys, isEntryActive } from '../src/prompt/lorebook.js';
 
 const entry = (patch = {}) => ({
   id: 'e1',
