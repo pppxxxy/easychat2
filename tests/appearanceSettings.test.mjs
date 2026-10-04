@@ -185,3 +185,22 @@ test('patchAppearanceSettings：无补丁 / 非法补丁不破坏现有值', asy
   assert.equal(badValue.themeId, 'crimson', '其余字段不受影响');
   store.clear();
 });
+
+test('音乐片段设置：默认 30 秒 / 16kHz，非法值归一，读写往返', async () => {
+  store.delete('@easychat2_music_clip');
+  assert.deepEqual(await settings.getMusicClipSettings(), { clipSeconds: 30, sampleRate: 16000 },
+    '缺省 30 秒 / 16kHz');
+
+  const saved = await settings.saveMusicClipSettings({ clipSeconds: 60, sampleRate: 44100 });
+  assert.deepEqual(saved, { clipSeconds: 60, sampleRate: 44100 });
+  assert.deepEqual(await settings.getMusicClipSettings(), { clipSeconds: 60, sampleRate: 44100 });
+
+  // 非白名单值必须归一回默认，避免把任意数字当采样率传进 WebView
+  const bad = await settings.saveMusicClipSettings({ clipSeconds: 45, sampleRate: 12345 });
+  assert.deepEqual(bad, { clipSeconds: 30, sampleRate: 16000 }, '非法值归一为默认');
+
+  store.set('@easychat2_music_clip', '{ not json');
+  assert.deepEqual(await settings.getMusicClipSettings(), { clipSeconds: 30, sampleRate: 16000 },
+    '损坏回退默认');
+  store.delete('@easychat2_music_clip');
+});

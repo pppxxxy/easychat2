@@ -451,6 +451,7 @@
 | `@easychat2_music_index` | 音乐库 ID 索引（提交点，最后写；新导入置顶） |
 | `@easychat2_music_item::<id>` | 单曲记录 `{ id, name, uri, size, mime, durationMs, addedAt, triggers: [{ id, atMs, note }] }`；音频文件复制到 `documentDirectory/music/<id>.<ext>`，时长首播后回填 |
 | `@easychat2_music_comments::<songId>` | 听歌陪伴评论 `[{ id, characterId, characterName, text, atMs, createdAt, source: 'trigger' \| 'opening' \| 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |
+| `@easychat2_music_clip` | 听歌音频片段设置 `{ clipSeconds: 15/30/60, sampleRate: 16000/24000/44100 }`；只影响发往模型的片段（隐藏 WebView 裁剪为 WAV），不影响本地播放 |
 | `@easychat2_books_index` | 书架 ID 索引（提交点，最后写；新导入置顶） |
 | `@easychat2_books_item::<id>` | 书目 `{ id, name, uri, size, chars, addedAt, encoding, format, progress: { blockIndex, pageIndex, anchorText }, chapters: [{ title, blockIndex }] }`；`encoding` 为导入时探测的源编码（utf-8/gb18030/big5/shift_jis/euc-jp/euc-kr/windows-1252/utf-16le/utf-16be/utf-32le/utf-32be/docx），`format` 为源格式（txt/md/markdown/docx/html，旧条目为空）；正文**恒走文件** `documentDirectory/books/<id>.txt`（导入即转为 UTF-8），进度只存块号+页号+锚文本（百分比随排版变化，不持久化）。`.md`/`.markdown` 书籍阅读器默认走**连续滚动 Markdown 渲染**（可按块号切回纯文本分页），进度/评论/目录统一按块号定位 |
 | `@easychat2_book_comments::<bookId>` | 陪读评论 `[{ id, characterId, characterName, text, anchor: { blockIndex, anchorText, excerpt }, chapterTitle, createdAt, source: 'manual' }]`，上限 50 条丢最旧；评论只在面板内呈现、不进聊天会话 |

@@ -29,7 +29,7 @@ import {
   canAttachSongAudio,
   resolveAudioSupport,
 } from './commentPrompts.js';
-import { CLIP_DURATION_MS } from './audioClip.js';
+import { CLIP_DURATION_MS, CLIP_SAMPLE_RATE } from './audioClip.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
@@ -47,10 +47,14 @@ async function readSongBase64(currentSong) {
   }
 }
 
-// 准备随评论发送的音频：优先用 WebView 裁剪出从 startMs 起的 30 秒 WAV（体积小、
+// 准备随评论发送的音频：优先用 WebView 裁剪出从 startMs 起的一段 WAV（体积小、
 // 规避端点时长上限）；无法裁剪时退回整首原文件（仅当不超 25MB）。都不可用返回 null，
 // 调用方退回纯文字评论（不阻断功能）。
-export async function prepareSongAudioForModel(currentSong, clipAudio, { startMs = 0 } = {}) {
+export async function prepareSongAudioForModel(
+  currentSong,
+  clipAudio,
+  { startMs = 0, durationMs = CLIP_DURATION_MS, sampleRate = CLIP_SAMPLE_RATE } = {}
+) {
   const song = currentSong && typeof currentSong === 'object' ? currentSong : {};
   if (!canAttachSongAudio(song, MUSIC_DECODE_MAX_BYTES)) return null;
   const canClip = typeof clipAudio === 'function';
@@ -60,7 +64,7 @@ export async function prepareSongAudioForModel(currentSong, clipAudio, { startMs
   if (!base64) return null;
   if (canClip) {
     try {
-      const clipped = await clipAudio({ base64, startMs, durationMs: CLIP_DURATION_MS });
+      const clipped = await clipAudio({ base64, startMs, durationMs, sampleRate });
       if (clipped && clipped.base64) return { base64: clipped.base64, mime: clipped.mime || 'audio/wav' };
     } catch (error) {
       // 裁剪失败（编解码不支持等）→ 退回整首原始音频。
@@ -72,7 +76,7 @@ export async function prepareSongAudioForModel(currentSong, clipAudio, { startMs
   return null;
 }
 
-export function useMusicComments({ song, characters, defaultCharacterId = '', clipAudio = null }) {
+export function useMusicComments({ song, characters, defaultCharacterId = '', clipAudio = null, clipSettings = null }) {
   const [comments, setComments] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
@@ -89,6 +93,8 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
   characterIdRef.current = characterId;
   const clipAudioRef = useRef(clipAudio);
   clipAudioRef.current = clipAudio;
+  const clipSettingsRef = useRef(clipSettings);
+  clipSettingsRef.current = clipSettings;
   const generatingRef = useRef(false);
   const abortRef = useRef(null);
   const lastFailedRef = useRef(null);
@@ -163,8 +169,13 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
       const canHear = resolveAudioSupport(apiConfig, localMedia);
       // 具备听音频能力时准备音频片段（默认从当前播放位置起 30 秒）；否则纯文字评论。
       const startMs = kind === 'opening' ? 0 : Math.max(0, Math.floor(Number(atMs)) || 0);
+      const settings = clipSettingsRef.current || {};
       const songAudio = canHear
-        ? await prepareSongAudioForModel(currentSong, clipAudioRef.current, { startMs })
+        ? await prepareSongAudioForModel(currentSong, clipAudioRef.current, {
+          startMs,
+          durationMs: Math.max(1, Math.floor(Number(settings.clipSeconds) || 0) * 1000) || CLIP_DURATION_MS,
+          sampleRate: Math.max(1, Math.floor(Number(settings.sampleRate) || 0)) || CLIP_SAMPLE_RATE,
+        })
         : null;
       if (controller.signal.aborted) return false;
       const withAudio = !!songAudio;

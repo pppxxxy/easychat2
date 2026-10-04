@@ -8,6 +8,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { recordDiagnostic } from '../storage/diagnostics.js';
 import { CLIP_DURATION_MS, CLIP_SAMPLE_RATE, buildAudioClipHtml } from './audioClip.js';
 
 // react-native-webview 是可选能力，缺失时裁剪不可用（调用方退回整首/纯文字）。
@@ -53,19 +54,22 @@ const AudioClipWebView = forwardRef(function AudioClipWebView(_props, ref) {
       return;
     }
     if (data.startsWith('err:')) {
-      settle(new Error(data.slice(4) || 'clip-failed'));
+      const detail = data.slice(4) || 'clip-failed';
+      recordDiagnostic('webview', new Error(detail), 'music-audio-clip');
+      settle(new Error(detail));
     }
   }, [settle]);
 
   useImperativeHandle(ref, () => ({
-    clip({ base64, startMs = 0, durationMs = CLIP_DURATION_MS } = {}) {
+    clip({ base64, startMs = 0, durationMs = CLIP_DURATION_MS, sampleRate = CLIP_SAMPLE_RATE } = {}) {
       const payload = String(base64 || '');
       if (!payload) return Promise.reject(new Error('empty-audio'));
       if (!readyRef.current || !webRef.current) return Promise.reject(new Error('clip-not-ready'));
       if (jobRef.current) return Promise.reject(new Error('clip-busy'));
+      const rate = Number(sampleRate) > 0 ? Math.floor(Number(sampleRate)) : CLIP_SAMPLE_RATE;
       return new Promise((resolve, reject) => {
         jobRef.current = { resolve, reject };
-        const script = `window.__clipAudio(${JSON.stringify(payload)}, ${Math.max(0, Math.floor(Number(startMs) || 0))}, ${Math.max(1, Math.floor(Number(durationMs) || CLIP_DURATION_MS))}, ${CLIP_SAMPLE_RATE}); true;`;
+        const script = `window.__clipAudio(${JSON.stringify(payload)}, ${Math.max(0, Math.floor(Number(startMs) || 0))}, ${Math.max(1, Math.floor(Number(durationMs) || CLIP_DURATION_MS))}, ${rate}); true;`;
         try {
           webRef.current.injectJavaScript(script);
         } catch (error) {
@@ -90,8 +94,15 @@ const AudioClipWebView = forwardRef(function AudioClipWebView(_props, ref) {
         scrollEnabled={false}
         source={{ html: CLIP_HTML }}
         onMessage={handleMessage}
-        onError={() => settle(new Error('webview-error'))}
-        onRenderProcessGone={() => settle(new Error('webview-gone'))}
+        onError={() => {
+          recordDiagnostic('webview', new Error('music-audio-clip-webview-error'), 'music-audio-clip');
+          settle(new Error('webview-error'));
+        }}
+        onRenderProcessGone={() => {
+          readyRef.current = false;
+          recordDiagnostic('webview', new Error('music-audio-clip-render-gone'), 'music-audio-clip');
+          settle(new Error('webview-gone'));
+        }}
       />
     </View>
   );

@@ -156,3 +156,10 @@ test('audioClip：WAV 编码、重采样与 WebView 脚本', async () => {
   assert.ok(html.includes('resampleToMono') && html.includes('encodeWavFromPcm'), '注入被测试的纯函数源码');
   assert.ok(html.includes('ReactNativeWebView') && html.includes('postMessage'), '通过桥回传结果');
 });
+
+test('裁剪失败写诊断日志', () => {
+  const source = readSource('src/music/AudioClipWebView.js');
+  assert.ok(source.includes('recordDiagnostic'), '裁剪失败必须落诊断');
+  assert.ok(source.includes("'webview'"), '按 webview 分类');
+  assert.ok(source.includes('music-audio-clip'), '带可检索上下文标记');
+});

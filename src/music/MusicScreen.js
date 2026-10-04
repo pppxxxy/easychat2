@@ -16,9 +16,16 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Card, EmptyState, GhostButton, IconButton } from '../ui/index.js';
+import { Card, Chip, EmptyState, GhostButton, IconButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
+import {
+  DEFAULT_MUSIC_CLIP,
+  MUSIC_CLIP_SAMPLE_RATES,
+  MUSIC_CLIP_SECONDS,
+  getMusicClipSettings,
+  saveMusicClipSettings,
+} from '../storage.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -88,15 +95,37 @@ export default function MusicScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [importing, setImporting] = useState(false);
   const [currentId, setCurrentId] = useState('');
+  const [clipSettings, setClipSettings] = useState(DEFAULT_MUSIC_CLIP);
   const { status, load, toggle, seekToSeconds, stop } = useMusicPlayer();
 
-  // 隐藏 WebView 裁剪器：把歌曲裁成 30 秒 WAV 片段再送模型。
+  // 隐藏 WebView 裁剪器：把歌曲裁成短片段再送模型。
   const clipRef = useRef(null);
   const clipAudio = useCallback(args => (
     clipRef.current && clipRef.current.clip
       ? clipRef.current.clip(args)
       : Promise.reject(new Error('clip-unavailable'))
   ), []);
+
+  // 读取「音频片段」设置（时长/采样率）；改动即时保存。
+  useEffect(() => {
+    let cancelled = false;
+    getMusicClipSettings()
+      .then(settings => {
+        if (!cancelled) setClipSettings(settings);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateClipSettings = useCallback(patch => {
+    setClipSettings(previous => {
+      const next = { ...previous, ...patch };
+      saveMusicClipSettings(next).catch(() => {});
+      return next;
+    });
+  }, []);
 
   const current = useMemo(
     () => items.find(item => item.id === currentId) || null,
@@ -111,7 +140,7 @@ export default function MusicScreen() {
     generate,
     retry,
     audioSupported,
-  } = useMusicComments({ song: current, characters, defaultCharacterId: activeId, clipAudio });
+  } = useMusicComments({ song: current, characters, defaultCharacterId: activeId, clipAudio, clipSettings });
 
   const reload = useCallback(async () => {
     try {
@@ -428,6 +457,32 @@ export default function MusicScreen() {
               <Text style={styles.noAudioHintText}>{t('music.comments.audioTooLarge')}</Text>
             </View>
           ) : null}
+          {audioSupported === true ? (
+            <View style={styles.clipSettings}>
+              <Text style={styles.clipSettingsLabel}>{t('music.clip.duration')}</Text>
+              <View style={styles.clipChips}>
+                {MUSIC_CLIP_SECONDS.map(item => (
+                  <Chip
+                    key={item}
+                    label={t('music.clip.seconds', { count: item })}
+                    active={clipSettings.clipSeconds === item}
+                    onPress={() => updateClipSettings({ clipSeconds: item })}
+                  />
+                ))}
+              </View>
+              <Text style={styles.clipSettingsLabel}>{t('music.clip.sampleRate')}</Text>
+              <View style={styles.clipChips}>
+                {MUSIC_CLIP_SAMPLE_RATES.map(item => (
+                  <Chip
+                    key={item}
+                    label={t('music.clip.khz', { rate: item / 1000 })}
+                    active={clipSettings.sampleRate === item}
+                    onPress={() => updateClipSettings({ sampleRate: item })}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
           <Text style={styles.triggerTitle}>{t('music.comments.characterLabel')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.triggerScroll}>
             {characters.map(item => {
@@ -610,6 +665,9 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 8,
   },
   noAudioHintText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), flex: 1, lineHeight: fonts.scaled(17) },
+  clipSettings: { marginTop: 8 },
+  clipSettingsLabel: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 4 },
+  clipChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   emptyComments: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 8, lineHeight: fonts.scaled(17) },
   commentCard: {
     borderRadius: tokens.radius.sm,
