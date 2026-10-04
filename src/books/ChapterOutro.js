@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from './theme/ThemeContext.js';
+import { useTheme } from '../theme/ThemeContext.js';
 
 // 章末附加区块：标题 + 正文 + 要点列表 + 外链 + 免责声明。
 // 外链点击先 Alert 二次确认，确认文案用 linkNotice（缺省回退到通用提示），确认后才打开。

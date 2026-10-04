@@ -65,7 +65,7 @@ import {
   CollapsibleSection,
   CollapsibleSelect,
 } from './ui/index.js';
-import ChapterModal from './ChapterModal.js';
+import ChapterModal from './books/ChapterModal.js';
 import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';

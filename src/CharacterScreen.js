@@ -27,7 +27,7 @@ import {
   parseCardFromPng,
 } from './cardParser.js';
 import { exportCardFile } from './cardExporter.js';
-import ChapterModal from './ChapterModal.js';
+import ChapterModal from './books/ChapterModal.js';
 import GreetingPickerModal from './GreetingPickerModal.js';
 import { listGreetingCandidates } from './cardGreetings.js';
 import { Card, FieldHint, FieldLabel, TextField, TopicButton } from './ui/index.js';

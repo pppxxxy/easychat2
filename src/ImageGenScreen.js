@@ -24,7 +24,7 @@ import { IMAGE_PROVIDERS, getImageProvider, providerRequiresApiKey } from './ima
 import { generateImage, detectImageProvider, probeImageProvider } from './imageGen/index.js';
 import { getImageGenSettings, saveImageGenSettings } from './storage.js';
 import { resolveImageFormat } from './imageResultFormat.js';
-import ChapterModal from './ChapterModal.js';
+import ChapterModal from './books/ChapterModal.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { maskSecrets } from './secrets.js';
