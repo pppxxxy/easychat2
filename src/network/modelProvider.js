@@ -32,6 +32,7 @@ export async function sendWithModelProvider({
   onlineSend,
   onToken,
   onReasoning,
+  onModelLoadProgress,
   conversationKey,
   signal,
   tools,
@@ -50,7 +51,7 @@ export async function sendWithModelProvider({
     if (Array.isArray(tools) && tools.length > 0) {
       recordModelLog('api', '本地模型暂不支持工具调用，已降级为纯对话', { level: 'warn' });
     }
-    const result = await runLocalModel(messages, model, { onToken, onReasoning, conversationKey, signal });
+    const result = await runLocalModel(messages, model, { onToken, onReasoning, onModelLoadProgress, conversationKey, signal });
     return result && typeof result.text === 'string' ? result.text : '';
   } catch (error) {
     // 用统一分类判定取消：adapter 在 signal 已中止但异常 name 不是 AbortError 时

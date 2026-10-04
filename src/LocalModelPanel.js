@@ -12,7 +12,7 @@ import {
   saveLocalModelItem,
   saveLocalModelSettings,
 } from './storage.js';
-import { deleteLocalModel, downloadLocalModel, getLocalModelFileInfo, importLocalModel } from './localModel/modelManager.js';
+import { cleanupOrphanLocalModelFiles, deleteLocalModel, downloadLocalModel, getLocalModelFileInfo, importLocalModel } from './localModel/modelManager.js';
 import { isLocalModelModuleAvailable, loadLocalModel } from './localModel/adapter.js';
 import { tryAcquireResource } from './resourceMutex.js';
 import {
@@ -50,6 +50,9 @@ function emptyDraft() {
     repoPath: '',
     quant: '',
     paramSize: 0,
+    // 目录声明的精确字节数与 sha256（来自文件列表），用于下载完整性校验。
+    modelExpectedBytes: 0,
+    modelSha256: '',
     mmprojUrl: '',
     mmprojUrls: [],
     importSourceUri: '',
@@ -337,6 +340,26 @@ export default function LocalModelPanel({ visible, onClose }) {
     ]);
   };
 
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+
+  // 扫描并清理下载/导入被杀留下的 .download/.old/.import 残留（数 GB 隐形占用）。
+  const handleCleanupOrphans = async () => {
+    if (cleanupBusy) return;
+    setCleanupBusy(true);
+    try {
+      const { removed, freedBytes } = await cleanupOrphanLocalModelFiles();
+      if (removed === 0) {
+        Alert.alert('清理完成', '没有发现可回收的下载残留。');
+      } else {
+        Alert.alert('清理完成', `已删除 ${removed} 个下载残留，回收约 ${formatBytes(freedBytes) || '0B'}。`);
+      }
+    } catch (error) {
+      Alert.alert('清理失败', error.message || '请重试。');
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
+
   const handleDownload = async () => {
     if (busy) return;
     const url = draft.modelUrl.trim();
@@ -355,6 +378,8 @@ export default function LocalModelPanel({ visible, onClose }) {
         repoPath: draft.repoPath,
         quant: draft.quant,
         paramSize: draft.paramSize,
+        modelExpectedBytes: draft.modelExpectedBytes,
+        modelSha256: draft.modelSha256,
         mmprojUrl: draft.mmprojUrl,
         onProgress: setProgress,
       });
@@ -423,6 +448,8 @@ export default function LocalModelPanel({ visible, onClose }) {
       modelUrl: selection.modelUrl || current.modelUrl,
       sourceId: selection.sourceId || current.sourceId,
       repoPath: selection.repoId || '',
+      modelExpectedBytes: Number(selection.fileSize) > 0 ? Number(selection.fileSize) : 0,
+      modelSha256: selection.fileSha256 || '',
       mmprojUrl: mmprojUrls[0] || '',
       mmprojUrls,
     }));
@@ -624,7 +651,20 @@ export default function LocalModelPanel({ visible, onClose }) {
                 </View>
               </TouchableOpacity>
 
-              <Text style={styles.label}>已安装模型（{entries.length}）</Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.labelInline}>已安装模型（{entries.length}）</Text>
+                <TouchableOpacity
+                  style={styles.searchModelButton}
+                  onPress={handleCleanupOrphans}
+                  disabled={cleanupBusy}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="清理下载残留"
+                >
+                  <Ionicons name="trash-bin-outline" size={14} color={theme.colors.primarySoft} />
+                  <Text style={styles.searchModelText}>{cleanupBusy ? '清理中…' : '清理残留'}</Text>
+                </TouchableOpacity>
+              </View>
               {entries.length === 0 ? (
                 <Text style={styles.empty}>还没有本地模型，可在下方搜索下载或导入本地 GGUF 文件。</Text>
               ) : (

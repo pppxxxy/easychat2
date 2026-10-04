@@ -131,6 +131,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
         modelUrl,
         filePath: file.path,
         fileSize: file.size,
+        fileSha256: file.sha256 || '',
         projectorFiles,
         mmprojUrls: projectorFiles
           .map(projector => buildDownloadUrl(sourceId, activeRepo.repoId, activeRepo.revision, projector.path))

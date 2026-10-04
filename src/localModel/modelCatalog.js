@@ -121,6 +121,9 @@ export function parseHuggingFaceTree(json, repoId, revision = 'main') {
     entries.push({
       path,
       size: firstPositiveSize(item.lfs && item.lfs.size, item.size),
+      // HuggingFace 对 LFS 文件返回 sha256（与 size 同级）；存下来供下载完整性校验/
+      // 未来分块哈希使用。非 LFS 小文件没有该字段，留空。
+      sha256: String((item.lfs && item.lfs.sha256) || '').toLowerCase(),
       kind,
     });
   });

@@ -805,6 +805,27 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     fontSize: 13,
     lineHeight: 18,
   },
+  modelLoadBanner: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingTop: 6,
+    paddingBottom: 2,
+  },
+  modelLoadText: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    marginBottom: 4,
+  },
+  modelLoadTrack: {
+    height: 4,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: theme.colors.surfaceAlt,
+    overflow: 'hidden',
+  },
+  modelLoadFill: {
+    height: 4,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: theme.colors.primary,
+  },
   errorBubbleBounded: {
      backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,

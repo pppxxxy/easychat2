@@ -5,7 +5,7 @@
 // regenerateMessage（撤回复重生成与记忆摘要失效）、editUserMessage（修改重发）。
 // 纯逻辑已下沉 src/chat/replyFlow.js；此处仅剩编排壳。
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -160,6 +160,9 @@ export default function useChatSend({
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
+  // 本地模型首次加载进度（0-100）：本地路径首条消息会在推理前 mmap 数 GB 权重，
+  // 期间「正在思考」看不出是在加载。null = 未在加载（在线路径或无本地模型）。
+  const [modelLoadProgress, setModelLoadProgress] = useState(null);
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false, voiceAudio = null }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
@@ -456,13 +459,15 @@ export default function useChatSend({
           signal: controller.signal,
           // 会话标识：跨对话时适配器会清 KV cache，避免新对话串进上一段对话。
           conversationKey: String((sessionGuard && sessionGuard.sessionId) || ''),
+          // 本地模型加载进度透传：首条消息前 mmap 权重的耗时对用户可见。
+          onModelLoadProgress: value => {
+            if (!isCurrentSession() || controller.signal.aborted) return;
+            const num = Number(value);
+            setModelLoadProgress(Number.isFinite(num) ? Math.max(0, Math.min(100, Math.round(num))) : null);
+          },
           onToken: fullText => {
             if (!isCurrentSession() || controller.signal.aborted) return;
-            setMessages(current => current.map(item => (
-              item.id === pendingAssistantMessage.id && item.pending
-                ? { ...item, text: fullText, waitingForResponse: false }
-                : item
-            )));
+            setMessages(current => mergeStreamedText(current, pendingAssistantMessage.id, fullText));
           },
           // 本地推理模型的思考过程（<think> 流）由适配器拆分后走这里，
           // 与在线路径的 onReasoning 同构：覆写 reasoning 字段，不动 pending。
@@ -547,6 +552,7 @@ export default function useChatSend({
           autoScrollToBottom();
         }
       }
+      setModelLoadProgress(null);
     }
   }, [autoScrollToBottom, character, characters, chatOptions.stream, isSessionGuardCurrent, maybeAutoSummarize, ready, scrollToBottom]);
 
@@ -1390,5 +1396,6 @@ if (!isCurrent() || controller.signal.aborted) return false;
     editUserMessage,
     onRegenerateMessage,
     onEditUserMessage,
+    modelLoadProgress,
   };
 }

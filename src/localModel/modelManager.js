@@ -10,8 +10,24 @@ import {
   localModelIdFromFileName,
   localModelPath as safeLocalModelPath,
 } from './modelState.js';
+import { formatBytes } from './modelLogs.js';
 
 export const LOCAL_MODEL_DIRECTORY = 'local-models';
+
+// 下载完整性「强校验」：只比字节数（并非哈希）。
+// sha256 需要原生或分块哈希能力（当前无），但「HTTP 200 + 落盘大小 == 目录声明大小」
+// 足以挡住绝大多数「网络在 95% 断流 / 镜像返回截断文件却被登记为合法模型」的情况。
+// expectedBytes<=0（目录未声明大小）时不做判断，避免误伤。纯函数，便于单测。
+export function verifyDownloadedSize(actualBytes, expectedBytes) {
+  const actual = Math.max(0, Math.floor(Number(actualBytes) || 0));
+  const expected = Math.floor(Number(expectedBytes) || 0);
+  if (expected <= 0) return { ok: true, reason: '' };
+  if (actual === expected) return { ok: true, reason: '' };
+  return {
+    ok: false,
+    reason: `下载不完整（预期 ${formatBytes(expected)}，实际 ${formatBytes(actual)}），已自动清理，请重试`,
+  };
+}
 
 export function localModelDirectory() {
   return `${FileSystem.documentDirectory || FileSystem.cacheDirectory || ''}${LOCAL_MODEL_DIRECTORY}/`;
@@ -75,14 +91,18 @@ async function swapIntoPlace(fs, source, destination) {
   }
 }
 
-async function downloadToFile(fs, url, destination, onProgress) {
+async function downloadToFile(fs, url, destination, onProgress, expectedBytes = 0) {
   const temporary = `${destination}.download`;
   await fs.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
   await removeQuietly(fs, temporary);
   try {
+    // Content-Length（totalBytesExpectedToWrite）也留一份：即便调用方没传目录声明大小，
+    // 也能在断流时用「服务端声明的总长」兜底校验。
+    let contentLength = 0;
     const task = fs.createDownloadResumable(url, temporary, {}, progress => {
-      if (typeof onProgress !== 'function') return;
       const total = Number(progress.totalBytesExpectedToWrite);
+      if (Number.isFinite(total) && total > 0) contentLength = total;
+      if (typeof onProgress !== 'function') return;
       const written = Number(progress.totalBytesWritten);
       onProgress(total > 0 ? Math.min(1, written / total) : 0);
     });
@@ -94,6 +114,14 @@ async function downloadToFile(fs, url, destination, onProgress) {
     const info = await fs.getInfoAsync(result.uri);
     const size = parsePositiveSize(info);
     if (!info || info.exists === false || size <= 0) throw new Error('模型文件为空');
+    // 大小强校验：优先用目录声明的字节数，缺省用 Content-Length 兜底，拦截截断的下载。
+    const expected = Number(expectedBytes) > 0 ? Number(expectedBytes) : contentLength;
+    const check = verifyDownloadedSize(size, expected);
+    if (!check.ok) {
+      const error = new Error(check.reason);
+      error.code = 'INCOMPLETE_DOWNLOAD';
+      throw error;
+    }
     await swapIntoPlace(fs, result.uri, destination);
     return size;
   } catch (error) {
@@ -133,11 +161,11 @@ export async function downloadLocalModel(input = {}, options = {}) {
   let modelWritten = false;
   let mmprojWritten = false;
   try {
-    const modelBytes = await downloadToFile(fs, url, destination, input.onProgress);
+    const modelBytes = await downloadToFile(fs, url, destination, input.onProgress, input.modelExpectedBytes);
     modelWritten = true;
     let mmprojBytes = 0;
     if (mmprojUrl) {
-      mmprojBytes = await downloadToFile(fs, mmprojUrl, mmprojDestination, null);
+      mmprojBytes = await downloadToFile(fs, mmprojUrl, mmprojDestination, null, input.mmprojExpectedBytes);
       mmprojWritten = true;
     }
     const item = buildLocalModelItem({
@@ -211,4 +239,36 @@ export async function deleteLocalModel(model, options = {}) {
   if (!model) return;
   await removeQuietly(fs, model.modelPath);
   await removeQuietly(fs, model.mmprojPath);
+}
+
+// 下载/导入的中间产物后缀：正常完成会被 swap 清理，但应用被杀（下载中来电、系统杀进程）
+// 会留下 .download/.old/.import 残留，数 GB 隐形占用且不被索引看见。
+export function isOrphanLocalModelTempFile(name) {
+  return /\.(download|old|import)$/.test(String(name || ''));
+}
+
+// 扫描 local-models/ 目录，删除所有中间产物残留，返回释放的字节数。
+// 只删这些后缀的文件，注册的 .gguf 绝不会命中（文件名不以这些后缀结尾）。
+export async function cleanupOrphanLocalModelFiles(options = {}) {
+  const fs = resolveFileSystem(options);
+  const dir = localModelDirectory();
+  let names = [];
+  try {
+    names = await fs.readDirectoryAsync(dir);
+  } catch (error) {
+    return { removed: 0, freedBytes: 0 };
+  }
+  const orphans = (Array.isArray(names) ? names : []).filter(isOrphanLocalModelTempFile);
+  let freedBytes = 0;
+  let removed = 0;
+  for (const name of orphans) {
+    const path = `${dir}${name}`;
+    try {
+      const info = await fs.getInfoAsync(path);
+      freedBytes += parsePositiveSize(info);
+      await fs.deleteAsync(path, { idempotent: true });
+      removed += 1;
+    } catch (error) {}
+  }
+  return { removed, freedBytes };
 }
