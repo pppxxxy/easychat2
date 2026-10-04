@@ -36,8 +36,21 @@ test('请求头来自设置：authHeader/authScheme + 额外头，不再写死 B
 
 test('时间占位符对整份 body 替换（快照已是完整请求体）', () => {
   assert.ok(/fun substituteProactiveTime\(bodyText: String\): String/.test(core), '替换函数必须作用于整份 body 文本');
-  assert.ok(core.includes('.let { substituteProactiveTime(it) }'), '发送前必须执行替换');
+  assert.ok(
+    core.includes('substituteProactiveTime(bodyText).toRequestBody(JSON_MEDIA)'),
+    '发送前必须对整份 body（含 elvis 快照/回退两分支）做替换并转成 RequestBody',
+  );
   assert.ok(!/substituteProactiveTime\(messages/.test(core), '不得再遍历 messages（转换后 system/instructions 会漏）');
+});
+
+test('请求体类型正确：buildRequest 收 RequestBody（回归当前编译错误）', () => {
+  assert.ok(core.includes('import okhttp3.RequestBody'), '必须导入 RequestBody 类型');
+  assert.ok(
+    /private fun buildRequest\(settings: ApiSettings, body: RequestBody\): Request/.test(core),
+    'buildRequest 形参须为 RequestBody（否则 .post(String) 编译不过）',
+  );
+  assert.ok(core.includes('.post(body)'), 'post 必须传 RequestBody');
+  assert.ok(!/\.post\(bodyText\)/.test(core), '不得再向 post 传 String');
 });
 
 test('回退简版按协议组体（快照缺失时非 openai 协议也不发错形态）', () => {

@@ -279,7 +279,7 @@ class OverlayService : Service() {
     private val touchSlop: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
 
     fun setStatusText(text: String) {
-        val value = String(text).trim()
+        val value = text.trim()
         Handler(Looper.getMainLooper()).post {
             statusView?.text = value.ifEmpty { "点「截屏」让角色看看现在的屏幕" }
         }

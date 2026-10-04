@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -468,10 +469,9 @@ class AiApiClient {
                 ?: buildFallbackBody(settings, buildSystemPrompt(schedule))
             // 快照是保存时的：JS 把时间感知写成占位符，这里在整份 body 上替换成触发时刻
             //（转换后占位符可能落在 system/instructions/messages 任一处，串替换对三种形态都正确）。
-                .let { substituteProactiveTime(it) }
-                .toRequestBody(JSON_MEDIA)
+            val body = substituteProactiveTime(bodyText).toRequestBody(JSON_MEDIA)
 
-            val request = buildRequest(settings, bodyText)
+            val request = buildRequest(settings, body)
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -488,12 +488,12 @@ class AiApiClient {
     }
 
     /** 按协议与设置组装请求头：鉴权头 = authScheme + apiKey，再加 JS 下发的额外头。 */
-    private fun buildRequest(settings: ApiSettings, bodyText: String): Request {
+    private fun buildRequest(settings: ApiSettings, body: RequestBody): Request {
         val builder = Request.Builder()
             .url(settings.endpoint)
             .header(settings.authHeader.ifBlank { "Authorization" }, settings.authScheme + settings.apiKey)
             .header("Content-Type", "application/json")
-            .post(bodyText)
+            .post(body)
         // anthropic-version 等额外头由 JS 按协议算好下发；解析失败不影响主流程。
         if (settings.extraHeadersJson.isNotBlank()) {
             try {
