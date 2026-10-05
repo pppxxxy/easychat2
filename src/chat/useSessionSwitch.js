@@ -219,6 +219,9 @@ export default function useSessionSwitch({
     if (!flow) return false;
     const characterId = activeCharacterIdRef.current;
     const sessionId = activeSessionIdRef.current;
+    // 角色数据尚未就绪（id 为空）时不进流程：空 id 落进会话/角色归属会与内置助手的
+    // 'default' 撞身份（同 storage/characters.js「绝不能用 default 兜底」的约束）。
+    if (!characterId) return false;
     const transitionToken = flow.purpose === 'new' ? ++switchOperationRef.current : 0;
     const transitionVersion = sessionVersionRef.current;
     if (flow.purpose === 'new') setIsSwitching(true);

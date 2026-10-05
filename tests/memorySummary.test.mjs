@@ -384,6 +384,32 @@ test('记忆作用域：仅当角色只有一个单聊会话时才读世界书�
   assert.equal(memorySummary.isSessionScopedMemory(two, 'other'), false);
 });
 
+test('记忆作用域：当前会话必须计入判定（新建会话可能尚未进入列表快照）', () => {
+  // 快照里只有旧会话，但正在发送的是刚新建的第二个会话：必须按会话级，
+  // 否则新会话会被当成单会话角色，继承角色卡里的旧记忆（串味）。
+  const stale = [{ id: 's1', characterId: 'c', preview: 'hi' }];
+  assert.equal(memorySummary.isSessionScopedMemory(stale, 'c'), false);
+  assert.equal(memorySummary.isSessionScopedMemory(stale, 'c', undefined, 's2'), true);
+
+  // 当前会话就是列表里那个：仍然只有一个会话，保持兼容（读世界书）
+  assert.equal(memorySummary.isSessionScopedMemory(stale, 'c', undefined, 's1'), false);
+
+  // 其它角色的当前会话不参与该角色的计数
+  assert.equal(memorySummary.isSessionScopedMemory(stale, 'other', undefined, 's9'), false);
+
+  // override 仍然优先
+  assert.equal(memorySummary.isSessionScopedMemory(stale, 'c', true, 's1'), true);
+});
+
+test('内置助手永远按会话级处理记忆（不认 id 只认 builtin 标记）', () => {
+  assert.equal(memorySummary.isBuiltinAssistant({ id: 'default', builtin: true }), true);
+  assert.equal(memorySummary.isBuiltinAssistant({ id: 'c', builtin: false }), false);
+  // 只认显式标记：不靠 id 猜，避免把恰好叫 default 的普通角色当成初始卡
+  assert.equal(memorySummary.isBuiltinAssistant({ id: 'default' }), false);
+  assert.equal(memorySummary.isBuiltinAssistant(null), false);
+  assert.equal(memorySummary.isBuiltinAssistant(undefined), false);
+});
+
 test('记忆预算按向量命中与否分账且不会超支', () => {
   const plain = memorySummary.planMemoryBudget({ hasVectorContext: false });
   assert.equal(plain.vectorMaxChars, 0);

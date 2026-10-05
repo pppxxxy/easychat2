@@ -79,6 +79,7 @@ import { getVectorOwnerId } from '../vectorMemory/scope.js';
 import {
   buildMemorySummaryText,
   invalidateHistorySummaries,
+  isBuiltinAssistant,
   isSessionScopedMemory,
   planMemoryBudget,
 } from '../memory/memorySummary.js';
@@ -311,15 +312,22 @@ export default function useChatSend({
         const sessionCharacterId = String(
           (currentSession && currentSession.characterId) || character.id || ''
         );
+        // 注入必须跟随「会话所属角色」，不能用当前活跃角色：切换角色的过渡窗口里二者会
+        // 不一致，用活跃角色会把它的世界书记忆塞进别的会话（写入侧口径见 runSummarize）。
+        const sessionCharacter = (Array.isArray(characters) ? characters : [])
+          .find(item => item.id === sessionCharacterId) || character;
         const characterExists = (Array.isArray(characters) ? characters : [])
           .some(item => item.id === sessionCharacterId);
         // 读取作用域：单会话角色继续带上已有世界书记忆（不做迁移/丢弃），
         // 多会话角色只读本会话。写入侧的降级见 runSummarize，两者解耦。
-        const scoped = !characterExists
-          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
+        // 内置助手一律按会话级（它卡上的「记忆总结」可能是兜底归属沉淀来的），
+        // 并把当前会话计入判定，避免新建的第二个会话被当成单会话角色。
+        const scoped = isBuiltinAssistant(sessionCharacter)
+          || !characterExists
+          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, sendSessionId);
         const sessionSummaries = await getSessionSummaries(sendSessionId);
         summaryText = buildMemorySummaryText(
-          character,
+          sessionCharacter,
           sessionSummaries,
           scoped,
           memoryBudget.summaryMaxChars
@@ -1362,17 +1370,21 @@ if (!isCurrent() || controller.signal.aborted) return false;
           const session = sessionsRef.current.find(item => item.id === sessionGuard.sessionId);
           if (session) {
             const sessionCharacterId = String(session.characterId || '');
-            const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+            const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
+            const characterExists = latestCharacters
               .some(item => item.id === sessionCharacterId);
-            const scoped = !characterExists
-              || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
+            const sessionCharacter = latestCharacters
+              .find(item => item.id === sessionCharacterId) || character;
+            const scoped = isBuiltinAssistant(sessionCharacter)
+              || !characterExists
+              || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, session.id);
             try {
               await invalidateHistorySummaries({
                 session,
                 messages: originalMessages.slice(0, index),
                 removedIds: originalMessages.slice(index).map(item => String(item && item.id || '')),
                 scoped,
-                character,
+                character: sessionCharacter,
                 updateCharacter,
               });
             } catch (error) {
@@ -1415,16 +1427,20 @@ if (!isCurrent() || controller.signal.aborted) return false;
                 .filter(id => id && !keptIds.has(id));
               if (session) {
                 const sessionCharacterId = String(session.characterId || '');
-                const characterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+                const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
+                const characterExists = latestCharacters
                   .some(item => item.id === sessionCharacterId);
-                const scoped = !characterExists
-                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
+                const sessionCharacter = latestCharacters
+                  .find(item => item.id === sessionCharacterId) || character;
+                const scoped = isBuiltinAssistant(sessionCharacter)
+                  || !characterExists
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, session.id);
                 await invalidateHistorySummaries({
                   session,
                   messages: latestPlan.messages,
                   removedIds,
                   scoped,
-                  character,
+                  character: sessionCharacter,
                   updateCharacter,
                 });
               }

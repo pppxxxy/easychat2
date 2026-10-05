@@ -28,7 +28,7 @@ import {
   buildMomentReplyPrompt,
   normalizeMomentReply,
 } from './moments/momentReply.js';
-import { buildMemorySummaryText, isSessionScopedMemory } from './memory/memorySummary.js';
+import { buildMemorySummaryText, isBuiltinAssistant, isSessionScopedMemory } from './memory/memorySummary.js';
 import { runUserMomentComments } from './moments/runUserMomentComments.js';
 import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';
@@ -209,8 +209,9 @@ export default function MomentsView({ active = true }) {
       const userName = String((profile && profile.userName) || '').trim() || '用户';
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
       // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
-      // 作用域只由该角色的单聊会话数决定（与具体来源会话无关），故无需传入会话。
-      const scoped = isSessionScopedMemory(sessionsRef.current, character.id);
+      // 内置助手按会话级；来源会话计入判定，避免把角色卡旧记忆带进来。
+      const scoped = isBuiltinAssistant(character)
+        || isSessionScopedMemory(sessionsRef.current, character.id, undefined, sessionId);
       const memoryText = buildMemorySummaryText(character, summaries, scoped)
         || buildMomentMemoryText({ summaries, messages, charName, userName });
       const prompt = buildMomentReplyPrompt({

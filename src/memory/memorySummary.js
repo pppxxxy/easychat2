@@ -245,9 +245,28 @@ export function countCharacterSessions(sessions, characterId) {
 // 记忆作用域：只有当角色只有一个单聊会话时才读取/写入世界书记忆（兼容旧的单会话角色），
 // 一旦出现第二个会话就一律按会话级隔离。世界书记忆由角色全局生效，多会话共享必然串味；
 // 单会话时世界书写入等价于「本会话记忆」，故保留以兼容既有数据。
-export function isSessionScopedMemory(sessions, characterId, override = undefined) {
+// currentSessionId：当前正在读/写的会话。它可能还没进入 sessions 快照（新建会话后立刻发送），
+// 必须计入去重集合；否则刚建出的第二个会话会被当成「单会话角色」，把角色卡里的旧记忆读进来。
+export function isSessionScopedMemory(sessions, characterId, override = undefined, currentSessionId = '') {
   if (override === true) return true;
-  return countCharacterSessions(sessions, characterId) >= MEMORY_SCOPE_THRESHOLD;
+  const id = String(characterId || '');
+  if (!id) return false;
+  const ids = new Set();
+  (Array.isArray(sessions) ? sessions : []).forEach(session => {
+    if (!session || session.type === 'group') return;
+    if (String(session.characterId || '') !== id) return;
+    const sessionId = String(session.id || '');
+    if (sessionId) ids.add(sessionId);
+  });
+  if (currentSessionId) ids.add(String(currentSessionId));
+  return ids.size >= MEMORY_SCOPE_THRESHOLD;
+}
+
+// 内置助手（EasyChat2 助手）永远按会话级处理记忆：它是通用工具角色，本身没有「角色记忆」；
+// 且其 id（default）同时是历史数据里无归属条目的兜底归属名，卡上的「记忆总结」可能是别处
+// 沉淀过来的，一旦读到就会串味。规范化后只有初始卡持有 builtin 标记（见 storage/characters.js）。
+export function isBuiltinAssistant(character) {
+  return !!(character && character.builtin === true);
 }
 
 export function shouldInvalidateWorldSummary(entry, messages, removedIds) {

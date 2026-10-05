@@ -52,6 +52,7 @@ import {
 import {
   applySummary,
   invalidateHistorySummaries,
+  isBuiltinAssistant,
   isSessionScopedMemory,
   selectManualSummarizable,
   selectSummarizable,
@@ -193,7 +194,9 @@ export default function ChatScreen() {
     pendingQuote,
     consumePendingQuote,
   } = useApp();
-  const characterId = character.id || 'default';
+  // 不能用 'default' 兜底：它是内置助手的角色 id，空 id 兜底会与初始卡撞身份
+  // （同 storage/characters.js 的约束）。未加载时留空，由各调用点自行做就绪判断。
+  const characterId = character.id || '';
   const activeCharacterIdRef = useRef(characterId);
   const activeSessionIdRef = useRef(activeSessionId);
   activeCharacterIdRef.current = characterId;
@@ -841,8 +844,11 @@ export default function ChatScreen() {
          vectorEnabled = vectorConfig.enabled === true;
        } catch (error) {}
        const scopeOverride = !manual && vectorEnabled;
-       const scoped = !characterExists
-         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride);
+       // 内置助手一律按会话级写入：它的角色卡没有「角色记忆」语义，
+       // 且可能已被历史兜底归属污染，不再往里写记忆总结。
+       const scoped = isBuiltinAssistant(sessionCharacter)
+         || !characterExists
+         || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride, session.id);
        let expectedConfigId = '';
        let expectedConfigFingerprint = '';
        try {
@@ -864,10 +870,14 @@ export default function ChatScreen() {
             item => item.id === sessionCharacterId
           ) || sessionCharacter,
           getCurrentScope: () => {
-            const latestCharacterExists = (Array.isArray(charactersRef.current) ? charactersRef.current : [])
+            const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
+            const latestCharacterExists = latestCharacters
               .some(item => item.id === sessionCharacterId);
-             return !latestCharacterExists
-               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride);
+            const latestCharacter = latestCharacters
+              .find(item => item.id === sessionCharacterId) || sessionCharacter;
+             return isBuiltinAssistant(latestCharacter)
+               || !latestCharacterExists
+               || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride, session.id);
           },
         });
       await refreshSessions().catch(() => {});
@@ -1206,10 +1216,11 @@ export default function ChatScreen() {
                 const sessionCharacterId = String(session.characterId || '');
                 const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
                 const characterExists = latestCharacters.some(item => item.id === sessionCharacterId);
-                const scoped = !characterExists
-                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId);
                 const latestCharacter = latestCharacters.find(item => item.id === sessionCharacterId)
                   || character;
+                const scoped = isBuiltinAssistant(latestCharacter)
+                  || !characterExists
+                  || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, session.id);
                 await invalidateHistorySummaries({
                   session,
                   messages: messagesAfter,
