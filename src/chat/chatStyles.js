@@ -250,6 +250,14 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   attachMenuTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700' },
   attachMenuTitleLocked: { color: theme.colors.textFaint },
   attachMenuHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2, lineHeight: fonts.scaled(17) },
+  moreSectionTitle: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    fontWeight: '700',
+    marginTop: tokens.spacing.sm,
+    marginBottom: 2,
+    marginLeft: 10,
+  },
   moreBackdrop: {
     flex: 1,
     backgroundColor: theme.colors.overlay,
@@ -629,7 +637,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   quoteText: { fontSize: 12, lineHeight: 17 },
   quoteTextUser: { color: theme.colors.quoteOnPrimaryMuted },
   quoteTextAssistant: { color: theme.colors.textMuted },
-  quoteBar: {
+  contextBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
@@ -637,8 +645,8 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     paddingBottom: 6,
     borderBottomWidth: tokens.border.thin,
     borderBottomColor: theme.colors.divider,
-    backgroundColor: theme.colors.surfaceAlt,
   },
+  contextBarBody: { flex: 1, marginHorizontal: tokens.spacing.sm },
   quoteBarBody: {
     flex: 1,
     borderLeftWidth: 3,
@@ -907,13 +915,6 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     color: theme.colors.highlightText,
     fontWeight: '700',
   },
-  attachmentBar: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
   attachmentChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -924,10 +925,9 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     paddingHorizontal: 8,
     paddingVertical: 5,
     marginRight: 8,
-    marginBottom: 6,
-    maxWidth: 220,
+    maxWidth: 150,
   },
-  attachmentThumb: { width: 20, height: 20, borderRadius: tokens.spacing.xs, marginRight: 6 },
+  attachmentThumb: { width: 48, height: 48, borderRadius: tokens.spacing.xs, marginRight: 6 },
   stickerButton: {
     paddingHorizontal: 6,
     paddingVertical: 6,
@@ -1100,26 +1100,8 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
   voiceHoldButtonActive: { backgroundColor: theme.colors.primaryAlpha(0.16), borderRadius: tokens.radius.md },
-  voiceRecordingBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.sm,
-    marginHorizontal: tokens.spacing.sm,
-    marginBottom: 4,
-    borderRadius: tokens.radius.md,
-    backgroundColor: theme.colors.dangerAlpha(0.14),
-  },
   voiceRecordingText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 8 },
   voiceCancelText: { color: theme.colors.danger, fontSize: fonts.scaled(13), fontWeight: '700', paddingHorizontal: 6 },
-  mentionButtonText: {
-    color: theme.colors.primarySoft,
-    fontSize: 22,
-    fontWeight: '700',
-    lineHeight: 24,
-    paddingHorizontal: 4,
-  },
-  fullScreenButton: { paddingHorizontal: 6, paddingVertical: 6 },
   fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   fullScreenHeader: {
     flexDirection: 'row',

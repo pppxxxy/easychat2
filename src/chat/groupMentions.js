@@ -2,6 +2,16 @@
 export const EVERYONE_MENTION = '全体';
 export const MENTION_PREFIX = '@';
 
+// 光标前紧邻「@」即应弹提及面板（替代旧的手动 @ 按钮）。
+// 仅群聊启用；输入法补全的 @ 同样命中（只看文本与光标位置，与输入来源无关）。
+export function shouldOpenMentionAtCursor({ text, cursor, isGroup } = {}) {
+  if (!isGroup) return false;
+  const position = Number(cursor);
+  if (!Number.isFinite(position) || position <= 0) return false;
+  const value = String(text || '');
+  return position <= value.length && value.charAt(position - 1) === MENTION_PREFIX;
+}
+
 export function hasEveryoneMention(text) {
   return String(text || '').includes(`${MENTION_PREFIX}${EVERYONE_MENTION}`);
 }
