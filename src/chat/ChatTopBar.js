@@ -22,10 +22,6 @@ export default function ChatTopBar({
   groupAvatarUri,
   characterAvatarUri,
   displayName,
-  onNewChat,
-  ready,
-  autoBroadcast,
-  onToggleBroadcast,
   onOpenMore,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -106,32 +102,6 @@ export default function ChatTopBar({
               {displayName}
             </Text>
             <Ionicons name="chevron-down" size={14} color={theme.colors.primaryMuted} style={styles.characterCaret} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.noticeButton, (isSending || !ready) && styles.actionDisabled]}
-            onPress={onNewChat}
-            disabled={isSending || !ready}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={t('chat.topBar.a11y.newChat')}
-            accessibilityState={{ disabled: isSending || !ready }}
-          >
-            <Ionicons name="add-circle-outline" size={13} color={theme.colors.primarySoft} />
-            <Text style={styles.noticeButtonText}>{t('chat.topBar.newChat')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.noticeButton, !autoBroadcast && styles.actionDisabled]}
-            onPress={onToggleBroadcast}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={autoBroadcast ? t('chat.topBar.a11y.broadcastOn') : t('chat.topBar.a11y.broadcastOff')}
-          >
-            <Ionicons
-              name={autoBroadcast ? 'volume-high-outline' : 'volume-mute-outline'}
-              size={13}
-              color={theme.colors.primarySoft}
-            />
-            <Text style={styles.noticeButtonText}>{autoBroadcast ? t('chat.topBar.broadcast.on') : t('chat.topBar.broadcast.off')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.noticeButton}

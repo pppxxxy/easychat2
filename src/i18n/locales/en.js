@@ -36,17 +36,12 @@ export const en = {
   'chat.topBar.selection.unselectAll': 'Deselect all',
   'chat.topBar.selection.delete': 'Delete',
   'chat.topBar.newChat': 'New',
-  'chat.topBar.broadcast.on': 'Auto-read on',
-  'chat.topBar.broadcast.off': 'Auto-read off',
   'chat.topBar.a11y.cancelSelection': 'Cancel message selection',
   'chat.topBar.a11y.selectAll': 'Select all messages',
   'chat.topBar.a11y.unselectAll': 'Deselect all',
   'chat.topBar.a11y.deleteSelected': 'Delete selected messages',
   'chat.topBar.a11y.switchCharacter': 'Switch character',
   'chat.topBar.a11y.switchGroup': 'Switch group',
-  'chat.topBar.a11y.newChat': 'New conversation',
-  'chat.topBar.a11y.broadcastOn': 'Turn off auto-read',
-  'chat.topBar.a11y.broadcastOff': 'Turn on auto-read',
   'chat.topBar.a11y.more': 'More',
 
   // ---- Attachment menu ----
@@ -68,9 +63,7 @@ export const en = {
   // ---- Composer ----
   'chat.composer.placeholder': 'Type a message...',
   'chat.composer.a11y.attach': 'Add attachment',
-  'chat.composer.a11y.mention': 'Mention a member',
   'chat.composer.a11y.sticker': 'Stickers',
-  'chat.composer.a11y.fullScreen': 'Full-screen input',
   'chat.composer.a11y.stop': 'Stop',
   'chat.composer.a11y.send': 'Send',
   'chat.composer.a11y.cancelQuote': 'Cancel quote',
@@ -546,6 +539,8 @@ export const en = {
   'workspace.panel.catalog.status.same': 'Written',
   'workspace.panel.catalog.status.diff': 'Written (content differs)',
   'workspace.capability.limit.githubImport': 'GitHub import = branch snapshot (zip download + extract), no git history; commits go through the agent’s GitHub tools; delete/force operations are permanently forbidden.',
+  'chat.voice.broadcast.label': 'Auto-read replies',
+  'chat.voice.broadcast.hint': 'When on, newly received voice replies play automatically (moved from the top bar).',
 };
 
 export default en;

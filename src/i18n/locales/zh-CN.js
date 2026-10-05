@@ -40,17 +40,12 @@ export const zhCN = {
   'chat.topBar.selection.unselectAll': '取消全选',
   'chat.topBar.selection.delete': '删除',
   'chat.topBar.newChat': '新建',
-  'chat.topBar.broadcast.on': '自动播报开',
-  'chat.topBar.broadcast.off': '自动播报关',
   'chat.topBar.a11y.cancelSelection': '取消选择消息',
   'chat.topBar.a11y.selectAll': '全选消息',
   'chat.topBar.a11y.unselectAll': '取消全选',
   'chat.topBar.a11y.deleteSelected': '删除选中消息',
   'chat.topBar.a11y.switchCharacter': '切换角色',
   'chat.topBar.a11y.switchGroup': '切换群聊',
-  'chat.topBar.a11y.newChat': '新建对话',
-  'chat.topBar.a11y.broadcastOn': '关闭自动播报',
-  'chat.topBar.a11y.broadcastOff': '开启自动播报',
   'chat.topBar.a11y.more': '更多功能',
 
   // ---- 添加附件菜单（chat/AttachmentMenuModal.js）----
@@ -72,9 +67,7 @@ export const zhCN = {
   // ---- 聊天输入区（chat/ChatComposer.js）----
   'chat.composer.placeholder': '输入消息...',
   'chat.composer.a11y.attach': '添加附件',
-  'chat.composer.a11y.mention': '提及成员',
   'chat.composer.a11y.sticker': '表情包',
-  'chat.composer.a11y.fullScreen': '全屏输入',
   'chat.composer.a11y.stop': '停止',
   'chat.composer.a11y.send': '发送',
   'chat.composer.a11y.cancelQuote': '取消引用',
@@ -550,6 +543,8 @@ export const zhCN = {
   'workspace.panel.catalog.status.same': '已写入',
   'workspace.panel.catalog.status.diff': '已写入（内容有差异）',
   'workspace.capability.limit.githubImport': 'GitHub 导入 = 分支快照（zip 下载 + 解压），不含 git 历史；推送改动由 agent 走 GitHub 工具完成；删除/强推类操作永远禁止。',
+  'chat.voice.broadcast.label': '自动播报',
+  'chat.voice.broadcast.hint': '开启后新收到的语音回复自动播放（原顶栏广播开关迁入此处）。',
 };
 
 export default zhCN;
