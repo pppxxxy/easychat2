@@ -113,8 +113,15 @@ export default function CharacterDetailScreen() {
   const [regexScripts, setRegexScripts] = useState([]);
   const [characterPresets, setCharacterPresets] = useState([]);
   const [voiceDisplay, setVoiceDisplay] = useState('text');
-  const [expandedWorld, setExpandedWorld] = useState(false);
-  const [expandedRegex, setExpandedRegex] = useState(false);
+  // 世界书/正则从「折叠区」升级为独立分段后，原来的 expandedWorld/expandedRegex
+  // 展开态已由 segment 取代（新增条目、正则校验失败时切到对应段即可）。
+  // 详情页分段（一层信息架构只做一件事：分段管大区块，折叠管组内分组）。
+  // 不持久化：离开详情页即回到「人设」，保持「高频默认展开」的初始印象稳定。
+  const [segment, setSegment] = useState('persona');
+  // 人设段内各组的折叠状态。高频组默认展开（开场白/提示词），低频组默认折叠
+  // （头像背景/细节设定/对话示例与标签），折叠时由分组容器给摘要行，
+  // 做到「收起 ≠ 信息消失」。缺省即折叠，故这里只登记默认展开的组。
+  const [openGroups, setOpenGroups] = useState({ greeting: true, prompt: true });
   const [editingWorldId, setEditingWorldId] = useState(null);
   const [editingRegexId, setEditingRegexId] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
@@ -382,7 +389,7 @@ export default function CharacterDetailScreen() {
   };
 
   const addWorldEntry = () => {
-    setExpandedWorld(true);
+    setSegment('world');
     const id = `entry-${Date.now().toString(36)}`;
     setWorldInfo(list => [
       ...list,
@@ -403,7 +410,7 @@ export default function CharacterDetailScreen() {
   };
 
   const addRegexScript = () => {
-    setExpandedRegex(true);
+    setSegment('regex');
     const id = `regex-${Date.now().toString(36)}`;
     setRegexScripts(list => [
       ...list,
@@ -446,7 +453,8 @@ export default function CharacterDetailScreen() {
       try {
         compileRegex(script.findRegex, script.flags);
       } catch (error) {
-        setExpandedRegex(true);
+        // 切到正则段：让用户直接看到出问题的那一条（原来是展开折叠区）。
+        setSegment('regex');
         setEditingRegexId(script.id);
         Alert.alert(
           '正则脚本无效',
@@ -736,8 +744,8 @@ setWorldInfo(next.worldInfo);
       }
 
       if (screenSessionRef.current === session && session.activeId === created.id) {
-        setExpandedWorld(false);
-        setExpandedRegex(false);
+        // 导入新卡后回到人设段（原逻辑是收起世界书/正则折叠区）。
+        setSegment('persona');
       }
       const summary = [
         `已加载角色：${next.name}`,
@@ -969,6 +977,32 @@ setWorldInfo(next.worldInfo);
       ? `${importStatus.phase === 'saving' ? '正在写入本地存储' : '正在读取并解析文件'}${importSizeLabel ? ` · ${importSizeLabel}` : ''}，请稍候`
       : importStatus.phase === 'saving' ? '正在写入本地存储，请稍候' : '正在读取并解析文件，请稍候';
 
+  // 人设段的分组容器：标题行可折叠，折叠时右侧渲染 summary（摘要行）。
+  // 直接复用 editors.js 的 CollapsibleSection（标题/箭头/计数/加号一应俱全），
+  // 不新造组件；分组只负责把「展开态」提上来，便于按段重置。
+  const renderPersonaGroup = (id, title, icon, summary, children) => {
+    // 缺省折叠：只有显式登记为 true 的组默认展开（开场白/提示词）。
+    const isOpen = openGroups[id] === true;
+    return (
+      <CollapsibleSection
+        title={title}
+        icon={icon}
+        expanded={isOpen}
+        onToggle={() => setOpenGroups(current => ({ ...current, [id]: !isOpen }))}
+        count={summary}
+      >
+        {children}
+      </CollapsibleSection>
+    );
+  };
+
+  const SEGMENTS = [
+    { id: 'persona', label: '人设' },
+    { id: 'world', label: '世界书' },
+    { id: 'regex', label: '正则' },
+    { id: 'presets', label: '预设' },
+  ];
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -996,6 +1030,29 @@ setWorldInfo(next.worldInfo);
           <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
         </View>
 
+        {/* 分段控制：一层信息架构只做一件事——分段管大区块，折叠管组内分组 */}
+        <View style={styles.segmentRow}>
+          {SEGMENTS.map(item => {
+            const active = segment === item.id;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.segmentChip, active && styles.segmentChipActive]}
+                onPress={() => setSegment(item.id)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.segmentChipText, active && styles.segmentChipTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {segment === 'persona' ? (
+          <>
         <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="create-outline" size={16} color={theme.colors.primaryMuted} />
@@ -1007,6 +1064,57 @@ setWorldInfo(next.worldInfo);
             onChangeText={setName}
             placeholder="例如：严谨的代码助手"
           />
+          {/* 头像/背景图属「基础」组，低频更换，默认折叠（摘要给「已设置/未设置」） */}
+          {renderPersonaGroup(
+            'basics',
+            '头像与背景',
+            'image-outline',
+            [avatarPreview ? '头像✓' : '头像–', bgPreview ? '背景✓' : '背景–'].join(' '),
+            <>
+              <Text style={styles.fieldLabel}>角色头像</Text>
+              <View style={styles.imageRow}>
+                <View style={styles.avatarBox}>
+                  {avatarPreview ? (
+                    <Image source={{ uri: avatarPreview }} style={styles.avatarImage} />
+                  ) : (
+                    <View style={styles.avatarPlaceholder}>
+                      <Text style={styles.avatarPlaceholderText}>
+                        {(name || character.name || '?').charAt(0)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.imageActions}>
+                  <TouchableOpacity style={styles.smallButton} onPress={pickAvatar} activeOpacity={0.8}>
+                    <Text style={styles.smallButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
+                  </TouchableOpacity>
+                  {avatarPreview ? (
+                    <TouchableOpacity onPress={() => clearImagePreview('avatar', setAvatarPreview)} hitSlop={8}>
+                      <Text style={styles.removeText}>清除</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+
+              <Text style={styles.fieldLabel}>背景图</Text>
+              <View style={styles.imageRow}>
+                {bgPreview ? (
+                  <Image source={{ uri: bgPreview }} style={styles.bgPreview} />
+                ) : null}
+                <View style={styles.imageActions}>
+                  <TouchableOpacity style={styles.smallButton} onPress={pickBg} activeOpacity={0.8}>
+                    <Text style={styles.smallButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
+                  </TouchableOpacity>
+                  {bgPreview ? (
+                    <TouchableOpacity onPress={() => clearImagePreview('bg', setBgPreview)} hitSlop={8}>
+                      <Text style={styles.removeText}>清除</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            </>
+          )}
+
           <TouchableOpacity
             style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
             onPress={importCard}
@@ -1024,48 +1132,6 @@ setWorldInfo(next.worldInfo);
             onPress={() => setTopic('character-card')}
             accessibilityLabel="查看角色卡获取教学"
           />
-
-          <Text style={styles.fieldLabel}>角色头像</Text>
-          <View style={styles.imageRow}>
-            <View style={styles.avatarBox}>
-              {avatarPreview ? (
-                <Image source={{ uri: avatarPreview }} style={styles.avatarImage} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarPlaceholderText}>
-                    {(name || character.name || '?').charAt(0)}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.imageActions}>
-              <TouchableOpacity style={styles.smallButton} onPress={pickAvatar} activeOpacity={0.8}>
-                <Text style={styles.smallButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
-              </TouchableOpacity>
-              {avatarPreview ? (
-                <TouchableOpacity onPress={() => clearImagePreview('avatar', setAvatarPreview)} hitSlop={8}>
-                  <Text style={styles.removeText}>清除</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </View>
-
-          <Text style={styles.fieldLabel}>背景图</Text>
-          <View style={styles.imageRow}>
-            {bgPreview ? (
-              <Image source={{ uri: bgPreview }} style={styles.bgPreview} />
-            ) : null}
-            <View style={styles.imageActions}>
-              <TouchableOpacity style={styles.smallButton} onPress={pickBg} activeOpacity={0.8}>
-                <Text style={styles.smallButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
-              </TouchableOpacity>
-              {bgPreview ? (
-                <TouchableOpacity onPress={() => clearImagePreview('bg', setBgPreview)} hitSlop={8}>
-                  <Text style={styles.removeText}>清除</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </View>
 
           <TouchableOpacity
             style={styles.presetEntryRow}
@@ -1102,6 +1168,12 @@ setWorldInfo(next.worldInfo);
             <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
             <Text style={styles.cardTitle}>人设设定</Text>
           </View>
+          {renderPersonaGroup(
+            'greeting',
+            '开场白',
+            'chatbubble-ellipses-outline',
+            firstMes ? `${firstMes.slice(0, 12)}…` : '未设置',
+            <>
           <FieldLabel style={styles.label}>开场白</FieldLabel>
           <TextField
             style={styles.multilineSmall}
@@ -1136,6 +1208,14 @@ setWorldInfo(next.worldInfo);
             <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
           </TouchableOpacity>
+            </>
+          )}
+          {renderPersonaGroup(
+            'prompt',
+            '人设提示词',
+            'document-text-outline',
+            systemPrompt ? `${systemPrompt.length} 字` : '未设置',
+            <>
           <FieldLabel style={styles.label}>人设 / 系统提示词</FieldLabel>
            <TextField
              style={styles.multiline}
@@ -1169,6 +1249,14 @@ setWorldInfo(next.worldInfo);
              })}
            </View>
            <FieldHint style={styles.fieldHint}>纯语音会隐藏回复正文，但正文仍会保存并进入对话记忆；合成失败时自动退回仅文字。</FieldHint>
+            </>
+          )}
+          {renderPersonaGroup(
+            'details',
+            '细节设定',
+            'reader-outline',
+            `${[description, personality, scenario].filter(value => String(value || '').trim()).length}/3 项`,
+            <>
            <FieldLabel style={styles.label}>角色描述</FieldLabel>
           <TextField
             style={styles.multiline}
@@ -1196,7 +1284,15 @@ setWorldInfo(next.worldInfo);
             multiline
             textAlignVertical="top"
           />
+            </>
+          )}
 
+          {renderPersonaGroup(
+            'examples',
+            '对话示例',
+            'chatbox-outline',
+            mesExample ? `${mesExample.length} 字` : '未设置',
+            <>
           <FieldLabel style={styles.label}>对话示例</FieldLabel>
           <TextField
             style={styles.multiline}
@@ -1207,7 +1303,15 @@ setWorldInfo(next.worldInfo);
             textAlignVertical="top"
           />
           <Text style={styles.fieldHint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
+            </>
+          )}
 
+          {renderPersonaGroup(
+            'tags',
+            '标签',
+            'pricetags-outline',
+            tags.length > 0 ? `${tags.length} 个` : '未设置',
+            <>
           <FieldLabel style={styles.label}>标签</FieldLabel>
           <View style={styles.tagRow}>
             {tags.map((tag, index) => (
@@ -1230,8 +1334,42 @@ setWorldInfo(next.worldInfo);
               <Ionicons name="add" size={18} color={theme.colors.primaryContrast} />
             </TouchableOpacity>
           </View>
+            </>
+          )}
         </Card>
 
+        {/* 导入卡带来的只读资料：不参与编辑，随人设段一起展示 */}
+        {card.creatorNotes || card.postHistoryInstructions || card.tags?.length ? (
+          <Card>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="albums-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>原始卡资料</Text>
+            </View>
+            {card.creatorNotes || card.postHistoryInstructions ? (
+              <View style={styles.dataSection}>
+                <Text style={styles.dataTitle}>其他资料</Text>
+                <DataField label="作者注释" value={card.creatorNotes} />
+                <DataField label="历史后指令" value={card.postHistoryInstructions} />
+              </View>
+            ) : null}
+            {card.tags?.length ? (
+              <View style={styles.dataSection}>
+                <Text style={styles.dataTitle}>原始标签</Text>
+                <View style={styles.tagRow}>
+                  {card.tags.map((tag, index) => (
+                    <View key={`${tag}-${index}`} style={styles.tag}>
+                      <Text style={styles.tagText}>{tag}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </Card>
+        ) : null}
+          </>
+        ) : null}
+
+        {/* 保存按钮不随分段隐藏：保存的是整份表单（含世界书/正则/预设） */}
         <TouchableOpacity
           style={[styles.button, !loaded && styles.buttonDisabled, styles.saveButton]}
           onPress={save}
@@ -1242,42 +1380,14 @@ setWorldInfo(next.worldInfo);
           <Text style={styles.buttonText}>保存角色</Text>
         </TouchableOpacity>
 
-        <Card>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="albums-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>角色数据</Text>
-          </View>
-
-          {card.creatorNotes || card.postHistoryInstructions ? (
-            <View style={styles.dataSection}>
-              <Text style={styles.dataTitle}>其他资料</Text>
-              <DataField label="作者注释" value={card.creatorNotes} />
-              <DataField label="历史后指令" value={card.postHistoryInstructions} />
+        {segment === 'world' ? (
+          <Card>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="book-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>世界书</Text>
+              <Text style={styles.sectionCount}>{worldInfo.length}</Text>
             </View>
-          ) : null}
-
-          {card.tags?.length ? (
-            <View style={styles.dataSection}>
-              <Text style={styles.dataTitle}>标签</Text>
-              <View style={styles.tagRow}>
-                {card.tags.map((tag, index) => (
-                  <View key={`${tag}-${index}`} style={styles.tag}>
-                    <Text style={styles.tagText}>{tag}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          <CollapsibleSection
-            title="世界书"
-            icon="book-outline"
-            count={worldInfo.length}
-            expanded={expandedWorld}
-            onToggle={() => setExpandedWorld(value => !value)}
-            onAdd={addWorldEntry}
-            addLabel="添加世界书条目"
-          >
+            <Text style={styles.cardHint}>按关键词在发送前注入提示词；点条目编辑，右侧开关控制启用。</Text>
             {worldInfo.length === 0 ? (
               <Text style={styles.dataEmpty}>暂无世界书条目。</Text>
             ) : (
@@ -1297,17 +1407,21 @@ setWorldInfo(next.worldInfo);
                 );
               })
             )}
-          </CollapsibleSection>
+            <TouchableOpacity style={styles.addEntryButton} onPress={addWorldEntry} activeOpacity={0.8}>
+              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.addEntryText}>添加世界书条目</Text>
+            </TouchableOpacity>
+          </Card>
+        ) : null}
 
-          <CollapsibleSection
-            title="正则脚本"
-            icon="code-slash-outline"
-            count={regexScripts.length}
-            expanded={expandedRegex}
-            onToggle={() => setExpandedRegex(value => !value)}
-            onAdd={addRegexScript}
-            addLabel="添加正则脚本"
-          >
+        {segment === 'regex' ? (
+          <Card>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="code-slash-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>正则脚本</Text>
+              <Text style={styles.sectionCount}>{regexScripts.length}</Text>
+            </View>
+            <Text style={styles.cardHint}>分别在发送与界面展示时生效；疑似回溯的写法运行时会被跳过。</Text>
             {regexScripts.length === 0 ? (
               <Text style={styles.dataEmpty}>暂无正则脚本。</Text>
             ) : (
@@ -1324,33 +1438,45 @@ setWorldInfo(next.worldInfo);
                 />
               ))
             )}
-          </CollapsibleSection>
+            <TouchableOpacity style={styles.addEntryButton} onPress={addRegexScript} activeOpacity={0.8}>
+              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.addEntryText}>添加正则脚本</Text>
+            </TouchableOpacity>
+          </Card>
+        ) : null}
 
-          <TouchableOpacity
-            style={styles.presetEntryRow}
-            onPress={() => setCharacterPresetPanelOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.presetEntryLeft}>
-              <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.presetEntryText}>预设</Text>
+        {segment === 'presets' ? (
+          <Card>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>预设</Text>
             </View>
-            <Text style={styles.presetEntryMeta}>{characterPresets.length}</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.presetEntryRow}
-            onPress={() => setPresetPanelOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.presetEntryLeft}>
-              <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.presetEntryText}>全局预设 / 记忆总结</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-        </Card>
+            <Text style={styles.cardHint}>角色预设只对这个角色生效；全局预设对所有对话生效。</Text>
+            <TouchableOpacity
+              style={styles.presetEntryRow}
+              onPress={() => setCharacterPresetPanelOpen(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.presetEntryLeft}>
+                <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
+                <Text style={styles.presetEntryText}>角色预设</Text>
+              </View>
+              <Text style={styles.presetEntryMeta}>{characterPresets.length}</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.presetEntryRow}
+              onPress={() => setPresetPanelOpen(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.presetEntryLeft}>
+                <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
+                <Text style={styles.presetEntryText}>全局预设 / 记忆总结</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+            </TouchableOpacity>
+          </Card>
+        ) : null}
 
         <View style={{ height: 24 }} />
       </ScrollView>
