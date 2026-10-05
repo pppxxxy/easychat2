@@ -109,6 +109,8 @@ import { useTheme } from './theme/ThemeContext.js';
 import { generateImage } from './imageGen/index.js';
 import ModelLogsModal from './localModel/ModelLogsModal.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
+import { normalizeLocalModelParams } from './localModel/modelParams.js';
+import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
 import { getImageProvider } from './imageGen/providers.js';
 import useChatTts from './chat/useChatTts.js';
 import useSessionGuard from './chat/useSessionGuard.js';
@@ -164,6 +166,10 @@ import {
   resolveTranscription,
   transcribeAudio,
 } from './transcription.js';
+// 「compact」/「/compact」= 压缩指令：把当前会话按手动路径总结入记忆
+//（原始消息仍保留在会话里，后续对话带着摘要继续），不把这条文本当消息发出去。
+const COMPACT_COMMAND_PATTERN = /^\/?compact$/i;
+
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -902,6 +908,23 @@ export default function ChatScreen() {
       return;
     }
     if (!shouldSummarize({ session, messages: list, settings })) return;
+    // 上下文占用（估算）：在线配置用每模型声明的 contextWindow，本地模型用 n_ctx，
+    // 未声明则保守默认；到 80% 自动压缩（跟随「记忆总结」开关，见 memorySummary）。
+    let contextUsage = null;
+    try {
+      const [{ configs, activeId }, localItem] = await Promise.all([
+        getApiConfigs(),
+        getActiveLocalModel().catch(() => null),
+      ]);
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
+      contextUsage = computeContextUsage(list, resolveContextWindow({
+        declared: caps.contextWindow,
+        localContextSize,
+      }));
+    } catch (error) {}
+    if (!shouldSummarize({ session, messages: list, settings, contextUsage })) return;
     const candidates = selectSummarizable(list, session.summarizedUpTo);
     const signature = `${session.id}:${settings.enabled}:${settings.threshold}:${candidates.map(item => item.id).join('|')}`;
     if (
@@ -942,6 +965,27 @@ export default function ChatScreen() {
       ]
     );
   }, [isSending, ready, messages, runSummarize]);
+
+  // compact 指令：显式输入即代表意图，不再弹确认；runSummarize(manual) 自带
+  // 「已完成/失败/无可总结」提示与并发保护。
+  const runCompactCommand = useCallback(async () => {
+    if (summarizingRef.current) {
+      Alert.alert('正在压缩', '上一次压缩还没有完成，请稍候。');
+      return;
+    }
+    if (isGroupRef.current) {
+      Alert.alert('群聊暂不支持', '压缩仅适用于单聊会话。');
+      return;
+    }
+    const session = sessionsRef.current.find(
+      item => item.id === activeSessionIdRef.current
+    );
+    if (!session) {
+      Alert.alert('无法压缩', '当前没有可压缩的会话。');
+      return;
+    }
+    await runSummarize(session, messagesRef.current, true);
+  }, [runSummarize]);
 
   const buildAssistantReply = useCallback(replyText => {
     const list = Array.isArray(stickersRef.current) ? stickersRef.current : [];
@@ -1953,12 +1997,18 @@ export default function ChatScreen() {
   const onSend = useCallback(async () => {
     const text = input.trim();
      if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
+    // 压缩指令（compact / /compact）：不发送文本，直接总结当前会话入记忆。
+    if (COMPACT_COMMAND_PATTERN.test(text) && attachments.length === 0) {
+      setInput('');
+      runCompactCommand().catch(() => {});
+      return;
+    }
     if (!isGroupRef.current && !greetingReady) {
       openGreetingPicker(activeSessionId ? 'reselect' : 'new');
       return;
     }
      await sendText(input);
-   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, sendText, sessionTransitionPending]);
+   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, runCompactCommand, sendText, sessionTransitionPending]);
 
   // 语音录制入口：仅在单聊、非群聊、就绪时可用。
   const voiceEnabled = !isGroup && !sessionOwnerMissing && ready;

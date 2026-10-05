@@ -45,6 +45,7 @@ const CAPABILITY_DEFAULTS = {
   supportsVision: false,
   supportsVideo: false,
   supportsAudio: false,
+  contextWindow: 0,
 };
 
 export function normalizeCapabilityEntry(raw) {
@@ -58,6 +59,8 @@ export function normalizeCapabilityEntry(raw) {
     supportsVision: source.supportsVision === true,
     supportsVideo: source.supportsVideo === true,
     supportsAudio: source.supportsAudio === true,
+    // 模型声明的上下文窗口（tokens）；0 = 未声明（显示与自动压缩用保守默认）。
+    contextWindow: Math.max(0, Math.floor(Number(source.contextWindow)) || 0),
   };
 }
 

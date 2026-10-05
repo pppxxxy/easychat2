@@ -10,6 +10,7 @@ import {
 } from '../storage.js';
 
 import { MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
+import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';
 
 export { MEMORY_SUMMARY_PREFIX };
 export const KEEP_RECENT = 6;
@@ -90,14 +91,22 @@ export function summarizeBoundaryAfterDeletion(messages, summarizedUpTo, removed
   return '';
 }
 
-export function shouldSummarize({ session, messages, settings, force = false } = {}) {
+export function shouldSummarize({ session, messages, settings, force = false, contextUsage = null } = {}) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   const candidates = selectSummarizable(list, session && session.summarizedUpTo);
   if (force) return candidates.length > 0;
   if (!settings || settings.enabled !== true) return false;
-  const threshold = Number(settings.threshold);
-  const limit = Number.isFinite(threshold) && threshold > 0 ? threshold : DEFAULT_THRESHOLD;
-  return candidates.length >= limit;
+  // 上下文占用到达自动压缩线（默认 80%，见 chat/contextUsage.js）时，视同阈值满足：
+  // 长消息/大附件会话可能远没到条数阈值就把窗口吃满。
+  const nearLimit = !!(contextUsage
+    && Number.isFinite(contextUsage.ratio)
+    && contextUsage.ratio >= AUTO_COMPACT_RATIO);
+  if (!nearLimit) {
+    const threshold = Number(settings.threshold);
+    const limit = Number.isFinite(threshold) && threshold > 0 ? threshold : DEFAULT_THRESHOLD;
+    if (candidates.length < limit) return false;
+  }
+  return candidates.length > 0;
 }
 
 export function buildSummaryPrompt(messages, userName, memories = '') {

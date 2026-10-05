@@ -193,6 +193,43 @@ test('模型能力迁移：旧配置级字段物化到每个已有模型，新�
   assert.equal(capabilitiesForModel(explicitOff, 'model-a').supportsThinking, false);
 });
 
+test('每模型 contextWindow：声明窗口收敛为非负整数，未声明为 0', () => {
+  // 迁移路径：旧配置级字段没有 contextWindow，物化后为 0（运行时落到本地 n_ctx / 默认窗口）。
+  const legacy = createApiConfig({
+    id: 'cfg-ctx-legacy',
+    name: '旧配置',
+    baseUrl: 'https://example.com/v1',
+    models: ['model-a'],
+    activeModel: 'model-a',
+    supportsThinking: true,
+  });
+  assert.equal(capabilitiesForModel(legacy, 'model-a').contextWindow, 0);
+
+  const declared = createApiConfig({
+    id: 'cfg-ctx',
+    name: '声明窗口',
+    baseUrl: 'https://example.com/v1',
+    models: ['model-a', 'model-b'],
+    activeModel: 'model-a',
+    modelCapabilities: {
+      'model-a': { contextWindow: 128000 },
+      'model-b': { contextWindow: 'abc' },
+    },
+  });
+  assert.equal(capabilitiesForModel(declared, 'model-a').contextWindow, 128000, '正常声明保留');
+  assert.equal(capabilitiesForModel(declared, 'model-b').contextWindow, 0, '非法输入归 0');
+
+  const fractional = createApiConfig({
+    id: 'cfg-ctx-frac',
+    name: '小数',
+    baseUrl: 'https://example.com/v1',
+    models: ['model-a'],
+    activeModel: 'model-a',
+    modelCapabilities: { 'model-a': { contextWindow: 4096.9 } },
+  });
+  assert.equal(capabilitiesForModel(fractional, 'model-a').contextWindow, 4096, '小数向下取整');
+});
+
 test('空回复占位文本保持稳定判等', () => {
   assert.equal(String(` ${EMPTY_REPLY_TEXT} `).trim(), EMPTY_REPLY_TEXT);
 });

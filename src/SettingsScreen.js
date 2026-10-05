@@ -197,6 +197,8 @@ export default function SettingsScreen() {
     supportsAudio: false,
     thinkingField: 'reasoning_effort',
     thinkingFormat: 'effort',
+    // 上下文窗口（tokens，字符串在编辑，确认时解析为数字；空 = 0 = 用默认）。
+    contextWindow: '',
   });
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
@@ -817,6 +819,7 @@ export default function SettingsScreen() {
       supportsVision: capabilityDraft.supportsVision === true,
       supportsVideo: capabilityDraft.supportsVideo === true,
       supportsAudio: capabilityDraft.supportsAudio === true,
+      contextWindow: Math.max(0, Math.floor(Number(capabilityDraft.contextWindow)) || 0),
     });
     updateField({
       modelCapabilities: { ...(selected.modelCapabilities || {}), [name]: entry },
@@ -941,6 +944,7 @@ export default function SettingsScreen() {
       supportsAudio: caps.supportsAudio,
       thinkingField: caps.thinkingField,
       thinkingFormat: caps.thinkingFormat,
+      contextWindow: caps.contextWindow > 0 ? String(caps.contextWindow) : '',
     });
     setCapabilityEditorModel(name);
     setCapabilityOpen(true);
@@ -2213,6 +2217,17 @@ export default function SettingsScreen() {
                 thumbColor={theme.colors.primaryContrast}
               />
             </View>
+            <FieldLabel style={styles.label}>上下文窗口（tokens）</FieldLabel>
+            <TextField
+              value={capabilityDraft.contextWindow}
+              onChangeText={value => setCapabilityDraft(current => ({
+                ...current,
+                contextWindow: String(value || '').replace(/[^0-9]/g, ''),
+              }))}
+              keyboardType="number-pad"
+              placeholder="如 128000；留空 = 默认 32000"
+            />
+            <FieldHint style={styles.hint}>用于工作区面板的上下文占用显示与 80% 自动压缩；不确定可留空。</FieldHint>
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.selectButton, styles.selectButtonGhost]}
