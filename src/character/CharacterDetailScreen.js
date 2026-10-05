@@ -38,7 +38,7 @@ import { exportCardFile } from './cardExporter.js';
 import ChapterModal from '../books/ChapterModal.js';
 import GreetingPickerModal from '../GreetingPickerModal.js';
 import { listGreetingCandidates } from './cardGreetings.js';
-import { Card, FieldHint, FieldLabel, TextField, TopicButton } from '../ui/index.js';
+import { Card, CollapsibleSection, FieldHint, FieldLabel, TextField, TopicButton } from '../ui/index.js';
 import { useApp } from '../context/AppContext.js';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import PresetPanel from '../PresetPanel.js';
@@ -60,7 +60,6 @@ import { isFormDirty, setCharacterEditGuard } from './characterEditGuard.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import {
-  CollapsibleSection,
   DataField,
   RegexEntryEditor,
   SummaryRow,
@@ -977,9 +976,9 @@ setWorldInfo(next.worldInfo);
       ? `${importStatus.phase === 'saving' ? '正在写入本地存储' : '正在读取并解析文件'}${importSizeLabel ? ` · ${importSizeLabel}` : ''}，请稍候`
       : importStatus.phase === 'saving' ? '正在写入本地存储，请稍候' : '正在读取并解析文件，请稍候';
 
-  // 人设段的分组容器：标题行可折叠，折叠时右侧渲染 summary（摘要行）。
-  // 直接复用 editors.js 的 CollapsibleSection（标题/箭头/计数/加号一应俱全），
-  // 不新造组件；分组只负责把「展开态」提上来，便于按段重置。
+  // 人设段的分组容器：标题行可折叠，折叠时右侧渲染摘要（count）。
+  // 复用统一后的 ui/CollapsibleSection（原 editors.js 那套参数不兼容的已合并掉），
+  // 分组只负责把「展开态」提上来，便于按段重置。
   const renderPersonaGroup = (id, title, icon, summary, children) => {
     // 缺省折叠：只有显式登记为 true 的组默认展开（开场白/提示词）。
     const isOpen = openGroups[id] === true;
@@ -987,7 +986,7 @@ setWorldInfo(next.worldInfo);
       <CollapsibleSection
         title={title}
         icon={icon}
-        expanded={isOpen}
+        open={isOpen}
         onToggle={() => setOpenGroups(current => ({ ...current, [id]: !isOpen }))}
         count={summary}
       >

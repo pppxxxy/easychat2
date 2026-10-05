@@ -95,36 +95,6 @@ export function NumberField({ label, value, onCommit }) {
   );
 }
 
-export function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, icon, children }) {
-  const { theme, fonts, tokens } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  return (
-    <View style={styles.sectionCard}>
-      <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
-        <View style={styles.sectionTitleRow}>
-          {icon ? <Ionicons name={icon} size={15} color={theme.colors.primaryMuted} /> : null}
-          <Text style={styles.sectionTitle}>{title}</Text>
-          <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{count}</Text>
-          </View>
-        </View>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.primaryMuted} />
-      </TouchableOpacity>
-      {expanded ? (
-        <View style={styles.sectionBody}>
-          {children}
-          {onAdd ? (
-            <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.addButtonText}>{addLabel}</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 export function WorldEntryEditor({ entry, index, onChange, onRemove }) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
