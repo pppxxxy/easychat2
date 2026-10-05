@@ -55,6 +55,16 @@ export default function MomentsView({ active = true }) {
   const [commentDrafts, setCommentDrafts] = useState({});
   const [replying, setReplying] = useState([]);
   const [topic, setTopic] = useState(null);
+  // 评论折叠：默认只显示「查看 N 条评论」，点击展开评论列表与输入框。
+  const [expandedComments, setExpandedComments] = useState(() => new Set());
+  const toggleComments = useCallback(momentId => {
+    setExpandedComments(prev => {
+      const next = new Set(prev);
+      if (next.has(momentId)) next.delete(momentId);
+      else next.add(momentId);
+      return next;
+    });
+  }, []);
   const momentsRef = useRef(moments);
   momentsRef.current = moments;
   const charactersRef = useRef(characters);
@@ -376,6 +386,7 @@ export default function MomentsView({ active = true }) {
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
+    const commentsExpanded = expandedComments.has(item.id);
     const displayName = String(item.characterName || '').trim() || '角色';
     const avatarUri = String(item.avatarUri || '').trim();
     return (
@@ -426,22 +437,33 @@ export default function MomentsView({ active = true }) {
         </View>
 
         {(item.comments || []).length > 0 ? (
-          <View style={styles.commentList}>
-            {item.comments.map(comment => (
-              <View key={comment.id} style={styles.commentRow}>
-                <Text style={styles.commentName}>{comment.name || '我'}</Text>
-                <Text style={styles.commentText}>{comment.text}</Text>
-                {comment.likedByCharacter ? (
-                  <Ionicons
-                    name="heart"
-                    size={11}
-                    color={theme.colors.danger}
-                    style={styles.commentLike}
-                  />
-                ) : null}
-              </View>
-            ))}
-          </View>
+          commentsExpanded ? (
+            <View style={styles.commentList}>
+              {item.comments.map(comment => (
+                <View key={comment.id} style={styles.commentRow}>
+                  <Text style={styles.commentName}>{comment.name || '我'}</Text>
+                  <Text style={styles.commentText}>{comment.text}</Text>
+                  {comment.likedByCharacter ? (
+                    <Ionicons
+                      name="heart"
+                      size={11}
+                      color={theme.colors.danger}
+                      style={styles.commentLike}
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.commentToggle}
+              onPress={() => toggleComments(item.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.commentToggleText}>查看 {item.comments.length} 条评论</Text>
+              <Ionicons name="chevron-down" size={14} color={theme.colors.textFaint} />
+            </TouchableOpacity>
+          )
         ) : null}
 
         {replying.includes(item.id) ? (
@@ -459,26 +481,28 @@ export default function MomentsView({ active = true }) {
           </View>
         ) : null}
 
-        <View style={styles.commentInputRow}>
-          <TextInput
-            style={styles.commentInput}
-            value={commentDrafts[item.id] || ''}
-            onChangeText={value => setCommentDrafts(current => ({ ...current, [item.id]: value }))}
-            placeholder="写评论..."
-            placeholderTextColor={theme.colors.textFaint}
-          />
-          <TouchableOpacity
-            style={styles.commentSend}
-            onPress={() => submitComment(item)}
-            activeOpacity={0.8}
-            accessibilityLabel="发表评论"
-          >
-            <Ionicons name="send" size={14} color={theme.colors.primaryContrast} />
-          </TouchableOpacity>
-        </View>
+        {commentsExpanded || (item.comments || []).length === 0 ? (
+          <View style={styles.commentInputRow}>
+            <TextInput
+              style={styles.commentInput}
+              value={commentDrafts[item.id] || ''}
+              onChangeText={value => setCommentDrafts(current => ({ ...current, [item.id]: value }))}
+              placeholder="写评论..."
+              placeholderTextColor={theme.colors.textFaint}
+            />
+            <TouchableOpacity
+              style={styles.commentSend}
+              onPress={() => submitComment(item)}
+              activeOpacity={0.8}
+              accessibilityLabel="发表评论"
+            >
+              <Ionicons name="send" size={14} color={theme.colors.primaryContrast} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </Card>
     );
-  }, [cancelReply, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
+  }, [cancelReply, commentDrafts, expandedComments, removeMoment, replying, styles, submitComment, theme.colors, toggleComments, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
@@ -645,6 +669,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderRadius: tokens.radius.md,
     padding: 10,
   },
+  commentToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingVertical: 4,
+  },
+  commentToggleText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 4 },
   commentRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 },
   commentName: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginRight: 6 },
   commentText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), flexShrink: 1 },

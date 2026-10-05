@@ -155,6 +155,7 @@ export default function ProactivePanel() {
   const [notice, setNotice] = useState('');
   // 时间感知开关（与设置页共享同一 chatOptions）：保存槽时决定是否把当前时间写进请求。
   const [timeAware, setTimeAware] = useState(false);
+  const [defaultSettingsOpen, setDefaultSettingsOpen] = useState(false);
   // 已展开的时间槽 id 集合：默认全部收起，避免多个时间占满屏幕。
   const [openSlotIds, setOpenSlotIds] = useState(() => new Set());
   // 权限区是否展开。
@@ -462,6 +463,22 @@ export default function ProactivePanel() {
         需要精确到分钟时，把某个时间设为「精确」并授予精确闹钟权限。
       </Text>
 
+      <TouchableOpacity
+        style={styles.sectionRow}
+        onPress={() => setDefaultSettingsOpen(v => !v)}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: defaultSettingsOpen }}
+      >
+        <Text style={styles.sectionTitle}>默认设置</Text>
+        <Ionicons
+          name={defaultSettingsOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={theme.colors.textFaint}
+        />
+      </TouchableOpacity>
+      {defaultSettingsOpen ? (
+        <>
       <CollapsibleSelect
         label="消息来源（API）"
         value={(configs.find(item => item.id === configId) || {}).name || ''}
@@ -483,7 +500,6 @@ export default function ProactivePanel() {
       <CollapsibleSelect
         label="选择角色"
         value={(characters.find(item => item.id === activeRoleId) || {}).name || ''}
-        // 有主动消息（存在任何时间槽）的角色加星标，多于十多个时一眼看出哪些配过。
         options={characters.map(item => ({
           value: item.id,
           label: `${slots.some(slot => slot.roleId === item.id) ? '★ ' : ''}${item.name || '未命名'}`,
@@ -494,6 +510,8 @@ export default function ProactivePanel() {
         theme={theme}
       />
       <Text style={styles.hint}>★ 表示该角色已设置主动消息。</Text>
+        </>
+      ) : null}
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>时间（可多个）</Text>
         <View style={styles.sectionActions}>

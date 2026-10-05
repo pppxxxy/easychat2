@@ -3,7 +3,7 @@
 // 从 ExtensionScreen.js 提取为独立组件；Stack 化后物理返回天然工作，
 // 删除原 BackHandler 补丁。游戏详情的返回按钮改为导航返回。
 import React, { useCallback, useMemo, useState } from 'react';
-import { FlatList, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -44,6 +44,22 @@ export default function GamesView() {
     setActiveGameId('');
     setFailed(false);
   }, []);
+
+  const nativeGames = useMemo(() => GAMES.filter(g => g.native), []);
+  const webGames = useMemo(() => GAMES.filter(g => !g.native), []);
+
+  const renderGameCard = useCallback(({ item }) => (
+    <TouchableOpacity style={styles.gameCard} onPress={() => openGame(item)} activeOpacity={0.85}>
+      <View style={styles.gameIcon}>
+        <Ionicons name="game-controller" size={20} color={theme.colors.primaryContrast} />
+      </View>
+      <View style={styles.gameText}>
+        <Text style={styles.gameName}>{item.name}</Text>
+        <Text style={styles.gameDescription}>{item.description}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={theme.colors.textFaint} />
+    </TouchableOpacity>
+  ), [openGame, styles]);
 
   if (activeGame && activeGame.native === 'daily-wife') {
     return <DailyWifeView onBack={backToList} />;
@@ -106,23 +122,16 @@ export default function GamesView() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <FlatList
-        data={GAMES}
-        keyExtractor={game => game.id}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.gameCard} onPress={() => openGame(item)} activeOpacity={0.85}>
-            <View style={styles.gameIcon}>
-              <Ionicons name="game-controller" size={20} color={theme.colors.primaryContrast} />
-            </View>
-            <View style={styles.gameText}>
-              <Text style={styles.gameName}>{item.name}</Text>
-              <Text style={styles.gameDescription}>{item.description}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={theme.colors.textFaint} />
-          </TouchableOpacity>
-        )}
-      />
+      <ScrollView contentContainerStyle={styles.listContent}>
+        <Text style={styles.sectionHeader}>{t('ext.games.section.native')}</Text>
+        {nativeGames.map(game => (
+          <React.Fragment key={game.id}>{renderGameCard({ item: game })}</React.Fragment>
+        ))}
+        <Text style={styles.sectionHeader}>{t('ext.games.section.web')}</Text>
+        {webGames.map(game => (
+          <React.Fragment key={game.id}>{renderGameCard({ item: game })}</React.Fragment>
+        ))}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -161,5 +170,13 @@ const createStyles = (theme, fonts, tokens) => ({
   backButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingRight: 10 },
   backButtonText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 2 },
   gameBarTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6 },
+  sectionHeader: {
+    color: theme.colors.primaryMuted,
+    fontSize: fonts.scaled(12),
+    fontWeight: '800',
+    marginTop: 14,
+    marginBottom: 8,
+    letterSpacing: 0.4,
+  },
   webview: { flex: 1, backgroundColor: theme.colors.background },
 });

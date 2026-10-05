@@ -75,6 +75,7 @@ export default function ScreenWatchScreen() {
   const overlaySupported = useMemo(() => isOverlaySupported(), []);
   const [overlayActive, setOverlayActive] = useState(false);
   const [overlayBusy, setOverlayBusy] = useState(false);
+  const [commentsExpanded, setCommentsExpanded] = useState(false);
   const overlayBusyRef = useRef(false);
   const captureWaiterRef = useRef(null);
 
@@ -330,23 +331,37 @@ export default function ScreenWatchScreen() {
             })
             : t('screenWatch.empty.noCharacter')}
         />
-      ) : comments.map(comment => (
-        <View key={comment.id} style={styles.commentCard}>
-          <View style={styles.commentHead}>
-            <Text style={styles.commentName} numberOfLines={1}>
-              {comment.characterName || t('common.characterFallback')} · {t('screenWatch.commentLabel')}
-            </Text>
+      ) : (
+        <>
+          {(commentsExpanded ? comments : comments.slice(0, 3)).map(comment => (
+            <View key={comment.id} style={styles.commentCard}>
+              <View style={styles.commentHead}>
+                <Text style={styles.commentName} numberOfLines={1}>
+                  {comment.characterName || t('common.characterFallback')} · {t('screenWatch.commentLabel')}
+                </Text>
+                <TouchableOpacity
+                  style={styles.quoteButton}
+                  onPress={() => handleQuoteComment(comment)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.quoteButtonText}>{t('screenWatch.quote')}</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.commentText}>{comment.text}</Text>
+            </View>
+          ))}
+          {comments.length > 3 && !commentsExpanded ? (
             <TouchableOpacity
-              style={styles.quoteButton}
-              onPress={() => handleQuoteComment(comment)}
-              activeOpacity={0.85}
+              style={styles.commentToggle}
+              onPress={() => setCommentsExpanded(true)}
+              activeOpacity={0.7}
             >
-              <Text style={styles.quoteButtonText}>{t('screenWatch.quote')}</Text>
+              <Text style={styles.commentToggleText}>{t('screenWatch.comments.expand', { count: comments.length })}</Text>
+              <Ionicons name="chevron-down" size={14} color={theme.colors.textFaint} />
             </TouchableOpacity>
-          </View>
-          <Text style={styles.commentText}>{comment.text}</Text>
-        </View>
-      ))}
+          ) : null}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -416,6 +431,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     padding: 10,
     marginBottom: tokens.metrics.cardGap,
   },
+  commentToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  commentToggleText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 4 },
   commentHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   commentName: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1, marginRight: 8 },
   quoteButton: {
