@@ -34,7 +34,12 @@ test('BookReaderView：页面摘录与接话接线', () => {
     '请求必须带位置（块号+锚文本）');
   assert.ok(source.includes('ensureCharacterSession'), '接话前必须确保该角色会话存在');
   assert.ok(source.includes('navigation.navigate(ROUTE_NAMES.chat)'), '接话切到聊天页（路由名走常量）');
-  assert.ok(source.includes("t('books.comments.generate')"), '生成入口存在（i18n key）');
+  // 两个生成入口都要在，且文案里带的是具体角色名（原来是一句「让TA聊聊这一页」）
+  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(source),
+    '本页入口存在且带角色名');
+  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(source),
+    '整章入口存在且带角色名');
+  assert.ok(source.includes('handleCommentChapter'), '整章评论按当前章取摘录');
   assert.ok(source.includes('setShowComments(false)'), '接话离开前关闭评论面板');
 });
 

@@ -199,6 +199,61 @@ test('切换翻页方式：先停表复位再换结构（原生动画节点被�
     '动画回调要检查 finished：停表后不再续起下一段动画');
 });
 
+test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系统区', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(/READER_INSET_BOTTOM = 56/.test(view), '正文底部内缩放宽（让开系统导航栏）');
+  assert.ok(/bottomBar:\s*\{[\s\S]{0,300}?paddingBottom:\s*24/.test(view),
+    '底栏自身留出安全边距，最后一行进度字不再被遮一半');
+  assert.ok(view.includes('styles.modalTopBar'), '目录与评论页用非浮层顶栏');
+  assert.ok(view.includes('modalTopBar: {'), '样式已定义');
+  // 阅读页那套 topBar 是 absolute 贴屏幕顶，全屏 Modal 里复用会把标题顶进状态栏
+  assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(view), 'Modal 顶部内缩同步放宽');
+});
+
+test('章节目录：搜索 + 当前章标记 + 粗略已读百分比', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  // 搜索
+  assert.ok(view.includes('chapterQuery'), '有搜索关键词状态');
+  assert.ok(view.includes('filteredChapters'), '按关键词过滤');
+  assert.ok(view.includes("t('books.reader.chapter.search')"), '搜索框文案');
+  assert.ok(view.includes("t('books.reader.chapter.noMatch')"), '无匹配文案');
+  // 过滤后仍按原下标高亮与跳转（否则搜索一次就会跳错章）
+  assert.ok(/chapterEntries[\s\S]{0,200}?index,/.test(view) || view.includes('({ ...chapter, index })'),
+    '章节条目携带原下标');
+  // 当前章 + 百分比
+  assert.ok(view.includes('currentChapterIndex'), '算当前所在章');
+  assert.ok(view.includes('chapterReadPercent'), '算粗略已读百分比');
+  assert.ok(view.includes("t('books.reader.chapter.current')"), '「正在阅读」标记');
+  assert.ok(/t\('books\.reader\.chapter\.progress',\s*\{\s*percent/.test(view), '百分比文案带参数');
+  assert.ok(view.includes("t('books.reader.chapter.done')"), '读满显示已读完');
+});
+
+test('章节定位条：打开停在当前章，拖动时显示第几章', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  const scrubber = readSource('src/books/ChapterScrubber.js');
+  assert.ok(view.includes('ChapterScrubber'), '目录页接入定位条');
+  assert.ok(/currentIndex=\{currentChapterIndex\}/.test(view), '把当前章交给定位条');
+  assert.ok(/yFromIndex\(next\)/.test(scrubber), '打开时滑块摆到当前章位置');
+  assert.ok(/t\('books\.reader\.chapter\.position',\s*\{\s*index:/.test(scrubber),
+    '拖动时显示「第 N / M 章」');
+  assert.ok(scrubber.includes('badgeTitle') || scrubber.includes('chapter.title'), '同时显示章标题');
+  assert.ok(scrubber.includes('onSeekRef.current(indexRef.current)'),
+    '松手才跳转：拖动中每帧滚动目录会卡');
+  assert.ok(scrubber.includes('onPanResponderTerminationRequest: () => false'),
+    '拖到一半被父容器抢走手势会跳回原位');
+});
+
+test('陪读评论：本页 + 整章两个入口，按钮写明角色名', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(view), '本页入口带角色名');
+  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(view), '整章入口带角色名');
+  assert.ok(view.includes('activeCharacterName'), '角色名取自当前选中的角色卡');
+  assert.ok(view.includes('activeCharacter'), '按 characterId 找角色卡');
+  assert.ok(view.includes('handleCommentChapter'), '整章评论处理');
+  assert.ok(/chapterEntries\[currentChapterIndex\]/.test(view), '按当前章取范围');
+  assert.ok(/block\.index >= start && block\.index < end/.test(view), '摘录取整章的块');
+});
+
 test('书架：书名搜索 + 分组（复用通用集合组件），删书级联清理分组引用', () => {
   const screen = readSource('src/books/BookScreen.js');
   assert.ok(screen.includes('books.search.placeholder'), '书名搜索框');

@@ -15,6 +15,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
@@ -29,6 +30,7 @@ import { useApp } from '../context/AppContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 import { splitBookIntoBlocks } from './blocks.js';
+import ChapterScrubber from './ChapterScrubber.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
 import { pageText } from './pagination.js';
@@ -48,7 +50,9 @@ const TAP_ZONE_RATIO = 0.3;
 // 阅读区上下内缩：顶栏/底栏是浮层（absolute），不参与布局——留出恒定内缩，
 // 保证工具栏显隐时正文区尺寸不变（否则每次呼出工具栏都会触发重测量→转圈）。
 const READER_INSET_TOP = 48;
-const READER_INSET_BOTTOM = 40;
+// 底部内缩放宽到 56：底栏进度文字本身要让开系统导航栏/手势条（原来只留 40，
+// 底栏又贴在屏幕最下沿，最后一行字会被遮掉一半），正文也要跟着让位。
+const READER_INSET_BOTTOM = 56;
 
 // 翻页方式：点击（原行为）/ 卡片滑动 / 旋转翻页（3D 翻转）/ 淡入淡出。
 // 顺序即工具栏按钮的轮换顺序（与 readerSettings.PAGE_TURN_MODES 一致）。
@@ -93,6 +97,8 @@ export default function BookReaderView({ item, content, onBack }) {
   const [fontSize, setFontSize] = useState(17);
   const [showControls, setShowControls] = useState(true);
   const [showChapters, setShowChapters] = useState(false);
+  // 目录搜索关键词（按章节名过滤，大小写不敏感）。
+  const [chapterQuery, setChapterQuery] = useState('');
   const [showComments, setShowComments] = useState(false);
   const [contentArea, setContentArea] = useState({ width: 0, height: 0 });
   // 翻页方式（全局持久化）+ 切换时的短暂提示 + 翻页动画进度。
@@ -158,6 +164,83 @@ export default function BookReaderView({ item, content, onBack }) {
       anchorText: '',
     });
   }, [currentBlock, generate, mdBlockIndex, paged, reader]);
+
+  // ---- 章节目录：当前章 / 已读进度 / 搜索 / 跳转 ----
+
+  // 当前块的索引：分页模式看 reader，Markdown 模式看 mdBlockIndex。
+  const readingBlockIndex = paged ? reader.blockIndex : mdBlockIndex;
+
+  // 每章带上它在原数组里的下标：目录搜索过滤后仍要按**原下标**算进度、跳转与高亮。
+  const chapterEntries = useMemo(() => (
+    (item.chapters || []).map((chapter, index) => ({ ...chapter, index }))
+  ), [item.chapters]);
+
+  const filteredChapters = useMemo(() => {
+    const keyword = chapterQuery.trim().toLowerCase();
+    if (!keyword) return chapterEntries;
+    return chapterEntries.filter(entry => String(entry.title || '').toLowerCase().includes(keyword));
+  }, [chapterEntries, chapterQuery]);
+
+  // 当前所在章：最后一个「起始块 ≤ 当前块」的章节（章节按 blockIndex 升序）。
+  const currentChapterIndex = useMemo(() => {
+    let found = 0;
+    chapterEntries.forEach(entry => {
+      if (entry.blockIndex <= readingBlockIndex) found = entry.index;
+    });
+    return found;
+  }, [chapterEntries, readingBlockIndex]);
+
+  // 章节的**粗略**已读百分比：章内已读块 / 该章总块数。
+  // 一本书里块的大小基本均匀，够回答「这章读到哪了」，不追求精确。
+  const chapterReadPercent = useCallback(index => {
+    if (chapterEntries.length === 0) return 0;
+    const start = chapterEntries[index].blockIndex;
+    const end = index + 1 < chapterEntries.length
+      ? chapterEntries[index + 1].blockIndex
+      : Math.max(start + 1, blocks.length);
+    const total = Math.max(1, end - start);
+    const read = Math.min(total, Math.max(0, readingBlockIndex - start));
+    return Math.round((read / total) * 100);
+  }, [blocks.length, chapterEntries, readingBlockIndex]);
+
+  const jumpToBlock = useCallback(blockIndex => {
+    if (paged) {
+      reader.jumpToChapter(blockIndex);
+      return;
+    }
+    setMdBlockIndex(blockIndex);
+    if (mdListRef.current) mdListRef.current.scrollToIndex({ index: blockIndex, animated: false });
+  }, [mdListRef, paged, reader]);
+
+  // 评论面板当前选中的角色：按钮文案要写具体名字（原来是「让TA聊聊这一页」）。
+  const activeCharacter = useMemo(() => (
+    (characters || []).find(entry => entry && entry.id === characterId) || null
+  ), [characterId, characters]);
+  const activeCharacterName = String((activeCharacter && activeCharacter.name) || '').trim()
+    || t('common.characterFallback');
+
+  // 让角色聊聊「这一章」：把整章的块文本拼成摘录（截断到 1500 字符）。
+  const handleCommentChapter = useCallback(() => {
+    const chapter = chapterEntries[currentChapterIndex];
+    if (!chapter) return undefined;
+    const start = chapter.blockIndex;
+    const end = currentChapterIndex + 1 < chapterEntries.length
+      ? chapterEntries[currentChapterIndex + 1].blockIndex
+      : Math.max(start + 1, blocks.length);
+    const excerpt = blocks
+      .filter(block => block.index >= start && block.index < end)
+      .map(block => String(block.text || ''))
+      .join('\n')
+      .trim()
+      .slice(0, 1500);
+    if (!excerpt) return undefined;
+    return generate({
+      excerpt,
+      chapterTitle: chapter.title || '',
+      blockIndex: start,
+      anchorText: '',
+    });
+  }, [blocks, chapterEntries, currentChapterIndex, generate]);
 
   // 接话：切到该角色当前会话并把评论作为引用带入输入区（评论本体不进会话存储）。
   const handleQuoteComment = useCallback(async comment => {
@@ -511,10 +594,17 @@ export default function BookReaderView({ item, content, onBack }) {
         </View>
       ) : null}
 
-      <Modal visible={showChapters} animationType="slide" onRequestClose={() => setShowChapters(false)}>
+      <Modal
+        visible={showChapters}
+        animationType="slide"
+        onRequestClose={() => { setShowChapters(false); setChapterQuery(''); }}
+      >
         <View style={[styles.container, styles.modalRoot]}>
-          <View style={styles.topBar}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setShowChapters(false)}>
+          <View style={styles.modalTopBar}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => { setShowChapters(false); setChapterQuery(''); }}
+            >
               <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
               <Text style={styles.backText}>{t('books.reader.returnToReading')}</Text>
             </TouchableOpacity>
@@ -528,38 +618,82 @@ export default function BookReaderView({ item, content, onBack }) {
               description={t('books.reader.noChapters.body')}
             />
           ) : (
-            <FlatList
-              data={item.chapters}
-              keyExtractor={(chapter, index) => `${chapter.blockIndex}-${index}`}
-              contentContainerStyle={styles.chapterList}
-              renderItem={({ item: chapter }) => {
-                const active = reader.blockIndex >= chapter.blockIndex;
-                return (
-                  <TouchableOpacity
-                    style={[styles.chapterRow, active && styles.chapterRowActive]}
-                    onPress={() => {
-                      if (paged) {
-                        reader.jumpToChapter(chapter.blockIndex);
-                      } else {
-                        setMdBlockIndex(chapter.blockIndex);
-                        if (mdListRef.current) mdListRef.current.scrollToIndex({ index: chapter.blockIndex, animated: false });
-                      }
-                      setShowChapters(false);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.chapterText} numberOfLines={1}>{chapter.title}</Text>
+            <View style={styles.chapterBody}>
+              <View style={styles.chapterSearchRow}>
+                <Ionicons name="search-outline" size={15} color={theme.colors.textFaint} />
+                <TextInput
+                  style={styles.chapterSearchInput}
+                  value={chapterQuery}
+                  onChangeText={setChapterQuery}
+                  placeholder={t('books.reader.chapter.search')}
+                  placeholderTextColor={theme.colors.textFaint}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {chapterQuery ? (
+                  <TouchableOpacity onPress={() => setChapterQuery('')} hitSlop={8}>
+                    <Ionicons name="close-circle" size={15} color={theme.colors.textFaint} />
                   </TouchableOpacity>
-                );
-              }}
-            />
+                ) : null}
+              </View>
+              {filteredChapters.length === 0 ? (
+                <Text style={styles.chapterEmpty}>{t('books.reader.chapter.noMatch')}</Text>
+              ) : (
+                <FlatList
+                  data={filteredChapters}
+                  keyExtractor={entry => `${entry.blockIndex}-${entry.index}`}
+                  contentContainerStyle={styles.chapterList}
+                  renderItem={({ item: entry }) => {
+                    const current = entry.index === currentChapterIndex;
+                    const percent = chapterReadPercent(entry.index);
+                    return (
+                      <TouchableOpacity
+                        style={[styles.chapterRow, current && styles.chapterRowCurrent]}
+                        onPress={() => {
+                          jumpToBlock(entry.blockIndex);
+                          setShowChapters(false);
+                          setChapterQuery('');
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.chapterRowMain}>
+                          <Text
+                            style={[styles.chapterText, current && styles.chapterTextCurrent]}
+                            numberOfLines={1}
+                          >
+                            {entry.title}
+                          </Text>
+                          {current ? (
+                            <Text style={styles.chapterCurrentBadge}>{t('books.reader.chapter.current')}</Text>
+                          ) : null}
+                        </View>
+                        <Text style={styles.chapterPercent}>
+                          {percent >= 100
+                            ? t('books.reader.chapter.done')
+                            : t('books.reader.chapter.progress', { percent })}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
+              <ChapterScrubber
+                chapters={chapterEntries}
+                currentIndex={currentChapterIndex}
+                onSeek={index => {
+                  const entry = chapterEntries[index];
+                  if (entry) jumpToBlock(entry.blockIndex);
+                }}
+              />
+            </View>
           )}
         </View>
       </Modal>
 
       <Modal visible={showComments} animationType="slide" onRequestClose={() => setShowComments(false)}>
         <View style={[styles.container, styles.modalRoot]}>
-          <View style={styles.topBar}>
+          <View style={styles.modalTopBar}>
             <TouchableOpacity style={styles.backButton} onPress={() => setShowComments(false)}>
               <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
               <Text style={styles.backText}>{t('books.reader.returnToReading')}</Text>
@@ -589,17 +723,32 @@ export default function BookReaderView({ item, content, onBack }) {
                 );
               })}
             </ScrollView>
-            <TouchableOpacity
-              style={styles.generateButton}
-              onPress={handleCommentOnPage}
-              disabled={generating || (paged ? reader.status !== MEASURE_READY : blocks.length === 0)}
-              activeOpacity={0.85}
-            >
-              {generating
-                ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
-                : <Ionicons name="chatbubbles" size={15} color={theme.colors.primaryContrast} />}
-              <Text style={styles.generateText}>{t('books.comments.generate')}</Text>
-            </TouchableOpacity>
+            <View style={styles.generateRow}>
+              <TouchableOpacity
+                style={styles.generateButton}
+                onPress={handleCommentOnPage}
+                disabled={generating || (paged ? reader.status !== MEASURE_READY : blocks.length === 0)}
+                activeOpacity={0.85}
+              >
+                {generating
+                  ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+                  : <Ionicons name="chatbubbles" size={15} color={theme.colors.primaryContrast} />}
+                <Text style={styles.generateText}>
+                  {t('books.comments.generate', { character: activeCharacterName })}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.generateButton, styles.generateButtonChapter]}
+                onPress={handleCommentChapter}
+                disabled={generating || blocks.length === 0}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="book-outline" size={15} color={theme.colors.primarySoft} />
+                <Text style={[styles.generateText, styles.generateTextChapter]}>
+                  {t('books.comments.generateChapter', { character: activeCharacterName })}
+                </Text>
+              </TouchableOpacity>
+            </View>
             {commentError ? (
               <View style={styles.errorBanner}>
                 <Text style={styles.errorText}>{commentError}</Text>
@@ -646,7 +795,17 @@ export default function BookReaderView({ item, content, onBack }) {
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  modalRoot: { paddingTop: 40 },
+  modalRoot: { paddingTop: 48 },
+  // 目录 / 评论这类全屏 Modal 的顶栏：**不浮层**、参与布局。
+  // 阅读页那套 topBar 是 absolute 贴屏幕顶，直接复用会把「返回阅读 / 目录」顶进系统状态栏。
+  modalTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: tokens.border.thin,
+    borderBottomColor: theme.colors.divider,
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -719,7 +878,9 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingTop: 8,
+    // 底部让开系统导航栏 / 手势条：贴到屏幕最下沿时最后一行进度字会被遮掉一半。
+    paddingBottom: 24,
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -728,15 +889,54 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   progressText: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1 },
-  chapterList: { paddingHorizontal: 20, paddingBottom: 30 },
+  chapterBody: { flex: 1 },
+  chapterSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  chapterSearchInput: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    marginLeft: 6,
+    paddingVertical: 0,
+  },
+  chapterEmpty: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    marginTop: 20,
+    textAlign: 'center',
+  },
+  // 右侧留出 46px 给定位条，章节文字不会压到滑块下面。
+  chapterList: { paddingLeft: 20, paddingRight: 46, paddingBottom: 30 },
   chapterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 10,
     borderRadius: tokens.radius.sm,
     marginBottom: 4,
   },
-  chapterRowActive: { backgroundColor: theme.colors.surface },
+  // 「正在阅读」的那一章：底色 + 主色标题 + 徽标（见 chapterCurrentBadge）。
+  chapterRowCurrent: { backgroundColor: theme.colors.surface },
+  chapterRowMain: { flex: 1, marginRight: 8 },
   chapterText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
+  chapterTextCurrent: { color: theme.colors.primarySoft, fontWeight: '700' },
+  chapterCurrentBadge: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(10),
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  chapterPercent: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
   commentsBody: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
   sectionHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
   chipScroll: { flexGrow: 0, marginBottom: 10 },
@@ -759,7 +959,16 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderRadius: tokens.metrics.buttonRadius,
     paddingVertical: 10,
   },
+  generateRow: { marginBottom: 10 },
+  // 第二个入口用描边样式区分开：同为「让某角色聊」，但范围是整章。
+  generateButtonChapter: {
+    marginTop: 8,
+    backgroundColor: 'transparent',
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+  },
   generateText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6 },
+  generateTextChapter: { color: theme.colors.primarySoft },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
