@@ -15,6 +15,7 @@ function read(relativePath) {
 
 const CHAT = read('src/workspace/WorkspaceChat.js');
 const SHEET = read('src/workspace/WorkspaceSettingsSheet.js');
+const HISTORY = read('src/workspace/WorkspaceHistorySheet.js');
 const GENERAL = read('src/workspace/WorkspaceGeneralSettings.js');
 const PROJECT_SHEET = read('src/workspace/WorkspaceProjectSheet.js');
 const PANEL = read('src/WorkspacePanel.js');
@@ -142,6 +143,40 @@ test('入口接线：设置页进的是聊天主界面，子面板按 need 打�
   assert.ok(PANEL.includes('openedSectionRef'), '同一 section 不重复弹开');
 });
 
+test('工作区会话持久化：发送即落盘，可切换 / 删除 / 清空，切角色换历史', () => {
+  assert.ok(CHAT.includes('persistMessages(ownerId, chatId, [userMessage])'), '发送时落 user 消息');
+  assert.ok(
+    CHAT.includes('persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }])'),
+    '助手终稿一次性落盘'
+  );
+  assert.ok(CHAT.includes('const chatId = activeChatId;'), '会话 id 在发送时定住（生成中切会话不写错）');
+  assert.ok(CHAT.includes('const ownerId = characterId;'), '角色同时定住');
+  assert.ok(CHAT.includes('getWorkspaceChats(ownerId)'), '打开时载入该角色的会话');
+  assert.ok(CHAT.includes('createWorkspaceChat(characterId)'), '新建对话另开会话（不是清掉上一条）');
+  assert.ok(CHAT.includes('setActiveWorkspaceChat(characterId, id)'), '切换会话即持久化');
+  assert.ok(CHAT.includes('deleteWorkspaceChat(characterId, id)'), '删除会话');
+  assert.ok(CHAT.includes('clearWorkspaceChats(characterId)'), '清空历史');
+  assert.ok(CHAT.includes('await loadChats(next);'), '切角色时换一整套历史');
+
+  // 左列「查找历史」指向对话历史；文件改动历史仍留在底部设置里
+  assert.ok(CHAT.includes('setHistoryOpen(true)'), '左列打开对话历史');
+  assert.ok(CHAT.includes('<WorkspaceHistorySheet'), '历史面板已接线');
+  assert.ok(SHEET.includes("onOpenPanel('viewer')"), '文件与改动仍走子面板');
+
+  // 历史面板本身
+  assert.ok(HISTORY.includes('onSelectChat'), '点击切换');
+  assert.ok(HISTORY.includes('confirmDelete'), '删除有二次确认');
+  assert.ok(HISTORY.includes('confirmClear'), '清空有二次确认');
+  assert.ok(HISTORY.includes("t('workspace.history.empty')"), '空态文案');
+  assert.ok(HISTORY.includes("t('workspace.history.count'"), '显示消息条数');
+
+  // 独立存储键（不能混进聊天页会话）
+  assert.ok(
+    read('src/storage/workspace.js').includes("WORKSPACE_CHATS_KEY = '@easychat2_workspace_chats'"),
+    '工作区会话走独立键'
+  );
+});
+
 test('新增文案中英齐备', () => {
   const keys = [
     'workspace.home.title',
@@ -167,6 +202,11 @@ test('新增文案中英齐备', () => {
     'workspace.project.repo',
     'workspace.project.pull',
     'workspace.project.err.auth',
+    'workspace.history.title',
+    'workspace.history.empty',
+    'workspace.history.untitled',
+    'workspace.history.clear.action',
+    'workspace.settings.files',
   ];
   for (const key of keys) {
     assert.ok(ZH.includes(`'${key}'`), `zh-CN 缺 ${key}`);

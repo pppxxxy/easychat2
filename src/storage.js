@@ -116,14 +116,23 @@ export {
 export {
   WORKSPACE_KEY,
   WORKSPACE_CHANGES_KEY,
+  WORKSPACE_CHATS_KEY,
   WORKSPACE_CHANGE_LIMIT,
+  WORKSPACE_CHAT_LIMIT_SIZE,
+  WORKSPACE_CHAT_MESSAGE_LIMIT_SIZE,
   appendWorkspaceChange,
+  appendWorkspaceChatMessages,
   clearWorkspaceChanges,
+  clearWorkspaceChats,
+  createWorkspaceChat,
+  deleteWorkspaceChat,
   getWorkspaceChanges,
+  getWorkspaceChats,
   getWorkspaceSettings,
   normalizeWorkspaceChange,
   patchWorkspaceSettings,
   saveWorkspaceSettings,
+  setActiveWorkspaceChat,
 } from './storage/workspace.js';
 export {
   clearGithubMcpCredentials,

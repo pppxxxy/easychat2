@@ -33,7 +33,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import {
+  appendWorkspaceChatMessages,
   capabilitiesForModel,
+  clearWorkspaceChats,
+  createWorkspaceChat,
+  deleteWorkspaceChat,
   getActiveLocalModel,
   getActiveModel,
   getApiConfigs,
@@ -43,10 +47,12 @@ import {
   getSessions,
   getThinkingSettings,
   getTranscriptionSettings,
+  getWorkspaceChats,
   getWorkspaceSettings,
   patchWorkspaceSettings,
   saveApiConfigs,
   saveThinkingSettings,
+  setActiveWorkspaceChat,
 } from '../storage.js';
 import { computeContextUsage, resolveContextWindow } from '../chat/contextUsage.js';
 import { filterRequestMedia } from '../prompt/chatPipeline.js';
@@ -67,6 +73,8 @@ import {
 import useChatRecorder from '../chat/useChatRecorder.js';
 import { resolveWorkspaceAssistant } from './assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from './native.js';
+import { upsertWorkspaceChat } from './chats.js';
+import WorkspaceHistorySheet from './WorkspaceHistorySheet.js';
 import {
   buildRepoHeaders,
   buildRepoZipUrl,
@@ -122,6 +130,11 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
   const [activeProjectId, setActiveProjectId] = useState('');
   const [pulling, setPulling] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  // 工作区会话（持久化）：列表 + 当前会话。消息随会话存盘，切回旧会话能看回几轮之前的指令。
+  const [chatList, setChatList] = useState([]);
+  const [activeChatId, setActiveChatId] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
 
   const recorder = useChatRecorder();
   const controllerRef = useRef(null);
@@ -155,6 +168,7 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     setSettingsSection('');
     setGeneralOpen(false);
     setProjectOpen(false);
+    setHistoryOpen(false);
     if (recorderRef.current.recording) recorderRef.current.cancel();
   }, [visible]);
 
@@ -189,6 +203,38 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     }
   }, []);
 
+  // 载入某个角色的工作区会话：有就接着上次那条（连同消息），没有就新建一条空会话。
+  const loadChats = useCallback(async ownerId => {
+    try {
+      const bucket = await getWorkspaceChats(ownerId);
+      if (!mountedRef.current) return;
+      if (bucket.chats.length) {
+        const active = bucket.chats.find(item => item.id === bucket.activeId) || bucket.chats[0];
+        setChatList(bucket.chats);
+        setActiveChatId(active.id);
+        setMessages(active.messages);
+        return;
+      }
+      const created = await createWorkspaceChat(ownerId);
+      if (!mountedRef.current) return;
+      setChatList(created ? [created] : []);
+      setActiveChatId(created ? created.id : '');
+      setMessages([]);
+    } catch (error) {}
+  }, []);
+
+  // 把 user 消息与 assistant 终稿追加进所在会话。流式期间不落盘（每帧写一次会拖垮存储），
+  // 只在发送时与结束/失败时各写一次；按消息 id 去重，重复落盘不会产生重复条目。
+  const persistMessages = useCallback(async (ownerId, chatId, list) => {
+    const items = (Array.isArray(list) ? list : [list]).filter(item => item && item.id);
+    if (!ownerId || !chatId || !items.length) return;
+    try {
+      const updated = await appendWorkspaceChatMessages(ownerId, chatId, items);
+      if (!updated || !mountedRef.current) return;
+      setChatList(prev => upsertWorkspaceChat(prev, updated));
+    } catch (error) {}
+  }, []);
+
   // 打开时自解析：设置快照 → 沙盒 store → 工作区角色 → 模型 / 思考 / 角色清单 / 项目。
   useEffect(() => {
     if (!visible) return undefined;
@@ -217,7 +263,9 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
             patchWorkspaceSettings({ assistantCharacterId: resolved.id }).catch(() => {});
           }
         }
-        loadUsage(resolved.id || settings.assistantCharacterId || 'default');
+        const ownerId = resolved.id || settings.assistantCharacterId || 'default';
+        loadUsage(ownerId);
+        loadChats(ownerId);
 
         const { configs, activeId } = await getApiConfigs().catch(() => ({ configs: [], activeId: '' }));
         if (alive) {
@@ -234,7 +282,7 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
       } catch (error) {}
     })();
     return () => { alive = false; };
-  }, [visible, loadUsage]);
+  }, [visible, loadChats, loadUsage]);
 
   const updateAssistant = useCallback((id, patch) => {
     setMessages(list => list.map(item => (item.id === id ? { ...item, ...patch } : item)));
@@ -244,8 +292,8 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     setAttachments(list => list.filter(item => item.id !== id));
   }, []);
 
-  // 新建对话：清空这一轮的消息与附件，回到空白对话（工作区对话本就不落盘）。
-  const handleNewChat = useCallback(() => {
+  // 新建对话：另开一条会话（旧的留在历史里，随时切回来），而不是把上一条清掉。
+  const handleNewChat = useCallback(async () => {
     if (controllerRef.current) controllerRef.current.abort();
     setMessages([]);
     setInput('');
@@ -253,7 +301,69 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     setToolStatus('');
     setSending(false);
     setSettingsSection('');
-  }, []);
+    try {
+      const created = await createWorkspaceChat(characterId);
+      if (!created || !mountedRef.current) return;
+      setActiveChatId(created.id);
+      setChatList(prev => upsertWorkspaceChat(prev, created));
+    } catch (error) {}
+  }, [characterId]);
+
+  // 切到历史里的某条会话：先中止在途生成，再把那条的消息读进界面。
+  const handleSelectChat = useCallback(async id => {
+    const target = chatList.find(item => item.id === id);
+    if (!target) return;
+    if (controllerRef.current) controllerRef.current.abort();
+    setActiveChatId(id);
+    setMessages(target.messages);
+    setInput('');
+    setAttachments([]);
+    setToolStatus('');
+    setSending(false);
+    setHistoryOpen(false);
+    await setActiveWorkspaceChat(characterId, id).catch(() => {});
+  }, [characterId, chatList]);
+
+  const handleDeleteChat = useCallback(async id => {
+    setHistoryBusy(true);
+    try {
+      const bucket = await deleteWorkspaceChat(characterId, id);
+      if (!bucket || !mountedRef.current) return;
+      setChatList(bucket.chats);
+      // 删掉的正是当前会话时，切到新的活跃会话（可能已空）
+      if (String(bucket.activeId) !== String(activeChatId)) {
+        const target = bucket.chats.find(item => item.id === bucket.activeId);
+        setActiveChatId(bucket.activeId || '');
+        setMessages(target ? target.messages : []);
+      }
+      if (!bucket.chats.length) {
+        const created = await createWorkspaceChat(characterId);
+        if (!created || !mountedRef.current) return;
+        setChatList([created]);
+        setActiveChatId(created.id);
+        setMessages([]);
+      }
+    } catch (error) {
+    } finally {
+      if (mountedRef.current) setHistoryBusy(false);
+    }
+  }, [activeChatId, characterId]);
+
+  const handleClearChats = useCallback(async () => {
+    setHistoryBusy(true);
+    try {
+      await clearWorkspaceChats(characterId).catch(() => {});
+      const created = await createWorkspaceChat(characterId);
+      if (!mountedRef.current) return;
+      setChatList(created ? [created] : []);
+      setActiveChatId(created ? created.id : '');
+      setMessages([]);
+      setHistoryOpen(false);
+    } catch (error) {
+    } finally {
+      if (mountedRef.current) setHistoryBusy(false);
+    }
+  }, [characterId]);
 
   // ---- 设置面板回调（都写回存储，改完即生效） ----
 
@@ -312,8 +422,10 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     try {
       await patchWorkspaceSettings({ assistantCharacterId: next });
       loadUsage(next);
+      // 会话按角色分区：切角色要换一整套历史，不能把上一个角色的对话留在界面上。
+      await loadChats(next);
     } catch (error) {}
-  }, [characters, loadUsage]);
+  }, [characters, loadChats, loadUsage]);
 
   // 导入文件：选一个文本文件复制进沙盒（角色随后就能读它）。
   const handleImportFile = useCallback(async () => {
@@ -491,14 +603,21 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
       id: nextId(),
       role: 'user',
       content: userText || (images.length ? t('workspace.chat.imageTag') : ''),
+      at: Date.now(),
     };
     const assistantId = nextId();
     const history = messages;
+    // 会话与角色在这里定住：生成过程中用户可能切会话或切角色，
+    // 落盘仍要写回开始生成时那一条，不能跟着界面状态漂走。
+    const chatId = activeChatId;
+    const ownerId = characterId;
+    let assistantFinal = { id: assistantId, role: 'assistant', content: '', isError: false, at: Date.now() };
     setMessages(list => [...list, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     setInput('');
     setAttachments([]);
     setSending(true);
     setToolStatus('');
+    persistMessages(ownerId, chatId, [userMessage]);
 
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -531,6 +650,7 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
         signal: controller.signal,
         requestOptions: { stream: true },
         onToken: fullText => {
+          assistantFinal = { ...assistantFinal, content: fullText, isError: false };
           if (!mountedRef.current || controller.signal.aborted) return;
           updateAssistant(assistantId, { content: fullText, isError: false });
         },
@@ -551,25 +671,33 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
       }
     } catch (error) {
       if (controller.signal.aborted || isCanceledError(error)) {
+        // 已经流出的内容就当终稿；一个字都没出才落「已停止」。
+        if (!String(assistantFinal.content || '').trim()) {
+          assistantFinal = { ...assistantFinal, content: t('workspace.chat.stopped'), isError: true };
+        }
         setMessages(list => list.map(item => (
           item.id === assistantId && !String(item.content || '').trim()
-            ? { ...item, content: t('workspace.chat.stopped'), isError: true }
+            ? { ...item, content: assistantFinal.content, isError: assistantFinal.isError }
             : item
         )));
       } else {
-        updateAssistant(assistantId, {
+        assistantFinal = {
+          ...assistantFinal,
           content: maskSecrets((error && error.message) || t('workspace.chat.err')),
           isError: true,
-        });
+        };
+        updateAssistant(assistantId, { content: assistantFinal.content, isError: true });
       }
     } finally {
+      // 助手终稿一次性落盘（含被中止 / 报错的情况），流式期间不写。
+      persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }]);
       if (mountedRef.current) {
         setSending(false);
         setToolStatus('');
       }
       controllerRef.current = null;
     }
-  }, [attachments, characterId, characterName, input, loadUsage, messages, mode, sending, t, updateAssistant, wsSettings]);
+  }, [activeChatId, attachments, characterId, characterName, input, loadUsage, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 
   const canSend = !sending && (input.trim().length > 0 || attachments.length > 0);
   const lastAssistantId = messages.length && messages[messages.length - 1].role === 'assistant'
@@ -603,7 +731,7 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
       id: 'history',
       icon: 'time-outline',
       label: t('workspace.rail.history'),
-      onPress: () => { if (onOpenPanel) onOpenPanel('viewer'); },
+      onPress: () => setHistoryOpen(true),
     },
     {
       id: 'general',
@@ -825,6 +953,17 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
         onSelectProject={handleSelectProject}
         onPull={handlePullProject}
         pulling={pulling}
+      />
+
+      <WorkspaceHistorySheet
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        chats={chatList}
+        activeChatId={activeChatId}
+        onSelectChat={handleSelectChat}
+        onDeleteChat={handleDeleteChat}
+        onClearAll={handleClearChats}
+        busy={historyBusy}
       />
     </Modal>
   );

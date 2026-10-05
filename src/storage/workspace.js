@@ -8,14 +8,30 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeWorkspaceSettings } from '../workspace/settings.js';
+import {
+  WORKSPACE_CHAT_LIMIT,
+  WORKSPACE_CHAT_MESSAGE_LIMIT,
+  deriveWorkspaceChatTitle,
+  emptyWorkspaceChats,
+  makeWorkspaceChatId,
+  normalizeWorkspaceChat,
+  normalizeWorkspaceChatMessage,
+  normalizeWorkspaceChatsStore,
+  upsertWorkspaceChat,
+} from '../workspace/chats.js';
 import { createMutationQueue, readJson } from './io.js';
 
 export const WORKSPACE_KEY = '@easychat2_workspace';
 export const WORKSPACE_CHANGES_KEY = '@easychat2_workspace_changes';
+export const WORKSPACE_CHATS_KEY = '@easychat2_workspace_chats';
+export const WORKSPACE_CHAT_LIMIT_SIZE = WORKSPACE_CHAT_LIMIT;
+export const WORKSPACE_CHAT_MESSAGE_LIMIT_SIZE = WORKSPACE_CHAT_MESSAGE_LIMIT;
 export const WORKSPACE_CHANGE_LIMIT = 200;
 const WORKSPACE_CHANGE_CHARACTER_LIMIT = 50;
+const WORKSPACE_CHAT_CHARACTER_LIMIT = 50;
 
 const workspaceChangesMutation = createMutationQueue();
+const workspaceChatsMutation = createMutationQueue();
 
 export async function getWorkspaceSettings() {
   const raw = await readJson(WORKSPACE_KEY, null);
@@ -114,6 +130,135 @@ export function clearWorkspaceChanges(characterId) {
     const removed = (store[key] || []).length;
     delete store[key];
     await AsyncStorage.setItem(WORKSPACE_CHANGES_KEY, JSON.stringify(store));
+    return removed;
+  });
+}
+
+// ---- 工作区会话（对话持久化） ----
+//
+// 与聊天页会话分开存（键不同），按角色分区：工作区对话直连 agent 工具循环、
+// 不参与角色扮演流水线，混进聊天页列表会把角色聊天淹没。
+// 全部写入走同一队列：追加消息与删会话可能由界面并发触发，读-改-写交错会互相覆盖。
+
+async function readChatsStore() {
+  const raw = await readJson(WORKSPACE_CHATS_KEY, null);
+  return normalizeWorkspaceChatsStore(raw);
+}
+
+async function writeChatsStore(store) {
+  const keys = Object.keys(store);
+  if (keys.length > WORKSPACE_CHAT_CHARACTER_LIMIT) {
+    keys
+      .sort((a, b) => {
+        const left = store[a] && store[a].chats[0] ? store[a].chats[0].updatedAt : 0;
+        const right = store[b] && store[b].chats[0] ? store[b].chats[0].updatedAt : 0;
+        return right - left;
+      })
+      .slice(WORKSPACE_CHAT_CHARACTER_LIMIT)
+      .forEach(extra => { delete store[extra]; });
+  }
+  await AsyncStorage.setItem(WORKSPACE_CHATS_KEY, JSON.stringify(store));
+  return store;
+}
+
+export async function getWorkspaceChats(characterId) {
+  const key = String(characterId || '').trim();
+  if (!key) return emptyWorkspaceChats();
+  const store = await readChatsStore();
+  return store[key] || emptyWorkspaceChats();
+}
+
+export function createWorkspaceChat(characterId) {
+  const key = String(characterId || '').trim();
+  const now = Date.now();
+  const chat = normalizeWorkspaceChat({
+    id: makeWorkspaceChatId(),
+    title: '',
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+  });
+  if (!key) return Promise.resolve(chat);
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    store[key] = { activeId: chat.id, chats: upsertWorkspaceChat(bucket.chats, chat) };
+    await writeChatsStore(store);
+    return chat;
+  });
+}
+
+// 追加消息：按 id 去重（流式结束后可能重发同一条终稿），并把首条用户指令提为标题。
+export function appendWorkspaceChatMessages(characterId, chatId, messages) {
+  const key = String(characterId || '').trim();
+  const id = String(chatId || '').trim();
+  if (!key || !id) return Promise.resolve(null);
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    const target = bucket.chats.find(item => item.id === id);
+    if (!target) return null;
+    const incoming = (Array.isArray(messages) ? messages : [messages])
+      .filter(item => item && item.id)
+      .map(normalizeWorkspaceChatMessage);
+    const seen = new Set(target.messages.map(item => item.id));
+    const fresh = incoming.filter(item => !seen.has(item.id));
+    if (!fresh.length) return target;
+    const nextMessages = [...target.messages, ...fresh].slice(-WORKSPACE_CHAT_MESSAGE_LIMIT);
+    const nextChat = normalizeWorkspaceChat({
+      ...target,
+      messages: nextMessages,
+      title: target.title || deriveWorkspaceChatTitle(nextMessages),
+      updatedAt: Date.now(),
+    });
+    store[key] = {
+      activeId: bucket.activeId || id,
+      chats: upsertWorkspaceChat(bucket.chats.filter(item => item.id !== id), nextChat),
+    };
+    await writeChatsStore(store);
+    return nextChat;
+  });
+}
+
+export function setActiveWorkspaceChat(characterId, chatId) {
+  const key = String(characterId || '').trim();
+  const id = String(chatId || '').trim();
+  if (!key || !id) return Promise.resolve(false);
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    if (!bucket.chats.some(item => item.id === id)) return false;
+    store[key] = { activeId: id, chats: bucket.chats };
+    await writeChatsStore(store);
+    return true;
+  });
+}
+
+export function deleteWorkspaceChat(characterId, chatId) {
+  const key = String(characterId || '').trim();
+  const id = String(chatId || '').trim();
+  if (!key || !id) return Promise.resolve(emptyWorkspaceChats());
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    const chats = bucket.chats.filter(item => item.id !== id);
+    store[key] = {
+      activeId: bucket.activeId === id ? (chats[0] ? chats[0].id : '') : bucket.activeId,
+      chats,
+    };
+    await writeChatsStore(store);
+    return store[key];
+  });
+}
+
+export function clearWorkspaceChats(characterId) {
+  const key = String(characterId || '').trim();
+  if (!key) return Promise.resolve(0);
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const removed = (store[key] || emptyWorkspaceChats()).chats.length;
+    delete store[key];
+    await writeChatsStore(store);
     return removed;
   });
 }

@@ -145,7 +145,14 @@ npm test             # 运行 Node 单元与回归测试
 | `src/workspace/capabilities.js` | 工作区能力说明数据（1→5 循环 + 当前边界，纯数据） |
 | `src/workspace/docx.js` | Word(.docx) 导出：fflate 自拼最小 OOXML |
 | `src/workspace/native.js` | 工作区后端装配与工具注册（按设置选根；shellGateReason 门控） |
-| `src/WorkspacePanel.js` | 工作区面板（浏览/预览/分享/新建/导出 Word；按当前根走后端） |
+| `src/WorkspacePanel.js` | 工作区文件子面板（浏览/预览/分享/新建/导出 Word；被主界面按 section 打开） |
+| `src/workspace/WorkspaceChat.js` | 工作区主界面（聊天主体 + 左列入口 + 底部栏 + 设置列表；自包含初始化） |
+| `src/workspace/WorkspaceSettingsSheet.js` | 工作区设置列表（模型 / 思考强度 / 模式 / 角色 / 上下文占用 / 导入 / 导出 / 环境配置） |
+| `src/workspace/WorkspaceGeneralSettings.js` | 工作区综合设置（界面语言 / 工作模式 / 帮助与教学） |
+| `src/workspace/WorkspaceHistorySheet.js` | 工作区对话历史（切换 / 删除 / 清空） |
+| `src/workspace/WorkspaceProjectSheet.js` | 新建项目面板（仓库输入 + 已有项目切换） |
+| `src/workspace/project.js` | GitHub 仓库拉取（zipball → fflate 解压 → 沙盒 `projects/<owner>__<repo>/`） |
+| `src/workspace/chats.js` | 工作区会话归一化与裁剪（纯函数，可 Node 直测） |
 | `src/WorkspaceCapabilitiesCard.js` | 工作区能力说明卡片（设置页内，可折叠） |
 | `src/chat/toolApproval.js` | 工具执行前的人工确认（可等待的 Alert；中止即结算为拒绝） |
 | `plugins/withShellExecutor.js` + `plugins/shellExecutor/android/` | 命令执行原生模块（Kotlin，prebuild 时注入 android/） |

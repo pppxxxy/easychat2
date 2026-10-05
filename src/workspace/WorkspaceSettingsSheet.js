@@ -238,8 +238,8 @@ export default function WorkspaceSettingsSheet({
     },
     {
       id: 'history',
-      icon: 'time-outline',
-      label: t('workspace.rail.history'),
+      icon: 'folder-open-outline',
+      label: t('workspace.settings.files'),
       hint: t('workspace.settings.history.hint'),
       onPress: () => {
         if (onClose) onClose();
