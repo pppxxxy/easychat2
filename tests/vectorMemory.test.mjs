@@ -38,13 +38,13 @@ const message = {
 test('相同消息 id 的不同会话片段可以同时建立索引', async () => {
   const first = await indexMessages({
     messages: [message],
-    config: { enabled: false },
+    config: { enabled: true },
     sessionId: 'session-a',
     existing: [],
   });
   const second = await indexMessages({
     messages: [message],
-    config: { enabled: false },
+    config: { enabled: true },
     sessionId: 'session-b',
     existing: first,
   });
@@ -80,31 +80,31 @@ test('记忆上下文总长度不会超过配置上限', () => {
 test('索引片段会带上向量配置指纹', async () => {
   const items = await indexMessages({
     messages: [message],
-    config: { enabled: false, model: 'embed-a', maxChars: 400 },
+    config: { enabled: true, model: 'embed-a', maxChars: 400 },
     sessionId: 'session-sig',
     existing: [],
   });
-  assert.equal(items[0].signature, vectorSignature({ enabled: false, model: 'embed-a', maxChars: 400 }));
+  assert.equal(items[0].signature, vectorSignature({ enabled: true, model: 'embed-a', maxChars: 400 }));
   assert.notEqual(
-    vectorSignature({ enabled: false, model: 'embed-a', maxChars: 400 }),
-    vectorSignature({ enabled: false, model: 'embed-b', maxChars: 400 })
+    vectorSignature({ enabled: true, model: 'embed-a', maxChars: 400 }),
+    vectorSignature({ enabled: true, model: 'embed-b', maxChars: 400 })
   );
   assert.notEqual(
-    vectorSignature({ enabled: false, model: 'embed-a', maxChars: 400 }),
-    vectorSignature({ enabled: false, model: 'embed-a', maxChars: 800 })
+    vectorSignature({ enabled: true, model: 'embed-a', maxChars: 400 }),
+    vectorSignature({ enabled: true, model: 'embed-a', maxChars: 800 })
   );
 });
 
 test('同一会话同一消息不会重复建立片段', async () => {
   const first = await indexMessages({
     messages: [message],
-    config: { enabled: false },
+    config: { enabled: true },
     sessionId: 'session-a',
     existing: [],
   });
   const second = await indexMessages({
     messages: [message],
-    config: { enabled: false },
+    config: { enabled: true },
     sessionId: 'session-a',
     existing: first,
   });

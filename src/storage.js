@@ -177,6 +177,7 @@ export {
 export {
   createVectorConfig,
   getVectorIndex,
+  clearVectorIndex,
   getVectorIndexStatus,
   getVectorMemoryConfig,
   getVectorMemorySettings,

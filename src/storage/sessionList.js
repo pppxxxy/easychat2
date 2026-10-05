@@ -93,7 +93,10 @@ export async function reconcileVectorIndexes() {
           const sessionId = String(item.sessionId || '');
           if (!sessionId) return true;
           const session = sessionMap.get(sessionId);
-          return shouldIndexSession(session);
+          // 归属校验：会话存在但 characterId 与桶主人不符（历史错位/丢卡迁移残留）
+          // 同样清掉——否则错位分段永远留在错误角色的桶里被召回（2026-10-05 审核报告）。
+          return shouldIndexSession(session)
+            && String(session.characterId || '') === characterId;
         });
         if (next.length === current.length) return undefined;
         return next.length > 0 ? next : null;
