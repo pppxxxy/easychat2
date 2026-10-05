@@ -38,6 +38,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FORGE_EDITOR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeEditor.js'), 'utf8');
 const FORGE_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeScreen.js'), 'utf8');
@@ -499,9 +501,10 @@ test('辅助生成回复解析：剥代码块围栏、限长、空文本为 null
 });
 
 test('制卡编辑器支持世界书/正则/预设的增删改', () => {
-  // 三个集合都有编辑区与添加入口
-  ['世界书条目', '正则脚本', '角色预设'].forEach(label => {
-    assert.ok(FORGE_EDITOR_SOURCE.includes(`label="${label}"`), label);
+  // 三个集合都有编辑区与添加入口（i18n 键引用 + 语言包中文值）
+  [['forge.world.groupLabel', '世界书条目'], ['forge.regex.groupLabel', '正则脚本'], ['forge.preset.groupLabel', '角色预设']].forEach(([key, label]) => {
+    assert.ok(FORGE_EDITOR_SOURCE.includes(`label={t('${key}')}`), key);
+    assert.equal(zhCN[key], label, '语言包中文值正确');
   });
   assert.ok(FORGE_EDITOR_SOURCE.includes("addWorldEntry"));
   assert.ok(FORGE_EDITOR_SOURCE.includes("addRegexScript"));
@@ -510,18 +513,24 @@ test('制卡编辑器支持世界书/正则/预设的增删改', () => {
   assert.ok(FORGE_EDITOR_SOURCE.includes("removeEntry('worldInfo', index)"));
   assert.ok(FORGE_EDITOR_SOURCE.includes("removeEntry('regexScripts', index)"));
   assert.ok(FORGE_EDITOR_SOURCE.includes("removeEntry('presets', index)"));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('触发关键词（逗号分隔）'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('命中后注入的内容'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('预设内容（注入提示词）'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.world.keysPlaceholder')"), '应引用触发关键词占位符的 i18n 键');
+  assert.equal(zhCN['forge.world.keysPlaceholder'], '触发关键词（逗号分隔）', '语言包中文值正确');
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.world.contentPlaceholder')"), '应引用注入内容占位符的 i18n 键');
+  assert.equal(zhCN['forge.world.contentPlaceholder'], '命中后注入的内容', '语言包中文值正确');
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.preset.contentPlaceholder')"), '应引用预设内容占位符的 i18n 键');
+  assert.equal(zhCN['forge.preset.contentPlaceholder'], '预设内容（注入提示词）', '语言包中文值正确');
 });
 
 test('制卡编辑器每个字段提供辅助生成', () => {
   // 字段旁的辅助生成按钮 + 描述弹窗 + 生成动作
-  assert.ok(FORGE_EDITOR_SOURCE.includes('辅助生成'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.assist.button')"), '应引用辅助生成按钮的 i18n 键');
+  assert.equal(zhCN['forge.assist.button'], '辅助生成', '语言包中文值正确');
   assert.ok(FORGE_EDITOR_SOURCE.includes('openAssist'));
   assert.ok(FORGE_EDITOR_SOURCE.includes('submitAssist'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('描述想修改的地方'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes("title=\"生成\""));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.assist.placeholder')"), '应引用描述输入占位符的 i18n 键');
+  assert.ok(zhCN['forge.assist.placeholder'].includes('描述想修改的地方'), '语言包中文值正确');
+  assert.ok(FORGE_EDITOR_SOURCE.includes("title={t('forge.generate')}"), '应引用生成按钮的 i18n 键');
+  assert.equal(zhCN['forge.generate'], '生成', '语言包中文值正确');
   // 生成走 Screen 提供的发送通道（含 API 配置指纹保护），结果写回对应字段
   assert.ok(FORGE_EDITOR_SOURCE.includes('onAssistPrompt(prompt, controller.signal)'));
   assert.ok(FORGE_EDITOR_SOURCE.includes('[appliedKey]: text'));
@@ -532,7 +541,8 @@ test('制卡编辑器每个字段提供辅助生成', () => {
 
 test('标签/世界书/正则/预设都能辅助生成', () => {
   // 标签：文本协议 → 顿号拆分
-  assert.ok(FORGE_EDITOR_SOURCE.includes("openAssist({ kind: 'tags', label: '标签' })"));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("openAssist({ kind: 'tags', label: t('forge.tags.label') })"), '标签辅助生成应引用 i18n 标签键');
+  assert.equal(zhCN['forge.tags.label'], '标签', '语言包中文值正确');
   assert.ok(FORGE_EDITOR_SOURCE.includes('buildTagsAssistPrompt'));
   assert.ok(FORGE_EDITOR_SOURCE.includes("setTagText(list.join('、'))"));
   // 三个集合条目：JSON 协议 + 白名单合并，每类都有按钮
@@ -547,7 +557,8 @@ test('标签/世界书/正则/预设都能辅助生成', () => {
 test('正则条目的辅助生成有「AI 能力有限、不建议用正则」提示', () => {
   assert.ok(FORGE_EDITOR_SOURCE.includes('isRegexAssist'));
   assert.ok(FORGE_EDITOR_SOURCE.includes("assistTarget.listKey === 'regexScripts'"));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('不建议依赖 AI 编写正则'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.assist.regexWarning')"), '应引用正则辅助生成警示的 i18n 键');
+  assert.ok(zhCN['forge.assist.regexWarning'].includes('不建议依赖 AI 编写正则'), '语言包中文值正确');
   assert.ok(FORGE_EDITOR_SOURCE.includes('assistWarning'));
 });
 
@@ -559,8 +570,10 @@ test('集合条目可折叠：默认折叠、点标题展开、新增自动展�
   assert.ok(FORGE_EDITOR_SOURCE.includes("expandEntry(`presets:${id}`)"));
   // 折叠时显示摘要行（世界书关键词/正则查找替换/预设内容）
   assert.ok(FORGE_EDITOR_SOURCE.includes('entrySummary'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('关键词：'));
-  assert.ok(FORGE_EDITOR_SOURCE.includes('查找：'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.world.keywords'"), '应引用世界书摘要关键词的 i18n 键');
+  assert.ok(zhCN['forge.world.keywords'].includes('关键词：'), '语言包中文值正确');
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.regex.summary'"), '应引用正则摘要查找替换的 i18n 键');
+  assert.ok(zhCN['forge.regex.summary'].includes('查找：'), '语言包中文值正确');
 });
 
 test('标签与集合条目的辅助生成协议纯函数', () => {
@@ -647,7 +660,8 @@ test('预览显示高级内容计数', () => {
 });
 
 test('制卡编辑器卡片里有预览按钮并接入模拟对话', () => {
-  assert.ok(FORGE_EDITOR_SOURCE.includes('previewActionText}>预览'));
+  assert.ok(FORGE_EDITOR_SOURCE.includes("previewActionText}>{t('forge.preview.button')}"), '应引用预览按钮的 i18n 键');
+  assert.equal(zhCN['forge.preview.button'], '预览', '语言包中文值正确');
   assert.ok(FORGE_EDITOR_SOURCE.includes('<CardPreviewModal'));
   assert.ok(FORGE_EDITOR_SOURCE.includes('onSendTurn={handlePreviewTurn}'));
   assert.ok(FORGE_EDITOR_SOURCE.includes('onSimulateChat'));
@@ -659,8 +673,10 @@ test('预览弹窗支持多轮模拟对话、清空且不落库', () => {
   assert.ok(PREVIEW_MODAL_SOURCE.includes('buildPreviewOpeningTurns'));
   assert.ok(PREVIEW_MODAL_SOURCE.includes('capPreviewHistory'));
   assert.ok(PREVIEW_MODAL_SOURCE.includes('onSendTurn(history, text, controller.signal)'));
-  assert.ok(PREVIEW_MODAL_SOURCE.includes('清空模拟对话'));
-  assert.ok(PREVIEW_MODAL_SOURCE.includes('不会写入角色库或聊天记录'));
+  assert.ok(PREVIEW_MODAL_SOURCE.includes("t('forge.preview.clear')"), '应引用清空模拟对话的 i18n 键');
+  assert.ok(zhCN['forge.preview.clear'].includes('清空'), '语言包中文值正确');
+  assert.ok(PREVIEW_MODAL_SOURCE.includes("t('forge.preview.chatHint')"), '应引用不落库提示的 i18n 键');
+  assert.ok(zhCN['forge.preview.chatHint'].includes('不会写入角色库或聊天记录'), '语言包中文值正确');
   assert.ok(PREVIEW_MODAL_SOURCE.includes('abort'));
 });
 

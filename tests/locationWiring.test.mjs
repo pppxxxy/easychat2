@@ -102,7 +102,8 @@ test('RealMapView：html 只依赖瓦片模板，换模板后必须回退 webRea
   const source = read('src/worldMap/RealMapView.js');
   const htmlMemo = source.slice(source.indexOf('const tileUrl'), source.indexOf('const inject'));
   assert.ok(htmlMemo.length > 0, '必须能定位到 html 的 useMemo');
-  assert.ok(htmlMemo.includes('[tileUrl]'), 'html memo 依赖必须收窄到 tileUrl');
+  // i18n 迁移后 html 内的标签走 t()，依赖里多了 t；核心约束不变：位置/开关不重建 html
+  assert.ok(htmlMemo.includes('[tileUrl, t]'), 'html memo 依赖必须收窄到 tileUrl（外加 i18n 的 t）');
   assert.ok(!/\[settings\]/.test(htmlMemo),
     '不得以整个 settings 作为 html 依赖：开关/位置每次变化都会重建 source → WebView 整页重载');
   assert.ok(/useEffect\(\(\) => \{\s*setWebReady\(false\);\s*\}, \[html\]\)/.test(source),

@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 import {
   getCharacterEditGuard,
   isFormDirty,
@@ -98,9 +100,13 @@ test('shouldConfirmTabLeave：只有角色页有脏编辑且目标是别的 tab 
 
 test('save 返回布尔且角色页注册信箱', () => {
   // save 各中断路径 return false、落库成功 return true
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert('角色加载中', '请稍候再保存。');\n      return false;"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert(t('character.detail.loading.title'), t('character.detail.loading.body'));\n      return false;"), '应引用角色加载中的 i18n 键');
+  assert.equal(zhCN['character.detail.loading.title'], '角色加载中', '语言包中文值正确');
+  assert.equal(zhCN['character.detail.loading.body'], '请稍候再保存。', '语言包中文值正确');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("if (formSignatureRef.current !== saveFormSignature) return true;"));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert(t('character.detail.saved.title'), t('character.detail.saved.body'));"), '应引用已保存提示的 i18n 键');
+  assert.equal(zhCN['character.detail.saved.title'], '已保存', '语言包中文值正确');
+  assert.equal(zhCN['character.detail.saved.body'], '角色设定已同步，聊天页会立即生效。', '语言包中文值正确');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return true;'));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return false;'));
   // 渲染提交后同步信箱；卸载/变化时回落安全值
@@ -125,7 +131,8 @@ test('编辑草稿防丢链路完整接线', () => {
   // seed 完成后读即取走检测草稿，恢复/丢弃二选一；表单归属变化时丢弃不误恢复
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('takeCharacterEditDraft(draftOwnerId)'));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("if (formOwnerIdRef.current !== draftOwnerId || seededIdRef.current !== draftOwnerId) return;"));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("text: '恢复',"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("text: t('character.detail.draftFound.restore'),"), '应引用恢复按钮的 i18n 键');
+  assert.equal(zhCN['character.detail.draftFound.restore'], '恢复', '语言包中文值正确');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('applyDraftFormState(buildCharacterFormState(draft.formState))'));
   // 保存成功清草稿
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(character.id).catch(() => {});"));

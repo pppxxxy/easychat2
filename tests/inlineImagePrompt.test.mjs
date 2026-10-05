@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 import {
   buildScenePrompt,
   DEFAULT_INLINE_IMAGE_POSITION,
@@ -95,8 +97,8 @@ test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
   assert.ok(block.includes('bgUri ? ('), '空状态应按 bgUri 分支');
   const bgBranchStart = block.indexOf('bgUri ? (');
   const emptyTitleAt = block.indexOf('emptyTitle');
-  const apiHintAt = block.indexOf('请先在“设置”里填写');
-  const greetingAt = block.indexOf('选择开场白');
+  const apiHintAt = block.indexOf("t('chat.list.hintApiKey')");
+  const greetingAt = block.indexOf("t('chat.list.chooseGreeting')");
   assert.ok(emptyTitleAt > 0 && apiHintAt > 0 && greetingAt > 0, '块内应同时存在引导与入口');
   // 引导文案（标题/API 提示）必须都排在「选择开场白」之后的主分支里，
   // 即位于有背景分支之外——有背景分支内只允许出现「选择开场白」这一个入口。
@@ -105,7 +107,9 @@ test('有背景图时空会话不再叠加「开始聊天」引导块', () => {
   // 有背景分支（bgUri 到第一个选择开场白入口）内不得出现引导标题
   const bgBranch = block.slice(bgBranchStart, greetingAt);
   assert.equal(bgBranch.includes('emptyTitle'), false, '有背景分支不得含引导标题');
-  assert.equal(bgBranch.includes('请先在“设置”里填写'), false, '有背景分支不得含 API 引导');
+  assert.equal(bgBranch.includes("t('chat.list.hintApiKey')"), false, '有背景分支不得含 API 引导');
+  assert.ok(zhCN['chat.list.hintApiKey'].includes('请先在“设置”里填写'), '语言包中文值正确');
+  assert.equal(zhCN['chat.list.chooseGreeting'], '选择开场白', '语言包中文值正确');
 });
 
 test('默认角色空会话首次进入自动显示教学开场白（仅内置角色、仅一次）', () => {

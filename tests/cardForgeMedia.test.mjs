@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 import {
   AVATAR_DIRECTORY,
   FORGE_MEDIA_DIRECTORY,
@@ -140,7 +142,8 @@ test('制卡编辑器选图带三重守卫（monkey 审查点 3）：卸载/换�
   // 卸载与关闭都要让挂着的这一轮失效（关闭同样丢弃未保存改动，见 onClose 契约）
   assert.match(editor, /mountedRef\.current = false;\s*\n\s*editorSessionRef\.current \+= 1;/, '卸载时失效当前轮');
   assert.match(editor, /if \(wasVisible === visible\) return;/, '开与关都要推进会话号');
-  assert.match(editor, /if \(isCurrent\(\)\) Alert\.alert\('图片读取失败'/, '失败提示只在仍是当前轮时弹');
+  assert.match(editor, /if \(isCurrent\(\)\) Alert\.alert\(t\('forge\.alert\.readImageFailed\.title'\)/, '失败提示只在仍是当前轮时弹');
+  assert.equal(zhCN['forge.alert.readImageFailed.title'], '图片读取失败', '语言包中文值正确');
 });
 
 test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片目录', () => {
@@ -151,7 +154,8 @@ test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片�
   assert.match(screen, /buildImageCardPrompt\(\{ hint, hasAvatar, hasBg \}\)/, '提示词走纯函数');
   // 无识图能力明确拒绝，而不是悄悄发纯文字（能力按当前模型解析）
   assert.match(screen, /capabilitiesForModel\(current, current \? getActiveModel\(current\) : ''\)\.supportsVision === true/, '按当前模型解析识图能力');
-  assert.match(screen, /当前模型未标记为支持识图，无法按图片生成角色/, '缺识图能力应明确报错');
+  assert.match(screen, /t\('forge\.screen\.error\.visionUnsupported'\)/, '缺识图能力应明确报错（走 i18n 键）');
+  assert.ok(zhCN['forge.screen.error.visionUnsupported'].includes('无法按图片生成角色'), '语言包中文值正确');
   // 导入角色库时提升目录（草稿目录 → avatars/）
   assert.match(screen, /promoteForgeImageToAvatar\(draft\.avatarUri/, '导入时提升头像');
   assert.match(screen, /promoteForgeImageToAvatar\(draft\.bgUri/, '导入时提升背景');
@@ -160,7 +164,7 @@ test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片�
   // 先删后落库的话，落库失败时草稿会指向已被删掉的文件（界面变破图）。
   const importBlock = screen.slice(
     screen.indexOf('const [avatarUri, bgUri] = await Promise.all('),
-    screen.indexOf('已导入角色库')
+    screen.indexOf("t('forge.screen.note.imported'")
   );
   const promoteAt = importBlock.indexOf('promoteForgeImageToAvatar(draft.avatarUri');
   const createAt = importBlock.indexOf('await addCharacter(patch)');

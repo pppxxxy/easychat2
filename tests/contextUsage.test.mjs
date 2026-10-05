@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 import {
   AUTO_COMPACT_RATIO,
   DEFAULT_CONTEXT_WINDOW,
@@ -85,9 +87,11 @@ test('ChatScreen：compact 指令拦截与 80% 自动压缩接线钉死在源码
     'compact 必须复用 runSummarize 手动路径'
   );
   assert.ok(
-    source.includes("Alert.alert('正在压缩', '上一次压缩还没有完成，请稍候。')"),
-    '并发时给出明确提示'
+    source.includes("Alert.alert(t('chat.compact.busy.title'), t('chat.compact.busy.body'))"),
+    '并发时给出明确提示（走 i18n 键）'
   );
+  assert.equal(zhCN['chat.compact.busy.title'], '正在压缩', '语言包中文值正确');
+  assert.equal(zhCN['chat.compact.busy.body'], '上一次压缩还没有完成，请稍候。', '语言包中文值正确');
   // 自动压缩：maybeAutoSummarize 计算占用并传给 shouldSummarize。
   assert.ok(
     source.includes('contextUsage = computeContextUsage(list, resolveContextWindow({'),
@@ -118,7 +122,8 @@ test('SettingsScreen：能力弹层暴露每模型 contextWindow 输入', () => 
     '编辑时回填已声明窗口，未声明留空'
   );
   assert.ok(
-    source.includes('上下文窗口（tokens）'),
-    '输入框有中文标签'
+    source.includes("t('settings.capability.contextWindow')"),
+    '输入框标签应引用 i18n 键'
   );
+  assert.equal(zhCN['settings.capability.contextWindow'], '上下文窗口（tokens）', '语言包中文值正确');
 });

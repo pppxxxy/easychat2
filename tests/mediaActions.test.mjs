@@ -13,6 +13,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const read = relPath => fs.readFileSync(path.resolve(relPath), 'utf8');
 
 test('操作行渲染条件不再排除图片消息（回归：图片/表情包缺「⋯」菜单）', () => {
@@ -29,7 +31,8 @@ test('操作行渲染条件不再排除图片消息（回归：图片/表情包�
     '旧的 !message.image 排除条件必须不复存在'
   );
   // 「⋯」按钮与菜单本体仍在
-  assert.match(source, /accessibilityLabel="更多操作"/, '应保留「⋯」按钮');
+  assert.match(source, /accessibilityLabel=\{t\('chat\.bubble\.moreA11y'\)\}/, '应保留「⋯」按钮（走 i18n 键）');
+  assert.equal(zhCN['chat.bubble.moreA11y'], '更多操作', '语言包中文值正确');
   assert.match(source, /setActionsOpen\(true\)/, '「⋯」应打开操作菜单');
 });
 
@@ -37,12 +40,16 @@ test('图片/表情包走独立菜单项：保存 / 保存为表情包 / 引用 
   const source = read('src/chat/MessageBubble.js');
   assert.match(source, /const isMediaMessage = !!message\.image;/, '应识别媒体消息');
   // 媒体菜单分支
-  assert.match(source, /key: 'save', label: '保存图片'/, '媒体菜单应含「保存图片」');
-  assert.match(source, /key: 'sticker', label: '保存为表情包'/, '媒体菜单应含「保存为表情包」');
-  assert.match(source, /key: 'delete', label: '删除消息'/, '媒体菜单应含「删除消息」');
+  assert.match(source, /key: 'save', label: t\('chat\.bubble\.saveImage'\)/, '媒体菜单应含「保存图片」（走 i18n 键）');
+  assert.equal(zhCN['chat.bubble.saveImage'], '保存图片', '语言包中文值正确');
+  assert.match(source, /key: 'sticker', label: t\('chat\.bubble\.saveAsSticker'\)/, '媒体菜单应含「保存为表情包」（走 i18n 键）');
+  assert.equal(zhCN['chat.bubble.saveAsSticker'], '保存为表情包', '语言包中文值正确');
+  assert.match(source, /key: 'delete', label: t\('chat\.bubble\.deleteMessage'\)/, '媒体菜单应含「删除消息」（走 i18n 键）');
+  assert.equal(zhCN['chat.bubble.deleteMessage'], '删除消息', '语言包中文值正确');
   // 引用：媒体消息没有正文，但引用走占位文本（【图片】/【表情包：名字】），
   // 和文字消息引用一样能进输入区的引用条——所以媒体菜单必须提供引用入口。
-  assert.match(source, /key: 'quote', label: '引用'/, '媒体菜单应含「引用」');
+  assert.match(source, /key: 'quote', label: t\('chat\.bubble\.quote'\)/, '媒体菜单应含「引用」（走 i18n 键）');
+  assert.equal(zhCN['chat.bubble.quote'], '引用', '语言包中文值正确');
   // 表情包本身不再提供「保存为表情包」（它已经是表情包）
   assert.match(
     source,
@@ -54,8 +61,8 @@ test('图片/表情包走独立菜单项：保存 / 保存为表情包 / 引用 
     source.indexOf('const isMediaMessage = !!message.image;'),
     source.indexOf('    : [')
   );
-  assert.equal(mediaBranch.includes("label: '复制'"), false, '媒体消息无正文，不应有「复制」');
-  assert.equal(mediaBranch.includes("label: '选择文本'"), false, '媒体消息无正文，不应有「选择文本」');
+  assert.equal(mediaBranch.includes("key: 'copy'"), false, '媒体消息无正文，不应有「复制」');
+  assert.equal(mediaBranch.includes("key: 'select'"), false, '媒体消息无正文，不应有「选择文本」');
   // 播报按钮对媒体消息隐藏（无正文可播）
   assert.match(source, /!isUser && !isMediaMessage && onBroadcast/, '媒体消息不显示播报');
 });
@@ -65,11 +72,12 @@ test('媒体消息的引用两处入口都接线（菜单 + 长按），且引�
   const list = read('src/chat/MessageList.js');
   const chat = read('src/ChatScreen.js');
   // 菜单项走 onQuote，MessageList 把 onQuoteMessage 转发给气泡
-  assert.match(bubble, /key: 'quote', label: '引用', icon: 'chatbubble-ellipses-outline', onPress: \(\) => onQuote\(message\)/, '菜单引用应调用 onQuote(message)');
+  assert.match(bubble, /key: 'quote', label: t\('chat\.bubble\.quote'\), icon: 'chatbubble-ellipses-outline', onPress: \(\) => onQuote\(message\)/, '菜单引用应调用 onQuote(message)');
   assert.match(list, /onQuote=\{onQuoteMessage\}/, 'MessageList 应把 onQuoteMessage 接到 onQuote');
   // 长按菜单（媒体消息的隐藏入口）同样要有引用，且用 messagesRef 找到目标消息
   assert.match(chat, /const target = messagesRef\.current\.find\(item => item && item\.id === messageId\)/, '长按菜单应能定位到目标消息');
-  assert.match(chat, /\.\.\.\(target \? \[\{ text: '引用', onPress: \(\) => onQuoteMessage\(target\) \}\] : \[\]\)/, '长按菜单应在能找到消息时提供引用');
+  assert.match(chat, /\.\.\.\(target \? \[\{ text: t\('chat\.imageActions\.quote'\), onPress: \(\) => onQuoteMessage\(target\) \}\] : \[\]\)/, '长按菜单应在能找到消息时提供引用（走 i18n 键）');
+  assert.equal(zhCN['chat.imageActions.quote'], '引用', '语言包中文值正确');
   // 引用占位文本进入模型请求（buildQuotePayload → quote → chatPipeline 的 [引用…] 段）
   const helpers = read('src/chat/chatHelpers.js');
   assert.match(helpers, /if \(stickerName\) return `【表情包：\$\{stickerName\}】`/, '表情包引用占位文本');
@@ -105,9 +113,10 @@ test('图片消息可修改重发：回填附件而非正文', () => {
   // 媒体菜单里的修改重发仅对用户消息开放（助手图片不可撤回重发）
   assert.match(
     source,
-    /isUser && onEditUserMessage\s*\?\s*\{ key: 'edit', label: '修改重发'/,
-    '媒体菜单的修改重发应限定用户消息'
+    /isUser && onEditUserMessage\s*\?\s*\{ key: 'edit', label: t\('chat\.bubble\.editResend'\)/,
+    '媒体菜单的修改重发应限定用户消息（走 i18n 键）'
   );
+  assert.equal(zhCN['chat.bubble.editResend'], '修改重发', '语言包中文值正确');
   // 撤回时把图片放回附件区并刷新保护集合
   assert.match(sendSource, /latestPlan\.attachments/, '撤回逻辑应读取回填附件');
   assert.match(
@@ -122,7 +131,8 @@ test('图片消息可修改重发：回填附件而非正文', () => {
   );
   // 确认文案按类型区分
   assert.match(sendSource, /isMediaPlan/, '应区分媒体撤回文案');
-  assert.match(sendSource, /把图片放回待发送附件/, '媒体撤回提示应说明回到附件区');
+  assert.match(sendSource, /chat\.editResend\.mediaBody/, '媒体撤回提示应引用 i18n 键');
+  assert.ok(zhCN['chat.editResend.mediaBody'].includes('把图片放回待发送附件'), '媒体撤回提示应说明回到附件区（语言包）');
 });
 
 test('三个点菜单的接线贯通：ChatScreen → MessageList → MessageBubble', () => {

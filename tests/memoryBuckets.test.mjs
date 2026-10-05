@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 import {
   bucketIdForTimestamp,
   buildMemoryListData,
@@ -92,8 +94,10 @@ test('记忆界面接入分组折叠与展开全部', () => {
   assert.ok(SCREEN_SOURCE.includes('expandedGroups'));
   assert.ok(SCREEN_SOURCE.includes('toggleGroup'));
   assert.ok(SCREEN_SOURCE.includes('toggleAllGroups'));
-  assert.ok(SCREEN_SOURCE.includes('展开全部'));
-  assert.ok(SCREEN_SOURCE.includes('折叠全部'));
+  assert.ok(SCREEN_SOURCE.includes("t('memory.expandAll')"), '应引用展开全部的 i18n 键');
+  assert.equal(zhCN['memory.expandAll'], '展开全部', '语言包中文值正确');
+  assert.ok(SCREEN_SOURCE.includes("t('memory.collapseAll')"), '应引用折叠全部的 i18n 键');
+  assert.equal(zhCN['memory.collapseAll'], '折叠全部', '语言包中文值正确');
   // 编辑模式强制展开，保证折叠里的会话可被点选
   assert.ok(SCREEN_SOURCE.includes('editing ? new Set(groups.map(group => group.id))'));
   // 首屏默认展开第一组，避免只剩标题的回归（且只自动展开一次）

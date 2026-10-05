@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 const GUARD_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionGuard.js'), 'utf8');
@@ -55,7 +57,9 @@ test('useSessionSwitch 保有切换流程的关键守卫语义', () => {
   const SWITCH_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionSwitch.js'), 'utf8');
   // onSwitch/onSwitchGroup：token 守卫 + 草稿快照 + 失败回滚
   assert.equal(SWITCH_SOURCE.split('const switchToken = ++switchOperationRef.current;').length - 1, 2, '两个切换入口各自持有 token');
-  assert.equal(SWITCH_SOURCE.split("Alert.alert('切换失败', '请检查存储空间或权限。');").length - 1, 2);
+  assert.equal(SWITCH_SOURCE.split("Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body'));").length - 1, 2, '两个切换入口各自引用切换失败的 i18n 键');
+  assert.equal(zhCN['chat.session.switchFailed.title'], '切换失败', '语言包中文值正确');
+  assert.equal(zhCN['chat.session.switchFailed.body'], '请检查存储空间或权限。', '语言包中文值正确');
   assert.ok(SWITCH_SOURCE.includes('await switchCharacter(previousCharacterId);'));
   assert.ok(SWITCH_SOURCE.includes('setInput(draft.input);'));
   // confirmGreeting：new 模式的三重守卫与开场白注入

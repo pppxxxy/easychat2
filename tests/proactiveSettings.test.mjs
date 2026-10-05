@@ -5,6 +5,8 @@ import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
@@ -206,9 +208,12 @@ test('互动面板：折叠选择 API/模型/角色 + 权限状态勾叉问号',
   const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
   // 折叠选择器，避免一次性罗列大量 API/模型/角色
   assert.ok(panel.includes('CollapsibleSelect'));
-  assert.ok(panel.includes('消息来源（API）'));
-  assert.ok(panel.includes('具体模型'));
-  assert.ok(panel.includes('选择角色'));
+  assert.ok(panel.includes("t('proactive.sourceLabel')"), '应引用消息来源标签的 i18n 键');
+  assert.equal(zhCN['proactive.sourceLabel'], '消息来源（API）', '语言包中文值正确');
+  assert.ok(panel.includes("t('proactive.modelLabel')"), '应引用具体模型标签的 i18n 键');
+  assert.equal(zhCN['proactive.modelLabel'], '具体模型', '语言包中文值正确');
+  assert.ok(panel.includes("t('proactive.roleLabel')"), '应引用选择角色标签的 i18n 键');
+  assert.equal(zhCN['proactive.roleLabel'], '选择角色', '语言包中文值正确');
   // 权限状态：勾/叉/问号三态
   assert.ok(panel.includes('getPermissionStatus'));
   assert.ok(panel.includes("'checkmark-circle'"));
@@ -236,9 +241,10 @@ test('消息类型：槽可保存 messageType 与 customPrompt，非法值回退
 
 test('互动面板：提供默认/关心心情/问好/自定义四种消息类型与自定义输入框', () => {
   const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
-  assert.ok(panel.includes('MESSAGE_TYPE_OPTIONS'));
-  for (const label of ['默认', '关心心情', '问好', '自定义']) {
-    assert.ok(panel.includes(label), `缺少消息类型选项 ${label}`);
+  assert.ok(panel.includes('buildMessageTypeOptions'), '消息类型选项构造函数');
+  for (const [key, label] of [['proactive.type.default', '默认'], ['proactive.type.care', '关心心情'], ['proactive.type.greeting', '问好'], ['proactive.type.custom', '自定义']]) {
+    assert.ok(panel.includes(`t('${key}')`), `应引用消息类型选项 ${key} 的 i18n 键`);
+    assert.equal(zhCN[key], label, '语言包中文值正确');
   }
   // 选「自定义」时才出现提示词输入框
   assert.ok(panel.includes("slot.messageType === 'CUSTOM'"));
@@ -332,10 +338,12 @@ test('互动面板：有主动消息的角色带星标，并说明横幅通知�
   const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
   // 星标：存在时间槽的角色在选项 label 前加 ★
   assert.ok(panel.includes("slots.some(slot => slot.roleId === item.id) ? '★ '"));
-  assert.ok(panel.includes('表示该角色已设置主动消息'));
+  assert.ok(panel.includes("t('proactive.starHint')"), '应引用星标说明的 i18n 键');
+  assert.ok(zhCN['proactive.starHint'].includes('表示该角色已设置主动消息'), '语言包中文值正确');
   // 横幅通知说明
-  assert.ok(panel.includes('横幅通知'));
-  assert.ok(panel.includes('静默通知'));
+  assert.ok(panel.includes("t('proactive.permissions.bannerHint')"), '应引用横幅通知说明的 i18n 键');
+  assert.ok(zhCN['proactive.permissions.bannerHint'].includes('横幅通知'), '语言包中文值正确');
+  assert.ok(zhCN['proactive.permissions.bannerHint'].includes('静默通知'), '语言包中文值正确');
 });
 
 test('衔接对话：槽可保存 sessionTargetId，非法/缺失回退空串', async () => {
@@ -370,7 +378,8 @@ test('bindProactiveSlotSession：仅更新指定槽的绑定，保留其它编�
 
 test('互动面板：每个槽可选择衔接的历史对话或新建对话', () => {
   const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
-  assert.ok(panel.includes("label: '新建对话'"));
+  assert.ok(panel.includes("label: t('proactive.session.new')"), '应引用新建对话选项的 i18n 键');
+  assert.equal(zhCN['proactive.session.new'], '新建对话', '语言包中文值正确');
   assert.ok(panel.includes('sessionTargetId'));
   assert.ok(panel.includes('sessionOptions'));
   // 候选只取该角色的单聊会话

@@ -38,6 +38,7 @@ import {
   withResource,
 } from '../src/resourceMutex.js';
 import { canUseLocalModel, resolveLocalModelReadiness, sendWithModelProvider } from '../src/network/modelProvider.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 test('normalizeLocalModelSettings：非法值回退安全默认值', () => {
   const settings = normalizeLocalModelSettings({ enabled: true, modelId: 'q4', contextSize: 1, gpuLayers: -2 });
@@ -391,8 +392,10 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   assert.ok(panel.includes('const handleLoadModel = async entry'), '应有面板加载处理函数');
   assert.ok(panel.includes("tryAcquireResource('local-model')"), '加载应走 local-model 互斥锁');
   assert.ok(panel.includes('onProgress: p => setLoadProgress'), '应接线加载进度');
-  assert.ok(panel.includes('加载中 ${loadProgress}%'), '按钮应显示加载百分比');
-  assert.ok(panel.includes("'已加载'"), '按钮应有已加载态');
+  assert.ok(panel.includes("t('localModel.loading', { progress: loadProgress })"), '按钮应引用加载百分比的 i18n 键');
+  assert.ok(zhCN['localModel.loading'].includes('${loadProgress}%'), '语言包中文值正确');
+  assert.ok(panel.includes("t('localModel.loaded')"), '按钮应引用已加载态的 i18n 键');
+  assert.equal(zhCN['localModel.loaded'], '已加载', '语言包中文值正确');
   assert.ok(panel.includes('loadProgressBar'), '应有进度条');
   // 选用勾：当前模型操作行左侧
   assert.ok(panel.includes('checkmark-circle'), '选中的模型应有勾标识');

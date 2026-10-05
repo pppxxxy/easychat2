@@ -26,6 +26,7 @@ import {
   placeHouse,
   removeHouseAtCell,
 } from '../src/worldMap/map.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
@@ -196,10 +197,14 @@ test('地图面板：网格、放置、编辑、屋主与住户', () => {
   assert.ok(PANEL_SOURCE.includes('removeHouseAtCell'));
   // 删除需二次确认
   assert.ok(PANEL_SOURCE.includes('confirmDeleteHouse'));
-  assert.ok(PANEL_SOURCE.includes('确定删除'));
-  assert.ok(PANEL_SOURCE.includes('屋主'));
-  assert.ok(PANEL_SOURCE.includes('住户'));
-  assert.ok(PANEL_SOURCE.includes('我自己'));
+  assert.ok(PANEL_SOURCE.includes("t('map.alert.deleteHouse.body'"), '删除确认应引用 i18n 键');
+  assert.ok(zhCN['map.alert.deleteHouse.body'].includes('确定删除'), '语言包中文值正确');
+  assert.ok(PANEL_SOURCE.includes("t('map.editor.ownerLabel')"), '屋主标签应引用 i18n 键');
+  assert.equal(zhCN['map.editor.ownerLabel'], '屋主', '语言包中文值正确');
+  assert.ok(PANEL_SOURCE.includes("t('map.editor.residentsLabel')"), '住户标签应引用 i18n 键');
+  assert.equal(zhCN['map.editor.residentsLabel'], '住户', '语言包中文值正确');
+  assert.ok(PANEL_SOURCE.includes("t('map.owner.self')"), '我自己选项应引用 i18n 键');
+  assert.equal(zhCN['map.owner.self'], '我自己', '语言包中文值正确');
   // 查看列表、房号、上限判定
   assert.ok(PANEL_SOURCE.includes('assignHouseNumbers'));
   assert.ok(PANEL_SOURCE.includes('listOpen'));
