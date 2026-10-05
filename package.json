@@ -66,5 +66,8 @@
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"
   },
-  "private": true
+  "private": true,
+  "allowScripts": {
+    "llama.rn@0.12.9": true
+  }
 }
