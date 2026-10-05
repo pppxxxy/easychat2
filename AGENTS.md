@@ -30,7 +30,7 @@ npm run test:coverage # tests + c8 coverage gate (60% floor)
 
 ## Non-obvious constraints
 
-- `src/polyfills.js` **must stay the first import in `App.js`**, before `react-native-gesture-handler`. `parsecard` needs a global `Buffer`; ES module hoisting breaks it if the import moves.
+- `src/polyfills.js` **must stay the first import in `App.js`**, before `react-native-gesture-handler`. `parsecard` needs a global `Buffer`; ES module hoisting breaks it if the import moves. It also runs `ensureFullTextDecoder`（`src/books/fullTextDecoder.js`）：Expo SDK 54 的全局 `TextDecoder` 只认 UTF-8，而 `text-encoding` 模块顶层 `this`（Metro 普通调用=真实全局）会把该残缺实现原样转发，导致 `decodeText` 的 GBK/BIG5 等候选全部构造失败误报 `ENCODING`。必须在业务模块加载前摘掉残缺全局并让 `text-encoding` 装回完整 WHATWG polyfill。
 - `metro.config.js` enables `unstable_enablePackageExports = true` globally so Metro resolves `parsecard`'s ESM `exports`. This affects every dependency. Re-verify bundling after adding or upgrading deps.
 - `src/package.json` declares `{"type":"module"}`：让 `src/**/*.js` 对 Node 是**无歧义 ESM**，消除测试里 `MODULE_TYPELESS_PACKAGE_JSON`（否则 `.js` 靠 Node 语法探测）。不要删除它；根目录配置（`babel.config.js`/`metro.config.js`/`plugins/*.js`）仍是 CJS，与 `src` 无关。新增 `src` 内文件按 ESM 写。
 - 相对导入一律带 `.js` 扩展名（`App.js`、`src/**`、`tests/**`）；目录导入写 `<dir>/index.js`（如 `./ui/index.js`）。新增文件沿用此约定，`node --test` 直接 `import` 时才不会因缺扩展名解析失败。
