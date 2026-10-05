@@ -33,18 +33,21 @@ test('附件菜单：拍摄视频/上传视频两项入口，带 requiresVideo �
 
 test('ChatScreen：菜单门控 = supportsVideo 且 OpenAI 兼容协议；添加时复检；草稿清理含视频', () => {
   assert.ok(CHAT_SCREEN.includes('attachmentVideoEnabled'), '视频能力状态存在');
-  // 整段表达式钉住（含换行与缩进）：`String(...openai)` 在 addAttachment 的复检里
-  // 也出现，只查片段会漏掉「菜单门控被拆掉协议限定」这类回归（注入验证抓出过）。
+  // 门控按**当前模型**解析能力（per-model），外加 openai 协议限定。
   assert.ok(
-    CHAT_SCREEN.includes(
-      "video = !!(current && current.supportsVideo === true)\n          && String(current.protocol || 'openai') === 'openai';"
-    ),
-    '菜单门控：supportsVideo + openai 协议（整段表达式）'
+    CHAT_SCREEN.includes("const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');"),
+    '菜单门控：按当前模型解析能力'
+  );
+  assert.ok(
+    CHAT_SCREEN.includes("video = caps.supportsVideo === true\n          && String(current.protocol || 'openai') === 'openai';"),
+    '菜单门控：视频能力 + openai 协议'
   );
   assert.equal((CHAT_SCREEN.match(/videoEnabled=\{attachmentVideoEnabled\}/g) || []).length, 1, '门控传给菜单');
   // 添加时复检（菜单可能在门外打开，或能力被改）
-  assert.ok(CHAT_SCREEN.includes('const videoAllowed = !!(current && current.supportsVideo === true)'),
-    'addAttachment 里按当前配置复检');
+  assert.ok(
+    CHAT_SCREEN.includes("const videoAllowed = capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsVideo === true"),
+    'addAttachment 里按当前模型能力复检'
+  );
   // 草稿生命周期：重置/移除都要删视频文件
   assert.equal((CHAT_SCREEN.match(/if \(item\.kind === 'video'\) deleteLocalVideo\(item\.uri\);/g) || []).length, 1,
     'resetSessionUi 清理视频草稿');
@@ -57,9 +60,10 @@ test('ChatScreen：菜单门控 = supportsVideo 且 OpenAI 兼容协议；添加
 test('useChatSend：发送时复检 + includeVideo 标记 + 视频独立数量守卫', () => {
   assert.ok(SEND.includes('let videoEnabled = false;'));
   assert.ok(
-    SEND.includes("videoEnabled = !!(current && current.supportsVideo === true)") &&
+    SEND.includes("const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');") &&
+    SEND.includes("videoEnabled = caps.supportsVideo === true") &&
     SEND.includes("&& String(current.protocol || 'openai') === 'openai';"),
-    '发送侧门控与菜单同口径（含协议限定）'
+    '发送侧门控：按模型能力 + 协议限定'
   );
   assert.ok(SEND.includes("if (!videoEnabled) {\n        Alert.alert('不支持看视频'"), '发送时复检，未支持直接拒绝');
   assert.ok(SEND.includes("imageMessages.push({ ...videoMessage, dataUri, includeVideo: videoEnabled });"),

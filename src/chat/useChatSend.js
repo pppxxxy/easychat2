@@ -83,7 +83,9 @@ import {
 } from '../memory/memorySummary.js';
 import {
   getActiveLocalModel,
+  capabilitiesForModel,
   getApiConfigs,
+  getActiveModel,
   getEnabledGlobalPresetPrompts,
   getEnabledPlugins,
   getUserProfile,
@@ -923,11 +925,13 @@ if (!isCurrent() || controller.signal.aborted) return false;
       const current = configs.find(item => item.id === activeId) || configs[0];
        expectedConfigId = String(current?.id || '');
        expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
-        visionEnabled = !!(current && current.supportsVision);
-        audioInputEnabled = !!(current && current.supportsAudio);
-        // 视频附件：仅当配置声明 supportsVideo 且线协议为 OpenAI 兼容（video_url 是
+        // 能力按**当前模型**解析（同一配置下每个模型一套能力，见 storage/apiConfigs）。
+        const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+        visionEnabled = caps.supportsVision === true;
+        audioInputEnabled = caps.supportsAudio === true;
+        // 视频附件：模型声明看视频能力，且线协议为 OpenAI 兼容（video_url 是
         // 兼容端点的扩展类型，Responses/Anthropic 都没有视频输入）。本地模型无视频能力。
-        videoEnabled = !!(current && current.supportsVideo === true)
+        videoEnabled = caps.supportsVideo === true
           && String(current.protocol || 'openai') === 'openai';
       } catch (error) {}
       // 在线配置与本地活动模型可能是两套能力声明：本地模型带 mmproj 且开启多模态时，

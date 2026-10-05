@@ -1,4 +1,4 @@
-import { getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from '../storage.js';
+import { capabilitiesForModel, getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from '../storage.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 import {
@@ -33,6 +33,9 @@ function fingerprint(value) {
 
 export function getConfigFingerprint(config) {
   const source = config && typeof config === 'object' ? config : {};
+  // 能力按**当前模型**解析：换模型本来就会让指纹变化（activeModel 已在表内），
+  // 同一配置下不同模型的能力差异也必须反映在指纹里（能力改到一半时中止在途请求）。
+  const caps = capabilitiesForModel(source, getActiveModel(source));
   return fingerprint(JSON.stringify([
     String(source.id || ''),
     String(source.baseUrl || ''),
@@ -41,10 +44,10 @@ export function getConfigFingerprint(config) {
     String(source.authHeader || 'Authorization'),
     String(source.authScheme === undefined ? 'Bearer ' : source.authScheme),
     normalizeProtocol(source.protocol),
-    source.supportsVision === true,
-    source.supportsVideo === true,
-    source.supportsThinking === true,
-    source.supportsAudio === true,
+    caps.supportsVision,
+    caps.supportsVideo,
+    caps.supportsThinking,
+    caps.supportsAudio,
   ]));
 }
 
@@ -54,11 +57,13 @@ export function isConfigChangedError(error) {
 
 export function buildThinkingParams(config, settings) {
   if (!settings || settings.enabled !== true) return {};
-  if (!config || config.supportsThinking !== true) return {};
-  const declaration = config.thinking || {};
-  const field = String(declaration.field || 'reasoning_effort') || 'reasoning_effort';
+  if (!config) return {};
+  // 思考能力与字段名按**当前模型**解析（每个模型一套）。
+  const caps = capabilitiesForModel(config, getActiveModel(config));
+  if (caps.supportsThinking !== true) return {};
+  const field = String(caps.thinkingField || 'reasoning_effort') || 'reasoning_effort';
   const level = ['low', 'medium', 'high'].includes(settings.level) ? settings.level : 'medium';
-  const format = declaration.format || 'effort';
+  const format = caps.thinkingFormat || 'effort';
   if (format === 'boolean') return { [field]: true };
   if (format === 'object') return { [field]: { type: 'enabled', depth: level } };
   return { [field]: level };
@@ -545,6 +550,8 @@ export async function streamChatCompletion(messages, options = {}) {
         thinkingParams,
         thinkingSettings,
         config,
+        // 能力按模型解析后传入（apiProtocols 保持纯函数，不依赖存储层）。
+        capabilities: capabilitiesForModel(config, model),
       });
       xhr.send(JSON.stringify(body));
       armIdleTimer();

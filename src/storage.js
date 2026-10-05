@@ -120,10 +120,12 @@ export {
   saveWorkspaceSettings,
 } from './storage/workspace.js';
 export {
+  capabilitiesForModel,
   createApiConfig,
   getActiveApiConfig,
   getActiveModel,
   getApiConfigs,
+  normalizeCapabilityEntry,
   saveApiConfigs,
 } from './storage/apiConfigs.js';
 export {

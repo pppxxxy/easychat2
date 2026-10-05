@@ -73,7 +73,9 @@ import { maskSecrets } from './storage/secrets.js';
 import { hideVariantStatusBar } from './chat/speechText.js';
 import { recordDiagnostic } from './storage/diagnostics.js';
 import {
+  capabilitiesForModel,
   getApiConfigs,
+  getActiveModel,
   getActiveLocalModel,
   getChatOptions,
   getImageGenSettings,
@@ -391,9 +393,11 @@ export default function ChatScreen() {
           getActiveLocalModel().catch(() => null),
         ]);
         const current = configs.find(item => item.id === activeId) || configs[0];
-        vision = !!(current && current.supportsVision === true)
+        // 能力按当前模型解析（同一配置下每个模型一套）。
+        const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+        vision = caps.supportsVision === true
           || !!getLocalModelMediaCapabilities(localSettings, localItem).vision;
-        video = !!(current && current.supportsVideo === true)
+        video = caps.supportsVideo === true
           && String(current.protocol || 'openai') === 'openai';
       } catch (error) {}
       if (!cancelled) {
@@ -1513,7 +1517,7 @@ export default function ChatScreen() {
           return;
         }
         const current = configs.find(item => item.id === activeId) || configs[0];
-        const videoAllowed = !!(current && current.supportsVideo === true)
+        const videoAllowed = capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsVideo === true
           && String(current.protocol || 'openai') === 'openai';
         if (!videoAllowed) {
           deleteTemporaryImage(picked.uri);
@@ -1591,9 +1595,10 @@ export default function ChatScreen() {
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
       const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
-      if ((!current || current.supportsVision !== true) && !localMedia.vision) {
+      const imageCaps = current ? capabilitiesForModel(current, getActiveModel(current)) : null;
+      if (!(imageCaps && imageCaps.supportsVision === true) && !localMedia.vision) {
         deleteTemporaryImage(picked.uri);
-        Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
+        Alert.alert('不支持识图', '当前模型未标记为支持识图，请在设置中确认该模型的能力。');
         return;
       }
       if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {

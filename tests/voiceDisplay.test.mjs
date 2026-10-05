@@ -58,19 +58,21 @@ test('CharacterScreen 主角色编辑页同样提供并保存语音形态', () =
   assert.match(source, /纯语音/);
 });
 
-test('SettingsScreen 能力弹窗提供语音识别开关并写入配置', () => {
+test('模型能力弹窗（按模型一份）提供语音识别开关并写入该模型条目', () => {
   const source = read('src/SettingsScreen.js');
   assert.match(source, /支持语音识别/, '能力弹窗应有语音识别开关');
-  assert.match(source, /supportsAudio: caps\.supportsAudio === true/, '保存时应写入 supportsAudio');
-  assert.match(source, /supportsAudio: selected\.supportsAudio === true/, '打开弹窗时应回填 supportsAudio');
-  assert.match(source, /supportsAudio: value,\s*\n\s*\}\)\)\}/, '开关切换应更新 draft');
+  assert.match(source, /supportsAudio: capabilityDraft\.supportsAudio === true/, '确认时按草稿写条目');
+  assert.match(source, /supportsAudio: caps\.supportsAudio/, '打开弹窗时按该模型的现存条目回填');
+  assert.match(source, /modelCapabilities: \{ \.\.\.\(selected\.modelCapabilities \|\| \{\}\), \[name\]: entry \}/, '写入 modelCapabilities[模型名]');
+  assert.match(source, /supportsAudio: value,/, '开关切换应更新 draft');
 });
 
 test('语音兜底接线：supportsAudio 时转写失败按 input_audio 直发，失败反馈可见', () => {
   // 发送侧已外提 useChatSend；转写侧仍在 ChatScreen
   const sendSource = read('src/chat/useChatSend.js');
   const chatSource = read('src/ChatScreen.js');
-  assert.match(sendSource, /audioInputEnabled = !!\(current && current\.supportsAudio\)/, '发送时应读取当前来源的 supportsAudio');
+  assert.match(sendSource, /audioInputEnabled = caps\.supportsAudio === true/, '发送时按当前模型能力读取 supportsAudio');
+  assert.match(sendSource, /capabilitiesForModel\(current, current \? getActiveModel\(current\) : ''\)/, '能力按模型解析');
   assert.match(sendSource, /FileSystem\.readAsStringAsync\(voice\.uri, \{\s*\n\s*encoding: FileSystem\.EncodingType\.Base64,/, '兜底应读音频为 base64');
   assert.match(sendSource, /voiceAudio,\s*\n\s*expectedConfigId,/, '兜底音频应随请求 payload 传递');
   assert.match(sendSource, /voiceAudio,\s*\n\s*\}\);/, 'requestReply 应把兜底音频传给 buildRequestMessages');

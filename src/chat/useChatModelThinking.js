@@ -8,7 +8,9 @@ import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
 import {
+  capabilitiesForModel,
   getApiConfigs,
+  getActiveModel,
   getLocalModelIndex,
   getLocalModelItem,
   getLocalModelSettings,
@@ -130,7 +132,10 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
         getApiConfigs(),
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
-      setThinkingSupported(!!(current && current.supportsThinking));
+      // 思考能力按当前模型解析（同一配置下每个模型一套能力）。
+      setThinkingSupported(
+        capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsThinking === true
+      );
       setThinkingEnabled(settings.enabled);
       setThinkingLevel(settings.level);
       setThinkingDisplay(settings.display);

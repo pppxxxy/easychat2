@@ -370,11 +370,17 @@ export function buildRequestBody({
   thinkingParams = null,
   thinkingSettings = null,
   config = null,
+  // 能力按模型解析后由调用方传入（本模块保持零存储依赖）；缺省回退 config 级旧字段，
+  // 兼容既有调用与测试。
+  capabilities = null,
 } = {}) {
   const sampling = normalizeSampling(samplingParams);
   const toolList = Array.isArray(tools) ? tools : [];
+  const thinkingCapable = capabilities
+    ? capabilities.supportsThinking === true
+    : !!(config && config.supportsThinking === true);
   const thinkingEnabled = !!(thinkingSettings && thinkingSettings.enabled === true)
-    && !!(config && config.supportsThinking === true);
+    && thinkingCapable;
   const levelRaw = thinkingSettings && thinkingSettings.level;
   const level = ['low', 'medium', 'high'].includes(levelRaw) ? levelRaw : 'medium';
 
