@@ -26,6 +26,7 @@ const TTS_KEY = '@easychat2_tts';
 const SAMPLING_KEY = '@easychat2_sampling';
 const TRANSCRIPTION_KEY = '@easychat2_transcription';
 const MUSIC_CLIP_KEY = '@easychat2_music_clip';
+const UI_SECTIONS_KEY = '@easychat2_ui_sections';
 
 const DEFAULT_THINKING = { enabled: false, level: 'medium', display: 'fold' };
 export const THINKING_LEVELS = ['low', 'medium', 'high'];
@@ -247,6 +248,41 @@ export async function patchAppearanceSettings(patch) {
   const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
   const normalized = normalizeAppearance(merged);
   await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+// 设置页各折叠卡的展开/收起状态。只存用户显式切换过的卡（布尔），
+// 未记录的卡由界面按「是否已配置」决定默认展开，缺省/损坏时回退为空对象。
+export const UI_SECTION_IDS = [
+  'api',
+  'sampling',
+  'persona',
+  'appearance',
+  'experience',
+  'extensions',
+  'vector',
+  'workspace',
+  'github',
+  'about',
+];
+
+function normalizeUiSections(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const result = {};
+  UI_SECTION_IDS.forEach(id => {
+    if (source[id] === true || source[id] === false) result[id] = source[id];
+  });
+  return result;
+}
+
+export async function getUiSections() {
+  const raw = await readJson(UI_SECTIONS_KEY, null);
+  return normalizeUiSections(raw);
+}
+
+export async function saveUiSections(sections) {
+  const normalized = normalizeUiSections(sections);
+  await AsyncStorage.setItem(UI_SECTIONS_KEY, JSON.stringify(normalized));
   return normalized;
 }
 

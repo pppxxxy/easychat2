@@ -21,6 +21,17 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
   collapseSummary: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 6 },
+  // 折叠化设置页：卡片间距收紧，让折叠头与摘要行尽量在一屏内铺开成「目录」。
+  sectionCard: { marginBottom: tokens.spacing.sm },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+  summaryAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 6,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
   configSelect: { marginTop: 6 },
   providerEditor: {
     marginTop: tokens.spacing.sm,

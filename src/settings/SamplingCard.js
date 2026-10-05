@@ -25,7 +25,7 @@ const DEFAULT_SAMPLING = {
   topK: { enabled: false, value: 0 },
 };
 
-export default function SamplingCard() {
+export default function SamplingCard({ open, onToggle } = {}) {
   const { theme, fonts, tokens } = useTheme();
   const styles = React.useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [sampling, setSampling] = useState(DEFAULT_SAMPLING);
@@ -92,6 +92,8 @@ export default function SamplingCard() {
       <CollapsibleSection
         title="生成参数"
         icon="analytics-outline"
+        open={open}
+        onToggle={onToggle}
         right={<Text style={styles.collapseSummary}>
           {enabledCount > 0 ? `${enabledCount} 项已启用` : '使用服务端默认'}
         </Text>}

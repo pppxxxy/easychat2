@@ -42,6 +42,7 @@ import {
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
+  getUiSections,
   getWorkspaceSettings,
   patchWorkspaceSettings,
   clearGithubMcpCredentials,
@@ -52,6 +53,7 @@ import {
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
+  saveUiSections,
   updateLocationSettings,
   THINKING_DISPLAYS,
 } from './storage.js';
@@ -268,6 +270,55 @@ export default function SettingsScreen() {
   const { refreshAppData, character } = useApp();
 
   const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+
+  // ---- 折叠卡状态：受控 CollapsibleSection，展开/收起记忆到 @easychat2_ui_sections ----
+  const [sectionOpen, setSectionOpen] = useState({});
+  const sectionOpenRef = useRef({});
+  const sectionSaveTimerRef = useRef(null);
+  const sectionOffsetsRef = useRef({});
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    getUiSections()
+      .then(stored => {
+        sectionOpenRef.current = { ...stored };
+        setSectionOpen({ ...stored });
+      })
+      .catch(() => {});
+    return () => {
+      if (sectionSaveTimerRef.current) clearTimeout(sectionSaveTimerRef.current);
+    };
+  }, []);
+
+  // 未显式记录时按使用频率决定默认：只有 API 未配置 / 人设未填写才默认展开。
+  const isSectionOpen = id => {
+    if (typeof sectionOpen[id] === 'boolean') return sectionOpen[id];
+    if (id === 'api') return configs.length === 0 || !activeId;
+    if (id === 'persona') {
+      return !String(userName || '').trim() && !String(userPersona || '').trim();
+    }
+    return false;
+  };
+
+  const toggleSection = (id, next) => {
+    const value = next === undefined ? !isSectionOpen(id) : next === true;
+    const merged = { ...sectionOpenRef.current, [id]: value };
+    sectionOpenRef.current = merged;
+    setSectionOpen(merged);
+    if (sectionSaveTimerRef.current) clearTimeout(sectionSaveTimerRef.current);
+    sectionSaveTimerRef.current = setTimeout(() => {
+      saveUiSections(sectionOpenRef.current).catch(() => {});
+    }, 300);
+    // 输入类卡展开时上滚，避免键盘弹起遮住正在编辑的字段。
+    if (value && (id === 'api' || id === 'persona')) {
+      const y = sectionOffsetsRef.current[id];
+      if (typeof y === 'number' && scrollRef.current) {
+        setTimeout(() => {
+          scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+        }, 200);
+      }
+    }
+  };
 
   const refreshPresetCount = useCallback(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
@@ -1133,12 +1184,41 @@ export default function SettingsScreen() {
     );
   };
 
+  // ---- 折叠头摘要行：收起时一眼看到关键状态 ----
+  const apiSummary = active
+    ? [String(active.name || '').trim() || '未命名配置', String(active.activeModel || '').trim()]
+      .filter(Boolean).join(' · ')
+    : '未配置';
+  const personaSummary = String(userName || '').trim() || '未填写';
+  const appearanceSummary = [
+    (themes.find(item => item.id === themeId) || {}).label || '',
+    localeId === 'en' ? 'English' : '',
+  ].filter(Boolean).join(' · ');
+  const experienceEnabledCount = [
+    chatOptions.streaming === true,
+    chatOptions.fullWidth === true,
+    chatOptions.richHtml !== false,
+    chatOptions.keepDraft === true,
+    chatOptions.timeAware === true,
+    locationSettings && locationSettings.awareness === true,
+    momentsEnabled === true,
+  ].filter(Boolean).length;
+  const experienceSummary = `${experienceEnabledCount} 项已开启`;
+  const inlineImageSummary = inlineImage.enabled
+    ? `已开启${activeImageProvider ? ` · ${activeImageProvider.label}` : ''}`
+    : '未开启';
+  const vectorSummary = vectorPayload.enabled === true ? '已开启' : '未开启';
+  const githubSummary = githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0 ? '已连接' : '未连接';
+  const workspaceSummary = workspaceMode === 'write' ? '读写模式' : (workspaceMode === 'read' ? '只读模式' : '询问模式');
+  const aboutSummary = APP_VERSION ? `v${APP_VERSION}` : '';
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={scrollRef}
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -1149,29 +1229,35 @@ export default function SettingsScreen() {
           <FieldHint style={styles.hint}>配置 API、用户人设与全局对话预设。</FieldHint>
         </View>
 
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="key-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>API 配置</Text>
-            </View>
-            <View style={styles.headerActions}>
-              <TopicButton
-                style={styles.topicButtonSpaced}
-                onPress={() => setTopic('chat-api')}
-                accessibilityLabel="查看 API 配置教学"
-              />
-              <TouchableOpacity
-                style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
-                onPress={addConfig}
-                disabled={!loaded || apiSaving}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-                <Text style={styles.pillButtonText}>新建</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.api = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title="API 配置"
+            icon="key-outline"
+            open={isSectionOpen('api')}
+            onToggle={next => toggleSection('api', next)}
+            right={(
+              <View style={styles.summaryRow}>
+                <Text style={styles.collapseSummary} numberOfLines={1}>{apiSummary}</Text>
+                <TopicButton
+                  style={styles.topicButtonSpaced}
+                  onPress={() => setTopic('chat-api')}
+                  accessibilityLabel="查看 API 配置教学"
+                />
+                <TouchableOpacity
+                  style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
+                  onPress={addConfig}
+                  disabled={!loaded || apiSaving}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+                  <Text style={styles.pillButtonText}>新建</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          >
           <CollapsibleSelect
             label="当前配置"
             value={activeId}
@@ -1352,19 +1438,31 @@ export default function SettingsScreen() {
               />
             </>
           ) : null}
+          </CollapsibleSection>
         </Card>
 
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>用户人设</Text>
-            </View>
-            <TopicButton
-              onPress={() => setTopic('user-persona')}
-              accessibilityLabel="查看用户人设教学"
-            />
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.persona = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title="用户人设"
+            icon="person-circle-outline"
+            open={isSectionOpen('persona')}
+            onToggle={next => toggleSection('persona', next)}
+            right={(
+              <View style={styles.summaryRow}>
+                {userAvatarUri ? (
+                  <Image source={{ uri: userAvatarUri }} style={styles.summaryAvatar} />
+                ) : null}
+                <Text style={styles.collapseSummary} numberOfLines={1}>{personaSummary}</Text>
+                <TopicButton
+                  onPress={() => setTopic('user-persona')}
+                  accessibilityLabel="查看用户人设教学"
+                />
+              </View>
+            )}
+          >
           <Text style={styles.fieldHint}>
             这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像为全部人设共用。
           </Text>
@@ -1448,13 +1546,19 @@ export default function SettingsScreen() {
             style={styles.actionBtn}
           />
           {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
+          </CollapsibleSection>
         </Card>
 
-        <Card>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.appearance = event.nativeEvent.layout.y; }}
+        >
           <CollapsibleSection
             title="外观"
             icon="color-palette-outline"
-            right={<Text style={styles.collapseSummary}>{`${(themes.find(t => t.id === themeId) || {}).label || ''}`}</Text>}
+            open={isSectionOpen('appearance')}
+            onToggle={next => toggleSection('appearance', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{appearanceSummary}</Text>}
           >
             <View style={styles.appearanceRow}>
               {themes.map(item => {
@@ -1522,13 +1626,17 @@ export default function SettingsScreen() {
           </CollapsibleSection>
         </Card>
 
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="briefcase-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>{t('settings.workspace.title')}</Text>
-            </View>
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.workspace = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title={t('settings.workspace.title')}
+            icon="briefcase-outline"
+            open={isSectionOpen('workspace')}
+            onToggle={next => toggleSection('workspace', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{workspaceSummary}</Text>}
+          >
           <FieldLabel style={styles.label}>{t('settings.workspace.mode')}</FieldLabel>
           <View style={styles.fontRow}>
             {WORKSPACE_MODE_OPTIONS.map(option => {
@@ -1619,15 +1727,20 @@ export default function SettingsScreen() {
             }}
             shellAvailable={isShellAvailable()}
           />
+          </CollapsibleSection>
         </Card>
 
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="logo-github" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>{t('settings.github.title')}</Text>
-            </View>
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.github = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title={t('settings.github.title')}
+            icon="logo-github"
+            open={isSectionOpen('github')}
+            onToggle={next => toggleSection('github', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{githubSummary}</Text>}
+          >
           <FieldHint style={styles.hint}>{t('settings.github.subtitle')}</FieldHint>
           {githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0 ? (
             <>
@@ -1674,19 +1787,28 @@ export default function SettingsScreen() {
               <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
             </>
           )}
+          </CollapsibleSection>
         </Card>
 
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>对话配图</Text>
-            </View>
-            <TopicButton
-              onPress={() => setTopic('inline-image')}
-              accessibilityLabel="查看对话配图教学"
-            />
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.extensions = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title="对话配图"
+            icon="image-outline"
+            open={isSectionOpen('extensions')}
+            onToggle={next => toggleSection('extensions', next)}
+            right={(
+              <View style={styles.summaryRow}>
+                <Text style={styles.collapseSummary} numberOfLines={1}>{inlineImageSummary}</Text>
+                <TopicButton
+                  onPress={() => setTopic('inline-image')}
+                  accessibilityLabel="查看对话配图教学"
+                />
+              </View>
+            )}
+          >
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
@@ -1804,13 +1926,20 @@ export default function SettingsScreen() {
             placeholder="400"
           />
           <Text style={styles.fieldHint}>密钥仅保存在本机，与「扩展 → 生图」共用同一份配置。</Text>
+          </CollapsibleSection>
         </Card>
 
-        <Card>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="options-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>全局配置</Text>
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.experience = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title="全局配置"
+            icon="options-outline"
+            open={isSectionOpen('experience')}
+            onToggle={next => toggleSection('experience', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{experienceSummary}</Text>}
+          >
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => setPresetEntryOpen(true)}
@@ -2016,21 +2145,33 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
+          </CollapsibleSection>
         </Card>
 
-        <SamplingCard />
+        <SamplingCard
+          open={isSectionOpen('sampling')}
+          onToggle={next => toggleSection('sampling', next)}
+        />
 
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>向量记忆</Text>
-            </View>
-            <TopicButton
-              onPress={() => setTopic('vector-api')}
-              accessibilityLabel="查看向量记忆教学"
-            />
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.vector = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title="向量记忆"
+            icon="git-network-outline"
+            open={isSectionOpen('vector')}
+            onToggle={next => toggleSection('vector', next)}
+            right={(
+              <View style={styles.summaryRow}>
+                <Text style={styles.collapseSummary} numberOfLines={1}>{vectorSummary}</Text>
+                <TopicButton
+                  onPress={() => setTopic('vector-api')}
+                  accessibilityLabel="查看向量记忆教学"
+                />
+              </View>
+            )}
+          >
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Text style={styles.linkText}>启用向量检索</Text>
@@ -2144,6 +2285,7 @@ export default function SettingsScreen() {
           <Text style={styles.fieldHint}>
             未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
           </Text>
+          </CollapsibleSection>
         </Card>
 
         <TtsPanel
@@ -2169,11 +2311,17 @@ export default function SettingsScreen() {
           onClose={() => setPluginEntryOpen(false)}
         />
 
-        <Card>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="information-circle-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>关于</Text>
-          </View>
+        <Card
+          style={styles.sectionCard}
+          onLayout={event => { sectionOffsetsRef.current.about = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title="关于"
+            icon="information-circle-outline"
+            open={isSectionOpen('about')}
+            onToggle={next => toggleSection('about', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{aboutSummary}</Text>}
+          >
           <View style={styles.linkRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="pricetag-outline" size={17} color={theme.colors.primaryMuted} />
@@ -2242,6 +2390,7 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+          </CollapsibleSection>
         </Card>
       </ScrollView>
 

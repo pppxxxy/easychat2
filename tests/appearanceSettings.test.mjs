@@ -224,3 +224,28 @@ test('聊天选项 bubbleStyle：白名单归一，非法回退圆润', async ()
   assert.equal(next.bubbleStyle, 'card');
   store.delete('@easychat2_chat_options');
 });
+
+test('折叠卡状态：只接受显式布尔，忽略未知/非法值，损坏回退空对象', async () => {
+  store.delete('@easychat2_ui_sections');
+  assert.deepEqual(await settings.getUiSections(), {}, '缺失时返回空对象');
+  store.set('@easychat2_ui_sections', JSON.stringify({
+    api: false,
+    persona: true,
+    bogus: true,
+    workspace: 'yes',
+  }));
+  assert.deepEqual(await settings.getUiSections(), { api: false, persona: true });
+  store.set('@easychat2_ui_sections', '{ not json');
+  assert.deepEqual(await settings.getUiSections(), {}, '损坏时回退空对象');
+  store.delete('@easychat2_ui_sections');
+});
+
+test('折叠卡状态：保存后读回一致，未知 id 不落库', async () => {
+  store.clear();
+  await settings.saveUiSections({ api: true, experience: false, nope: true });
+  assert.deepEqual(JSON.parse(store.get('@easychat2_ui_sections')), { api: true, experience: false });
+  assert.deepEqual(await settings.getUiSections(), { api: true, experience: false });
+  assert.ok(settings.UI_SECTION_IDS.includes('experience'));
+  assert.ok(settings.UI_SECTION_IDS.includes('extensions'));
+  store.clear();
+});
