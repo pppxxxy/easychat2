@@ -30,7 +30,9 @@ import TranscriptionPanel from './TranscriptionPanel.js';
 import { useNavigation } from '@react-navigation/native';
 import {
   createApiConfig,
+  capabilitiesForModel,
   getApiConfigs,
+  normalizeCapabilityEntry,
   getChatOptions,
   getGlobalPresetSettings,
   getGlobalPresets,
@@ -186,6 +188,8 @@ export default function SettingsScreen() {
   const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
   const [modelDraft, setModelDraft] = useState('');
   const [capabilityOpen, setCapabilityOpen] = useState(false);
+  // 能力弹层当前编辑的模型名——能力按「模型」一份，不再按整个 API 配置。
+  const [capabilityEditorModel, setCapabilityEditorModel] = useState('');
   const [capabilityDraft, setCapabilityDraft] = useState({
     supportsThinking: false,
     supportsVision: false,
@@ -720,7 +724,7 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const performSave = async caps => {
+  const performSave = async () => {
     const current = apiStateRef.current;
     const selected = current.configs.find(item => item.id === current.activeId);
     if (!selected) return;
@@ -743,16 +747,6 @@ export default function SettingsScreen() {
 
               models: trimmedModels,
               activeModel,
-              supportsThinking: caps.supportsThinking === true,
-              supportsVision: caps.supportsVision === true,
-              supportsVideo: caps.supportsVideo === true,
-              supportsAudio: caps.supportsAudio === true,
-              thinking: {
-                field: String(caps.thinkingField || '').trim() || 'reasoning_effort',
-                format: ['effort', 'boolean', 'object'].includes(caps.thinkingFormat)
-                  ? caps.thinkingFormat
-                  : 'effort',
-              },
             }
           : item
       );
@@ -802,20 +796,32 @@ export default function SettingsScreen() {
       });
       if (!confirmed || !apiMountedRef.current) return;
     }
-    setCapabilityDraft({
-      supportsThinking: selected.supportsThinking === true,
-      supportsVision: selected.supportsVision === true,
-      supportsVideo: selected.supportsVideo === true,
-      supportsAudio: selected.supportsAudio === true,
-      thinkingField: (selected.thinking && selected.thinking.field) || 'reasoning_effort',
-      thinkingFormat: (selected.thinking && selected.thinking.format) || 'effort',
-    });
-    setCapabilityOpen(true);
+    await performSave();
   };
 
-  const confirmCapability = async () => {
+  // 能力弹层的确认：把「该模型的能力」写回草稿。仍点位模型能力，不写盘——
+  // 与草稿/保存分离的既有语义一致（点「保存配置」才落盘）。
+  const confirmCapability = () => {
+    const name = capabilityEditorModel;
     setCapabilityOpen(false);
-    await performSave(capabilityDraft);
+    if (!name || !canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    const entry = normalizeCapabilityEntry({
+      supportsThinking: capabilityDraft.supportsThinking === true,
+      thinkingField: String(capabilityDraft.thinkingField || '').trim() || 'reasoning_effort',
+      thinkingFormat: ['effort', 'boolean', 'object'].includes(capabilityDraft.thinkingFormat)
+        ? capabilityDraft.thinkingFormat
+        : 'effort',
+      supportsVision: capabilityDraft.supportsVision === true,
+      supportsVideo: capabilityDraft.supportsVideo === true,
+      supportsAudio: capabilityDraft.supportsAudio === true,
+    });
+    updateField({
+      modelCapabilities: { ...(selected.modelCapabilities || {}), [name]: entry },
+    });
+    setCapabilityEditorModel('');
   };
 
   const detectModels = async () => {
@@ -892,6 +898,8 @@ export default function SettingsScreen() {
     const nextModels = models.includes(model) ? models : [...models, model];
     updateField({ models: nextModels, activeModel: model });
     setModelModalVisible(false);
+    // 从「可用模型」列表添加/选中后，顺手确认这个模型的能力。
+    openCapabilityEditor(model);
   };
 
   const addModel = () => {
@@ -904,15 +912,38 @@ export default function SettingsScreen() {
     if (models.includes(model)) {
       updateField({ activeModel: model });
       setModelDraft('');
+      openCapabilityEditor(model);
       return;
     }
     updateField({ models: [...models, model], activeModel: model });
     setModelDraft('');
+    // 新模型不继承任何旧能力值：添加后立即让用户确认这个模型的能力。
+    openCapabilityEditor(model);
   };
 
   const selectActiveModel = model => {
     if (!canChangeApi()) return;
     updateField({ activeModel: model });
+  };
+
+  // 打开某模型的能力弹层：条目不存在（新模型未确认）时按全不支持起稿。
+  const openCapabilityEditor = modelName => {
+    const name = String(modelName || '').trim();
+    if (!name || !canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    const caps = capabilitiesForModel(selected, name);
+    setCapabilityDraft({
+      supportsThinking: caps.supportsThinking,
+      supportsVision: caps.supportsVision,
+      supportsVideo: caps.supportsVideo,
+      supportsAudio: caps.supportsAudio,
+      thinkingField: caps.thinkingField,
+      thinkingFormat: caps.thinkingFormat,
+    });
+    setCapabilityEditorModel(name);
+    setCapabilityOpen(true);
   };
 
   const removeModel = model => {
@@ -1085,6 +1116,20 @@ export default function SettingsScreen() {
                           {model}
                         </Text>
                       </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => openCapabilityEditor(model)}
+                        hitSlop={6}
+                        accessibilityLabel={`配置模型 ${model} 的能力`}
+                        style={styles.modelChipCaps}
+                      >
+                        <Ionicons
+                          name="options-outline"
+                          size={13}
+                          color={(active.modelCapabilities && active.modelCapabilities[model])
+                            ? theme.colors.primarySoft
+                            : theme.colors.textFaint}
+                        />
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={() => removeModel(model)} hitSlop={6}>
                         <Ionicons name="close" size={14} color={theme.colors.textFaint} />
                       </TouchableOpacity>
@@ -1092,7 +1137,7 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
-              <FieldHint style={styles.hint}>点击模型将其设为当前模型，请求将使用当前模型。</FieldHint>
+              <FieldHint style={styles.hint}>点击模型将其设为当前模型；点右侧滑杆图标可为每个模型单独确认能力（思考/识图/视频/语音识别）。</FieldHint>
               <TouchableOpacity
                 style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
                 onPress={detectModels}
@@ -2080,7 +2125,11 @@ export default function SettingsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>确认模型能力</Text>
-            <FieldHint style={styles.hint}>用于决定聊天页是否开放「思考」、图片上传与语音识别。</FieldHint>
+            <FieldHint style={styles.hint}>
+              {capabilityEditorModel ? `模型：${capabilityEditorModel}。` : ''}
+              每个模型单独一套：决定聊天页是否开放「思考」、图片/视频上传与语音识别。
+              确认后还需点表单里的「保存配置」才会写入本机。
+            </FieldHint>
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
               <Switch
@@ -2141,7 +2190,7 @@ export default function SettingsScreen() {
               />
             </View>
             <View style={styles.capabilityRow}>
-              <Text style={styles.capabilityLabel}>支持视频（悬浮窗帧序列观屏）</Text>
+              <Text style={styles.capabilityLabel}>支持视频（聊天视频附件 / 悬浮窗帧序列观屏）</Text>
               <Switch
                 value={capabilityDraft.supportsVideo === true}
                 onValueChange={value => setCapabilityDraft(current => ({
