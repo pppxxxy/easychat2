@@ -23,6 +23,12 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   collapseSummary: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 6 },
   // 折叠化设置页：卡片间距收紧，让折叠头与摘要行尽量在一屏内铺开成「目录」。
   sectionCard: { marginBottom: tokens.spacing.sm },
+  // 搜索命中跳转后的短暂高亮（背景闪烁由状态定时清除）。
+  sectionCardFlash: {
+    borderColor: theme.colors.primary,
+    borderWidth: tokens.border.thin * 2,
+    backgroundColor: theme.colors.primaryAlpha(0.08),
+  },
   summaryRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
   summaryAvatar: {
     width: 20,
@@ -31,6 +37,54 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     marginRight: 6,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
+  },
+  pageHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  searchToggle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  searchToggleActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primaryAlpha(0.12),
+  },
+  searchBox: { marginTop: tokens.spacing.sm },
+  searchResults: {
+    marginTop: tokens.spacing.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
+    overflow: 'hidden',
+  },
+  searchResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: tokens.spacing.sm + 2,
+    paddingHorizontal: tokens.spacing.md,
+    borderBottomWidth: tokens.border.thin,
+    borderBottomColor: theme.colors.divider,
+  },
+  searchResultLabel: { color: theme.colors.text, fontSize: fonts.scaled(14), flexShrink: 1 },
+  searchResultSection: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    marginLeft: tokens.spacing.sm,
+  },
+  searchEmpty: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    marginTop: tokens.spacing.sm,
   },
   configSelect: { marginTop: 6 },
   providerEditor: {

@@ -18,6 +18,7 @@
     "src/settings/useUserProfile.js",
     "src/settings/SamplingCard.js",
     "src/settings/settingsStyles.js",
+    "src/settings/CollapsibleHint.js",
     "src/DiaryPanel.js",
     "src/MapPanel.js",
     "src/PluginPanel.js",

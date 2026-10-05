@@ -89,6 +89,8 @@ import { captureOAuthCallback, GITHUB_OAUTH_REDIRECT, openSystemBrowser } from '
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
+import CollapsibleHint from './settings/CollapsibleHint.js';
+import { searchSettings, settingsSectionLabel } from './settings/searchIndex.js';
 import { createSettingsStyles } from './settings/settingsStyles.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
@@ -319,6 +321,38 @@ export default function SettingsScreen() {
       }
     }
   };
+
+  // ---- 设置搜索：页头放大镜 → 实时过滤索引 → 点击展开对应卡并闪烁高亮 ----
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [flashSection, setFlashSection] = useState('');
+  const flashTimerRef = useRef(null);
+
+  const searchResults = useMemo(() => searchSettings(searchQuery), [searchQuery]);
+
+  const navigateToSection = id => {
+    toggleSection(id, true);
+    const y = sectionOffsetsRef.current[id];
+    if (typeof y === 'number' && scrollRef.current) {
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+      }, 80);
+    }
+    setFlashSection(id);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashSection(''), 800);
+    setSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  useEffect(() => () => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+  }, []);
 
   const refreshPresetCount = useCallback(() => {
     Promise.all([getGlobalPresets(), getGlobalPresetSettings()])
@@ -1212,6 +1246,13 @@ export default function SettingsScreen() {
   const workspaceSummary = workspaceMode === 'write' ? '读写模式' : (workspaceMode === 'read' ? '只读模式' : '询问模式');
   const aboutSummary = APP_VERSION ? `v${APP_VERSION}` : '';
 
+  // 折叠头吸顶：只把「已收起」的卡设为 sticky（展开的卡较高，吸顶会遮挡其内容）。
+  // 子节点顺序：0=页头，1..N=各卡（与下方渲染顺序一致）。
+  const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'about'];
+  const stickyHeaderIndices = SECTION_RENDER_ORDER
+    .map((id, index) => (isSectionOpen(id) ? null : index + 1))
+    .filter(value => value !== null);
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -1223,14 +1264,56 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        stickyHeaderIndices={stickyHeaderIndices}
       >
         <View style={styles.pageHeader}>
-          <Text style={styles.title}>设置</Text>
+          <View style={styles.pageHeaderTop}>
+            <Text style={styles.title}>设置</Text>
+            <TouchableOpacity
+              style={[styles.searchToggle, searchOpen && styles.searchToggleActive]}
+              onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+              activeOpacity={0.8}
+              accessibilityLabel={searchOpen ? '关闭设置搜索' : '搜索设置项'}
+            >
+              <Ionicons name={searchOpen ? 'close' : 'search'} size={18} color={theme.colors.primarySoft} />
+            </TouchableOpacity>
+          </View>
           <FieldHint style={styles.hint}>配置 API、用户人设与全局对话预设。</FieldHint>
+          {searchOpen ? (
+            <View style={styles.searchBox}>
+              <TextField
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="搜索设置项，例如：流式 / 温度 / 备份"
+                autoFocus
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {searchQuery.trim() ? (
+                searchResults.length > 0 ? (
+                  <View style={styles.searchResults}>
+                    {searchResults.map((item, index) => (
+                      <TouchableOpacity
+                        key={`${item.sectionId}-${item.label}-${index}`}
+                        style={styles.searchResultRow}
+                        onPress={() => navigateToSection(item.sectionId)}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.searchResultLabel}>{item.label}</Text>
+                        <Text style={styles.searchResultSection}>{settingsSectionLabel(item.sectionId)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.searchEmpty}>没有找到匹配的设置项。</Text>
+                )
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'api' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.api = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -1444,10 +1527,11 @@ export default function SettingsScreen() {
 <SamplingCard
           open={isSectionOpen('sampling')}
           onToggle={next => toggleSection('sampling', next)}
+          flash={flashSection === 'sampling'}
         />
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'persona' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.persona = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -1555,7 +1639,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'appearance' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.appearance = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -1677,12 +1761,12 @@ export default function SettingsScreen() {
                 })}
               </View>
             </View>
-            <Text style={styles.fieldHint}>{'圆润：大圆角气泡（默认）；卡片：统一中等圆角、无尾角，偏阅读；无底纹：去掉气泡底色与阴影，仅靠左右对齐区分角色。'}</Text>
+            <CollapsibleHint>{'圆润：大圆角气泡（默认）；卡片：统一中等圆角、无尾角，偏阅读；无底纹：去掉气泡底色与阴影，仅靠左右对齐区分角色。'}</CollapsibleHint>
           </CollapsibleSection>
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'experience' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.experience = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -1759,7 +1843,7 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.fieldHint}>{'开启后，含 <style>/<script> 的助手消息用 WebView 渲染，可还原角色卡的样式与交互；折叠状态栏始终保留 WebView 渲染。'}</Text>
+          <CollapsibleHint>{'开启后，含 <style>/<script> 的助手消息用 WebView 渲染，可还原角色卡的样式与交互；折叠状态栏始终保留 WebView 渲染。'}</CollapsibleHint>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="save-outline" size={17} color={theme.colors.primaryMuted} />
@@ -1772,7 +1856,7 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.fieldHint}>开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。</Text>
+          <CollapsibleHint>开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。</CollapsibleHint>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="time-outline" size={17} color={theme.colors.primaryMuted} />
@@ -1785,7 +1869,7 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.fieldHint}>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</Text>
+          <CollapsibleHint>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</CollapsibleHint>
           {locationSettings && locationSettings.enabled === true ? (
             <>
               <View style={styles.capabilityRow}>
@@ -1800,7 +1884,7 @@ export default function SettingsScreen() {
                   thumbColor={theme.colors.primaryContrast}
                 />
               </View>
-              <Text style={styles.fieldHint}>{t('settings.location.awareness.hint')}</Text>
+              <CollapsibleHint>{t('settings.location.awareness.hint')}</CollapsibleHint>
             </>
           ) : null}
           <View style={styles.capabilityRow}>
@@ -1819,7 +1903,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'extensions' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.extensions = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -1992,7 +2076,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'vector' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.vector = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -2127,7 +2211,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'workspace' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.workspace = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -2231,7 +2315,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'github' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.github = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
@@ -2291,7 +2375,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, flashSection === 'about' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.about = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
