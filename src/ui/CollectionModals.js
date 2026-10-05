@@ -1,5 +1,6 @@
-// 歌单弹窗：命名（新建/重命名）与「加入/移出歌单」选择器。
-// 与聊天侧 StickerNamePromptModal 同构（透明 Modal + 键盘避让），样式与文案独立于聊天。
+// 集合弹窗（通用）：命名（新建/重命名）与「加入/移出」选择器。
+// 服务于音乐歌单、书架分组等同构场景——文案与条目渲染全部由调用方传入，
+// 组件本身不持有业务词条（i18n 由各领域自己接）。
 
 import React, { useMemo } from 'react';
 import {
@@ -16,26 +17,24 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
-import { useTranslation } from '../i18n/I18nContext.js';
 
-import { PLAYLIST_NAME_MAX } from './playlists.js';
-
-// 新建 / 重命名歌单：一个输入框 + 取消/确定。
-export function PlaylistNameModal({
+// 新建 / 重命名：一个输入框 + 取消/确定。
+export function CollectionNameModal({
   visible,
-  mode = 'create',
+  title,
+  placeholder,
   draft = '',
   onChangeDraft,
   onClose,
   onConfirm,
   saving = false,
+  maxLength = 40,
+  cancelLabel,
+  confirmLabel,
+  savingLabel,
 }) {
   const { theme, fonts, tokens } = useTheme();
-  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const title = mode === 'rename'
-    ? t('music.playlists.rename.title')
-    : t('music.playlists.create.title');
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -49,10 +48,10 @@ export function PlaylistNameModal({
             style={styles.input}
             value={draft}
             onChangeText={onChangeDraft}
-            placeholder={t('music.playlists.namePlaceholder')}
+            placeholder={placeholder}
             placeholderTextColor={theme.colors.textFaint}
             autoFocus
-            maxLength={PLAYLIST_NAME_MAX}
+            maxLength={maxLength}
             editable={!saving}
             returnKeyType="done"
             onSubmitEditing={onConfirm}
@@ -64,7 +63,7 @@ export function PlaylistNameModal({
               disabled={saving}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionGhostText}>{t('common.cancel')}</Text>
+              <Text style={styles.actionGhostText}>{cancelLabel}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, styles.actionPrimary, saving && styles.actionDisabled]}
@@ -73,7 +72,7 @@ export function PlaylistNameModal({
               activeOpacity={0.8}
             >
               <Text style={styles.actionPrimaryText}>
-                {saving ? t('music.playlists.saving') : t('common.confirm')}
+                {saving ? savingLabel : confirmLabel}
               </Text>
             </TouchableOpacity>
           </View>
@@ -83,49 +82,55 @@ export function PlaylistNameModal({
   );
 }
 
-// 加入 / 移出歌单：列出全部歌单，勾选态表示该歌已在其中；点按即时切换。
-export function PlaylistPickerModal({
+// 加入 / 移出：列出全部集合，勾选态表示条目已在其中；点按即时切换。
+export function CollectionPickerModal({
   visible,
-  playlists = [],
-  songName = '',
+  title,
+  subtitle = '',
+  hint,
+  emptyHint,
+  doneLabel,
+  items = [],
+  itemKey = item => String(item && item.id || ''),
+  itemLabel = item => String(item && item.name || ''),
+  itemMeta,
   isIncluded,
   onToggle,
   onClose,
 }) {
   const { theme, fonts, tokens } = useTheme();
-  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={[styles.sheet, styles.sheetWide]}>
-          <Text style={styles.sheetTitle}>{t('music.playlists.picker.title')}</Text>
-          {songName ? (
-            <Text style={styles.sheetMeta} numberOfLines={1}>{songName}</Text>
+          <Text style={styles.sheetTitle}>{title}</Text>
+          {subtitle ? (
+            <Text style={styles.sheetMeta} numberOfLines={1}>{subtitle}</Text>
           ) : null}
-          {playlists.length === 0 ? (
-            <Text style={styles.emptyHint}>{t('music.playlists.picker.noPlaylists')}</Text>
+          {items.length === 0 ? (
+            <Text style={styles.emptyHint}>{emptyHint}</Text>
           ) : (
             <>
-              <Text style={styles.pickerHint}>{t('music.playlists.picker.hint')}</Text>
+              <Text style={styles.pickerHint}>{hint}</Text>
               <ScrollView style={styles.pickerList}>
-                {playlists.map(playlist => {
-                  const included = isIncluded(playlist);
+                {items.map(item => {
+                  const included = isIncluded ? isIncluded(item) === true : false;
                   return (
                     <TouchableOpacity
-                      key={playlist.id}
+                      key={itemKey(item)}
                       style={styles.pickerRow}
-                      onPress={() => onToggle(playlist, !included)}
+                      onPress={() => onToggle(item, !included)}
                       activeOpacity={0.85}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: included }}
                     >
                       <View style={styles.pickerInfo}>
-                        <Text style={styles.pickerName} numberOfLines={1}>{playlist.name}</Text>
-                        <Text style={styles.pickerMeta}>
-                          {t('music.playlists.count', { count: playlist.songIds.length })}
-                        </Text>
+                        <Text style={styles.pickerName} numberOfLines={1}>{itemLabel(item)}</Text>
+                        {itemMeta ? (
+                          <Text style={styles.pickerMeta} numberOfLines={1}>{itemMeta(item)}</Text>
+                        ) : null}
                       </View>
                       <Ionicons
                         name={included ? 'checkbox' : 'square-outline'}
@@ -144,7 +149,7 @@ export function PlaylistPickerModal({
               onPress={onClose}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionPrimaryText}>{t('common.done')}</Text>
+              <Text style={styles.actionPrimaryText}>{doneLabel}</Text>
             </TouchableOpacity>
           </View>
         </View>

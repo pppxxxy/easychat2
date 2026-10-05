@@ -132,3 +132,63 @@ test('导入失败提示按 code 走文案键，不渲染原始 error.message', 
     }
   }
 });
+
+test('分页可靠性：尺寸变化必须强制重测（key 换挂载），工具栏显隐不得改变正文区尺寸', () => {
+  const hook = readSource('src/books/useBookReader.js');
+  assert.ok(hook.includes('measureNonce'), '必须暴露测量重挂载凭据');
+  assert.ok(/setMeasureNonce\(value => value \+ 1\)/.test(hook),
+    '尺寸/字号变化时必须递增 nonce——否则测量 Text 的排版 props 一字未变，RN 不再派发 '
+    + 'onTextLayout，状态永久停在 BUSY（用户看到的就是「一直转圈，点字号才出正文」）');
+
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(/key=\{`measure-\$\{reader\.measureNonce\}`\}/.test(view),
+    '测量 Text 必须以 nonce 为 key，强制重挂载以触发再次测量');
+  assert.ok(view.includes('pageInnerWrap'), '测量容器（pageInnerWrap）与内缩容器（pageArea）分离');
+  assert.ok(/pageArea:\s*\{[^}]*paddingTop:\s*READER_INSET_TOP/.test(view),
+    '阅读区上下内缩必须恒定（分页高度不随工具栏显隐变化）');
+  assert.ok(/topBar:\s*\{[\s\S]{0,400}?position:\s*'absolute'/.test(view),
+    '顶栏必须是浮层：参与布局会在每次显隐时改变正文区高度并触发重测量（点中间转圈的根因）');
+  assert.ok(/bottomBar:\s*\{[\s\S]{0,400}?position:\s*'absolute'/.test(view),
+    '底栏同样必须是浮层');
+});
+
+test('翻页方式：三档（点击/卡片滑动/仿真翻书）+ 全局持久化 + 静态文案键', () => {
+  const settings = readSource('src/books/readerSettings.js');
+  assert.ok(/PAGE_TURN_MODES\s*=\s*\['tap',\s*'slide',\s*'curl'\]/.test(settings), '三档翻页模式');
+  assert.ok(settings.includes('@easychat2_book_reader'), '翻页方式全局持久化');
+  assert.ok(settings.includes('normalizeBookReaderSettings'), '读取必须归一化（非法值回退默认）');
+
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(view.includes('PanResponder'), '滑动翻页用 PanResponder');
+  assert.ok(/pageTurn === 'tap'\) return null/.test(view), 'tap 模式不接管横向手势');
+  assert.ok(view.includes('Animated.timing') && view.includes('rotateY'), 'slide 平移 / curl 3D 翻转动画');
+  assert.ok(view.includes('useNativeDriver: true'), '翻页动画走原生驱动，避免 JS 线程卡顿');
+  assert.ok(view.includes('PAGE_TURN_HINT_KEYS'), '模式提示用静态文案键表（动态拼接无法被文案扫描提取）');
+});
+
+test('书架：书名搜索 + 分组（复用通用集合组件），删书级联清理分组引用', () => {
+  const screen = readSource('src/books/BookScreen.js');
+  assert.ok(screen.includes('books.search.placeholder'), '书名搜索框');
+  assert.ok(/activeShelf\.bookIds\.includes\(item\.id\)/.test(screen), '按分组筛选');
+  assert.ok(/String\(item\.name \|\| ''\)\.toLowerCase\(\)\.includes\(keyword\)/.test(screen),
+    '书名匹配大小写不敏感');
+  assert.ok(screen.includes('purgeBooksFromShelves'), '删书必须级联清理分组引用');
+  assert.ok(screen.includes('CollectionNameModal') && screen.includes('CollectionPickerModal'),
+    '分组弹窗复用 ui 通用集合组件');
+
+  const shelves = readSource('src/books/shelves.js');
+  assert.ok(shelves.includes('createCollectionStore'), '分组存储委托通用集合工厂');
+  assert.ok(/itemField:\s*'bookIds'/.test(shelves), '条目字段 bookIds');
+  assert.ok(/errorCodePrefix:\s*'shelf'/.test(shelves), '错误码前缀 shelf');
+});
+
+test('歌单与书架分组共用同一套集合存储/弹窗实现（不重复造）', () => {
+  const playlists = readSource('src/music/playlists.js');
+  assert.ok(playlists.includes('createCollectionStore'), '歌单存储同样委托通用集合工厂');
+  assert.ok(/itemField:\s*'songIds'/.test(playlists), '条目字段 songIds');
+
+  const music = readSource('src/music/MusicScreen.js');
+  assert.ok(music.includes('CollectionNameModal') && music.includes('CollectionPickerModal'),
+    '歌单弹窗复用 ui 通用集合组件');
+  assert.ok(!/from '\.\/PlaylistModals\.js'/.test(music), '不得再引用已删除的专属弹窗实现');
+});

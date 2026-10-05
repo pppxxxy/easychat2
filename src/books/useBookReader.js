@@ -41,19 +41,25 @@ export function useBookReader({ blocks, initial = {}, pageWidth, pageHeight, lin
   const [status, setStatus] = useState(MEASURE_BUSY);
   const [lines, setLines] = useState([]);
   const [pages, setPages] = useState([]);
+  // 测量重挂载凭据：见下方 effect。作为测量 Text 的 key 使用。
+  const [measureNonce, setMeasureNonce] = useState(0);
   const pendingJumpRef = useRef({ type: 'anchor', anchorText: initial.anchorText || '', pageIndex: initial.pageIndex || 0 });
   const pageHeightRef = useRef(0);
 
   const block = blocks[blockIndex] || null;
   const measureText = block ? block.text : '';
 
-  // 测量入参变化即重新测量；测量请求带 id，晚到的 onTextLayout 事件按 id 丢弃。
+  // 测量入参变化即重新测量。必须用 nonce 强制测量 Text 重挂载：它的排版 props
+  //（文本/字号/行高）在尺寸变化时往往一字未变，RN 不会为「没变的 Text」再派发
+  // onTextLayout——状态会永久停在 BUSY（一直转圈），此前只能靠点字号按钮碰巧
+  // 改变 props 来救活。nonce 与 setStatus 同批，不额外增加渲染次数。
   useEffect(() => {
     if (pageWidth <= 0 || pageHeight <= 0 || !block) return undefined;
     pageHeightRef.current = pageHeight;
     setStatus(MEASURE_BUSY);
     setLines([]);
     setPages([]);
+    setMeasureNonce(value => value + 1);
     return undefined;
   }, [block, pageWidth, pageHeight, lineHeight]);
 
@@ -151,6 +157,7 @@ export function useBookReader({ blocks, initial = {}, pageWidth, pageHeight, lin
     blockCount: blocks.length,
     location,
     measureText,
+    measureNonce,
     handleTextLayout,
     nextPage,
     prevPage,
@@ -159,7 +166,7 @@ export function useBookReader({ blocks, initial = {}, pageWidth, pageHeight, lin
     canPrev: status === MEASURE_READY && (pageIndex > 0 || blockIndex > 0),
     canNext: status === MEASURE_READY && (pageIndex < pages.length - 1 || blockIndex < blocks.length - 1),
   }), [
-    block, blockIndex, blocks.length, handleTextLayout, lines, location, measureText, nextPage,
-    pages, pageIndex, prevPage, reanchor, jumpToChapter, status,
+    block, blockIndex, blocks.length, handleTextLayout, lines, location, measureNonce, measureText,
+    nextPage, pages, pageIndex, prevPage, reanchor, jumpToChapter, status,
   ]);
 }

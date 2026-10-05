@@ -56,8 +56,12 @@ const ioStub = {
   backupCorruptValue: async key => { corruptBackups.push(key); },
 };
 
+const moduleCache = new Map();
+
 function loadSourceModule(relativePath) {
   const sourcePath = path.resolve(relativePath);
+  if (moduleCache.has(sourcePath)) return moduleCache.get(sourcePath);
+
   const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
     babelrc: false,
     configFile: false,
@@ -69,14 +73,25 @@ function loadSourceModule(relativePath) {
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
     if (request.endsWith('/io.js')) return ioStub;
+    // 本地相对依赖同样走转译：源码含 import 语法，交给原生加载器会按 ESM 解析并炸在
+    // 其深层依赖上（ERR_MODULE_NOT_FOUND）。递归转译后与主模块共用同一套桩。
+    if (request.startsWith('.') && parent && parent.filename) {
+      const base = path.resolve(path.dirname(parent.filename), request);
+      const candidate = fs.existsSync(base) ? base : `${base}.js`;
+      if (fs.existsSync(candidate)) return loadSourceModule(candidate);
+    }
     return originalLoad.call(this, request, parent, isMain);
   };
-  const runtime = new Module(sourcePath);
-  runtime.filename = sourcePath;
-  runtime.paths = Module._nodeModulePaths(path.dirname(sourcePath));
-  runtime._compile(transformed, sourcePath);
-  Module._load = originalLoad;
-  return runtime.exports;
+  try {
+    const runtime = new Module(sourcePath);
+    runtime.filename = sourcePath;
+    runtime.paths = Module._nodeModulePaths(path.dirname(sourcePath));
+    runtime._compile(transformed, sourcePath);
+    moduleCache.set(sourcePath, runtime.exports);
+    return runtime.exports;
+  } finally {
+    Module._load = originalLoad;
+  }
 }
 
 const playlists = loadSourceModule('src/music/playlists.js');

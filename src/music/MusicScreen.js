@@ -17,7 +17,17 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Card, Chip, CollapsibleSection, CollapsibleSelect, EmptyState, GhostButton, IconButton } from '../ui/index.js';
+import {
+  Card,
+  Chip,
+  CollectionNameModal,
+  CollectionPickerModal,
+  CollapsibleSection,
+  CollapsibleSelect,
+  EmptyState,
+  GhostButton,
+  IconButton,
+} from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 import {
@@ -34,6 +44,7 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import { deleteMusicCommentsForSongs } from './comments.js';
 import { deleteMusicItems, getMusicItems, saveMusicDuration, saveMusicTriggers } from './library.js';
 import {
+  PLAYLIST_NAME_MAX,
   createMusicPlaylist,
   deleteMusicPlaylist,
   getMusicPlaylists,
@@ -41,7 +52,6 @@ import {
   renameMusicPlaylist,
   setSongInPlaylist,
 } from './playlists.js';
-import { PlaylistNameModal, PlaylistPickerModal } from './PlaylistModals.js';
 import { importMusicFromPicker } from './importMusic.js';
 import { canAttachSongAudio, formatPlaybackPosition, MUSIC_DECODE_MAX_BYTES } from './commentPrompts.js';
 import {
@@ -797,19 +807,33 @@ export default function MusicScreen() {
         />
       ))}
     </ScrollView>
-      <PlaylistNameModal
+      <CollectionNameModal
         visible={playlistPrompt.visible}
-        mode={playlistPrompt.mode}
+        title={playlistPrompt.mode === 'rename'
+          ? t('music.playlists.rename.title')
+          : t('music.playlists.create.title')}
+        placeholder={t('music.playlists.namePlaceholder')}
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('common.confirm')}
+        savingLabel={t('music.playlists.saving')}
+        maxLength={PLAYLIST_NAME_MAX}
         draft={playlistPrompt.draft}
         saving={playlistSaving}
         onChangeDraft={draft => setPlaylistPrompt(previous => ({ ...previous, draft }))}
         onClose={closePlaylistPrompt}
         onConfirm={confirmPlaylistName}
       />
-      <PlaylistPickerModal
+      <CollectionPickerModal
         visible={!!playlistPickerSong}
-        playlists={playlists}
-        songName={playlistPickerSong ? playlistPickerSong.name : ''}
+        title={t('music.playlists.picker.title')}
+        subtitle={playlistPickerSong ? playlistPickerSong.name : ''}
+        hint={t('music.playlists.picker.hint')}
+        emptyHint={t('music.playlists.picker.noPlaylists')}
+        doneLabel={t('common.done')}
+        items={playlists}
+        itemKey={playlist => playlist.id}
+        itemLabel={playlist => playlist.name}
+        itemMeta={playlist => t('music.playlists.count', { count: playlist.songIds.length })}
         isIncluded={playlist => playlist.songIds.includes(playlistPickerSongId)}
         onToggle={toggleSongInPlaylist}
         onClose={() => setPlaylistPickerSongId('')}

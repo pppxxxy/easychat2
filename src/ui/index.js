@@ -2,6 +2,7 @@ export { default as Card } from './Card.js';
 export { PrimaryButton, SecondaryButton, DangerButton, GhostButton, IconButton } from './Button.js';
 export { default as Chip } from './Chip.js';
 export { CollapsibleSection, CollapsibleSelect } from './Collapsible.js';
+export { CollectionNameModal, CollectionPickerModal } from './CollectionModals.js';
 export { default as EmptyState } from './EmptyState.js';
 export { FieldLabel, FieldHint, TextField, FieldGroup } from './Field.js';
 export { default as ListRow } from './ListRow.js';

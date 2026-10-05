@@ -7,8 +7,11 @@ import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   FlatList,
   Modal,
+  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +32,11 @@ import { splitBookIntoBlocks } from './blocks.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
 import { pageText } from './pagination.js';
+import {
+  PAGE_TURN_MODES,
+  getBookReaderSettings,
+  saveBookReaderSettings,
+} from './readerSettings.js';
 import BookMarkdownList from './BookMarkdownList.js';
 import { createBookMarkdownStyles, isMarkdownBook, markdownExcerpt } from './markdownBook.js';
 import { useBookComments } from './useBookComments.js';
@@ -37,6 +45,25 @@ import { buildPageTextProps, LINE_HEIGHT_RATIO, MEASURE_READY, useBookReader } f
 const FONT_MIN = 13;
 const FONT_MAX = 26;
 const TAP_ZONE_RATIO = 0.3;
+// 阅读区上下内缩：顶栏/底栏是浮层（absolute），不参与布局——留出恒定内缩，
+// 保证工具栏显隐时正文区尺寸不变（否则每次呼出工具栏都会触发重测量→转圈）。
+const READER_INSET_TOP = 48;
+const READER_INSET_BOTTOM = 40;
+
+// 翻页方式：点击（原行为）/ 卡片滑动 / 仿真翻书（3D 翻转）。顺序即工具栏按钮的轮换顺序。
+const PAGE_TURN_ICONS = {
+  tap: 'hand-left-outline',
+  slide: 'swap-horizontal-outline',
+  curl: 'book-outline',
+};
+const SWIPE_MIN_DX = 48;
+const TURN_ANIM_MS = 170;
+// 静态 i18n 键（动态拼接的 key 无法被文案扫描静态提取）。
+const PAGE_TURN_HINT_KEYS = {
+  tap: 'books.reader.pageTurn.tap',
+  slide: 'books.reader.pageTurn.slide',
+  curl: 'books.reader.pageTurn.curl',
+};
 
 // 分页 hook 在 Markdown 模式下传空块数组；用模块级常量避免逐渲染新建数组引用。
 const EMPTY_BLOCKS = [];
@@ -65,6 +92,11 @@ export default function BookReaderView({ item, content, onBack }) {
   const [showChapters, setShowChapters] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [contentArea, setContentArea] = useState({ width: 0, height: 0 });
+  // 翻页方式（全局持久化）+ 切换时的短暂提示 + 翻页动画进度。
+  const [pageTurn, setPageTurn] = useState('tap');
+  const [pageTurnHint, setPageTurnHint] = useState('');
+  const pageAnim = useRef(new Animated.Value(0)).current;
+  const turningRef = useRef(false);
 
   const blocks = useMemo(() => splitBookIntoBlocks(content, { markdown: mdCapable }), [content, mdCapable]);
   const [mdBlockIndex, setMdBlockIndex] = useState(
@@ -235,20 +267,109 @@ export default function BookReaderView({ item, content, onBack }) {
     paged ? Math.max(1, reader.pageCount) : 1
   );
 
+  // 翻页方式：读取全局设置（失败回退默认，不阻断阅读）。
+  useEffect(() => {
+    let cancelled = false;
+    getBookReaderSettings()
+      .then(settings => {
+        if (!cancelled) setPageTurn(settings.pageTurn);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const cyclePageTurn = useCallback(() => {
+    const index = PAGE_TURN_MODES.indexOf(pageTurn);
+    const next = PAGE_TURN_MODES[(index + 1) % PAGE_TURN_MODES.length];
+    setPageTurn(next);
+    setPageTurnHint(t(PAGE_TURN_HINT_KEYS[next]));
+    saveBookReaderSettings({ pageTurn: next }).catch(() => {});
+  }, [pageTurn, t]);
+
+  // 模式提示 1.6s 后自动消失。
+  useEffect(() => {
+    if (!pageTurnHint) return undefined;
+    const timer = setTimeout(() => setPageTurnHint(''), 1600);
+    return () => clearTimeout(timer);
+  }, [pageTurnHint]);
+
+  // 翻页：tap 模式直接切换；slide/curl 先播动画（旧页移出 → 内容已切换 → 新页对侧入场）。
+  const turnPage = useCallback(direction => {
+    if (turningRef.current) return;
+    const moved = direction > 0 ? reader.nextPage() : reader.prevPage();
+    if (!moved) {
+      setShowControls(true);
+      return;
+    }
+    if (pageTurn === 'tap') return;
+    const width = contentArea.width || 320;
+    const exitTo = direction > 0 ? -width : width;
+    turningRef.current = true;
+    Animated.timing(pageAnim, {
+      toValue: exitTo,
+      duration: TURN_ANIM_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => {
+      pageAnim.setValue(-exitTo);
+      Animated.timing(pageAnim, {
+        toValue: 0,
+        duration: TURN_ANIM_MS,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        turningRef.current = false;
+      });
+    });
+  }, [contentArea.width, pageAnim, pageTurn, reader]);
+
   const handleTap = useCallback(event => {
     const width = contentArea.width;
     if (width <= 0) return;
     const x = event.nativeEvent.locationX;
     if (x < width * TAP_ZONE_RATIO) {
-      if (!reader.prevPage()) setShowControls(true);
+      turnPage(-1);
       return;
     }
     if (x > width * (1 - TAP_ZONE_RATIO)) {
-      if (!reader.nextPage()) setShowControls(true);
+      turnPage(1);
       return;
     }
     setShowControls(value => !value);
-  }, [contentArea.width, reader]);
+  }, [contentArea.width, turnPage]);
+
+  // 滑动手势：仅 slide/curl 模式接管横向手势；tap 模式不挂 PanResponder。
+  const panResponder = useMemo(() => {
+    if (pageTurn === 'tap') return null;
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: (event, gesture) => (
+        Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4
+      ),
+      onPanResponderRelease: (event, gesture) => {
+        if (gesture.dx <= -SWIPE_MIN_DX) turnPage(1);
+        else if (gesture.dx >= SWIPE_MIN_DX) turnPage(-1);
+      },
+    });
+  }, [pageTurn, turnPage]);
+
+  // 翻页动画样式：slide 平移；curl 绕书脊 3D 翻转。
+  const pageAnimStyle = useMemo(() => {
+    if (pageTurn === 'tap') return null;
+    const width = contentArea.width || 320;
+    if (pageTurn === 'slide') {
+      return { transform: [{ translateX: pageAnim }] };
+    }
+    const rotateY = pageAnim.interpolate({
+      inputRange: [-width, 0, width],
+      outputRange: ['70deg', '0deg', '-70deg'],
+    });
+    return {
+      transform: [{ perspective: 1200 }, { rotateY }],
+      backfaceVisibility: 'hidden',
+    };
+  }, [contentArea.width, pageAnim, pageTurn]);
 
   const pageBody = reader.status === MEASURE_READY && reader.page
     ? pageText(reader.lines, reader.page)
@@ -283,6 +404,13 @@ export default function BookReaderView({ item, content, onBack }) {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconButton}
+              onPress={cyclePageTurn}
+              accessibilityLabel={t('books.reader.a11y.pageTurn')}
+            >
+              <Ionicons name={PAGE_TURN_ICONS[pageTurn]} size={18} color={theme.colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
               onPress={() => setShowChapters(true)}
               disabled={item.chapters.length === 0}
               accessibilityLabel={t('books.reader.a11y.chapters')}
@@ -303,26 +431,29 @@ export default function BookReaderView({ item, content, onBack }) {
       <View style={styles.contentWrap}>
         {paged ? (
           <TouchableWithoutFeedback onPress={handleTap}>
-            <View
-              style={styles.pageArea}
-              onLayout={event => {
-                const { width, height } = event.nativeEvent.layout;
-                setContentArea(current => (current.width === width && current.height === height ? current : { width, height }));
-              }}
-            >
-              {pageBody ? (
-                <Text style={[styles.pageText, textProps]}>{pageBody}</Text>
-              ) : (
-                <View style={styles.center}>
-                  <ActivityIndicator color={theme.colors.primary} />
-                </View>
-              )}
-              <Text
-                style={[styles.pageText, textProps, styles.measureText]}
-                onTextLayout={reader.handleTextLayout}
+            <View style={styles.pageArea} {...(panResponder ? panResponder.panHandlers : null)}>
+              <Animated.View
+                style={[styles.pageInnerWrap, pageAnimStyle]}
+                onLayout={event => {
+                  const { width, height } = event.nativeEvent.layout;
+                  setContentArea(current => (current.width === width && current.height === height ? current : { width, height }));
+                }}
               >
-                {reader.measureText}
-              </Text>
+                {pageBody ? (
+                  <Text style={[styles.pageText, textProps]}>{pageBody}</Text>
+                ) : (
+                  <View style={styles.center}>
+                    <ActivityIndicator color={theme.colors.primary} />
+                  </View>
+                )}
+                <Text
+                  key={`measure-${reader.measureNonce}`}
+                  style={[styles.pageText, textProps, styles.measureText]}
+                  onTextLayout={reader.handleTextLayout}
+                >
+                  {reader.measureText}
+                </Text>
+              </Animated.View>
             </View>
           </TouchableWithoutFeedback>
         ) : (
@@ -471,6 +602,12 @@ export default function BookReaderView({ item, content, onBack }) {
           </View>
         </View>
       </Modal>
+
+      {pageTurnHint ? (
+        <View style={styles.modeHint} pointerEvents="none">
+          <Text style={styles.modeHintText}>{pageTurnHint}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -483,6 +620,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
+    // 浮层：不参与布局——工具栏显隐不再改变正文区高度，避免每次呼出都重测量。
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: theme.colors.background,
   },
   backButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingRight: 10 },
   backText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 2 },
@@ -511,8 +655,25 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   modeButtonTextActive: { color: theme.colors.primaryContrast },
   fontButtonText: { color: theme.colors.text, fontSize: fonts.scaled(11), fontWeight: '700' },
   contentWrap: { flex: 1 },
-  mdContent: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 30 },
-  pageArea: { flex: 1 },
+  mdContent: {
+    paddingHorizontal: 20,
+    paddingTop: READER_INSET_TOP,
+    paddingBottom: READER_INSET_BOTTOM,
+  },
+  // 恒定上下内缩，给浮层工具栏留位；pageInner 才是测量容器（尺寸不随工具栏变化）。
+  pageArea: { flex: 1, paddingTop: READER_INSET_TOP, paddingBottom: READER_INSET_BOTTOM },
+  pageInnerWrap: { flex: 1 },
+  modeHint: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '45%',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: tokens.radius.pill || 999,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    zIndex: 20,
+  },
+  modeHintText: { color: '#FFFFFF', fontSize: fonts.scaled(13), fontWeight: '600' },
   pageText: { flex: 1 },
   measureText: {
     position: 'absolute',
@@ -527,6 +688,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: theme.colors.background,
   },
   progressText: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1 },
   chapterList: { paddingHorizontal: 20, paddingBottom: 30 },
