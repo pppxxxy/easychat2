@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
+
+import { useTranslation } from './i18n/I18nContext.js';
 
 import {
   deleteLocalModelItem,
@@ -41,7 +43,9 @@ const PARAM_LABELS = {
   maxTokens: '最大生成长度（-1=不限）',
 };
 
-function emptyDraft() {
+// 下载与导入是两条互斥路径：草稿分开持有，切换子 Tab 时各自保留（U2）。
+// 此前共用一个 14 字段 draft，两个表单常驻、字段大量空置。
+function emptyDownloadDraft() {
   return {
     modelId: '',
     name: '',
@@ -55,8 +59,13 @@ function emptyDraft() {
     modelSha256: '',
     mmprojUrl: '',
     mmprojUrls: [],
-    importSourceUri: '',
-    importName: '',
+  };
+}
+
+function emptyImportDraft() {
+  return {
+    sourceUri: '',
+    name: '',
     mmprojSourceUri: '',
     mmprojSourceName: '',
   };
@@ -83,10 +92,15 @@ function tierColor(theme, tier) {
 
 export default function LocalModelPanel({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState(null);
-  const [draft, setDraft] = useState(emptyDraft);
+  // 三段式分区（U1）：模型（状态/开关/列表）/ 获取（下载与导入两个互斥子 Tab）/ 服务。
+  const [section, setSection] = useState('models');
+  const [acquireTab, setAcquireTab] = useState('download');
+  const [downloadDraft, setDownloadDraft] = useState(emptyDownloadDraft);
+  const [importDraft, setImportDraft] = useState(emptyImportDraft);
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
@@ -135,9 +149,9 @@ export default function LocalModelPanel({ visible, onClose }) {
   }, [visible, refresh]);
 
   const draftSummary = useMemo(() => buildModelSummary(
-    { name: `${draft.name} ${draft.modelId}`, quant: draft.quant, paramSize: draft.paramSize },
+    { name: `${downloadDraft.name} ${downloadDraft.modelId}`, quant: downloadDraft.quant, paramSize: downloadDraft.paramSize },
     { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 }
-  ), [draft, deviceMemoryBytes]);
+  ), [downloadDraft, deviceMemoryBytes]);
 
   const selectActive = async entry => {
     const item = await getLocalModelItem(entry.id).catch(() => null);
@@ -380,8 +394,8 @@ export default function LocalModelPanel({ visible, onClose }) {
 
   const handleDownload = async () => {
     if (busy) return;
-    const url = draft.modelUrl.trim();
-    if (!draft.modelId.trim() || !/^https?:\/\//i.test(url)) {
+    const url = downloadDraft.modelUrl.trim();
+    if (!downloadDraft.modelId.trim() || !/^https?:\/\//i.test(url)) {
       Alert.alert('信息不完整', '请填写模型 ID 与有效的 GGUF 下载地址。');
       return;
     }
@@ -389,20 +403,20 @@ export default function LocalModelPanel({ visible, onClose }) {
     setProgress(0);
     try {
       const item = await downloadLocalModel({
-        modelId: draft.modelId,
-        modelName: draft.name || draft.modelId,
+        modelId: downloadDraft.modelId,
+        modelName: downloadDraft.name || downloadDraft.modelId,
         modelUrl: url,
-        sourceId: draft.sourceId,
-        repoPath: draft.repoPath,
-        quant: draft.quant,
-        paramSize: draft.paramSize,
-        modelExpectedBytes: draft.modelExpectedBytes,
-        modelSha256: draft.modelSha256,
-        mmprojUrl: draft.mmprojUrl,
+        sourceId: downloadDraft.sourceId,
+        repoPath: downloadDraft.repoPath,
+        quant: downloadDraft.quant,
+        paramSize: downloadDraft.paramSize,
+        modelExpectedBytes: downloadDraft.modelExpectedBytes,
+        modelSha256: downloadDraft.modelSha256,
+        mmprojUrl: downloadDraft.mmprojUrl,
         onProgress: setProgress,
       });
       Alert.alert('模型下载完成', `已保存「${item.name || item.id}」，可在上方列表选用。`);
-      setDraft(emptyDraft());
+      setDownloadDraft(emptyDownloadDraft());
       await refresh();
     } catch (error) {
       Alert.alert('模型下载失败', error.message || '请检查地址与网络。');
@@ -416,7 +430,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false });
       const asset = getPickedAsset(result);
       if (!asset || !asset.uri) return;
-      setDraft(current => ({ ...current, importSourceUri: asset.uri, importName: asset.name || '' }));
+      setImportDraft(current => ({ ...current, sourceUri: asset.uri, name: asset.name || '' }));
     } catch (error) {
       Alert.alert('选择文件失败', error.message || '请重试。');
     }
@@ -427,7 +441,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false });
       const asset = getPickedAsset(result);
       if (!asset || !asset.uri) return;
-      setDraft(current => ({ ...current, mmprojSourceUri: asset.uri, mmprojSourceName: asset.name || '' }));
+      setImportDraft(current => ({ ...current, mmprojSourceUri: asset.uri, mmprojSourceName: asset.name || '' }));
     } catch (error) {
       Alert.alert('选择文件失败', error.message || '请重试。');
     }
@@ -435,19 +449,19 @@ export default function LocalModelPanel({ visible, onClose }) {
 
   const handleImport = async () => {
     if (importBusy) return;
-    if (!draft.importSourceUri) {
+    if (!importDraft.sourceUri) {
       Alert.alert('未选择文件', '请先选择要导入的 GGUF 文件。');
       return;
     }
     setImportBusy(true);
     try {
       const item = await importLocalModel({
-        sourceUri: draft.importSourceUri,
-        name: draft.importName,
-        mmprojSourceUri: draft.mmprojSourceUri,
+        sourceUri: importDraft.sourceUri,
+        name: importDraft.name,
+        mmprojSourceUri: importDraft.mmprojSourceUri,
       });
       Alert.alert('导入完成', `已导入「${item.name || item.id}」，可在上方列表选用。`);
-      setDraft(current => ({ ...current, importSourceUri: '', importName: '', mmprojSourceUri: '', mmprojSourceName: '' }));
+      setImportDraft(emptyImportDraft());
       await refresh();
     } catch (error) {
       Alert.alert('导入失败', error.message || '请重试。');
@@ -459,7 +473,7 @@ export default function LocalModelPanel({ visible, onClose }) {
   const handleSearchSelect = selection => {
     if (!selection) return;
     const mmprojUrls = Array.isArray(selection.mmprojUrls) ? selection.mmprojUrls : [];
-    setDraft(current => ({
+    setDownloadDraft(current => ({
       ...current,
       modelId: selection.modelId || current.modelId,
       name: selection.modelName || current.name,
@@ -491,7 +505,7 @@ export default function LocalModelPanel({ visible, onClose }) {
   };
 
   const rewriteSource = source => {
-    setDraft(current => {
+    setDownloadDraft(current => {
       const rewritten = rewriteDownloadSourceUrl(current.modelUrl, source.id);
       if (rewritten) return { ...current, modelUrl: rewritten, sourceId: source.id };
       const repoPath = String(current.modelUrl || '').replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '');
@@ -622,216 +636,279 @@ export default function LocalModelPanel({ visible, onClose }) {
                 <Ionicons name="close" size={22} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
+            <View style={styles.tabRow}>
+              {[
+                { id: 'models', label: t('localModel.tabs.models') },
+                { id: 'acquire', label: t('localModel.tabs.acquire') },
+                { id: 'serve', label: t('localModel.tabs.serve') },
+              ].map(tab => (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={[styles.tabItem, section === tab.id && styles.tabItemActive]}
+                  onPress={() => setSection(tab.id)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: section === tab.id }}
+                  accessibilityLabel={tab.label}
+                >
+                  <Text style={[styles.tabText, section === tab.id && styles.tabTextActive]}>{tab.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-              <Text style={styles.hint}>本地模型需要包含 llama.rn 的原生构建。未完成原生构建或模型未就绪时，聊天继续使用在线 API。</Text>
-              <Text style={styles.status}>{isLocalModelModuleAvailable() ? '当前构建已包含本地模型模块' : '当前构建未包含本地模型模块'}</Text>
-              <TouchableOpacity style={styles.logsButton} onPress={() => setLogsOpen(true)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="查看运行日志">
-                <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
-                <Text style={styles.logsButtonText}>查看运行日志</Text>
-              </TouchableOpacity>
-
-              <View style={styles.activeRow}>
-                <Text style={styles.activeText}>
-                  {settings && settings.activeModelId
-                    ? `当前模型：${settings.modelName || settings.activeModelId}`
-                    : '当前未选用本地模型'}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.toggle, settings && settings.enabled && styles.toggleOn]}
-                  onPress={toggleEnabled}
-                  activeOpacity={0.8}
-                  accessibilityRole="switch"
-                  accessibilityState={{ checked: Boolean(settings && settings.enabled) }}
-                  accessibilityLabel="启用本地模型"
-                >
-                  <Text style={styles.toggleText}>{settings && settings.enabled ? '已启用' : '已关闭'}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={styles.mediaRow}
-                onPress={toggleMediaInput}
-                activeOpacity={0.8}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: Boolean(settings && settings.enableMediaInput) }}
-                accessibilityLabel="允许图片/音频输入"
-              >
-                <View style={styles.mediaInfo}>
-                  <Text style={styles.mediaTitle}>允许图片/音频输入</Text>
-                  <Text style={styles.mediaHint}>
-                    {settings && settings.enableMediaInput
-                      ? '已开启：模型支持识图/听声时，图片与音频会发给本地推理'
-                      : '默认关闭：本地推理只发送文字'}
-                  </Text>
-                </View>
-                <View style={[styles.toggle, settings && settings.enableMediaInput && styles.toggleOn]}>
-                  <Text style={styles.toggleText}>{settings && settings.enableMediaInput ? '开' : '关'}</Text>
-                </View>
-              </TouchableOpacity>
-
-              <View style={styles.labelRow}>
-                <Text style={styles.labelInline}>已安装模型（{entries.length}）</Text>
-                <TouchableOpacity
-                  style={styles.searchModelButton}
-                  onPress={handleCleanupOrphans}
-                  disabled={cleanupBusy}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel="清理下载残留"
-                >
-                  <Ionicons name="trash-bin-outline" size={14} color={theme.colors.primarySoft} />
-                  <Text style={styles.searchModelText}>{cleanupBusy ? '清理中…' : '清理残留'}</Text>
-                </TouchableOpacity>
-              </View>
-              {entries.length === 0 ? (
-                <Text style={styles.empty}>还没有本地模型，可在下方搜索下载或导入本地 GGUF 文件。</Text>
-              ) : (
-                entries.map(renderEntry)
-              )}
-
-              <Text style={styles.label}>下载模型</Text>
-              <View style={styles.labelRow}>
-                <Text style={styles.labelInline}>模型 ID</Text>
-                <TouchableOpacity
-                  style={styles.searchModelButton}
-                  onPress={() => setSearchVisible(true)}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel="搜索模型"
-                >
-                  <Ionicons name="search" size={14} color={theme.colors.primarySoft} />
-                  <Text style={styles.searchModelText}>搜索模型</Text>
-                </TouchableOpacity>
-              </View>
-              <TextInput
-                style={styles.input}
-                value={draft.modelId}
-                onChangeText={text => setDraft(current => ({ ...current, modelId: text }))}
-                placeholder="例如 qwen2.5-1.5b"
-                placeholderTextColor={theme.colors.textFaint}
-              />
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryName} numberOfLines={1}>{draft.name || draft.modelId || '未选择模型'}</Text>
-                <View style={styles.summaryRow}>
-                  {draftSummary.quantLabel ? <Text style={styles.summaryChip}>量化 {draftSummary.quantLabel}</Text> : null}
-                  {draftSummary.paramLabel ? <Text style={styles.summaryChip}>规模 {draftSummary.paramLabel}</Text> : null}
-                  {draftSummary.memory.totalBytes > 0 ? <Text style={styles.summaryChip}>占用约 {formatBytes(draftSummary.memory.totalBytes)}</Text> : null}
-                  <Text style={[styles.summaryTier, { color: tierColor(theme, draftSummary.compatibility.tier) }]}>{draftSummary.compatibility.label}</Text>
-                </View>
-                <Text style={styles.summaryHint}>
-                  内存占用随上下文长度增加；若加载失败或闪退，请改用更小的模型或降低上下文。
-                </Text>
-              </View>
-
-              <View style={styles.sourceRow}>
-                {LOCAL_MODEL_DOWNLOAD_SOURCES.map(source => (
-                  <TouchableOpacity
-                    key={source.id}
-                    style={[styles.sourceChip, draft.sourceId === source.id && styles.sourceChipActive]}
-                    onPress={() => rewriteSource(source)}
-                    activeOpacity={0.8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`使用 ${source.name} 下载源`}
-                  >
-                    <Text style={[styles.sourceChipText, draft.sourceId === source.id && styles.sourceChipTextActive]}>{source.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.label}>GGUF 下载地址</Text>
-              <TextInput
-                style={styles.input}
-                value={draft.modelUrl}
-                onChangeText={text => setDraft(current => ({ ...current, modelUrl: text }))}
-                placeholder="https://huggingface.co/<repo>/resolve/main/model.gguf"
-                placeholderTextColor={theme.colors.textFaint}
-                autoCapitalize="none"
-              />
-              {draft.mmprojUrls.length > 0 ? (
+              {section === 'models' ? (
                 <>
-                  <Text style={styles.label}>配套 mmproj（可选，多模态）</Text>
-                  <View style={styles.sourceRow}>
+                  <Text style={styles.hint}>本地模型需要包含 llama.rn 的原生构建。未完成原生构建或模型未就绪时，聊天继续使用在线 API。</Text>
+                  <Text style={styles.status}>{isLocalModelModuleAvailable() ? '当前构建已包含本地模型模块' : '当前构建未包含本地模型模块'}</Text>
+
+                  <View style={styles.activeRow}>
+                    <Text style={styles.activeText}>
+                      {settings && settings.activeModelId
+                        ? `当前模型：${settings.modelName || settings.activeModelId}`
+                        : '当前未选用本地模型'}
+                    </Text>
+                    <Switch
+                      value={Boolean(settings && settings.enabled)}
+                      onValueChange={() => toggleEnabled()}
+                      disabled={!settings}
+                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                      thumbColor={theme.colors.primaryContrast}
+                      accessibilityLabel="启用本地模型"
+                    />
+                  </View>
+
+                  <View style={styles.mediaRow}>
+                    <View style={styles.mediaInfo}>
+                      <Text style={styles.mediaTitle}>允许图片/音频输入</Text>
+                      <Text style={styles.mediaHint}>
+                        {settings && settings.enableMediaInput
+                          ? '已开启：模型支持识图/听声时，图片与音频会发给本地推理'
+                          : '默认关闭：本地推理只发送文字'}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={Boolean(settings && settings.enableMediaInput)}
+                      onValueChange={() => toggleMediaInput()}
+                      disabled={!settings}
+                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                      thumbColor={theme.colors.primaryContrast}
+                      accessibilityLabel="允许图片/音频输入"
+                    />
+                  </View>
+
+                  <View style={styles.labelRow}>
+                    <Text style={styles.labelInline}>已安装模型（{entries.length}）</Text>
                     <TouchableOpacity
-                      style={[styles.sourceChip, !draft.mmprojUrl && styles.sourceChipActive]}
-                      onPress={() => setDraft(current => ({ ...current, mmprojUrl: '' }))}
+                      style={styles.searchModelButton}
+                      onPress={handleCleanupOrphans}
+                      disabled={cleanupBusy}
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="清理下载残留"
                     >
-                      <Text style={[styles.sourceChipText, !draft.mmprojUrl && styles.sourceChipTextActive]}>不下载</Text>
+                      <Ionicons name="trash-bin-outline" size={14} color={theme.colors.primarySoft} />
+                      <Text style={styles.searchModelText}>{cleanupBusy ? '清理中…' : '清理残留'}</Text>
                     </TouchableOpacity>
-                    {draft.mmprojUrls.map((url, index) => (
+                  </View>
+                  {entries.length === 0 ? (
+                    <View>
+                      <Text style={styles.empty}>还没有本地模型，可前往「获取」搜索下载或导入本地 GGUF 文件。</Text>
                       <TouchableOpacity
-                        key={url}
-                        style={[styles.sourceChip, draft.mmprojUrl === url && styles.sourceChipActive]}
-                        onPress={() => setDraft(current => ({ ...current, mmprojUrl: url }))}
+                        style={styles.secondary}
+                        onPress={() => setSection('acquire')}
                         activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('localModel.empty.goAcquire')}
                       >
-                        <Text style={[styles.sourceChipText, draft.mmprojUrl === url && styles.sourceChipTextActive]}>mmproj {index + 1}</Text>
+                        <Text style={styles.secondaryText}>{t('localModel.empty.goAcquire')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    entries.map(renderEntry)
+                  )}
+                </>
+              ) : null}
+
+              {section === 'acquire' ? (
+                <>
+                  <View style={styles.subTabRow}>
+                    {[
+                      { id: 'download', label: t('localModel.acquire.download') },
+                      { id: 'import', label: t('localModel.acquire.import') },
+                    ].map(tab => (
+                      <TouchableOpacity
+                        key={tab.id}
+                        style={[styles.tabItem, acquireTab === tab.id && styles.tabItemActive]}
+                        onPress={() => setAcquireTab(tab.id)}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: acquireTab === tab.id }}
+                        accessibilityLabel={tab.label}
+                      >
+                        <Text style={[styles.tabText, acquireTab === tab.id && styles.tabTextActive]}>{tab.label}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
+
+                  {acquireTab === 'download' ? (
+                    <>
+                      <View style={styles.labelRow}>
+                        <Text style={styles.labelInline}>模型 ID</Text>
+                        <TouchableOpacity
+                          style={styles.searchModelButton}
+                          onPress={() => setSearchVisible(true)}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel="搜索模型"
+                        >
+                          <Ionicons name="search" size={14} color={theme.colors.primarySoft} />
+                          <Text style={styles.searchModelText}>搜索模型</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        value={downloadDraft.modelId}
+                        onChangeText={text => setDownloadDraft(current => ({ ...current, modelId: text }))}
+                        placeholder="例如 qwen2.5-1.5b"
+                        placeholderTextColor={theme.colors.textFaint}
+                      />
+                      <View style={styles.summaryCard}>
+                        <Text style={styles.summaryName} numberOfLines={1}>{downloadDraft.name || downloadDraft.modelId || '未选择模型'}</Text>
+                        <View style={styles.summaryRow}>
+                          {draftSummary.quantLabel ? <Text style={styles.summaryChip}>量化 {draftSummary.quantLabel}</Text> : null}
+                          {draftSummary.paramLabel ? <Text style={styles.summaryChip}>规模 {draftSummary.paramLabel}</Text> : null}
+                          {draftSummary.memory.totalBytes > 0 ? <Text style={styles.summaryChip}>占用约 {formatBytes(draftSummary.memory.totalBytes)}</Text> : null}
+                          <Text style={[styles.summaryTier, { color: tierColor(theme, draftSummary.compatibility.tier) }]}>{draftSummary.compatibility.label}</Text>
+                        </View>
+                        <Text style={styles.summaryHint}>
+                          内存占用随上下文长度增加；若加载失败或闪退，请改用更小的模型或降低上下文。
+                        </Text>
+                      </View>
+
+                      <View style={styles.sourceRow}>
+                        {LOCAL_MODEL_DOWNLOAD_SOURCES.map(source => (
+                          <TouchableOpacity
+                            key={source.id}
+                            style={[styles.sourceChip, downloadDraft.sourceId === source.id && styles.sourceChipActive]}
+                            onPress={() => rewriteSource(source)}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel={`使用 ${source.name} 下载源`}
+                          >
+                            <Text style={[styles.sourceChipText, downloadDraft.sourceId === source.id && styles.sourceChipTextActive]}>{source.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      <Text style={styles.label}>GGUF 下载地址</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={downloadDraft.modelUrl}
+                        onChangeText={text => setDownloadDraft(current => ({ ...current, modelUrl: text }))}
+                        placeholder="https://huggingface.co/<repo>/resolve/main/model.gguf"
+                        placeholderTextColor={theme.colors.textFaint}
+                        autoCapitalize="none"
+                      />
+                      {downloadDraft.mmprojUrls.length > 0 ? (
+                        <>
+                          <Text style={styles.label}>配套 mmproj（可选，多模态）</Text>
+                          <View style={styles.sourceRow}>
+                            <TouchableOpacity
+                              style={[styles.sourceChip, !downloadDraft.mmprojUrl && styles.sourceChipActive]}
+                              onPress={() => setDownloadDraft(current => ({ ...current, mmprojUrl: '' }))}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={[styles.sourceChipText, !downloadDraft.mmprojUrl && styles.sourceChipTextActive]}>不下载</Text>
+                            </TouchableOpacity>
+                            {downloadDraft.mmprojUrls.map((url, index) => (
+                              <TouchableOpacity
+                                key={url}
+                                style={[styles.sourceChip, downloadDraft.mmprojUrl === url && styles.sourceChipActive]}
+                                onPress={() => setDownloadDraft(current => ({ ...current, mmprojUrl: url }))}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[styles.sourceChipText, downloadDraft.mmprojUrl === url && styles.sourceChipTextActive]}>mmproj {index + 1}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </>
+                      ) : null}
+                      {busy ? <Text style={styles.progress}>下载进度：{Math.round(progress * 100)}%</Text> : null}
+                      <TouchableOpacity style={styles.primary} onPress={handleDownload} disabled={busy} activeOpacity={0.8}>
+                        <Text style={styles.primaryText}>{busy ? '下载中...' : '下载并登记模型'}</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.hint}>把设备上已有的 GGUF 文件复制进应用目录并登记。</Text>
+                      <TouchableOpacity style={styles.secondary} onPress={pickGguf} activeOpacity={0.8}>
+                        <Text style={styles.secondaryText}>{importDraft.sourceUri ? `已选择：${importDraft.name || 'GGUF 文件'}` : '选择 GGUF 文件'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.secondary} onPress={pickMmproj} activeOpacity={0.8}>
+                        <Text style={styles.secondaryText}>{importDraft.mmprojSourceUri ? `mmproj：${importDraft.mmprojSourceName || '已选择'}` : '选择 mmproj（可选）'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.primary} onPress={handleImport} disabled={importBusy} activeOpacity={0.8}>
+                        <Text style={styles.primaryText}>{importBusy ? '导入中...' : '导入到应用'}</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </>
               ) : null}
-              {busy ? <Text style={styles.progress}>下载进度：{Math.round(progress * 100)}%</Text> : null}
-              <TouchableOpacity style={styles.primary} onPress={handleDownload} disabled={busy} activeOpacity={0.8}>
-                <Text style={styles.primaryText}>{busy ? '下载中...' : '下载并登记模型'}</Text>
-              </TouchableOpacity>
 
-              <Text style={styles.label}>导入本地文件</Text>
-              <TouchableOpacity style={styles.secondary} onPress={pickGguf} activeOpacity={0.8}>
-                <Text style={styles.secondaryText}>{draft.importSourceUri ? `已选择：${draft.importName || 'GGUF 文件'}` : '选择 GGUF 文件'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondary} onPress={pickMmproj} activeOpacity={0.8}>
-                <Text style={styles.secondaryText}>{draft.mmprojSourceUri ? `mmproj：${draft.mmprojSourceName || '已选择'}` : '选择 mmproj（可选）'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.primary} onPress={handleImport} disabled={importBusy} activeOpacity={0.8}>
-                <Text style={styles.primaryText}>{importBusy ? '导入中...' : '导入到应用'}</Text>
-              </TouchableOpacity>
-
-              <Text style={styles.label}>本地 API 服务（OpenAI 兼容）</Text>
-              <Text style={styles.hint}>固定监听 127.0.0.1，供同机客户端调用；推理复用当前加载的本地模型。请求强制携带 Bearer 密钥（留空会自动生成），同机其他应用无法匿名调用。</Text>
-              <View style={styles.apiPortRow}>
-                <Text style={styles.labelInline}>端口</Text>
-                <TextInput
-                  style={[styles.input, styles.apiPortInput]}
-                  value={String(apiServer.port)}
-                  onChangeText={text => setApiServer(current => ({ ...current, port: text }))}
-                  keyboardType="numeric"
-                  placeholderTextColor={theme.colors.textFaint}
-                />
-              </View>
-              <TextInput
-                style={styles.input}
-                value={apiServer.apiKey}
-                onChangeText={text => setApiServer(current => ({ ...current, apiKey: text }))}
-                placeholder="API Key（留空将自动生成随机密钥）"
-                placeholderTextColor={theme.colors.textFaint}
-                autoCapitalize="none"
-              />
-              <Text style={styles.apiStatus}>
-                {apiStatus.running ? '运行中' : '未启动'}
-              </Text>
-              <TouchableOpacity
-                style={styles.apiAddressRow}
-                onPress={copyApiAddress}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={`复制本地 API 地址 ${apiAddress}`}
-              >
-                <Text style={styles.apiAddress} numberOfLines={1}>{apiAddress}</Text>
-                <View style={styles.apiCopyChip}>
-                  <Ionicons name="copy-outline" size={14} color={theme.colors.primarySoft} />
-                  <Text style={styles.apiCopyText}>复制</Text>
-                </View>
-              </TouchableOpacity>
-              <Text style={styles.apiAddressHint}>在上方选择模型并点击「启动服务」后，把此地址填入同机客户端的 base_url。</Text>
-              <View style={styles.apiButtonRow}>
-                <TouchableOpacity style={[styles.secondary, styles.apiButton]} onPress={startApi} disabled={apiBusy} activeOpacity={0.8}>
-                  <Text style={styles.secondaryText}>{apiBusy ? '处理中...' : '启动服务'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.secondary, styles.apiButton]} onPress={stopApi} disabled={apiBusy} activeOpacity={0.8}>
-                  <Text style={styles.secondaryText}>停止服务</Text>
-                </TouchableOpacity>
-              </View>
+              {section === 'serve' ? (
+                <>
+                  <Text style={styles.hint}>固定监听 127.0.0.1，供同机客户端调用；推理复用当前加载的本地模型。请求强制携带 Bearer 密钥（留空会自动生成），同机其他应用无法匿名调用。</Text>
+                  <View style={styles.apiPortRow}>
+                    <Text style={styles.labelInline}>端口</Text>
+                    <TextInput
+                      style={[styles.input, styles.apiPortInput]}
+                      value={String(apiServer.port)}
+                      onChangeText={text => setApiServer(current => ({ ...current, port: text }))}
+                      keyboardType="numeric"
+                      placeholderTextColor={theme.colors.textFaint}
+                    />
+                  </View>
+                  <TextInput
+                    style={styles.input}
+                    value={apiServer.apiKey}
+                    onChangeText={text => setApiServer(current => ({ ...current, apiKey: text }))}
+                    placeholder="API Key（留空将自动生成随机密钥）"
+                    placeholderTextColor={theme.colors.textFaint}
+                    autoCapitalize="none"
+                  />
+                  <View style={styles.apiSwitchRow}>
+                    <Text style={styles.mediaTitle}>
+                      {apiStatus.running ? `运行中（端口 ${apiStatus.port}）` : '启用本地 API 服务'}
+                    </Text>
+                    <Switch
+                      value={Boolean(apiStatus.running)}
+                      onValueChange={value => (value ? startApi() : stopApi())}
+                      disabled={apiBusy}
+                      trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                      thumbColor={theme.colors.primaryContrast}
+                      accessibilityLabel="启用本地 API 服务"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.apiAddressRow}
+                    onPress={copyApiAddress}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`复制本地 API 地址 ${apiAddress}`}
+                  >
+                    <Text style={styles.apiAddress} numberOfLines={1}>{apiAddress}</Text>
+                    <View style={styles.apiCopyChip}>
+                      <Ionicons name="copy-outline" size={14} color={theme.colors.primarySoft} />
+                      <Text style={styles.apiCopyText}>复制</Text>
+                    </View>
+                  </TouchableOpacity>
+                  <Text style={styles.apiAddressHint}>在「模型」页选择模型并加载后开启服务，把此地址填入同机客户端的 base_url。</Text>
+                  <TouchableOpacity style={styles.logsButton} onPress={() => setLogsOpen(true)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="查看运行日志">
+                    <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
+                    <Text style={styles.logsButtonText}>查看运行日志</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -871,7 +948,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       <ModelSearchModal
         visible={searchVisible}
         onClose={() => setSearchVisible(false)}
-        initialSourceId={draft.sourceId || LOCAL_MODEL_DOWNLOAD_SOURCES[0].id}
+        initialSourceId={downloadDraft.sourceId || LOCAL_MODEL_DOWNLOAD_SOURCES[0].id}
         onSelect={handleSearchSelect}
         totalMemoryBytes={deviceMemoryBytes}
       />
@@ -887,22 +964,41 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   content: { paddingBottom: 18 },
+  tabRow: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    padding: 3,
+    marginBottom: 10,
+  },
+  subTabRow: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    padding: 3,
+    marginBottom: 12,
+  },
+  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: tokens.radius.sm },
+  tabItemActive: { backgroundColor: theme.colors.primaryAlpha(0.2) },
+  tabText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '700' },
+  tabTextActive: { color: theme.colors.primary },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 10 },
   status: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginBottom: 10 },
   logsButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: 10 },
   logsButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
   activeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, paddingHorizontal: 12, paddingVertical: 10 },
   activeText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700', marginRight: 8 },
-  toggle: { borderRadius: tokens.radius.pill, borderWidth: 1, borderColor: theme.colors.surfaceBorder, paddingHorizontal: 12, paddingVertical: 6 },
-  toggleOn: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.18) },
-  toggleText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   mediaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8 },
   mediaInfo: { flex: 1, marginRight: 8 },
   mediaTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
   mediaHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 2 },
   apiPortRow: { flexDirection: 'row', alignItems: 'center' },
   apiPortInput: { flex: 1, marginLeft: 10 },
-  apiStatus: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 8 },
+  apiSwitchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, paddingHorizontal: 12, paddingVertical: 8, marginTop: 10 },
   apiAddressRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -919,8 +1015,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   apiCopyChip: { flexDirection: 'row', alignItems: 'center', marginLeft: 10 },
   apiCopyText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
   apiAddressHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 6 },
-  apiButtonRow: { flexDirection: 'row', marginTop: 4 },
-  apiButton: { flex: 1, marginRight: 8, marginTop: 10 },
   item: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, padding: 10, marginBottom: 8 },
   itemActive: { borderColor: theme.colors.primary },
   itemHeader: { flexDirection: 'row', alignItems: 'center' },

@@ -62,3 +62,32 @@ test('C7：refresh 单一入口，水合 apiServer 仅发生在打开面板时',
   assert.ok(PANEL.includes('refresh({ hydrateApi: true })'));
   assert.ok(PANEL.includes('options.hydrateApi === true'));
 });
+
+test('U1/U3：三段式分区 + 原生 Switch（假开关 pill 退役）', () => {
+  // 三个分段
+  assert.ok(PANEL.includes("localModel.tabs.models"));
+  assert.ok(PANEL.includes("localModel.tabs.acquire"));
+  assert.ok(PANEL.includes("localModel.tabs.serve"));
+  // 获取段内两个互斥子 Tab（下载/导入）
+  assert.ok(PANEL.includes("localModel.acquire.download"));
+  assert.ok(PANEL.includes("localModel.acquire.import"));
+  assert.ok(PANEL.includes("acquireTab === 'download'"));
+  // 原生 Switch：启用/多媒体/ API 服务三处；假 toggle 样式已删
+  const switchCount = (PANEL.match(/<Switch/g) || []).length;
+  assert.equal(switchCount, 3, 'activeRow/mediaRow/API 服务应各有一个原生 Switch');
+  assert.ok(!PANEL.includes('styles.toggle'), '假开关 toggle 样式引用应已清空');
+  // 空列表给「去获取」引导
+  assert.ok(PANEL.includes("localModel.empty.goAcquire"));
+});
+
+test('U2：下载与导入草稿分离，互斥子 Tab 切换各自保留', () => {
+  assert.ok(PANEL.includes('emptyDownloadDraft'));
+  assert.ok(PANEL.includes('emptyImportDraft'));
+  assert.ok(PANEL.includes('useState(emptyDownloadDraft)'));
+  assert.ok(PANEL.includes('useState(emptyImportDraft)'));
+  // 不再存在混用的单一 draft
+  assert.ok(!PANEL.includes('useState(emptyDraft)'), '单一 14 字段 draft 应已拆分');
+  // 导入字段收进 importDraft（短名）
+  assert.ok(PANEL.includes('importDraft.sourceUri'));
+  assert.ok(PANEL.includes('importDraft.mmprojSourceUri'));
+});
