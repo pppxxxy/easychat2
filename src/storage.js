@@ -126,6 +126,16 @@ export {
   saveWorkspaceSettings,
 } from './storage/workspace.js';
 export {
+  clearGithubMcpCredentials,
+  connectGithubMcpWithToken,
+  createGithubMcpSessionFromSettings,
+  GITHUB_MCP_KEY,
+  getGithubMcpSettings,
+  normalizeGithubMcpSettings,
+  patchGithubMcpSettings,
+  refreshGithubMcpToolCatalog,
+} from './storage/githubMcp.js';
+export {
   capabilitiesForModel,
   createApiConfig,
   getActiveApiConfig,

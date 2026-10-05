@@ -58,8 +58,8 @@ test('API 配置：切走前确认未保存的修改，基线在加载/落盘后
   assert.ok(SETTINGS.includes('JSON.parse(apiBaselineRef.current)'));
 });
 
-test('密钥输入：三处 secureTextEntry 全部走带显隐切换的 SecretTextField', () => {
-  assert.equal((SETTINGS.match(/<SecretTextField/g) || []).length, 3, 'API/生图/向量三处密钥');
+test('密钥输入：四处 secureTextEntry 全部走带显隐切换的 SecretTextField', () => {
+  assert.equal((SETTINGS.match(/<SecretTextField/g) || []).length, 4, 'API/生图/向量/GitHub 令牌四处密钥');
   // 组件内部持有显隐状态；明文不再由调用点写死
   assert.ok(SETTINGS.includes('secureTextEntry={!visible}'));
   assert.equal(SETTINGS.includes('secureTextEntry\n'), false, '不应再有裸 secureTextEntry');

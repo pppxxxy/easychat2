@@ -44,6 +44,9 @@ import {
   getThinkingSettings,
   getWorkspaceSettings,
   patchWorkspaceSettings,
+  clearGithubMcpCredentials,
+  connectGithubMcpWithToken,
+  getGithubMcpSettings,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
@@ -79,6 +82,8 @@ import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
 import WorkspacePanel from './WorkspacePanel.js';
 import WorkspaceCapabilitiesCard from './WorkspaceCapabilitiesCard.js';
+import { runOAuthWebFlow } from './mcp/oauth.js';
+import { captureOAuthCallback, GITHUB_OAUTH_REDIRECT, openSystemBrowser } from './mcp/oauthBridge.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
@@ -254,6 +259,10 @@ export default function SettingsScreen() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [localModelOpen, setLocalModelOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  // GitHub MCP 连接：设置、PAT 输入与忙碌态（网页认证/PAT 都走 connectGithubMcpWithToken）。
+  const [githubMcp, setGithubMcp] = useState(null);
+  const [githubPat, setGithubPat] = useState('');
+  const [githubBusy, setGithubBusy] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
   const { refreshAppData, character } = useApp();
@@ -469,6 +478,103 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
+
+  // —— GitHub MCP 连接 ——
+  // 网页认证：发现授权服务器 → 动态注册 → 系统浏览器授权（PKCE）→ 回调换令牌。
+  // 任何一步失败都提示改用 PAT；令牌方式是稳定兜底。
+  // data 层错误带稳定 code：这里按 code 映射成用户文案（纯模块不做 i18n）。
+  const GITHUB_ERROR_KEYS = {
+    GITHUB_TOKEN_EMPTY: 'settings.github.err.empty',
+    GITHUB_ENDPOINT_HTTPS: 'settings.github.err.endpoint',
+    GITHUB_NOT_CONNECTED: 'settings.github.err.notConnected',
+    MCP_AUTH_FAILED: 'settings.github.err.auth',
+    MCP_HTTP_ERROR: 'settings.github.err.mcpHttp',
+    MCP_INVALID_RESPONSE: 'settings.github.err.mcpResponse',
+    OAUTH_METADATA_NOT_FOUND: 'settings.github.err.metadata',
+    OAUTH_NO_REGISTRATION: 'settings.github.err.registration',
+    OAUTH_STATE_MISMATCH: 'settings.github.err.state',
+    OAUTH_TIMEOUT: 'settings.github.err.timeout',
+    OAUTH_ACCESS_DENIED: 'settings.github.err.denied',
+    OAUTH_TOKEN_EXCHANGE: 'settings.github.err.exchange',
+    OAUTH_BROWSER_UNAVAILABLE: 'settings.github.err.browser',
+  };
+  const githubAlertText = (error, translate) => {
+    const key = error && error.code && GITHUB_ERROR_KEYS[error.code];
+    return key ? translate(key) : ((error && error.message) || translate('settings.github.err.body'));
+  };
+  const githubMcpSummaryRef = useRef({ allowedCount: 0, confirmCount: 0, deniedCount: 0 });
+  const loadGithubMcp = useCallback(async () => {
+    try { setGithubMcp(await getGithubMcpSettings()); } catch (error) { setGithubMcp(null); }
+  }, []);
+
+  useEffect(() => { loadGithubMcp(); }, [loadGithubMcp]);
+
+  const afterGithubConnect = useCallback(async () => {
+    await loadGithubMcp();
+    Alert.alert(
+      t('settings.github.done.title'),
+      t('settings.github.done.body', {
+        count: githubMcpSummaryRef.current.allowedCount,
+        confirm: githubMcpSummaryRef.current.confirmCount,
+        denied: githubMcpSummaryRef.current.deniedCount,
+      })
+    );
+  }, [loadGithubMcp, t]);
+
+  const connectGithubPat = useCallback(async () => {
+    if (githubBusy) return;
+    const token = githubPat.trim();
+    if (!token) {
+      Alert.alert(t('settings.github.err.title'), t('settings.github.err.empty'));
+      return;
+    }
+    setGithubBusy(true);
+    try {
+      const summary = await connectGithubMcpWithToken({ token, authMethod: 'pat' });
+      githubMcpSummaryRef.current = summary;
+      setGithubPat('');
+      await afterGithubConnect();
+    } catch (error) {
+      Alert.alert(t('settings.github.err.title'), githubAlertText(error, t));
+    } finally {
+      setGithubBusy(false);
+    }
+  }, [afterGithubConnect, githubBusy, githubPat, t]);
+
+  const connectGithubWeb = useCallback(async () => {
+    if (githubBusy) return;
+    setGithubBusy(true);
+    try {
+      const tokens = await runOAuthWebFlow({
+        serverUrl: (githubMcp && githubMcp.endpoint) || undefined,
+        redirectUri: GITHUB_OAUTH_REDIRECT,
+        fetchImpl: (url, options) => fetch(url, options),
+        openBrowser: openSystemBrowser,
+        awaitCallback: () => captureOAuthCallback(),
+      });
+      const summary = await connectGithubMcpWithToken({
+        token: tokens.accessToken,
+        authMethod: 'oauth',
+      });
+      githubMcpSummaryRef.current = summary;
+      await afterGithubConnect();
+    } catch (error) {
+      Alert.alert(t('settings.github.err.title'), githubAlertText(error, t));
+    } finally {
+      setGithubBusy(false);
+    }
+  }, [afterGithubConnect, githubBusy, githubMcp, t]);
+
+  const disconnectGithub = useCallback(() => {
+    Alert.alert(t('settings.github.disconnect.title'), t('settings.github.disconnect.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('settings.github.disconnect.ok'),
+        style: 'destructive',
+        onPress: () => { clearGithubMcpCredentials().then(loadGithubMcp).catch(() => {}); },
+      },
+    ]);
+  }, [loadGithubMcp, t]);
 
   // 选文件夹：系统选择器（SAF）已经带 takePersistableUriPermission，重启后仍有效。
   // 取消不是错误，不提示；失败才提示。
@@ -1460,6 +1566,61 @@ export default function SettingsScreen() {
             }}
             shellAvailable={isShellAvailable()}
           />
+        </Card>
+
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="logo-github" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>{t('settings.github.title')}</Text>
+            </View>
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.github.subtitle')}</FieldHint>
+          {githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0 ? (
+            <>
+              <View style={styles.capabilityRow}>
+                <View style={styles.linkLeft}>
+                  <Ionicons name="checkmark-circle-outline" size={17} color={theme.colors.primary} />
+                  <Text style={styles.linkText}>
+                    {t('settings.github.connected', {
+                      login: githubMcp.accountLogin || t('settings.github.connected.anonymous'),
+                      count: githubMcp.toolCatalog.length,
+                    })}
+                  </Text>
+                </View>
+              </View>
+              <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
+              <View style={styles.formActions}>
+                <GhostButton title={t('settings.github.disconnect.action')} small onPress={disconnectGithub} />
+              </View>
+            </>
+          ) : (
+            <>
+              <FieldLabel style={styles.label}>{t('settings.github.pat.label')}</FieldLabel>
+              <SecretTextField
+                value={githubPat}
+                onChangeText={setGithubPat}
+                placeholder={t('settings.github.pat.placeholder')}
+                theme={theme}
+                styles={styles}
+              />
+              <FieldHint style={styles.hint}>{t('settings.github.pat.hint')}</FieldHint>
+              <View style={styles.formActions}>
+                <GhostButton
+                  title={githubBusy ? t('settings.github.busy') : t('settings.github.pat.action')}
+                  small
+                  onPress={connectGithubPat}
+                />
+                <SecondaryButton
+                  title={t('settings.github.web.action')}
+                  small
+                  onPress={connectGithubWeb}
+                />
+              </View>
+              <FieldHint style={styles.hint}>{t('settings.github.web.hint')}</FieldHint>
+              <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
+            </>
+          )}
         </Card>
 
         <Card>

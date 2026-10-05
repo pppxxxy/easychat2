@@ -17,7 +17,7 @@
 import { registerSecretValues } from './secrets.js';
 import { recordDiagnostic } from './diagnostics.js';
 
-const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey']);
+const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'githubToken', 'githubAccessToken', 'githubRefreshToken']);
 const REF_PREFIX = 'secure:v1:';
 const SECURE_STORE_PREFIX = 'easychat2_secret_';
 
