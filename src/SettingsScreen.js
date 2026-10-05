@@ -42,6 +42,7 @@ import {
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
+  clearVectorIndex,
   getWorkspaceSettings,
   patchWorkspaceSettings,
   clearGithubMcpCredentials,
@@ -168,6 +169,30 @@ export default function SettingsScreen() {
     removeVectorConfig,
     testVector,
   } = useVectorSettings();
+
+  // 清空当前激活角色的向量记忆桶（维护入口，2026-10-05 审核报告的自救通道）：
+  // 历史对话被切块写进桶后，删会话能按会话清，但错位/遗留分段需要一个一键全清的口。
+  const confirmClearVectorIndex = useCallback(() => {
+    const owner = character && character.id ? character : null;
+    if (!owner) return;
+    Alert.alert(
+      '清空向量记忆',
+      `将删除「${owner.name || owner.id}」名下的全部向量记忆分段。聊天记录与记忆总结不受影响；向量开关开着的话，之后的新消息会重新建立索引。确定清空？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '清空',
+          style: 'destructive',
+          onPress: () => {
+            clearVectorIndex(owner.id)
+              .then(() => { Alert.alert('已清空', '该角色的向量记忆分段已全部删除。'); })
+              .catch(() => { Alert.alert('清空失败', '向量索引读取失败，请稍后重试。'); });
+          },
+        },
+      ]
+    );
+  }, [character]);
+
   const {
     userName,
     setUserName,
@@ -2041,6 +2066,17 @@ export default function SettingsScreen() {
               trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
               thumbColor={theme.colors.primaryContrast}
             />
+          </View>
+          <FieldHint style={styles.hint}>
+            开关即总闸：关闭后既不召回、也不再写入记忆分段（不会退回关键词方式）。已写入的历史分段用下方入口清空。
+          </FieldHint>
+          <View style={styles.personaActions}>
+            <TouchableOpacity style={styles.personaAddChip} onPress={confirmClearVectorIndex} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
+              <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>
+                {`清空「${character && character.name ? character.name : '当前角色'}」的向量记忆`}
+              </Text>
+            </TouchableOpacity>
           </View>
           <FieldLabel style={styles.label}>向量配置</FieldLabel>
           <CollapsibleSelect
