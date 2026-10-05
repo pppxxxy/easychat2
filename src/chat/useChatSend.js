@@ -29,6 +29,7 @@ import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn } from '../agent/loop.js';
 import { requestToolApproval } from './toolApproval.js';
 import { registerDefaultWorkspaceTools } from '../workspace/native.js';
+import { ensureGithubMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
   getImageDimensions,
@@ -395,6 +396,11 @@ export default function useChatSend({
         if (workspaceMode !== 'ask') {
           try {
             registerDefaultWorkspaceTools(workspaceSettings);
+          } catch (error) {}
+          // GitHub MCP：已连接时把风险分级过滤过的 github_* 工具挂进注册表
+          //（未连接时等价于全摘除）；只读工具 read 模式即暴露，写入类走逐条确认。
+          try {
+            await ensureGithubMcpToolsRegistered();
           } catch (error) {}
           agentTools = listToolsForMode(workspaceMode);
         }
