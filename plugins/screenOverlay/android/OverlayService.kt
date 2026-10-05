@@ -338,8 +338,11 @@ class OverlayService : Service() {
     // 小窗标题：优先显示当前角色名（用户要求顶部不再固定写「看屏幕」），未设置时回退原题。
     private fun overlayTitle(): String = characterName.ifEmpty { "看屏幕" }
 
-    fun setCharacterName(name: String) {
-        characterName = String(name ?: "").trim()
+    // 入参用可空类型：Kotlin 的 String 没有「以 String 为参数」的构造函数
+    // （Java 的 new String(s) 在这里不存在，写 String(name ?: "") 会直接编译失败），
+    // 可空值用 elvis 兜底即可。JS 桥侧也可能传 null，这里一并挡掉。
+    fun setCharacterName(name: String?) {
+        characterName = (name ?: "").trim()
         mainHandler.post { titleView?.text = overlayTitle() }
     }
 

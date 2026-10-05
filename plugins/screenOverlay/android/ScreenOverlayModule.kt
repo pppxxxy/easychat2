@@ -194,7 +194,7 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun setCharacterName(name: String, promise: Promise) {
+    fun setCharacterName(name: String?, promise: Promise) {
         try {
             OverlayService.instance?.setCharacterName(name)
             promise.resolve(true)
