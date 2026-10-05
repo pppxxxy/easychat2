@@ -91,3 +91,48 @@ test('U2：下载与导入草稿分离，互斥子 Tab 切换各自保留', () =
   assert.ok(PANEL.includes('importDraft.sourceUri'));
   assert.ok(PANEL.includes('importDraft.mmprojSourceUri'));
 });
+
+test('U4：下载进度条 + 取消按钮接线', () => {
+  assert.ok(PANEL.includes('cancelLocalModelDownload'));
+  assert.ok(PANEL.includes('handleCancelDownload'));
+  // 取消只在下载中出现
+  assert.ok(PANEL.includes('取消下载'));
+  // 进度条（非一行文字）+ 字节详情
+  assert.ok(PANEL.includes('downloadProgressBar'));
+  assert.ok(PANEL.includes('progressBytes.totalBytes'));
+  // 取消不弹错误（按 code 区分）
+  assert.ok(PANEL.includes("error.code !== 'DOWNLOAD_CANCELLED'"));
+  // modelManager 侧：登记表 + 幂等取消 + 编码错误
+  const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
+  assert.ok(manager.includes('activeDownloads'));
+  assert.ok(manager.includes('export async function cancelLocalModelDownload'));
+  assert.ok(manager.includes("cancelError.code = 'DOWNLOAD_CANCELLED'"));
+});
+
+test('U5：搜索选中静默回填，仅「跑不了」档弹警示', () => {
+  const start = PANEL.indexOf('const handleSearchSelect');
+  const region = PANEL.slice(start, PANEL.indexOf('const rewriteSource'));
+  assert.ok(region.includes("summary.compatibility.tier === 'incompatible'"));
+  assert.ok(!region.includes('下载前请确认'), '五行小作文弹窗应已并入 summaryCard');
+});
+
+test('U6：模型行长按操作单（参数/删除），常驻仅 选用/加载', () => {
+  assert.ok(PANEL.includes('onLongPress={() => onEntryActions(entry)}'));
+  const start = PANEL.indexOf('const onEntryActions');
+  const region = PANEL.slice(start, PANEL.indexOf('const handleLoadModel'));
+  assert.ok(region.includes('openParams(entry)'));
+  assert.ok(region.includes('confirmDelete(entry)'));
+  assert.ok(region.includes('来源：本地导入'), '来源信息应进长按操作单副标题');
+  // 常驻四按钮退役：展开机制与常驻 参数/删除 按钮已删
+  assert.ok(!PANEL.includes('expandedId'), '展开/收起机制应已退役');
+  const renderStart = PANEL.indexOf('const renderEntry');
+  // 主组件 return 的锚是两空格缩进的 `return (` 后接 `<>`；renderEntry 自身的是四空格
+  const renderEnd = PANEL.indexOf('\n  return (\n    <>');
+  assert.ok(renderEnd > renderStart, '主渲染入口定位失败');
+  const renderRegion = PANEL.slice(renderStart, renderEnd);
+  assert.ok(!renderRegion.includes('options-outline'), '行内常驻「参数」按钮应已收纳');
+  assert.ok(!renderRegion.includes('trash-outline'), '行内常驻「删除」按钮应已收纳');
+  // 识图/听声合并为多模态 chip
+  assert.ok(renderRegion.includes('多模态'));
+  assert.ok(!renderRegion.includes('听声'), '识图/听声应合并为「多模态」chip');
+});

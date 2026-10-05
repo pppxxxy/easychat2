@@ -91,7 +91,7 @@ async function swapIntoPlace(fs, source, destination) {
   }
 }
 
-async function downloadToFile(fs, url, destination, onProgress, expectedBytes = 0) {
+async function downloadToFile(fs, url, destination, onProgress, expectedBytes = 0, onTask = null) {
   const temporary = `${destination}.download`;
   await fs.makeDirectoryAsync(localModelDirectory(), { intermediates: true });
   await removeQuietly(fs, temporary);
@@ -104,8 +104,14 @@ async function downloadToFile(fs, url, destination, onProgress, expectedBytes = 
       if (Number.isFinite(total) && total > 0) contentLength = total;
       if (typeof onProgress !== 'function') return;
       const written = Number(progress.totalBytesWritten);
-      onProgress(total > 0 ? Math.min(1, written / total) : 0);
+      // 第二参携带字节详情：进度条旁的「45% · 1.2GB/2.7GB」需要原始字节数。
+      onProgress(total > 0 ? Math.min(1, written / total) : 0, {
+        writtenBytes: Number.isFinite(written) ? written : 0,
+        totalBytes: Number.isFinite(total) && total > 0 ? total : 0,
+      });
     });
+    // 任务句柄上报给登记表：面板「取消下载」靠 cancelAsync 中止（U4）。
+    if (typeof onTask === 'function') onTask(task);
     const result = await task.downloadAsync();
     if (!result || !result.uri) throw new Error('模型下载失败');
     // 404/403 的错误页会被完整写成文件，必须在落位前按状态码拒绝。
@@ -147,8 +153,29 @@ async function copyToFile(fs, sourceUri, destination) {
   }
 }
 
+// 进行中的下载任务登记表：id → { task, cancelled }。面板「取消下载」按钮据此
+// 调 cancelAsync；取消后 downloadAsync 的 Promise 以错误收尾，走既有失败清理
+// 路径删半成品（.download 临时文件），下载方再把错误换成 DOWNLOAD_CANCELLED。
+const activeDownloads = new Map();
+
+// 取消指定模型的进行中下载。幂等：任务不存在/已结束返回 false，不抛错。
+export async function cancelLocalModelDownload(id) {
+  const key = String(id || '');
+  const entry = activeDownloads.get(key);
+  if (!entry) return false;
+  entry.cancelled = true;
+  try {
+    if (entry.task && typeof entry.task.cancelAsync === 'function') {
+      await entry.task.cancelAsync();
+    }
+  } catch (error) {}
+  return true;
+}
+
 // 下载模型（可选配套 mmproj）→ 构造条目 → 登记索引。
 // 下载或登记任一步失败，删除已落盘文件并把错误抛给调用方。
+// 用户取消（cancelLocalModelDownload）时抛 code=DOWNLOAD_CANCELLED 的错误，
+// 半成品清理由下方既有失败路径承担，调用方按 code 区分「取消」与「失败」。
 export async function downloadLocalModel(input = {}, options = {}) {
   const fs = resolveFileSystem(options);
   const register = resolveRegister(options);
@@ -160,12 +187,20 @@ export async function downloadLocalModel(input = {}, options = {}) {
   const mmprojDestination = mmprojUrl ? localModelMmprojPath(id) : '';
   let modelWritten = false;
   let mmprojWritten = false;
+  const registryEntry = { task: null, cancelled: false };
+  activeDownloads.set(id, registryEntry);
   try {
-    const modelBytes = await downloadToFile(fs, url, destination, input.onProgress, input.modelExpectedBytes);
+    const modelBytes = await downloadToFile(
+      fs, url, destination, input.onProgress, input.modelExpectedBytes,
+      task => { registryEntry.task = task; }
+    );
     modelWritten = true;
     let mmprojBytes = 0;
     if (mmprojUrl) {
-      mmprojBytes = await downloadToFile(fs, mmprojUrl, mmprojDestination, null, input.mmprojExpectedBytes);
+      mmprojBytes = await downloadToFile(
+        fs, mmprojUrl, mmprojDestination, null, input.mmprojExpectedBytes,
+        task => { registryEntry.task = task; }
+      );
       mmprojWritten = true;
     }
     const item = buildLocalModelItem({
@@ -188,7 +223,14 @@ export async function downloadLocalModel(input = {}, options = {}) {
   } catch (error) {
     if (modelWritten) await removeQuietly(fs, destination);
     if (mmprojWritten) await removeQuietly(fs, mmprojDestination);
+    if (registryEntry.cancelled) {
+      const cancelError = new Error('下载已取消');
+      cancelError.code = 'DOWNLOAD_CANCELLED';
+      throw cancelError;
+    }
     throw error;
+  } finally {
+    activeDownloads.delete(id);
   }
 }
 

@@ -400,8 +400,9 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   assert.ok(panel.includes('加载中 ${loadProgress}%'), '按钮应显示加载百分比');
   assert.ok(panel.includes("'已加载'"), '按钮应有已加载态');
   assert.ok(panel.includes('loadProgressBar'), '应有进度条');
-  // 选用勾：当前模型操作行左侧
-  assert.ok(panel.includes('checkmark-circle'), '选中的模型应有勾标识');
+  // 当前选用标识：名称行「· 当前」+ 已选用按钮态 + 高亮描边（原勾图标随 U6 行长按化退役）
+  assert.ok(panel.includes("' · 当前'"), '当前模型名称行应有「· 当前」标识');
+  assert.ok(panel.includes('已选用'), '当前模型按钮应为「已选用」态');
 });
 
 test('adapter 参数构造：buildContextParams/buildCompletionParams 纯函数', async () => {

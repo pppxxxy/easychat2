@@ -14,7 +14,7 @@ import {
   saveLocalModelItem,
   saveLocalModelSettings,
 } from './storage.js';
-import { cleanupOrphanLocalModelFiles, deleteLocalModel, downloadLocalModel, getLocalModelFileInfo, importLocalModel } from './localModel/modelManager.js';
+import { cancelLocalModelDownload, cleanupOrphanLocalModelFiles, deleteLocalModel, downloadLocalModel, getLocalModelFileInfo, importLocalModel } from './localModel/modelManager.js';
 import { isLocalModelLoaded, isLocalModelModuleAvailable, loadLocalModel, unloadLocalModel } from './localModel/adapter.js';
 import { tryAcquireResource } from './resourceMutex.js';
 import {
@@ -23,7 +23,7 @@ import {
   startLocalApiServer,
   stopLocalApiServer,
 } from './localModel/localApiServer.js';
-import { LOCAL_MODEL_DOWNLOAD_SOURCES, applyActiveLocalModel, clearActiveLocalModel } from './localModel/modelState.js';
+import { LOCAL_MODEL_DOWNLOAD_SOURCES, applyActiveLocalModel, clearActiveLocalModel, localModelIdFromFileName } from './localModel/modelState.js';
 import { rewriteDownloadSourceUrl } from './localModel/modelCatalog.js';
 import { buildModelSummary } from './localModel/modelCompatibility.js';
 import { getDeviceMemoryInfo } from './localModel/deviceMemory.js';
@@ -102,11 +102,12 @@ export default function LocalModelPanel({ visible, onClose }) {
   const [downloadDraft, setDownloadDraft] = useState(emptyDownloadDraft);
   const [importDraft, setImportDraft] = useState(emptyImportDraft);
   const [progress, setProgress] = useState(0);
+  // 下载进度的字节详情（进度回调第二参）：显示「45% · 1.2GB/2.7GB」。
+  const [progressBytes, setProgressBytes] = useState({ writtenBytes: 0, totalBytes: 0 });
   const [busy, setBusy] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState('');
   const [deviceMemoryBytes, setDeviceMemoryBytes] = useState(0);
   const [paramsTarget, setParamsTarget] = useState(null);
   const [paramsForm, setParamsForm] = useState({});
@@ -365,7 +366,6 @@ export default function LocalModelPanel({ visible, onClose }) {
           } else {
             setSettings(await getLocalModelSettings().catch(() => settings));
           }
-          setExpandedId('');
           await refresh();
         },
       },
@@ -401,6 +401,7 @@ export default function LocalModelPanel({ visible, onClose }) {
     }
     setBusy(true);
     setProgress(0);
+    setProgressBytes({ writtenBytes: 0, totalBytes: 0 });
     try {
       const item = await downloadLocalModel({
         modelId: downloadDraft.modelId,
@@ -413,16 +414,30 @@ export default function LocalModelPanel({ visible, onClose }) {
         modelExpectedBytes: downloadDraft.modelExpectedBytes,
         modelSha256: downloadDraft.modelSha256,
         mmprojUrl: downloadDraft.mmprojUrl,
-        onProgress: setProgress,
+        onProgress: (ratio, info) => {
+          setProgress(ratio);
+          if (info && typeof info === 'object') setProgressBytes(info);
+        },
       });
       Alert.alert('模型下载完成', `已保存「${item.name || item.id}」，可在上方列表选用。`);
       setDownloadDraft(emptyDownloadDraft());
       await refresh();
     } catch (error) {
-      Alert.alert('模型下载失败', error.message || '请检查地址与网络。');
+      // 用户主动取消不是失败：半成品已由 modelManager 的失败清理路径删除，不弹错误。
+      if (!error || error.code !== 'DOWNLOAD_CANCELLED') {
+        Alert.alert('模型下载失败', (error && error.message) || '请检查地址与网络。');
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  // 取消进行中的下载：幂等（任务不存在时静默返回 false），半成品走既有失败清理。
+  const handleCancelDownload = () => {
+    const id = localModelIdFromFileName(
+      downloadDraft.modelId || downloadDraft.name || downloadDraft.modelUrl
+    );
+    cancelLocalModelDownload(id).catch(() => {});
   };
 
   const pickGguf = async () => {
@@ -485,23 +500,23 @@ export default function LocalModelPanel({ visible, onClose }) {
       mmprojUrl: mmprojUrls[0] || '',
       mmprojUrls,
     }));
-    // 下载前提醒：模型体积 + 上下文长度共同决定内存占用，选错量化或把上下文设太长
-    // 都可能超出上限导致加载失败/OOM。用当前设备内存给出「推荐/难跑/跑不了」判断。
+    // 选中文件后静默回填（U5）：体积/兼容评估/内存估算全部由下方 summaryCard
+    // 常驻展示，不再弹五行小作文。只有「跑不了」这一档才打断用户弹警示——
+    // 这种情况下继续下载大概率白下几 GB。
     const summary = buildModelSummary(
       { name: selection.modelId || selection.modelName || '' },
       { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 }
     );
-    const memText = summary.memory.totalBytes > 0
-      ? `预计占用约 ${formatBytes(summary.memory.totalBytes)}（含权重 + 上下文缓存 + 运行时开销）`
-      : '（未能读取设备内存，请优先选体积较小、量化等级较低的模型）';
-    const tierText = summary.compatibility.label ? `兼容评估：${summary.compatibility.label}\n` : '';
-    Alert.alert(
-      '下载前请确认',
-      `${tierText}${memText}\n\n`
-      + '注意：上下文长度（context size）越长，KV 缓存占用越大，总内存会明显增加。'
-      + '请优先选择标「推荐」的量化，并在选用后把上下文设为能跑稳的档位；'
-      + '若加载失败或闪退，多半是内存超出上限，改用更小的模型/更低的上下文即可。'
-    );
+    if (summary.compatibility.tier === 'incompatible') {
+      const memText = summary.memory.totalBytes > 0
+        ? `预计占用约 ${formatBytes(summary.memory.totalBytes)}（含权重 + 上下文缓存 + 运行时开销）`
+        : '请优先选体积较小、量化等级较低的模型';
+      Alert.alert(
+        '该模型可能跑不动',
+        `兼容评估：${summary.compatibility.label}\n${memText}\n\n`
+        + '若坚持下载并加载失败或闪退，改用更小的模型/更低的上下文即可。'
+      );
+    }
   };
 
   const rewriteSource = source => {
@@ -511,6 +526,21 @@ export default function LocalModelPanel({ visible, onClose }) {
       const repoPath = String(current.modelUrl || '').replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '');
       return { ...current, modelUrl: repoPath ? `${source.baseUrl}/${repoPath}` : `${source.baseUrl}/`, sourceId: source.id };
     });
+  };
+
+  // 长按弹操作单：参数/删除从「每行四按钮常驻」收进来（U6，与记忆页 SessionRow
+  // 同一交互范式）。来源信息（在线下载/本地导入）放副标题，替代原「本地导入」chip。
+  const onEntryActions = entry => {
+    const buttons = [
+      { text: '参数', onPress: () => openParams(entry) },
+      { text: '删除', style: 'destructive', onPress: () => confirmDelete(entry) },
+    ];
+    if (Platform.OS === 'ios') buttons.push({ text: '取消', style: 'cancel' });
+    Alert.alert(
+      entry.name || entry.id,
+      entry.imported ? '来源：本地导入' : '来源：在线下载',
+      buttons
+    );
   };
 
   // 面板内的显式加载：与聊天页加载共用 local-model 互斥锁；进度 0-100，
@@ -546,82 +576,64 @@ export default function LocalModelPanel({ visible, onClose }) {
   const renderEntry = entry => {
     const summary = buildModelSummary(entry, { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 });
     const active = Boolean(settings && settings.activeModelId === entry.id);
-    const expanded = expandedId === entry.id;
+    const loading = loadBusyId === entry.id;
     return (
-      <View key={entry.id} style={[styles.item, active && styles.itemActive]}>
-        <TouchableOpacity
-          style={styles.itemHeader}
-          onPress={() => setExpandedId(expanded ? '' : entry.id)}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={`展开 ${entry.name || entry.id}`}
-        >
+      <TouchableOpacity
+        key={entry.id}
+        style={[styles.item, active && styles.itemActive]}
+        activeOpacity={0.75}
+        onLongPress={() => onEntryActions(entry)}
+        delayLongPress={320}
+        accessibilityRole="button"
+        accessibilityLabel={`${entry.name || entry.id}，长按显示参数与删除`}
+      >
+        <View style={styles.itemHeader}>
           <View style={styles.itemInfo}>
             <Text style={styles.itemName} numberOfLines={1}>{entry.name || entry.id}{active ? ' · 当前' : ''}</Text>
             <View style={styles.chipRow}>
+              <Text style={[styles.tierChip, { color: tierColor(theme, summary.compatibility.tier) }]}>{summary.compatibility.label}</Text>
               {summary.quantLabel ? <Text style={styles.chip}>量化 {summary.quantLabel}</Text> : null}
               {summary.paramLabel ? <Text style={styles.chip}>规模 {summary.paramLabel}</Text> : null}
-              {entry.modelBytes > 0 ? <Text style={styles.chip}>{formatBytes(entry.modelBytes)}</Text> : null}
-              {entry.hasVision ? <Text style={styles.chip}>识图</Text> : null}
-              {entry.hasAudio ? <Text style={styles.chip}>听声</Text> : null}
-              {entry.imported ? <Text style={styles.chip}>本地导入</Text> : null}
-              <Text style={[styles.tierChip, { color: tierColor(theme, summary.compatibility.tier) }]}>{summary.compatibility.label}</Text>
+              {(entry.hasVision || entry.hasAudio) ? <Text style={styles.chip}>多模态</Text> : null}
             </View>
           </View>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textMuted} />
-        </TouchableOpacity>
-        {expanded ? (
-          <>
-            <View style={styles.itemActions}>
-              {active ? (
-                <View style={styles.activeCheck} accessibilityLabel="当前选用的模型">
-                  <Ionicons name="checkmark-circle" size={18} color={theme.colors.primary} />
-                </View>
-              ) : null}
-              <TouchableOpacity
-                style={[styles.selectButton, active && styles.selectButtonActive]}
-                onPress={() => selectActive(entry)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={active ? '当前活动模型' : `选用 ${entry.name || entry.id}`}
-              >
-                <Text style={styles.selectButtonText}>{active ? '已选用' : '选用'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.iconButton, loadBusyId === entry.id && styles.loadButtonBusy]}
-                onPress={() => handleLoadModel(entry)}
-                disabled={Boolean(loadBusyId)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  loadedModelId === entry.id ? '模型已加载' : `加载 ${entry.name || entry.id}`
-                }
-              >
-                <Ionicons name="hardware-chip-outline" size={16} color={theme.colors.primarySoft} />
-                <Text style={styles.iconButtonText}>
-                  {loadBusyId === entry.id ? `加载中 ${loadProgress}%` : loadedModelId === entry.id ? '已加载' : '加载'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconButton} onPress={() => openParams(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="参数">
-                <Ionicons name="options-outline" size={16} color={theme.colors.primarySoft} />
-                <Text style={styles.iconButtonText}>参数</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconButton} onPress={() => confirmDelete(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="删除">
-                <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
-                <Text style={styles.dangerText}>删除</Text>
-              </TouchableOpacity>
+          {entry.modelBytes > 0 ? <Text style={styles.itemBytes}>{formatBytes(entry.modelBytes)}</Text> : null}
+        </View>
+        <View style={styles.itemActions}>
+          <TouchableOpacity
+            style={[styles.selectButton, active && styles.selectButtonActive]}
+            onPress={() => selectActive(entry)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={active ? '当前活动模型' : `选用 ${entry.name || entry.id}`}
+          >
+            <Text style={styles.selectButtonText}>{active ? '已选用' : '选用'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconButton, loading && styles.loadButtonBusy]}
+            onPress={() => handleLoadModel(entry)}
+            disabled={Boolean(loadBusyId)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={
+              loadedModelId === entry.id ? '模型已加载' : `加载 ${entry.name || entry.id}`
+            }
+          >
+            <Ionicons name="hardware-chip-outline" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.iconButtonText}>
+              {loading ? `加载中 ${loadProgress}%` : loadedModelId === entry.id ? '已加载' : '加载'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {loading ? (
+          <View style={styles.loadProgressRow} accessibilityLabel={`加载进度 ${loadProgress}%`}>
+            <View style={styles.loadProgressBar}>
+              <View style={[styles.loadProgressFill, { width: `${loadProgress}%` }]} />
             </View>
-            {loadBusyId === entry.id ? (
-              <View style={styles.loadProgressRow} accessibilityLabel={`加载进度 ${loadProgress}%`}>
-                <View style={styles.loadProgressBar}>
-                  <View style={[styles.loadProgressFill, { width: `${loadProgress}%` }]} />
-                </View>
-                <Text style={styles.loadProgressText}>{loadProgress}%</Text>
-              </View>
-            ) : null}
-          </>
+            <Text style={styles.loadProgressText}>{loadProgress}%</Text>
+          </View>
         ) : null}
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -833,10 +845,34 @@ export default function LocalModelPanel({ visible, onClose }) {
                           </View>
                         </>
                       ) : null}
-                      {busy ? <Text style={styles.progress}>下载进度：{Math.round(progress * 100)}%</Text> : null}
-                      <TouchableOpacity style={styles.primary} onPress={handleDownload} disabled={busy} activeOpacity={0.8}>
-                        <Text style={styles.primaryText}>{busy ? '下载中...' : '下载并登记模型'}</Text>
-                      </TouchableOpacity>
+                      {busy ? (
+                        <View style={styles.downloadProgressWrap} accessibilityLabel={`下载进度 ${Math.round(progress * 100)}%`}>
+                          <View style={styles.downloadProgressBar}>
+                            <View style={[styles.downloadProgressFill, { width: `${Math.round(progress * 100)}%` }]} />
+                          </View>
+                          <Text style={styles.downloadProgressText}>
+                            {progressBytes.totalBytes > 0
+                              ? `${Math.round(progress * 100)}% · ${formatBytes(progressBytes.writtenBytes) || '0B'}/${formatBytes(progressBytes.totalBytes)}`
+                              : `${Math.round(progress * 100)}%`}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.downloadButtons}>
+                        <TouchableOpacity style={[styles.primary, styles.downloadMainButton]} onPress={handleDownload} disabled={busy} activeOpacity={0.8}>
+                          <Text style={styles.primaryText}>{busy ? '下载中...' : '下载并登记模型'}</Text>
+                        </TouchableOpacity>
+                        {busy ? (
+                          <TouchableOpacity
+                            style={styles.downloadCancelButton}
+                            onPress={handleCancelDownload}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel="取消下载"
+                          >
+                            <Text style={styles.downloadCancelText}>取消</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
                     </>
                   ) : (
                     <>
@@ -1024,7 +1060,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   chip: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginRight: 10, marginBottom: 4 },
   tierChip: { fontSize: fonts.scaled(11), fontWeight: '800', marginBottom: 4 },
   itemActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  activeCheck: { marginRight: 6, alignItems: 'center', justifyContent: 'center' },
   selectButton: { borderRadius: tokens.radius.pill, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.5), paddingHorizontal: 14, paddingVertical: 6, marginRight: 10 },
   loadButtonBusy: { opacity: 0.75 },
   loadProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
@@ -1035,7 +1070,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   selectButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
   iconButton: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
   iconButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
-  dangerText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
+  itemBytes: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 8 },
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 8 },
   sourceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
   sourceChip: { borderRadius: tokens.radius.pill, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), backgroundColor: theme.colors.primaryAlpha(0.12), paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, marginBottom: 8 },
@@ -1054,7 +1089,14 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   summaryTier: { fontSize: fonts.scaled(12), fontWeight: '800', marginBottom: 4 },
   summaryHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 8 },
   input: { minHeight: 42, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surface, color: theme.colors.text, paddingHorizontal: 12, paddingVertical: 9 },
-  progress: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 10 },
+  downloadProgressWrap: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  downloadProgressBar: { flex: 1, height: 12, borderRadius: 6, backgroundColor: theme.colors.surfaceBorder, overflow: 'hidden' },
+  downloadProgressFill: { height: '100%', borderRadius: 6, backgroundColor: theme.colors.primary },
+  downloadProgressText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 10, minWidth: 96, textAlign: 'right' },
+  downloadButtons: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  downloadMainButton: { flex: 1 },
+  downloadCancelButton: { marginLeft: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.dangerSoft },
+  downloadCancelText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(13), fontWeight: '700' },
   loading: { marginVertical: 10 },
   primary: { backgroundColor: theme.colors.primary, borderRadius: tokens.radius.md, paddingVertical: 12, alignItems: 'center', marginTop: 16 },
   primaryText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700' },

@@ -335,3 +335,56 @@ test('cleanupOrphanLocalModelFiles：删除残留并统计释放空间', async (
   assert.equal(result.freedBytes, 600);
   assert.ok(removed.every(path => !path.endsWith('keep.gguf')), '不得删除正常模型文件');
 });
+
+test('downloadLocalModel：取消——cancelAsync 中止、抛 DOWNLOAD_CANCELLED、半成品清理、幂等', async () => {
+  reset();
+  let rejectDownload = null;
+  let cancelCalls = 0;
+  const cancellableFs = {
+    ...fsStub,
+    createDownloadResumable: () => ({
+      downloadAsync: () => new Promise((resolve, reject) => { rejectDownload = reject; }),
+      cancelAsync: async () => {
+        cancelCalls += 1;
+        if (rejectDownload) rejectDownload(new Error('cancelled by user'));
+      },
+    }),
+  };
+  const promise = manager.downloadLocalModel(
+    { modelId: 'cancel-target', modelUrl: 'https://example.com/m.gguf' },
+    { fileSystem: cancellableFs }
+  );
+  // 等任务进入登记表（createDownloadResumable 同步调用，downloadAsync 挂起）
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(await manager.cancelLocalModelDownload('cancel-target'), true);
+  await assert.rejects(promise, error => error && error.code === 'DOWNLOAD_CANCELLED');
+  assert.equal(cancelCalls, 1);
+  assert.equal(storage.saved.length, 0);
+  // 半成品 .download 已被既有失败清理路径删除
+  assert.ok(deleted.some(key => String(key).endsWith('.download')));
+  // 幂等：任务已出登记表
+  assert.equal(await manager.cancelLocalModelDownload('cancel-target'), false);
+  assert.equal(await manager.cancelLocalModelDownload('never-existed'), false);
+});
+
+test('downloadLocalModel：进度回调第二参携带字节详情（进度条文案用）', async () => {
+  reset();
+  const seen = [];
+  const fsWithProgress = {
+    ...fsStub,
+    createDownloadResumable: (url, temporary, opts, onProgress) => {
+      if (typeof onProgress === 'function') {
+        onProgress({ totalBytesWritten: 1024, totalBytesExpectedToWrite: 2048 });
+      }
+      return fsStub.createDownloadResumable(url, temporary);
+    },
+  };
+  await manager.downloadLocalModel({
+    modelId: 'progress-info',
+    modelUrl: 'https://example.com/p.gguf',
+    onProgress: (ratio, info) => seen.push([ratio, info]),
+  }, { fileSystem: fsWithProgress });
+  assert.equal(seen.length > 0, true);
+  assert.deepEqual(seen[0][1], { writtenBytes: 1024, totalBytes: 2048 });
+  assert.equal(seen[0][0], 0.5);
+});
