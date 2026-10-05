@@ -529,13 +529,13 @@ export const en = {
 
   // ---- Screen peek (screenWatch/ScreenWatchScreen.js) ----
   'screenWatch.title': 'Screen peek',
-  'screenWatch.capture': 'Capture for them',
+  'screenWatch.capture': 'Vision test',
   'screenWatch.capture.busy': 'Capturing...',
   'screenWatch.capture.reading': 'They are looking...',
   'screenWatch.capture.failed.title': 'Capture failed',
   'screenWatch.capture.failed.body': 'Could not capture the screen. Please retry.',
   'screenWatch.characterLabel': 'Looking with',
-  'screenWatch.limits': 'The capture only covers this app (this panel itself is in frame), and requires a vision-capable model. For cross-app screen viewing, use the floating window above.',
+  'screenWatch.limits': 'The capture only covers this app (this panel itself is in frame) and requires a vision-capable model; tap the button to verify the current model can actually read an image. For cross-app screen viewing, use the floating window above.',
   'screenWatch.empty.title': 'No screen peeks yet',
   'screenWatch.empty.noCharacter': 'Pick a character first, then tap the button above to capture.',
   'screenWatch.empty': 'Tap the button above to capture; {character} will take a look at your screen and chat.',

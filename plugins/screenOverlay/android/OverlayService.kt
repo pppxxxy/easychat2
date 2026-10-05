@@ -58,6 +58,12 @@ class OverlayService : Service() {
         private const val CHANNEL_ID = "screen_overlay"
         // 帧新鲜度校验的时序余量：请求与首帧落地之间有抖动，留 50ms 避免误杀合法帧。
         private const val FRAME_FRESHNESS_SLACK_NANOS = 50_000_000L
+        // 兜底交付等待：屏幕静止时不产生新帧（跨应用看静态画面最常见的失败），
+        // 等到这个时长就用请求期间收到的旧帧 / 最近缓存帧交付，而不是让 JS 干等超时。
+        private const val CAPTURE_FALLBACK_DELAY_MS = 700L
+        // 「最近一帧」缓存节流：屏幕持续变化时最多每 500ms 拷一份像素，
+        // 避免看视频时每帧都做一次全屏内存拷贝。
+        private const val FRAME_CACHE_INTERVAL_NANOS = 500_000_000L
 
         @Volatile var instance: OverlayService? = null
             private set
@@ -79,8 +85,17 @@ class OverlayService : Service() {
     private var imageReader: ImageReader? = null
     private var captureRequested = false
     // 本次截屏请求的发起时刻（System.nanoTime 时基，与 Image.timestamp 同源）：
-    // 重挂载 Surface 会先吐出旧帧，用它丢弃早于请求的帧。
+    // 重挂载 Surface 会先吐出旧帧，用它识别早于请求的帧。
     private var captureRequestedAtNanos = 0L
+    // 请求期间收到的「不够新」的帧：屏幕静止时它就是当前画面（画面没变），
+    // 兜底交付时优先用它；有更新鲜的帧到达就作废。
+    private var pendingStaleBitmap: Bitmap? = null
+    // 「最近一帧」像素缓存（含行/像素跨度，解码时用）：缓存节流见常量说明。
+    private var lastFrameCopy: ByteArray? = null
+    private var lastFrameRowStride = 0
+    private var lastFramePixelStride = 0
+    private var lastFrameCachedAtNanos = 0L
+    private val captureFallback = Runnable { deliverFallbackFrame() }
     private var width = 0
     private var height = 0
     private var density = 0
@@ -160,6 +175,34 @@ class OverlayService : Service() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
+    // 悬浮球要用**本应用的图标**，不是自绘的字球。
+    // 优先系统登记的图标资源（packageManager 里存的就是桌面显示的那一个，Expo/RN
+    // 模板改名也命中）；找不到再按常见资源名回退（Expo prebuild 生成的是 ic_launcher /
+    // ic_launcher_round，写成 `resources.getIdentifier("icon", ...)` 必然找不到 →
+    // 一直回退成「看」字球，这正是用户看到「图标没换」的原因）。
+    private fun resolveAppIconDrawable(): android.graphics.drawable.Drawable? {
+        try {
+            val info = packageManager.getApplicationInfo(packageName, 0)
+            if (info.icon != 0) {
+                androidx.core.content.res.ResourcesCompat.getDrawable(resources, info.icon, null)
+                    ?.let { return it }
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "app icon lookup failed: ${error.message}")
+        }
+        for (name in listOf("ic_launcher_round", "ic_launcher", "icon")) {
+            val iconId = resources.getIdentifier(name, "mipmap", packageName)
+            if (iconId == 0) continue
+            try {
+                androidx.core.content.res.ResourcesCompat.getDrawable(resources, iconId, null)
+                    ?.let { return it }
+            } catch (error: Exception) {
+                Log.w(TAG, "app icon $name unavailable: ${error.message}")
+            }
+        }
+        return null
+    }
+
     private fun createOverlayView() {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -220,12 +263,7 @@ class OverlayService : Service() {
     // 图标是自适应启动图时可能带背景，直接圆裁即可；任何异常一律回退 null 走文字球。
     private fun circularAppIcon(size: Int): android.graphics.drawable.Drawable? {
         return try {
-            val iconId = resources.getIdentifier("icon", "mipmap", packageName)
-            val source = if (iconId != 0) {
-                androidx.core.content.res.ResourcesCompat.getDrawable(resources, iconId, null)
-            } else {
-                null
-            } ?: return null
+            val source = resolveAppIconDrawable() ?: return null
             val full = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val fullCanvas = android.graphics.Canvas(full)
             source.setBounds(0, 0, size, size)
@@ -385,6 +423,12 @@ class OverlayService : Service() {
     }
 
     fun requestCapture() {
+        // RN 桥从 native modules 线程调用；采集状态（captureRequested / 兜底位图）
+        // 全在主线程读写——跨线程 recycle 与解码交错会直接崩（recycled bitmap）。
+        mainHandler.post { requestCaptureOnMain() }
+    }
+
+    private fun requestCaptureOnMain() {
         if (projection == null || imageReader == null) {
             // 投影未建立（授权被拒 / 已被系统回收 / 服务重建）：
             // 以前这里静默丢弃请求，JS 只能等 6s 超时；现在明确回报失败。
@@ -393,7 +437,14 @@ class OverlayService : Service() {
         }
         captureRequested = true
         captureRequestedAtNanos = System.nanoTime()
+        pendingStaleBitmap?.recycle()
+        pendingStaleBitmap = null
         setStatusText("正在看…")
+        // 兜底交付：屏幕完全静止（在别的应用里停着不动）时既不产生新帧、重挂载也
+        // 可能只吐回旧帧，没有兜底就只能等 JS 侧 6s 超时报失败——用户看到的现象是
+        // 「只有 App 内（画面一直在动）能截到，App 外永远失败」。
+        mainHandler.removeCallbacks(captureFallback)
+        mainHandler.postDelayed(captureFallback, CAPTURE_FALLBACK_DELAY_MS)
         // 静态画面可能不产生新帧：强制刷新一次 surface 以触发 ImageReader 回调。
         try {
             virtualDisplay?.setSurface(null)
@@ -401,9 +452,67 @@ class OverlayService : Service() {
         } catch (error: Exception) {}
     }
 
+    // 兜底交付：优先请求期间收到的旧帧，其次最近缓存的像素（屏幕没变过时两者
+    // 都等于当前画面）；都没有才报失败。新鲜帧先到时会取消本回调。
+    private fun deliverFallbackFrame() {
+        if (!captureRequested) return
+        captureRequested = false
+        val stale = pendingStaleBitmap
+        pendingStaleBitmap = null
+        val bitmap = stale ?: bitmapFromCachedFrame()
+        if (bitmap != null) {
+            saveAndEmit(bitmap)
+        } else {
+            emitCaptureFailed("no-frame")
+        }
+    }
+
+    // 维护「最近一帧」缓存（节流）：屏幕静止后不会再有新帧，这份拷贝就是当前画面。
+    // 只拷像素不解码，开销是纯内存拷贝；解码推迟到真正要用时。
+    private fun cacheFrameBytes(image: Image) {
+        val now = System.nanoTime()
+        if (now - lastFrameCachedAtNanos < FRAME_CACHE_INTERVAL_NANOS) return
+        val plane = image.planes.firstOrNull() ?: return
+        val buffer = plane.buffer
+        val bytes = ByteArray(buffer.remaining())
+        if (bytes.isEmpty()) return
+        buffer.duplicate().get(bytes)
+        lastFrameCopy = bytes
+        lastFrameRowStride = plane.rowStride
+        lastFramePixelStride = plane.pixelStride
+        lastFrameCachedAtNanos = now
+    }
+
+    // 缓存像素 → Bitmap：与 imageToBitmap 同一套行距裁剪逻辑（含 rowPadding）。
+    private fun bitmapFromCachedFrame(): Bitmap? {
+        val bytes = lastFrameCopy ?: return null
+        if (width <= 0 || height <= 0) return null
+        val pixelStride = lastFramePixelStride
+        val rowStride = lastFrameRowStride
+        if (pixelStride <= 0 || rowStride <= 0) return null
+        val rowPadding = rowStride - pixelStride * width
+        if (rowPadding < 0) return null
+        val paddedWidth = width + rowPadding / pixelStride
+        // ARGB_8888 每像素 4 字节：拷贝字节数不足就直接放弃（宁可不交帧也不越界崩）。
+        if (paddedWidth * height * 4 > bytes.size) return null
+        return try {
+            val padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
+            padded.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(bytes))
+            val cropped = Bitmap.createBitmap(padded, 0, 0, width, height)
+            if (cropped !== padded) padded.recycle()
+            cropped
+        } catch (error: Exception) {
+            Log.w(TAG, "cached frame decode failed: ${error.message}")
+            null
+        }
+    }
+
     // 采集失败统一出口：JS 侧据此中止评论并提示，避免「截不到图却一直在评论」。
     private fun emitCaptureFailed(reason: String) {
         captureRequested = false
+        mainHandler.removeCallbacks(captureFallback)
+        pendingStaleBitmap?.recycle()
+        pendingStaleBitmap = null
         ScreenOverlayModule.emit(EVENT_CAPTURE_FAILED, Arguments.createMap().apply {
             putString("reason", reason)
         })
@@ -444,21 +553,30 @@ class OverlayService : Service() {
             }
             if (image != null) {
                 try {
+                    // 每次回调都维护「最近一帧」缓存（内部节流）：屏幕静止后不再有新帧，
+                    // 这份拷贝就是当前画面，兜底交付时用它。
+                    cacheFrameBytes(image)
                     if (captureRequested) {
-                        // 只接受本次请求之后产生的帧（Image.timestamp 与 System.nanoTime 同源）：
-                        // 重挂载 Surface 会先吐出旧帧，采用它会让用户拿到过期画面却以为截到了当前
-                        // 屏幕——这正是「App 外一直截不到、角色却一直在评论」的观感来源。
+                        // 优先本次请求之后产生的帧（Image.timestamp 与 System.nanoTime 同源）：
+                        // 重挂载 Surface 可能先吐出旧帧，直接采用会拿到过期画面。
                         // timestamp 不可靠（<= 0）的机型跳过校验，避免误杀导致永久截不到。
                         val fresh = image.timestamp <= 0L
                             || image.timestamp >= captureRequestedAtNanos - FRAME_FRESHNESS_SLACK_NANOS
                         if (fresh) {
                             captureRequested = false
+                            mainHandler.removeCallbacks(captureFallback)
+                            pendingStaleBitmap?.recycle()
+                            pendingStaleBitmap = null
                             val bitmap = imageToBitmap(image)
                             if (bitmap != null) {
                                 saveAndEmit(bitmap)
                             } else {
                                 emitCaptureFailed("decode-failed")
                             }
+                        } else if (pendingStaleBitmap == null) {
+                            // 旧帧不丢：屏幕没变时它就是当前画面，作为兜底候选留给
+                            // deliverFallbackFrame；此后若有新鲜帧到达，它会被作废。
+                            pendingStaleBitmap = imageToBitmap(image)
                         }
                     }
                 } catch (error: Exception) {
@@ -515,6 +633,11 @@ class OverlayService : Service() {
 
     private fun releaseCapture() {
         captureRequested = false
+        mainHandler.removeCallbacks(captureFallback)
+        pendingStaleBitmap?.recycle()
+        pendingStaleBitmap = null
+        lastFrameCopy = null
+        lastFrameCachedAtNanos = 0L
         try {
             virtualDisplay?.release()
         } catch (error: Exception) {}

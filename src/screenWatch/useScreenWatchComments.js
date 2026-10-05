@@ -18,6 +18,7 @@ import {
   getUserProfile,
 } from '../storage.js';
 
+import { maskSecrets } from '../storage/secrets.js';
 import { appendScreenWatchComment, getScreenWatchComments } from './comments.js';
 import { buildScreenWatchPrompt } from './commentPrompts.js';
 import {
@@ -65,6 +66,9 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
   const generatingRef = useRef(false);
   const abortRef = useRef(null);
   const lastFailedRef = useRef(null);
+  // 最后一次失败的完整文案（含真实原因）：面板读 error state，悬浮窗小窗在面板外，
+  // 只能靠这个 ref 拿到同一份说明来回写。
+  const lastErrorRef = useRef('');
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -97,7 +101,9 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     if (generatingRef.current) return false;
     const character = (charactersRef.current || []).find(item => item.id === characterIdRef.current);
     if (!character) {
-      setError(t('screenWatch.error.noCharacter'));
+      const message = t('screenWatch.error.noCharacter');
+      lastErrorRef.current = message;
+      setError(message);
       return false;
     }
     // 用户主动说话（悬浮窗/面板的输入）：纯文字且没内容就不发请求。
@@ -108,6 +114,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     generatingRef.current = true;
     setGenerating(true);
     setError('');
+    lastErrorRef.current = '';
     try {
       const [profile, presets, caps, threadState] = await Promise.all([
         getUserProfile().catch(() => null),
@@ -197,14 +204,24 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       const next = await appendScreenWatchComment(comment);
       if (mountedRef.current) setComments(next);
       lastFailedRef.current = null;
+      lastErrorRef.current = '';
       return text;
     } catch (caught) {
       if (controller.signal.aborted || isCanceledError(caught)) return false;
-      if (mountedRef.current) {
-        if (caught && caught.code === 'NO_VISION') setError(caught.message);
-        else if (caught && caught.code === 'CAPTURE_READ') setError(t('screenWatch.capture.failed.body'));
-        else setError(t('screenWatch.comments.failed'));
+      let message;
+      if (caught && caught.code === 'NO_VISION') message = caught.message;
+      else if (caught && caught.code === 'CAPTURE_READ') message = t('screenWatch.capture.failed.body');
+      else {
+        // 真实原因必须露出来：此前一律显示「评论生成失败，请检查 API 配置后重试」，
+        // 把服务端报错、网络失败、空响应、守卫拦截全归成同一句话——用户明明配的是
+        // 多模态模型，却被告知去检查 API 配置，排查方向直接被带偏。
+        const detail = maskSecrets(String((caught && caught.message) || '')).trim();
+        message = detail
+          ? `${t('screenWatch.comments.failed')}\n${detail}`
+          : t('screenWatch.comments.failed');
       }
+      lastErrorRef.current = message;
+      if (mountedRef.current) setError(message);
       lastFailedRef.current = { imageUri: uris[0] || '', imageUris: uris, userText: saidText };
       return false;
     } finally {
@@ -224,6 +241,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     comments,
     generating,
     error,
+    lastErrorRef,
     characterId,
     setCharacterId,
     generate,

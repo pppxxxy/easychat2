@@ -533,13 +533,13 @@ export const zhCN = {
 
   // ---- 一起看屏幕（screenWatch/ScreenWatchScreen.js）----
   'screenWatch.title': '一起看屏幕',
-  'screenWatch.capture': '截屏给TA看看',
+  'screenWatch.capture': '识图测试',
   'screenWatch.capture.busy': '截屏中…',
   'screenWatch.capture.reading': 'TA正在看…',
   'screenWatch.capture.failed.title': '截屏失败',
   'screenWatch.capture.failed.body': '没能完成截屏，请重试。',
   'screenWatch.characterLabel': '一起看屏幕的角色',
-  'screenWatch.limits': '截图只包含本应用的画面（截屏时这个面板也会入镜），需要模型支持识图。跨应用看屏幕请用上方的悬浮窗。',
+  'screenWatch.limits': '截图只包含本应用的画面（截屏时这个面板也会入镜），需要模型支持识图；点这个按钮即可验证当前模型能不能读图。跨应用看屏幕请用上方的悬浮窗。',
   'screenWatch.empty.title': '还没有一起看屏幕',
   'screenWatch.empty.noCharacter': '先选一位角色，再点上面的按钮截屏。',
   'screenWatch.empty': '点上面的按钮截个屏，{character}会看看你的屏幕并聊聊。',

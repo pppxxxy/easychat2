@@ -22,6 +22,7 @@ import { Card, EmptyState, GhostButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 import { markMediaWrite } from '../storage/mediaProtection.js';
+import { maskSecrets } from '../storage/secrets.js';
 
 import { useTranslation } from '../i18n/I18nContext.js';
 
@@ -67,6 +68,7 @@ export default function ScreenWatchScreen() {
     comments,
     generating,
     error,
+    lastErrorRef,
     characterId,
     setCharacterId,
     generate,
@@ -116,6 +118,16 @@ export default function ScreenWatchScreen() {
     return () => { cancelled = true; };
   }, [overlaySupported]);
 
+  // 小窗回写文案：优先真实原因（悬浮窗在面板外，看不到面板里的错误横幅），
+  // 过长则截断——小窗状态区只有一两行的显示空间。
+  const overlayErrorText = useCallback(caught => {
+    const raw = caught
+      ? maskSecrets(String((caught && caught.message) || '')).trim()
+      : String(lastErrorRef.current || '').trim();
+    const text = raw || t('screenWatch.comments.failed');
+    return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+  }, [lastErrorRef, t]);
+
   // 用户在小窗点「截屏」：识图门控 → 单帧/帧序列 → 生成评论 → 回写小窗文案。
   const handleOverlayRequestCapture = useCallback(async () => {
     if (overlayBusyRef.current || generating) return;
@@ -153,15 +165,16 @@ export default function ScreenWatchScreen() {
       }
       const commentText = await generate(frames > 1 ? { imageUris: uris } : { imageUri: uris[0] });
       // 生成失败也要回写小窗：否则小窗会永远停在「正在看…」，用户以为卡死。
-      await updateOverlayText(commentText || t('screenWatch.comments.failed'));
+      // 失败时优先回写真实原因（lastErrorRef），小窗在面板外看不到面板里的错误横幅。
+      await updateOverlayText(commentText || overlayErrorText());
     } catch (error) {
       // 任何未预期异常也不能让小窗卡在「正在看…」。
-      await updateOverlayText(t('screenWatch.comments.failed')).catch(() => {});
+      await updateOverlayText(overlayErrorText(error)).catch(() => {});
     } finally {
       overlayBusyRef.current = false;
       setOverlayBusy(false);
     }
-  }, [generating, generate, waitForCapture, t]);
+  }, [generating, generate, overlayErrorText, waitForCapture, t]);
 
   const overlayRequestHandlerRef = useRef(handleOverlayRequestCapture);
   overlayRequestHandlerRef.current = handleOverlayRequestCapture;
@@ -236,7 +249,15 @@ export default function ScreenWatchScreen() {
       const { uri } = await captureAppScreen();
       await generate({ imageUri: uri });
     } catch (error) {
-      Alert.alert(t('screenWatch.capture.failed.title'), t('screenWatch.capture.failed.body'));
+      // 带上原始错误：只显示「没能完成截屏」时，无法判断是原生模块缺失、
+      // 权限问题还是写盘失败（截图链路跨越 view-shot / 文件系统两层）。
+      const detail = maskSecrets(String((error && error.message) || '')).trim();
+      Alert.alert(
+        t('screenWatch.capture.failed.title'),
+        detail
+          ? `${t('screenWatch.capture.failed.body')}\n\n${detail}`
+          : t('screenWatch.capture.failed.body')
+      );
     } finally {
       setCapturing(false);
     }
