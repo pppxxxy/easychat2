@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createWorkspaceDirectory,
   listWorkspaceFiles,
   readWorkspaceFile,
   writeWorkspaceBinaryFile,
@@ -17,8 +18,18 @@ function createMemoryFs() {
       if (!key) return { exists: false };
       return { exists: true, isDirectory: entries.get(key).type === 'dir' };
     },
-    async makeDirectoryAsync(uri) {
-      entries.set(uri.endsWith('/') ? uri : `${uri}/`, { type: 'dir' });
+    async makeDirectoryAsync(uri, options) {
+      const full = uri.endsWith('/') ? uri : `${uri}/`;
+      if (options && options.intermediates) {
+        // 真实 expo makeDirectoryAsync({intermediates:true}) 会把每一级父目录都建出来。
+        let acc = '';
+        for (const part of full.split('/').filter(Boolean)) {
+          acc += `/${part}`;
+          entries.set(`${acc}/`, { type: 'dir' });
+        }
+        return;
+      }
+      entries.set(full, { type: 'dir' });
     },
     async readDirectoryAsync(uri) {
       const prefix = uri.endsWith('/') ? uri : `${uri}/`;
@@ -89,7 +100,7 @@ test('read 缺失/目录/越界/非白名单均抛错', async () => {
   );
   await assert.rejects(
     readWorkspaceFile({ root, characterId: 'c1', path: 'a.png', fileSystem }),
-    /只支持纯文本与 Markdown/,
+    /只能读写文本文件/,
   );
   await assert.rejects(
     readWorkspaceFile({ root, characterId: 'c1', path: '../x.txt', fileSystem }),
@@ -105,7 +116,7 @@ test('write 拒绝越界与非白名单扩展名', async () => {
   );
   await assert.rejects(
     writeWorkspaceFile({ root, characterId: 'c1', path: 'a.png', content: 'x', fileSystem }),
-    /只支持纯文本与 Markdown/,
+    /只能读写文本文件/,
   );
 });
 
@@ -126,7 +137,7 @@ test('二进制写入 .docx 可被 list 看到，但 read 拒绝', async () => {
   assert.deepEqual(files, ['report.docx']);
   await assert.rejects(
     readWorkspaceFile({ root, characterId: 'c1', path: 'report.docx', fileSystem }),
-    /只支持纯文本与 Markdown/,
+    /只能读写文本文件/,
   );
 });
 
@@ -135,4 +146,34 @@ test('缺少 fileSystem 注入时抛错', async () => {
     listWorkspaceFiles({ root, characterId: 'c1' }),
     /缺少 fileSystem 注入/,
   );
+});
+test('createWorkspaceDirectory：建多级目录、可被 list 看到、幂等', async () => {
+  const fileSystem = createMemoryFs();
+  const first = await createWorkspaceDirectory({ root, characterId: 'c1', path: 'src/components', fileSystem });
+  assert.equal(first.path, 'src/components/');
+  assert.equal(first.created, true);
+  const again = await createWorkspaceDirectory({ root, characterId: 'c1', path: 'src/components', fileSystem });
+  assert.equal(again.created, false, '重复创建是幂等的');
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(files.includes('src/'));
+  assert.ok(files.includes('src/components/'));
+});
+
+test('createWorkspaceDirectory：越界路径被拒绝', async () => {
+  const fileSystem = createMemoryFs();
+  await assert.rejects(
+    createWorkspaceDirectory({ root, characterId: 'c1', path: '../evil', fileSystem }),
+    /越出工作区/,
+  );
+});
+
+test('项目文件：源码扩展名可写可读可列（不再只限 txt/md）', async () => {
+  const fileSystem = createMemoryFs();
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'src/app.js', content: 'console.log(1)', fileSystem });
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'index.html', content: '<h1>hi</h1>', fileSystem });
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(files.includes('src/app.js'));
+  assert.ok(files.includes('index.html'));
+  const read = await readWorkspaceFile({ root, characterId: 'c1', path: 'src/app.js', fileSystem });
+  assert.equal(read.content, 'console.log(1)');
 });

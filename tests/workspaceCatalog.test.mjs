@@ -41,14 +41,18 @@ test('生成器：.gitconfig 吃输入，留空落占位值；静态项返回内
   assert.throws(() => buildCatalogContent(null, {}), /catalog item/);
 });
 
-test('paths 白名单：配置文件名清单按完整名放行，任意点文件仍拒绝', () => {
+test('paths 黑名单（m1005m2 合并后的语义）：目录文件全部可写，二进制仍拒绝', () => {
+  // 合并裁决：工作区文本写入采用二进制黑名单（m1005m2 的「可写项目」模型），
+  // 它覆盖了下载中心全部目标文件（点文件/无扩展名/非白名单扩展名都是文本）。
   for (const name of ['.gitignore', '.gitconfig', '.npmrc', 'pip.conf', '.editorconfig']) {
     assert.equal(isAllowedWorkspaceFile(name), true, name);
     assert.equal(isAllowedWorkspaceOutputFile(name), true, name);
   }
-  assert.equal(isAllowedWorkspaceFile('.some-random-dotfile'), false, '不做通配放行');
-  assert.equal(isAllowedWorkspaceFile('sub/.gitignore'), true, '子目录里的白名单名也放行');
-  assert.equal(isAllowedWorkspaceFile('script.sh'), false);
+  assert.equal(isAllowedWorkspaceFile('src/app.js'), true, '源码可写（项目化）');
+  assert.equal(isAllowedWorkspaceFile('Makefile'), true, '无扩展名文本可写');
+  assert.equal(isAllowedWorkspaceFile('logo.png'), false, '图片是二进制');
+  assert.equal(isAllowedWorkspaceFile('backup.zip'), false, '压缩包是二进制');
+  assert.equal(isAllowedWorkspaceOutputFile('report.docx'), true, 'docx 仍只写不读');
 });
 
 test('面板接线：下载中心入口/写入走 store/自定义下载的三道闸', () => {

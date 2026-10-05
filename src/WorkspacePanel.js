@@ -47,8 +47,9 @@ import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '.
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from './workspace/native.js';
+import WorkspaceChat from './workspace/WorkspaceChat.js';
 import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from './workspace/paths.js';
-import { ensureDocxFileName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
+import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
 import { CATALOG_CATEGORIES, catalogItemsByCategory, buildCatalogContent, findCatalogItem } from './workspace/catalog.js';
 
@@ -82,10 +83,11 @@ function formatTokens(value) {
 export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default' }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
-  const { refreshAppData } = useApp();
+  const { characters, refreshAppData } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [mode, setMode] = useState('ask');
+  const [chatOpen, setChatOpen] = useState(false);
   // 根可能被用户在设置里改（应用内默认 ↔ 外部文件夹），故随设置变化而不是一次算死。
   const [root, setRoot] = useState(() => describeWorkspaceRoot(null));
   const [files, setFiles] = useState([]);
@@ -119,10 +121,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   // 打开面板那一刻的后端。中途用户在设置里改根时，面板内的操作仍按打开时的根走，
   // 避免「列出来的是 A 文件夹的文件、删的却是 B 文件夹」。
   const storeRef = useRef(null);
+  // 指令对话框登记工具时需要完整设置快照（模式/根/命令执行开关），随面板一起冻结。
+  const settingsRef = useRef(null);
   const mountedRef = useRef(true);
 
   const canWrite = mode === 'write';
   const external = root.kind === WORKSPACE_ROOT_KINDS.SAF;
+  const characterName = (Array.isArray(characters) ? characters : [])
+    .find(item => item && item.id === characterId)?.name || '';
 
   const refresh = useCallback(async (ownerId = characterId) => {
     const store = storeRef.current;
@@ -206,12 +212,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     setForm(null);
     setViewerOpen(false);
     setCharacterPickerOpen(false);
+    setChatOpen(false);
     (async () => {
       try {
         const settings = await getWorkspaceSettings();
         if (!mountedRef.current) return;
         setMode(settings.mode);
         setRoot(describeWorkspaceRoot(settings));
+        settingsRef.current = settings;
         try {
           storeRef.current = createWorkspaceStore(settings);
         } catch (caught) {
@@ -330,6 +338,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     setForm({ kind: 'text', name: '', content: '' });
   }, [canWrite, t]);
 
+  const startFolderForm = useCallback(() => {
+    if (!canWrite) {
+      Alert.alert(t('workspace.panel.locked.title'), t('workspace.panel.locked.body'));
+      return;
+    }
+    setForm({ kind: 'folder', name: '', content: '' });
+  }, [canWrite, t]);
+
   const startDocxForm = useCallback(() => {
     if (!canWrite) {
       Alert.alert(t('workspace.panel.locked.title'), t('workspace.panel.locked.body'));
@@ -344,7 +360,10 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     if (!store) return;
     const content = String(form.content || '');
     try {
-      if (form.kind === 'text') {
+      if (form.kind === 'folder') {
+        const path = ensureDirectoryName(form.name);
+        await store.createWorkspaceDirectory({ characterId, path });
+      } else if (form.kind === 'text') {
         const path = ensureTextFileName(form.name);
         await store.writeWorkspaceFile({ characterId, path, content });
       } else {
@@ -609,6 +628,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           <View style={styles.actionRow}>
             <TouchableOpacity
               style={[styles.actionButton, !canWrite && styles.actionButtonDisabled]}
+              onPress={startFolderForm}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="folder-outline" size={15} color={theme.colors.primaryContrast} />
+              <Text style={styles.actionText}>{t('workspace.panel.newFolder')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, !canWrite && styles.actionButtonDisabled]}
               onPress={startTextForm}
               activeOpacity={0.85}
             >
@@ -643,20 +670,28 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
 
           {form ? (
             <View style={styles.formCard}>
-              <FieldLabel>{form.kind === 'text' ? t('workspace.panel.form.newText') : t('workspace.panel.form.exportWord')}</FieldLabel>
+              <FieldLabel>
+                {form.kind === 'folder'
+                  ? t('workspace.panel.form.newFolder')
+                  : (form.kind === 'text' ? t('workspace.panel.form.newText') : t('workspace.panel.form.exportWord'))}
+              </FieldLabel>
               <TextField
                 style={styles.input}
-                placeholder={form.kind === 'text' ? t('workspace.panel.form.nameText') : t('workspace.panel.form.nameDocx')}
+                placeholder={form.kind === 'folder'
+                  ? t('workspace.panel.form.nameFolder')
+                  : (form.kind === 'text' ? t('workspace.panel.form.nameText') : t('workspace.panel.form.nameDocx'))}
                 value={form.name}
                 onChangeText={value => setForm(current => ({ ...current, name: value }))}
               />
-              <TextField
-                style={[styles.input, styles.contentInput]}
-                placeholder={t('workspace.panel.form.content')}
-                value={form.content}
-                onChangeText={value => setForm(current => ({ ...current, content: value }))}
-                multiline
-              />
+              {form.kind === 'folder' ? null : (
+                <TextField
+                  style={[styles.input, styles.contentInput]}
+                  placeholder={t('workspace.panel.form.content')}
+                  value={form.content}
+                  onChangeText={value => setForm(current => ({ ...current, content: value }))}
+                  multiline
+                />
+              )}
               <View style={styles.formActions}>
                 <GhostButton title={t('common.cancel')} small onPress={() => setForm(null)} />
                 <PrimaryButton title={t('common.save')} small onPress={submitForm} />
@@ -681,6 +716,18 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           {files.map(name => renderFileRow(name))}
         </ScrollView>
 
+        {storeRef.current ? (
+          <TouchableOpacity
+            style={styles.chatLauncher}
+            onPress={() => setChatOpen(true)}
+            activeOpacity={0.85}
+            accessibilityLabel={t('workspace.panel.openChat')}
+          >
+            <Ionicons name="sparkles-outline" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.chatLauncherText} numberOfLines={1}>{t('workspace.panel.openChat')}</Text>
+            <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.textFaint} />
+          </TouchableOpacity>
+        ) : null}
         <Modal visible={characterPickerOpen} animationType="slide" onRequestClose={() => setCharacterPickerOpen(false)}>
           <View style={styles.container}>
             <SheetHeader title={t('workspace.panel.character.title')} onClose={() => setCharacterPickerOpen(false)} />
@@ -895,6 +942,16 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             </ScrollView>
           </View>
         </Modal>
+
+        <WorkspaceChat
+          visible={chatOpen}
+          onClose={() => setChatOpen(false)}
+          characterId={characterId}
+          mode={mode}
+          settings={settingsRef.current}
+          characterName={characterName}
+          onFilesChanged={refresh}
+        />
       </View>
     </Modal>
   );
@@ -903,6 +960,21 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   body: { paddingHorizontal: 20, paddingBottom: 40 },
+  chatLauncher: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.md || tokens.radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderColor: theme.colors.surfaceBorder,
+    borderWidth: tokens.border.thin,
+  },
+  chatLauncherText: { flex: 1, color: theme.colors.primary, fontSize: fonts.scaled(13.5), textAlign: 'center' },
   modeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   modeText: { color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 6, flex: 1 },
   sandboxHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 12 },

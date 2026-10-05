@@ -135,7 +135,11 @@ export default function ScreenWatchScreen() {
         return;
       }
       const commentText = await generate(frames > 1 ? { imageUris: uris } : { imageUri: uris[0] });
-      if (commentText) await updateOverlayText(commentText);
+      // 生成失败也要回写小窗：否则小窗会永远停在「正在看…」，用户以为卡死。
+      await updateOverlayText(commentText || t('screenWatch.comments.failed'));
+    } catch (error) {
+      // 任何未预期异常也不能让小窗卡在「正在看…」。
+      await updateOverlayText(t('screenWatch.comments.failed')).catch(() => {});
     } finally {
       overlayBusyRef.current = false;
       setOverlayBusy(false);

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ensureDirectoryName,
   ensureDocxFileName,
   ensureTextFileName,
   isDocxName,
@@ -32,4 +33,17 @@ test('ensureDocxFileName 保证 .docx 扩展名', () => {
   assert.equal(ensureDocxFileName(''), '文档.docx');
   assert.equal(isDocxName('a.docx'), true);
   assert.equal(isDocxName('a.txt'), false);
+});
+test('项目文件命名：保留源码扩展名；文件夹保留多级路径', () => {
+  // 带合法文本扩展名的项目文件原样保留
+  assert.equal(ensureTextFileName('index.js'), 'index.js');
+  assert.equal(ensureTextFileName('index.html'), 'index.html');
+  assert.equal(ensureTextFileName('package.json'), 'package.json');
+  // 无扩展名仍补 .txt；二进制扩展名也退化为 .txt
+  assert.equal(ensureTextFileName('README'), 'README.txt');
+  assert.equal(ensureTextFileName('pic.png'), 'pic.png.txt');
+  // 文件夹：多级路径保留，空值兜底
+  assert.equal(ensureDirectoryName('src/components'), 'src/components');
+  assert.equal(ensureDirectoryName('  src  '), 'src');
+  assert.equal(ensureDirectoryName(''), '新建文件夹');
 });

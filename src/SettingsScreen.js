@@ -933,26 +933,16 @@ export default function SettingsScreen() {
     setCapabilityEditorModel('');
   };
 
-  const detectModels = async () => {
-    if (!canChangeApi() || modelRequestRef.current) return;
-    const current = apiStateRef.current;
-    const selected = current.configs.find(item => item.id === current.activeId);
-    if (!selected?.apiKey.trim() || !selected?.baseUrl.trim()) {
-      Alert.alert('请先填写 API 地址和 Key');
-      return;
-    }
-    invalidateModels();
-    const request = { cancel: null };
-    modelRequestRef.current = request;
-    const isCurrent = () => apiMountedRef.current && modelRequestRef.current === request;
-    setDetectingModels(true);
+  // 拉取该 API 配置的模型清单（GET /models，含 /v1 回退）。抽出来给「检测模型」与
+  // 「搜索」共用，避免两处各写一遍 XHR/鉴权/解析。isCurrent 供取消/竞态校验。
+  const fetchProviderModels = async (selected, request, isCurrent) => {
     const selectedProtocol = selected.protocol || 'openai';
     const base = normalizeChatUrl(selected.baseUrl).replace(/\/chat\/completions$/i, '');
     const fallback = /\/v1$/i.test(base) ? base.replace(/\/v1$/i, '') : `${base}/v1`;
     const urls = [`${base}/models`, `${fallback}/models`];
     let result = [];
     for (const url of urls) {
-      if (!isCurrent()) return;
+      if (!isCurrent()) return result;
       if (result.length) break;
       try {
         const detectAuthHeader = String(selected.authHeader || (selectedProtocol === 'anthropic' ? 'x-api-key' : 'Authorization'));
@@ -977,16 +967,45 @@ export default function SettingsScreen() {
           parse: xhr => xhr.responseText,
           onParseError: () => new Error('请求失败'),
         });
-        if (!isCurrent()) return;
+        if (!isCurrent()) return result;
         const data = JSON.parse(text);
         if (Array.isArray(data?.data)) {
           result = [...new Set(data.data.map(item => String(item?.id || '')).filter(Boolean))];
         }
       } catch (error) {}
     }
-    if (!isCurrent()) return;
+    return result;
+  };
+
+  // 统一的开检前置：返回选中的配置，校验失败返回 null（并给提示）。
+  const beginModelRequest = () => {
+    if (!canChangeApi() || modelRequestRef.current) return null;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected?.apiKey.trim() || !selected?.baseUrl.trim()) {
+      Alert.alert('请先填写 API 地址和 Key');
+      return null;
+    }
+    invalidateModels();
+    const request = { cancel: null };
+    modelRequestRef.current = request;
+    const isCurrent = () => apiMountedRef.current && modelRequestRef.current === request;
+    setDetectingModels(true);
+    return { selected, request, isCurrent };
+  };
+
+  const endModelRequest = () => {
     modelRequestRef.current = null;
     setDetectingModels(false);
+  };
+
+  const detectModels = async () => {
+    const ctx = beginModelRequest();
+    if (!ctx) return;
+    const { selected, request, isCurrent } = ctx;
+    const result = await fetchProviderModels(selected, request, isCurrent);
+    if (!isCurrent()) return;
+    endModelRequest();
     if (result.length) {
       modelSourceRef.current = selected;
       setModelList(result);
@@ -994,6 +1013,29 @@ export default function SettingsScreen() {
     } else {
       Alert.alert('未检测到模型', '无法获取模型列表，请检查 API 地址和 Key。');
     }
+  };
+
+  // 搜索：按输入框内容从接口返回的模型里筛出匹配项。空输入 = 列出全部。
+  const searchModels = async () => {
+    const ctx = beginModelRequest();
+    if (!ctx) return;
+    const { selected, request, isCurrent } = ctx;
+    const query = modelDraft.trim().toLowerCase();
+    const all = await fetchProviderModels(selected, request, isCurrent);
+    if (!isCurrent()) return;
+    endModelRequest();
+    if (all.length === 0) {
+      Alert.alert('未检测到模型', '无法获取模型列表，请检查 API 地址和 Key。');
+      return;
+    }
+    const matched = query ? all.filter(model => model.toLowerCase().includes(query)) : all;
+    if (matched.length === 0) {
+      Alert.alert('未找到匹配的模型', `接口返回的模型里没有匹配「${modelDraft.trim()}」的项。`);
+      return;
+    }
+    modelSourceRef.current = selected;
+    setModelList(matched);
+    setModelModalVisible(true);
   };
 
   const applyModel = model => {
@@ -1204,6 +1246,17 @@ export default function SettingsScreen() {
                 >
                   <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
                   <Text style={styles.detectButtonText}>添加</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.detectButton, styles.modelSearchButton, detectingModels && styles.buttonDisabled]}
+                  onPress={searchModels}
+                  disabled={detectingModels}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="按输入内容搜索接口上的模型"
+                >
+                  <Ionicons name="search" size={15} color={theme.colors.primarySoft} />
+                  <Text style={styles.detectButtonText}>搜索</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.modelChips}>

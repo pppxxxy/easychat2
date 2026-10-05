@@ -20,6 +20,7 @@ import {
 
 import { appendScreenWatchComment, getScreenWatchComments } from './comments.js';
 import { buildScreenWatchPrompt } from './commentPrompts.js';
+import { readImageDataUri } from '../chat/attachments.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
@@ -108,6 +109,16 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         throw Object.assign(new Error(t('screenWatch.error.noVision')), { code: 'NO_VISION' });
       }
       const current = caps.current;
+      // 关键：接口的 image_url 只接受 data: URI 或 http(s) URL。截图是本地 file:// 路径，
+      // 直接塞进 images 会让请求携带 file:// URL，被服务端拒绝/忽略（聊天路径就是先读成
+      // base64 data URI 再发）；这里同样把每帧读成 data URI，本地路径仍留给落库与重试。
+      let dataUris = [];
+      try {
+        dataUris = await Promise.all(uris.map(uri => readImageDataUri(uri)));
+      } catch (readError) {
+        throw Object.assign(new Error('截图读取失败'), { code: 'CAPTURE_READ' });
+      }
+      if (controller.signal.aborted) return false;
       const requestMessages = buildRequestMessages({
         character,
         historyMessages: [],
@@ -117,7 +128,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         summaryText: '',
         memorySnippets: '',
         pluginContext: '',
-        images: uris,
+        images: dataUris,
         quote: null,
       });
       const raw = await sendChatMessage(requestMessages, {
@@ -146,9 +157,9 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     } catch (caught) {
       if (controller.signal.aborted || isCanceledError(caught)) return false;
       if (mountedRef.current) {
-        setError(caught && caught.code === 'NO_VISION'
-          ? caught.message
-          : t('screenWatch.comments.failed'));
+        if (caught && caught.code === 'NO_VISION') setError(caught.message);
+        else if (caught && caught.code === 'CAPTURE_READ') setError(t('screenWatch.capture.failed.body'));
+        else setError(t('screenWatch.comments.failed'));
       }
       lastFailedRef.current = { imageUri: uris[0] || '', imageUris: uris };
       return false;

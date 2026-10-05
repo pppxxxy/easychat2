@@ -102,7 +102,8 @@
     "src/screenWatch/capture.js",
     "src/WorkspaceCapabilitiesCard.js",
     "src/screenWatch/overlay.js",
-    "src/WorkspacePanel.js"
+    "src/WorkspacePanel.js",
+    "src/workspace/WorkspaceChat.js"
   ],
   "reporter": ["text-summary", "lcov"],
   "check-coverage": true,

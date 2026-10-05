@@ -1,14 +1,31 @@
 // 工作区路径安全（纯函数，零依赖，可 Node 直测）。
 //
 // 契约：所有路径都是工作区沙盒内的**相对路径**；越界、绝对路径、空路径、
-// 非文本扩展名一律抛错，避免 agent 触达沙盒外的文件。
+// 二进制/媒体扩展名一律抛错，避免 agent 触达沙盒外的文件，也避免把二进制当文本读写。
+//
+// 从「只支持 txt/md」放宽到「可写项目」：文本读写采用**黑名单**（媒体/压缩包/可执行/
+// 字体/数据库/办公二进制之外的扩展名都当文本），这样 HTML/CSS/JS/JSON/YAML/各语言源码、
+// 无扩展名文件（Makefile/.gitignore/LICENSE）都能建；.docx 仍是「只写不读」的二进制输出。
 
-const ALLOWED_EXTENSIONS = new Set(['txt', 'md', 'markdown']);
+const BINARY_EXTENSIONS = new Set([
+  // 图片
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'tif', 'tiff', 'heic', 'heif', 'avif', 'svgz',
+  // 音频
+  'mp3', 'wav', 'ogg', 'oga', 'flac', 'm4a', 'aac', 'opus', 'wma', 'amr', 'mid', 'midi',
+  // 视频
+  'mp4', 'm4v', 'mov', 'avi', 'mkv', 'webm', '3gp', 'wmv', 'flv',
+  // 压缩包 / 安装包 / 库
+  'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'zst', 'jar', 'aar', 'apk', 'ipa', 'deb', 'rpm',
+  // 可执行 / 目标文件
+  'exe', 'dll', 'so', 'dylib', 'bin', 'class', 'o', 'obj', 'a', 'lib', 'wasm', 'pyc', 'pyo',
+  // 字体
+  'ttf', 'otf', 'woff', 'woff2', 'eot',
+  // 数据库 / 办公 / 文档二进制
+  'db', 'sqlite', 'sqlite3', 'realm', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
+]);
+
+// 只写不读的二进制输出（生成的 Word 等）。
 const OUTPUT_ONLY_EXTENSIONS = new Set(['docx']);
-// 明确的点文件名白名单（环境/配置下载中心用）：无扩展名或非白名单扩展名的
-// 常见配置文件按**完整文件名**放行。清单只增不改——新增一个名字就是一次显式裁决，
-// 不做「任意点文件都放行」的通配，避免把写入面悄悄放宽。
-const CONFIG_FILE_NAMES = new Set(['.gitignore', '.gitconfig', '.npmrc', 'pip.conf', '.editorconfig']);
 const MAX_PATH_LENGTH = 240;
 const MAX_SANDBOX_ID_LENGTH = 64;
 
@@ -43,37 +60,36 @@ export function fileExtension(path) {
   return index <= 0 ? '' : name.slice(index + 1).toLowerCase();
 }
 
-export function fileBaseName(path) {
-  return String(path || '').split('/').pop() || '';
+// 可作为**文本**读写的文件：扩展名不在二进制黑名单里（含无扩展名的 Makefile/LICENSE 等）。
+export function isTextWorkspaceFile(path) {
+  return !BINARY_EXTENSIONS.has(fileExtension(path));
 }
 
+// 兼容旧名：读取/写入文本文件的判定。
 export function isAllowedWorkspaceFile(path) {
-  return ALLOWED_EXTENSIONS.has(fileExtension(path)) || CONFIG_FILE_NAMES.has(fileBaseName(path));
+  return isTextWorkspaceFile(path);
 }
 
 export function assertAllowedWorkspaceFile(path) {
   if (!isAllowedWorkspaceFile(path)) {
-    throw new Error('工作区第一版只支持纯文本与 Markdown（.txt/.md/.markdown）。');
+    throw new Error('工作区只能读写文本文件（图片/音视频/压缩包/可执行文件等二进制不支持）。');
   }
   return path;
 }
 
-// 可写入的文件：文本/Markdown（字符串内容）+ 生成的 .docx（二进制）。
+// 可写入的文件：文本文件 + 生成的 .docx（二进制）。
 export function isAllowedWorkspaceOutputFile(path) {
-  const extension = fileExtension(path);
-  return ALLOWED_EXTENSIONS.has(extension)
-    || OUTPUT_ONLY_EXTENSIONS.has(extension)
-    || CONFIG_FILE_NAMES.has(fileBaseName(path));
+  return isTextWorkspaceFile(path) || OUTPUT_ONLY_EXTENSIONS.has(fileExtension(path));
 }
 
 export function assertAllowedWorkspaceOutputFile(path) {
   if (!isAllowedWorkspaceOutputFile(path)) {
-    throw new Error('工作区写入只支持纯文本/Markdown 与生成的 .docx。');
+    throw new Error('工作区写入只支持文本文件与生成的 .docx。');
   }
   return path;
 }
 
-// 可列出（供 agent/UI 感知）的文件：文本/Markdown 与 .docx；读取仍限纯文本。
+// 可列出（供 agent/UI 感知）的文件：文本文件与 .docx；读取仍限文本。
 export function isListableWorkspaceFile(path) {
   return isAllowedWorkspaceOutputFile(path);
 }
@@ -88,5 +104,3 @@ export function resolveWorkspaceUri(root, characterId, path) {
   const relative = assertAllowedWorkspaceFile(normalizeWorkspacePath(path));
   return `${sandboxDirectory(root, characterId)}${relative}`;
 }
-
-export const WORKSPACE_ALLOWED_EXTENSIONS = ALLOWED_EXTENSIONS;
