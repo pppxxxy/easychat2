@@ -248,6 +248,7 @@ export {
   isSessionSummaryRevisionCurrent,
   migrateLegacyMessages,
   reconcileVectorIndexes,
+  reconcileWorldMemories,
   resetSessionSummaries,
   restoreSession,
   saveMessagesBySession,

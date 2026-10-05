@@ -9,10 +9,12 @@ import {
   setSessionSummarizedUpTo,
 } from '../storage.js';
 
-import { MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
+import { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
 import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';
 
-export { MEMORY_SUMMARY_PREFIX };
+export { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX };
+// 内置助手判定与「世界书记忆退休」共用同一份纯逻辑（见 memory/memoryRetire.js）。
+export { isBuiltinCharacter as isBuiltinAssistant } from './memoryRetire.js';
 export const KEEP_RECENT = 6;
 export const DEFAULT_THRESHOLD = 40;
 export const FALLBACK_KEYWORDS = ['前情提要'];
@@ -174,8 +176,6 @@ export async function generateSummary({
   return parseSummaryResponse(text);
 }
 
-export const MEMORY_SCOPE_THRESHOLD = 2;
-
 // 记忆上下文总预算：世界书/会话摘要 + 向量召回合计不超过此长度，
 // 避免长期使用后 system 无界膨胀。向量命中时按比例分账，无命中时全给摘要。
 export const MEMORY_CONTEXT_BUDGET = 1800;
@@ -265,9 +265,7 @@ export function isSessionScopedMemory(sessions, characterId, override = undefine
 // 内置助手（EasyChat2 助手）永远按会话级处理记忆：它是通用工具角色，本身没有「角色记忆」；
 // 且其 id（default）同时是历史数据里无归属条目的兜底归属名，卡上的「记忆总结」可能是别处
 // 沉淀过来的，一旦读到就会串味。规范化后只有初始卡持有 builtin 标记（见 storage/characters.js）。
-export function isBuiltinAssistant(character) {
-  return !!(character && character.builtin === true);
-}
+// 判定本体在 memoryRetire.js（同一份逻辑也服务启动对账），此处仅按原名转发。
 
 export function shouldInvalidateWorldSummary(entry, messages, removedIds) {
   const comment = String((entry && entry.comment) || '').trim();

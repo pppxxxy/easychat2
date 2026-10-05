@@ -1189,25 +1189,29 @@ test('角色完整删除清理向量，仅删角色保留历史向量', async ()
   assert.equal((await storage.getVectorIndex(first.id)).length, 1);
 });
 
-test('向量对账清理群聊和已删除会话，保留合法旧条目', async () => {
+test('向量对账：清群聊/已删会话/无归属 legacy 段，归属不符的跨桶段一并清除', async () => {
   const storage = loadStorage();
   store.set('@easychat2_sessions', JSON.stringify([
     { id: 'session-valid', characterId: 'character-a', type: 'single', preview: '有效' },
+    { id: 'session-other', characterId: 'character-b', type: 'single', preview: '别人的' },
     { id: 'session-group', type: 'group', members: ['a', 'b'], preview: '群聊' },
   ]));
   store.set('@easychat2_vector_index::character-a', JSON.stringify([
     { id: 'valid', sessionId: 'session-valid', messageId: 'm1', text: '保留', vector: [1] },
-    { id: 'group', sessionId: 'session-group', messageId: 'm2', text: '群聊', vector: [2] },
-    { id: 'missing', sessionId: 'session-missing', messageId: 'm3', text: '孤儿', vector: [3] },
-    { id: 'legacy', messageId: 'm4', text: '旧角色记忆', vector: [4] },
+    // 修复前 'default' 兜底/角色错配写进来的分段：会话活着也不许留在别人的桶里
+    { id: 'foreign', sessionId: 'session-other', messageId: 'm2', text: '别人的会话写进我的桶', vector: [2] },
+    { id: 'group', sessionId: 'session-group', messageId: 'm3', text: '群聊', vector: [3] },
+    { id: 'missing', sessionId: 'session-missing', messageId: 'm4', text: '孤儿', vector: [4] },
+    { id: 'legacy', messageId: 'm5', text: '无归属旧段', vector: [5] },
   ]));
 
   const report = await storage.reconcileVectorIndexes();
-  assert.equal(report.removed, 2);
-  assert.equal(report.legacyRetained, 1);
+  assert.equal(report.removed, 4);
+  assert.equal(report.legacyRemoved, 1, '无 sessionId 的 legacy 分段清除（无法判定归属）');
+  assert.equal(report.foreignRemoved, 1, '分段所属会话 ≠ 桶主人的跨桶分段清除');
   assert.deepEqual(
     (await storage.getVectorIndex('character-a')).map(item => item.id),
-    ['valid', 'legacy']
+    ['valid']
   );
 });
 
@@ -1762,4 +1766,83 @@ test('setSessionPinned：幂等且目标不存在返回 null', async () => {
   assert.equal((await storage.setSessionPinned(session.id, true)).pinned, true);
   assert.equal((await storage.setSessionPinned(session.id, true)).pinned, true);
   assert.equal(await storage.setSessionPinned('missing-session', true), null);
+});
+
+test('世界书记忆对账：多会话/零会话/内置助手退休，唯一会话且 boundary 命中的保留', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([
+    { id: 'multi', name: '多会话角色', worldInfo: [
+      { id: 'wm-1', comment: '记忆总结 1', content: '多会话时的卡上记忆', keys: [], enabled: true },
+    ] },
+    { id: 'single', name: '单会话角色', worldInfo: [
+      { id: 'wm-2', comment: '记忆总结 1', content: '属于唯一会话', keys: [], enabled: true, boundary: 's1-m1' },
+      { id: 'wm-3', comment: '记忆总结 2', content: 'boundary 对不上', keys: [], enabled: true, boundary: 'gone-m1' },
+    ] },
+    { id: 'zero', name: '无会话角色', worldInfo: [
+      { id: 'wm-4', comment: '记忆总结 1', content: '没有会话承载', keys: [], enabled: true },
+    ] },
+    { id: 'default', name: 'EasyChat2 助手', builtin: true, worldInfo: [
+      { id: 'wm-5', comment: '记忆总结 1', content: '助手卡上的记忆', keys: [], enabled: true },
+    ] },
+  ]);
+  store.set('@easychat2_sessions', JSON.stringify([
+    { id: 'sm-1', characterId: 'multi', type: 'single', preview: '一' },
+    { id: 'sm-2', characterId: 'multi', type: 'single', preview: '二' },
+    { id: 'ss-1', characterId: 'single', type: 'single', preview: '唯一' },
+  ]));
+  store.set('@easychat2_messages::ss-1', JSON.stringify([
+    { id: 's1-m1', role: 'user', text: 'x', timestamp: 1 },
+  ]));
+
+  const report = await storage.reconcileWorldMemories();
+  assert.equal(report.retired, 4);
+
+  const library = await storage.getCharacterLibrary();
+  const byId = new Map(library.map(item => [String(item.id || ''), item]));
+  assert.equal(byId.get('multi').worldInfo.find(item => item.id === 'wm-1').enabled, false);
+  assert.equal(byId.get('multi').worldInfo.find(item => item.id === 'wm-1').stale, true,
+    '≥2 个会话：卡上记忆没有合法读者，退休（不再注入）');
+  assert.equal(byId.get('single').worldInfo.find(item => item.id === 'wm-2').enabled, true,
+    'boundary 命中唯一会话：保留');
+  assert.equal(byId.get('single').worldInfo.find(item => item.id === 'wm-3').enabled, false,
+    'boundary 对不上：退休（删会话残留 / 跨卡流通的典型形状）');
+  assert.equal(byId.get('zero').worldInfo.find(item => item.id === 'wm-4').enabled, false, '零会话：退休');
+  assert.equal(byId.get('default').worldInfo.find(item => item.id === 'wm-5').enabled, false,
+    '内置助手：卡上记忆一律退休（它被强制会话级，条目只剩污染价值）');
+});
+
+test('新建会话前迁移卡上记忆：搬进唯一会话的会话级摘要并从卡上移除', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([
+    { id: 'migr', name: '迁移角色', worldInfo: [] },
+  ]);
+  const first = await storage.startNewSession('migr');
+  await storage.saveMessagesBySession(first.id, [
+    { id: 'mg-1', role: 'assistant', text: '开场白', timestamp: 1 },
+  ]);
+  // 单会话期间产生的记忆（boundary 指向该会话里的消息）按现状留在卡上
+  await storage.saveCharacterLibrary([
+    { id: 'migr', name: '迁移角色', worldInfo: [
+      { id: 'wm-m1', comment: '记忆总结 1', content: '早期记忆', keys: ['关键词'], enabled: true, boundary: 'mg-1' },
+    ] },
+  ]);
+
+  // 第二个会话创建时：先把卡上记忆搬进唯一会话（否则它再也读不到，日后删回
+  // 单会话又会冒出来）
+  await storage.startNewSession('migr');
+
+  const summaries = await storage.getSessionSummaries(first.id);
+  assert.equal(summaries.length, 1, '卡上记忆迁成了会话级摘要');
+  assert.equal(summaries[0].summary, '早期记忆');
+  assert.equal(summaries[0].boundary, 'mg-1');
+
+  const library = await storage.getCharacterLibrary();
+  const migr = library.find(item => String(item.id || '') === 'migr');
+  assert.equal((migr.worldInfo || []).filter(item => item.id === 'wm-m1').length, 0, '迁移后从卡上移除');
+
+  const sessions = await storage.getSessions();
+  const firstRow = sessions.find(item => item.id === first.id);
+  assert.equal(firstRow.summarizedUpTo, 'mg-1', '总结边界推进到迁移条目的 boundary');
 });

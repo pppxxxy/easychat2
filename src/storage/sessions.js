@@ -46,6 +46,7 @@ export {
 
 export {
   reconcileVectorIndexes,
+  reconcileWorldMemories,
   startNewSession,
   setSessionGreetingSelected,
   createGroupSession,

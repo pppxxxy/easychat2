@@ -254,7 +254,8 @@ export function buildRestoredSession({ sessionId, characterId, messages, now = D
 }
 
 // 用开场白反推一段孤儿对话属于哪个角色：单聊的第一条助手消息通常就是该角色的 firstMes。
-// 先精确比对（含 {{user}} 替换），再退化为前 20 字前缀比对；判不出来返回空串。
+// 先精确比对（含 {{user}} 替换），再退化为前 24 字前缀比对；命中不唯一一律返回空串
+// ——宁可不猜（用户在恢复弹窗里手选），也不能把对话挂到错误的角色名下。
 export function guessCharacterIdForMessages(messages, characters, { userName = '' } = {}) {
   const user = String(userName || '').trim();
   const normalize = text => {
@@ -273,14 +274,19 @@ export function guessCharacterIdForMessages(messages, characters, { userName = '
     .filter(Boolean);
   if (replies.length === 0) return '';
 
-  const exact = pool.find(item => replies.some(reply => item.firstMes === reply));
-  if (exact) return exact.id;
+  // 精确命中也可能有多个（模板卡开场白雷同）：只有唯一命中才敢猜。
+  const exactMatches = pool.filter(item => replies.some(reply => item.firstMes === reply));
+  if (exactMatches.length === 1) return exactMatches[0].id;
+  if (exactMatches.length > 1) return '';
 
-  // 开场白后面被追加了内容时，用该角色的开场白前 12 字与回复比对（太短的不猜，避免误判）
+  // 开场白后面被追加了内容时，用前缀比对。阈值抬到 24 字并要求唯一命中：
+  // 12 字太短——「你好呀，我是…」这类通用开场白会同时命中一堆角色，猜错就把
+  // 对话挂到别人名下（记忆也就跟着串了）。
+  const PREFIX_PROBE = 24;
   const first = replies[0];
-  const prefix = pool.find(item => {
-    const probe = item.firstMes.slice(0, 12);
-    return probe.length >= 6 && first.startsWith(probe);
+  const prefixMatches = pool.filter(item => {
+    const probe = item.firstMes.slice(0, PREFIX_PROBE);
+    return probe.length >= PREFIX_PROBE && first.startsWith(probe);
   });
-  return prefix ? prefix.id : '';
+  return prefixMatches.length === 1 ? prefixMatches[0].id : '';
 }

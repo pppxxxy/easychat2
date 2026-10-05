@@ -108,13 +108,16 @@ export function createVectorConfig(partial = {}) {
   return normalizeVectorMemoryConfig({ id: makeVectorConfigId(), name: '新建向量配置', ...partial });
 }
 
+// 空 id 不落任何桶：'default' 是内置 EasyChat2 助手的角色 id，用它兜底会让无归属的
+// 分段沉淀进助手的桶（助手会话就能召回别人的记忆）。空 id 一律拒绝读写。
 function vectorIndexKey(characterId) {
-  return `${VECTOR_INDEX_PREFIX}::${String(characterId || 'default')}`;
+  const id = String(characterId || '').trim();
+  return id ? `${VECTOR_INDEX_PREFIX}::${id}` : '';
 }
 
 function enqueueVectorIndexMutation(characterId, task) {
   // 按角色分桶：不同角色的向量索引写入互不阻塞，同一角色串行。
-  return vectorIndexMutation.enqueue(task, vectorIndexKey(characterId));
+  return vectorIndexMutation.enqueue(task, vectorIndexKey(characterId) || 'vector:no-owner');
 }
 
 function normalizeVectorIndex(index) {
@@ -138,6 +141,7 @@ function vectorSegmentKey(item) {
 
 export async function readVectorIndexStatus(characterId) {
   const key = vectorIndexKey(characterId);
+  if (!key) return { status: 'missing', index: [] };
   const stored = await readJsonStatus(key);
   if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
     await backupCorruptValue(key);
@@ -157,12 +161,15 @@ export async function getVectorIndex(characterId) {
 }
 
 async function saveVectorIndexInternal(characterId, index) {
+  const key = vectorIndexKey(characterId);
   const list = normalizeVectorIndex(index);
-  await AsyncStorage.setItem(vectorIndexKey(characterId), JSON.stringify(list));
+  if (!key) return list; // 空 id：不写盘（上层 getVectorOwnerId 已守卫，这里是纵深防御）
+  await AsyncStorage.setItem(key, JSON.stringify(list));
   return list;
 }
 
 export function saveVectorIndex(characterId, index) {
+  if (!vectorIndexKey(characterId)) return Promise.resolve([]);
   return enqueueVectorIndexMutation(characterId, async () => {
     const status = await readVectorIndexStatus(characterId);
     if (status.status === 'corrupt') {
@@ -175,6 +182,8 @@ export function saveVectorIndex(characterId, index) {
 }
 
 export function updateVectorIndex(characterId, updater) {
+  const key = vectorIndexKey(characterId);
+  if (!key) return Promise.resolve([]);
   return enqueueVectorIndexMutation(characterId, async () => {
     const status = await readVectorIndexStatus(characterId);
     if (status.status === 'corrupt') {
@@ -183,7 +192,7 @@ export function updateVectorIndex(characterId, updater) {
     const next = typeof updater === 'function' ? await updater(status.index) : status.index;
     if (next === undefined) return status.index;
     if (next === null) {
-      await AsyncStorage.removeItem(vectorIndexKey(characterId));
+      await AsyncStorage.removeItem(key);
       return [];
     }
     return saveVectorIndexInternal(characterId, next);
@@ -224,8 +233,7 @@ export function removeVectorIndexForMessage(characterId, sessionId, messageId) {
 }
 
 export function clearVectorIndex(characterId) {
-  return enqueueVectorIndexMutation(
-    characterId,
-    () => AsyncStorage.removeItem(vectorIndexKey(characterId))
-  );
+  const key = vectorIndexKey(characterId);
+  if (!key) return Promise.resolve();
+  return enqueueVectorIndexMutation(characterId, () => AsyncStorage.removeItem(key));
 }

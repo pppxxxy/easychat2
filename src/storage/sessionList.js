@@ -17,6 +17,7 @@ import {
 } from '../context/sessionLibrary.js';
 import { shouldIndexSession } from '../vectorMemory/scope.js';
 import { DEFAULT_CHARACTER, getCharacterLibrary } from './characters.js';
+import { migrateWorldMemoriesToSession, reconcileWorldMemories } from './memoryOwnership.js';
 import {
   VECTOR_INDEX_PREFIX,
   readVectorIndexStatus,
@@ -74,7 +75,8 @@ export async function reconcileVectorIndexes() {
   const report = {
     scannedKeys: vectorKeys.length,
     removed: 0,
-    legacyRetained: 0,
+    legacyRemoved: 0,
+    foreignRemoved: 0,
     failedKeys: [],
   };
   for (const key of vectorKeys) {
@@ -86,19 +88,35 @@ export async function reconcileVectorIndexes() {
       report.failedKeys.push(key);
       continue;
     }
-    report.legacyRetained += status.index.filter(item => !String(item.sessionId || '')).length;
+    let legacyRemoved = 0;
+    let foreignRemoved = 0;
     try {
       const result = await updateVectorIndex(characterId, current => {
         const next = current.filter(item => {
           const sessionId = String(item.sessionId || '');
-          if (!sessionId) return true;
+          // 无会话归属的 legacy 分段：无法判定它属于谁。历史版本用 'default' 兜底把
+          // 无归属写入沉淀进了某些桶（典型是内置助手的桶），保留只会让它被合法召回，
+          // 一律清除。
+          if (!sessionId) {
+            legacyRemoved += 1;
+            return false;
+          }
           const session = sessionMap.get(sessionId);
-          return shouldIndexSession(session);
+          if (!shouldIndexSession(session)) return false;
+          // 归属校验：分段所属会话的 characterId 必须等于桶主人。只检查「会话还在」的话，
+          // 修复前写错桶的分段（张冠李戴）只要原会话活着就永远不会被清掉。
+          if (String(session.characterId || '') !== characterId) {
+            foreignRemoved += 1;
+            return false;
+          }
+          return true;
         });
         if (next.length === current.length) return undefined;
         return next.length > 0 ? next : null;
       });
       report.removed += Math.max(0, status.index.length - result.length);
+      report.legacyRemoved += legacyRemoved;
+      report.foreignRemoved += foreignRemoved;
     } catch (error) {
       report.failedKeys.push(key);
       if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] reconciliation failed', error);
@@ -276,6 +294,12 @@ async function deleteSessionInternal(sessionId) {
   } catch (error) {}
   await collectChatImageFiles();
   await collectVoiceFiles();
+  // 会话结构变了：卡上记忆要按新的会话数重新判定归属。删到 0 个会话、或删掉的是
+  // 「唯一会话」以外的那个时，留在卡上的记忆就再没有合法读者——不退休的话，
+  // 一旦会话数回到 1 又会被注入，用户感知就是「串了历史对话」。
+  if (target && String(target.type || 'single') !== 'group') {
+    await reconcileWorldMemories({ characterId: String(target.characterId || '') }).catch(() => {});
+  }
   if (activeId === sessionId) {
     const nextActive = remaining[0] || null;
     if (nextActive) {
@@ -339,6 +363,17 @@ async function deleteSessionsInternal(sessionIds) {
   } catch (error) {}
   await collectChatImageFiles();
   await collectVoiceFiles();
+  // 批量删除同样要销旧账：按受影响角色逐一重新判定卡上记忆的归属。
+  const touchedCharacters = new Set(
+    ids
+      .map(sessionId => sessions.find(session => session.id === sessionId))
+      .filter(target => target && String(target.type || 'single') !== 'group')
+      .map(target => String(target.characterId || ''))
+      .filter(Boolean)
+  );
+  for (const characterId of touchedCharacters) {
+    await reconcileWorldMemories({ characterId }).catch(() => {});
+  }
   return { sessions: remaining, activeSessionId };
 }
 
@@ -356,7 +391,11 @@ async function setSessionPinnedInternal(sessionId, pinned) {
 }
 
 export function startNewSession(characterId, opening = null) {
-  return enqueueSessionMutation(() => startNewSessionInternal(characterId, opening));
+  // 单会话 → 多会话的迁移必须在会话队列**之外**做：它内部要 appendSessionSummary
+  // （用同一个会话队列），在队列内调用会自我等待。迁移失败不影响新建（对账会兜住）。
+  return migrateWorldMemoriesToSession(characterId)
+    .catch(() => ({ migrated: 0 }))
+    .then(() => enqueueSessionMutation(() => startNewSessionInternal(characterId, opening)));
 }
 
 export function setSessionGreetingSelected(sessionId, selected = true) {
@@ -556,3 +595,5 @@ async function migrateLegacyMessagesInternal(characters) {
 }
 
 export { MESSAGES_KEY_PREFIX };
+// 世界书记忆归属对账（存量数据治理）：启动时与会话增删后调用，见 memoryOwnership.js。
+export { reconcileWorldMemories } from './memoryOwnership.js';

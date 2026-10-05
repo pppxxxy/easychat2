@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { appendExportNotice, isValidAigcMeta } from '../aigc/attribution.js';
+import { MEMORY_SUMMARY_PREFIX } from '../memory/memoryConstants.js';
 
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 export const MAX_CARD_FILE_BYTES = 32 * 1024 * 1024;
@@ -318,7 +319,12 @@ export function buildCardV2(character) {
     post_history_instructions: String(source.postHistoryInstructions || ''),
     tags: Array.isArray(source.tags) ? source.tags.map(String) : [],
     character_book: {
-      entries: (Array.isArray(source.worldInfo) ? source.worldInfo : []).map(mapWorldEntry),
+      // 导出**不带**「记忆总结」条目：那是本机某个会话的记忆，不是角色设定。
+      // 带出去再导入到别的卡（换机 / 分享 / 克隆）就是跨卡串记忆——那张卡会把
+      // 别人的对话记忆当成自己的角色记忆直接注入（见审查待办「记忆归属对账」）。
+      entries: (Array.isArray(source.worldInfo) ? source.worldInfo : [])
+        .filter(entry => !String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX))
+        .map(mapWorldEntry),
     },
     extensions: {
       ...passthroughExtensions,

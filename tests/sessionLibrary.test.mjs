@@ -56,15 +56,35 @@ test('按开场白精确匹配角色（忽略首尾空白、还原 {{user}}）',
   );
 });
 
-test('开场白后追加了内容时用前缀匹配', () => {
+test('开场白后追加了内容时用前缀匹配（阈值 24 字）', () => {
+  const longGreeting = '早呀，今天想聊点什么？外面在下雨，记得带伞。我们继续昨天的话题吧。';
   const characters = [
-    { id: 'c5', name: '角色5', firstMes: '早呀，今天想聊点什么？' },
+    { id: 'c5', name: '角色5', firstMes: longGreeting },
     { id: 'c8', name: '角色八', firstMes: '我是角色八，初次见面。' },
   ];
   const messages = [
-    { role: 'assistant', text: '早呀，今天想聊点什么？——顺便说，外面在下雨。' },
+    { role: 'assistant', text: `${longGreeting}——顺便说，外面已经停了。` },
   ];
   assert.equal(guessCharacterIdForMessages(messages, characters), 'c5');
+});
+
+test('短开场白不做前缀猜测；命中多个角色时返回空串（宁可不猜也不挂错人）', () => {
+  const greeting = '早呀，今天想聊点什么？';
+  // 同样的开场白命中两个角色：猜哪个都可能错，交还用户在恢复弹窗里手选
+  const twins = [
+    { id: 'c1', name: '甲', firstMes: greeting },
+    { id: 'c2', name: '乙', firstMes: greeting },
+  ];
+  assert.equal(guessCharacterIdForMessages(
+    [{ role: 'assistant', text: `${greeting}——追加内容` }],
+    twins
+  ), '');
+  // 12 字阈值太容易误判（通用开场白彼此雷同），已抬到 24 字：短开场白一律不猜
+  const short = [{ id: 'c5', name: '角色5', firstMes: greeting }];
+  assert.equal(guessCharacterIdForMessages(
+    [{ role: 'assistant', text: `${greeting}——追加内容` }],
+    short
+  ), '');
 });
 
 test('判不出来时返回空串，不瞎猜', () => {

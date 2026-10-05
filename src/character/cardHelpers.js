@@ -6,6 +6,14 @@ import {
   ensureUniqueIds,
   REGEX_PLACEMENT_LABELS,
 } from './cardParser.js';
+import { MEMORY_SUMMARY_PREFIX } from '../memory/memoryConstants.js';
+
+// 导入侧同样不带「记忆总结」条目：旧卡（导出未过滤时代做的）里可能带着别处的会话记忆，
+// 直接收下就会变成新卡的角色记忆被注入。导入时剔除，与导出侧同一口径。
+export function stripMemorySummaryEntries(worldInfo) {
+  return (Array.isArray(worldInfo) ? worldInfo : [])
+    .filter(entry => !String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX));
+}
 
 export const NO_CARD_DATA_MESSAGE =
   '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
@@ -97,7 +105,7 @@ export function buildCharacterPatch(card) {
     creatorNotes: fields.creatorNotes || '',
     postHistoryInstructions: fields.postHistoryInstructions || '',
     tags: Array.isArray(fields.tags) ? fields.tags : [],
-    worldInfo: Array.isArray(card.worldInfo) ? card.worldInfo : [],
+    worldInfo: stripMemorySummaryEntries(card.worldInfo),
     regexScripts: Array.isArray(card.regexScripts) ? card.regexScripts : [],
     presets: Array.isArray(card.presets) ? card.presets : [],
     // 透传隐式 AI 标识（与 cardForge/forge.js 一致），否则导入的 AI 生成卡丢失追溯信息。

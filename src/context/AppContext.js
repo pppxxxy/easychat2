@@ -31,7 +31,8 @@ import {
   deleteSessions as deleteSessionsStorage,
    collectOrphanImageFiles,
    reconcileVectorIndexes,
- } from '../storage.js';
+   reconcileWorldMemories,
+   } from '../storage.js';
 
 import {
   describeDefaultArtwork,
@@ -80,6 +81,13 @@ export function AppProvider({ children }) {
     let cancelled = false;
     const load = async () => {
       try {
+        // 记忆归属对账必须在读角色库**之前**：它会退休卡上不合法的「记忆总结」条目
+        // （单会话时代残留的、删会话后留下的、跨卡流通过来的），若先读进内存，
+        // 内存快照就会与盘不一致——用户随后编辑角色时会把退休标记又覆盖回去。
+        // 代价很小：只有卡上真有生效的记忆条目时才会去读会话消息。
+        await reconcileWorldMemories().catch(error => {
+          if (__DEV__) console.warn('[memory] world memory reconciliation failed', error);
+        });
         const [list, storedActiveId, sessionList, storedActiveSessionId] = await Promise.all([
           getCharacterLibrary(),
           getActiveCharacterId(),
@@ -165,6 +173,14 @@ export function AppProvider({ children }) {
     setCharactersState(sorted);
     return sorted;
   }, []);
+
+  // 从盘上重读角色库并覆盖内存。存储层可能在本轮操作里改过角色卡（删除会话触发的
+  // 记忆归属对账会退休卡上的记忆条目）——内存快照不跟上，用户下次编辑角色时就会把
+  // 退休标记整表覆盖回去。
+  const refreshCharactersDirect = useCallback(async () => {
+    const list = await getCharacterLibrary();
+    return applyList(list);
+  }, [applyList]);
 
   const restore = useCallback(snapshot => {
     charactersRef.current = snapshot.list;
@@ -587,13 +603,15 @@ export function AppProvider({ children }) {
         const result = await deleteSessionStorage(id);
         applySessions(result.sessions);
         applyActiveSessionId(result.activeSessionId);
+        // 删除会话会触发记忆归属对账（可能退休卡上的记忆条目），内存角色库要跟盘一致。
+        await refreshCharactersDirect().catch(() => {});
         return result;
       } catch (error) {
         await refreshSessionsDirect().catch(() => {});
         throw error;
       }
     });
-  }, [applySessions, applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
+  }, [applySessions, applyActiveSessionId, refreshCharactersDirect, refreshSessionsDirect, enqueueMutation]);
 
   const deleteSessions = useCallback(async (ids, excludedCharacterIds = []) => {
     if (!loadedRef.current) {
@@ -635,13 +653,15 @@ export function AppProvider({ children }) {
           resolved = resolveActiveSessionId(sorted, activeSessionIdRef.current);
         }
         applyActiveSessionId(resolved);
+        // 同上：批量删除后把角色库的内存快照刷新回与盘一致。
+        await refreshCharactersDirect().catch(() => {});
         return sorted;
       } catch (error) {
         await refreshSessionsDirect().catch(() => {});
         throw error;
       }
     });
-  }, [applySessions, applyActiveSessionId, refreshSessionsDirect, enqueueMutation]);
+  }, [applySessions, applyActiveSessionId, refreshCharactersDirect, refreshSessionsDirect, enqueueMutation]);
 
   // activeId 失效（存储损坏 / 角色被外部删除）时界面角色会退回初始卡。若同时继续对外
   // 暴露失效的 activeId，就会造成“高亮的角色”和“当前角色”不是同一个的身份错位，后续
