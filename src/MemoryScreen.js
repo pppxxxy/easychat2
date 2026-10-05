@@ -3,7 +3,7 @@ import { ROUTE_NAMES } from './navigation/routeNames.js';
 import {
   Alert,
   FlatList,
-  Image,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,39 +22,23 @@ import {
 } from './storage.js';
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
-import { buildMemoryListData, groupSessionsByAge } from './memory/memoryBuckets.js';
+import { buildMemoryListData, buildSessionBadges, groupSessionsByAge } from './memory/memoryBuckets.js';
+import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
-import { Card, EmptyState, TopicButton } from './ui/index.js';
+import { EmptyState, TopicButton } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
 
-function formatTime(timestamp) {
-  const value = Number(timestamp);
-  if (!Number.isFinite(value) || value <= 0) return '';
-  const date = new Date(value);
-  const now = new Date();
-  const pad = number => String(number).padStart(2, '0');
-  if (date.toDateString() === now.toDateString()) {
-    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+// 会话行的显示名：群聊用群名（缺省拼成员名），单聊用角色名。
+// 行渲染与长按操作单都要用，抽出来避免两处各写一遍后漂移。
+function sessionDisplayName(session, character, groupMembers) {
+  if (session && session.type === 'group') {
+    return String(session.name || '').trim()
+      || (Array.isArray(groupMembers) ? groupMembers : []).map(item => item && item.name).filter(Boolean).join('、')
+      || '群聊';
   }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return '昨天';
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
-}
-
-function RowAction({ icon, color, onPress, label, styles }) {
-  return (
-    <TouchableOpacity
-      style={styles.rowAction}
-      onPress={onPress}
-      accessibilityLabel={label}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-    >
-      <Ionicons name={icon} size={18} color={color} />
-    </TouchableOpacity>
-  );
+  return String((character && character.name) || '').trim() || '未命名角色';
 }
 
 export default function MemoryScreen({ navigation }) {
@@ -316,6 +300,23 @@ export default function MemoryScreen({ navigation }) {
       });
   }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
 
+  // 长按行弹出操作单：置顶/克隆/删除从「每行常驻三按钮」收进这里。
+  // Android 的 Alert 最多 3 个按钮，取消靠点按外部关闭（cancelable 默认开）；
+  // iOS 追加显式取消按钮（项目现有跨端模式）。
+  const onRowActions = useCallback(session => {
+    const character = characterMap.get(session.characterId);
+    const groupMembers = session.type === 'group'
+      ? (session.members || []).map(id => characterMap.get(id)).filter(Boolean)
+      : [];
+    const buttons = [
+      { text: session.pinned ? '取消置顶' : '置顶', onPress: () => onPin(session) },
+      { text: '克隆', onPress: () => onClone(session) },
+      { text: '删除', style: 'destructive', onPress: () => onDelete(session) },
+    ];
+    if (Platform.OS === 'ios') buttons.push({ text: '取消', style: 'cancel' });
+    Alert.alert(sessionDisplayName(session, character, groupMembers), undefined, buttons);
+  }, [characterMap, onPin, onClone, onDelete]);
+
   const onOpenResult = useCallback(async result => {
     if (switchLockRef.current) return;
     switchLockRef.current = true;
@@ -517,106 +518,33 @@ export default function MemoryScreen({ navigation }) {
             const groupMembers = isGroup
               ? (session.members || []).map(id => characterMap.get(id)).filter(Boolean)
               : [];
-            const name = isGroup
-              ? (session.name || groupMembers.map(item => item.name).join('、') || '群聊')
-              : ((character && character.name) || '未命名角色');
-            const isClone = !!session.clonedFrom;
+            const name = sessionDisplayName(session, character, groupMembers);
             return (
-              <Card
+              <SessionRow
                 key={session.id}
-                padded={false}
-                style={[
-                  styles.card,
-                  editing && selectedIds.includes(session.id) && styles.cardSelected,
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.cardMain}
-                  activeOpacity={0.75}
-                  onPress={() => (editing ? toggleSelect(session.id) : onOpen(session))}
-                >
-                  {editing ? (
-                    <Ionicons
-                      name={selectedIds.includes(session.id) ? 'checkbox' : 'square-outline'}
-                      size={22}
-                      color={selectedIds.includes(session.id) ? theme.colors.primaryMuted : theme.colors.textFaint}
-                      style={styles.checkbox}
-                    />
-                  ) : null}
-                  {isGroup ? (
-                    session.avatarUri ? (
-                      <Image source={{ uri: session.avatarUri }} style={styles.avatar} />
-                    ) : (
-                      <View style={styles.groupAvatars}>
-                        {groupMembers.slice(0, 3).map((member, index) => (
-                          member.avatarUri ? (
-                            <Image
-                              key={member.id}
-                              source={{ uri: member.avatarUri }}
-                              style={[styles.groupAvatar, { left: index * 12 }]}
-                            />
-                          ) : (
-                            <View
-                              key={member.id}
-                              style={[styles.groupAvatar, styles.avatarFallback, { left: index * 12 }]}
-                            >
-                              <Text style={styles.avatarText}>
-                                {String(member.name || '?').charAt(0)}
-                              </Text>
-                            </View>
-                          )
-                        ))}
-                      </View>
-                    )
-                  ) : character && character.avatarUri ? (
-                    <Image source={{ uri: character.avatarUri }} style={styles.avatar} />
-                  ) : (
-                    <View style={[styles.avatar, styles.avatarFallback]}>
-                      <Text style={styles.avatarText}>{name.slice(0, 1)}</Text>
-                    </View>
-                  )}
-                  <View style={styles.cardText}>
-                    <View style={styles.nameRow}>
-                      <Text style={styles.name} numberOfLines={1}>{name}</Text>
-                      {isClone ? <Text style={styles.badge}>副本</Text> : null}
-                      {session.pinned ? (
-                        <Ionicons name="star" size={12} color={theme.colors.star} style={styles.pinMark} />
-                      ) : null}
-                    </View>
-                    <Text style={styles.preview} numberOfLines={2}>
-                      {String(session.preview || '').trim()
-                        || String(previewFallback[session.id] || '').trim()
-                        || '（空会话，可删除）'}
-                    </Text>
-                    <Text style={styles.time}>{formatTime(session.updatedAt)}</Text>
-                  </View>
-                </TouchableOpacity>
-                {editing ? null : (
-                  <View style={styles.actions}>
-                    <RowAction
-                      icon={session.pinned ? 'star' : 'star-outline'}
-                      color={session.pinned ? theme.colors.star : theme.colors.textFaint}
-                      label="置顶"
-                      styles={styles}
-                      onPress={() => onPin(session)}
-                    />
-                    <RowAction
-                      icon="copy-outline"
-                      color={theme.colors.textFaint}
-                      label="克隆"
-                      styles={styles}
-                      onPress={() => onClone(session)}
-                    />
-                    <RowAction
-                      icon="trash-outline"
-                      color={theme.colors.danger}
-                      label="删除"
-                      styles={styles}
-                      onPress={() => onDelete(session)}
-                    />
-                  </View>
+                mode="manage"
+                avatar={(
+                  <SessionAvatar
+                    isGroup={isGroup}
+                    uri={isGroup ? session.avatarUri : ((character && character.avatarUri) || '')}
+                    name={name}
+                    members={groupMembers}
+                  />
                 )}
-              </Card>
+                name={name}
+                badges={buildSessionBadges(session)}
+                pinned={session.pinned === true}
+                preview={
+                  String(session.preview || '').trim()
+                  || String(previewFallback[session.id] || '').trim()
+                  || '（空会话，可删除）'
+                }
+                time={formatSessionTime(session.updatedAt)}
+                selectable={editing}
+                selected={selectedIds.includes(session.id)}
+                onPress={() => (editing ? toggleSelect(session.id) : onOpen(session))}
+                onLongPress={editing ? undefined : () => onRowActions(session)}
+              />
             );
           }}
         />
@@ -722,17 +650,17 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   editButton: { marginLeft: 12, paddingVertical: 6, paddingHorizontal: 4 },
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
-  checkbox: { marginRight: 10 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   groupHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     marginTop: 6,
+    backgroundColor: theme.colors.background,
   },
   groupLabel: {
     color: theme.colors.textMuted,
-    fontSize: fonts.scaled(13),
+    fontSize: fonts.scaled(12),
     fontWeight: '800',
     marginLeft: 6,
   },
@@ -740,67 +668,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),
     marginLeft: 8,
-  },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 12,
-  },
-  cardSelected: {
-    borderColor: theme.colors.primary,
-    borderWidth: tokens.border.thick,
-    backgroundColor: theme.colors.primaryAlpha(0.06),
-  },
-  cardMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingRight: 6,
-  },
-  avatar: { width: 48, height: 48, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surfaceBorder },
-  groupAvatars: { width: 48, height: 48, marginRight: 0 },
-  groupAvatar: {
-    position: 'absolute',
-    top: 0,
-    width: 34,
-    height: 34,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: theme.colors.surfaceBorder,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceAlt,
-  },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: theme.colors.textMuted, fontSize: fonts.scaled(18), fontWeight: '700' },
-  cardText: { flex: 1, marginLeft: 12 },
-  nameRow: { flexDirection: 'row', alignItems: 'center' },
-  name: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', maxWidth: '70%' },
-  badge: {
-    marginLeft: 6,
-    color: theme.colors.primarySoft,
-    fontSize: fonts.scaled(10),
-    fontWeight: '700',
-    backgroundColor: theme.colors.primaryAlpha(0.2),
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primaryMutedAlpha(0.35),
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    overflow: 'hidden',
-  },
-  pinMark: { marginLeft: 6 },
-  preview: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(20), marginTop: 4 },
-  time: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 5 },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: 8,
-  },
-  rowAction: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   editBar: {
     flexDirection: 'row',

@@ -1,9 +1,12 @@
 // 角色/群聊切换弹窗。从 src/ChatScreen.js 原样外提（无行为变化）。
+// 2026-10-06 行组件统一：行渲染改走 SessionRow（与记忆页/搜索结果同一套视觉），
+// 群聊行顺带补出预览与相对时间（数据本就在 session 对象上，此前没显示）。
+// 注意：这是「角色/群聊」切换器，不是会话切换器——角色行没有会话预览可显示。
 
 import React, { useMemo } from 'react';
-import { Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Modal, ScrollView, Text, TouchableOpacity } from 'react-native';
 
+import SessionRow, { SessionAvatar, formatSessionTime } from '../memory/SessionRow.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createChatStyles } from './chatStyles.js';
 
@@ -22,6 +25,15 @@ export default function SwitcherModal({
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
+  // 群聊三叠头像需要成员角色资料：characters 是全量角色表，现场建索引。
+  const characterMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(characters) ? characters : []).forEach(item => {
+      map.set(item.id, item);
+    });
+    return map;
+  }, [characters]);
+
   return (
     <Modal
       visible={visible}
@@ -37,68 +49,38 @@ export default function SwitcherModal({
         <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
           <Text style={styles.modalTitle}>选择角色或群聊</Text>
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-            {characters.map(item => {
-              const selected = !isGroup && item.id === activeId;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.modalRow, selected && styles.modalRowActive]}
-                  onPress={() => onSwitch(item.id)}
-                  activeOpacity={0.7}
-                >
-                  {item.avatarUri ? (
-                    <Image source={{ uri: item.avatarUri }} style={styles.modalRowAvatar} />
-                  ) : (
-                    <View style={styles.modalRowAvatarFallback}>
-                      <Text style={styles.modalRowAvatarText}>
-                        {(item.name || '?').charAt(0)}
-                      </Text>
-                    </View>
-                  )}
-                  <Text
-                    style={[styles.modalRowText, selected && styles.modalRowTextActive]}
-                    numberOfLines={1}
-                  >
-                    {item.name || '未命名角色'}
-                  </Text>
-                  {selected ? (
-                    <View style={styles.modalBadge}>
-                      <Ionicons name="checkmark" size={12} color={theme.colors.text} />
-                      <Text style={styles.modalBadgeText}>当前</Text>
-                    </View>
-                  ) : null}
-                </TouchableOpacity>
-              );
-            })}
+            {characters.map(item => (
+              <SessionRow
+                key={item.id}
+                mode="switch"
+                avatar={<SessionAvatar uri={item.avatarUri || ''} name={item.name || ''} size={36} />}
+                name={item.name || '未命名角色'}
+                active={!isGroup && item.id === activeId}
+                onPress={() => onSwitch(item.id)}
+              />
+            ))}
             {groupSessions.map(item => {
-              const selected = item.id === activeSessionId;
+              const name = groupSessionName(item);
+              const members = (item.members || []).map(id => characterMap.get(id)).filter(Boolean);
               return (
-                <TouchableOpacity
+                <SessionRow
                   key={`group-${item.id}`}
-                  style={[styles.modalRow, selected && styles.modalRowActive]}
-                  onPress={() => onSwitchGroup(item.id)}
-                  activeOpacity={0.7}
-                >
-                  {item.avatarUri ? (
-                    <Image source={{ uri: item.avatarUri }} style={styles.modalRowAvatar} />
-                  ) : (
-                    <View style={[styles.modalRowAvatarFallback, styles.modalRowGroupFallback]}>
-                      <Ionicons name="people" size={14} color={theme.colors.primarySoft} />
-                    </View>
+                  mode="switch"
+                  avatar={(
+                    <SessionAvatar
+                      isGroup
+                      uri={item.avatarUri || ''}
+                      name={name}
+                      members={members}
+                      size={36}
+                    />
                   )}
-                  <Text
-                    style={[styles.modalRowText, selected && styles.modalRowTextActive]}
-                    numberOfLines={1}
-                  >
-                    {groupSessionName(item)}
-                  </Text>
-                  {selected ? (
-                    <View style={styles.modalBadge}>
-                      <Ionicons name="checkmark" size={12} color={theme.colors.text} />
-                      <Text style={styles.modalBadgeText}>当前</Text>
-                    </View>
-                  ) : null}
-                </TouchableOpacity>
+                  name={name}
+                  preview={String(item.preview || '').trim()}
+                  time={formatSessionTime(item.updatedAt)}
+                  active={item.id === activeSessionId}
+                  onPress={() => onSwitchGroup(item.id)}
+                />
               );
             })}
           </ScrollView>

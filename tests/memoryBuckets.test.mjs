@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   bucketIdForTimestamp,
   buildMemoryListData,
+  buildSessionBadges,
   DAY_MS,
   groupSessionsByAge,
   MEMORY_BUCKETS,
@@ -15,6 +16,8 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'MemoryScreen.js'), 'utf8');
+const SEARCH_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'SearchScreen.js'), 'utf8');
+const SWITCHER_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'SwitcherModal.js'), 'utf8');
 
 const NOW = new Date(2026, 8, 27, 12, 0, 0).getTime();
 
@@ -99,4 +102,29 @@ test('记忆界面接入分组折叠与展开全部', () => {
   // 首屏默认展开第一组，避免只剩标题的回归（且只自动展开一次）
   assert.ok(SCREEN_SOURCE.includes('autoExpandedRef'));
   assert.ok(SCREEN_SOURCE.includes('setExpandedGroups(new Set([groups[0].id]))'));
+});
+
+test('会话行三处统一：同一 SessionRow 组件，常驻操作按钮已删', () => {
+  // 三处都从同一文件导入默认导出（SessionRow）与 SessionAvatar
+  for (const [label, source] of [['memory', SCREEN_SOURCE], ['search', SEARCH_SOURCE], ['switcher', SWITCHER_SOURCE]]) {
+    assert.ok(source.includes('SessionAvatar'), `${label} 未接入 SessionAvatar`);
+  }
+  assert.ok(SCREEN_SOURCE.includes("from './memory/SessionRow.js'"));
+  assert.ok(SEARCH_SOURCE.includes("from './memory/SessionRow.js'"));
+  assert.ok(SWITCHER_SOURCE.includes("from '../memory/SessionRow.js'"));
+  // 记忆页：长按出操作单（置顶/克隆/删除收进 Alert），不再每行常驻按钮
+  assert.ok(SCREEN_SOURCE.includes('onLongPress'));
+  assert.ok(SCREEN_SOURCE.includes('onRowActions'));
+  // 注意别用裸 'RowAction' 子串：onRowActions 会误命中（substring 陷阱）。
+  assert.ok(!SCREEN_SOURCE.includes('function RowAction'), 'RowAction 常驻按钮组件应已删除');
+  assert.ok(!SCREEN_SOURCE.includes('styles.rowAction'), 'rowAction 样式引用应已清空');
+  // 切换器（群聊行）有预览与时间：用的是 session 对象上的现成字段
+  assert.ok(SWITCHER_SOURCE.includes('formatSessionTime'));
+  assert.ok(SWITCHER_SOURCE.includes('item.preview'));
+});
+
+test('buildSessionBadges：克隆副本出 badge，普通会话没有', () => {
+  assert.deepEqual(buildSessionBadges({ clonedFrom: 'abc' }), [{ text: '副本' }]);
+  assert.deepEqual(buildSessionBadges({}), []);
+  assert.deepEqual(buildSessionBadges(null), []);
 });

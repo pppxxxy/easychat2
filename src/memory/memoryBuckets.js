@@ -42,6 +42,14 @@ export function groupSessionsByAge(sessions, now = Date.now()) {
   return groups;
 }
 
+// 会话行的徽章列表（纯函数，便于单测）：克隆副本 badge；置顶星由行组件按
+// pinned 单独渲染（它是图标不是文字 badge），这里不重复。
+export function buildSessionBadges(session) {
+  const badges = [];
+  if (session && session.clonedFrom) badges.push({ text: '副本' });
+  return badges;
+}
+
 // 扁平化成可交给 FlatList 的列表：每组一个头，展开时才插入该组的会话行。
 export function buildMemoryListData(groups, expandedIds) {
   const expanded = expandedIds instanceof Set ? expandedIds : new Set(expandedIds || []);

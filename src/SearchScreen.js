@@ -15,6 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { searchMessages } from './storage.js';
+import SessionRow, { SessionAvatar } from './memory/SessionRow.js';
 import { EmptyState } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 
@@ -171,24 +172,25 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             ListHeaderComponent={<Text style={styles.count}>{`找到 ${results.length} 条记录`}</Text>}
             renderItem={({ item: result }) => {
               const character = characterMap.get(result.characterId);
+              const isGroup = result.sessionType === 'group';
+              const name = isGroup
+                ? (result.sessionName || '群聊')
+                : ((character && character.name) || '角色资料缺失');
               return (
-                <TouchableOpacity
-                  style={styles.item}
-                  activeOpacity={0.75}
+                <SessionRow
+                  mode="result"
+                  avatar={(
+                    <SessionAvatar
+                      isGroup={isGroup}
+                      uri={isGroup ? '' : ((character && character.avatarUri) || '')}
+                      name={name}
+                    />
+                  )}
+                  name={name}
+                  preview={buildSnippet(result.text, keyword)}
+                  time={formatTime(result.updatedAt)}
                   onPress={() => onPick(result)}
-                >
-                  <View style={styles.itemHeader}>
-                    <Text style={styles.itemName} numberOfLines={1}>
-                      {result.sessionType === 'group'
-                        ? (result.sessionName || '群聊')
-                        : ((character && character.name) || '角色资料缺失')}
-                    </Text>
-                    <Text style={styles.itemTime}>{formatTime(result.updatedAt)}</Text>
-                  </View>
-                  <Text style={styles.itemText} numberOfLines={2}>
-                    {buildSnippet(result.text, keyword)}
-                  </Text>
-                </TouchableOpacity>
+                />
               );
             }}
           />
@@ -235,17 +237,5 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   list: { flex: 1, marginTop: tokens.spacing.sm },
   listContent: { paddingHorizontal: tokens.spacing.lg, paddingBottom: tokens.spacing.xl },
   count: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginVertical: 10 },
-  item: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md,
-    padding: tokens.spacing.md,
-    marginBottom: tokens.metrics.cardGap,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  itemName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: tokens.spacing.sm },
-  itemTime: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
-  itemText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19), marginTop: 6 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80 },
 });
