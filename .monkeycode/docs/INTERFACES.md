@@ -651,22 +651,23 @@ data: [DONE]
 - 应用私有根（默认）：`<documentDirectory>/workspace/<sandboxId>/`；
 - 外部根（用户自选）：手机上的一个文件夹（Android SAF `content://`），角色文件在其 `<sandboxId>/` 子目录内。
 
-`sandboxId` 由 `characterId` 归一（`sanitizeSandboxId`），缺省 `default`。可读 `.txt` / `.md` / `.markdown`；可额外生成 `.docx`（Word 导出）。
+`sandboxId` 由 `characterId` 归一（`sanitizeSandboxId`），缺省 `default`。文本判定改为**二进制黑名单**（见 `paths.js`）：源码（`.js/.ts/.py/.java/...`）、配置（`.json/.yaml/.toml/.env`）、`.html/.css`、`.md`、无扩展名文本（如 `Makefile`）等都可读写；`.docx` 仍是只写（Word 导出）不读。
 
 | 工具 | readOnly | 说明 |
 |------|----------|------|
-| `list_workspace_files({ subdir? })` | 是 | 递归列出文件（相对沙盒根；目录以 `/` 结尾），过滤非白名单扩展名 |
+| `list_workspace_files({ subdir? })` | 是 | 递归列出文件（相对沙盒根；目录以 `/` 结尾），过滤二进制/媒体等不可列项 |
 | `read_workspace_file({ path })` | 是 | 读取文本文件内容；超过 1MB 截断 |
-| `write_workspace_file({ path, content })` | 否 | 新建/覆盖文本文件；仅「可改」模式可用 |
+| `create_workspace_dir({ path })` | 否 | 新建（或确认已存在）文件夹，含中间层级；仅「可改」模式可用 |
+| `write_workspace_file({ path, content })` | 否 | 新建/覆盖文本文件（自动建上级目录）；仅「可改」模式可用 |
 | `edit_workspace_file({ path, find, replace, all? })` | 否 | 精确文本替换（规则见 `src/workspace/edit.js`）：默认要求 `find` 唯一匹配，多处匹配报错；`all:true` 全替换；`replace` 为空拒绝；仅「可改」模式可用 |
 | `export_workspace_docx({ path, content, title? })` | 否 | 用 `fflate` 自拼最小 OOXML 生成 `.docx`；仅「可改」模式可用 |
 | `run_shell({ command })` | 否 | **仅在开关开启 + 可改模式 + 应用私有根 + 原生模块可用时注册**；`requiresConfirmation:true`，每条命令先弹框（见下） |
 
-- **后端接口**：`store` / `fileSystem` 由调用方注入。`native.js` 的 `createWorkspaceStore(settings)` 按设置返回两种实现之一，二者暴露同一组方法（`listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` / `writeWorkspaceBinaryFile` / `editWorkspaceFile` / `fileUri` / `deleteFile`），故**换根不换工具**。
+- **后端接口**：`store` / `fileSystem` 由调用方注入。`native.js` 的 `createWorkspaceStore(settings)` 按设置返回两种实现之一，二者暴露同一组方法（`listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` / `writeWorkspaceBinaryFile` / `createWorkspaceDirectory` / `editWorkspaceFile` / `fileUri` / `deleteFile`），故**换根不换工具**。
   - 应用私有根 = `store.js` 的 `createLegacyWorkspaceStore`（`expo-file-system/legacy`，`fileSystem` 注入，可 Node 直测）；
   - 外部根 = `safStore.js` 的 `createSafWorkspaceStore`（`expo-file-system` v19 的 `Directory`/`File`，adapter 注入）。**为什么外部根不能复用 legacy**：legacy 的 `readDirectoryAsync` 对 `content://` 抛 `UnsupportedSchemeException`，列目录做不到；新 API 走 `DocumentFile` 且 `pickDirectoryAsync` 用 `takePersistableUriPermission`（Android 重启后授权仍有效）。
   - `content://` 不是路径，**不能字符串拼接**：safStore 逐段解析（列出父目录 → 按显示名找同名子项 → 没有就 `createDirectory`）；读路径 `create=false`，不产生副作用。
-- 路径安全由 `paths.js` 统一把关：拒绝 `..`、绝对路径、NUL、超长；扩展名白名单（`assertAllowedWorkspaceFile`）。外部根不放宽。
+- 路径安全由 `paths.js` 统一把关：拒绝 `..`、绝对路径、NUL、超长；扩展名按**二进制黑名单**判定（`assertAllowedWorkspaceFile` / `isAllowedWorkspaceFile`；写入额外放行 `.docx`）。外部根不放宽。
 - 工具执行时以 `ctx.characterId` 作为沙盒，故同一注册表可服务多角色且彼此隔离。
 - 模式门控由 `src/agent/tools/registry.js` 负责（`ask` 不暴露、`read` 仅只读、`write` 全部）。
 - Word 导出由 `src/workspace/docx.js` 的 `buildDocxBytes` 生成（纯函数，`fflate` 打包 `[Content_Types].xml` / `_rels/.rels` / `word/document.xml` / `word/_rels/document.xml.rels` / `word/styles.xml`；`bytesToBase64` 落盘）。边界：只生成新 `.docx`，不做保格式编辑。
@@ -715,7 +716,9 @@ data: [DONE]
 ### 工作区面板
 **位置**: `src/WorkspacePanel.js`（设置页「工作区」卡片打开）、`src/WorkspaceCapabilitiesCard.js`（能力说明）
 
-浏览当前角色沙盒（`characterId` 维度）：文本文件预览/复制/分享/删除；「可改」模式下可新建文本、把文本导出为 Word（`.docx`）并分享。只读顶栏显示当前模式（在设置页修改）。**面板不再自己拼 uri、不直连 `expo-file-system/legacy`**：打开时按当前设置解析后端（`createWorkspaceStore` / `describeWorkspaceRoot`），中途改根不影响已打开的面板（操作仍按打开时的根）。依赖 `expo-sharing` / `expo-clipboard`；文件名净化见 `src/workspace/naming.js`。
+浏览当前角色沙盒（`characterId` 维度）：文本文件预览/复制/分享/删除；「可改」模式下可**新建文件夹**、新建文本（任意文本/源码扩展名）、把文本导出为 Word（`.docx`）并分享。只读顶栏显示当前模式（在设置页修改）。**面板不再自己拼 uri、不直连 `expo-file-system/legacy`**：打开时按当前设置解析后端（`createWorkspaceStore` / `describeWorkspaceRoot`），中途改根不影响已打开的面板（操作仍按打开时的根）。依赖 `expo-sharing` / `expo-clipboard`；文件名净化见 `src/workspace/naming.js`（`ensureDirectoryName` / `ensureTextFileName` 保留项目扩展名）。
+
+面板底部有「向助手下达指令」入口，打开**工作区指令对话框**（`src/workspace/WorkspaceChat.js`，纯消息构造在 `src/workspace/chat.js`）：内嵌迷你对话，直连 agent 工具循环（`runAgentTurn`，按当前工作模式暴露工具），流式回显；可附加文本文件（内容并入指令）/图片（多模态），可录音转文字（复用 `transcription.js` + 当前转写配置）。对话不持久化，关闭即清空；`run_shell` 的逐条确认复用 `src/chat/toolApproval.js`。工具跑完回调 `onFilesChanged` 刷新面板文件列表。该 UI 文件登记在 `.c8rc.json` 排除清单。
 
 设置页工作区卡片新增：**工作区文件夹**（选择/恢复默认，`src/workspace/picker.js`）、**允许执行命令**开关（需二次确认，只读模式/外部根下置灰）、**能力说明卡片**（1→5 循环 + 当前边界，数据在 `src/workspace/capabilities.js`）。
 

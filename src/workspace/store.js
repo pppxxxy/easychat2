@@ -115,6 +115,17 @@ export async function writeWorkspaceBinaryFile({ root, characterId, path, base64
 
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS });
 
+// 新建目录（含中间层级）。已存在且是目录时 created=false，不报错。
+export async function createWorkspaceDirectory({ root, characterId, path, fileSystem } = {}) {
+  assertFileSystem(fileSystem);
+  const relative = normalizeWorkspacePath(path);
+  const uri = `${sandboxDirectory(root, characterId)}${relative}`;
+  const info = await getInfo(fileSystem, uri);
+  if (info && info.exists && info.isDirectory) return { path: `${relative}/`, created: false };
+  await ensureDirectory(fileSystem, `${uri}/`);
+  return { path: `${relative}/`, created: true };
+}
+
 // 精确文本替换：读 → 替换 → 写回。匹配规则见 edit.js（默认要求唯一匹配）。
 export async function editWorkspaceFile({ root, characterId, path, find, replace, all = false, fileSystem } = {}) {
   const current = await readWorkspaceFile({ root, characterId, path, fileSystem });
@@ -148,6 +159,10 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
 
     editWorkspaceFile: ({ characterId, path, find, replace, all } = {}) => editWorkspaceFile({
       root, characterId, path, find, replace, all, fileSystem,
+    }),
+
+    createWorkspaceDirectory: ({ characterId, path } = {}) => createWorkspaceDirectory({
+      root, characterId, path, fileSystem,
     }),
 
     // 面板的分享/删除要拿到具体文件 uri。legacy 后端里 uri 就是拼出来的字符串。

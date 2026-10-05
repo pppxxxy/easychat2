@@ -36,32 +36,41 @@ test('normalizeWorkspacePath 只接受沙盒内相对路径', () => {
   assert.throws(() => normalizeWorkspacePath(`${'x'.repeat(300)}.txt`), /路径过长/);
 });
 
-test('fileExtension 与扩展名白名单', () => {
+test('fileExtension 与文本/二进制判定（可写项目 → 黑名单制）', () => {
   assert.equal(fileExtension('a.txt'), 'txt');
   assert.equal(fileExtension('dir/a.MD'), 'md');
   assert.equal(fileExtension('noext'), '');
   assert.equal(fileExtension('.hidden'), '');
+  // 文本/项目文件：txt/md 之外，源码与配置也算
   assert.equal(isAllowedWorkspaceFile('a.txt'), true);
   assert.equal(isAllowedWorkspaceFile('a.md'), true);
   assert.equal(isAllowedWorkspaceFile('a.markdown'), true);
+  assert.equal(isAllowedWorkspaceFile('src/index.js'), true);
+  assert.equal(isAllowedWorkspaceFile('index.html'), true);
+  assert.equal(isAllowedWorkspaceFile('package.json'), true);
+  assert.equal(isAllowedWorkspaceFile('Makefile'), true, '无扩展名按文本');
+  // 二进制/媒体一律拒绝
   assert.equal(isAllowedWorkspaceFile('a.png'), false);
-  assert.equal(isAllowedWorkspaceFile('a.js'), false);
-  assert.throws(() => assertAllowedWorkspaceFile('a.png'), /只支持纯文本与 Markdown/);
+  assert.equal(isAllowedWorkspaceFile('a.mp4'), false);
+  assert.equal(isAllowedWorkspaceFile('a.zip'), false);
+  assert.throws(() => assertAllowedWorkspaceFile('a.png'), /只能读写文本文件/);
 });
 
-test('写入白名单额外放行 .docx；读取仍只认纯文本', () => {
+test('写入白名单：文本 + .docx；.docx 可写可列但不可读', () => {
   assert.equal(isAllowedWorkspaceOutputFile('a.docx'), true);
   assert.equal(isAllowedWorkspaceOutputFile('a.txt'), true);
+  assert.equal(isAllowedWorkspaceOutputFile('index.js'), true);
   assert.equal(isAllowedWorkspaceOutputFile('a.png'), false);
   assert.equal(isListableWorkspaceFile('a.docx'), true);
   assert.equal(isAllowedWorkspaceFile('a.docx'), false);
   assert.equal(assertAllowedWorkspaceOutputFile('a.docx'), 'a.docx');
-  assert.throws(() => assertAllowedWorkspaceOutputFile('a.png'), /只支持纯文本\/Markdown 与生成的 \.docx/);
+  assert.throws(() => assertAllowedWorkspaceOutputFile('a.png'), /只支持文本文件与生成的 \.docx/);
 });
 
 test('sandboxDirectory 与 resolveWorkspaceUri', () => {
   assert.equal(sandboxDirectory('/doc/workspace', 'c1'), '/doc/workspace/c1/');
   assert.equal(sandboxDirectory('/doc/workspace/', 'c1'), '/doc/workspace/c1/');
   assert.equal(resolveWorkspaceUri('/doc/workspace/', 'c1', 'a.txt'), '/doc/workspace/c1/a.txt');
-  assert.throws(() => resolveWorkspaceUri('/doc/workspace/', 'c1', 'a.png'), /只支持纯文本与 Markdown/);
+  assert.equal(resolveWorkspaceUri('/doc/workspace/', 'c1', 'src/app.js'), '/doc/workspace/c1/src/app.js');
+  assert.throws(() => resolveWorkspaceUri('/doc/workspace/', 'c1', 'a.png'), /只能读写文本文件/);
 });

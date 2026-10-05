@@ -19,7 +19,7 @@ function resolveStore({ store, root, fileSystem } = {}) {
 const WORKSPACE_TOOL_DEFINITIONS = [
   {
     name: 'list_workspace_files',
-    description: '列出工作区内的纯文本与 Markdown 文件（相对路径；目录以 / 结尾）。',
+    description: '列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构。',
     readOnly: true,
     parameters: {
       type: 'object',
@@ -34,12 +34,12 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   },
   {
     name: 'read_workspace_file',
-    description: '读取工作区内某个纯文本或 Markdown 文件的完整内容。',
+    description: '读取工作区内某个文本文件（含源码、配置、Markdown 等）的完整内容。',
     readOnly: true,
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '工作区内的相对路径（.txt/.md/.markdown）。' },
+        path: { type: 'string', description: '工作区内的相对路径（如 src/index.js、README.md）。' },
       },
       required: ['path'],
     },
@@ -49,13 +49,29 @@ const WORKSPACE_TOOL_DEFINITIONS = [
     }).then(result => (result.truncated ? `${result.content}\n…（已截断）` : result.content)),
   },
   {
-    name: 'write_workspace_file',
-    description: '在工作区内新建或覆盖一个纯文本/Markdown 文件。仅「可改」模式可用。',
+    name: 'create_workspace_dir',
+    description: '在工作区内新建（或确认已存在）一个文件夹，用于组织项目文件。仅「可改」模式可用。',
     readOnly: false,
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '工作区内的相对路径（.txt/.md/.markdown）。' },
+        path: { type: 'string', description: '工作区内的相对目录路径，如 src/components。' },
+      },
+      required: ['path'],
+    },
+    execute: (options, args, ctx) => options.store.createWorkspaceDirectory({
+      characterId: ctx && ctx.characterId,
+      path: args.path,
+    }).then(result => `已创建目录 ${result.path}`),
+  },
+  {
+    name: 'write_workspace_file',
+    description: '在工作区内新建或覆盖一个文本文件（源码、配置、HTML/CSS/JS、Markdown 等任意文本类型；自动创建上级目录）。仅「可改」模式可用。',
+    readOnly: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '工作区内的相对路径（如 src/app.js、index.html）。' },
         content: { type: 'string', description: '要写入的完整文本内容。' },
       },
       required: ['path', 'content'],
@@ -73,7 +89,7 @@ const WORKSPACE_TOOL_DEFINITIONS = [
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '工作区内的相对路径（.txt/.md/.markdown）。' },
+        path: { type: 'string', description: '工作区内的相对路径。' },
         find: { type: 'string', description: '要被替换的原文（须与文件内容逐字一致，含缩进与换行）。' },
         replace: { type: 'string', description: '替换成的新文本。' },
         all: { type: 'boolean', description: '可选：true 时替换全部匹配（默认只替换唯一一处，多处匹配会报错）。' },

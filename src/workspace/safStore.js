@@ -196,6 +196,14 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       return { path: written.path, count: edited.count, length: written.length };
     },
 
+    // 新建目录（缺哪级建哪级）。SAF 没有「目录是否已存在」的廉价判定，
+    // resolveDirectory(create=true) 已是幂等（存在则复用），故 created 仅表示「已确保存在」。
+    async createWorkspaceDirectory({ characterId, path } = {}) {
+      const relative = normalizeWorkspacePath(path);
+      const directoryUri = await locateDirectory(characterId, relative.split('/'), true);
+      return { path: `${relative}/`, created: Boolean(directoryUri) };
+    },
+
     // 面板分享/删除要拿到具体文件 uri；找不到返回 null（文件已被用户在文件管理器里删掉）。
     async fileUri({ characterId, path } = {}) {
       const { file } = await locateFile({ characterId, path, create: false });

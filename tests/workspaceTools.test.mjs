@@ -22,8 +22,17 @@ function createMemoryFs() {
       if (!key) return { exists: false };
       return { exists: true, isDirectory: entries.get(key).type === 'dir' };
     },
-    async makeDirectoryAsync(uri) {
-      entries.set(uri.endsWith('/') ? uri : `${uri}/`, { type: 'dir' });
+    async makeDirectoryAsync(uri, options) {
+      const full = uri.endsWith('/') ? uri : `${uri}/`;
+      if (options && options.intermediates) {
+        let acc = '';
+        for (const part of full.split('/').filter(Boolean)) {
+          acc += `/${part}`;
+          entries.set(`${acc}/`, { type: 'dir' });
+        }
+        return;
+      }
+      entries.set(full, { type: 'dir' });
     },
     async readDirectoryAsync(uri) {
       const prefix = uri.endsWith('/') ? uri : `${uri}/`;
@@ -62,6 +71,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   assert.deepEqual(WORKSPACE_TOOL_NAMES, [
     'list_workspace_files',
     'read_workspace_file',
+    'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'export_workspace_docx',
@@ -73,7 +83,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   );
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.WRITE).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx'],
+    ['list_workspace_files', 'read_workspace_file', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx'],
   );
 });
 
@@ -120,7 +130,7 @@ test('只读模式下写工具被门控，非法扩展名以错误结果返回',
     { mode: AGENT_MODES.WRITE, characterId: 'c1' },
   );
   assert.equal(badPath.isError, true);
-  assert.match(badPath.content, /只支持纯文本与 Markdown/);
+  assert.match(badPath.content, /只能读写文本文件/);
 });
 
 test('unregisterWorkspaceTools 清理注册', () => {
@@ -266,4 +276,25 @@ test('工具定义只认 store 接口：注入自定义后端即可整体换根'
   );
   assert.equal(edited.isError, false);
   assert.deepEqual(calls[1], ['edit', { characterId: 'c9', path: 'x.md', find: 'h', replace: 'H', all: false }]);
+});
+
+test('create_workspace_dir：可改模式建目录，只读模式被门控', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  const created = await runTool(
+    { name: 'create_workspace_dir', arguments: '{"path":"src/components"}' },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(created.isError, false);
+  assert.match(created.content, /已创建目录 src\/components\//);
+  const listed = await runTool(
+    { name: 'list_workspace_files', arguments: '{}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.match(listed.content, /src\/components\//);
+
+  const denied = await runTool(
+    { name: 'create_workspace_dir', arguments: '{"path":"x"}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.equal(denied.isError, true, '只读模式下建目录被门控');
 });

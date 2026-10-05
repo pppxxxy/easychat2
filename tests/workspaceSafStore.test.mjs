@@ -141,7 +141,7 @@ test('docx 走二进制写入（base64 直传，非文本）', async () => {
   assert.deepEqual(await store.listWorkspaceFiles({ characterId: 'c1' }), ['report.docx']);
   await assert.rejects(
     store.readWorkspaceFile({ characterId: 'c1', path: 'report.docx' }),
-    /只支持纯文本与 Markdown/,
+    /只能读写文本文件/,
   );
 });
 
@@ -158,7 +158,7 @@ test('越界与非法扩展名照旧被路径守卫拦下（外部根不放宽�
   );
   await assert.rejects(
     store.writeWorkspaceFile({ characterId: 'c1', path: 'a.png', content: 'x' }),
-    /只支持纯文本与 Markdown/,
+    /只能读写文本文件/,
   );
 });
 

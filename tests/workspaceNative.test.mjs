@@ -22,17 +22,18 @@ test('测试环境无 expo-file-system 时安全降级为 null', () => {
   assert.equal(defaultWorkspaceRoot(), 'workspace/');
 });
 
-test('registerDefaultWorkspaceTools 仍能登记五个工具（原生就绪后即可用）', () => {
+test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪后即可用）', () => {
   const names = registerDefaultWorkspaceTools();
   assert.deepEqual(names, [
     'list_workspace_files',
     'read_workspace_file',
+    'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'export_workspace_docx',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 5);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 6);
   // 只读模式只放开两个读工具：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
@@ -102,6 +103,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
   assert.deepEqual(names, [
     'list_workspace_files',
     'read_workspace_file',
+    'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'export_workspace_docx',

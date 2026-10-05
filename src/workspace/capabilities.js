@@ -45,7 +45,7 @@ export function activeWorkspaceTools(settings, { shellAvailable = false } = {}) 
   const mode = source.mode;
   if (mode !== 'write' && mode !== 'read') return [];
   const tools = mode === 'write'
-    ? ['list_workspace_files', 'read_workspace_file', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
+    ? ['list_workspace_files', 'read_workspace_file', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
     : ['list_workspace_files', 'read_workspace_file'];
   if (mode === 'write' && source.allowCommandExecution === true
     && source.location && source.location.kind !== 'saf' && shellAvailable) {

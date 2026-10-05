@@ -36,6 +36,7 @@ test('activeWorkspaceTools：按模式给出真实工具集', () => {
   assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [
     'list_workspace_files',
     'read_workspace_file',
+    'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'export_workspace_docx',
