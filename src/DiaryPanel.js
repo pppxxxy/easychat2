@@ -20,7 +20,9 @@ import {
 } from './diary/diary.js';
 import { useApp } from './context/AppContext.js';
 import { EmptyState } from './ui/index.js';
+import PaneHeader from './ui/PaneHeader.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useNavigation } from '@react-navigation/native';
 
 // 日记：为每个角色单独开关「自动写日记」，并可为该角色指定写日记用的 API（不选则用默认）。
 // 角色用折叠选择器挑选，避免一次罗列一大堆角色卡；每个角色对应一页，页内左右滑动翻阅日记。
@@ -28,6 +30,7 @@ import { useTheme } from './theme/ThemeContext.js';
 // Stack 化后面板自带滚动容器。
 export default function DiaryPanel() {
   const { theme, fonts } = useTheme();
+  const navigation = useNavigation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters } = useApp();
 
@@ -137,7 +140,7 @@ export default function DiaryPanel() {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.title}>日记</Text>
+      <PaneHeader title="日记" onBack={() => navigation.goBack()} />
       <Text style={styles.hint}>
         开启后，角色会在「过了一天的第一次启动」时，为前一天与你的对话写一篇日记。
         每个角色单独设置，写日记用的 API 可为该角色单独指定，不选则用默认配置。

@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  ScrollView,
+  FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EmptyState, GhostButton, IconButton } from '../ui/index.js';
+import { EmptyState, GhostButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -48,27 +48,20 @@ function formatBookSize(item, t) {
   return parts.join(' · ');
 }
 
-function BookRow({ item, onPress, onDelete, styles, theme, t }) {
+function BookGridItem({ item, onPress, onDelete, styles, t }) {
+  const initial = (item.name || '').trim().charAt(0) || '?';
+  const hasProgress = item.progress.blockIndex > 0 || item.progress.pageIndex > 0;
   return (
-    <View style={styles.row}>
-      <TouchableOpacity style={styles.rowMain} onPress={onPress} activeOpacity={0.8}>
-        <View style={styles.rowIcon}>
-          <Ionicons name="book" size={16} color={theme.colors.primaryContrast} />
-        </View>
-        <View style={styles.rowBody}>
-          <Text style={styles.rowName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.rowMeta} numberOfLines={1}>
-            {formatBookSize(item, t) || t('books.list.text')}
-          </Text>
-        </View>
-      </TouchableOpacity>
-      <IconButton
-        name="trash-outline"
-        accessibilityLabel={t('books.a11y.deleteBook', { name: item.name })}
-        onPress={onDelete}
-        style={styles.rowDelete}
-      />
-    </View>
+    <TouchableOpacity style={styles.gridItem} onPress={onPress} activeOpacity={0.8} onLongPress={onDelete}>
+      <View style={styles.gridCover}>
+        <Text style={styles.gridCoverText}>{initial}</Text>
+        {hasProgress ? <View style={styles.gridProgressDot} /> : null}
+      </View>
+      <Text style={styles.gridName} numberOfLines={2}>{item.name}</Text>
+      <Text style={styles.gridMeta} numberOfLines={1}>
+        {formatBookSize(item, t) || t('books.list.text')}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -216,30 +209,29 @@ export default function BookScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.listContent}>
-        {opening ? (
-          <View style={styles.centerSmall}>
-            <ActivityIndicator color={theme.colors.primary} />
-          </View>
-        ) : null}
-        {books.length === 0 && !opening ? (
-          <EmptyState
-            icon="book-outline"
-            title={t('books.empty.title')}
-            description={t('books.empty.body')}
-          />
-        ) : books.map(item => (
-          <BookRow
-            key={item.id}
-            item={item}
-            onPress={() => handleOpen(item)}
-            onDelete={() => handleDelete(item)}
-            styles={styles}
-            theme={theme}
-            t={t}
-          />
-        ))}
-      </ScrollView>
+      {books.length === 0 && !opening ? (
+        <EmptyState
+          icon="book-outline"
+          title={t('books.empty.title')}
+          description={t('books.empty.body')}
+        />
+      ) : (
+        <FlatList
+          data={books}
+          keyExtractor={item => item.id}
+          numColumns={3}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => (
+            <BookGridItem
+              item={item}
+              onPress={() => handleOpen(item)}
+              onDelete={() => handleDelete(item)}
+              styles={styles}
+              t={t}
+            />
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -267,28 +259,45 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   importText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 4 },
   listContent: { paddingHorizontal: 20, paddingBottom: 30 },
-  row: {
-    flexDirection: 'row',
+  gridItem: {
+    flex: 1 / 3,
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.metrics.cardRadius,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
     marginBottom: tokens.metrics.cardGap,
-    ...tokens.elevation(1, theme),
   },
-  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: tokens.metrics.cardPadding },
-  rowIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: theme.colors.primary,
+  gridCover: {
+    width: 80,
+    height: 110,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: theme.colors.primaryAlpha(0.14),
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
   },
-  rowBody: { flex: 1, marginRight: 8 },
-  rowName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '600' },
-  rowMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 3 },
-  rowDelete: { marginRight: 10 },
+  gridCoverText: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(28),
+    fontWeight: '800',
+  },
+  gridProgressDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.primary,
+  },
+  gridName: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(12),
+    fontWeight: '600',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  gridMeta: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(10),
+    marginTop: 2,
+  },
 });

@@ -41,7 +41,9 @@ import {
 } from './proactive/proactiveMessage.js';
 import { useApp } from './context/AppContext.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useNavigation } from '@react-navigation/native';
 import { buildProactiveRequestJson } from './proactive/proactiveRequest.js';
+import PaneHeader from './ui/PaneHeader.js';
 
 // 互动：让角色在指定时间主动发消息。面板负责编辑（角色 / 多个时间 / 模式 / API 来源），
 // 实际调度交给原生（WorkManager 或精确闹钟），原生侧另存一份配置供后台发送。
@@ -137,6 +139,7 @@ function TimeField({ value, onCommit, theme, styles }) {
 // 面板自带滚动容器（Stack 化后不再嵌入折叠分组）。
 export default function ProactivePanel() {
   const { theme, fonts } = useTheme();
+  const navigation = useNavigation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters, sessions } = useApp();
   const available = isProactiveMessageAvailable();
@@ -457,7 +460,7 @@ export default function ProactivePanel() {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.title}>互动</Text>
+      <PaneHeader title="互动" onBack={() => navigation.goBack()} />
       <Text style={styles.hint}>
         让角色在你指定的时间主动发一条消息。默认使用普通模式（系统可能延迟数十分钟）；
         需要精确到分钟时，把某个时间设为「精确」并授予精确闹钟权限。

@@ -521,19 +521,51 @@ export default function ImageGenScreen() {
     >
       <View style={[styles.header]}>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.configButton}
+            onPress={openSettings}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="settings-outline" size={16} color={theme.colors.primaryContrast} />
+            <Text style={styles.keyButtonText}>{provider.label} · {model || '未填写'}</Text>
+          </TouchableOpacity>
           <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('image-api')}
             accessibilityLabel="查看生图教学"
           />
-          <TouchableOpacity style={styles.keyButton} onPress={openSettings} activeOpacity={0.8}>
-            <Ionicons name="key-outline" size={16} color={theme.colors.primaryContrast} />
-            <Text style={styles.keyButtonText}>填密钥</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
+        {results.length > 0 ? (
+          <>
+            <FieldLabel style={styles.label}>结果画廊</FieldLabel>
+            <Text style={styles.aigcHint}>画廊中的图片由 AI 生成，可能不准确或与既有作品相似。</Text>
+            <View style={styles.gallery}>
+              {results.map((result, index) => {
+                const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
+                const key = `${resultToken(result)}:${index}`;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={styles.galleryItem}
+                    onPress={() => onPressResult(result)}
+                    activeOpacity={0.85}
+                  >
+                    {uri ? <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" /> : null}
+                    {busyResult === resultToken(result) ? (
+                      <View style={styles.galleryBusy}>
+                        <ActivityIndicator color={theme.colors.primaryContrast} />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
         <FieldLabel style={styles.label}>服务</FieldLabel>
         <TouchableOpacity style={styles.selectButton} onPress={() => setProviderOpen(true)} activeOpacity={0.8}>
           <Text style={styles.selectButtonText}>{provider.label}</Text>
@@ -563,16 +595,6 @@ export default function ImageGenScreen() {
           </Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
-
-        <FieldLabel style={styles.label}>提示词</FieldLabel>
-        <TextField
-          style={styles.promptInput}
-          value={prompt}
-          onChangeText={setPrompt}
-          placeholder="描述你想生成的画面..."
-          multiline
-          textAlignVertical="top"
-        />
 
         <FieldLabel style={styles.label}>尺寸</FieldLabel>
         <View style={styles.chipRow}>
@@ -610,44 +632,27 @@ export default function ImageGenScreen() {
           </TouchableOpacity>
         )}
 
+        {generating ? <Text style={styles.generatingHint}>生成中{generateProgress !== null ? ` ${generateProgress}%` : '，请稍候...'}</Text> : null}
+      </ScrollView>
+
+      <View style={styles.bottomBar}>
+        <TextField
+          style={styles.bottomPromptInput}
+          value={prompt}
+          onChangeText={setPrompt}
+          placeholder="描述你想生成的画面..."
+          multiline
+          textAlignVertical="top"
+        />
         <PrimaryButton
           title="生成"
           icon="sparkles"
           onPress={onGenerate}
           disabled={!loaded || generating}
           loading={generating}
-          style={styles.generateButton}
+          style={styles.bottomGenerateButton}
         />
-        {generating ? <Text style={styles.generatingHint}>生成中{generateProgress !== null ? ` ${generateProgress}%` : '，请稍候...'}</Text> : null}
-
-        {results.length > 0 ? (
-          <>
-            <FieldLabel style={styles.label}>结果画廊</FieldLabel>
-            <Text style={styles.aigcHint}>画廊中的图片由 AI 生成，可能不准确或与既有作品相似。</Text>
-            <View style={styles.gallery}>
-              {results.map((result, index) => {
-                const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
-                const key = `${resultToken(result)}:${index}`;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    style={styles.galleryItem}
-                    onPress={() => onPressResult(result)}
-                    activeOpacity={0.85}
-                  >
-                    {uri ? <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" /> : null}
-                    {busyResult === resultToken(result) ? (
-                      <View style={styles.galleryBusy}>
-                        <ActivityIndicator color={theme.colors.primaryContrast} />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
-      </ScrollView>
+      </View>
 
       <Modal visible={providerOpen} transparent animationType="slide" onRequestClose={() => setProviderOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setProviderOpen(false)}>
@@ -884,6 +889,41 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   generateButton: {
     marginTop: 24,
+  },
+  configButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: tokens.metrics.buttonRadius,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.surfaceBorder,
+  },
+  bottomPromptInput: {
+    flex: 1,
+    minHeight: 40,
+    maxHeight: 100,
+    marginRight: 10,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
+    backgroundColor: theme.colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  bottomGenerateButton: {
+    alignSelf: 'center',
   },
   generatingHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), textAlign: 'center', marginTop: 10 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap' },
