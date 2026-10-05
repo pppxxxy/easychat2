@@ -41,12 +41,16 @@ test('MessageBubble 渲染三档语音形态：纯语音隐藏正文、语音+�
 });
 
 test('CharacterEditForm 提供三档语音形态选择并随保存写回', () => {
-  const source = read('src/CharacterEditForm.js');
-  assert.match(source, /仅文字/, '应提供仅文字选项');
-  assert.match(source, /语音 \+ 原文/, '应提供语音+原文选项');
-  assert.match(source, /纯语音/, '应提供纯语音选项');
-  assert.match(source, /patch\('voiceDisplay', option\.value\)/, '选择应写回表单');
-  assert.match(source, /voiceDisplay:\s*\['text', 'voice-text', 'voice'\]\.includes\(draft\.voiceDisplay\)/, '保存应规范化 voiceDisplay');
+  // 语音形态选择器已抽为共享组件 CharacterFormFields，EditForm 只传 handler；
+  // 保存规范化在 EditForm 的 save 里。两条断言分指两个文件。
+  const shared = read('src/character/CharacterFormFields.js');
+  assert.match(shared, /仅文字/, '应提供仅文字选项');
+  assert.match(shared, /语音 \+ 原文/, '应提供语音+原文选项');
+  assert.match(shared, /纯语音/, '应提供纯语音选项');
+  assert.match(shared, /patch\('voiceDisplay', option\.value\)/, '选择应写回表单');
+
+  const editForm = read('src/CharacterEditForm.js');
+  assert.match(editForm, /voiceDisplay:\s*\['text', 'voice-text', 'voice'\]\.includes\(draft\.voiceDisplay\)/, '保存应规范化 voiceDisplay');
 });
 
 test('角色详情页（原 CharacterScreen 主角色编辑页）同样提供并保存语音形态', () => {
