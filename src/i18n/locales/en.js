@@ -153,7 +153,7 @@ export const en = {
   'workspace.panel.character.hint': 'Workspaces are per character: these files live in the same sandbox that this character reads and writes with tools in chat.',
   'workspace.panel.character.select': 'Choose character',
   'workspace.panel.character.title': 'Choose workspace character',
-  'workspace.panel.character.pickerHint': 'Pick which character owns this workspace; its sandbox is the file folder shown here. Defaults to “EasyChat2 工作助手” when unset.',
+  'workspace.panel.character.pickerHint': 'Pick which character owns this workspace; its sandbox is the file folder shown here. Falls back to “EasyChat2 工作助手”, then the built-in assistant, when unset.',
   'workspace.panel.thinking.label': 'Thinking strength',
   'workspace.panel.thinking.off': 'Off',
   'workspace.panel.thinking.low': 'Low',

@@ -230,8 +230,8 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           setLoading(false);
           return;
         }
-        // 解析工作区角色：设置里有且命中就用它；否则落到默认工作助手
-        //（库里没有会自动建卡——刻意不走 addCharacter，避免顺带切换当前激活角色）。
+        // 解析工作区角色：设置里有且命中就用它；否则落到默认工作助手；都没有则回落内置助手。
+        // 不再自动建卡——用户删掉的工作助手不会复活，面板始终有角色可用。
         const resolved = await resolveWorkspaceAssistant(settings.assistantCharacterId);
         if (!mountedRef.current) return;
         if (resolved.character) {

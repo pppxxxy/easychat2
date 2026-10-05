@@ -157,7 +157,7 @@ export const zhCN = {
   'workspace.panel.character.hint': '工作区按角色隔离：这里的文件，与该角色在聊天里用工具读写的是同一个沙盒。',
   'workspace.panel.character.select': '选择角色',
   'workspace.panel.character.title': '选择工作区角色',
-  'workspace.panel.character.pickerHint': '选择哪个角色作为工作区角色；它的沙盒就是这里的文件目录。未设置时默认使用「EasyChat2 工作助手」。',
+  'workspace.panel.character.pickerHint': '选择哪个角色作为工作区角色；它的沙盒就是这里的文件目录。未设置时使用「EasyChat2 工作助手」，该卡不存在则用内置助手。',
   'workspace.panel.thinking.label': '思考强度',
   'workspace.panel.thinking.off': '关闭',
   'workspace.panel.thinking.low': '低',

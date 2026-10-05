@@ -33,7 +33,7 @@ export function normalizeWorkspaceSettings(raw) {
     mode,
     location: normalizeWorkspaceLocation(source.location),
     allowCommandExecution: normalizeAllowCommandExecution(source.allowCommandExecution, mode),
-    // 工作区角色（面板顶部选择；空 = 未设置，面板首次打开时落到默认工作助手）。
+    // 工作区角色（面板顶部选择；空 = 未设置，面板打开时落到默认工作助手，该卡不存在则回落内置助手）。
     assistantCharacterId: String(source.assistantCharacterId || '').trim(),
   };
 }
