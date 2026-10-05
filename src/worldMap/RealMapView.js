@@ -1,13 +1,19 @@
-// 真实地图视图：WebView 自绘瓦片地图 + 定位开关/刷新/标注。
-// 默认高德栅格瓦片为 GCJ-02，标注前把 WGS-84 转成 GCJ-02（见 location/geo.js）。
+// 真实地图视图：WebView 自绘瓦片地图 + 定位开关/刷新/标注 + 手工标点。
+// 默认高德栅格瓦片为 GCJ-02，标注前把 WGS-84 转成 GCJ-02（见 location/geo.js）；
+// 反过来用户在图上标点时拿到的是 GCJ-02，存盘前用 gcj02ToWgs84 转回 WGS-84。
 // 开关是全局的（@easychat2_location.enabled）：关闭即停止标注、不再注入对话上下文。
+// 标点：点「标点」按钮进入标点模式 → 点地图取点 → 填名称 → 存成新的「我的位置」。
+// 标注点只用于本地地图显示，不参与对话注入（注入仍走 last + 30 分钟时效）。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -15,8 +21,15 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
-import { getLocationSettings, setLastLocation, updateLocationSettings } from '../storage.js';
-import { describeLocation, wgs84ToGcj02 } from '../location/geo.js';
+import {
+  addNamedLocation,
+  getLocationSettings,
+  removeNamedLocation,
+  setActiveLocationId,
+  setLastLocation,
+  updateLocationSettings,
+} from '../storage.js';
+import { describeLocation, gcj02ToWgs84, wgs84ToGcj02 } from '../location/geo.js';
 import { captureLocation, ensureLocationPermission, isLocationSupported } from '../location/service.js';
 import { buildRealMapHtml } from './realMapHtml.js';
 
@@ -39,6 +52,11 @@ export default function RealMapView() {
   const [error, setError] = useState('');
   const [webReady, setWebReady] = useState(false);
   const webRef = useRef(null);
+  // 标点：marking=已进入标点模式，draft=地图上刚取到、等待命名的那一个点。
+  const [marking, setMarking] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [draftName, setDraftName] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -64,14 +82,103 @@ export default function RealMapView() {
     if (ref && ref.injectJavaScript) ref.injectJavaScript(`${script};true;`);
   }, []);
 
-  // 位置/就绪变化时把标记（转 GCJ-02）同步进 WebView；页面重载完成后（webReady 回 true）会重新注入。
+  // 位置/标注点/就绪变化时把全部标注同步进 WebView（转 GCJ-02）；
+  // 页面重载完成后（webReady 回 true）会重新注入。
   useEffect(() => {
+    if (!webReady) return;
+    const list = [];
+    const active = settings && settings.activeLocationId;
+    // GPS 当前位置用独立配色，和用户标注点区分开。
     const last = settings && settings.last;
-    if (!webReady || !last) return;
-    const gcj = wgs84ToGcj02(last.latitude, last.longitude);
-    if (!Number.isFinite(gcj.latitude) || !Number.isFinite(gcj.longitude)) return;
-    inject(`window.__setMarker && window.__setMarker(${gcj.latitude}, ${gcj.longitude})`);
+    if (last && !active) {
+      const gcj = wgs84ToGcj02(last.latitude, last.longitude);
+      if (Number.isFinite(gcj.latitude) && Number.isFinite(gcj.longitude)) {
+        list.push({ lat: gcj.latitude, lng: gcj.longitude, kind: 'current' });
+      }
+    }
+    const named = settings && Array.isArray(settings.locations) ? settings.locations : [];
+    named.forEach(item => {
+      const gcj = wgs84ToGcj02(item.latitude, item.longitude);
+      if (!Number.isFinite(gcj.latitude) || !Number.isFinite(gcj.longitude)) return;
+      list.push({ lat: gcj.latitude, lng: gcj.longitude, kind: 'named', active: item.id === active });
+    });
+    inject(`window.__setMarkers && window.__setMarkers(${JSON.stringify(list)})`);
   }, [webReady, settings, inject]);
+
+  const setMarkingMode = useCallback(on => {
+    setMarking(on);
+    inject(`window.__setMarking && window.__setMarking(${on ? 'true' : 'false'})`);
+  }, [inject]);
+
+  // 点图取点：地图回传的是 GCJ-02（高德瓦片坐标），存盘前转回 WGS-84，
+  // 否则下次按 WGS-84 再转一次 GCJ-02 标注会叠加偏移。
+  const onMapMessage = useCallback(event => {
+    let payload = null;
+    try {
+      payload = JSON.parse((event && event.nativeEvent && event.nativeEvent.data) || '');
+    } catch (caught) {
+      return;
+    }
+    if (!payload || payload.type !== 'map-tap') return;
+    const wgs = gcj02ToWgs84(payload.lat, payload.lng);
+    if (!Number.isFinite(wgs.latitude) || !Number.isFinite(wgs.longitude)) return;
+    setMarkingMode(false);
+    setDraft({ latitude: wgs.latitude, longitude: wgs.longitude });
+    setDraftName('');
+  }, [setMarkingMode]);
+
+  const cancelDraft = useCallback(() => {
+    setDraft(null);
+    setDraftName('');
+  }, []);
+
+  const saveNamedLocation = useCallback(async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const saved = await addNamedLocation({
+        name: draftName.trim() || t('world.map.real.mark.unnamed'),
+        latitude: draft.latitude,
+        longitude: draft.longitude,
+      });
+      setSettings(saved);
+      setDraft(null);
+      setDraftName('');
+      setError('');
+    } catch (caught) {
+      setError(t('world.map.real.failed'));
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, draftName, t]);
+
+  const focusNamedLocation = useCallback(async id => {
+    try {
+      const saved = await setActiveLocationId(id);
+      setSettings(saved);
+    } catch (caught) {
+      setError(t('world.map.real.failed'));
+    }
+  }, [t]);
+
+  const confirmRemoveNamedLocation = useCallback(item => {
+    Alert.alert(
+      t('world.map.real.mark.remove.title'),
+      item.name || t('world.map.real.mark.unnamed'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('world.map.real.mark.remove.confirm'),
+          style: 'destructive',
+          onPress: () => {
+            removeNamedLocation(item.id)
+              .then(saved => setSettings(saved))
+              .catch(() => setError(t('world.map.real.failed')));
+          },
+        },
+      ]
+    );
+  }, [t]);
 
   const capture = useCallback(async () => {
     const granted = await ensureLocationPermission();
@@ -176,6 +283,141 @@ export default function RealMapView() {
   const enabled = settings.enabled === true;
   const last = settings.last;
   const description = describeLocation(last);
+  const locations = Array.isArray(settings.locations) ? settings.locations : [];
+
+  // 地图区在「已开启」与「未开启」两种状态下都要渲染：标点不依赖定位授权
+  // （用户可手动画出「我的位置」），所以未开启时也能在地图上标点。
+  const renderMapArea = () => (
+    <>
+      <View style={styles.actions}>
+        {enabled ? (
+          <TouchableOpacity style={styles.actionButton} onPress={handleRefresh} disabled={busy} activeOpacity={0.85}>
+            {busy
+              ? <ActivityIndicator size="small" color={theme.colors.primary} />
+              : <Ionicons name="refresh" size={14} color={theme.colors.primary} />}
+            <Text style={styles.actionText}>{busy ? t('world.map.real.locating') : t('world.map.real.refresh')}</Text>
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          style={[styles.actionButton, marking && styles.actionButtonActive]}
+          onPress={() => setMarkingMode(!marking)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name={marking ? 'close' : 'add-circle-outline'} size={14} color={marking ? theme.colors.primaryContrast : theme.colors.primary} />
+          <Text style={[styles.actionText, marking && styles.actionTextActive]}>
+            {marking ? t('world.map.real.mark.cancel') : t('world.map.real.mark')}
+          </Text>
+        </TouchableOpacity>
+        {enabled ? (
+          <TouchableOpacity style={styles.actionButton} onPress={handleDisable} disabled={busy} activeOpacity={0.85}>
+            <Ionicons name="close-circle-outline" size={14} color={theme.colors.textMuted} />
+            <Text style={[styles.actionText, styles.actionTextMuted]}>{t('world.map.real.disable')}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {marking ? <Text style={styles.markHint}>{t('world.map.real.mark.hint')}</Text> : null}
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+      {WebViewComponent ? (
+        <WebViewComponent
+          ref={webRef}
+          style={styles.map}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled={false}
+          setSupportMultipleWindows={false}
+          scrollEnabled={false}
+          source={{ html }}
+          onLoadEnd={() => setWebReady(true)}
+          onMessage={onMapMessage}
+        />
+      ) : (
+        <View style={styles.center}>
+          <Text style={styles.guideBody}>{t('world.map.real.unsupported')}</Text>
+        </View>
+      )}
+
+      {locations.length > 0 ? (
+        <View style={styles.locationList}>
+          <Text style={styles.locationListTitle}>{t('world.map.real.mark.listTitle')}</Text>
+          <ScrollView style={styles.locationListScroll} nestedScrollEnabled>
+            {locations.map(item => {
+              const selected = item.id === settings.activeLocationId;
+              return (
+                <View key={item.id} style={[styles.locationRow, selected && styles.locationRowActive]}>
+                  <TouchableOpacity
+                    style={styles.locationRowMain}
+                    onPress={() => focusNamedLocation(selected ? '' : item.id)}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={15}
+                      color={selected ? theme.colors.primary : theme.colors.textMuted}
+                    />
+                    <View style={styles.locationRowText}>
+                      <Text style={styles.locationRowName} numberOfLines={1}>
+                        {item.name || t('world.map.real.mark.unnamed')}
+                      </Text>
+                      <Text style={styles.locationRowMeta} numberOfLines={1}>{describeLocation(item)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.locationRemove}
+                    onPress={() => confirmRemoveNamedLocation(item)}
+                    activeOpacity={0.7}
+                    accessibilityLabel={t('world.map.real.mark.remove.confirm')}
+                  >
+                    <Ionicons name="trash-outline" size={15} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      <Modal
+        visible={!!draft}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelDraft}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.dialog}>
+            <Text style={styles.dialogTitle}>{t('world.map.real.mark.title')}</Text>
+            <Text style={styles.dialogHint}>{draft ? describeLocation(draft) : ''}</Text>
+            <TextInput
+              style={styles.input}
+              value={draftName}
+              onChangeText={setDraftName}
+              placeholder={t('world.map.real.mark.placeholder')}
+              placeholderTextColor={theme.colors.textFaint}
+              autoFocus
+              maxLength={40}
+            />
+            <View style={styles.dialogActions}>
+              <TouchableOpacity style={styles.dialogButton} onPress={cancelDraft} activeOpacity={0.85}>
+                <Text style={styles.dialogButtonTextMuted}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dialogButton, styles.dialogButtonPrimary]}
+                onPress={saveNamedLocation}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                {saving
+                  ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+                  : <Text style={styles.dialogButtonTextPrimary}>{t('common.confirm')}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
 
   if (!enabled) {
     return (
@@ -184,7 +426,8 @@ export default function RealMapView() {
         <Text style={styles.guideTitle}>{t('world.map.real.empty.title')}</Text>
         <Text style={styles.guideBody}>{t('world.map.real.empty.body')}</Text>
         <Text style={styles.privacyNote}>{t('world.map.real.privacy.hint')}</Text>
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        <Text style={styles.privacyNote}>{t('world.map.real.mark.offHint')}</Text>
+        {renderMapArea()}
         <TouchableOpacity style={styles.primaryButton} onPress={handleEnable} disabled={busy} activeOpacity={0.85}>
           {busy
             ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
@@ -211,38 +454,7 @@ export default function RealMapView() {
         <Text style={styles.privacyNote}>{t('world.map.real.awarenessOff')}</Text>
       ) : null}
 
-      <View style={styles.actions}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleRefresh} disabled={busy} activeOpacity={0.85}>
-          {busy
-            ? <ActivityIndicator size="small" color={theme.colors.primary} />
-            : <Ionicons name="refresh" size={14} color={theme.colors.primary} />}
-          <Text style={styles.actionText}>{busy ? t('world.map.real.locating') : t('world.map.real.refresh')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={handleDisable} disabled={busy} activeOpacity={0.85}>
-          <Ionicons name="close-circle-outline" size={14} color={theme.colors.textMuted} />
-          <Text style={[styles.actionText, styles.actionTextMuted]}>{t('world.map.real.disable')}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-      {WebViewComponent ? (
-        <WebViewComponent
-          ref={webRef}
-          style={styles.map}
-          originWhitelist={['*']}
-          javaScriptEnabled
-          domStorageEnabled={false}
-          setSupportMultipleWindows={false}
-          scrollEnabled={false}
-          source={{ html }}
-          onLoadEnd={() => setWebReady(true)}
-        />
-      ) : (
-        <View style={styles.center}>
-          <Text style={styles.guideBody}>{t('world.map.real.unsupported')}</Text>
-        </View>
-      )}
+      {renderMapArea()}
     </View>
   );
 }
@@ -301,5 +513,73 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   actionText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 5 },
   actionTextMuted: { color: theme.colors.textMuted },
+  actionButtonActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  actionTextActive: { color: theme.colors.primaryContrast },
+  markHint: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(12),
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  locationList: { marginTop: 10 },
+  locationListTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
+  locationListScroll: { maxHeight: 170, marginTop: 6 },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 6,
+  },
+  locationRowActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.12) },
+  locationRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  locationRowText: { flex: 1, marginLeft: 8 },
+  locationRowName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
+  locationRowMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
+  locationRemove: { paddingHorizontal: 6, paddingVertical: 4, marginLeft: 6 },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  dialog: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.lg,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    padding: tokens.spacing.lg,
+  },
+  dialogTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800' },
+  dialogHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 6 },
+  input: {
+    marginTop: 12,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
+  dialogButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: tokens.metrics.buttonRadius,
+    marginLeft: 10,
+  },
+  dialogButtonPrimary: { backgroundColor: theme.colors.primary },
+  dialogButtonTextMuted: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
+  dialogButtonTextPrimary: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700' },
   map: { flex: 1, minHeight: 360, borderRadius: tokens.radius.md, overflow: 'hidden' },
 });

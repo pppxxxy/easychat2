@@ -1,6 +1,7 @@
 // 真实地图的内联 HTML（自绘 slippy map，无外部 CDN 依赖）：
 // 按 Web Mercator 计算视口内瓦片，用绝对定位 <img> 拼贴；单指拖动/双指缩放/按钮缩放。
-// 默认高德栅格瓦片（GCJ-02）。RN 通过 injectJavaScript 调 __setTile/__setMarker/__setView。
+// 默认高德栅格瓦片（GCJ-02）。RN 通过 injectJavaScript 调 __setTile/__setMarkers/__setView，
+// 用户点图时用 postMessage 把 GCJ-02 坐标回传给 RN（标点功能）。
 // 纯字符串构造，便于断言默认模板与注入 API。
 
 export const DEFAULT_TILE_URL = 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}';
@@ -22,7 +23,12 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
   html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#1a1a2e;}
   #map{position:absolute;top:0;right:0;bottom:0;left:0;overflow:hidden;touch-action:none;}
   #map img.tile{position:absolute;width:256px;height:256px;user-select:none;-webkit-user-drag:none;pointer-events:none;background:#242438;}
-  #marker{position:absolute;width:16px;height:16px;margin-left:-8px;margin-top:-8px;border-radius:50%;background:#6c63ff;border:3px solid #ffffff;box-shadow:0 0 0 4px rgba(108,99,255,.35);pointer-events:none;display:none;}
+  #markers{position:absolute;top:0;right:0;bottom:0;left:0;pointer-events:none;}
+  #markers .mk{position:absolute;width:14px;height:14px;margin-left:-7px;margin-top:-7px;border-radius:50%;background:#6c63ff;border:3px solid #ffffff;box-shadow:0 0 0 3px rgba(108,99,255,.35);}
+  #markers .mk.current{background:#4caf50;box-shadow:0 0 0 3px rgba(76,175,80,.35);}
+  #markers .mk.active{width:18px;height:18px;margin-left:-9px;margin-top:-9px;background:#ffb300;border-color:#ffffff;box-shadow:0 0 0 5px rgba(255,179,0,.45);}
+  #map.marking{cursor:crosshair;}
+  #map.marking::after{content:'';position:absolute;top:0;right:0;bottom:0;left:0;border:2px dashed #6c63ff;box-sizing:border-box;pointer-events:none;}
   #attrib{position:absolute;right:6px;bottom:6px;font-size:10px;color:#aaa;background:rgba(26,26,46,.65);padding:2px 6px;border-radius:6px;}
   #hint{position:absolute;left:8px;bottom:6px;font-size:10px;color:#aaa;}
   #controls{position:absolute;right:10px;bottom:34px;display:flex;flex-direction:column;}
@@ -32,7 +38,7 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
 </head>
 <body>
 <div id="map"></div>
-<div id="marker"></div>
+<div id="markers"></div>
 <div id="attrib">地图数据 © 高德</div>
 <div id="hint">拖动平移 · 双指缩放</div>
 <div id="controls">
@@ -50,9 +56,13 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
   var MAX_Z = 18;
   var LAT_LIMIT = 85.05112878;
   var mapEl = document.getElementById('map');
-  var markerEl = document.getElementById('marker');
+  var markersEl = document.getElementById('markers');
   var view = { lat: 39.9042, lng: 116.4074, z: 14 };
-  var marker = null;
+  // 标注列表：[{ lat, lng, kind }]，kind='current' 是 GPS 当前位置，其余是用户标注点。
+  // 用 DOM 复用（按索引更新已有节点）避免每帧重建。
+  // 标点模式开关：RN 上按「标点」按钮时置 true，取到点后置回 false。
+  var marking = false;
+  var markers = [];
   var W = 0, H = 0;
   var tiles = {};
 
@@ -111,12 +121,20 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
         delete tiles[key];
       }
     });
-    if (marker) {
-      markerEl.style.left = (lngToX(marker.lng, z) - cx + W / 2) + 'px';
-      markerEl.style.top = (latToY(marker.lat, z) - cy + H / 2) + 'px';
-      markerEl.style.display = 'block';
-    } else {
-      markerEl.style.display = 'none';
+    // 标注：按索引复用已有节点，多余节点移除。
+    for (var i = 0; i < markers.length; i++) {
+      var item = markers[i];
+      var node = markersEl.children[i];
+      if (!node) {
+        node = document.createElement('div');
+        markersEl.appendChild(node);
+      }
+      node.className = 'mk' + (item.kind === 'current' ? ' current' : '') + (item.active ? ' active' : '');
+      node.style.left = (lngToX(item.lng, z) - cx + W / 2) + 'px';
+      node.style.top = (latToY(item.lat, z) - cy + H / 2) + 'px';
+    }
+    while (markersEl.children.length > markers.length) {
+      markersEl.removeChild(markersEl.lastChild);
     }
   }
 
@@ -127,8 +145,19 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
     render();
   }
 
-  var dragging = false, lastX = 0, lastY = 0;
-  function onDown(x, y) { dragging = true; lastX = x; lastY = y; }
+  // 标点模式：点一下把该点换算成经纬度回传 RN（不在此处落点，等 RN 确认）。
+  function emitTap(clientX, clientY) {
+    if (!marking) return;
+    var z = view.z;
+    var lng = xToLng(lngToX(view.lng, z) + (clientX - W / 2), z);
+    var lat = yToLat(latToY(view.lat, z) + (clientY - H / 2), z);
+    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'map-tap', lat: lat, lng: lng }));
+    }
+  }
+
+  var downX = 0, downY = 0, lastX = 0, lastY = 0;
+  function onDown(x, y) { dragging = true; downX = x; downY = y; lastX = x; lastY = y; }
   function onMove(x, y) {
     if (!dragging) return;
     var dx = x - lastX, dy = y - lastY;
@@ -138,16 +167,26 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
     view.lat = clamp(yToLat(latToY(view.lat, z) - dy, z), -LAT_LIMIT, LAT_LIMIT);
     render();
   }
-  function onUp() { dragging = false; }
+  function onUp(x, y) {
+    if (!dragging) return;
+    dragging = false;
+    // 位移很小才当点按：拖图后松手不能顺手落一个点。
+    if (x === undefined || y === undefined) return;
+    if (Math.abs(x - downX) <= 8 && Math.abs(y - downY) <= 8) emitTap(x, y);
+  }
 
   mapEl.addEventListener('mousedown', function(e) { onDown(e.clientX, e.clientY); });
   window.addEventListener('mousemove', function(e) { onMove(e.clientX, e.clientY); });
-  window.addEventListener('mouseup', onUp);
+  window.addEventListener('mouseup', function(e) { onUp(e.clientX, e.clientY); });
 
-  var pinchDist = 0;
+  var pinchDist = 0, multiTouch = false;
   mapEl.addEventListener('touchstart', function(e) {
-    if (e.touches.length === 1) onDown(e.touches[0].clientX, e.touches[0].clientY);
-    else if (e.touches.length === 2) {
+    if (e.touches.length === 1) {
+      multiTouch = false;
+      onDown(e.touches[0].clientX, e.touches[0].clientY);
+    } else if (e.touches.length === 2) {
+      // 双指缩放期间不算点按，避免缩放手势结束顺手落点。
+      multiTouch = true;
       pinchDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -169,12 +208,17 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
     }
     e.preventDefault();
   }, { passive: false });
-  mapEl.addEventListener('touchend', onUp, { passive: true });
+  mapEl.addEventListener('touchend', function(e) {
+    if (multiTouch) { multiTouch = false; dragging = false; return; }
+    var t = (e.changedTouches && e.changedTouches[0]) || null;
+    onUp(t ? t.clientX : undefined, t ? t.clientY : undefined);
+  }, { passive: true });
 
   document.getElementById('zi').onclick = function() { setZoom(view.z + 1); };
   document.getElementById('zo').onclick = function() { setZoom(view.z - 1); };
   document.getElementById('rc').onclick = function() {
-    if (marker) { view.lat = marker.lat; view.lng = marker.lng; render(); }
+    var first = markers[0];
+    if (first) { view.lat = first.lat; view.lng = first.lng; render(); }
   };
 
   window.__setView = function(lat, lng, z) {
@@ -183,13 +227,20 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
     if (isFinite(z)) view.z = clamp(Math.round(z), MIN_Z, MAX_Z);
     render();
   };
-  window.__setMarker = function(lat, lng) {
-    if (isFinite(lat) && isFinite(lng)) {
-      marker = { lat: lat, lng: lng };
-      view.lat = lat;
-      view.lng = lng;
+  // 同步全部标注点并定位到第一个（通常是 GPS 当前位置或刚选中的标注点）。
+  window.__setMarkers = function(list) {
+    markers = Array.isArray(list) ? list : [];
+    var first = markers[0];
+    if (first && isFinite(first.lat) && isFinite(first.lng)) {
+      view.lat = first.lat;
+      view.lng = first.lng;
     }
     render();
+  };
+  window.__setMarking = function(on) {
+    marking = on === true;
+    if (marking) mapEl.className = 'marking';
+    else mapEl.className = '';
   };
   window.__setTile = function(url, subs) {
     if (url) TILE = url;

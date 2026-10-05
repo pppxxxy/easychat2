@@ -7,6 +7,7 @@ import {
   buildLocationText,
   describeLocation,
   formatCoordinate,
+  gcj02ToWgs84,
   isOutOfChina,
   wgs84ToGcj02,
 } from '../src/location/geo.js';
@@ -20,6 +21,25 @@ test('wgs84ToGcj02：境内产生偏移，境外/非法原样返回', () => {
 
   assert.deepEqual(wgs84ToGcj02(35.68, 139.76), { latitude: 35.68, longitude: 139.76 }, '境外不偏移');
   const bad = wgs84ToGcj02(Number.NaN, 1);
+  assert.ok(Number.isNaN(bad.latitude), '非法输入不抛错、原样返回');
+});
+
+test('gcj02ToWgs84：境内反算回 WGS-84，与正向往返闭合；境外/非法原样返回', () => {
+  // 图上标点拿到的 GCJ-02 必须能还原成 WGS-84，否则下次标注会叠加偏移。
+  for (const [lat, lng] of [[39.9087, 116.3975], [31.2304, 121.4737], [23.1291, 113.2644], [43.8256, 87.6168]]) {
+    const gcj = wgs84ToGcj02(lat, lng);
+    const back = gcj02ToWgs84(gcj.latitude, gcj.longitude);
+    assert.ok(Math.abs(back.latitude - lat) < 1e-6, `纬度往返闭合 ${lat}`);
+    assert.ok(Math.abs(back.longitude - lng) < 1e-6, `经度往返闭合 ${lng}`);
+  }
+
+  // 反算必须真的偏移回来，不能是恒等。
+  const gcj = wgs84ToGcj02(39.9087, 116.3975);
+  const back = gcj02ToWgs84(gcj.latitude, gcj.longitude);
+  assert.ok(Math.abs(back.latitude - gcj.latitude) > 0.0005, '确实做了反向偏移');
+
+  assert.deepEqual(gcj02ToWgs84(35.68, 139.76), { latitude: 35.68, longitude: 139.76 }, '境外不偏移');
+  const bad = gcj02ToWgs84(Number.NaN, 1);
   assert.ok(Number.isNaN(bad.latitude), '非法输入不抛错、原样返回');
 });
 

@@ -44,9 +44,14 @@ import { runCharacterCleanup } from './storage/characterLifecycle.js';
 
 export { markMediaWrite } from './storage/mediaProtection.js';
 export {
+  addNamedLocation,
   getLocationSettings,
+  getNamedLocations,
+  makeLocationId,
   normalizeLocationSettings,
+  removeNamedLocation,
   saveLocationSettings,
+  setActiveLocationId,
   setLastLocation,
   updateLocationSettings,
 } from './storage/location.js';

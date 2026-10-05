@@ -71,7 +71,9 @@ const location = loadSourceModule('src/storage/location.js');
 
 test('位置设置：开关与最近位置往返', async () => {
   store.clear();
-  assert.deepEqual(await location.getLocationSettings(), { enabled: false, awareness: false, last: null, tileUrl: '' });
+  assert.deepEqual(await location.getLocationSettings(), {
+    enabled: false, awareness: false, last: null, locations: [], activeLocationId: '', tileUrl: '',
+  });
 
   const saved = await location.saveLocationSettings({
     enabled: true,
@@ -119,7 +121,9 @@ test('位置设置：损坏先备份再回落；更新时拒绝覆盖', async ()
   corruptBackups.length = 0;
   store.set(location.LOCATION_KEY, '{broken');
   const fallback = await location.getLocationSettings();
-  assert.deepEqual(fallback, { enabled: false, awareness: false, last: null, tileUrl: '' });
+  assert.deepEqual(fallback, {
+    enabled: false, awareness: false, last: null, locations: [], activeLocationId: '', tileUrl: '',
+  });
   assert.ok(corruptBackups.includes(location.LOCATION_KEY), '损坏原值必须备份');
 
   store.set(location.LOCATION_KEY, '{broken');
