@@ -9,8 +9,10 @@ export const BOOK_READER_SETTINGS_KEY = '@easychat2_book_reader';
 
 // tap   = 点左/右三分之一翻页（原行为）
 // slide = 左右滑动翻页，页面作卡片平移
-// curl  = 左右滑动翻页，页面 3D 翻转（仿真翻书）
-export const PAGE_TURN_MODES = ['tap', 'slide', 'curl'];
+// curl  = 左右滑动翻页，页面 3D 翻转（旋转翻页）
+// fade  = 左右滑动翻页，旧页淡出、新页淡入（不位移）
+// 数组顺序即工具栏按钮的轮换顺序；旧值不在表内时归一化会回落默认，不丢设置。
+export const PAGE_TURN_MODES = ['tap', 'slide', 'curl', 'fade'];
 
 export const DEFAULT_BOOK_READER_SETTINGS = { pageTurn: 'tap' };
 

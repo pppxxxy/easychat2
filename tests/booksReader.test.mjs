@@ -152,9 +152,9 @@ test('分页可靠性：尺寸变化必须强制重测（key 换挂载），工�
     '底栏同样必须是浮层');
 });
 
-test('翻页方式：三档（点击/卡片滑动/仿真翻书）+ 全局持久化 + 静态文案键', () => {
+test('翻页方式：四档（点击/卡片滑动/旋转/淡入淡出）+ 全局持久化 + 静态文案键', () => {
   const settings = readSource('src/books/readerSettings.js');
-  assert.ok(/PAGE_TURN_MODES\s*=\s*\['tap',\s*'slide',\s*'curl'\]/.test(settings), '三档翻页模式');
+  assert.ok(/PAGE_TURN_MODES\s*=\s*\['tap',\s*'slide',\s*'curl',\s*'fade'\]/.test(settings), '四档翻页模式');
   assert.ok(settings.includes('@easychat2_book_reader'), '翻页方式全局持久化');
   assert.ok(settings.includes('normalizeBookReaderSettings'), '读取必须归一化（非法值回退默认）');
 
@@ -164,6 +164,39 @@ test('翻页方式：三档（点击/卡片滑动/仿真翻书）+ 全局持久�
   assert.ok(view.includes('Animated.timing') && view.includes('rotateY'), 'slide 平移 / curl 3D 翻转动画');
   assert.ok(view.includes('useNativeDriver: true'), '翻页动画走原生驱动，避免 JS 线程卡顿');
   assert.ok(view.includes('PAGE_TURN_HINT_KEYS'), '模式提示用静态文案键表（动态拼接无法被文案扫描提取）');
+
+  // 新增的淡入淡出档：opacity 插值 + 图标 + 静态文案键，三处缺一不可
+  assert.ok(/pageTurn === 'fade'[\s\S]{0,220}?opacity/.test(view), '淡入淡出走 opacity 插值');
+  assert.ok(view.includes("fade: 'contrast-outline'"), '淡入淡出有图标');
+  assert.ok(view.includes("fade: 'books.reader.pageTurn.fade'"), '淡入淡出有静态文案键');
+});
+
+test('切换翻页方式：先停表复位再换结构（原生动画节点被卸载会闪退）', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  const cycle = view.slice(view.indexOf('const cyclePageTurn'), view.indexOf('const turnPage'));
+  assert.ok(cycle.length > 0, '必须能截出 cyclePageTurn');
+  const stopAt = cycle.indexOf('pageAnim.stopAnimation()');
+  const setAt = cycle.indexOf('setPageTurn(next)');
+  assert.ok(stopAt >= 0, '切换前必须停掉在途动画');
+  assert.ok(setAt >= 0, '切换动作本身保留');
+  assert.ok(stopAt < setAt,
+    '必须先停表、再改模式：useNativeDriver 的动画跑在原生侧，在途动画 + 动画属性结构突变 = 原生节点被卸载 → 闪退');
+  assert.ok(cycle.includes('turningRef.current = false'), '复位翻页锁，避免停表后卡住后续翻页');
+  assert.ok(/useEffect\(\(\) => \(\) => \{\s*pageAnim\.stopAnimation\(\)/.test(view), '组件卸载时同样停表');
+
+  // 样式块：不再对 tap 整体摘掉动画属性（结构突变是崩溃的必要条件之一）
+  const styleBlock = view.slice(view.indexOf('const pageAnimStyle'), view.indexOf('const pageBody'));
+  assert.ok(styleBlock.length > 0, '必须能截出 pageAnimStyle');
+  assert.ok(!styleBlock.includes("if (pageTurn === 'tap') return null"),
+    'pageAnimStyle 不再对 tap 返回 null');
+  assert.ok(styleBlock.includes("pageTurn === 'curl'") && styleBlock.includes("pageTurn === 'fade'"),
+    'curl 与 fade 分支齐全');
+  assert.ok(styleBlock.includes('translateX: pageAnim'), 'tap / slide 共用同一套 translateX 结构');
+
+  // 停表不是万能的：Animated 的 start 回调在 stopAnimation 时仍会被调用一次，
+  // 回调里若不检查 finished 就会「顺着链子再起一个 native 动画」——结构已变，又会崩。
+  assert.ok(/start\(\(\{ finished \}\) => \{[\s\S]{0,240}?if \(!finished\)/.test(view),
+    '动画回调要检查 finished：停表后不再续起下一段动画');
 });
 
 test('书架：书名搜索 + 分组（复用通用集合组件），删书级联清理分组引用', () => {

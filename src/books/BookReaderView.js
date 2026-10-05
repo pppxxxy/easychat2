@@ -50,11 +50,13 @@ const TAP_ZONE_RATIO = 0.3;
 const READER_INSET_TOP = 48;
 const READER_INSET_BOTTOM = 40;
 
-// 翻页方式：点击（原行为）/ 卡片滑动 / 仿真翻书（3D 翻转）。顺序即工具栏按钮的轮换顺序。
+// 翻页方式：点击（原行为）/ 卡片滑动 / 旋转翻页（3D 翻转）/ 淡入淡出。
+// 顺序即工具栏按钮的轮换顺序（与 readerSettings.PAGE_TURN_MODES 一致）。
 const PAGE_TURN_ICONS = {
   tap: 'hand-left-outline',
   slide: 'swap-horizontal-outline',
   curl: 'book-outline',
+  fade: 'contrast-outline',
 };
 const SWIPE_MIN_DX = 48;
 const TURN_ANIM_MS = 170;
@@ -63,6 +65,7 @@ const PAGE_TURN_HINT_KEYS = {
   tap: 'books.reader.pageTurn.tap',
   slide: 'books.reader.pageTurn.slide',
   curl: 'books.reader.pageTurn.curl',
+  fade: 'books.reader.pageTurn.fade',
 };
 
 // 分页 hook 在 Markdown 模式下传空块数组；用模块级常量避免逐渲染新建数组引用。
@@ -281,12 +284,25 @@ export default function BookReaderView({ item, content, onBack }) {
   }, []);
 
   const cyclePageTurn = useCallback(() => {
+    // 切模式前先把在途动画停表并复位。
+    // 不同模式给 Animated.View 的动画属性并不一样（tap/slide 是 translateX、curl 是
+    // rotateY + perspective、fade 是 opacity），而 useNativeDriver 的动画跑在原生侧：
+    // 运行中增删这些属性会让原生动画节点被卸载/重建，表现就是「连点几次翻页方式后
+    // 直接闪退」。先停表再换结构，就不存在「在途动画 + 结构突变」的组合了。
+    pageAnim.stopAnimation();
+    pageAnim.setValue(0);
+    turningRef.current = false;
     const index = PAGE_TURN_MODES.indexOf(pageTurn);
     const next = PAGE_TURN_MODES[(index + 1) % PAGE_TURN_MODES.length];
     setPageTurn(next);
     setPageTurnHint(t(PAGE_TURN_HINT_KEYS[next]));
     saveBookReaderSettings({ pageTurn: next }).catch(() => {});
-  }, [pageTurn, t]);
+  }, [pageAnim, pageTurn, t]);
+
+  // 卸载时停表：动画回调持有 setState，组件已卸载后继续跑会报警甚至崩。
+  useEffect(() => () => {
+    pageAnim.stopAnimation();
+  }, [pageAnim]);
 
   // 模式提示 1.6s 后自动消失。
   useEffect(() => {
@@ -295,7 +311,7 @@ export default function BookReaderView({ item, content, onBack }) {
     return () => clearTimeout(timer);
   }, [pageTurnHint]);
 
-  // 翻页：tap 模式直接切换；slide/curl 先播动画（旧页移出 → 内容已切换 → 新页对侧入场）。
+  // 翻页：tap 模式直接切换；slide/curl/fade 先播动画（旧页移出 → 内容已切换 → 新页对侧入场）。
   const turnPage = useCallback(direction => {
     if (turningRef.current) return;
     const moved = direction > 0 ? reader.nextPage() : reader.prevPage();
@@ -312,7 +328,14 @@ export default function BookReaderView({ item, content, onBack }) {
       duration: TURN_ANIM_MS,
       easing: Easing.out(Easing.quad),
       useNativeDriver: true,
-    }).start(() => {
+    }).start(({ finished }) => {
+      // 停表（切换翻页方式 / 组件卸载）时回调仍会被调用一次，finished 为 false：
+      // 必须在这里提前返回，否则会顺着链子再起一个 native 动画，而彼时动画属性结构
+      // 已经变过——正是「切换方式后闪退」要避免的组合。
+      if (!finished) {
+        turningRef.current = false;
+        return;
+      }
       pageAnim.setValue(-exitTo);
       Animated.timing(pageAnim, {
         toValue: 0,
@@ -354,21 +377,30 @@ export default function BookReaderView({ item, content, onBack }) {
     });
   }, [pageTurn, turnPage]);
 
-  // 翻页动画样式：slide 平移；curl 绕书脊 3D 翻转。
+  // 翻页动画样式：slide 平移；curl 绕书脊 3D 翻转（旋转翻页）；fade 淡出淡入。
+  // tap 与 slide 共用同一套 translateX 结构（tap 下进度恒为 0，视觉上不位移）：
+  // 回到点击模式时不再把 transform 整个摘掉，少一次「动画属性凭空消失」的结构突变。
   const pageAnimStyle = useMemo(() => {
-    if (pageTurn === 'tap') return null;
     const width = contentArea.width || 320;
-    if (pageTurn === 'slide') {
-      return { transform: [{ translateX: pageAnim }] };
+    if (pageTurn === 'curl') {
+      const rotateY = pageAnim.interpolate({
+        inputRange: [-width, 0, width],
+        outputRange: ['70deg', '0deg', '-70deg'],
+      });
+      return {
+        transform: [{ perspective: 1200 }, { rotateY }],
+        backfaceVisibility: 'hidden',
+      };
     }
-    const rotateY = pageAnim.interpolate({
-      inputRange: [-width, 0, width],
-      outputRange: ['70deg', '0deg', '-70deg'],
-    });
-    return {
-      transform: [{ perspective: 1200 }, { rotateY }],
-      backfaceVisibility: 'hidden',
-    };
+    if (pageTurn === 'fade') {
+      // 旧页淡出 → 内容切换 → 新页从透明淡入：进度 ±width 时完全透明，0 时完全不透明。
+      const opacity = pageAnim.interpolate({
+        inputRange: [-width, 0, width],
+        outputRange: [0, 1, 0],
+      });
+      return { opacity };
+    }
+    return { transform: [{ translateX: pageAnim }] };
   }, [contentArea.width, pageAnim, pageTurn]);
 
   const pageBody = reader.status === MEASURE_READY && reader.page

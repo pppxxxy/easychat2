@@ -98,7 +98,9 @@ test('阅读器设置：非法/缺省值一律回退 tap', () => {
   assert.equal(settings.normalizeBookReaderSettings({ pageTurn: 'nope' }).pageTurn, 'tap');
   assert.equal(settings.normalizeBookReaderSettings({ pageTurn: 'slide' }).pageTurn, 'slide');
   assert.equal(settings.normalizeBookReaderSettings({ pageTurn: 'curl' }).pageTurn, 'curl');
-  assert.deepEqual(settings.PAGE_TURN_MODES, ['tap', 'slide', 'curl']);
+  assert.deepEqual(settings.PAGE_TURN_MODES, ['tap', 'slide', 'curl', 'fade']);
+  // 四档都要能往返（旧值 'curl' 仍然有效——改名只动文案，没动 key）
+  assert.equal(settings.normalizeBookReaderSettings({ pageTurn: 'fade' }).pageTurn, 'fade');
 });
 
 test('阅读器设置：首次读取（无键）返回默认，写入后往返一致', async () => {
