@@ -90,7 +90,8 @@ test('RealMapView：取点前有隐私确认；服务关闭给可操作文案；
 });
 
 test('SettingsScreen：位置感知开关仅在真实地图开启时显示，写独立字段', () => {
-  const source = read('src/SettingsScreen.js');
+  // 开关 UI 已拆到 settings/sections/ExperienceSection.js；状态与写入仍在 SettingsScreen。
+  const source = read('src/SettingsScreen.js') + read('src/settings/sections/ExperienceSection.js');
   assert.ok(source.includes("t('settings.location.awareness.title')"), '设置页有位置感知开关');
   assert.ok(source.includes('locationSettings.enabled === true'), '开关仅在真实地图开启时渲染');
   assert.ok(source.includes("updateLocationSettings(current => ({ ...current, awareness: value === true }))"),

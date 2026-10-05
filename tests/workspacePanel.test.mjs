@@ -42,7 +42,8 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
 });
 
 test('SettingsScreen：工作区卡片提供面板入口', () => {
-  const source = readSource('src/SettingsScreen.js');
+  // 工作区卡片 UI 已拆到 settings/sections/WorkspaceSection.js。
+  const source = readSource('src/settings/sections/WorkspaceSection.js') + readSource('src/SettingsScreen.js');
   assert.ok(source.includes("from './WorkspacePanel.js'"), '导入工作区面板');
   assert.ok(source.includes('<WorkspacePanel'), '渲染工作区面板');
   assert.ok(/setWorkspaceOpen\(true\)/.test(source), '卡片按钮打开面板');
@@ -50,7 +51,8 @@ test('SettingsScreen：工作区卡片提供面板入口', () => {
 });
 
 test('SettingsScreen：选文件夹 + 命令开关都走 patch（不许整体 save 冲掉彼此）', () => {
-  const source = readSource('src/SettingsScreen.js');
+  // 状态与写入逻辑仍在 SettingsScreen；工作区卡片 UI 在 WorkspaceSection。
+  const source = readSource('src/SettingsScreen.js') + readSource('src/settings/sections/WorkspaceSection.js');
   assert.ok(source.includes("from './workspace/picker.js'"), '接入选文件夹能力');
   assert.ok(source.includes('pickWorkspaceFolder()'), '调用系统目录选择器');
   assert.ok(/patchWorkspaceSettings\(\{ location:/.test(source), '文件夹走局部更新');
@@ -106,7 +108,8 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
   });
   assert.deepEqual(offenders, [], `能力说明卡片仍有硬编码中文：\n${offenders.join('\n')}`);
   // 设置页必须把它渲染进工作区卡片，并传入当前设置与 shell 可用性
-  const settings = readSource('src/SettingsScreen.js');
+  // （工作区卡片 UI 已拆到 settings/sections/WorkspaceSection.js）
+  const settings = readSource('src/settings/sections/WorkspaceSection.js');
   assert.ok(settings.includes('<WorkspaceCapabilitiesCard'), '设置页渲染能力说明卡片');
   assert.ok(/settings=\{\{[\s\S]{0,200}allowCommandExecution: commandExecution/.test(settings), '传入当前工作区设置');
   assert.ok(/shellAvailable=\{isShellAvailable\(\)\}/.test(settings), '传入 shell 是否可用');

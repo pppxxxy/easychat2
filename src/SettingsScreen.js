@@ -20,7 +20,6 @@ import { normalizeChatUrl } from './network/api.js';
 import vendorXhr from './network/vendorHttp.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useApp } from './context/AppContext.js';
-import { hexToRgba } from './theme/themes.js';
 import DisclaimerModal from './onboarding/disclaimer.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import PluginPanel from './PluginPanel.js';
@@ -55,27 +54,18 @@ import {
   saveThinkingSettings,
   saveUiSections,
   updateLocationSettings,
-  THINKING_DISPLAYS,
 } from './storage.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
-import { BUBBLE_STYLES } from './theme/themes.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { pickWorkspaceFolder } from './workspace/picker.js';
-import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
-import { isShellAvailable } from './workspace/shell.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './network/apiVendors.js';
 import {
   Card,
-  DangerButton,
   FieldHint,
   FieldLabel,
-  GhostButton,
-  PrimaryButton,
-  SecondaryButton,
   TextField,
   TopicButton,
   CollapsibleSection,
-  CollapsibleSelect,
 } from './ui/index.js';
 import ChapterModal from './books/ChapterModal.js';
 import TutorialModal from './TutorialModal.js';
@@ -83,27 +73,22 @@ import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
 import WorkspacePanel from './WorkspacePanel.js';
-import WorkspaceCapabilitiesCard from './WorkspaceCapabilitiesCard.js';
 import { runOAuthWebFlow } from './mcp/oauth.js';
 import { captureOAuthCallback, GITHUB_OAUTH_REDIRECT, openSystemBrowser } from './mcp/oauthBridge.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
-import CollapsibleHint from './settings/CollapsibleHint.js';
 import { searchSettings, settingsSectionLabel } from './settings/searchIndex.js';
 import { createSettingsStyles } from './settings/settingsStyles.js';
-
-const INLINE_IMAGE_POSITION_OPTIONS = [
-  { value: 'start', label: '开头', meta: '取回复首段' },
-  { value: 'middle', label: '高潮（正中）', meta: '取回复中段' },
-  { value: 'end', label: '结尾（默认）', meta: '取回复末段' },
-];
-
-const WORKSPACE_MODE_OPTIONS = [
-  { id: 'ask', labelKey: 'settings.workspace.mode.ask', hintKey: 'settings.workspace.hint.ask' },
-  { id: 'read', labelKey: 'settings.workspace.mode.read', hintKey: 'settings.workspace.hint.read' },
-  { id: 'write', labelKey: 'settings.workspace.mode.write', hintKey: 'settings.workspace.hint.write' },
-];
+import ApiSection from './settings/sections/ApiSection.js';
+import PersonaSection from './settings/sections/PersonaSection.js';
+import AppearanceSection from './settings/sections/AppearanceSection.js';
+import ExperienceSection from './settings/sections/ExperienceSection.js';
+import ExtensionsSection from './settings/sections/ExtensionsSection.js';
+import VectorSection from './settings/sections/VectorSection.js';
+import WorkspaceSection from './settings/sections/WorkspaceSection.js';
+import GithubSection from './settings/sections/GithubSection.js';
+import AboutSection from './settings/sections/AboutSection.js';
 
 // 接口协议选项：openai（Chat Completions，最通用）、openai-responses（/v1/responses）、
 // anthropic（/v1/messages）。切换时按协议给出对应默认鉴权头。
@@ -121,33 +106,6 @@ const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version |
 function snapshotActiveConfig(state) {
   const active = state && state.configs ? state.configs.find(item => item.id === state.activeId) : null;
   return active ? JSON.stringify(active) : '';
-}
-
-// 密钥输入的显隐切换：填 Key 时核对内容是高频动作，secureTextEntry 一锁到底只能盲填。
-function SecretTextField({ value, onChangeText, placeholder, onEndEditing, theme, styles }) {
-  const [visible, setVisible] = useState(false);
-  return (
-    <View style={styles.secretRow}>
-      <TextField
-        value={value}
-        onChangeText={onChangeText}
-        onEndEditing={onEndEditing}
-        placeholder={placeholder}
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry={!visible}
-        style={styles.secretInput}
-      />
-      <TouchableOpacity
-        style={styles.secretToggle}
-        onPress={() => setVisible(next => !next)}
-        activeOpacity={0.7}
-        accessibilityLabel={visible ? '隐藏密钥' : '显示密钥'}
-      >
-        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={17} color={theme.colors.textMuted} />
-      </TouchableOpacity>
-    </View>
-  );
 }
 
 export default function SettingsScreen() {
@@ -1253,6 +1211,128 @@ export default function SettingsScreen() {
     .map((id, index) => (isSectionOpen(id) ? null : index + 1))
     .filter(value => value !== null);
 
+  // 各卡片内容已拆到 settings/sections/*；这里汇总它们需要的状态与回调，
+  // 一次展开传入，避免每张卡重复接线。
+  const sectionProps = {
+    styles,
+    theme,
+    t,
+    // API 配置
+    activeId,
+    active,
+    activeVendor,
+    configs,
+    CHAT_PROTOCOL_OPTIONS,
+    modelDraft,
+    setModelDraft,
+    detectingModels,
+    selectConfig,
+    updateField,
+    changeProtocol,
+    addModel,
+    searchModels,
+    selectActiveModel,
+    openCapabilityEditor,
+    removeModel,
+    detectModels,
+    openApiKeyUrl,
+    save,
+    deleteConfig,
+    // 用户人设
+    userName,
+    setUserName,
+    userPersona,
+    setUserPersona,
+    userAvatarUri,
+    userProfileSaved,
+    personas,
+    setPersonas,
+    activePersonaId,
+    saveUserProfileDelayed,
+    changeUserAvatar,
+    selectPersona,
+    addPersona,
+    removePersona,
+    pickUserAvatar,
+    saveUserProfileNow,
+    // 外观与语言
+    themes,
+    themeId,
+    setThemeId,
+    fontScales,
+    fontScaleId,
+    setFontScaleId,
+    locales,
+    localeId,
+    setLocaleId,
+    thinkingDisplay,
+    updateThinkingDisplay,
+    // 对话体验
+    chatOptions,
+    updateChatOption,
+    setPresetEntryOpen,
+    enabledPresetCount,
+    locationSettings,
+    toggleLocationAwareness,
+    momentsEnabled,
+    toggleMoments,
+    // 功能扩展
+    inlineImage,
+    updateInlineImage,
+    inlineImageProviders,
+    imageGenProviders,
+    activeImageProvider,
+    updateImageGenProvider,
+    imageGenTesting,
+    testImageGenProvider,
+    setPluginEntryOpen,
+    setTtsEntryOpen,
+    setTranscriptionEntryOpen,
+    // 向量记忆
+    vectorPayload,
+    vectorRef,
+    vectorTesting,
+    vectorTopKDraft,
+    setVectorTopKDraft,
+    vectorMaxCharsDraft,
+    setVectorMaxCharsDraft,
+    currentVectorConfig,
+    flushVectorMemory,
+    updateVectorConfig,
+    toggleVectorEnabled,
+    addVectorConfig,
+    selectVectorConfig,
+    removeVectorConfig,
+    testVector,
+    // 工作区
+    workspaceMode,
+    updateWorkspaceMode,
+    workspaceFolder,
+    workspaceFolderBusy,
+    resetWorkspaceFolder,
+    chooseWorkspaceFolder,
+    commandExecution,
+    toggleCommandExecution,
+    setWorkspaceOpen,
+    // GitHub
+    githubMcp,
+    githubPat,
+    setGithubPat,
+    githubBusy,
+    connectGithubPat,
+    connectGithubWeb,
+    disconnectGithub,
+    // 关于
+    appVersion: APP_VERSION,
+    openTutorial,
+    openDisclaimer,
+    openGitHub,
+    checkUpdate,
+    setDiagnosticsOpen,
+    setBackupOpen,
+    setLocalModelOpen,
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -1341,186 +1421,7 @@ export default function SettingsScreen() {
               </View>
             )}
           >
-          <CollapsibleSelect
-            label="当前配置"
-            value={activeId}
-            options={configs.map(item => ({
-              value: item.id,
-              label: item.name || '未命名配置',
-              meta: `${item.baseUrl || '未填写地址'} · ${item.activeModel || '未填写模型'}`,
-            }))}
-            onSelect={id => selectConfig(id)}
-            placeholder="未选择配置"
-            emptyHint="暂无配置，点右上角「新建」"
-            style={styles.configSelect}
-          />
-
-          {active ? (
-            <>
-              <FieldLabel style={styles.label}>配置名称</FieldLabel>
-              <TextField
-                value={active.name}
-                onChangeText={name => updateField({ name })}
-                placeholder="例如：DeepSeek 主力"
-              />
-              <FieldLabel style={styles.label}>API 地址</FieldLabel>
-              <TextField
-                value={active.baseUrl}
-                onChangeText={baseUrl => updateField({ baseUrl })}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="https://api.deepseek.com"
-              />
-              <FieldHint style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</FieldHint>
-              <FieldLabel style={styles.label}>接口协议</FieldLabel>
-              <View style={styles.thinkingFormatRow}>
-                {CHAT_PROTOCOL_OPTIONS.map(option => {
-                  const isActive = (active.protocol || 'openai') === option.id;
-                  return (
-                    <TouchableOpacity
-                      key={option.id}
-                      style={[styles.formatChip, isActive && styles.formatChipActive]}
-                      onPress={() => changeProtocol(option.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.formatChipText, isActive && styles.formatChipTextActive]}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <FieldHint style={styles.hint}>
-                {(active.protocol || 'openai') === 'anthropic'
-                  ? 'Anthropic Messages 协议：端点 /v1/messages，鉴权 x-api-key；不支持内联音频。'
-                  : (active.protocol === 'openai-responses'
-                    ? 'OpenAI Responses 协议：端点 /v1/responses，事件式流式。'
-                    : 'OpenAI 兼容协议：端点 /v1/chat/completions，最通用。')}
-              </FieldHint>
-              <FieldLabel style={styles.label}>模型列表</FieldLabel>
-              <View style={styles.modelRow}>
-                <TextField
-                  style={styles.modelInput}
-                  value={modelDraft}
-                  onChangeText={setModelDraft}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="输入模型名后点击添加"
-                  onSubmitEditing={addModel}
-                />
-                <TouchableOpacity
-                  style={styles.detectButton}
-                  onPress={addModel}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.detectButtonText}>添加</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.detectButton, styles.modelSearchButton, detectingModels && styles.buttonDisabled]}
-                  onPress={searchModels}
-                  disabled={detectingModels}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel="按输入内容搜索接口上的模型"
-                >
-                  <Ionicons name="search" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.detectButtonText}>搜索</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modelChips}>
-                {(active.models || []).map(model => {
-                  const isActive = active.activeModel === model;
-                  return (
-                    <View
-                      key={model}
-                      style={[styles.modelChip, isActive && styles.modelChipActive]}
-                    >
-                      <TouchableOpacity
-                        style={styles.modelChipMain}
-                        onPress={() => selectActiveModel(model)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[styles.modelChipText, isActive && styles.modelChipTextActive]}
-                          numberOfLines={1}
-                        >
-                          {model}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => openCapabilityEditor(model)}
-                        hitSlop={6}
-                        accessibilityLabel={`配置模型 ${model} 的能力`}
-                        style={styles.modelChipCaps}
-                      >
-                        <Ionicons
-                          name="options-outline"
-                          size={13}
-                          color={(active.modelCapabilities && active.modelCapabilities[model])
-                            ? theme.colors.primarySoft
-                            : theme.colors.textFaint}
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => removeModel(model)} hitSlop={6}>
-                        <Ionicons name="close" size={14} color={theme.colors.textFaint} />
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-              </View>
-              <FieldHint style={styles.hint}>点击模型将其设为当前模型；点右侧滑杆图标可为每个模型单独确认能力（思考/识图/视频/语音识别）。</FieldHint>
-              <TouchableOpacity
-                style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
-                onPress={detectModels}
-                disabled={detectingModels}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
-                <Text style={styles.detectButtonText}>
-                  {detectingModels ? '检测中...' : '检测模型'}
-                </Text>
-              </TouchableOpacity>
-              <FieldLabel style={styles.label}>API Key</FieldLabel>
-              <SecretTextField
-                value={active.apiKey}
-                onChangeText={apiKey => updateField({ apiKey })}
-                placeholder="sk-..."
-                theme={theme}
-                styles={styles}
-              />
-              {active.apiKeyUrl ? (
-                <TouchableOpacity
-                  style={styles.apiKeyLinkRow}
-                  onPress={() => openApiKeyUrl(active.apiKeyUrl)}
-                  activeOpacity={0.7}
-                  accessibilityRole="link"
-                  accessibilityLabel="点击获取密钥"
-                >
-                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
-                </TouchableOpacity>
-              ) : null}
-              {activeVendor && activeVendor.note ? (
-                <Text style={styles.vendorEditorNote}>{activeVendor.note}</Text>
-              ) : null}
-              <FieldHint style={styles.hint}>
-                API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
-              </FieldHint>
-              <PrimaryButton
-                title="保存配置"
-                icon="save-outline"
-                onPress={save}
-                style={styles.actionBtn}
-              />
-              <DangerButton
-                title="删除当前配置"
-                icon="trash-outline"
-                onPress={deleteConfig}
-                disabled={configs.length <= 1}
-                style={styles.actionBtn}
-              />
-            </>
-          ) : null}
+          <ApiSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -1552,89 +1453,7 @@ export default function SettingsScreen() {
               </View>
             )}
           >
-          <Text style={styles.fieldHint}>
-            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像为全部人设共用。
-          </Text>
-          <FieldLabel style={styles.label}>我的身份</FieldLabel>
-          <CollapsibleSelect
-            label="当前人设"
-            value={activePersonaId}
-            valueMeta={userPersona ? userPersona.slice(0, 40) : '未填写描述'}
-            options={personas.map(item => ({
-              value: item.id,
-              label: String(item.userName || '').trim() || '未命名人设',
-              meta: String(item.persona || '').trim().slice(0, 40) || '未填写描述',
-            }))}
-            onSelect={id => selectPersona(id)}
-            placeholder="未选择人设"
-          />
-          <View style={styles.personaActions}>
-            <TouchableOpacity style={styles.personaAddChip} onPress={addPersona} activeOpacity={0.8}>
-              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.personaAddText}>新增人设</Text>
-            </TouchableOpacity>
-            {personas.length > 1 ? (
-              <TouchableOpacity
-                style={styles.personaAddChip}
-                onPress={() => removePersona(activePersonaId)}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          <View style={styles.avatarRow}>
-            <View style={styles.avatarBox}>
-              {userAvatarUri ? (
-                <Image source={{ uri: userAvatarUri }} style={styles.avatarImg} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarPlaceholderText}>
-                    {userName ? userName.charAt(0) : '我'}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.imageActions}>
-              <TouchableOpacity style={styles.smallButton} onPress={pickUserAvatar} activeOpacity={0.8}>
-                <Text style={styles.smallButtonText}>{userAvatarUri ? '更换头像' : '选择头像'}</Text>
-              </TouchableOpacity>
-              {userAvatarUri ? (
-                <TouchableOpacity onPress={() => changeUserAvatar('')} hitSlop={8}>
-                  <Text style={styles.removeText}>清除</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </View>
-          <FieldLabel style={styles.label}>人设名称（当前人设）</FieldLabel>
-          <TextField
-            value={userName}
-            onChangeText={text => {
-              setUserName(text);
-              setPersonas(list => list.map(item => (
-                item.id === activePersonaId ? { ...item, userName: text } : item
-              )));
-              saveUserProfileDelayed(text, userPersona, userAvatarUri);
-            }}
-            placeholder="例如：小明"
-          />
-          <FieldLabel style={styles.label}>人设描述</FieldLabel>
-          <TextField
-            style={styles.multilineInput}
-            value={userPersona}
-            onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text, userAvatarUri); }}
-            placeholder="描述你自己的性格、背景、喜好等"
-            multiline
-            textAlignVertical="top"
-          />
-          <SecondaryButton
-            title="保存用户人设"
-            icon="save-outline"
-            onPress={saveUserProfileNow}
-            style={styles.actionBtn}
-          />
-          {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
+          <PersonaSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -1649,119 +1468,7 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('appearance', next)}
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{appearanceSummary}</Text>}
           >
-            <View style={styles.appearanceRow}>
-              {themes.map(item => {
-                const active = item.id === themeId;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.themeChip, active && {
-                      borderColor: item.colors.primary,
-                      backgroundColor: hexToRgba(item.colors.primary, 0.08),
-                    }]}
-                    onPress={() => setThemeId(item.id)}
-                    activeOpacity={0.85}
-                    accessibilityLabel={`切换到${item.label}主题`}
-                  >
-                    <View style={[styles.themeSwatch, { backgroundColor: item.colors.background }]}>
-                      <View style={[styles.themeSwatchDot, { backgroundColor: item.colors.primary }]} />
-                    </View>
-                    <Text style={[styles.themeChipText, active && { color: item.colors.primary, fontWeight: '800' }]}>
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <FieldLabel style={styles.label}>字体大小</FieldLabel>
-            <View style={styles.fontRow}>
-              {fontScales.map(item => {
-                const active = item.id === fontScaleId;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.fontChip, active && styles.fontChipActive]}
-                    onPress={() => setFontScaleId(item.id)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <FieldLabel style={styles.label}>{t('settings.appearance.language')}</FieldLabel>
-            <View style={styles.fontRow}>
-              {locales.map(item => {
-                const active = item.id === localeId;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.fontChip, active && styles.fontChipActive]}
-                    onPress={() => setLocaleId(item.id)}
-                    activeOpacity={0.85}
-                    accessibilityLabel={item.english}
-                  >
-                    {/* 语言名用各自的写法展示：英文界面下「简体中文」仍显示为中文，
-                        用户不必先读懂当前界面语言才能找到自己的语言。 */}
-                    <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <FieldLabel style={styles.label}>聊天呈现</FieldLabel>
-            <View style={styles.thinkingDisplayRow}>
-              <View style={styles.linkLeft}>
-                <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.linkText}>思考内容展示</Text>
-              </View>
-              <View style={styles.thinkingDisplayChips}>
-                {THINKING_DISPLAYS.map(display => {
-                  const active = thinkingDisplay === display;
-                  const label = display === 'open' ? '开启' : display === 'fold' ? '折叠' : '关闭';
-                  return (
-                    <TouchableOpacity
-                      key={display}
-                      style={[styles.formatChip, active && styles.formatChipActive]}
-                      onPress={() => updateThinkingDisplay(display)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-            <View style={styles.thinkingDisplayRow}>
-              <View style={styles.linkLeft}>
-                <Ionicons name="chatbubbles-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.linkText}>气泡风格</Text>
-              </View>
-              <View style={styles.thinkingDisplayChips}>
-                {BUBBLE_STYLES.map(style => {
-                  const active = (chatOptions.bubbleStyle || 'rounded') === style;
-                  const label = style === 'rounded' ? '圆润' : style === 'card' ? '卡片' : '无底纹';
-                  return (
-                    <TouchableOpacity
-                      key={style}
-                      style={[styles.formatChip, active && styles.formatChipActive]}
-                      onPress={() => updateChatOption('bubbleStyle', style)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-            <CollapsibleHint>{'圆润：大圆角气泡（默认）；卡片：统一中等圆角、无尾角，偏阅读；无底纹：去掉气泡底色与阴影，仅靠左右对齐区分角色。'}</CollapsibleHint>
+          <AppearanceSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -1776,129 +1483,7 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('experience', next)}
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{experienceSummary}</Text>}
           >
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setPresetEntryOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>全局预设 / 记忆总结</Text>
-            </View>
-            <View style={styles.linkRight}>
-              <Text style={styles.linkValue}>
-                {enabledPresetCount > 0 ? `文本预设 ${enabledPresetCount} 项` : '文本预设未开启'}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-            </View>
-          </TouchableOpacity>
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="pulse-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>流式输出</Text>
-            </View>
-            <Switch
-              value={chatOptions.streaming}
-              onValueChange={value => updateChatOption('streaming', value)}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="resize-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>全宽对话</Text>
-            </View>
-            <Switch
-              value={chatOptions.fullWidth}
-              onValueChange={value => {
-                // 开启前提醒：全宽气泡下部分角色卡的排版会引发横向滑动/滚动手势异常，
-                // 用户确认后才落盘；关闭不需要确认。
-                if (!value) {
-                  updateChatOption('fullWidth', false);
-                  return;
-                }
-                Alert.alert(
-                  '开启全宽对话',
-                  '全宽模式下部分角色卡可能出现屏幕滑动问题。',
-                  [
-                    { text: '取消', style: 'cancel' },
-                    { text: '仍然开启', onPress: () => updateChatOption('fullWidth', true) },
-                  ]
-                );
-              }}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="code-slash-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>富 HTML 渲染</Text>
-            </View>
-            <Switch
-              value={chatOptions.richHtml !== false}
-              onValueChange={value => updateChatOption('richHtml', value)}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <CollapsibleHint>{'开启后，含 <style>/<script> 的助手消息用 WebView 渲染，可还原角色卡的样式与交互；折叠状态栏始终保留 WebView 渲染。'}</CollapsibleHint>
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="save-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>保留输入草稿</Text>
-            </View>
-            <Switch
-              value={chatOptions.keepDraft === true}
-              onValueChange={value => updateChatOption('keepDraft', value)}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <CollapsibleHint>开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。</CollapsibleHint>
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="time-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>时间感知</Text>
-            </View>
-            <Switch
-              value={chatOptions.timeAware === true}
-              onValueChange={value => updateChatOption('timeAware', value)}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <CollapsibleHint>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</CollapsibleHint>
-          {locationSettings && locationSettings.enabled === true ? (
-            <>
-              <View style={styles.capabilityRow}>
-                <View style={styles.linkLeft}>
-                  <Ionicons name="navigate-outline" size={17} color={theme.colors.primaryMuted} />
-                  <Text style={styles.linkText}>{t('settings.location.awareness.title')}</Text>
-                </View>
-                <Switch
-                  value={locationSettings.awareness === true}
-                  onValueChange={toggleLocationAwareness}
-                  trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-                  thumbColor={theme.colors.primaryContrast}
-                />
-              </View>
-              <CollapsibleHint>{t('settings.location.awareness.hint')}</CollapsibleHint>
-            </>
-          ) : null}
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="planet-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>动态</Text>
-            </View>
-            <Switch
-              value={momentsEnabled}
-              onValueChange={toggleMoments}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
+          <ExperienceSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -1921,157 +1506,7 @@ export default function SettingsScreen() {
               </View>
             )}
           >
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>自动配图</Text>
-            </View>
-            <Switch
-              value={inlineImage.enabled}
-              onValueChange={value => updateInlineImage({ enabled: value })}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <FieldLabel style={styles.label}>生图服务</FieldLabel>
-          <CollapsibleSelect
-            label="当前服务"
-            value={inlineImage.providerId}
-            options={IMAGE_PROVIDERS.map(provider => ({
-              value: provider.id,
-              label: provider.label,
-              meta: inlineImageProviders.includes(provider.id)
-                ? `已配置 · ${String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || '默认模型'}`
-                : '未配置密钥',
-            }))}
-            onSelect={id => updateInlineImage({ providerId: id })}
-            placeholder="未选择服务"
-          />
-          {activeImageProvider ? (
-            <View style={styles.providerEditor}>
-              <Text style={styles.providerEditorTitle}>{activeImageProvider.label} 配置</Text>
-              {activeImageProvider.keyHint ? (
-                <FieldHint style={styles.hint}>密钥：{activeImageProvider.keyHint}</FieldHint>
-              ) : null}
-              <FieldLabel style={styles.label}>API 地址</FieldLabel>
-              <TextField
-                value={String((imageGenProviders[activeImageProvider.id] || {}).baseUrl || '')}
-                onChangeText={text => updateImageGenProvider(activeImageProvider.id, { baseUrl: text })}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder={activeImageProvider.baseUrlPlaceholder || activeImageProvider.baseUrl || 'https://example.com/v1/images/generations'}
-              />
-              <FieldLabel style={styles.label}>API Key</FieldLabel>
-              <SecretTextField
-                value={String((imageGenProviders[activeImageProvider.id] || {}).apiKey || '')}
-                onChangeText={text => updateImageGenProvider(activeImageProvider.id, { apiKey: text })}
-                placeholder="sk-..."
-                theme={theme}
-                styles={styles}
-              />
-              {activeImageProvider.apiKeyUrl ? (
-                <TouchableOpacity
-                  style={styles.apiKeyLinkRow}
-                  onPress={() => openApiKeyUrl(activeImageProvider.apiKeyUrl)}
-                  activeOpacity={0.7}
-                  accessibilityRole="link"
-                >
-                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
-                </TouchableOpacity>
-              ) : null}
-              <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
-              <TextField
-                value={String((imageGenProviders[activeImageProvider.id] || {}).model || '')}
-                onChangeText={text => updateImageGenProvider(activeImageProvider.id, { model: text })}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder={activeImageProvider.defaultModel || '模型名'}
-              />
-              <TouchableOpacity
-                style={[styles.detectButton, imageGenTesting === activeImageProvider.id && styles.buttonDisabled]}
-                onPress={() => testImageGenProvider(activeImageProvider)}
-                disabled={imageGenTesting === activeImageProvider.id}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
-                <Text style={styles.detectButtonText}>
-                  {imageGenTesting === activeImageProvider.id ? '检测中...' : '检测连通性'}
-                </Text>
-              </TouchableOpacity>
-              {activeImageProvider.networkNote ? (
-                <FieldHint style={styles.hint}>{activeImageProvider.networkNote}</FieldHint>
-              ) : null}
-            </View>
-          ) : null}
-          <FieldLabel style={styles.label}>配图位置</FieldLabel>
-          <CollapsibleSelect
-            label="取回复的哪一段"
-            value={inlineImage.imagePosition}
-            options={INLINE_IMAGE_POSITION_OPTIONS}
-            onSelect={value => updateInlineImage({ imagePosition: value })}
-            placeholder="结尾"
-          />
-          <FieldHint style={styles.hint}>
-            自动配图会先请模型把该段对话转写成「角色说完这段话后所处的画面」再出图；开头 / 高潮（正中）/ 结尾指从本轮回复里取哪一段。
-          </FieldHint>
-          <FieldLabel style={styles.label}>风格前缀（可选）</FieldLabel>
-          <TextField
-            value={inlineImage.stylePrefix}
-            onChangeText={text => updateInlineImage({ stylePrefix: text })}
-            placeholder="例如：anime style, detailed"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FieldLabel style={styles.label}>尺寸（宽*高）</FieldLabel>
-          <TextField
-            value={inlineImage.size}
-            onChangeText={text => updateInlineImage({ size: text })}
-            placeholder="832*1216"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FieldLabel style={styles.label}>提示词长度上限（字符）</FieldLabel>
-          <TextField
-            value={String(inlineImage.maxPromptChars)}
-            onChangeText={text => updateInlineImage({ maxPromptChars: text.replace(/[^0-9]/g, '') })}
-            keyboardType="number-pad"
-            placeholder="400"
-          />
-          <Text style={styles.fieldHint}>密钥仅保存在本机，与「扩展 → 生图」共用同一份配置。</Text>
-          <FieldLabel style={styles.label}>其它功能</FieldLabel>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setPluginEntryOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="extension-puzzle-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>联网搜索</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setTtsEntryOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="volume-high-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>语音播报</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setTranscriptionEntryOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="mic-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>语音转文字</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
+          <ExtensionsSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -2094,119 +1529,7 @@ export default function SettingsScreen() {
               </View>
             )}
           >
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Text style={styles.linkText}>启用向量检索</Text>
-            </View>
-            <Switch
-              value={vectorPayload.enabled === true}
-              onValueChange={toggleVectorEnabled}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <FieldLabel style={styles.label}>向量配置</FieldLabel>
-          <CollapsibleSelect
-            label="当前配置"
-            value={vectorPayload.activeId}
-            options={(vectorPayload.configs || []).map(item => ({
-              value: item.id,
-              label: item.name || '未命名配置',
-              meta: `${item.baseUrl || '未填写地址'} · ${item.model || '未填写模型'}`,
-            }))}
-            onSelect={id => selectVectorConfig(id)}
-            placeholder="未选择配置"
-          />
-          <View style={styles.personaActions}>
-            <TouchableOpacity style={styles.personaAddChip} onPress={addVectorConfig} activeOpacity={0.8}>
-              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.personaAddText}>新增配置</Text>
-            </TouchableOpacity>
-            {(vectorPayload.configs || []).length > 1 ? (
-              <TouchableOpacity style={styles.personaAddChip} onPress={removeVectorConfig} activeOpacity={0.8}>
-                <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          {currentVectorConfig ? (
-            <>
-              <FieldLabel style={styles.label}>配置名称</FieldLabel>
-              <TextField
-                value={currentVectorConfig.name}
-                onChangeText={text => updateVectorConfig({ name: text })}
-                onEndEditing={() => flushVectorMemory()}
-                placeholder="例如：OpenAI Embeddings"
-              />
-              <FieldLabel style={styles.label}>接口地址</FieldLabel>
-              <TextField
-                value={currentVectorConfig.baseUrl}
-                onChangeText={text => updateVectorConfig({ baseUrl: text })}
-                onEndEditing={() => flushVectorMemory()}
-                placeholder="https://api.openai.com/v1"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <FieldLabel style={styles.label}>密钥</FieldLabel>
-              <SecretTextField
-                value={currentVectorConfig.apiKey}
-                onChangeText={text => updateVectorConfig({ apiKey: text })}
-                onEndEditing={() => flushVectorMemory()}
-                placeholder="sk-..."
-                theme={theme}
-                styles={styles}
-              />
-              <FieldLabel style={styles.label}>模型</FieldLabel>
-              <TextField
-                value={currentVectorConfig.model}
-                onChangeText={text => updateVectorConfig({ model: text })}
-                onEndEditing={() => flushVectorMemory()}
-                placeholder="text-embedding-3-small"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <FieldLabel style={styles.label}>召回条数（1 - 20）</FieldLabel>
-              <TextField
-                value={vectorTopKDraft}
-                onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
-                onEndEditing={event => {
-                  updateVectorConfig({ topK: event.nativeEvent.text });
-                  flushVectorMemory().then(() => {
-                    const base = vectorRef.current;
-                    const active = base && base.configs.find(item => item.id === base.activeId);
-                    if (active) setVectorTopKDraft(String(active.topK));
-                  });
-                }}
-                keyboardType="number-pad"
-                placeholder="5"
-              />
-              <FieldLabel style={styles.label}>分片长度（字符，1 - 2000）</FieldLabel>
-              <TextField
-                value={vectorMaxCharsDraft}
-                onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
-                onEndEditing={event => {
-                  updateVectorConfig({ maxChars: event.nativeEvent.text });
-                  flushVectorMemory().then(() => {
-                    const base = vectorRef.current;
-                    const active = base && base.configs.find(item => item.id === base.activeId);
-                    if (active) setVectorMaxCharsDraft(String(active.maxChars));
-                  });
-                }}
-                keyboardType="number-pad"
-                placeholder="400"
-              />
-              <SecondaryButton
-                title={vectorTesting ? '测试中...' : '测试连接'}
-                icon="pulse-outline"
-                onPress={testVector}
-                loading={vectorTesting}
-                style={styles.actionBtn}
-              />
-            </>
-          ) : null}
-          <Text style={styles.fieldHint}>
-            未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
-          </Text>
+          <VectorSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -2221,96 +1544,7 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('workspace', next)}
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{workspaceSummary}</Text>}
           >
-          <FieldLabel style={styles.label}>{t('settings.workspace.mode')}</FieldLabel>
-          <View style={styles.fontRow}>
-            {WORKSPACE_MODE_OPTIONS.map(option => {
-              const active = option.id === workspaceMode;
-              return (
-                <TouchableOpacity
-                  key={option.id}
-                  style={[styles.fontChip, active && styles.fontChipActive]}
-                  onPress={() => updateWorkspaceMode(option.id)}
-                  activeOpacity={0.85}
-                  accessibilityLabel={t(option.labelKey)}
-                >
-                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                    {t(option.labelKey)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <FieldHint style={styles.hint}>
-            {t((WORKSPACE_MODE_OPTIONS.find(option => option.id === workspaceMode) || WORKSPACE_MODE_OPTIONS[0]).hintKey)}
-          </FieldHint>
-
-          <FieldLabel style={styles.label}>{t('settings.workspace.folder')}</FieldLabel>
-          <View style={styles.capabilityRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons
-                name={workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF ? 'folder-outline' : 'phone-portrait-outline'}
-                size={17}
-                color={theme.colors.primaryMuted}
-              />
-              <Text style={styles.linkText} numberOfLines={1}>
-                {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF
-                  ? (workspaceFolder.name || t('settings.workspace.folder.custom'))
-                  : t('settings.workspace.folder.app')}
-              </Text>
-            </View>
-            {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF ? (
-              <GhostButton title={t('settings.workspace.folder.reset')} small onPress={resetWorkspaceFolder} />
-            ) : null}
-          </View>
-          <FieldHint style={styles.hint}>
-            {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF
-              ? t('settings.workspace.folder.hintExternal', { name: workspaceFolder.name || t('settings.workspace.folder.custom') })
-              : t('settings.workspace.folder.hintApp')}
-          </FieldHint>
-          <SecondaryButton
-            title={workspaceFolderBusy ? t('settings.workspace.folder.picking') : t('settings.workspace.folder.pick')}
-            small
-            disabled={workspaceFolderBusy}
-            style={{ alignSelf: 'flex-start', marginTop: 8 }}
-            onPress={chooseWorkspaceFolder}
-          />
-
-          <View style={[styles.capabilityRow, { marginTop: 16 }]}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="terminal-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>{t('settings.workspace.shell')}</Text>
-            </View>
-            <Switch
-              value={commandExecution}
-              disabled={workspaceMode !== 'write' || workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF}
-              onValueChange={toggleCommandExecution}
-              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
-              thumbColor={theme.colors.primaryContrast}
-            />
-          </View>
-          <FieldHint style={styles.hint}>
-            {workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF
-              ? t('settings.workspace.shell.hintExternal')
-              : (workspaceMode === 'write'
-                ? t('settings.workspace.shell.hint')
-                : t('settings.workspace.shell.hintReadonly'))}
-          </FieldHint>
-
-          <SecondaryButton
-            title={t('settings.workspace.open')}
-            small
-            style={{ alignSelf: 'flex-start', marginTop: 12 }}
-            onPress={() => setWorkspaceOpen(true)}
-          />
-
-          <WorkspaceCapabilitiesCard
-            settings={{
-              mode: workspaceMode,
-              location: workspaceFolder,
-              allowCommandExecution: commandExecution,
-            }}
-            shellAvailable={isShellAvailable()}
-          />
+          <WorkspaceSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -2325,52 +1559,7 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('github', next)}
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{githubSummary}</Text>}
           >
-          <FieldHint style={styles.hint}>{t('settings.github.subtitle')}</FieldHint>
-          {githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0 ? (
-            <>
-              <View style={styles.capabilityRow}>
-                <View style={styles.linkLeft}>
-                  <Ionicons name="checkmark-circle-outline" size={17} color={theme.colors.primary} />
-                  <Text style={styles.linkText}>
-                    {t('settings.github.connected', {
-                      login: githubMcp.accountLogin || t('settings.github.connected.anonymous'),
-                      count: githubMcp.toolCatalog.length,
-                    })}
-                  </Text>
-                </View>
-              </View>
-              <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
-              <View style={styles.formActions}>
-                <GhostButton title={t('settings.github.disconnect.action')} small onPress={disconnectGithub} />
-              </View>
-            </>
-          ) : (
-            <>
-              <FieldLabel style={styles.label}>{t('settings.github.pat.label')}</FieldLabel>
-              <SecretTextField
-                value={githubPat}
-                onChangeText={setGithubPat}
-                placeholder={t('settings.github.pat.placeholder')}
-                theme={theme}
-                styles={styles}
-              />
-              <FieldHint style={styles.hint}>{t('settings.github.pat.hint')}</FieldHint>
-              <View style={styles.formActions}>
-                <GhostButton
-                  title={githubBusy ? t('settings.github.busy') : t('settings.github.pat.action')}
-                  small
-                  onPress={connectGithubPat}
-                />
-                <SecondaryButton
-                  title={t('settings.github.web.action')}
-                  small
-                  onPress={connectGithubWeb}
-                />
-              </View>
-              <FieldHint style={styles.hint}>{t('settings.github.web.hint')}</FieldHint>
-              <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
-            </>
-          )}
+          <GithubSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 
@@ -2385,74 +1574,7 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('about', next)}
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{aboutSummary}</Text>}
           >
-          <View style={styles.linkRow}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="pricetag-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>当前版本</Text>
-            </View>
-            <Text style={styles.versionText}>{APP_VERSION || '未知'}</Text>
-          </View>
-          <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="book-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>使用教程</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.linkRow} onPress={openDisclaimer} activeOpacity={0.7}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="document-text-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>免责条款</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.linkRow} onPress={openGitHub} activeOpacity={0.7}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="logo-github" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>GitHub 地址</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.linkRow} onPress={checkUpdate} activeOpacity={0.7}>
-            <View style={styles.linkLeft}>
-              <Ionicons name="refresh-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>检测更新</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setDiagnosticsOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="bug-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>诊断日志</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setBackupOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="archive-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>备份与恢复</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setLocalModelOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="hardware-chip-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>本地模型</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
+          <AboutSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 

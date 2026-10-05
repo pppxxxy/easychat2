@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SETTINGS_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'SettingsScreen.js'), 'utf8');
+// 设置页「对话体验」卡内容已拆到 settings/sections/ExperienceSection.js，
+// 全宽相关断言横跨卡片与其状态宿主，合并读取。
+const SETTINGS_SCREEN_SOURCE = [
+  readFileSync(path.join(HERE, '..', 'src', 'SettingsScreen.js'), 'utf8'),
+  readFileSync(path.join(HERE, '..', 'src', 'settings', 'sections', 'ExperienceSection.js'), 'utf8'),
+].join('\n');
 const EXTENSION_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ExtensionScreen.js'), 'utf8');
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 const VOICE_SETTINGS_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'VoiceSettingsModal.js'), 'utf8');
@@ -13,11 +18,11 @@ const VOICE_SETTINGS_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 
 test('全宽对话默认关闭，开启前弹窗提醒滑动风险', () => {
   // 默认值：存储层与 UI 初始 state 均为关闭（fullWidth === true 才开启）
   assert.ok(SETTINGS_SCREEN_SOURCE.includes('fullWidth: false'));
-  // 开启时必须弹窗提醒用户「屏幕滑动」风险，确认后才落盘
-  assert.ok(SETTINGS_SCREEN_SOURCE.includes('全宽模式下部分角色卡可能出现屏幕滑动问题'));
+  // 开启时必须弹窗提醒用户「屏幕滑动」风险，确认后才落盘（文案走 i18n）
+  assert.ok(SETTINGS_SCREEN_SOURCE.includes("t('settings.experience.fullWidth.body')"));
   // 确认弹窗：取消可退出，开关回弹；确认后才真正开启
-  assert.ok(SETTINGS_SCREEN_SOURCE.includes("text: '取消', style: 'cancel'"));
-  assert.ok(SETTINGS_SCREEN_SOURCE.includes("text: '仍然开启'"));
+  assert.ok(SETTINGS_SCREEN_SOURCE.includes("t('common.cancel')"));
+  assert.ok(SETTINGS_SCREEN_SOURCE.includes("t('settings.experience.fullWidth.confirm')"));
   // 关闭路径不需要确认，直接落盘
   assert.ok(SETTINGS_SCREEN_SOURCE.includes("updateChatOption('fullWidth', false)"));
 });
