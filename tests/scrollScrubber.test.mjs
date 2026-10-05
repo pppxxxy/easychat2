@@ -33,13 +33,22 @@ test('角色网格滚动范围按顶部和底部对齐', () => {
   });
 });
 
-test('展开列表不清空卡片偏移缓存', () => {
-  // 清空缓存后指望 onLayout 回填是错的：布局未变的卡片（折叠态就存在的
-  // 前 10 张）不触发 onLayout，导致定位滑块上半段指向它们时静默不滚动。
-  // 位置变化的卡片由 onLayout 自然覆盖，保留旧值是安全的。
-  assert.equal(CHARACTER_SCREEN_SOURCE.includes('characterCardOffsetsRef.current = {};'), false);
-  // 回填与重建链路必须保留：条目 onLayout 记录偏移、grid 布局变化重建全部
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes('characterCardRelativeOffsetsRef.current[id] = offset;'));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes('characterCardOffsetsRef.current[id] = characterGridLayoutRef.current.top + offset;'));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes('updateCharacterCardOffsets'));
+test('定位滑块改由网格几何推导，不再逐卡缓存 offset', () => {
+  // 原实现靠 characterCardRelativeOffsetsRef / characterCardOffsetsRef 逐卡记 y，
+  // 再在 grid 布局变化时用 relative 缓存重建绝对偏移（约 48 行补丁）。
+  // 卡片等高等距（封面固定 3:4 + 名称单行叠字），所以第 index 个 item 的行号
+  // = floor(index / 2)，位置 = gridTop + 行号 × 行高 + 卡片上外边距——逐卡缓存
+  // 整个删掉了。这条断言同时钉住「旧补丁不得回归」与「新链路必须在位」。
+  assert.equal(CHARACTER_SCREEN_SOURCE.includes('characterCardRelativeOffsetsRef'), false,
+    '逐卡相对偏移缓存不得回归');
+  assert.equal(CHARACTER_SCREEN_SOURCE.includes('characterCardOffsetsRef'), false,
+    '逐卡绝对偏移缓存不得回归');
+  assert.equal(CHARACTER_SCREEN_SOURCE.includes('updateCharacterCardOffsets'), false,
+    '偏移重建函数不得回归');
+  assert.equal(CHARACTER_SCREEN_SOURCE.includes('onCharacterItemLayout'), false,
+    '逐卡 onLayout 测量不得回归');
+  // 新链路：只测量网格整体（top/height/rows），item 位置由行号线性推出。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('characterGridGeometryRef'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('CHARACTER_CARD_MARGIN_TOP'));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('onCharacterGridLayout'));
 });

@@ -40,6 +40,12 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { CHARACTER_LIST_COLLAPSE_LIMIT } from './cardHelpers.js';
 
+// 定位滑块用的行高推导：卡片封面固定 3:4 + 名称单行叠字，故所有卡片等高。
+// 网格总高 = 行数×卡高 + 行数×卡的上外边距，于是 行高 = 网格高 / 行数。
+// 只测量「网格整体」一次即可推出每个 item 的位置，不再逐卡记 offset——
+// 这正是原来那套逐卡偏移补丁可以整体删掉的原因。
+const CHARACTER_CARD_MARGIN_TOP = 10;
+
 export default function CharacterLibraryScreen() {
   const {
     characters,
@@ -78,12 +84,11 @@ export default function CharacterLibraryScreen() {
   const authorizedActiveIdRef = useRef('');
   const formDirtyRef = useRef(false);
   const characterScrollRef = useRef(null);
-  const characterLibraryLayoutRef = useRef({ top: 0 });
-  const characterGridRelativeLayoutRef = useRef({ top: 0, height: 0 });
-  const characterGridLayoutRef = useRef({ top: 0, height: 0 });
-  const characterCardRelativeOffsetsRef = useRef({});
+  // 定位滑块只需要两样东西：网格在滚动容器里的绝对 Y、网格总高。
+  // 有了它们就能推出任意 item 的位置（见 CHARACTER_CARD_MARGIN_TOP 处说明），
+  // 原来的逐卡偏移缓存（按 id 记 y 再重建绝对偏移）已整体删除。
+  const characterGridGeometryRef = useRef({ top: 0, height: 0, rows: 1 });
   const characterViewportHeightRef = useRef(0);
-  const characterCardOffsetsRef = useRef({});
   const switchLockRef = useRef(false);
   const { height: windowHeight } = useWindowDimensions();
 
@@ -172,63 +177,41 @@ export default function CharacterLibraryScreen() {
     if (editMode) setCharacterScrubberOpen(false);
   }, [editMode]);
 
-  // 不要在列表变化时清空卡片偏移缓存再指望 onLayout 回填：布局未变的卡片
-  // 不触发 onLayout（如展开列表时折叠态就存在的前 10 张卡），会导致定位滑块
-  // 指向它们时 offset 缺失、静默不滚动。位置变化的卡片由 onLayout 自然覆盖，
-  // grid 位移由 updateCharacterCardOffsets 用 relative 缓存重建，已删除条目
-  // 的残留偏移不会被查询——保留旧值是安全的。
-
+  // 定位滑块的落点计算：只依赖「网格绝对 Y + 网格总高 / 行数」，不再依赖逐卡 offset。
+  // 卡片等高等距，所以第 index 个 item 的行号 = floor(index / 2)，其纵向位置
+  // = gridTop + 行号 × 行高 + 卡片上外边距（卡片自身带 marginTop）。
   const scrollCharacterTo = useCallback(y => {
     characterScrollRef.current?.scrollTo?.({ y: Math.max(0, y), animated: true });
   }, []);
 
-  const updateCharacterCardOffsets = useCallback(() => {
-    const gridTop = characterGridLayoutRef.current.top;
-    Object.entries(characterCardRelativeOffsetsRef.current).forEach(([id, offset]) => {
-      characterCardOffsetsRef.current[id] = gridTop + offset;
-    });
-  }, []);
-
-  const onCharacterLibraryLayout = useCallback(event => {
-    characterLibraryLayoutRef.current = { top: Number(event.nativeEvent.layout.y) || 0 };
-    characterGridLayoutRef.current = {
-      top: characterLibraryLayoutRef.current.top + characterGridRelativeLayoutRef.current.top,
-      height: characterGridRelativeLayoutRef.current.height,
-    };
-    updateCharacterCardOffsets();
-  }, [updateCharacterCardOffsets]);
-
-  const onCharacterGridLayout = useCallback(event => {
+  // 网格整体布局：只需要这一个 onLayout（删掉了原来的 library/grid/item 三层测量）。
+  // 行数取当前渲染的网格行数（对齐 characterStyles.characterGrid 的 2 列折行）。
+  const onCharacterGridLayout = useCallback((event, rows) => {
     const { y, height } = event.nativeEvent.layout;
-    characterGridRelativeLayoutRef.current = { top: Number(y) || 0, height: Number(height) || 0 };
-    characterGridLayoutRef.current = {
-      top: characterLibraryLayoutRef.current.top + characterGridRelativeLayoutRef.current.top,
-      height: characterGridRelativeLayoutRef.current.height,
+    const total = Math.max(1, Math.floor(Number(rows)) || 1);
+    characterGridGeometryRef.current = {
+      top: Number(y) || 0,
+      height: Number(height) || 0,
+      rows: total,
     };
-    updateCharacterCardOffsets();
-  }, [updateCharacterCardOffsets]);
-
-  const onCharacterItemLayout = useCallback((id, event) => {
-    const offset = Number(event.nativeEvent.layout.y || 0);
-    characterCardRelativeOffsetsRef.current[id] = offset;
-    characterCardOffsetsRef.current[id] = characterGridLayoutRef.current.top + offset;
   }, []);
 
   const onCharacterScrubberSeek = useCallback(index => {
-    const target = displayedCharacterItems[index];
-    if (!target) return;
-    const offset = characterCardOffsetsRef.current[target.id];
-    if (typeof offset === 'number') scrollCharacterTo(offset - 8);
+    if (!displayedCharacterItems[index]) return;
+    const { top, height, rows } = characterGridGeometryRef.current;
+    // 网格总高含每张卡的上外边距，故 行高 = 网格高 / 行数。
+    const rowHeight = height > 0 && rows > 0 ? height / rows : 0;
+    if (rowHeight <= 0) return;
+    const row = Math.floor(index / 2);
+    scrollCharacterTo(top + row * rowHeight + CHARACTER_CARD_MARGIN_TOP);
   }, [displayedCharacterItems, scrollCharacterTo]);
 
   const onCharacterScrubberToStart = useCallback(() => {
-    const { top } = characterGridLayoutRef.current;
-    const viewport = characterViewportHeightRef.current || windowHeight;
-    scrollCharacterTo(getScrollRange({ top, height: 0, viewport }).start);
-  }, [scrollCharacterTo, windowHeight]);
+    scrollCharacterTo(characterGridGeometryRef.current.top);
+  }, [scrollCharacterTo]);
 
   const onCharacterScrubberToEnd = useCallback(() => {
-    const { top, height } = characterGridLayoutRef.current;
+    const { top, height } = characterGridGeometryRef.current;
     const viewport = characterViewportHeightRef.current || windowHeight;
     scrollCharacterTo(getScrollRange({ top, height, viewport }).end);
   }, [scrollCharacterTo, windowHeight]);
@@ -596,7 +579,7 @@ export default function CharacterLibraryScreen() {
           ) : null}
         </View>
 
-        <Card onLayout={onCharacterLibraryLayout}>
+        <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="people-outline" size={16} color={theme.colors.primaryMuted} />
@@ -694,7 +677,10 @@ export default function CharacterLibraryScreen() {
           {characterDisplayItems.length === 0 ? (
             <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
           ) : null}
-          <View style={styles.characterGrid} onLayout={onCharacterGridLayout}>
+          <View
+            style={styles.characterGrid}
+            onLayout={event => onCharacterGridLayout(event, Math.ceil(characterDisplayItems.length / 2))}
+          >
             {displayedCharacters.map(item => {
               const selected = !activeIsGroup && item.id === activeId;
               const checked = selectedIds.includes(item.id);
@@ -702,7 +688,6 @@ export default function CharacterLibraryScreen() {
                 <TouchableOpacity
                   key={item.id}
                   style={[styles.characterCard, selected && styles.characterCardActive]}
-                  onLayout={event => onCharacterItemLayout(item.id, event)}
                   onPress={() => (editMode ? (item.id === 'default' ? null : toggleSelect(item.id)) : openCharacterDetail(item.id))}
                   activeOpacity={0.85}
                   accessibilityRole="button"
@@ -770,7 +755,6 @@ export default function CharacterLibraryScreen() {
                 <TouchableOpacity
                   key={`group-${group.id}`}
                   style={[styles.characterCard, selected && styles.characterCardActive]}
-                  onLayout={event => onCharacterItemLayout(`group-${group.id}`, event)}
                   onPress={() => onOpenGroup(group)}
                   activeOpacity={0.85}
                   accessibilityRole="button"
