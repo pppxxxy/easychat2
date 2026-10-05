@@ -134,3 +134,13 @@ Entries discovered by the Agent during task execution should follow this format:
   - **Kotlin 没有 `String(String)` 构造器**：`String(x)` 只接受 ByteArray/CharArray/StringBuffer/StringBuilder；x 已是 String 时应直接 `x.trim()`，否则报「None of the following candidates is applicable」。
   - **Z 链并入 main 后原生未编译即合入**：这两处错误都是 Z 线新加的原生代码，JS 门禁（lint/test/export）全绿却编译不过。凡是改动 `plugins/*/android/*.kt` 的提交，CI 的 Gradle workflow 是唯一可信验证；合并前应至少跑一次 APK 构建。
   - 教训：main 自 Z 三链并入起未成功构建过，Native 错误是逐个暴露的；这类修复要一次把同一批新增 Kotlin 全审一遍，别只修 CI 报的第一处。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z2 批次（工作区思考强度/上下文占用/compact 压缩指令）实现与测试
+- Category: Testing Methods
+- Instructions:
+  - `tests/i18n.test.mjs` 把「记忆总结」等列为**提示词片段**并反向断言词条表不得包含——给聊天/记忆相关 UI 写中英文案时要绕开这些片段（如改说「总结开关」），否则 i18n 测试红。
+  - `getMessagesBySession(id)` 直接返回消息数组，**不是** `{ messages }` 包装（MomentsView/MemoryScreen 均按数组用）；跨层传消息前先核形状。
+  - 记忆总结两路径语义：手动（`runSummarize(manual=true)`，含聊天 compact 指令）绕过「记忆总结」总开关与条数阈值；自动路径受总开关约束，80% 上下文占用（`chat/contextUsage.js` 的 AUTO_COMPACT_RATIO）只是绕过**条数阈值**、不绕过总开关。
+  - 经 bash heredoc→Python 写多行源码断言时 `\n` 转义会塌成真实换行，字符串字面量跨行直接 SyntaxError；源码断言优先拆成**相邻两条单行断言**或用正则 `\s*` 连接。
