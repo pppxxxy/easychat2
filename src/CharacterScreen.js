@@ -1007,6 +1007,15 @@ setWorldInfo(next.worldInfo);
     return list.filter(item => groupNameOf(item).toLowerCase().includes(text));
   }, [sessions, query, groupNameOf]);
 
+  // 页头「当前：…」用的群聊对象：从全部会话里找，不受搜索结果过滤影响，
+  // 否则搜了个不匹配的词时页头会显示成「群聊」而丢掉真实群名。
+  const activeGroupSession = useMemo(
+    () => (Array.isArray(sessions) ? sessions : []).find(
+      item => item && item.type === 'group' && item.id === activeSessionId
+    ) || null,
+    [sessions, activeSessionId]
+  );
+
   const characterDisplayItems = useMemo(() => [
     ...visibleCharacters.map(item => ({
       id: item.id,
@@ -1452,6 +1461,15 @@ setWorldInfo(next.worldInfo);
         <View style={styles.pageHeader}>
           <Text style={styles.title}>角色</Text>
           <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
+          {/* 「当前角色」由卡片文字角标改为页头 pill：卡片上只留描边 + 圆点，页头给全名 */}
+          <View style={styles.currentPill}>
+            <View style={styles.currentPillDot} />
+            <Text style={styles.currentPillText} numberOfLines={1}>
+              {`当前：${activeIsGroup
+                ? groupNameOf(activeGroupSession || {})
+                : ((character && character.name) || '未命名角色')}`}
+            </Text>
+          </View>
           {isValidAigcMeta(character && character.aigcMeta) ? (
             <Text style={styles.aigcBadge}>{`本卡由 AI 生成 · 内容编号 ${character.aigcMeta.contentCode || ''}`}</Text>
           ) : null}
@@ -1575,6 +1593,7 @@ setWorldInfo(next.worldInfo);
                       <Image source={{ uri: item.avatarUri }} style={styles.characterCardImage} />
                     ) : (
                       <View style={styles.characterCardFallback}>
+                        <View style={styles.characterCardFallbackDeep} />
                         <Text style={styles.characterCardFallbackText}>
                           {(item.name || '?').charAt(0)}
                         </Text>
@@ -1583,10 +1602,6 @@ setWorldInfo(next.worldInfo);
                     {editMode && item.id !== 'default' ? (
                       <View style={[styles.characterCardCheck, checked && styles.characterCardCheckOn]}>
                         <Ionicons name={checked ? 'checkmark' : 'ellipse-outline'} size={15} color={theme.colors.primaryContrast} />
-                      </View>
-                    ) : selected ? (
-                      <View style={styles.characterCardBadge}>
-                        <Text style={styles.characterCardBadgeText}>当前</Text>
                       </View>
                     ) : null}
                     {item.id !== 'default' && !editMode ? (
@@ -1615,19 +1630,16 @@ setWorldInfo(next.worldInfo);
                         </TouchableOpacity>
                       </>
                     ) : null}
-                  </View>
-                  <View style={styles.characterCardNameBar}>
-                    <Text style={styles.characterCardName} numberOfLines={1}>
-                      {item.name || '未命名角色'}
-                    </Text>
-                  </View>
-                  {item.tags && item.tags.length > 0 ? (
-                    <View style={styles.characterCardTags}>
-                      {item.tags.slice(0, 3).map((tag, index) => (
-                        <Text key={`${tag}-${index}`} style={styles.characterCardTag} numberOfLines={1}>{tag}</Text>
-                      ))}
+                    {/* 名称叠在封面底部：两段遮罩 + 文字，替代原来的独立名称条与「当前」文字角标 */}
+                    <View style={styles.characterCardScrim} pointerEvents="none" />
+                    <View style={styles.characterCardScrimDeep} pointerEvents="none" />
+                    <View style={styles.characterCardNameOverlay} pointerEvents="none">
+                      {selected ? <View style={styles.characterCardCurrentDot} /> : null}
+                      <Text style={styles.characterCardName} numberOfLines={1}>
+                        {item.name || '未命名角色'}
+                      </Text>
                     </View>
-                  ) : null}
+                  </View>
                 </TouchableOpacity>
               );
             })}
@@ -1649,24 +1661,21 @@ setWorldInfo(next.worldInfo);
                       <Image source={{ uri: group.avatarUri }} style={styles.characterCardImage} />
                     ) : (
                       <View style={styles.characterCardFallback}>
+                        <View style={styles.characterCardFallbackDeep} />
                         <Ionicons name="people" size={24} color={theme.colors.primarySoft} />
                       </View>
                     )}
-                    {selected ? (
-                      <View style={styles.characterCardBadge}>
-                        <Text style={styles.characterCardBadgeText}>当前</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={styles.characterCardNameBar}>
-                    <Text style={styles.characterCardName} numberOfLines={1}>
-                      {groupNameOf(group)}
-                    </Text>
-                  </View>
-                  <View style={styles.characterCardTags}>
-                    <Text style={styles.characterCardTag} numberOfLines={1}>
-                      {`${(group.members || []).length} 人群聊`}
-                    </Text>
+                    <View style={styles.characterCardGroupBadge}>
+                      <Ionicons name="people" size={12} color={theme.colors.primaryContrast} />
+                    </View>
+                    <View style={styles.characterCardScrim} pointerEvents="none" />
+                    <View style={styles.characterCardScrimDeep} pointerEvents="none" />
+                    <View style={styles.characterCardNameOverlay} pointerEvents="none">
+                      {selected ? <View style={styles.characterCardCurrentDot} /> : null}
+                      <Text style={styles.characterCardName} numberOfLines={1}>
+                        {groupNameOf(group)}
+                      </Text>
+                    </View>
                   </View>
                 </TouchableOpacity>
               );
