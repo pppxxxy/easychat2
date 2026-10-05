@@ -153,3 +153,15 @@ Entries discovered by the Agent during task execution should follow this format:
   - **Metro 对不存在的具名导入不报错**：`import { X } from './y.js'` 而 y.js 只有 default 导出时，X 绑定为 undefined——lint、Node 单测、`expo export` 全部静默通过，直到运行时按用途炸开（组件=Element type invalid；函数=TypeError not a function）。生产链排查这类崩溃时先查具名/默认导入错配。
   - 守卫已固化：`tests/namedImportSanity.test.mjs`（@babel/parser AST 全仓库扫描，处理 as 别名/export * 转发/解构导出）；新增具名导出或改名时若漏改导入方，npm test 会红。
   - 描述崩溃时组件名要对着代码核（本次报告里的「BookItem 列表项」并不存在，实为 BookReaderView 导入错配），格式相关的第一直觉（txt/docx 差异）也要先用最小复现排除。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z2 批次：GitHub MCP 连接（风险分级）+ 工作区环境配置下载
+- Category: Workflow & Collaboration
+- Instructions:
+  - **安全约束（长期有效，用户裁决）**：GitHub MCP 工具白名单分级（只读直放/写入逐条确认/其余拒绝），删除分支、删除文件、强推、管理类**无条件禁止**——即使用户同意也不可解锁；改 riskGate.js 前先读 SMOKE §9.12 与 SECURITY §7.5。
+  - Metro 对不存在的具名导出不报错（运行时 undefined），除 namedImportSanity 守卫外，新增跨模块导出时顺手跑一遍 npm test 即可拦截。
+  - 工作区写入白名单 paths.js 扩展约定：**精确文件名清单（CONFIG_FILE_NAMES）只增不改**，不做任意点文件通配。
+  - 本环境超长 bash heredoc 会被截断、`\` 会折半：大改动一律用 Edit 工具；向 JS 写入 `
+` 字面量时用 `chr(92)+'n'` 构造。
+  - 注入验证两个新抓的盲区：子串断言会被注释掉的调用骗过（用行首锚定正则）；「默认拒绝」类守卫的行为断言测不到模式本身（补源码断言钉住模式与白名单交集）。

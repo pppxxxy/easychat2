@@ -188,6 +188,16 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - 报错信息在展示与复制前会经 `src/storage/secrets.js` 的 `maskSecrets` 屏蔽 `sk-...` 与 `Bearer ...`，但仍可能包含其他上下文，公开分享日志前请再次检查。
 - 本地聊天记录与 API 配置均以明文 JSON 存储，未加密。
 
+## 7.5 GitHub MCP 连接（z1005z2 新增）
+
+设置 → 工作区卡片的「GitHub 连接（MCP）」把 GitHub 远程 MCP 服务器接入工作区角色。披露如下：
+
+- **凭据**：访问令牌（PAT）或 OAuth 令牌三字段（`githubToken`/`githubAccessToken`/`githubRefreshToken`）经存储边界自动搬入系统安全存储（Android Keystore），AsyncStorage 中仅存引用；令牌绝不进日志与模型上下文。
+- **网络**：连接验证与工具调用由本机直连 MCP 端点（默认 `https://api.githubcopilot.com/mcp/`，可改，仅允许 https）；网页认证另会访问 GitHub 授权页并携带 PKCE 授权码回调（`easychat2://` scheme）。所有请求携带 `Authorization: Bearer <令牌>`。
+- **风险分级（最高约束，用户裁决 2026-10-05）**：工具采用**白名单**分级——只读工具直接可用；提交/推送/开分支/发评论类每次调用需用户逐条确认（弹框展示完整参数，拒绝即不执行）；**删除分支、删除文件、强推、管理类操作无条件禁止**：不注册、不暴露给模型、执行层二次拦截，**即使用户同意也不可解锁**，没有开关或后门。未收录的新工具默认拒绝。
+- **双保险**：`src/mcp/riskGate.js` 决定注册，`src/workspace/mcpTools.js` 在每次执行前重查分级；`tests/namedImportSanity.test.mjs` 之外另有 `tests/mcpTools.test.mjs` 钉死硬禁行为。
+- **模型可见性**：只有通过分级的工具会出现在模型工具列表；工具输出截断至 16K 字符，防止撑爆上下文。
+
 ## 8. 漏洞报告
 
 发现安全问题请通过仓库 Issues 反馈（https://github.com/pppxxxy/easychat2/issues），或按仓库主页提供的联系方式私下沟通。请勿在公开 Issue 中粘贴真实 API Key 或他人隐私数据。
