@@ -32,6 +32,7 @@ export const CAPABILITY_LIMITS = Object.freeze([
   { id: 'externalRoot', labelKey: 'workspace.capability.limit.externalRoot' },
   { id: 'shellScope', labelKey: 'workspace.capability.limit.shellScope' },
   { id: 'localModel', labelKey: 'workspace.capability.limit.localModel' },
+  { id: 'githubImport', labelKey: 'workspace.capability.limit.githubImport' },
 ]);
 
 export const CAPABILITY_TITLE_KEY = 'workspace.capability.title';
