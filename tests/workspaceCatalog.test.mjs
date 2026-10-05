@@ -1,0 +1,79 @@
+// 环境与配置下载中心：目录纯数据测试 + 面板/设置页接线源码断言 + paths 白名单扩展。
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { CATALOG_CATEGORIES, CATALOG_ITEMS, buildCatalogContent, findCatalogItem } from '../src/workspace/catalog.js';
+import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../src/workspace/paths.js';
+
+function readSource(relativePath) {
+  return fs.readFileSync(path.resolve(relativePath), 'utf8');
+}
+
+test('目录：id/文件名唯一，内容或生成函数必有其一，文件名必须在写入白名单内', () => {
+  const ids = CATALOG_ITEMS.map(item => item.id);
+  assert.equal(new Set(ids).size, ids.length, 'id 不得重复');
+  const files = CATALOG_ITEMS.map(item => item.file);
+  assert.equal(new Set(files).size, files.length, '目标文件名不得重复');
+  for (const item of CATALOG_ITEMS) {
+    assert.ok(CATALOG_CATEGORIES.includes(item.category), `分类非法：${item.category}`);
+    assert.ok(typeof item.content === 'string' || typeof item.build === 'function', `${item.id} 缺内容`);
+    assert.ok(item.titleKey && item.descKey, `${item.id} 缺词条键`);
+    assert.ok(
+      isAllowedWorkspaceOutputFile(item.file),
+      `${item.file} 必须在 paths.js 写入白名单内（否则下载中心写不进沙盒）`
+    );
+    assert.ok(isAllowedWorkspaceFile(item.file));
+  }
+});
+
+test('生成器：.gitconfig 吃输入，留空落占位值；静态项返回内置内容', () => {
+  const gitconfig = findCatalogItem('gitconfig');
+  const filled = buildCatalogContent(gitconfig, { userName: 'zh', userEmail: 'zh@example.com' });
+  assert.match(filled, /name = zh/);
+  assert.match(filled, /email = zh@example\.com/);
+  const empty = buildCatalogContent(gitconfig, {});
+  assert.match(empty, /name = 你的名字/);
+  const gitignore = findCatalogItem('gitignore');
+  assert.match(buildCatalogContent(gitignore, {}), /node_modules\//);
+  assert.throws(() => buildCatalogContent(null, {}), /catalog item/);
+});
+
+test('paths 白名单：配置文件名清单按完整名放行，任意点文件仍拒绝', () => {
+  for (const name of ['.gitignore', '.gitconfig', '.npmrc', 'pip.conf', '.editorconfig']) {
+    assert.equal(isAllowedWorkspaceFile(name), true, name);
+    assert.equal(isAllowedWorkspaceOutputFile(name), true, name);
+  }
+  assert.equal(isAllowedWorkspaceFile('.some-random-dotfile'), false, '不做通配放行');
+  assert.equal(isAllowedWorkspaceFile('sub/.gitignore'), true, '子目录里的白名单名也放行');
+  assert.equal(isAllowedWorkspaceFile('script.sh'), false);
+});
+
+test('面板接线：下载中心入口/写入走 store/自定义下载的三道闸', () => {
+  const source = readSource('src/WorkspacePanel.js');
+  assert.ok(source.includes("t('workspace.panel.catalog.entry')"), '动作行有下载中心入口');
+  assert.ok(source.includes('store.writeWorkspaceFile({ characterId, path, content })'), '写入与手写同一路径（自动进历史改动）');
+  // 自定义下载的三道闸：https、512KB 上限、命名清洗
+  assert.ok(source.includes('/^https:\\/\\//.test(url)'), '仅 https');
+  assert.ok(source.includes('512 * 1024'), '大小上限');
+  assert.ok(source.includes('isAllowedWorkspaceOutputFile(rawName)'), '白名单名原样保留，其余清洗');
+});
+
+test('设置页接线：PAT 与网页认证两条路 + 断开 + 错误码映射', () => {
+  const source = readSource('src/SettingsScreen.js');
+  assert.ok(source.includes('connectGithubMcpWithToken'), '连接入口');
+  assert.ok(source.includes('runOAuthWebFlow'), '网页认证流');
+  assert.ok(source.includes('captureOAuthCallback()'), '回调捕获');
+  assert.ok(source.includes("redirectUri: GITHUB_OAUTH_REDIRECT"), '回调走 app scheme');
+  assert.ok(source.includes('clearGithubMcpCredentials'), '断开清理');
+  assert.ok(source.includes('GITHUB_ERROR_KEYS'), '错误码 → t() 映射表存在');
+});
+
+test('OAuth 回跳依赖 app.json 的 scheme（深链回调的载体）', () => {
+  const appJson = JSON.parse(readSource('app.json'));
+  assert.equal(appJson.expo.scheme, 'easychat2');
+  const bridge = readSource('src/mcp/oauthBridge.js');
+  assert.ok(bridge.includes("GITHUB_OAUTH_REDIRECT = 'easychat2://github-mcp-callback'"), '回跳 URI 与 scheme 对齐');
+});

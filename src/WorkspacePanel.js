@@ -47,9 +47,10 @@ import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '.
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from './workspace/native.js';
-import { isAllowedWorkspaceFile } from './workspace/paths.js';
+import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from './workspace/paths.js';
 import { ensureDocxFileName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
+import { CATALOG_CATEGORIES, catalogItemsByCategory, buildCatalogContent, findCatalogItem } from './workspace/catalog.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -105,6 +106,12 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   const [changes, setChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState('');
+  // 环境与配置下载：目录弹层、需输入的模板表单（.gitconfig 的提交身份）、自定义 URL。
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogInputs, setCatalogInputs] = useState({});
+  const [catalogBusyId, setCatalogBusyId] = useState('');
+  const [customUrl, setCustomUrl] = useState('');
+  const [customBusy, setCustomBusy] = useState(false);
   // 思考强度（全局设置，作用于聊天；含工作区角色的会话）。
   const [thinking, setThinking] = useState({ enabled: false, level: 'medium' });
   // 上下文占用（工作区角色的最近一个会话；null = 无会话）。
@@ -413,6 +420,74 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     ]);
   }, [characterId, t]);
 
+  // —— 环境与配置下载 ——
+  // 写入走 store.writeWorkspaceFile：与面板手写同一条路径，自动进历史改动。
+  const writeCatalogFile = useCallback(async (path, content) => {
+    const store = storeRef.current;
+    if (!store) {
+      Alert.alert(t('workspace.panel.err.save'), t('workspace.panel.err.save'));
+      return;
+    }
+    try {
+      await store.writeWorkspaceFile({ characterId, path, content });
+      if (!mountedRef.current) return;
+      await refresh();
+      Alert.alert(t('workspace.panel.catalog.doneTitle'), t('workspace.panel.catalog.doneBody', { file: path }));
+    } catch (caught) {
+      Alert.alert(t('workspace.panel.err.save'), t('workspace.panel.err.save'));
+    }
+  }, [characterId, refresh, t]);
+
+  const handleCatalogWrite = useCallback(async itemId => {
+    const item = findCatalogItem(itemId);
+    if (!item || catalogBusyId) return;
+    setCatalogBusyId(itemId);
+    try {
+      const content = buildCatalogContent(item, catalogInputs[itemId] || {});
+      await writeCatalogFile(item.file, content);
+    } finally {
+      if (mountedRef.current) setCatalogBusyId('');
+    }
+  }, [catalogBusyId, catalogInputs, writeCatalogFile]);
+
+  // 自定义 URL 下载：仅 https、20s 超时、512KB 上限；文件名取 URL 末段再过命名清洗。
+  const handleCustomDownload = useCallback(async () => {
+    if (customBusy) return;
+    const url = String(customUrl || '').trim();
+    if (!/^https:\/\//.test(url)) {
+      Alert.alert(t('workspace.panel.catalog.custom.title'), t('workspace.panel.catalog.custom.errHttp'));
+      return;
+    }
+    setCustomBusy(true);
+    try {
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = setTimeout(() => { if (controller) controller.abort(); }, 20000);
+      let response;
+      try {
+        response = await fetch(url, { signal: controller ? controller.signal : undefined });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      if (text.length > 512 * 1024) {
+        Alert.alert(t('workspace.panel.catalog.custom.title'), t('workspace.panel.catalog.custom.errSize'));
+        return;
+      }
+      const rawName = url.split('/').pop().split('?')[0] || 'download.txt';
+      // 白名单内的名字（如 .gitignore）原样保留；其余走命名清洗并补 .txt。
+      const path = isAllowedWorkspaceOutputFile(rawName)
+        ? rawName
+        : ensureTextFileName(sanitizeWorkspaceFileName(rawName, 'download'));
+      await writeCatalogFile(path, text);
+      setCustomUrl('');
+    } catch (caught) {
+      Alert.alert(t('workspace.panel.catalog.custom.title'), t('workspace.panel.catalog.custom.errFetch'));
+    } finally {
+      if (mountedRef.current) setCustomBusy(false);
+    }
+  }, [customBusy, customUrl, t, writeCatalogFile]);
+
   // 文件行渲染（主列表与「查看文件」共用同一份，避免两处漂移）。
   const renderFileRow = name => (
     <View key={name} style={styles.fileRow}>
@@ -555,6 +630,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             >
               <Ionicons name="folder-open-outline" size={15} color={theme.colors.primaryContrast} />
               <Text style={styles.actionText}>{t('workspace.panel.viewFiles')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setCatalogOpen(true)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
+              <Text style={styles.actionText}>{t('workspace.panel.catalog.entry')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -716,6 +799,83 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           </View>
         </Modal>
 
+        <Modal visible={catalogOpen} animationType="slide" onRequestClose={() => setCatalogOpen(false)}>
+          <View style={styles.container}>
+            <SheetHeader title={t('workspace.panel.catalog.title')} onClose={() => setCatalogOpen(false)} />
+            <ScrollView contentContainerStyle={styles.body}>
+              <FieldHint>{t('workspace.panel.catalog.hint')}</FieldHint>
+              {CATALOG_CATEGORIES.map(category => {
+                const items = catalogItemsByCategory(category);
+                if (items.length === 0) return null;
+                return (
+                  <View key={category} style={styles.catalogSection}>
+                    <FieldLabel>{t(`workspace.panel.catalog.category.${category}`)}</FieldLabel>
+                    {items.map(item => {
+                      const inputs = item.inputs || [];
+                      const busy = catalogBusyId === item.id;
+                      return (
+                        <View key={item.id} style={styles.catalogItem}>
+                          <View style={styles.catalogItemMain}>
+                            <Text style={styles.catalogItemTitle} numberOfLines={1}>{t(item.titleKey)}</Text>
+                            <TouchableOpacity
+                              style={[styles.catalogWriteButton, busy && styles.actionButtonDisabled]}
+                              disabled={!!catalogBusyId}
+                              onPress={() => handleCatalogWrite(item.id)}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={styles.catalogWriteText}>{t('workspace.panel.catalog.write')}</Text>
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={styles.catalogItemDesc}>{t(item.descKey)}</Text>
+                          <Text style={styles.catalogItemFile}>{item.file}</Text>
+                          {inputs.length > 0 ? (
+                            <View style={styles.catalogInputs}>
+                              {inputs.map(input => (
+                                <TextField
+                                  key={input.key}
+                                  style={styles.input}
+                                  label={t(input.labelKey)}
+                                  placeholder={t(input.placeholderKey)}
+                                  value={(catalogInputs[item.id] && catalogInputs[item.id][input.key]) || ''}
+                                  onChangeText={value => setCatalogInputs(current => ({
+                                    ...current,
+                                    [item.id]: { ...(current[item.id] || {}), [input.key]: value },
+                                  }))}
+                                />
+                              ))}
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+
+              <View style={styles.catalogSection}>
+                <FieldLabel>{t('workspace.panel.catalog.custom.title')}</FieldLabel>
+                <TextField
+                  style={styles.input}
+                  placeholder={t('workspace.panel.catalog.custom.placeholder')}
+                  value={customUrl}
+                  onChangeText={setCustomUrl}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <View style={styles.formActions}>
+                  <PrimaryButton
+                    title={customBusy ? t('workspace.panel.catalog.custom.busy') : t('workspace.panel.catalog.custom.action')}
+                    small
+                    onPress={handleCustomDownload}
+                  />
+                </View>
+                <FieldHint>{t('workspace.panel.catalog.custom.hint')}</FieldHint>
+              </View>
+            </ScrollView>
+          </View>
+        </Modal>
+
         <Modal visible={!!preview} animationType="slide" onRequestClose={() => setPreview(null)}>
           <View style={styles.container}>
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
@@ -854,7 +1014,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   changeDetailLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(10), fontWeight: '700', marginTop: 4 },
   changeDetailText: { color: theme.colors.text, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 2 },
   errorText: { color: theme.colors.danger || theme.colors.text, fontSize: fonts.scaled(12), marginBottom: 10 },
-  actionRow: { flexDirection: 'row', marginBottom: 12 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -865,6 +1025,27 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: 10,
   },
   actionButtonDisabled: { opacity: 0.5 },
+  catalogSection: { marginBottom: 16 },
+  catalogItem: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    padding: 12,
+    marginBottom: 10,
+  },
+  catalogItemMain: { flexDirection: 'row', alignItems: 'center' },
+  catalogItemTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700', flex: 1, marginRight: 8 },
+  catalogItemDesc: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 3 },
+  catalogItemFile: { color: theme.colors.primary, fontSize: fonts.scaled(11), marginTop: 4 },
+  catalogWriteButton: {
+    borderRadius: tokens.metrics.buttonRadius,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  catalogWriteText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(12), fontWeight: '600' },
+  catalogInputs: { marginTop: 8 },
   actionText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 5 },
   formCard: {
     backgroundColor: theme.colors.surface,
