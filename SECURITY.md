@@ -24,7 +24,8 @@
    | `@easychat2_music_index` + `@easychat2_music_item::<id>`、`@easychat2_music_comments::<songId>` | 本地音乐库（曲库与时间轴打点）与听歌陪伴评论（评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_books_index` + `@easychat2_books_item::<id>`、`@easychat2_book_comments::<bookId>` | 本地书架（书目、阅读进度与目录）与陪读评论（评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_screen_watch_comments` | 看屏幕评论（含对应截图的本机路径；评论只在面板内呈现，不进聊天会话） |
-   | `@easychat2_workspace` | 工作区设置（模式 ask/read/write、工作区文件夹位置、命令执行开关）；沙盒文件本身存于本机（默认 `documentDirectory/workspace/`，或你在设置里选择的外部文件夹），不在此键 |
+   | `@easychat2_workspace` | 工作区设置（模式 ask/read/write、工作区文件夹位置、命令执行开关、工作区角色 id）；沙盒文件本身存于本机（默认 `documentDirectory/workspace/`，或你在设置里选择的外部文件夹），不在此键 |
+   | `@easychat2_workspace_changes` | 工作区改动历史（每次经工具/面板写入、编辑、删除文件追加一条：路径、类型、时间与编辑摘录——摘录截断存储，仅本机、不上报）；清空历史不影响文件本身 |
    | `@easychat2_location` | 真实地图分享开关、位置感知开关（独立 opt-in，缺省关闭）、最近一次成功位置（经纬度、全量描述与区县级粗描述）与可选瓦片模板；关闭时不取点；**位置感知未开启时不向任何模型发送位置** |
    | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
