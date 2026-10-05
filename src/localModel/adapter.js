@@ -225,11 +225,15 @@ export async function runLocalModel(messages, model, { onToken, onReasoning, sig
   // 会话切换时清 KV cache：常驻上下文跨对话会残留上一段对话的缓存，导致
   // 新对话的思考/回复「串」进上一段对话的内容。同一对话内保留缓存以复用前缀。
   const nextConversationKey = String(conversationKey || '');
+  // fail-closed：**没钥匙也清**。此前 key 为空时直接沿用缓存——而总结/群聊/动态
+  // 回复等路径不传 key，上一段对话的 KV 缓存会串进这些独立生成（注释自己都写过
+  // 这个后果）。方向必须反过来：宁可损失前缀复用，不可跨对话串上下文。
+  const shouldClearCache = !nextConversationKey
+    || loaded.conversationKey !== nextConversationKey;
   if (
-    nextConversationKey
+    shouldClearCache
     && loaded.context
     && typeof loaded.context.clearCache === 'function'
-    && loaded.conversationKey !== nextConversationKey
   ) {
     try {
       await loaded.context.clearCache();

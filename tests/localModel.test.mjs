@@ -361,6 +361,12 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   // 跨对话必须清 KV cache（llama.rn clearCache 文档要求；否则新对话串上一段对话）
   assert.ok(adapter.includes('await loaded.context.clearCache()'), '会话切换应调用 clearCache');
   assert.ok(adapter.includes('loaded.conversationKey !== nextConversationKey'), '同对话不应重复清缓存');
+  // fail-closed（2026-10-05 审核报告）：不传 conversationKey 的路径（总结/群聊/动态回复）
+  // 也必须清缓存——没钥匙视为独立对话，宁可损失前缀复用也不串上下文。
+  assert.ok(
+    adapter.includes('const shouldClearCache = !nextConversationKey'),
+    '空 conversationKey 必须也触发清缓存（fail-closed）'
+  );
   assert.ok(adapter.includes('export async function clearLocalModelCache'), '应导出手动清缓存入口');
   assert.ok(adapter.includes('export function isLocalModelLoaded'), '应导出已加载判定（面板显示用）');
   // 思考流：<think> 拆分后思考走 onReasoning、正文走 onToken
