@@ -41,6 +41,7 @@ import {
 } from './proactive/proactiveMessage.js';
 import { useApp } from './context/AppContext.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { buildProactiveRequestJson } from './proactive/proactiveRequest.js';
 
 // 互动：让角色在指定时间主动发消息。面板负责编辑（角色 / 多个时间 / 模式 / API 来源），
@@ -56,6 +57,7 @@ function rolePersona(character) {
 // 点开才展开候选列表，选中后自动收起。
 function CollapsibleSelect({ label, value, options, onSelect, emptyHint, styles, theme }) {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
   return (
     <View style={styles.collapsible}>
       <TouchableOpacity
@@ -65,12 +67,12 @@ function CollapsibleSelect({ label, value, options, onSelect, emptyHint, styles,
         accessibilityRole="button"
       >
         <Text style={styles.collapsibleLabel}>{label}</Text>
-        <Text style={styles.collapsibleValue} numberOfLines={1}>{value || '未选择'}</Text>
+        <Text style={styles.collapsibleValue} numberOfLines={1}>{value || t('proactive.select.none')}</Text>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textFaint} />
       </TouchableOpacity>
       {open ? (
         options.length === 0 ? (
-          <Text style={styles.hint}>{emptyHint || '暂无可选项'}</Text>
+          <Text style={styles.hint}>{emptyHint || t('proactive.select.empty')}</Text>
         ) : (
           <View style={styles.collapsibleBody}>
             {options.map(option => {
@@ -97,12 +99,15 @@ function CollapsibleSelect({ label, value, options, onSelect, emptyHint, styles,
 }
 
 // 主动消息类型：与原生 MessageType 对齐。问好的早/中/晚由原生按触发时刻自动选。
-const MESSAGE_TYPE_OPTIONS = [
-  { value: 'DEFAULT', label: '默认' },
-  { value: 'CARE', label: '关心心情' },
-  { value: 'GREETING', label: '问好' },
-  { value: 'CUSTOM', label: '自定义' },
-];
+// label 走 i18n：在组件内用 buildMessageTypeOptions(t) 构建。
+function buildMessageTypeOptions(t) {
+  return [
+    { value: 'DEFAULT', label: t('proactive.type.default') },
+    { value: 'CARE', label: t('proactive.type.care') },
+    { value: 'GREETING', label: t('proactive.type.greeting') },
+    { value: 'CUSTOM', label: t('proactive.type.custom') },
+  ];
+}
 
 function TimeField({ value, onCommit, theme, styles }) {
   const [text, setText] = useState(String(value).padStart(2, '0'));
@@ -139,6 +144,8 @@ export default function ProactivePanel({ embedded = false }) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters, sessions } = useApp();
+  const { t } = useTranslation();
+  const messageTypeOptions = useMemo(() => buildMessageTypeOptions(t), [t]);
   const available = isProactiveMessageAvailable();
 
   const [loading, setLoading] = useState(true);
@@ -199,11 +206,11 @@ export default function ProactivePanel({ embedded = false }) {
         : ((active && active.activeModel) || models[0] || ''));
       await refreshPermissions();
     } catch (error) {
-      setNotice('读取互动设置失败，请重试。');
+      setNotice(t('proactive.notice.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [refreshPermissions]);
+  }, [refreshPermissions, t]);
 
   useEffect(() => {
     load().catch(() => {});
@@ -238,11 +245,11 @@ export default function ProactivePanel({ embedded = false }) {
         const preview = String(item.preview || '').trim();
         return {
           value: String(item.id || ''),
-          label: preview || '（空会话）',
+          label: preview || t('proactive.session.empty'),
         };
       });
-    return [{ value: '', label: '新建对话' }, ...list];
-  }, [sessions, activeRoleId]);
+    return [{ value: '', label: t('proactive.session.new') }, ...list];
+  }, [sessions, activeRoleId, t]);
   const sessionLabelById = useMemo(() => {
     const map = new Map();
     sessionOptions.forEach(option => map.set(option.value, option.label));
@@ -261,7 +268,7 @@ export default function ProactivePanel({ embedded = false }) {
       {
         slotId: makeProactiveSlotId(),
         roleId: character.id,
-        roleName: character.name || '角色',
+        roleName: character.name || t('proactive.default.roleName'),
         persona: rolePersona(character),
         hour: 8,
         minute: 0,
@@ -275,7 +282,7 @@ export default function ProactivePanel({ embedded = false }) {
         sessionTargetId: '',
       },
     ]);
-  }, [characters, activeRoleId]);
+  }, [characters, activeRoleId, t]);
 
   const removeSlot = useCallback(slotId => {
     setSlots(prev => prev.filter(item => item.slotId !== slotId));
@@ -297,11 +304,11 @@ export default function ProactivePanel({ embedded = false }) {
 
   const save = useCallback(async () => {
     if (!available) {
-      setNotice('当前构建未包含互动原生能力，请更新应用。');
+      setNotice(t('proactive.notice.nativeUnavailable'));
       return;
     }
     if (!currentConfig || !String(currentConfig.baseUrl || '').trim()) {
-      setNotice('所选 API 配置缺少地址，请先在设置页补全。');
+      setNotice(t('proactive.notice.configMissingUrl'));
       return;
     }
     // 三种协议（openai / openai-responses / anthropic）都支持：端点、鉴权头与
@@ -312,7 +319,7 @@ export default function ProactivePanel({ embedded = false }) {
     const proactiveAuth = buildProactiveAuthSettings({ protocol: proactiveProtocol, config: currentConfig });
     const proactiveEndpoint = buildProactiveEndpoint(proactiveProtocol, currentConfig.baseUrl);
     if (!proactiveAuth.authHeader) {
-      setNotice('所选 API 配置的鉴权头为空，请先在设置页补全。');
+      setNotice(t('proactive.notice.configMissingAuth'));
       return;
     }
     setSaving(true);
@@ -373,7 +380,7 @@ export default function ProactivePanel({ embedded = false }) {
         }
         const payload = {
           ...slot,
-          roleName: (character && character.name) || slot.roleName || '角色',
+          roleName: (character && character.name) || slot.roleName || t('proactive.default.roleName'),
           persona: character ? rolePersona(character) : slot.persona,
           sessionTargetId: boundValid ? boundId : '',
           requestJson,
@@ -398,44 +405,44 @@ export default function ProactivePanel({ embedded = false }) {
       });
       persistedSlotIdsRef.current = saved.slots.map(item => item.slotId);
       setSlots(saved.slots);
-      setNotice(`已保存 ${saved.slots.filter(item => item.enabled).length} 个主动消息时间`);
+      setNotice(t('proactive.notice.saved', { n: saved.slots.filter(item => item.enabled).length }));
     } catch (error) {
       // 回滚本轮已排进原生的新槽；旧槽保留原生新排期（revision 已更新且配置完整，
       // 取消反而会杀掉原本正常工作的任务），等下次成功保存时对齐 JS 记录。
       for (const slotId of newSlotIdsThisRun) {
         await cancelDailySchedule(slotId).catch(() => {});
       }
-      setNotice('保存失败，请检查权限后重试。');
+      setNotice(t('proactive.notice.saveFailed'));
     } finally {
       setSaving(false);
     }
-  }, [available, currentConfig, configId, model, slots, characters, sessions, timeAware]);
+  }, [available, currentConfig, configId, model, slots, characters, sessions, timeAware, t]);
 
   const requestNotification = useCallback(async () => {
     const granted = await requestNotificationPermission();
     await refreshPermissions();
-    setNotice(granted ? '通知权限已开启' : '未获得通知权限，通知将无法展示');
-  }, [refreshPermissions]);
+    setNotice(granted ? t('proactive.notice.notificationGranted') : t('proactive.notice.notificationDenied'));
+  }, [refreshPermissions, t]);
 
   const enableExactAlarm = useCallback(async () => {
     if (await canScheduleExactAlarms()) {
       await refreshPermissions();
-      setNotice('精确闹钟权限已可用');
+      setNotice(t('proactive.notice.exactAlarmOk'));
       return;
     }
     await openExactAlarmSettings();
-    setNotice('请在系统设置中允许「闹钟和提醒」，返回后可再次保存。');
-  }, [refreshPermissions]);
+    setNotice(t('proactive.notice.exactAlarmGuide'));
+  }, [refreshPermissions, t]);
 
   const openBatterySettings = useCallback(async () => {
     await openBatteryOptimizationSettings();
-    setNotice('请在系统设置中把本应用加入电池优化白名单，返回后会自动刷新状态。');
-  }, []);
+    setNotice(t('proactive.notice.batteryGuide'));
+  }, [t]);
 
   const openAutostart = useCallback(async () => {
     await openAutostartSettings();
-    setNotice('请在系统设置中允许自启动/后台运行，返回后会自动刷新状态。');
-  }, []);
+    setNotice(t('proactive.notice.autostartGuide'));
+  }, [t]);
 
   // 从系统设置返回时刷新权限状态（点按打开设置后用户可能已授权）
   useEffect(() => {
@@ -459,46 +466,45 @@ export default function ProactivePanel({ embedded = false }) {
 
   return (
     <Container {...containerProps}>
-      <Text style={styles.title}>互动</Text>
+      <Text style={styles.title}>{t('proactive.title')}</Text>
       <Text style={styles.hint}>
-        让角色在你指定的时间主动发一条消息。默认使用普通模式（系统可能延迟数十分钟）；
-        需要精确到分钟时，把某个时间设为「精确」并授予精确闹钟权限。
+        {t('proactive.intro')}
       </Text>
 
       <CollapsibleSelect
-        label="消息来源（API）"
+        label={t('proactive.sourceLabel')}
         value={(configs.find(item => item.id === configId) || {}).name || ''}
-        options={configs.map(item => ({ value: item.id, label: item.name || '未命名配置' }))}
+        options={configs.map(item => ({ value: item.id, label: item.name || t('proactive.config.unnamed') }))}
         onSelect={id => chooseConfig(id)}
-        emptyHint="还没有 API 配置，请先到设置页添加。"
+        emptyHint={t('proactive.config.empty')}
         styles={styles}
         theme={theme}
       />
       <CollapsibleSelect
-        label="具体模型"
+        label={t('proactive.modelLabel')}
         value={model}
         options={models.map(item => ({ value: item, label: item }))}
         onSelect={value => setModel(value)}
-        emptyHint="该 API 配置还没有模型，请先到设置页添加。"
+        emptyHint={t('proactive.model.empty')}
         styles={styles}
         theme={theme}
       />
       <CollapsibleSelect
-        label="选择角色"
+        label={t('proactive.roleLabel')}
         value={(characters.find(item => item.id === activeRoleId) || {}).name || ''}
         // 有主动消息（存在任何时间槽）的角色加星标，多于十多个时一眼看出哪些配过。
         options={characters.map(item => ({
           value: item.id,
-          label: `${slots.some(slot => slot.roleId === item.id) ? '★ ' : ''}${item.name || '未命名'}`,
+          label: `${slots.some(slot => slot.roleId === item.id) ? '★ ' : ''}${item.name || t('proactive.role.unnamed')}`,
         }))}
         onSelect={id => setSelectedRoleId(id)}
-        emptyHint="还没有角色，请先到角色页添加。"
+        emptyHint={t('proactive.role.empty')}
         styles={styles}
         theme={theme}
       />
-      <Text style={styles.hint}>★ 表示该角色已设置主动消息。</Text>
+      <Text style={styles.hint}>{t('proactive.starHint')}</Text>
       <View style={styles.sectionRow}>
-        <Text style={styles.sectionTitle}>时间（可多个）</Text>
+        <Text style={styles.sectionTitle}>{t('proactive.slots.title')}</Text>
         <View style={styles.sectionActions}>
           {roleSlots.length > 1 ? (
             <TouchableOpacity
@@ -508,18 +514,18 @@ export default function ProactivePanel({ embedded = false }) {
               accessibilityRole="button"
             >
               <Ionicons name="swap-vertical" size={15} color={theme.colors.primary} />
-              <Text style={styles.sortButtonText}>按时间排序</Text>
+              <Text style={styles.sortButtonText}>{t('proactive.slots.sort')}</Text>
             </TouchableOpacity>
           ) : null}
           <TouchableOpacity style={styles.addButton} onPress={addSlot} activeOpacity={0.85}>
             <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />
-            <Text style={styles.addButtonText}>添加时间</Text>
+            <Text style={styles.addButtonText}>{t('proactive.slots.add')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {roleSlots.length === 0 ? (
-        <Text style={styles.hint}>该角色还没有时间，点「添加时间」开始。</Text>
+        <Text style={styles.hint}>{t('proactive.slots.empty')}</Text>
       ) : null}
 
       {roleSlots.map(slot => {
@@ -591,14 +597,14 @@ export default function ProactivePanel({ embedded = false }) {
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.chipText, slot.mode === modeValue && styles.chipTextActive]}>
-                      {modeValue === 'WORK' ? '普通' : '精确'}
+                      {modeValue === 'WORK' ? t('proactive.mode.work') : t('proactive.mode.exact')}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
-              <Text style={styles.fieldLabel}>消息类型</Text>
+              <Text style={styles.fieldLabel}>{t('proactive.messageType.label')}</Text>
               <View style={styles.chipWrap}>
-                {MESSAGE_TYPE_OPTIONS.map(option => {
+                {messageTypeOptions.map(option => {
                   const active = (slot.messageType || 'DEFAULT') === option.value;
                   return (
                     <TouchableOpacity
@@ -619,23 +625,23 @@ export default function ProactivePanel({ embedded = false }) {
                   style={styles.promptInput}
                   value={slot.customPrompt || ''}
                   onChangeText={text => updateSlot(slot.slotId, { customPrompt: text })}
-                  placeholder="自定义提示词，例如：用略带调侃的语气问我晚饭吃了没"
+                  placeholder={t('proactive.customPrompt.placeholder')}
                   placeholderTextColor={theme.colors.textFaint}
                   multiline
                 />
               ) : null}
               <CollapsibleSelect
-                label="衔接对话"
+                label={t('proactive.session.label')}
                 // 槽绑定的会话若已被删除（不在候选里）则显示为空，等同「新建对话」。
-                value={sessionLabelById.get(String(slot.sessionTargetId || '')) || '新建对话'}
+                value={sessionLabelById.get(String(slot.sessionTargetId || '')) || t('proactive.session.new')}
                 options={sessionOptions}
                 onSelect={id => updateSlot(slot.slotId, { sessionTargetId: id })}
-                emptyHint="该角色还没有历史对话，首次触发会新建一段。"
+                emptyHint={t('proactive.session.emptyHint')}
                 styles={styles}
                 theme={theme}
               />
               <Text style={styles.hint}>
-                选「新建对话」时，到点会新开一段并固定复用；选某段历史对话则把消息续写在那段里。
+                {t('proactive.session.hint')}
               </Text>
             </>
           ) : null}
@@ -650,7 +656,7 @@ export default function ProactivePanel({ embedded = false }) {
         accessibilityRole="button"
         accessibilityState={{ expanded: permissionsOpen }}
       >
-        <Text style={styles.sectionTitle}>必要权限</Text>
+        <Text style={styles.sectionTitle}>{t('proactive.permissions.title')}</Text>
         <Ionicons
           name={permissionsOpen ? 'chevron-up' : 'chevron-down'}
           size={18}
@@ -662,26 +668,26 @@ export default function ProactivePanel({ embedded = false }) {
           {[
             {
               key: 'notification',
-              title: '通知权限',
-              hint: '用于展示角色发来的消息通知',
+              title: t('proactive.permission.notification.title'),
+              hint: t('proactive.permission.notification.hint'),
               onPress: requestNotification,
             },
             {
               key: 'exactAlarm',
-              title: '精确闹钟权限',
-              hint: '仅「精确」模式需要，可让消息准点触发',
+              title: t('proactive.permission.exactAlarm.title'),
+              hint: t('proactive.permission.exactAlarm.hint'),
               onPress: enableExactAlarm,
             },
             {
               key: 'battery',
-              title: '电池优化白名单',
-              hint: '避免系统在后台限制应用导致不触发',
+              title: t('proactive.permission.battery.title'),
+              hint: t('proactive.permission.battery.hint'),
               onPress: openBatterySettings,
             },
             {
               key: 'autostart',
-              title: '自启动设置',
-              hint: '厂商系统需手动允许后台运行与自启动',
+              title: t('proactive.permission.autostart.title'),
+              hint: t('proactive.permission.autostart.hint'),
               onPress: openAutostart,
             },
           ].map((item, index) => {
@@ -707,11 +713,10 @@ export default function ProactivePanel({ embedded = false }) {
             );
           })}
           <Text style={styles.hint}>
-            勾=已取得、叉=未取得、问号=无法自动判断（如厂商自启动白名单），点按对应行去系统设置。
+            {t('proactive.permissions.legend')}
           </Text>
           <Text style={styles.hint}>
-            想让「横屏/横幅通知」弹出并震动？到「系统设置 → 通知 → EasyChat2 → 角色主动消息」，
-            勾选「横幅通知」与「锁屏通知」，并关闭「静默通知」。
+            {t('proactive.permissions.bannerHint')}
           </Text>
         </>
       ) : null}
@@ -724,7 +729,7 @@ export default function ProactivePanel({ embedded = false }) {
         disabled={saving}
         activeOpacity={0.85}
       >
-        <Text style={styles.saveButtonText}>{saving ? '保存中…' : '保存并启用'}</Text>
+        <Text style={styles.saveButtonText}>{saving ? t('proactive.saving') : t('proactive.save')}</Text>
       </TouchableOpacity>
     </Container>
   );

@@ -11,6 +11,7 @@ import {
   readJsonWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
 const VECTOR_MEMORY_CONFIGS_KEY = '@easychat2_vector_memory_configs';
@@ -166,7 +167,7 @@ export function saveVectorIndex(characterId, index) {
   return enqueueVectorIndexMutation(characterId, async () => {
     const status = await readVectorIndexStatus(characterId);
     if (status.status === 'corrupt') {
-      throw new Error('向量记忆索引读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.vectorIndexReadFailed'));
     }
     const byKey = new Map(status.index.map(item => [vectorSegmentKey(item), item]));
     normalizeVectorIndex(index).forEach(item => byKey.set(vectorSegmentKey(item), item));
@@ -178,7 +179,7 @@ export function updateVectorIndex(characterId, updater) {
   return enqueueVectorIndexMutation(characterId, async () => {
     const status = await readVectorIndexStatus(characterId);
     if (status.status === 'corrupt') {
-      throw new Error('向量记忆索引读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.vectorIndexReadFailed'));
     }
     const next = typeof updater === 'function' ? await updater(status.index) : status.index;
     if (next === undefined) return status.index;

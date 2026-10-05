@@ -69,7 +69,16 @@ export default function RealMapView() {
   // html 只依赖瓦片模板。若依赖整个 settings，开关/位置每次变化都会重建 source，
   // WebView 的 source 一变就可能整页重载——而 webReady 还是 true，标记会被注进旧文档。
   const tileUrl = settings && settings.tileUrl ? settings.tileUrl : undefined;
-  const html = useMemo(() => buildRealMapHtml({ tileUrl }), [tileUrl]);
+  const html = useMemo(() => buildRealMapHtml({
+    tileUrl,
+    texts: {
+      attribution: t('world.map.real.html.attribution'),
+      hint: t('world.map.real.hint'),
+      zoomIn: t('world.map.real.html.zoomIn'),
+      zoomOut: t('world.map.real.html.zoomOut'),
+      recenter: t('world.map.real.html.recenter'),
+    },
+  }), [tileUrl, t]);
 
   // 换了瓦片模板（source 变化 → 页面会重载）时先回到「未就绪」；
   // 等 onLoadEnd 把 webReady 置回 true，下面的标记注入才会执行到新文档上。

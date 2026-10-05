@@ -1,6 +1,8 @@
 // 定位服务（RN）：expo-location 前台权限、取点、反地理编码。
 // 惰性 require：纯模块测试不会把原生模块拖进来；缺失时抛可读错误。
 
+import { tActive } from '../i18n/index.js';
+
 let cachedModule = null;
 
 function loadLocationModule() {
@@ -8,7 +10,7 @@ function loadLocationModule() {
   try {
     cachedModule = require('expo-location');
   } catch (error) {
-    throw new Error('当前构建未包含定位能力（expo-location）');
+    throw new Error(tActive('error.location.unsupportedBuild'));
   }
   return cachedModule;
 }
@@ -47,11 +49,11 @@ export const LAST_KNOWN_MAX_AGE_MS = 10 * 60 * 1000;
 
 // 给任意 Promise 加超时；timeoutMs 非正数时原样透传（便于测试与显式关闭）。
 // 超时用 reject 表达，调用方按普通失败处理；无论胜负都清掉定时器，避免悬挂。
-export function withTimeout(promise, timeoutMs, message = '定位超时') {
+export function withTimeout(promise, timeoutMs, message = '') {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
   let timer = null;
   const timeout = new Promise((resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    timer = setTimeout(() => reject(new Error(message || tActive('error.location.timeout'))), timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timer !== null) clearTimeout(timer);
@@ -116,7 +118,7 @@ export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) 
     position = await readLastKnownPosition(Location);
     fromCache = true;
     if (!position) {
-      const error = new Error('系统定位服务未开启');
+      const error = new Error(tActive('error.location.servicesDisabled'));
       error.code = 'SERVICES_DISABLED';
       throw error;
     }
@@ -125,7 +127,7 @@ export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) 
       position = await withTimeout(
         Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
         timeoutMs,
-        '定位超时'
+        tActive('error.location.timeout')
       );
     } catch (error) {
       const fallback = await readLastKnownPosition(Location);
@@ -137,7 +139,7 @@ export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) 
   const latitude = Number(position && position.coords && position.coords.latitude);
   const longitude = Number(position && position.coords && position.coords.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    throw new Error('定位结果无效');
+    throw new Error(tActive('error.location.invalidResult'));
   }
   // 兜底来的缓存点用其真实定位时间做年龄（拿不到时间戳就置 0：地图仍可标注，
   // 但对话注入的 30 分钟年龄门会拦下它，宁缺毋错）。
@@ -152,7 +154,7 @@ export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) 
     const places = await withTimeout(
       Location.reverseGeocodeAsync({ latitude, longitude }),
       timeoutMs,
-      '反地理编码超时'
+      tActive('error.location.reverseGeocodeTimeout')
     );
     const first = Array.isArray(places) ? places[0] : null;
     description = formatPlace(first);

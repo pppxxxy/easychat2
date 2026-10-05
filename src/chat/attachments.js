@@ -4,6 +4,31 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { markMediaWrite } from '../storage/mediaProtection.js';
 import { decodeBytes } from '../books/decodeText.js';
+import { tActive } from '../i18n/index.js';
+
+// 校验/落盘失败抛带 code 的 Error：message 走 i18n（随语言变化），
+// 调用方需要按失败原因分流提示时比 code，不要比 message。
+function attachError(key, code) {
+  const error = new Error(tActive(key));
+  error.code = code;
+  return error;
+}
+
+// 供调用方（useChatSend 等）比对的错误码常量。
+export const ATTACH_ERROR = {
+  VIDEO_SIZE_UNREADABLE: 'ATTACH_VIDEO_SIZE_UNREADABLE',
+  VIDEO_TOO_LARGE: 'ATTACH_VIDEO_TOO_LARGE',
+  IMAGE_DIMENSIONS_INVALID: 'ATTACH_IMAGE_DIMENSIONS_INVALID',
+  IMAGE_RESOLUTION_TOO_LARGE: 'ATTACH_IMAGE_RESOLUTION_TOO_LARGE',
+  IMAGE_TOO_LARGE: 'ATTACH_IMAGE_TOO_LARGE',
+  TOO_MANY_IMAGES: 'ATTACH_TOO_MANY_IMAGES',
+  IMAGE_SIZE_UNREADABLE: 'ATTACH_IMAGE_SIZE_UNREADABLE',
+  IMAGE_TOTAL_TOO_LARGE: 'ATTACH_IMAGE_TOTAL_TOO_LARGE',
+  IMAGE_PATH_INVALID: 'ATTACH_IMAGE_PATH_INVALID',
+  VIDEO_PATH_INVALID: 'ATTACH_VIDEO_PATH_INVALID',
+  FILE_NOT_FOUND: 'ATTACH_FILE_NOT_FOUND',
+  FILE_TOO_LARGE: 'ATTACH_FILE_TOO_LARGE',
+};
 
 export const TEXT_EXTENSIONS = [
   'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
@@ -109,8 +134,8 @@ export function getVideoMime(name, mime = '') {
 // 视频只校验大小（时长/分辨率交给模型与端点的宽容度，不做本地硬判）。
 export function validateVideoSize({ size = 0 } = {}) {
   const bytes = Number(size);
-  if (!Number.isFinite(bytes) || bytes <= 0) throw new Error('无法读取视频大小');
-  if (bytes > MAX_VIDEO_BYTES) throw new Error('视频过大');
+  if (!Number.isFinite(bytes) || bytes <= 0) throw attachError('chat.error.attach.videoSizeUnreadable', ATTACH_ERROR.VIDEO_SIZE_UNREADABLE);
+  if (bytes > MAX_VIDEO_BYTES) throw attachError('chat.error.attach.videoTooLarge', ATTACH_ERROR.VIDEO_TOO_LARGE);
   return true;
 }
 
@@ -123,10 +148,10 @@ export function validateImageDimensions({ width = 0, height = 0 } = {}) {
     || pixelWidth <= 0
     || pixelHeight <= 0
   ) {
-    throw new Error('图片尺寸无效');
+    throw attachError('chat.error.attach.imageDimensionsInvalid', ATTACH_ERROR.IMAGE_DIMENSIONS_INVALID);
   }
   if (pixelWidth * pixelHeight > MAX_IMAGE_PIXELS) {
-    throw new Error('图片分辨率过大');
+    throw attachError('chat.error.attach.imageResolutionTooLarge', ATTACH_ERROR.IMAGE_RESOLUTION_TOO_LARGE);
   }
   return { width: pixelWidth, height: pixelHeight };
 }
@@ -134,7 +159,7 @@ export function validateImageDimensions({ width = 0, height = 0 } = {}) {
 export function validateImageSize({ size = 0, width, height } = {}) {
   const bytes = Number(size);
   if (Number.isFinite(bytes) && bytes > MAX_IMAGE_BYTES) {
-    throw new Error('图片过大');
+    throw attachError('chat.error.attach.imageTooLarge', ATTACH_ERROR.IMAGE_TOO_LARGE);
   }
   if (width !== undefined || height !== undefined) {
     validateImageDimensions({ width, height });
@@ -145,13 +170,13 @@ export function validateImageSize({ size = 0, width, height } = {}) {
 export function validateImageBatch(items, { requireDimensions = false } = {}) {
   const list = Array.isArray(items) ? items : [];
   if (list.length > MAX_IMAGE_ATTACHMENTS) {
-    throw new Error('图片过多');
+    throw attachError('chat.error.attach.tooManyImages', ATTACH_ERROR.TOO_MANY_IMAGES);
   }
   if (list.some(item => {
     const size = Number(item && item.size);
     return !Number.isFinite(size) || size <= 0;
   })) {
-    throw new Error('无法读取图片大小');
+    throw attachError('chat.error.attach.imageSizeUnreadable', ATTACH_ERROR.IMAGE_SIZE_UNREADABLE);
   }
   list.forEach(item => {
     validateImageSize(item);
@@ -159,7 +184,7 @@ export function validateImageBatch(items, { requireDimensions = false } = {}) {
   });
   const total = list.reduce((sum, item) => sum + Number(item.size), 0);
   if (total > MAX_IMAGE_TOTAL_BYTES) {
-    throw new Error('图片总大小过大');
+    throw attachError('chat.error.attach.imageTotalTooLarge', ATTACH_ERROR.IMAGE_TOTAL_TOO_LARGE);
   }
   return total;
 }
@@ -181,7 +206,7 @@ export async function pickAttachment(type = '*/*') {
   if (!asset?.uri) return null;
   return {
     uri: asset.uri,
-    name: asset.name || '未命名文件',
+    name: asset.name || tActive('chat.attach.unnamedFile'),
     mime: asset.mimeType || '',
     size: Number(asset.size) || 0,
     width: Number(asset.width) || 0,
@@ -194,7 +219,7 @@ function normalizeStickerResult(result) {
   if (!asset?.uri) return null;
   return {
     uri: asset.uri,
-    name: asset.fileName || '表情包图片',
+    name: asset.fileName || tActive('chat.attach.stickerImage'),
     mime: asset.mimeType || 'image/jpeg',
     width: Number(asset.width) || 0,
     height: Number(asset.height) || 0,
@@ -334,7 +359,7 @@ export async function deleteTemporaryImage(uri) {
 
 export async function persistImageAttachment(uri, mime = '', name = '') {
   const sourceUri = String(uri || '');
-  if (!sourceUri) throw new Error('图片路径无效');
+  if (!sourceUri) throw attachError('chat.error.attach.imagePathInvalid', ATTACH_ERROR.IMAGE_PATH_INVALID);
   const directory = `${FileSystem.documentDirectory || ''}chat-images/`;
   await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
   const type = String(mime || '').toLowerCase();
@@ -376,7 +401,7 @@ export async function deleteLocalImage(uri) {
 // 视频落盘：独立目录 chat-videos/（不进图片清扫，由各自引用方管理生命周期）。
 export async function persistVideoAttachment(uri, mime = '', name = '') {
   const sourceUri = String(uri || '');
-  if (!sourceUri) throw new Error('视频路径无效');
+  if (!sourceUri) throw attachError('chat.error.attach.videoPathInvalid', ATTACH_ERROR.VIDEO_PATH_INVALID);
   const directory = `${FileSystem.documentDirectory || ''}chat-videos/`;
   await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
   const type = getVideoMime(name, mime);
@@ -410,8 +435,8 @@ export async function deleteLocalVideo(uri) {
 
 export async function readTextAttachment(uri, maxBytes = MAX_TEXT_BYTES) {
   const info = await FileSystem.getInfoAsync(uri);
-  if (!info || info.exists === false) throw new Error('文件不存在');
-  if (Number(info.size) > maxBytes) throw new Error('文件过大');
+  if (!info || info.exists === false) throw attachError('chat.error.attach.fileNotFound', ATTACH_ERROR.FILE_NOT_FOUND);
+  if (Number(info.size) > maxBytes) throw attachError('chat.error.attach.fileTooLarge', ATTACH_ERROR.FILE_TOO_LARGE);
   // 以 base64 读原始字节再按编码探测解码：纯 UTF-8 读取会让 GBK/BIG5/UTF-16
   // 文本变成乱码。复用书籍导入同一套 decodeBytes（BOM → 严格 UTF-8 → UTF-16 启发 →
   // GB18030/BIG5/UTF-16 评分择优）；识别失败时抛 { code:'ENCODING' } 由界面提示。

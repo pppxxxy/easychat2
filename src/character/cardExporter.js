@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { appendExportNotice, isValidAigcMeta } from '../aigc/attribution.js';
+import { tActive } from '../i18n/index.js';
 
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 export const MAX_CARD_FILE_BYTES = 32 * 1024 * 1024;
@@ -185,7 +186,7 @@ function textChunkKeyword(bytes, dataStart, dataEnd) {
 export function injectCharaChunk(pngBytes, jsonText) {
   const bytes = toUint8Array(pngBytes);
   if (!isPng(bytes)) {
-    throw new Error('头像不是合法的 PNG 文件');
+    throw new Error(tActive('error.cardExport.invalidPng'));
   }
   const base64 = Buffer.from(String(jsonText), 'utf8').toString('base64');
   const textChunk = makeTextChunk('chara', base64);
@@ -364,7 +365,7 @@ export function cardToPng(character, avatarBytes) {
     try {
       return injectCharaChunk(avatar, jsonText);
     } catch (error) {
-      throw new Error('头像不是合法的 PNG 文件，无法写入 PNG 角色卡；请改用 PNG 头像或导出 JSON。');
+      throw new Error(tActive('error.cardExport.invalidPngExport'));
     }
   }
   return injectCharaChunk(createPlaceholderPng(), jsonText);

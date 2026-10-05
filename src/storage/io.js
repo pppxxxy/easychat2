@@ -6,6 +6,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { hydrateSecrets, protectSecrets } from './secretStore.js';
 import { recordDiagnostic } from './diagnostics.js';
+import { tActive } from '../i18n/index.js';
 
 export const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
 
@@ -135,7 +136,7 @@ export async function backupCorruptValue(key) {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return false;
     await AsyncStorage.setItem(`${key}${CORRUPT_BACKUP_SUFFIX}`, raw);
-    recordDiagnostic('storage', new Error('读取失败或结构异常，已备份原始值'), key);
+    recordDiagnostic('storage', new Error(tActive('error.storage.readCorruptBackedUp')), key);
     // __DEV__ 是 Metro 全局，纯 Node 测试环境不存在：直接引用会抛 ReferenceError
     // 落进下方 catch，把已成功的备份误记成「备份失败」。
     if (typeof __DEV__ !== 'undefined' && __DEV__) {

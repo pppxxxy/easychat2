@@ -18,32 +18,36 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { exportBackup, importBackup } from './storage.js';
 import { validateBackupPayload } from './storage/dataBackup.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
-const PHASE_LABELS = {
-  storage: '读取数据键',
-  media: '打包媒体文件',
-  packing: '生成备份文件',
-  writing: '写入备份文件',
+const PHASE_LABEL_KEYS = {
+  storage: 'backup.phase.storage',
+  media: 'backup.phase.media',
+  packing: 'backup.phase.packing',
+  writing: 'backup.phase.writing',
 };
 
-function progressText(progress) {
-  if (!progress) return '处理中...';
-  const label = PHASE_LABELS[progress.phase] || '处理中';
+function progressText(progress, t) {
+  if (!progress) return t('backup.progress.busy');
+  const label = t(PHASE_LABEL_KEYS[progress.phase] || 'backup.phase.busy');
   // 写盘阶段的 done/total 是字节数，按 MB 展示更可读。
   if (progress.phase === 'writing') {
     const mb = value => (Number(value || 0) / 1024 / 1024).toFixed(1);
     if (progress.total > 0 && progress.total !== progress.done) {
-      return `${label} ${mb(progress.done)}/${mb(progress.total)}MB`;
+      return t('backup.progress.writingRatio', { label, done: mb(progress.done), total: mb(progress.total) });
     }
-    return progress.done > 0 ? `${label} ${mb(progress.done)}MB` : `${label}...`;
+    return progress.done > 0
+      ? t('backup.progress.writingDone', { label, done: mb(progress.done) })
+      : t('backup.progress.starting', { label });
   }
-  if (progress.total > 0) return `${label} ${progress.done}/${progress.total}`;
-  if (progress.done > 0) return `${label} ${progress.done}`;
-  return `${label}...`;
+  if (progress.total > 0) return t('backup.progress.ratio', { label, done: progress.done, total: progress.total });
+  if (progress.done > 0) return t('backup.progress.done', { label, done: progress.done });
+  return t('backup.progress.starting', { label });
 }
 
 export default function BackupPanel({ visible, onClose, onImported }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -61,26 +65,26 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         signal: controller.signal,
         onProgress: setProgress,
       });
-      const summary = `${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件（${(result.bytes / 1024 / 1024).toFixed(2)}MB）`;
+      const summary = t('backup.summary', { keys: result.storageCount, media: result.mediaCount, size: (result.bytes / 1024 / 1024).toFixed(2) });
       // 读不出的键/文件会被跳过：必须明确告知，避免用户拿到“成功”的残缺备份。
       const incompleteNote = result.incomplete
-        ? `\n\n注意：有 ${result.unreadableKeys.length} 个数据键、${result.unreadableMedia.length} 个媒体文件读取失败，未包含在备份中。`
+        ? t('backup.incompleteNote', { keys: result.unreadableKeys.length, media: result.unreadableMedia.length })
         : '';
       if (await Sharing.isAvailableAsync()) {
         if (result.incomplete) {
-          Alert.alert('备份不完整', `已生成备份（${summary}），但部分数据读取失败${incompleteNote}\n分享的是这份不完整的备份。`);
+          Alert.alert(t('backup.alert.incomplete.title'), t('backup.alert.incomplete.shareBody', { summary, note: incompleteNote }));
         }
-        await Sharing.shareAsync(result.uri, { mimeType: 'application/json', dialogTitle: '导出 EasyChat2 备份' });
+        await Sharing.shareAsync(result.uri, { mimeType: 'application/json', dialogTitle: t('backup.shareDialogTitle') });
       } else if (result.incomplete) {
-        Alert.alert('备份不完整', `已生成 ${summary}，但部分数据读取失败${incompleteNote}`);
+        Alert.alert(t('backup.alert.incomplete.title'), t('backup.alert.incomplete.body', { summary, note: incompleteNote }));
       } else {
-        Alert.alert('导出完成', `已生成 ${summary}。`);
+        Alert.alert(t('backup.alert.exportDone.title'), t('backup.alert.exportDone.body', { summary }));
       }
     } catch (error) {
       if (error && error.name === 'AbortError') {
-        Alert.alert('已取消导出', '本次备份已中止，未生成备份文件。');
+        Alert.alert(t('backup.alert.exportCancelled.title'), t('backup.alert.exportCancelled.body'));
       } else {
-        Alert.alert('导出失败', error.message || '请稍后重试。');
+        Alert.alert(t('backup.alert.exportFailed.title'), error.message || t('backup.alert.exportFailed.body'));
       }
     } finally {
       if (exportControllerRef.current === controller) exportControllerRef.current = null;
@@ -97,9 +101,9 @@ export default function BackupPanel({ visible, onClose, onImported }) {
     if (busy) return;
     if (mode === 'replace') {
       const confirmed = await new Promise(resolve => {
-        Alert.alert('确认覆盖恢复', '覆盖恢复会替换备份管理范围内的本机数据，密钥仍需重新填写。', [
-          { text: '取消', style: 'cancel', onPress: () => resolve(false) },
-          { text: '继续', style: 'destructive', onPress: () => resolve(true) },
+        Alert.alert(t('backup.alert.confirmReplace.title'), t('backup.alert.confirmReplace.body'), [
+          { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+          { text: t('backup.alert.confirmReplace.continue'), style: 'destructive', onPress: () => resolve(true) },
         ], { cancelable: true, onDismiss: () => resolve(false) });
       });
       if (!confirmed) return;
@@ -114,9 +118,9 @@ export default function BackupPanel({ visible, onClose, onImported }) {
       if (!validation.valid) throw new Error(validation.error);
       const result = await importBackup(payload, mode);
       await onImported?.();
-      Alert.alert('恢复完成', `已恢复 ${result.storageCount} 个数据键与 ${result.mediaCount} 个媒体文件。角色、会话和外观设置已刷新，API Key 需要重新填写。`);
+      Alert.alert(t('backup.alert.importDone.title'), t('backup.alert.importDone.body', { keys: result.storageCount, media: result.mediaCount }));
     } catch (error) {
-      Alert.alert('导入失败', error.message || '备份文件无法恢复，现有数据保持不变。');
+      Alert.alert(t('backup.alert.importFailed.title'), error.message || t('backup.alert.importFailed.body'));
     } finally {
       setBusy(false);
     }
@@ -127,39 +131,39 @@ export default function BackupPanel({ visible, onClose, onImported }) {
       <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>备份与恢复</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{t('backup.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.content}>
-            <Text style={styles.hint}>备份包含角色、会话、消息、设置与媒体文件。API Key、密钥和安全存储引用不会导出。</Text>
+            <Text style={styles.hint}>{t('backup.hint')}</Text>
             <TouchableOpacity style={styles.primaryButton} onPress={handleExport} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="share-outline" size={18} color={theme.colors.primaryContrast} />
-              <Text style={styles.primaryText}>{busy ? progressText(progress) : '导出备份'}</Text>
+              <Text style={styles.primaryText}>{busy ? progressText(progress, t) : t('backup.export')}</Text>
             </TouchableOpacity>
             {busy ? (
               <>
                 <Text style={styles.progressHint}>
-                  数据较多时导出需要一些时间，请保持 App 在前台。导出期间可随时取消。
+                  {t('backup.progressHint')}
                 </Text>
                 <TouchableOpacity style={styles.secondaryButton} onPress={cancelExport} activeOpacity={0.8}>
                   <Ionicons name="close-circle-outline" size={18} color={theme.colors.primarySoft} />
-                  <Text style={styles.secondaryText}>取消导出</Text>
+                  <Text style={styles.secondaryText}>{t('backup.cancelExport')}</Text>
                 </TouchableOpacity>
               </>
             ) : null}
-            <Text style={styles.sectionTitle}>恢复备份</Text>
+            <Text style={styles.sectionTitle}>{t('backup.restore.section')}</Text>
             <TouchableOpacity style={styles.secondaryButton} onPress={() => handleImport('merge')} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="git-merge-outline" size={18} color={theme.colors.primarySoft} />
-              <Text style={styles.secondaryText}>合并恢复</Text>
+              <Text style={styles.secondaryText}>{t('backup.restore.merge')}</Text>
             </TouchableOpacity>
-            <Text style={styles.hint}>同 id 数据以备份内容为准，其他本机数据保留。</Text>
+            <Text style={styles.hint}>{t('backup.restore.mergeHint')}</Text>
             <TouchableOpacity style={styles.dangerButton} onPress={() => handleImport('replace')} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="cloud-download-outline" size={18} color={theme.colors.primaryContrast} />
-              <Text style={styles.primaryText}>覆盖恢复</Text>
+              <Text style={styles.primaryText}>{t('backup.restore.replace')}</Text>
             </TouchableOpacity>
-            <Text style={styles.hint}>仅替换备份管理范围内的数据；恢复后 API Key 需要重新填写。</Text>
+            <Text style={styles.hint}>{t('backup.restore.replaceHint')}</Text>
           </ScrollView>
         </View>
       </KeyboardAvoidingView>

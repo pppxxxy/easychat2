@@ -5,6 +5,7 @@ import { normalizeLocalModelParams } from './modelParams.js';
 import { describeModelError, formatBytes, recordModelLog } from './modelLogs.js';
 import { trimMessagesToContext } from './localContext.js';
 import { createThinkSplitter, splitThinkContent } from './thinkStream.js';
+import { tActive } from '../i18n/index.js';
 
 let moduleState;
 
@@ -26,7 +27,7 @@ export function isLocalModelModuleAvailable() {
 let current = null;
 
 function unavailableError() {
-  const error = new Error('当前构建未包含本地模型能力');
+  const error = new Error(tActive('error.localModel.unavailable'));
   error.code = 'LOCAL_MODEL_UNAVAILABLE';
   return error;
 }
@@ -112,7 +113,7 @@ export async function loadLocalModel(model, { onProgress } = {}) {
   if (!module || typeof module.initLlama !== 'function') throw unavailableError();
   const modelPath = String((model && model.modelPath) || '');
   if (!modelPath) {
-    const error = new Error('本地模型文件路径为空');
+    const error = new Error(tActive('error.localModel.pathEmpty'));
     error.code = 'LOAD_FAILED';
     throw error;
   }
@@ -208,7 +209,7 @@ export function getLoadedLocalModelSupport() {
 }
 
 function abortError() {
-  const error = new Error('本地模型请求已取消');
+  const error = new Error(tActive('error.localModel.requestCanceled'));
   error.name = 'AbortError';
   return error;
 }

@@ -13,6 +13,7 @@ import MessageBubble from './MessageBubble.js';
 import { SYSTEM_ERROR_ID } from './chatConstants.js';
 import { containsHtml } from './plainText.js';
 import { shouldRenderRichHtml } from './richHtml.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 function MessageList({
   scrollRef,
@@ -66,6 +67,7 @@ function MessageList({
   isSending,
 }) {
   // 窗口化：只渲染尾部 windowSize 条；被切走的更早消息通过「加载更早消息」放开。
+  const { t } = useTranslation();
   const totalCount = renderedMessages.length;
   const visibleMessages = totalCount > windowSize
     ? renderedMessages.slice(totalCount - windowSize)
@@ -93,7 +95,7 @@ function MessageList({
                   onPress={() => openGreetingPicker(activeSessionId ? 'reselect' : 'new')}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.emptyGreetingButtonText}>选择开场白</Text>
+                  <Text style={styles.emptyGreetingButtonText}>{t('chat.list.chooseGreeting')}</Text>
                 </TouchableOpacity>
               </View>
             ) : null
@@ -102,14 +104,14 @@ function MessageList({
               <View style={styles.emptyIconBadge}>
                 <Ionicons name="chatbubbles-outline" size={36} color={theme.colors.primaryMuted} />
               </View>
-              <Text style={styles.emptyTitle}>开始聊天</Text>
+              <Text style={styles.emptyTitle}>{t('chat.list.emptyTitle')}</Text>
               <Text style={styles.emptyText}>
-                当前角色：{sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手')}{'\n'}
+                {t('chat.list.currentRole', { name: sessionOwnerMissing ? t('chat.list.ownerMissing') : (character.name || t('chat.list.defaultAssistant')) })}{'\n'}
                 {sessionOwnerMissing
-                  ? '这段历史对话仍可查看，角色资料恢复后才能发送。'
+                  ? t('chat.list.hintOwnerMissing')
                   : !greetingReady
-                    ? '先选择开场白，再开始发送消息。'
-                    : '请先在“设置”里填写 API Key，然后输入消息。'}{'\n'}
+                    ? t('chat.list.hintChooseGreeting')
+                    : t('chat.list.hintApiKey')}{'\n'}
               </Text>
               {!isGroup && !sessionOwnerMissing ? (
                 <TouchableOpacity
@@ -117,7 +119,7 @@ function MessageList({
                   onPress={() => openGreetingPicker(activeSessionId ? 'reselect' : 'new')}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.emptyGreetingButtonText}>选择开场白</Text>
+                  <Text style={styles.emptyGreetingButtonText}>{t('chat.list.chooseGreeting')}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -130,10 +132,10 @@ function MessageList({
                 style={styles.loadEarlierButton}
                 onPress={() => onExpandWindow()}
                 accessibilityRole="button"
-                accessibilityLabel="加载更早消息"
+                accessibilityLabel={t('chat.list.loadEarlierA11y')}
               >
                 <Text style={styles.loadEarlierText}>
-                  加载更早消息（还有 {hiddenCount} 条）
+                  {t('chat.list.loadEarlier', { count: hiddenCount })}
                 </Text>
               </TouchableOpacity>
             ) : null,
@@ -168,7 +170,7 @@ function MessageList({
                       characterName={
                         isGroup
                           ? ((speaker && speaker.name) || message.speakerName || displayName)
-                          : (sessionOwnerMissing ? '角色资料缺失' : ((speaker && speaker.name) || message.speakerName || character.name))
+                          : (sessionOwnerMissing ? t('chat.list.ownerMissing') : ((speaker && speaker.name) || message.speakerName || character.name))
                       }
                       characterAvatar={
                         isGroup
@@ -237,7 +239,7 @@ function MessageList({
                 delayLongPress={350}
                 disabled={!ready || isSending || message.pending}
                 accessibilityRole="button"
-                accessibilityLabel="长按选择消息"
+                accessibilityLabel={t('chat.list.longPressSelectA11y')}
                 accessibilityState={{ selected }}
               >
                 {body}

@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { tActive } from '../i18n/index.js';
 
 export const SCREEN_WATCH_COMMENTS_KEY = '@easychat2_screen_watch_comments';
 const COMMENTS_MAX = 30;
@@ -44,7 +45,7 @@ export function getScreenWatchComments() {
 export function appendScreenWatchComment(comment) {
   return commentsMutation.enqueue(async () => {
     const normalized = normalizeScreenWatchComment(comment);
-    if (!normalized.id || !normalized.text) throw new Error('评论信息不完整');
+    if (!normalized.id || !normalized.text) throw new Error(tActive('error.comments.incomplete'));
     const existing = await readCommentListStatus();
     if (existing.some(entry => entry.id === normalized.id)) return existing;
     const next = [...existing, normalized].slice(-COMMENTS_MAX);

@@ -66,11 +66,11 @@ export default function MapPanel({ embedded = false }) {
       const list = await getWorldMap();
       setHouses(list);
     } catch (error) {
-      setNotice('读取地图失败，请重试。');
+      setNotice(t('map.notice.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load().catch(() => {});
@@ -127,8 +127,8 @@ export default function MapPanel({ embedded = false }) {
   }, []);
 
   const chooseOwnerCharacter = useCallback(character => {
-    setDraftOwner({ type: 'character', id: character.id, name: character.name || '角色' });
-  }, []);
+    setDraftOwner({ type: 'character', id: character.id, name: character.name || t('map.characterFallback') });
+  }, [t]);
 
   const toggleResident = useCallback((character, houseId) => {
     setDraftResidents(current => {
@@ -139,12 +139,15 @@ export default function MapPanel({ embedded = false }) {
       const check = canAddResident(houses, character.id, houseId);
       if (!check.ok) {
         const label = houseNumberLabel(check.conflict, houses);
-        Alert.alert('无法入住', `${character.name || '该角色'}已经住在 ${label || '其他'} 号房子，每个角色最多住 1 栋。`);
+        Alert.alert(t('map.alert.moveInFailed.title'), t('map.alert.moveInFailed.body', {
+          name: character.name || t('map.theCharacter'),
+          label: label || t('map.otherHouse'),
+        }));
         return current;
       }
       return [...current, character.id];
     });
-  }, [houses]);
+  }, [houses, t]);
 
   const persist = useCallback(async list => {
     const saved = await updateWorldMap(() => list);
@@ -160,10 +163,13 @@ export default function MapPanel({ embedded = false }) {
     if (!ownerCheck.ok) {
       const label = houseNumberLabel(ownerCheck.conflict, houses);
       Alert.alert(
-        '无法转让',
+        t('map.alert.transferFailed.title'),
         draftOwner.type === 'character'
-          ? `${draftOwner.name || '该角色'}已经拥有 ${label || '另一栋'} 号房子，每个人最多拥有 1 栋。`
-          : `你已经有 ${label || '另一栋'} 号房子，每个人最多拥有 1 栋。`
+          ? t('map.alert.transferFailed.bodyCharacter', {
+            name: draftOwner.name || t('map.theCharacter'),
+            label: label || t('map.anotherHouse'),
+          })
+          : t('map.alert.transferFailed.bodySelf', { label: label || t('map.anotherHouse') })
       );
       return;
     }
@@ -184,11 +190,11 @@ export default function MapPanel({ embedded = false }) {
       await persist(placeHouse(houses, house));
       closeEditor();
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('map.alert.saveFailed.title'), t('map.alert.saveFailed.body'));
     } finally {
       setSaving(false);
     }
-  }, [closeEditor, draftName, draftOwner, draftResidents, editing, houses, persist]);
+  }, [closeEditor, draftName, draftOwner, draftResidents, editing, houses, persist, t]);
 
   const deleteHouse = useCallback(async () => {
     if (!editing || !editing.house) return;
@@ -197,22 +203,31 @@ export default function MapPanel({ embedded = false }) {
       await persist(removeHouseAtCell(houses, editing.x, editing.y));
       closeEditor();
     } catch (error) {
-      Alert.alert('删除失败', '请检查存储空间或权限。');
+      Alert.alert(t('map.alert.deleteFailed.title'), t('map.alert.deleteFailed.body'));
     } finally {
       setSaving(false);
     }
-  }, [closeEditor, editing, houses, persist]);
+  }, [closeEditor, editing, houses, persist, t]);
 
   const confirmDeleteHouse = useCallback(() => {
     if (!editing || !editing.house) return;
     const label = numberLookup.get(editing.house.id) || '';
-    Alert.alert('删除房子', `确定删除 ${label ? `${label} 号 ` : ''}（${editing.x}, ${editing.y}）的房子吗？`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => { deleteHouse(); } },
+    Alert.alert(t('map.alert.deleteHouse.title'), t('map.alert.deleteHouse.body', { label: label ? `${label} ` : '', x: editing.x, y: editing.y }), [
+      { text: t('map.cancel'), style: 'cancel' },
+      { text: t('map.delete'), style: 'destructive', onPress: () => { deleteHouse(); } },
     ]);
-  }, [deleteHouse, editing, numberLookup]);
+  }, [deleteHouse, editing, numberLookup, t]);
 
   const editingLabel = editing && editing.house ? numberLookup.get(editing.house.id) : '';
+
+  // 传给 worldMap/map.js 纯函数的展示文案（默认值是中文基准，这里按当前语言覆盖）。
+  const mapStrings = useMemo(() => ({
+    selfHouse: t('map.house.self'),
+    characterFallback: t('map.characterFallback'),
+    ownedBy: t('map.house.ownedBy'),
+    unnamed: t('map.unnamed'),
+    deletedCharacter: t('map.deletedCharacter'),
+  }), [t]);
 
   if (loading) {
     return (
@@ -226,22 +241,22 @@ export default function MapPanel({ embedded = false }) {
   const containerProps = embedded ? { style: styles.content } : { contentContainerStyle: styles.content };
 
   const ownerOptions = [
-    { value: MAP_OWNER_SELF, label: '我自己', meta: '000 号房' },
+    { value: MAP_OWNER_SELF, label: t('map.owner.self'), meta: t('map.owner.selfMeta') },
     ...characters.map(item => ({
       value: item.id,
-      label: item.name || '未命名',
-      meta: item.id === draftOwner.id ? '当前屋主' : '设为屋主',
+      label: item.name || t('map.unnamed'),
+      meta: item.id === draftOwner.id ? t('map.owner.current') : t('map.owner.set'),
     })),
   ];
   const ownerValue = draftOwner.type === 'character' ? draftOwner.id : MAP_OWNER_SELF;
   const ownerValueLabel = draftOwner.type === 'character'
-    ? (draftOwner.name || '角色')
-    : '我自己';
+    ? (draftOwner.name || t('map.characterFallback'))
+    : t('map.owner.self');
 
   return (
     <Container {...containerProps}>
       <View style={styles.titleRow}>
-        <Text style={styles.title}>地图</Text>
+        <Text style={styles.title}>{t('map.title')}</Text>
         {mapMode === 'grid' ? (
           <TouchableOpacity
             style={styles.viewButton}
@@ -250,7 +265,7 @@ export default function MapPanel({ embedded = false }) {
             accessibilityRole="button"
           >
             <Ionicons name="list-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.viewButtonText}>{listOpen ? '收起' : '查看'}</Text>
+            <Text style={styles.viewButtonText}>{listOpen ? t('map.list.collapse') : t('map.list.expand')}</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -278,17 +293,16 @@ export default function MapPanel({ embedded = false }) {
       {mapMode === 'real' ? <RealMapView /> : (
         <>
           <Text style={styles.hint}>
-            {`${MAP_GRID_SIZE}×${MAP_GRID_SIZE} 的网格。点任意格子放置房子。自己固定住在 000 号房，`}
-            其余房子按 001、002… 编号；每个人最多拥有 1 栋房子、每个角色最多住 1 栋（可同时拥有自己的房并住在别人家）。左右滑动查看整张地图。
+            {t('map.hint', { size: MAP_GRID_SIZE })}
           </Text>
           <Text style={styles.legend}>
-            {`共 ${houses.length} 座房子 · 我的 ${selfCount} · 角色的 ${roleCount}`}
+            {t('map.legend', { total: houses.length, self: selfCount, role: roleCount })}
           </Text>
 
           {listOpen ? (
             <View style={styles.houseList}>
               {numberedHouses.length === 0 ? (
-                <Text style={styles.hint}>还没有房子，点网格格子放置第一栋吧。</Text>
+                <Text style={styles.hint}>{t('map.list.empty')}</Text>
               ) : (
                 numberedHouses.map(({ house, label }) => (
                   <TouchableOpacity
@@ -302,10 +316,13 @@ export default function MapPanel({ embedded = false }) {
                     </View>
                     <View style={styles.houseInfo}>
                       <Text style={styles.houseOwner} numberOfLines={1}>
-                        {house.name || describeHouseOwner(house, characters)}
+                        {house.name || describeHouseOwner(house, characters, mapStrings)}
                       </Text>
                       <Text style={styles.houseMeta} numberOfLines={1}>
-                        {`屋主：${describeHouseOwner(house, characters)} · 住户：${houseResidentNames(house, characters).join('、') || '无'}`}
+                        {t('map.house.meta', {
+                          owner: describeHouseOwner(house, characters, mapStrings),
+                          residents: houseResidentNames(house, characters, mapStrings).join('、') || t('map.house.noResidents'),
+                        })}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
@@ -328,7 +345,7 @@ export default function MapPanel({ embedded = false }) {
             <Pressable
               onPress={onGridPress}
               style={styles.grid}
-              accessibilityLabel="地图网格，点格子放置或编辑房子"
+              accessibilityLabel={t('map.grid.a11y')}
             >
               <View pointerEvents="none">
                 {Array.from({ length: MAP_GRID_SIZE }).map((_, y) => (
@@ -375,19 +392,19 @@ export default function MapPanel({ embedded = false }) {
           <View style={styles.editor}>
             <Text style={styles.editorTitle}>
               {editing && editing.house
-                ? `${editingLabel ? `${editingLabel} 号 ` : ''}房子（${editing.x}, ${editing.y}）`
-                : `放置房子（${editing ? `${editing.x}, ${editing.y}` : ''}）`}
+                ? t('map.editor.titleEdit', { label: editingLabel ? `${editingLabel} ` : '', x: editing.x, y: editing.y })
+                : t('map.editor.titleNew', { x: editing ? editing.x : '', y: editing ? editing.y : '' })}
             </Text>
             <ScrollView keyboardShouldPersistTaps="handled" style={styles.editorScroll}>
-              <FieldGroup label="房子名称" hint="可留空，留空时按屋主命名">
+              <FieldGroup label={t('map.editor.nameLabel')} hint={t('map.editor.nameHint')}>
                 <TextField
                   value={draftName}
                   onChangeText={setDraftName}
-                  placeholder="例如：海边小屋"
+                  placeholder={t('map.editor.namePlaceholder')}
                 />
               </FieldGroup>
 
-              <FieldGroup label="屋主" hint="每人最多拥有 1 栋房子，选中他人时可转让">
+              <FieldGroup label={t('map.editor.ownerLabel')} hint={t('map.editor.ownerHint')}>
                 <CollapsibleSelect
                   value={ownerValue}
                   valueLabel={ownerValueLabel}
@@ -400,28 +417,28 @@ export default function MapPanel({ embedded = false }) {
                       if (character) chooseOwnerCharacter(character);
                     }
                   }}
-                  placeholder="选择屋主"
+                  placeholder={t('map.editor.ownerPlaceholder')}
                 />
               </FieldGroup>
 
-              <FieldGroup label="住户" hint="一个角色最多住 1 栋；自己固定住 000 号房，不占住户名额">
+              <FieldGroup label={t('map.editor.residentsLabel')} hint={t('map.editor.residentsHint')}>
                 {characters.length === 0 ? (
-                  <Text style={styles.hint}>还没有角色，先到「角色」页添加后可让角色入住。</Text>
+                  <Text style={styles.hint}>{t('map.editor.noCharacters')}</Text>
                 ) : (
                   <CollapsibleSelect
                     value=""
-                    valueLabel={`已选 ${draftResidents.length} 人`}
-                    placeholder="点开添加或移除住户"
+                    valueLabel={t('map.editor.residentsSelected', { n: draftResidents.length })}
+                    placeholder={t('map.editor.residentsPlaceholder')}
                     options={[
                       ...draftResidents
                         .map(id => characters.find(item => item.id === id))
                         .filter(Boolean)
-                        .map(item => ({ value: `remove:${item.id}`, label: `${item.name || '未命名'}（点击移出）` })),
+                        .map(item => ({ value: `remove:${item.id}`, label: t('map.editor.removeResident', { name: item.name || t('map.unnamed') }) })),
                       ...characters
                         .filter(item => !draftResidents.includes(item.id))
-                        .map(item => ({ value: `add:${item.id}`, label: `${item.name || '未命名'}（点击入住）` })),
+                        .map(item => ({ value: `add:${item.id}`, label: t('map.editor.addResident', { name: item.name || t('map.unnamed') }) })),
                     ]}
-                    emptyHint="暂无可添加的角色"
+                    emptyHint={t('map.editor.noMoreCharacters')}
                     onSelect={value => {
                       const isRemove = value.startsWith('remove:');
                       const id = value.slice(value.indexOf(':') + 1);
@@ -439,18 +456,18 @@ export default function MapPanel({ embedded = false }) {
 
               {editing && editing.house ? (
                 <Text style={styles.editorMeta}>
-                  {`当前住户：${houseResidentNames(editing.house, characters).join('、') || '无'}`}
+                  {t('map.editor.currentResidents', { names: houseResidentNames(editing.house, characters, mapStrings).join('、') || t('map.house.noResidents') })}
                 </Text>
               ) : null}
             </ScrollView>
 
             <View style={styles.editorActions}>
-              <SecondaryButton title="取消" onPress={closeEditor} style={styles.editorButton} />
+              <SecondaryButton title={t('map.cancel')} onPress={closeEditor} style={styles.editorButton} />
               {editing && editing.house ? (
-                <SecondaryButton title="删除" onPress={confirmDeleteHouse} disabled={saving} style={styles.editorButton} />
+                <SecondaryButton title={t('map.delete')} onPress={confirmDeleteHouse} disabled={saving} style={styles.editorButton} />
               ) : null}
               <PrimaryButton
-                title={editing && editing.house ? '保存' : '放置'}
+                title={editing && editing.house ? t('map.save') : t('map.place')}
                 onPress={saveHouse}
                 disabled={saving}
                 style={styles.editorButton}

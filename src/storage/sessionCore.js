@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { normalizeSession } from '../context/sessionLibrary.js';
 import { DEFAULT_CHARACTER } from './characters.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 export const SESSIONS_KEY = '@easychat2_sessions';
 const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
@@ -120,7 +121,7 @@ export async function getSessions() {
 export async function requireSessions() {
   const { status, sessions } = await readSessionsStatus();
   if (status === 'corrupt') {
-    throw new Error('会话记录读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.sessionRecordReadFailed'));
   }
   return sessions;
 }
@@ -137,7 +138,7 @@ export function saveSessions(sessions) {
   return enqueueSessionMutation(async () => {
     const status = await readSessionsStatus();
     if (status.status === 'corrupt') {
-      throw new Error('会话记录读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.sessionRecordReadFailed'));
     }
     return saveSessionsInternal(sessions);
   });

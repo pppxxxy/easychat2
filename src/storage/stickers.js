@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { markMediaWrite } from './mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 const STICKERS_KEY = '@easychat2_stickers';
 const STICKER_INDEX_KEY = '@easychat2_sticker_index';
@@ -165,12 +166,12 @@ export function saveSticker(sticker) {
   return stickerMutation.enqueue(async () => {
     const normalized = normalizeSticker(sticker);
     if (!normalized.id || !normalized.name || !normalized.uri) {
-      throw new Error('表情包信息不完整');
+      throw new Error(tActive('error.storage.stickerInfoIncomplete'));
     }
     markMediaWrite(normalized.uri);
     const result = await readStickerStatus();
     if (result.status === 'corrupt') {
-      throw new Error('表情包记录读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.stickerReadFailed'));
     }
     // 已存在则原位替换（保持用户排序），新增则置顶。
     const exists = result.stickers.some(item => item.id === normalized.id);
@@ -189,7 +190,7 @@ export function deleteStickers(ids) {
   return stickerMutation.enqueue(async () => {
     const result = await readStickerStatus();
     if (result.status === 'corrupt') {
-      throw new Error('表情包记录读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.stickerReadFailed'));
     }
     if (targetIds.size === 0) return { remaining: result.stickers, removed: [] };
     const removed = result.stickers.filter(item => targetIds.has(item.id));
@@ -205,7 +206,7 @@ export function reorderStickers(orderedIds) {
   return stickerMutation.enqueue(async () => {
     const result = await readStickerStatus();
     if (result.status === 'corrupt') {
-      throw new Error('表情包记录读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.stickerReadFailed'));
     }
     const byId = new Map(result.stickers.map(item => [item.id, item]));
     const ordered = [];

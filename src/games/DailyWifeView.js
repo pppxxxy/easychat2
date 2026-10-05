@@ -9,10 +9,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { pickDailyCharacter, buildDailyDateStr } from './dailyWife.js';
 import { useApp } from '../context/AppContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function DailyWifeView({ onBack }) {
   const { characters, loaded } = useApp();
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [mode, setMode] = useState('wife');
 
@@ -29,15 +31,15 @@ export default function DailyWifeView({ onBack }) {
       <View style={styles.gameBar}>
         <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.8}>
           <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
-          <Text style={styles.backButtonText}>返回列表</Text>
+          <Text style={styles.backButtonText}>{t('dailyWife.back')}</Text>
         </TouchableOpacity>
-        <Text style={styles.gameBarTitle}>{isWife ? '今日老婆' : '今日老公'}</Text>
+        <Text style={styles.gameBarTitle}>{isWife ? t('dailyWife.title.wife') : t('dailyWife.title.husband')}</Text>
       </View>
 
       <View style={styles.modeRow}>
         {[
-          { value: 'wife', label: '今日老婆' },
-          { value: 'husband', label: '今日老公' },
+          { value: 'wife', label: t('dailyWife.title.wife') },
+          { value: 'husband', label: t('dailyWife.title.husband') },
         ].map(option => {
           const active = mode === option.value;
           return (
@@ -62,15 +64,15 @@ export default function DailyWifeView({ onBack }) {
         {loaded && characters.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="people-outline" size={36} color={theme.colors.textFaint} />
-            <Text style={styles.emptyTitle}>角色库是空的</Text>
+            <Text style={styles.emptyTitle}>{t('dailyWife.empty.title')}</Text>
             <Text style={styles.emptyHint}>
-              先到「角色」页添加角色，明天就能抽到她/他了。
+              {t('dailyWife.empty.hint')}
             </Text>
           </View>
         ) : !picked ? (
           <View style={styles.emptyBox}>
             <Ionicons name="hourglass-outline" size={36} color={theme.colors.textFaint} />
-            <Text style={styles.emptyTitle}>加载中</Text>
+            <Text style={styles.emptyTitle}>{t('dailyWife.loading')}</Text>
           </View>
         ) : (
           <View style={[styles.cardBox, tokens.elevation(2, theme)]}>
@@ -87,9 +89,9 @@ export default function DailyWifeView({ onBack }) {
             </View>
             <Text style={styles.dateText}>{dateStr}</Text>
             <Text style={styles.todayLabel}>
-              {isWife ? '今天你的老婆是' : '今天你的老公是'}
+              {isWife ? t('dailyWife.today.wife') : t('dailyWife.today.husband')}
             </Text>
-            <Text style={styles.nameText}>{picked.name || '未命名角色'}</Text>
+            <Text style={styles.nameText}>{picked.name || t('dailyWife.unnamed')}</Text>
             {String(picked.description || '').trim() ? (
               <Text style={styles.descText} numberOfLines={4}>
                 {String(picked.description).trim()}
@@ -110,7 +112,7 @@ export default function DailyWifeView({ onBack }) {
               </View>
             ) : null}
             <Text style={styles.hintText}>
-              {isWife ? '明天会自动换一位，先去聊天页聊聊今天吧。' : '明天会自动换一位，先去聊天页聊聊今天吧。'}
+              {t('dailyWife.tomorrowHint')}
             </Text>
           </View>
         )}

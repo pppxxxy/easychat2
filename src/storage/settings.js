@@ -12,6 +12,7 @@ import {
   readJsonStatusWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 const DISCLAIMER_ACK_KEY = '@easychat2_disclaimer_ack';
 const ONBOARDING_DONE_KEY = '@easychat2_onboarding_done';
@@ -327,7 +328,7 @@ export async function getTtsSettings() {
     || (stored.status === 'ok' && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
   ) {
     await backupCorruptValue(TTS_KEY);
-    throw new Error('语音播报设置读取失败');
+    throw new Error(tActive('error.storage.ttsSettingsReadFailed'));
   }
   if (stored.status === 'missing') return normalizeTts(null);
   return normalizeTts(stored.value);
@@ -369,7 +370,7 @@ export async function getTranscriptionSettings() {
     || (stored.status === 'ok' && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
   ) {
     await backupCorruptValue(TRANSCRIPTION_KEY);
-    throw new Error('语音转文字设置读取失败');
+    throw new Error(tActive('error.storage.transcriptionSettingsReadFailed'));
   }
   if (stored.status === 'missing') return normalizeTranscriptionSettings(null);
   return normalizeTranscriptionSettings(stored.value);
@@ -409,7 +410,9 @@ const DEFAULT_PLUGINS = [
   {
     id: 'web-search',
     name: '联网搜索',
+    nameKey: 'plugin.webSearch.name',
     description: '角色可搜索网络信息，结合时事回答。',
+    descriptionKey: 'plugin.webSearch.desc',
     type: 'web-search',
     enabled: false,
     config: {
@@ -445,8 +448,10 @@ function normalizePlugin(raw, index = 0) {
   const maxResults = Math.trunc(Number(config.maxResults));
   return {
     id: String(source.id || `plugin-${index}`),
-    name: String(source.name || (preset && preset.name) || `联网搜索 ${index + 1}`),
+    name: String(source.name || (preset && preset.name) || tActive('plugin.webSearch.numberedName', { index: index + 1 })),
+    nameKey: preset && preset.nameKey ? preset.nameKey : '',
     description: String(source.description || (preset && preset.description) || ''),
+    descriptionKey: preset && preset.descriptionKey ? preset.descriptionKey : '',
     type: String(source.type || (preset && preset.type) || ''),
     enabled: source.enabled === true,
     config: {

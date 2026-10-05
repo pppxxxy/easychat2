@@ -8,6 +8,7 @@ import {
   removeMomentsBySessionIds,
 } from '../moments/moments.js';
 import { backupCorruptValue, createMutationQueue, readJson, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 // 供 barrel 的媒体清理函数判断损坏备份键时复用。
 export const MOMENTS_KEY = '@easychat2_moments';
@@ -178,7 +179,7 @@ export async function getMoments() {
 async function readMomentsForMutation() {
   const { status, moments } = await getMomentsStatus();
   if (status === 'corrupt') {
-    throw new Error('动态记录读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.momentsReadFailed'));
   }
   return moments;
 }

@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { FORGE_FIELDS, FORGE_QUESTIONS, MAX_PRESERVED_ITEMS, MAX_PRESERVED_TEXT } from '../cardForge/forge.js';
 import { normalizeCharacterPresets } from '../character/characterPresets.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus, utf8ByteLength } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 const CARD_FORGE_KEY = '@easychat2_card_forge';
 const CARD_FORGE_PAYLOAD_DIRECTORY = 'card-forge';
@@ -181,10 +182,10 @@ export async function getCardForge() {
 async function saveCardForgeInternal(state) {
   const status = await getCardForgeStatusInternal();
   if (status.status === 'corrupt') {
-    throw new Error('制卡草稿读取失败，请先处理损坏数据');
+    throw new Error(tActive('error.storage.cardForgeDraftReadFailed'));
   }
   const normalized = normalizeCardForgeState(state);
-  if (!normalized) throw new Error('制卡状态无效');
+  if (!normalized) throw new Error(tActive('error.storage.cardForgeStateInvalid'));
   let previousFileName = '';
   try {
     const previousRaw = await AsyncStorage.getItem(CARD_FORGE_KEY);

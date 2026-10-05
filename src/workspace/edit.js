@@ -7,6 +7,8 @@
 // 为什么拒绝替换成空内容：那等于把整块内容删掉，而「清空文件」和「改错一处」
 // 在用户看来天差地别。真要删内容应显式给出替代文本，或让用户自己删。
 
+import { tActive } from '../i18n/index.js';
+
 export function countOccurrences(content, find) {
   const text = String(content === undefined || content === null ? '' : content);
   const needle = String(find === undefined || find === null ? '' : find);
@@ -25,13 +27,13 @@ export function applyWorkspaceEdit({ content, find, replace, all = false } = {})
   const needle = String(find === undefined || find === null ? '' : find);
   const next = String(replace === undefined || replace === null ? '' : replace);
 
-  if (!needle) throw new Error('要替换的原文（find）不能为空。');
-  if (!next) throw new Error('替换后的内容（replace）不能为空；如需删除内容请自己写出改后的完整文本。');
+  if (!needle) throw new Error(tActive('error.workspace.editFindEmpty'));
+  if (!next) throw new Error(tActive('error.workspace.editReplaceEmpty'));
 
   const count = countOccurrences(text, needle);
-  if (count === 0) throw new Error('未找到要替换的原文（find）：请逐字核对，包含缩进与换行。');
+  if (count === 0) throw new Error(tActive('error.workspace.editFindNotFound'));
   if (count > 1 && all !== true) {
-    throw new Error(`匹配到 ${count} 处，请给出更具体的内容，或加 all:true 一次全部替换。`);
+    throw new Error(tActive('error.workspace.editMultipleMatches', { count }));
   }
 
   const result = all === true

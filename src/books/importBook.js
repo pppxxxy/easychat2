@@ -14,6 +14,7 @@ import { buildChapterList, splitBookIntoBlocks } from './blocks.js';
 import { extractPlainText } from './extractText.js';
 import { booksDirectory, saveBookItem } from './library.js';
 import { MARKDOWN_FORMATS } from './markdownBook.js';
+import { tActive } from '../i18n/index.js';
 
 export { BOOK_EXTENSIONS, isSupportedBookFile } from './extractText.js';
 
@@ -53,7 +54,7 @@ export async function importBookFromPicker({ now = Date.now() } = {}) {
     const bytes = Buffer.from(base64, 'base64');
     const { text, encoding, format } = extractPlainText({ fileName, bytes });
     if (!text || !text.trim()) {
-      const error = new Error('文件没有可导入的文本内容');
+      const error = new Error(tActive('error.books.noImportableText'));
       error.code = 'EMPTY_BOOK';
       throw error;
     }

@@ -4,6 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { backupCorruptValue, createMutationQueue, readJson, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 // 供 barrel 的媒体清理函数判断损坏备份键时复用。
 export const USER_PROFILE_KEY = '@easychat2_user_profile';
@@ -118,9 +119,9 @@ export function createPersona(partial = {}) {
 export function deletePersona(id) {
   return personasMutation.enqueue(async () => {
     const personas = await getPersonas();
-    if (personas.length <= 1) throw new Error('至少保留一个人设');
+    if (personas.length <= 1) throw new Error(tActive('error.storage.personaKeepOne'));
     const remaining = personas.filter(item => item.id !== id);
-    if (remaining.length === personas.length) throw new Error('人设不存在');
+    if (remaining.length === personas.length) throw new Error(tActive('error.storage.personaNotFound'));
     await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(remaining));
     const activeId = await getActivePersonaId(personas);
     const resolved = activeId === id ? remaining[0].id : activeId;

@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { markMediaWrite } from '../storage/mediaProtection.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { tActive } from '../i18n/index.js';
 
 import { normalizeTriggers } from './triggers.js';
 
@@ -108,7 +109,7 @@ async function writeMusicCollection(items) {
 export function getMusicItems() {
   return musicMutation.enqueue(async () => {
     const result = await readMusicCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('音乐库记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.music.libraryReadFailed'));
     return result.items;
   });
 }
@@ -118,11 +119,11 @@ export function saveMusicItem(item) {
   return musicMutation.enqueue(async () => {
     const normalized = normalizeMusicItem(item);
     if (!normalized.id || !normalized.name || !normalized.uri) {
-      throw new Error('歌曲信息不完整');
+      throw new Error(tActive('error.music.songInfoIncomplete'));
     }
     markMediaWrite(normalized.uri);
     const result = await readMusicCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('音乐库记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.music.libraryReadFailed'));
     const exists = result.items.some(entry => entry.id === normalized.id);
     // 新歌置顶，已有条目原位替换（保持用户看到的顺序稳定）。
     await writeMusicCollection(
@@ -138,9 +139,9 @@ export function saveMusicItem(item) {
 export function saveMusicDuration(id, durationMs) {
   return musicMutation.enqueue(async () => {
     const targetId = String(id || '');
-    if (!targetId) throw new Error('歌曲信息不完整');
+    if (!targetId) throw new Error(tActive('error.music.songInfoIncomplete'));
     const result = await readMusicCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('音乐库记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.music.libraryReadFailed'));
     const target = result.items.find(entry => entry.id === targetId);
     if (!target) return null;
     const duration = Math.max(0, Math.floor(Number(durationMs)) || 0);
@@ -155,11 +156,11 @@ export function saveMusicDuration(id, durationMs) {
 export function saveMusicTriggers(songId, triggers) {
   return musicMutation.enqueue(async () => {
     const targetId = String(songId || '');
-    if (!targetId) throw new Error('歌曲信息不完整');
+    if (!targetId) throw new Error(tActive('error.music.songInfoIncomplete'));
     const result = await readMusicCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('音乐库记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.music.libraryReadFailed'));
     const target = result.items.find(entry => entry.id === targetId);
-    if (!target) throw new Error('歌曲不存在或已被删除');
+    if (!target) throw new Error(tActive('error.music.songNotFound'));
     const updated = normalizeMusicItem({ ...target, triggers });
     await writeMusicCollection(result.items.map(entry => (entry.id === targetId ? updated : entry)));
     return updated;
@@ -171,7 +172,7 @@ export async function deleteMusicItems(ids) {
   const targetIds = new Set((Array.isArray(ids) ? ids : [ids]).map(id => String(id || '')).filter(Boolean));
   return musicMutation.enqueue(async () => {
     const result = await readMusicCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('音乐库记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.music.libraryReadFailed'));
     if (targetIds.size === 0) return { remaining: result.items, removed: [] };
     const removed = result.items.filter(item => targetIds.has(item.id));
     const remaining = result.items.filter(item => !targetIds.has(item.id));

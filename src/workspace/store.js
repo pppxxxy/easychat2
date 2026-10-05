@@ -9,6 +9,7 @@ import {
   sandboxDirectory,
 } from './paths.js';
 import { applyWorkspaceEdit } from './edit.js';
+import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 6;
@@ -16,7 +17,7 @@ const MAX_READ_CHARS = 1024 * 1024;
 
 function assertFileSystem(fileSystem) {
   if (!fileSystem || typeof fileSystem.readAsStringAsync !== 'function') {
-    throw new Error('工作区缺少 fileSystem 注入。');
+    throw new Error(tActive('error.workspace.fileSystemMissing'));
   }
 }
 
@@ -73,8 +74,8 @@ export async function readWorkspaceFile({ root, characterId, path, fileSystem, m
   assertAllowedWorkspaceFile(relative);
   const uri = `${sandboxDirectory(root, characterId)}${relative}`;
   const info = await getInfo(fileSystem, uri);
-  if (!info || !info.exists) throw new Error(`文件不存在：${relative}`);
-  if (info.isDirectory) throw new Error(`目标是目录，不是文件：${relative}`);
+  if (!info || !info.exists) throw new Error(tActive('error.workspace.fileNotFound', { path: relative }));
+  if (info.isDirectory) throw new Error(tActive('error.workspace.targetIsDirectory', { path: relative }));
   const text = String(await fileSystem.readAsStringAsync(uri));
   if (text.length > maxChars) {
     return { path: relative, content: text.slice(0, maxChars), truncated: true };

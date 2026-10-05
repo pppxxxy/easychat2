@@ -19,6 +19,7 @@ import { buildSystemPrompt } from './character/cardParser.js';
 import { useApp } from './context/AppContext.js';
 import { CharacterFormFields } from './character/CharacterFormFields.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -51,6 +52,7 @@ function emptyDraft(character) {
 export default function CharacterEditForm({ visible, character, onClose, onSaved }) {
   const { updateCharacter } = useApp();
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [draft, setDraft] = useState(() => emptyDraft(character));
   const [tagDraft, setTagDraft] = useState('');
@@ -122,7 +124,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       pendingImageUrisRef.current.set(key, dest);
       patch(key, dest);
     } catch (error) {
-      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert(t('character.edit.alert.readImageFailed.title'), t('character.edit.alert.readImageFailed.body'));
     }
   };
 
@@ -192,7 +194,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
     const trimmedPrompt = draft.systemPrompt.trim();
     const next = {
       id: characterId || 'default',
-      name: draft.name.trim() || 'EasyChat2 助手',
+      name: draft.name.trim() || t('character.edit.defaultName'),
       // 「人设/系统提示」允许并保持空白：默认值仅在 chatPipeline 发送时兜底，
       // 用户主动留空的人设不能被覆写成默认卡文案。
       systemPrompt: trimmedPrompt,
@@ -232,7 +234,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
        }
 
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限，已填内容不会丢失。');
+      Alert.alert(t('character.edit.alert.saveFailed.title'), t('character.edit.alert.saveFailed.body'));
     } finally {
       if (sessionRef.current === session) setSaving(false);
     }
@@ -252,8 +254,8 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>编辑角色</Text>
-            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.headerTitle}>{t('character.edit.title')}</Text>
+            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel={t('character.edit.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -288,7 +290,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               disabled={saving}
               activeOpacity={0.8}
             >
-              <Text style={styles.footerGhostText}>取消</Text>
+              <Text style={styles.footerGhostText}>{t('character.edit.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.footerPrimary, saving && styles.footerDisabled]}
@@ -297,7 +299,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               activeOpacity={0.85}
             >
               <Ionicons name="save-outline" size={16} color={theme.colors.text} />
-              <Text style={styles.footerPrimaryText}>{saving ? '保存中...' : '保存'}</Text>
+              <Text style={styles.footerPrimaryText}>{saving ? t('character.edit.saving') : t('character.edit.save')}</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -3,12 +3,13 @@
 import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 
 import { normalizePendingMessages } from './proactiveInbox.js';
+import { tActive } from '../i18n/index.js';
 
 const native = Platform.OS === 'android' ? NativeModules.ProactiveMessage : null;
 
 function requireNative() {
   if (!native) {
-    throw new Error('当前环境不支持定时主动消息（仅 Android 原生构建可用）');
+    throw new Error(tActive('error.proactive.unsupported'));
   }
   return native;
 }

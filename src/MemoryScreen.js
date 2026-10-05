@@ -28,8 +28,9 @@ import SessionRecoveryModal from './SessionRecoveryModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
-function formatTime(timestamp) {
+function formatTime(timestamp, t) {
   const value = Number(timestamp);
   if (!Number.isFinite(value) || value <= 0) return '';
   const date = new Date(value);
@@ -40,8 +41,8 @@ function formatTime(timestamp) {
   }
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return '昨天';
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  if (date.toDateString() === yesterday.toDateString()) return t('memory.date.yesterday');
+  return t('memory.date.md', { m: date.getMonth() + 1, d: date.getDate() });
 }
 
 function RowAction({ icon, color, onPress, label, styles }) {
@@ -79,6 +80,7 @@ export default function MemoryScreen({ navigation }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [topic, setTopic] = useState(null);
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   // 旧版本新建对话会误删会话记录：扫出"消息还在、会话没了"的对话，供用户恢复
@@ -98,11 +100,11 @@ export default function MemoryScreen({ navigation }) {
     } catch (error) {
       setOrphans([]);
       Alert.alert(
-        '无法检查丢失的对话',
-        (error && error.message) || '会话记录暂时读不出来，请稍后重试。'
+        t('memory.scan.fail.title'),
+        (error && error.message) || t('memory.scan.fail.body')
       );
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -126,13 +128,13 @@ export default function MemoryScreen({ navigation }) {
       await restoreSession(orphan.sessionId, characterId);
       await refreshSessions();
       setOrphans(current => current.filter(item => item.sessionId !== orphan.sessionId));
-      Alert.alert('已恢复', '这段对话已回到列表，它的记忆摘要也会一起生效。');
+      Alert.alert(t('memory.recover.success.title'), t('memory.recover.success.body'));
       return true;
     } catch (error) {
-      Alert.alert('恢复失败', (error && error.message) || '请稍后重试。');
+      Alert.alert(t('memory.recover.fail.title'), (error && error.message) || t('common.error.retryLater'));
       return false;
     }
-  }, [refreshSessions, restoreSession]);
+  }, [refreshSessions, restoreSession, t]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -230,42 +232,42 @@ export default function MemoryScreen({ navigation }) {
         await switchCharacter(previousCharacterId);
         if (previousSessionId) await switchSession(previousSessionId);
       } catch (rollbackError) {}
-      Alert.alert('打开失败', '请检查存储空间或权限。');
+      Alert.alert(t('memory.open.fail.title'), t('common.error.storageOrPermission'));
     } finally {
       switchLockRef.current = false;
     }
-  }, [activeId, activeSessionId, characterMap, navigation, sessions, switchCharacter, switchSession]);
+  }, [activeId, activeSessionId, characterMap, navigation, sessions, switchCharacter, switchSession, t]);
 
   const onPin = useCallback(async session => {
     try {
       await pinSession(session.id);
     } catch (error) {
-      Alert.alert('置顶失败', '请检查存储空间或权限。');
+      Alert.alert(t('memory.pin.fail.title'), t('common.error.storageOrPermission'));
     }
-  }, [pinSession]);
+  }, [pinSession, t]);
 
   const onClone = useCallback(session => {
-    Alert.alert('克隆会话', '将复制这段对话为一段新的会话。', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('memory.clone.title'), t('memory.clone.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '克隆',
+        text: t('memory.clone.action'),
         onPress: () => {
           cloneSession(session.id).catch(() => {
-            Alert.alert('克隆失败', '请检查存储空间或权限。');
+            Alert.alert(t('memory.clone.fail.title'), t('common.error.storageOrPermission'));
           });
         },
       },
     ]);
-  }, [cloneSession]);
+  }, [cloneSession, t]);
 
   // 动态可能锚定在某段对话（记忆）上：删除记忆时，提示是否连带删除对应动态。
   const countLinkedMoments = useCallback(async sessionIds => {
     const { status, moments } = await getMomentsStatus();
     if (status === 'corrupt') {
-      throw new Error('动态记录读取失败，请稍后重试');
+      throw new Error(t('memory.moments.readFail'));
     }
     return countMomentsBySessionIds(moments, sessionIds);
-  }, []);
+  }, [t]);
 
   // 先删动态再删会话：读不出动态时直接抛错中止，绝不在“动态删除没成功”的情况下
   // 先把会话删掉，留下指向不存在会话的孤儿动态。
@@ -285,36 +287,36 @@ export default function MemoryScreen({ navigation }) {
         await deleteSession(session.id);
       } catch (error) {
         Alert.alert(
-          '删除失败',
+          t('common.error.deleteFailed'),
           momentsDeleted
-            ? '关联动态已删除，但这段记忆删除失败，请重试。'
-            : '请检查存储空间或权限。'
+            ? t('memory.delete.momentsDeletedFail.body')
+            : t('common.error.storageOrPermission')
         );
       }
     };
     countLinkedMoments([session.id])
       .then(count => {
         if (count === 0) {
-          Alert.alert('删除会话', '将删除这段对话及其全部消息。', [
-            { text: '取消', style: 'cancel' },
-            { text: '删除', style: 'destructive', onPress: () => { runDelete(false); } },
+          Alert.alert(t('memory.deleteSession.title'), t('memory.deleteSession.body'), [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.delete'), style: 'destructive', onPress: () => { runDelete(false); } },
           ]);
           return;
         }
         Alert.alert(
-          '删除记忆',
-          `这段记忆对应 ${count} 条动态，要一起删除吗？`,
+          t('memory.deleteMemory.title'),
+          t('memory.deleteMemory.body', { count }),
           [
-            { text: '取消', style: 'cancel' },
-            { text: '只删记忆', onPress: () => { runDelete(false); } },
-            { text: '一起删除', style: 'destructive', onPress: () => { runDelete(true); } },
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('memory.deleteMemory.onlyMemory'), onPress: () => { runDelete(false); } },
+            { text: t('memory.deleteMemory.deleteAll'), style: 'destructive', onPress: () => { runDelete(true); } },
           ]
         );
       })
       .catch(() => {
-        Alert.alert('删除失败', '没能读出关联动态，请稍后重试。');
+        Alert.alert(t('common.error.deleteFailed'), t('memory.delete.linkedReadFail.body'));
       });
-  }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
+  }, [countLinkedMoments, deleteSession, removeMomentsOfSessions, t]);
 
   const onOpenResult = useCallback(async result => {
     if (switchLockRef.current) return;
@@ -325,7 +327,7 @@ export default function MemoryScreen({ navigation }) {
     try {
       const latestSessions = await refreshSessions();
       const target = latestSessions.find(session => session.id === result.sessionId);
-      if (!target) throw new Error('会话已不存在');
+      if (!target) throw new Error(t('memory.sessionMissing'));
       const characterExists = target.type !== 'group'
         && characters.some(character => character.id === target.characterId);
       if (characterExists) {
@@ -344,11 +346,11 @@ export default function MemoryScreen({ navigation }) {
           if (previousSessionId) await switchSession(previousSessionId);
         }
       } catch (rollbackError) {}
-      Alert.alert('打开失败', (error && error.message) || '请检查存储空间或权限。');
+      Alert.alert(t('memory.open.fail.title'), (error && error.message) || t('common.error.storageOrPermission'));
     } finally {
       switchLockRef.current = false;
     }
-  }, [activeId, activeSessionId, characters, navigation, refreshSessions, sessions, setPendingTarget, switchCharacter, switchSession]);
+  }, [activeId, activeSessionId, characters, navigation, refreshSessions, sessions, setPendingTarget, switchCharacter, switchSession, t]);
 
   const exitEdit = useCallback(() => {
     setEditing(false);
@@ -386,50 +388,50 @@ export default function MemoryScreen({ navigation }) {
         exitEdit();
       } catch (error) {
         Alert.alert(
-          '删除失败',
+          t('common.error.deleteFailed'),
           momentsDeleted
-            ? '关联动态已删除，但选中的记忆删除失败，请重试。'
-            : '请检查存储空间或权限。'
+            ? t('memory.delete.momentsDeletedFailBatch.body')
+            : t('common.error.storageOrPermission')
         );
       }
     };
     countLinkedMoments(selectedIds)
       .then(linked => {
         if (linked === 0) {
-          Alert.alert('删除会话', `确定删除选中的 ${count} 段对话及其消息吗？`, [
-            { text: '取消', style: 'cancel' },
-            { text: '删除', style: 'destructive', onPress: () => { runDelete(false); } },
+          Alert.alert(t('memory.deleteSession.title'), t('memory.deleteBatch.body', { count }), [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.delete'), style: 'destructive', onPress: () => { runDelete(false); } },
           ]);
           return;
         }
         Alert.alert(
-          '删除记忆',
-          `选中的 ${count} 段对话对应 ${linked} 条动态，要一起删除吗？`,
+          t('memory.deleteMemory.title'),
+          t('memory.deleteBatch.bodyLinked', { count, linked }),
           [
-            { text: '取消', style: 'cancel' },
-            { text: '只删记忆', onPress: () => { runDelete(false); } },
-            { text: '一起删除', style: 'destructive', onPress: () => { runDelete(true); } },
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('memory.deleteMemory.onlyMemory'), onPress: () => { runDelete(false); } },
+            { text: t('memory.deleteMemory.deleteAll'), style: 'destructive', onPress: () => { runDelete(true); } },
           ]
         );
       })
       .catch(() => {
-        Alert.alert('删除失败', '没能读出关联动态，请稍后重试。');
+        Alert.alert(t('common.error.deleteFailed'), t('memory.delete.linkedReadFail.body'));
       });
-  }, [countLinkedMoments, deleteSessions, exitEdit, removeMomentsOfSessions, selectedIds]);
+  }, [countLinkedMoments, deleteSessions, exitEdit, removeMomentsOfSessions, selectedIds, t]);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>记忆</Text>
+        <Text style={styles.title}>{t('memory.title')}</Text>
         <View style={styles.headerRight}>
           <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('memory')}
-            accessibilityLabel="查看记忆界面教学"
+            accessibilityLabel={t('memory.a11y.tutorial')}
           />
           {editing ? null : (
             <Text style={styles.count}>
-              {loaded ? `${visibleSessions.length} 段对话` : '加载中'}
+              {loaded ? t('memory.count', { count: visibleSessions.length }) : t('memory.loading')}
             </Text>
           )}
           {loaded && visibleSessions.length > 0 ? (
@@ -437,9 +439,9 @@ export default function MemoryScreen({ navigation }) {
               style={styles.editButton}
               onPress={editing ? exitEdit : () => setEditing(true)}
               activeOpacity={0.7}
-              accessibilityLabel={editing ? '完成编辑' : '编辑会话'}
+              accessibilityLabel={editing ? t('memory.a11y.finishEdit') : t('memory.a11y.editSessions')}
             >
-              <Text style={styles.editButtonText}>{editing ? '完成' : '编辑'}</Text>
+              <Text style={styles.editButtonText}>{editing ? t('common.done') : t('memory.edit')}</Text>
             </TouchableOpacity>
           ) : null}
           {loaded && visibleSessions.length > 0 && !editing ? (
@@ -447,9 +449,9 @@ export default function MemoryScreen({ navigation }) {
               style={styles.editButton}
               onPress={toggleAllGroups}
               activeOpacity={0.7}
-              accessibilityLabel={allExpanded ? '折叠所有记忆' : '展开所有记忆'}
+              accessibilityLabel={allExpanded ? t('memory.a11y.collapseAll') : t('memory.a11y.expandAll')}
             >
-              <Text style={styles.editButtonText}>{allExpanded ? '折叠全部' : '展开全部'}</Text>
+              <Text style={styles.editButtonText}>{allExpanded ? t('memory.collapseAll') : t('memory.expandAll')}</Text>
             </TouchableOpacity>
           ) : null}
           {editing ? null : (
@@ -457,7 +459,7 @@ export default function MemoryScreen({ navigation }) {
               style={styles.searchButton}
               onPress={() => setSearchOpen(true)}
               activeOpacity={0.7}
-              accessibilityLabel="搜索历史聊天记录"
+              accessibilityLabel={t('memory.a11y.search')}
             >
               <Ionicons name="search" size={18} color={theme.colors.primarySoft} />
             </TouchableOpacity>
@@ -469,19 +471,19 @@ export default function MemoryScreen({ navigation }) {
           style={styles.recoverNotice}
           onPress={() => setRecoverOpen(true)}
           activeOpacity={0.8}
-          accessibilityLabel="恢复丢失的对话"
+          accessibilityLabel={t('memory.a11y.recover')}
         >
           <Ionicons name="alert-circle-outline" size={13} color={theme.colors.star} />
           <Text style={styles.recoverNoticeText}>
-            {`发现 ${orphans.length} 段丢失的对话，点此恢复`}
+            {t('memory.recoverNotice', { count: orphans.length })}
           </Text>
         </TouchableOpacity>
       ) : null}
       {loaded && visibleSessions.length === 0 ? (
         <EmptyState
           icon="albums-outline"
-          title="还没有历史对话"
-          description="去聊天页开始一段新的对话吧。"
+          title={t('memory.empty.title')}
+          description={t('memory.empty.body')}
         />
       ) : (
         <FlatList
@@ -499,14 +501,16 @@ export default function MemoryScreen({ navigation }) {
                   disabled={editing}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={`${expanded ? '折叠' : '展开'}${item.label}`}
+                  accessibilityLabel={expanded
+                    ? t('memory.a11y.collapseGroup', { label: t(item.labelKey) })
+                    : t('memory.a11y.expandGroup', { label: t(item.labelKey) })}
                 >
                   <Ionicons
                     name={expanded ? 'chevron-down' : 'chevron-forward'}
                     size={16}
                     color={theme.colors.textFaint}
                   />
-                  <Text style={styles.groupLabel}>{item.label}</Text>
+                  <Text style={styles.groupLabel}>{t(item.labelKey)}</Text>
                   <Text style={styles.groupCount}>{item.count}</Text>
                 </TouchableOpacity>
               );
@@ -518,8 +522,8 @@ export default function MemoryScreen({ navigation }) {
               ? (session.members || []).map(id => characterMap.get(id)).filter(Boolean)
               : [];
             const name = isGroup
-              ? (session.name || groupMembers.map(item => item.name).join('、') || '群聊')
-              : ((character && character.name) || '未命名角色');
+              ? (session.name || groupMembers.map(item => item.name).join('、') || t('memory.groupChat'))
+              : ((character && character.name) || t('memory.unnamedCharacter'));
             const isClone = !!session.clonedFrom;
             return (
               <Card
@@ -578,7 +582,7 @@ export default function MemoryScreen({ navigation }) {
                   <View style={styles.cardText}>
                     <View style={styles.nameRow}>
                       <Text style={styles.name} numberOfLines={1}>{name}</Text>
-                      {isClone ? <Text style={styles.badge}>副本</Text> : null}
+                      {isClone ? <Text style={styles.badge}>{t('memory.cloneBadge')}</Text> : null}
                       {session.pinned ? (
                         <Ionicons name="star" size={12} color={theme.colors.star} style={styles.pinMark} />
                       ) : null}
@@ -586,9 +590,9 @@ export default function MemoryScreen({ navigation }) {
                     <Text style={styles.preview} numberOfLines={2}>
                       {String(session.preview || '').trim()
                         || String(previewFallback[session.id] || '').trim()
-                        || '（空会话，可删除）'}
+                        || t('memory.emptyPreview')}
                     </Text>
-                    <Text style={styles.time}>{formatTime(session.updatedAt)}</Text>
+                    <Text style={styles.time}>{formatTime(session.updatedAt, t)}</Text>
                   </View>
                 </TouchableOpacity>
                 {editing ? null : (
@@ -596,21 +600,21 @@ export default function MemoryScreen({ navigation }) {
                     <RowAction
                       icon={session.pinned ? 'star' : 'star-outline'}
                       color={session.pinned ? theme.colors.star : theme.colors.textFaint}
-                      label="置顶"
+                      label={t('memory.pin')}
                       styles={styles}
                       onPress={() => onPin(session)}
                     />
                     <RowAction
                       icon="copy-outline"
                       color={theme.colors.textFaint}
-                      label="克隆"
+                      label={t('memory.clone.action')}
                       styles={styles}
                       onPress={() => onClone(session)}
                     />
                     <RowAction
                       icon="trash-outline"
                       color={theme.colors.danger}
-                      label="删除"
+                      label={t('common.delete')}
                       styles={styles}
                       onPress={() => onDelete(session)}
                     />
@@ -635,7 +639,7 @@ export default function MemoryScreen({ navigation }) {
               color={theme.colors.primarySoft}
             />
             <Text style={styles.selectAllText}>
-              {allSelected ? '取消全选' : '全选'}
+              {allSelected ? t('memory.unselectAll') : t('memory.selectAll')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -644,7 +648,7 @@ export default function MemoryScreen({ navigation }) {
             disabled={selectedIds.length === 0}
             activeOpacity={0.8}
           >
-            <Text style={styles.deleteButtonText}>{`删除（${selectedIds.length}）`}</Text>
+            <Text style={styles.deleteButtonText}>{t('memory.deleteCount', { count: selectedIds.length })}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -669,7 +673,7 @@ export default function MemoryScreen({ navigation }) {
         visible={!!topic}
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
-        title="教学"
+        title={t('memory.tutorial.title')}
       />
     </View>
   );

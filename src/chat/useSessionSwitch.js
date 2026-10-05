@@ -15,6 +15,7 @@ import {
   setSessionGreetingSelected,
   startNewSession,
 } from '../storage.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useSessionSwitch({
   // 状态值（依赖数组所需，引用变化即重建回调）
@@ -73,6 +74,7 @@ export default function useSessionSwitch({
   updateCharacter,
 }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const { t } = useTranslation();
 
   const onSwitch = useCallback(id => {
     if (isSwitching) return;
@@ -144,9 +146,9 @@ export default function useSessionSwitch({
         setProtectedChatImageUris(draft.attachments
           .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
           .map(item => item.uri));
-        Alert.alert('切换失败', '请检查存储空间或权限。');
+        Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body'));
       });
-  }, [attachments, closeStickerNamePrompt, ensureCharacterSession, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchCharacter]);
+  }, [attachments, closeStickerNamePrompt, ensureCharacterSession, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchCharacter, t]);
 
   const onSwitchGroup = useCallback(id => {
     if (isSwitching) return;
@@ -210,9 +212,9 @@ export default function useSessionSwitch({
         setProtectedChatImageUris(draft.attachments
           .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
           .map(item => item.uri));
-        Alert.alert('切换失败', '请检查存储空间或权限。');
+        Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body'));
       });
-  }, [attachments, closeStickerNamePrompt, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchSession]);
+  }, [attachments, closeStickerNamePrompt, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchSession, t]);
 
   const confirmGreeting = useCallback(async result => {
     const flow = greetingPicker;
@@ -244,7 +246,7 @@ export default function useSessionSwitch({
         }
         setIsSending(false);
         const openingTemplate = String(result.firstMes || '');
-        const openingText = openingTemplate.replace(/\{\{user\}\}/g, () => userNameRef.current || '用户');
+        const openingText = openingTemplate.replace(/\{\{user\}\}/g, () => userNameRef.current || t('chat.session.defaultUser'));
         const created = await startNewSession(characterId, {
           text: openingText,
           template: openingTemplate,
@@ -313,7 +315,7 @@ export default function useSessionSwitch({
           )
         )
       ) return false;
-      Alert.alert('开场白保存失败', '请稍后重试。');
+      Alert.alert(t('chat.session.greetingSaveFailed.title'), t('chat.session.greetingSaveFailed.body'));
       return false;
     } finally {
       if (
@@ -321,19 +323,19 @@ export default function useSessionSwitch({
         && switchOperationRef.current === transitionToken
       ) setIsSwitching(false);
     }
-  }, [greetingPicker, messages, refreshSessions, updateCharacter]);
+  }, [greetingPicker, messages, refreshSessions, updateCharacter, t]);
 
   const onNewChat = useCallback(() => {
     if (isSending || isSwitching || !ready || sessionTransitionPending || abortRef.current) return;
     if (sessionOwnerMissing) {
-      Alert.alert('角色资料缺失', '这段历史对话可以继续查看，恢复角色资料后才能新建或发送消息。');
+      Alert.alert(t('chat.session.ownerMissing.title'), t('chat.session.ownerMissing.newChatBody'));
       return;
     }
     if (isGroupRef.current && groupCharactersRef.current.length > 0) {
-      Alert.alert('新建对话', '将为当前群聊开启一段新对话，旧对话保留在「记忆」中。', [
-        { text: '取消', style: 'cancel' },
+      Alert.alert(t('chat.session.newChat.title'), t('chat.session.newChat.body'), [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '新建',
+          text: t('chat.session.newChat.confirm'),
           onPress: async () => {
             const transitionToken = ++switchOperationRef.current;
             const previousCharacterId = activeCharacterIdRef.current;
@@ -346,7 +348,7 @@ export default function useSessionSwitch({
             setIsSending(false);
             try {
               const current = sessionsRef.current.find(item => item.id === previousSessionId);
-              const created = await createGroupSession(groupCharactersRef.current, (current && current.name) || '群聊');
+              const created = await createGroupSession(groupCharactersRef.current, (current && current.name) || t('chat.session.defaultGroupName'));
               if (
                 switchOperationRef.current !== transitionToken
                 || activeCharacterIdRef.current !== previousCharacterId
@@ -381,7 +383,7 @@ export default function useSessionSwitch({
                   && activeSessionIdRef.current !== ''
                 )
               ) return;
-              Alert.alert('新建对话失败', '请稍后重试。');
+              Alert.alert(t('chat.session.newChatFailed.title'), t('chat.session.newChatFailed.body'));
             } finally {
               if (switchOperationRef.current === transitionToken) setIsSwitching(false);
             }
@@ -391,7 +393,7 @@ export default function useSessionSwitch({
       return;
     }
     openGreetingPicker('new');
-  }, [isSending, isSwitching, openGreetingPicker, ready, refreshSessions, sessionOwnerMissing, sessionTransitionPending]);
+  }, [isSending, isSwitching, openGreetingPicker, ready, refreshSessions, sessionOwnerMissing, sessionTransitionPending, t]);
 
   return {
     switcherOpen,

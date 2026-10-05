@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { markMediaWrite } from '../storage/mediaProtection.js';
 import { getAudioModule, getFileSystem } from './audioModules.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 const MIN_DURATION_MS = 500;
 const MAX_DURATION_MS = 60 * 1000;
@@ -41,6 +42,7 @@ async function discardFile(uri) {
 }
 
 export default function useChatRecorder() {
+  const { t } = useTranslation();
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef(null);
   const startedAtRef = useRef(0);
@@ -48,19 +50,19 @@ export default function useChatRecorder() {
   const ensurePermission = useCallback(async () => {
     const lib = getAudioModule();
     if (!lib || typeof lib.requestRecordingPermissionsAsync !== 'function') {
-      throw new Error('当前设备不支持录音');
+      throw new Error(t('chat.voice.error.unsupported'));
     }
     const status = await lib.requestRecordingPermissionsAsync();
     if (!status || status.granted !== true) {
-      throw new Error('需要麦克风权限才能发送语音');
+      throw new Error(t('chat.voice.error.micPermission'));
     }
     return true;
-  }, []);
+  }, [t]);
 
   const start = useCallback(async () => {
     const audio = getAudioModule();
     if (!audio || !audio.AudioModule || typeof audio.AudioModule.AudioRecorder !== 'function') {
-      throw new Error('当前设备不支持录音');
+      throw new Error(t('chat.voice.error.unsupported'));
     }
     await ensurePermission();
     // 录制需放开录音模式（iOS）、允许静音模式下工作。
@@ -94,15 +96,15 @@ export default function useChatRecorder() {
     const sourceUri = String(recorder.uri || '');
     if (elapsed < MIN_DURATION_MS) {
       await discardFile(sourceUri);
-      throw new Error('说话时间太短');
+      throw new Error(t('chat.voice.error.tooShort'));
     }
     if (elapsed > MAX_DURATION_MS) {
       await discardFile(sourceUri);
-      throw new Error('语音时长超限（最多 60 秒）');
+      throw new Error(t('chat.voice.error.tooLong'));
     }
     const uri = await persistVoiceFile(sourceUri);
     return { uri, durationMs: elapsed, mime: 'audio/m4a' };
-  }, []);
+  }, [t]);
 
   const cancel = useCallback(async () => {
     const recorder = recorderRef.current;

@@ -8,25 +8,31 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, TextField } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 字段配置：声明式，key 与 FORGE_FIELDS（cardForge/forge.js）一一对应。
 // 新增字段只需在 FORGE_FIELDS 里加 key，这里会自动渲染。
-export const PERSONA_FIELDS = [
-  { key: 'name', label: '角色名', type: 'text', placeholder: '例如：严谨的代码助手' },
-  { key: 'systemPrompt', label: '人设 / 系统提示词', type: 'multiline', placeholder: '描述角色的语气、知识和回答方式' },
-  { key: 'description', label: '角色描述', type: 'multiline', placeholder: '角色的背景、外貌与身份设定' },
-  { key: 'personality', label: '性格', type: 'multilineSmall', placeholder: '角色的性格特点' },
-  { key: 'scenario', label: '场景', type: 'multilineSmall', placeholder: '剧情发生的背景与情境' },
-  { key: 'firstMes', label: '开场白', type: 'multilineSmall', placeholder: '角色登场时的第一句话' },
-  { key: 'mesExample', label: '对话示例', type: 'multiline', placeholder: '<START>\n{{user}}: 你好\n{{char}}: 你好呀', hint: '对话示例会作为示范注入系统提示词，可用 {{user}} 与 {{char}} 占位。' },
-];
+// label/placeholder 走 i18n：调用方在组件内用 buildPersonaFields(t) 构建。
+export function buildPersonaFields(t) {
+  return [
+    { key: 'name', label: t('character.fields.name.label'), type: 'text', placeholder: t('character.fields.name.placeholder') },
+    { key: 'systemPrompt', label: t('character.fields.systemPrompt.label'), type: 'multiline', placeholder: t('character.fields.systemPrompt.placeholder') },
+    { key: 'description', label: t('character.fields.description.label'), type: 'multiline', placeholder: t('character.fields.description.placeholder') },
+    { key: 'personality', label: t('character.fields.personality.label'), type: 'multilineSmall', placeholder: t('character.fields.personality.placeholder') },
+    { key: 'scenario', label: t('character.fields.scenario.label'), type: 'multilineSmall', placeholder: t('character.fields.scenario.placeholder') },
+    { key: 'firstMes', label: t('character.fields.firstMes.label'), type: 'multilineSmall', placeholder: t('character.fields.firstMes.placeholder') },
+    { key: 'mesExample', label: t('character.fields.mesExample.label'), type: 'multiline', placeholder: t('character.fields.mesExample.placeholder'), hint: t('character.fields.mesExample.hint') },
+  ];
+}
 
 // 语音形态三档（与 FORGE_FIELDS 的 voiceDisplay 对应）
-export const VOICE_OPTIONS = [
-  { value: 'text', label: '仅文字' },
-  { value: 'voice-text', label: '语音 + 原文' },
-  { value: 'voice', label: '纯语音' },
-];
+export function buildVoiceOptions(t) {
+  return [
+    { value: 'text', label: t('character.fields.voice.text') },
+    { value: 'voice-text', label: t('character.fields.voice.voiceText') },
+    { value: 'voice', label: t('character.fields.voice.voice') },
+  ];
+}
 
 // 自带样式：字段标签、多行输入、图片行、chips、标签等全部内部定义
 function useFieldStyles() {
@@ -112,7 +118,7 @@ export function Field({ field, draft, patch, styles }) {
 // 头像/背景图行
 export function ImagePickerRow({ label, imageUri, onPick, onClear, styles, placeholderText }) {
   // 图片行用 onPick/onClear 直接操作，不走 patch（patch 用于文本字段）
-
+  const { t } = useTranslation();
   return (
     <>
       <FieldLabel style={styles.label}>{label}</FieldLabel>
@@ -126,11 +132,11 @@ export function ImagePickerRow({ label, imageUri, onPick, onClear, styles, place
         )}
         <View style={styles.imageActions}>
           <TouchableOpacity style={styles.smallButton} onPress={onPick} activeOpacity={0.8}>
-            <Text style={styles.smallButtonText}>{imageUri ? '更换' : '选择'}</Text>
+            <Text style={styles.smallButtonText}>{imageUri ? t('character.fields.image.change') : t('character.fields.image.pick')}</Text>
           </TouchableOpacity>
           {imageUri ? (
             <TouchableOpacity onPress={onClear} hitSlop={8}>
-              <Text style={styles.removeText}>清除</Text>
+              <Text style={styles.removeText}>{t('character.fields.image.clear')}</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -142,16 +148,17 @@ export function ImagePickerRow({ label, imageUri, onPick, onClear, styles, place
 // 备用开场白列表
 export function GreetingList({ draft, styles, addGreeting, updateGreeting, removeGreeting }) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <>
-      <FieldLabel style={styles.label}>备用开场白</FieldLabel>
+      <FieldLabel style={styles.label}>{t('character.fields.greetings.label')}</FieldLabel>
       {draft.alternateGreetings.map((item, index) => (
         <View key={`greeting-${index}`} style={styles.greetingRow}>
           <TextField
             style={[styles.multilineSmall, styles.greetingInput]}
             value={item}
             onChangeText={value => updateGreeting(index, value)}
-            placeholder={`备用开场白 ${index + 1}`}
+            placeholder={t('character.fields.greetings.placeholder', { n: index + 1 })}
             multiline
             textAlignVertical="top"
           />
@@ -159,7 +166,7 @@ export function GreetingList({ draft, styles, addGreeting, updateGreeting, remov
             style={styles.greetingRemove}
             onPress={() => removeGreeting(index)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="删除备用开场白"
+            accessibilityLabel={t('character.fields.greetings.removeA11y')}
           >
             <Ionicons name="close" size={16} color={theme.colors.dangerSoft} />
           </TouchableOpacity>
@@ -167,7 +174,7 @@ export function GreetingList({ draft, styles, addGreeting, updateGreeting, remov
       ))}
       <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
         <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-        <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
+        <Text style={styles.secondaryButtonText}>{t('character.fields.greetings.add')}</Text>
       </TouchableOpacity>
     </>
   );
@@ -175,11 +182,13 @@ export function GreetingList({ draft, styles, addGreeting, updateGreeting, remov
 
 // 语音形态三档选择
 export function VoiceSelector({ draft, patch, styles }) {
+  const { t } = useTranslation();
+  const voiceOptions = React.useMemo(() => buildVoiceOptions(t), [t]);
   return (
     <>
-      <FieldLabel style={styles.label}>语音形态</FieldLabel>
+      <FieldLabel style={styles.label}>{t('character.fields.voice.label')}</FieldLabel>
       <View style={styles.voiceRow}>
-        {VOICE_OPTIONS.map(option => {
+        {voiceOptions.map(option => {
           const active = draft.voiceDisplay === option.value;
           return (
             <TouchableOpacity
@@ -188,7 +197,7 @@ export function VoiceSelector({ draft, patch, styles }) {
               onPress={() => patch('voiceDisplay', option.value)}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel={`语音形态 ${option.label}`}
+              accessibilityLabel={t('character.fields.voice.a11y', { label: option.label })}
               accessibilityState={{ selected: active }}
             >
               <Text style={[styles.voiceChipText, active && styles.voiceChipTextActive]}>
@@ -198,7 +207,7 @@ export function VoiceSelector({ draft, patch, styles }) {
           );
         })}
       </View>
-      <FieldHint style={styles.hint}>纯语音会隐藏回复正文（仍计入对话与记忆）；语音合成失败时自动退回仅文字。</FieldHint>
+      <FieldHint style={styles.hint}>{t('character.fields.voice.hint')}</FieldHint>
     </>
   );
 }
@@ -206,9 +215,10 @@ export function VoiceSelector({ draft, patch, styles }) {
 // 标签编辑器
 export function TagEditor({ draft, styles, tagDraft, setTagDraft, addTag, removeTag }) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <>
-      <FieldLabel style={styles.label}>标签</FieldLabel>
+      <FieldLabel style={styles.label}>{t('character.fields.tags.label')}</FieldLabel>
       <View style={styles.tagRow}>
         {draft.tags.map(tag => (
           <TouchableOpacity
@@ -228,7 +238,7 @@ export function TagEditor({ draft, styles, tagDraft, setTagDraft, addTag, remove
           value={tagDraft}
           onChangeText={setTagDraft}
           onSubmitEditing={addTag}
-          placeholder="输入标签后回车添加"
+          placeholder={t('character.fields.tags.placeholder')}
           returnKeyType="done"
         />
         <TouchableOpacity style={styles.tagAdd} onPress={addTag} activeOpacity={0.8}>
@@ -254,17 +264,20 @@ export function CharacterFormFields({
   setTagDraft,
   addTag,
   removeTag,
-  fields = PERSONA_FIELDS,
+  fields,
 }) {
   const styles = useFieldStyles();
+  const { t } = useTranslation();
+  const defaultFields = React.useMemo(() => buildPersonaFields(t), [t]);
+  const resolvedFields = fields || defaultFields;
   const nameChar = (draft.name || '?').charAt(0);
   return (
     <>
-      {fields.map(field => (
+      {resolvedFields.map(field => (
         <Field key={field.key} field={field} draft={draft} patch={patch} styles={styles} />
       ))}
       <ImagePickerRow
-        label="角色头像"
+        label={t('character.fields.avatarLabel')}
         imageUri={draft.avatarUri}
         onPick={onPickAvatar}
         onClear={onClearAvatar}
@@ -272,7 +285,7 @@ export function CharacterFormFields({
         placeholderText={nameChar}
       />
       <ImagePickerRow
-        label="背景图"
+        label={t('character.fields.bgLabel')}
         imageUri={draft.bgUri}
         onPick={onPickBg}
         onClear={onClearBg}
@@ -297,7 +310,7 @@ export function CharacterFormFields({
         addTag={addTag}
         removeTag={removeTag}
       />
-      <FieldHint style={styles.hint}>世界书与正则脚本请在「角色」页编辑。</FieldHint>
+      <FieldHint style={styles.hint}>{t('character.fields.worldHint')}</FieldHint>
     </>
   );
 }

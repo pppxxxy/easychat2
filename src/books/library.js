@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { tActive } from '../i18n/index.js';
 
 export const BOOKS_INDEX_KEY = '@easychat2_books_index';
 export const BOOK_ITEM_PREFIX = '@easychat2_books_item';
@@ -136,7 +137,7 @@ async function writeBookCollection(items) {
 export function getBooks() {
   return booksMutation.enqueue(async () => {
     const result = await readBookCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('书架记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.books.shelfReadFailed'));
     return result.items;
   });
 }
@@ -145,10 +146,10 @@ export function saveBookItem(item) {
   return booksMutation.enqueue(async () => {
     const normalized = normalizeBookItem(item);
     if (!normalized.id || !normalized.name || !normalized.uri) {
-      throw new Error('书籍信息不完整');
+      throw new Error(tActive('error.books.infoIncomplete'));
     }
     const result = await readBookCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('书架记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.books.shelfReadFailed'));
     const exists = result.items.some(entry => entry.id === normalized.id);
     await writeBookCollection(
       exists
@@ -164,9 +165,9 @@ export function saveBookItem(item) {
 export function saveBookProgress(id, progress) {
   return booksMutation.enqueue(async () => {
     const targetId = String(id || '');
-    if (!targetId) throw new Error('书籍信息不完整');
+    if (!targetId) throw new Error(tActive('error.books.infoIncomplete'));
     const result = await readBookCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('书架记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.books.shelfReadFailed'));
     const target = result.items.find(entry => entry.id === targetId);
     if (!target) return null;
     const updated = normalizeBookItem({ ...target, progress });
@@ -188,7 +189,7 @@ export async function deleteBooks(ids) {
   const targetIds = new Set((Array.isArray(ids) ? ids : [ids]).map(id => String(id || '')).filter(Boolean));
   return booksMutation.enqueue(async () => {
     const result = await readBookCollectionStatus();
-    if (result.status === 'corrupt') throw new Error('书架记录读取失败，请稍后重试');
+    if (result.status === 'corrupt') throw new Error(tActive('error.books.shelfReadFailed'));
     if (targetIds.size === 0) return { remaining: result.items, removed: [] };
     const removed = result.items.filter(item => targetIds.has(item.id));
     const remaining = result.items.filter(item => !targetIds.has(item.id));

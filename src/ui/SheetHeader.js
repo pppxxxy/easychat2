@@ -3,21 +3,24 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 弹窗标题行：标题 + 关闭按钮，可选左侧返回。
-export default function SheetHeader({ title, onClose, onBack, closeLabel = '关闭' }) {
+export default function SheetHeader({ title, onClose, onBack, closeLabel }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const resolvedCloseLabel = closeLabel !== undefined ? closeLabel : t('ui.sheet.close');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={styles.header}>
       {onBack ? (
-        <TouchableOpacity onPress={onBack} hitSlop={8} accessibilityLabel="返回" style={styles.back}>
+        <TouchableOpacity onPress={onBack} hitSlop={8} accessibilityLabel={t('ui.sheet.back')} style={styles.back}>
           <Ionicons name="chevron-back" size={tokens.iconSize.lg} color={theme.colors.textMuted} />
         </TouchableOpacity>
       ) : null}
       <Text style={styles.title} numberOfLines={1}>{title}</Text>
       {onClose ? (
-        <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={closeLabel}>
+        <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={resolvedCloseLabel}>
           <Ionicons name="close" size={tokens.iconSize.lg} color={theme.colors.textMuted} />
         </TouchableOpacity>
       ) : null}

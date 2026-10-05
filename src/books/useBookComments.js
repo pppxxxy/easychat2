@@ -114,7 +114,7 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
       if (controller.signal.aborted) return false;
       // 接口空响应返回占位文本：那不是角色评论，按失败处理。
       const text = String(raw || '').trim();
-      if (!text || text === EMPTY_REPLY_TEXT) throw new Error('没有收到回复内容');
+      if (!text || text === EMPTY_REPLY_TEXT) throw new Error(t('error.comments.noReply'));
       const comment = {
         id: `bc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         characterId: character.id,

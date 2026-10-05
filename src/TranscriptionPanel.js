@@ -24,6 +24,7 @@ import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getTranscriptionSettings, saveTranscriptionSettings } from './storage.js';
 import { TRANSCRIPTION_API_VENDORS } from './network/apiVendors.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 const REUSED_ID = '__reused__';
 
@@ -33,6 +34,7 @@ function makeConfigId() {
 
 export default function TranscriptionPanel({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [settings, setSettings] = useState({ activeId: '', configs: [] });
   const [loaded, setLoaded] = useState(false);
@@ -53,7 +55,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
         setLoaded(true);
       })
       .catch(() => {
-        if (!cancelled) Alert.alert('读取失败', '无法读取语音转文字设置。');
+        if (!cancelled) Alert.alert(t('transcription.alert.loadFailed.title'), t('transcription.alert.loadFailed.body'));
       });
     return () => {
       cancelled = true;
@@ -72,10 +74,10 @@ export default function TranscriptionPanel({ visible, onClose }) {
     } catch (error) {
       settingsRef.current = previous;
       setSettings(previous);
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('transcription.alert.saveFailed.title'), t('transcription.alert.saveFailed.body'));
       return null;
     }
-  }, []);
+  }, [t]);
 
   const selectSource = useCallback(id => {
     persist({ ...settingsRef.current, activeId: id === REUSED_ID ? '' : id });
@@ -85,7 +87,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
     const preset = vendor && typeof vendor === 'object' ? vendor : null;
     const next = {
       id: makeConfigId(),
-      name: preset ? preset.name : '新配置',
+      name: preset ? preset.name : t('transcription.config.newName'),
       baseUrl: preset ? preset.baseUrl : '',
       apiKey: '',
       model: preset ? preset.model : '',
@@ -96,7 +98,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
       activeId: next.id,
       configs: [...settingsRef.current.configs, next],
     });
-  }, [persist]);
+  }, [persist, t]);
 
   const updateConfig = useCallback((id, key, value) => {
     const current = settingsRef.current;
@@ -134,17 +136,17 @@ export default function TranscriptionPanel({ visible, onClose }) {
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>语音转文字</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{t('transcription.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('transcription.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <FieldHint style={styles.hint}>
-              发送语音时，音频会上传到所选服务商转写成文字。密钥仅保存在本机，不会写入日志或文档。
+              {t('transcription.intro')}
             </FieldHint>
 
-            <FieldLabel style={styles.label}>转写来源</FieldLabel>
+            <FieldLabel style={styles.label}>{t('transcription.sourceLabel')}</FieldLabel>
 
             <TouchableOpacity
               style={[styles.optionRow, !activeConfig && styles.optionRowActive]}
@@ -157,8 +159,8 @@ export default function TranscriptionPanel({ visible, onClose }) {
                 color={!activeConfig ? theme.colors.primary : theme.colors.textFaint}
               />
               <View style={styles.optionBody}>
-                <Text style={styles.optionTitle}>仅复用当前聊天来源</Text>
-                <Text style={styles.optionMeta}>用当前 API 配置调用 /v1/audio/transcriptions，无需额外填写</Text>
+                <Text style={styles.optionTitle}>{t('transcription.reuse.title')}</Text>
+                <Text style={styles.optionMeta}>{t('transcription.reuse.meta')}</Text>
               </View>
             </TouchableOpacity>
 
@@ -177,25 +179,25 @@ export default function TranscriptionPanel({ visible, onClose }) {
                         size={18}
                         color={active ? theme.colors.primary : theme.colors.textFaint}
                       />
-                      <Text style={styles.optionTitle}>{config.name || '未命名配置'}</Text>
+                      <Text style={styles.optionTitle}>{config.name || t('transcription.config.unnamed')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => removeConfig(config.id)}
                       hitSlop={8}
-                      accessibilityLabel="删除配置"
+                      accessibilityLabel={t('transcription.config.deleteA11y')}
                     >
                       <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
                     </TouchableOpacity>
                   </View>
-                  <FieldLabel style={styles.label}>名称</FieldLabel>
+                  <FieldLabel style={styles.label}>{t('transcription.field.name')}</FieldLabel>
                   <TextField
                     value={config.name}
                     onChangeText={value => updateConfig(config.id, 'name', value)}
-                    placeholder="例如：Whisper 官方"
+                    placeholder={t('transcription.field.namePlaceholder')}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
-                  <FieldLabel style={styles.label}>接口地址</FieldLabel>
+                  <FieldLabel style={styles.label}>{t('transcription.field.baseUrl')}</FieldLabel>
                   <TextField
                     value={config.baseUrl}
                     onChangeText={value => updateConfig(config.id, 'baseUrl', value)}
@@ -207,7 +209,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
                   <TextField
                     value={config.apiKey}
                     onChangeText={value => updateConfig(config.id, 'apiKey', value)}
-                    placeholder="在服务商控制台获取"
+                    placeholder={t('transcription.field.apiKeyPlaceholder')}
                    secureTextEntry
                    autoCapitalize="none"
                    autoCorrect={false}
@@ -218,13 +220,13 @@ export default function TranscriptionPanel({ visible, onClose }) {
                         onPress={() => Linking.openURL(getVendorForConfig(config).apiKeyUrl)}
                         activeOpacity={0.75}
                         accessibilityRole="link"
-                        accessibilityLabel={`获取${getVendorForConfig(config).name} API Key`}
+                        accessibilityLabel={t('transcription.getKey.a11y', { vendor: getVendorForConfig(config).name })}
                       >
-                        <Text style={styles.keyLink}>获取密钥</Text>
+                        <Text style={styles.keyLink}>{t('transcription.getKey')}</Text>
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  <FieldLabel style={styles.label}>模型名</FieldLabel>
+                  <FieldLabel style={styles.label}>{t('transcription.field.model')}</FieldLabel>
                   <TextField
                     value={config.model}
                     onChangeText={value => updateConfig(config.id, 'model', value)}
@@ -236,9 +238,9 @@ export default function TranscriptionPanel({ visible, onClose }) {
               );
             }) : null}
 
-            <FieldLabel style={styles.label}>新增独立转写配置</FieldLabel>
+            <FieldLabel style={styles.label}>{t('transcription.addLabel')}</FieldLabel>
             <FieldHint style={styles.hint}>
-              点厂商一键预填端点与模型，再填入该厂商的 API Key 即可。
+              {t('transcription.addHint')}
             </FieldHint>
             <View style={styles.vendorRow}>
               {TRANSCRIPTION_API_VENDORS.map(vendor => (
@@ -248,7 +250,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
                   onPress={() => addConfig(vendor)}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={`新增${vendor.name}转写配置`}
+                  accessibilityLabel={t('transcription.addVendor.a11y', { vendor: vendor.name })}
                 >
                   <Text style={styles.vendorChipText}>{vendor.name}</Text>
                 </TouchableOpacity>
@@ -258,9 +260,9 @@ export default function TranscriptionPanel({ visible, onClose }) {
                 onPress={() => addConfig(null)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel="新增自定义转写配置"
+                accessibilityLabel={t('transcription.addCustom.a11y')}
               >
-                <Text style={styles.vendorChipCustomText}>自定义</Text>
+                <Text style={styles.vendorChipCustomText}>{t('transcription.custom')}</Text>
               </TouchableOpacity>
             </View>
             {TRANSCRIPTION_API_VENDORS.map(vendor => (
@@ -270,7 +272,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
             ))}
 
             <TouchableOpacity style={styles.saveButton} onPress={onClose} activeOpacity={0.8}>
-              <Text style={styles.saveText}>完成</Text>
+              <Text style={styles.saveText}>{t('transcription.done')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

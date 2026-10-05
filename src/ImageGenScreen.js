@@ -28,6 +28,7 @@ import ChapterModal from './books/ChapterModal.js';
 import { getImageDimensions } from './chat/attachments.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { maskSecrets } from './storage/secrets.js';
 
 const SIZES = ['1024*1024', '1024*1792', '1792*1024', '512*512'];
@@ -87,6 +88,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
   const lastSavedSettingsRef = useRef(settings);
   settingsRef.current = settings;
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   useEffect(() => {
@@ -122,7 +124,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         lastSavedSettingsRef.current = normalized;
         setSettings(normalized);
       } catch (error) {
-        if (mountedRef.current) Alert.alert('读取配置失败', '请重新打开应用后重试。');
+        if (mountedRef.current) Alert.alert(t('imageGen.alert.readConfigFailed.title'), t('imageGen.alert.readConfigFailed.body'));
       } finally {
         if (mountedRef.current) setLoaded(true);
       }
@@ -153,7 +155,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           settingsRef.current = lastSavedSettingsRef.current;
           setSettings(lastSavedSettingsRef.current);
         }
-        if (mountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
+        if (mountedRef.current) Alert.alert(t('imageGen.alert.saveFailed.title'), t('imageGen.alert.saveFailed.bodyStorage'));
         return false;
       }
     });
@@ -202,12 +204,12 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
   // 列表接口不可用时，不再自动试生成：先问过用户再决定是否花这笔钱。
   const confirmProbe = useCallback(() => {
     Alert.alert(
-      '列表接口不可用',
-      '该服务的模型列表接口无法访问。可以试生成 1 张小图来验证连通性，但可能产生费用。是否继续？',
+      t('imageGen.alert.probeUnavailable.title'),
+      t('imageGen.alert.probeUnavailable.body'),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('imageGen.cancel'), style: 'cancel' },
         {
-          text: '试生成 1 张',
+          text: t('imageGen.probe.button'),
            onPress: async () => {
              if (!mountedRef.current) return;
              const controller = new AbortController();
@@ -227,10 +229,10 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
                  signal: controller.signal,
                });
                if (!mountedRef.current || controller.signal.aborted) return;
-               Alert.alert('检测成功', `已连通，试生成 ${probe.images} 张小图（可能产生费用）`);
+               Alert.alert(t('imageGen.alert.detectOk.title'), t('imageGen.probe.okBody', { n: probe.images }));
              } catch (error) {
                if (mountedRef.current && !controller.signal.aborted) {
-                 Alert.alert('检测失败', maskSecrets((error && error.message) || '生成接口不可用'));
+                 Alert.alert(t('imageGen.alert.detectFailed.title'), maskSecrets((error && error.message) || t('imageGen.probe.failedBody')));
                }
              } finally {
                if (detectionControllerRef.current === controller) {
@@ -243,7 +245,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         },
       ]
     );
-  }, [draftApiKey, draftBaseUrl, draftModel, prompt, provider]);
+  }, [draftApiKey, draftBaseUrl, draftModel, prompt, provider, t]);
 
   const detectProvider = useCallback(async () => {
     if (detecting) return;
@@ -265,20 +267,20 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
        if (result.ok) {
 
         const extra = result.modelFound === false
-          ? '\n（模型名可能不正确，但接口已连通）'
+          ? `\n${t('imageGen.detect.modelNote')}`
           : '';
-        Alert.alert('检测成功', `${result.message}${extra}`);
+        Alert.alert(t('imageGen.alert.detectOk.title'), `${result.message}${extra}`);
        } else if (result.needsProbe) {
          detectionControllerRef.current = null;
          if (mountedRef.current) setDetecting(false);
          confirmProbe();
          return;
        } else {
-         Alert.alert('检测失败', result.error || '无法连接');
+         Alert.alert(t('imageGen.alert.detectFailed.title'), result.error || t('imageGen.detect.unreachable'));
        }
      } catch (error) {
        if (mountedRef.current && !controller.signal.aborted) {
-         Alert.alert('检测失败', maskSecrets((error && error.message) || '无法连接'));
+         Alert.alert(t('imageGen.alert.detectFailed.title'), maskSecrets((error && error.message) || t('imageGen.detect.unreachable')));
        }
      } finally {
        if (detectionControllerRef.current === controller) {
@@ -287,24 +289,24 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
        }
      }
 
-  }, [confirmProbe, detecting, draftApiKey, draftBaseUrl, draftModel, provider]);
+  }, [confirmProbe, detecting, draftApiKey, draftBaseUrl, draftModel, provider, t]);
 
   const openApiKeyUrl = useCallback(async () => {
     if (!provider.apiKeyUrl) {
-      Alert.alert('获取 API Key', provider.keyHint || '请从服务提供方后台获取 API Key。');
+      Alert.alert(t('imageGen.alert.getApiKey.title'), provider.keyHint || t('imageGen.alert.getApiKey.body'));
       return;
     }
     try {
       const canOpen = await Linking.canOpenURL(provider.apiKeyUrl);
       if (!canOpen) {
-        Alert.alert('无法打开链接', provider.apiKeyUrl);
+        Alert.alert(t('imageGen.alert.openLinkFailed.title'), provider.apiKeyUrl);
         return;
       }
       await Linking.openURL(provider.apiKeyUrl);
     } catch (error) {
-      Alert.alert('无法打开链接', provider.apiKeyUrl);
+      Alert.alert(t('imageGen.alert.openLinkFailed.title'), provider.apiKeyUrl);
     }
-  }, [provider.apiKeyUrl, provider.keyHint]);
+  }, [provider.apiKeyUrl, provider.keyHint, t]);
 
   const confirmSettings = useCallback(async () => {
     let extra = {};
@@ -313,12 +315,12 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       try {
         const parsed = JSON.parse(extraText);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          Alert.alert('额外参数无效', '请输入 JSON 对象，例如 {"quality":"hd"}。');
+          Alert.alert(t('imageGen.alert.extraInvalid.title'), t('imageGen.alert.extraInvalid.bodyObject'));
           return;
         }
         extra = parsed;
       } catch (error) {
-        Alert.alert('额外参数无效', '请输入合法的 JSON。');
+        Alert.alert(t('imageGen.alert.extraInvalid.title'), t('imageGen.alert.extraInvalid.bodyJson'));
         return;
       }
     }
@@ -329,7 +331,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
        extra,
      });
      if (saved) setSettingsOpen(false);
-  }, [draftApiKey, draftBaseUrl, draftExtra, draftModel, persistProvider, providerId]);
+  }, [draftApiKey, draftBaseUrl, draftExtra, draftModel, persistProvider, providerId, t]);
 
   const pickImage = useCallback(async () => {
     try {
@@ -340,7 +342,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       if (picked.canceled || !picked.assets || !picked.assets.length) return;
       const asset = picked.assets[0];
       if (!isImageLike(asset.name, asset.mimeType)) {
-        Alert.alert('不支持的文件', '请选择图片文件。');
+        Alert.alert(t('imageGen.alert.unsupportedFile.title'), t('imageGen.alert.unsupportedFile.body'));
         return;
       }
       // 尺寸/大小校验单独隔离：getInfoAsync / Image.getSize 在 content://、
@@ -349,12 +351,12 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         const info = await FileSystem.getInfoAsync(asset.uri);
         const size = Number(asset.size || info.size || 0);
         if (size > MAX_REFERENCE_IMAGE_BYTES) {
-          Alert.alert('图片过大', '参考图片不能超过 20 MB。');
+          Alert.alert(t('imageGen.alert.imageTooLarge.title'), t('imageGen.alert.imageTooLarge.body'));
           return;
         }
         const dimensions = await getImageDimensions(asset.uri);
         if (dimensions.width * dimensions.height > MAX_REFERENCE_IMAGE_PIXELS) {
-          Alert.alert('图片分辨率过高', '参考图片不能超过 2000 万像素。');
+          Alert.alert(t('imageGen.alert.imageTooManyPixels.title'), t('imageGen.alert.imageTooManyPixels.body'));
           return;
         }
       } catch (error) {
@@ -363,9 +365,9 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       setImageUri(asset.uri);
       setImageMime(asset.mimeType || 'image/png');
     } catch (error) {
-      Alert.alert('选择图片失败', '请重试。');
+      Alert.alert(t('imageGen.alert.pickImageFailed.title'), t('imageGen.alert.pickImageFailed.body'));
     }
-  }, []);
+  }, [t]);
 
   const clearImage = useCallback(() => {
     setImageUri('');
@@ -376,19 +378,19 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
     if (!loaded || generating) return;
     const text = prompt.trim();
     if (!text && !imageUri) {
-      Alert.alert('请输入提示词', '需要提示词才能生成图片。');
+      Alert.alert(t('imageGen.alert.promptRequired.title'), t('imageGen.alert.promptRequired.body'));
       return;
     }
     if (!String(providerConfig.baseUrl || provider.baseUrl || '').trim()) {
-      Alert.alert('请先填写 API 地址', '点击「填密钥」打开设置面板。');
+      Alert.alert(t('imageGen.alert.baseUrlRequired.title'), t('imageGen.alert.openKeyPanel.body'));
       return;
     }
     if (providerRequiresApiKey(provider) && !String(providerConfig.apiKey || '').trim()) {
-      Alert.alert('请先填写 API 密钥', '点击「填密钥」打开设置面板。');
+      Alert.alert(t('imageGen.alert.apiKeyRequired.title'), t('imageGen.alert.openKeyPanel.body'));
       return;
     }
     if (imageUri && !provider.i2i) {
-      Alert.alert('不支持图生图', '当前服务只支持文生图，请移除输入图片。');
+      Alert.alert(t('imageGen.alert.i2iUnsupported.title'), t('imageGen.alert.i2iUnsupported.body'));
       return;
     }
      const controller = new AbortController();
@@ -427,7 +429,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           // 这张图已经花过一次生成额度：结果因配置变更作废时必须明确告知，
           // 不能静默丢弃——用户会以为生成失败或结果凭空消失。
           if (mountedRef.current) {
-            Alert.alert('生成结果已作废', '生成期间图源设置已变更，本次结果不再保留。');
+            Alert.alert(t('imageGen.alert.resultDiscarded.title'), t('imageGen.alert.resultDiscarded.body'));
           }
           return;
         }
@@ -439,7 +441,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
        setResults(current => [...normalizedResults, ...current].slice(0, 30));
      } catch (error) {
        if (mountedRef.current && !controller.signal.aborted) {
-         Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
+         Alert.alert(t('imageGen.alert.generateFailed.title'), maskSecrets((error && error.message) || t('imageGen.alert.retryLater')));
        }
        } finally {
          if (generationControllerRef.current === controller) {
@@ -451,7 +453,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
          }
 
     }
-  }, [generating, imageMime, imageUri, loaded, model, prompt, provider, providerConfig, seed, size]);
+  }, [generating, imageMime, imageUri, loaded, model, prompt, provider, providerConfig, seed, size, t]);
 
   const saveResult = useCallback(async result => {
     if (busyResult) return;
@@ -473,44 +475,44 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         const downloaded = await Promise.race([
           FileSystem.downloadAsync(result.url, uri),
           new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('图片下载超时')), 60000);
+            setTimeout(() => reject(new Error(t('imageGen.error.downloadTimeout'))), 60000);
           }),
         ]);
         uri = downloaded.uri;
       }
       const available = await Sharing.isAvailableAsync().catch(() => false);
       if (available && uri) {
-        await Sharing.shareAsync(uri, { mimeType: format.mime, dialogTitle: '保存图片' });
+        await Sharing.shareAsync(uri, { mimeType: format.mime, dialogTitle: t('imageGen.save.dialogTitle') });
       } else if (uri) {
-        Alert.alert('已保存', `文件已生成：\n${uri}`);
+        Alert.alert(t('imageGen.alert.saved.title'), t('imageGen.alert.saved.body', { uri }));
       } else {
-        Alert.alert('无法保存', '该结果没有可保存的内容。');
+        Alert.alert(t('imageGen.alert.cannotSave.title'), t('imageGen.alert.cannotSave.body'));
       }
     } catch (error) {
-      Alert.alert('保存失败', '请稍后重试。');
+      Alert.alert(t('imageGen.alert.saveFailed.title'), t('imageGen.alert.retryLater'));
     } finally {
       if (mountedRef.current) setBusyResult('');
     }
-  }, [busyResult]);
+  }, [busyResult, t]);
 
   const copyResult = useCallback(async result => {
     const value = result.url || result.base64 || '';
     if (!value) return;
     try {
       await Clipboard.setStringAsync(value);
-      Alert.alert('已复制', result.url ? '图片链接已复制。' : '图片数据已复制。');
+      Alert.alert(t('imageGen.alert.copied.title'), result.url ? t('imageGen.alert.copied.bodyUrl') : t('imageGen.alert.copied.bodyData'));
     } catch (error) {
-      Alert.alert('复制失败', '请重试。');
+      Alert.alert(t('imageGen.alert.copyFailed.title'), t('imageGen.alert.copyFailed.body'));
     }
-  }, []);
+  }, [t]);
 
   const onPressResult = useCallback(result => {
-    Alert.alert('图片操作', '请选择要执行的操作。', [
-      { text: '取消', style: 'cancel' },
-      { text: '保存 / 分享', onPress: () => saveResult(result) },
-      { text: '复制', onPress: () => copyResult(result) },
+    Alert.alert(t('imageGen.alert.imageAction.title'), t('imageGen.alert.imageAction.body'), [
+      { text: t('imageGen.cancel'), style: 'cancel' },
+      { text: t('imageGen.saveShare'), onPress: () => saveResult(result) },
+      { text: t('imageGen.copy'), onPress: () => copyResult(result) },
     ]);
-  }, [copyResult, saveResult]);
+  }, [copyResult, saveResult, t]);
 
   const imagePreview = useMemo(() => (imageUri ? { uri: imageUri } : null), [imageUri]);
 
@@ -520,22 +522,22 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={[styles.header, embedded && styles.headerEmbedded]}>
-        {embedded ? null : <Text style={styles.title}>生图</Text>}
+        {embedded ? null : <Text style={styles.title}>{t('imageGen.title')}</Text>}
         <View style={styles.headerActions}>
           <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('image-api')}
-            accessibilityLabel="查看生图教学"
+            accessibilityLabel={t('imageGen.tutorial.a11y')}
           />
           <TouchableOpacity style={styles.keyButton} onPress={openSettings} activeOpacity={0.8}>
             <Ionicons name="key-outline" size={16} color={theme.colors.primaryContrast} />
-            <Text style={styles.keyButtonText}>填密钥</Text>
+            <Text style={styles.keyButtonText}>{t('imageGen.fillKey')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
-        <FieldLabel style={styles.label}>服务</FieldLabel>
+        <FieldLabel style={styles.label}>{t('imageGen.serviceLabel')}</FieldLabel>
         <TouchableOpacity style={styles.selectButton} onPress={() => setProviderOpen(true)} activeOpacity={0.8}>
           <Text style={styles.selectButtonText}>{provider.label}</Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
@@ -547,12 +549,12 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           </View>
         ) : null}
 
-        <FieldLabel style={styles.label}>模型</FieldLabel>
+        <FieldLabel style={styles.label}>{t('imageGen.modelLabel')}</FieldLabel>
         <TouchableOpacity
           style={styles.selectButton}
           onPress={() => {
             if (!modelList.length) {
-              Alert.alert('未填写模型', '请先点击「填密钥」填写模型名。');
+              Alert.alert(t('imageGen.alert.modelMissing.title'), t('imageGen.alert.modelMissing.body'));
               return;
             }
             setModelOpen(true);
@@ -560,22 +562,22 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           activeOpacity={0.8}
         >
           <Text style={[styles.selectButtonText, !model && styles.placeholderText]}>
-            {model || '未填写（点击「填密钥」）'}
+            {model || t('imageGen.modelEmpty')}
           </Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
 
-        <FieldLabel style={styles.label}>提示词</FieldLabel>
+        <FieldLabel style={styles.label}>{t('imageGen.promptLabel')}</FieldLabel>
         <TextField
           style={styles.promptInput}
           value={prompt}
           onChangeText={setPrompt}
-          placeholder="描述你想生成的画面..."
+          placeholder={t('imageGen.promptPlaceholder')}
           multiline
           textAlignVertical="top"
         />
 
-        <FieldLabel style={styles.label}>尺寸</FieldLabel>
+        <FieldLabel style={styles.label}>{t('imageGen.sizeLabel')}</FieldLabel>
         <View style={styles.chipRow}>
           {SIZES.map(item => (
             <Chip
@@ -587,16 +589,16 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           ))}
         </View>
 
-        <FieldLabel style={styles.label}>随机种子（可选）</FieldLabel>
+        <FieldLabel style={styles.label}>{t('imageGen.seedLabel')}</FieldLabel>
         <TextField
           value={seed}
           onChangeText={value => setSeed(value.replace(/[^0-9]/g, ''))}
           keyboardType="number-pad"
-          placeholder="留空为随机"
+          placeholder={t('imageGen.seedPlaceholder')}
         />
 
-        <FieldLabel style={styles.label}>输入图片（图生图，可选）</FieldLabel>
-        <FieldHint style={styles.hint}>提示词与你选的图片会发送到当前服务商。</FieldHint>
+        <FieldLabel style={styles.label}>{t('imageGen.inputImageLabel')}</FieldLabel>
+        <FieldHint style={styles.hint}>{t('imageGen.inputImageHint')}</FieldHint>
         {imagePreview ? (
           <View style={styles.previewRow}>
             <Image source={imagePreview} style={styles.preview} resizeMode="cover" />
@@ -607,24 +609,24 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         ) : (
           <TouchableOpacity style={styles.uploadButton} onPress={pickImage} activeOpacity={0.8}>
             <Ionicons name="image-outline" size={18} color={theme.colors.textMuted} />
-            <Text style={styles.uploadButtonText}>选择图片</Text>
+            <Text style={styles.uploadButtonText}>{t('imageGen.pickImage')}</Text>
           </TouchableOpacity>
         )}
 
         <PrimaryButton
-          title="生成"
+          title={t('imageGen.generate')}
           icon="sparkles"
           onPress={onGenerate}
           disabled={!loaded || generating}
           loading={generating}
           style={styles.generateButton}
         />
-        {generating ? <Text style={styles.generatingHint}>生成中{generateProgress !== null ? ` ${generateProgress}%` : '，请稍候...'}</Text> : null}
+        {generating ? <Text style={styles.generatingHint}>{generateProgress !== null ? t('imageGen.generating.progress', { n: generateProgress }) : t('imageGen.generating.wait')}</Text> : null}
 
         {results.length > 0 ? (
           <>
-            <FieldLabel style={styles.label}>结果画廊</FieldLabel>
-            <Text style={styles.aigcHint}>画廊中的图片由 AI 生成，可能不准确或与既有作品相似。</Text>
+            <FieldLabel style={styles.label}>{t('imageGen.galleryLabel')}</FieldLabel>
+            <Text style={styles.aigcHint}>{t('imageGen.aigcHint')}</Text>
             <View style={styles.gallery}>
               {results.map((result, index) => {
                 const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
@@ -653,7 +655,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       <Modal visible={providerOpen} transparent animationType="slide" onRequestClose={() => setProviderOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setProviderOpen(false)}>
           <Pressable style={styles.modalSheet} onPress={() => {}}>
-            <Text style={styles.modalTitle}>选择服务</Text>
+            <Text style={styles.modalTitle}>{t('imageGen.pickService')}</Text>
             <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
               {IMAGE_PROVIDERS.map(item => (
                 <TouchableOpacity
@@ -675,7 +677,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       <Modal visible={modelOpen} transparent animationType="slide" onRequestClose={() => setModelOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setModelOpen(false)}>
           <Pressable style={styles.modalSheet} onPress={() => {}}>
-            <Text style={styles.modalTitle}>选择模型</Text>
+            <Text style={styles.modalTitle}>{t('imageGen.pickModel')}</Text>
             <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
               {modelList.map(item => (
                 <TouchableOpacity
@@ -698,17 +700,17 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
       <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>{provider.label} 设置</Text>
-            <FieldHint style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</FieldHint>
+            <Text style={styles.modalTitle}>{t('imageGen.providerSettings', { label: provider.label })}</Text>
+            <FieldHint style={styles.hint}>{t('imageGen.keyLocalHint')}</FieldHint>
             {provider.keyHint ? (
-              <FieldHint style={styles.hint}>密钥：{provider.keyHint}</FieldHint>
+              <FieldHint style={styles.hint}>{t('imageGen.keyHint', { hint: provider.keyHint })}</FieldHint>
             ) : null}
             {provider.corsNote ? (
               <FieldHint style={styles.hint}>
-                CORS：{provider.corsNote}
+                {t('imageGen.corsNote', { note: provider.corsNote })}
               </FieldHint>
             ) : null}
-            <FieldLabel style={styles.label}>API 地址</FieldLabel>
+            <FieldLabel style={styles.label}>{t('imageGen.apiAddressLabel')}</FieldLabel>
             <TextField
               value={draftBaseUrl}
               onChangeText={setDraftBaseUrl}
@@ -733,19 +735,19 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
-                  <Text style={styles.selectButtonText}>获取 API Key</Text>
+                  <Text style={styles.selectButtonText}>{t('imageGen.getApiKey')}</Text>
                 </TouchableOpacity>
               </>
             ) : (
-              <FieldHint style={styles.hint}>该服务为本地回环端点，无需 API Key。</FieldHint>
+              <FieldHint style={styles.hint}>{t('imageGen.localNoKeyHint')}</FieldHint>
             )}
-            <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
+            <FieldLabel style={styles.label}>{t('imageGen.modelNameLabel')}</FieldLabel>
             <TextField
               value={draftModel}
               onChangeText={setDraftModel}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder={provider.defaultModel || '模型名'}
+              placeholder={provider.defaultModel || t('imageGen.modelNamePlaceholder')}
             />
             <TouchableOpacity
               style={[styles.selectButton, styles.detectButton, detecting && styles.generateButtonDisabled]}
@@ -754,9 +756,9 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
               activeOpacity={0.8}
             >
               <Ionicons name="pulse-outline" size={16} color={theme.colors.textMuted} />
-              <Text style={styles.selectButtonText}>{detecting ? '检测中...' : '检测连通性'}</Text>
+              <Text style={styles.selectButtonText}>{detecting ? t('imageGen.detecting') : t('imageGen.detectConnectivity')}</Text>
             </TouchableOpacity>
-            <FieldLabel style={styles.label}>额外参数（JSON，可选）</FieldLabel>
+            <FieldLabel style={styles.label}>{t('imageGen.extraLabel')}</FieldLabel>
             <TextField
               style={styles.extraInput}
               value={draftExtra}
@@ -772,10 +774,10 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
                 onPress={() => setSettingsOpen(false)}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectButtonText}>取消</Text>
+                <Text style={styles.selectButtonText}>{t('imageGen.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.selectButton} onPress={confirmSettings} activeOpacity={0.8}>
-                <Text style={styles.selectButtonText}>保存</Text>
+                <Text style={styles.selectButtonText}>{t('imageGen.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -786,7 +788,7 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
         visible={!!topic}
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
-        title="教学"
+        title={t('imageGen.tutorial.title')}
       />
     </KeyboardAvoidingView>
   );

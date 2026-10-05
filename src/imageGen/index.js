@@ -10,6 +10,7 @@ import {
   LOCAL_DREAM_GENERATE_PATH,
   LOCAL_DREAM_TOKENIZE_PATH,
 } from './localDream.js';
+import { tActive } from '../i18n/index.js';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 0;
@@ -243,9 +244,9 @@ export function parseImages(provider, data) {
 }
 
 export function mapHttpError(status) {
-  if (status === 401 || status === 403) return '密钥无效或未授权';
-  if (status === 429) return '请求过于频繁，请稍后重试';
-  return `生成失败（HTTP ${status}）`;
+  if (status === 401 || status === 403) return tActive('error.imageGen.httpAuth');
+  if (status === 429) return tActive('error.imageGen.httpRateLimited');
+  return tActive('error.imageGen.httpFailed', { status });
 }
 
 function originOf(url) {
@@ -294,8 +295,8 @@ export async function listModels({ provider, config, signal }) {
   const url = listUrlFor(resolvedProvider, resolvedConfig.baseUrl);
   if (!url) {
     throw new Error(resolvedProvider.listModelsPath === ''
-      ? '该服务不提供模型列表接口'
-      : '请先填写 API 地址');
+      ? tActive('error.imageGen.noModelList')
+      : tActive('error.imageGen.baseUrlRequired'));
   }
   const headers = { ...(resolvedProvider.headers || {}) };
   const auth = resolvedProvider.auth || {};
@@ -333,7 +334,7 @@ export async function detectImageProvider({ provider, config, model, signal }) {
         ok: true,
         mode: 'probe',
         models: [],
-        message: Number.isFinite(count) ? `已连通（本地 CLIP 上限 ${max} token）` : '已连通',
+        message: Number.isFinite(count) ? tActive('imageGen.detect.connectedLocalClip', { max }) : tActive('imageGen.detect.connected'),
       };
     } catch (error) {
       if (error && error.name === 'AbortError') throw error;
@@ -350,14 +351,16 @@ export async function detectImageProvider({ provider, config, model, signal }) {
         mode: 'list',
         models,
         modelFound: hit,
-        message: hit ? '已连通，且模型在列表中' : '已连通，但列表中未找到该模型名',
+        message: hit ? tActive('imageGen.detect.connectedModelFound') : tActive('imageGen.detect.connectedModelMissing'),
       };
     }
-    return { ok: true, mode: 'list', models, message: '已连通' };
+    return { ok: true, mode: 'list', models, message: tActive('imageGen.detect.connected') };
   } catch (listError) {
     if (listError && listError.name === 'AbortError') throw listError;
-    const listMessage = (listError && listError.message) || '列表接口不可用';
-    if (/密钥无效|未授权/.test(listMessage)) {
+    const listMessage = (listError && listError.message) || tActive('error.imageGen.listUnavailable');
+    // 文案已 i18n：判定鉴权失败优先看 HTTP 状态码，正则仅兜底旧链路文本。
+    if ((listError && (listError.status === 401 || listError.status === 403))
+      || /密钥无效|未授权|Invalid key|unauthorized/i.test(listMessage)) {
       return { ok: false, error: listMessage, authFailed: true };
     }
     // 不再自动试生成：生图按次计费，是否花这笔钱必须由用户决定，
@@ -368,7 +371,7 @@ export async function detectImageProvider({ provider, config, model, signal }) {
 
 export async function probeImageProvider({ provider, config, model, prompt, signal }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
-  if (!resolvedProvider) throw new Error('未知的生图服务');
+  if (!resolvedProvider) throw new Error(tActive('error.imageGen.unknownProvider'));
   const result = await generateImage({
     provider: resolvedProvider,
     config,
@@ -383,7 +386,7 @@ export async function probeImageProvider({ provider, config, model, prompt, sign
 }
 
 function createAbortError() {
-  const error = new Error('生成已中断');
+  const error = new Error(tActive('error.imageGen.aborted'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -411,32 +414,32 @@ function xhrRequest({ method, url, headers, body, timeoutMs, signal }) {
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
     abortFlagOnSignal: true,
     timeoutAbortOrder: 'finishThenAbort',
-    onTimeoutError: () => new Error('生成超时，请稍后重试'),
+    onTimeoutError: () => new Error(tActive('error.imageGen.timeout')),
     onAbortError: () => createAbortError(),
-    onAbortEventError: canceled => (canceled ? createAbortError() : new Error('生成已中断')),
-    onNetworkError: () => new Error('生成网络请求失败'),
+    onAbortEventError: canceled => (canceled ? createAbortError() : new Error(tActive('error.imageGen.aborted'))),
+    onNetworkError: () => new Error(tActive('error.imageGen.networkFailed')),
     onHttpError: status => createHttpError(status),
     parse: xhr => JSON.parse(xhr.responseText || '{}'),
-    onParseError: () => new Error('生成返回无法解析'),
+    onParseError: () => new Error(tActive('error.imageGen.parseFailed')),
   });
 }
 
 export async function generateImage({ provider, prompt, imageFile, imageUrl, imageUri, image, model, size, seed, extra, config, imageMime, signal, onProgress }) {
   const resolvedProvider = typeof provider === 'string' ? getImageProvider(provider) : provider;
-  if (!resolvedProvider) throw new Error('未知的生图服务');
+  if (!resolvedProvider) throw new Error(tActive('error.imageGen.unknownProvider'));
   const resolvedConfig = config || extra && extra.config || {};
   const normalized = normalizeConfig(resolvedProvider, resolvedConfig);
   // 登记密钥：生图报错文本可能带出裸 Key，脱敏时按真实值兜住
   registerSecretValues([normalized.apiKey]);
-  if (!normalized.baseUrl) throw new Error('请先填写 API 地址');
+  if (!normalized.baseUrl) throw new Error(tActive('error.imageGen.baseUrlRequired'));
   if (!normalized.apiKey && resolvedProvider.auth && resolvedProvider.auth.type) {
-    throw new Error('请先填写 API 密钥');
+    throw new Error(tActive('error.imageGen.apiKeyRequired'));
   }
   const text = String(prompt || '').trim();
   const hasImage = Boolean(imageFile || imageUrl || imageUri || image);
-  if (!text && !hasImage) throw new Error('请输入提示词');
+  if (!text && !hasImage) throw new Error(tActive('error.imageGen.promptRequired'));
   if (hasImage) {
-    if (!resolvedProvider.i2i) throw new Error('该服务不支持图生图');
+    if (!resolvedProvider.i2i) throw new Error(tActive('error.imageGen.i2iUnsupported'));
   }
   // Local Dream 端侧生图：走专用 SSE 分支（裸 RGB → PNG），不走声明式模板。
   if (resolvedProvider.localDream) {
@@ -467,7 +470,7 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
     extra,
     imageMime,
   });
-  if (!request) throw new Error('请求配置不完整');
+  if (!request) throw new Error(tActive('error.imageGen.requestIncomplete'));
 
   const configuredRetries = Number.isInteger(resolvedProvider.retries)
     ? resolvedProvider.retries
@@ -484,7 +487,7 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
         signal,
       });
       const images = parseImages(resolvedProvider, data);
-      if (images.length === 0) throw new Error('未从响应中解析到图片');
+      if (images.length === 0) throw new Error(tActive('error.imageGen.noImagesParsed'));
       return { images, raw: data };
     } catch (error) {
       lastError = error;
@@ -492,7 +495,7 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
       await wait(Math.min(2000, 250 * (attempt + 1)));
     }
   }
-  throw lastError || new Error('生成失败');
+  throw lastError || new Error(tActive('error.imageGen.failed'));
 }
 
 // Local Dream 专用：POST /generate，SSE 流式。RN 的 fetch 无流式 body，沿用内置
@@ -559,7 +562,7 @@ function generateLocalDreamImage({ provider, config, prompt, image, imageFile, i
         return;
       }
       if (event.type === 'error') {
-        streamError = new Error(event.message || '本地生图失败');
+        streamError = new Error(event.message || tActive('error.imageGen.localFailed'));
       }
     });
 
@@ -608,7 +611,7 @@ function generateLocalDreamImage({ provider, config, prompt, image, imageFile, i
         return;
       }
       if (!completeImage) {
-        finishReject(new Error('本地生图未返回结果（请确认已在 Local Dream 中加载模型）'));
+        finishReject(new Error(tActive('error.imageGen.localNoResult')));
         return;
       }
       finishResolve({ images: [{ ...completeImage }], raw: completeImage });
@@ -619,7 +622,7 @@ function generateLocalDreamImage({ provider, config, prompt, image, imageFile, i
     };
     xhr.onabort = () => {
       if (settled) return;
-      finishReject(canceled ? createAbortError() : new Error('生成已中断'));
+      finishReject(canceled ? createAbortError() : new Error(tActive('error.imageGen.aborted')));
     };
     try {
       xhr.send(JSON.stringify(body));

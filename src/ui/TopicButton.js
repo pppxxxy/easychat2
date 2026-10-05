@@ -3,16 +3,19 @@ import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 「教学」入口按钮：问号图标 + 文字，各界面「教学」入口统一使用。
 export default function TopicButton({
   onPress,
-  label = '教学',
+  label,
   accessibilityLabel,
   disabled = false,
   style,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const resolvedLabel = label !== undefined ? label : t('ui.topic.tutorial');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <TouchableOpacity
@@ -21,10 +24,10 @@ export default function TopicButton({
       disabled={disabled}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel || label}
+      accessibilityLabel={accessibilityLabel || resolvedLabel}
     >
       <Ionicons name="help-circle-outline" size={tokens.iconSize.sm} color={theme.colors.primarySoft} />
-      <Text style={styles.text}>{label}</Text>
+      <Text style={styles.text}>{resolvedLabel}</Text>
     </TouchableOpacity>
   );
 }

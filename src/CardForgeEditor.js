@@ -36,6 +36,7 @@ import { isCanceledError } from './network/api.js';
 import { maskSecrets } from './storage/secrets.js';
 import { FieldGroup, PrimaryButton, SecondaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 const MULTILINE_FIELDS = new Set([
   'description',
@@ -47,16 +48,19 @@ const MULTILINE_FIELDS = new Set([
   'postHistoryInstructions',
 ]);
 
-const PLACEHOLDERS = {
-  name: '例如：晚星',
-  description: '外貌、身份、背景…',
-  personality: '性格与说话方式…',
-  scenario: '故事背景与你们的关系…',
-  firstMes: '角色主动说的第一句话…',
-  mesExample: '{{user}}：在吗\n晚星：在的',
-  creatorNotes: '给用户的使用建议…',
-  postHistoryInstructions: '给模型的持续要求…',
-};
+// 字段 placeholder 文案走 i18n：在组件内按当前语言构建（见 CardForgeEditor 内 placeholders）。
+function buildPlaceholders(t) {
+  return {
+    name: t('forge.placeholder.name'),
+    description: t('forge.placeholder.description'),
+    personality: t('forge.placeholder.personality'),
+    scenario: t('forge.placeholder.scenario'),
+    firstMes: t('forge.placeholder.firstMes'),
+    mesExample: t('forge.placeholder.mesExample'),
+    creatorNotes: t('forge.placeholder.creatorNotes'),
+    postHistoryInstructions: t('forge.placeholder.postHistoryInstructions'),
+  };
+}
 
 function splitKeywords(text) {
   return String(text || '')
@@ -67,6 +71,7 @@ function splitKeywords(text) {
 
 function AssistButton({ onPress, label }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <TouchableOpacity
@@ -75,17 +80,19 @@ function AssistButton({ onPress, label }) {
       activeOpacity={0.8}
       hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
       accessibilityRole="button"
-      accessibilityLabel={`辅助生成${label}`}
+      accessibilityLabel={t('forge.assist.a11y', { label })}
     >
       <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
-      <Text style={styles.assistButtonText}>辅助生成</Text>
+      <Text style={styles.assistButtonText}>{t('forge.assist.button')}</Text>
     </TouchableOpacity>
   );
 }
 
 export default function CardForgeEditor({ visible, draft, onClose, onSave, onAssistPrompt, onSimulateChat, onImageGenerate, visionAvailable = false }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const placeholders = useMemo(() => buildPlaceholders(t), [t]);
   const [form, setForm] = useState(() => ({ ...createForgeDraft(), ...(draft || {}) }));
   const [tagText, setTagText] = useState('');
   const [assistTarget, setAssistTarget] = useState(null);
@@ -177,7 +184,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
       if (previous && previous !== uri) await deleteForgeImage(previous);
       setForm(current => ({ ...current, [key]: uri }));
     } catch (error) {
-      if (isCurrent()) Alert.alert('图片读取失败', '请重试，或换一张图片。');
+      if (isCurrent()) Alert.alert(t('forge.alert.readImageFailed.title'), t('forge.alert.readImageFailed.body'));
     } finally {
       if (imageOperationRef.current === operation) {
         imageBusyRef.current = false;
@@ -197,7 +204,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     if (imageGenBusy) return;
     const source = target === 'bg' ? form.bgUri : form.avatarUri;
     if (!String(source || '').trim()) {
-      Alert.alert('先选一张图片', target === 'bg' ? '请先选择背景图。' : '请先选择头像。');
+      Alert.alert(t('forge.alert.pickImageFirst.title'), target === 'bg' ? t('forge.alert.pickImageFirst.bodyBg') : t('forge.alert.pickImageFirst.bodyAvatar'));
       return;
     }
     setImageGenTarget(target);
@@ -218,7 +225,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const target = imageGenTarget;
     if (!target) return;
     if (typeof onImageGenerate !== 'function') {
-      Alert.alert('功能不可用', '当前没有可用的模型配置。');
+      Alert.alert(t('forge.alert.unavailable.title'), t('forge.alert.unavailable.body'));
       return;
     }
     const controller = new AbortController();
@@ -234,7 +241,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         signal: controller.signal,
       });
       if (!patch) {
-        Alert.alert('生成失败', 'AI 没有返回有效的卡片内容，请重试。');
+        Alert.alert(t('forge.alert.generateFailed.title'), t('forge.alert.generateFailed.bodyInvalidCard'));
         return;
       }
       // 图片字段由这里填（模型的 JSON 里不含图片路径）。
@@ -248,7 +255,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
       closeImageGenerate();
     } catch (error) {
       if (isCanceledError(error)) return;
-      Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
+      Alert.alert(t('forge.alert.generateFailed.title'), maskSecrets((error && error.message) || t('forge.alert.generateFailed.bodyRetry')));
     } finally {
       if (imageAbortRef.current === controller) {
         imageAbortRef.current = null;
@@ -269,7 +276,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   // 预览的每一轮都把当前表单当作草稿交给上层，由上层组装角色并请求模型。
   const handlePreviewTurn = useCallback((historyMessages, userText, signal) => {
     if (typeof onSimulateChat !== 'function') {
-      return Promise.reject(new Error('当前没有可用的模型配置。'));
+      return Promise.reject(new Error(t('forge.error.noModel')));
     }
     return onSimulateChat({ draft: formRef.current, historyMessages, userText, signal });
   }, [onSimulateChat]);
@@ -304,7 +311,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const id = `entry-${Date.now().toString(36)}`;
     patchList('worldInfo', list => [...list, createWorldEntry({
       id,
-      comment: `世界书条目 ${list.length + 1}`,
+      comment: t('forge.newEntry.worldInfo', { n: list.length + 1 }),
     })]);
     expandEntry(`worldInfo:${id}`);
   };
@@ -313,7 +320,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const id = `regex-${Date.now().toString(36)}`;
     patchList('regexScripts', list => [...list, createRegexScript({
       id,
-      name: `正则脚本 ${list.length + 1}`,
+      name: t('forge.newEntry.regex', { n: list.length + 1 }),
     })]);
     expandEntry(`regexScripts:${id}`);
   };
@@ -322,7 +329,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const id = makeCharacterPresetId(presets);
     patchList('presets', list => [...list, {
       id,
-      name: `预设 ${list.length + 1}`,
+      name: t('forge.newEntry.preset', { n: list.length + 1 }),
       prompt: '',
       enabled: true,
     }]);
@@ -363,11 +370,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const target = assistTarget;
     const request = assistText.trim();
     if (!target || !request) {
-      Alert.alert('请先描述想修改的地方', '例如：把性格改得更傲娇一些。');
+      Alert.alert(t('forge.alert.describeFirst.title'), t('forge.alert.describeFirst.body'));
       return;
     }
     if (typeof onAssistPrompt !== 'function') {
-      Alert.alert('功能不可用', '当前没有可用的模型配置。');
+      Alert.alert(t('forge.alert.unavailable.title'), t('forge.alert.unavailable.body'));
       return;
     }
     const controller = new AbortController();
@@ -397,7 +404,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
       if (target.kind === 'entry') {
         const patch = parseEntryAssistPatch(raw);
         if (!patch) {
-          Alert.alert('生成失败', 'AI 没有返回有效的 JSON，请重试。');
+          Alert.alert(t('forge.alert.generateFailed.title'), t('forge.alert.generateFailed.bodyInvalidJson'));
           return;
         }
         const listKey = target.listKey;
@@ -417,7 +424,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
       // 文本字段与标签：纯文本协议
       const text = parseFieldAssistText(raw);
       if (text === null) {
-        Alert.alert('生成失败', 'AI 没有返回有效内容，请重试。');
+        Alert.alert(t('forge.alert.generateFailed.title'), t('forge.alert.generateFailed.bodyInvalidContent'));
         return;
       }
       if (target.kind === 'tags') {
@@ -427,7 +434,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           .filter(Boolean)
           .slice(0, MAX_FORGE_TAG_COUNT);
         if (list.length === 0) {
-          Alert.alert('生成失败', 'AI 没有返回有效标签，请重试。');
+          Alert.alert(t('forge.alert.generateFailed.title'), t('forge.alert.generateFailed.bodyInvalidTags'));
           return;
         }
         setTagText(list.join('、'));
@@ -439,7 +446,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
       closeAssist();
     } catch (error) {
       if (isCanceledError(error)) return;
-      Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
+      Alert.alert(t('forge.alert.generateFailed.title'), maskSecrets((error && error.message) || t('forge.alert.generateFailed.bodyRetry')));
     } finally {
       if (assistAbortRef.current === controller) {
         assistAbortRef.current = null;
@@ -457,8 +464,8 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     const target = assistTarget;
     if (!target) return '';
     if (target.kind === 'field') return FIELD_LABELS[target.key] || target.label;
-    if (target.kind === 'tags') return '标签';
-    return target.label || '条目';
+    if (target.kind === 'tags') return t('forge.assist.tagsLabel');
+    return target.label || t('forge.assist.entryFallback');
   })();
 
   const assistPreview = (() => {
@@ -488,7 +495,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>当前角色卡</Text>
+          <Text style={styles.title}>{t('forge.title')}</Text>
           <View style={styles.headerActions}>
             <TouchableOpacity
               style={styles.previewAction}
@@ -496,12 +503,12 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               hitSlop={8}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="预览角色卡并模拟对话"
+              accessibilityLabel={t('forge.preview.a11y')}
             >
               <Ionicons name="eye-outline" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.previewActionText}>预览</Text>
+              <Text style={styles.previewActionText}>{t('forge.preview.button')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('forge.close.a11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -511,14 +518,14 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.hint}>直接在这里改也可以，保存后会写回制卡草稿。字段旁的「辅助生成」可以按你的描述让 AI 改写。</Text>
-          <Text style={styles.aigcNotice}>{`· ${AIGC_NOTICE_TEXT}：AI 生成/改写的卡片内容会随导出文件携带生成标识。`}</Text>
+          <Text style={styles.hint}>{t('forge.hint')}</Text>
+          <Text style={styles.aigcNotice}>{t('forge.aigc.notice', { notice: AIGC_NOTICE_TEXT })}</Text>
           {isValidAigcMeta(form[AIGC_META_FIELD]) ? (
-            <Text style={styles.aigcBadge}>{`本卡由 AI 生成 · 内容编号 ${form[AIGC_META_FIELD].contentCode || ''}`}</Text>
+            <Text style={styles.aigcBadge}>{t('forge.aigc.badge', { code: form[AIGC_META_FIELD].contentCode || '' })}</Text>
           ) : null}
           <FieldGroup
-            label="头像"
-            hint="角色列表与聊天气泡里显示的头像；支持 PNG / JPEG"
+            label={t('forge.avatar.label')}
+            hint={t('forge.avatar.hint')}
           >
             <View style={styles.imageRow}>
               {form.avatarUri ? (
@@ -535,11 +542,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                   disabled={imageBusy}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.smallButtonText}>{form.avatarUri ? '更换' : '选择头像'}</Text>
+                  <Text style={styles.smallButtonText}>{form.avatarUri ? t('forge.image.change') : t('forge.image.pickAvatar')}</Text>
                 </TouchableOpacity>
                 {form.avatarUri ? (
                   <TouchableOpacity style={styles.smallButton} onPress={() => clearImage('avatarUri')} hitSlop={6} activeOpacity={0.8}>
-                    <Text style={styles.removeText}>清除</Text>
+                    <Text style={styles.removeText}>{t('forge.image.clear')}</Text>
                   </TouchableOpacity>
                 ) : null}
                 {visionAvailable ? (
@@ -549,18 +556,18 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                     disabled={!form.avatarUri || imageGenBusy}
                     activeOpacity={0.8}
                     accessibilityRole="button"
-                    accessibilityLabel="根据头像图片生成角色卡"
+                    accessibilityLabel={t('forge.imageGen.avatarA11y')}
                   >
                     <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
-                    <Text style={styles.imageGenText}>按头像生成角色</Text>
+                    <Text style={styles.imageGenText}>{t('forge.imageGen.avatarButton')}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
             </View>
           </FieldGroup>
           <FieldGroup
-            label="背景图"
-            hint="聊天页的背景图；支持 PNG / JPEG"
+            label={t('forge.bg.label')}
+            hint={t('forge.bg.hint')}
           >
             <View style={styles.imageRow}>
               {form.bgUri ? (
@@ -577,11 +584,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                   disabled={imageBusy}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.smallButtonText}>{form.bgUri ? '更换' : '选择背景'}</Text>
+                  <Text style={styles.smallButtonText}>{form.bgUri ? t('forge.image.change') : t('forge.image.pickBg')}</Text>
                 </TouchableOpacity>
                 {form.bgUri ? (
                   <TouchableOpacity style={styles.smallButton} onPress={() => clearImage('bgUri')} hitSlop={6} activeOpacity={0.8}>
-                    <Text style={styles.removeText}>清除</Text>
+                    <Text style={styles.removeText}>{t('forge.image.clear')}</Text>
                   </TouchableOpacity>
                 ) : null}
                 {visionAvailable ? (
@@ -591,10 +598,10 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                     disabled={!form.bgUri || imageGenBusy}
                     activeOpacity={0.8}
                     accessibilityRole="button"
-                    accessibilityLabel="根据背景图生成角色卡"
+                    accessibilityLabel={t('forge.imageGen.bgA11y')}
                   >
                     <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
-                    <Text style={styles.imageGenText}>按背景生成角色</Text>
+                    <Text style={styles.imageGenText}>{t('forge.imageGen.bgButton')}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -609,39 +616,39 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               <TextField
                 value={String(form[key] || '')}
                 onChangeText={value => setForm(current => ({ ...current, [key]: value }))}
-                placeholder={PLACEHOLDERS[key] || ''}
+                placeholder={placeholders[key] || ''}
                 multiline={MULTILINE_FIELDS.has(key)}
               />
             </FieldGroup>
           ))}
           <FieldGroup
-            label="系统提示"
-            hint="原样保留，AI 不会改写它；需要时可以在这里手动调整"
-            action={<AssistButton label="系统提示" onPress={() => openAssist({ kind: 'field', key: 'systemPrompt', label: '系统提示' })} />}
+            label={t('forge.systemPrompt.label')}
+            hint={t('forge.systemPrompt.hint')}
+            action={<AssistButton label={t('forge.systemPrompt.label')} onPress={() => openAssist({ kind: 'field', key: 'systemPrompt', label: t('forge.systemPrompt.label') })} />}
           >
             <TextField
               value={String(form.systemPrompt || '')}
               onChangeText={value => setForm(current => ({ ...current, systemPrompt: value }))}
-              placeholder="例如：始终保持这个角色的说话方式，不要替用户行动"
+              placeholder={t('forge.systemPrompt.placeholder')}
               multiline
             />
           </FieldGroup>
           <FieldGroup
-            label="标签"
-            hint={`用顿号或逗号分隔，最多 ${MAX_FORGE_TAG_COUNT} 个`}
-            action={<AssistButton label="标签" onPress={() => openAssist({ kind: 'tags', label: '标签' })} />}
+            label={t('forge.tags.label')}
+            hint={t('forge.tags.hint', { max: MAX_FORGE_TAG_COUNT })}
+            action={<AssistButton label={t('forge.tags.label')} onPress={() => openAssist({ kind: 'tags', label: t('forge.tags.label') })} />}
           >
-            <TextField value={tagText} onChangeText={setTagText} placeholder="例如：治愈、日常" />
+            <TextField value={tagText} onChangeText={setTagText} placeholder={t('forge.tags.placeholder')} />
           </FieldGroup>
 
-          <FieldGroup label="世界书条目" hint="命中关键词后注入提示词，点条目标题展开编辑">
+          <FieldGroup label={t('forge.world.groupLabel')} hint={t('forge.world.groupHint')}>
             {worldInfo.length === 0 ? (
-              <Text style={styles.emptyText}>还没有世界书条目。</Text>
+              <Text style={styles.emptyText}>{t('forge.world.empty')}</Text>
             ) : worldInfo.map((entry, index) => {
               const entryKey = entryKeyOf('worldInfo', entry, index);
               const expanded = expandedEntries.has(entryKey);
               const summary = [
-                Array.isArray(entry.keys) && entry.keys.length ? `关键词：${entry.keys.join('、')}` : '',
+                Array.isArray(entry.keys) && entry.keys.length ? t('forge.world.keywords', { keys: entry.keys.join('、') }) : '',
                 String(entry.content || '').replace(/\s+/g, ' ').trim(),
               ].filter(Boolean).join('　');
               return (
@@ -652,45 +659,45 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                       onPress={() => toggleEntry(entryKey)}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel={`展开世界书条目 ${index + 1}`}
+                      accessibilityLabel={t('forge.world.expandA11y', { n: index + 1 })}
                     >
                       <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
-                      <Text style={styles.entryTitle} numberOfLines={1}>{entry.comment || `条目 ${index + 1}`}</Text>
-                      {entry.enabled === false ? <Text style={styles.entryDisabled}>已停用</Text> : null}
+                      <Text style={styles.entryTitle} numberOfLines={1}>{entry.comment || t('forge.world.entryFallback', { n: index + 1 })}</Text>
+                      {entry.enabled === false ? <Text style={styles.entryDisabled}>{t('forge.disabled')}</Text> : null}
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeEntry('worldInfo', index)} hitSlop={8} accessibilityLabel="删除世界书条目">
-                      <Text style={styles.removeText}>删除</Text>
+                    <TouchableOpacity onPress={() => removeEntry('worldInfo', index)} hitSlop={8} accessibilityLabel={t('forge.world.deleteA11y')}>
+                      <Text style={styles.removeText}>{t('forge.delete')}</Text>
                     </TouchableOpacity>
                   </View>
                   {expanded ? (
                     <View style={styles.entryBody}>
                       <View style={styles.entryActions}>
                         <AssistButton
-                          label="世界书条目"
-                          onPress={() => openAssist({ kind: 'entry', listKey: 'worldInfo', index, label: '世界书条目' })}
+                          label={t('forge.world.groupLabel')}
+                          onPress={() => openAssist({ kind: 'entry', listKey: 'worldInfo', index, label: t('forge.world.groupLabel') })}
                         />
                       </View>
                       <TextField
                         style={styles.entryInput}
                         value={String(entry.comment || '')}
                         onChangeText={comment => updateEntry('worldInfo', index, { comment })}
-                        placeholder="条目名称"
+                        placeholder={t('forge.world.namePlaceholder')}
                       />
                       <TextField
                         style={styles.entryInput}
                         value={(Array.isArray(entry.keys) ? entry.keys : []).join(', ')}
                         onChangeText={text => updateEntry('worldInfo', index, { keys: splitKeywords(text) })}
-                        placeholder="触发关键词（逗号分隔）"
+                        placeholder={t('forge.world.keysPlaceholder')}
                       />
                       <TextField
                         style={styles.entryContent}
                         value={String(entry.content || '')}
                         onChangeText={content => updateEntry('worldInfo', index, { content })}
-                        placeholder="命中后注入的内容"
+                        placeholder={t('forge.world.contentPlaceholder')}
                         multiline
                       />
                       <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>常驻（无需关键词）</Text>
+                        <Text style={styles.switchLabel}>{t('forge.world.constantLabel')}</Text>
                         <Switch
                           value={entry.constant === true}
                           onValueChange={constant => updateEntry('worldInfo', index, { constant })}
@@ -699,7 +706,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                         />
                       </View>
                       <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>启用</Text>
+                        <Text style={styles.switchLabel}>{t('forge.enabledLabel')}</Text>
                         <Switch
                           value={entry.enabled !== false}
                           onValueChange={enabled => updateEntry('worldInfo', index, { enabled })}
@@ -709,23 +716,23 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                       </View>
                     </View>
                   ) : (
-                    <Text style={styles.entrySummary} numberOfLines={2}>{summary || '未设置内容'}</Text>
+                    <Text style={styles.entrySummary} numberOfLines={2}>{summary || t('forge.emptyContent')}</Text>
                   )}
                 </View>
               );
             })}
-            <SecondaryButton title="添加世界书条目" onPress={addWorldEntry} small />
+            <SecondaryButton title={t('forge.world.add')} onPress={addWorldEntry} small />
           </FieldGroup>
 
-          <FieldGroup label="正则脚本" hint="对展示文本或发送提示词做替换，点条目标题展开编辑">
+          <FieldGroup label={t('forge.regex.groupLabel')} hint={t('forge.regex.groupHint')}>
             {regexScripts.length === 0 ? (
-              <Text style={styles.emptyText}>还没有正则脚本。</Text>
+              <Text style={styles.emptyText}>{t('forge.regex.empty')}</Text>
             ) : regexScripts.map((script, index) => {
               const entryKey = entryKeyOf('regexScripts', script, index);
               const expanded = expandedEntries.has(entryKey);
               const summary = String(script.findRegex || '').trim()
-                ? `查找：${script.findRegex} → 替换：${script.replaceString || '（空）'}`
-                : '未设置查找内容';
+                ? t('forge.regex.summary', { find: script.findRegex, replace: script.replaceString || t('forge.regex.emptyValue') })
+                : t('forge.regex.unset');
               return (
                 <View key={entryKey} style={styles.entryCard}>
                   <View style={styles.entryHeader}>
@@ -734,44 +741,44 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                       onPress={() => toggleEntry(entryKey)}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel={`展开正则脚本 ${index + 1}`}
+                      accessibilityLabel={t('forge.regex.expandA11y', { n: index + 1 })}
                     >
                       <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
-                      <Text style={styles.entryTitle} numberOfLines={1}>{script.name || `脚本 ${index + 1}`}</Text>
-                      {script.enabled === false ? <Text style={styles.entryDisabled}>已停用</Text> : null}
+                      <Text style={styles.entryTitle} numberOfLines={1}>{script.name || t('forge.regex.entryFallback', { n: index + 1 })}</Text>
+                      {script.enabled === false ? <Text style={styles.entryDisabled}>{t('forge.disabled')}</Text> : null}
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeEntry('regexScripts', index)} hitSlop={8} accessibilityLabel="删除正则脚本">
-                      <Text style={styles.removeText}>删除</Text>
+                    <TouchableOpacity onPress={() => removeEntry('regexScripts', index)} hitSlop={8} accessibilityLabel={t('forge.regex.deleteA11y')}>
+                      <Text style={styles.removeText}>{t('forge.delete')}</Text>
                     </TouchableOpacity>
                   </View>
                   {expanded ? (
                     <View style={styles.entryBody}>
                       <View style={styles.entryActions}>
                         <AssistButton
-                          label="正则脚本"
-                          onPress={() => openAssist({ kind: 'entry', listKey: 'regexScripts', index, label: '正则脚本' })}
+                          label={t('forge.regex.groupLabel')}
+                          onPress={() => openAssist({ kind: 'entry', listKey: 'regexScripts', index, label: t('forge.regex.groupLabel') })}
                         />
                       </View>
                       <TextField
                         style={styles.entryInput}
                         value={String(script.name || '')}
                         onChangeText={name => updateEntry('regexScripts', index, { name })}
-                        placeholder="脚本名称"
+                        placeholder={t('forge.regex.namePlaceholder')}
                       />
                       <TextField
                         style={styles.entryInput}
                         value={String(script.findRegex || '')}
                         onChangeText={findRegex => updateEntry('regexScripts', index, { findRegex })}
-                        placeholder="查找内容（或 /正则/ 标记）"
+                        placeholder={t('forge.regex.findPlaceholder')}
                       />
                       <TextField
                         style={styles.entryInput}
                         value={String(script.replaceString || '')}
                         onChangeText={replaceString => updateEntry('regexScripts', index, { replaceString })}
-                        placeholder="替换为"
+                        placeholder={t('forge.regex.replacePlaceholder')}
                       />
                       <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>仅替换展示</Text>
+                        <Text style={styles.switchLabel}>{t('forge.regex.markdownOnly')}</Text>
                         <Switch
                           value={script.markdownOnly === true}
                           onValueChange={markdownOnly => updateEntry('regexScripts', index, { markdownOnly })}
@@ -780,7 +787,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                         />
                       </View>
                       <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>仅用于发送提示词</Text>
+                        <Text style={styles.switchLabel}>{t('forge.regex.promptOnly')}</Text>
                         <Switch
                           value={script.promptOnly === true}
                           onValueChange={promptOnly => updateEntry('regexScripts', index, { promptOnly })}
@@ -789,7 +796,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                         />
                       </View>
                       <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>启用</Text>
+                        <Text style={styles.switchLabel}>{t('forge.enabledLabel')}</Text>
                         <Switch
                           value={script.enabled !== false}
                           onValueChange={enabled => updateEntry('regexScripts', index, { enabled })}
@@ -804,12 +811,12 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                 </View>
               );
             })}
-            <SecondaryButton title="添加正则脚本" onPress={addRegexScript} small />
+            <SecondaryButton title={t('forge.regex.add')} onPress={addRegexScript} small />
           </FieldGroup>
 
-          <FieldGroup label="角色预设" hint="随提示词注入的文本预设，点条目标题展开编辑">
+          <FieldGroup label={t('forge.preset.groupLabel')} hint={t('forge.preset.groupHint')}>
             {presets.length === 0 ? (
-              <Text style={styles.emptyText}>还没有预设。</Text>
+              <Text style={styles.emptyText}>{t('forge.preset.empty')}</Text>
             ) : presets.map((preset, index) => {
               const entryKey = entryKeyOf('presets', preset, index);
               const expanded = expandedEntries.has(entryKey);
@@ -822,39 +829,39 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                       onPress={() => toggleEntry(entryKey)}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel={`展开预设 ${index + 1}`}
+                      accessibilityLabel={t('forge.preset.expandA11y', { n: index + 1 })}
                     >
                       <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
-                      <Text style={styles.entryTitle} numberOfLines={1}>{preset.name || `预设 ${index + 1}`}</Text>
-                      {preset.enabled === false ? <Text style={styles.entryDisabled}>已停用</Text> : null}
+                      <Text style={styles.entryTitle} numberOfLines={1}>{preset.name || t('forge.preset.entryFallback', { n: index + 1 })}</Text>
+                      {preset.enabled === false ? <Text style={styles.entryDisabled}>{t('forge.disabled')}</Text> : null}
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeEntry('presets', index)} hitSlop={8} accessibilityLabel="删除预设">
-                      <Text style={styles.removeText}>删除</Text>
+                    <TouchableOpacity onPress={() => removeEntry('presets', index)} hitSlop={8} accessibilityLabel={t('forge.preset.deleteA11y')}>
+                      <Text style={styles.removeText}>{t('forge.delete')}</Text>
                     </TouchableOpacity>
                   </View>
                   {expanded ? (
                     <View style={styles.entryBody}>
                       <View style={styles.entryActions}>
                         <AssistButton
-                          label="角色预设"
-                          onPress={() => openAssist({ kind: 'entry', listKey: 'presets', index, label: '角色预设' })}
+                          label={t('forge.preset.groupLabel')}
+                          onPress={() => openAssist({ kind: 'entry', listKey: 'presets', index, label: t('forge.preset.groupLabel') })}
                         />
                       </View>
                       <TextField
                         style={styles.entryInput}
                         value={String(preset.name || '')}
                         onChangeText={name => updateEntry('presets', index, { name })}
-                        placeholder="预设名称"
+                        placeholder={t('forge.preset.namePlaceholder')}
                       />
                       <TextField
                         style={styles.entryContent}
                         value={String(preset.prompt || '')}
                         onChangeText={prompt => updateEntry('presets', index, { prompt })}
-                        placeholder="预设内容（注入提示词）"
+                        placeholder={t('forge.preset.contentPlaceholder')}
                         multiline
                       />
                       <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>启用</Text>
+                        <Text style={styles.switchLabel}>{t('forge.enabledLabel')}</Text>
                         <Switch
                           value={preset.enabled !== false}
                           onValueChange={enabled => updateEntry('presets', index, { enabled })}
@@ -864,21 +871,21 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                       </View>
                     </View>
                   ) : (
-                    <Text style={styles.entrySummary} numberOfLines={2}>{summary || '未设置内容'}</Text>
+                    <Text style={styles.entrySummary} numberOfLines={2}>{summary || t('forge.emptyContent')}</Text>
                   )}
                 </View>
               );
             })}
-            <SecondaryButton title="添加预设" onPress={addPreset} small />
+            <SecondaryButton title={t('forge.preset.add')} onPress={addPreset} small />
           </FieldGroup>
 
           <Text style={styles.preserved}>
-            {`备用开场白 ${Array.isArray(form.alternateGreetings) ? form.alternateGreetings.length : 0} 条随草稿原样保留`}
+            {t('forge.preserved', { count: Array.isArray(form.alternateGreetings) ? form.alternateGreetings.length : 0 })}
           </Text>
         </ScrollView>
         <View style={styles.footer}>
-          <SecondaryButton title="取消" onPress={onClose} style={styles.footerButton} />
-          <PrimaryButton title="保存" onPress={save} style={styles.footerButton} />
+          <SecondaryButton title={t('forge.cancel')} onPress={onClose} style={styles.footerButton} />
+          <PrimaryButton title={t('forge.save')} onPress={save} style={styles.footerButton} />
         </View>
       </View>
 
@@ -895,15 +902,15 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.assistCard}>
-            <Text style={styles.assistTitle}>{`辅助生成「${assistLabel}」`}</Text>
+            <Text style={styles.assistTitle}>{t('forge.assist.title', { label: assistLabel })}</Text>
             {isRegexAssist ? (
               <Text style={styles.assistWarning}>
-                正则表达式对 AI 来说较难正确生成，生成结果常不可用或存在隐患，不建议依赖 AI 编写正则；建议手动核对与测试后再启用。
+                {t('forge.assist.regexWarning')}
               </Text>
             ) : null}
             {assistTarget ? (
               <Text style={styles.assistCurrent} numberOfLines={3}>
-                {`当前内容：${assistPreview.trim() || '（空）'}`}
+                {t('forge.assist.current', { content: assistPreview.trim() || t('forge.assist.empty') })}
               </Text>
             ) : null}
             <ScrollView
@@ -915,7 +922,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                 style={styles.assistInput}
                 value={assistText}
                 onChangeText={setAssistText}
-                placeholder="描述想修改的地方，例如：把性格改得更傲娇一些"
+                placeholder={t('forge.assist.placeholder')}
                 multiline
                 autoFocus
                 scrollEnabled={false}
@@ -924,12 +931,12 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
             {assistBusy ? (
               <View style={styles.assistBusyRow}>
                 <ActivityIndicator color={theme.colors.primary} />
-                <Text style={styles.assistBusyText}>AI 正在改写…</Text>
+                <Text style={styles.assistBusyText}>{t('forge.assist.busy')}</Text>
               </View>
             ) : null}
             <View style={styles.assistActions}>
-              <SecondaryButton title="取消" onPress={closeAssist} style={styles.footerButton} />
-              <PrimaryButton title="生成" onPress={submitAssist} disabled={assistBusy} style={styles.footerButton} />
+              <SecondaryButton title={t('forge.cancel')} onPress={closeAssist} style={styles.footerButton} />
+              <PrimaryButton title={t('forge.generate')} onPress={submitAssist} disabled={assistBusy} style={styles.footerButton} />
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -949,10 +956,10 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         >
           <View style={styles.assistCard}>
             <Text style={styles.assistTitle}>
-              {imageGenTarget === 'bg' ? '按背景图生成角色卡' : '按头像生成角色卡'}
+              {imageGenTarget === 'bg' ? t('forge.imageGen.titleBg') : t('forge.imageGen.titleAvatar')}
             </Text>
             <Text style={styles.assistCurrent}>
-              会把这张图片作为识图输入交给当前模型，读图后写出一整张角色卡覆盖当前草稿的文本字段（图片保持不变）。
+              {t('forge.imageGen.desc')}
             </Text>
             <ScrollView
               style={styles.assistScroll}
@@ -963,7 +970,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                 style={styles.assistInput}
                 value={imageGenHint}
                 onChangeText={setImageGenHint}
-                placeholder="可选的补充要求，例如：这是个清冷剑客，背景放在雪山"
+                placeholder={t('forge.imageGen.placeholder')}
                 multiline
                 autoFocus
                 scrollEnabled={false}
@@ -972,12 +979,12 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
             {imageGenBusy ? (
               <View style={styles.assistBusyRow}>
                 <ActivityIndicator color={theme.colors.primary} />
-                <Text style={styles.assistBusyText}>AI 正在读图写卡…</Text>
+                <Text style={styles.assistBusyText}>{t('forge.imageGen.busy')}</Text>
               </View>
             ) : null}
             <View style={styles.assistActions}>
-              <SecondaryButton title="取消" onPress={closeImageGenerate} style={styles.footerButton} />
-              <PrimaryButton title="生成" onPress={submitImageGenerate} disabled={imageGenBusy} style={styles.footerButton} />
+              <SecondaryButton title={t('forge.cancel')} onPress={closeImageGenerate} style={styles.footerButton} />
+              <PrimaryButton title={t('forge.generate')} onPress={submitImageGenerate} disabled={imageGenBusy} style={styles.footerButton} />
             </View>
           </View>
         </KeyboardAvoidingView>

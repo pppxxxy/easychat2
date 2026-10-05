@@ -15,6 +15,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 export const LOCATION_KEY = '@easychat2_location';
 
@@ -105,7 +106,7 @@ export function updateLocationSettings(updater) {
     const stored = await readJsonStatus(LOCATION_KEY);
     if (stored.status === 'corrupt') {
       await backupCorruptValue(LOCATION_KEY);
-      throw new Error('位置设置读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.locationSettingsReadFailed'));
     }
     const current = normalizeLocationSettings(stored.value);
     const next = typeof updater === 'function' ? await updater(current) : current;
@@ -128,7 +129,7 @@ export function getNamedLocations() {
 // 调用方统一用 try/catch 接错误即可，不用再多包一层。
 export async function addNamedLocation(location, now = Date.now()) {
   const entry = normalizeNamedLocation({ ...location, id: location && location.id, createdAt: now });
-  if (!entry) throw new Error('标注点坐标无效');
+  if (!entry) throw new Error(tActive('error.storage.locationPinInvalid'));
   return updateLocationSettings(current => ({
     ...current,
     locations: [...current.locations, entry],

@@ -8,10 +8,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { formatVoiceDuration } from './voiceMessages.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { getAudioModule } from './audioModules.js';
 
 export default function VoiceBubble({ message, isUser }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = React.useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const audio = (message && message.audio) || {};
   const uri = String(audio.uri || '');
@@ -86,7 +88,7 @@ export default function VoiceBubble({ message, isUser }) {
     return (
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
         <Ionicons name="alert-circle-outline" size={16} color={theme.colors.textFaint} />
-        <Text style={[styles.errorText, { color: theme.colors.textFaint }]}>语音不可用</Text>
+        <Text style={[styles.errorText, { color: theme.colors.textFaint }]}>{t('chat.voice.unavailable')}</Text>
       </View>
     );
   }
@@ -97,7 +99,7 @@ export default function VoiceBubble({ message, isUser }) {
       onPress={play}
       activeOpacity={0.8}
       accessibilityRole="button"
-      accessibilityLabel={state === 'playing' ? '停止播放语音' : '播放语音'}
+      accessibilityLabel={state === 'playing' ? t('chat.voice.stopA11y') : t('chat.voice.playA11y')}
     >
       {state === 'loading' ? (
         <ActivityIndicator size="small" color={isUser ? theme.colors.primaryContrast : theme.colors.primarySoft} />

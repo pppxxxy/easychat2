@@ -12,6 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { guessCharacterIdForMessages } from './context/sessionLibrary.js';
 import { Card, EmptyState, PrimaryButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);
@@ -30,6 +31,7 @@ export default function SessionRecoveryModal({
   onRecover,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [picked, setPicked] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -79,8 +81,8 @@ export default function SessionRecoveryModal({
     <Modal visible={visible} animationType="slide" onRequestClose={closeAll}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>恢复丢失的对话</Text>
-          <TouchableOpacity onPress={closeAll} hitSlop={8} accessibilityLabel="关闭">
+          <Text style={styles.title}>{t('sessionRecovery.title')}</Text>
+          <TouchableOpacity onPress={closeAll} hitSlop={8} accessibilityLabel={t('common.close')}>
             <Ionicons name="close" size={22} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </View>
@@ -93,30 +95,30 @@ export default function SessionRecoveryModal({
                 onPress={() => { if (!busy) setPicked(null); }}
                   disabled={busy}
                 activeOpacity={0.8}
-                accessibilityLabel="返回列表"
+                accessibilityLabel={t('sessionRecovery.back')}
               >
                 <Ionicons name="chevron-back" size={16} color={theme.colors.primaryMuted} />
-                <Text style={styles.backText}>返回列表</Text>
+                <Text style={styles.backText}>{t('sessionRecovery.back')}</Text>
               </TouchableOpacity>
               <Text style={styles.subtitle}>
                 {pickedIsGroup
-                  ? `检测到这段对话有 ${pickedSpeakerCount} 位发言人，将按群聊恢复并保留成员。选一个角色只是用于排序，不影响群聊成员。`
-                  : '这段对话原本属于哪个角色？选定后，它和它的记忆摘要都会回到列表里。'}
+                  ? t('sessionRecovery.subtitleGroup', { count: pickedSpeakerCount })
+                  : t('sessionRecovery.subtitleSingle')}
               </Text>
               <Card>
-                <Text style={styles.previewLabel}>待恢复的对话</Text>
+                <Text style={styles.previewLabel}>{t('sessionRecovery.previewLabel')}</Text>
                 <Text style={styles.preview} numberOfLines={3}>
-                  {String(picked.preview || '').trim() || '（无预览）'}
+                  {String(picked.preview || '').trim() || t('sessionRecovery.noPreview')}
                 </Text>
                 <Text style={styles.meta}>
-                  {`${picked.messageCount} 条消息 · ${formatTime(picked.updatedAt) || '时间未知'}${pickedIsGroup ? ` · 疑似群聊（${pickedSpeakerCount} 位）` : ''}`}
+                  {`${t('sessionRecovery.meta', { count: picked.messageCount, time: formatTime(picked.updatedAt) || t('sessionRecovery.timeUnknown') })}${pickedIsGroup ? t('sessionRecovery.metaGroupSuffix', { count: pickedSpeakerCount }) : ''}`}
                 </Text>
               </Card>
               {orderedCharacters.length === 0 ? (
                 <EmptyState
                   icon="person-outline"
-                  title="没有可选角色"
-                  description="请先在角色页创建或导入角色。"
+                  title={t('sessionRecovery.noCharacters.title')}
+                  description={t('sessionRecovery.noCharacters.desc')}
                 />
               ) : null}
               {orderedCharacters.map(item => (
@@ -126,15 +128,15 @@ export default function SessionRecoveryModal({
                   onPress={() => handlePick(item.id)}
                   disabled={busy}
                   activeOpacity={0.8}
-                  accessibilityLabel={`恢复到 ${item.name || '未命名角色'}`}
+                  accessibilityLabel={t('sessionRecovery.a11y.recoverTo', { name: item.name || t('sessionRecovery.unnamedCharacter') })}
                 >
                   <View style={styles.rowMain}>
                     <Text style={styles.rowName} numberOfLines={1}>
-                      {item.name || '未命名角色'}
+                      {item.name || t('sessionRecovery.unnamedCharacter')}
                     </Text>
                     {item.id === guessedId ? (
                       <View style={styles.badge}>
-                        <Text style={styles.badgeText}>推荐</Text>
+                        <Text style={styles.badgeText}>{t('sessionRecovery.recommended')}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -146,24 +148,24 @@ export default function SessionRecoveryModal({
             <>
               <Text style={styles.subtitle}>
                 {list.length > 0
-                  ? '这些对话的消息都还在，只是会话记录丢了（旧版本新建对话时误删）。点进任意一段，选它原本属于哪个角色即可找回。'
-                  : '没有发现丢失的对话。'}
+                  ? t('sessionRecovery.subtitleList')
+                  : t('sessionRecovery.subtitleEmpty')}
               </Text>
               {list.map(item => (
                 <Card key={`orphan-${item.sessionId}`}>
                   <TouchableOpacity
                     onPress={() => setPicked(item)}
                     activeOpacity={0.8}
-                    accessibilityLabel="选择这段对话"
+                    accessibilityLabel={t('sessionRecovery.a11y.pickSession')}
                   >
                     <View style={styles.rowMain}>
                       <Text style={styles.preview} numberOfLines={2}>
-                        {String(item.preview || '').trim() || '（无预览）'}
+                        {String(item.preview || '').trim() || t('sessionRecovery.noPreview')}
                       </Text>
                       <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
                     </View>
                     <Text style={styles.meta}>
-                      {`${item.messageCount} 条消息 · ${formatTime(item.updatedAt) || '时间未知'}${speakerCountOf(item) >= 2 ? ' · 疑似群聊' : ''}`}
+                      {`${t('sessionRecovery.meta', { count: item.messageCount, time: formatTime(item.updatedAt) || t('sessionRecovery.timeUnknown') })}${speakerCountOf(item) >= 2 ? t('sessionRecovery.metaGroup') : ''}`}
                     </Text>
                   </TouchableOpacity>
                 </Card>
@@ -173,7 +175,7 @@ export default function SessionRecoveryModal({
         </ScrollView>
 
         <View style={styles.footer}>
-          <PrimaryButton title="关闭" onPress={closeAll} />
+          <PrimaryButton title={t('common.close')} onPress={closeAll} />
         </View>
       </View>
     </Modal>

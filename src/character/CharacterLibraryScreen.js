@@ -37,6 +37,7 @@ import {
 import { countMomentsForCharacterDeletion } from '../moments/moments.js';
 import { isValidAigcMeta } from '../aigc/attribution.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { CHARACTER_LIST_COLLAPSE_LIMIT } from './cardHelpers.js';
 
@@ -59,6 +60,7 @@ export default function CharacterLibraryScreen() {
   } = useApp();
   const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createCharacterStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [characterListExpanded, setCharacterListExpanded] = useState(false);
   const [characterScrubberOpen, setCharacterScrubberOpen] = useState(false);
@@ -107,8 +109,8 @@ export default function CharacterLibraryScreen() {
     const names = (session.members || [])
       .map(id => (characterMap.get(id) || {}).name)
       .filter(Boolean);
-    return String(session.name || '').trim() || names.join('、') || '群聊';
-  }, [characterMap]);
+    return String(session.name || '').trim() || names.join('、') || t('common.groupChat');
+  }, [characterMap, t]);
 
   const visibleGroups = useMemo(() => {
     const list = (Array.isArray(sessions) ? sessions : []).filter(
@@ -145,12 +147,12 @@ export default function CharacterLibraryScreen() {
     ? characterDisplayItems
     : characterDisplayItems.slice(0, CHARACTER_LIST_COLLAPSE_LIMIT);
   const characterScrubberPreviews = useMemo(() => displayedCharacterItems.map(item => ({
-    label: item.kind === 'group' ? '群聊' : '角色',
-    speaker: item.kind === 'group' ? groupNameOf(item.item) : (item.item.name || '未命名角色'),
+    label: item.kind === 'group' ? t('common.groupChat') : t('character.library.scrubber.kindCharacter'),
+    speaker: item.kind === 'group' ? groupNameOf(item.item) : (item.item.name || t('common.unnamedCharacter')),
     text: item.kind === 'group'
-      ? `${(item.item.members || []).length} 人群聊`
-      : (item.item.tags || []).map(tag => String(tag || '').trim()).filter(Boolean).slice(0, 3).join('、') || '角色卡',
-  })), [displayedCharacterItems, groupNameOf]);
+      ? t('character.library.scrubber.groupMeta', { count: (item.item.members || []).length })
+      : (item.item.tags || []).map(tag => String(tag || '').trim()).filter(Boolean).slice(0, 3).join('、') || t('character.library.scrubber.tagFallback'),
+  })), [displayedCharacterItems, groupNameOf, t]);
 
   useEffect(() => {
     if (!characterListNeedsCollapse && characterListExpanded) {
@@ -200,9 +202,9 @@ export default function CharacterLibraryScreen() {
     switchSession(group.id)
       .then(() => navigation.navigate(ROUTE_NAMES.chat))
       .catch(() => {
-        Alert.alert('切换失败', '请检查存储空间或权限。');
+        Alert.alert(t('character.library.switch.fail.title'), t('common.error.storageOrPermission'));
       });
-  }, [switchSession, navigation]);
+  }, [switchSession, navigation, t]);
 
   const toggleEditMode = () => {
     setEditMode(current => {
@@ -234,7 +236,7 @@ export default function CharacterLibraryScreen() {
 
   const onTogglePin = item => {
     pinCharacter(item.id, !item.pinned).catch(() => {
-      Alert.alert('置顶失败', '请检查存储空间或权限。');
+      Alert.alert(t('memory.pin.fail.title'), t('common.error.storageOrPermission'));
     });
   };
 
@@ -247,10 +249,10 @@ export default function CharacterLibraryScreen() {
   const countLinkedMoments = useCallback(async (characterIds, sessionIds) => {
     const { status, moments } = await getMomentsStatus();
     if (status === 'corrupt') {
-      throw new Error('动态记录读取失败，请稍后重试');
+      throw new Error(t('memory.moments.readFail'));
     }
     return countMomentsForCharacterDeletion(moments, characterIds, sessionIds);
-  }, []);
+  }, [t]);
 
   const removeMomentsOfCharacterData = useCallback((characterIds, sessionIds) => (
     deleteMomentsForCharacterDeletion(characterIds, sessionIds)
@@ -285,15 +287,15 @@ export default function CharacterLibraryScreen() {
         setEditMode(false);
       })
       .catch(error => {
-        let message = (error && error.message) || '请检查存储空间或权限。';
+        let message = (error && error.message) || t('common.error.storageOrPermission');
         if (deleteMemories && momentsDeleted && sessionsDeleted) {
-          message = '关联动态和记忆已删除，但角色删除失败，请重试。';
+          message = t('character.library.delete.fail.partialFull');
         } else if (deleteMemories && momentsDeleted) {
-          message = '关联动态已删除，但记忆删除失败，角色未删除，请重试。';
+          message = t('character.library.delete.fail.partialSessions');
         } else if (deleteMemories) {
-          message = '关联动态删除失败，角色未删除，请重试。';
+          message = t('character.library.delete.fail.partialMoments');
         }
-        Alert.alert('删除失败', message);
+        Alert.alert(t('common.error.deleteFailed'), message);
       });
   };
 
@@ -306,13 +308,13 @@ export default function CharacterLibraryScreen() {
     countLinkedMoments(targetIds, memoryIds)
       .then(linked => {
         const details = [];
-        if (memoryIds.length > 0) details.push(`${memoryIds.length} 条记忆`);
-        if (linked > 0) details.push(`${linked} 条动态`);
+        if (memoryIds.length > 0) details.push(t('character.library.delete.detail.memories', { count: memoryIds.length }));
+        if (linked > 0) details.push(t('character.library.delete.detail.moments', { count: linked }));
         if (details.length === 0) {
-          Alert.alert('删除角色', intro, [
-            { text: '取消', style: 'cancel' },
+          Alert.alert(t('character.library.delete.title'), intro, [
+            { text: t('common.cancel'), style: 'cancel' },
             {
-              text: '删除',
+              text: t('common.delete'),
               style: 'destructive',
               onPress: () => runDeleteSelected(targetIds, false),
             },
@@ -320,13 +322,16 @@ export default function CharacterLibraryScreen() {
           return;
         }
         Alert.alert(
-          '删除角色',
-          `${intro}\n关联数据：${details.join('、')}。是否一并删除？`,
+          t('character.library.delete.title'),
+          t('character.library.delete.withLinked', {
+            intro,
+            details: details.join(t('character.library.delete.detail.join')),
+          }),
           [
-            { text: '取消', style: 'cancel' },
-            { text: '仅删角色', onPress: () => runDeleteSelected(targetIds, false) },
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('character.library.delete.onlyCharacter'), onPress: () => runDeleteSelected(targetIds, false) },
             {
-              text: '角色、记忆和动态都删',
+              text: t('character.library.delete.all'),
               style: 'destructive',
               onPress: () => runDeleteSelected(targetIds, true),
             },
@@ -334,22 +339,22 @@ export default function CharacterLibraryScreen() {
         );
       })
       .catch(() => {
-        Alert.alert('删除失败', '没能读出关联数据，请稍后重试。');
+        Alert.alert(t('common.error.deleteFailed'), t('character.library.delete.readFail.body'));
       });
   };
 
   const confirmSelectedDelete = ids => {
-    showDeleteChoice(ids, `将删除选中的 ${ids.length} 个角色。`);
+    showDeleteChoice(ids, t('character.library.delete.introBatch', { count: ids.length }));
   };
 
   const onDeleteSelected = () => {
     if (selectedIds.length === 0) return;
     const allSelected = selectedIds.length >= characters.filter(item => item.id !== 'default').length;
     if (!allSelected) {
-      Alert.alert('删除角色', `将删除选中的 ${selectedIds.length} 个角色。`, [
-        { text: '取消', style: 'cancel' },
+      Alert.alert(t('character.library.delete.title'), t('character.library.delete.introBatch', { count: selectedIds.length }), [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '继续',
+          text: t('character.library.delete.continue'),
           style: 'destructive',
           onPress: () => confirmSelectedDelete(selectedIds),
         },
@@ -357,12 +362,12 @@ export default function CharacterLibraryScreen() {
       return;
     }
     Alert.alert(
-      '删除全部角色',
-      '这会删除除默认角色外的全部角色，且无法恢复。请输入「删除」以确认。',
+      t('character.library.deleteAll.title'),
+      t('character.library.deleteAll.body'),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '确认删除',
+          text: t('character.library.deleteAll.confirm'),
           style: 'destructive',
           onPress: () => promptConfirmAllDelete(),
         },
@@ -372,20 +377,21 @@ export default function CharacterLibraryScreen() {
 
   const promptConfirmAllDelete = () => {
     Alert.prompt
-      ? Alert.prompt('输入确认', '请输入「删除」两个字以确认。', value => {
+      ? Alert.prompt(t('character.library.prompt.title'), t('character.library.prompt.body'), value => {
+        // 确认词固定为「删除」二字，不随界面语言变化。
         if (String(value || '').trim() === '删除') {
           confirmSelectedDelete(selectedIds);
         } else {
-          Alert.alert('已取消', '确认文字不匹配，未执行删除。');
+          Alert.alert(t('character.library.prompt.mismatch.title'), t('character.library.prompt.mismatch.body'));
         }
       })
-      : Alert.alert('无法输入确认', '当前平台不支持输入确认，请逐个删除。');
+      : Alert.alert(t('character.library.prompt.unsupported.title'), t('character.library.prompt.unsupported.body'));
   };
 
   const onDeleteCharacter = item => {
     showDeleteChoice(
       [item.id],
-      `确定删除「${item.name || '未命名角色'}」吗？`
+      t('character.library.delete.introSingle', { name: item.name || t('common.unnamedCharacter') })
     );
   };
 
@@ -396,13 +402,13 @@ export default function CharacterLibraryScreen() {
       // 同上：新角色要有自己的会话，聊天页才不会留着上一个角色的对话
       await ensureCharacterSession(created.id).catch(() => {});
     } catch (error) {
-      Alert.alert('新建失败', '请检查存储空间或权限。');
+      Alert.alert(t('character.library.new.fail.title'), t('common.error.storageOrPermission'));
     }
   };
 
   const toggleGroupMember = id => {
     if (!groupSelected.includes(id) && groupSelected.length >= 8) {
-      Alert.alert('成员数量已达上限', '群聊最多选择 8 个角色。');
+      Alert.alert(t('character.library.group.limit.title'), t('character.library.group.limit.body'));
       return;
     }
     setGroupSelected(current => (
@@ -414,7 +420,7 @@ export default function CharacterLibraryScreen() {
 
   const onCreateGroup = async () => {
     if (groupSelected.length < 2 || groupSelected.length > 8) {
-      Alert.alert('成员数量不符', '群聊需要选择 2 到 8 个角色。');
+      Alert.alert(t('character.library.group.count.title'), t('character.library.group.count.body'));
       return;
     }
     if (creatingGroup) return;
@@ -432,7 +438,7 @@ export default function CharacterLibraryScreen() {
        try {
          await refreshSessions();
        } catch (error) {
-         Alert.alert('群聊已创建', '会话列表刷新失败，请重新进入应用后查看。');
+         Alert.alert(t('character.library.group.created.title'), t('character.library.group.created.body'));
          return;
        }
        setGroupPanelOpen(false);
@@ -442,7 +448,7 @@ export default function CharacterLibraryScreen() {
        setGroupBgUri('');
        navigation.navigate(ROUTE_NAMES.chat);
     } catch (error) {
-      Alert.alert('创建失败', '请检查存储空间或权限。');
+      Alert.alert(t('character.library.group.createFail.title'), t('common.error.storageOrPermission'));
     } finally {
       setCreatingGroup(false);
     }
@@ -473,10 +479,10 @@ export default function CharacterLibraryScreen() {
           rollbackFailed = true;
         }
         Alert.alert(
-          '切换失败',
+          t('character.library.switch.fail.title'),
           rollbackFailed
-            ? '切换失败且未能恢复原状态，请重新打开应用后重试。'
-            : '请检查存储空间或权限。'
+            ? t('character.library.switch.rollbackFail.body')
+            : t('common.error.storageOrPermission')
         );
         throw error;
       } finally {
@@ -484,10 +490,10 @@ export default function CharacterLibraryScreen() {
       }
     };
     if (id !== activeId && formDirtyRef.current) {
-      Alert.alert('有未保存的编辑', '切换角色会放弃当前界面中的修改。', [
-        { text: '取消', style: 'cancel' },
+      Alert.alert(t('character.library.unsaved.title'), t('character.library.unsaved.body'), [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '放弃并切换',
+          text: t('character.library.unsaved.discard'),
           style: 'destructive',
           onPress: () => {
             // 用户明确放弃：清掉编辑草稿，切回来时不再弹「恢复编辑」。
@@ -605,7 +611,7 @@ export default function CharacterLibraryScreen() {
                 onPress={() => onDeleteCharacter(item)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel="删除角色"
+                accessibilityLabel={t('character.library.a11y.deleteCharacter')}
               >
                 <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
               </TouchableOpacity>
@@ -644,13 +650,13 @@ export default function CharacterLibraryScreen() {
         extraData={selectedIds}
         onScrollToIndexFailed={onScrollToIndexFailed}
         ListEmptyComponent={(
-          <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
+          <Text style={styles.emptyHint}>{t('character.library.searchEmpty')}</Text>
         )}
         ListHeaderComponent={(
           <>
         <View style={styles.pageHeader}>
-          <Text style={styles.title}>角色</Text>
-          <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
+          <Text style={styles.title}>{t('app.tab.character')}</Text>
+          <FieldHint style={styles.hint}>{t('character.library.pageHint')}</FieldHint>
           {/* 「当前角色」由卡片文字角标改为页头 pill：卡片上只留描边 + 圆点，页头给全名 */}
           <View style={styles.currentPill}>
             <View style={styles.currentPillDot} />
@@ -669,7 +675,7 @@ export default function CharacterLibraryScreen() {
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="people-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>角色库</Text>
+              <Text style={styles.cardTitle}>{t('character.library.cardTitle')}</Text>
               <View style={styles.countBadge}>
                 <Text style={styles.countBadgeText}>{characters.length}</Text>
               </View>
@@ -681,7 +687,7 @@ export default function CharacterLibraryScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.pillButtonText}>新建</Text>
+              <Text style={styles.pillButtonText}>{t('character.library.new')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pillButton, (!loaded || characters.length < 2) && styles.buttonDisabled]}
@@ -690,7 +696,7 @@ export default function CharacterLibraryScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="people" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.pillButtonText}>群聊</Text>
+              <Text style={styles.pillButtonText}>{t('common.groupChat')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pillButton, !loaded && styles.buttonDisabled]}
@@ -716,7 +722,7 @@ export default function CharacterLibraryScreen() {
                 disabled={selectedIds.length === 0}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectBarDeleteText}>删除</Text>
+                <Text style={styles.selectBarDeleteText}>{t('common.delete')}</Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -724,7 +730,7 @@ export default function CharacterLibraryScreen() {
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="搜索角色名或标签"
+            placeholder={t('character.library.searchPlaceholder')}
             placeholderTextColor={theme.colors.textFaint}
           />
           {characterListNeedsCollapse ? (
@@ -752,10 +758,10 @@ export default function CharacterLibraryScreen() {
                   onPress={() => setCharacterScrubberOpen(true)}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="打开角色列表定位"
+                  accessibilityLabel={t('character.library.a11y.locate')}
                 >
                   <Ionicons name="options-outline" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.characterListLocateText}>定位</Text>
+                  <Text style={styles.characterListLocateText}>{t('character.library.locate')}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -778,12 +784,12 @@ export default function CharacterLibraryScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>创建群聊</Text>
-            <FieldLabel style={styles.label}>群名（留空自动生成）</FieldLabel>
+            <Text style={styles.modalTitle}>{t('character.library.group.createTitle')}</Text>
+            <FieldLabel style={styles.label}>{t('character.library.group.nameLabel')}</FieldLabel>
             <TextField
               value={groupName}
               onChangeText={setGroupName}
-              placeholder="例如：周末闲聊群"
+              placeholder={t('group.namePlaceholder')}
               editable={!creatingGroup}
             />
             <FieldLabel style={styles.label}>{`选择成员（已选 ${groupSelected.length} / 2-8）`}</FieldLabel>
@@ -820,14 +826,14 @@ export default function CharacterLibraryScreen() {
             </ScrollView>
             {groupSelected.length > 0 ? (
               <>
-                <FieldLabel style={styles.label}>群头像（可从成员选择）</FieldLabel>
+                <FieldLabel style={styles.label}>{t('character.library.group.avatarLabel')}</FieldLabel>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
                   <TouchableOpacity
                     style={[styles.groupPickChip, !groupAvatarUri && styles.groupPickChipActive]}
                     onPress={() => setGroupAvatarUri('')}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.groupPickText, !groupAvatarUri && styles.groupPickTextActive]}>不使用</Text>
+                    <Text style={[styles.groupPickText, !groupAvatarUri && styles.groupPickTextActive]}>{t('group.noImage')}</Text>
                   </TouchableOpacity>
                   {characters.filter(item => groupSelected.includes(item.id)).map(item => {
                     const uri = String(item.avatarUri || '');
@@ -853,14 +859,14 @@ export default function CharacterLibraryScreen() {
                     );
                   })}
                 </ScrollView>
-                <FieldLabel style={styles.label}>群背景（可从成员背景选择）</FieldLabel>
+                <FieldLabel style={styles.label}>{t('character.library.group.bgLabel')}</FieldLabel>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
                   <TouchableOpacity
                     style={[styles.groupPickChip, !groupBgUri && styles.groupPickChipActive]}
                     onPress={() => setGroupBgUri('')}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.groupPickText, !groupBgUri && styles.groupPickTextActive]}>不使用</Text>
+                    <Text style={[styles.groupPickText, !groupBgUri && styles.groupPickTextActive]}>{t('group.noImage')}</Text>
                   </TouchableOpacity>
                   {characters.filter(item => groupSelected.includes(item.id)).map(item => {
                     const uri = String(item.bgUri || '');
@@ -871,7 +877,10 @@ export default function CharacterLibraryScreen() {
                         style={[styles.groupPickChip, active && styles.groupPickChipActive]}
                         onPress={() => {
                           if (!uri) {
-                            Alert.alert('无法选择', `「${item.name || '该角色'}」没有背景图。`);
+                            Alert.alert(
+                              t('group.alert.cannotPick.title'),
+                              t('character.library.group.noBg.body', { name: item.name || t('character.library.group.theCharacter') })
+                            );
                             return;
                           }
                           setGroupBgUri(uri);
@@ -894,7 +903,7 @@ export default function CharacterLibraryScreen() {
                 disabled={creatingGroup}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.selectButtonText, styles.selectButtonTextGhost]}>取消</Text>
+                <Text style={[styles.selectButtonText, styles.selectButtonTextGhost]}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.selectButton, creatingGroup && styles.buttonDisabled]}
@@ -915,7 +924,7 @@ export default function CharacterLibraryScreen() {
         visible={!!topic}
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
-        title="教学"
+        title={t('settings.tutorial.title')}
       />
 
       <ScrollScrubber

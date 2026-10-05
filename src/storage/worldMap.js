@@ -6,6 +6,7 @@ import { onCharacterDeleted } from './characterLifecycle.js';
 
 import { detachCharacterFromMap, normalizeMapHouses } from '../worldMap/map.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 const WORLD_MAP_KEY = '@easychat2_world_map';
 
@@ -35,7 +36,7 @@ export function updateWorldMap(updater) {
     const { status, houses } = await getWorldMapStatus();
     // 读失败就抛错中止：绝不用空列表覆盖已有地图。
     if (status === 'corrupt') {
-      throw new Error('地图读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.worldMapReadFailed'));
     }
     const next = typeof updater === 'function' ? await updater(houses) : houses;
     const normalized = normalizeMapHouses(next === undefined ? houses : next);

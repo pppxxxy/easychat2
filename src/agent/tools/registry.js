@@ -5,6 +5,8 @@
 //   read（只读）  —— 仅 readOnly 工具
 //   write（可改） —— 全部工具
 
+import { tActive } from '../../i18n/index.js';
+
 export const AGENT_MODES = Object.freeze({
   ASK: 'ask',
   READ: 'read',
@@ -17,7 +19,7 @@ const DEFAULT_TOOL_TIMEOUT_MS = 15000;
 const registry = new Map();
 
 function makeAbortError() {
-  const error = new Error('已停止生成。');
+  const error = new Error(tActive('error.agent.generationStopped'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -35,10 +37,10 @@ export function registerTool(definition) {
   const source = definition && typeof definition === 'object' ? definition : {};
   const name = String(source.name || '').trim();
   if (!TOOL_NAME_PATTERN.test(name)) {
-    throw new Error(`工具名非法：${name || '(空)'}`);
+    throw new Error(tActive('error.agent.toolNameInvalid', { name: name || '(空)' }));
   }
   if (typeof source.execute !== 'function') {
-    throw new Error(`工具 ${name} 缺少 execute 函数`);
+    throw new Error(tActive('error.agent.toolMissingExecute', { name }));
   }
   const parameters = source.parameters && typeof source.parameters === 'object'
     ? source.parameters

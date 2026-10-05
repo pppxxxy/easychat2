@@ -10,12 +10,13 @@ import { SAMPLING_FIELDS, getSamplingSettings, saveSamplingSettings } from '../s
 import { Card, CollapsibleSection, TextField } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createSettingsStyles } from './settingsStyles.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 const SAMPLING_ITEMS = [
-  { name: 'maxTokens', label: '最大回复令牌', keyboard: 'number-pad', hint: '1 - 128000' },
-  { name: 'temperature', label: '温度', keyboard: 'decimal-pad', hint: '0 - 2' },
-  { name: 'topP', label: 'top-p', keyboard: 'decimal-pad', hint: '0 - 1' },
-  { name: 'topK', label: 'top-k', keyboard: 'number-pad', hint: '0 - 50' },
+  { name: 'maxTokens', labelKey: 'settings.sampling.maxTokens', keyboard: 'number-pad', hint: '1 - 128000' },
+  { name: 'temperature', labelKey: 'settings.sampling.temperature', keyboard: 'decimal-pad', hint: '0 - 2' },
+  { name: 'topP', labelKey: 'settings.sampling.topP', keyboard: 'decimal-pad', hint: '0 - 1' },
+  { name: 'topK', labelKey: 'settings.sampling.topK', keyboard: 'number-pad', hint: '0 - 50' },
 ];
 
 const DEFAULT_SAMPLING = {
@@ -27,6 +28,7 @@ const DEFAULT_SAMPLING = {
 
 export default function SamplingCard() {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = React.useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [sampling, setSampling] = useState(DEFAULT_SAMPLING);
   const samplingRef = useRef(DEFAULT_SAMPLING);
@@ -48,9 +50,9 @@ export default function SamplingCard() {
       samplingRef.current = saved;
       setSampling(saved);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('settings.sampling.alert.saveFailed.title'), t('settings.sampling.alert.saveFailed.body'));
     }
-  }, []);
+  }, [t]);
 
   const toggleSamplingField = useCallback(name => {
     const current = samplingRef.current;
@@ -75,7 +77,7 @@ export default function SamplingCard() {
       if (rule.integer) value = Math.round(value);
       if (value < rule.min || value > rule.max) {
         const clamped = Math.min(rule.max, Math.max(rule.min, value));
-        Alert.alert('数值超出范围', `已调整为 ${clamped}。`);
+        Alert.alert(t('settings.sampling.alert.outOfRange.title'), t('settings.sampling.alert.outOfRange.body', { value: clamped }));
         value = clamped;
       }
     }
@@ -83,17 +85,17 @@ export default function SamplingCard() {
       ...current,
       [name]: { enabled: field.enabled === true, value },
     });
-  }, [persistSampling]);
+  }, [persistSampling, t]);
 
   const enabledCount = Object.values(sampling).filter(f => f && f.enabled === true).length;
 
   return (
     <Card>
       <CollapsibleSection
-        title="生成参数"
+        title={t('settings.sampling.title')}
         icon="analytics-outline"
         right={<Text style={styles.collapseSummary}>
-          {enabledCount > 0 ? `${enabledCount} 项已启用` : '使用服务端默认'}
+          {enabledCount > 0 ? t('settings.sampling.enabledCount', { count: enabledCount }) : t('settings.sampling.serverDefault')}
         </Text>}
       >
         {SAMPLING_ITEMS.map(item => {
@@ -101,7 +103,7 @@ export default function SamplingCard() {
           return (
             <View key={item.name} style={styles.capabilityRow}>
               <View style={styles.linkLeft}>
-                <Text style={styles.linkText}>{item.label}</Text>
+                <Text style={styles.linkText}>{t(item.labelKey)}</Text>
               </View>
               <View style={styles.samplingRight}>
                 <TextField
@@ -130,7 +132,7 @@ export default function SamplingCard() {
             </View>
           );
         })}
-        <Text style={styles.fieldHint}>开启的项才会随请求发送，未开启时使用服务端默认。</Text>
+        <Text style={styles.fieldHint}>{t('settings.sampling.hint')}</Text>
       </CollapsibleSection>
     </Card>
   );

@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import { Modal, Pressable, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage.js';
 import { THINKING_DISPLAY_LABELS, THINKING_LEVEL_LABELS } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
@@ -18,6 +19,7 @@ export default function ThinkingPanelModal({
   applyThinking,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -32,14 +34,14 @@ export default function ThinkingPanelModal({
         onPress={onClose}
       >
         <Pressable style={styles.modelSheet} onPress={() => {}}>
-          <Text style={styles.modelTitle}>思考设置</Text>
+          <Text style={styles.modelTitle}>{t('chat.thinkingPanel.title')}</Text>
           {!thinkingSupported ? (
             <Text style={styles.modelEmpty}>
-              当前来源未标记为支持思考，请在设置中确认模型能力。
+              {t('chat.thinkingPanel.unsupported')}
             </Text>
           ) : null}
           <View style={styles.thinkingRow}>
-            <Text style={styles.thinkingLabel}>开启思考</Text>
+            <Text style={styles.thinkingLabel}>{t('chat.thinkingPanel.enable')}</Text>
             <Switch
               value={thinkingEnabled}
               onValueChange={value => applyThinking({ enabled: value })}
@@ -48,7 +50,7 @@ export default function ThinkingPanelModal({
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.modelLabel}>思考深度</Text>
+          <Text style={styles.modelLabel}>{t('chat.thinkingPanel.depth')}</Text>
           <View style={styles.thinkingLevels}>
             {THINKING_LEVELS.map(level => {
               const active = thinkingLevel === level;
@@ -77,7 +79,7 @@ export default function ThinkingPanelModal({
               );
             })}
           </View>
-          <Text style={styles.modelLabel}>思考内容展示</Text>
+          <Text style={styles.modelLabel}>{t('chat.thinkingPanel.display')}</Text>
           <View style={styles.thinkingLevels}>
             {THINKING_DISPLAYS.map(display => {
               const active = thinkingDisplay === display;
@@ -111,7 +113,7 @@ export default function ThinkingPanelModal({
             onPress={onClose}
             activeOpacity={0.8}
           >
-            <Text style={styles.modelCloseText}>关闭</Text>
+            <Text style={styles.modelCloseText}>{t('common.close')}</Text>
           </TouchableOpacity>
         </Pressable>
       </Pressable>

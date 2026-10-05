@@ -18,9 +18,11 @@ import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getTtsSettings, saveTtsSettings } from './storage.js';
 import { TTS_PROVIDERS, getTtsProvider } from './tts/providers.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 export default function TtsPanel({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [settings, setSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   const [loaded, setLoaded] = useState(false);
@@ -49,7 +51,7 @@ export default function TtsPanel({ visible, onClose }) {
            setSettings(migrated);
            setLoaded(true);
            saveTtsSettings(migrated).catch(() => {});
-           Alert.alert('播报引擎已更新', '原先选择的播报引擎已下线或不可用，已切换为系统引擎，请在下方重新选择。');
+           Alert.alert(t('tts.alert.engineMigrated.title'), t('tts.alert.engineMigrated.body'));
            return;
          }
          settingsRef.current = stored;
@@ -58,7 +60,7 @@ export default function TtsPanel({ visible, onClose }) {
          setLoaded(true);
       })
       .catch(() => {
-        if (!cancelled) Alert.alert('读取失败', '无法读取语音播报设置。');
+        if (!cancelled) Alert.alert(t('tts.alert.loadFailed.title'), t('tts.alert.loadFailed.body'));
       });
     return () => {
       cancelled = true;
@@ -81,13 +83,13 @@ export default function TtsPanel({ visible, onClose }) {
           settingsRef.current = previous;
           setSettings(previous);
         }
-        Alert.alert('保存失败', '请检查存储空间或权限。');
+        Alert.alert(t('tts.alert.saveFailed.title'), t('tts.alert.saveFailed.body'));
         return false;
       }
     });
     persistQueueRef.current = task.catch(() => false);
     return task;
-  }, [loaded]);
+  }, [loaded, t]);
 
   const provider = getTtsProvider(settings.activeProvider);
   const providerConfig = (settings.providers && settings.providers[provider.id]) || {};
@@ -113,14 +115,14 @@ export default function TtsPanel({ visible, onClose }) {
     try {
       const canOpen = await Linking.canOpenURL(url);
       if (!canOpen) {
-        Alert.alert('无法打开链接', url);
+        Alert.alert(t('tts.alert.openLinkFailed.title'), url);
         return;
       }
       await Linking.openURL(url);
     } catch (error) {
-      Alert.alert('无法打开链接', url);
+      Alert.alert(t('tts.alert.openLinkFailed.title'), url);
     }
-  }, [provider.apiKeyUrl]);
+  }, [provider.apiKeyUrl, t]);
 
   const onSave = useCallback(() => {
     const currentSettings = settingsRef.current;
@@ -146,18 +148,18 @@ export default function TtsPanel({ visible, onClose }) {
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>语音播报</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{t('tts.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-            <FieldHint style={styles.hint}>密钥仅保存在本机，不会写入日志或文档。</FieldHint>
-            <FieldHint style={styles.hint}>播报时会把你选中的回复文本发送到所选服务商合成音频。</FieldHint>
+            <FieldHint style={styles.hint}>{t('tts.hint.keyLocal')}</FieldHint>
+            <FieldHint style={styles.hint}>{t('tts.hint.sendToProvider')}</FieldHint>
             <View style={styles.switchRow}>
               <View style={styles.switchTextWrap}>
-                <Text style={styles.switchTitle}>自动播报</Text>
-                <Text style={styles.switchHint}>开启后，角色回复完成会自动朗读；手动点消息下方「播报」不受此开关影响。</Text>
+                <Text style={styles.switchTitle}>{t('tts.autoBroadcast.title')}</Text>
+                <Text style={styles.switchHint}>{t('tts.autoBroadcast.hint')}</Text>
               </View>
               <Switch
                 value={settings.autoBroadcast === true}
@@ -166,7 +168,7 @@ export default function TtsPanel({ visible, onClose }) {
                 thumbColor={theme.colors.primaryContrast}
               />
             </View>
-            <FieldLabel style={styles.label}>播报源</FieldLabel>
+            <FieldLabel style={styles.label}>{t('tts.providerLabel')}</FieldLabel>
             <View style={styles.providerRow}>
               {TTS_PROVIDERS.map(item => {
                 const active = item.id === provider.id;
@@ -181,13 +183,13 @@ export default function TtsPanel({ visible, onClose }) {
                     ]}
                      onPress={() => {
                       if (unavailable) {
-                        Alert.alert('暂不支持', `${item.label}：${item.unsupportedNote || '当前引擎暂不支持该服务'}。`);
+                        Alert.alert(t('tts.alert.unsupported.title'), t('tts.alert.unsupported.body', { name: item.label, note: item.unsupportedNote || t('tts.alert.unsupported.defaultNote') }));
                         return;
                       }
                       persist({ ...settingsRef.current, activeProvider: item.id });
                     }}
                      activeOpacity={0.85}
-                    accessibilityLabel={unavailable ? `${item.label}，暂不支持` : item.label}
+                    accessibilityLabel={unavailable ? t('tts.a11y.providerUnsupported', { name: item.label }) : item.label}
                   >
                     <Text
                       style={[
@@ -196,7 +198,7 @@ export default function TtsPanel({ visible, onClose }) {
                         unavailable && styles.providerTextUnsupported,
                       ]}
                     >
-                      {unavailable ? `${item.label}·暂不支持` : item.label}
+                      {unavailable ? t('tts.providerUnsupported', { name: item.label }) : item.label}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -205,7 +207,7 @@ export default function TtsPanel({ visible, onClose }) {
 
             {provider.unsupported ? (
               <FieldHint style={styles.hint}>
-                {`当前引擎暂不支持：${provider.unsupportedNote || '该服务暂不可用'}。播报会失败，请选择其他引擎。`}
+                {t('tts.unsupportedHint', { note: provider.unsupportedNote || t('tts.unsupportedHint.defaultNote') })}
               </FieldHint>
             ) : null}
 
@@ -227,7 +229,7 @@ export default function TtsPanel({ visible, onClose }) {
                 留空表示「默认音色」，交给模型自选。 */}
             {loaded && Array.isArray(provider.voices) && provider.voices.length > 0 ? (
               <View>
-                <FieldLabel style={styles.label}>{'预置音色（可选）'}</FieldLabel>
+                <FieldLabel style={styles.label}>{t('tts.voices.label')}</FieldLabel>
                 <View style={styles.voiceRow}>
                   <TouchableOpacity
                     style={[styles.voiceChip, !providerConfig.voice && styles.voiceChipActive]}
@@ -235,7 +237,7 @@ export default function TtsPanel({ visible, onClose }) {
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.voiceText, !providerConfig.voice && styles.voiceTextActive]}>
-                      默认
+                      {t('tts.voices.default')}
                     </Text>
                   </TouchableOpacity>
                   {provider.voices.map(voice => {
@@ -263,22 +265,22 @@ export default function TtsPanel({ visible, onClose }) {
                 onPress={openKeyUrl}
                 activeOpacity={0.8}
                 accessibilityRole="link"
-                accessibilityLabel={`获取 ${provider.label} 的 API Key`}
+                accessibilityLabel={t('tts.a11y.getApiKey', { name: provider.label })}
               >
                 <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
-                <Text style={styles.keyLinkText}>获取 API Key / 密钥</Text>
+                <Text style={styles.keyLinkText}>{t('tts.getApiKey')}</Text>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
               </TouchableOpacity>
             ) : null}
 
             {provider.engine !== 'system' && provider.signer === 'volcano' ? (
               <Text style={styles.fieldHint}>
-                火山引擎使用 Bearer; 签名头，请在语音控制台获取 Access Token 与 AppID。
+                {t('tts.volcanoHint')}
               </Text>
             ) : null}
 
             <TouchableOpacity style={styles.saveButton} onPress={onSave} activeOpacity={0.8}>
-              <Text style={styles.saveText}>保存</Text>
+              <Text style={styles.saveText}>{t('common.save')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

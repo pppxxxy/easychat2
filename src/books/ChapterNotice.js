@@ -3,11 +3,13 @@ import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 章节的合规警告与外部链接。
 // 警告文案显示在链接正上方（显著位置），点击链接时再弹出一次确认，确认后才打开。
 export default function ChapterNotice({ disclaimer, warning, links }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const list = Array.isArray(links) ? links.filter(item => item && item.url) : [];
   if (!disclaimer && !warning && list.length === 0) return null;
@@ -16,11 +18,11 @@ export default function ChapterNotice({ disclaimer, warning, links }) {
     const url = String(link.url || '');
     if (!url) return;
     const message = warning
-      ? `${warning}\n\n即将打开：${url}`
-      : `即将打开外部链接：${url}`;
-    Alert.alert(link.label || '外部链接', message, [
-      { text: '取消', style: 'cancel' },
-      { text: '继续打开', onPress: () => { Linking.openURL(url).catch(() => {}); } },
+      ? `${warning}\n\n${t('books.notice.openingLink', { url })}`
+      : t('books.notice.openingExternal', { url });
+    Alert.alert(link.label || t('books.notice.externalLink'), message, [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('books.notice.continueOpen'), onPress: () => { Linking.openURL(url).catch(() => {}); } },
     ]);
   };
 

@@ -3,6 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 折叠分组：标题行点击展开/收起内容。用于设置页把体积较大的区块（外观、生成参数等）
 // 默认收起，避免一屏塞满选项。可受控（open + onToggle）或非受控（defaultOpen）。
@@ -92,12 +93,15 @@ export function CollapsibleSelect({
   valueMeta,
   options = [],
   onSelect,
-  placeholder = '未选择',
-  emptyHint = '暂无可选项',
+  placeholder,
+  emptyHint,
   right,
   style,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder !== undefined ? placeholder : t('ui.select.none');
+  const resolvedEmptyHint = emptyHint !== undefined ? emptyHint : t('ui.select.empty');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [open, setOpen] = useState(false);
   const selectedOption = options.find(option => option.value === value);
@@ -114,7 +118,7 @@ export function CollapsibleSelect({
         {label ? <Text style={styles.selectLabel}>{label}</Text> : null}
         <View style={styles.selectValueBox}>
           <Text style={styles.selectValue} numberOfLines={1}>
-            {displayLabel || placeholder}
+            {displayLabel || resolvedPlaceholder}
           </Text>
           {displayMeta ? (
             <Text style={styles.selectMeta} numberOfLines={1}>{displayMeta}</Text>
@@ -129,7 +133,7 @@ export function CollapsibleSelect({
       </TouchableOpacity>
       {open ? (
         options.length === 0 ? (
-          <Text style={styles.selectEmpty}>{emptyHint}</Text>
+          <Text style={styles.selectEmpty}>{resolvedEmptyHint}</Text>
         ) : (
           <View style={styles.selectBody}>
             {options.map(option => {

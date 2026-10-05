@@ -1,7 +1,7 @@
 export const THEMES = [
   {
     id: 'dark',
-    label: '深色',
+    labelKey: 'theme.dark',
     colors: {
       background: '#1a1a2e',
       surface: '#2d2d44',
@@ -25,7 +25,7 @@ export const THEMES = [
   },
   {
     id: 'light',
-    label: '浅色',
+    labelKey: 'theme.light',
     colors: {
       background: '#f5f5fa',
       surface: '#ffffff',
@@ -49,7 +49,7 @@ export const THEMES = [
   },
   {
     id: 'blue',
-    label: '蓝色',
+    labelKey: 'theme.blue',
     colors: {
       background: '#0f1b2d',
       surface: '#1b2f4a',
@@ -73,7 +73,7 @@ export const THEMES = [
   },
   {
     id: 'pink',
-    label: '蜜桃',
+    labelKey: 'theme.pink',
     colors: {
       background: '#2a1e18',
       surface: '#3d2c24',
@@ -97,7 +97,7 @@ export const THEMES = [
   },
   {
     id: 'crimson',
-    label: '薰衣草',
+    labelKey: 'theme.crimson',
     colors: {
       background: '#1e1a2e',
       surface: '#2c2743',
@@ -121,7 +121,7 @@ export const THEMES = [
   },
   {
     id: 'violet',
-    label: '紫罗兰',
+    labelKey: 'theme.violet',
     colors: {
       background: '#1a1225',
       surface: '#2a1f3d',
@@ -145,7 +145,7 @@ export const THEMES = [
   },
   {
     id: 'emerald',
-    label: '翡翠',
+    labelKey: 'theme.emerald',
     colors: {
       background: '#0f1f1a',
       surface: '#1a332b',
@@ -169,7 +169,7 @@ export const THEMES = [
   },
   {
     id: 'midnight',
-    label: '午夜',
+    labelKey: 'theme.midnight',
     colors: {
       background: '#080c14',
       surface: '#121a2b',
@@ -251,12 +251,12 @@ export function getTheme(id) {
 }
 
 export const FONT_SCALES = [
-  { id: 'default', label: '默认', scale: 1 },
-  { id: 'system', label: '跟随系统', scale: null },
-  { id: 'small', label: '小', scale: 0.9 },
-  { id: 'medium', label: '中', scale: 1.1 },
-  { id: 'large', label: '大', scale: 1.25 },
-  { id: 'xlarge', label: '特大', scale: 1.4 },
+  { id: 'default', labelKey: 'fontScale.default', scale: 1 },
+  { id: 'system', labelKey: 'fontScale.system', scale: null },
+  { id: 'small', labelKey: 'fontScale.small', scale: 0.9 },
+  { id: 'medium', labelKey: 'fontScale.medium', scale: 1.1 },
+  { id: 'large', labelKey: 'fontScale.large', scale: 1.25 },
+  { id: 'xlarge', labelKey: 'fontScale.xlarge', scale: 1.4 },
 ];
 
 export const DEFAULT_FONT_SCALE_ID = 'default';

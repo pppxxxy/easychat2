@@ -5,6 +5,7 @@ import { Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-na
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { EVERYONE_MENTION } from './groupMentions.js';
 import { createChatStyles } from './chatStyles.js';
 
@@ -15,6 +16,7 @@ export default function MentionPickerModal({
   insertMention,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -30,7 +32,7 @@ export default function MentionPickerModal({
         onPress={onClose}
       >
         <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
-          <Text style={styles.modalTitle}>提及成员</Text>
+          <Text style={styles.modalTitle}>{t('chat.mention.title')}</Text>
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
             <TouchableOpacity
               style={styles.modalRow}
@@ -65,7 +67,7 @@ export default function MentionPickerModal({
                   </View>
                 )}
                 <Text style={styles.modalRowText} numberOfLines={1}>
-                  {item.name || '未命名角色'}
+                  {item.name || t('chat.mention.unnamed')}
                 </Text>
               </TouchableOpacity>
             ))}

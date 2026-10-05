@@ -9,8 +9,10 @@ import { Alert } from 'react-native';
 
 import { createVectorConfig, getVectorMemorySettings, saveVectorMemorySettings } from '../storage.js';
 import { testVectorConnection } from '../vectorMemory/index.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useVectorSettings() {
+  const { t } = useTranslation();
   const [vectorPayload, setVectorPayload] = useState({ enabled: false, configs: [], activeId: '' });
   const [vectorTesting, setVectorTesting] = useState(false);
   const [vectorTopKDraft, setVectorTopKDraft] = useState('5');
@@ -64,11 +66,11 @@ export default function useVectorSettings() {
           vectorRef.current = previous;
           setVectorPayload(previous);
         }
-        Alert.alert('保存失败', '配置未保存，已恢复到上次成功状态。');
+        Alert.alert(t('settings.vector.alert.saveFailed.title'), t('settings.vector.alert.saveFailed.body'));
       }
       return false;
     }
-  }, []);
+  }, [t]);
 
   // 加载：把已存配置灌入内存与草稿。挂载时调用一次。
   const loadVectorSettings = useCallback(() => {
@@ -122,16 +124,16 @@ export default function useVectorSettings() {
       if (vectorMountedRef.current) setVectorPayload(saved);
       return true;
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('settings.vector.alert.persistFailed.title'), t('settings.vector.alert.persistFailed.body'));
       return false;
     }
-  }, []);
+  }, [t]);
 
   const addVectorConfig = useCallback(() => {
     const base = vectorRef.current || vectorPayload;
-    const created = createVectorConfig({ name: `向量配置 ${base.configs.length + 1}` });
+    const created = createVectorConfig({ name: t('settings.vector.defaultName', { n: base.configs.length + 1 }) });
     return persistVectorPayload({ ...base, configs: [...base.configs, created], activeId: created.id });
-  }, [persistVectorPayload, vectorPayload]);
+  }, [persistVectorPayload, vectorPayload, t]);
 
   const selectVectorConfig = useCallback(id => {
     const base = vectorRef.current || vectorPayload;
@@ -142,13 +144,13 @@ export default function useVectorSettings() {
   const removeVectorConfig = useCallback(() => {
     const base = vectorRef.current || vectorPayload;
     if (base.configs.length <= 1) {
-      Alert.alert('无法删除', '至少保留一个向量配置。');
+      Alert.alert(t('settings.vector.alert.cannotDelete.title'), t('settings.vector.alert.cannotDelete.body'));
       return;
     }
-    Alert.alert('删除向量配置', '确定删除当前向量配置吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('settings.vector.alert.delete.title'), t('settings.vector.alert.delete.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           const latest = vectorRef.current || vectorPayload;
@@ -157,7 +159,7 @@ export default function useVectorSettings() {
         },
       },
     ]);
-  }, [persistVectorPayload, vectorPayload]);
+  }, [persistVectorPayload, vectorPayload, t]);
 
   const testVector = useCallback(async () => {
     if (vectorTesting) return;
@@ -167,13 +169,13 @@ export default function useVectorSettings() {
       const base = vectorRef.current || vectorPayload;
       const active = base.configs.find(item => item.id === base.activeId) || base.configs[0];
       const dims = await testVectorConnection(active);
-      Alert.alert('连接成功', `向量维度：${dims}`);
+      Alert.alert(t('settings.vector.alert.testOk.title'), t('settings.vector.alert.testOk.body', { dims }));
     } catch (error) {
-      Alert.alert('连接失败', error?.message || '请检查地址、密钥与模型。');
+      Alert.alert(t('settings.vector.alert.testFailed.title'), error?.message || t('settings.vector.alert.testFailed.body'));
     } finally {
       setVectorTesting(false);
     }
-  }, [flushVectorMemory, vectorPayload, vectorTesting]);
+  }, [flushVectorMemory, vectorPayload, vectorTesting, t]);
 
   const toggleVectorEnabled = useCallback(value => {
     return persistVectorPayload({ ...(vectorRef.current || vectorPayload), enabled: value });

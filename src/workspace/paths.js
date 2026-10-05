@@ -7,6 +7,8 @@
 // 字体/数据库/办公二进制之外的扩展名都当文本），这样 HTML/CSS/JS/JSON/YAML/各语言源码、
 // 无扩展名文件（Makefile/.gitignore/LICENSE）都能建；.docx 仍是「只写不读」的二进制输出。
 
+import { tActive } from '../i18n/index.js';
+
 const BINARY_EXTENSIONS = new Set([
   // 图片
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'tif', 'tiff', 'heic', 'heif', 'avif', 'svgz',
@@ -39,18 +41,18 @@ export function sanitizeSandboxId(characterId) {
 
 export function normalizeWorkspacePath(input) {
   const raw = String(input === undefined || input === null ? '' : input);
-  if (!raw.trim()) throw new Error('路径不能为空。');
-  if (raw.includes('\u0000')) throw new Error('路径包含非法字符。');
-  if (raw.length > MAX_PATH_LENGTH) throw new Error('路径过长。');
+  if (!raw.trim()) throw new Error(tActive('error.workspace.pathEmpty'));
+  if (raw.includes('\u0000')) throw new Error(tActive('error.workspace.pathIllegalChar'));
+  if (raw.length > MAX_PATH_LENGTH) throw new Error(tActive('error.workspace.pathTooLong'));
   const unified = raw.replace(/\\/g, '/').trim();
-  if (unified.startsWith('/')) throw new Error('路径必须是工作区内的相对路径。');
+  if (unified.startsWith('/')) throw new Error(tActive('error.workspace.pathMustBeRelative'));
   const segments = [];
   for (const segment of unified.split('/')) {
     if (!segment || segment === '.') continue;
-    if (segment === '..') throw new Error('路径不能越出工作区。');
+    if (segment === '..') throw new Error(tActive('error.workspace.pathEscape'));
     segments.push(segment);
   }
-  if (segments.length === 0) throw new Error('路径不能为空。');
+  if (segments.length === 0) throw new Error(tActive('error.workspace.pathEmpty'));
   return segments.join('/');
 }
 
@@ -72,7 +74,7 @@ export function isAllowedWorkspaceFile(path) {
 
 export function assertAllowedWorkspaceFile(path) {
   if (!isAllowedWorkspaceFile(path)) {
-    throw new Error('工作区只能读写文本文件（图片/音视频/压缩包/可执行文件等二进制不支持）。');
+    throw new Error(tActive('error.workspace.textOnly'));
   }
   return path;
 }
@@ -84,7 +86,7 @@ export function isAllowedWorkspaceOutputFile(path) {
 
 export function assertAllowedWorkspaceOutputFile(path) {
   if (!isAllowedWorkspaceOutputFile(path)) {
-    throw new Error('工作区写入只支持文本文件与生成的 .docx。');
+    throw new Error(tActive('error.workspace.writeTextOnly'));
   }
   return path;
 }

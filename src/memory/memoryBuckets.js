@@ -6,13 +6,14 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 export const PINNED_GROUP_ID = 'pinned';
 
 // maxAge 为开区间上界：age < maxAge 落入该档；最后一档不设上界（一年前及以上）。
+// label 保留给既有测试/调试用中文基准文案；UI 渲染一律走 labelKey + t()。
 export const MEMORY_BUCKETS = [
-  { id: 'recent', label: '最近', maxAge: 1 * DAY_MS },
-  { id: 'day', label: '一天前', maxAge: 7 * DAY_MS },
-  { id: 'week', label: '一周前', maxAge: 30 * DAY_MS },
-  { id: 'month', label: '一个月前', maxAge: 180 * DAY_MS },
-  { id: 'halfYear', label: '半年前', maxAge: 365 * DAY_MS },
-  { id: 'year', label: '一年前' },
+  { id: 'recent', label: '最近', labelKey: 'memory.bucket.recent', maxAge: 1 * DAY_MS },
+  { id: 'day', label: '一天前', labelKey: 'memory.bucket.day', maxAge: 7 * DAY_MS },
+  { id: 'week', label: '一周前', labelKey: 'memory.bucket.week', maxAge: 30 * DAY_MS },
+  { id: 'month', label: '一个月前', labelKey: 'memory.bucket.month', maxAge: 180 * DAY_MS },
+  { id: 'halfYear', label: '半年前', labelKey: 'memory.bucket.halfYear', maxAge: 365 * DAY_MS },
+  { id: 'year', label: '一年前', labelKey: 'memory.bucket.year' },
 ];
 
 export function bucketIdForTimestamp(timestamp, now = Date.now()) {
@@ -32,12 +33,12 @@ export function groupSessionsByAge(sessions, now = Date.now()) {
   const groups = [];
   const pinned = list.filter(item => item.pinned === true);
   if (pinned.length > 0) {
-    groups.push({ id: PINNED_GROUP_ID, label: '置顶', sessions: pinned });
+    groups.push({ id: PINNED_GROUP_ID, label: '置顶', labelKey: 'memory.bucket.pinned', sessions: pinned });
   }
   const rest = list.filter(item => item.pinned !== true);
   MEMORY_BUCKETS.forEach(bucket => {
     const items = rest.filter(item => bucketIdForTimestamp(item.updatedAt, now) === bucket.id);
-    if (items.length > 0) groups.push({ id: bucket.id, label: bucket.label, sessions: items });
+    if (items.length > 0) groups.push({ id: bucket.id, label: bucket.label, labelKey: bucket.labelKey, sessions: items });
   });
   return groups;
 }
@@ -52,6 +53,7 @@ export function buildMemoryListData(groups, expandedIds) {
       id: `header:${group.id}`,
       groupId: group.id,
       label: group.label,
+      labelKey: group.labelKey,
       count: group.sessions.length,
     });
     if (expanded.has(group.id)) {

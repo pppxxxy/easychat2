@@ -8,6 +8,8 @@
 //
 // 本模块只做纯逻辑与 fetch 调用，不触碰 React / 存储；便于单测。
 
+import { tActive } from './i18n/index.js';
+
 export const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
 
 // 转写请求默认超时：调用方（录音发送）不传 signal，网络挂起时会永久卡住
@@ -92,7 +94,7 @@ export function isUnsupportedTranscriptionError(error) {
 export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', signal, timeoutMs = TRANSCRIPTION_TIMEOUT_MS } = {}) {
   const target = config || {};
   if (!target.url) {
-    const error = new Error('未配置语音转写服务');
+    const error = new Error(tActive('error.transcription.notConfigured'));
     error.unsupported = true;
     throw error;
   }
@@ -123,11 +125,11 @@ export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', sig
       // 外部 signal 主动取消：原样抛出，调用方按取消处理。
       if (signal && signal.aborted) throw error;
       // 否则是内部超时兜底：给出可诊断文案。
-      const timeoutError = new Error('转写请求超时，请检查网络后重试');
+      const timeoutError = new Error(tActive('error.transcription.timeout'));
       timeoutError.status = 0;
       throw timeoutError;
     }
-    const wrapped = new Error('转写请求失败，请检查网络');
+    const wrapped = new Error(tActive('error.transcription.networkFailed'));
     wrapped.cause = error;
     throw wrapped;
   } finally {
@@ -139,7 +141,7 @@ export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', sig
 
   const bodyText = await response.text().catch(() => '');
   if (!response.ok) {
-    let message = `转写失败（HTTP ${response.status}）`;
+    let message = tActive('error.transcription.httpFailed', { status: response.status });
     try {
       const data = JSON.parse(bodyText);
       // error 可能是 {message}、纯字符串或无 message 的对象：最后一种直接
@@ -158,9 +160,9 @@ export async function transcribeAudio({ config, fileUri, mime = 'audio/m4a', sig
   try {
     parsed = JSON.parse(bodyText);
   } catch (parseError) {
-    throw new Error('转写返回内容无法解析');
+    throw new Error(tActive('error.transcription.parseFailed'));
   }
   const text = String((parsed && parsed.text) || '').trim();
-  if (!text) throw new Error('转写没有返回文字');
+  if (!text) throw new Error(tActive('error.transcription.emptyResult'));
   return { text };
 }

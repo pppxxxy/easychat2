@@ -55,9 +55,10 @@ export function splitKeywords(text) {
     .filter(Boolean);
 }
 
-export function placementText(placement) {
+export function placementText(placement, strings = {}) {
+  const scopeFallback = strings.scopeFallback || '范围 {key}';
   return placement
-    .map(item => REGEX_PLACEMENT_LABELS[item] || `范围 ${item}`)
+    .map(item => REGEX_PLACEMENT_LABELS[item] || scopeFallback.replace('{key}', item))
     .join('、');
 }
 
@@ -81,11 +82,11 @@ export function hasCardContent(card) {
   );
 }
 
-export function buildCharacterPatch(card) {
+export function buildCharacterPatch(card, strings = {}) {
   const fields = card.fields || {};
   return {
     id: `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    name: card.name || '导入角色',
+    name: card.name || strings.defaultName || '导入角色',
     systemPrompt: fields.systemPrompt || '',
     systemPromptComposed: card.systemPrompt || '',
     description: fields.description || '',
@@ -158,10 +159,10 @@ export function characterWithFormState(character, form) {
   };
 }
 
-export function worldEntryMeta(entry) {
-  if (entry.constant) return '常驻';
+export function worldEntryMeta(entry, strings = {}) {
+  if (entry.constant) return strings.constant || '常驻';
   const keys = Array.isArray(entry.keys) ? entry.keys.filter(Boolean) : [];
-  if (keys.length) return `关键词：${keys.join('、')}`;
+  if (keys.length) return (strings.keywords || '关键词：{keys}').replace('{keys}', keys.join('、'));
   const content = String(entry.content || '').replace(/\s+/g, ' ').trim();
-  return content ? content.slice(0, 40) : '未设置关键词';
+  return content ? content.slice(0, 40) : strings.noKeys || '未设置关键词';
 }

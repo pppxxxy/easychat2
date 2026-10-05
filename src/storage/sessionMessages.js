@@ -15,6 +15,7 @@ import {
   readJsonStatus,
 } from './io.js';
 import { markMediaWrite } from './mediaProtection.js';
+import { tActive } from '../i18n/index.js';
 import { mergeProactiveMessage } from '../proactive/proactiveInbox.js';
 import {
   collectChatImageFiles,
@@ -63,7 +64,7 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
   imageUris.forEach(markMediaWrite);
   const previousStatus = await getMessagesBySessionStatus(sessionId);
   if (previousStatus.status === 'corrupt') {
-    throw new Error('聊天记录读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.chatLogReadFailed'));
   }
   const previousImages = previousStatus.status === 'corrupt'
     ? new Set()
@@ -98,7 +99,7 @@ async function saveMessagesBySessionInternal(sessionId, messages, characterId = 
     if (activeId === String(sessionId)) {
       const summaryStatus = await getSessionSummariesStatus(sessionId);
       if (summaryStatus.status === 'corrupt') {
-        throw new Error('记忆摘要读取失败，请稍后重试');
+        throw new Error(tActive('error.storage.summaryReadFailed'));
       }
       const timestamps = persistable
         .map(item => Number(item.timestamp))
@@ -149,7 +150,7 @@ export function appendProactiveMessage(characterId, incoming) {
     if (!ownerId || !messageId || !text) return { sessionId: '', created: false };
     const sessionsStatus = await readSessionsStatus();
     if (sessionsStatus.status === 'corrupt') {
-      throw new Error('会话列表读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.sessionListReadFailed'));
     }
     const sessions = sessionsStatus.sessions;
     let target = null;
@@ -170,7 +171,7 @@ export function appendProactiveMessage(characterId, incoming) {
       for (const candidate of owned) {
         const candidateStatus = await getMessagesBySessionStatus(candidate.id);
         if (candidateStatus.status === 'corrupt') {
-          throw new Error('聊天记录读取失败，请稍后重试');
+          throw new Error(tActive('error.storage.chatLogReadFailed'));
         }
         if (candidateStatus.messages.some(item => item && String(item.id || '') === messageId)) {
           target = candidate;
@@ -185,7 +186,7 @@ export function appendProactiveMessage(characterId, incoming) {
     }
     const status = await getMessagesBySessionStatus(target.id);
     if (status.status === 'corrupt') {
-      throw new Error('聊天记录读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.chatLogReadFailed'));
     }
     const timestamp = Number(source.createdAt) || Date.now();
     const next = mergeProactiveMessage(status.messages, {
@@ -244,7 +245,7 @@ async function saveSessionSummariesInternal(sessionId, list) {
 async function setSessionSummarizedUpToInternal(sessionId, messageId, options = {}) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
-  if (!target) throw new Error('会话不存在');
+  if (!target) throw new Error(tActive('error.storage.sessionNotFound'));
   const nextBoundary = String(messageId || '');
   if (!nextBoundary) {
     if (!target.summarizedUpTo) return target;
@@ -256,7 +257,7 @@ async function setSessionSummarizedUpToInternal(sessionId, messageId, options = 
   }
   const messages = await getMessagesBySession(sessionId);
   const newIndex = messages.findIndex(item => item.id === nextBoundary);
-  if (newIndex < 0) throw new Error('总结边界无效');
+  if (newIndex < 0) throw new Error(tActive('error.storage.summaryBoundaryInvalid'));
   const oldIndex = messages.findIndex(item => item.id === target.summarizedUpTo);
   if (
     options.allowBackward !== true
@@ -274,7 +275,7 @@ async function setSessionSummarizedUpToInternal(sessionId, messageId, options = 
 export function setSessionSummarizedUpTo(sessionId, messageId, expectedRevision = null) {
   return enqueueSessionMutation(() => {
     if (expectedRevision !== null && !isSessionSummaryRevisionCurrent(sessionId, expectedRevision)) {
-      throw new Error('会话摘要已重置');
+      throw new Error(tActive('error.storage.summaryReset'));
     }
     return setSessionSummarizedUpToInternal(sessionId, messageId);
   });
@@ -285,7 +286,7 @@ export function resetSessionSummaries(sessionId) {
   return enqueueSessionMutation(async () => {
     const sessions = await requireSessions();
     const target = sessions.find(session => session.id === sessionId);
-    if (!target) throw new Error('会话不存在');
+    if (!target) throw new Error(tActive('error.storage.sessionNotFound'));
     const key = sessionSummariesKey(sessionId);
     const cleared = sessions.map(session => (
       session.id === sessionId ? { ...session, summarizedUpTo: '' } : session
@@ -308,10 +309,10 @@ export function invalidateSessionSummaries(sessionId, keepSummaries = [], nextBo
   return enqueueSessionMutation(async () => {
     const sessions = await requireSessions();
     const target = sessions.find(session => session.id === sessionId);
-    if (!target) throw new Error('会话不存在');
+    if (!target) throw new Error(tActive('error.storage.sessionNotFound'));
     const previousStatus = await getSessionSummariesStatus(sessionId);
     if (previousStatus.status === 'corrupt') {
-      throw new Error('记忆摘要读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.summaryReadFailed'));
     }
     const kept = (Array.isArray(keepSummaries) ? keepSummaries : [])
       .map(normalizeSessionSummary)
@@ -332,10 +333,10 @@ export function invalidateSessionSummaries(sessionId, keepSummaries = [], nextBo
 export function appendSessionSummary(sessionId, entry, expectedRevision = null) {
   const task = enqueueSessionMutation(async () => {
     if (expectedRevision !== null && !isSessionSummaryRevisionCurrent(sessionId, expectedRevision)) {
-      throw new Error('会话摘要已重置');
+      throw new Error(tActive('error.storage.summaryReset'));
     }
     const { status, summaries } = await getSessionSummariesStatus(sessionId);
-    if (status === 'corrupt') throw new Error('记忆摘要读取失败，请稍后重试');
+    if (status === 'corrupt') throw new Error(tActive('error.storage.summaryReadFailed'));
     const normalizedEntry = normalizeSessionSummary(entry);
     const next = [...summaries, normalizedEntry];
     await saveSessionSummariesInternal(sessionId, next);

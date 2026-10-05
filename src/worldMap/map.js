@@ -137,23 +137,29 @@ export function detachCharacterFromMap(houses, characterIds) {
   });
 }
 
-export function describeHouseOwner(house, characters = []) {
+// 展示文案可由调用方（组件）用 t() 经 strings 传入；默认值保留中文基准文案，
+// 使纯函数测试与非组件调用方不受影响。
+export function describeHouseOwner(house, characters = [], strings = {}) {
   if (!house) return '';
-  if (house.ownerType !== 'character') return '我的房子';
+  const selfHouse = strings.selfHouse || '我的房子';
+  if (house.ownerType !== 'character') return selfHouse;
   const found = (Array.isArray(characters) ? characters : [])
     .find(item => item && item.id === house.ownerId);
-  const name = clean(house.ownerName, 80) || (found && found.name) || '角色';
-  return `${name}的房子`;
+  const name = clean(house.ownerName, 80) || (found && found.name) || strings.characterFallback || '角色';
+  const template = strings.ownedBy || '{name}的房子';
+  return template.replace('{name}', name);
 }
 
-export function houseResidentNames(house, characters = []) {
+export function houseResidentNames(house, characters = [], strings = {}) {
   if (!house) return [];
+  const unnamed = strings.unnamed || '未命名';
+  const deleted = strings.deletedCharacter || '已删除角色';
   const map = new Map();
   (Array.isArray(characters) ? characters : []).forEach(item => {
-    if (item && item.id) map.set(item.id, clean(item.name, 80) || '未命名');
+    if (item && item.id) map.set(item.id, clean(item.name, 80) || unnamed);
   });
   return (Array.isArray(house.residents) ? house.residents : [])
-    .map(id => map.get(id) || '已删除角色')
+    .map(id => map.get(id) || deleted)
     .filter(Boolean);
 }
 

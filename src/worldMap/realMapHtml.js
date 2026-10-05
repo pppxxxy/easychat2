@@ -7,12 +7,23 @@
 export const DEFAULT_TILE_URL = 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}';
 export const DEFAULT_TILE_SUBDOMAINS = ['1', '2', '3', '4'];
 
-export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFAULT_TILE_SUBDOMAINS } = {}) {
+// 界面文案由调用方（RealMapView 组件）用 t() 传入；默认值保留中文基准文案，
+// 使非组件调用方与现有测试（断言默认模板含中文）不受影响。
+export function buildRealMapHtml({
+  tileUrl = DEFAULT_TILE_URL,
+  subdomains = DEFAULT_TILE_SUBDOMAINS,
+  texts = {},
+} = {}) {
   const template = String(tileUrl || '').trim() || DEFAULT_TILE_URL;
   const subs = Array.isArray(subdomains) && subdomains.length
     ? subdomains.map(String)
     : DEFAULT_TILE_SUBDOMAINS;
   const config = JSON.stringify({ tileUrl: template, subdomains: subs });
+  const attribution = String(texts.attribution || '地图数据 © 高德');
+  const gestureHint = String(texts.hint || '拖动平移 · 双指缩放');
+  const zoomInLabel = String(texts.zoomIn || '放大');
+  const zoomOutLabel = String(texts.zoomOut || '缩小');
+  const recenterLabel = String(texts.recenter || '回到我的位置');
 
   return `<!DOCTYPE html>
 <html>
@@ -39,12 +50,12 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
 <body>
 <div id="map"></div>
 <div id="markers"></div>
-<div id="attrib">地图数据 © 高德</div>
-<div id="hint">拖动平移 · 双指缩放</div>
+<div id="attrib">${attribution}</div>
+<div id="hint">${gestureHint}</div>
 <div id="controls">
-  <button id="zi" aria-label="放大">+</button>
-  <button id="zo" aria-label="缩小">−</button>
-  <button id="rc" aria-label="回到我的位置">◎</button>
+  <button id="zi" aria-label="${zoomInLabel}">+</button>
+  <button id="zo" aria-label="${zoomOutLabel}">−</button>
+  <button id="rc" aria-label="${recenterLabel}">◎</button>
 </div>
 <script>
 (function(){

@@ -55,6 +55,7 @@ import {
   clearCharacterEditDraft,
 } from '../storage.js';
 import { isRecentMediaUri } from '../storage/mediaProtection.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createForgeState, draftFromCharacter } from '../cardForge/forge.js';
 import { isFormDirty, setCharacterEditGuard } from './characterEditGuard.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -97,6 +98,7 @@ export default function CharacterDetailScreen() {
   } = useApp();
   const navigation = useNavigation();
   const route = useRoute();
+  const { t } = useTranslation();
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createCharacterStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [name, setName] = useState('');
@@ -312,16 +314,16 @@ export default function CharacterDetailScreen() {
         switchCharacter(previousId)
           .then(() => (previousSessionId ? switchSession(previousSessionId) : null))
           .catch(() => {
-            if (mountedRef.current) Alert.alert('角色切换失败', '未能恢复原来的会话，请重新打开应用。');
+            if (mountedRef.current) Alert.alert(t('character.detail.switchFail.title'), t('character.detail.switchFail.body'));
           })
           .finally(() => {
             if (revertingToRef.current === previousId) revertingToRef.current = '';
           });
       };
-      Alert.alert('有未保存的编辑', '角色发生切换，请选择取消并保留编辑，或放弃修改后继续。', [
-        { text: '取消', style: 'cancel', onPress: revert },
+      Alert.alert(t('character.detail.dirtySwitch.title'), t('character.detail.dirtySwitch.body'), [
+        { text: t('common.cancel'), style: 'cancel', onPress: revert },
         {
-          text: '放弃并切换',
+          text: t('character.detail.discardAndSwitch'),
           style: 'destructive',
           onPress: () => {
             authorizedActiveIdRef.current = activeId;
@@ -358,12 +360,12 @@ export default function CharacterDetailScreen() {
       // seed 可能已经再次变化（角色又切换/外部更新）：草稿只恢复到仍属于它的表单。
       if (formOwnerIdRef.current !== draftOwnerId || seededIdRef.current !== draftOwnerId) return;
       Alert.alert(
-        '检测到未保存的编辑',
-        '上次编辑的内容尚未保存，恢复后可以继续修改。',
+        t('character.detail.draftFound.title'),
+        t('character.detail.draftFound.body'),
         [
-          { text: '丢弃', style: 'destructive' },
+          { text: t('character.detail.draftFound.discard'), style: 'destructive' },
           {
-            text: '恢复',
+            text: t('character.detail.draftFound.restore'),
             // 用 buildCharacterFormState 规范化：旧版本草稿可能缺字段，
             // 直接入表单会把 undefined 塞进 TextInput。
             onPress: () => applyDraftFormState(buildCharacterFormState(draft.formState)),
@@ -394,7 +396,7 @@ export default function CharacterDetailScreen() {
       ...list,
       createWorldEntry({
         id,
-        comment: `世界书条目 ${list.length + 1}`,
+        comment: t('character.detail.worldEntryDefault', { n: list.length + 1 }),
       }),
     ]);
     setEditingWorldId(id);
@@ -415,7 +417,7 @@ export default function CharacterDetailScreen() {
       ...list,
       createRegexScript({
         id,
-        name: `正则脚本 ${list.length + 1}`,
+        name: t('character.detail.regexDefault', { n: list.length + 1 }),
       }),
     ]);
     setEditingRegexId(id);
@@ -425,24 +427,24 @@ export default function CharacterDetailScreen() {
   // 供 Tab 切换拦截的「保存并离开」判断是否切换。
   const saveInternal = async (options = {}) => {
     if (!loaded) {
-      Alert.alert('角色加载中', '请稍候再保存。');
+      Alert.alert(t('character.detail.loading.title'), t('character.detail.loading.body'));
       return false;
     }
     if (!seededFormSignatureRef.current) {
-      Alert.alert('角色加载中', '请稍候再保存。');
+      Alert.alert(t('character.detail.loading.title'), t('character.detail.loading.body'));
       return false;
     }
     if (formOwnerIdRef.current !== String(character.id || '')) {
-      Alert.alert('角色已切换', '请先处理角色切换，再保存当前编辑。');
+      Alert.alert(t('character.detail.switched.title'), t('character.detail.switched.body'));
       return false;
     }
     if (externalConflictRef.current && options.force !== true) {
       Alert.alert(
-        '角色已在其他页面更新',
-        '继续保存会覆盖其他页面中的修改。',
+        t('character.detail.externalConflict.title'),
+        t('character.detail.externalConflict.body'),
         [
-          { text: '取消', style: 'cancel' },
-          { text: '覆盖保存', style: 'destructive', onPress: () => save({ force: true }) },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('character.detail.externalConflict.overwrite'), style: 'destructive', onPress: () => save({ force: true }) },
         ]
       );
       return false;
@@ -456,8 +458,12 @@ export default function CharacterDetailScreen() {
         setSegment('regex');
         setEditingRegexId(script.id);
         Alert.alert(
-          '正则脚本无效',
-          maskSecrets(`第 ${index + 1} 条「${script.name || '未命名'}」：${error.message}`)
+          t('character.detail.regexInvalid.title'),
+          maskSecrets(t('character.detail.regexInvalid.body', {
+            index: index + 1,
+            name: script.name || t('character.detail.unnamed'),
+            error: error.message,
+          }))
         );
         return false;
       }
@@ -563,14 +569,14 @@ setWorldInfo(next.worldInfo);
        seededFormSignatureRef.current = savedFormSignatureValue;
        seededCharacterSignatureRef.current = savedFormSignatureValue;
        externalConflictRef.current = false;
-       Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
+       Alert.alert(t('character.detail.saved.title'), t('character.detail.saved.body'));
        return true;
      } catch (error) {
        Alert.alert(
-         error && error.code === 'CHARACTER_CONFLICT' ? '角色已更新' : '保存失败',
+         error && error.code === 'CHARACTER_CONFLICT' ? t('character.detail.conflict.title') : t('common.error.saveFailed'),
          error && error.code === 'CHARACTER_CONFLICT'
-           ? '其他页面已修改该角色，请重新加载后再保存。'
-           : '请检查存储空间或权限。'
+           ? t('character.detail.conflict.body')
+           : t('common.error.storageOrPermission')
        );
        return false;
      }
@@ -603,7 +609,7 @@ setWorldInfo(next.worldInfo);
           multiple: false,
         });
       } catch (error) {
-        Alert.alert('文件读取错误，请重试');
+        Alert.alert(t('character.detail.importReadError'));
         return;
       }
 
@@ -615,7 +621,7 @@ setWorldInfo(next.worldInfo);
         assetSize = Number(info && info.size) > 0 ? Number(info.size) : 0;
       }
       if (assetSize > MAX_IMPORT_BYTES) {
-        Alert.alert('角色卡文件过大', `请选择不超过 ${formatImportSize(MAX_IMPORT_BYTES)} 的文件。`);
+        Alert.alert(t('character.detail.importTooLarge.title'), t('character.detail.importTooLarge.body', { size: formatImportSize(MAX_IMPORT_BYTES) }));
         return;
       }
       setImportStatus({
@@ -631,7 +637,7 @@ setWorldInfo(next.worldInfo);
         });
         buffer = Buffer.from(base64, 'base64');
         if (buffer.length > MAX_IMPORT_BYTES) {
-          Alert.alert('角色卡文件过大', `请选择不超过 ${formatImportSize(MAX_IMPORT_BYTES)} 的文件。`);
+          Alert.alert(t('character.detail.importTooLarge.title'), t('character.detail.importTooLarge.body', { size: formatImportSize(MAX_IMPORT_BYTES) }));
           return;
         }
         const importSize = assetSize || buffer.length;
@@ -641,7 +647,7 @@ setWorldInfo(next.worldInfo);
           size: importSize,
         });
       } catch (error) {
-        Alert.alert('文件读取错误，请重试');
+        Alert.alert(t('character.detail.importReadError'));
         return;
       }
 
@@ -659,17 +665,17 @@ setWorldInfo(next.worldInfo);
 
 
         console.warn('[角色卡导入] 解析失败：', detail);
-        Alert.alert('角色卡解析失败', detail || '请确认文件格式是否正确。');
+        Alert.alert(t('character.detail.importParseFail.title'), detail || t('character.detail.importParseFail.fallback'));
         return;
       }
 
       if (treatAsPng && parsed === null) {
-        Alert.alert('无法导入', NO_CARD_DATA_MESSAGE);
+        Alert.alert(t('character.detail.importEmpty.title'), NO_CARD_DATA_MESSAGE);
         return;
       }
 
       if (!hasCardContent(parsed)) {
-        Alert.alert('无法导入', '未从文件中识别到角色内容，请确认卡片结构是否完整。');
+        Alert.alert(t('character.detail.importEmpty.title'), t('character.detail.importEmpty.body'));
         return;
       }
 
@@ -746,16 +752,16 @@ setWorldInfo(next.worldInfo);
         // 导入新卡后回到人设段（原逻辑是收起世界书/正则折叠区）。
         setSegment('persona');
       }
-      const summary = [
-        `已加载角色：${next.name}`,
-        `世界书 ${next.worldInfo.length} 条`,
-        `正则 ${next.regexScripts.length} 条`,
-        `预设 ${next.presets.length} 条`,
-        next.firstMes ? '含开场白' : '无开场白',
-      ].join('，');
+      const summary = t('character.detail.importSummary.body', {
+        name: next.name,
+        world: next.worldInfo.length,
+        regex: next.regexScripts.length,
+        presets: next.presets.length,
+        greeting: next.firstMes ? t('character.detail.importSummary.withGreeting') : t('character.detail.importSummary.noGreeting'),
+      });
        Alert.alert(
-         imageFailed ? '角色已导入，图片保存失败' : '导入成功',
-         imageFailed ? `${summary}。请在该角色页面重新选择头像和背景图。` : summary
+         imageFailed ? t('character.detail.importOk.imageFailTitle') : t('character.detail.importOk.title'),
+         imageFailed ? t('character.detail.importOk.imageFailBody', { summary }) : summary
        );
      } catch (error) {
        if (importedImageUri) {
@@ -764,11 +770,11 @@ setWorldInfo(next.worldInfo);
        const detail = maskSecrets(error?.message || String(error));
 
       const message = /角色库仍在恢复中/.test(detail)
-        ? `${detail}\n你编辑的开场白仍会保留。`
+        ? t('character.detail.importFail.keepGreeting', { detail })
         : /full|disk|空间|容量/i.test(detail)
-          ? '存储空间不足，请释放空间后重试。你编辑的开场白仍会保留。'
-          : '请检查存储空间或权限后重试。你编辑的开场白仍会保留。';
-      Alert.alert('导入失败', message);
+          ? t('character.detail.importFail.diskFull')
+          : t('character.detail.importFail.storage');
+      Alert.alert(t('character.detail.importFail.title'), message);
     } finally {
       setImporting(false);
       setImportStatus(null);
@@ -788,7 +794,7 @@ setWorldInfo(next.worldInfo);
           {
             id: `forge-${Date.now()}-from-character`,
             role: 'note',
-            text: `已载入角色「${editedCharacter.name || '未命名'}」的设定。直接说修改要求（例如「把性格改得更冷淡」），或继续回答下面的问题。`,
+            text: t('character.detail.forge.loadedNote', { name: editedCharacter.name || t('character.detail.unnamed') }),
             createdAt: Date.now(),
           },
           ...fresh.transcript.slice(1),
@@ -796,16 +802,16 @@ setWorldInfo(next.worldInfo);
         updatedAt: Date.now(),
       })
         .then(() => navigation.navigate(ROUTE_NAMES.extension, { segment: 'forge', ts: Date.now() }))
-        .catch(() => Alert.alert('载入失败', '请检查存储空间或权限。'));
+        .catch(() => Alert.alert(t('character.detail.forge.loadFailTitle'), t('common.error.storageOrPermission')));
     };
     Alert.alert(
-      '导入到制卡',
+      t('character.detail.forge.title'),
       formDirty
-        ? '会把当前界面中的角色设定载入制卡草稿，包含尚未保存的编辑。原角色不受影响。'
-        : '会把当前角色的设定载入制卡草稿，原角色不受影响。继续吗？',
+        ? t('character.detail.forge.bodyDirty')
+        : t('character.detail.forge.body'),
       [
-        { text: '取消', style: 'cancel' },
-        { text: '继续', onPress: apply },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('character.detail.forge.continue'), onPress: apply },
       ]
     );
   };
@@ -833,13 +839,13 @@ setWorldInfo(next.worldInfo);
       if (available) {
         await Sharing.shareAsync(uri, {
           mimeType: format === 'png' ? 'image/png' : 'application/json',
-          dialogTitle: '导出角色卡',
+          dialogTitle: t('character.detail.export.dialogTitle'),
         });
       } else {
-        Alert.alert('导出完成', `文件已生成：\n${uri}`);
+        Alert.alert(t('character.detail.export.doneTitle'), t('character.detail.export.doneBody', { uri }));
       }
     } catch (error) {
-      Alert.alert('导出失败', maskSecrets((error && error.message) || '请稍后重试。'));
+      Alert.alert(t('character.detail.export.failTitle'), maskSecrets((error && error.message) || t('common.error.retryLater')));
     } finally {
       exportBusyRef.current = false;
       setExporting(false);
@@ -849,14 +855,14 @@ setWorldInfo(next.worldInfo);
   const onExport = () => {
     if (exportBusyRef.current || !loaded) return;
     Alert.alert(
-      '导出角色卡',
+      t('character.detail.export.dialogTitle'),
       formDirty
-        ? '将导出当前界面中的内容，包含尚未保存的编辑。请选择格式。'
-        : '请选择导出格式。',
+        ? t('character.detail.export.bodyDirty')
+        : t('character.detail.export.body'),
       [
-        { text: '取消', style: 'cancel' },
-        { text: 'PNG 图片', onPress: () => runExport('png') },
-        { text: 'JSON 文件', onPress: () => runExport('json') },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('character.detail.export.png'), onPress: () => runExport('png') },
+        { text: t('character.detail.export.json'), onPress: () => runExport('json') },
       ]
     );
   };
@@ -943,7 +949,7 @@ setWorldInfo(next.worldInfo);
       pendingImageUrisRef.current.set(fieldName, dest);
       setter(dest);
     } catch (error) {
-      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert(t('character.detail.imageReadFail.title'), t('character.detail.imageReadFail.body'));
     }
   };
 
@@ -968,13 +974,18 @@ setWorldInfo(next.worldInfo);
   const importStatusTitle = !importStatus
     ? ''
     : importStatus.large
-      ? importStatus.phase === 'saving' ? '大卡片正在保存' : '大卡片正在读取'
-      : importStatus.phase === 'saving' ? '正在保存角色卡' : '正在导入角色卡';
+      ? importStatus.phase === 'saving' ? t('character.detail.importStatus.largeSaving') : t('character.detail.importStatus.largeReading')
+      : importStatus.phase === 'saving' ? t('character.detail.importStatus.saving') : t('character.detail.importStatus.reading');
   const importStatusHint = !importStatus
     ? ''
     : importStatus.large
-      ? `${importStatus.phase === 'saving' ? '正在写入本地存储' : '正在读取并解析文件'}${importSizeLabel ? ` · ${importSizeLabel}` : ''}，请稍候`
-      : importStatus.phase === 'saving' ? '正在写入本地存储，请稍候' : '正在读取并解析文件，请稍候';
+      ? t(
+        importStatus.phase === 'saving'
+          ? 'character.detail.importStatus.hintWritingLarge'
+          : 'character.detail.importStatus.hintParsingLarge',
+        { size: importSizeLabel ? ` · ${importSizeLabel}` : '' }
+      )
+      : importStatus.phase === 'saving' ? t('character.detail.importStatus.hintSaving') : t('character.detail.importStatus.hintReading');
 
   // 人设段的分组容器：标题行可折叠，折叠时右侧渲染摘要（count）。
   // 复用统一后的 ui/CollapsibleSection（原 editors.js 那套参数不兼容的已合并掉），
@@ -996,10 +1007,10 @@ setWorldInfo(next.worldInfo);
   };
 
   const SEGMENTS = [
-    { id: 'persona', label: '人设' },
-    { id: 'world', label: '世界书' },
-    { id: 'regex', label: '正则' },
-    { id: 'presets', label: '预设' },
+    { id: 'persona', label: t('character.detail.segment.persona') },
+    { id: 'world', label: t('character.detail.segment.world') },
+    { id: 'regex', label: t('character.detail.segment.regex') },
+    { id: 'presets', label: t('character.detail.segment.presets') },
   ];
 
   return (
@@ -1020,13 +1031,13 @@ setWorldInfo(next.worldInfo);
             onPress={() => navigation.goBack()}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel="返回角色库"
+            accessibilityLabel={t('character.detail.back')}
           >
             <Ionicons name="chevron-back" size={18} color={theme.colors.primarySoft} />
-            <Text style={styles.detailBackText}>返回角色库</Text>
+            <Text style={styles.detailBackText}>{t('character.detail.back')}</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>{(character && character.name) || '角色'}</Text>
-          <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
+          <Text style={styles.title}>{(character && character.name) || t('common.characterFallback')}</Text>
+          <FieldHint style={styles.hint}>{t('character.detail.headerHint')}</FieldHint>
         </View>
 
         {/* 分段控制：一层信息架构只做一件事——分段管大区块，折叠管组内分组 */}
@@ -1055,22 +1066,25 @@ setWorldInfo(next.worldInfo);
         <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="create-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>基本信息</Text>
+            <Text style={styles.cardTitle}>{t('character.detail.basics.title')}</Text>
           </View>
-          <FieldLabel style={styles.label}>角色名</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.basics.name')}</FieldLabel>
           <TextField
             value={name}
             onChangeText={setName}
-            placeholder="例如：严谨的代码助手"
+            placeholder={t('character.detail.basics.namePlaceholder')}
           />
           {/* 头像/背景图属「基础」组，低频更换，默认折叠（摘要给「已设置/未设置」） */}
           {renderPersonaGroup(
             'basics',
-            '头像与背景',
+            t('character.detail.basics.images'),
             'image-outline',
-            [avatarPreview ? '头像✓' : '头像–', bgPreview ? '背景✓' : '背景–'].join(' '),
+            [
+              avatarPreview ? t('character.detail.basics.avatarSet') : t('character.detail.basics.avatarUnset'),
+              bgPreview ? t('character.detail.basics.bgSet') : t('character.detail.basics.bgUnset'),
+            ].join(' '),
             <>
-              <Text style={styles.fieldLabel}>角色头像</Text>
+              <Text style={styles.fieldLabel}>{t('character.detail.basics.avatar')}</Text>
               <View style={styles.imageRow}>
                 <View style={styles.avatarBox}>
                   {avatarPreview ? (
@@ -1085,28 +1099,28 @@ setWorldInfo(next.worldInfo);
                 </View>
                 <View style={styles.imageActions}>
                   <TouchableOpacity style={styles.smallButton} onPress={pickAvatar} activeOpacity={0.8}>
-                    <Text style={styles.smallButtonText}>{avatarPreview ? '更换' : '选择头像'}</Text>
+                    <Text style={styles.smallButtonText}>{avatarPreview ? t('character.detail.basics.change') : t('character.detail.basics.pickAvatar')}</Text>
                   </TouchableOpacity>
                   {avatarPreview ? (
                     <TouchableOpacity onPress={() => clearImagePreview('avatar', setAvatarPreview)} hitSlop={8}>
-                      <Text style={styles.removeText}>清除</Text>
+                      <Text style={styles.removeText}>{t('character.detail.basics.clear')}</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
               </View>
 
-              <Text style={styles.fieldLabel}>背景图</Text>
+              <Text style={styles.fieldLabel}>{t('character.detail.basics.bg')}</Text>
               <View style={styles.imageRow}>
                 {bgPreview ? (
                   <Image source={{ uri: bgPreview }} style={styles.bgPreview} />
                 ) : null}
                 <View style={styles.imageActions}>
                   <TouchableOpacity style={styles.smallButton} onPress={pickBg} activeOpacity={0.8}>
-                    <Text style={styles.smallButtonText}>{bgPreview ? '更换' : '选择背景'}</Text>
+                    <Text style={styles.smallButtonText}>{bgPreview ? t('character.detail.basics.change') : t('character.detail.basics.pickBg')}</Text>
                   </TouchableOpacity>
                   {bgPreview ? (
                     <TouchableOpacity onPress={() => clearImagePreview('bg', setBgPreview)} hitSlop={8}>
-                      <Text style={styles.removeText}>清除</Text>
+                      <Text style={styles.removeText}>{t('character.detail.basics.clear')}</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -1122,14 +1136,14 @@ setWorldInfo(next.worldInfo);
           >
             <Ionicons name="download-outline" size={16} color={theme.colors.primarySoft} />
             <Text style={styles.importButtonText}>
-              {importing ? '导入中...' : '导入角色卡'}
+              {importing ? t('character.detail.import.importing') : t('character.detail.import.button')}
             </Text>
           </TouchableOpacity>
-          <Text style={styles.importHint}>支持导入 PNG 或 JSON 格式的角色卡文件。</Text>
+          <Text style={styles.importHint}>{t('character.detail.import.hint')}</Text>
           <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('character-card')}
-            accessibilityLabel="查看角色卡获取教学"
+            accessibilityLabel={t('character.detail.import.a11yTutorial')}
           />
 
           <TouchableOpacity
@@ -1141,7 +1155,7 @@ setWorldInfo(next.worldInfo);
             <View style={styles.presetEntryLeft}>
               <Ionicons name="share-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.presetEntryText}>
-                {exporting ? '导出中...' : '导出角色卡'}
+                {exporting ? t('character.detail.export.exporting') : t('character.detail.export.dialogTitle')}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
@@ -1155,7 +1169,7 @@ setWorldInfo(next.worldInfo);
           >
             <View style={styles.presetEntryLeft}>
               <Ionicons name="id-card-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.presetEntryText}>导入到制卡（AI 修改）</Text>
+              <Text style={styles.presetEntryText}>{t('character.detail.forge.entry')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -1165,31 +1179,31 @@ setWorldInfo(next.worldInfo);
         <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>人设设定</Text>
+            <Text style={styles.cardTitle}>{t('character.detail.persona.title')}</Text>
           </View>
           {renderPersonaGroup(
             'greeting',
-            '开场白',
+            t('character.detail.greeting.group'),
             'chatbubble-ellipses-outline',
-            firstMes ? `${firstMes.slice(0, 12)}…` : '未设置',
+            firstMes ? `${firstMes.slice(0, 12)}…` : t('character.detail.notSet'),
             <>
-          <FieldLabel style={styles.label}>开场白</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.greeting.group')}</FieldLabel>
           <TextField
             style={styles.multilineSmall}
             value={firstMes}
             onChangeText={setFirstMes}
-            placeholder="角色登场时的第一句话"
+            placeholder={t('character.detail.greeting.placeholder')}
             multiline
             textAlignVertical="top"
           />
-          <FieldLabel style={styles.label}>备用开场白</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.greeting.alternates')}</FieldLabel>
           {alternateGreetings.map((item, index) => (
             <View key={`greeting-${index}`} style={styles.greetingRow}>
               <TextField
                 style={[styles.multilineSmall, styles.greetingInput]}
                 value={item}
                 onChangeText={value => updateGreeting(index, value)}
-                placeholder={`备用开场白 ${index + 1}`}
+                placeholder={t('character.detail.greeting.alternatePlaceholder', { n: index + 1 })}
                 multiline
                 textAlignVertical="top"
               />
@@ -1197,7 +1211,7 @@ setWorldInfo(next.worldInfo);
                 style={styles.greetingRemove}
                 onPress={() => removeGreeting(index)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityLabel="删除备用开场白"
+                accessibilityLabel={t('character.detail.greeting.a11yRemove')}
               >
                 <Ionicons name="close" size={16} color={theme.colors.dangerSoft} />
               </TouchableOpacity>
@@ -1205,31 +1219,31 @@ setWorldInfo(next.worldInfo);
           ))}
           <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
             <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
+            <Text style={styles.secondaryButtonText}>{t('character.detail.greeting.add')}</Text>
           </TouchableOpacity>
             </>
           )}
           {renderPersonaGroup(
             'prompt',
-            '人设提示词',
+            t('character.detail.prompt.group'),
             'document-text-outline',
-            systemPrompt ? `${systemPrompt.length} 字` : '未设置',
+            systemPrompt ? t('character.detail.charCount', { count: systemPrompt.length }) : t('character.detail.notSet'),
             <>
-          <FieldLabel style={styles.label}>人设 / 系统提示词</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.prompt.label')}</FieldLabel>
            <TextField
              style={styles.multiline}
              value={systemPrompt}
              onChangeText={setSystemPrompt}
-             placeholder="描述角色的语气、知识和回答方式"
+             placeholder={t('character.detail.prompt.placeholder')}
              multiline
              textAlignVertical="top"
            />
-           <FieldLabel style={styles.label}>语音形态</FieldLabel>
+           <FieldLabel style={styles.label}>{t('character.detail.voice.label')}</FieldLabel>
            <View style={styles.chipRow}>
              {[
-               { value: 'text', label: '仅文字' },
-               { value: 'voice-text', label: '语音 + 原文' },
-               { value: 'voice', label: '纯语音' },
+               { value: 'text', label: t('character.detail.voice.text') },
+               { value: 'voice-text', label: t('character.detail.voice.voiceText') },
+               { value: 'voice', label: t('character.detail.voice.voiceOnly') },
              ].map(option => {
                const active = voiceDisplay === option.value;
                return (
@@ -1239,7 +1253,7 @@ setWorldInfo(next.worldInfo);
                    onPress={() => setVoiceDisplay(option.value)}
                    activeOpacity={0.8}
                    accessibilityRole="button"
-                   accessibilityLabel={`语音形态 ${option.label}`}
+                   accessibilityLabel={t('character.detail.voice.a11y', { label: option.label })}
                    accessibilityState={{ selected: active }}
                  >
                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{option.label}</Text>
@@ -1247,39 +1261,39 @@ setWorldInfo(next.worldInfo);
                );
              })}
            </View>
-           <FieldHint style={styles.fieldHint}>纯语音会隐藏回复正文，但正文仍会保存并进入对话记忆；合成失败时自动退回仅文字。</FieldHint>
+           <FieldHint style={styles.fieldHint}>{t('character.detail.voice.hint')}</FieldHint>
             </>
           )}
           {renderPersonaGroup(
             'details',
-            '细节设定',
+            t('character.detail.details.group'),
             'reader-outline',
-            `${[description, personality, scenario].filter(value => String(value || '').trim()).length}/3 项`,
+            t('character.detail.details.count', { count: [description, personality, scenario].filter(value => String(value || '').trim()).length }),
             <>
-           <FieldLabel style={styles.label}>角色描述</FieldLabel>
+           <FieldLabel style={styles.label}>{t('character.detail.details.description')}</FieldLabel>
           <TextField
             style={styles.multiline}
             value={description}
             onChangeText={setDescription}
-            placeholder="角色的背景、外貌与身份设定"
+            placeholder={t('character.detail.details.descriptionPlaceholder')}
             multiline
             textAlignVertical="top"
           />
-          <FieldLabel style={styles.label}>性格</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.details.personality')}</FieldLabel>
           <TextField
             style={styles.multilineSmall}
             value={personality}
             onChangeText={setPersonality}
-            placeholder="角色的性格特点"
+            placeholder={t('character.detail.details.personalityPlaceholder')}
             multiline
             textAlignVertical="top"
           />
-          <FieldLabel style={styles.label}>场景</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.details.scenario')}</FieldLabel>
           <TextField
             style={styles.multilineSmall}
             value={scenario}
             onChangeText={setScenario}
-            placeholder="剧情发生的背景与情境"
+            placeholder={t('character.detail.details.scenarioPlaceholder')}
             multiline
             textAlignVertical="top"
           />
@@ -1288,30 +1302,30 @@ setWorldInfo(next.worldInfo);
 
           {renderPersonaGroup(
             'examples',
-            '对话示例',
+            t('character.detail.examples.group'),
             'chatbox-outline',
-            mesExample ? `${mesExample.length} 字` : '未设置',
+            mesExample ? t('character.detail.charCount', { count: mesExample.length }) : t('character.detail.notSet'),
             <>
-          <FieldLabel style={styles.label}>对话示例</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.examples.group')}</FieldLabel>
           <TextField
             style={styles.multiline}
             value={mesExample}
             onChangeText={setMesExample}
-            placeholder="<START>\n{{user}}: 你好\n{{char}}: 你好呀"
+            placeholder={t('character.detail.examples.placeholder')}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.fieldHint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</Text>
+          <Text style={styles.fieldHint}>{t('character.detail.examples.hint')}</Text>
             </>
           )}
 
           {renderPersonaGroup(
             'tags',
-            '标签',
+            t('character.detail.tags.group'),
             'pricetags-outline',
-            tags.length > 0 ? `${tags.length} 个` : '未设置',
+            tags.length > 0 ? t('character.detail.tags.count', { count: tags.length }) : t('character.detail.notSet'),
             <>
-          <FieldLabel style={styles.label}>标签</FieldLabel>
+          <FieldLabel style={styles.label}>{t('character.detail.tags.group')}</FieldLabel>
           <View style={styles.tagRow}>
             {tags.map((tag, index) => (
               <TouchableOpacity key={`${tag}-${index}`} style={styles.tagChip} onPress={() => removeTag(tag)} activeOpacity={0.8}>
@@ -1326,7 +1340,7 @@ setWorldInfo(next.worldInfo);
               value={tagDraft}
               onChangeText={setTagDraft}
               onSubmitEditing={addTag}
-              placeholder="输入标签后回车添加"
+              placeholder={t('character.detail.tags.placeholder')}
               returnKeyType="done"
             />
             <TouchableOpacity style={styles.tagAdd} onPress={addTag} activeOpacity={0.8}>
@@ -1342,18 +1356,18 @@ setWorldInfo(next.worldInfo);
           <Card>
             <View style={styles.cardTitleRow}>
               <Ionicons name="albums-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>原始卡资料</Text>
+              <Text style={styles.cardTitle}>{t('character.detail.rawCard.title')}</Text>
             </View>
             {card.creatorNotes || card.postHistoryInstructions ? (
               <View style={styles.dataSection}>
-                <Text style={styles.dataTitle}>其他资料</Text>
-                <DataField label="作者注释" value={card.creatorNotes} />
-                <DataField label="历史后指令" value={card.postHistoryInstructions} />
+                <Text style={styles.dataTitle}>{t('character.detail.rawCard.other')}</Text>
+                <DataField label={t('character.detail.rawCard.creatorNotes')} value={card.creatorNotes} />
+                <DataField label={t('character.detail.rawCard.postHistory')} value={card.postHistoryInstructions} />
               </View>
             ) : null}
             {card.tags?.length ? (
               <View style={styles.dataSection}>
-                <Text style={styles.dataTitle}>原始标签</Text>
+                <Text style={styles.dataTitle}>{t('character.detail.rawCard.tags')}</Text>
                 <View style={styles.tagRow}>
                   {card.tags.map((tag, index) => (
                     <View key={`${tag}-${index}`} style={styles.tag}>
@@ -1376,29 +1390,29 @@ setWorldInfo(next.worldInfo);
           activeOpacity={0.85}
         >
           <Ionicons name="save-outline" size={17} color={theme.colors.text} />
-          <Text style={styles.buttonText}>保存角色</Text>
+          <Text style={styles.buttonText}>{t('character.detail.save')}</Text>
         </TouchableOpacity>
 
         {segment === 'world' ? (
           <Card>
             <View style={styles.cardTitleRow}>
               <Ionicons name="book-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>世界书</Text>
+              <Text style={styles.cardTitle}>{t('character.detail.segment.world')}</Text>
               <Text style={styles.sectionCount}>{worldInfo.length}</Text>
             </View>
-            <Text style={styles.cardHint}>按关键词在发送前注入提示词；点条目编辑，右侧开关控制启用。</Text>
+            <Text style={styles.cardHint}>{t('character.detail.world.hint')}</Text>
             {worldInfo.length === 0 ? (
-              <Text style={styles.dataEmpty}>暂无世界书条目。</Text>
+              <Text style={styles.dataEmpty}>{t('character.detail.world.empty')}</Text>
             ) : (
               worldInfo.map((entry, index) => {
                 const unsafeKeys = getUnsafeWorldEntryKeys(entry);
                 return (
                   <SummaryRow
                     key={entry.id}
-                    title={entry.comment || `条目 ${index + 1}`}
+                    title={entry.comment || t('character.detail.world.entryFallback', { n: index + 1 })}
                     meta={[
                       worldEntryMeta(entry),
-                      unsafeKeys.length > 0 ? `${unsafeKeys.length} 个关键词疑似回溯，已跳过` : '',
+                      unsafeKeys.length > 0 ? t('character.detail.world.unsafeMeta', { count: unsafeKeys.length }) : '',
                     ].filter(Boolean).join('｜')}
                     enabled={entry.enabled}
                     onPress={() => setEditingWorldId(entry.id)}
@@ -1408,7 +1422,7 @@ setWorldInfo(next.worldInfo);
             )}
             <TouchableOpacity style={styles.addEntryButton} onPress={addWorldEntry} activeOpacity={0.8}>
               <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.addEntryText}>添加世界书条目</Text>
+              <Text style={styles.addEntryText}>{t('character.detail.world.add')}</Text>
             </TouchableOpacity>
           </Card>
         ) : null}
@@ -1417,20 +1431,20 @@ setWorldInfo(next.worldInfo);
           <Card>
             <View style={styles.cardTitleRow}>
               <Ionicons name="code-slash-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>正则脚本</Text>
+              <Text style={styles.cardTitle}>{t('character.detail.regex.title')}</Text>
               <Text style={styles.sectionCount}>{regexScripts.length}</Text>
             </View>
-            <Text style={styles.cardHint}>分别在发送与界面展示时生效；疑似回溯的写法运行时会被跳过。</Text>
+            <Text style={styles.cardHint}>{t('character.detail.regex.hint')}</Text>
             {regexScripts.length === 0 ? (
-              <Text style={styles.dataEmpty}>暂无正则脚本。</Text>
+              <Text style={styles.dataEmpty}>{t('character.detail.regex.empty')}</Text>
             ) : (
               regexScripts.map((script, index) => (
                 <SummaryRow
                   key={script.id}
-                  title={script.name || `正则 ${index + 1}`}
+                  title={script.name || t('character.detail.regex.fallback', { n: index + 1 })}
                   meta={[
                     script.placementLabel || '',
-                    isUnsafeRegexPattern(script.findRegex) ? '疑似回溯，运行时已跳过' : '',
+                    isUnsafeRegexPattern(script.findRegex) ? t('character.detail.regex.unsafe') : '',
                   ].filter(Boolean).join('｜')}
                   enabled={script.enabled}
                   onPress={() => setEditingRegexId(script.id)}
@@ -1439,7 +1453,7 @@ setWorldInfo(next.worldInfo);
             )}
             <TouchableOpacity style={styles.addEntryButton} onPress={addRegexScript} activeOpacity={0.8}>
               <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.addEntryText}>添加正则脚本</Text>
+              <Text style={styles.addEntryText}>{t('character.detail.regex.add')}</Text>
             </TouchableOpacity>
           </Card>
         ) : null}
@@ -1448,9 +1462,9 @@ setWorldInfo(next.worldInfo);
           <Card>
             <View style={styles.cardTitleRow}>
               <Ionicons name="sparkles-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>预设</Text>
+              <Text style={styles.cardTitle}>{t('character.detail.segment.presets')}</Text>
             </View>
-            <Text style={styles.cardHint}>角色预设只对这个角色生效；全局预设对所有对话生效。</Text>
+            <Text style={styles.cardHint}>{t('character.detail.presets.hint')}</Text>
             <TouchableOpacity
               style={styles.presetEntryRow}
               onPress={() => setCharacterPresetPanelOpen(true)}
@@ -1458,7 +1472,7 @@ setWorldInfo(next.worldInfo);
             >
               <View style={styles.presetEntryLeft}>
                 <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.presetEntryText}>角色预设</Text>
+                <Text style={styles.presetEntryText}>{t('character.detail.presets.character')}</Text>
               </View>
               <Text style={styles.presetEntryMeta}>{characterPresets.length}</Text>
               <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
@@ -1470,7 +1484,7 @@ setWorldInfo(next.worldInfo);
             >
               <View style={styles.presetEntryLeft}>
                 <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.presetEntryText}>全局预设 / 记忆总结</Text>
+                <Text style={styles.presetEntryText}>{t('settings.global.presets')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
             </TouchableOpacity>
@@ -1525,7 +1539,7 @@ setWorldInfo(next.worldInfo);
         visible={!!topic}
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
-        title="教学"
+        title={t('settings.tutorial.title')}
       />
 
       <Modal
@@ -1540,12 +1554,12 @@ setWorldInfo(next.worldInfo);
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>编辑世界书条目</Text>
+              <Text style={styles.modalTitle}>{t('character.detail.world.editTitle')}</Text>
               <TouchableOpacity
                 onPress={() => setEditingWorldId(null)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.modalDone}>完成</Text>
+                <Text style={styles.modalDone}>{t('common.done')}</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -1577,12 +1591,12 @@ setWorldInfo(next.worldInfo);
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>编辑正则脚本</Text>
+              <Text style={styles.modalTitle}>{t('character.detail.regex.editTitle')}</Text>
               <TouchableOpacity
                 onPress={() => setEditingRegexId(null)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.modalDone}>完成</Text>
+                <Text style={styles.modalDone}>{t('common.done')}</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">

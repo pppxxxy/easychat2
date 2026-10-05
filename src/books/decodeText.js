@@ -19,6 +19,8 @@
 // （Metro/Babel 的 interop 同样适用）。
 import textEncoding from 'text-encoding';
 
+import { tActive } from '../i18n/index.js';
+
 const { TextDecoder } = textEncoding;
 
 export const ENCODING_FFFD_THRESHOLD = 0.005;
@@ -407,7 +409,7 @@ export function decodeBytes(input) {
 
   // 二进制魔数：zip 头全在 ASCII 区，必须赶在严格 UTF-8 校验之前拦下。
   if (sniffBinaryMagic(bytes)) {
-    const error = new Error('文件是二进制格式，不是纯文本');
+    const error = new Error(tActive('error.books.binaryNotText'));
     error.code = 'NOT_TEXT';
     throw error;
   }
@@ -453,7 +455,7 @@ export function decodeBytes(input) {
   // NUL 占比复核：走到这里（非 BOM、非 UTF-8、无 UTF-16 启发）还满是 NUL 的，
   // 是删库碎片/内存转储一类的二进制，抛 NOT_TEXT 而不是笼统的编码错误。
   if (sniffBinary(bytes)) {
-    const error = new Error('文件是二进制格式，不是纯文本');
+    const error = new Error(tActive('error.books.binaryNotText'));
     error.code = 'NOT_TEXT';
     throw error;
   }
@@ -484,7 +486,7 @@ export function decodeBytes(input) {
     return { text: best.text, encoding: best.encoding, replacementRatio: replacementRatio(best.text) };
   }
 
-  const error = new Error('无法识别文件编码');
+  const error = new Error(tActive('error.books.encodingUnknown'));
   error.code = 'ENCODING';
   throw error;
 }

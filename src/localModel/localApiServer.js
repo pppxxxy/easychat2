@@ -4,6 +4,7 @@
 
 import { normalizeLocalModelApiServer } from './modelState.js';
 import { describeModelError, recordModelLog } from './modelLogs.js';
+import { tActive } from '../i18n/index.js';
 
 const EVENT_REQUEST = 'LocalApiServer:onRequest';
 
@@ -30,7 +31,7 @@ export function isLocalApiServerAvailable() {
 }
 
 function unavailableError() {
-  const error = new Error('当前环境不支持本地 API 服务（仅 Android 原生构建可用）');
+  const error = new Error(tActive('error.localModel.apiServerUnsupported'));
   error.code = 'LOCAL_API_UNAVAILABLE';
   return error;
 }

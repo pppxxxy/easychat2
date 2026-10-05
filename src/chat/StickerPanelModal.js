@@ -6,6 +6,7 @@ import { Image, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } 
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 const TILE_W = 78;
@@ -25,6 +26,7 @@ export default function StickerPanelModal({
   onReorderStickers,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [editing, setEditing] = useState(false);
@@ -144,20 +146,20 @@ export default function StickerPanelModal({
       <View style={styles.stickerBackdrop}>
         <View style={styles.stickerSheet}>
           <View style={styles.stickerHeader}>
-            <Text style={styles.stickerTitle}>表情包</Text>
+            <Text style={styles.stickerTitle}>{t('chat.sticker.title')}</Text>
             <View style={styles.stickerHeaderActions}>
               <TouchableOpacity
                 onPress={toggleEditing}
                 hitSlop={8}
-                accessibilityLabel={editing ? '完成编辑' : '编辑表情包'}
+                accessibilityLabel={editing ? t('chat.sticker.editDoneA11y') : t('chat.sticker.editA11y')}
                 accessibilityRole="button"
               >
-                <Text style={styles.stickerEditText}>{editing ? '完成' : '编辑'}</Text>
+                <Text style={styles.stickerEditText}>{editing ? t('common.done') : t('chat.sticker.edit')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={onClose}
                 hitSlop={8}
-                accessibilityLabel="关闭表情包"
+                accessibilityLabel={t('chat.sticker.closeA11y')}
                 style={styles.stickerHeaderClose}
               >
                 <Ionicons name="close" size={22} color={theme.colors.textMuted} />
@@ -178,10 +180,10 @@ export default function StickerPanelModal({
                 disabled={stickerSaving}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel="添加表情包"
+                accessibilityLabel={t('chat.sticker.addA11y')}
               >
                 <Ionicons name="add" size={25} color={theme.colors.primarySoft} />
-                <Text style={styles.stickerAddText}>添加</Text>
+                <Text style={styles.stickerAddText}>{t('chat.sticker.add')}</Text>
               </TouchableOpacity>
             ) : null}
             {stickers.map(sticker => {
@@ -205,7 +207,7 @@ export default function StickerPanelModal({
                     onPress={() => (editing ? toggleSelected(sticker.id) : sendSticker(sticker))}
                     style={styles.stickerTileButton}
                     accessibilityRole="button"
-                    accessibilityLabel={editing ? `选择表情包 ${sticker.name}` : `发送表情包 ${sticker.name}`}
+                    accessibilityLabel={editing ? t('chat.sticker.selectA11y', { name: sticker.name }) : t('chat.sticker.sendA11y', { name: sticker.name })}
                   >
                     <Image source={{ uri: sticker.uri }} style={styles.stickerImage} resizeMode="contain" />
                     <Text style={styles.stickerName} numberOfLines={1}>{sticker.name}</Text>
@@ -224,7 +226,7 @@ export default function StickerPanelModal({
           {editing ? (
             <View style={styles.stickerEditBar}>
               <Text style={styles.stickerEditHint}>
-                {selectedIds.size > 0 ? `已选择 ${selectedIds.size} 个` : '拖动可排序，点选后可删除'}
+                {selectedIds.size > 0 ? t('chat.sticker.selectedCount', { count: selectedIds.size }) : t('chat.sticker.editHint')}
               </Text>
               <TouchableOpacity
                 style={[styles.stickerDeleteButton, selectedIds.size === 0 && styles.sendButtonDisabled]}
@@ -233,7 +235,7 @@ export default function StickerPanelModal({
                 activeOpacity={0.8}
               >
                 <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
-                <Text style={styles.stickerDeleteText}>删除</Text>
+                <Text style={styles.stickerDeleteText}>{t('common.delete')}</Text>
               </TouchableOpacity>
             </View>
           ) : null}

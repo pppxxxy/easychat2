@@ -17,6 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { searchMessages } from './storage.js';
 import { EmptyState } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 function formatTime(timestamp) {
   const value = Number(timestamp);
@@ -44,6 +45,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
   const searchRequestRef = useRef(0);
   const searchControllerRef = useRef(null);
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const characterMap = useMemo(() => {
@@ -84,12 +86,12 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
     } catch (error) {
       if (error && error.name === 'AbortError') return;
       if (requestId !== searchRequestRef.current) return;
-      Alert.alert('搜索失败', '请稍后重试。');
+      Alert.alert(t('search.alert.failed.title'), t('common.error.retryLater'));
     } finally {
       if (searchControllerRef.current === controller) searchControllerRef.current = null;
       if (requestId === searchRequestRef.current) setSearching(false);
     }
-  }, [abortSearch, keyword]);
+  }, [abortSearch, keyword, t]);
 
   const handleKeywordChange = value => {
     searchRequestRef.current += 1;
@@ -134,7 +136,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
               onChangeText={handleKeywordChange}
               onSubmitEditing={runSearch}
               returnKeyType="search"
-              placeholder="搜索历史聊天记录"
+              placeholder={t('search.history.placeholder')}
               placeholderTextColor={theme.colors.textFaint}
               autoFocus
             />
@@ -145,7 +147,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             ) : null}
           </View>
           <TouchableOpacity style={styles.cancel} onPress={handleClose} activeOpacity={0.7}>
-            <Text style={styles.cancelText}>取消</Text>
+            <Text style={styles.cancelText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
         </View>
         <TouchableOpacity
