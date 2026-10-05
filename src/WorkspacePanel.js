@@ -80,7 +80,7 @@ function formatTokens(value) {
   return String(tokens);
 }
 
-export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default' }) {
+export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default', initialSection = '' }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const { characters, refreshAppData } = useApp();
@@ -404,6 +404,28 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     patchWorkspaceSettings({ assistantCharacterId: item.id }).catch(() => {});
     refresh(item.id);
   }, [refresh]);
+
+  // 从工作区主界面的设置列表跳进来时，直接打开对应子面板：
+  // viewer = 已创建文件 / 历史改动，catalog = 环境配置模板，docx = 导出 Word。
+  // 用 ref 记住已处理过的 section：面板打开期间用户手动关掉子面板后不再被重新弹开。
+  const openedSectionRef = useRef('');
+  useEffect(() => {
+    if (!visible) {
+      openedSectionRef.current = '';
+      return;
+    }
+    const section = String(initialSection || '');
+    if (!section || openedSectionRef.current === section) return;
+    openedSectionRef.current = section;
+    if (section === 'viewer') {
+      setViewerTab('history');
+      setViewerOpen(true);
+    } else if (section === 'catalog') {
+      setCatalogOpen(true);
+    } else if (section === 'docx') {
+      startDocxForm();
+    }
+  }, [visible, initialSection, startDocxForm]);
 
   const loadChanges = useCallback(async ownerId => {
     setChangesLoading(true);

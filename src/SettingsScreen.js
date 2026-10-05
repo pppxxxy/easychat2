@@ -81,6 +81,7 @@ import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
 import WorkspacePanel from './WorkspacePanel.js';
+import WorkspaceChat from './workspace/WorkspaceChat.js';
 import WorkspaceCapabilitiesCard from './WorkspaceCapabilitiesCard.js';
 import { runOAuthWebFlow } from './mcp/oauth.js';
 import { captureOAuthCallback, GITHUB_OAUTH_REDIRECT, openSystemBrowser } from './mcp/oauthBridge.js';
@@ -313,6 +314,10 @@ export default function SettingsScreen() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [localModelOpen, setLocalModelOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  // 工作区主界面是聊天（WorkspaceChat）；文件 / 环境配置 / 历史这些子面板由它按需打开，
+  // 用 initialSection 指定要直接展开的那一项。
+  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
+  const [workspacePanelSection, setWorkspacePanelSection] = useState('');
   // GitHub MCP 连接：设置、PAT 输入与忙碌态（网页认证/PAT 都走 connectGithubMcpWithToken）。
   const [githubMcp, setGithubMcp] = useState(null);
   const [githubPat, setGithubPat] = useState('');
@@ -2655,10 +2660,19 @@ export default function SettingsScreen() {
         visible={localModelOpen}
         onClose={() => setLocalModelOpen(false)}
       />
-      <WorkspacePanel
+      <WorkspaceChat
         visible={workspaceOpen}
         onClose={() => setWorkspaceOpen(false)}
+        onOpenPanel={section => {
+          setWorkspacePanelSection(String(section || ''));
+          setWorkspacePanelOpen(true);
+        }}
+      />
+      <WorkspacePanel
+        visible={workspacePanelOpen}
+        onClose={() => setWorkspacePanelOpen(false)}
         characterId={characterId}
+        initialSection={workspacePanelSection}
       />
 
       <ChapterModal
