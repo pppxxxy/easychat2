@@ -14,12 +14,21 @@ export const MEMORY_BUCKETS = [
 ];
 
 // 列表筛选 chips（记忆页头部下方）：全部 / 置顶 / 群聊。
-// 「本地」chip 依赖会话的 modelKind 字段（Phase 3 落盘），由界面按数据有无条件追加。
+// 「本地」chip 依赖会话的 modelKind 字段（本地模型发送链落盘），
+// 由界面在存在本地会话时把 LOCAL_FILTER 追加进来——旧数据全是无字段的
+// 'api' 会话，常驻一个永远筛不出东西的 chip 只会误导。
 export const MEMORY_FILTERS = Object.freeze([
   { id: 'all', label: '全部' },
   { id: 'pinned', label: '置顶' },
   { id: 'group', label: '群聊' },
 ]);
+
+export const LOCAL_FILTER = Object.freeze({ id: 'local', label: '本地' });
+
+export function hasLocalSessions(sessions) {
+  return (Array.isArray(sessions) ? sessions : [])
+    .some(item => item && item.modelKind === 'local');
+}
 
 export function filterSessionsForMemory(sessions, filterId) {
   const list = Array.isArray(sessions) ? sessions : [];
@@ -56,11 +65,15 @@ export function groupSessionsByAge(sessions, now = Date.now()) {
   return groups;
 }
 
-// 会话行的徽章列表（纯函数，便于单测）：克隆副本 badge；置顶星由行组件按
-// pinned 单独渲染（它是图标不是文字 badge），这里不重复。
+// 会话行的徽章列表（纯函数，便于单测）：克隆副本 badge + 本地模型 badge
+// （中性属性而非状态，非高亮）。置顶星由行组件按 pinned 单独渲染
+// （它是图标不是文字 badge），这里不重复。最多渲染 2 个由行组件截断。
 export function buildSessionBadges(session) {
   const badges = [];
   if (session && session.clonedFrom) badges.push({ text: '副本' });
+  if (session && session.modelKind === 'local') {
+    badges.push({ icon: 'hardware-chip-outline', text: '本地' });
+  }
   return badges;
 }
 

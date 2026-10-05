@@ -11,6 +11,8 @@ import {
   DAY_MS,
   filterSessionsForMemory,
   groupSessionsByAge,
+  hasLocalSessions,
+  LOCAL_FILTER,
   MEMORY_BUCKETS,
   MEMORY_FILTERS,
   PINNED_GROUP_ID,
@@ -150,8 +152,22 @@ test('会话行三处统一：同一 SessionRow 组件，常驻操作按钮已�
   assert.ok(SWITCHER_SOURCE.includes('item.preview'));
 });
 
-test('buildSessionBadges：克隆副本出 badge，普通会话没有', () => {
+test('buildSessionBadges：克隆副本与本地模型 badge', () => {
   assert.deepEqual(buildSessionBadges({ clonedFrom: 'abc' }), [{ text: '副本' }]);
+  assert.deepEqual(buildSessionBadges({ modelKind: 'local' }), [{ icon: 'hardware-chip-outline', text: '本地' }]);
+  assert.deepEqual(
+    buildSessionBadges({ clonedFrom: 'abc', modelKind: 'local' }),
+    [{ text: '副本' }, { icon: 'hardware-chip-outline', text: '本地' }]
+  );
+  // api 与旧数据（无字段）都没有本地 badge
+  assert.deepEqual(buildSessionBadges({ modelKind: 'api' }), []);
   assert.deepEqual(buildSessionBadges({}), []);
   assert.deepEqual(buildSessionBadges(null), []);
+});
+
+test('hasLocalSessions：存在本地会话才为真', () => {
+  assert.equal(hasLocalSessions([{ modelKind: 'local' }]), true);
+  assert.equal(hasLocalSessions([{ modelKind: 'api' }, {}]), false);
+  assert.equal(hasLocalSessions(null), false);
+  assert.equal(LOCAL_FILTER.id, 'local');
 });

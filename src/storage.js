@@ -232,6 +232,7 @@ export {
   getSessions,
   invalidateSessionSummaries,
   isSessionSummaryRevisionCurrent,
+  markSessionModel,
   migrateLegacyMessages,
   reconcileVectorIndexes,
   resetSessionSummaries,

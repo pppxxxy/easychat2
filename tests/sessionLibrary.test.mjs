@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  applySessionModelMark,
   buildRestoredSession,
   collectMessageSpeakers,
   guessCharacterIdForMessages,
@@ -148,4 +149,28 @@ test('克隆消息 ID 时同步重写 quoted 引用', () => {
   assert.equal(cloned[1].quoted.id, '1000-clone-0');
   assert.equal(cloned[1].quoted.text, '原文');
   assert.equal(cloned[2].quoted.id, 'not-in-list');
+});
+
+test('会话模型标识：kind 归一化 + 名称截断 + 无变化返回 null', () => {
+  // 正常标记
+  const marked = applySessionModelMark({ id: 's1' }, { modelKind: 'local', modelName: 'Qwen2.5-1.5B' });
+  assert.equal(marked.modelKind, 'local');
+  assert.equal(marked.modelName, 'Qwen2.5-1.5B');
+  // 非法 kind 一律收敛为 api（读取侧把缺失/未知当 api）
+  assert.equal(applySessionModelMark({ id: 's1' }, { modelKind: 'weird' }).modelKind, 'api');
+  assert.equal(applySessionModelMark({ id: 's1' }, {}).modelKind, 'api');
+  // 名称修剪与长度封顶
+  const longName = 'x'.repeat(200);
+  assert.equal(applySessionModelMark({ id: 's1' }, { modelKind: 'api', modelName: `  ${longName}  ` }).modelName.length, 120);
+  // 无变化返回 null（调用方跳过写盘）
+  assert.equal(
+    applySessionModelMark({ id: 's1', modelKind: 'local', modelName: 'M' }, { modelKind: 'local', modelName: 'M' }),
+    null
+  );
+  // 旧字段被保留（只动两个可选字段）
+  const kept = applySessionModelMark({ id: 's1', preview: 'hi', pinned: true }, { modelKind: 'api', modelName: 'glm' });
+  assert.equal(kept.preview, 'hi');
+  assert.equal(kept.pinned, true);
+  // 非法会话对象安全返回
+  assert.equal(applySessionModelMark(null, { modelKind: 'local' }), null);
 });

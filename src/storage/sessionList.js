@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  applySessionModelMark,
   buildClonedSession,
   buildPreview,
   buildRestoredSession,
@@ -378,6 +379,24 @@ export function updateSessionInfo(sessionId, patch = {}) {
 // 把并发写入（如主动消息落库新建的会话）打回旧值。
 export function setSessionPinned(sessionId, pinned) {
   return enqueueSessionMutation(() => setSessionPinnedInternal(sessionId, pinned));
+}
+
+// 会话模型标识落盘：只更新 modelKind/modelName 两个可选字段，不动 preview/updatedAt，
+// 也不重排列表（updatedAt 未变）。必须在会话变更队列内读-改-写，与消息快照写盘
+// （saveMessagesBySessionInternal 的 preview/updatedAt 更新）串行，互不覆盖。
+async function markSessionModelInternal(sessionId, mark) {
+  const sessions = await requireSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  const updated = applySessionModelMark(target, mark);
+  if (!updated) return target || null;
+  await saveSessionsInternal(sessions.map(session => (
+    session.id === sessionId ? updated : session
+  )));
+  return updated;
+}
+
+export function markSessionModel(sessionId, mark) {
+  return enqueueSessionMutation(() => markSessionModelInternal(sessionId, mark));
 }
 
 export function updateSessionMemberProfiles(sessionId, memberProfiles) {

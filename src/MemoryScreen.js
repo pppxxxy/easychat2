@@ -28,6 +28,8 @@ import {
   buildSessionBadges,
   filterSessionsForMemory,
   groupSessionsByAge,
+  hasLocalSessions,
+  LOCAL_FILTER,
   MEMORY_FILTERS,
 } from './memory/memoryBuckets.js';
 import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
@@ -235,6 +237,13 @@ export default function MemoryScreen({ navigation }) {
     [listData]
   );
 
+  // 筛选 chips：存在本地模型会话时才追加「本地」项（旧数据全是 api 会话，
+  // 常驻一个永远筛不出东西的 chip 只会误导）。
+  const memoryChips = useMemo(
+    () => (hasLocalSessions(visibleSessions) ? [...MEMORY_FILTERS, LOCAL_FILTER] : MEMORY_FILTERS),
+    [visibleSessions]
+  );
+
   // ⋯ 菜单：教学入口与「展开/折叠全部」从头部收纳进来；计数本就在各分组头里。
   const menuItems = useMemo(() => ([
     {
@@ -368,7 +377,15 @@ export default function MemoryScreen({ navigation }) {
       { text: '删除', style: 'destructive', onPress: () => onDelete(session) },
     ];
     if (Platform.OS === 'ios') buttons.push({ text: '取消', style: 'cancel' });
-    Alert.alert(sessionDisplayName(session, character, groupMembers), undefined, buttons);
+    // badge 放不下模型全名：长按操作单的副标题补上（本地 · Qwen2.5-1.5B）。
+    const modelLine = session.modelKind === 'local'
+      ? `本地 · ${String(session.modelName || '').trim() || '本地模型'}`
+      : '';
+    Alert.alert(
+      sessionDisplayName(session, character, groupMembers),
+      modelLine || undefined,
+      buttons
+    );
   }, [characterMap, onPin, onClone, onDelete]);
 
   const onOpenResult = useCallback(async result => {
@@ -517,7 +534,7 @@ export default function MemoryScreen({ navigation }) {
           contentContainerStyle={styles.chipRow}
           keyboardShouldPersistTaps="handled"
         >
-          {MEMORY_FILTERS.map(chip => {
+          {memoryChips.map(chip => {
             const active = memoryFilter === chip.id;
             return (
               <TouchableOpacity

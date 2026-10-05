@@ -75,6 +75,21 @@ export function sortSessions(list) {
   });
 }
 
+// 会话模型标识（记忆页「本地」badge 的数据源）：modelKind 'local' | 'api' + modelName。
+// 本地模型与云端 API 的对话此前在列表里完全无法区分（2026-10-06 指令书 Phase 3）。
+// 旧数据无字段：读取侧把缺失视为 'api'，不迁移、不回填。
+// 无变化返回 null，调用方据此跳过写盘。
+export function applySessionModelMark(session, mark) {
+  if (!session || typeof session !== 'object') return null;
+  const source = mark && typeof mark === 'object' ? mark : {};
+  const modelKind = source.modelKind === 'local' ? 'local' : 'api';
+  const modelName = String(source.modelName || '').trim().slice(0, 120);
+  if (session.modelKind === modelKind && String(session.modelName || '') === modelName) {
+    return null;
+  }
+  return { ...session, modelKind, modelName };
+}
+
 export function buildPreview(messages, maxLength = 60) {
   const list = Array.isArray(messages) ? messages : [];
   for (let index = list.length - 1; index >= 0; index -= 1) {
