@@ -10,8 +10,10 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 - 多套配置保存在 `AsyncStorage` 的 `@easychat2_api_configs` 键（对象 `{ configs, activeId }`）
 - 旧版单条配置 `@easychat2_api_config` 在首次读取时自动迁移为多配置格式
 - 旧版 `model` 字段自动迁移为 `models: [model]` 与 `activeModel: model`
-- 每个来源带能力标记：是否支持思考、是否支持识图
-- 支持思考的来源可声明思考参数名与格式，聊天页的思考开关据此注入请求参数
+- **能力按「模型」一份**（`config.modelCapabilities[模型名]`）：是否支持思考/识图/视频/语音识别，同一配置下不同模型各有一套
+- 支持思考的模型可声明思考参数（字段名 + 取值格式），聊天页的思考开关据此注入请求参数
+- 每个模型带「自定义参数」总开关（`customParams`，默认关闭）：关闭时思考字段名、上下文窗口、输出长度一律按默认值发送；开启后才逐项自定义
+- 上下文窗口（`contextWindow`，默认 200000）供工作区面板的上下文占用显示与 80% 自动压缩；输出长度（`maxOutput`，默认 32000）是单次回复的最大生成 tokens
 - 未填写密钥时，发送消息会直接抛出提示，不发起网络请求
 - 地址支持根地址、`/v1` 结尾与完整 `/v1/chat/completions` 三种写法
 - 使用 `http://` 明文地址保存前会弹出安全确认；保存前还会确认模型能力
@@ -53,7 +55,12 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 | `activeModel` | `string` | 当前模型 | 必须属于 `models`，否则回退列表首项 |
 | `supportsThinking` | `boolean` | 是否支持思考 | 保存前确认，缺省 `false` |
 | `supportsVision` | `boolean` | 是否支持识图 | 保存前确认，缺省 `false` |
-| `thinking` | `{ field, format }` | 思考参数声明 | `format` 为 `effort` / `boolean` / `object`；缺省 `reasoning_effort` + `effort` |
+| `thinking` | `{ field, format }` | 思考参数声明（**旧配置级字段，仅迁移来源**） | `format` 为 `effort` / `boolean` / `object`；缺省 `reasoning_effort` + `effort` |
+| `modelCapabilities` | `{ [模型名]: 能力条目 }` | 每模型一套能力 | 只保留 `models` 内的模型；无条目 = 未确认 = 全不支持 |
+| `…[模型名].customParams` | `boolean` | 自定义参数总开关 | 默认 `false`（新模型）；关闭时下列高级项一律回落默认 |
+| `…[模型名].contextWindow` | `number` | 上下文窗口（tokens） | `0` = 未声明（用默认 200000） |
+| `…[模型名].maxOutput` | `number` | 单次回复最大输出（tokens） | `0` = 未声明（自定义开启时按默认 32000 发送） |
+| `…[模型名].thinkingField` / `.thinkingFormat` | `string` | 思考参数声明 | 面板里用预设列表选择（`reasoning_effort` / `thinking` / `enable_thinking` / `reasoning`），选「自定义」才手输 |
 
 ## 不变量
 
@@ -63,6 +70,8 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 4. **模型列表非空且当前模型有效**: `models` 为空时回退默认模型；`activeModel` 不在列表中时回退列表首项。
 5. **地址会被归一化**: 无论用户填写哪种形式，最终都会得到以 `/chat/completions` 结尾的地址。
 6. **明文地址需用户确认**: 匹配 `/^http:\/\//i` 时，保存前必须经过确认弹窗；保存前还会确认思考与识图能力。
+7. **自定义参数开关决定高级项是否生效**: `customParams !== true` 时，`thinkingField` / `thinkingFormat` / `contextWindow` / `maxOutput` 一律回落默认 —— `capabilitiesForModel` 返回**生效值**（消费点无需各自判断开关），`rawCapabilityForModel` 返回**原始值**（能力面板回填用，关掉开关也记得上次填的）。旧数据里已填过这些高级项的条目在归一化时迁移为 `true`，不会被静默忽略。
+8. **输出长度只在自定义开启时介入请求**: 关闭时不发 `max_tokens`（保持全局采样/服务端默认），避免给不支持大输出的模型悄悄带上 32000 而报错；开启时留空按 `DEFAULT_MAX_OUTPUT_TOKENS`（32000）发送。
 
 ## 生命周期
 

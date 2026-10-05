@@ -91,6 +91,7 @@ const realApiConfigs = loadWithStubs('src/storage/apiConfigs.js', {
 });
 
 const storageMock = {
+  DEFAULT_MAX_OUTPUT_TOKENS: 32000,
   getActiveApiConfig: async () => ({}),
   getActiveModel: config => String((config && config.activeModel) || (config && config.model) || ''),
   capabilitiesForModel: realApiConfigs.capabilitiesForModel,
@@ -103,7 +104,25 @@ const apiModule = loadWithStubs('src/network/api.js', {
   'secrets.js': { registerSecretValues: () => {} },
 });
 const { getConfigFingerprint, EMPTY_REPLY_TEXT } = apiModule;
-const { capabilitiesForModel, createApiConfig } = realApiConfigs;
+
+test('输出长度接线：仅自定义参数开启时介入，留空走默认 32000', () => {
+  assert.equal(realApiConfigs.DEFAULT_MAX_OUTPUT_TOKENS, 32000, '输出长度默认值 32000');
+  const source = fs.readFileSync(path.resolve('src/network/api.js'), 'utf8');
+  assert.ok(
+    source.includes('if (modelCaps.customParams === true) {'),
+    '只在自定义参数开启时介入；关闭时完全不干预（不发 max_tokens，避免给不支持大输出的模型带上 32000）',
+  );
+  assert.ok(source.includes('samplingParams.max_tokens = modelCaps.maxOutput > 0'), '填了就按填的值走');
+  assert.ok(
+    source.includes('? modelCaps.maxOutput') && source.includes(': DEFAULT_MAX_OUTPUT_TOKENS'),
+    '留空 = 默认 32000（与面板提示文案一致）',
+  );
+  assert.ok(
+    source.includes('const modelCaps = capabilitiesForModel(config, model);'),
+    '走生效能力（受「自定义参数」开关控制），不能直接读配置级字段',
+  );
+});
+const { capabilitiesForModel, createApiConfig, rawCapabilityForModel } = realApiConfigs;
 
 test('API 配置指纹覆盖地址、模型和密钥变化', () => {
   const base = {
@@ -191,6 +210,61 @@ test('模型能力迁移：旧配置级字段物化到每个已有模型，新�
     modelCapabilities: { 'model-a': { supportsThinking: false }, 'model-b': { supportsThinking: false } },
   });
   assert.equal(capabilitiesForModel(explicitOff, 'model-a').supportsThinking, false);
+});
+
+test('模型能力：输出长度与「自定义参数」总开关的归一与生效回落', () => {
+  const base = {
+    id: 'cfg-params',
+    models: ['m1', 'm2'],
+    activeModel: 'm1',
+  };
+  const on = createApiConfig({
+    ...base,
+    modelCapabilities: {
+      m1: { customParams: true, contextWindow: 128000, maxOutput: 8192 },
+      m2: { customParams: true, maxOutput: 4096 },
+    },
+  });
+  assert.equal(capabilitiesForModel(on, 'm1').maxOutput, 8192, '自定义开启时输出长度生效');
+  assert.equal(capabilitiesForModel(on, 'm1').contextWindow, 128000);
+  assert.equal(capabilitiesForModel(on, 'm2').maxOutput, 4096);
+  assert.equal(capabilitiesForModel(on, 'm2').contextWindow, 0, '未填的项仍为未声明');
+
+  // 关掉总开关：高级项一律回落默认（消费点不必各自判断开关），但原始值仍在盘上
+  const off = createApiConfig({
+    ...base,
+    modelCapabilities: {
+      m1: { customParams: false, contextWindow: 128000, maxOutput: 8192 },
+    },
+  });
+  const m1off = capabilitiesForModel(off, 'm1');
+  assert.equal(m1off.maxOutput, 0, '关闭时输出长度回落未声明');
+  assert.equal(m1off.contextWindow, 0, '关闭时上下文窗口回落未声明');
+  assert.equal(m1off.thinkingField, 'reasoning_effort', '关闭时思考字段名回落默认');
+  assert.equal(rawCapabilityForModel(off, 'm1').maxOutput, 8192,
+    '原始值保留：重新打开开关能恢复上次填的值');
+
+  // 老数据没写过 customParams 但填过高级项 → 迁移为自定义，不能被静默忽略
+  const legacyFilled = createApiConfig({
+    ...base,
+    modelCapabilities: { m1: { contextWindow: 100000 } },
+  });
+  assert.equal(capabilitiesForModel(legacyFilled, 'm1').customParams, true,
+    '填过高级项的老数据视为本来就在自定义');
+  assert.equal(capabilitiesForModel(legacyFilled, 'm1').contextWindow, 100000);
+
+  // 空白条目 = 未自定义（新模型默认关闭）
+  const empty = createApiConfig({ ...base, modelCapabilities: { m1: {} } });
+  assert.equal(capabilitiesForModel(empty, 'm1').customParams, false, '新条目默认关闭自定义参数');
+  assert.equal(capabilitiesForModel(empty, 'm1').maxOutput, 0);
+
+  // 非法值收敛
+  const messy = createApiConfig({
+    ...base,
+    modelCapabilities: { m1: { customParams: true, maxOutput: -5, contextWindow: 'abc' } },
+  });
+  assert.equal(capabilitiesForModel(messy, 'm1').maxOutput, 0, '非法输出长度收敛为 0');
+  assert.equal(capabilitiesForModel(messy, 'm1').contextWindow, 0, '非法窗口收敛为 0');
 });
 
 test('每模型 contextWindow：声明窗口收敛为非负整数，未声明为 0', () => {

@@ -18,9 +18,11 @@ const PROFILE = read('src/settings/useUserProfile.js');
 const PKG = JSON.parse(read('package.json'));
 
 test('模型能力按「模型」一份：添加即弹确认、芯片可编辑、写 modelCapabilities', () => {
-  // 能力弹层按模型打开（草稿从 capabilitiesForModel 起稿，记住当前模型名）
+  // 能力弹层按模型打开（草稿从 rawCapabilityForModel 起稿，记住当前模型名）。
+  // 必须是 raw 版本：回填要带出用户填过的高级项，「自定义参数」关掉再打开时值还在。
   assert.ok(SETTINGS.includes('const openCapabilityEditor = modelName => {'), '按模型打开能力弹层');
-  assert.ok(SETTINGS.includes('const caps = capabilitiesForModel(selected, name);'), '草稿按该模型的现存条目起稿');
+  assert.ok(SETTINGS.includes('const caps = rawCapabilityForModel(selected, name);'),
+    '草稿按该模型的现存条目起稿（原始值，不受自定义开关回落影响）');
   assert.ok(SETTINGS.includes('setCapabilityEditorModel(name);'), '记住正在编辑的模型名');
   // 两条添加路径都要顺手弹确认（手动输入 + 可用模型列表）
   assert.equal((SETTINGS.match(/openCapabilityEditor\(model\);/g) || []).length >= 3, true,
@@ -37,6 +39,46 @@ test('模型能力按「模型」一份：添加即弹确认、芯片可编辑�
   // 模型芯片带能力编辑入口，未确认（无条目）时图标置灰提示
   assert.ok(SETTINGS.includes('onPress={() => openCapabilityEditor(model)}'), '芯片上的滑杆图标');
   assert.ok(SETTINGS.includes("(active.modelCapabilities && active.modelCapabilities[model])"), '未确认模型有视觉区分');
+});
+
+test('能力弹层：自定义参数总开关 + 上下文/输出长度同框 + 思考参数折叠选择器', () => {
+  // 总开关默认关闭；关闭时不渲染高级参数区
+  assert.ok(/customParams:\s*false/.test(SETTINGS), '草稿默认关闭自定义参数');
+  assert.ok(SETTINGS.includes('自定义参数（高级）'), '有总开关行');
+  assert.ok(SETTINGS.includes('capabilityDraft.customParams === true ? ('), '关闭时不渲染高级参数');
+  assert.ok(SETTINGS.includes('customParams: capabilityDraft.customParams === true,'), '确认写回开关');
+
+  // 上下文窗口 + 输出长度：同一参数框，默认值 200000 / 32000
+  assert.ok(SETTINGS.includes('上下文窗口（tokens）') && SETTINGS.includes('输出长度（tokens）'), '两个字段都在');
+  assert.ok(SETTINGS.includes('留空 = 默认 200000'), '上下文默认值提示');
+  assert.ok(SETTINGS.includes('留空 = 默认 32000'), '输出长度默认值提示');
+  assert.ok(SETTINGS.includes('capabilityDraft.maxOutput'), '输出长度接入草稿');
+  assert.ok(SETTINGS.includes('maxOutput: Math.max(0, Math.floor(Number(capabilityDraft.maxOutput)) || 0)'),
+    '确认写回输出长度');
+  assert.ok(SETTINGS.includes('styles.paramBox') && SETTINGS.includes('styles.paramFieldLast'),
+    '两个字段收进同一个框（末行去分隔线）');
+  assert.ok(SETTINGS.includes('styles.paramHint'), '框内保留「用于压缩」的说明');
+
+  // 思考参数：折叠 + 点击选择（不再直接摊开输入框 + 格式芯片）
+  assert.ok(SETTINGS.includes('thinkingPresetOpen') && SETTINGS.includes('setThinkingPresetOpen(open => !open)'),
+    '折叠标题可点击展开');
+  assert.ok(SETTINGS.includes('THINKING_PRESETS.map'), '展开后渲染预设列表');
+  assert.ok(SETTINGS.includes('matchedThinkingPreset'), '标题显示当前命中的预设');
+  assert.ok(SETTINGS.includes('{!matchedThinkingPreset ? ('), '仅「自定义」时显示手输框');
+  assert.ok(SETTINGS.includes('OpenAI o 系列'), '预设带适用模型说明：OpenAI');
+  assert.ok(SETTINGS.includes('Claude 3.7'), '预设带适用模型说明：Claude');
+  assert.ok(SETTINGS.includes('通义千问 Qwen3'), '预设带适用模型说明：Qwen');
+  assert.ok(SETTINGS.includes('rawCapabilityForModel'), '回填走原始值（关掉开关也记得上次填的）');
+
+  // 弹层：往上靠 + 内容可滚动（变长后底部按钮不被顶出屏幕）
+  assert.ok(SETTINGS.includes('styles.capabilityBackdrop') && SETTINGS.includes('styles.capabilitySheet'),
+    '弹层专属容器样式');
+  const modalStart = SETTINGS.indexOf('确认模型能力');
+  const modalEnd = SETTINGS.indexOf('免责条款', modalStart);
+  assert.ok(modalStart > 0 && modalEnd > modalStart, '必须能截出能力弹层渲染区');
+  assert.ok(SETTINGS.slice(modalStart, modalEnd).includes('</ScrollView>'), '能力弹层内容区可滚动');
+  assert.ok(STYLES.includes("capabilityBackdrop: { justifyContent: 'flex-start'"), '从顶部起排（往上挪）');
+  assert.ok(STYLES.includes('presetItem:') && STYLES.includes('collapseHeader:'), '选择器样式齐备');
 });
 
 test('API 配置：切走前确认未保存的修改，基线在加载/落盘后刷新', () => {

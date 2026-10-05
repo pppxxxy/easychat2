@@ -12,6 +12,10 @@ import { normalizeProtocol } from '../apiProtocols.js';
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
 
+// 输出长度的默认值（tokens）：能力面板里「自定义参数」开启但该项留空时按它发送，
+// 与面板上的提示文案一致。总开关关闭时完全不干预（不发 max_tokens）。
+export const DEFAULT_MAX_OUTPUT_TOKENS = 32000;
+
 // API 配置是「整表覆盖」写入：调用方（设置页、聊天页模型切换）都基于各自
 // 内存快照构造完整列表后整体落盘，两次并发保存会互相覆盖。这里用队列把
 // saveApiConfigs 串行化，避免交错写；首启迁移写保持不入队（只读路径内触发、
@@ -46,7 +50,26 @@ const CAPABILITY_DEFAULTS = {
   supportsVideo: false,
   supportsAudio: false,
   contextWindow: 0,
+  // 模型的最大输出长度（tokens）；0 = 未声明（请求构造用默认 32000）。
+  maxOutput: 0,
+  // 「自定义参数」总开关（默认关闭）：关闭时高级项（思考字段名/格式、上下文窗口、
+  // 输出长度）一律按默认值参与请求构造——用户填过的值保留在盘上但不生效，
+  // 避免手改过的字段在用户以为「已关闭」时仍偷偷改变请求。
+  customParams: false,
 };
+
+// 旧数据推断：写过非默认的思考字段名/格式，或填过上下文窗口/输出长度，
+// 都说明用户本来就在自定义 —— 迁移时置 customParams=true，避免升级后被默认值静默覆盖。
+function isCustomCapabilitySource(source) {
+  const contextWindow = Math.max(0, Math.floor(Number(source.contextWindow)) || 0);
+  const maxOutput = Math.max(0, Math.floor(Number(source.maxOutput)) || 0);
+  const field = String(source.thinkingField || '').trim();
+  const format = String(source.thinkingFormat || '').trim();
+  return contextWindow > 0
+    || maxOutput > 0
+    || (field !== '' && field !== CAPABILITY_DEFAULTS.thinkingField)
+    || (format !== '' && format !== CAPABILITY_DEFAULTS.thinkingFormat);
+}
 
 export function normalizeCapabilityEntry(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -61,6 +84,27 @@ export function normalizeCapabilityEntry(raw) {
     supportsAudio: source.supportsAudio === true,
     // 模型声明的上下文窗口（tokens）；0 = 未声明（显示与自动压缩用保守默认）。
     contextWindow: Math.max(0, Math.floor(Number(source.contextWindow)) || 0),
+    maxOutput: Math.max(0, Math.floor(Number(source.maxOutput)) || 0),
+    // 老数据没写过这个标记：按 isCustomCapabilitySource 推断（含旧配置级迁移来的
+    // enable_thinking 这类自定义字段名），新模型无条目 → 走默认关闭。
+    customParams: source.customParams === undefined
+      ? isCustomCapabilitySource(source)
+      : source.customParams === true,
+  };
+}
+
+// 生效能力：customParams 关闭时高级项一律回落默认（基础 supports* 开关不受影响）。
+// 运行时消费点（请求构造、上下文占用）统一走这里；编辑器回填走 rawCapabilityForModel，
+// 两者分开是为了「关掉开关后仍记得上次填的值」。
+export function effectiveCapability(entry) {
+  const caps = normalizeCapabilityEntry(entry);
+  if (caps.customParams === true) return caps;
+  return {
+    ...caps,
+    thinkingField: CAPABILITY_DEFAULTS.thinkingField,
+    thinkingFormat: CAPABILITY_DEFAULTS.thinkingFormat,
+    contextWindow: 0,
+    maxOutput: 0,
   };
 }
 
@@ -82,7 +126,16 @@ function normalizeModelCapabilities(raw, models, legacy) {
 }
 
 // 解析某模型的能力（纯函数，运行时统一入口）：无显式条目 = 未确认 = 全不支持。
+// 返回**生效值**：customParams 关闭时高级项已回落默认，消费点无需各自判断开关。
 export function capabilitiesForModel(config, model) {
+  const name = String(model || '');
+  const entry = config && config.modelCapabilities ? config.modelCapabilities[name] : null;
+  return effectiveCapability(entry || CAPABILITY_DEFAULTS);
+}
+
+// 原始能力（能力编辑器回填用）：保留用户填过的高级项，
+// 这样关掉「自定义参数」再打开，上次填的字段名/窗口还在。
+export function rawCapabilityForModel(config, model) {
   const name = String(model || '');
   const entry = config && config.modelCapabilities ? config.modelCapabilities[name] : null;
   return normalizeCapabilityEntry(entry || CAPABILITY_DEFAULTS);

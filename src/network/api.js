@@ -1,4 +1,4 @@
-import { capabilitiesForModel, getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from '../storage.js';
+import { DEFAULT_MAX_OUTPUT_TOKENS, capabilitiesForModel, getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from '../storage.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 import {
@@ -213,6 +213,15 @@ export async function streamChatCompletion(messages, options = {}) {
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
   const samplingSettings = await getSamplingSettings().catch(() => null);
   const samplingParams = buildSamplingParams(samplingSettings);
+  // 输出长度：只在模型的「自定义参数」打开时介入（面板上写的就是「留空 = 默认 32000」）。
+  // 关闭时完全不干预——不发 max_tokens，保持全局采样设置/服务端默认不动，
+  // 避免给不支持大输出的模型悄悄带上 32000 而报错。
+  const modelCaps = capabilitiesForModel(config, model);
+  if (modelCaps.customParams === true) {
+    samplingParams.max_tokens = modelCaps.maxOutput > 0
+      ? modelCaps.maxOutput
+      : DEFAULT_MAX_OUTPUT_TOKENS;
+  }
   if (options && (options.expectedConfigId || options.expectedConfigFingerprint)) {
     const latestConfig = await getActiveApiConfig();
     if (

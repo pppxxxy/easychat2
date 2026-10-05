@@ -136,12 +136,14 @@ export {
   refreshGithubMcpToolCatalog,
 } from './storage/githubMcp.js';
 export {
+  DEFAULT_MAX_OUTPUT_TOKENS,
   capabilitiesForModel,
   createApiConfig,
   getActiveApiConfig,
   getActiveModel,
   getApiConfigs,
   normalizeCapabilityEntry,
+  rawCapabilityForModel,
   saveApiConfigs,
 } from './storage/apiConfigs.js';
 export {

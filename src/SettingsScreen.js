@@ -30,7 +30,7 @@ import TranscriptionPanel from './TranscriptionPanel.js';
 import { useNavigation } from '@react-navigation/native';
 import {
   createApiConfig,
-  capabilitiesForModel,
+  rawCapabilityForModel,
   getApiConfigs,
   normalizeCapabilityEntry,
   getChatOptions,
@@ -112,6 +112,54 @@ const CHAT_PROTOCOL_OPTIONS = [
 // 应用版本号：报 bug / 对「检测更新」时都需要它能被一眼看到（expo-constants 读取
 // app.json 的 expo.version）。
 const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || '') : '';
+
+// 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
+// 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
+// 每项标注适用模型；只有选「自定义」才露出字段名输入框。
+const THINKING_PRESETS = [
+  {
+    id: 'reasoning_effort',
+    field: 'reasoning_effort',
+    format: 'effort',
+    name: 'reasoning_effort（档位）',
+    hint: 'OpenAI o 系列 / GPT-5 / Grok / DeepSeek-R1：取 low、medium、high，由「思考档位」设置决定',
+  },
+  {
+    id: 'thinking_bool',
+    field: 'thinking',
+    format: 'boolean',
+    name: 'thinking: true（布尔开关）',
+    hint: 'Claude 3.7 之前的 Anthropic 接口、部分国产模型：只有开/关，没有档位',
+  },
+  {
+    id: 'thinking_object',
+    field: 'thinking',
+    format: 'object',
+    name: 'thinking: { type: "enabled", depth }（对象）',
+    hint: 'Claude 3.7+ / 智谱 GLM / 阿里百炼部分模型：对象形式，带 depth 档位',
+  },
+  {
+    id: 'enable_thinking',
+    field: 'enable_thinking',
+    format: 'boolean',
+    name: 'enable_thinking: true（布尔开关）',
+    hint: '通义千问 Qwen3 系 / 部分国产开源模型：字段名不同，取值格式与上一项一致',
+  },
+  {
+    id: 'reasoning_object',
+    field: 'reasoning',
+    format: 'object',
+    name: 'reasoning: { type, depth }（对象）',
+    hint: '部分聚合网关 / 新接口：reasoning 对象。走 OpenAI Responses 协议时无需设置（协议层自动带 effort）',
+  },
+  {
+    id: 'custom',
+    field: '',
+    format: '',
+    name: '自定义…',
+    hint: '手动填写字段名与格式。不确定时优先选上面带模型名的项——配错会被服务端静默忽略',
+  },
+];
 
 // 当前生效配置的快照：识别「有未保存的修改」的基线，加载/落盘后刷新。
 function snapshotActiveConfig(state) {
@@ -204,7 +252,13 @@ export default function SettingsScreen() {
     thinkingFormat: 'effort',
     // 上下文窗口（tokens，字符串在编辑，确认时解析为数字；空 = 0 = 用默认）。
     contextWindow: '',
+    // 单次回复最大输出 tokens（空 = 0 = 用默认 32000）。
+    maxOutput: '',
+    // 「自定义参数」总开关：默认关闭，关闭时上面这些高级项按默认值发送。
+    customParams: false,
   });
+  // 思考参数选择器的展开态（折叠起来、点击才展开选预设）。
+  const [thinkingPresetOpen, setThinkingPresetOpen] = useState(false);
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
   const [ttsEntryOpen, setTtsEntryOpen] = useState(false);
@@ -926,12 +980,22 @@ export default function SettingsScreen() {
       supportsVideo: capabilityDraft.supportsVideo === true,
       supportsAudio: capabilityDraft.supportsAudio === true,
       contextWindow: Math.max(0, Math.floor(Number(capabilityDraft.contextWindow)) || 0),
+      maxOutput: Math.max(0, Math.floor(Number(capabilityDraft.maxOutput)) || 0),
+      // 显示值显式写回：关掉开关时也保留用户填过的值（生效与否由该标记决定）。
+      customParams: capabilityDraft.customParams === true,
     });
     updateField({
       modelCapabilities: { ...(selected.modelCapabilities || {}), [name]: entry },
     });
     setCapabilityEditorModel('');
   };
+
+  // 当前思考参数命中的预设（找不到 = 自定义）：折叠标题用它显示「现在用的是哪种」。
+  const matchedThinkingPreset = THINKING_PRESETS.find(preset => (
+    preset.id !== 'custom'
+    && preset.field === capabilityDraft.thinkingField
+    && preset.format === capabilityDraft.thinkingFormat
+  )) || null;
 
   // 拉取该 API 配置的模型清单（GET /models，含 /v1 回退）。抽出来给「检测模型」与
   // 「搜索」共用，避免两处各写一遍 XHR/鉴权/解析。isCurrent 供取消/竞态校验。
@@ -1084,7 +1148,9 @@ export default function SettingsScreen() {
     const current = apiStateRef.current;
     const selected = current.configs.find(item => item.id === current.activeId);
     if (!selected) return;
-    const caps = capabilitiesForModel(selected, name);
+    // 回填用**原始**能力：customParams 关闭时也要把上次填过的值带出来，
+    // 用户重新打开总开关就能看到原值（是否生效由开关决定，不由回填清空）。
+    const caps = rawCapabilityForModel(selected, name);
     setCapabilityDraft({
       supportsThinking: caps.supportsThinking,
       supportsVision: caps.supportsVision,
@@ -1093,7 +1159,10 @@ export default function SettingsScreen() {
       thinkingField: caps.thinkingField,
       thinkingFormat: caps.thinkingFormat,
       contextWindow: caps.contextWindow > 0 ? String(caps.contextWindow) : '',
+      maxOutput: caps.maxOutput > 0 ? String(caps.maxOutput) : '',
+      customParams: caps.customParams === true,
     });
+    setThinkingPresetOpen(false);
     setCapabilityEditorModel(name);
     setCapabilityOpen(true);
   };
@@ -2340,14 +2409,15 @@ export default function SettingsScreen() {
         animationType="fade"
         onRequestClose={() => setCapabilityOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
+        <View style={[styles.modalBackdrop, styles.capabilityBackdrop]}>
+          <View style={[styles.modalSheet, styles.capabilitySheet]}>
             <Text style={styles.modalTitle}>确认模型能力</Text>
             <FieldHint style={styles.hint}>
               {capabilityEditorModel ? `模型：${capabilityEditorModel}。` : ''}
               每个模型单独一套：决定聊天页是否开放「思考」、图片/视频上传与语音识别。
               确认后还需点表单里的「保存配置」才会写入本机。
             </FieldHint>
+            <ScrollView style={styles.capabilityScroll} contentContainerStyle={styles.capabilityScrollContent}>
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
               <Switch
@@ -2360,41 +2430,6 @@ export default function SettingsScreen() {
                 thumbColor={theme.colors.primaryContrast}
               />
             </View>
-            {capabilityDraft.supportsThinking ? (
-              <>
-                <FieldLabel style={styles.label}>思考参数字段名</FieldLabel>
-                <TextField
-                  value={capabilityDraft.thinkingField}
-                  onChangeText={thinkingField => setCapabilityDraft(current => ({
-                    ...current,
-                    thinkingField,
-                  }))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="reasoning_effort"
-                />
-                <View style={styles.thinkingFormatRow}>
-                  {['effort', 'boolean', 'object'].map(format => {
-                    const active = capabilityDraft.thinkingFormat === format;
-                    return (
-                      <TouchableOpacity
-                        key={format}
-                        style={[styles.formatChip, active && styles.formatChipActive]}
-                        onPress={() => setCapabilityDraft(current => ({
-                          ...current,
-                          thinkingFormat: format,
-                        }))}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
-                          {format}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </>
-            ) : null}
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持识图（多模态模型）</Text>
               <Switch
@@ -2431,17 +2466,148 @@ export default function SettingsScreen() {
                 thumbColor={theme.colors.primaryContrast}
               />
             </View>
-            <FieldLabel style={styles.label}>上下文窗口（tokens）</FieldLabel>
-            <TextField
-              value={capabilityDraft.contextWindow}
-              onChangeText={value => setCapabilityDraft(current => ({
-                ...current,
-                contextWindow: String(value || '').replace(/[^0-9]/g, ''),
-              }))}
-              keyboardType="number-pad"
-              placeholder="如 128000；留空 = 默认 32000"
-            />
-            <FieldHint style={styles.hint}>用于工作区面板的上下文占用显示与 80% 自动压缩；不确定可留空。</FieldHint>
+            <View style={styles.capabilityRow}>
+              <View style={styles.capabilityLabelBlock}>
+                <Text style={styles.capabilityLabelStacked}>自定义参数（高级）</Text>
+                <Text style={styles.capabilitySubLabel}>
+                  默认关闭：思考字段名、上下文窗口与输出长度都按默认值发送
+                </Text>
+              </View>
+              <Switch
+                value={capabilityDraft.customParams === true}
+                onValueChange={value => setCapabilityDraft(current => ({
+                  ...current,
+                  customParams: value,
+                }))}
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
+              />
+            </View>
+
+            {capabilityDraft.customParams === true ? (
+              <>
+                {capabilityDraft.supportsThinking ? (
+                  <View style={styles.paramBox}>
+                    <TouchableOpacity
+                      style={styles.collapseHeader}
+                      onPress={() => setThinkingPresetOpen(open => !open)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.collapseHeaderText}>
+                        <Text style={styles.paramLabel}>思考参数</Text>
+                        <Text style={styles.collapseValue} numberOfLines={1}>
+                          {matchedThinkingPreset ? matchedThinkingPreset.name : '自定义'}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={thinkingPresetOpen ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={theme.colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                    {thinkingPresetOpen ? (
+                      <View style={styles.presetList}>
+                        {THINKING_PRESETS.map(preset => {
+                          const active = preset.id === 'custom'
+                            ? !matchedThinkingPreset
+                            : !!(matchedThinkingPreset && matchedThinkingPreset.id === preset.id);
+                          return (
+                            <TouchableOpacity
+                              key={preset.id}
+                              style={[styles.presetItem, active && styles.presetItemActive]}
+                              onPress={() => setCapabilityDraft(current => ({
+                                ...current,
+                                thinkingField: preset.id === 'custom'
+                                  ? current.thinkingField
+                                  : preset.field,
+                                thinkingFormat: preset.id === 'custom'
+                                  ? current.thinkingFormat
+                                  : preset.format,
+                              }))}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={[styles.presetName, active && styles.presetNameActive]}>
+                                {preset.name}
+                              </Text>
+                              <Text style={styles.presetHint}>{preset.hint}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                    {!matchedThinkingPreset ? (
+                      <View style={styles.customThinkingBlock}>
+                        <TextField
+                          value={capabilityDraft.thinkingField}
+                          onChangeText={thinkingField => setCapabilityDraft(current => ({
+                            ...current,
+                            thinkingField,
+                          }))}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          placeholder="reasoning_effort"
+                        />
+                        <View style={styles.thinkingFormatRow}>
+                          {['effort', 'boolean', 'object'].map(format => {
+                            const active = capabilityDraft.thinkingFormat === format;
+                            return (
+                              <TouchableOpacity
+                                key={format}
+                                style={[styles.formatChip, active && styles.formatChipActive]}
+                                onPress={() => setCapabilityDraft(current => ({
+                                  ...current,
+                                  thinkingFormat: format,
+                                }))}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[styles.formatChipText, active && styles.formatChipTextActive]}>
+                                  {format}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                <View style={styles.paramBox}>
+                  <View style={styles.paramField}>
+                    <Text style={styles.paramLabel}>上下文窗口（tokens）</Text>
+                    <TextField
+                      value={capabilityDraft.contextWindow}
+                      onChangeText={value => setCapabilityDraft(current => ({
+                        ...current,
+                        contextWindow: String(value || '').replace(/[^0-9]/g, ''),
+                      }))}
+                      keyboardType="number-pad"
+                      placeholder="留空 = 默认 200000"
+                    />
+                  </View>
+                  <View style={[styles.paramField, styles.paramFieldLast]}>
+                    <Text style={styles.paramLabel}>输出长度（tokens）</Text>
+                    <TextField
+                      value={capabilityDraft.maxOutput}
+                      onChangeText={value => setCapabilityDraft(current => ({
+                        ...current,
+                        maxOutput: String(value || '').replace(/[^0-9]/g, ''),
+                      }))}
+                      keyboardType="number-pad"
+                      placeholder="留空 = 默认 32000"
+                    />
+                  </View>
+                  <FieldHint style={styles.paramHint}>
+                    上下文窗口用于工作区面板的上下文占用显示与 80% 自动压缩；输出长度是单次回复的最大生成量。留空都按默认值发送。
+                  </FieldHint>
+                </View>
+              </>
+            ) : (
+              <FieldHint style={styles.hint}>
+                已关闭自定义参数：思考字段名与格式、上下文窗口、输出长度都按默认值发送（reasoning_effort + effort、窗口 200000、输出 32000）。
+              </FieldHint>
+            )}
+            </ScrollView>
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.selectButton, styles.selectButtonGhost]}

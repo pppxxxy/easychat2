@@ -8,7 +8,10 @@
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
 
-export const DEFAULT_CONTEXT_WINDOW = 32000;
+// 未声明窗口时的兜底（tokens）。取 200000：主流在线模型（DeepSeek / GPT / Claude / Gemini
+// 的新一代）上下文都在 128k~200k 这一档，32k 会让「上下文占用」显示虚高、80% 自动压缩
+// 过早触发（对话还没多长就被压缩，摘要反而丢信息）。
+export const DEFAULT_CONTEXT_WINDOW = 200000;
 export const AUTO_COMPACT_RATIO = 0.8;
 
 // 会话消息（{ role, text }）→ 估算 token。

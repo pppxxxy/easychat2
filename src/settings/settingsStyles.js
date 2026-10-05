@@ -208,6 +208,86 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   formatChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   formatChipTextActive: { color: theme.colors.primarySoft },
 
+  // 能力弹层：基础开关 + 自定义参数 + 参数框，内容变长后需要更大高度且内容可滚动
+  //（此前 modalSheet 的 maxHeight 70% + 无滚动，内容一多底部按钮会被顶出屏幕）。
+  capabilitySheet: { maxHeight: '88%' },
+  // 内容变高后居中会上下都留白：从顶部起排，把整块界面往上靠一点。
+  capabilityBackdrop: { justifyContent: 'flex-start', paddingTop: 36 },
+  capabilityScroll: { flexGrow: 0 },
+  capabilityScrollContent: { paddingBottom: 2 },
+  capabilityLabelBlock: { flex: 1, marginRight: 12 },
+  // 带副标题的开关行：主标题不能用 capabilityLabel（它带 flex:1，在纵向容器里会撑开高度）。
+  capabilityLabelStacked: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginBottom: 2 },
+  capabilitySubLabel: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginTop: 2,
+  },
+  // 自定义参数分组框：上下文窗口 / 输出长度 / 思考参数都收进同一个框，
+  // 分隔线与行距沿用外层 capabilityRow 的风格（此前裸 FieldLabel+TextField 与整体不一致）。
+  paramBox: {
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: tokens.spacing.md,
+  },
+  paramField: {
+    paddingTop: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.divider,
+  },
+  paramFieldLast: { borderBottomWidth: 0 },
+  paramLabel: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(13),
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  paramHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    paddingTop: 2,
+    paddingBottom: 12,
+  },
+  // 思考参数：折叠标题（点击展开预设列表），选中项高亮。
+  collapseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  collapseHeaderText: { flex: 1, marginRight: 10 },
+  collapseValue: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
+  presetList: { paddingBottom: 10 },
+  presetItem: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  presetItemActive: {
+    backgroundColor: theme.colors.primaryAlpha(0.18),
+    borderColor: theme.colors.primary,
+  },
+  presetName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
+  presetNameActive: { color: theme.colors.primarySoft },
+  presetHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginTop: 3,
+  },
+  customThinkingBlock: { paddingBottom: 10 },
+
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',

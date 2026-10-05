@@ -36,7 +36,9 @@ test('estimateHistoryTokens：按消息文本粗估，非数组输入为 0', () 
   assert.ok(more > tokens, '消息变多估算必须单调不减');
 });
 
-test('resolveContextWindow：声明窗口 > 本地 n_ctx > 默认 32000', () => {
+test('resolveContextWindow：声明窗口 > 本地 n_ctx > 默认 200000', () => {
+  // 默认值即产品口径：未声明窗口时按主流在线模型的 200k 档位算占用与压缩阈值。
+  assert.equal(DEFAULT_CONTEXT_WINDOW, 200000, '默认窗口 200000');
   assert.equal(resolveContextWindow({ declared: 128000, localContextSize: 2048 }), 128000);
   assert.equal(resolveContextWindow({ declared: 0, localContextSize: 4096 }), 4096);
   assert.equal(resolveContextWindow({ declared: 0, localContextSize: 0 }), DEFAULT_CONTEXT_WINDOW);
