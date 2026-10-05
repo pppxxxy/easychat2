@@ -27,8 +27,24 @@ import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHea
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { useApp } from './context/AppContext.js';
-import { clearWorkspaceChanges, getCharacterLibrary, getWorkspaceChanges, getWorkspaceSettings, patchWorkspaceSettings } from './storage.js';
+import {
+  capabilitiesForModel,
+  clearWorkspaceChanges,
+  getActiveLocalModel,
+  getActiveModel,
+  getApiConfigs,
+  getCharacterLibrary,
+  getMessagesBySession,
+  getSessions,
+  getThinkingSettings,
+  getWorkspaceChanges,
+  getWorkspaceSettings,
+  patchWorkspaceSettings,
+  saveThinkingSettings,
+} from './storage.js';
 import { resolveWorkspaceAssistant } from './workspace/assistant.js';
+import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import { normalizeLocalModelParams } from './localModel/modelParams.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from './workspace/native.js';
 import { isAllowedWorkspaceFile } from './workspace/paths.js';
@@ -50,6 +66,17 @@ const CHANGE_OP_META = {
   edit: { icon: 'create-outline', labelKey: 'workspace.panel.history.op.edit' },
   delete: { icon: 'trash-outline', labelKey: 'workspace.panel.history.op.delete' },
 };
+
+// 思考强度四档；off = 关闭思考（enabled: false），其余对应 level。
+const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];
+
+// token 数的紧凑显示（估算值，K 足够）。
+function formatTokens(value) {
+  const tokens = Number(value) || 0;
+  if (tokens >= 10000) return `${Math.round(tokens / 1000)}K`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+  return String(tokens);
+}
 
 export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default' }) {
   const { theme, fonts, tokens } = useTheme();
@@ -78,6 +105,10 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   const [changes, setChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState('');
+  // 思考强度（全局设置，作用于聊天；含工作区角色的会话）。
+  const [thinking, setThinking] = useState({ enabled: false, level: 'medium' });
+  // 上下文占用（工作区角色的最近一个会话；null = 无会话）。
+  const [usage, setUsage] = useState(null);
   // 打开面板那一刻的后端。中途用户在设置里改根时，面板内的操作仍按打开时的根走，
   // 避免「列出来的是 A 文件夹的文件、删的却是 B 文件夹」。
   const storeRef = useRef(null);
@@ -105,6 +136,57 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
       if (mountedRef.current) setLoading(false);
     }
   }, [characterId, t]);
+
+  // 上下文占用：取该工作区角色最近的一个单聊会话，按当前后端声明的窗口估算。
+  // 与 ChatScreen.maybeAutoSummarize 同一口径（chat/contextUsage.js），到 80% 自动压缩。
+  const loadContextUsage = useCallback(async ownerId => {
+    try {
+      const [sessions, { configs, activeId }, localItem] = await Promise.all([
+        getSessions(),
+        getApiConfigs(),
+        getActiveLocalModel().catch(() => null),
+      ]);
+      const session = (Array.isArray(sessions) ? sessions : [])
+        .filter(item => item && item.type !== 'group'
+          && String(item.characterId || '') === String(ownerId || ''))
+        .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0];
+      if (!session) {
+        if (mountedRef.current) setUsage(null);
+        return;
+      }
+      const messages = await getMessagesBySession(session.id).catch(() => []);
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
+      const computed = computeContextUsage(messages, resolveContextWindow({
+        declared: caps.contextWindow,
+        localContextSize,
+      }));
+      if (mountedRef.current) setUsage(computed);
+    } catch (error) {
+      if (mountedRef.current) setUsage(null);
+    }
+  }, []);
+
+  // 思考强度：off = 关闭思考；其余档位对应 low/medium/high（全局设置，保存即生效）。
+  const updateThinking = useCallback(async choice => {
+    if (!THINKING_CHOICES.includes(choice)) return;
+    const next = {
+      enabled: choice !== 'off',
+      level: choice === 'off' ? thinking.level : choice,
+      display: thinking.display || 'fold',
+    };
+    setThinking(next);
+    try {
+      const saved = await saveThinkingSettings(next);
+      if (mountedRef.current) setThinking(saved);
+    } catch (error) {
+      // 保存失败时回读兜底，避免界面与存储漂移。
+      getThinkingSettings()
+        .then(current => { if (mountedRef.current && current) setThinking(current); })
+        .catch(() => {});
+    }
+  }, [thinking]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -148,13 +230,18 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             refreshAppData().catch(() => {});
           }
         }
+        // 思考强度（全局设置）+ 上下文占用（工作区角色的最近会话）。
+        const thinkingSettings = await getThinkingSettings().catch(() => null);
+        if (!mountedRef.current) return;
+        if (thinkingSettings) setThinking(thinkingSettings);
+        loadContextUsage(resolved.id || undefined);
         refresh(resolved.id || undefined);
       } catch (caught) {
         if (!mountedRef.current) return;
         setError(t('workspace.panel.err.read'));
       }
     })();
-  }, [visible, refresh, t, refreshAppData]);
+  }, [visible, refresh, t, refreshAppData, loadContextUsage]);
 
   const fileUri = useCallback(async name => {
     const store = storeRef.current;
@@ -389,6 +476,57 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             <TouchableOpacity style={styles.characterSelectButton} onPress={openCharacterPicker} activeOpacity={0.85}>
               <Text style={styles.characterSelectText}>{t('workspace.panel.character.select')}</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.controlCard}>
+            <FieldLabel>{t('workspace.panel.thinking.label')}</FieldLabel>
+            <View style={styles.thinkingChips}>
+              {THINKING_CHOICES.map(choice => {
+                const active = choice === 'off'
+                  ? thinking.enabled !== true
+                  : thinking.enabled === true && thinking.level === choice;
+                return (
+                  <TouchableOpacity
+                    key={choice}
+                    style={[styles.thinkingChip, active && styles.thinkingChipActive]}
+                    onPress={() => updateThinking(choice)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.thinkingChipText, active && styles.thinkingChipTextActive]}>
+                      {t(`workspace.panel.thinking.${choice}`)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <FieldHint>{t('workspace.panel.thinking.hint')}</FieldHint>
+          </View>
+
+          <View style={styles.controlCard}>
+            <FieldLabel>{t('workspace.panel.context.label')}</FieldLabel>
+            {usage ? (
+              <>
+                <View style={styles.contextBar}>
+                  <View
+                    style={[
+                      styles.contextFill,
+                      usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn,
+                      { width: `${Math.min(100, Math.max(2, Math.round(usage.ratio * 100)))}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.contextText}>
+                  {t('workspace.panel.context.usage', {
+                    tokens: formatTokens(usage.tokens),
+                    window: formatTokens(usage.window),
+                    percent: Math.round(usage.ratio * 100),
+                  })}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.contextText}>{t('workspace.panel.context.empty')}</Text>
+            )}
+            <FieldHint>{t('workspace.panel.context.hint')}</FieldHint>
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -641,6 +779,39 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 6,
   },
   characterSelectText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600' },
+  controlCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  thinkingChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
+  thinkingChip: {
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  thinkingChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  thinkingChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
+  thinkingChipTextActive: { color: theme.colors.primaryContrast },
+  contextBar: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.colors.divider,
+    overflow: 'hidden',
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  contextFill: { height: '100%', borderRadius: 3, backgroundColor: theme.colors.primary },
+  contextFillWarn: { backgroundColor: theme.colors.danger || theme.colors.primary },
+  contextText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12) },
   viewerTabs: {
     flexDirection: 'row',
     marginHorizontal: 20,

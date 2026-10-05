@@ -111,3 +111,44 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
   assert.ok(/settings=\{\{[\s\S]{0,200}allowCommandExecution: commandExecution/.test(settings), '传入当前工作区设置');
   assert.ok(/shellAvailable=\{isShellAvailable\(\)\}/.test(settings), '传入 shell 是否可用');
 });
+
+test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () => {
+  const source = readSource('src/WorkspacePanel.js');
+  // 思考强度：四档 chips（off=关闭思考），点选立即保存，打开面板回读当前档位。
+  assert.ok(source.includes("const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];"), '四档可选');
+  assert.ok(source.includes('saveThinkingSettings(next)'), '点选立即保存');
+  assert.ok(source.includes("enabled: choice !== 'off'"), 'off 关闭思考');
+  assert.ok(source.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
+  assert.ok(source.includes('getThinkingSettings()'), '打开时回读当前强度');
+  // 上下文占用：与 ChatScreen.maybeAutoSummarize 同一口径；无会话显示空态。
+  assert.ok(
+    source.includes("import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';"),
+    '复用 contextUsage 纯口径'
+  );
+  // 钉住「过滤 + 排序」整体：两条相邻断言分别锁 type 过滤与 characterId 匹配，
+  // 任何一条被拆掉都会漏占用（曾经靠注入验证抓过这类半截匹配）。
+  assert.ok(
+    source.includes(".filter(item => item && item.type !== 'group'"),
+    '占用只统计单聊会话（排除群聊）'
+  );
+  assert.ok(
+    source.includes("String(item.characterId || '') === String(ownerId || '')"),
+    '占用取当前工作区角色的会话'
+  );
+  assert.ok(
+    source.includes('declared: caps.contextWindow,'),
+    '窗口按每模型声明的 contextWindow'
+  );
+  assert.ok(
+    source.includes('usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn'),
+    '到 80% 线进度条转警示色'
+  );
+  assert.ok(
+    source.includes("t('workspace.panel.context.usage', {"),
+    '占用文案走词条（token 数与百分比）'
+  );
+  assert.ok(
+    source.includes("t('workspace.panel.context.empty')"),
+    '无会话有空态文案'
+  );
+});
