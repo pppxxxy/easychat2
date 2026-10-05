@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,11 +23,18 @@ import {
 } from './storage.js';
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
-import { buildMemoryListData, buildSessionBadges, groupSessionsByAge } from './memory/memoryBuckets.js';
+import {
+  buildMemoryListData,
+  buildSessionBadges,
+  filterSessionsForMemory,
+  groupSessionsByAge,
+  MEMORY_FILTERS,
+} from './memory/memoryBuckets.js';
 import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
+import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
-import { EmptyState, TopicButton } from './ui/index.js';
+import { EmptyState } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
 
@@ -62,6 +70,9 @@ export default function MemoryScreen({ navigation }) {
   const [editing, setEditing] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [topic, setTopic] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // 列表筛选 chips：全部 / 置顶 / 群聊（「本地」由 Phase 3 按数据有无追加）
+  const [memoryFilter, setMemoryFilter] = useState('all');
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -159,11 +170,16 @@ export default function MemoryScreen({ navigation }) {
     };
   }, [visibleSessions]);
 
-  // 按时间分档 + 置顶单独成组；默认展开最新的一个分组（通常是「置顶」或「最近」），
+  // 按时间分档 + 置顶单独成组；默认展开最新的一个分组（通常是「置顶」或「最近 7 天」），
   // 让首屏直接看到会话，而不是只剩标题、还要多点一次；其余分组保持折叠。
   // 编辑模式下强制全部展开：折叠里的会话无法被逐条点选。
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
-  const groups = useMemo(() => groupSessionsByAge(visibleSessions), [visibleSessions]);
+  // 先筛选再分组： chips（全部/置顶/群聊）只改喂给分组的数据，不动存储与排序。
+  const filteredSessions = useMemo(
+    () => filterSessionsForMemory(visibleSessions, memoryFilter),
+    [visibleSessions, memoryFilter]
+  );
+  const groups = useMemo(() => groupSessionsByAge(filteredSessions), [filteredSessions]);
   // 仅在「首次拿到非空分组」时自动展开第一组；之后用户手动折叠/展开由用户决定，
   // 不因新增会话等分组变化再次弹出。
   const autoExpandedRef = useRef(false);
@@ -197,6 +213,44 @@ export default function MemoryScreen({ navigation }) {
       return allOpen ? new Set() : new Set(groups.map(group => group.id));
     });
   }, [groups]);
+
+  // 切换筛选时展开该筛选下的所有组：否则换到「置顶/群聊」这类常无对应分组的
+  // 筛选时会看到全折叠的空列表，以为会话丢了。首次挂载跳过（首屏只展开第一组）。
+  const filterInitRef = useRef(false);
+  useEffect(() => {
+    if (!filterInitRef.current) {
+      filterInitRef.current = true;
+      return;
+    }
+    setExpandedGroups(new Set(groups.map(group => group.id)));
+    // groups 故意不进依赖：它由 memoryFilter 派生，只在筛选变化时需要重展开；
+    // 新会话落库导致 groups 变化时不能打断用户手动折叠的状态。
+  }, [memoryFilter]);
+
+  // 吸顶组头：分组头在长列表里滚动时钉住，知道当前看的是哪一组。
+  const stickyHeaderIndices = useMemo(
+    () => listData
+      .map((entry, index) => (entry.kind === 'header' ? index : -1))
+      .filter(index => index >= 0),
+    [listData]
+  );
+
+  // ⋯ 菜单：教学入口与「展开/折叠全部」从头部收纳进来；计数本就在各分组头里。
+  const menuItems = useMemo(() => ([
+    {
+      key: 'teach',
+      icon: 'help-circle-outline',
+      label: '界面教学',
+      onPress: () => setTopic('memory'),
+    },
+    {
+      key: 'toggle-all',
+      icon: allExpanded ? 'contract-outline' : 'expand-outline',
+      label: allExpanded ? '折叠全部' : '展开全部',
+      disabled: !(loaded && visibleSessions.length > 0),
+      onPress: toggleAllGroups,
+    },
+  ]), [allExpanded, loaded, visibleSessions.length, toggleAllGroups]);
 
   const onOpen = useCallback(async session => {
     if (switchLockRef.current) return;
@@ -423,16 +477,6 @@ export default function MemoryScreen({ navigation }) {
       <View style={styles.header}>
         <Text style={styles.title}>记忆</Text>
         <View style={styles.headerRight}>
-          <TopicButton
-            style={styles.topicButton}
-            onPress={() => setTopic('memory')}
-            accessibilityLabel="查看记忆界面教学"
-          />
-          {editing ? null : (
-            <Text style={styles.count}>
-              {loaded ? `${visibleSessions.length} 段对话` : '加载中'}
-            </Text>
-          )}
           {loaded && visibleSessions.length > 0 ? (
             <TouchableOpacity
               style={styles.editButton}
@@ -443,19 +487,9 @@ export default function MemoryScreen({ navigation }) {
               <Text style={styles.editButtonText}>{editing ? '完成' : '编辑'}</Text>
             </TouchableOpacity>
           ) : null}
-          {loaded && visibleSessions.length > 0 && !editing ? (
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={toggleAllGroups}
-              activeOpacity={0.7}
-              accessibilityLabel={allExpanded ? '折叠所有记忆' : '展开所有记忆'}
-            >
-              <Text style={styles.editButtonText}>{allExpanded ? '折叠全部' : '展开全部'}</Text>
-            </TouchableOpacity>
-          ) : null}
           {editing ? null : (
             <TouchableOpacity
-              style={styles.searchButton}
+              style={styles.headerIconButton}
               onPress={() => setSearchOpen(true)}
               activeOpacity={0.7}
               accessibilityLabel="搜索历史聊天记录"
@@ -463,8 +497,43 @@ export default function MemoryScreen({ navigation }) {
               <Ionicons name="search" size={18} color={theme.colors.primarySoft} />
             </TouchableOpacity>
           )}
+          {editing ? null : (
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              onPress={() => setMenuOpen(true)}
+              activeOpacity={0.7}
+              accessibilityLabel="更多操作"
+            >
+              <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.primarySoft} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+      {loaded && !editing && visibleSessions.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chipRow}
+          keyboardShouldPersistTaps="handled"
+        >
+          {MEMORY_FILTERS.map(chip => {
+            const active = memoryFilter === chip.id;
+            return (
+              <TouchableOpacity
+                key={chip.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setMemoryFilter(chip.id)}
+                activeOpacity={0.75}
+                accessibilityLabel={`筛选：${chip.label}`}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{chip.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
       {orphans.length > 0 ? (
         <TouchableOpacity
           style={styles.recoverNotice}
@@ -490,6 +559,7 @@ export default function MemoryScreen({ navigation }) {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={stickyHeaderIndices}
           renderItem={({ item }) => {
             if (item.kind === 'header') {
               const expanded = effectiveExpanded.has(item.groupId);
@@ -584,6 +654,12 @@ export default function MemoryScreen({ navigation }) {
         characters={characters}
       />
 
+      <MoreMenuModal
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        items={menuItems}
+      />
+
       <SessionRecoveryModal
         visible={recoverOpen}
         orphans={orphans}
@@ -614,7 +690,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingBottom: 10,
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
-  count: { color: theme.colors.textFaint, fontSize: fonts.scaled(13) },
   recoverNotice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -634,10 +709,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontWeight: '700',
   },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
-  topicButton: {
-    marginRight: 6,
-  },
-  searchButton: {
+  headerIconButton: {
     marginLeft: 12,
     width: 34,
     height: 34,
@@ -648,6 +720,23 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.primaryMutedAlpha(0.35),
   },
+  chipScroll: { flexGrow: 0, marginBottom: 4 },
+  chipRow: { paddingHorizontal: 20, paddingBottom: 6 },
+  chip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  chipActive: {
+    backgroundColor: theme.colors.primaryAlpha(0.18),
+    borderColor: theme.colors.primaryMuted,
+  },
+  chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  chipTextActive: { color: theme.colors.primarySoft },
   editButton: { marginLeft: 12, paddingVertical: 6, paddingHorizontal: 4 },
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },

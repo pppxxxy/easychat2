@@ -1,19 +1,33 @@
-// 记忆分档：按会话最后更新时间把历史对话分成「最近 / 一天前 / 一周前 /
-// 一个月前 / 半年前 / 一年前」，置顶单独成组。纯函数，便于单测与 UI 复用。
+// 记忆分档：置顶单独成组，其余按「最近 7 天 / 更早」两档划分。纯函数，便于单测与 UI 复用。
+// 历史版本曾按 最近/一天前/一周前/一个月前/半年前/一年前 分 6 档——会话量级是个位数到
+// 几十时，组头比会话还多，纵向空间全被标题吃掉（2026-10-06 指令书 Phase 2 收敛为 3 组）。
+// 分组展开态只活在内存（不持久化），换档位 id 无需兼容旧展开状态。
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const PINNED_GROUP_ID = 'pinned';
 
-// maxAge 为开区间上界：age < maxAge 落入该档；最后一档不设上界（一年前及以上）。
+// maxAge 为开区间上界：age < maxAge 落入该档；最后一档不设上界。
 export const MEMORY_BUCKETS = [
-  { id: 'recent', label: '最近', maxAge: 1 * DAY_MS },
-  { id: 'day', label: '一天前', maxAge: 7 * DAY_MS },
-  { id: 'week', label: '一周前', maxAge: 30 * DAY_MS },
-  { id: 'month', label: '一个月前', maxAge: 180 * DAY_MS },
-  { id: 'halfYear', label: '半年前', maxAge: 365 * DAY_MS },
-  { id: 'year', label: '一年前' },
+  { id: 'recent', label: '最近 7 天', maxAge: 7 * DAY_MS },
+  { id: 'older', label: '更早' },
 ];
+
+// 列表筛选 chips（记忆页头部下方）：全部 / 置顶 / 群聊。
+// 「本地」chip 依赖会话的 modelKind 字段（Phase 3 落盘），由界面按数据有无条件追加。
+export const MEMORY_FILTERS = Object.freeze([
+  { id: 'all', label: '全部' },
+  { id: 'pinned', label: '置顶' },
+  { id: 'group', label: '群聊' },
+]);
+
+export function filterSessionsForMemory(sessions, filterId) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  if (filterId === 'pinned') return list.filter(item => item && item.pinned === true);
+  if (filterId === 'group') return list.filter(item => item && item.type === 'group');
+  if (filterId === 'local') return list.filter(item => item && item.modelKind === 'local');
+  return list;
+}
 
 export function bucketIdForTimestamp(timestamp, now = Date.now()) {
   const value = Number(timestamp);
