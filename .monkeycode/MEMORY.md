@@ -201,3 +201,18 @@ Entries discovered by the Agent during task execution should follow this format:
 - Instructions:
   - **免责声明常驻是硬性合规要求**（「AI 生成可能有误，仅供参考」顶栏常驻，防法律风险）。
     任何「一次性消失」「可关闭」的优化建议一律否决，不考虑；tests/chatTopBottom.test.mjs 已钉死防回归。
+
+[User Instruction Summary]
+- Date: 2026-10-06
+- Context: 记忆界面指令书落地时的事实核验结论与注入脚本事故
+- Instructions:
+  - **指令书的组件定性必须核验语义而非外形**：该书把 SwitcherModal（角色/群聊切换器）
+    误作「会话切换器」、虚构了「屏幕注视线程卡中卡」（MemoryScreen 从未展示识图内容，
+    threads.js 不存在）。行数/结构大体可信，但「这是什么」要打开源码亲自确认。
+  - **注入验证脚本的恢复必须双向定位限量**：Python str.replace 默认替换**全部**出现；
+    恢复时 replace(new, old) 会把 import 行等处的同名片段一并改写（本次实际造成
+    MemoryScreen 导入行语法错误 + sessionLibrary 注释被代码文本污染）。规则：
+    锚串必须在全文件唯一（count==1），恢复用同一锚串且 count=1，恢复后立刻跑
+    lint+相关测试再放手。
+  - 本地/在线模型归属不能按设置推断：provider 有静默回退（本地失败→在线），
+    只能靠「哪条链路真正产出回复」的回调（onProviderResolved）标记。
