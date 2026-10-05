@@ -62,6 +62,26 @@ import {
 } from './triggers.js';
 import { useMusicComments } from './useMusicComments.js';
 import { useMusicPlayer } from './useMusicPlayer.js';
+import {
+  formatMusicRate,
+  getMusicPlayerSettings,
+  nextMusicPlayMode,
+  nextMusicRate,
+  nextSequentialIndex,
+  pickShuffleIndex,
+  saveMusicPlayerSettings,
+} from './playerSettings.js';
+
+// 播放方式的图标与文案键（静态表：动态拼接的 key 无法被文案扫描静态提取）。
+const PLAY_MODE_META = {
+  stop: { icon: 'stop-circle-outline', labelKey: 'music.mode.stop' },
+  repeatOne: { icon: 'repeat', labelKey: 'music.mode.repeatOne' },
+  sequential: { icon: 'list-outline', labelKey: 'music.mode.sequential' },
+  shuffle: { icon: 'shuffle', labelKey: 'music.mode.shuffle' },
+};
+
+// 跳跃步长（秒）：左右三角改成上一首 / 下一首之后，跳时间交给这两个按钮。
+const SEEK_STEP_SECONDS = 15;
 import AudioClipWebView from './AudioClipWebView.js';
 
 function formatFileSize(size) {
@@ -133,7 +153,40 @@ export default function MusicScreen() {
   });
   const [playlistSaving, setPlaylistSaving] = useState(false);
   const [playlistPickerSongId, setPlaylistPickerSongId] = useState('');
-  const { status, load, toggle, seekToSeconds, stop } = useMusicPlayer();
+  const { status, load, toggle, seekToSeconds, setRate, stop } = useMusicPlayer();
+  // 播放方式与倍速：全局持久化，打开时读一次、改动即写（失败不阻断播放）。
+  const [playMode, setPlayMode] = useState('stop');
+  const [rate, setRateState] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMusicPlayerSettings()
+      .then(settings => {
+        if (cancelled) return;
+        setPlayMode(settings.playMode);
+        setRateState(settings.rate);
+        setRate(settings.rate);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [setRate]);
+
+  const cyclePlayMode = useCallback(() => {
+    setPlayMode(current => {
+      const next = nextMusicPlayMode(current);
+      saveMusicPlayerSettings({ playMode: next }).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const cycleRate = useCallback(() => {
+    setRateState(current => {
+      const next = nextMusicRate(current);
+      setRate(next);
+      saveMusicPlayerSettings({ rate: next }).catch(() => {});
+      return next;
+    });
+  }, [setRate]);
 
   // 隐藏 WebView 裁剪器：把歌曲裁成短片段再送模型。
   const clipRef = useRef(null);
@@ -328,12 +381,21 @@ export default function MusicScreen() {
 
   // 开场评论：切到一首新歌时点一次（生成失败不影响播放）。
   const openingDoneRef = useRef('');
-  const handlePlay = useCallback(item => {
+  // 当前曲目在曲库里的下标（找不到时按 0：列表可能刚被删空又加回来）。
+  const currentIndex = useMemo(() => {
+    const list = Array.isArray(items) ? items : [];
+    const index = list.findIndex(item => item.id === currentId);
+    return index >= 0 ? index : 0;
+  }, [currentId, items]);
+
+  // 切歌统一入口：列表点播、上一首/下一首、播完自动续接都走它。
+  // index 会环绕（-1 取末首，越界回到开头）。
+  const playAt = useCallback(index => {
+    const list = Array.isArray(items) ? items : [];
+    if (list.length === 0) return;
+    const bounded = ((Math.floor(Number(index)) || 0) % list.length + list.length) % list.length;
+    const item = list[bounded];
     if (!item) return;
-    if (item.id === currentId) {
-      toggle();
-      return;
-    }
     setCurrentId(item.id);
     durationDoneRef.current = '';
     load(item);
@@ -341,7 +403,52 @@ export default function MusicScreen() {
       openingDoneRef.current = item.id;
       generate({ kind: 'opening' });
     }
-  }, [currentId, generate, load, toggle]);
+  }, [generate, items, load]);
+
+  const handleNextTrack = useCallback(() => {
+    playAt(nextSequentialIndex(items.length, currentIndex));
+  }, [currentIndex, items.length, playAt]);
+
+  const handlePrevTrack = useCallback(() => {
+    playAt(currentIndex - 1);
+  }, [currentIndex, playAt]);
+
+  const handlePlay = useCallback(item => {
+    if (!item) return;
+    if (item.id === currentId) {
+      toggle();
+      return;
+    }
+    const index = (Array.isArray(items) ? items : []).findIndex(entry => entry.id === item.id);
+    playAt(index >= 0 ? index : 0);
+  }, [currentId, items, playAt, toggle]);
+
+  // 播完按播放方式处理。status.finished 只在结束那一帧为 true，用 ref 防重入
+  // （同一轮结束会因多次状态推送重复触发）。
+  const finishedHandledRef = useRef(false);
+  useEffect(() => {
+    if (!status.finished) {
+      finishedHandledRef.current = false;
+      return;
+    }
+    if (finishedHandledRef.current || !current) return;
+    finishedHandledRef.current = true;
+    if (playMode === 'repeatOne') {
+      // 先回到开头再重播：播放位置停在末尾时直接 play 会立刻再次触发 finished。
+      seekToSeconds(0).then(() => load(current)).catch(() => {});
+      return;
+    }
+    if (playMode === 'sequential') {
+      playAt(nextSequentialIndex(items.length, currentIndex));
+      return;
+    }
+    if (playMode === 'shuffle') {
+      playAt(pickShuffleIndex(items.length, currentIndex));
+      return;
+    }
+    // stop：停住但保留当前曲目，用户可直接再点播放从头听。
+    stop();
+  }, [current, currentIndex, items.length, load, playAt, playMode, seekToSeconds, status.finished, stop]);
 
   // 时间轴触发：正常推进时越过打点即请求评论；seek（>2.5s 跳变）落定后按新位置
   // 重算已触发集合——回跳重播自动重新武装，已放过的历史不回放补触发。
@@ -554,8 +661,15 @@ export default function MusicScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.controlsRow}>
-            <TouchableOpacity style={styles.controlButton} onPress={() => seekBySeconds(-15)} accessibilityLabel={t('music.a11y.back15')}>
-              <Ionicons name="play-back" size={20} color={theme.colors.text} />
+            <TouchableOpacity
+              style={styles.seekButton}
+              onPress={() => seekBySeconds(-SEEK_STEP_SECONDS)}
+              accessibilityLabel={t('music.a11y.back15')}
+            >
+              <Text style={styles.seekText}>{`-${SEEK_STEP_SECONDS}`}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.controlButton} onPress={handlePrevTrack} accessibilityLabel={t('music.a11y.prev')}>
+              <Ionicons name="play-skip-back" size={20} color={theme.colors.text} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.controlButton, styles.playButton]}
@@ -564,8 +678,33 @@ export default function MusicScreen() {
             >
               <Ionicons name={status.playing ? 'pause' : 'play'} size={22} color={theme.colors.primaryContrast} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.controlButton} onPress={() => seekBySeconds(15)} accessibilityLabel={t('music.a11y.forward15')}>
-              <Ionicons name="play-forward" size={20} color={theme.colors.text} />
+            <TouchableOpacity style={styles.controlButton} onPress={handleNextTrack} accessibilityLabel={t('music.a11y.next')}>
+              <Ionicons name="play-skip-forward" size={20} color={theme.colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.seekButton}
+              onPress={() => seekBySeconds(SEEK_STEP_SECONDS)}
+              accessibilityLabel={t('music.a11y.forward15')}
+            >
+              <Text style={styles.seekText}>{`+${SEEK_STEP_SECONDS}`}</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.secondaryRow}>
+            <TouchableOpacity
+              style={styles.modeChip}
+              onPress={cyclePlayMode}
+              accessibilityLabel={t('music.a11y.playMode')}
+            >
+              <Ionicons name={PLAY_MODE_META[playMode].icon} size={14} color={theme.colors.primarySoft} />
+              <Text style={styles.modeChipText}>{t(PLAY_MODE_META[playMode].labelKey)}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modeChip}
+              onPress={cycleRate}
+              accessibilityLabel={t('music.a11y.rate')}
+            >
+              <Ionicons name="speedometer-outline" size={14} color={theme.colors.primarySoft} />
+              <Text style={styles.modeChipText}>{formatMusicRate(rate)}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.markButton} onPress={addTriggerHere} accessibilityLabel={t('music.a11y.markHere')}>
               <Ionicons name="bookmark" size={14} color={theme.colors.primaryContrast} />
@@ -886,6 +1025,35 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: 10,
   },
   playButton: { backgroundColor: theme.colors.primary },
+  // 跳时间按钮：用数字标步长（原来这两个位置被 play-back/play-forward 占着，
+  // 图标看着像切歌、功能却是跳时间——现在归还给上一首/下一首）。
+  seekButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surfaceBorder,
+    marginRight: 10,
+  },
+  seekText: { color: theme.colors.text, fontSize: fonts.scaled(12), fontWeight: '700' },
+  secondaryRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  modeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: tokens.metrics.buttonRadius,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    marginRight: 8,
+  },
+  modeChipText: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(11),
+    fontWeight: '600',
+    marginLeft: 4,
+  },
   markButton: {
     flexDirection: 'row',
     alignItems: 'center',

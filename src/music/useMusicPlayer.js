@@ -28,6 +28,9 @@ function toScreenStatus(raw) {
 export function useMusicPlayer() {
   const playerRef = useRef(null);
   const uriRef = useRef('');
+  // 当前倍速：换曲（player.replace）在部分平台上会把 rate 重置回 1，
+  // 所以每次载入后都要按这个值重新应用一次。
+  const rateRef = useRef(1);
   const [status, setStatus] = useState(EMPTY_STATUS);
 
   useEffect(() => {
@@ -57,6 +60,20 @@ export function useMusicPlayer() {
     return player;
   }, []);
 
+  // 变速不变调：保持音高（否则 0.5x 会变成一片闷响，1.5x 会变尖）。
+  const applyRate = useCallback(player => {
+    if (!player) return;
+    const rate = rateRef.current;
+    try {
+      if (typeof player.setPlaybackRate === 'function') {
+        player.setPlaybackRate(rate, 'medium');
+      } else {
+        player.playbackRate = rate;
+      }
+      player.shouldCorrectPitch = true;
+    } catch (error) {}
+  }, []);
+
   // 载入并立即播放。同一首歌重复调用视为恢复播放（seek 语义交给 seekToSeconds）。
   const load = useCallback((item, { autoPlay = true } = {}) => {
     if (!item || !item.uri) return;
@@ -68,6 +85,8 @@ export function useMusicPlayer() {
       uriRef.current = item.uri;
       setStatus({ ...EMPTY_STATUS });
     }
+    // 每次载入都重新应用倍速：replace 之后播放器的 rate 会回到 1。
+    applyRate(player);
     try {
       // 锁屏媒体控制 + 前台服务保活；title 缺失时用文件名兜底。
       player.setActiveForLockScreen(true, { title: String(item.name || '正在播放') });
@@ -77,7 +96,15 @@ export function useMusicPlayer() {
         player.play();
       } catch (error) {}
     }
-  }, [getOrCreatePlayer]);
+  }, [applyRate, getOrCreatePlayer]);
+
+  // 设置倍速（0.25x ~ 4x）；播放器尚未创建时只记下来，载入时统一应用。
+  const setRate = useCallback(rate => {
+    const value = Math.max(0.25, Math.min(4, Number(rate) || 1));
+    rateRef.current = value;
+    applyRate(playerRef.current);
+    return value;
+  }, [applyRate]);
 
   const toggle = useCallback(() => {
     const player = playerRef.current;
@@ -118,5 +145,5 @@ export function useMusicPlayer() {
     } catch (error) {}
   }, []);
 
-  return { status, load, toggle, pause, seekToSeconds, stop };
+  return { status, load, toggle, pause, seekToSeconds, setRate, stop };
 }
