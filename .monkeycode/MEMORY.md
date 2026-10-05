@@ -185,3 +185,12 @@ Entries discovered by the Agent during task execution should follow this format:
   - fflate 测试可用 zipSync 直接构造恶意 zip（键名带 ../.. 的越界条目），配合「缩小限额注入 limits 参数」测限额路径，不必真造 50MB 数据。
   - 指令书/审核报告也会报错文件名（如本次 WorkspaceSettingsSheet.js 不存在）——落地前先 ls 核实，别照单全收。
   - 沙盒导入类功能的单文件上限应对齐下游读取能力（store 的 MAX_READ_CHARS=1MB），而不是拍脑袋的磁盘口径；超限跳过并计数比中止整批更合理。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z3：大文件分段读取（offset/limit）与编辑截断守卫
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **读截断 + 写回 = 数据损坏**：凡是「读（带截断）→ 加工 → 写回原路径」的链路，必须检查截断标志。本次两条后端（store.js/safStore.js）的 edit 都漏了这个守卫，>1MB 文件一编辑就砍尾。
+  - **后端包装器是参数丢失的高发区**：给底层函数加新参数时，必须同时检查所有手动封装的 wrapper（createLegacyWorkspaceStore 这类）有没有透传——函数签名不报错，参数静默丢失。测试要在「经工具层调用」这一层断言行为，不能只测底层函数。
+  - 分段读取的返回形状：content/truncated/offset/total/nextOffset——模型靠 nextOffset 续读，提示文案里必须明写「继续读取请用 offset=…」，否则模型不会自己发现。
