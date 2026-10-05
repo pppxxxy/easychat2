@@ -105,6 +105,8 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
   }, [isSending]);
 
   // 卸载当前本地模型：释放常驻上下文并关闭本地模式，回到在线 API。
+  // 互链：LocalModelPanel 删除「已加载」模型时也必须走同一卸载（C4 修复，
+  // 2026-10-06）——否则文件删了、llama 上下文还驻留内存数 GB。
   const deactivateLocalModel = useCallback(async () => {
     const release = tryAcquireResource('local-model');
     if (!release) {

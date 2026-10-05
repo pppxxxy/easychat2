@@ -13,7 +13,7 @@ import {
   saveLocalModelSettings,
 } from './storage.js';
 import { cleanupOrphanLocalModelFiles, deleteLocalModel, downloadLocalModel, getLocalModelFileInfo, importLocalModel } from './localModel/modelManager.js';
-import { isLocalModelModuleAvailable, loadLocalModel } from './localModel/adapter.js';
+import { isLocalModelLoaded, isLocalModelModuleAvailable, loadLocalModel, unloadLocalModel } from './localModel/adapter.js';
 import { tryAcquireResource } from './resourceMutex.js';
 import {
   getLocalApiServerStatus,
@@ -97,7 +97,9 @@ export default function LocalModelPanel({ visible, onClose }) {
   const [paramsTarget, setParamsTarget] = useState(null);
   const [paramsForm, setParamsForm] = useState({});
   const [paramsBusy, setParamsBusy] = useState(false);
-  const [apiServer, setApiServer] = useState({ enabled: false, host: '127.0.0.1', port: 8080, apiKey: '' });
+  // 端口在编辑态统一存 string（TextInput 的值），落盘时才 parseInt——
+  // 此前初始 number、编辑后 string 的类型漂移全靠渲染处 String() 兜底（C6）。
+  const [apiServer, setApiServer] = useState({ enabled: false, host: '127.0.0.1', port: '8080', apiKey: '' });
   const [apiStatus, setApiStatus] = useState({ running: false, port: 0 });
   const [apiBusy, setApiBusy] = useState(false);
   // 显式加载：面板里的加载按钮状态（加载中的条目 id、进度百分比、已加载条目 id）。
@@ -105,13 +107,22 @@ export default function LocalModelPanel({ visible, onClose }) {
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadedModelId, setLoadedModelId] = useState('');
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options = {}) => {
     const [list, current] = await Promise.all([
       getLocalModelIndex().catch(() => []),
       getLocalModelSettings().catch(() => null),
     ]);
     setEntries(list);
     setSettings(current);
+    // hydrateApi 只在打开面板的全量水合时使用：操作后刷新（删除/存参数）绝不能
+    // 回填 apiServer 编辑态，否则用户正在输入的端口/密钥会被存储旧值打回（C7）。
+    if (options.hydrateApi === true) {
+      if (current && current.apiServer) {
+        setApiServer({ ...current.apiServer, port: String(current.apiServer.port || '') });
+      }
+      const status = await getLocalApiServerStatus().catch(() => ({ running: false, port: 0 }));
+      setApiStatus({ running: Boolean(status && status.running), port: Number(status && status.port) || 0 });
+    }
   }, []);
 
   useEffect(() => {
@@ -119,21 +130,9 @@ export default function LocalModelPanel({ visible, onClose }) {
   }, []);
 
   useEffect(() => {
-    if (!visible) return undefined;
-    let cancelled = false;
-    Promise.all([
-      getLocalModelIndex().catch(() => []),
-      getLocalModelSettings().catch(() => null),
-      getLocalApiServerStatus().catch(() => ({ running: false, port: 0 })),
-    ]).then(([list, current, status]) => {
-      if (cancelled) return;
-      setEntries(list);
-      setSettings(current);
-      if (current && current.apiServer) setApiServer(current.apiServer);
-      setApiStatus({ running: Boolean(status && status.running), port: Number(status && status.port) || 0 });
-    });
-    return () => { cancelled = true; };
-  }, [visible]);
+    if (!visible) return;
+    refresh({ hydrateApi: true });
+  }, [visible, refresh]);
 
   const draftSummary = useMemo(() => buildModelSummary(
     { name: `${draft.name} ${draft.modelId}`, quant: draft.quant, paramSize: draft.paramSize },
@@ -189,12 +188,16 @@ export default function LocalModelPanel({ visible, onClose }) {
   };
 
   const persistApiServer = async patch => {
+    // 编辑态端口是 string：落盘统一转 number（非法值回退 8080，与存储层
+    // normalizeLocalModelApiServer 的口径一致），读回后再转 string 回填编辑态。
+    const parsedPort = Math.trunc(Number(apiServer.port));
+    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
     const next = await saveLocalModelSettings({
       ...(settings || {}),
-      apiServer: { ...apiServer, ...patch },
+      apiServer: { ...apiServer, ...patch, port },
     });
     setSettings(next);
-    setApiServer(next.apiServer);
+    setApiServer({ ...next.apiServer, port: String(next.apiServer.port) });
     return next;
   };
 
@@ -210,7 +213,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       const keyWasEmpty = !String(apiServer.apiKey || '').trim();
       const saved = await persistApiServer({ enabled: true });
       const status = await startLocalApiServer({
-        port: apiServer.port,
+        port: Number((saved.apiServer && saved.apiServer.port) || apiServer.port) || 8080,
         apiKey: apiServer.apiKey,
         modelId: saved.activeModelId || 'local-model',
       });
@@ -220,7 +223,7 @@ export default function LocalModelPanel({ visible, onClose }) {
         // persistApiServer 内部会同步 setApiServer；客户端照此携带 Bearer。
         await persistApiServer({ enabled: true, apiKey: effectiveKey });
       }
-      setApiStatus({ running: true, port: Number(status && status.port) || apiServer.port });
+      setApiStatus({ running: true, port: Number(status && status.port) || Number(apiServer.port) || 8080 });
       if (keyWasEmpty) {
         Alert.alert(
           '已生成随机密钥',
@@ -319,10 +322,25 @@ export default function LocalModelPanel({ visible, onClose }) {
         style: 'destructive',
         onPress: async () => {
           const item = await getLocalModelItem(entry.id).catch(() => null);
+          // 顺序必须按依赖反向拆（C4，2026-10-06 审核发现）：停服务 → 卸载内存 →
+          // 删文件与登记 → 清设置。此前的实现直接删文件却从不卸载：文件没了，
+          // 数 GB 的 llama 上下文还驻留内存，且再也无法通过「重载再释放」找回。
+          const wasActive = Boolean(settings && settings.activeModelId === entry.id);
+          const wasLoaded = item ? isLocalModelLoaded(item) : false;
+          // API 服务复用当前加载的上下文：被删模型已加载时，无论它是不是「当前选用」，
+          // 都得先停服务再卸载，否则服务端口背后指向一个即将删除的文件。
+          if ((wasActive || wasLoaded) && apiStatus.running) await stopLocalApiServer().catch(() => {});
+          if (wasLoaded) {
+            const released = await unloadLocalModel().catch(() => false);
+            if (released === false) {
+              Alert.alert('卸载失败', '模型内存释放未完全成功，已中止删除。请重启应用后重试。');
+              return;
+            }
+          }
+          if (loadedModelId === entry.id) setLoadedModelId('');
           if (item) await deleteLocalModel(item).catch(() => {});
           await deleteLocalModelItem(entry.id).catch(() => {});
-          if (settings && settings.activeModelId === entry.id) {
-            if (apiStatus.running) await stopLocalApiServer().catch(() => {});
+          if (wasActive) {
             try {
               const next = await saveLocalModelSettings(clearActiveLocalModel(settings));
               setSettings(next);

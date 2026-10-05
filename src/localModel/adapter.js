@@ -153,8 +153,10 @@ export async function loadLocalModel(model, { onProgress } = {}) {
   return current;
 }
 
+// 返回是否完全释放：删除已加载模型等场景必须知道「内存真的还回来了」——
+// 释放失败时原生上下文可能泄漏，调用方应中止后续破坏性操作（如删文件）。
 export async function unloadLocalModel() {
-  if (!current) return;
+  if (!current) return true;
   const { context, key } = current;
   current = null;
   let releaseFailed = false;
@@ -176,6 +178,7 @@ export async function unloadLocalModel() {
   }
   // 释放失败时上下文可能泄漏在原生侧，不能记成「已释放」误导排查。
   recordModelLog('unload', releaseFailed ? '模型释放未完全成功' : '模型已释放', { context: key });
+  return !releaseFailed;
 }
 
 export function getLoadedLocalModelKey() {
