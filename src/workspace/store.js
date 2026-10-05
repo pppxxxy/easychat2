@@ -13,6 +13,9 @@ import { applyWorkspaceEdit } from './edit.js';
 const MAX_FILES = 2000;
 const MAX_DEPTH = 6;
 const MAX_READ_CHARS = 1024 * 1024;
+// 编辑专用上限：读路径 1MB 截断是为上下文经济；编辑要的是完整性，给到 4MB，
+// 超过则拒绝（见 editWorkspaceFile 的截断守卫）。
+const MAX_EDIT_CHARS = 4 * 1024 * 1024;
 
 function assertFileSystem(fileSystem) {
   if (!fileSystem || typeof fileSystem.readAsStringAsync !== 'function') {
@@ -67,7 +70,7 @@ export async function listWorkspaceFiles({ root, characterId, fileSystem, subdir
   return results.sort();
 }
 
-export async function readWorkspaceFile({ root, characterId, path, fileSystem, maxChars = MAX_READ_CHARS } = {}) {
+export async function readWorkspaceFile({ root, characterId, path, fileSystem, maxChars = MAX_READ_CHARS, offset = 0 } = {}) {
   assertFileSystem(fileSystem);
   const relative = normalizeWorkspacePath(path);
   assertAllowedWorkspaceFile(relative);
@@ -76,10 +79,21 @@ export async function readWorkspaceFile({ root, characterId, path, fileSystem, m
   if (!info || !info.exists) throw new Error(`文件不存在：${relative}`);
   if (info.isDirectory) throw new Error(`目标是目录，不是文件：${relative}`);
   const text = String(await fileSystem.readAsStringAsync(uri));
-  if (text.length > maxChars) {
-    return { path: relative, content: text.slice(0, maxChars), truncated: true };
-  }
-  return { path: relative, content: text, truncated: false };
+  // 分段读取：offset 从指定字符位置开始、最多 maxChars；返回总长与下一段偏移，
+  // 模型据此续读——大文件不必一次塞进上下文（编码助手同款口径）。
+  const requested = Number(offset);
+  const safeStart = Math.min(Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 0, text.length);
+  const content = text.slice(safeStart, safeStart + maxChars);
+  const end = safeStart + content.length;
+  const truncated = end < text.length;
+  return {
+    path: relative,
+    content,
+    truncated,
+    offset: safeStart,
+    total: text.length,
+    ...(truncated ? { nextOffset: end } : {}),
+  };
 }
 
 export async function writeWorkspaceFile({ root, characterId, path, content, fileSystem } = {}) {
@@ -113,7 +127,7 @@ export async function writeWorkspaceBinaryFile({ root, characterId, path, base64
   return { path: relative, base64Length: payload.length };
 }
 
-export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS });
+export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
 
 // 新建目录（含中间层级）。已存在且是目录时 created=false，不报错。
 export async function createWorkspaceDirectory({ root, characterId, path, fileSystem } = {}) {
@@ -128,7 +142,15 @@ export async function createWorkspaceDirectory({ root, characterId, path, fileSy
 
 // 精确文本替换：读 → 替换 → 写回。匹配规则见 edit.js（默认要求唯一匹配）。
 export async function editWorkspaceFile({ root, characterId, path, find, replace, all = false, fileSystem } = {}) {
-  const current = await readWorkspaceFile({ root, characterId, path, fileSystem });
+  // 编辑必须拿到**完整**内容：读路径默认在 1MB 截断，带着截断内容替换再写回
+  // 会把文件尾部静默砍掉（数据损坏）。这里用更高的编辑专用上限完整读取；
+  // 仍超限就明确拒绝，并提示改用整体重写（write_workspace_file 无此上限）。
+  const current = await readWorkspaceFile({ root, characterId, path, fileSystem, maxChars: MAX_EDIT_CHARS });
+  if (current.truncated) {
+    throw new Error(
+      `文件过大（超过 ${Math.floor(MAX_EDIT_CHARS / 1024 / 1024)}MB），无法精确替换以免损坏内容；请改用整体重写。`
+    );
+  }
   const edited = applyWorkspaceEdit({ content: current.content, find, replace, all });
   const written = await writeWorkspaceFile({ root, characterId, path, content: edited.content, fileSystem });
   return { path: written.path, count: edited.count, length: written.length };
@@ -145,8 +167,8 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
       root, characterId, fileSystem, subdir,
     }),
 
-    readWorkspaceFile: ({ characterId, path, maxChars } = {}) => readWorkspaceFile({
-      root, characterId, path, fileSystem, maxChars,
+    readWorkspaceFile: ({ characterId, path, maxChars, offset } = {}) => readWorkspaceFile({
+      root, characterId, path, fileSystem, maxChars, offset,
     }),
 
     writeWorkspaceFile: ({ characterId, path, content } = {}) => writeWorkspaceFile({

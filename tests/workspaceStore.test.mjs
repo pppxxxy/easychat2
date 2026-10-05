@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   createWorkspaceDirectory,
+  editWorkspaceFile,
   listWorkspaceFiles,
   readWorkspaceFile,
+  WORKSPACE_LIMITS,
   writeWorkspaceBinaryFile,
   writeWorkspaceFile,
 } from '../src/workspace/store.js';
@@ -68,7 +70,7 @@ test('write→read 往返并自动建目录', async () => {
   });
   assert.deepEqual(written, { path: 'notes/a.md', length: 4 });
   const read = await readWorkspaceFile({ root, characterId: 'c1', path: 'notes/a.md', fileSystem });
-  assert.deepEqual(read, { path: 'notes/a.md', content: '# 标题', truncated: false });
+  assert.deepEqual(read, { path: 'notes/a.md', content: '# 标题', truncated: false, offset: 0, total: 4 });
 });
 
 test('list 递归、目录标记 /、过滤非白名单扩展名', async () => {
@@ -124,7 +126,7 @@ test('read 超过 maxChars 时截断', async () => {
   const fileSystem = createMemoryFs();
   await writeWorkspaceFile({ root, characterId: 'c1', path: 'a.txt', content: '0123456789', fileSystem });
   const read = await readWorkspaceFile({ root, characterId: 'c1', path: 'a.txt', fileSystem, maxChars: 4 });
-  assert.deepEqual(read, { path: 'a.txt', content: '0123', truncated: true });
+  assert.deepEqual(read, { path: 'a.txt', content: '0123', truncated: true, offset: 0, total: 10, nextOffset: 4 });
 });
 
 test('二进制写入 .docx 可被 list 看到，但 read 拒绝', async () => {
@@ -176,4 +178,37 @@ test('项目文件：源码扩展名可写可读可列（不再只限 txt/md）'
   assert.ok(files.includes('index.html'));
   const read = await readWorkspaceFile({ root, characterId: 'c1', path: 'src/app.js', fileSystem });
   assert.equal(read.content, 'console.log(1)');
+});
+
+test('read 分段：offset/limit 与 nextOffset；越界 offset 归一到末尾', async () => {
+  const fileSystem = createMemoryFs();
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'big.txt', content: '0123456789', fileSystem });
+  const head = await readWorkspaceFile({ root, characterId: 'c1', path: 'big.txt', fileSystem, maxChars: 4 });
+  assert.deepEqual(head, { path: 'big.txt', content: '0123', truncated: true, offset: 0, total: 10, nextOffset: 4 });
+  const tail = await readWorkspaceFile({ root, characterId: 'c1', path: 'big.txt', fileSystem, offset: 8, maxChars: 4 });
+  assert.deepEqual(tail, { path: 'big.txt', content: '89', truncated: false, offset: 8, total: 10 });
+  const beyond = await readWorkspaceFile({ root, characterId: 'c1', path: 'big.txt', fileSystem, offset: 999 });
+  assert.deepEqual(beyond, { path: 'big.txt', content: '', truncated: false, offset: 10, total: 10 });
+});
+
+test('edit 守卫：超过读上限的文件可完整编辑；超过编辑上限明确拒绝且不落盘', async () => {
+  const fileSystem = createMemoryFs();
+  // 1MB+ 的文件：旧实现会带着截断内容回写、静默砍掉尾部——这里钉住完整编辑。
+  const mid = `${'a'.repeat(1024 * 1024 + 10)}TAIL`;
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'mid.txt', content: mid, fileSystem });
+  const edited = await editWorkspaceFile({ root, characterId: 'c1', path: 'mid.txt', find: 'TAIL', replace: 'DONE', fileSystem });
+  assert.equal(edited.count, 1);
+  const after = await fileSystem.readAsStringAsync(`${root}c1/mid.txt`);
+  assert.ok(after.endsWith('DONE'), '替换必须生效');
+  assert.equal(after.length, mid.length, '尾部不得被截断（长度守恒）');
+
+  // 超过编辑上限：拒绝，且文件原样未动。
+  const huge = 'b'.repeat(WORKSPACE_LIMITS.MAX_EDIT_CHARS + 1);
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'huge.txt', content: huge, fileSystem });
+  await assert.rejects(
+    editWorkspaceFile({ root, characterId: 'c1', path: 'huge.txt', find: 'b', replace: 'c', fileSystem }),
+    /文件过大/
+  );
+  const untouched = await fileSystem.readAsStringAsync(`${root}c1/huge.txt`);
+  assert.equal(untouched.length, huge.length, '拒绝后文件必须原样未动');
 });

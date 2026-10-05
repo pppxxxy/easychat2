@@ -26,6 +26,8 @@ import { applyWorkspaceEdit } from './edit.js';
 const MAX_FILES = 2000;
 const MAX_DEPTH = 6;
 const MAX_READ_CHARS = 1024 * 1024;
+// 编辑专用上限，与 legacy 后端 store.js 同值（见那边的说明）。
+const MAX_EDIT_CHARS = 4 * 1024 * 1024;
 
 const TEXT_MIME = 'text/plain';
 // .docx 的官方 MIME：SAF 的 createFile 用它给新建文档定类型，写内容仍是我们自己的字节。
@@ -139,7 +141,7 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       return results.sort();
     },
 
-    async readWorkspaceFile({ characterId, path, maxChars = MAX_READ_CHARS } = {}) {
+    async readWorkspaceFile({ characterId, path, maxChars = MAX_READ_CHARS, offset = 0 } = {}) {
       const relative = normalizeWorkspacePath(path);
       assertAllowedWorkspaceFile(relative);
       const { name, directories } = splitRelative(relative);
@@ -148,10 +150,20 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       const found = await findChild(adapter, directoryUri, name, false);
       if (!found) throw new Error(`文件不存在：${relative}`);
       const text = String(await adapter.readText(found.uri));
-      if (text.length > maxChars) {
-        return { path: relative, content: text.slice(0, maxChars), truncated: true };
-      }
-      return { path: relative, content: text, truncated: false };
+      // 分段读取与 legacy 后端同口径（见 store.js）：offset/maxChars + total/nextOffset。
+      const requested = Number(offset);
+      const safeStart = Math.min(Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 0, text.length);
+      const content = text.slice(safeStart, safeStart + maxChars);
+      const end = safeStart + content.length;
+      const truncated = end < text.length;
+      return {
+        path: relative,
+        content,
+        truncated,
+        offset: safeStart,
+        total: text.length,
+        ...(truncated ? { nextOffset: end } : {}),
+      };
     },
 
     async writeWorkspaceFile({ characterId, path, content } = {}) {
@@ -189,8 +201,14 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
     },
 
     // 精确替换：与 legacy 后端同一规则（edit.js），只是读写都走 SAF。
+    // 截断守卫同 store.js：用编辑专用上限完整读取，超限明确拒绝——绝不带截断内容回写。
     async editWorkspaceFile({ characterId, path, find, replace, all = false } = {}) {
-      const current = await this.readWorkspaceFile({ characterId, path });
+      const current = await this.readWorkspaceFile({ characterId, path, maxChars: MAX_EDIT_CHARS });
+      if (current.truncated) {
+        throw new Error(
+          `文件过大（超过 ${Math.floor(MAX_EDIT_CHARS / 1024 / 1024)}MB），无法精确替换以免损坏内容；请改用整体重写。`
+        );
+      }
       const edited = applyWorkspaceEdit({ content: current.content, find, replace, all });
       const written = await this.writeWorkspaceFile({ characterId, path, content: edited.content });
       return { path: written.path, count: edited.count, length: written.length };
@@ -257,4 +275,4 @@ export function createExpoSafAdapter(fileSystemModule) {
   };
 }
 
-export const SAF_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS });
+export const SAF_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });

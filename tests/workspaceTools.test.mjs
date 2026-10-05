@@ -8,6 +8,8 @@ import {
   runTool,
 } from '../src/agent/tools/registry.js';
 import {
+  createWorkspaceToolDefinitions,
+  formatWorkspaceReadResult,
   WORKSPACE_TOOL_NAMES,
   registerWorkspaceTools,
   unregisterWorkspaceTools,
@@ -297,4 +299,69 @@ test('create_workspace_dir：可改模式建目录，只读模式被门控', asy
     { mode: AGENT_MODES.READ, characterId: 'c1' },
   );
   assert.equal(denied.isError, true, '只读模式下建目录被门控');
+});
+
+test('read_workspace_file：offset/limit 分段读取与续读提示', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  await runTool(
+    { name: 'write_workspace_file', arguments: '{"path":"big.txt","content":"0123456789"}' },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  const head = await runTool(
+    { name: 'read_workspace_file', arguments: '{"path":"big.txt","limit":4}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.match(head.content, /^0123/);
+  assert.match(head.content, /共 10 字符，本次为 0–4；继续读取请用 offset=4/);
+  const tail = await runTool(
+    { name: 'read_workspace_file', arguments: '{"path":"big.txt","offset":4,"limit":4}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.match(tail.content, /^4567/);
+  assert.match(tail.content, /继续读取请用 offset=8/);
+  const end = await runTool(
+    { name: 'read_workspace_file', arguments: '{"path":"big.txt","offset":8}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.match(end.content, /^89/);
+  assert.match(end.content, /已到文件末尾：共 10 字符/);
+  const beyond = await runTool(
+    { name: 'read_workspace_file', arguments: '{"path":"big.txt","offset":999}' },
+    { mode: AGENT_MODES.READ, characterId: 'c1' },
+  );
+  assert.match(beyond.content, /已到文件末尾/);
+});
+
+test('read_workspace_file：limit 收敛到 1MB 上限（防上下文爆炸）', async () => {
+  const calls = [];
+  const fakeStore = {
+    readWorkspaceFile: async args => {
+      calls.push(args);
+      return { path: args.path, content: 'x', truncated: false, offset: 0, total: 1 };
+    },
+  };
+  const definitions = createWorkspaceToolDefinitions({ store: fakeStore });
+  const readDef = definitions.find(item => item.name === 'read_workspace_file');
+  await readDef.execute({ path: 'a.txt', limit: 99999999 }, {});
+  assert.equal(calls[0].maxChars, 1024 * 1024, '超大 limit 必须被收敛到上限');
+  await readDef.execute({ path: 'a.txt' }, {});
+  assert.equal(calls[1].maxChars, undefined, '不传 limit → 走后端默认');
+  await readDef.execute({ path: 'a.txt', offset: -5 }, {});
+  assert.equal(calls[2].offset, 0, '负 offset 归零');
+});
+
+test('formatWorkspaceReadResult：默认完整读不加后缀，截断/分段才加提示', () => {
+  assert.equal(
+    formatWorkspaceReadResult({ path: 'a.txt', content: '全文', truncated: false, offset: 0, total: 2 }),
+    '全文',
+    '完整读取原样返回（既有行为不变）'
+  );
+  assert.match(
+    formatWorkspaceReadResult({ path: 'a.txt', content: 'ab', truncated: true, offset: 0, total: 10, nextOffset: 2 }),
+    /共 10 字符，本次为 0–2；继续读取请用 offset=2/
+  );
+  assert.match(
+    formatWorkspaceReadResult({ path: 'a.txt', content: 'ij', truncated: false, offset: 8, total: 10 }),
+    /已到文件末尾：共 10 字符/
+  );
 });
