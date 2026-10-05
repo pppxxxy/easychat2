@@ -194,3 +194,10 @@ Entries discovered by the Agent during task execution should follow this format:
   - **读截断 + 写回 = 数据损坏**：凡是「读（带截断）→ 加工 → 写回原路径」的链路，必须检查截断标志。本次两条后端（store.js/safStore.js）的 edit 都漏了这个守卫，>1MB 文件一编辑就砍尾。
   - **后端包装器是参数丢失的高发区**：给底层函数加新参数时，必须同时检查所有手动封装的 wrapper（createLegacyWorkspaceStore 这类）有没有透传——函数签名不报错，参数静默丢失。测试要在「经工具层调用」这一层断言行为，不能只测底层函数。
   - 分段读取的返回形状：content/truncated/offset/total/nextOffset——模型靠 nextOffset 续读，提示文案里必须明写「继续读取请用 offset=…」，否则模型不会自己发现。
+
+[User Instruction Summary]
+- Date: 2026-10-05
+- Context: 聊天页顶栏底栏排版优化指令书落地时的裁决
+- Instructions:
+  - **免责声明常驻是硬性合规要求**（「AI 生成可能有误，仅供参考」顶栏常驻，防法律风险）。
+    任何「一次性消失」「可关闭」的优化建议一律否决，不考虑；tests/chatTopBottom.test.mjs 已钉死防回归。
