@@ -17,7 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Card, Chip, EmptyState, GhostButton, IconButton } from '../ui/index.js';
+import { Card, Chip, CollapsibleSection, CollapsibleSelect, EmptyState, GhostButton, IconButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 import {
@@ -33,6 +33,15 @@ import { useTranslation } from '../i18n/I18nContext.js';
 
 import { deleteMusicCommentsForSongs } from './comments.js';
 import { deleteMusicItems, getMusicItems, saveMusicDuration, saveMusicTriggers } from './library.js';
+import {
+  createMusicPlaylist,
+  deleteMusicPlaylist,
+  getMusicPlaylists,
+  purgeSongsFromPlaylists,
+  renameMusicPlaylist,
+  setSongInPlaylist,
+} from './playlists.js';
+import { PlaylistNameModal, PlaylistPickerModal } from './PlaylistModals.js';
 import { importMusicFromPicker } from './importMusic.js';
 import { canAttachSongAudio, formatPlaybackPosition, MUSIC_DECODE_MAX_BYTES } from './commentPrompts.js';
 import {
@@ -52,7 +61,7 @@ function formatFileSize(size) {
   return bytes > 0 ? `${bytes}B` : '';
 }
 
-function MusicRow({ item, isCurrent, playing, onPress, onDelete, styles, theme, t }) {
+function MusicRow({ item, isCurrent, playing, onPress, onDelete, onMore, styles, theme, t }) {
   return (
     <View style={styles.row}>
       <TouchableOpacity style={styles.rowMain} onPress={onPress} activeOpacity={0.8}>
@@ -74,6 +83,12 @@ function MusicRow({ item, isCurrent, playing, onPress, onDelete, styles, theme, 
           </Text>
         </View>
       </TouchableOpacity>
+      <IconButton
+        name="ellipsis-horizontal"
+        accessibilityLabel={t('music.a11y.songMore', { name: item.name })}
+        onPress={onMore}
+        style={styles.rowMore}
+      />
       <IconButton
         name="trash-outline"
         accessibilityLabel={t('music.a11y.deleteSong', { name: item.name })}
@@ -97,6 +112,17 @@ export default function MusicScreen() {
   const [importing, setImporting] = useState(false);
   const [currentId, setCurrentId] = useState('');
   const [clipSettings, setClipSettings] = useState(DEFAULT_MUSIC_CLIP);
+  // 歌单：列表 + 当前筛选（'' = 全部）+ 命名弹窗 + 「加入/移出歌单」选择器。
+  const [playlists, setPlaylists] = useState([]);
+  const [playlistFilter, setPlaylistFilter] = useState('');
+  const [playlistPrompt, setPlaylistPrompt] = useState({
+    visible: false,
+    mode: 'create',
+    playlistId: '',
+    draft: '',
+  });
+  const [playlistSaving, setPlaylistSaving] = useState(false);
+  const [playlistPickerSongId, setPlaylistPickerSongId] = useState('');
   const { status, load, toggle, seekToSeconds, stop } = useMusicPlayer();
 
   // 隐藏 WebView 裁剪器：把歌曲裁成短片段再送模型。
@@ -127,6 +153,123 @@ export default function MusicScreen() {
       return next;
     });
   }, []);
+
+  // ---- 歌单 ----
+
+  const reloadPlaylists = useCallback(async () => {
+    try {
+      setPlaylists(await getMusicPlaylists());
+    } catch (error) {
+      // 歌单读取失败不阻断听歌：保持当前列表，避免把界面清空成「没有歌单」误导用户。
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadPlaylists();
+  }, [reloadPlaylists]);
+
+  const activePlaylist = useMemo(
+    () => playlists.find(item => item.id === playlistFilter) || null,
+    [playlists, playlistFilter]
+  );
+  const visibleItems = useMemo(
+    () => (activePlaylist
+      ? items.filter(item => activePlaylist.songIds.includes(item.id))
+      : items),
+    [items, activePlaylist]
+  );
+  const playlistPickerSong = useMemo(
+    () => items.find(item => item.id === playlistPickerSongId) || null,
+    [items, playlistPickerSongId]
+  );
+
+  const openCreatePlaylist = useCallback(() => {
+    setPlaylistPrompt({ visible: true, mode: 'create', playlistId: '', draft: '' });
+  }, []);
+
+  const openRenamePlaylist = useCallback(playlist => {
+    if (!playlist) return;
+    setPlaylistPrompt({
+      visible: true,
+      mode: 'rename',
+      playlistId: playlist.id,
+      draft: playlist.name,
+    });
+  }, []);
+
+  const closePlaylistPrompt = useCallback(() => {
+    if (playlistSaving) return;
+    setPlaylistPrompt({ visible: false, mode: 'create', playlistId: '', draft: '' });
+  }, [playlistSaving]);
+
+  const confirmPlaylistName = useCallback(async () => {
+    if (playlistSaving) return;
+    const name = String(playlistPrompt.draft || '').trim();
+    if (!name) {
+      Alert.alert(t('music.playlists.title'), t('music.playlists.nameEmpty'));
+      return;
+    }
+    const duplicated = playlists.some(item => (
+      item.name === name
+      && (playlistPrompt.mode === 'create' || item.id !== playlistPrompt.playlistId)
+    ));
+    if (duplicated) {
+      Alert.alert(t('music.playlists.title'), t('music.playlists.duplicate'));
+      return;
+    }
+    setPlaylistSaving(true);
+    try {
+      if (playlistPrompt.mode === 'rename') {
+        await renameMusicPlaylist(playlistPrompt.playlistId, name);
+      } else {
+        await createMusicPlaylist(name);
+      }
+      await reloadPlaylists();
+      setPlaylistPrompt({ visible: false, mode: 'create', playlistId: '', draft: '' });
+    } catch (error) {
+      Alert.alert(t('music.playlists.title'), t('music.playlists.saveFailed'));
+    } finally {
+      setPlaylistSaving(false);
+    }
+  }, [playlistPrompt, playlistSaving, playlists, reloadPlaylists, t]);
+
+  const confirmDeletePlaylist = useCallback(playlist => {
+    if (!playlist) return;
+    Alert.alert(
+      t('music.playlists.delete.title'),
+      t('music.playlists.delete.body', { name: playlist.name }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            deleteMusicPlaylist(playlist.id)
+              .then(() => {
+                setPlaylistFilter(current => (current === playlist.id ? '' : current));
+                return reloadPlaylists();
+              })
+              .catch(() => {
+                Alert.alert(t('music.playlists.title'), t('music.playlists.saveFailed'));
+              });
+          },
+        },
+      ]
+    );
+  }, [reloadPlaylists, t]);
+
+  // 在「加入/移出歌单」弹窗里勾选：只更新目标歌单，其余保持不动。
+  const toggleSongInPlaylist = useCallback((playlist, included) => {
+    const songId = playlistPickerSongId;
+    if (!songId || !playlist) return;
+    setSongInPlaylist(playlist.id, songId, included)
+      .then(updated => {
+        setPlaylists(list => list.map(item => (item.id === updated.id ? updated : item)));
+      })
+      .catch(() => {
+        Alert.alert(t('music.playlists.title'), t('music.playlists.saveFailed'));
+      });
+  }, [playlistPickerSongId, t]);
 
   const current = useMemo(
     () => items.find(item => item.id === currentId) || null,
@@ -301,12 +444,18 @@ export default function MusicScreen() {
             setItems(list => list.filter(entry => entry.id !== item.id));
             deleteMusicItems([item.id]).catch(() => {});
             deleteMusicCommentsForSongs([item.id]).catch(() => {});
+            // 歌单里的引用同步清掉（失败不阻断删除，渲染侧也会按曲库过滤）。
+            purgeSongsFromPlaylists([item.id])
+              .then(changed => {
+                if (changed) reloadPlaylists().catch(() => {});
+              })
+              .catch(() => {});
             FileSystem.deleteAsync(item.uri, { idempotent: true }).catch(() => {});
           },
         },
       ]
     );
-  }, [currentId, stop]);
+  }, [currentId, reloadPlaylists, stop]);
 
   // 接话：切到该角色当前会话并把评论作为引用带入输入区（不落库、不进会话存储）。
   const handleQuoteComment = useCallback(async comment => {
@@ -458,53 +607,59 @@ export default function MusicScreen() {
               <Text style={styles.noAudioHintText}>{t('music.comments.audioTooLarge')}</Text>
             </View>
           ) : null}
-          {audioSupported === true ? (
-            <View style={styles.clipSettings}>
-              <Text style={styles.clipSettingsLabel}>{t('music.clip.duration')}</Text>
-              <View style={styles.clipChips}>
-                {MUSIC_CLIP_SECONDS.map(item => (
-                  <Chip
-                    key={item}
-                    label={t('music.clip.seconds', { count: item })}
-                    active={clipSettings.clipSeconds === item}
-                    onPress={() => updateClipSettings({ clipSeconds: item })}
-                  />
-                ))}
+          <CollapsibleSection
+            title={t('music.settings.title')}
+            icon="options-outline"
+            right={(
+              <Text style={styles.settingsSummary} numberOfLines={1}>
+                {[
+                  String(selectedCharacter?.name || '').trim() || t('music.settings.noCharacter'),
+                  audioSupported === true
+                    ? t('music.clip.seconds', { count: clipSettings.clipSeconds })
+                    : '',
+                ].filter(Boolean).join(' · ')}
+              </Text>
+            )}
+          >
+            {audioSupported === true ? (
+              <View style={styles.clipSettings}>
+                <Text style={styles.clipSettingsLabel}>{t('music.clip.duration')}</Text>
+                <View style={styles.clipChips}>
+                  {MUSIC_CLIP_SECONDS.map(item => (
+                    <Chip
+                      key={item}
+                      label={t('music.clip.seconds', { count: item })}
+                      active={clipSettings.clipSeconds === item}
+                      onPress={() => updateClipSettings({ clipSeconds: item })}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.clipSettingsLabel}>{t('music.clip.sampleRate')}</Text>
+                <View style={styles.clipChips}>
+                  {MUSIC_CLIP_SAMPLE_RATES.map(item => (
+                    <Chip
+                      key={item}
+                      label={t('music.clip.khz', { rate: item / 1000 })}
+                      active={clipSettings.sampleRate === item}
+                      onPress={() => updateClipSettings({ sampleRate: item })}
+                    />
+                  ))}
+                </View>
               </View>
-              <Text style={styles.clipSettingsLabel}>{t('music.clip.sampleRate')}</Text>
-              <View style={styles.clipChips}>
-                {MUSIC_CLIP_SAMPLE_RATES.map(item => (
-                  <Chip
-                    key={item}
-                    label={t('music.clip.khz', { rate: item / 1000 })}
-                    active={clipSettings.sampleRate === item}
-                    onPress={() => updateClipSettings({ sampleRate: item })}
-                  />
-                ))}
-              </View>
-            </View>
-          ) : null}
-          <Text style={styles.triggerTitle}>{t('music.comments.characterLabel')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.triggerScroll}>
-            {characters.map(item => {
-              const selected = item.id === characterId;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.characterChip, selected && styles.characterChipActive]}
-                  onPress={() => setCharacterId(item.id)}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[styles.characterChipText, selected && styles.characterChipTextActive]}
-                    numberOfLines={1}
-                  >
-                    {String(item.name || '').trim() || t('common.characterFallback')}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+            ) : null}
+            <CollapsibleSelect
+              label={t('music.comments.characterLabel')}
+              value={characterId}
+              options={characters.map(item => ({
+                value: item.id,
+                label: String(item.name || '').trim() || t('common.characterFallback'),
+              }))}
+              onSelect={setCharacterId}
+              placeholder={t('music.settings.noCharacter')}
+              emptyHint={t('music.settings.noCharacters')}
+              style={styles.characterSelect}
+            />
+          </CollapsibleSection>
           {commentError ? (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{commentError}</Text>
@@ -540,13 +695,94 @@ export default function MusicScreen() {
         </Card>
       ) : null}
 
-      {items.length === 0 ? (
+      <Card style={styles.playlistCard}>
+        <View style={styles.playlistHeader}>
+          <Text style={styles.playlistTitle}>{t('music.playlists.title')}</Text>
+          <TouchableOpacity
+            style={styles.playlistCreate}
+            onPress={openCreatePlaylist}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={t('music.playlists.create')}
+          >
+            <Ionicons name="add" size={16} color={theme.colors.primary} />
+            <Text style={styles.playlistCreateText}>{t('music.playlists.create')}</Text>
+          </TouchableOpacity>
+        </View>
+        {playlists.length === 0 ? (
+          <Text style={styles.playlistEmpty}>{t('music.playlists.empty')}</Text>
+        ) : (
+          <>
+            <View style={styles.playlistChips}>
+              <Chip
+                label={t('music.playlists.all')}
+                active={!activePlaylist}
+                onPress={() => setPlaylistFilter('')}
+              />
+              {playlists.map(playlist => (
+                <Chip
+                  key={playlist.id}
+                  label={t('music.playlists.chip', {
+                    name: playlist.name,
+                    count: playlist.songIds.length,
+                  })}
+                  active={activePlaylist?.id === playlist.id}
+                  onPress={() => setPlaylistFilter(playlist.id)}
+                />
+              ))}
+            </View>
+            {activePlaylist ? (
+              <View style={styles.playlistActions}>
+                <TouchableOpacity
+                  style={styles.playlistAction}
+                  onPress={() => openRenamePlaylist(activePlaylist)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('music.playlists.rename')}
+                >
+                  <Ionicons name="create-outline" size={14} color={theme.colors.primary} />
+                  <Text style={styles.playlistActionText}>{t('music.playlists.rename')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.playlistAction}
+                  onPress={() => confirmDeletePlaylist(activePlaylist)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('music.playlists.delete')}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={14}
+                    color={theme.colors.danger || theme.colors.text}
+                  />
+                  <Text style={[styles.playlistActionText, styles.playlistActionDanger]}>
+                    {t('music.playlists.delete')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </>
+        )}
+      </Card>
+
+      {activePlaylist ? (
+        <Text style={styles.playlistFilterHint}>
+          {t('music.playlists.filterHint', {
+            name: activePlaylist.name,
+            count: visibleItems.length,
+          })}
+        </Text>
+      ) : null}
+
+      {visibleItems.length === 0 ? (
         <EmptyState
           icon="musical-notes-outline"
-          title={t('music.empty.title')}
-          description={t('music.empty.body')}
+          title={activePlaylist ? t('music.playlists.filterEmpty.title') : t('music.empty.title')}
+          description={activePlaylist
+            ? t('music.playlists.filterEmpty.body')
+            : t('music.empty.body')}
         />
-      ) : items.map(item => (
+      ) : visibleItems.map(item => (
         <MusicRow
           key={item.id}
           item={item}
@@ -554,12 +790,30 @@ export default function MusicScreen() {
           playing={status.playing}
           onPress={() => handlePlay(item)}
           onDelete={() => handleDelete(item)}
+          onMore={() => setPlaylistPickerSongId(item.id)}
           styles={styles}
           theme={theme}
           t={t}
         />
       ))}
     </ScrollView>
+      <PlaylistNameModal
+        visible={playlistPrompt.visible}
+        mode={playlistPrompt.mode}
+        draft={playlistPrompt.draft}
+        saving={playlistSaving}
+        onChangeDraft={draft => setPlaylistPrompt(previous => ({ ...previous, draft }))}
+        onClose={closePlaylistPrompt}
+        onConfirm={confirmPlaylistName}
+      />
+      <PlaylistPickerModal
+        visible={!!playlistPickerSong}
+        playlists={playlists}
+        songName={playlistPickerSong ? playlistPickerSong.name : ''}
+        isIncluded={playlist => playlist.songIds.includes(playlistPickerSongId)}
+        onToggle={toggleSongInPlaylist}
+        onClose={() => setPlaylistPickerSongId('')}
+      />
       <AudioClipWebView ref={clipRef} />
     </>
   );
@@ -623,6 +877,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   commentsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
   commentsTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700' },
   triggerTitle: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
+  settingsSummary: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    maxWidth: 160,
+    marginRight: 6,
+  },
+  characterSelect: { marginTop: 8 },
   triggerScroll: { flexGrow: 0, marginBottom: 6 },
   triggerChip: {
     flexDirection: 'row',
@@ -637,17 +898,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   triggerTime: { color: theme.colors.text, fontSize: fonts.scaled(12), fontWeight: '600' },
   triggerNote: { color: theme.colors.textFaint, fontSize: fonts.scaled(10), maxWidth: 90 },
   triggerRemove: { paddingHorizontal: 4, paddingVertical: 2 },
-  characterChip: {
-    borderRadius: tokens.radius.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  characterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  characterChipText: { color: theme.colors.text, fontSize: fonts.scaled(12), maxWidth: 120 },
-  characterChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '600' },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -713,5 +963,32 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   rowBody: { flex: 1, marginRight: 8 },
   rowName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '600' },
   rowMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 3 },
+  rowMore: { marginRight: 4 },
   rowDelete: { marginRight: 10 },
+  playlistCard: { marginBottom: tokens.metrics.cardGap },
+  playlistHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  playlistTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700' },
+  playlistCreate: { flexDirection: 'row', alignItems: 'center' },
+  playlistCreateText: { color: theme.colors.primary, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 4 },
+  playlistEmpty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17) },
+  playlistChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  playlistActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  playlistAction: { flexDirection: 'row', alignItems: 'center', marginRight: 18 },
+  playlistActionText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
+  playlistActionDanger: { color: theme.colors.danger || theme.colors.text },
+  playlistFilterHint: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(12),
+    marginBottom: 8,
+    lineHeight: fonts.scaled(17),
+  },
 });
