@@ -27,6 +27,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.facebook.react.bridge.Arguments
@@ -49,11 +50,14 @@ class OverlayService : Service() {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         const val EVENT_CAPTURE = "ScreenOverlay:onCapture"
+        const val EVENT_CAPTURE_FAILED = "ScreenOverlay:onCaptureFailed"
         const val EVENT_REQUEST_CAPTURE = "ScreenOverlay:onRequestCapture"
         const val EVENT_STATE = "ScreenOverlay:onState"
         private const val TAG = "ScreenOverlay"
         private const val NOTIFICATION_ID = 0x5C02
         private const val CHANNEL_ID = "screen_overlay"
+        // 帧新鲜度校验的时序余量：请求与首帧落地之间有抖动，留 50ms 避免误杀合法帧。
+        private const val FRAME_FRESHNESS_SLACK_NANOS = 50_000_000L
 
         @Volatile var instance: OverlayService? = null
             private set
@@ -65,12 +69,18 @@ class OverlayService : Service() {
     private lateinit var rootView: LinearLayout
     private lateinit var params: WindowManager.LayoutParams
     private var statusView: TextView? = null
+    private var titleView: TextView? = null
+    private var characterName: String = ""
     private var expanded = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var captureRequested = false
+    // 本次截屏请求的发起时刻（System.nanoTime 时基，与 Image.timestamp 同源）：
+    // 重挂载 Surface 会先吐出旧帧，用它丢弃早于请求的帧。
+    private var captureRequestedAtNanos = 0L
     private var width = 0
     private var height = 0
     private var density = 0
@@ -177,19 +187,63 @@ class OverlayService : Service() {
     private fun showCollapsed() {
         expanded = false
         statusView = null
+        titleView = null
         rootView.removeAllViews()
-        val ball = TextView(this).apply {
-            text = "看"
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#6c63ff"))
+        val size = dp(52)
+        val icon = circularAppIcon(size)
+        val ball = if (icon != null) {
+            ImageView(this).apply {
+                setImageDrawable(icon)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#6c63ff"))
+                }
+            }
+        } else {
+            // 取不到 App 图标时回退文字球：悬浮球必须始终可点。
+            TextView(this).apply {
+                text = "看"
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#6c63ff"))
+                }
             }
         }
-        val size = dp(52)
         rootView.addView(ball, LinearLayout.LayoutParams(size, size))
+    }
+
+    // 悬浮球头像：App 图标圆裁（用户要求别再显示一个「看」字）。
+    // 图标是自适应启动图时可能带背景，直接圆裁即可；任何异常一律回退 null 走文字球。
+    private fun circularAppIcon(size: Int): android.graphics.drawable.Drawable? {
+        return try {
+            val iconId = resources.getIdentifier("icon", "mipmap", packageName)
+            val source = if (iconId != 0) {
+                androidx.core.content.res.ResourcesCompat.getDrawable(resources, iconId, null)
+            } else {
+                null
+            } ?: return null
+            val full = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val fullCanvas = android.graphics.Canvas(full)
+            source.setBounds(0, 0, size, size)
+            source.draw(fullCanvas)
+            val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.BitmapShader(
+                    full,
+                    android.graphics.Shader.TileMode.CLAMP,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+            }
+            android.graphics.Canvas(output).drawCircle(size / 2f, size / 2f, size / 2f, paint)
+            android.graphics.drawable.BitmapDrawable(resources, output)
+        } catch (error: Exception) {
+            Log.w(TAG, "app icon unavailable: ${error.message}")
+            null
+        }
     }
 
     private fun showExpanded() {
@@ -204,11 +258,13 @@ class OverlayService : Service() {
             }
         }
         val title = TextView(this).apply {
-            text = "看屏幕"
+            text = overlayTitle()
             setTextColor(Color.parseColor("#6c63ff"))
             textSize = 13f
+            maxWidth = dp(212)
         }
         panel.addView(title)
+        titleView = title
         val status = TextView(this).apply {
             text = "点「截屏」让角色看看现在的屏幕"
             setTextColor(Color.WHITE)
@@ -221,6 +277,7 @@ class OverlayService : Service() {
 
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(button("截屏") { requestCaptureFromButton() })
+        actions.addView(button("说话") { openAppForTalk() })
         actions.addView(button("收起") { showCollapsed() })
         actions.addView(button("关闭") { stopSelf() })
         panel.addView(actions)
@@ -278,9 +335,17 @@ class OverlayService : Service() {
     private var dragged = false
     private val touchSlop: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
 
+    // 小窗标题：优先显示当前角色名（用户要求顶部不再固定写「看屏幕」），未设置时回退原题。
+    private fun overlayTitle(): String = characterName.ifEmpty { "看屏幕" }
+
+    fun setCharacterName(name: String) {
+        characterName = String(name ?: "").trim()
+        mainHandler.post { titleView?.text = overlayTitle() }
+    }
+
     fun setStatusText(text: String) {
         val value = text.trim()
-        Handler(Looper.getMainLooper()).post {
+        mainHandler.post {
             statusView?.text = value.ifEmpty { "点「截屏」让角色看看现在的屏幕" }
         }
     }
@@ -290,8 +355,41 @@ class OverlayService : Service() {
         ScreenOverlayModule.emit(EVENT_REQUEST_CAPTURE, Arguments.createMap())
     }
 
+    // 「说话」：把 App 带到前台，用户在「看屏幕」面板里对角色说话——截屏前/后都能说，
+    // 这些话与评论归入同一场对话（见 JS 侧 screenWatch/threads.js）。
+    // 优先 deep link（将来可直达分段），失败退回普通启动，保证按钮始终有反应。
+    private fun openAppForTalk() {
+        val deepLink = try {
+            Intent(Intent.ACTION_VIEW, android.net.Uri.parse("easychat2://screen-watch")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+        } catch (error: Exception) {
+            null
+        }
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val target = deepLink ?: launch ?: return
+        try {
+            startActivity(if (deepLink != null) deepLink else target)
+            setStatusText("在 App 里说点什么，角色会记住这场对话")
+        } catch (error: Exception) {
+            // deep link 无人可处理时退回普通启动。
+            try {
+                if (launch != null) startActivity(launch)
+            } catch (inner: Exception) {}
+        }
+    }
+
     fun requestCapture() {
+        if (projection == null || imageReader == null) {
+            // 投影未建立（授权被拒 / 已被系统回收 / 服务重建）：
+            // 以前这里静默丢弃请求，JS 只能等 6s 超时；现在明确回报失败。
+            emitCaptureFailed("no-projection")
+            return
+        }
         captureRequested = true
+        captureRequestedAtNanos = System.nanoTime()
         setStatusText("正在看…")
         // 静态画面可能不产生新帧：强制刷新一次 surface 以触发 ImageReader 回调。
         try {
@@ -300,11 +398,25 @@ class OverlayService : Service() {
         } catch (error: Exception) {}
     }
 
+    // 采集失败统一出口：JS 侧据此中止评论并提示，避免「截不到图却一直在评论」。
+    private fun emitCaptureFailed(reason: String) {
+        captureRequested = false
+        ScreenOverlayModule.emit(EVENT_CAPTURE_FAILED, Arguments.createMap().apply {
+            putString("reason", reason)
+        })
+    }
+
     // ---------- 屏幕采集 ----------
 
     private fun setupProjection(resultCode: Int, data: Intent) {
-        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
-        val mp = manager.getMediaProjection(resultCode, data) ?: return
+        val manager = getSystemService(MediaProjectionManager::class.java) ?: run {
+            emitCaptureFailed("no-manager")
+            return
+        }
+        val mp = manager.getMediaProjection(resultCode, data) ?: run {
+            emitCaptureFailed("projection-denied")
+            return
+        }
         projection = mp
         mp.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
@@ -322,21 +434,38 @@ class OverlayService : Service() {
         density = metrics.densityDpi
         val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
         reader.setOnImageAvailableListener({ available ->
-            val image = available.acquireLatestImage()
+            val image = try {
+                available.acquireLatestImage()
+            } catch (error: Exception) {
+                null
+            }
             if (image != null) {
                 try {
                     if (captureRequested) {
-                        captureRequested = false
-                        val bitmap = imageToBitmap(image)
-                        if (bitmap != null) saveAndEmit(bitmap)
+                        // 只接受本次请求之后产生的帧（Image.timestamp 与 System.nanoTime 同源）：
+                        // 重挂载 Surface 会先吐出旧帧，采用它会让用户拿到过期画面却以为截到了当前
+                        // 屏幕——这正是「App 外一直截不到、角色却一直在评论」的观感来源。
+                        // timestamp 不可靠（<= 0）的机型跳过校验，避免误杀导致永久截不到。
+                        val fresh = image.timestamp <= 0L
+                            || image.timestamp >= captureRequestedAtNanos - FRAME_FRESHNESS_SLACK_NANOS
+                        if (fresh) {
+                            captureRequested = false
+                            val bitmap = imageToBitmap(image)
+                            if (bitmap != null) {
+                                saveAndEmit(bitmap)
+                            } else {
+                                emitCaptureFailed("decode-failed")
+                            }
+                        }
                     }
                 } catch (error: Exception) {
                     Log.w(TAG, "capture frame failed: ${error.message}")
+                    emitCaptureFailed("frame-error")
                 } finally {
                     image.close()
                 }
             }
-        }, Handler(Looper.getMainLooper()))
+        }, mainHandler)
         imageReader = reader
         virtualDisplay = mp.createVirtualDisplay(
             "easychat-screenwatch",
@@ -375,6 +504,7 @@ class OverlayService : Service() {
             ScreenOverlayModule.emit(EVENT_CAPTURE, map)
         } catch (error: Exception) {
             Log.w(TAG, "save frame failed: ${error.message}")
+            emitCaptureFailed("save-failed")
         } finally {
             bitmap.recycle()
         }

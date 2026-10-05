@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -26,6 +27,7 @@ import { useTranslation } from '../i18n/I18nContext.js';
 
 import { captureAppScreen } from './capture.js';
 import {
+  addCaptureFailedListener,
   addCaptureListener,
   addRequestCaptureListener,
   addStateListener,
@@ -35,11 +37,13 @@ import {
   isOverlaySupported,
   requestCapturePermission,
   requestOverlayPermission,
+  setOverlayCharacterName,
   startOverlay,
   stopOverlay,
   updateOverlayText,
 } from './overlay.js';
 import { resolveScreenWatchCapabilities, useScreenWatchComments } from './useScreenWatchComments.js';
+import { THREAD_IDLE_MS, getScreenWatchThreads } from './threads.js';
 
 // 视频观屏（模型声明视频能力时）以周期帧序列近似「连续看」。
 const OVERLAY_VIDEO_FRAMES = 4;
@@ -56,6 +60,9 @@ export default function ScreenWatchScreen() {
   const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
 
   const [capturing, setCapturing] = useState(false);
+  // 和角色说话：输入草稿 + 当前「看屏幕对话」（连续截屏/说话归入同一场，见 threads.js）。
+  const [draft, setDraft] = useState('');
+  const [thread, setThread] = useState(null);
   const {
     comments,
     generating,
@@ -77,6 +84,8 @@ export default function ScreenWatchScreen() {
   const [overlayBusy, setOverlayBusy] = useState(false);
   const overlayBusyRef = useRef(false);
   const captureWaiterRef = useRef(null);
+  // 最近一次采集失败的原因（原生回报）：用于给出可处置的提示，而不是笼统的「没能抓到画面」。
+  const captureErrorRef = useRef('');
 
   // 等待原生回传一帧；超时返回 null，避免永久挂起。
   const waitForCapture = useCallback(() => new Promise(resolve => {
@@ -131,7 +140,15 @@ export default function ScreenWatchScreen() {
         if (index < frames - 1) await delay(OVERLAY_FRAME_INTERVAL_MS);
       }
       if (uris.length === 0) {
-        await updateOverlayText(t('screenWatch.overlay.captureFailed'));
+        const reason = captureErrorRef.current;
+        captureErrorRef.current = '';
+        // 授权被拒/投影已死要告诉用户怎么恢复；其余失败给通用提示。
+        const needsPermission = reason === 'no-projection' || reason === 'projection-denied';
+        await updateOverlayText(
+          needsPermission
+            ? t('screenWatch.overlay.captureFailed.permission')
+            : t('screenWatch.overlay.captureFailed')
+        );
         return;
       }
       const commentText = await generate(frames > 1 ? { imageUris: uris } : { imageUri: uris[0] });
@@ -152,10 +169,25 @@ export default function ScreenWatchScreen() {
   useEffect(() => {
     if (!overlaySupported) return undefined;
     const offCapture = addCaptureListener(({ path }) => settleCapture(path));
+    // 原生明确回报失败：立即结束等待（不必等 6s 超时），并记下原因供提示分流。
+    const offFailed = addCaptureFailedListener(({ reason }) => {
+      captureErrorRef.current = reason;
+      settleCapture('');
+    });
     const offRequest = addRequestCaptureListener(() => { overlayRequestHandlerRef.current(); });
     const offState = addStateListener(({ active }) => setOverlayActive(active));
-    return () => { offCapture(); offRequest(); offState(); };
+    return () => { offCapture(); offFailed(); offRequest(); offState(); };
   }, [overlaySupported, settleCapture]);
+
+  // 小窗标题跟随当前角色（用户要求顶部显示角色名，而不是固定的「看屏幕」）。
+  const overlayCharacterName = useMemo(
+    () => (selectedCharacter ? String(selectedCharacter.name || '').trim() : ''),
+    [selectedCharacter]
+  );
+  useEffect(() => {
+    if (!overlaySupported || !overlayActive) return;
+    setOverlayCharacterName(overlayCharacterName);
+  }, [overlaySupported, overlayActive, overlayCharacterName]);
 
   const handleOpenOverlay = useCallback(async () => {
     if (overlayBusyRef.current) return;
@@ -209,6 +241,40 @@ export default function ScreenWatchScreen() {
       setCapturing(false);
     }
   }, [capturing, generating, generate]);
+
+  // 当前对话（只读展示）：不在展示路径上创建对话，创建只发生在真正生成时。
+  const reloadThread = useCallback(async () => {
+    if (!characterId) {
+      setThread(null);
+      return;
+    }
+    try {
+      const list = await getScreenWatchThreads();
+      const now = Date.now();
+      setThread(list.find(item => (
+        item.characterId === characterId && now - item.updatedAt <= THREAD_IDLE_MS
+      )) || null);
+    } catch (error) {
+      setThread(null);
+    }
+  }, [characterId]);
+
+  useEffect(() => {
+    reloadThread();
+  }, [reloadThread]);
+
+  // 有新评论（含悬浮窗路径）就刷新对话展示。
+  useEffect(() => {
+    if (comments.length > 0) reloadThread();
+  }, [comments.length, reloadThread]);
+
+  // 用户主动说话：不带截图时为纯文字对话，同样落进当前「看屏幕对话」。
+  const handleSendText = useCallback(async () => {
+    const text = String(draft || '').trim();
+    if (!text || generating) return;
+    setDraft('');
+    await generate({ userText: text });
+  }, [draft, generate, generating]);
 
   const handleQuoteComment = useCallback(async comment => {
     if (!comment || !comment.characterId) return;
@@ -320,6 +386,52 @@ export default function ScreenWatchScreen() {
         ) : null}
       </Card>
 
+      <Card style={styles.captureCard}>
+        <Text style={styles.overlayTitle}>{t('screenWatch.talk.title')}</Text>
+        <Text style={styles.hint}>
+          {thread && thread.entries.length > 0
+            ? t('screenWatch.talk.hintActive', { count: thread.entries.length })
+            : t('screenWatch.talk.hint')}
+        </Text>
+        {thread && thread.entries.length > 0 ? (
+          <View style={styles.threadList}>
+            {thread.entries.slice(-6).map(entry => (
+              <View key={entry.id} style={styles.threadRow}>
+                <Text style={styles.threadWho} numberOfLines={1}>
+                  {entry.role === 'user'
+                    ? t('screenWatch.talk.you')
+                    : (String(selectedCharacter?.name || '').trim() || t('common.characterFallback'))}
+                </Text>
+                <Text style={styles.threadText}>{entry.text}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.talkRow}>
+          <TextInput
+            style={styles.talkInput}
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={t('screenWatch.talk.placeholder')}
+            placeholderTextColor={theme.colors.textFaint}
+            returnKeyType="send"
+            onSubmitEditing={handleSendText}
+            editable={!generating}
+          />
+          <TouchableOpacity
+            style={[styles.talkSend, (!draft.trim() || generating) && styles.talkSendDisabled]}
+            onPress={handleSendText}
+            disabled={!draft.trim() || generating}
+            activeOpacity={0.85}
+            accessibilityLabel={t('screenWatch.talk.send')}
+          >
+            {generating
+              ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+              : <Ionicons name="send" size={15} color={theme.colors.primaryContrast} />}
+          </TouchableOpacity>
+        </View>
+      </Card>
+
       {comments.length === 0 && !generating ? (
         <EmptyState
           icon="eye-outline"
@@ -387,6 +499,37 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   characterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   characterChipText: { color: theme.colors.text, fontSize: fonts.scaled(12), maxWidth: 120 },
   characterChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '600' },
+  threadList: { marginTop: 4, marginBottom: 10 },
+  threadRow: { marginBottom: 8 },
+  threadWho: { color: theme.colors.primary, fontSize: fonts.scaled(11), fontWeight: '700' },
+  threadText: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    lineHeight: fonts.scaled(19),
+    marginTop: 2,
+  },
+  talkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  talkInput: {
+    flex: 1,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  talkSend: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+  },
+  talkSendDisabled: { opacity: tokens.opacity.disabled },
   captureButton: {
     flexDirection: 'row',
     alignItems: 'center',

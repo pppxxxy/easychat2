@@ -20,10 +20,18 @@ import {
 
 import { appendScreenWatchComment, getScreenWatchComments } from './comments.js';
 import { buildScreenWatchPrompt } from './commentPrompts.js';
+import {
+  THREAD_ROLE_CHARACTER,
+  THREAD_ROLE_USER,
+  appendThreadEntry,
+  getOrCreateActiveThread,
+} from './threads.js';
 import { readImageDataUri } from '../chat/attachments.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
+// 注入给模型的历史条数上限（约 6 轮）：够角色记住这场对话，又不淹没当前画面。
+const THREAD_HISTORY_MAX = 12;
 
 // 解析当前模型能力：在线来源 supportsVision/supportsVideo 或本地多模态。
 // 供「生成前门控」与悬浮窗「视频帧序列」判定复用；读盘失败按不支持处理。
@@ -80,7 +88,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     };
   }, []);
 
-  const generate = useCallback(async ({ imageUri, imageUris } = {}) => {
+  const generate = useCallback(async ({ imageUri, imageUris, userText } = {}) => {
     // 兼容单帧（imageUri）与视频帧序列（imageUris）；两者都为空则纯文字。
     const uris = (Array.isArray(imageUris) ? imageUris : [])
       .map(item => String(item || ''))
@@ -92,16 +100,21 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       setError(t('screenWatch.error.noCharacter'));
       return false;
     }
+    // 用户主动说话（悬浮窗/面板的输入）：纯文字且没内容就不发请求。
+    const saidText = String(userText || '').trim();
+    if (uris.length === 0 && !saidText) return false;
     const controller = new AbortController();
     abortRef.current = controller;
     generatingRef.current = true;
     setGenerating(true);
     setError('');
     try {
-      const [profile, presets, caps] = await Promise.all([
+      const [profile, presets, caps, threadState] = await Promise.all([
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
         resolveScreenWatchCapabilities(),
+        // 对话线程（同角色 + 未超空闲阈值即续用）：连续截屏/说话算同一场对话。
+        getOrCreateActiveThread(character.id, character.name).catch(() => null),
       ]);
       if (controller.signal.aborted) return false;
       // 视觉门控：与聊天附件菜单同一口径。读盘失败按不支持处理（给明确提示）。
@@ -119,10 +132,20 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         throw Object.assign(new Error('截图读取失败'), { code: 'CAPTURE_READ' });
       }
       if (controller.signal.aborted) return false;
+      // 对话线程历史（不含本次要说的话）：让角色记住这场对话的前文，连续截屏不再各说各话。
+      const thread = threadState ? threadState.thread : null;
+      const historyMessages = (thread ? thread.entries : [])
+        .slice(-THREAD_HISTORY_MAX)
+        .map(entry => ({ id: entry.id, role: entry.role, text: entry.text }));
       const requestMessages = buildRequestMessages({
         character,
-        historyMessages: [],
-        userText: buildScreenWatchPrompt(),
+        historyMessages,
+        // 用户主动说话时以他的话为主（同时带截图则先说明在看屏幕）；否则走原评论提示。
+        userText: saidText
+          ? (uris.length > 0
+            ? `${buildScreenWatchPrompt()}\n\n用户看着屏幕说：${saidText}`
+            : saidText)
+          : buildScreenWatchPrompt(),
         userProfile: profile || {},
         globalPresets: presets,
         summaryText: '',
@@ -141,6 +164,27 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       // 接口空响应返回占位文本：那不是角色评论，按失败处理。
       const text = String(raw || '').trim();
       if (!text || text === EMPTY_REPLY_TEXT) throw new Error('没有收到回复内容');
+      // 对话线程落库：用户的话（若有）+ 角色回复。写线程失败不影响本次评论结果。
+      if (thread) {
+        try {
+          if (saidText) {
+            await appendThreadEntry(thread.id, {
+              id: `swu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              role: THREAD_ROLE_USER,
+              text: saidText,
+              imageUri: uris[0] || '',
+              at: Date.now(),
+            });
+          }
+          await appendThreadEntry(thread.id, {
+            id: `swc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            role: THREAD_ROLE_CHARACTER,
+            text: text.slice(0, COMMENT_TEXT_MAX),
+            imageUri: uris[0] || '',
+            at: Date.now(),
+          });
+        } catch (error) {}
+      }
       const comment = {
         id: `sw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         characterId: character.id,
@@ -161,7 +205,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         else if (caught && caught.code === 'CAPTURE_READ') setError(t('screenWatch.capture.failed.body'));
         else setError(t('screenWatch.comments.failed'));
       }
-      lastFailedRef.current = { imageUri: uris[0] || '', imageUris: uris };
+      lastFailedRef.current = { imageUri: uris[0] || '', imageUris: uris, userText: saidText };
       return false;
     } finally {
       generatingRef.current = false;

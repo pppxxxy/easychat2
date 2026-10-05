@@ -23,6 +23,8 @@ import {
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
 import { buildMemoryListData, groupSessionsByAge } from './memory/memoryBuckets.js';
+import { deleteScreenWatchThread, getScreenWatchThreads } from './screenWatch/threads.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
@@ -58,6 +60,44 @@ function RowAction({ icon, color, onPress, label, styles }) {
 }
 
 export default function MemoryScreen({ navigation }) {
+  const { t } = useTranslation();
+  // 看屏幕对话（screenWatch/threads.js）：与历史会话并列展示/删除
+  // —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
+  const [threads, setThreads] = useState([]);
+  const [threadsOpen, setThreadsOpen] = useState(false);
+
+  const reloadThreads = useCallback(async () => {
+    try {
+      setThreads(await getScreenWatchThreads());
+    } catch (error) {
+      setThreads([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadThreads();
+  }, [reloadThreads]);
+
+  const handleDeleteThread = useCallback(thread => {
+    if (!thread) return;
+    const name = String(thread.characterName || '').trim() || t('common.characterFallback');
+    Alert.alert(
+      t('memory.screenWatch.delete.title'),
+      t('memory.screenWatch.delete.body', { name }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            deleteScreenWatchThread(thread.id)
+              .then(() => reloadThreads())
+              .catch(() => {});
+          },
+        },
+      ]
+    );
+  }, [reloadThreads, t]);
   const {
     sessions,
     characters,
@@ -464,6 +504,56 @@ export default function MemoryScreen({ navigation }) {
           )}
         </View>
       </View>
+      {threads.length > 0 ? (
+        <Card style={styles.threadCard}>
+          <TouchableOpacity
+            style={styles.threadHead}
+            onPress={() => setThreadsOpen(value => !value)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: threadsOpen }}
+          >
+            <Ionicons
+              name={threadsOpen ? 'chevron-down' : 'chevron-forward'}
+              size={16}
+              color={theme.colors.textFaint}
+            />
+            <Text style={styles.threadTitle}>
+              {t('memory.screenWatch.title')}
+            </Text>
+            <Text style={styles.threadCount}>
+              {t('memory.screenWatch.count', { count: threads.length })}
+            </Text>
+          </TouchableOpacity>
+          {threadsOpen ? threads.map(entry => (
+            <View key={entry.id} style={styles.threadItem}>
+              <View style={styles.threadItemHead}>
+                <Text style={styles.threadItemName} numberOfLines={1}>
+                  {String(entry.characterName || '').trim() || t('common.characterFallback')}
+                </Text>
+                <Text style={styles.threadItemMeta}>
+                  {t('memory.screenWatch.entries', { count: entry.entries.length })}
+                </Text>
+                <RowAction
+                  icon="trash-outline"
+                  color={theme.colors.textFaint}
+                  onPress={() => handleDeleteThread(entry)}
+                  label={t('memory.screenWatch.a11y.delete', {
+                    name: String(entry.characterName || '').trim() || t('common.characterFallback'),
+                  })}
+                  styles={styles}
+                />
+              </View>
+              {entry.entries.slice(-2).map(item => (
+                <Text key={item.id} style={styles.threadItemText} numberOfLines={2}>
+                  {item.text}
+                </Text>
+              ))}
+            </View>
+          )) : null}
+        </Card>
+      ) : null}
+
       {orphans.length > 0 ? (
         <TouchableOpacity
           style={styles.recoverNotice}
@@ -724,6 +814,40 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
   checkbox: { marginRight: 10 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
+  threadCard: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    padding: tokens.metrics.cardPadding,
+  },
+  threadHead: { flexDirection: 'row', alignItems: 'center' },
+  threadTitle: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
+    fontWeight: '700',
+    marginLeft: 6,
+    flex: 1,
+  },
+  threadCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
+  threadItem: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.surfaceBorder,
+  },
+  threadItemHead: { flexDirection: 'row', alignItems: 'center' },
+  threadItemName: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    fontWeight: '600',
+    flex: 1,
+  },
+  threadItemMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginRight: 8 },
+  threadItemText: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(12),
+    lineHeight: fonts.scaled(18),
+    marginTop: 4,
+  },
   groupHeader: {
     flexDirection: 'row',
     alignItems: 'center',

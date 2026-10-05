@@ -193,6 +193,16 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun setCharacterName(name: String, promise: Promise) {
+        try {
+            OverlayService.instance?.setCharacterName(name)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_NAME", e.message, e)
+        }
+    }
+
     companion object {
         private const val REQUEST_CAPTURE_PERMISSION = 0x5C01
         private const val REQUEST_POST_NOTIFICATIONS = 0x5C03

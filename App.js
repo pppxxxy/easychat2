@@ -2,7 +2,7 @@ import './src/polyfills';
 import 'react-native-gesture-handler';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -399,6 +399,35 @@ function ProactiveMessageBridge({ navigationReady }) {
       Alert.alert(t('app.openRole.failed.title'), t('app.openRole.failed.body'));
     }
   }, [loaded, navigationReady, switchCharacter, switchSession, ingestPending, t]);
+
+  // 悬浮窗「说话」的 deep link（easychat2://screen-watch）：把用户带到「扩展 → 世界」
+  // （看屏幕所在分组）。与 openRole 同一门控——导航未就绪时记住请求，就绪后补跳。
+  const pendingScreenWatchRef = useRef(false);
+  useEffect(() => {
+    const handleUrl = ({ url }) => {
+      if (!String(url || '').includes('screen-watch')) return;
+      if (!loaded || !navigationReady || !navigationRef.isReady()) {
+        pendingScreenWatchRef.current = true;
+        return;
+      }
+      navigationRef.navigate(ROUTE_NAMES.extension, { segment: 'world' });
+    };
+    const subscription = Linking.addEventListener('url', handleUrl);
+    Linking.getInitialURL()
+      .then(url => {
+        if (url) handleUrl({ url });
+      })
+      .catch(() => {});
+    return () => subscription.remove();
+  }, [loaded, navigationReady]);
+
+  // 冷启动 / 后台唤起时导航容器可能尚未 ready：就绪后补跳一次。
+  useEffect(() => {
+    if (!pendingScreenWatchRef.current) return;
+    if (!loaded || !navigationReady || !navigationRef.isReady()) return;
+    pendingScreenWatchRef.current = false;
+    navigationRef.navigate(ROUTE_NAMES.extension, { segment: 'world' });
+  }, [loaded, navigationReady]);
 
   // 加载与导航都就绪后再消费排队中的角色。
   useEffect(() => {

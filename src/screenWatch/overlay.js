@@ -7,9 +7,11 @@ import { DeviceEventEmitter, NativeModules } from 'react-native';
 
 import {
   OVERLAY_EVENT_CAPTURE,
+  OVERLAY_EVENT_CAPTURE_FAILED,
   OVERLAY_EVENT_REQUEST_CAPTURE,
   OVERLAY_EVENT_STATE,
   parseCaptureEvent,
+  parseCaptureFailedEvent,
   parseStateEvent,
 } from './overlayEvents.js';
 
@@ -102,11 +104,30 @@ export async function updateOverlayText(text) {
   }
 }
 
+// 小窗标题显示的角色名（不支持的构建/失败时静默：标题按原生默认「看屏幕」）。
+export async function setOverlayCharacterName(name) {
+  const module = nativeModule();
+  if (!module) return false;
+  try {
+    return !!(await module.setCharacterName(String(name || '')));
+  } catch (error) {
+    return false;
+  }
+}
+
 // 订阅事件；返回取消函数。原生运行时 Node 进不去，这里是唯一触碰 DeviceEventEmitter 的地方。
 export function addCaptureListener(handler) {
   const subscription = DeviceEventEmitter.addListener(OVERLAY_EVENT_CAPTURE, payload => {
     const parsed = parseCaptureEvent(payload);
     if (parsed && typeof handler === 'function') handler(parsed);
+  });
+  return () => subscription.remove();
+}
+
+// 原生采集失败（投影未建立/解码失败/写盘失败）：调用方据此立即结束等待并提示。
+export function addCaptureFailedListener(handler) {
+  const subscription = DeviceEventEmitter.addListener(OVERLAY_EVENT_CAPTURE_FAILED, payload => {
+    if (typeof handler === 'function') handler(parseCaptureFailedEvent(payload));
   });
   return () => subscription.remove();
 }
