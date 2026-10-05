@@ -12,7 +12,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const FILES = [
-  'src/ExtensionScreen.js',
+  'src/extension/ExtensionHome.js',
+  'src/extension/GamesView.js',
   'src/music/MusicScreen.js',
   'src/books/BookScreen.js',
   'src/books/BookReaderView.js',

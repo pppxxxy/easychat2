@@ -11,7 +11,7 @@ const SETTINGS_SCREEN_SOURCE = [
   readFileSync(path.join(HERE, '..', 'src', 'SettingsScreen.js'), 'utf8'),
   readFileSync(path.join(HERE, '..', 'src', 'settings', 'sections', 'ExperienceSection.js'), 'utf8'),
 ].join('\n');
-const EXTENSION_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ExtensionScreen.js'), 'utf8');
+const EXTENSION_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'extension', 'ExtensionHome.js'), 'utf8');
 const CHAT_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'ChatScreen.js'), 'utf8');
 const VOICE_SETTINGS_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'VoiceSettingsModal.js'), 'utf8');
 
@@ -43,13 +43,8 @@ test('聊天「更多」菜单含语音入口，弹窗提供全语音开关与�
   assert.ok(CHAT_SCREEN_SOURCE.includes('<TranscriptionPanel'));
 });
 
-test('世界分组内「互动」初始默认折叠', () => {
-  // WorldView 的 openSection 初始为空串：进入页面先看到分组列表，
-  // 不默认展开互动编辑面板（注意不能宽泛匹配 useState('')，
-  // 同文件的 activeGameId 也用空串初始值）
-  assert.ok(EXTENSION_SCREEN_SOURCE.includes("const [openSection, setOpenSection] = useState('')"));
-  assert.equal(
-    EXTENSION_SCREEN_SOURCE.includes("const [openSection, setOpenSection] = useState('interactive')"),
-    false
-  );
+test('拓展首页不再有手风琴展开状态（Stack 化后所有入口同行为 navigate）', () => {
+  assert.equal(EXTENSION_SCREEN_SOURCE.includes('openSection'), false, '不再有手风琴展开状态');
+  assert.equal(EXTENSION_SCREEN_SOURCE.includes('setSegment'), false, '不再有 segment 状态机');
+  assert.ok(EXTENSION_SCREEN_SOURCE.includes('navigation.navigate('), '首页统一用 navigate');
 });

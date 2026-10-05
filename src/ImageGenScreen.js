@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -57,7 +58,7 @@ function isImageLike(name, mime) {
   return /\.(png|jpe?g|webp|bmp|gif)$/i.test(String(name || ''));
 }
 
-export default function ImageGenScreen({ embedded = false, active = true }) {
+export default function ImageGenScreen() {
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState({ activeProvider: DEFAULT_PROVIDER, providers: {} });
   const [providerOpen, setProviderOpen] = useState(false);
@@ -101,17 +102,16 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
 
   }, []);
 
-  useEffect(() => {
-    if (active) return;
-    generationControllerRef.current?.abort();
-    generationControllerRef.current = null;
-    detectionControllerRef.current?.abort();
-    detectionControllerRef.current = null;
-    if (mountedRef.current) {
-      setGenerating(false);
-      setDetecting(false);
-    }
-  }, [active]);
+  // 失焦时中止生成/检测：Stack 化后切页面会卸载组件（触发上面的 cleanup），
+  // 但 Tab 切走不卸载——用 useFocusEffect 补失焦清理。
+  useFocusEffect(
+    useCallback(() => () => {
+      generationControllerRef.current?.abort();
+      generationControllerRef.current = null;
+      detectionControllerRef.current?.abort();
+      detectionControllerRef.current = null;
+    }, [])
+  );
 
   useEffect(() => {
     (async () => {
@@ -516,11 +516,10 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, embedded && styles.containerEmbedded]}
+      style={[styles.container]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={[styles.header, embedded && styles.headerEmbedded]}>
-        {embedded ? null : <Text style={styles.title}>生图</Text>}
+      <View style={[styles.header]}>
         <View style={styles.headerActions}>
           <TopicButton
             style={styles.topicButton}

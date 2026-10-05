@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -59,7 +60,7 @@ const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守�
 // 仅覆盖本次请求（api.mergeSamplingOverrides），不写回设置、不影响全局聊天采样。
 const FORGE_SAMPLING_OVERRIDES = { temperature: 0.3, maxTokens: 8192 };
 
-export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
+export default function CardForgeScreen() {
   const { theme, fonts, tokens } = useTheme();
   const { addCharacter, ensureCharacterSession } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -83,10 +84,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   // 跟随；否则翻看历史时，任何新写入都会把列表硬拽回底部。
   const atBottomRef = useRef(true);
   const mountedRef = useRef(true);
-  const activeRef = useRef(active);
   const requestControllerRef = useRef(null);
   const requestTokenRef = useRef(0);
-  activeRef.current = active;
   stateRef.current = state;
 
   const handleScroll = useCallback(({ nativeEvent }) => {
@@ -115,22 +114,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const isRequestCurrent = useCallback((token, controller) => (
     mountedRef.current
-    && activeRef.current
     && requestTokenRef.current === token
     && requestControllerRef.current === controller
     && !controller.signal.aborted
   ), []);
-
-  useEffect(() => {
-    if (active) return;
-    requestTokenRef.current += 1;
-    const controller = requestControllerRef.current;
-    requestControllerRef.current = null;
-    controller?.abort();
-    importingRef.current = false;
-    busyRef.current = false;
-    if (mountedRef.current) setBusy(false);
-  }, [active]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -144,37 +131,43 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
      };
   }, []);
 
-  // 每次切到「制卡」都从存储重读：角色页的「导入到制卡」会改写存储草稿，
-  // 而扩展页的各个模块是一直挂载的，不回读就会看到旧内容。
-  // refreshKey 由角色页的导入导航带入（params.ts）：即使用户已经停在「制卡」
-  // 分段（active 仍为 true），也能触发重读，避免旧草稿覆盖刚导入的内容。
-  useEffect(() => {
-    if (!active) return undefined;
-    let cancelled = false;
-    const revisionAtStart = draftRevisionRef.current;
-    getCardForgeStatus()
-.then(result => {
+  // 每次获得焦点都从存储重读：角色页的「导入到制卡」会改写存储草稿，
+  // 不回读就会看到旧内容。Stack 化后切走本页会卸载，但 Tab 切走不卸载——
+  // useFocusEffect 在 Tab 失焦时也能触发 cleanup（中止请求）。
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const revisionAtStart = draftRevisionRef.current;
+      getCardForgeStatus()
+        .then(result => {
           if (cancelled || revisionAtStart !== draftRevisionRef.current) return;
-         if (result.status === 'corrupt') {
-           loadErrorRef.current = true;
-           applyState(createForgeState());
-           Alert.alert('制卡草稿读取失败', '原始草稿已保留，请使用“重新开始”清理后再编辑。');
-           return;
-         }
-         loadErrorRef.current = false;
-         applyState(result.state || createForgeState());
-       })
-      .catch(() => {
-        if (cancelled || revisionAtStart !== draftRevisionRef.current) return;
-         loadErrorRef.current = true;
-         applyState(createForgeState());
-         Alert.alert('制卡草稿读取失败', '请稍后重试。');
-       });
+          if (result.status === 'corrupt') {
+            loadErrorRef.current = true;
+            applyState(createForgeState());
+            Alert.alert('制卡草稿读取失败', '原始草稿已保留，请使用“重新开始”清理后再编辑。');
+            return;
+          }
+          loadErrorRef.current = false;
+          applyState(result.state || createForgeState());
+        })
+        .catch(() => {
+          if (cancelled || revisionAtStart !== draftRevisionRef.current) return;
+          loadErrorRef.current = true;
+          applyState(createForgeState());
+          Alert.alert('制卡草稿读取失败', '请稍后重试。');
+        });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [active, refreshKey, applyState]);
+      return () => {
+        cancelled = true;
+        requestTokenRef.current += 1;
+        const controller = requestControllerRef.current;
+        requestControllerRef.current = null;
+        controller?.abort();
+        importingRef.current = false;
+        busyRef.current = false;
+      };
+    }, [applyState])
+  );
 
   const askModel = useCallback(async (prompt, signal) => {
     const { configs, activeId } = await getApiConfigs();
@@ -338,7 +331,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const submitAnswer = useCallback((question, value) => {
     const text = String(value || '').trim();
-    if (!text || busy || !question || !activeRef.current || !mountedRef.current) return;
+    if (!text || busy || !question || !mountedRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
       Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再编辑。');
       return;
@@ -397,13 +390,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const ADVANCED_FAIL_NOTE = '基础卡片已生成，世界书等高级内容生成失败，可点「重新生成高级内容」重试。';
 
   const onGenerate = useCallback(() => {
-    if (busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
+    if (busy || busyRef.current || !mountedRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
       Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再生成。');
       return;
     }
     const run = async () => {
-      if (!activeRef.current || !mountedRef.current || busyRef.current) return;
+      if (!mountedRef.current || !mountedRef.current || busyRef.current) return;
       busyRef.current = true;
       const token = ++requestTokenRef.current;
       const controller = new AbortController();
@@ -461,11 +454,11 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   // 单独重试第二步：只重生成世界书 / 正则 / 预设，不动已生成的基础字段。
   const onRegenerateAdvanced = useCallback(() => {
-    if (busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
+    if (busy || busyRef.current || !mountedRef.current || !mountedRef.current) return;
     const base = stateRef.current;
     if (requestedAdvancedSections(base).length === 0) return;
     const run = async () => {
-      if (!activeRef.current || !mountedRef.current || busyRef.current) return;
+      if (!mountedRef.current || !mountedRef.current || busyRef.current) return;
       busyRef.current = true;
       const token = ++requestTokenRef.current;
       const controller = new AbortController();
@@ -491,7 +484,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
-    if (!text || busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
+    if (!text || busy || busyRef.current || !mountedRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
       Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再发送。');
       return;
@@ -552,7 +545,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   }, [activeForgeModel, applyAigcAttribution, askModel, busy, input, isRequestCurrent, update]);
 
   const onSaveDraft = useCallback(nextDraft => {
-    if (!mountedRef.current || !activeRef.current || busyRef.current) return;
+    if (!mountedRef.current || !mountedRef.current || busyRef.current) return;
     setEditorOpen(false);
     update({ ...stateRef.current, draft: nextDraft, updatedAt: Date.now() });
   }, [update]);
@@ -587,7 +580,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       patch.avatarUri = avatarUri;
       patch.bgUri = bgUri;
        const created = await addCharacter(patch);
-       if (!mountedRef.current || !activeRef.current) return;
+       if (!mountedRef.current || !mountedRef.current) return;
        // 角色确实建好了，草稿目录里的副本才可以清理（复制与删除分开做，
        // 是为了让落库失败时草稿仍指向存在的文件，界面不会变成破图）。
        await Promise.all([
@@ -595,7 +588,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
          deleteForgeImage(draft.bgUri),
        ]);
        await ensureCharacterSession(created.id).catch(() => {});
-       if (!mountedRef.current || !activeRef.current) return;
+       if (!mountedRef.current || !mountedRef.current) return;
        // 草稿里要把路径换成提升后的 avatars/ 路径：草稿目录里的副本已被删除，
        // 留着旧路径再点一次「导入」会去复制不存在的文件而报错。
        const nextState = {
@@ -628,13 +621,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         text: '清空',
         style: 'destructive',
          onPress: async () => {
-           if (!mountedRef.current || !activeRef.current || busyRef.current) return;
+           if (!mountedRef.current || !mountedRef.current || busyRef.current) return;
            busyRef.current = true;
            setBusy(true);
            const resetToken = ++requestTokenRef.current;
            try {
              await clearCardForge();
-             if (!mountedRef.current || !activeRef.current) return;
+             if (!mountedRef.current || !mountedRef.current) return;
              loadErrorRef.current = false;
              await update(createForgeState());
              // 草稿图一并清掉：clearCardForge 只删 .json 载荷，图不清理会长期占空间。

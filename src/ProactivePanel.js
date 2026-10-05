@@ -134,8 +134,8 @@ function TimeField({ value, onCommit, theme, styles }) {
   );
 }
 
-// embedded=true 时不自带滚动容器，交给外层折叠分组滚动
-export default function ProactivePanel({ embedded = false }) {
+// 面板自带滚动容器（Stack 化后不再嵌入折叠分组）。
+export default function ProactivePanel() {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters, sessions } = useApp();
@@ -454,11 +454,8 @@ export default function ProactivePanel({ embedded = false }) {
     );
   }
 
-  const Container = embedded ? View : ScrollView;
-  const containerProps = embedded ? { style: styles.content } : { contentContainerStyle: styles.content };
-
   return (
-    <Container {...containerProps}>
+    <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.title}>互动</Text>
       <Text style={styles.hint}>
         让角色在你指定的时间主动发一条消息。默认使用普通模式（系统可能延迟数十分钟）；
@@ -726,7 +723,7 @@ export default function ProactivePanel({ embedded = false }) {
       >
         <Text style={styles.saveButtonText}>{saving ? '保存中…' : '保存并启用'}</Text>
       </TouchableOpacity>
-    </Container>
+    </ScrollView>
   );
 }
 

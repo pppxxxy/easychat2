@@ -35,7 +35,7 @@ const STORAGE_SOURCE = read('storage.js');
 const DIARY_STORAGE_SOURCE = read('storage/diary.js');
 const RUNNER_SOURCE = read('diary/runDiary.js');
 const PANEL_SOURCE = read('DiaryPanel.js');
-const EXTENSION_SOURCE = read('ExtensionScreen.js');
+
 const API_SOURCE = read('network/api.js');
 const APP_SOURCE = readFileSync(path.join(HERE, '..', 'App.js'), 'utf8');
 
@@ -255,12 +255,11 @@ test('昨天时间窗用本地日历日两端，避免夏令时偏移', () => {
   assert.equal(localDateKey(new Date(end - 1).getTime()), '2026-03-08');
 });
 
-test('世界分组新增日记入口并复用折叠容器', () => {
-  // 文案已迁 i18n：断言条目 id + 词条 key（标签在渲染时翻译）
-  assert.ok(EXTENSION_SOURCE.includes("id: 'diary'") && EXTENSION_SOURCE.includes("t('ext.world.diary.label')"));
-  assert.ok(EXTENSION_SOURCE.includes("section.id === 'diary'"));
-  assert.ok(EXTENSION_SOURCE.includes('<DiaryPanel embedded />'));
-  assert.ok(EXTENSION_SOURCE.includes("import DiaryPanel from './DiaryPanel.js'"));
+test('日记入口已在拓展首页注册（Stack 化，不再 embedded）', () => {
+  const home = read('extension/ExtensionHome.js');
+  assert.ok(home.includes("route: 'ext-diary'"), '首页有日记入口');
+  assert.ok(read('extension/ExtensionStack.js').includes('DiaryPanel'), 'Stack 注册了 DiaryPanel');
+  assert.equal(read('DiaryPanel.js').includes('embedded'), false, 'DiaryPanel 不再有 embedded prop');
 });
 
 test('日记面板：折叠选角色、单角色开关、专属 API 与左右滑动查看', () => {

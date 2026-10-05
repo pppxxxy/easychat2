@@ -804,7 +804,7 @@ setWorldInfo(next.worldInfo);
         ],
         updatedAt: Date.now(),
       })
-        .then(() => navigation.navigate(ROUTE_NAMES.extension, { segment: 'forge', ts: Date.now() }))
+        .then(() => navigation.navigate(ROUTE_NAMES.extension, { screen: 'ext-forge', params: { ts: Date.now() } }))
         .catch(() => Alert.alert('载入失败', '请检查存储空间或权限。'));
     };
     Alert.alert(

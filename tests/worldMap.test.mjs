@@ -32,7 +32,7 @@ const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
 const STORAGE_SOURCE = read('storage.js');
 const STORAGE_WORLD_MAP_SOURCE = read('storage/worldMap.js');
 const PANEL_SOURCE = read('MapPanel.js');
-const EXTENSION_SOURCE = read('ExtensionScreen.js');
+
 
 test('坐标合法性限制在 40×40 内', () => {
   assert.equal(MAP_GRID_SIZE, 40);
@@ -178,11 +178,11 @@ test('地图存储：单键读写、损坏备份、删除联动', () => {
   assert.ok(STORAGE_SOURCE.includes('runCharacterCleanup'), 'barrel 必须调用钩子运行器');
 });
 
-test('世界分组新增地图入口并就地展开', () => {
-  // 文案已迁 i18n：断言条目 id + 词条 key（标签在渲染时翻译）
-  assert.ok(EXTENSION_SOURCE.includes("id: 'map'") && EXTENSION_SOURCE.includes("t('ext.world.map.label')"));
-  assert.ok(EXTENSION_SOURCE.includes("section.id === 'map' ? <MapPanel embedded />"));
-  assert.ok(EXTENSION_SOURCE.includes("import MapPanel from './MapPanel.js'"));
+test('地图入口已在拓展首页注册（Stack 化，不再 embedded）', () => {
+  const home = read('extension/ExtensionHome.js');
+  assert.ok(home.includes("route: 'ext-map'"), '首页有地图入口');
+  assert.ok(read('extension/ExtensionStack.js').includes('MapPanel'), 'Stack 注册了 MapPanel');
+  assert.equal(read('MapPanel.js').includes('embedded'), false, 'MapPanel 不再有 embedded prop');
 });
 
 test('地图面板：网格、放置、编辑、屋主与住户', () => {

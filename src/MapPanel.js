@@ -40,8 +40,8 @@ const CELL_SIZE = 26;
 // 规则：每人最多拥有 1 栋房子（自己的固定编号 000，其余按 001、002… 编号）；
 // 每个角色最多住 1 栋房子（可同时拥有自己的一栋并住在别人家）。
 // 点格子弹面板编辑；「查看」展开房子列表，点房子可看/改房主与住户。数据存本地。
-// embedded=true 时面板不自带纵向滚动容器，交给外层折叠分组。
-export default function MapPanel({ embedded = false }) {
+// Stack 化后面板自带纵向滚动容器。
+export default function MapPanel() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { characters } = useApp();
@@ -222,9 +222,6 @@ export default function MapPanel({ embedded = false }) {
     );
   }
 
-  const Container = embedded ? View : ScrollView;
-  const containerProps = embedded ? { style: styles.content } : { contentContainerStyle: styles.content };
-
   const ownerOptions = [
     { value: MAP_OWNER_SELF, label: '我自己', meta: '000 号房' },
     ...characters.map(item => ({
@@ -239,7 +236,7 @@ export default function MapPanel({ embedded = false }) {
     : '我自己';
 
   return (
-    <Container {...containerProps}>
+    <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.titleRow}>
         <Text style={styles.title}>地图</Text>
         {mapMode === 'grid' ? (
@@ -459,7 +456,7 @@ export default function MapPanel({ embedded = false }) {
           </View>
         </View>
       </Modal>
-    </Container>
+    </ScrollView>
   );
 }
 

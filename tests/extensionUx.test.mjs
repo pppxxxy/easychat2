@@ -12,28 +12,30 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 
-const EXTENSION = read('src/ExtensionScreen.js');
+const EXTENSION = read('src/extension/ExtensionStack.js');
+const EXTENSION_HOME = read('src/extension/ExtensionHome.js');
 const CARD_FORGE = read('src/CardForgeScreen.js');
 const IMAGE_GEN = read('src/ImageGenScreen.js');
 const ATTACHMENTS = read('src/chat/attachments.js');
 
-test('扩展页：物理返回在子板块 / 游戏详情 / 展开分组内逐级回落', () => {
-  assert.ok(EXTENSION.includes("import { useFocusEffect, useNavigation } from '@react-navigation/native';"));
-  assert.ok(EXTENSION.includes('BackHandler,'));
-  assert.ok(EXTENSION.includes("const SUB_SEGMENT_IDS = ['moments', 'music', 'books', 'screen'];"));
-  // 三处兜底：子板块回世界页、游戏详情回列表、展开的分组收起
-  assert.equal((EXTENSION.match(/hardwareBackPress/g) || []).length, 3, '应恰好三处返回兜底');
-  assert.ok(EXTENSION.includes('if (!SUB_SEGMENT_IDS.includes(segment)) return undefined;'));
-  assert.ok(EXTENSION.includes('if (!activeGameId) return undefined;'));
-  assert.ok(EXTENSION.includes('if (!openSection) return undefined;'));
-  // 注册挂在 useFocusEffect 上：失焦/卸载即注销，避免在其它 Tab 误拦截返回键
-  assert.equal((EXTENSION.match(/subscription\.remove\(\)/g) || []).length, 3);
-  assert.equal((EXTENSION.match(/return true;/g) || []).length, 3, '处理函数必须消费返回事件');
+test('扩展页：嵌套 native-stack 替换 opacity 叠罗汉，物理返回天然工作', () => {
+  // 不再手工模拟页面切换：segment 状态机、3 处 BackHandler 补丁、pane 样式全部删除。
+  assert.ok(EXTENSION.includes("createNativeStackNavigator"), '使用 native-stack');
+  assert.ok(EXTENSION.includes("headerShown: false"));
+  assert.ok(EXTENSION.includes("name=\"ext-home\""), '首页注册');
+  assert.ok(EXTENSION.includes("name=\"ext-forge\""), '制卡注册');
+  assert.ok(EXTENSION.includes("name=\"ext-music\""), '音乐注册');
+  assert.equal(EXTENSION.includes('BackHandler'), false, '不再有 BackHandler 补丁');
+  assert.equal(EXTENSION.includes('paneVisible'), false, '不再有 opacity 叠罗汉');
+  assert.equal(EXTENSION.includes('SUB_SEGMENT_IDS'), false, '不再有路由表');
+  assert.equal(EXTENSION.includes('hardwareBackPress'), false, '不再手工拦截返回键');
 });
 
-test('扩展页：进入子板块时高亮父级「世界」', () => {
-  // 分段条只有 4 个一级入口，子板块（音乐/读书/…）不再是整排无高亮的装饰
-  assert.ok(EXTENSION.includes("item.id === 'world' && SUB_SEGMENT_IDS.includes(segment)"));
+test('扩展页：首页所有入口同行为（navigate），消灭跳出 vs 手风琴二义性', () => {
+  assert.ok(EXTENSION_HOME.includes('navigation.navigate('), '首页统一用 navigate');
+  assert.equal(EXTENSION_HOME.includes('setSegment'), false, '不再有 segment 状态机');
+  assert.equal(EXTENSION_HOME.includes('openSection'), false, '不再有手风琴展开状态');
+  assert.equal(EXTENSION_HOME.includes('jumpsOut'), false, '不再有跳出/展开二义标记');
 });
 
 test('制卡：新内容只在接近底部时自动跟滚，用户发送强制跟随', () => {
