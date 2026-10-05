@@ -477,3 +477,62 @@ test('位置感知：locationText 注入系统提示最前，缺省不注入', (
   assert.equal(withoutLocation.find(item => item.role === 'system').content.includes('[当前位置]'), false);
 });
 
+test('视频附件：构建 video_url 部分；includeVideo=false 时退纯文本描述', () => {
+  const videoMessage = {
+    kind: 'video',
+    image: { uri: 'file:///v.mp4', name: 'v.mp4', mime: 'video/mp4' },
+    dataUri: 'data:video/mp4;base64,QUJD',
+    includeVideo: true,
+  };
+  const built = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '',
+    userProfile: {},
+    globalPresets: [],
+    imageMessages: [videoMessage],
+  });
+  const media = built.find(item => Array.isArray(item.content) && item.content.some(part => part.type === 'video_url'));
+  assert.ok(media, '带 video_url 的 user 消息必须生成');
+  assert.equal(media.content.find(part => part.type === 'video_url').video_url.url, 'data:video/mp4;base64,QUJD');
+  assert.equal(media.content.some(part => part.type === 'image_url'), false, '视频不得落成 image_url');
+  assert.ok(JSON.stringify(media.content).includes('【视频：v.mp4】'), '文字部分保留视频描述');
+
+  const excluded = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '',
+    userProfile: {},
+    globalPresets: [],
+    imageMessages: [{ ...videoMessage, includeVideo: false }],
+  });
+  assert.equal(JSON.stringify(excluded).includes('video_url'), false, 'includeVideo=false 必须退纯文本');
+  assert.ok(JSON.stringify(excluded).includes('【视频：v.mp4】'), '退纯文本后仍有描述占位');
+});
+
+test('filterRequestMedia：video_url 默认裁剪、allowVideo 时保留、混合时只裁视频', () => {
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'text', text: '看这个' },
+      { type: 'video_url', video_url: { url: 'data:video/mp4;base64,QQ' } },
+    ],
+  }];
+  const dropped = filterRequestMedia(messages);
+  assert.equal(JSON.stringify(dropped).includes('video_url'), false, '本地链路默认无视频输入');
+  assert.equal(typeof dropped[0].content, 'string', '无媒体后退化为纯文本');
+  assert.ok(dropped[0].content.includes('看这个'));
+
+  const kept = filterRequestMedia(messages, { allowVideo: true });
+  assert.equal(JSON.stringify(kept).includes('video_url'), true, 'allowVideo 时保留视频部分');
+
+  const mixed = filterRequestMedia([{
+    role: 'user',
+    content: [
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,QQ' } },
+      { type: 'video_url', video_url: { url: 'data:video/mp4;base64,QQ' } },
+    ],
+  }], { allowVision: true });
+  assert.deepEqual(mixed[0].content.map(part => part.type), ['image_url'], '只裁视频、保留图片');
+});
+

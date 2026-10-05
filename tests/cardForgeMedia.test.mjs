@@ -149,8 +149,9 @@ test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片�
   assert.match(screen, /type: 'image_url', image_url: \{ url: dataUri \}/, '图片必须作为 image_url 发出');
   assert.match(screen, /await readImageDataUri\(source\)/, '读取图片为 data URI');
   assert.match(screen, /buildImageCardPrompt\(\{ hint, hasAvatar, hasBg \}\)/, '提示词走纯函数');
-  // 无识图能力明确拒绝，而不是悄悄发纯文字
-  assert.match(screen, /当前来源未标记为支持识图，无法按图片生成角色/, '缺识图能力应明确报错');
+  // 无识图能力明确拒绝，而不是悄悄发纯文字（能力按当前模型解析）
+  assert.match(screen, /capabilitiesForModel\(current, current \? getActiveModel\(current\) : ''\)\.supportsVision === true/, '按当前模型解析识图能力');
+  assert.match(screen, /当前模型未标记为支持识图，无法按图片生成角色/, '缺识图能力应明确报错');
   // 导入角色库时提升目录（草稿目录 → avatars/）
   assert.match(screen, /promoteForgeImageToAvatar\(draft\.avatarUri/, '导入时提升头像');
   assert.match(screen, /promoteForgeImageToAvatar\(draft\.bgUri/, '导入时提升背景');

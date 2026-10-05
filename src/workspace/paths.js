@@ -5,6 +5,10 @@
 
 const ALLOWED_EXTENSIONS = new Set(['txt', 'md', 'markdown']);
 const OUTPUT_ONLY_EXTENSIONS = new Set(['docx']);
+// 明确的点文件名白名单（环境/配置下载中心用）：无扩展名或非白名单扩展名的
+// 常见配置文件按**完整文件名**放行。清单只增不改——新增一个名字就是一次显式裁决，
+// 不做「任意点文件都放行」的通配，避免把写入面悄悄放宽。
+const CONFIG_FILE_NAMES = new Set(['.gitignore', '.gitconfig', '.npmrc', 'pip.conf', '.editorconfig']);
 const MAX_PATH_LENGTH = 240;
 const MAX_SANDBOX_ID_LENGTH = 64;
 
@@ -39,8 +43,12 @@ export function fileExtension(path) {
   return index <= 0 ? '' : name.slice(index + 1).toLowerCase();
 }
 
+export function fileBaseName(path) {
+  return String(path || '').split('/').pop() || '';
+}
+
 export function isAllowedWorkspaceFile(path) {
-  return ALLOWED_EXTENSIONS.has(fileExtension(path));
+  return ALLOWED_EXTENSIONS.has(fileExtension(path)) || CONFIG_FILE_NAMES.has(fileBaseName(path));
 }
 
 export function assertAllowedWorkspaceFile(path) {
@@ -53,7 +61,9 @@ export function assertAllowedWorkspaceFile(path) {
 // 可写入的文件：文本/Markdown（字符串内容）+ 生成的 .docx（二进制）。
 export function isAllowedWorkspaceOutputFile(path) {
   const extension = fileExtension(path);
-  return ALLOWED_EXTENSIONS.has(extension) || OUTPUT_ONLY_EXTENSIONS.has(extension);
+  return ALLOWED_EXTENSIONS.has(extension)
+    || OUTPUT_ONLY_EXTENSIONS.has(extension)
+    || CONFIG_FILE_NAMES.has(fileBaseName(path));
 }
 
 export function assertAllowedWorkspaceOutputFile(path) {

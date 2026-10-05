@@ -241,3 +241,26 @@ test('parseProtocolError 覆盖各协议错误体', () => {
   assert.equal(parseProtocolError('openai-responses', { error: 'plain' }), 'plain');
   assert.equal(parseProtocolError('openai', {}), '');
 });
+
+test('视频部分：OpenAI 兼容透传，Anthropic/Responses 丢弃但保留文本', () => {
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'text', text: '看看这个视频' },
+      { type: 'video_url', video_url: { url: 'data:video/mp4;base64,QUJD' } },
+    ],
+  }];
+  const openai = buildRequestBody({
+    protocol: 'openai', model: 'm', messages, stream: false,
+    samplingParams: {},
+  });
+  assert.equal(JSON.stringify(openai).includes('video_url'), true, 'OpenAI 兼容协议必须透传 video_url');
+
+  const anthropic = JSON.stringify(toAnthropicRequest(messages));
+  assert.equal(anthropic.includes('video_url'), false, 'Anthropic 不支持视频：丢弃');
+  assert.ok(anthropic.includes('看看这个视频'), '文本部分必须保留');
+
+  const responses = JSON.stringify(toResponsesRequest(messages));
+  assert.equal(responses.includes('video_url'), false, 'Responses 没有视频输入类型：丢弃');
+  assert.ok(responses.includes('看看这个视频'), '文本部分必须保留');
+});

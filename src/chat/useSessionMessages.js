@@ -390,7 +390,7 @@ export default function useSessionMessages({
     const indexVersion = sessionVersionRef.current;
     const protectedImageUris = [
       ...attachmentsRef.current
-        .filter(item => item && item.kind === 'image')
+        .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
         .map(item => item.uri),
       ...pendingAttachmentUrisRef.current,
     ];

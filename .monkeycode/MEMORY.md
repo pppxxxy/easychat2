@@ -134,3 +134,34 @@ Entries discovered by the Agent during task execution should follow this format:
   - **Kotlin 没有 `String(String)` 构造器**：`String(x)` 只接受 ByteArray/CharArray/StringBuffer/StringBuilder；x 已是 String 时应直接 `x.trim()`，否则报「None of the following candidates is applicable」。
   - **Z 链并入 main 后原生未编译即合入**：这两处错误都是 Z 线新加的原生代码，JS 门禁（lint/test/export）全绿却编译不过。凡是改动 `plugins/*/android/*.kt` 的提交，CI 的 Gradle workflow 是唯一可信验证；合并前应至少跑一次 APK 构建。
   - 教训：main 自 Z 三链并入起未成功构建过，Native 错误是逐个暴露的；这类修复要一次把同一批新增 Kotlin 全审一遍，别只修 CI 报的第一处。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z2 批次（工作区思考强度/上下文占用/compact 压缩指令）实现与测试
+- Category: Testing Methods
+- Instructions:
+  - `tests/i18n.test.mjs` 把「记忆总结」等列为**提示词片段**并反向断言词条表不得包含——给聊天/记忆相关 UI 写中英文案时要绕开这些片段（如改说「总结开关」），否则 i18n 测试红。
+  - `getMessagesBySession(id)` 直接返回消息数组，**不是** `{ messages }` 包装（MomentsView/MemoryScreen 均按数组用）；跨层传消息前先核形状。
+  - 记忆总结两路径语义：手动（`runSummarize(manual=true)`，含聊天 compact 指令）绕过「记忆总结」总开关与条数阈值；自动路径受总开关约束，80% 上下文占用（`chat/contextUsage.js` 的 AUTO_COMPACT_RATIO）只是绕过**条数阈值**、不绕过总开关。
+  - 经 bash heredoc→Python 写多行源码断言时 `\n` 转义会塌成真实换行，字符串字面量跨行直接 SyntaxError；源码断言优先拆成**相邻两条单行断言**或用正则 `\s*` 连接。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: 生产包 BookScreen「打开书必崩」查证（Element type invalid: got undefined）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **Metro 对不存在的具名导入不报错**：`import { X } from './y.js'` 而 y.js 只有 default 导出时，X 绑定为 undefined——lint、Node 单测、`expo export` 全部静默通过，直到运行时按用途炸开（组件=Element type invalid；函数=TypeError not a function）。生产链排查这类崩溃时先查具名/默认导入错配。
+  - 守卫已固化：`tests/namedImportSanity.test.mjs`（@babel/parser AST 全仓库扫描，处理 as 别名/export * 转发/解构导出）；新增具名导出或改名时若漏改导入方，npm test 会红。
+  - 描述崩溃时组件名要对着代码核（本次报告里的「BookItem 列表项」并不存在，实为 BookReaderView 导入错配），格式相关的第一直觉（txt/docx 差异）也要先用最小复现排除。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z2 批次：GitHub MCP 连接（风险分级）+ 工作区环境配置下载
+- Category: Workflow & Collaboration
+- Instructions:
+  - **安全约束（长期有效，用户裁决）**：GitHub MCP 工具白名单分级（只读直放/写入逐条确认/其余拒绝），删除分支、删除文件、强推、管理类**无条件禁止**——即使用户同意也不可解锁；改 riskGate.js 前先读 SMOKE §9.12 与 SECURITY §7.5。
+  - Metro 对不存在的具名导出不报错（运行时 undefined），除 namedImportSanity 守卫外，新增跨模块导出时顺手跑一遍 npm test 即可拦截。
+  - 工作区写入白名单 paths.js 扩展约定：**精确文件名清单（CONFIG_FILE_NAMES）只增不改**，不做任意点文件通配。
+  - 本环境超长 bash heredoc 会被截断、`\` 会折半：大改动一律用 Edit 工具；向 JS 写入 `
+` 字面量时用 `chr(92)+'n'` 构造。
+  - 注入验证两个新抓的盲区：子串断言会被注释掉的调用骗过（用行首锚定正则）；「默认拒绝」类守卫的行为断言测不到模式本身（补源码断言钉住模式与白名单交集）。

@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml from 'react-native-render-html';
@@ -27,6 +28,22 @@ import { USER_ID } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
 import ThinkingIndicator from './ThinkingIndicator.js';
 import VoiceBubble from './VoiceBubble.js';
+
+// 视频气泡点按：交给系统分享面板（Android chooser 里含视频播放器），
+// 避免为本地回放引入 expo-video 一类播放器依赖。
+async function shareVideoFile(image) {
+  const uri = String((image && image.uri) || '');
+  if (!uri) return;
+  try {
+    const available = typeof Sharing.isAvailableAsync === 'function'
+      ? await Sharing.isAvailableAsync()
+      : true;
+    if (!available) return;
+    await Sharing.shareAsync(uri, { mimeType: String((image && image.mime) || 'video/mp4') });
+  } catch (error) {
+    if (__DEV__) console.warn('[video] share failed', error);
+  }
+}
 
 function renderHighlightedText(text, keyword, styles) {
   const source = String(text || '');
@@ -375,18 +392,34 @@ const fullWidthAssistant = !isUser && fullWidth;
             // 媒体消息不区分发送方：角色也能真的把表情包发出来（[[表情包:名称]] 指令），
             // 渲染分支若只认 isUser，助手表情包会落进下面的文本/Markdown 分支，
             // text 为空 → 渲染成一个空气泡，图片永远不出现。
-            <View style={styles.mediaBox}>
-              <View>
-                <Image
-                  source={{ uri: message.image.uri }}
-                  style={[styles.messageImage, { width: mediaWidth, height: mediaHeight }]}
-                  resizeMode="contain"
-                />
+            message.kind === 'video' ? (
+              <TouchableOpacity
+                style={styles.videoCard}
+                onPress={() => { shareVideoFile(message.image); }}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`视频：${message.image.name || '未命名'}`}
+              >
+                <Ionicons name="videocam" size={26} color={theme.colors.primarySoft} />
+                <Text style={styles.videoCardName} numberOfLines={1}>
+                  {message.image.name || '视频'}
+                </Text>
+                <Text style={styles.videoCardHint}>点按用其他应用打开</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.mediaBox}>
+                <View>
+                  <Image
+                    source={{ uri: message.image.uri }}
+                    style={[styles.messageImage, { width: mediaWidth, height: mediaHeight }]}
+                    resizeMode="contain"
+                  />
+                </View>
+                {message.image.stickerName ? (
+                  <Text style={styles.mediaName} numberOfLines={1}>{message.image.stickerName}</Text>
+                ) : null}
               </View>
-              {message.image.stickerName ? (
-                <Text style={styles.mediaName} numberOfLines={1}>{message.image.stickerName}</Text>
-              ) : null}
-            </View>
+            )
           ) : isUser ? (
             <Text style={styles.messageText}>
               {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword, styles) : message.text}

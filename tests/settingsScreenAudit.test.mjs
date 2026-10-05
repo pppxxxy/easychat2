@@ -17,6 +17,28 @@ const STYLES = read('src/settings/settingsStyles.js');
 const PROFILE = read('src/settings/useUserProfile.js');
 const PKG = JSON.parse(read('package.json'));
 
+test('模型能力按「模型」一份：添加即弹确认、芯片可编辑、写 modelCapabilities', () => {
+  // 能力弹层按模型打开（草稿从 capabilitiesForModel 起稿，记住当前模型名）
+  assert.ok(SETTINGS.includes('const openCapabilityEditor = modelName => {'), '按模型打开能力弹层');
+  assert.ok(SETTINGS.includes('const caps = capabilitiesForModel(selected, name);'), '草稿按该模型的现存条目起稿');
+  assert.ok(SETTINGS.includes('setCapabilityEditorModel(name);'), '记住正在编辑的模型名');
+  // 两条添加路径都要顺手弹确认（手动输入 + 可用模型列表）
+  assert.equal((SETTINGS.match(/openCapabilityEditor\(model\);/g) || []).length >= 3, true,
+    'addModel（新增/已存在）与 applyModel 都要打开能力确认');
+  assert.ok(SETTINGS.includes("// 从「可用模型」列表添加/选中后，顺手确认这个模型的能力。"), 'applyModel 注释接线');
+  // 确认写回的是该模型的条目（不是配置级字段）
+  assert.ok(SETTINGS.includes('modelCapabilities: { ...(selected.modelCapabilities || {}), [name]: entry }'),
+    '确认写回 modelCapabilities[模型名]');
+  assert.ok(SETTINGS.includes('normalizeCapabilityEntry({'), '写回前归一（默认字段名/格式）');
+  // 保存链路不再弹「配置级」能力弹层（原 performSave(caps) 已拆掉）
+  assert.equal(SETTINGS.includes('performSave(capabilityDraft)'), false, '保存不再携带配置级能力草稿');
+  assert.equal(SETTINGS.includes('await performSave();'), true, '保存直接落盘（能力已随草稿保存）');
+  assert.equal(/performSave = async caps/.test(SETTINGS), false, 'performSave 不再接收能力参数');
+  // 模型芯片带能力编辑入口，未确认（无条目）时图标置灰提示
+  assert.ok(SETTINGS.includes('onPress={() => openCapabilityEditor(model)}'), '芯片上的滑杆图标');
+  assert.ok(SETTINGS.includes("(active.modelCapabilities && active.modelCapabilities[model])"), '未确认模型有视觉区分');
+});
+
 test('API 配置：切走前确认未保存的修改，基线在加载/落盘后刷新', () => {
   // 基线判定函数存在且两处刷新（初始加载 + persist）
   assert.ok(SETTINGS.includes('function snapshotActiveConfig(state)'));
@@ -36,8 +58,8 @@ test('API 配置：切走前确认未保存的修改，基线在加载/落盘后
   assert.ok(SETTINGS.includes('JSON.parse(apiBaselineRef.current)'));
 });
 
-test('密钥输入：三处 secureTextEntry 全部走带显隐切换的 SecretTextField', () => {
-  assert.equal((SETTINGS.match(/<SecretTextField/g) || []).length, 3, 'API/生图/向量三处密钥');
+test('密钥输入：四处 secureTextEntry 全部走带显隐切换的 SecretTextField', () => {
+  assert.equal((SETTINGS.match(/<SecretTextField/g) || []).length, 4, 'API/生图/向量/GitHub 令牌四处密钥');
   // 组件内部持有显隐状态；明文不再由调用点写死
   assert.ok(SETTINGS.includes('secureTextEntry={!visible}'));
   assert.equal(SETTINGS.includes('secureTextEntry\n'), false, '不应再有裸 secureTextEntry');

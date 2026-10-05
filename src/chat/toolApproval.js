@@ -33,11 +33,24 @@ export function describeToolApproval({ name, args, t } = {}) {
   const translate = typeof t === 'function' ? t : key => key;
   const values = args && typeof args === 'object' ? args : {};
   const command = String(values.command === undefined || values.command === null ? '' : values.command);
+  // run_shell 之外的需确认工具（GitHub 写操作等）没有 command 字段：把参数
+  // 摘要亮出来——「允许执行工具吗」等于让用户盲签，看不到参数就不算知情同意。
+  let argsSummary = '';
+  if (!command && Object.keys(values).length > 0) {
+    try {
+      argsSummary = JSON.stringify(values, null, 2);
+    } catch (error) {
+      argsSummary = '';
+    }
+    if (argsSummary.length > 600) argsSummary = `${argsSummary.slice(0, 600)}\n…（参数过长已截断）`;
+  }
   return {
     title: translate('chat.tool.approval.title', { name }),
     body: command
       ? translate('chat.tool.approval.body', { command })
-      : translate('chat.tool.approval.bodyEmpty'),
+      : (argsSummary
+        ? translate('chat.tool.approval.bodyArgs', { args: argsSummary })
+        : translate('chat.tool.approval.bodyEmpty')),
     deny: translate('chat.tool.approval.deny'),
     allow: translate('chat.tool.approval.allow'),
   };

@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -85,6 +86,28 @@ export default function RealMapView() {
     return true;
   }, [t]);
 
+  // 取点失败按错误码给不同文案：系统定位服务关闭是可诊断、可操作的一类，
+  // 不能再笼统提示「请稍后重试」（真机上权限都给了却永远失败最常见的成因）。
+  const describeCaptureError = useCallback(caught => (
+    caught && caught.code === 'SERVICES_DISABLED'
+      ? t('world.map.real.servicesOff')
+      : t('world.map.real.failed')
+  ), [t]);
+
+  // 开启前的隐私确认：位置属敏感信息，且开启后配合「位置感知」会随对话分享
+  // 模糊位置——必须在取点之前让用户知情并有机会取消。
+  const confirmPrivacy = useCallback(() => new Promise(resolve => {
+    Alert.alert(
+      t('world.map.real.privacy.title'),
+      t('world.map.real.privacy.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+        { text: t('world.map.real.privacy.confirm'), onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  }), [t]);
+
   const handleEnable = useCallback(async () => {
     if (busy) return;
     if (!isLocationSupported()) {
@@ -93,6 +116,8 @@ export default function RealMapView() {
     }
     setBusy(true);
     try {
+      const confirmed = await confirmPrivacy();
+      if (!confirmed) return;
       // 先授权 + 取点，成功后才把 enabled 写盘：用户拒绝授权时必须保持关闭
       // （需求 1.2 与 SECURITY.md 的「拒绝后保持关闭」），不能在未授权时就写成开。
       // capture() 失败时已设好对应文案（拒绝/失败），这里直接返回、不改设置。
@@ -101,11 +126,11 @@ export default function RealMapView() {
       const saved = await updateLocationSettings(current => ({ ...current, enabled: true }));
       setSettings(saved);
     } catch (caught) {
-      setError(t('world.map.real.failed'));
+      setError(describeCaptureError(caught));
     } finally {
       setBusy(false);
     }
-  }, [busy, capture, t]);
+  }, [busy, capture, confirmPrivacy, describeCaptureError, t]);
 
   const handleDisable = useCallback(async () => {
     if (busy) return;
@@ -134,11 +159,11 @@ export default function RealMapView() {
       await capture();
     } catch (caught) {
       // 保留上一次成功位置（Requirement 2.4）。
-      setError(t('world.map.real.failed'));
+      setError(describeCaptureError(caught));
     } finally {
       setBusy(false);
     }
-  }, [busy, capture, t]);
+  }, [busy, capture, describeCaptureError, t]);
 
   if (!settings) {
     return (
@@ -158,6 +183,7 @@ export default function RealMapView() {
         <Ionicons name="location-outline" size={34} color={theme.colors.primaryMuted} />
         <Text style={styles.guideTitle}>{t('world.map.real.empty.title')}</Text>
         <Text style={styles.guideBody}>{t('world.map.real.empty.body')}</Text>
+        <Text style={styles.privacyNote}>{t('world.map.real.privacy.hint')}</Text>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         <TouchableOpacity style={styles.primaryButton} onPress={handleEnable} disabled={busy} activeOpacity={0.85}>
           {busy
@@ -180,6 +206,10 @@ export default function RealMapView() {
           <Text style={styles.headerHint} numberOfLines={1}>{t('world.map.real.hint')}</Text>
         </View>
       </View>
+
+      {settings.awareness !== true ? (
+        <Text style={styles.privacyNote}>{t('world.map.real.awarenessOff')}</Text>
+      ) : null}
 
       <View style={styles.actions}>
         <TouchableOpacity style={styles.actionButton} onPress={handleRefresh} disabled={busy} activeOpacity={0.85}>
@@ -234,6 +264,14 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     lineHeight: fonts.scaled(18),
     textAlign: 'center',
     marginTop: 8,
+  },
+  privacyNote: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 4,
   },
   errorText: { color: theme.colors.danger || theme.colors.text, fontSize: fonts.scaled(12), marginTop: 10, textAlign: 'center' },
   primaryButton: {

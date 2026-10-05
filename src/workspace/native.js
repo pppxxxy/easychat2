@@ -10,6 +10,7 @@ import { normalizeWorkspaceLocation, resolveWorkspaceRoot, WORKSPACE_ROOT_KINDS 
 import { getFileSystemNext } from './picker.js';
 import { createExpoSafAdapter, createSafWorkspaceStore } from './safStore.js';
 import { createShellRunner, getShellNative, isShellAvailable, sandboxPathFromUri } from './shell.js';
+import { createHistoryRecordingStore } from './history.js';
 import { createLegacyWorkspaceStore } from './store.js';
 import { registerWorkspaceTools } from './tools.js';
 import { normalizeWorkspaceMode } from './settings.js';
@@ -41,16 +42,18 @@ export function defaultWorkspaceRoot() {
 // 比直接报错危险得多。
 export function createWorkspaceStore(settings) {
   const location = normalizeWorkspaceLocation(settings && settings.location);
-  if (location.kind !== WORKSPACE_ROOT_KINDS.SAF) {
-    return createLegacyWorkspaceStore({
+  const base = location.kind !== WORKSPACE_ROOT_KINDS.SAF
+    ? createLegacyWorkspaceStore({
       root: defaultWorkspaceRoot(),
       fileSystem: getWorkspaceFileSystem(),
+    })
+    : createSafWorkspaceStore({
+      root: resolveWorkspaceRoot(location, defaultWorkspaceRoot()),
+      adapter: createExpoSafAdapter(getFileSystemNext()),
     });
-  }
-  return createSafWorkspaceStore({
-    root: resolveWorkspaceRoot(location, defaultWorkspaceRoot()),
-    adapter: createExpoSafAdapter(getFileSystemNext()),
-  });
+  // 改动历史记录装饰器：面板与聊天工具共用这条后端路径，记录点唯一。
+  // 记录失败被装饰器吞掉，绝不影响文件操作本身。
+  return createHistoryRecordingStore(base);
 }
 
 // 面板/工具共用的根描述：外部根返回文件夹名，应用私有根返回空串。

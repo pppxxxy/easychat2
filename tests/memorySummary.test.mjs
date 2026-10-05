@@ -143,6 +143,51 @@ test('自动总结阈值按可总结消息计算', () => {
   }), true);
 });
 
+test('上下文占用到自动压缩线时绕过条数阈值（仍受总开关约束）', () => {
+  const settings = { enabled: true, threshold: 8 };
+  // 6 条低于阈值 8：不传占用时正常路径为 false。
+  const messages = makeMessages(6);
+  assert.equal(memorySummary.shouldSummarize({
+    session: { summarizedUpTo: '' },
+    messages,
+    settings,
+  }), false);
+  // 占用到达 80% 线：视同阈值满足。
+  assert.equal(memorySummary.shouldSummarize({
+    session: { summarizedUpTo: '' },
+    messages,
+    settings,
+    contextUsage: { tokens: 8000, window: 10000, ratio: 0.8 },
+  }), true);
+  assert.equal(memorySummary.shouldSummarize({
+    session: { summarizedUpTo: '' },
+    messages,
+    settings,
+    contextUsage: { tokens: 9500, window: 10000, ratio: 0.95 },
+  }), true);
+  // 未到线仍按条数阈值。
+  assert.equal(memorySummary.shouldSummarize({
+    session: { summarizedUpTo: '' },
+    messages,
+    settings,
+    contextUsage: { tokens: 5000, window: 10000, ratio: 0.5 },
+  }), false);
+  // 「记忆总结」总开关关闭：占用再高也不自动压。
+  assert.equal(memorySummary.shouldSummarize({
+    session: { summarizedUpTo: '' },
+    messages,
+    settings: { enabled: false, threshold: 8 },
+    contextUsage: { tokens: 9500, window: 10000, ratio: 0.95 },
+  }), false);
+  // 非法占用值不触发。
+  assert.equal(memorySummary.shouldSummarize({
+    session: { summarizedUpTo: '' },
+    messages,
+    settings,
+    contextUsage: { tokens: 1, window: 10000, ratio: Number.NaN },
+  }), false);
+});
+
 test('手动总结包含保留的最近消息且绕过自动候选限制', () => {
   const messages = makeMessages(3);
   const automatic = memorySummary.selectSummarizable(messages, '');

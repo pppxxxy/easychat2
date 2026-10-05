@@ -32,6 +32,19 @@ Module._load = function patchedLoad(request, parent, isMain) {
     return {
       getActiveApiConfig: async () => activeConfig,
       getActiveModel: config => config.activeModel,
+      // 能力按模型解析（与 storage/apiConfigs.capabilitiesForModel 同构的桩；
+      // 真实现的迁移/归一覆盖在 apiConfig.test.mjs）。
+      capabilitiesForModel: (config, model) => {
+        const entry = (config && config.modelCapabilities && config.modelCapabilities[String(model || '')]) || {};
+        return {
+          supportsThinking: entry.supportsThinking === true,
+          thinkingField: String(entry.thinkingField || 'reasoning_effort'),
+          thinkingFormat: entry.thinkingFormat || 'effort',
+          supportsVision: entry.supportsVision === true,
+          supportsVideo: entry.supportsVideo === true,
+          supportsAudio: entry.supportsAudio === true,
+        };
+      },
       getSamplingSettings: async () => ({}),
       getThinkingSettings: async () => ({ enabled: false }),
     };

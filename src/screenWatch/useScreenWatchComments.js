@@ -10,7 +10,9 @@ import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
   getActiveLocalModel,
+  capabilitiesForModel,
   getApiConfigs,
+  getActiveModel,
   getEnabledGlobalPresetPrompts,
   getLocalModelSettings,
   getUserProfile,
@@ -32,9 +34,11 @@ export async function resolveScreenWatchCapabilities() {
   ]);
   const current = apiConfig.configs.find(item => item.id === apiConfig.activeId)
     || apiConfig.configs[0];
-  const vision = !!(current && current.supportsVision === true)
+  // 能力按当前模型解析（同一配置下每个模型一套能力）。
+  const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+  const vision = caps.supportsVision === true
     || !!getLocalModelMediaCapabilities(localSettings, localItem).vision;
-  const video = !!(current && current.supportsVideo === true);
+  const video = caps.supportsVideo === true;
   return { vision, video, current };
 }
 

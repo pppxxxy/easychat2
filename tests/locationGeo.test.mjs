@@ -47,10 +47,30 @@ test('buildLocationText：开关、空位置与位置年龄矩阵', () => {
   const now = 1_700_000_000_000;
   const fresh = { latitude: 39.9042, longitude: 116.4074, description: '北京市东城区', updatedAt: now - 60_000 };
   assert.equal(buildLocationText(true, fresh, { now }), '[当前位置] 北京市东城区', '默认 30 分钟内的新位置照常注入');
-  assert.equal(buildLocationText(true, { latitude: 1.5, longitude: 2.5, updatedAt: now }, { now }), '[当前位置] 1.500000, 2.500000');
+  // 坐标兜底走模糊精度（2 位小数 ≈ 1.1km）：精确坐标只留在本地地图上。
+  assert.equal(buildLocationText(true, { latitude: 1.5, longitude: 2.5, updatedAt: now }, { now }), '[当前位置] 1.50, 2.50');
   assert.equal(buildLocationText(false, fresh, { now }), '', '关闭时不注入');
   assert.equal(buildLocationText(true, null, { now }), '', '无位置不注入');
   assert.equal(buildLocationText(true, { latitude: Number.NaN, longitude: Number.NaN, updatedAt: now }, { now }), '');
+});
+
+test('buildLocationText：注入优先用区县级 coarse，模糊优先于全量描述', () => {
+  const now = 1_700_000_000_000;
+  const withCoarse = {
+    latitude: 39.9042,
+    longitude: 116.4074,
+    description: '北京市东城区景山街道某小区',
+    coarse: '北京市东城区',
+    updatedAt: now - 60_000,
+  };
+  assert.equal(buildLocationText(true, withCoarse, { now }), '[当前位置] 北京市东城区',
+    '有 coarse 时必须用粗描述（不带街道/名称）');
+  const legacy = { ...withCoarse, coarse: '' };
+  assert.equal(buildLocationText(true, legacy, { now }), '[当前位置] 北京市东城区景山街道某小区',
+    '旧数据没有 coarse 时退全量描述（升级前已存的位置）');
+  const blank = { ...withCoarse, coarse: '   ', description: '  ' };
+  assert.equal(buildLocationText(true, blank, { now }), '[当前位置] 39.90, 116.41',
+    'coarse/描述都空时退模糊坐标');
 });
 
 test('buildLocationText：过期/无时间戳的位置不注入（宁缺毋错）', () => {

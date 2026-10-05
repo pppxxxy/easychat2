@@ -22,6 +22,16 @@ export const MAX_IMAGE_BASE64_BYTES = 28 * 1024 * 1024;
 export const MAX_IMAGE_PIXELS = 16_000_000;
 export const MAX_IMAGE_ATTACHMENTS = 3;
 
+// 视频附件（仅当模型声明 supportsVideo 且走 OpenAI 兼容协议时解锁，见 ChatScreen 门控）。
+// 数据 URI 会 base64 膨胀 4/3，限额按「多数兼容端点可接受的请求体」量级设定；
+// 一次只带一条视频——两条膨胀后的请求体很容易越过端点上限。
+export const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', '3gp', 'mkv'];
+export const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+export const MAX_VIDEO_BASE64_BYTES = 28 * 1024 * 1024;
+export const MAX_VIDEO_ATTACHMENTS = 1;
+// 拍摄时长上限（秒）：默认一分钟，避免一次录出几百 MB 的素材。
+export const VIDEO_MAX_DURATION_S = 60;
+
 function extensionOf(name) {
   const value = String(name || '');
   const index = value.lastIndexOf('.');
@@ -74,6 +84,34 @@ export function getImageMime(name, mime = '') {
 
 export function isVisionImage(name, mime = '') {
   return VISION_IMAGE_MIME_TYPES.includes(getImageMime(name, mime));
+}
+
+// 视频：按 mime 或扩展名识别（相册/文件管理器给的 mime 经常缺失或不准）。
+export function isVideo(name, mime) {
+  const type = String(mime || '').toLowerCase();
+  if (type.startsWith('video/')) return true;
+  return VIDEO_EXTENSIONS.includes(extensionOf(name));
+}
+
+export function getVideoMime(name, mime = '') {
+  const type = String(mime || '').toLowerCase();
+  if (type === 'video/quicktime') return 'video/mov';
+  if (type.startsWith('video/')) return type;
+  const value = String(name || '').toLowerCase();
+  if (value.endsWith('.mov')) return 'video/mov';
+  if (value.endsWith('.m4v')) return 'video/mp4';
+  if (value.endsWith('.webm')) return 'video/webm';
+  if (value.endsWith('.3gp')) return 'video/3gpp';
+  if (value.endsWith('.mkv')) return 'video/x-matroska';
+  return 'video/mp4';
+}
+
+// 视频只校验大小（时长/分辨率交给模型与端点的宽容度，不做本地硬判）。
+export function validateVideoSize({ size = 0 } = {}) {
+  const bytes = Number(size);
+  if (!Number.isFinite(bytes) || bytes <= 0) throw new Error('无法读取视频大小');
+  if (bytes > MAX_VIDEO_BYTES) throw new Error('视频过大');
+  return true;
 }
 
 export function validateImageDimensions({ width = 0, height = 0 } = {}) {
@@ -228,6 +266,45 @@ export async function takePhoto() {
   return normalizeCameraResult(result);
 }
 
+// ---- 视频附件（上传 / 拍摄） ----
+
+// 归一化视频结果：与图片同一形状（含 fileName/size），供 addAttachment 的视频分支复用。
+function normalizeVideoResult(result) {
+  const asset = result && !result.canceled && result.assets && result.assets[0];
+  if (!asset?.uri) return null;
+  return {
+    uri: asset.uri,
+    name: asset.fileName || `视频_${Date.now()}.mp4`,
+    mime: asset.mimeType || '',
+    width: Number(asset.width) || 0,
+    height: Number(asset.height) || 0,
+    size: Number(asset.fileSize) || 0,
+  };
+}
+
+// 从相册选视频。
+export async function pickVideoAttachment() {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+    allowsEditing: false,
+    quality: 1,
+  });
+  return normalizeVideoResult(result);
+}
+
+// 拍摄视频（需要相机权限；与拍照共用拒绝语义）。限制时长，防止录出超大素材。
+export async function recordVideo() {
+  const permission = await requestCameraPermission();
+  if (isCameraPermissionDenied(permission)) return { denied: true };
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+    allowsEditing: false,
+    videoMaxDuration: VIDEO_MAX_DURATION_S,
+    cameraType: ImagePicker.CameraType?.back,
+  });
+  return normalizeVideoResult(result);
+}
+
 export async function getImageFileInfo(uri) {
   const info = await FileSystem.getInfoAsync(uri);
   return {
@@ -296,6 +373,41 @@ export async function deleteLocalImage(uri) {
   } catch (error) {}
 }
 
+// 视频落盘：独立目录 chat-videos/（不进图片清扫，由各自引用方管理生命周期）。
+export async function persistVideoAttachment(uri, mime = '', name = '') {
+  const sourceUri = String(uri || '');
+  if (!sourceUri) throw new Error('视频路径无效');
+  const directory = `${FileSystem.documentDirectory || ''}chat-videos/`;
+  await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+  const type = getVideoMime(name, mime);
+  const extension = type === 'video/mov'
+    ? 'mov'
+    : type === 'video/webm'
+      ? 'webm'
+      : type === 'video/3gpp'
+        ? '3gp'
+        : type === 'video/x-matroska'
+          ? 'mkv'
+          : 'mp4';
+  const destination = `${directory}video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+  markMediaWrite(destination);
+  try {
+    await FileSystem.copyAsync({ from: sourceUri, to: destination });
+    return destination;
+  } catch (error) {
+    await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+    throw error;
+  }
+}
+
+export async function deleteLocalVideo(uri) {
+  const value = String(uri || '');
+  if (!value.includes('/chat-videos/')) return;
+  try {
+    await FileSystem.deleteAsync(value, { idempotent: true });
+  } catch (error) {}
+}
+
 export async function readTextAttachment(uri, maxBytes = MAX_TEXT_BYTES) {
   const info = await FileSystem.getInfoAsync(uri);
   if (!info || info.exists === false) throw new Error('文件不存在');
@@ -316,6 +428,15 @@ export async function readImageDataUri(uri, mime) {
     encoding: FileSystem.EncodingType.Base64,
   });
   const type = getImageMime(String(uri || '').split('?')[0], mime);
+  return `data:${type};base64,${base64}`;
+}
+
+// 视频数据 URI（与图片同构；条数上限 1，配合 MAX_VIDEO_BASE64_BYTES 控制请求体）。
+export async function readVideoDataUri(uri, mime) {
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const type = getVideoMime(String(uri || '').split('?')[0], mime);
   return `data:${type};base64,${base64}`;
 }
 

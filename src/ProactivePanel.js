@@ -15,8 +15,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   buildProactiveAuthSettings,
   buildProactiveEndpoint,
-  normalizeProtocol,
 } from './proactive/proactiveRequest.js';
+// normalizeProtocol 定义在 apiProtocols（proactiveRequest 自用但未转发）——
+// 从它那里具名导入拿到的是 undefined，保存槽位按协议算请求时会直接 TypeError。
+import { normalizeProtocol } from './apiProtocols.js';
+
 import {
   getProactiveSettings,
   makeProactiveSlotId,

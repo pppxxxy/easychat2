@@ -6,7 +6,7 @@
 import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { deleteLocalImage, deleteTemporaryImage } from './attachments.js';
+import { deleteLocalImage, deleteLocalVideo, deleteTemporaryImage } from './attachments.js';
 import { buildGreetingMessage } from './chatHelpers.js';
 import { isGreetingMessage } from '../character/cardGreetings.js';
 import {
@@ -94,7 +94,7 @@ export default function useSessionSwitch({
     invalidateSessionOperations();
     activeCharacterIdRef.current = id;
     setProtectedChatImageUris(draft.attachments
-      .filter(item => item && item.kind === 'image')
+      .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
       .map(item => item.uri));
     attachmentsRef.current = [];
     setQuoteTarget(null);
@@ -114,6 +114,7 @@ export default function useSessionSwitch({
         if (switchOperationRef.current !== switchToken) return;
         draft.attachments.forEach(item => {
           if (item.kind === 'image') deleteLocalImage(item.uri);
+          if (item.kind === 'video') deleteLocalVideo(item.uri);
         });
         if (draft.stickerNamePrompt && draft.stickerNamePrompt.uri) {
           deleteTemporaryImage(draft.stickerNamePrompt.uri);
@@ -141,7 +142,7 @@ export default function useSessionSwitch({
         setStickerNamePrompt(draft.stickerNamePrompt);
         setStickerNameDraft(draft.stickerNameDraft);
         setProtectedChatImageUris(draft.attachments
-          .filter(item => item && item.kind === 'image')
+          .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
           .map(item => item.uri));
         Alert.alert('切换失败', '请检查存储空间或权限。');
       });
@@ -166,7 +167,7 @@ export default function useSessionSwitch({
     invalidateSessionOperations();
     activeSessionIdRef.current = id;
     setProtectedChatImageUris(draft.attachments
-      .filter(item => item && item.kind === 'image')
+      .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
       .map(item => item.uri));
     attachmentsRef.current = [];
     setQuoteTarget(null);
@@ -181,6 +182,7 @@ export default function useSessionSwitch({
         if (switchOperationRef.current !== switchToken) return;
         draft.attachments.forEach(item => {
           if (item.kind === 'image') deleteLocalImage(item.uri);
+          if (item.kind === 'video') deleteLocalVideo(item.uri);
         });
         if (draft.stickerNamePrompt && draft.stickerNamePrompt.uri) {
           deleteTemporaryImage(draft.stickerNamePrompt.uri);
@@ -206,7 +208,7 @@ export default function useSessionSwitch({
         setStickerNamePrompt(draft.stickerNamePrompt);
         setStickerNameDraft(draft.stickerNameDraft);
         setProtectedChatImageUris(draft.attachments
-          .filter(item => item && item.kind === 'image')
+          .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
           .map(item => item.uri));
         Alert.alert('切换失败', '请检查存储空间或权限。');
       });

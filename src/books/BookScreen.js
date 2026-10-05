@@ -24,7 +24,9 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import { deleteBookCommentsForBooks } from './comments.js';
 import { deleteBooks, getBooks, readBookContent } from './library.js';
 import { importBookFromPicker } from './importBook.js';
-import { BookReaderView } from './BookReaderView.js';
+// BookReaderView 是 default 导出——具名导入拿到 undefined，打开书即崩
+//（"Element type is invalid ... got: undefined"，真机上只有打开书才触发）。
+import BookReaderView from './BookReaderView.js';
 
 function formatBookSize(item, t) {
   const parts = [];

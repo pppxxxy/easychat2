@@ -40,6 +40,7 @@ import {
   clearCardForge,
   getActiveLocalModel,
   getActiveModel,
+  capabilitiesForModel,
   getApiConfigs,
   getCardForgeStatus,
   getLocalModelSettings,
@@ -249,7 +250,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     ]);
     const current = configs.find(item => item.id === activeId) || configs[0];
     const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
-    return !!(current && current.supportsVision === true) || localMedia.vision;
+    // 能力按当前模型解析（同一配置下每个模型一套能力）。
+    return capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsVision === true
+      || localMedia.vision;
   }, []);
 
   // 打开编辑器前刷新识图能力（能力可能在设置里改过；同聊天附件菜单的做法）。
@@ -273,9 +276,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     ]);
     const current = configs.find(item => item.id === activeId) || configs[0];
     const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
-    const vision = !!(current && current.supportsVision === true) || localMedia.vision;
+    const vision = capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsVision === true
+      || localMedia.vision;
     if (!vision) {
-      throw new Error('当前来源未标记为支持识图，无法按图片生成角色；请在设置中换用支持识图的模型。');
+      throw new Error('当前模型未标记为支持识图，无法按图片生成角色；请在设置中换用支持识图的模型。');
     }
     const dataUri = await readImageDataUri(source);
     if (!dataUri) throw new Error('读取图片失败，请重新选择图片。');

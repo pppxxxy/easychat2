@@ -14,8 +14,9 @@ function readSource(relativePath) {
 test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () => {
   const source = readSource('src/WorkspacePanel.js');
   assert.ok(source.includes("mode === 'write'"), '写操作必须仅可改模式');
-  // 面板不再自己拼 uri：换成后端接口，角色隔离由 store 以 characterId 分沙盒保证。
-  assert.ok(/listWorkspaceFiles\(\{ characterId \}\)/.test(source), '列表按 characterId 分沙盒');
+  // 面板不再自己拼 uri：换成后端接口，角色隔离由 store 以 characterId 分沙盒保证；
+// ownerId 允许显式传入（打开面板解析出工作区角色后立即用新 id 刷新列表）。
+  assert.ok(/listWorkspaceFiles\(\{ characterId: ownerId \}\)/.test(source), '列表按 characterId 分沙盒');
   assert.ok(/readWorkspaceFile\(\{ characterId, path/.test(source), '读取按 characterId 分沙盒');
   assert.ok(source.includes('createWorkspaceStore') && source.includes('describeWorkspaceRoot'),
     '根与后端按当前设置解析（应用内 / 外部文件夹）');
@@ -25,6 +26,19 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
   assert.ok(source.includes('Sharing.shareAsync'), '分享接 expo-sharing');
   assert.ok(source.includes('animationType="slide"'), '面板为滑入式 Modal');
   assert.ok(/container:\s*\{[^}]*paddingTop/.test(source), '全屏容器需顶部内边距，避免标题/关闭贴到状态栏');
+  // 工作区角色：打开时解析（未设置落到默认工作助手）+ 选择器可切换并写回设置。
+  assert.ok(source.includes('resolveWorkspaceAssistant'), '打开面板解析工作区角色');
+  // 断言必须钉住「解析路径」的专属串（resolved.id）——选择器路径里也有一处
+  // patchWorkspaceSettings 调用，只查前缀会漏掉解析路径被拆掉的回归（注入验证抓出）。
+  assert.ok(source.includes('patchWorkspaceSettings({ assistantCharacterId: resolved.id })'), '解析出的角色写回设置');
+  assert.ok(source.includes('patchWorkspaceSettings({ assistantCharacterId: item.id })'), '选择角色写回设置');
+  assert.ok(source.includes('getCharacterLibrary'), '选择器读取角色库');
+  assert.ok(source.includes("t('workspace.panel.character.select')"), '角色行有选择入口');
+  // 查看文件：两段（文件/历史改动）+ 历史从存储域读取 + 清空入口。
+  assert.ok(source.includes("t('workspace.panel.viewFiles')"), '面板有查看文件入口');
+  assert.ok(source.includes('getWorkspaceChanges'), '历史改动读取存储域');
+  assert.ok(source.includes('clearWorkspaceChanges'), '历史可清空');
+  assert.ok(source.includes("openViewer('history')") || source.includes("openViewer(tab)"), '分段切换走 openViewer');
 });
 
 test('SettingsScreen：工作区卡片提供面板入口', () => {
@@ -96,4 +110,45 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
   assert.ok(settings.includes('<WorkspaceCapabilitiesCard'), '设置页渲染能力说明卡片');
   assert.ok(/settings=\{\{[\s\S]{0,200}allowCommandExecution: commandExecution/.test(settings), '传入当前工作区设置');
   assert.ok(/shellAvailable=\{isShellAvailable\(\)\}/.test(settings), '传入 shell 是否可用');
+});
+
+test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () => {
+  const source = readSource('src/WorkspacePanel.js');
+  // 思考强度：四档 chips（off=关闭思考），点选立即保存，打开面板回读当前档位。
+  assert.ok(source.includes("const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];"), '四档可选');
+  assert.ok(source.includes('saveThinkingSettings(next)'), '点选立即保存');
+  assert.ok(source.includes("enabled: choice !== 'off'"), 'off 关闭思考');
+  assert.ok(source.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
+  assert.ok(source.includes('getThinkingSettings()'), '打开时回读当前强度');
+  // 上下文占用：与 ChatScreen.maybeAutoSummarize 同一口径；无会话显示空态。
+  assert.ok(
+    source.includes("import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';"),
+    '复用 contextUsage 纯口径'
+  );
+  // 钉住「过滤 + 排序」整体：两条相邻断言分别锁 type 过滤与 characterId 匹配，
+  // 任何一条被拆掉都会漏占用（曾经靠注入验证抓过这类半截匹配）。
+  assert.ok(
+    source.includes(".filter(item => item && item.type !== 'group'"),
+    '占用只统计单聊会话（排除群聊）'
+  );
+  assert.ok(
+    source.includes("String(item.characterId || '') === String(ownerId || '')"),
+    '占用取当前工作区角色的会话'
+  );
+  assert.ok(
+    source.includes('declared: caps.contextWindow,'),
+    '窗口按每模型声明的 contextWindow'
+  );
+  assert.ok(
+    source.includes('usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn'),
+    '到 80% 线进度条转警示色'
+  );
+  assert.ok(
+    source.includes("t('workspace.panel.context.usage', {"),
+    '占用文案走词条（token 数与百分比）'
+  );
+  assert.ok(
+    source.includes("t('workspace.panel.context.empty')"),
+    '无会话有空态文案'
+  );
 });

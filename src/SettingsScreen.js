@@ -27,24 +27,32 @@ import PluginPanel from './PluginPanel.js';
 import PresetPanel from './PresetPanel.js';
 import TtsPanel from './TtsPanel.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
+import { useNavigation } from '@react-navigation/native';
 import {
   createApiConfig,
+  capabilitiesForModel,
   getApiConfigs,
+  normalizeCapabilityEntry,
   getChatOptions,
   getGlobalPresetSettings,
   getGlobalPresets,
   getImageGenSettings,
   getInlineImageSettings,
+  getLocationSettings,
   getMomentsSettings,
   saveMomentsSettings,
   getThinkingSettings,
   getWorkspaceSettings,
   patchWorkspaceSettings,
+  clearGithubMcpCredentials,
+  connectGithubMcpWithToken,
+  getGithubMcpSettings,
   saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
+  updateLocationSettings,
   THINKING_DISPLAYS,
 } from './storage.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
@@ -74,6 +82,8 @@ import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
 import WorkspacePanel from './WorkspacePanel.js';
 import WorkspaceCapabilitiesCard from './WorkspaceCapabilitiesCard.js';
+import { runOAuthWebFlow } from './mcp/oauth.js';
+import { captureOAuthCallback, GITHUB_OAUTH_REDIRECT, openSystemBrowser } from './mcp/oauthBridge.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
@@ -183,6 +193,8 @@ export default function SettingsScreen() {
   const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
   const [modelDraft, setModelDraft] = useState('');
   const [capabilityOpen, setCapabilityOpen] = useState(false);
+  // 能力弹层当前编辑的模型名——能力按「模型」一份，不再按整个 API 配置。
+  const [capabilityEditorModel, setCapabilityEditorModel] = useState('');
   const [capabilityDraft, setCapabilityDraft] = useState({
     supportsThinking: false,
     supportsVision: false,
@@ -190,6 +202,8 @@ export default function SettingsScreen() {
     supportsAudio: false,
     thinkingField: 'reasoning_effort',
     thinkingFormat: 'effort',
+    // 上下文窗口（tokens，字符串在编辑，确认时解析为数字；空 = 0 = 用默认）。
+    contextWindow: '',
   });
   const [presetEntryOpen, setPresetEntryOpen] = useState(false);
   const [pluginEntryOpen, setPluginEntryOpen] = useState(false);
@@ -245,6 +259,10 @@ export default function SettingsScreen() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [localModelOpen, setLocalModelOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  // GitHub MCP 连接：设置、PAT 输入与忙碌态（网页认证/PAT 都走 connectGithubMcpWithToken）。
+  const [githubMcp, setGithubMcp] = useState(null);
+  const [githubPat, setGithubPat] = useState('');
+  const [githubBusy, setGithubBusy] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
   const { refreshAppData, character } = useApp();
@@ -264,6 +282,24 @@ export default function SettingsScreen() {
   useEffect(() => {
     refreshPresetCount();
   }, [refreshPresetCount]);
+
+  // 位置感知开关：依赖「真实地图分享」（在扩展页开启）的状态，回到本页时需要刷新。
+  // 仅当真实地图开启时该开关才显示（由渲染层判断 locationSettings.enabled）。
+  const navigation = useNavigation();
+  const [locationSettings, setLocationSettings] = useState(null);
+  useEffect(() => {
+    if (!navigation || typeof navigation.addListener !== 'function') return undefined;
+    const load = () => {
+      getLocationSettings()
+        .then(value => setLocationSettings(value))
+        .catch(() => {});
+    };
+    load();
+    const unsubscribe = navigation.addListener('focus', load);
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [navigation]);
 
   useEffect(() => {
     getChatOptions()
@@ -418,6 +454,18 @@ export default function SettingsScreen() {
     }
   }, []);
 
+  // 位置感知开关：单独写 @easychat2_location.awareness（与真实地图分享同域）。
+  // 失败时回读真实值，UI 不会停在「看起来开了其实没写进去」的状态。
+  const toggleLocationAwareness = useCallback(async value => {
+    try {
+      const saved = await updateLocationSettings(current => ({ ...current, awareness: value === true }));
+      setLocationSettings(saved);
+    } catch (error) {
+      Alert.alert(t('settings.location.awareness.title'), t('settings.location.awareness.saveFailed'));
+      getLocationSettings().then(setLocationSettings).catch(() => {});
+    }
+  }, [t]);
+
   const updateWorkspaceMode = useCallback(async mode => {
     workspaceModeRef.current = mode;
     setWorkspaceMode(mode);
@@ -430,6 +478,103 @@ export default function SettingsScreen() {
       Alert.alert('保存失败', '请检查存储空间或权限。');
     }
   }, []);
+
+  // —— GitHub MCP 连接 ——
+  // 网页认证：发现授权服务器 → 动态注册 → 系统浏览器授权（PKCE）→ 回调换令牌。
+  // 任何一步失败都提示改用 PAT；令牌方式是稳定兜底。
+  // data 层错误带稳定 code：这里按 code 映射成用户文案（纯模块不做 i18n）。
+  const GITHUB_ERROR_KEYS = {
+    GITHUB_TOKEN_EMPTY: 'settings.github.err.empty',
+    GITHUB_ENDPOINT_HTTPS: 'settings.github.err.endpoint',
+    GITHUB_NOT_CONNECTED: 'settings.github.err.notConnected',
+    MCP_AUTH_FAILED: 'settings.github.err.auth',
+    MCP_HTTP_ERROR: 'settings.github.err.mcpHttp',
+    MCP_INVALID_RESPONSE: 'settings.github.err.mcpResponse',
+    OAUTH_METADATA_NOT_FOUND: 'settings.github.err.metadata',
+    OAUTH_NO_REGISTRATION: 'settings.github.err.registration',
+    OAUTH_STATE_MISMATCH: 'settings.github.err.state',
+    OAUTH_TIMEOUT: 'settings.github.err.timeout',
+    OAUTH_ACCESS_DENIED: 'settings.github.err.denied',
+    OAUTH_TOKEN_EXCHANGE: 'settings.github.err.exchange',
+    OAUTH_BROWSER_UNAVAILABLE: 'settings.github.err.browser',
+  };
+  const githubAlertText = (error, translate) => {
+    const key = error && error.code && GITHUB_ERROR_KEYS[error.code];
+    return key ? translate(key) : ((error && error.message) || translate('settings.github.err.body'));
+  };
+  const githubMcpSummaryRef = useRef({ allowedCount: 0, confirmCount: 0, deniedCount: 0 });
+  const loadGithubMcp = useCallback(async () => {
+    try { setGithubMcp(await getGithubMcpSettings()); } catch (error) { setGithubMcp(null); }
+  }, []);
+
+  useEffect(() => { loadGithubMcp(); }, [loadGithubMcp]);
+
+  const afterGithubConnect = useCallback(async () => {
+    await loadGithubMcp();
+    Alert.alert(
+      t('settings.github.done.title'),
+      t('settings.github.done.body', {
+        count: githubMcpSummaryRef.current.allowedCount,
+        confirm: githubMcpSummaryRef.current.confirmCount,
+        denied: githubMcpSummaryRef.current.deniedCount,
+      })
+    );
+  }, [loadGithubMcp, t]);
+
+  const connectGithubPat = useCallback(async () => {
+    if (githubBusy) return;
+    const token = githubPat.trim();
+    if (!token) {
+      Alert.alert(t('settings.github.err.title'), t('settings.github.err.empty'));
+      return;
+    }
+    setGithubBusy(true);
+    try {
+      const summary = await connectGithubMcpWithToken({ token, authMethod: 'pat' });
+      githubMcpSummaryRef.current = summary;
+      setGithubPat('');
+      await afterGithubConnect();
+    } catch (error) {
+      Alert.alert(t('settings.github.err.title'), githubAlertText(error, t));
+    } finally {
+      setGithubBusy(false);
+    }
+  }, [afterGithubConnect, githubBusy, githubPat, t]);
+
+  const connectGithubWeb = useCallback(async () => {
+    if (githubBusy) return;
+    setGithubBusy(true);
+    try {
+      const tokens = await runOAuthWebFlow({
+        serverUrl: (githubMcp && githubMcp.endpoint) || undefined,
+        redirectUri: GITHUB_OAUTH_REDIRECT,
+        fetchImpl: (url, options) => fetch(url, options),
+        openBrowser: openSystemBrowser,
+        awaitCallback: () => captureOAuthCallback(),
+      });
+      const summary = await connectGithubMcpWithToken({
+        token: tokens.accessToken,
+        authMethod: 'oauth',
+      });
+      githubMcpSummaryRef.current = summary;
+      await afterGithubConnect();
+    } catch (error) {
+      Alert.alert(t('settings.github.err.title'), githubAlertText(error, t));
+    } finally {
+      setGithubBusy(false);
+    }
+  }, [afterGithubConnect, githubBusy, githubMcp, t]);
+
+  const disconnectGithub = useCallback(() => {
+    Alert.alert(t('settings.github.disconnect.title'), t('settings.github.disconnect.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('settings.github.disconnect.ok'),
+        style: 'destructive',
+        onPress: () => { clearGithubMcpCredentials().then(loadGithubMcp).catch(() => {}); },
+      },
+    ]);
+  }, [loadGithubMcp, t]);
 
   // 选文件夹：系统选择器（SAF）已经带 takePersistableUriPermission，重启后仍有效。
   // 取消不是错误，不提示；失败才提示。
@@ -687,7 +832,7 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const performSave = async caps => {
+  const performSave = async () => {
     const current = apiStateRef.current;
     const selected = current.configs.find(item => item.id === current.activeId);
     if (!selected) return;
@@ -710,16 +855,6 @@ export default function SettingsScreen() {
 
               models: trimmedModels,
               activeModel,
-              supportsThinking: caps.supportsThinking === true,
-              supportsVision: caps.supportsVision === true,
-              supportsVideo: caps.supportsVideo === true,
-              supportsAudio: caps.supportsAudio === true,
-              thinking: {
-                field: String(caps.thinkingField || '').trim() || 'reasoning_effort',
-                format: ['effort', 'boolean', 'object'].includes(caps.thinkingFormat)
-                  ? caps.thinkingFormat
-                  : 'effort',
-              },
             }
           : item
       );
@@ -769,20 +904,33 @@ export default function SettingsScreen() {
       });
       if (!confirmed || !apiMountedRef.current) return;
     }
-    setCapabilityDraft({
-      supportsThinking: selected.supportsThinking === true,
-      supportsVision: selected.supportsVision === true,
-      supportsVideo: selected.supportsVideo === true,
-      supportsAudio: selected.supportsAudio === true,
-      thinkingField: (selected.thinking && selected.thinking.field) || 'reasoning_effort',
-      thinkingFormat: (selected.thinking && selected.thinking.format) || 'effort',
-    });
-    setCapabilityOpen(true);
+    await performSave();
   };
 
-  const confirmCapability = async () => {
+  // 能力弹层的确认：把「该模型的能力」写回草稿。仍点位模型能力，不写盘——
+  // 与草稿/保存分离的既有语义一致（点「保存配置」才落盘）。
+  const confirmCapability = () => {
+    const name = capabilityEditorModel;
     setCapabilityOpen(false);
-    await performSave(capabilityDraft);
+    if (!name || !canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    const entry = normalizeCapabilityEntry({
+      supportsThinking: capabilityDraft.supportsThinking === true,
+      thinkingField: String(capabilityDraft.thinkingField || '').trim() || 'reasoning_effort',
+      thinkingFormat: ['effort', 'boolean', 'object'].includes(capabilityDraft.thinkingFormat)
+        ? capabilityDraft.thinkingFormat
+        : 'effort',
+      supportsVision: capabilityDraft.supportsVision === true,
+      supportsVideo: capabilityDraft.supportsVideo === true,
+      supportsAudio: capabilityDraft.supportsAudio === true,
+      contextWindow: Math.max(0, Math.floor(Number(capabilityDraft.contextWindow)) || 0),
+    });
+    updateField({
+      modelCapabilities: { ...(selected.modelCapabilities || {}), [name]: entry },
+    });
+    setCapabilityEditorModel('');
   };
 
   const detectModels = async () => {
@@ -859,6 +1007,8 @@ export default function SettingsScreen() {
     const nextModels = models.includes(model) ? models : [...models, model];
     updateField({ models: nextModels, activeModel: model });
     setModelModalVisible(false);
+    // 从「可用模型」列表添加/选中后，顺手确认这个模型的能力。
+    openCapabilityEditor(model);
   };
 
   const addModel = () => {
@@ -871,15 +1021,39 @@ export default function SettingsScreen() {
     if (models.includes(model)) {
       updateField({ activeModel: model });
       setModelDraft('');
+      openCapabilityEditor(model);
       return;
     }
     updateField({ models: [...models, model], activeModel: model });
     setModelDraft('');
+    // 新模型不继承任何旧能力值：添加后立即让用户确认这个模型的能力。
+    openCapabilityEditor(model);
   };
 
   const selectActiveModel = model => {
     if (!canChangeApi()) return;
     updateField({ activeModel: model });
+  };
+
+  // 打开某模型的能力弹层：条目不存在（新模型未确认）时按全不支持起稿。
+  const openCapabilityEditor = modelName => {
+    const name = String(modelName || '').trim();
+    if (!name || !canChangeApi()) return;
+    const current = apiStateRef.current;
+    const selected = current.configs.find(item => item.id === current.activeId);
+    if (!selected) return;
+    const caps = capabilitiesForModel(selected, name);
+    setCapabilityDraft({
+      supportsThinking: caps.supportsThinking,
+      supportsVision: caps.supportsVision,
+      supportsVideo: caps.supportsVideo,
+      supportsAudio: caps.supportsAudio,
+      thinkingField: caps.thinkingField,
+      thinkingFormat: caps.thinkingFormat,
+      contextWindow: caps.contextWindow > 0 ? String(caps.contextWindow) : '',
+    });
+    setCapabilityEditorModel(name);
+    setCapabilityOpen(true);
   };
 
   const removeModel = model => {
@@ -1052,6 +1226,20 @@ export default function SettingsScreen() {
                           {model}
                         </Text>
                       </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => openCapabilityEditor(model)}
+                        hitSlop={6}
+                        accessibilityLabel={`配置模型 ${model} 的能力`}
+                        style={styles.modelChipCaps}
+                      >
+                        <Ionicons
+                          name="options-outline"
+                          size={13}
+                          color={(active.modelCapabilities && active.modelCapabilities[model])
+                            ? theme.colors.primarySoft
+                            : theme.colors.textFaint}
+                        />
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={() => removeModel(model)} hitSlop={6}>
                         <Ionicons name="close" size={14} color={theme.colors.textFaint} />
                       </TouchableOpacity>
@@ -1059,7 +1247,7 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
-              <FieldHint style={styles.hint}>点击模型将其设为当前模型，请求将使用当前模型。</FieldHint>
+              <FieldHint style={styles.hint}>点击模型将其设为当前模型；点右侧滑杆图标可为每个模型单独确认能力（思考/识图/视频/语音识别）。</FieldHint>
               <TouchableOpacity
                 style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
                 onPress={detectModels}
@@ -1383,6 +1571,61 @@ export default function SettingsScreen() {
         <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
+              <Ionicons name="logo-github" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>{t('settings.github.title')}</Text>
+            </View>
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.github.subtitle')}</FieldHint>
+          {githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0 ? (
+            <>
+              <View style={styles.capabilityRow}>
+                <View style={styles.linkLeft}>
+                  <Ionicons name="checkmark-circle-outline" size={17} color={theme.colors.primary} />
+                  <Text style={styles.linkText}>
+                    {t('settings.github.connected', {
+                      login: githubMcp.accountLogin || t('settings.github.connected.anonymous'),
+                      count: githubMcp.toolCatalog.length,
+                    })}
+                  </Text>
+                </View>
+              </View>
+              <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
+              <View style={styles.formActions}>
+                <GhostButton title={t('settings.github.disconnect.action')} small onPress={disconnectGithub} />
+              </View>
+            </>
+          ) : (
+            <>
+              <FieldLabel style={styles.label}>{t('settings.github.pat.label')}</FieldLabel>
+              <SecretTextField
+                value={githubPat}
+                onChangeText={setGithubPat}
+                placeholder={t('settings.github.pat.placeholder')}
+                theme={theme}
+                styles={styles}
+              />
+              <FieldHint style={styles.hint}>{t('settings.github.pat.hint')}</FieldHint>
+              <View style={styles.formActions}>
+                <GhostButton
+                  title={githubBusy ? t('settings.github.busy') : t('settings.github.pat.action')}
+                  small
+                  onPress={connectGithubPat}
+                />
+                <SecondaryButton
+                  title={t('settings.github.web.action')}
+                  small
+                  onPress={connectGithubWeb}
+                />
+              </View>
+              <FieldHint style={styles.hint}>{t('settings.github.web.hint')}</FieldHint>
+              <FieldHint style={styles.hint}>{t('settings.github.riskHint')}</FieldHint>
+            </>
+          )}
+        </Card>
+
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
               <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
               <Text style={styles.cardTitle}>对话配图</Text>
             </View>
@@ -1609,6 +1852,23 @@ export default function SettingsScreen() {
             />
           </View>
           <Text style={styles.fieldHint}>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</Text>
+          {locationSettings && locationSettings.enabled === true ? (
+            <>
+              <View style={styles.capabilityRow}>
+                <View style={styles.linkLeft}>
+                  <Ionicons name="navigate-outline" size={17} color={theme.colors.primaryMuted} />
+                  <Text style={styles.linkText}>{t('settings.location.awareness.title')}</Text>
+                </View>
+                <Switch
+                  value={locationSettings.awareness === true}
+                  onValueChange={toggleLocationAwareness}
+                  trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                  thumbColor={theme.colors.primaryContrast}
+                />
+              </View>
+              <Text style={styles.fieldHint}>{t('settings.location.awareness.hint')}</Text>
+            </>
+          ) : null}
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />
@@ -2030,7 +2290,11 @@ export default function SettingsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>确认模型能力</Text>
-            <FieldHint style={styles.hint}>用于决定聊天页是否开放「思考」、图片上传与语音识别。</FieldHint>
+            <FieldHint style={styles.hint}>
+              {capabilityEditorModel ? `模型：${capabilityEditorModel}。` : ''}
+              每个模型单独一套：决定聊天页是否开放「思考」、图片/视频上传与语音识别。
+              确认后还需点表单里的「保存配置」才会写入本机。
+            </FieldHint>
             <View style={styles.capabilityRow}>
               <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
               <Switch
@@ -2091,7 +2355,7 @@ export default function SettingsScreen() {
               />
             </View>
             <View style={styles.capabilityRow}>
-              <Text style={styles.capabilityLabel}>支持视频（悬浮窗帧序列观屏）</Text>
+              <Text style={styles.capabilityLabel}>支持视频（聊天视频附件 / 悬浮窗帧序列观屏）</Text>
               <Switch
                 value={capabilityDraft.supportsVideo === true}
                 onValueChange={value => setCapabilityDraft(current => ({
@@ -2114,6 +2378,17 @@ export default function SettingsScreen() {
                 thumbColor={theme.colors.primaryContrast}
               />
             </View>
+            <FieldLabel style={styles.label}>上下文窗口（tokens）</FieldLabel>
+            <TextField
+              value={capabilityDraft.contextWindow}
+              onChangeText={value => setCapabilityDraft(current => ({
+                ...current,
+                contextWindow: String(value || '').replace(/[^0-9]/g, ''),
+              }))}
+              keyboardType="number-pad"
+              placeholder="如 128000；留空 = 默认 32000"
+            />
+            <FieldHint style={styles.hint}>用于工作区面板的上下文占用显示与 80% 自动压缩；不确定可留空。</FieldHint>
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.selectButton, styles.selectButtonGhost]}

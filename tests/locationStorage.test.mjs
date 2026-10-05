@@ -71,15 +71,17 @@ const location = loadSourceModule('src/storage/location.js');
 
 test('位置设置：开关与最近位置往返', async () => {
   store.clear();
-  assert.deepEqual(await location.getLocationSettings(), { enabled: false, last: null, tileUrl: '' });
+  assert.deepEqual(await location.getLocationSettings(), { enabled: false, awareness: false, last: null, tileUrl: '' });
 
   const saved = await location.saveLocationSettings({
     enabled: true,
-    last: { latitude: 39.9042, longitude: 116.4074, description: '  北京市  ', updatedAt: 123 },
+    last: { latitude: 39.9042, longitude: 116.4074, description: '  北京市  ', coarse: ' 北京市 ', updatedAt: 123 },
     tileUrl: '   ',
   });
   assert.equal(saved.enabled, true);
+  assert.equal(saved.awareness, false, '位置感知是纯 opt-in，缺省关闭');
   assert.equal(saved.last.description, '北京市', '描述去首尾空白');
+  assert.equal(saved.last.coarse, '北京市', '粗描述去首尾空白');
   assert.equal(saved.last.updatedAt, 123);
   assert.equal(saved.tileUrl, '', '空白瓦片模板归一为空');
 
@@ -87,6 +89,21 @@ test('位置设置：开关与最近位置往返', async () => {
   assert.equal(updated.enabled, true, 'setLastLocation 不影响开关');
   assert.equal(updated.last.latitude, 1);
   assert.equal(updated.last.description, '');
+});
+
+test('位置设置：位置感知独立往返；旧数据（无字段）一律关闭', async () => {
+  store.clear();
+  const on = await location.updateLocationSettings(current => ({ ...current, enabled: true, awareness: true }));
+  assert.equal(on.enabled, true);
+  assert.equal(on.awareness, true);
+  const readBack = await location.getLocationSettings();
+  assert.equal(readBack.awareness, true, '开关持久化后可读回');
+
+  // 旧版本数据只有 enabled（此前语义「开启即分享」）：升级后 awareness 缺省关闭，
+  // 需要用户到设置里显式打开——隐私默认从严。
+  assert.equal(location.normalizeLocationSettings({ enabled: true }).awareness, false);
+  assert.equal(location.normalizeLocationSettings({ enabled: true, awareness: 'yes' }).awareness, false,
+    '非 true 一律关闭');
 });
 
 test('位置设置：非法/零坐标归一为 null', () => {
@@ -102,7 +119,7 @@ test('位置设置：损坏先备份再回落；更新时拒绝覆盖', async ()
   corruptBackups.length = 0;
   store.set(location.LOCATION_KEY, '{broken');
   const fallback = await location.getLocationSettings();
-  assert.deepEqual(fallback, { enabled: false, last: null, tileUrl: '' });
+  assert.deepEqual(fallback, { enabled: false, awareness: false, last: null, tileUrl: '' });
   assert.ok(corruptBackups.includes(location.LOCATION_KEY), '损坏原值必须备份');
 
   store.set(location.LOCATION_KEY, '{broken');

@@ -33,11 +33,17 @@ test('app.json：声明 expo-location 插件（权限/用途文案）', () => {
     '需提供前台定位用途文案');
 });
 
-test('聊天注入：useChatSend 读取位置设置并传 locationText', () => {
+test('聊天注入：useChatSend 读取位置设置并传 locationText，且双开关同时开启才注入', () => {
   const source = read('src/chat/useChatSend.js');
   assert.ok(source.includes('buildLocationText'), '复用纯函数组装位置行');
   assert.ok(source.includes('getLocationSettings'), '读取位置开关与最近位置');
   assert.ok(source.includes('locationText: locationLine'), '传给 buildRequestMessages');
+  // 隐私门控：真实地图分享（enabled）与位置感知（awareness）都开启才注入——
+  // 任意一边开都不行，去掉任一条件即回归。
+  assert.ok(
+    source.includes('locationSettings && locationSettings.enabled === true && locationSettings.awareness === true'),
+    '注入条件必须是 enabled 与 awareness 的双与'
+  );
 });
 
 test('barrel：storage.js 导出位置设置 API', () => {
@@ -64,6 +70,32 @@ test('RealMapView：先授权取点成功才落盘 enabled，关闭时清除最�
 
   assert.ok(/enabled:\s*false,\s*last:\s*null/.test(disable),
     '关闭开关时必须同时清除最近位置，避免旧位置留在盘上等待被注入');
+});
+
+test('RealMapView：取点前有隐私确认；服务关闭给可操作文案；未开位置感知给提示', () => {
+  const source = read('src/worldMap/RealMapView.js');
+  assert.ok(source.includes("t('world.map.real.privacy.title')"), '开启前必须弹隐私提醒');
+  assert.ok(source.includes("t('world.map.real.privacy.body')"), '隐私提醒必须有正文');
+  assert.ok(source.includes("t('world.map.real.privacy.hint')"), '引导页必须有常驻隐私提示行');
+  // 隐私确认必须发生在取点之前：取消 = 不取点、不写 enabled。
+  const enable = source.slice(source.indexOf('const handleEnable'), source.indexOf('const handleDisable'));
+  const confirmAt = enable.indexOf('await confirmPrivacy()');
+  const captureAt = enable.indexOf('await capture()');
+  assert.ok(confirmAt >= 0 && captureAt >= 0 && confirmAt < captureAt, '先确认隐私、后取点');
+  assert.ok(enable.includes('if (!confirmed) return;'), '取消确认必须直接返回');
+  // 服务关闭 → 专属文案（而非笼统失败）。
+  assert.ok(source.includes("caught.code === 'SERVICES_DISABLED'"), '按错误码分流文案');
+  assert.ok(source.includes("t('world.map.real.servicesOff')"), '服务关闭文案存在');
+  assert.ok(source.includes("t('world.map.real.awarenessOff')"), '未开位置感知时的提示行存在');
+});
+
+test('SettingsScreen：位置感知开关仅在真实地图开启时显示，写独立字段', () => {
+  const source = read('src/SettingsScreen.js');
+  assert.ok(source.includes("t('settings.location.awareness.title')"), '设置页有位置感知开关');
+  assert.ok(source.includes('locationSettings.enabled === true'), '开关仅在真实地图开启时渲染');
+  assert.ok(source.includes("updateLocationSettings(current => ({ ...current, awareness: value === true }))"),
+    '开关写 @easychat2_location.awareness（独立 opt-in）');
+  assert.ok(source.includes("t('settings.location.awareness.hint')"), '开关下方有隐私说明');
 });
 
 test('RealMapView：html 只依赖瓦片模板，换模板后必须回退 webReady 再注入', () => {

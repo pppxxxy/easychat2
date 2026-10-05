@@ -524,6 +524,31 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   mediaBox: {
     alignItems: 'center',
   },
+  // 视频气泡：不做本地回放（避免为回放引入播放器依赖），点按交给系统分享面板
+  //（其中含视频播放器），因此卡片本身只给出图标/名称与操作提示。
+  videoCard: {
+    minWidth: 200,
+    maxWidth: '100%',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    borderRadius: mediaRadius,
+    backgroundColor: theme.colors.surfaceBorder,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.divider,
+  },
+  videoCardName: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    fontWeight: '600',
+    marginTop: 8,
+    maxWidth: 220,
+  },
+  videoCardHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(10),
+    marginTop: 4,
+  },
    messageImage: {
      maxWidth: '100%',
      borderRadius: mediaRadius,

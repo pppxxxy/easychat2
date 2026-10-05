@@ -20,14 +20,22 @@ import {
     isTextLike,
     isVisionImage,
   persistImageAttachment,
+  persistVideoAttachment,
   pickAttachment,
   pickStickerImage,
+  pickVideoAttachment,
   readTextAttachment,
+  recordVideo,
+  deleteLocalVideo,
    getImageDimensions,
    getImageFileInfo,
    getImageMime,
    getPendingStickerImage,
+   getVideoMime,
+   isVideo,
    MAX_IMAGE_ATTACHMENTS,
+   MAX_VIDEO_ATTACHMENTS,
+   MAX_VIDEO_BYTES,
    takePhoto,
    validateImageSize,
 } from './chat/attachments.js';
@@ -65,7 +73,9 @@ import { maskSecrets } from './storage/secrets.js';
 import { hideVariantStatusBar } from './chat/speechText.js';
 import { recordDiagnostic } from './storage/diagnostics.js';
 import {
+  capabilitiesForModel,
   getApiConfigs,
+  getActiveModel,
   getActiveLocalModel,
   getChatOptions,
   getImageGenSettings,
@@ -99,6 +109,8 @@ import { useTheme } from './theme/ThemeContext.js';
 import { generateImage } from './imageGen/index.js';
 import ModelLogsModal from './localModel/ModelLogsModal.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
+import { normalizeLocalModelParams } from './localModel/modelParams.js';
+import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
 import { getImageProvider } from './imageGen/providers.js';
 import useChatTts from './chat/useChatTts.js';
 import useSessionGuard from './chat/useSessionGuard.js';
@@ -154,6 +166,10 @@ import {
   resolveTranscription,
   transcribeAudio,
 } from './transcription.js';
+// 「compact」/「/compact」= 压缩指令：把当前会话按手动路径总结入记忆
+//（原始消息仍保留在会话里，后续对话带着摘要继续），不把这条文本当消息发出去。
+const COMPACT_COMMAND_PATTERN = /^\/?compact$/i;
+
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -308,7 +324,7 @@ export default function ChatScreen() {
    const syncProtectedAttachmentUris = useCallback(() => {
      setProtectedChatImageUris([
        ...attachmentsRef.current
-         .filter(item => item && item.kind === 'image')
+         .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
          .map(item => item.uri),
        ...pendingAttachmentUrisRef.current,
      ]);
@@ -323,6 +339,9 @@ export default function ChatScreen() {
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   // 拍照/图片附件要求当前来源支持识图；进入附件菜单前刷新一次，用于禁用不可用项。
   const [attachmentVisionEnabled, setAttachmentVisionEnabled] = useState(false);
+  // 上传/拍摄视频的门控：模型声明 supportsVideo，且线协议为 OpenAI 兼容
+  //（video_url 是兼容端点的扩展类型，Responses/Anthropic 没有视频输入）。
+  const [attachmentVideoEnabled, setAttachmentVideoEnabled] = useState(false);
   const [stickers, setStickers] = useState([]);
   const stickersRef = useRef([]);
   stickersRef.current = stickers;
@@ -343,6 +362,7 @@ export default function ChatScreen() {
     const draftAttachments = attachmentsRef.current;
     draftAttachments.forEach(item => {
       if (item.kind === 'image') deleteLocalImage(item.uri);
+      if (item.kind === 'video') deleteLocalVideo(item.uri);
     });
     attachmentsRef.current = [];
     setProtectedChatImageUris([]);
@@ -371,6 +391,7 @@ export default function ChatScreen() {
     let cancelled = false;
     (async () => {
       let vision = false;
+      let video = false;
       try {
         const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
           getApiConfigs(),
@@ -378,10 +399,17 @@ export default function ChatScreen() {
           getActiveLocalModel().catch(() => null),
         ]);
         const current = configs.find(item => item.id === activeId) || configs[0];
-        vision = !!(current && current.supportsVision === true)
+        // 能力按当前模型解析（同一配置下每个模型一套）。
+        const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+        vision = caps.supportsVision === true
           || !!getLocalModelMediaCapabilities(localSettings, localItem).vision;
+        video = caps.supportsVideo === true
+          && String(current.protocol || 'openai') === 'openai';
       } catch (error) {}
-      if (!cancelled) setAttachmentVisionEnabled(vision);
+      if (!cancelled) {
+        setAttachmentVisionEnabled(vision);
+        setAttachmentVideoEnabled(video);
+      }
     })();
     return () => {
       cancelled = true;
@@ -880,6 +908,23 @@ export default function ChatScreen() {
       return;
     }
     if (!shouldSummarize({ session, messages: list, settings })) return;
+    // 上下文占用（估算）：在线配置用每模型声明的 contextWindow，本地模型用 n_ctx，
+    // 未声明则保守默认；到 80% 自动压缩（跟随「记忆总结」开关，见 memorySummary）。
+    let contextUsage = null;
+    try {
+      const [{ configs, activeId }, localItem] = await Promise.all([
+        getApiConfigs(),
+        getActiveLocalModel().catch(() => null),
+      ]);
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
+      contextUsage = computeContextUsage(list, resolveContextWindow({
+        declared: caps.contextWindow,
+        localContextSize,
+      }));
+    } catch (error) {}
+    if (!shouldSummarize({ session, messages: list, settings, contextUsage })) return;
     const candidates = selectSummarizable(list, session.summarizedUpTo);
     const signature = `${session.id}:${settings.enabled}:${settings.threshold}:${candidates.map(item => item.id).join('|')}`;
     if (
@@ -920,6 +965,27 @@ export default function ChatScreen() {
       ]
     );
   }, [isSending, ready, messages, runSummarize]);
+
+  // compact 指令：显式输入即代表意图，不再弹确认；runSummarize(manual) 自带
+  // 「已完成/失败/无可总结」提示与并发保护。
+  const runCompactCommand = useCallback(async () => {
+    if (summarizingRef.current) {
+      Alert.alert('正在压缩', '上一次压缩还没有完成，请稍候。');
+      return;
+    }
+    if (isGroupRef.current) {
+      Alert.alert('群聊暂不支持', '压缩仅适用于单聊会话。');
+      return;
+    }
+    const session = sessionsRef.current.find(
+      item => item.id === activeSessionIdRef.current
+    );
+    if (!session) {
+      Alert.alert('无法压缩', '当前没有可压缩的会话。');
+      return;
+    }
+    await runSummarize(session, messagesRef.current, true);
+  }, [runSummarize]);
 
   const buildAssistantReply = useCallback(replyText => {
     const list = Array.isArray(stickersRef.current) ? stickersRef.current : [];
@@ -1385,6 +1451,7 @@ export default function ChatScreen() {
      if (isSending || sendLockRef.current) return;
      const target = attachments.find(item => item.id === id);
      if (target && target.kind === 'image') deleteLocalImage(target.uri);
+     if (target && target.kind === 'video') deleteLocalVideo(target.uri);
      setAttachments(current => {
        const next = current.filter(item => item.id !== id);
        attachmentsRef.current = next;
@@ -1411,12 +1478,18 @@ export default function ChatScreen() {
     let durableUri = '';
     let picked = null;
     try {
-      // 拍照走相机，其余走系统文件选择器。两者产出同一形状，后续校验与落盘复用。
-      picked = kind === 'camera' ? await takePhoto() : await pickAttachment();
+      // 拍照/拍摄视频走相机，其余走系统文件/相册选择器。产出同一形状，后续校验与落盘复用。
+      picked = kind === 'camera'
+        ? await takePhoto()
+        : kind === 'video-camera'
+          ? await recordVideo()
+          : kind === 'video'
+            ? await pickVideoAttachment()
+            : await pickAttachment();
       if (picked && picked.denied) {
         Alert.alert(
           '需要相机权限',
-          '拍照需要访问相机。请在系统「设置 → 应用 → EasyChat2 → 权限」中开启相机权限后重试。'
+          '拍照或拍摄视频需要访问相机。请在系统「设置 → 应用 → EasyChat2 → 权限」中开启相机权限后重试。'
         );
         return;
       }
@@ -1447,6 +1520,81 @@ export default function ChatScreen() {
           attachmentsRef.current = next;
           return next;
         });
+        return;
+      }
+      // ---- 视频分支（上传/拍摄）----
+      if (kind === 'video' || kind === 'video-camera') {
+        if (!isVideo(picked.name, picked.mime)) {
+          deleteTemporaryImage(picked.uri);
+          Alert.alert('不支持的文件', '请选择视频文件。');
+          return;
+        }
+        const fileInfo = await getImageFileInfo(picked.uri);
+        if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+          deleteTemporaryImage(picked.uri);
+          return;
+        }
+        if (!fileInfo.exists) {
+          deleteTemporaryImage(picked.uri);
+          Alert.alert('视频已失效', '这条视频的文件已不存在，请重新选择视频。');
+          return;
+        }
+        const size = fileInfo.size || picked.size;
+        if (!(Number(size) > 0)) {
+          deleteTemporaryImage(picked.uri);
+          Alert.alert('视频读取失败', '无法读取视频大小，请重新选择视频。');
+          return;
+        }
+        if (Number(size) > MAX_VIDEO_BYTES) {
+          deleteTemporaryImage(picked.uri);
+          Alert.alert('视频过大', `视频需小于 ${Math.round(MAX_VIDEO_BYTES / (1024 * 1024))}MB，请选择更短的视频。`);
+          return;
+        }
+        if (attachmentsRef.current.filter(item => item.kind === 'video').length >= MAX_VIDEO_ATTACHMENTS) {
+          deleteTemporaryImage(picked.uri);
+          Alert.alert('视频过多', `一次最多添加 ${MAX_VIDEO_ATTACHMENTS} 条视频。`);
+          return;
+        }
+        const { configs, activeId } = await getApiConfigs();
+        if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+          deleteTemporaryImage(picked.uri);
+          return;
+        }
+        const current = configs.find(item => item.id === activeId) || configs[0];
+        const videoAllowed = capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsVideo === true
+          && String(current.protocol || 'openai') === 'openai';
+        if (!videoAllowed) {
+          deleteTemporaryImage(picked.uri);
+          Alert.alert('不支持看视频', '当前来源未标记为支持看视频（且需 OpenAI 兼容协议），请在设置中确认模型能力。');
+          return;
+        }
+        durableUri = await persistVideoAttachment(picked.uri, picked.mime, picked.name);
+        deleteTemporaryImage(picked.uri);
+        pendingAttachmentUrisRef.current.add(durableUri);
+        syncProtectedAttachmentUris();
+        const videoMime = getVideoMime(picked.name, picked.mime);
+        if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
+          pendingAttachmentUrisRef.current.delete(durableUri);
+          syncProtectedAttachmentUris();
+          deleteLocalVideo(durableUri);
+          return;
+        }
+        setAttachments(list => {
+          const next = [...list, {
+            id: `${Date.now()}-${list.length}`,
+            kind: 'video',
+            name: picked.name,
+            uri: durableUri,
+            mime: videoMime,
+            size,
+            width: Number(picked.width) || 0,
+            height: Number(picked.height) || 0,
+          }];
+          attachmentsRef.current = next;
+          return next;
+        });
+        pendingAttachmentUrisRef.current.delete(durableUri);
+        syncProtectedAttachmentUris();
         return;
       }
        if (!isImage(picked.name, picked.mime)) {
@@ -1491,9 +1639,10 @@ export default function ChatScreen() {
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
       const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
-      if ((!current || current.supportsVision !== true) && !localMedia.vision) {
+      const imageCaps = current ? capabilitiesForModel(current, getActiveModel(current)) : null;
+      if (!(imageCaps && imageCaps.supportsVision === true) && !localMedia.vision) {
         deleteTemporaryImage(picked.uri);
-        Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
+        Alert.alert('不支持识图', '当前模型未标记为支持识图，请在设置中确认该模型的能力。');
         return;
       }
       if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
@@ -1848,12 +1997,18 @@ export default function ChatScreen() {
   const onSend = useCallback(async () => {
     const text = input.trim();
      if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
+    // 压缩指令（compact / /compact）：不发送文本，直接总结当前会话入记忆。
+    if (COMPACT_COMMAND_PATTERN.test(text) && attachments.length === 0) {
+      setInput('');
+      runCompactCommand().catch(() => {});
+      return;
+    }
     if (!isGroupRef.current && !greetingReady) {
       openGreetingPicker(activeSessionId ? 'reselect' : 'new');
       return;
     }
      await sendText(input);
-   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, sendText, sessionTransitionPending]);
+   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, runCompactCommand, sendText, sessionTransitionPending]);
 
   // 语音录制入口：仅在单聊、非群聊、就绪时可用。
   const voiceEnabled = !isGroup && !sessionOwnerMissing && ready;
@@ -2217,6 +2372,7 @@ export default function ChatScreen() {
         onClose={() => setAttachmentMenuOpen(false)}
         onSelect={selectAttachmentKind}
         visionEnabled={attachmentVisionEnabled}
+        videoEnabled={attachmentVideoEnabled}
       />
 
       <FullScreenInputModal

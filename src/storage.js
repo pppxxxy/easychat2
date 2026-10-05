@@ -115,15 +115,33 @@ export {
 } from './storage/settings.js';
 export {
   WORKSPACE_KEY,
+  WORKSPACE_CHANGES_KEY,
+  WORKSPACE_CHANGE_LIMIT,
+  appendWorkspaceChange,
+  clearWorkspaceChanges,
+  getWorkspaceChanges,
   getWorkspaceSettings,
+  normalizeWorkspaceChange,
   patchWorkspaceSettings,
   saveWorkspaceSettings,
 } from './storage/workspace.js';
 export {
+  clearGithubMcpCredentials,
+  connectGithubMcpWithToken,
+  createGithubMcpSessionFromSettings,
+  GITHUB_MCP_KEY,
+  getGithubMcpSettings,
+  normalizeGithubMcpSettings,
+  patchGithubMcpSettings,
+  refreshGithubMcpToolCatalog,
+} from './storage/githubMcp.js';
+export {
+  capabilitiesForModel,
   createApiConfig,
   getActiveApiConfig,
   getActiveModel,
   getApiConfigs,
+  normalizeCapabilityEntry,
   saveApiConfigs,
 } from './storage/apiConfigs.js';
 export {
