@@ -254,7 +254,8 @@ export function buildRestoredSession({ sessionId, characterId, messages, now = D
 }
 
 // 用开场白反推一段孤儿对话属于哪个角色：单聊的第一条助手消息通常就是该角色的 firstMes。
-// 先精确比对（含 {{user}} 替换），再退化为前 20 字前缀比对；判不出来返回空串。
+// 只做开场白**全文**精确比对（含 {{user}} 替换）；前缀猜测已移除（会把孤儿对话
+// 错误推荐到兜底卡），判不出来返回空串，由恢复弹窗让用户手选。
 export function guessCharacterIdForMessages(messages, characters, { userName = '' } = {}) {
   const user = String(userName || '').trim();
   const normalize = text => {
@@ -276,11 +277,9 @@ export function guessCharacterIdForMessages(messages, characters, { userName = '
   const exact = pool.find(item => replies.some(reply => item.firstMes === reply));
   if (exact) return exact.id;
 
-  // 开场白后面被追加了内容时，用该角色的开场白前 12 字与回复比对（太短的不猜，避免误判）
-  const first = replies[0];
-  const prefix = pool.find(item => {
-    const probe = item.firstMes.slice(0, 12);
-    return probe.length >= 6 && first.startsWith(probe);
-  });
-  return prefix ? prefix.id : '';
+  // 前缀猜测已移除（2026-10-05 审核报告）：12 字前缀会把孤儿对话错误推荐到
+  // 兜底卡——助手的开场白也在候选池里，「恢复会话挂到初始卡」那条污染链就是
+  // 从这里起步的。只保留开场白**全文精确命中**这一个强证据；判不出来返回空串，
+  // 由恢复弹窗让用户手选。
+  return '';
 }

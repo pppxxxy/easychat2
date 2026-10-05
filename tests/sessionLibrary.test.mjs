@@ -56,7 +56,7 @@ test('按开场白精确匹配角色（忽略首尾空白、还原 {{user}}）',
   );
 });
 
-test('开场白后追加了内容时用前缀匹配', () => {
+test('开场白被追加内容时不做前缀猜测（2026-10-05 审核报告：防孤儿挂到兜底卡）', () => {
   const characters = [
     { id: 'c5', name: '角色5', firstMes: '早呀，今天想聊点什么？' },
     { id: 'c8', name: '角色八', firstMes: '我是角色八，初次见面。' },
@@ -64,7 +64,8 @@ test('开场白后追加了内容时用前缀匹配', () => {
   const messages = [
     { role: 'assistant', text: '早呀，今天想聊点什么？——顺便说，外面在下雨。' },
   ];
-  assert.equal(guessCharacterIdForMessages(messages, characters), 'c5');
+  // 前缀相似不等于归属：判不出来就返回空串，由恢复弹窗让用户手选。
+  assert.equal(guessCharacterIdForMessages(messages, characters), '');
 });
 
 test('判不出来时返回空串，不瞎猜', () => {
