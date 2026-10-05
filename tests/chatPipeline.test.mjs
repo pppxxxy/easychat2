@@ -13,14 +13,17 @@ import {
 } from '../src/prompt/chatPipeline.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');
+// 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+// （列表页）与 character/CharacterDetailScreen.js（编辑表单）。角色页保存路径（systemPrompt
+// 不再兜底默认文案）落在详情页，断言目标随之改指详情页，约束不变。
+const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterDetailScreen.js'), 'utf8');
 const CHARACTER_EDIT_FORM_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterEditForm.js'), 'utf8');
 
 const character = { name: '测试角色', systemPrompt: '你是测试角色。', regexScripts: [] };
 
 test('角色人设保存时不被强制回退为默认文案', () => {
   // 「空白人设被覆写成默认提示语」是双层 bug：
-  // CharacterScreen 角色页保存 + CharacterEditForm 编辑弹窗保存。
+  // CharacterScreen 角色页保存（现为 character/CharacterDetailScreen.js） + CharacterEditForm 编辑弹窗保存。
   // 断言这两条路径都不再兜底默认值。
   assert.equal(
     CHARACTER_SCREEN_SOURCE.includes(`trimmedPrompt || '你是 EasyChat2`),

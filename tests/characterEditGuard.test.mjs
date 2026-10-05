@@ -14,7 +14,11 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_SOURCE = readFileSync(path.join(HERE, '..', 'App.js'), 'utf8');
-const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');
+// 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+// （列表页）与 character/CharacterDetailScreen.js（编辑表单、未保存拦截信箱、编辑草稿都在这里）。
+// 下面所有源码断言的目标字符串都在详情页，故读取路径改指详情页，约束不变。
+const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterDetailScreen.js'), 'utf8');
+const CHARACTER_LIBRARY_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterLibraryScreen.js'), 'utf8');
 
 test('未保存信箱默认安全：无脏值不误拦截', async () => {
   const guard = getCharacterEditGuard();
@@ -123,9 +127,15 @@ test('编辑草稿防丢链路完整接线', () => {
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("if (formOwnerIdRef.current !== draftOwnerId || seededIdRef.current !== draftOwnerId) return;"));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("text: '恢复',"));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('applyDraftFormState(buildCharacterFormState(draft.formState))'));
-  // 保存成功与用户放弃切换都清草稿
+  // 保存成功清草稿
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(character.id).catch(() => {});"));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(activeId).catch(() => {});"));
+  // 「用户放弃切换就清草稿」：原实现写死 `clearCharacterEditDraft(activeId)`。拆分后
+  // 详情页不再持有 activeId 表单态，该清草稿动作改由列表页的 onSwitch 在用户点
+  // 「放弃并切换」时执行——详情页此时尚未挂载（navigate 在切换成功之后），表单归属
+  // 天然是即将切走的旧角色。这里按新机制断言同等约束：详情页必须有 activeId 这一来源，
+  // 列表页的放弃分支必须清掉当前角色的草稿。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('activeId,'));
+  assert.ok(CHARACTER_LIBRARY_SOURCE.includes('clearCharacterEditDraft(activeId).catch(() => {});'));
 });
 
 test('脏判定以 seed 快照为基准，不因角色后台更新误报', () => {
@@ -140,7 +150,9 @@ test('脏判定以 seed 快照为基准，不因角色后台更新误报', () =>
     false
   );
   // formReady 闸门由 isFormDirty 内部处理
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './character/characterEditGuard.js'"));
+  // 2026-10-05 拆分：详情页与 characterEditGuard.js 同在 src/character/ 下，
+  // 相对导入随之变为 './characterEditGuard.js'（原为 './character/characterEditGuard.js'）。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './characterEditGuard.js'"));
 });
 
 test('保存后表单等于已保存内容即视为干净（规范化不致误报未保存）', () => {

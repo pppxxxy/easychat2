@@ -7,6 +7,9 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   flex: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   pageHeader: { marginTop: 4, marginBottom: 14 },
+  // 详情页顶部返回入口（角色库 ⇄ 角色详情拆成原生栈之后新增）
+  detailBackRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 6, marginBottom: 2 },
+  detailBackText: { color: theme.colors.primarySoft, fontSize: 13, fontWeight: '700', marginLeft: 2 },
   title: { color: theme.colors.text, fontSize: 24, fontWeight: '800', marginBottom: 6 },
   hint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: 19 },
   aigcBadge: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', marginTop: 2 },

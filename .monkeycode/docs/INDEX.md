@@ -113,7 +113,9 @@ npm test             # 运行 Node 单元与回归测试
 | `src/chat/MessageList.js` | 消息列表渲染（窗口化 + 加载更早） |
 | `src/chat/replyFlow.js` | 回复流纯函数（合并/错误分类/重生成计划） |
 | `src/chat/*` | 聊天页拆分模块：hook、纯函数、样式、消息气泡与各类弹窗 |
-| `src/CharacterScreen.js` | 角色编辑与角色卡导入 |
+| `src/character/CharacterStack.js` | 角色 Tab 的原生栈（角色库 ⇄ 角色详情） |
+| `src/character/CharacterLibraryScreen.js` | 角色库列表页：陈列、搜索、置顶、多选删除、群聊创建、导入入口 |
+| `src/character/CharacterDetailScreen.js` | 角色详情页：编辑表单、角色卡导入/导出、世界书与正则 |
 | `src/ExtensionScreen.js` | 扩展页：游戏、生图、制卡与世界分组 |
 | `src/theme/ThemeContext.js` | 主题与字体缩放的全局上下文 |
 | `src/tts/index.js` | 语音播报适配层与播放控制 |

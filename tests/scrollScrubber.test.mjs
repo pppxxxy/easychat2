@@ -7,7 +7,13 @@ import path from 'node:path';
 import { getScrollRange, indexFromRatio } from '../src/chat/scrollScrubberMath.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');
+// 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+// （列表页，滚动定位/偏移缓存留在这里）与 character/CharacterDetailScreen.js（编辑表单）。
+// 断言目标改指列表页，约束不变。
+const CHARACTER_SCREEN_SOURCE = readFileSync(
+  path.join(HERE, '..', 'src', 'character', 'CharacterLibraryScreen.js'),
+  'utf8'
+);
 
 test('滑动比例映射到首尾索引', () => {
   assert.equal(indexFromRatio(-1, 5), 0);

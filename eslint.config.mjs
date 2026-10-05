@@ -66,7 +66,11 @@ export default [
       'src/character/cardExporter.js',
       'src/character/cardParser.js',
       'src/CharacterEditForm.js',
-      'src/CharacterScreen.js',
+      // 2026-10-05 CharacterScreen 拆成 CharacterStack + character/ 下的列表页与详情页。
+      // 这条存量债随文件迁移而非新增：实测两屏合计约 170 处 Alert.alert 中文文案，
+      // 全部是 CharacterScreen.js 原有文案的原样搬运（拆分不改文案），故由旧条目改成两条新条目。
+      'src/character/CharacterLibraryScreen.js',
+      'src/character/CharacterDetailScreen.js',
       'src/chat/attachments.js',
       'src/chat/stickerImages.js',
       'src/chat/useChatModelThinking.js',
@@ -195,7 +199,9 @@ export default [
       // ---- 存量清单（只减不增）：实测 28 个直接引用 expo-file-system 的非存储文件 ----
       'src/BackupPanel.js',
       'src/CharacterEditForm.js',
-      'src/CharacterScreen.js',
+      // 同上：详情页承接了 CharacterScreen 原有的 expo-file-system/legacy 直用（图片三重守卫、
+      // 导入落盘），属既有存量债随文件迁移，不是新增引用。
+      'src/character/CharacterDetailScreen.js',
       'src/GroupEditForm.js',
       'src/ImageGenScreen.js',
       'src/books/BookScreen.js',

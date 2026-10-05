@@ -4,7 +4,9 @@
   "exclude": [
     "src/ui/**",
     "src/CardForgeScreen.js",
-    "src/CharacterScreen.js",
+    "src/character/CharacterStack.js",
+    "src/character/CharacterLibraryScreen.js",
+    "src/character/CharacterDetailScreen.js",
     "src/character/editors.js",
     "src/character/characterStyles.js",
     "src/ChatScreen.js",

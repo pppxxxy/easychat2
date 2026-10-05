@@ -20,7 +20,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const readSource = name => readFileSync(path.join(HERE, '..', ...name), 'utf8');
 const FORGE_SCREEN = readSource(['src', 'CardForgeScreen.js']);
 const FORGE_EDITOR = readSource(['src', 'CardForgeEditor.js']);
-const CHARACTER_SCREEN = readSource(['src', 'CharacterScreen.js']);
+const CHARACTER_SCREEN = readSource(['src', 'character', 'CharacterLibraryScreen.js']);
 const CARD_EXPORTER = readSource(['src', 'character', 'cardExporter.js']);
 const MOMENTS_VIEW = readSource(['src', 'MomentsView.js']);
 const IMAGE_GEN = readSource(['src', 'ImageGenScreen.js']);
@@ -90,7 +90,10 @@ test('制卡 AI 路径统一打标并做 IP 提示', () => {
 });
 
 test('AI 生成卡的角色页徽标与导出注入', () => {
-  // 角色页：aigcMeta 存在时显示徽标
+  // 角色页：aigcMeta 存在时显示徽标。
+  // 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+  // （列表页，页头徽标在这里）与 character/CharacterDetailScreen.js（编辑表单），
+  // 断言目标随之改指列表页，约束不变。
   assert.ok(CHARACTER_SCREEN.includes('本卡由 AI 生成'));
   // 导出：显式标识进 creator_notes，隐式标识进 extensions.easychat2.aigc_meta
   assert.ok(CARD_EXPORTER.includes('appendExportNotice(String(source.creatorNotes || \'\')'));

@@ -92,13 +92,26 @@
 **消息角色常量**: `user`、`assistant`、`system-error`
 **密钥脱敏**: 来自 `src/storage/secrets.js` 的 `SECRET_PATTERN = /(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_]+)/g` 与 `maskSecrets`，替换为 `[API_KEY已隐藏]`
 
-### `CharacterScreen`（默认导出）
-**位置**: `src/CharacterScreen.js`
+### `CharacterStack`（默认导出）
+**位置**: `src/character/CharacterStack.js`
 **Props**: 无
-**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`presets`、`expandedWorld`、`expandedRegex`、`characterListExpanded`、`characterScrubberOpen`、`importing`、`seededIdRef`
+**行为**: 原生栈（`headerShown: false`），含 `CharacterLibrary`（角色库列表）与 `CharacterDetail`（编辑表单）两屏。`App.js` 的角色 Tab 挂载本组件。
+
+### `CharacterLibraryScreen`（默认导出）
+**位置**: `src/character/CharacterLibraryScreen.js`
+**Props**: 无
+**状态**: `characterListExpanded`、`characterScrubberOpen`、`groupPanelOpen`、`groupSelected`、`groupName`、`groupAvatarUri`、`groupBgUri`、`creatingGroup`、`query`、`editMode`、`selectedIds`、`topic`
 **行为**:
-- 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并标「当前」；点选条目调用 `switchCharacter`
+- 顶部渲染「角色库」列表：按最近使用降序，当前角色高亮并在页头 pill 显示「当前：名字」；点选条目先调用 `switchCharacter`（沿用守卫/锁/失败回滚），成功后再 `navigate('CharacterDetail', { characterId })`
 - 「新建角色」调用 `addCharacter({ name: '新角色' })` 得到空白角色；非默认角色条目可删除，删除前按 `characterId` 与群聊 `members` 匹配关联单聊、群聊，并统计关联动态；有数据时提供「仅删角色」与「角色、记忆和动态都删」选项，后者先清理动态、会话、消息与摘要再删除角色
+- 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡陈列超过 10 个时默认只显示前 10 个，点击展开后显示完整列表，并打开与聊天一致的右侧定位滑动条：顶部/底部按钮定位到角色卡陈列区顶部/底部，拖动滑块按角色卡顺序定位
+- 角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
+
+### `CharacterDetailScreen`（默认导出）
+**位置**: `src/character/CharacterDetailScreen.js`
+**Props**: 无（角色 id 取自 `route.params.characterId`，取不到时 `replace('CharacterLibrary')`；顶部提供返回角色库入口）
+**状态**: `name`、`systemPrompt`、`description`、`personality`、`scenario`、`firstMes`、`worldInfo`、`regexScripts`、`presets`、`expandedWorld`、`expandedRegex`、`importing`、`seededIdRef`
+**行为**:
 - 当前角色 `id` 变化时用 Context 中的角色回填全部可编辑字段（`seededIdRef` 保证每个角色仅回填一次）
 - `save()` 组装 `{ id, name, systemPrompt, systemPromptComposed, description, personality, scenario, firstMes, worldInfo, regexScripts, presets }` 并调用 `updateCharacter`（浅合并）；`systemPromptComposed` 由 `buildSystemPrompt` 用核心字段合成
 - `importCard()` 通过 `DocumentPicker` 选取 `image/png` 或 `application/json`，读取为 Base64 后解析；兼容标准卡、扁平卡与织语 `zhiyu_agent_v1` 纯文本 JSON；读取/解析与确认落库阶段均显示不可误触的导入弹层，大卡片显示文件大小与等待提示；随后用 `GreetingPickerModal` 让用户选择/修改/新增开场白，再经 `addCharacter` 加入角色库并设为当前角色；确认落库失败时保留弹窗与开场白草稿，超大角色正文改由文件系统保存
@@ -106,8 +119,7 @@
 - 世界书与正则以可折叠区块编辑（默认收起），支持逐条修改与增删；作者注释/历史后指令为只读
 - 可编辑「备用开场白」（多条增删改）、「对话示例」（多行，注入系统提示词）与「标签」
 - 角色数据区按「世界书 → 正则脚本 → 预设 → 全局预设」排列；角色预设随角色卡导入、编辑和导出，独立于全局预设
-- 角色库支持搜索（名称与标签）、星标置顶、多选与全选删除（全选需输入确认）；角色卡陈列超过 10 个时默认只显示前 10 个，点击展开后显示完整列表，并打开与聊天一致的右侧定位滑动条：顶部/底部按钮定位到角色卡陈列区顶部/底部，拖动滑块按角色卡顺序定位
-- 角色卡提供「群聊」按钮，打开多选面板（2-8 个角色、群名可留空），创建群聊会话后刷新会话并切换到聊天页
+- 未保存编辑经 `setCharacterEditGuard` 信箱上报给 AppShell 的 Tab 拦截；编辑草稿防抖暂存与恢复也在此屏
 
 ### `SettingsScreen`（默认导出）
 **位置**: `src/SettingsScreen.js`
