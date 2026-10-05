@@ -21,9 +21,11 @@ import { useApp } from './context/AppContext.js';
 import CardForgeEditor from './CardForgeEditor.js';
 import {
   appendTranscript,
+  buildAdvancedPrompt,
   buildEditPrompt,
   buildGeneratePrompt,
   buildImageCardPrompt,
+  buildJsonRepairPrompt,
   createForgeState,
   currentQuestion,
   draftToCharacterPatch,
@@ -32,6 +34,7 @@ import {
   mergeDraft,
   parseCardPatch,
   recordAnswer,
+  requestedAdvancedSections,
   summarizeAnswers,
 } from './cardForge/forge.js';
 import { promoteForgeImageToAvatar, deleteForgeDraftImages, deleteForgeImage } from './cardForge/media.js';
@@ -48,10 +51,13 @@ import {
 } from './storage.js';
 import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution.js';
 import { maskSecrets } from './storage/secrets.js';
-import { Chip, PrimaryButton, TextField } from './ui/index.js';
+import { Chip, PrimaryButton, SecondaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 
 const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守输出格式要求，只输出要求的 JSON。';
+// 制卡请求用独立采样：低温提高 JSON 稳定性，大 max_tokens 避免长 JSON 被截断。
+// 仅覆盖本次请求（api.mergeSamplingOverrides），不写回设置、不影响全局聊天采样。
+const FORGE_SAMPLING_OVERRIDES = { temperature: 0.3, maxTokens: 8192 };
 
 export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -173,16 +179,22 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const askModel = useCallback(async (prompt, signal) => {
     const { configs, activeId } = await getApiConfigs();
     const current = configs.find(item => item.id === activeId) || configs[0];
-    const raw = await sendChatMessage([
+    const request = userPrompt => sendChatMessage([
       { role: 'system', content: FORGE_SYSTEM },
-      { role: 'user', content: prompt },
+      { role: 'user', content: userPrompt },
     ], {
       stream: false,
       signal,
       expectedConfigId: String(current && current.id || ''),
       expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+      overrides: FORGE_SAMPLING_OVERRIDES,
     });
-    return parseCardPatch(raw);
+    const raw = await request(prompt);
+    const patch = parseCardPatch(raw);
+    if (patch) return patch;
+    // 解析失败多为 JSON 被截断或含非法转义：回传开头片段自修复重试 1 次。
+    const repaired = await request(buildJsonRepairPrompt(raw));
+    return parseCardPatch(repaired);
   }, []);
 
   // 单字段辅助生成：编辑器组装好的提示词直接发模型，返回原始文本
@@ -198,6 +210,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       signal,
       expectedConfigId: String(current && current.id || ''),
       expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+      overrides: FORGE_SAMPLING_OVERRIDES,
     });
     // 空回复会被 api 层替换成占位文案，直接写回会把「没有收到回复。」当成模型内容
     // 塞进字段/标签。这里按生成失败抛出，让编辑器统一提示重试。
@@ -298,6 +311,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       signal,
       expectedConfigId: String(current && current.id || ''),
       expectedConfigFingerprint: current ? getConfigFingerprint(current) : '',
+      overrides: FORGE_SAMPLING_OVERRIDES,
     });
     const patch = parseCardPatch(raw);
     if (!patch) return null;
@@ -344,6 +358,44 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     submitAnswer(question, option.label);
   }, [busy, submitAnswer]);
 
+  // 第二步：补写世界书 / 正则 / 预设。与基础字段分开请求，避免单次输出过长被截断。
+  // 失败只影响高级内容（调用方已先落基础卡），用 failureNote 给用户可见的失败提示。
+  // 不在这里管理 busy/token，由调用方统一持有，保证两步共用同一次请求令牌。
+  const runAdvancedStep = useCallback(async (baseState, token, controller, failureNote) => {
+    const sections = requestedAdvancedSections(baseState);
+    if (sections.length === 0) return;
+    let patch = null;
+    try {
+      patch = await askModel(
+        buildAdvancedPrompt(baseState, baseState && baseState.draft),
+        controller.signal
+      );
+    } catch (error) {
+      if (isCanceledError(error) || !isRequestCurrent(token, controller)) return;
+      await update(appendTranscript(stateRef.current || baseState, { role: 'note', text: failureNote }));
+      return;
+    }
+    if (!isRequestCurrent(token, controller)) return;
+    if (!patch) {
+      await update(appendTranscript(stateRef.current || baseState, { role: 'note', text: failureNote }));
+      return;
+    }
+    const current = stateRef.current || baseState;
+    const { draft, changed } = mergeDraft(current.draft, patch);
+    const model = await activeForgeModel();
+    const stampedDraft = applyAigcAttribution(draft, model);
+    let next = { ...current, draft: stampedDraft, updatedAt: Date.now() };
+    next = appendTranscript(next, {
+      role: 'ai',
+      text: changed.length > 0
+        ? `高级内容已生成：${changed.join('、')}。`
+        : '高级内容生成结果与当前内容一致。',
+    });
+    await update(next);
+  }, [activeForgeModel, applyAigcAttribution, askModel, isRequestCurrent, update]);
+
+  const ADVANCED_FAIL_NOTE = '基础卡片已生成，世界书等高级内容生成失败，可点「重新生成高级内容」重试。';
+
   const onGenerate = useCallback(() => {
     if (busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
@@ -359,7 +411,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       setBusy(true);
       const base = stateRef.current;
       try {
-        const patch = await askModel(buildGeneratePrompt(base), controller.signal);
+        // 第一步只生成基础文本字段与标签：高级内容留到第二步单独请求。
+        const patch = await askModel(buildGeneratePrompt(base, { includeAdvanced: false }), controller.signal);
         if (!isRequestCurrent(token, controller)) return;
         if (!patch) {
           await update(appendTranscript(stateRef.current, {
@@ -380,7 +433,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
             : '生成结果与当前内容一致。',
         });
         const saved = await update(next);
-        if (saved && isRequestCurrent(token, controller)) setEditorOpen(true);
+        if (!saved || !isRequestCurrent(token, controller)) return;
+        // 第二步失败不回滚基础卡；runAdvancedStep 内部已写失败提示。
+        await runAdvancedStep(stateRef.current || next, token, controller, ADVANCED_FAIL_NOTE);
+        if (isRequestCurrent(token, controller)) setEditorOpen(true);
       } catch (error) {
         if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
           Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
@@ -401,7 +457,37 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       return;
     }
     run();
-  }, [activeForgeModel, applyAigcAttribution, askModel, busy, isRequestCurrent, update]);
+  }, [activeForgeModel, applyAigcAttribution, askModel, busy, isRequestCurrent, runAdvancedStep, update]);
+
+  // 单独重试第二步：只重生成世界书 / 正则 / 预设，不动已生成的基础字段。
+  const onRegenerateAdvanced = useCallback(() => {
+    if (busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
+    const base = stateRef.current;
+    if (requestedAdvancedSections(base).length === 0) return;
+    const run = async () => {
+      if (!activeRef.current || !mountedRef.current || busyRef.current) return;
+      busyRef.current = true;
+      const token = ++requestTokenRef.current;
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
+      setBusy(true);
+      try {
+        await runAdvancedStep(
+          stateRef.current || base,
+          token,
+          controller,
+          '高级内容生成失败：模型没有返回可用 JSON，再试一次。'
+        );
+      } finally {
+        if (requestTokenRef.current === token) busyRef.current = false;
+        if (isRequestCurrent(token, controller)) {
+          requestControllerRef.current = null;
+          setBusy(false);
+        }
+      }
+    };
+    run();
+  }, [busy, isRequestCurrent, runAdvancedStep]);
 
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
@@ -588,6 +674,8 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     [Array.isArray(draft.presets) ? draft.presets.length : 0, '预设'],
   ].filter(item => item[0] > 0).map(item => `${item[1]} ${item[0]}`);
   const advancedLine = advancedParts.length > 0 ? ` · ${advancedParts.join(' / ')}` : '';
+  // 只有用户要求过高级内容、且已有基础卡时才给「重新生成高级内容」入口。
+  const canRegenerateAdvanced = requestedAdvancedSections(state).length > 0 && hasCardContent(draft);
 
   const renderOptions = currentQ => (
     <View style={styles.options}>
@@ -724,11 +812,20 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       </View>
 
       <View style={styles.importRow}>
+        {canRegenerateAdvanced ? (
+          <SecondaryButton
+            title="重新生成高级内容"
+            onPress={onRegenerateAdvanced}
+            disabled={busy}
+            style={styles.importButton}
+          />
+        ) : null}
         <PrimaryButton
           title="导入到角色库"
           icon="download-outline"
           onPress={onImport}
           disabled={busy}
+          style={styles.importButton}
         />
       </View>
 
@@ -808,5 +905,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   input: { flex: 1, marginRight: 8 },
   sendButton: { minWidth: 72 },
-  importRow: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14 },
+  importRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  importButton: { flex: 1, marginHorizontal: 4 },
 });

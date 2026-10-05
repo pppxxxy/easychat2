@@ -452,39 +452,73 @@ export function projectForgeDraft(draft) {
   return projected;
 }
 
-export function buildGeneratePrompt(state) {
+// 世界书字段规则。整卡生成与「补写高级内容」两步共用，避免两处各写一遍后提示词漂移。
+function buildWorldInfoRules() {
+  return [
+    '- worldInfo：世界书条目数组，每项 {comment, keys, content, constant, position, depth, enabled:true}，共写 6-12 条。字段规则：',
+    '  · keys：2-4 个触发关键词，选「只在谈到该话题时才会出现的具体词」（如种族名、组织名、地名、人名），禁止使用「你、我、他、她、非常、突然」这类每句话都可能出现的高频词。',
+    '  · constant：true 表示常驻注入（无需关键词命中，每一轮都生效）；false 表示关键词触发。',
+    '  · position：0=角色定义之前，1=角色定义之后，4=按深度插入（配 depth 数字，表示插入到倒数第 depth 条消息附近）。',
+    '  · content：第三人称客观陈述设定事实，不写对话，不写「她会告诉你」这类元描述。',
+    '内容组织：',
+    '  · 第 1 条必须是总览：comment 写「世界观总览」，constant:true，position:0，keys 可为空数组，content 100-200 字概括世界基调、时代背景、核心冲突。',
+    '  · 其余条目全部 constant:false、position:1（紧贴角色定义，适合设定条目）；只有「随对话递进揭晓的真相/秘密」类条目用 position:4、depth:4。',
+    '  · 每条只讲一个主题：种族、组织、地点、历史事件、力量/等级体系、规则与禁忌分别成条。',
+    '  · 每条 content 80-200 字，要写「具体内容」：例如「等级体系」要写清有哪些等级、各等级特征、晋升条件；「种族」要写清有哪些种族、各自特点与相互关系。',
+    '  · 条目之间不要重复；总览只做铺垫，细节留给触发条目。',
+  ].join('\n');
+}
+
+// 正则字段规则：JS RegExp（非 PCRE）方言、flags、替换语义、placement 与两种 Only 开关。
+function buildRegexRules() {
+  return [
+    '- regexScripts：正则脚本数组，每项 {name, findRegex, replaceString, flags, placement, markdownOnly, promptOnly, enabled:true}。只在确有需要时给 1-3 条，没有合适的用途就不输出该字段。写法规范：',
+    '  · 运行环境是 JavaScript RegExp（不是 PCRE）。findRegex 是正则源码字符串：不要带首尾斜杠、不带修饰符（修饰符写进 flags）。可用语法：字符类、量词、分组 (...)、引用分组；lookahead/lookbehind 支持但尽量少用；不要用 \\p{...}、(?P<name>...)、递归等非 JS 语法。',
+    '  · flags 是字符串，默认 "g"；需要忽略大小写加 "i"（如 "gi"），跨行匹配加 "m" 或 "s"。不要写 "u"。',
+    '  · replaceString 按 JavaScript String.replace 的替换规则：$1 $2 引用分组、$& 引用整段匹配、字面 $ 写 $$。',
+    '  · placement 决定作用对象：[1]=用户输入的消息、[2]=AI 输出的消息；只处理展示也必须包含对应项。',
+    '  · markdownOnly:true（只影响界面展示，不改变发给模型的内容）与 promptOnly:true（只影响发给模型的内容）互斥，最多一个为 true；两个都 false 表示两边都生效，慎用。',
+    '  · replaceString 可以内嵌 HTML 做样式，例如 <span style="color:#c7254e">$&</span> 高亮、<em>$1</em> 斜体；删除匹配内容时 replaceString 用空字符串。',
+    '  · 每条 name 用途要一目了然（如「星号动作斜体化」「隐藏状态栏」）。',
+    '典型用途参考（按需选用，不要照抄）：',
+    '  · 把 *动作* 转为斜体展示：findRegex "\\\\*([^*\\\\n]+)\\\\*"，replaceString "<em>$1</em>"，flags "g"，placement [2]，markdownOnly true。',
+    '  · 清理发给模型前的占位符：findRegex "\\\\{\\\\{user\\\\}\\\\}"，replaceString "用户"，flags "g"，placement [1]，promptOnly true。',
+  ].join('\n');
+}
+
+// 预设字段规则：机制（拼进系统提示词末尾的 [角色预设] 块）+ 行为约束类型 + 与 PHI 的分工。
+function buildPresetRules() {
+  return [
+    '- presets：文本预设数组，每项 {name, prompt, enabled:true}，写 1-3 条。预设的机制：每条 prompt 会被追加到系统提示词末尾的 [角色预设] 区块（角色定义与世界书之后），多条按换行拼接，{{user}} 会替换为用户名。',
+    '  · 预设写「对模型输出行为的约束」，不要复述角色设定（那是 description/世界书的职责）。',
+    '  · 每条聚焦一类约束，name 说明用途，prompt 40-150 字，用祈使句直接下指令。常用类型：',
+    '    文风（如「对话以动作为先，心理描写克制，每段不超过 3 句」）、',
+    '    格式（如「动作描写用星号包裹，说话内容用直角引号」）、',
+    '    长度（如「每次回复 2-4 段，不要主动结束场景」）、',
+    '    禁忌（如「不要替 {{user}} 说话或决定 {{user}} 的行动」）。',
+    '  · 与 postHistoryInstructions 的分工：预设放角色/世界层面的长期写作要求；postHistoryInstructions 放必须压过对话惯性的硬规则（输出语言、安全边界、格式红线）。',
+  ].join('\n');
+}
+
+function buildAdvancedLines(sections) {
+  const advancedLines = [];
+  if (sections.includes('world')) advancedLines.push(buildWorldInfoRules());
+  if (sections.includes('regex')) advancedLines.push(buildRegexRules());
+  if (sections.includes('presets')) advancedLines.push(buildPresetRules());
+  return advancedLines;
+}
+
+const ADVANCED_SECTION_SCHEMA_LABELS = {
+  world: 'worldInfo（世界书）',
+  regex: 'regexScripts（正则脚本）',
+  presets: 'presets（文本预设）',
+};
+
+export function buildGeneratePrompt(state, { includeAdvanced = true } = {}) {
   const answers = summarizeAnswers(state);
   const draft = JSON.stringify(projectForgeDraft(state && state.draft), null, 0);
-  const sections = requestedAdvancedSections(state);
-  const advancedLines = [];
-  if (sections.includes('world')) {
-    advancedLines.push(
-      [
-        '- worldInfo：世界书条目数组，每项 {keys:[字符串数组,2-4 个触发关键词], content:字符串, position:0-7 的数字（0 角色定义之前/1 角色定义之后/4 按深度插入）, depth:数字, enabled:true}，写 6-12 条。',
-        '  · 不要只写一条笼统的总览。要拆成「1 条总览 + 多条具体条目」：总览概括整个世界的基调与设定；其余条目分别覆盖具体的种族、组织、地点、历史事件、力量或等级体系、规则与禁忌。',
-        '  · 每条 content 要写出「具体内容」，不要用一句话概括。例如「魅魔等级」这一条，要写清有哪些等级、各等级的特征、晋升条件与方式；「种族」这一条要写清有哪些种族、各自特点与相互关系。每条约 80-200 字。',
-        '  · comment 用简短标题（如「魅魔等级制度」），keys 选该条目最可能被提及的 2-4 个关键词。',
-        '  · 条目之间不要重复同样内容；总览条目只做整体铺垫。',
-      ].join('\n')
-    );
-  }
-  if (sections.includes('regex')) {
-    advancedLines.push(
-      [
-        '- regexScripts：正则脚本数组，每项 {name:字符串, findRegex:字符串, replaceString:字符串, flags:字符串（默认 "g"）, placement:数组（1=用户输入,2=AI输出）, markdownOnly:布尔, promptOnly:布尔, enabled:true}。只在确有需要时给 1-3 条。写法要求：',
-        '  · findRegex 是 JavaScript 正则的「源码」，不要带首尾斜杠和 /g 之类的修饰符（修饰符放 flags）；匹配分组用括号，替换里用 $1、$2 引用，整段匹配用 $&。',
-        '  · 需要转义的正则元字符要写双反斜杠，例如匹配星号写成 \\*、匹配反斜杠写成 \\\\。',
-        '  · 常见用途：markdownOnly:true（仅影响展示）——把 *动作* 或 （旁白）转成样式、高亮关键词、去掉状态栏；promptOnly:true（仅影响发给模型的内容）——替换 {{user}}、清理占位符。二者不要同时为 true。',
-        '  · placement 决定作用对象：用户输入用 [1]、AI 输出用 [2]，只处理展示时也应包含对应项。',
-        '  · replaceString 可以用 HTML 标签（如 <span style="color:#c7254e">$&</span>）做高亮；不需要替换时留空字符串表示删除匹配内容。',
-      ].join('\n')
-    );
-  }
-  if (sections.includes('presets')) {
-    advancedLines.push(
-      '- presets：文本预设数组，每项 {name:字符串, prompt:字符串（会被追加到系统提示词）, enabled:true}，写 1-3 条。'
-    );
-  }
+  const sections = includeAdvanced ? requestedAdvancedSections(state) : [];
+  const advancedLines = buildAdvancedLines(sections);
   return [
     '你是角色卡（SillyTavern 风格）撰写助手。请根据下面的问答结果和当前草稿，写出一张完整的角色卡。',
     '',
@@ -503,6 +537,40 @@ export function buildGeneratePrompt(state) {
       ]
       : []),
     '- 全部使用中文。',
+  ].join('\n');
+}
+
+// 「补写高级内容」的第二步提示词：带上已生成的角色卡投影与全文设定，只要求世界书/正则/预设。
+// 拆成第二步是为了避免单次输出数千字 JSON 被截断，导致后半段（高级内容）敷衍或解析失败。
+export function buildAdvancedPrompt(state, draft) {
+  const sections = requestedAdvancedSections(state);
+  const source = draft && typeof draft === 'object' ? draft : ((state && state.draft) || {});
+  const advancedLines = buildAdvancedLines(sections);
+  return [
+    '你是角色卡（SillyTavern 风格）撰写助手。请根据下面的角色卡与设定，补写它的高级内容（世界书 / 正则脚本 / 文本预设）。',
+    '',
+    '问答结果：',
+    summarizeAnswers(state) || '（无）',
+    '',
+    '已生成的角色卡（在此基础上补写高级内容）：',
+    JSON.stringify(projectForgeDraft(source), null, 0),
+    '',
+    '输出要求：',
+    '- 只输出一个 JSON 对象，不要任何解释、前后缀或代码块标记。',
+    `- 字段只包含本次要求的这些：${sections.map(key => ADVANCED_SECTION_SCHEMA_LABELS[key] || key).join('、')}；其余字段不要输出。`,
+    ...advancedLines,
+    '- 全部使用中文。',
+  ].join('\n');
+}
+
+// JSON 解析失败时的一次性自修复请求：回传被截断/非法转义片段，要求重出完整 JSON。
+export function buildJsonRepairPrompt(rawOutput) {
+  const snippet = String(rawOutput == null ? '' : rawOutput).slice(0, 500);
+  return [
+    '你上次输出的 JSON 无法解析（可能被截断或含非法转义）。请重新输出完整、合法的 JSON 对象，不要任何解释或代码块标记。',
+    '',
+    '上次输出的开头片段（仅供对照，不要原样重复）：',
+    snippet || '（空）',
   ].join('\n');
 }
 
@@ -795,10 +863,12 @@ export function buildTagsAssistPrompt({ currentTags = [], request = '' } = {}) {
   ].filter(Boolean).join('\n');
 }
 
-// 集合条目的可见字段白名单：辅助生成只改这些字段，其余（位置/深度/概率等）保留
+// 集合条目的可见字段白名单：辅助生成只改这些字段，其余（概率/扫描深度等）保留。
+// 世界书放开 constant/position/depth，正则放开 flags/placement/markdownOnly/promptOnly——
+// 否则模型输出的这些字段会被静默丢弃，用户「改了等于没改」。
 const ENTRY_ASSIST_FIELDS = {
-  worldInfo: ['comment', 'keys', 'content'],
-  regexScripts: ['name', 'findRegex', 'replaceString'],
+  worldInfo: ['comment', 'keys', 'content', 'constant', 'position', 'depth'],
+  regexScripts: ['name', 'findRegex', 'replaceString', 'flags', 'placement', 'markdownOnly', 'promptOnly'],
   presets: ['name', 'prompt'],
 };
 
@@ -808,12 +878,30 @@ const ENTRY_ASSIST_LABELS = {
   presets: '角色预设',
 };
 
+const ENTRY_ASSIST_TYPE_LINES = {
+  worldInfo: '- 字段类型：comment/content 是字符串，keys 是字符串数组，constant 是布尔，position 是 0-7 的整数，depth 是整数。',
+  regexScripts: '- 字段类型：name/findRegex/replaceString/flags 是字符串，placement 是只含 1/2 的数字数组，markdownOnly/promptOnly 是布尔。',
+  presets: '- 字段类型：name/prompt 是字符串。',
+};
+
+const ENTRY_ASSIST_BOOLEAN_FIELDS = new Set(['constant', 'markdownOnly', 'promptOnly']);
+const ENTRY_ASSIST_NUMBER_FIELDS = new Set(['position', 'depth']);
+
 function projectEntryFields(entry, fields) {
   const source = entry && typeof entry === 'object' ? entry : {};
   const projected = {};
   fields.forEach(field => {
     if (field === 'keys') {
       projected.keys = Array.isArray(source.keys) ? source.keys.map(item => String(item || '')) : [];
+    } else if (field === 'placement') {
+      projected.placement = Array.isArray(source.placement)
+        ? source.placement.map(Number).filter(Number.isFinite)
+        : [];
+    } else if (ENTRY_ASSIST_BOOLEAN_FIELDS.has(field)) {
+      projected[field] = source[field] === true;
+    } else if (ENTRY_ASSIST_NUMBER_FIELDS.has(field)) {
+      const value = Number(source[field]);
+      projected[field] = Number.isFinite(value) ? value : (field === 'depth' ? 4 : 0);
     } else {
       projected[field] = String(source[field] || '');
     }
@@ -821,11 +909,23 @@ function projectEntryFields(entry, fields) {
   return projected;
 }
 
-export function buildEntryAssistPrompt({ kind = '', currentEntry = {}, request = '' } = {}) {
+export function buildEntryAssistPrompt({
+  kind = '',
+  currentEntry = {},
+  request = '',
+  characterContext = '',
+  sampleText = '',
+} = {}) {
   const fields = ENTRY_ASSIST_FIELDS[kind] || [];
   const label = ENTRY_ASSIST_LABELS[kind] || '条目';
-  const lines = [
-    `请按用户要求改写下面的${label}，只改需要改的字段。`,
+  const context = String(characterContext || '').trim().slice(0, 600);
+  const sample = String(sampleText || '').trim().slice(0, 2000);
+  const lines = [`请按用户要求改写下面的${label}，只改需要改的字段。`];
+  // 条目是孤立改写的，模型看不到角色卡；注入背景后内容才不会与角色脱节。
+  if (context) {
+    lines.push('', '角色卡背景（改写时必须与之保持一致）：', context);
+  }
+  lines.push(
     '',
     '当前条目 JSON：',
     JSON.stringify(projectEntryFields(currentEntry, fields)),
@@ -835,23 +935,30 @@ export function buildEntryAssistPrompt({ kind = '', currentEntry = {}, request =
     '输出要求：',
     '- 只输出修改后的完整 JSON 对象，不要任何解释或代码块标记。',
     `- 只包含这些字段：${fields.join('、')}；不要新增或删除字段。`,
-    '- 未修改的字段原样完整复制，不要留空。',
-    '- keys 是字符串数组，其余字段是字符串。',
-  ];
-  // 世界书条目单独给内容约定：否则模型常只给一句笼统概括，缺少可用的细节。
+    '- 未修改的字段原样完整复制；用户没要求改动的字段必须原样保留，不要留空。',
+    ENTRY_ASSIST_TYPE_LINES[kind] || '- 不要改动未提到的字段。',
+  );
+  // 世界书条目单独给字段语义与内容约定：否则模型常只给一句笼统概括，且不知道 constant/position 的作用。
   if (kind === 'worldInfo') {
     lines.push(
-      '- comment 是简短标题；keys 是 2-4 个该条目最可能被提及的触发关键词。',
+      '- comment 是简短标题；keys 是 2-4 个该条目最可能被提及的触发关键词；若用户抱怨条目不触发，优先检查 keys 是否过泛或过偏，换成具体的名词性关键词。',
+      '- 字段语义：constant=true 表示常驻注入（每轮都生效，无需关键词命中）；position 0=角色定义之前、1=角色定义之后、4=按深度插入（配 depth）；content 写第三人称客观设定事实。',
       '- content 必须具体、可检索：写清「是什么、有哪些、彼此关系、规则或条件」，不要用一句话笼统概括。',
       '- 例如「魅魔等级制度」应写明有哪些等级、各等级的特征与权限、晋升条件与方式；「种族」应写明有哪些种族、各自特点与相互关系。',
       '- content 建议 80-200 字，信息密度高，避免空话与重复。'
     );
   }
-  // 正则条目单独给写法约定：否则模型常给带斜杠/修饰符或转义错误的表达式，导入后跑不通。
+  // 正则条目单独给 JS 方言写法约定：否则模型常按 PCRE 输出带斜杠/修饰符或转义错误的表达式，导入后跑不通。
   if (kind === 'regexScripts') {
+    if (sample) {
+      lines.push('', '需要匹配/处理的样本文本（正则必须与之匹配，输出匹配结果预览）：', sample);
+    }
     lines.push(
-      '- findRegex 是 JavaScript 正则的源码，不要带首尾斜杠与修饰符（如 /foo/g 应写成 findRegex:"foo"）。',
-      '- 正则元字符要正确转义（双反斜杠），分组用括号、替换用 $1/$2，整段匹配用 $&。',
+      '- 运行环境是 JavaScript RegExp（不是 PCRE）。findRegex 是 JavaScript 正则的源码：不要带首尾斜杠与修饰符（如 /foo/g 应写成 findRegex:"foo"，修饰符写进 flags）。',
+      '- 可用语法：字符类、量词、分组 (...)、引用分组；不要用 \\p{...}、(?P<name>...)、递归等非 JS 语法。',
+      '- flags 默认 "g"；忽略大小写加 "i"（如 "gi"），跨行匹配加 "m" 或 "s"，不要写 "u"。',
+      '- 正则元字符要正确转义（双反斜杠），替换用 $1/$2 引用分组、$& 引用整段匹配。',
+      '- placement 决定作用对象：[1]=用户输入、[2]=AI 输出；markdownOnly 只影响展示、promptOnly 只影响发给模型的内容，二者最多一个为 true。',
       '- replaceString 可用 HTML 标签做高亮，留空字符串表示删除匹配内容。'
     );
   }
@@ -881,7 +988,16 @@ export function parseEntryAssistPatch(raw) {
   return null;
 }
 
-// 把解析结果按白名单合并进条目：只接受声明的字段（keys 过滤为字符串数组）
+// 把解析结果按白名单合并进条目：只接受声明的字段，并按字段类型校验（布尔/数字/数字数组）。
+// 正则的 placement 改动会同步重算 placementLabel，保证派生字段与 UI 一致。
+function normalizeAssistPlacement(value) {
+  const list = Array.isArray(value) ? value : (value === null || value === undefined ? [] : [value]);
+  const placement = list
+    .map(item => Number(item))
+    .filter(item => item === 1 || item === 2);
+  return Array.from(new Set(placement));
+}
+
 export function mergeEntryAssistPatch(entry, kind, patch) {
   const base = entry && typeof entry === 'object' ? entry : {};
   const fields = ENTRY_ASSIST_FIELDS[kind] || [];
@@ -893,10 +1009,27 @@ export function mergeEntryAssistPatch(entry, kind, patch) {
         ? source.keys.map(item => clean(item, 60)).filter(Boolean)
         : splitAssistList(source.keys);
       if (keys.length > 0) next.keys = keys;
+    } else if (ENTRY_ASSIST_BOOLEAN_FIELDS.has(field)) {
+      if (typeof source[field] === 'boolean') next[field] = source[field];
+    } else if (field === 'position') {
+      const value = Number(source[field]);
+      if (Number.isInteger(value) && value >= 0 && value <= 7) next.position = value;
+    } else if (field === 'depth') {
+      const value = Number(source[field]);
+      if (Number.isFinite(value)) next.depth = Math.trunc(value);
+    } else if (field === 'placement') {
+      const placement = normalizeAssistPlacement(source[field]);
+      if (placement.length > 0) next.placement = placement;
     } else if (typeof source[field] === 'string' && source[field].trim()) {
       next[field] = clean(source[field], MAX_PRESERVED_TEXT);
     }
   });
+  if (kind === 'worldInfo' && next.position !== base.position) {
+    next.positionLabel = WORLD_POSITION_LABELS[next.position];
+  }
+  if (kind === 'regexScripts' && Array.isArray(next.placement) && next.placement.length > 0) {
+    next.placementLabel = next.placement.map(key => REGEX_PLACEMENT_LABELS[key] || `范围 ${key}`).join('、');
+  }
   return next;
 }
 

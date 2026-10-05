@@ -77,9 +77,9 @@ test('IP 命中提示：列出来词并声明责任自负', () => {
 });
 
 test('制卡 AI 路径统一打标并做 IP 提示', () => {
-  // 两条整卡 AI 路径（生成、问答改写）都经过 applyAigcAttribution
+  // 三条整卡 AI 路径（生成、问答改写、补写高级内容）都经过 applyAigcAttribution
   assert.ok(FORGE_SCREEN.includes('applyAigcAttribution(draft, model)'));
-  assert.equal((FORGE_SCREEN.match(/applyAigcAttribution\(draft, model\)/g) || []).length, 2);
+  assert.equal((FORGE_SCREEN.match(/applyAigcAttribution\(draft, model\)/g) || []).length, 3);
   assert.ok(FORGE_SCREEN.includes('activeForgeModel'));
   assert.ok(FORGE_SCREEN.includes("Alert.alert('版权风险提示'"));
   // 字段辅助生成同样写生成标识（source 区分）
