@@ -144,3 +144,12 @@ Entries discovered by the Agent during task execution should follow this format:
   - `getMessagesBySession(id)` 直接返回消息数组，**不是** `{ messages }` 包装（MomentsView/MemoryScreen 均按数组用）；跨层传消息前先核形状。
   - 记忆总结两路径语义：手动（`runSummarize(manual=true)`，含聊天 compact 指令）绕过「记忆总结」总开关与条数阈值；自动路径受总开关约束，80% 上下文占用（`chat/contextUsage.js` 的 AUTO_COMPACT_RATIO）只是绕过**条数阈值**、不绕过总开关。
   - 经 bash heredoc→Python 写多行源码断言时 `\n` 转义会塌成真实换行，字符串字面量跨行直接 SyntaxError；源码断言优先拆成**相邻两条单行断言**或用正则 `\s*` 连接。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: 生产包 BookScreen「打开书必崩」查证（Element type invalid: got undefined）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **Metro 对不存在的具名导入不报错**：`import { X } from './y.js'` 而 y.js 只有 default 导出时，X 绑定为 undefined——lint、Node 单测、`expo export` 全部静默通过，直到运行时按用途炸开（组件=Element type invalid；函数=TypeError not a function）。生产链排查这类崩溃时先查具名/默认导入错配。
+  - 守卫已固化：`tests/namedImportSanity.test.mjs`（@babel/parser AST 全仓库扫描，处理 as 别名/export * 转发/解构导出）；新增具名导出或改名时若漏改导入方，npm test 会红。
+  - 描述崩溃时组件名要对着代码核（本次报告里的「BookItem 列表项」并不存在，实为 BookReaderView 导入错配），格式相关的第一直觉（txt/docx 差异）也要先用最小复现排除。
