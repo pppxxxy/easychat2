@@ -73,8 +73,24 @@ export default function RealMapView() {
     inject(`window.__setMarker && window.__setMarker(${gcj.latitude}, ${gcj.longitude})`);
   }, [webReady, settings, inject]);
 
+  // 取点失败按错误码给不同文案：这些都是可诊断、可操作的一类，
+  // 不能再笼统提示「请稍后重试」（真机上「权限都给了却一直失败」最常见的成因）。
+  const describeCaptureError = useCallback(caught => {
+    if (caught && caught.code === 'SERVICES_DISABLED') return t('world.map.real.servicesOff');
+    if (caught && caught.code === 'LOCATION_UNAVAILABLE') return t('world.map.real.unavailable');
+    return t('world.map.real.failed');
+  }, [t]);
+
   const capture = useCallback(async () => {
-    const granted = await ensureLocationPermission();
+    let granted = false;
+    try {
+      granted = await ensureLocationPermission();
+    } catch (caught) {
+      // 权限查询本身不可用（原生模块缺失等）：不能再说「未获得定位权限」——
+      // 用户明明已经授权，那条文案会把人引到错误的排查方向。
+      setError(describeCaptureError(caught));
+      return false;
+    }
     if (!granted) {
       setError(t('world.map.real.permission.denied'));
       return false;
@@ -84,15 +100,7 @@ export default function RealMapView() {
     setSettings(saved);
     setError('');
     return true;
-  }, [t]);
-
-  // 取点失败按错误码给不同文案：系统定位服务关闭是可诊断、可操作的一类，
-  // 不能再笼统提示「请稍后重试」（真机上权限都给了却永远失败最常见的成因）。
-  const describeCaptureError = useCallback(caught => (
-    caught && caught.code === 'SERVICES_DISABLED'
-      ? t('world.map.real.servicesOff')
-      : t('world.map.real.failed')
-  ), [t]);
+  }, [describeCaptureError, t]);
 
   // 开启前的隐私确认：位置属敏感信息，且开启后配合「位置感知」会随对话分享
   // 模糊位置——必须在取点之前让用户知情并有机会取消。

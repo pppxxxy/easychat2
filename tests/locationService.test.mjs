@@ -84,3 +84,52 @@ test('captureLocation：系统服务检查、最近位置兜底与可诊断错�
   assert.ok(/catch \(error\) \{\s*const fallback = await readLastKnownPosition\(Location\);\s*if \(!fallback\) throw error;/.test(source),
     '当前点失败应先尝试兜底、失败再抛原错误');
 });
+
+test('能力探测：require 成功不等于原生可用，必须连方法一起探', () => {
+  const source = readSource('src/location/service.js');
+  assert.ok(/typeof Location\.getCurrentPositionAsync === 'function'/.test(source),
+    'isLocationSupported 必须检测原生方法：旧安装包/未 rebuild 时 JS 包在、原生侧可能缺失');
+  assert.ok(/typeof Location\.getForegroundPermissionsAsync === 'function'/.test(source),
+    '权限查询方法同样要探，否则会误判为「支持」再在授权环节炸掉');
+});
+
+test('权限契约：被拒返回 false，原生不可用必须抛 LOCATION_UNAVAILABLE（不许吞成 false）', () => {
+  const source = readSource('src/location/service.js');
+  const permission = source.slice(
+    source.indexOf('export async function ensureLocationPermission'),
+    source.indexOf('export const LOCATION_TIMEOUT_MS'),
+  );
+  assert.ok(permission.length > 0, '必须能定位到 ensureLocationPermission 函数体');
+  assert.ok(permission.includes("error.code = 'LOCATION_UNAVAILABLE'"),
+    '原生方法缺失要抛可诊断错误码');
+  assert.ok(!/catch \(error\) \{\s*return false;\s*\}/.test(permission),
+    '不得再把任意异常吞成 false —— 那会把「构建缺定位能力」误报成「未获得定位权限」，'
+    + '用户明明已在系统设置里授权，界面却一直让他去设置里允许');
+  assert.ok(permission.includes("current.status === 'granted'"), '已授权必须直接放行');
+
+  const view = readSource('src/worldMap/RealMapView.js');
+  assert.ok(view.includes("caught.code === 'LOCATION_UNAVAILABLE'"),
+    '界面必须按码分流「定位能力不可用」');
+  assert.ok(view.includes("t('world.map.real.unavailable')"), '新增文案键必须被接线');
+  // 授权步骤自身抛错时，必须走错误码文案而不是「未获得权限」。
+  const capture = view.slice(view.indexOf('const capture = useCallback'), view.indexOf('const confirmPrivacy'));
+  assert.ok(capture.includes('try {') && capture.includes('describeCaptureError(caught)'),
+    'ensureLocationPermission 抛错时要用错误码文案，不能落到 permission.denied');
+});
+
+test('取点：Accuracy 缺失不得硬取；模块不可用抛可诊断错误码', () => {
+  const source = readSource('src/location/service.js');
+  assert.ok(/Location\.Accuracy && Location\.Accuracy\.Balanced/.test(source),
+    'Accuracy 枚举可能缺失，必须先做存在性判断再决定是否传精度');
+  assert.ok(!/accuracy: Location\.Accuracy\.Balanced \}/.test(source),
+    '不得硬取 Accuracy.Balanced（缺枚举时会抛 TypeError 被误报成「获取位置失败」）');
+  assert.ok(source.includes("if (typeof Location.getCurrentPositionAsync !== 'function')"),
+    'captureLocation 自身也要挡一次原生缺失，抛出可诊断错误');
+});
+
+test('文案：unavailable 在中英表里都有', () => {
+  for (const locale of ['zh-CN', 'en']) {
+    const table = readSource(`src/i18n/locales/${locale}.js`);
+    assert.ok(table.includes("'world.map.real.unavailable'"), `${locale} 缺少 world.map.real.unavailable`);
+  }
+});

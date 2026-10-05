@@ -13,26 +13,37 @@ function loadLocationModule() {
   return cachedModule;
 }
 
+// 能力探测：`require` 成功**不等于**原生模块可用——未随包构建（旧安装包）
+// 或原生侧异常时，JS 包在但方法缺失。这里连方法一起探，避免把
+// 「当前构建没有定位能力」误报成「未获得定位权限」。
 export function isLocationSupported() {
   try {
-    loadLocationModule();
-    return true;
+    const Location = loadLocationModule();
+    return typeof Location.getCurrentPositionAsync === 'function'
+      && typeof Location.getForegroundPermissionsAsync === 'function';
   } catch (error) {
     return false;
   }
 }
 
-// 请求前台定位权限；已有授权直接返回 true。失败/拒绝返回 false（不抛）。
+// 请求前台定位权限：
+//   返回 true  = 已授权；
+//   返回 false = 查询成功但用户未授予（可提示去系统设置）；
+//   抛错（code = LOCATION_UNAVAILABLE）= 原生模块/API 不可用。
+// 第三种以前被吞成 false，导致用户明明在系统设置里给了权限，界面却一直说
+// 「未获得定位权限」——必须与真正的拒绝区分开。
 export async function ensureLocationPermission() {
   const Location = loadLocationModule();
-  try {
-    const current = await Location.getForegroundPermissionsAsync();
-    if (current && current.status === 'granted') return true;
-    const requested = await Location.requestForegroundPermissionsAsync();
-    return Boolean(requested && requested.status === 'granted');
-  } catch (error) {
-    return false;
+  if (typeof Location.getForegroundPermissionsAsync !== 'function'
+    || typeof Location.requestForegroundPermissionsAsync !== 'function') {
+    const error = new Error('定位原生模块不可用');
+    error.code = 'LOCATION_UNAVAILABLE';
+    throw error;
   }
+  const current = await Location.getForegroundPermissionsAsync();
+  if (current && current.status === 'granted') return true;
+  const requested = await Location.requestForegroundPermissionsAsync();
+  return Boolean(requested && requested.status === 'granted');
 }
 
 // 取点与反地理编码的等待上限。没有它，卡住的定位会让界面永远 busy，
@@ -107,6 +118,11 @@ async function readLastKnownPosition(Location) {
 // 位置获取失败/超时会抛错（由 UI 提示并保留旧位置）；反地理编码失败只退空描述。
 export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) {
   const Location = loadLocationModule();
+  if (typeof Location.getCurrentPositionAsync !== 'function') {
+    const error = new Error('定位原生模块不可用');
+    error.code = 'LOCATION_UNAVAILABLE';
+    throw error;
+  }
   let position = null;
   let fromCache = false;
   const servicesOn = typeof Location.hasServicesEnabledAsync === 'function'
@@ -122,8 +138,11 @@ export async function captureLocation({ timeoutMs = LOCATION_TIMEOUT_MS } = {}) 
     }
   } else {
     try {
+      // Accuracy 枚举在异常/过旧的包里可能缺失：缺了就不带精度参数取点，
+      // 不能硬取 `Location.Accuracy.Balanced`（会抛 TypeError 被误当成「获取位置失败」）。
+      const accuracy = Location.Accuracy && Location.Accuracy.Balanced;
       position = await withTimeout(
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        Location.getCurrentPositionAsync(accuracy === undefined ? {} : { accuracy }),
         timeoutMs,
         '定位超时'
       );

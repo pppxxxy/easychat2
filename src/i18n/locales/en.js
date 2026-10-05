@@ -282,6 +282,7 @@ export const en = {
   'world.map.real.privacy.hint': '⚠ Location is sensitive: even if you enable sharing, keep it as vague as possible (characters receive a city/district description, never exact coordinates).',
   'world.map.real.awarenessOff': 'Characters still don\'t know where you are: turn on "Location awareness" in Settings → Global options to share a vague location in chat.',
   'world.map.real.unsupported': 'This build does not include location support.',
+  'world.map.real.unavailable': 'Location is unavailable: this install may lack the native location module. Rebuild and install the latest version, then retry.',
 
   // ---- Music together (music/MusicScreen.js) ----
   'music.title': 'Music together',

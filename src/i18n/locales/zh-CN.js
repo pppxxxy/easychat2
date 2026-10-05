@@ -286,6 +286,7 @@ export const zhCN = {
   'world.map.real.privacy.hint': '⚠ 位置属敏感信息：即使开启分享，也建议尽量保持模糊位置（发给角色的是区县级描述，不含精确坐标）。',
   'world.map.real.awarenessOff': '角色还不会知道你在哪：到「设置 → 全局配置」打开「位置感知」后，才会把模糊位置随对话分享。',
   'world.map.real.unsupported': '当前构建未包含定位能力。',
+  'world.map.real.unavailable': '定位能力不可用：当前安装包可能不含定位模块，请重新构建并安装最新版本后再试。',
 
   // ---- 一起听歌（music/MusicScreen.js）----
   'music.title': '一起听歌',
