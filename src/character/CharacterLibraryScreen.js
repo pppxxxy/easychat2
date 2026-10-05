@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import {
   Alert,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -17,7 +18,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -27,7 +27,7 @@ import { Card, FieldHint, FieldLabel, TextField } from '../ui/index.js';
 import { useApp } from '../context/AppContext.js';
 import { selectSessionsForCharacters } from '../context/sessionLibrary.js';
 import { useNavigation } from '@react-navigation/native';
-import ScrollScrubber, { getScrollRange } from '../chat/ScrollScrubber.js';
+import ScrollScrubber from '../chat/ScrollScrubber.js';
 import {
   clearCharacterEditDraft,
   createGroupSession,
@@ -39,12 +39,6 @@ import { isValidAigcMeta } from '../aigc/attribution.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { CHARACTER_LIST_COLLAPSE_LIMIT } from './cardHelpers.js';
-
-// 定位滑块用的行高推导：卡片封面固定 3:4 + 名称单行叠字，故所有卡片等高。
-// 网格总高 = 行数×卡高 + 行数×卡的上外边距，于是 行高 = 网格高 / 行数。
-// 只测量「网格整体」一次即可推出每个 item 的位置，不再逐卡记 offset——
-// 这正是原来那套逐卡偏移补丁可以整体删掉的原因。
-const CHARACTER_CARD_MARGIN_TOP = 10;
 
 export default function CharacterLibraryScreen() {
   const {
@@ -83,14 +77,8 @@ export default function CharacterLibraryScreen() {
   // 由详情页自己的 state 承担；列表页不再需要这份授权信号（回滚动作本身仍在 catch 里保留）。
   const authorizedActiveIdRef = useRef('');
   const formDirtyRef = useRef(false);
-  const characterScrollRef = useRef(null);
-  // 定位滑块只需要两样东西：网格在滚动容器里的绝对 Y、网格总高。
-  // 有了它们就能推出任意 item 的位置（见 CHARACTER_CARD_MARGIN_TOP 处说明），
-  // 原来的逐卡偏移缓存（按 id 记 y 再重建绝对偏移）已整体删除。
-  const characterGridGeometryRef = useRef({ top: 0, height: 0, rows: 1 });
-  const characterViewportHeightRef = useRef(0);
+  const listRef = useRef(null);
   const switchLockRef = useRef(false);
-  const { height: windowHeight } = useWindowDimensions();
 
   const visibleCharacters = useMemo(() => {
     const text = query.trim().toLowerCase();
@@ -156,8 +144,6 @@ export default function CharacterLibraryScreen() {
   const displayedCharacterItems = characterListExpanded
     ? characterDisplayItems
     : characterDisplayItems.slice(0, CHARACTER_LIST_COLLAPSE_LIMIT);
-  const displayedCharacters = displayedCharacterItems.filter(item => item.kind === 'character').map(item => item.item);
-  const displayedGroups = displayedCharacterItems.filter(item => item.kind === 'group').map(item => item.item);
   const characterScrubberPreviews = useMemo(() => displayedCharacterItems.map(item => ({
     label: item.kind === 'group' ? '群聊' : '角色',
     speaker: item.kind === 'group' ? groupNameOf(item.item) : (item.item.name || '未命名角色'),
@@ -177,44 +163,28 @@ export default function CharacterLibraryScreen() {
     if (editMode) setCharacterScrubberOpen(false);
   }, [editMode]);
 
-  // 定位滑块的落点计算：只依赖「网格绝对 Y + 网格总高 / 行数」，不再依赖逐卡 offset。
-  // 卡片等高等距，所以第 index 个 item 的行号 = floor(index / 2)，其纵向位置
-  // = gridTop + 行号 × 行高 + 卡片上外边距（卡片自身带 marginTop）。
-  const scrollCharacterTo = useCallback(y => {
-    characterScrollRef.current?.scrollTo?.({ y: Math.max(0, y), animated: true });
-  }, []);
-
-  // 网格整体布局：只需要这一个 onLayout（删掉了原来的 library/grid/item 三层测量）。
-  // 行数取当前渲染的网格行数（对齐 characterStyles.characterGrid 的 2 列折行）。
-  const onCharacterGridLayout = useCallback((event, rows) => {
-    const { y, height } = event.nativeEvent.layout;
-    const total = Math.max(1, Math.floor(Number(rows)) || 1);
-    characterGridGeometryRef.current = {
-      top: Number(y) || 0,
-      height: Number(height) || 0,
-      rows: total,
-    };
-  }, []);
-
+  // 定位滑块：FlatList numColumns 虚拟化后，直接用官方 scrollToIndex 定位，
+  // 不再需要任何布局测量（网格几何推导随 FlatList 化一并退役）。
   const onCharacterScrubberSeek = useCallback(index => {
     if (!displayedCharacterItems[index]) return;
-    const { top, height, rows } = characterGridGeometryRef.current;
-    // 网格总高含每张卡的上外边距，故 行高 = 网格高 / 行数。
-    const rowHeight = height > 0 && rows > 0 ? height / rows : 0;
-    if (rowHeight <= 0) return;
-    const row = Math.floor(index / 2);
-    scrollCharacterTo(top + row * rowHeight + CHARACTER_CARD_MARGIN_TOP);
-  }, [displayedCharacterItems, scrollCharacterTo]);
+    listRef.current?.scrollToIndex?.({ index, animated: true, viewPosition: 0 });
+  }, [displayedCharacterItems]);
 
   const onCharacterScrubberToStart = useCallback(() => {
-    scrollCharacterTo(characterGridGeometryRef.current.top);
-  }, [scrollCharacterTo]);
+    listRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+  }, []);
 
   const onCharacterScrubberToEnd = useCallback(() => {
-    const { top, height } = characterGridGeometryRef.current;
-    const viewport = characterViewportHeightRef.current || windowHeight;
-    scrollCharacterTo(getScrollRange({ top, height, viewport }).end);
-  }, [scrollCharacterTo, windowHeight]);
+    listRef.current?.scrollToEnd?.({ animated: true });
+  }, []);
+
+  // scrollToIndex 对尚未渲染的项会失败（虚拟化窗口外），先滚到估算位置再重试。
+  const onScrollToIndexFailed = useCallback(({ index }) => {
+    listRef.current?.scrollToOffset?.({ offset: Math.max(0, index) * 120, animated: false });
+    setTimeout(() => {
+      listRef.current?.scrollToIndex?.({ index, animated: true, viewPosition: 0 });
+    }, 120);
+  }, []);
 
   const toggleCharacterList = useCallback(() => {
     const next = !characterListExpanded;
@@ -548,20 +518,136 @@ export default function CharacterLibraryScreen() {
   const activeCharacter = characters.find(item => item.id === activeId) || null;
   const activeCharacterAigcMeta = activeCharacter ? activeCharacter.aigcMeta : null;
 
+  // FlatList 单项渲染：角色卡与群聊卡共用 entry 结构（{ id, kind, item }）。
+  // 多选模式（editMode）下数据源已不含群聊（见 characterDisplayItems），无需再判。
+  const renderCardItem = ({ item: entry }) => {
+    if (entry.kind === 'group') {
+      const group = entry.item;
+      const selected = group.id === activeSessionId;
+      return (
+        <TouchableOpacity
+          style={[styles.characterCard, selected && styles.characterCardActive]}
+          onPress={() => onOpenGroup(group)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`进入群聊 ${groupNameOf(group)}`}
+          accessibilityState={{ selected }}
+        >
+          <View style={styles.characterCardImageWrap}>
+            {group.avatarUri ? (
+              <Image source={{ uri: group.avatarUri }} style={styles.characterCardImage} />
+            ) : (
+              <View style={styles.characterCardFallback}>
+                <View style={styles.characterCardFallbackDeep} />
+                <Ionicons name="people" size={24} color={theme.colors.primarySoft} />
+              </View>
+            )}
+            <View style={styles.characterCardGroupBadge}>
+              <Ionicons name="people" size={12} color={theme.colors.primaryContrast} />
+            </View>
+            <View style={styles.characterCardScrim} pointerEvents="none" />
+            <View style={styles.characterCardScrimDeep} pointerEvents="none" />
+            <View style={styles.characterCardNameOverlay} pointerEvents="none">
+              {selected ? <View style={styles.characterCardCurrentDot} /> : null}
+              <Text style={styles.characterCardName} numberOfLines={1}>
+                {groupNameOf(group)}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+    const item = entry.item;
+    const selected = !activeIsGroup && item.id === activeId;
+    const checked = selectedIds.includes(item.id);
+    return (
+      <TouchableOpacity
+        style={[styles.characterCard, selected && styles.characterCardActive]}
+        onPress={() => (editMode ? (item.id === 'default' ? null : toggleSelect(item.id)) : openCharacterDetail(item.id))}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={`切换到角色 ${item.name || '未命名角色'}`}
+        accessibilityState={{ selected }}
+      >
+        <View style={styles.characterCardImageWrap}>
+          {item.avatarUri ? (
+            <Image source={{ uri: item.avatarUri }} style={styles.characterCardImage} />
+          ) : (
+            <View style={styles.characterCardFallback}>
+              <View style={styles.characterCardFallbackDeep} />
+              <Text style={styles.characterCardFallbackText}>
+                {(item.name || '?').charAt(0)}
+              </Text>
+            </View>
+          )}
+          {editMode && item.id !== 'default' ? (
+            <View style={[styles.characterCardCheck, checked && styles.characterCardCheckOn]}>
+              <Ionicons name={checked ? 'checkmark' : 'ellipse-outline'} size={15} color={theme.colors.primaryContrast} />
+            </View>
+          ) : null}
+          {item.id !== 'default' && !editMode ? (
+            <>
+              <TouchableOpacity
+                style={styles.characterCardPin}
+                onPress={() => onTogglePin(item)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={item.pinned ? '取消置顶' : '置顶角色'}
+              >
+                <Ionicons
+                  name={item.pinned ? 'star' : 'star-outline'}
+                  size={15}
+                  color={item.pinned ? theme.colors.star : theme.colors.text}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.characterCardDelete}
+                onPress={() => onDeleteCharacter(item)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="删除角色"
+              >
+                <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
+              </TouchableOpacity>
+            </>
+          ) : null}
+          <View style={styles.characterCardScrim} pointerEvents="none" />
+          <View style={styles.characterCardScrimDeep} pointerEvents="none" />
+          <View style={styles.characterCardNameOverlay} pointerEvents="none">
+            {selected ? <View style={styles.characterCardCurrentDot} /> : null}
+            <Text style={styles.characterCardName} numberOfLines={1}>
+              {item.name || '未命名角色'}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView
-        ref={characterScrollRef}
+      {/* 整页唯一滚动容器换成 FlatList：numColumns=2 虚拟化网格，
+          页头与工具条收进 ListHeaderComponent，长列表只渲染视口内卡片。 */}
+      <FlatList
+        ref={listRef}
         style={styles.container}
+        data={displayedCharacterItems}
+        keyExtractor={entry => entry.id}
+        numColumns={2}
+        columnWrapperStyle={styles.characterRow}
+        renderItem={renderCardItem}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={false}
-        onLayout={event => {
-          characterViewportHeightRef.current = Number(event.nativeEvent.layout.height) || windowHeight;
-        }}
-      >
+        extraData={selectedIds}
+        onScrollToIndexFailed={onScrollToIndexFailed}
+        ListEmptyComponent={(
+          <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
+        )}
+        ListHeaderComponent={(
+          <>
         <View style={styles.pageHeader}>
           <Text style={styles.title}>角色</Text>
           <FieldHint style={styles.hint}>聊天时会把这里的设定作为系统提示词发送给模型。</FieldHint>
@@ -674,120 +760,10 @@ export default function CharacterLibraryScreen() {
               ) : null}
             </View>
           ) : null}
-          {characterDisplayItems.length === 0 ? (
-            <Text style={styles.emptyHint}>没有匹配的角色，换个关键词试试。</Text>
-          ) : null}
-          <View
-            style={styles.characterGrid}
-            onLayout={event => onCharacterGridLayout(event, Math.ceil(characterDisplayItems.length / 2))}
-          >
-            {displayedCharacters.map(item => {
-              const selected = !activeIsGroup && item.id === activeId;
-              const checked = selectedIds.includes(item.id);
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.characterCard, selected && styles.characterCardActive]}
-                  onPress={() => (editMode ? (item.id === 'default' ? null : toggleSelect(item.id)) : openCharacterDetail(item.id))}
-                  activeOpacity={0.85}
-                  accessibilityRole="button"
-                  accessibilityLabel={`切换到角色 ${item.name || '未命名角色'}`}
-                  accessibilityState={{ selected }}
-                >
-                  <View style={styles.characterCardImageWrap}>
-                    {item.avatarUri ? (
-                      <Image source={{ uri: item.avatarUri }} style={styles.characterCardImage} />
-                    ) : (
-                      <View style={styles.characterCardFallback}>
-                        <View style={styles.characterCardFallbackDeep} />
-                        <Text style={styles.characterCardFallbackText}>
-                          {(item.name || '?').charAt(0)}
-                        </Text>
-                      </View>
-                    )}
-                    {editMode && item.id !== 'default' ? (
-                      <View style={[styles.characterCardCheck, checked && styles.characterCardCheckOn]}>
-                        <Ionicons name={checked ? 'checkmark' : 'ellipse-outline'} size={15} color={theme.colors.primaryContrast} />
-                      </View>
-                    ) : null}
-                    {item.id !== 'default' && !editMode ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.characterCardPin}
-                          onPress={() => onTogglePin(item)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          accessibilityRole="button"
-                          accessibilityLabel={item.pinned ? '取消置顶' : '置顶角色'}
-                        >
-                          <Ionicons
-                            name={item.pinned ? 'star' : 'star-outline'}
-                            size={15}
-                            color={item.pinned ? theme.colors.star : theme.colors.text}
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.characterCardDelete}
-                          onPress={() => onDeleteCharacter(item)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          accessibilityRole="button"
-                          accessibilityLabel="删除角色"
-                        >
-                          <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
-                        </TouchableOpacity>
-                      </>
-                    ) : null}
-                    {/* 名称叠在封面底部：两段遮罩 + 文字，替代原来的独立名称条与「当前」文字角标 */}
-                    <View style={styles.characterCardScrim} pointerEvents="none" />
-                    <View style={styles.characterCardScrimDeep} pointerEvents="none" />
-                    <View style={styles.characterCardNameOverlay} pointerEvents="none">
-                      {selected ? <View style={styles.characterCardCurrentDot} /> : null}
-                      <Text style={styles.characterCardName} numberOfLines={1}>
-                        {item.name || '未命名角色'}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-            {!editMode && displayedGroups.map(group => {
-              const selected = group.id === activeSessionId;
-              return (
-                <TouchableOpacity
-                  key={`group-${group.id}`}
-                  style={[styles.characterCard, selected && styles.characterCardActive]}
-                  onPress={() => onOpenGroup(group)}
-                  activeOpacity={0.85}
-                  accessibilityRole="button"
-                  accessibilityLabel={`进入群聊 ${groupNameOf(group)}`}
-                  accessibilityState={{ selected }}
-                >
-                  <View style={styles.characterCardImageWrap}>
-                    {group.avatarUri ? (
-                      <Image source={{ uri: group.avatarUri }} style={styles.characterCardImage} />
-                    ) : (
-                      <View style={styles.characterCardFallback}>
-                        <View style={styles.characterCardFallbackDeep} />
-                        <Ionicons name="people" size={24} color={theme.colors.primarySoft} />
-                      </View>
-                    )}
-                    <View style={styles.characterCardGroupBadge}>
-                      <Ionicons name="people" size={12} color={theme.colors.primaryContrast} />
-                    </View>
-                    <View style={styles.characterCardScrim} pointerEvents="none" />
-                    <View style={styles.characterCardScrimDeep} pointerEvents="none" />
-                    <View style={styles.characterCardNameOverlay} pointerEvents="none">
-                      {selected ? <View style={styles.characterCardCurrentDot} /> : null}
-                      <Text style={styles.characterCardName} numberOfLines={1}>
-                        {groupNameOf(group)}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
         </Card>
-      </ScrollView>
+          </>
+        )}
+      />
 
       <Modal
         visible={groupPanelOpen}

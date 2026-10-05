@@ -408,6 +408,8 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     justifyContent: 'space-between',
     marginTop: 4,
   },
+  // FlatList numColumns=2 的行容器：两列均分（卡片自身 width:48% + 间距）。
+  characterRow: { justifyContent: 'space-between' },
   characterCard: {
     width: '48%',
     backgroundColor: theme.colors.surface,
