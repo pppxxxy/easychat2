@@ -41,6 +41,16 @@ const ioStub = {
       return fallback;
     }
   },
+  createMutationQueue: () => {
+    let single = Promise.resolve();
+    return {
+      enqueue(task) {
+        const next = single.then(task, task);
+        single = next.catch(() => {});
+        return next;
+      },
+    };
+  },
 };
 
 const originalLoad = Module._load;
@@ -71,17 +81,24 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
     mode: 'write',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
+    assistantCharacterId: '',
   });
   assert.deepEqual(normalizeWorkspaceSettings(null), {
     mode: 'ask',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
+    assistantCharacterId: '',
   });
   assert.deepEqual(normalizeWorkspaceSettings('nope'), {
     mode: 'ask',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
+    assistantCharacterId: '',
   });
+  // 工作区角色：去首尾空白；非字符串噪声归一为空串。
+  assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: '  abc  ' }).assistantCharacterId, 'abc');
+  assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: 42 }).assistantCharacterId, '42');
+  assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: null }).assistantCharacterId, '');
 });
 
 test('命令执行开关只在可改模式下成立（其余模式一律归零）', () => {
@@ -117,7 +134,7 @@ test('工作区根：非法 location 一律回落应用内默认', () => {
 test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
   store.clear();
   const { getWorkspaceSettings, saveWorkspaceSettings, WORKSPACE_KEY } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false };
+  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '' };
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   const saved = await saveWorkspaceSettings({ mode: 'write' });
   assert.deepEqual(saved, { ...defaultSettings, mode: 'write' });
@@ -127,7 +144,7 @@ test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
 
 test('损坏或非法值回落默认模式', async () => {
   const { getWorkspaceSettings } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false };
+  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '' };
   store.set('@easychat2_workspace', '{not json');
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   store.set('@easychat2_workspace', JSON.stringify({ mode: 'rm -rf' }));
@@ -137,17 +154,19 @@ test('损坏或非法值回落默认模式', async () => {
 test('patchWorkspaceSettings 局部更新：改模式不清掉文件夹与命令开关', async () => {
   store.clear();
   const { patchWorkspaceSettings, getWorkspaceSettings } = loadWorkspaceStorage();
-  // 先落一个「外部文件夹 + 命令执行开启」的完整状态
+  // 先落一个「外部文件夹 + 命令执行开启 + 工作区角色」的完整状态
   await patchWorkspaceSettings({
     mode: 'write',
     location: { kind: 'saf', uri: 'content://tree/primary%3ADocs', name: 'Docs' },
     allowCommandExecution: true,
+    assistantCharacterId: 'assistant-1',
   });
   // 只改模式：其余字段必须原样保留（这正是整体 save 会踩的坑）
   const after = await patchWorkspaceSettings({ mode: 'read' });
   assert.equal(after.mode, 'read');
   assert.equal(after.location.kind, 'saf');
   assert.equal(after.location.name, 'Docs');
+  assert.equal(after.assistantCharacterId, 'assistant-1', '改模式不得清掉工作区角色');
   // 命令执行随模式归零（只读模式下不成立），但文件夹不能丢
   assert.equal(after.allowCommandExecution, false);
   const persisted = await getWorkspaceSettings();

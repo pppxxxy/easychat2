@@ -115,7 +115,13 @@ export {
 } from './storage/settings.js';
 export {
   WORKSPACE_KEY,
+  WORKSPACE_CHANGES_KEY,
+  WORKSPACE_CHANGE_LIMIT,
+  appendWorkspaceChange,
+  clearWorkspaceChanges,
+  getWorkspaceChanges,
   getWorkspaceSettings,
+  normalizeWorkspaceChange,
   patchWorkspaceSettings,
   saveWorkspaceSettings,
 } from './storage/workspace.js';
