@@ -8,8 +8,49 @@ import {
   describeLocation,
   formatCoordinate,
   isOutOfChina,
+  placeToLocation,
+  resolveActivePlace,
   wgs84ToGcj02,
 } from '../src/location/geo.js';
+
+test('placeToLocation：名称成为描述，坐标可缺省（虚构地点）', () => {
+  const withCoords = placeToLocation({ name: '  山东青岛  ', latitude: 36.07, longitude: 120.38 });
+  assert.equal(withCoords.description, '山东青岛');
+  assert.equal(withCoords.coarse, '山东青岛', 'coarse 用同一条名称（注入优先取它）');
+  assert.equal(withCoords.latitude, 36.07);
+  assert.equal(withCoords.updatedAt, 0, '手写位置没有取点时间：注入侧用 maxAgeMs=null 关掉判龄');
+
+  const fictional = placeToLocation({ name: '霍格沃茨魔法学院' });
+  assert.equal(fictional.description, '霍格沃茨魔法学院');
+  assert.equal(fictional.latitude, null, '没有坐标就是 null');
+
+  assert.equal(placeToLocation(null), null);
+  assert.equal(placeToLocation({ name: '   ' }), null, '无名称视为无效');
+});
+
+test('resolveActivePlace：返回选中项，失效时回落第一条', () => {
+  const places = [{ id: 'a', name: '一' }, { id: 'b', name: '二' }];
+  assert.equal(resolveActivePlace({ places, activePlaceId: 'b' }).name, '二');
+  assert.equal(resolveActivePlace({ places, activePlaceId: 'gone' }).name, '一', '选中项失效回落第一条');
+  assert.equal(resolveActivePlace({ places: [], activePlaceId: 'a' }), null);
+  assert.equal(resolveActivePlace(null), null);
+});
+
+test('手写位置不判龄：maxAgeMs=null 时照常注入', () => {
+  const line = buildLocationText(
+    true,
+    placeToLocation({ name: '霍格沃茨魔法学院' }),
+    { maxAgeMs: null }
+  );
+  assert.equal(line, '[当前位置] 霍格沃茨魔法学院');
+  // 有坐标也不带进注入文本（只分享名称）
+  assert.equal(
+    buildLocationText(true, placeToLocation({ name: '山东青岛', latitude: 36.07, longitude: 120.38 }), { maxAgeMs: null }),
+    '[当前位置] 山东青岛'
+  );
+  assert.equal(buildLocationText(false, placeToLocation({ name: '山东青岛' }), { maxAgeMs: null }), '',
+    '开关关掉 = 空串');
+});
 
 test('wgs84ToGcj02：境内产生偏移，境外/非法原样返回', () => {
   const beijing = wgs84ToGcj02(39.9087, 116.3975);

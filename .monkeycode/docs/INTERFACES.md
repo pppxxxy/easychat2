@@ -461,7 +461,7 @@
 | `@easychat2_diary_index` | 日记条目 ID 索引（提交点，最后写） |
 | `@easychat2_diary_item::<id>` | 单篇日记 `{ id, characterId, characterName, date, text, createdAt }` |
 | `@easychat2_world_map` | 世界地图房子列表 `[{ id, x, y, name, ownerType: 'self' \| 'character', ownerId, ownerName, residents: string[], createdAt }]`（一格一房；自己固定 000、其余按序 001…；每人最多拥有 1 栋、每角色最多住 1 栋） |
-| `@easychat2_location` | 真实位置 `{ enabled, last: { latitude, longitude, description, updatedAt } \| null, tileUrl }`；`enabled` 为全局开关（关闭时不取点、不注入对话），`last` 为最近一次成功位置（WGS-84，description 可为空、展示时退回坐标），`tileUrl` 为空用默认高德栅格模板 |
+| `@easychat2_location` | 位置（**用户自写清单，不读系统定位**）`{ enabled, awareness, places: [{ id, name, latitude \| null, longitude \| null, updatedAt }], activePlaceId, seeded, tileUrl }`；`places` 可增删改、一次用一个（`activePlaceId`，选中项失效回落第一条）；坐标可选（留空 = 只把文字分享给角色，虚构地点也可）；`enabled` = 分享给角色、`awareness` = 位置感知（两者都开启才注入对话，手写位置不判龄）；`seeded` = 示例条目已写过（用户删光后不再自动补）；`tileUrl` 为空用默认高德栅格模板。旧数据 `last`（真实定位）在归一化时迁成第一条 |
 | `@easychat2_affinity` | 按角色的好感状态 `{ [characterId]: { score, turnCount, triggers } }` |
 | `@easychat2_tts` | 语音播报设置 `{ autoBroadcast, activeProvider, providers: { [id]: { ...fields } } }`；历史字段 `enabled` 语义为自动播报，读取时迁移为 `autoBroadcast`；`providers[].apiKey` / `.appSecretKey` 落盘为安全存储引用 |
 | `@easychat2_transcription` | 语音转文字配置 `{ activeId, configs: [{ id, name, baseUrl, apiKey, model }] }`；`activeId` 为空串表示「仅复用当前聊天来源」；`apiKey` 落盘为安全存储引用 |

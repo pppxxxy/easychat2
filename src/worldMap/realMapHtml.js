@@ -191,6 +191,11 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
     }
     render();
   };
+  // 选中的位置没有坐标时清掉标记（虚构地点不必填坐标）。
+  window.__clearMarker = function() {
+    marker = null;
+    render();
+  };
   window.__setTile = function(url, subs) {
     if (url) TILE = url;
     if (subs && subs.length) SUBS = subs;

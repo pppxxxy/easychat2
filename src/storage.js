@@ -44,11 +44,15 @@ import { runCharacterCleanup } from './storage/characterLifecycle.js';
 
 export { markMediaWrite } from './storage/mediaProtection.js';
 export {
+  LOCATION_KEY,
+  PLACE_LIMIT,
   getLocationSettings,
   normalizeLocationSettings,
+  normalizePlace,
+  removePlace,
   saveLocationSettings,
-  setLastLocation,
   updateLocationSettings,
+  upsertPlace,
 } from './storage/location.js';
 export { detachCharacterFromWorldMap, getWorldMap, getWorldMapStatus, updateWorldMap };
 export {

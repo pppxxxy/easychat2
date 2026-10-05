@@ -83,8 +83,6 @@ import LocalModelPanel from './LocalModelPanel.js';
 import WorkspacePanel from './WorkspacePanel.js';
 import WorkspaceChat from './workspace/WorkspaceChat.js';
 import WorkspaceCapabilitiesCard from './WorkspaceCapabilitiesCard.js';
-import { runOAuthWebFlow } from './mcp/oauth.js';
-import { captureOAuthCallback, GITHUB_OAUTH_REDIRECT, openSystemBrowser } from './mcp/oauthBridge.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import SamplingCard from './settings/SamplingCard.js';
@@ -113,6 +111,12 @@ const CHAT_PROTOCOL_OPTIONS = [
 // 应用版本号：报 bug / 对「检测更新」时都需要它能被一眼看到（expo-constants 读取
 // app.json 的 expo.version）。
 const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || '') : '';
+
+// GitHub 令牌创建页（方式二「打开令牌页」的落地页）。
+// 为什么不做网页授权：GitHub 的远程 MCP 不提供动态客户端注册（RFC 7591 的 /register
+// 端点不存在）——流程会在「注册应用」一步失败，浏览器根本不会打开，用户看到的就是
+// 「点了按钮没跳转」。令牌页一定可用，且能顺带把权限勾选问清楚。
+const GITHUB_TOKEN_PAGE_URL = 'https://github.com/settings/tokens/new?scopes=repo,read:user&description=EasyChat2';
 
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
@@ -318,10 +322,13 @@ export default function SettingsScreen() {
   // 用 initialSection 指定要直接展开的那一项。
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   const [workspacePanelSection, setWorkspacePanelSection] = useState('');
-  // GitHub MCP 连接：设置、PAT 输入与忙碌态（网页认证/PAT 都走 connectGithubMcpWithToken）。
+  // GitHub MCP 连接：设置、PAT 输入与忙碌态。
+  // 两个按钮的进行中状态必须分开：此前共用 githubBusy，点「打开令牌页」时亮的是
+  // 上面「连接」按钮的「连接中…」，用户以为状态串了、也看不出自己点的那步在干嘛。
   const [githubMcp, setGithubMcp] = useState(null);
   const [githubPat, setGithubPat] = useState('');
   const [githubBusy, setGithubBusy] = useState(false);
+  const [githubPageBusy, setGithubPageBusy] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
   const { refreshAppData, character } = useApp();
@@ -551,6 +558,7 @@ export default function SettingsScreen() {
     MCP_INVALID_RESPONSE: 'settings.github.err.mcpResponse',
     OAUTH_METADATA_NOT_FOUND: 'settings.github.err.metadata',
     OAUTH_NO_REGISTRATION: 'settings.github.err.registration',
+    MCP_TIMEOUT: 'settings.github.err.mcpTimeout',
     OAUTH_STATE_MISMATCH: 'settings.github.err.state',
     OAUTH_TIMEOUT: 'settings.github.err.timeout',
     OAUTH_ACCESS_DENIED: 'settings.github.err.denied',
@@ -600,29 +608,21 @@ export default function SettingsScreen() {
     }
   }, [afterGithubConnect, githubBusy, githubPat, t]);
 
-  const connectGithubWeb = useCallback(async () => {
-    if (githubBusy) return;
-    setGithubBusy(true);
+  // 方式二：打开 GitHub 令牌创建页（不是 OAuth 网页授权）。
+  // GitHub 的远程 MCP 不支持动态客户端注册，网页授权必然在「注册应用」一步失败、
+  // 浏览器根本打不开——用户的实际观感就是「点了按钮没跳转」。令牌页则一定可用：
+  // 在那里生成 PAT（权限已预勾选），复制回来粘贴到上面的输入框即可。
+  const openGithubTokenPage = useCallback(async () => {
+    if (githubPageBusy) return;
+    setGithubPageBusy(true);
     try {
-      const tokens = await runOAuthWebFlow({
-        serverUrl: (githubMcp && githubMcp.endpoint) || undefined,
-        redirectUri: GITHUB_OAUTH_REDIRECT,
-        fetchImpl: (url, options) => fetch(url, options),
-        openBrowser: openSystemBrowser,
-        awaitCallback: () => captureOAuthCallback(),
-      });
-      const summary = await connectGithubMcpWithToken({
-        token: tokens.accessToken,
-        authMethod: 'oauth',
-      });
-      githubMcpSummaryRef.current = summary;
-      await afterGithubConnect();
+      await Linking.openURL(GITHUB_TOKEN_PAGE_URL);
     } catch (error) {
-      Alert.alert(t('settings.github.err.title'), githubAlertText(error, t));
+      Alert.alert(t('settings.github.err.title'), t('settings.github.err.openPage'));
     } finally {
-      setGithubBusy(false);
+      setGithubPageBusy(false);
     }
-  }, [afterGithubConnect, githubBusy, githubMcp, t]);
+  }, [githubPageBusy, t]);
 
   const disconnectGithub = useCallback(() => {
     Alert.alert(t('settings.github.disconnect.title'), t('settings.github.disconnect.body'), [
@@ -1739,9 +1739,9 @@ export default function SettingsScreen() {
                   onPress={connectGithubPat}
                 />
                 <SecondaryButton
-                  title={t('settings.github.web.action')}
+                  title={githubPageBusy ? t('settings.github.opening') : t('settings.github.web.action')}
                   small
-                  onPress={connectGithubWeb}
+                  onPress={openGithubTokenPage}
                 />
               </View>
               <FieldHint style={styles.hint}>{t('settings.github.web.hint')}</FieldHint>
@@ -2316,6 +2316,37 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
+        </Card>
+
+        {/* 语言：设置页最下面单独放一份——此前只藏在外观折叠区里，找语言的人翻不到。 */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="language-outline" size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.cardTitle}>{t('settings.language.title')}</Text>
+            </View>
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.language.hint')}</FieldHint>
+          <View style={styles.fontRow}>
+            {locales.map(item => {
+              const active = item.id === localeId;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.fontChip, active && styles.fontChipActive]}
+                  onPress={() => setLocaleId(item.id)}
+                  activeOpacity={0.85}
+                  accessibilityLabel={item.english}
+                >
+                  {/* 语言名用各自的写法展示：英文界面下「简体中文」仍是中文，
+                      不必先读懂当前界面语言才能找到自己的语言。 */}
+                  <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </Card>
       </ScrollView>
 

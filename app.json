@@ -60,12 +60,6 @@
           "recordAudioAndroid": true,
           "microphonePermission": "录制语音消息需要访问麦克风"
         }
-      ],
-      [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "获取当前位置，让角色知道你在哪，并在真实地图上标注（仅在使用时）"
-        }
       ]
     ],
     "android": {
@@ -83,7 +77,9 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "ios": {

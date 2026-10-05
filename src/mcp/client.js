@@ -15,7 +15,17 @@
 
 export const DEFAULT_GITHUB_MCP_ENDPOINT = 'https://api.githubcopilot.com/mcp/';
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
-const DEFAULT_TIMEOUT_MS = 20000;
+// 单请求超时：GitHub MCP 冷启动（initialize）偶尔要十几秒，20s 会误杀成
+// 「Aborted」——用户看到的就是一个无意义的英文单词。放宽到 30s，
+// 并把超时转成可诊断的错误码（见 isAbortError）。
+const DEFAULT_TIMEOUT_MS = 30000;
+
+// AbortController 触发的超时在 RN 上表现为 AbortError / 消息 "Aborted"。
+function isAbortError(error) {
+  if (!error) return false;
+  if (error.name === 'AbortError') return true;
+  return /aborted/i.test(String(error.message || ''));
+}
 
 // 错误统一带稳定 code：用户可读文案由消费层（设置页/mcpTools）按 code 映射，
 // 本模块保持零 i18n 依赖（纯模块要在 Node 直测）。
@@ -148,6 +158,13 @@ export function createMcpSession({
         }
         if (notification) return null;
         return payload.result !== undefined ? payload.result : null;
+      } catch (error) {
+        // 超时（我们自己的 AbortController）必须转成可诊断的错误码：
+        // 否则原始 "Aborted" 会一路漏到界面，用户完全不知道发生了什么。
+        if (isAbortError(error)) {
+          throw fail('MCP_TIMEOUT', `GitHub MCP request timed out after ${Math.round(timeoutMs / 1000)}s.`);
+        }
+        throw error;
       } finally {
         clearTimeout(timer);
       }

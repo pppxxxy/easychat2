@@ -65,14 +65,30 @@ test('面板接线：下载中心入口/写入走 store/自定义下载的三道
   assert.ok(source.includes('isAllowedWorkspaceOutputFile(rawName)'), '白名单名原样保留，其余清洗');
 });
 
-test('设置页接线：PAT 与网页认证两条路 + 断开 + 错误码映射', () => {
+test('设置页接线：PAT 连接 + 打开令牌页两条路 + 断开 + 错误码映射', () => {
   const source = readSource('src/SettingsScreen.js');
   assert.ok(source.includes('connectGithubMcpWithToken'), '连接入口');
-  assert.ok(source.includes('runOAuthWebFlow'), '网页认证流');
-  assert.ok(source.includes('captureOAuthCallback()'), '回调捕获');
-  assert.ok(source.includes("redirectUri: GITHUB_OAUTH_REDIRECT"), '回调走 app scheme');
+  // 方式二不再是 OAuth 网页授权：GitHub 的远程 MCP 不提供动态客户端注册
+  //（RFC 7591 /register 不存在），流程会在注册应用一步失败、浏览器根本打不开
+  //（用户报的就是「点了按钮没跳转」）。现在直接打开令牌创建页。
+  assert.ok(source.includes('Linking.openURL(GITHUB_TOKEN_PAGE_URL)'), '打开 GitHub 令牌页');
+  assert.ok(source.includes('github.com/settings/tokens/new'), '落地页是真实的令牌创建页');
+  assert.ok(!source.includes('runOAuthWebFlow'), '不再走必然失败的网页授权');
   assert.ok(source.includes('clearGithubMcpCredentials'), '断开清理');
   assert.ok(source.includes('GITHUB_ERROR_KEYS'), '错误码 → t() 映射表存在');
+  assert.ok(source.includes("MCP_TIMEOUT: 'settings.github.err.mcpTimeout'"),
+    '超时必须有自己的文案：不能把原始 "Aborted" 丢给用户');
+  // 两个按钮的进行中状态分开：否则点「打开令牌页」亮的却是「连接」按钮的「连接中…」
+  assert.ok(source.includes('githubPageBusy') && source.includes('const [githubBusy, setGithubBusy]'),
+    '两个动作的忙碌态各自独立');
+});
+
+test('MCP 客户端：超时（Aborted）必须转成可诊断的错误码', () => {
+  const source = readSource('src/mcp/client.js');
+  assert.ok(source.includes("throw fail('MCP_TIMEOUT'"), 'AbortController 超时 → MCP_TIMEOUT');
+  assert.ok(source.includes('isAbortError'), '按 AbortError / "Aborted" 消息识别超时');
+  assert.ok(!source.includes('DEFAULT_TIMEOUT_MS = 20000'),
+    '20s 会把 GitHub MCP 冷启动误杀成超时，已放宽');
 });
 
 test('OAuth 回跳依赖 app.json 的 scheme（深链回调的载体）', () => {

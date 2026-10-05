@@ -51,7 +51,7 @@ import { stop as ttsStop } from '../tts/index.js';
 import { maskSecrets } from '../storage/secrets.js';
 import { resolveStickerNames } from './stickerDirectives.js';
 import { buildTimeAwareText } from './currentTime.js';
-import { buildLocationText } from '../location/geo.js';
+import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
   buildAutoSummaryInput,
@@ -335,15 +335,17 @@ export default function useChatSend({
       } catch (error) {
         summaryText = '';
       }
-       // 位置注入（双开关门控）：真实地图分享（enabled）与位置感知（awareness）都开启、
-       // 且存在最近一次成功位置时，注入「[当前位置] …」（内容为模糊到区县的描述）。
+       // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时，
+       // 注入「[当前位置] …」——内容就是当前选中的那条自写位置（点选即用，一次一个）。
        // 任一关闭 = 空串——位置感知是独立 opt-in，不给「开地图即默认分享」留后门。
+       // maxAgeMs: null —— 手写位置没有「取点时间」，不该按定位时效判过期。
        let locationLine = '';
        try {
          const locationSettings = await getLocationSettings();
          locationLine = buildLocationText(
            locationSettings && locationSettings.enabled === true && locationSettings.awareness === true,
-           locationSettings && locationSettings.last
+           placeToLocation(resolveActivePlace(locationSettings)),
+           { maxAgeMs: null }
          );
        } catch (error) {
          locationLine = '';

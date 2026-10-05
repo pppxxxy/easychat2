@@ -65,6 +65,34 @@ export function formatCoordinate(lat, lng, digits = 6) {
   return `${latitude.toFixed(d)}, ${longitude.toFixed(d)}`;
 }
 
+// 位置条目（用户自写：{ id, name, latitude, longitude }）→ 注入用位置对象。
+// 名称即描述（coarse 优先），坐标可缺省（虚构地点只有名字）。
+// updatedAt 恒为 0：手写位置没有「取点时间」，注入侧用 maxAgeMs=null 关掉时效判定。
+export function placeToLocation(place) {
+  const source = place && typeof place === 'object' ? place : null;
+  if (!source) return null;
+  const name = String(source.name || '').trim();
+  if (!name) return null;
+  const latitude = Number(source.latitude);
+  const longitude = Number(source.longitude);
+  const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+  return {
+    description: name,
+    coarse: name,
+    latitude: hasCoordinates ? latitude : null,
+    longitude: hasCoordinates ? longitude : null,
+    updatedAt: 0,
+  };
+}
+
+// 当前使用的位置条目：没有选中（或清单为空）返回 null；选中项失效时回落第一条。
+export function resolveActivePlace(settings) {
+  const source = settings && typeof settings === 'object' ? settings : null;
+  const places = source && Array.isArray(source.places) ? source.places : [];
+  if (places.length === 0) return null;
+  return places.find(item => item && item.id === source.activePlaceId) || places[0];
+}
+
 // 位置的可读描述：优先反地理编码文本，缺失时退回经纬度；无有效位置返回空串。
 export function describeLocation(location) {
   const source = location && typeof location === 'object' ? location : null;
