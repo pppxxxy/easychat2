@@ -165,3 +165,13 @@ Entries discovered by the Agent during task execution should follow this format:
   - 本环境超长 bash heredoc 会被截断、`\` 会折半：大改动一律用 Edit 工具；向 JS 写入 `
 ` 字面量时用 `chr(92)+'n'` 构造。
   - 注入验证两个新抓的盲区：子串断言会被注释掉的调用骗过（用行首锚定正则）；「默认拒绝」类守卫的行为断言测不到模式本身（补源码断言钉住模式与白名单交集）。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z3：向量记忆「关键词模式」串记忆通道修复（审核报告全单核实属实）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **「开关」语义审计法**：看到一个布尔开关，必须追它的每一条消费分支——开关关掉后是「什么都不做」还是「降级到另一条路径」。向量记忆的 enabled 就是反例：关闭=关键词检索（更松），用户以为关=关。这类 fail-open 降级是隐私/记忆类功能的头号泄漏源。
+  - **fail-closed 原则**：缓存/会话绑定的钥匙（conversationKey）缺失时必须默认清空重置，不能默认沿用——「没钥匙」要当作「换对话」而不是「同对话」。写守卫时先想清楚默认方向。
+  - **兜底桶污染链**：任何 `id || 'default'` 式兜底 + 按角色共享的存储 + 单字匹配召回，三者叠加会让兜底卡变成跨会话记忆垃圾场；新增归属型存储时拒绝 default 兜底，对账时校验归属。
+  - 注入验证的子串盲区已三次出现：断言 `includes('name')` 会被改名后的其他出现点（JSX 使用处/注释/另一个调用点）骗过——一律用「定义+使用」双锚点或行首锚定正则。
