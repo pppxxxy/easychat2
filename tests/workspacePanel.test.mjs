@@ -33,7 +33,8 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
   assert.ok(source.includes('patchWorkspaceSettings({ assistantCharacterId: resolved.id })'), '解析出的角色写回设置');
   assert.ok(source.includes('patchWorkspaceSettings({ assistantCharacterId: item.id })'), '选择角色写回设置');
   assert.ok(source.includes('getCharacterLibrary'), '选择器读取角色库');
-  assert.ok(source.includes("t('workspace.panel.character.select')"), '角色行有选择入口');
+  // 状态条重排后：角色选择收进状态条的角色芯片（打开既有选择器）。
+  assert.ok(/onPress=\{openCharacterPicker\}/.test(source), '状态条角色芯片有选择入口');
   // 查看文件：两段（文件/历史改动）+ 历史从存储域读取 + 清空入口。
   assert.ok(source.includes("t('workspace.panel.viewFiles')"), '面板有查看文件入口');
   assert.ok(source.includes('getWorkspaceChanges'), '历史改动读取存储域');

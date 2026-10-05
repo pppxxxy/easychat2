@@ -224,6 +224,36 @@ export function findCatalogItem(id) {
   return CATALOG_ITEMS.find(item => item.id === id) || null;
 }
 
+// 一键套餐：整组写入（逐条复用单条写入路径，自动进历史改动）。
+// needsGitIdentity = 组里含 .gitconfig，写入前先收集 user.name/email（复用单条表单的输入）。
+export const CATALOG_BUNDLES = Object.freeze([
+  {
+    id: 'standard',
+    titleKey: 'workspace.panel.catalog.bundle.standard.title',
+    descKey: 'workspace.panel.catalog.bundle.standard.desc',
+    items: ['gitignore', 'editorconfig', 'commit-convention', 'pr-template'],
+    needsGitIdentity: false,
+  },
+  {
+    id: 'mirror',
+    titleKey: 'workspace.panel.catalog.bundle.mirror.title',
+    descKey: 'workspace.panel.catalog.bundle.mirror.desc',
+    items: ['npmrc', 'pipconf'],
+    needsGitIdentity: false,
+  },
+  {
+    id: 'full',
+    titleKey: 'workspace.panel.catalog.bundle.full.title',
+    descKey: 'workspace.panel.catalog.bundle.full.desc',
+    items: ['gitignore', 'gitconfig', 'editorconfig', 'npmrc', 'pipconf', 'commit-convention', 'pr-template'],
+    needsGitIdentity: true,
+  },
+]);
+
+export function findCatalogBundle(id) {
+  return CATALOG_BUNDLES.find(bundle => bundle.id === id) || null;
+}
+
 // 生成内容：有 build 的（需输入）走 build，否则取内置 content。
 export function buildCatalogContent(item, inputs) {
   if (!item) throw new Error('catalog item not found');

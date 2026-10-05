@@ -11,7 +11,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -51,7 +50,8 @@ import WorkspaceChat from './workspace/WorkspaceChat.js';
 import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from './workspace/paths.js';
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
-import { CATALOG_CATEGORIES, catalogItemsByCategory, buildCatalogContent, findCatalogItem } from './workspace/catalog.js';
+import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from './workspace/catalog.js';
+import WorkspaceRepoSheet from './workspace/WorkspaceRepoSheet.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -110,6 +110,12 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   const [expandedChangeId, setExpandedChangeId] = useState('');
   // 环境与配置下载：目录弹层、需输入的模板表单（.gitconfig 的提交身份）、自定义 URL。
   const [catalogOpen, setCatalogOpen] = useState(false);
+  // 套餐：写入进度 {id, done, total}；条目状态 'absent' | 'same' | 'diff'（弹层打开时比对）。
+  const [bundleBusy, setBundleBusy] = useState(null);
+  const [catalogStatuses, setCatalogStatuses] = useState({});
+  const [repoOpen, setRepoOpen] = useState(false);
+  // 对话调优（思考强度/上下文占用）折叠卡：默认收起，把主操作让给文件与导入。
+  const [tuningOpen, setTuningOpen] = useState(false);
   const [catalogInputs, setCatalogInputs] = useState({});
   const [catalogBusyId, setCatalogBusyId] = useState('');
   const [customUrl, setCustomUrl] = useState('');
@@ -441,6 +447,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
 
   // —— 环境与配置下载 ——
   // 写入走 store.writeWorkspaceFile：与面板手写同一条路径，自动进历史改动。
+  // quiet 变体供套餐逐条调用（不逐条弹框，整组结束统一报告；失败向上抛）。
+  const writeCatalogFileQuiet = useCallback(async (path, content) => {
+    const store = storeRef.current;
+    if (!store) throw new Error('workspace store unavailable');
+    await store.writeWorkspaceFile({ characterId, path, content });
+    if (mountedRef.current) await refresh();
+  }, [characterId, refresh]);
+
   const writeCatalogFile = useCallback(async (path, content) => {
     const store = storeRef.current;
     if (!store) {
@@ -464,10 +478,73 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     try {
       const content = buildCatalogContent(item, catalogInputs[itemId] || {});
       await writeCatalogFile(item.file, content);
+      setCatalogStatuses(current => ({ ...current, [itemId]: 'same' }));
     } finally {
       if (mountedRef.current) setCatalogBusyId('');
     }
   }, [catalogBusyId, catalogInputs, writeCatalogFile]);
+
+  // 弹层打开时比对每条状态：沙盒没有 → absent；有且内容一致 → same；有但不同 → diff。
+  // 只比内容字符串相等，不做 diff UI。gitconfig 内容随输入变化，以当前输入为准。
+  const loadCatalogStatuses = useCallback(async () => {
+    const store = storeRef.current;
+    if (!store) return;
+    const next = {};
+    for (const item of CATALOG_ITEMS) {
+      try {
+        if (!files.includes(item.file)) {
+          next[item.id] = 'absent';
+          continue;
+        }
+        const result = await store.readWorkspaceFile({ characterId, path: item.file });
+        const expected = buildCatalogContent(item, catalogInputs[item.id] || {});
+        next[item.id] = String(result && result.content) === expected ? 'same' : 'diff';
+      } catch (error) {
+        next[item.id] = 'absent';
+      }
+    }
+    if (mountedRef.current) setCatalogStatuses(next);
+  }, [catalogInputs, characterId, files]);
+
+  useEffect(() => {
+    if (catalogOpen) loadCatalogStatuses();
+  }, [catalogOpen, loadCatalogStatuses]);
+
+  // 一键套餐：逐条走单条写入路径（自动进历史改动）；单条失败不中断，结束统一报告。
+  const handleBundleWrite = useCallback(async bundleId => {
+    const bundle = findCatalogBundle(bundleId);
+    if (!bundle || bundleBusy || catalogBusyId) return;
+    setBundleBusy({ id: bundleId, done: 0, total: bundle.items.length });
+    const failures = [];
+    const written = [];
+    const gitIdentity = bundle.needsGitIdentity ? (catalogInputs.gitconfig || {}) : {};
+    try {
+      for (let index = 0; index < bundle.items.length; index += 1) {
+        const item = findCatalogItem(bundle.items[index]);
+        if (item) {
+          try {
+            const content = buildCatalogContent(item, item.id === 'gitconfig' ? gitIdentity : {});
+            await writeCatalogFileQuiet(item.file, content);
+            written.push(item.file);
+          } catch (error) {
+            failures.push(item.file);
+          }
+        }
+        if (mountedRef.current) setBundleBusy({ id: bundleId, done: index + 1, total: bundle.items.length });
+      }
+    } finally {
+      if (mountedRef.current) setBundleBusy(null);
+    }
+    await refresh();
+    if (mountedRef.current) loadCatalogStatuses();
+    if (mountedRef.current) {
+      const summary = `${t('workspace.panel.catalog.bundle.donePrefix', { count: written.length })}\n${written.join('\n')}`;
+      const failureNote = failures.length > 0
+        ? `\n\n${t('workspace.panel.catalog.bundle.failures', { list: failures.join('\n') })}`
+        : '';
+      Alert.alert(t('workspace.panel.catalog.bundle.doneTitle'), summary + failureNote);
+    }
+  }, [bundleBusy, catalogBusyId, catalogInputs, loadCatalogStatuses, refresh, t, writeCatalogFileQuiet]);
 
   // 自定义 URL 下载：仅 https、20s 超时、512KB 上限；文件名取 URL 末段再过命名清洗。
   const handleCustomDownload = useCallback(async () => {
@@ -537,134 +614,80 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
         <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />
 
         <ScrollView contentContainerStyle={styles.body}>
-          <View style={styles.modeRow}>
-            <Ionicons name="briefcase-outline" size={15} color={theme.colors.primaryMuted} />
-            <Text style={styles.modeText}>
-              {t('workspace.panel.mode.prefix')}{modeLabel}
-              {canWrite ? t('workspace.panel.mode.suffixWrite') : t('workspace.panel.mode.suffixReadonly')}
+          <View style={styles.statusBar}>
+            <View style={styles.modeBadge}>
+              <Text style={styles.modeBadgeText} numberOfLines={1}>{modeLabel}</Text>
+            </View>
+            <Text style={styles.statusBarText} numberOfLines={1}>
+              {external
+                ? (root.name || t('settings.workspace.folder.custom'))
+                : t('workspace.panel.sandbox', { name: characterLabel })}
             </Text>
+            <TouchableOpacity style={styles.statusBarCharacter} onPress={openCharacterPicker} activeOpacity={0.85}>
+              <Text style={styles.statusBarCharacterText} numberOfLines={1}>{characterLabel}</Text>
+              <Ionicons name="chevron-forward" size={13} color={theme.colors.textFaint} />
+            </TouchableOpacity>
           </View>
-          <Text style={styles.sandboxHint} numberOfLines={1}>
-            {external
-              ? t('workspace.panel.sandbox.external', { folder: root.name || t('settings.workspace.folder.custom'), name: characterLabel })
-              : t('workspace.panel.sandbox', { name: characterLabel })}
-          </Text>
           {external ? (
             <Text style={styles.sandboxHint} numberOfLines={2}>{t('workspace.panel.sandbox.externalHint')}</Text>
           ) : null}
 
-          <View style={styles.characterRow}>
-            <View style={styles.characterAvatar}>
-              {workspaceCharacter && workspaceCharacter.avatarUri ? (
-                <Image source={{ uri: workspaceCharacter.avatarUri }} style={styles.characterAvatarImage} />
-              ) : (
-                <Text style={styles.characterAvatarText}>{(characterLabel || '?').slice(0, 1)}</Text>
-              )}
-            </View>
-            <View style={styles.characterText}>
-              <Text style={styles.characterName} numberOfLines={1}>
-                {t('workspace.panel.character.label')}{' · '}{characterLabel}
-              </Text>
-              <Text style={styles.characterHint} numberOfLines={2}>{t('workspace.panel.character.hint')}</Text>
-            </View>
-            <TouchableOpacity style={styles.characterSelectButton} onPress={openCharacterPicker} activeOpacity={0.85}>
-              <Text style={styles.characterSelectText}>{t('workspace.panel.character.select')}</Text>
+          <TouchableOpacity
+            style={styles.chatPrimary}
+            onPress={() => setChatOpen(true)}
+            activeOpacity={0.85}
+            accessibilityLabel={t('workspace.panel.openChat')}
+          >
+            <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryContrast} />
+            <Text style={styles.chatPrimaryText} numberOfLines={1}>{t('workspace.panel.openChat')}</Text>
+            <Ionicons name="chevron-forward" size={15} color={theme.colors.primaryContrast} />
+          </TouchableOpacity>
+
+          <View style={styles.importRow}>
+            <TouchableOpacity style={styles.importButton} onPress={() => setRepoOpen(true)} activeOpacity={0.85}>
+              <Ionicons name="logo-github" size={15} color={theme.colors.primaryContrast} />
+              <Text style={styles.importButtonText}>{t('workspace.panel.repo.entry')}</Text>
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.controlCard}>
-            <FieldLabel>{t('workspace.panel.thinking.label')}</FieldLabel>
-            <View style={styles.thinkingChips}>
-              {THINKING_CHOICES.map(choice => {
-                const active = choice === 'off'
-                  ? thinking.enabled !== true
-                  : thinking.enabled === true && thinking.level === choice;
-                return (
-                  <TouchableOpacity
-                    key={choice}
-                    style={[styles.thinkingChip, active && styles.thinkingChipActive]}
-                    onPress={() => updateThinking(choice)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.thinkingChipText, active && styles.thinkingChipTextActive]}>
-                      {t(`workspace.panel.thinking.${choice}`)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <FieldHint>{t('workspace.panel.thinking.hint')}</FieldHint>
-          </View>
-
-          <View style={styles.controlCard}>
-            <FieldLabel>{t('workspace.panel.context.label')}</FieldLabel>
-            {usage ? (
-              <>
-                <View style={styles.contextBar}>
-                  <View
-                    style={[
-                      styles.contextFill,
-                      usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn,
-                      { width: `${Math.min(100, Math.max(2, Math.round(usage.ratio * 100)))}%` },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.contextText}>
-                  {t('workspace.panel.context.usage', {
-                    tokens: formatTokens(usage.tokens),
-                    window: formatTokens(usage.window),
-                    percent: Math.round(usage.ratio * 100),
-                  })}
-                </Text>
-              </>
-            ) : (
-              <Text style={styles.contextText}>{t('workspace.panel.context.empty')}</Text>
-            )}
-            <FieldHint>{t('workspace.panel.context.hint')}</FieldHint>
+            <TouchableOpacity style={styles.importButton} onPress={() => setCatalogOpen(true)} activeOpacity={0.85}>
+              <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
+              <Text style={styles.importButtonText}>{t('workspace.panel.catalog.entry')}</Text>
+            </TouchableOpacity>
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          <View style={styles.actionRow}>
+          <View style={styles.fileToolsRow}>
             <TouchableOpacity
-              style={[styles.actionButton, !canWrite && styles.actionButtonDisabled]}
-              onPress={startFolderForm}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="folder-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>{t('workspace.panel.newFolder')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, !canWrite && styles.actionButtonDisabled]}
+              style={[styles.fileToolButton, !canWrite && styles.actionButtonDisabled]}
               onPress={startTextForm}
               activeOpacity={0.85}
             >
-              <Ionicons name="document-text-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>{t('workspace.panel.newText')}</Text>
+              <Ionicons name="document-text-outline" size={14} color={theme.colors.primaryContrast} />
+              <Text style={styles.fileToolText}>{t('workspace.panel.newText')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.actionButton, !canWrite && styles.actionButtonDisabled]}
+              style={[styles.fileToolButton, !canWrite && styles.actionButtonDisabled]}
+              onPress={startFolderForm}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="folder-outline" size={14} color={theme.colors.primaryContrast} />
+              <Text style={styles.fileToolText}>{t('workspace.panel.newFolder')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fileToolButton, !canWrite && styles.actionButtonDisabled]}
               onPress={startDocxForm}
               activeOpacity={0.85}
             >
-              <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>{t('workspace.panel.exportWord')}</Text>
+              <Ionicons name="download-outline" size={14} color={theme.colors.primaryContrast} />
+              <Text style={styles.fileToolText}>{t('workspace.panel.exportWord')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionButton}
+              style={styles.fileToolGhost}
               onPress={() => openViewer('files')}
               activeOpacity={0.85}
             >
-              <Ionicons name="folder-open-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>{t('workspace.panel.viewFiles')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setCatalogOpen(true)}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.actionText}>{t('workspace.panel.catalog.entry')}</Text>
+              <Ionicons name="folder-open-outline" size={14} color={theme.colors.primary} />
+              <Text style={styles.fileToolGhostText}>{t('workspace.panel.viewFiles')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -714,20 +737,72 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           ) : null}
 
           {files.map(name => renderFileRow(name))}
-        </ScrollView>
 
-        {storeRef.current ? (
-          <TouchableOpacity
-            style={styles.chatLauncher}
-            onPress={() => setChatOpen(true)}
-            activeOpacity={0.85}
-            accessibilityLabel={t('workspace.panel.openChat')}
-          >
-            <Ionicons name="sparkles-outline" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.chatLauncherText} numberOfLines={1}>{t('workspace.panel.openChat')}</Text>
-            <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.textFaint} />
-          </TouchableOpacity>
-        ) : null}
+          <View style={styles.collapsedSection}>
+            <TouchableOpacity
+              style={styles.collapsedHeader}
+              onPress={() => setTuningOpen(current => !current)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.collapsedHeaderText}>{t('workspace.panel.tuning.title')}</Text>
+              <Ionicons name={tuningOpen ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
+            </TouchableOpacity>
+            {tuningOpen ? (
+              <>
+                <View style={styles.controlCard}>
+                  <FieldLabel>{t('workspace.panel.thinking.label')}</FieldLabel>
+                  <View style={styles.thinkingChips}>
+                    {THINKING_CHOICES.map(choice => {
+                      const active = choice === 'off'
+                        ? thinking.enabled !== true
+                        : thinking.enabled === true && thinking.level === choice;
+                      return (
+                        <TouchableOpacity
+                          key={choice}
+                          style={[styles.thinkingChip, active && styles.thinkingChipActive]}
+                          onPress={() => updateThinking(choice)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.thinkingChipText, active && styles.thinkingChipTextActive]}>
+                            {t(`workspace.panel.thinking.${choice}`)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <FieldHint>{t('workspace.panel.thinking.hint')}</FieldHint>
+                </View>
+
+                <View style={styles.controlCard}>
+                  <FieldLabel>{t('workspace.panel.context.label')}</FieldLabel>
+                  {usage ? (
+                    <>
+                      <View style={styles.contextBar}>
+                        <View
+                          style={[
+                            styles.contextFill,
+                            usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn,
+                            { width: `${Math.min(100, Math.max(2, Math.round(usage.ratio * 100)))}%` },
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.contextText}>
+                        {t('workspace.panel.context.usage', {
+                          tokens: formatTokens(usage.tokens),
+                          window: formatTokens(usage.window),
+                          percent: Math.round(usage.ratio * 100),
+                        })}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={styles.contextText}>{t('workspace.panel.context.empty')}</Text>
+                  )}
+                  <FieldHint>{t('workspace.panel.context.hint')}</FieldHint>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </ScrollView>
         <Modal visible={characterPickerOpen} animationType="slide" onRequestClose={() => setCharacterPickerOpen(false)}>
           <View style={styles.container}>
             <SheetHeader title={t('workspace.panel.character.title')} onClose={() => setCharacterPickerOpen(false)} />
@@ -851,6 +926,37 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             <SheetHeader title={t('workspace.panel.catalog.title')} onClose={() => setCatalogOpen(false)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{t('workspace.panel.catalog.hint')}</FieldHint>
+              {CATALOG_BUNDLES.map(bundle => {
+                const busy = bundleBusy && bundleBusy.id === bundle.id;
+                return (
+                  <View key={bundle.id} style={styles.bundleCard}>
+                    <View style={styles.catalogItemMain}>
+                      <Text style={styles.bundleTitle} numberOfLines={1}>{t(bundle.titleKey)}</Text>
+                      <TouchableOpacity
+                        style={[styles.bundleWriteButton, (bundleBusy || catalogBusyId) && styles.actionButtonDisabled]}
+                        disabled={!!(bundleBusy || catalogBusyId)}
+                        onPress={() => handleBundleWrite(bundle.id)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.bundleWriteText}>
+                          {busy
+                            ? t('workspace.panel.catalog.bundle.progress', { done: bundleBusy.done, total: bundleBusy.total })
+                            : t('workspace.panel.catalog.bundle.action')}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.catalogItemDesc}>{t(bundle.descKey)}</Text>
+                    {bundle.needsGitIdentity && bundle.id === (bundleBusy && bundleBusy.id) ? (
+                      <Text style={styles.bundleProgressNote}>
+                        {t('workspace.panel.catalog.bundle.gitIdentityNote', {
+                          name: (catalogInputs.gitconfig && catalogInputs.gitconfig.userName) || '',
+                          email: (catalogInputs.gitconfig && catalogInputs.gitconfig.userEmail) || '',
+                        })}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              })}
               {CATALOG_CATEGORIES.map(category => {
                 const items = catalogItemsByCategory(category);
                 if (items.length === 0) return null;
@@ -860,6 +966,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
                     {items.map(item => {
                       const inputs = item.inputs || [];
                       const busy = catalogBusyId === item.id;
+                      const status = catalogStatuses[item.id] || 'absent';
                       return (
                         <View key={item.id} style={styles.catalogItem}>
                           <View style={styles.catalogItemMain}>
@@ -870,11 +977,20 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
                               onPress={() => handleCatalogWrite(item.id)}
                               activeOpacity={0.85}
                             >
-                              <Text style={styles.catalogWriteText}>{t('workspace.panel.catalog.write')}</Text>
+                              <Text style={styles.catalogWriteText}>
+                                {t(status === 'absent' ? 'workspace.panel.catalog.write' : 'workspace.panel.catalog.rewrite')}
+                              </Text>
                             </TouchableOpacity>
                           </View>
                           <Text style={styles.catalogItemDesc}>{t(item.descKey)}</Text>
-                          <Text style={styles.catalogItemFile}>{item.file}</Text>
+                          <View style={styles.catalogItemMeta}>
+                            <Text style={styles.catalogItemFile}>{item.file}</Text>
+                            {status !== 'absent' ? (
+                              <Text style={[styles.catalogStatusBadge, status === 'diff' && styles.catalogStatusBadgeDiff]}>
+                                {t(status === 'same' ? 'workspace.panel.catalog.status.same' : 'workspace.panel.catalog.status.diff')}
+                              </Text>
+                            ) : null}
+                          </View>
                           {inputs.length > 0 ? (
                             <View style={styles.catalogInputs}>
                               {inputs.map(input => (
@@ -923,6 +1039,14 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           </View>
         </Modal>
 
+        <WorkspaceRepoSheet
+          visible={repoOpen}
+          onClose={() => setRepoOpen(false)}
+          characterId={characterId}
+          storeRef={storeRef}
+          onImported={() => { refresh(); }}
+        />
+
         <Modal visible={!!preview} animationType="slide" onRequestClose={() => setPreview(null)}>
           <View style={styles.container}>
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
@@ -960,57 +1084,83 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   body: { paddingHorizontal: 20, paddingBottom: 40 },
-  chatLauncher: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md || tokens.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderColor: theme.colors.surfaceBorder,
-    borderWidth: tokens.border.thin,
-  },
-  chatLauncherText: { flex: 1, color: theme.colors.primary, fontSize: fonts.scaled(13.5), textAlign: 'center' },
-  modeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  modeText: { color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 6, flex: 1 },
-  sandboxHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 12 },
-  characterRow: {
+  statusBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
     borderRadius: tokens.radius.md,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 10,
   },
-  characterAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  modeBadge: {
     backgroundColor: theme.colors.primary,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 8,
+  },
+  modeBadgeText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(11), fontWeight: '700' },
+  statusBarText: { flex: 1, color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), marginRight: 6 },
+  statusBarCharacter: { flexDirection: 'row', alignItems: 'center', maxWidth: '42%' },
+  statusBarCharacterText: { color: theme.colors.primary, fontSize: fonts.scaled(11.5), fontWeight: '600' },
+  chatPrimary: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    backgroundColor: theme.colors.primary,
+    borderRadius: tokens.metrics.buttonRadius,
+    paddingVertical: 11,
+    marginBottom: 10,
   },
-  characterAvatarImage: { width: '100%', height: '100%' },
-  characterAvatarText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
-  characterText: { flex: 1, marginLeft: 10, marginRight: 8 },
-  characterName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
-  characterHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(10), lineHeight: fonts.scaled(14), marginTop: 2 },
-  characterSelectButton: {
+  chatPrimaryText: { flex: 1, color: theme.colors.primaryContrast, fontSize: fonts.scaled(14), fontWeight: '700', textAlign: 'center', marginLeft: -4 },
+  importRow: { flexDirection: 'row', marginBottom: 12 },
+  importButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
     borderRadius: tokens.metrics.buttonRadius,
     borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+    paddingVertical: 9,
+    marginRight: 10,
+  },
+  importButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
+  collapsedSection: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  collapsedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
+  collapsedHeaderText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12.5), fontWeight: '600' },
+  fileToolsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  fileToolButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: tokens.metrics.buttonRadius,
     paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  fileToolText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
+  fileToolGhost: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 'auto',
+    paddingHorizontal: 8,
     paddingVertical: 6,
   },
-  characterSelectText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600' },
+  fileToolGhostText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
+  sandboxHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 12 },
   controlCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: tokens.radius.md,
@@ -1098,6 +1248,37 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   actionButtonDisabled: { opacity: 0.5 },
   catalogSection: { marginBottom: 16 },
+  bundleCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+    padding: 12,
+    marginBottom: 10,
+  },
+  bundleTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700', flex: 1, marginRight: 8 },
+  bundleWriteButton: {
+    borderRadius: tokens.metrics.buttonRadius,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  bundleWriteText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(12), fontWeight: '700' },
+  bundleProgressNote: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 6 },
+  catalogItemMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  catalogItemFile: { color: theme.colors.primary, fontSize: fonts.scaled(11), flex: 1 },
+  catalogStatusBadge: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(10),
+    fontWeight: '600',
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  catalogStatusBadgeDiff: { color: theme.colors.textMuted, borderColor: theme.colors.surfaceBorder },
   catalogItem: {
     backgroundColor: theme.colors.surface,
     borderRadius: tokens.radius.sm,
