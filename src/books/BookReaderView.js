@@ -950,7 +950,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   chapterPercent: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
   commentsBody: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
   sectionHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
-  chipScroll: { flexGrow: 0, marginBottom: 10 },
+  chipScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 10 },
   characterChip: {
     borderRadius: tokens.radius.sm,
     borderWidth: tokens.border.thin,

@@ -191,3 +191,19 @@ test('hasLocalSessions：存在本地会话才为真', () => {
   assert.equal(hasLocalSessions(null), false);
   assert.equal(LOCAL_FILTER.id, 'local');
 });
+
+test('筛选 chips 行不被纵向压缩：chipScroll 必须同时禁生长与禁收缩，FlatList 接管剩余空间', () => {
+  // RN 横向 ScrollView 基础样式 baseHorizontal 自带 flexShrink:1：
+  // 只写 flexGrow:0 挡得住拉伸挡不住收缩，纵向空间不足时胶囊被压成细条
+  // （2026-10-06 用户截图证实）。 flexGrow 与 flexShrink 必须成对显式声明。
+  const line = SCREEN_SOURCE.slice(
+    SCREEN_SOURCE.indexOf('chipScroll: {'),
+    SCREEN_SOURCE.indexOf('}', SCREEN_SOURCE.indexOf('chipScroll: {'))
+  );
+  assert.ok(line.includes('flexGrow: 0'), 'chipScroll 应禁拉伸');
+  assert.ok(line.includes('flexShrink: 0'), 'chipScroll 必须显式 flexShrink:0（RN 基础样式默认 1）');
+  // FlatList 显式接管剩余空间，溢出压力不再外溢到非列表元素
+  const listAt = SCREEN_SOURCE.indexOf('<FlatList');
+  assert.ok(SCREEN_SOURCE.slice(listAt, listAt + 120).includes('style={styles.list}'), 'FlatList 应带 style={styles.list}');
+  assert.ok(SCREEN_SOURCE.includes('list: { flex: 1 }'), '应有 list: { flex: 1 } 样式');
+});
