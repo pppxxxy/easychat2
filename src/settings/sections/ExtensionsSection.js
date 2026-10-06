@@ -12,15 +12,16 @@ import SecretTextField from '../SecretTextField.js';
 import { IMAGE_PROVIDERS } from '../../imageGen/providers.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
-  { value: 'start', label: '开头', meta: '取回复首段' },
-  { value: 'middle', label: '高潮（正中）', meta: '取回复中段' },
-  { value: 'end', label: '结尾（默认）', meta: '取回复末段' },
+  { value: 'start', labelKey: 'settings.inlineImage.position.start', metaKey: 'settings.inlineImage.position.startMeta' },
+  { value: 'middle', labelKey: 'settings.inlineImage.position.middle', metaKey: 'settings.inlineImage.position.middleMeta' },
+  { value: 'end', labelKey: 'settings.inlineImage.position.end', metaKey: 'settings.inlineImage.position.endMeta' },
 ];
 
 export default function ExtensionsSection(props) {
   const {
     styles,
     theme,
+    t,
     inlineImage,
     updateInlineImage,
     inlineImageProviders,
@@ -39,7 +40,7 @@ export default function ExtensionsSection(props) {
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>自动配图</Text>
+              <Text style={styles.linkText}>{t('settings.inlineImage.auto')}</Text>
             </View>
             <Switch
               value={inlineImage.enabled}
@@ -48,27 +49,27 @@ export default function ExtensionsSection(props) {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <FieldLabel style={styles.label}>生图服务</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.provider')}</FieldLabel>
           <CollapsibleSelect
-            label="当前服务"
+            label={t('settings.inlineImage.currentProvider')}
             value={inlineImage.providerId}
             options={IMAGE_PROVIDERS.map(provider => ({
               value: provider.id,
               label: provider.label,
               meta: inlineImageProviders.includes(provider.id)
-                ? `已配置 · ${String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || '默认模型'}`
-                : '未配置密钥',
+                ? t('settings.inlineImage.metaConfigured', { model: String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || t('settings.inlineImage.defaultModel') })
+                : t('settings.inlineImage.metaNotConfigured'),
             }))}
             onSelect={id => updateInlineImage({ providerId: id })}
-            placeholder="未选择服务"
+            placeholder={t('settings.inlineImage.noneSelected')}
           />
           {activeImageProvider ? (
             <View style={styles.providerEditor}>
-              <Text style={styles.providerEditorTitle}>{activeImageProvider.label} 配置</Text>
+              <Text style={styles.providerEditorTitle}>{t('settings.inlineImage.providerConfig', { name: activeImageProvider.label })}</Text>
               {activeImageProvider.keyHint ? (
-                <FieldHint style={styles.hint}>密钥：{activeImageProvider.keyHint}</FieldHint>
+                <FieldHint style={styles.hint}>{t('settings.inlineImage.keyHint', { hint: activeImageProvider.keyHint })}</FieldHint>
               ) : null}
-              <FieldLabel style={styles.label}>API 地址</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.baseUrl')}</FieldLabel>
               <TextField
                 value={String((imageGenProviders[activeImageProvider.id] || {}).baseUrl || '')}
                 onChangeText={text => updateImageGenProvider(activeImageProvider.id, { baseUrl: text })}
@@ -91,16 +92,16 @@ export default function ExtensionsSection(props) {
                   activeOpacity={0.7}
                   accessibilityRole="link"
                 >
-                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
+                  <Text style={styles.apiKeyLink}>{t('settings.api.getKey')}</Text>
                 </TouchableOpacity>
               ) : null}
-              <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.inlineImage.modelLabel')}</FieldLabel>
               <TextField
                 value={String((imageGenProviders[activeImageProvider.id] || {}).model || '')}
                 onChangeText={text => updateImageGenProvider(activeImageProvider.id, { model: text })}
                 autoCapitalize="none"
                 autoCorrect={false}
-                placeholder={activeImageProvider.defaultModel || '模型名'}
+                placeholder={activeImageProvider.defaultModel || t('settings.inlineImage.modelPlaceholder')}
               />
               <TouchableOpacity
                 style={[styles.detectButton, imageGenTesting === activeImageProvider.id && styles.buttonDisabled]}
@@ -110,7 +111,7 @@ export default function ExtensionsSection(props) {
               >
                 <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
                 <Text style={styles.detectButtonText}>
-                  {imageGenTesting === activeImageProvider.id ? '检测中...' : '检测连通性'}
+                  {imageGenTesting === activeImageProvider.id ? t('common.detecting') : t('settings.inlineImage.test')}
                 </Text>
               </TouchableOpacity>
               {activeImageProvider.networkNote ? (
@@ -118,26 +119,30 @@ export default function ExtensionsSection(props) {
               ) : null}
             </View>
           ) : null}
-          <FieldLabel style={styles.label}>配图位置</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.position')}</FieldLabel>
           <CollapsibleSelect
-            label="取回复的哪一段"
+            label={t('settings.inlineImage.positionLabel')}
             value={inlineImage.imagePosition}
-            options={INLINE_IMAGE_POSITION_OPTIONS}
+            options={INLINE_IMAGE_POSITION_OPTIONS.map(option => ({
+              ...option,
+              label: t(option.labelKey),
+              meta: t(option.metaKey),
+            }))}
             onSelect={value => updateInlineImage({ imagePosition: value })}
-            placeholder="结尾"
+            placeholder={t('settings.inlineImage.position.endShort')}
           />
           <FieldHint style={styles.hint}>
-            自动配图会先请模型把该段对话转写成「角色说完这段话后所处的画面」再出图；开头 / 高潮（正中）/ 结尾指从本轮回复里取哪一段。
+            {t('settings.inlineImage.hint')}
           </FieldHint>
-          <FieldLabel style={styles.label}>风格前缀（可选）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.stylePrefix')}</FieldLabel>
           <TextField
             value={inlineImage.stylePrefix}
             onChangeText={text => updateInlineImage({ stylePrefix: text })}
-            placeholder="例如：anime style, detailed"
+            placeholder={t('settings.inlineImage.stylePrefixPlaceholder')}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <FieldLabel style={styles.label}>尺寸（宽*高）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.size')}</FieldLabel>
           <TextField
             value={inlineImage.size}
             onChangeText={text => updateInlineImage({ size: text })}
@@ -145,15 +150,15 @@ export default function ExtensionsSection(props) {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <FieldLabel style={styles.label}>提示词长度上限（字符）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.maxPromptChars')}</FieldLabel>
           <TextField
             value={String(inlineImage.maxPromptChars)}
             onChangeText={text => updateInlineImage({ maxPromptChars: text.replace(/[^0-9]/g, '') })}
             keyboardType="number-pad"
             placeholder="400"
           />
-          <Text style={styles.fieldHint}>密钥仅保存在本机，与「扩展 → 生图」共用同一份配置。</Text>
-          <FieldLabel style={styles.label}>其它功能</FieldLabel>
+          <Text style={styles.fieldHint}>{t('settings.inlineImage.keyNote')}</Text>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.otherFeatures')}</FieldLabel>
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => setPluginEntryOpen(true)}
@@ -161,7 +166,7 @@ export default function ExtensionsSection(props) {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="extension-puzzle-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>联网搜索</Text>
+              <Text style={styles.linkText}>{t('settings.global.webSearch')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -172,7 +177,7 @@ export default function ExtensionsSection(props) {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="volume-high-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>语音播报</Text>
+              <Text style={styles.linkText}>{t('settings.global.tts')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -183,7 +188,7 @@ export default function ExtensionsSection(props) {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="mic-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>语音转文字</Text>
+              <Text style={styles.linkText}>{t('settings.global.transcription')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>

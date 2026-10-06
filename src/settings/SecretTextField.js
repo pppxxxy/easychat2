@@ -4,8 +4,10 @@ import { TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { TextField } from '../ui/index.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function SecretTextField({ value, onChangeText, placeholder, onEndEditing, theme, styles }) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   return (
     <View style={styles.secretRow}>
@@ -23,7 +25,7 @@ export default function SecretTextField({ value, onChangeText, placeholder, onEn
         style={styles.secretToggle}
         onPress={() => setVisible(next => !next)}
         activeOpacity={0.7}
-        accessibilityLabel={visible ? '隐藏密钥' : '显示密钥'}
+        accessibilityLabel={visible ? t('settings.secret.hide') : t('settings.secret.show')}
       >
         <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={17} color={theme.colors.textMuted} />
       </TouchableOpacity>

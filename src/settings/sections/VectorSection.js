@@ -14,6 +14,7 @@ export default function VectorSection(props) {
   const {
     styles,
     theme,
+    t,
     vectorPayload,
     toggleVectorEnabled,
     selectVectorConfig,
@@ -34,7 +35,7 @@ export default function VectorSection(props) {
     <>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
-              <Text style={styles.linkText}>启用向量检索</Text>
+              <Text style={styles.linkText}>{t('settings.vector.enable')}</Text>
             </View>
             <Switch
               value={vectorPayload.enabled === true}
@@ -43,40 +44,40 @@ export default function VectorSection(props) {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <FieldLabel style={styles.label}>向量配置</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.vector.config')}</FieldLabel>
           <CollapsibleSelect
-            label="当前配置"
+            label={t('settings.api.current')}
             value={vectorPayload.activeId}
             options={(vectorPayload.configs || []).map(item => ({
               value: item.id,
-              label: item.name || '未命名配置',
-              meta: `${item.baseUrl || '未填写地址'} · ${item.model || '未填写模型'}`,
+              label: item.name || t('settings.api.unnamed'),
+              meta: `${item.baseUrl || t('settings.api.noAddress')} · ${item.model || t('settings.api.noModel')}`,
             }))}
             onSelect={id => selectVectorConfig(id)}
-            placeholder="未选择配置"
+            placeholder={t('settings.api.noneSelected')}
           />
           <View style={styles.personaActions}>
             <TouchableOpacity style={styles.personaAddChip} onPress={addVectorConfig} activeOpacity={0.8}>
               <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.personaAddText}>新增配置</Text>
+              <Text style={styles.personaAddText}>{t('settings.vector.add')}</Text>
             </TouchableOpacity>
             {(vectorPayload.configs || []).length > 1 ? (
               <TouchableOpacity style={styles.personaAddChip} onPress={removeVectorConfig} activeOpacity={0.8}>
                 <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
+                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>{t('settings.vector.deleteCurrent')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
           {currentVectorConfig ? (
             <>
-              <FieldLabel style={styles.label}>配置名称</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.name')}</FieldLabel>
               <TextField
                 value={currentVectorConfig.name}
                 onChangeText={text => updateVectorConfig({ name: text })}
                 onEndEditing={() => flushVectorMemory()}
-                placeholder="例如：OpenAI Embeddings"
+                placeholder={t('settings.vector.namePlaceholder')}
               />
-              <FieldLabel style={styles.label}>接口地址</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.baseUrl')}</FieldLabel>
               <TextField
                 value={currentVectorConfig.baseUrl}
                 onChangeText={text => updateVectorConfig({ baseUrl: text })}
@@ -85,7 +86,7 @@ export default function VectorSection(props) {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <FieldLabel style={styles.label}>密钥</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.apiKey')}</FieldLabel>
               <SecretTextField
                 value={currentVectorConfig.apiKey}
                 onChangeText={text => updateVectorConfig({ apiKey: text })}
@@ -94,7 +95,7 @@ export default function VectorSection(props) {
                 theme={theme}
                 styles={styles}
               />
-              <FieldLabel style={styles.label}>模型</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.model')}</FieldLabel>
               <TextField
                 value={currentVectorConfig.model}
                 onChangeText={text => updateVectorConfig({ model: text })}
@@ -103,7 +104,7 @@ export default function VectorSection(props) {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <FieldLabel style={styles.label}>召回条数（1 - 20）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.topK')}</FieldLabel>
               <TextField
                 value={vectorTopKDraft}
                 onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
@@ -118,7 +119,7 @@ export default function VectorSection(props) {
                 keyboardType="number-pad"
                 placeholder="5"
               />
-              <FieldLabel style={styles.label}>分片长度（字符，1 - 2000）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.chunkSize')}</FieldLabel>
               <TextField
                 value={vectorMaxCharsDraft}
                 onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
@@ -134,7 +135,7 @@ export default function VectorSection(props) {
                 placeholder="400"
               />
               <SecondaryButton
-                title={vectorTesting ? '测试中...' : '测试连接'}
+                title={vectorTesting ? t('settings.vector.testing') : t('settings.vector.test')}
                 icon="pulse-outline"
                 onPress={testVector}
                 loading={vectorTesting}
@@ -143,7 +144,7 @@ export default function VectorSection(props) {
             </>
           ) : null}
           <Text style={styles.fieldHint}>
-            未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
+            {t('settings.vector.hint')}
           </Text>
     </>
   );

@@ -1251,12 +1251,14 @@ export default function SettingsScreen() {
 
   // ---- 折叠头摘要行：收起时一眼看到关键状态 ----
   const apiSummary = active
-    ? [String(active.name || '').trim() || '未命名配置', String(active.activeModel || '').trim()]
+    ? [String(active.name || '').trim() || t('settings.api.unnamed'), String(active.activeModel || '').trim()]
       .filter(Boolean).join(' · ')
-    : '未配置';
-  const personaSummary = String(userName || '').trim() || '未填写';
+    : t('settings.summary.unconfigured');
+  const personaSummary = String(userName || '').trim() || t('settings.summary.personaEmpty');
   const appearanceSummary = [
-    (themes.find(item => item.id === themeId) || {}).label || '',
+    (themes.find(item => item.id === themeId) || {}).labelKey
+      ? t(themes.find(item => item.id === themeId).labelKey)
+      : '',
     localeId === 'en' ? 'English' : '',
   ].filter(Boolean).join(' · ');
   const experienceEnabledCount = [
@@ -1268,13 +1270,19 @@ export default function SettingsScreen() {
     locationSettings && locationSettings.awareness === true,
     momentsEnabled === true,
   ].filter(Boolean).length;
-  const experienceSummary = `${experienceEnabledCount} 项已开启`;
+  const experienceSummary = t('settings.summary.enabledCount', { count: experienceEnabledCount });
   const inlineImageSummary = inlineImage.enabled
-    ? `已开启${activeImageProvider ? ` · ${activeImageProvider.label}` : ''}`
-    : '未开启';
-  const vectorSummary = vectorPayload.enabled === true ? '已开启' : '未开启';
-  const githubSummary = githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0 ? '已连接' : '未连接';
-  const workspaceSummary = workspaceMode === 'write' ? '读写模式' : (workspaceMode === 'read' ? '只读模式' : '询问模式');
+    ? (activeImageProvider
+      ? `${t('settings.summary.on')} · ${activeImageProvider.label}`
+      : t('settings.summary.on'))
+    : t('settings.summary.off');
+  const vectorSummary = vectorPayload.enabled === true ? t('settings.summary.on') : t('settings.summary.off');
+  const githubSummary = githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0
+    ? t('settings.summary.connected')
+    : t('settings.summary.disconnected');
+  const workspaceSummary = workspaceMode === 'write'
+    ? t('settings.workspace.summary.write')
+    : (workspaceMode === 'read' ? t('settings.workspace.summary.read') : t('settings.workspace.summary.ask'));
   const aboutSummary = APP_VERSION ? `v${APP_VERSION}` : '';
 
   // 折叠头吸顶：只把「已收起」的卡设为 sticky（展开的卡较高，吸顶会遮挡其内容）。
@@ -1422,7 +1430,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.pageHeader}>
           <View style={styles.pageHeaderTop}>
-            <Text style={styles.title}>设置</Text>
+            <Text style={styles.title}>{t('settings.title')}</Text>
             <TouchableOpacity
               style={[styles.searchToggle, searchOpen && styles.searchToggleActive]}
               onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
@@ -1432,7 +1440,7 @@ export default function SettingsScreen() {
               <Ionicons name={searchOpen ? 'close' : 'search'} size={18} color={theme.colors.primarySoft} />
             </TouchableOpacity>
           </View>
-          <FieldHint style={styles.hint}>配置 API、用户人设与全局对话预设。</FieldHint>
+          <FieldHint style={styles.hint}>{t('settings.subtitle')}</FieldHint>
           {searchOpen ? (
             <View style={styles.searchBox}>
               <TextField
@@ -1471,7 +1479,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.api = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="API 配置"
+            title={t('settings.api.title')}
             icon="key-outline"
             open={isSectionOpen('api')}
             onToggle={next => toggleSection('api', next)}
@@ -1481,7 +1489,7 @@ export default function SettingsScreen() {
                 <TopicButton
                   style={styles.topicButtonSpaced}
                   onPress={() => setTopic('chat-api')}
-                  accessibilityLabel="查看 API 配置教学"
+                  accessibilityLabel={t('settings.api.a11yTutorial')}
                 />
                 <TouchableOpacity
                   style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
@@ -1490,7 +1498,7 @@ export default function SettingsScreen() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.pillButtonText}>新建</Text>
+                  <Text style={styles.pillButtonText}>{t('settings.api.add')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1510,7 +1518,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.persona = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="用户人设"
+            title={t('settings.persona.title')}
             icon="person-circle-outline"
             open={isSectionOpen('persona')}
             onToggle={next => toggleSection('persona', next)}
@@ -1522,7 +1530,7 @@ export default function SettingsScreen() {
                 <Text style={styles.collapseSummary} numberOfLines={1}>{personaSummary}</Text>
                 <TopicButton
                   onPress={() => setTopic('user-persona')}
-                  accessibilityLabel="查看用户人设教学"
+                  accessibilityLabel={t('settings.persona.a11yTutorial')}
                 />
               </View>
             )}
@@ -1536,7 +1544,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.appearance = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="外观与语言"
+            title={t('settings.appearance.title')}
             icon="color-palette-outline"
             open={isSectionOpen('appearance')}
             onToggle={next => toggleSection('appearance', next)}
@@ -1551,7 +1559,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.experience = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="对话体验"
+            title={t('settings.experience.title')}
             icon="chatbubbles-outline"
             open={isSectionOpen('experience')}
             onToggle={next => toggleSection('experience', next)}
@@ -1566,7 +1574,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.extensions = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="功能扩展"
+            title={t('settings.extensions.title')}
             icon="extension-puzzle-outline"
             open={isSectionOpen('extensions')}
             onToggle={next => toggleSection('extensions', next)}
@@ -1575,7 +1583,7 @@ export default function SettingsScreen() {
                 <Text style={styles.collapseSummary} numberOfLines={1}>{inlineImageSummary}</Text>
                 <TopicButton
                   onPress={() => setTopic('inline-image')}
-                  accessibilityLabel="查看对话配图教学"
+                  accessibilityLabel={t('settings.inlineImage.a11yTutorial')}
                 />
               </View>
             )}
@@ -1589,7 +1597,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.vector = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="向量记忆"
+            title={t('settings.vector.title')}
             icon="git-network-outline"
             open={isSectionOpen('vector')}
             onToggle={next => toggleSection('vector', next)}
@@ -1598,7 +1606,7 @@ export default function SettingsScreen() {
                 <Text style={styles.collapseSummary} numberOfLines={1}>{vectorSummary}</Text>
                 <TopicButton
                   onPress={() => setTopic('vector-api')}
-                  accessibilityLabel="查看向量记忆教学"
+                  accessibilityLabel={t('settings.vector.a11yTutorial')}
                 />
               </View>
             )}
@@ -1642,7 +1650,7 @@ export default function SettingsScreen() {
           onLayout={event => { sectionOffsetsRef.current.about = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title="关于"
+            title={t('settings.about.title')}
             icon="information-circle-outline"
             open={isSectionOpen('about')}
             onToggle={next => toggleSection('about', next)}

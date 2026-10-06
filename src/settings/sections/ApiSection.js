@@ -16,6 +16,7 @@ export default function ApiSection(props) {
   const {
     styles,
     theme,
+    t,
     activeId,
     active,
     activeVendor,
@@ -40,28 +41,28 @@ export default function ApiSection(props) {
   return (
     <>
           <CollapsibleSelect
-            label="当前配置"
+            label={t('settings.api.current')}
             value={activeId}
             options={configs.map(item => ({
               value: item.id,
-              label: item.name || '未命名配置',
-              meta: `${item.baseUrl || '未填写地址'} · ${item.activeModel || '未填写模型'}`,
+              label: item.name || t('settings.api.unnamed'),
+              meta: `${item.baseUrl || t('settings.api.noAddress')} · ${item.activeModel || t('settings.api.noModel')}`,
             }))}
             onSelect={id => selectConfig(id)}
-            placeholder="未选择配置"
-            emptyHint="暂无配置，点右上角「新建」"
+            placeholder={t('settings.api.noneSelected')}
+            emptyHint={t('settings.api.emptyHint')}
             style={styles.configSelect}
           />
 
           {active ? (
             <>
-              <FieldLabel style={styles.label}>配置名称</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.name')}</FieldLabel>
               <TextField
                 value={active.name}
                 onChangeText={name => updateField({ name })}
-                placeholder="例如：DeepSeek 主力"
+                placeholder={t('settings.api.namePlaceholder')}
               />
-              <FieldLabel style={styles.label}>API 地址</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.baseUrl')}</FieldLabel>
               <TextField
                 value={active.baseUrl}
                 onChangeText={baseUrl => updateField({ baseUrl })}
@@ -69,8 +70,8 @@ export default function ApiSection(props) {
                 autoCorrect={false}
                 placeholder="https://api.deepseek.com"
               />
-              <FieldHint style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</FieldHint>
-              <FieldLabel style={styles.label}>接口协议</FieldLabel>
+              <FieldHint style={styles.hint}>{t('settings.api.baseUrlHint')}</FieldHint>
+              <FieldLabel style={styles.label}>{t('settings.api.protocol')}</FieldLabel>
               <View style={styles.thinkingFormatRow}>
                 {CHAT_PROTOCOL_OPTIONS.map(option => {
                   const isActive = (active.protocol || 'openai') === option.id;
@@ -90,12 +91,12 @@ export default function ApiSection(props) {
               </View>
               <FieldHint style={styles.hint}>
                 {(active.protocol || 'openai') === 'anthropic'
-                  ? 'Anthropic Messages 协议：端点 /v1/messages，鉴权 x-api-key；不支持内联音频。'
+                  ? t('settings.api.protocolAnthropic')
                   : (active.protocol === 'openai-responses'
-                    ? 'OpenAI Responses 协议：端点 /v1/responses，事件式流式。'
-                    : 'OpenAI 兼容协议：端点 /v1/chat/completions，最通用。')}
+                    ? t('settings.api.protocolResponses')
+                    : t('settings.api.protocolOpenai'))}
               </FieldHint>
-              <FieldLabel style={styles.label}>模型列表</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.modelList')}</FieldLabel>
               <View style={styles.modelRow}>
                 <TextField
                   style={styles.modelInput}
@@ -103,7 +104,7 @@ export default function ApiSection(props) {
                   onChangeText={setModelDraft}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="输入模型名后点击添加"
+                  placeholder={t('settings.api.modelPlaceholder')}
                   onSubmitEditing={addModel}
                 />
                 <TouchableOpacity
@@ -112,7 +113,7 @@ export default function ApiSection(props) {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.detectButtonText}>添加</Text>
+                  <Text style={styles.detectButtonText}>{t('settings.api.addModel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.detectButton, styles.modelSearchButton, detectingModels && styles.buttonDisabled]}
@@ -120,10 +121,10 @@ export default function ApiSection(props) {
                   disabled={detectingModels}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="按输入内容搜索接口上的模型"
+                  accessibilityLabel={t('settings.api.a11ySearchModels')}
                 >
                   <Ionicons name="search" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.detectButtonText}>搜索</Text>
+                  <Text style={styles.detectButtonText}>{t('settings.api.search')}</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.modelChips}>
@@ -149,7 +150,7 @@ export default function ApiSection(props) {
                       <TouchableOpacity
                         onPress={() => openCapabilityEditor(model)}
                         hitSlop={6}
-                        accessibilityLabel={`配置模型 ${model} 的能力`}
+                        accessibilityLabel={t('settings.api.a11yConfigureCapability', { model })}
                         style={styles.modelChipCaps}
                       >
                         <Ionicons
@@ -167,7 +168,7 @@ export default function ApiSection(props) {
                   );
                 })}
               </View>
-              <FieldHint style={styles.hint}>点击模型将其设为当前模型；点右侧滑杆图标可为每个模型单独确认能力（思考/识图/视频/语音识别）。</FieldHint>
+              <FieldHint style={styles.hint}>{t('settings.api.modelListHint')}</FieldHint>
               <TouchableOpacity
                 style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
                 onPress={detectModels}
@@ -176,7 +177,7 @@ export default function ApiSection(props) {
               >
                 <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
                 <Text style={styles.detectButtonText}>
-                  {detectingModels ? '检测中...' : '检测模型'}
+                  {detectingModels ? t('common.detecting') : t('settings.api.detectModels')}
                 </Text>
               </TouchableOpacity>
               <FieldLabel style={styles.label}>API Key</FieldLabel>
@@ -193,9 +194,9 @@ export default function ApiSection(props) {
                   onPress={() => openApiKeyUrl(active.apiKeyUrl)}
                   activeOpacity={0.7}
                   accessibilityRole="link"
-                  accessibilityLabel="点击获取密钥"
+                  accessibilityLabel={t('settings.api.getKeyA11y')}
                 >
-                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
+                  <Text style={styles.apiKeyLink}>{t('settings.api.getKey')}</Text>
                 </TouchableOpacity>
               ) : null}
               {activeVendor && activeVendor.note ? (
@@ -205,13 +206,13 @@ export default function ApiSection(props) {
                 API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
               </FieldHint>
               <PrimaryButton
-                title="保存配置"
+                title={t('settings.api.save')}
                 icon="save-outline"
                 onPress={save}
                 style={styles.actionBtn}
               />
               <DangerButton
-                title="删除当前配置"
+                title={t('settings.api.deleteCurrent')}
                 icon="trash-outline"
                 onPress={deleteConfig}
                 disabled={configs.length <= 1}

@@ -41,19 +41,19 @@ export default function AppearanceSection(props) {
                     }]}
                     onPress={() => setThemeId(item.id)}
                     activeOpacity={0.85}
-                    accessibilityLabel={`切换到${item.label}主题`}
+                    accessibilityLabel={t('settings.appearance.switchTheme', { name: t(item.labelKey) })}
                   >
                     <View style={[styles.themeSwatch, { backgroundColor: item.colors.background }]}>
                       <View style={[styles.themeSwatchDot, { backgroundColor: item.colors.primary }]} />
                     </View>
                     <Text style={[styles.themeChipText, active && { color: item.colors.primary, fontWeight: '800' }]}>
-                      {item.label}
+                      {t(item.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-            <FieldLabel style={styles.label}>字体大小</FieldLabel>
+            <FieldLabel style={styles.label}>{t('settings.appearance.fontScale')}</FieldLabel>
             <View style={styles.fontRow}>
               {fontScales.map(item => {
                 const active = item.id === fontScaleId;
@@ -65,7 +65,7 @@ export default function AppearanceSection(props) {
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                      {item.label}
+                      {t(item.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -92,16 +92,19 @@ export default function AppearanceSection(props) {
                 );
               })}
             </View>
-            <FieldLabel style={styles.label}>聊天呈现</FieldLabel>
             <View style={styles.thinkingDisplayRow}>
               <View style={styles.linkLeft}>
                 <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.linkText}>思考内容展示</Text>
+                <Text style={styles.linkText}>{t('settings.global.thinkingDisplay')}</Text>
               </View>
               <View style={styles.thinkingDisplayChips}>
                 {THINKING_DISPLAYS.map(display => {
                   const active = thinkingDisplay === display;
-                  const label = display === 'open' ? '开启' : display === 'fold' ? '折叠' : '关闭';
+                  const label = display === 'open'
+                    ? t('settings.global.thinkingDisplay.open')
+                    : display === 'fold'
+                      ? t('settings.global.thinkingDisplay.fold')
+                      : t('settings.global.thinkingDisplay.closed');
                   return (
                     <TouchableOpacity
                       key={display}
@@ -120,12 +123,16 @@ export default function AppearanceSection(props) {
             <View style={styles.thinkingDisplayRow}>
               <View style={styles.linkLeft}>
                 <Ionicons name="chatbubbles-outline" size={17} color={theme.colors.primaryMuted} />
-                <Text style={styles.linkText}>气泡风格</Text>
+                <Text style={styles.linkText}>{t('settings.global.bubbleStyle')}</Text>
               </View>
               <View style={styles.thinkingDisplayChips}>
                 {BUBBLE_STYLES.map(style => {
                   const active = (chatOptions.bubbleStyle || 'rounded') === style;
-                  const label = style === 'rounded' ? '圆润' : style === 'card' ? '卡片' : '无底纹';
+                  const label = style === 'rounded'
+                    ? t('settings.global.bubble.rounded')
+                    : style === 'card'
+                      ? t('settings.global.bubble.card')
+                      : t('settings.global.bubble.plain');
                   return (
                     <TouchableOpacity
                       key={style}
@@ -141,7 +148,7 @@ export default function AppearanceSection(props) {
                 })}
               </View>
             </View>
-            <CollapsibleHint>{'圆润：大圆角气泡（默认）；卡片：统一中等圆角、无尾角，偏阅读；无底纹：去掉气泡底色与阴影，仅靠左右对齐区分角色。'}</CollapsibleHint>
+            <CollapsibleHint>{t('settings.global.bubbleHint')}</CollapsibleHint>
     </>
   );
 }
