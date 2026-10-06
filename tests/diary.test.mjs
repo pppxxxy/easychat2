@@ -33,6 +33,7 @@ import {
   yesterdayRange,
   MAX_DIARIES_PER_CHARACTER,
 } from '../src/diary/diary.js';
+import { runDiaryIfNewDay, shouldRunDiaryForDay } from '../src/diary/diaryStartup.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
@@ -391,4 +392,57 @@ test('执行器写入条目携带归属字段；面板展示来源并可跳转�
   assert.ok(panel.includes('previousSessionId'), '跳转失败要回滚');
   // 旧条目无归属时不渲染来源行
   assert.ok(panel.includes('if (ids.length === 0) return null;'));
+});
+
+test('diaryStartup：跨天判定与执行（注入式，RN-free 可直测）', async () => {
+  const now = new Date(2026, 9, 7, 9, 0, 0).getTime();
+  assert.equal(shouldRunDiaryForDay({ lastRunDate: '2026-10-07', now }), false);
+  assert.equal(shouldRunDiaryForDay({ lastRunDate: '2026-10-06', now }), true);
+  assert.equal(shouldRunDiaryForDay({ lastRunDate: '', now }), true);
+
+  // 同日：不执行
+  let calls = 0;
+  const same = await runDiaryIfNewDay({
+    now,
+    readSettings: async () => ({ lastRunDate: '2026-10-07' }),
+    run: async () => { calls += 1; return 1; },
+  });
+  assert.deepEqual(same, { ran: false, written: 0, reason: 'same-day' });
+  assert.equal(calls, 0);
+
+  // 跨天：执行一次，返回写入数
+  const cross = await runDiaryIfNewDay({
+    now,
+    readSettings: async () => ({ lastRunDate: '2026-10-05' }),
+    run: async ({ now: passedNow }) => { calls += 1; assert.equal(passedNow, now); return 2; },
+  });
+  assert.equal(cross.ran, true);
+  assert.equal(cross.written, 2);
+  assert.equal(calls, 1);
+
+  // 读设置失败：安全不跑（日记不能因设置损坏影响启动）
+  const failedRead = await runDiaryIfNewDay({
+    now,
+    readSettings: async () => { throw new Error('boom'); },
+    run: async () => { calls += 1; return 9; },
+  });
+  assert.equal(failedRead.ran, true, '读取失败视为无 lastRunDate（首跑）');
+  assert.equal(calls, 2, '首跑语义：失败读设置也要给一次机会');
+  // 未配置注入：不动
+  assert.deepEqual(await runDiaryIfNewDay({}), { ran: false, written: 0, reason: 'not-configured' });
+});
+
+test('R4 可见化：运行摘要进诊断 + 面板状态行（源码锚）', () => {
+  assert.ok(RUNNER_SOURCE.includes("recordDiagnostic("), '运行结果应进诊断');
+  assert.ok(RUNNER_SOURCE.includes("'startup'"), 'kind 用既有白名单（startup）');
+  assert.ok(RUNNER_SOURCE.includes('written=${outcome.written} skipped=${outcome.skipped} failed=${outcome.failed}'));
+  const panel = read('DiaryPanel.js');
+  assert.ok(panel.includes("t('diary.lastRun'"), '面板应显示上次运行状态行');
+  assert.ok(panel.includes('settings.lastRun'), '状态行数据来自设置摘要');
+  // App 侧接线：冷启动与回前台都经 diaryStartup（不再直调 runDiaryForNewDay）
+  const app = read('../App.js');
+  assert.ok(app.includes('runDiaryIfNewDay({ readSettings: getDiarySettings, run: runDiaryForNewDay })'));
+  assert.ok(app.includes("AppState.addEventListener('change'"), '应有回前台监听');
+  assert.ok(app.includes("previous !== 'active' && next === 'active'"), '只在回前台时补跑');
+  assert.ok(app.includes('startedRef'), '冷启动一次性语义保留');
 });

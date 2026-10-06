@@ -259,6 +259,16 @@ export default function DiaryPanel() {
       <Text style={styles.hint}>
         {t('diary.intro')}
       </Text>
+      {settings.lastRun && settings.lastRun.date ? (
+        <Text style={styles.statusLine}>
+          {t('diary.lastRun', {
+            date: settings.lastRun.date,
+            written: settings.lastRun.written,
+            skipped: settings.lastRun.skipped,
+            failed: settings.lastRun.failed,
+          })}
+        </Text>
+      ) : null}
 
       {/* 折叠选择角色：避免一次把所有角色卡都列出来。 */}
       <View style={styles.collapsible}>
@@ -515,6 +525,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   diaryNav: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   diaryNavBtn: { padding: 6, marginLeft: 8 },
   diaryNavDisabled: { opacity: 0.3 },
+  statusLine: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 6 },
   notice: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 14 },
   saveButton: {
     marginTop: 22,

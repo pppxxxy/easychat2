@@ -1,6 +1,7 @@
 // 角色日记的启动执行器：过了一天之后的第一次启动时为符合条件的角色各写一篇日记。
 // 设计上不弹 UI、不抛错给上层：后台任务失败只影响日记，不能拖垮启动。
 import { EMPTY_REPLY_TEXT, sendChatMessage } from '../network/api.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
 import {
   getApiConfigs,
   getCharacterLibrary,
@@ -139,6 +140,14 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
       ? setDiaryLastRunDate(withSummary, dayKey)
       : withSummary;
     await saveDiarySettings(finalSettings);
+    // 运行结果进诊断（kind=startup 属既有白名单；内容仅计数与日期，无隐私文本）。
+    // 面板状态行读设置里的 lastRun，诊断供排查用——用户终于能区分「没触发」与
+    // 「触发了没写」。
+    recordDiagnostic(
+      'startup',
+      { message: `diary run ${dayKey}: written=${outcome.written} skipped=${outcome.skipped} failed=${outcome.failed}` },
+      'diary-run'
+    );
     return written;
   } catch (error) {
     // 静默失败：日记是增值功能，不能影响启动。
