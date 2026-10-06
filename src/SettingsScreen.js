@@ -1364,7 +1364,7 @@ export default function SettingsScreen() {
     removePersona,
     pickUserAvatar,
     saveUserProfileNow,
-    // 外观与语言
+    // 外观
     themes,
     themeId,
     setThemeId,
