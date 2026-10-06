@@ -57,3 +57,26 @@ test('拓展 Stack 十个子面板全部经 PaneHeader 渲染（含此前未覆�
     assert.ok(source.includes(titleKey), `${file} 返回栏标题键应为 ${titleKey}`);
   }
 });
+
+test('图像生成：动态模型名必须单行中间省略且配置按钮可收缩', () => {
+  const source = read('ImageGenScreen.js');
+  assert.ok(source.includes('ellipsizeMode="middle"'), '模型名应中间省略（头尾可辨认）');
+  const keyLine = source.slice(source.indexOf('keyButtonText: {'), source.indexOf('}', source.indexOf('keyButtonText: {')));
+  assert.ok(keyLine.includes('maxWidth: 150'), '模型名文本应有 maxWidth 上限');
+  const cfgLine = source.slice(source.indexOf('configButton: {'), source.indexOf('}', source.indexOf('configButton: {')));
+  assert.ok(cfgLine.includes('flexShrink: 1'), '配置按钮必须可收缩');
+  // keyButtonText 的 Text 元素（JSX 跨行）：取渲染处片段，断言 style 与
+  // numberOfLines 同时在场
+  const usageAt = source.indexOf('style={styles.keyButtonText}');
+  assert.ok(usageAt > 0, '找不到 keyButtonText 的渲染处');
+  const usage = source.slice(usageAt, usageAt + 200);
+  assert.ok(usage.includes('numberOfLines={1}'), 'keyButtonText 的 Text 必须单行');
+});
+
+test('制卡工坊：三按钮组可收缩、文字单行截断（字体放大下标题不得归零）', () => {
+  const source = read('CardForgeScreen.js');
+  const actLine = source.slice(source.indexOf('action: {'), source.indexOf('}', source.indexOf('action: {')));
+  assert.ok(actLine.includes('flexShrink: 1'), 'action 必须可收缩');
+  const count = (source.match(/style=\{styles\.actionText\} numberOfLines=\{1\}/g) || []).length;
+  assert.equal(count, 3, '三颗按钮文字都要 numberOfLines={1}');
+});

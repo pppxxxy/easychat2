@@ -522,7 +522,13 @@ export default function ImageGenScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="settings-outline" size={16} color={theme.colors.primaryContrast} />
-              <Text style={styles.keyButtonText}>{provider.label} · {model || t('common.notSet')}</Text>
+              <Text
+                style={styles.keyButtonText}
+                numberOfLines={1}
+                ellipsizeMode="middle"
+              >
+                {provider.label} · {model || t('common.notSet')}
+              </Text>
             </TouchableOpacity>
             <TopicButton
               style={styles.topicButton}
@@ -816,7 +822,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  keyButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 6 },
+  keyButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 6, maxWidth: 150 },
   body: { flex: 1 },
   bodyContent: { paddingHorizontal: 20, paddingBottom: 40 },
   label: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginTop: tokens.spacing.lg, marginBottom: tokens.spacing.sm },
@@ -894,6 +900,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     marginRight: 8,
+    flexShrink: 1,
   },
   bottomBar: {
     flexDirection: 'row',
