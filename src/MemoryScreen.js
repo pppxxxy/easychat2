@@ -427,7 +427,8 @@ export default function MemoryScreen({ navigation }) {
   }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
 
   // 长按行弹出操作单：置顶/克隆/删除从「每行常驻三按钮」收进这里。
-  // Android 的 Alert 最多 3 个按钮，取消靠点按外部关闭（cancelable 默认开）；
+  // Android 的 Alert 最多 3 个按钮，取消靠点按外部/返回键关闭——必须显式传
+  // `cancelable: true`（Android 默认是 false，之前没传导致三个按钮之外无法退出）；
   // iOS 追加显式取消按钮（项目现有跨端模式）。
   const onRowActions = useCallback(session => {
     const character = characterMap.get(session.characterId);
@@ -447,7 +448,8 @@ export default function MemoryScreen({ navigation }) {
     Alert.alert(
       sessionDisplayName(session, character, groupMembers, t),
       modelLine || undefined,
-      buttons
+      buttons,
+      { cancelable: true }
     );
   }, [characterMap, onPin, onClone, onDelete]);
 

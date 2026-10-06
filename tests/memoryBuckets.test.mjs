@@ -161,6 +161,9 @@ test('会话行三处统一：同一 SessionRow 组件，常驻操作按钮已�
   // 记忆页：长按出操作单（置顶/克隆/删除收进 Alert），不再每行常驻按钮
   assert.ok(SCREEN_SOURCE.includes('onLongPress'));
   assert.ok(SCREEN_SOURCE.includes('onRowActions'));
+  // 回归：Android Alert 默认 cancelable=false，三个按钮占满后无法退出；
+  // 必须显式传 cancelable:true 才能点外部/返回键关闭。
+  assert.ok(SCREEN_SOURCE.includes('{ cancelable: true }'), '长按操作单应可点外部关闭');
   // 注意别用裸 'RowAction' 子串：onRowActions 会误命中（substring 陷阱）。
   assert.ok(!SCREEN_SOURCE.includes('function RowAction'), 'RowAction 常驻按钮组件应已删除');
   assert.ok(!SCREEN_SOURCE.includes('styles.rowAction'), 'rowAction 样式引用应已清空');
