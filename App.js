@@ -23,6 +23,7 @@ import {
   acknowledgeDisclaimer,
   completeOnboarding,
   getActiveLocalModel,
+  getDiarySettings,
   isDisclaimerAcknowledged,
   isOnboardingDone,
   migrateLegacyMessages,
@@ -32,6 +33,7 @@ import {
 } from './src/storage.js';
 import { AppProvider, useApp } from './src/context/AppContext.js';
 import { runDiaryForNewDay } from './src/diary/runDiary.js';
+import { runDiaryIfNewDay } from './src/diary/diaryStartup.js';
 import {
   ackPendingMessages,
   addOpenRoleListener,
@@ -304,10 +306,26 @@ function DiaryStartup() {
   const { loaded } = useApp();
   const startedRef = useRef(false);
 
+  // 冷启动路径：加载完成后跑一次（跨天闸门在 runDiaryIfNewDay 内判定）。
   useEffect(() => {
     if (!loaded || startedRef.current) return;
     startedRef.current = true;
-    runDiaryForNewDay().catch(() => {});
+    runDiaryIfNewDay({ readSettings: getDiarySettings, run: runDiaryForNewDay }).catch(() => {});
+  }, [loaded]);
+
+  // 回前台补跑（2026-10-07）：App 常驻后台、热启动都不会走冷启动路径——只在
+  // inactive/background → active 的跨天情况下再跑一次。runDiaryForNewDay 自带
+  // running 互斥 + isNewDay 闸门，频繁切换前后台不会重复请求 API。
+  useEffect(() => {
+    if (!loaded) return undefined;
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener('change', next => {
+      const cameToForeground = previous !== 'active' && next === 'active';
+      previous = next;
+      if (!cameToForeground) return;
+      runDiaryIfNewDay({ readSettings: getDiarySettings, run: runDiaryForNewDay }).catch(() => {});
+    });
+    return () => subscription.remove();
   }, [loaded]);
 
   return null;
