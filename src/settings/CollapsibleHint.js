@@ -5,11 +5,14 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
-export default function CollapsibleHint({ children, style, label = '说明' }) {
+export default function CollapsibleHint({ children, style, label }) {
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [open, setOpen] = useState(false);
+  const text = label || t('common.hintLabel');
   return (
     <View style={style}>
       <TouchableOpacity
@@ -18,14 +21,14 @@ export default function CollapsibleHint({ children, style, label = '说明' }) {
         activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel={open ? `收起${label}` : `展开${label}`}
+        accessibilityLabel={open ? t('common.collapse', { label: text }) : t('common.expand', { label: text })}
       >
         <Ionicons
           name={open ? 'information-circle' : 'information-circle-outline'}
           size={14}
           color={theme.colors.textFaint}
         />
-        <Text style={styles.label}>{open ? `收起${label}` : label}</Text>
+        <Text style={styles.label}>{open ? t('common.collapse', { label: text }) : text}</Text>
       </TouchableOpacity>
       {open ? <Text style={styles.text}>{children}</Text> : null}
     </View>

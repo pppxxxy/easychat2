@@ -203,7 +203,7 @@ export default function ApiSection(props) {
                 <Text style={styles.vendorEditorNote}>{activeVendor.note}</Text>
               ) : null}
               <FieldHint style={styles.hint}>
-                API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
+                {t('settings.api.keyHint')}
               </FieldHint>
               <PrimaryButton
                 title={t('settings.api.save')}

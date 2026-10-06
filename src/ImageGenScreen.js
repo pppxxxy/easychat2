@@ -529,7 +529,7 @@ export default function ImageGenScreen() {
             activeOpacity={0.8}
           >
             <Ionicons name="settings-outline" size={16} color={theme.colors.primaryContrast} />
-            <Text style={styles.keyButtonText}>{provider.label} · {model || '未填写'}</Text>
+            <Text style={styles.keyButtonText}>{provider.label} · {model || t('common.notSet')}</Text>
           </TouchableOpacity>
           <TopicButton
             style={styles.topicButton}

@@ -479,7 +479,7 @@ export default function ProactivePanel() {
         accessibilityRole="button"
         accessibilityState={{ expanded: defaultSettingsOpen }}
       >
-        <Text style={styles.sectionTitle}>默认设置</Text>
+        <Text style={styles.sectionTitle}>{t('proactive.defaults.title')}</Text>
         <Ionicons
           name={defaultSettingsOpen ? 'chevron-up' : 'chevron-down'}
           size={18}

@@ -1435,7 +1435,7 @@ export default function SettingsScreen() {
               style={[styles.searchToggle, searchOpen && styles.searchToggleActive]}
               onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
               activeOpacity={0.8}
-              accessibilityLabel={searchOpen ? '关闭设置搜索' : '搜索设置项'}
+              accessibilityLabel={searchOpen ? t('settings.search.a11yClose') : t('settings.search.a11yOpen')}
             >
               <Ionicons name={searchOpen ? 'close' : 'search'} size={18} color={theme.colors.primarySoft} />
             </TouchableOpacity>
@@ -1446,7 +1446,7 @@ export default function SettingsScreen() {
               <TextField
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="搜索设置项，例如：流式 / 温度 / 备份"
+                placeholder={t('settings.search.placeholder')}
                 autoFocus
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -1467,7 +1467,7 @@ export default function SettingsScreen() {
                     ))}
                   </View>
                 ) : (
-                  <Text style={styles.searchEmpty}>没有找到匹配的设置项。</Text>
+                  <Text style={styles.searchEmpty}>{t('settings.search.empty')}</Text>
                 )
               ) : null}
             </View>
