@@ -501,14 +501,6 @@ export default function ScreenWatchScreen() {
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1 },
   listContent: { paddingHorizontal: 20, paddingBottom: 30 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 4,
-    paddingBottom: 10,
-  },
-  headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '700' },
   captureCard: { marginBottom: tokens.metrics.cardGap },
   sectionTitle: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
   overlayTitle: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', marginBottom: 6 },

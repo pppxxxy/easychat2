@@ -795,14 +795,6 @@ export default function ImageGenScreen() {
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   containerEmbedded: { paddingTop: 0 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  headerEmbedded: { justifyContent: 'flex-end', paddingTop: 4 },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   title: { color: theme.colors.text, fontSize: fonts.scaled(22), fontWeight: '800' },
   topicButton: {

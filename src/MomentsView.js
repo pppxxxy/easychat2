@@ -615,7 +615,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 10,
   },
-  headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(17), fontWeight: '800' },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
   postComposer: {
     flexDirection: 'row',
