@@ -408,12 +408,6 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   },
   pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 13, marginLeft: 4 },
 
-  characterGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
   // FlatList numColumns=2 的行容器：两列均分（卡片自身 width:48% + 间距）。
   characterRow: { justifyContent: 'space-between' },
   characterCard: {
