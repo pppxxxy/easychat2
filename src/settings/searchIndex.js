@@ -14,6 +14,7 @@ export const SETTINGS_SECTION_LABELS = {
   workspace: '工作区',
   github: 'GitHub',
   about: '关于',
+  language: '界面语言',
 };
 
 export const SETTINGS_SEARCH_INDEX = [
@@ -37,7 +38,6 @@ export const SETTINGS_SEARCH_INDEX = [
 
   { sectionId: 'appearance', label: '主题', keywords: ['主题', 'theme', '深色', '浅色', '配色'] },
   { sectionId: 'appearance', label: '字体大小', keywords: ['字体', '字号', 'font', '大小'] },
-  { sectionId: 'appearance', label: '语言', keywords: ['语言', 'language', '中文', 'english', 'locale'] },
   { sectionId: 'appearance', label: '思考内容展示', keywords: ['思考', 'thinking', '推理', 'reasoning'] },
   { sectionId: 'appearance', label: '气泡风格', keywords: ['气泡', 'bubble', '圆润', '卡片', '无底纹'] },
 
@@ -74,6 +74,9 @@ export const SETTINGS_SEARCH_INDEX = [
   { sectionId: 'about', label: '诊断日志', keywords: ['诊断', '日志', 'log', '报错'] },
   { sectionId: 'about', label: '备份与恢复', keywords: ['备份', '恢复', 'backup', '导出', '导入'] },
   { sectionId: 'about', label: '本地模型', keywords: ['本地模型', 'local model', 'llama', 'gguf'] },
+
+  // 界面语言：设置页最下方的独立卡（默认展开）——搜「语言」直接跳到它。
+  { sectionId: 'language', label: '界面语言', keywords: ['语言', 'language', '中文', 'english', 'locale', '切换语言'] },
 ];
 
 // 按关键词过滤索引：大小写不敏感，匹配 label 或任一 keyword 的子串。

@@ -340,13 +340,16 @@ export default function SettingsScreen() {
     };
   }, []);
 
-  // 未显式记录时按使用频率决定默认：只有 API 未配置 / 人设未填写才默认展开。
+  // 未显式记录时按使用频率决定默认：只有 API 未配置 / 人设未填写 / 语言卡才默认展开。
+  // 语言默认展开是刻意的：设置页最下方单独放这一卡，就是为了让找语言的人不用先翻
+  // 折叠区（此前语言只藏在外观卡里，很多人根本找不到）。
   const isSectionOpen = id => {
     if (typeof sectionOpen[id] === 'boolean') return sectionOpen[id];
     if (id === 'api') return configs.length === 0 || !activeId;
     if (id === 'persona') {
       return !String(userName || '').trim() && !String(userPersona || '').trim();
     }
+    if (id === 'language') return true;
     return false;
   };
 
@@ -1312,7 +1315,7 @@ export default function SettingsScreen() {
 
   // 折叠头吸顶：只把「已收起」的卡设为 sticky（展开的卡较高，吸顶会遮挡其内容）。
   // 子节点顺序：0=页头，1..N=各卡（与下方渲染顺序一致）。
-  const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'about'];
+  const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'about', 'language'];
   const stickyHeaderIndices = SECTION_RENDER_ORDER
     .map((id, index) => (isSectionOpen(id) ? null : index + 1))
     .filter(value => value !== null);
@@ -1685,6 +1688,47 @@ export default function SettingsScreen() {
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{aboutSummary}</Text>}
           >
           <AboutSection {...sectionProps} />
+          </CollapsibleSection>
+        </Card>
+
+        {/* 语言：设置页最下面单独放一份（默认展开）——此前只藏在外观折叠卡里，
+            找语言的人翻不到；两处是同一项设置，改哪边都同步。 */}
+        <Card
+          style={[styles.sectionCard, flashSection === 'language' && styles.sectionCardFlash]}
+          onLayout={event => { sectionOffsetsRef.current.language = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title={t('settings.language.title')}
+            icon="language-outline"
+            open={isSectionOpen('language')}
+            onToggle={next => toggleSection('language', next)}
+            right={(
+              <Text style={styles.collapseSummary} numberOfLines={1}>
+                {(locales.find(item => item.id === localeId) || {}).label || ''}
+              </Text>
+            )}
+          >
+            <FieldHint style={styles.hint}>{t('settings.language.hint')}</FieldHint>
+            <View style={styles.fontRow}>
+              {locales.map(item => {
+                const active = item.id === localeId;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.fontChip, active && styles.fontChipActive]}
+                    onPress={() => setLocaleId(item.id)}
+                    activeOpacity={0.85}
+                    accessibilityLabel={item.english}
+                  >
+                    {/* 语言名用各自的写法展示：英文界面下「简体中文」仍是中文，
+                        不必先读懂当前界面语言才能找到自己的语言。 */}
+                    <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </CollapsibleSection>
         </Card>
 
