@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import {
   CollapsibleSelect,
+  FieldHint,
   FieldLabel,
   SecondaryButton,
   TextField,
@@ -30,6 +31,8 @@ export default function VectorSection(props) {
     setVectorMaxCharsDraft,
     vectorTesting,
     testVector,
+    confirmClearVectorIndex,
+    activeCharacterName,
   } = props;
   return (
     <>
@@ -43,6 +46,15 @@ export default function VectorSection(props) {
               trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
               thumbColor={theme.colors.primaryContrast}
             />
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.vector.enableHint')}</FieldHint>
+          <View style={styles.personaActions}>
+            <TouchableOpacity style={styles.personaAddChip} onPress={confirmClearVectorIndex} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
+              <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>
+                {t('settings.vector.clear.entry', { name: activeCharacterName || t('settings.vector.clear.currentRole') })}
+              </Text>
+            </TouchableOpacity>
           </View>
           <FieldLabel style={styles.label}>{t('settings.vector.config')}</FieldLabel>
           <CollapsibleSelect

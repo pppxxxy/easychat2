@@ -65,19 +65,9 @@ export function formatModelLogs(list) {
     .join('\n');
 }
 
-// 人类可读的体积（用于日志里展示模型文件大小 / 设备内存）。
-export function formatBytes(value) {
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes) || bytes <= 0) return '';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let size = bytes;
-  let index = 0;
-  while (size >= 1024 && index < units.length - 1) {
-    size /= 1024;
-    index += 1;
-  }
-  return `${size >= 10 || index === 0 ? Math.round(size) : size.toFixed(1)}${units[index]}`;
-}
+// 人类可读的体积：实现在 src/utils/format.js（C5 收敛，四处副本合一），
+// 此处再导出维持既有 import（modelManager 等）不变。
+export { formatBytes } from '../utils/format.js';
 
 // 把错误整理成可定位的文本：保留 name/code（原生库常把真实原因放在这里，
 // 只取 message 会丢失关键信息），并带上堆栈的首行调用点。

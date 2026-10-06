@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  applySessionModelMark,
   buildRestoredSession,
   collectMessageSpeakers,
   guessCharacterIdForMessages,
@@ -56,7 +57,8 @@ test('按开场白精确匹配角色（忽略首尾空白、还原 {{user}}）',
   );
 });
 
-test('开场白后追加了内容时用前缀匹配（阈值 24 字）', () => {
+
+test('开场白被追加内容时不做前缀猜测（2026-10-05 审核报告：防孤儿挂到兜底卡）', () => {
   const longGreeting = '早呀，今天想聊点什么？外面在下雨，记得带伞。我们继续昨天的话题吧。';
   const characters = [
     { id: 'c5', name: '角色5', firstMes: longGreeting },
@@ -65,7 +67,8 @@ test('开场白后追加了内容时用前缀匹配（阈值 24 字）', () => {
   const messages = [
     { role: 'assistant', text: `${longGreeting}——顺便说，外面已经停了。` },
   ];
-  assert.equal(guessCharacterIdForMessages(messages, characters), 'c5');
+  // 前缀相似不等于归属：判不出来就返回空串，由恢复弹窗让用户手选。
+  assert.equal(guessCharacterIdForMessages(messages, characters), '');
 });
 
 test('短开场白不做前缀猜测；命中多个角色时返回空串（宁可不猜也不挂错人）', () => {
@@ -79,7 +82,7 @@ test('短开场白不做前缀猜测；命中多个角色时返回空串（宁�
     [{ role: 'assistant', text: `${greeting}——追加内容` }],
     twins
   ), '');
-  // 12 字阈值太容易误判（通用开场白彼此雷同），已抬到 24 字：短开场白一律不猜
+  // 前缀猜测已整体移除：短开场白更是一律不猜，交还用户手选
   const short = [{ id: 'c5', name: '角色5', firstMes: greeting }];
   assert.equal(guessCharacterIdForMessages(
     [{ role: 'assistant', text: `${greeting}——追加内容` }],
@@ -167,4 +170,28 @@ test('克隆消息 ID 时同步重写 quoted 引用', () => {
   assert.equal(cloned[1].quoted.id, '1000-clone-0');
   assert.equal(cloned[1].quoted.text, '原文');
   assert.equal(cloned[2].quoted.id, 'not-in-list');
+});
+
+test('会话模型标识：kind 归一化 + 名称截断 + 无变化返回 null', () => {
+  // 正常标记
+  const marked = applySessionModelMark({ id: 's1' }, { modelKind: 'local', modelName: 'Qwen2.5-1.5B' });
+  assert.equal(marked.modelKind, 'local');
+  assert.equal(marked.modelName, 'Qwen2.5-1.5B');
+  // 非法 kind 一律收敛为 api（读取侧把缺失/未知当 api）
+  assert.equal(applySessionModelMark({ id: 's1' }, { modelKind: 'weird' }).modelKind, 'api');
+  assert.equal(applySessionModelMark({ id: 's1' }, {}).modelKind, 'api');
+  // 名称修剪与长度封顶
+  const longName = 'x'.repeat(200);
+  assert.equal(applySessionModelMark({ id: 's1' }, { modelKind: 'api', modelName: `  ${longName}  ` }).modelName.length, 120);
+  // 无变化返回 null（调用方跳过写盘）
+  assert.equal(
+    applySessionModelMark({ id: 's1', modelKind: 'local', modelName: 'M' }, { modelKind: 'local', modelName: 'M' }),
+    null
+  );
+  // 旧字段被保留（只动两个可选字段）
+  const kept = applySessionModelMark({ id: 's1', preview: 'hi', pinned: true }, { modelKind: 'api', modelName: 'glm' });
+  assert.equal(kept.preview, 'hi');
+  assert.equal(kept.pinned, true);
+  // 非法会话对象安全返回
+  assert.equal(applySessionModelMark(null, { modelKind: 'local' }), null);
 });

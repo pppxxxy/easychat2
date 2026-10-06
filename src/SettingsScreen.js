@@ -42,6 +42,7 @@ import {
   saveMomentsSettings,
   getThinkingSettings,
   getUiSections,
+  clearVectorIndex,
   getWorkspaceSettings,
   patchWorkspaceSettings,
   clearGithubMcpCredentials,
@@ -182,6 +183,30 @@ export default function SettingsScreen() {
     removeVectorConfig,
     testVector,
   } = useVectorSettings();
+
+  // 清空当前激活角色的向量记忆桶（维护入口，2026-10-05 审核报告的自救通道）：
+  // 历史对话被切块写进桶后，删会话能按会话清，但错位/遗留分段需要一个一键全清的口。
+  const confirmClearVectorIndex = useCallback(() => {
+    const owner = character && character.id ? character : null;
+    if (!owner) return;
+    Alert.alert(
+      t('settings.vector.clear.title'),
+      t('settings.vector.clear.body', { name: owner.name || owner.id }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.vector.clear.action'),
+          style: 'destructive',
+          onPress: () => {
+            clearVectorIndex(owner.id)
+              .then(() => { Alert.alert(t('settings.vector.clear.done.title'), t('settings.vector.clear.done.body')); })
+              .catch(() => { Alert.alert(t('settings.vector.clear.fail.title'), t('settings.vector.clear.fail.body')); });
+          },
+        },
+      ]
+    );
+  }, [character, t]);
+
   const {
     userName,
     setUserName,
@@ -1385,6 +1410,8 @@ export default function SettingsScreen() {
     selectVectorConfig,
     removeVectorConfig,
     testVector,
+    confirmClearVectorIndex,
+    activeCharacterName: character && character.name ? character.name : '',
     // 工作区
     workspaceMode,
     updateWorkspaceMode,
@@ -1614,6 +1641,7 @@ export default function SettingsScreen() {
           <VectorSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
+
 
         <Card
           style={[styles.sectionCard, flashSection === 'workspace' && styles.sectionCardFlash]}

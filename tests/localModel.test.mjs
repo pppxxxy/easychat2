@@ -337,7 +337,8 @@ test('本地模型面板：展示并支持复制以 /v1 结尾的本地地址', 
   const path = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   const HERE = path.dirname(fileURLToPath(import.meta.url));
-  const panel = fs.readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
+  // Phase 2 拆分后地址/复制实现位于 useApiServer
+  const panel = fs.readFileSync(path.join(HERE, '..', 'src', 'localModel', 'panel', 'useApiServer.js'), 'utf8');
   // 使用剪贴板复制（与诊断/生图面板一致的约定）
   assert.ok(panel.includes("import * as Clipboard from 'expo-clipboard'"), '应引入剪贴板');
   assert.ok(panel.includes('Clipboard.setStringAsync(apiAddress)'), '复制内容应为本地地址');
@@ -346,9 +347,10 @@ test('本地模型面板：展示并支持复制以 /v1 结尾的本地地址', 
   assert.ok(panel.includes('effectivePort'), '应有端口兜底');
   // 运行中以实际端口为准（可能与配置端口不同）
   assert.ok(panel.includes('apiStatus.running && apiStatus.port ? apiStatus.port : apiServer.port'), '运行中应以实际端口为准');
-  // 点击地址栏可复制，并有明确提示
-  assert.ok(panel.includes('onPress={copyApiAddress}'), '地址栏应可点击复制');
-  assert.ok(panel.includes('copyApiAddress'), '应有复制处理函数');
+  assert.ok(panel.includes('const copyApiAddress'), '应有复制处理函数');
+  // 点击地址栏可复制（渲染在 ApiServerSection）
+  const section = fs.readFileSync(path.join(HERE, '..', 'src', 'localModel', 'panel', 'ApiServerSection.js'), 'utf8');
+  assert.ok(section.includes('onPress={onCopyAddress}'), '地址栏应可点击复制');
 });
 
 test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮（源码守护）', async () => {
@@ -362,6 +364,12 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   // 跨对话必须清 KV cache（llama.rn clearCache 文档要求；否则新对话串上一段对话）
   assert.ok(adapter.includes('await loaded.context.clearCache()'), '会话切换应调用 clearCache');
   assert.ok(adapter.includes('loaded.conversationKey !== nextConversationKey'), '同对话不应重复清缓存');
+  // fail-closed（2026-10-05 审核报告）：不传 conversationKey 的路径（总结/群聊/动态回复）
+  // 也必须清缓存——没钥匙视为独立对话，宁可损失前缀复用也不串上下文。
+  assert.ok(
+    adapter.includes('const shouldClearCache = !nextConversationKey'),
+    '空 conversationKey 必须也触发清缓存（fail-closed）'
+  );
   assert.ok(adapter.includes('export async function clearLocalModelCache'), '应导出手动清缓存入口');
   assert.ok(adapter.includes('export function isLocalModelLoaded'), '应导出已加载判定（面板显示用）');
   // 思考流：<think> 拆分后思考走 onReasoning、正文走 onToken
@@ -387,18 +395,21 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
     '本地思考应写入 reasoning 字段'
   );
 
-  const panel = read('LocalModelPanel.js');
+  // Phase 2 拆分后加载逻辑在 usePanelModels，行渲染在 ModelsSection
+  const panel = read('localModel/panel/usePanelModels.js');
+  const section = read('localModel/panel/ModelsSection.js');
   // 面板加载按钮：进度百分比、已加载态、互斥锁
-  assert.ok(panel.includes('const handleLoadModel = async entry'), '应有面板加载处理函数');
+  assert.ok(panel.includes('const handleLoadModel = useCallback'), '应有面板加载处理函数');
   assert.ok(panel.includes("tryAcquireResource('local-model')"), '加载应走 local-model 互斥锁');
   assert.ok(panel.includes('onProgress: p => setLoadProgress'), '应接线加载进度');
-  assert.ok(panel.includes("t('localModel.loading', { progress: loadProgress })"), '按钮应引用加载百分比的 i18n 键');
-  assert.ok(zhCN['localModel.loading'].includes('${loadProgress}%'), '语言包中文值正确');
-  assert.ok(panel.includes("t('localModel.loaded')"), '按钮应引用已加载态的 i18n 键');
+  assert.ok(section.includes("t('localModel.loading', { progress: loadProgress })"), '按钮应引用加载百分比的 i18n 键');
+  assert.ok(zhCN['localModel.loading'].includes('{progress}%'), '语言包中文值正确');
+  assert.ok(section.includes("t('localModel.loaded')"), '按钮应引用已加载态的 i18n 键');
   assert.equal(zhCN['localModel.loaded'], '已加载', '语言包中文值正确');
-  assert.ok(panel.includes('loadProgressBar'), '应有进度条');
-  // 选用勾：当前模型操作行左侧
-  assert.ok(panel.includes('checkmark-circle'), '选中的模型应有勾标识');
+  assert.ok(section.includes('loadProgressBar'), '应有进度条');
+  // 当前选用标识：名称行 badge + 已选用按钮态（原勾图标随 U6 行长按化退役）
+  assert.ok(section.includes("t('localModel.currentSuffix')"), '当前模型名称行应有「· 当前」标识');
+  assert.ok(section.includes("t('localModel.selected')"), '当前模型按钮应为「已选用」态');
 });
 
 test('adapter 参数构造：buildContextParams/buildCompletionParams 纯函数', async () => {

@@ -25,7 +25,7 @@ test('1→5 循环恰好五步，顺序与语义对应需求原文', () => {
 
 test('边界条目覆盖四条硬约束（工具集 / shell 开关 / 外部根 / shell 范围）+ 本地模型', () => {
   assert.deepEqual(CAPABILITY_LIMITS.map(limit => limit.id), [
-    'tools', 'shellSwitch', 'externalRoot', 'shellScope', 'localModel',
+    'tools', 'shellSwitch', 'externalRoot', 'shellScope', 'localModel', 'githubImport',
   ]);
 });
 

@@ -233,7 +233,10 @@ export async function retrieve({ config, index, query, topK, minScore, signal = 
   const list = Array.isArray(index) ? index : [];
   const limit = Number.isFinite(topK) && topK > 0 ? topK : resolved.topK;
   if (list.length === 0) return [];
-  if (!resolved.enabled) return keywordRetrieve({ index: list, query, topK: limit });
+  // 开关必须真的「关」：关闭时不降级到关键词检索，直接不召回。
+  // （此前关闭会退回 keywordRetrieve——中文单字 token 命中形同虚设，任何提问都会
+  // 把旧对话当「相关记忆」注进 system，见 2026-10-05 审核报告。）
+  if (!resolved.enabled) return [];
   try {
     const [queryVector] = await embedTexts({ config: resolved, texts: [query], signal });
     const hits = selectVectorHits(list, queryVector, {
@@ -280,11 +283,10 @@ export async function indexMessages({ messages, config, existing, sessionId = ''
   const added = segments.filter(segment => !byId.has(segmentKey(segment)));
   const signature = vectorSignature(resolved);
 
+  // 写入侧同样设闸：开关关闭时不新增分段（此前只不带向量地照写，存量会被
+  // 关键词模式持续召回——同上，见 2026-10-05 审核报告）。
   if (!resolved.enabled) {
-    return [
-      ...current,
-      ...added.map(segment => ({ ...segment, signature, vector: [] })),
-    ];
+    return current;
   }
 
   const emptyVectors = current.filter(item => (

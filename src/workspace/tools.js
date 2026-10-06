@@ -8,12 +8,27 @@
 import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
 import { fileExtension } from './paths.js';
-import { createLegacyWorkspaceStore } from './store.js';
+import { createLegacyWorkspaceStore, WORKSPACE_LIMITS } from './store.js';
 import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
 
 function resolveStore({ store, root, fileSystem } = {}) {
   if (store) return store;
   return createLegacyWorkspaceStore({ root, fileSystem });
+}
+
+// 读取结果 → 工具输出文本。默认（从头读完整）原样返回（兼容既有行为）；
+// 截断/分段时附续读提示，让模型知道总长与下一段 offset——大文件因此可分段读完。
+export function formatWorkspaceReadResult(result) {
+  const content = String((result && result.content) || '');
+  const total = Number(result && result.total);
+  const nextOffset = Number(result && result.nextOffset);
+  if (Number.isFinite(total) && result && result.truncated === true && Number.isFinite(nextOffset)) {
+    return `${content}\n…（已截断：共 ${total} 字符，本次为 ${result.offset}–${nextOffset}；继续读取请用 offset=${nextOffset}）`;
+  }
+  if (Number.isFinite(total) && Number(result && result.offset) > 0) {
+    return `${content}\n（已到文件末尾：共 ${total} 字符）`;
+  }
+  return content;
 }
 
 const WORKSPACE_TOOL_DEFINITIONS = [
@@ -34,19 +49,31 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   },
   {
     name: 'read_workspace_file',
-    description: '读取工作区内某个文本文件（含源码、配置、Markdown 等）的完整内容。',
+    description: '读取工作区内某个文本文件（源码、配置、Markdown 等）。大文件可分段读：默认从头读最多 100 万字符，返回里会标注总长与下一段 offset，必要时用 offset/limit 继续读。',
     readOnly: true,
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: '工作区内的相对路径（如 src/index.js、README.md）。' },
+        offset: { type: 'number', description: '可选：从文件第几个字符开始读（默认 0）。' },
+        limit: { type: 'number', description: '可选：本次最多读取的字符数（默认与上限 1000000）。' },
       },
       required: ['path'],
     },
-    execute: (options, args, ctx) => options.store.readWorkspaceFile({
-      characterId: ctx && ctx.characterId,
-      path: args.path,
-    }).then(result => (result.truncated ? `${result.content}\n…（已截断）` : result.content)),
+    execute: (options, args, ctx) => {
+      const rawOffset = Number(args.offset);
+      const rawLimit = Number(args.limit);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+      const maxChars = Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), WORKSPACE_LIMITS.MAX_READ_CHARS)
+        : undefined;
+      return options.store.readWorkspaceFile({
+        characterId: ctx && ctx.characterId,
+        path: args.path,
+        offset,
+        ...(maxChars !== undefined ? { maxChars } : {}),
+      }).then(formatWorkspaceReadResult);
+    },
   },
   {
     name: 'create_workspace_dir',

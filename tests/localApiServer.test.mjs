@@ -170,12 +170,16 @@ test('面板与引导：留空自动生成的接线与文案（源码守护）',
   const path = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   const HERE = path.dirname(fileURLToPath(import.meta.url));
-  const panel = fs.readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
+  // Phase 2 拆分：启停/密钥持久化在 useApiServer，渲染文案在 ApiServerSection
+  const panel = fs.readFileSync(path.join(HERE, '..', 'src', 'localModel', 'panel', 'useApiServer.js'), 'utf8');
+  const section = fs.readFileSync(path.join(HERE, '..', 'src', 'localModel', 'panel', 'ApiServerSection.js'), 'utf8');
+  const shell = fs.readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
   assert.ok(panel.includes('keyWasEmpty'), '启动时应检测密钥是否为空');
   assert.ok(panel.includes('persistApiServer({ enabled: true, apiKey: effectiveKey })'), '生成的密钥应幂等持久化');
-  assert.ok(panel.includes("t('localModel.api.keyPlaceholder')"), '占位文案应引用 i18n 键');
+  // 文案集中在渲染层（section）与反馈层（豁免壳），均走 i18n 键
+  assert.ok(section.includes("t('localModel.api.keyPlaceholder')"), '占位文案应引用 i18n 键');
   assert.ok(zhCN['localModel.api.keyPlaceholder'].includes('留空将自动生成随机密钥'), '语言包中文值正确');
-  assert.ok(panel.includes("t('localModel.alert.apiKeyGenerated.body'"), '鉴权提示应引用 i18n 键');
+  assert.ok(shell.includes("t('localModel.alert.apiKeyGenerated.body'"), '鉴权提示应引用 i18n 键');
   assert.ok(zhCN['localModel.alert.apiKeyGenerated.body'].includes('Authorization: Bearer'), '复制提示应说明鉴权方式（语言包）');
   const onboarding = fs.readFileSync(path.join(HERE, '..', 'src', 'onboarding', 'onboardingContent.js'), 'utf8');
   assert.ok(onboarding.includes('留空会自动生成随机密钥'), '引导章节文案应更新');

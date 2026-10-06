@@ -165,3 +165,68 @@ Entries discovered by the Agent during task execution should follow this format:
   - 本环境超长 bash heredoc 会被截断、`\` 会折半：大改动一律用 Edit 工具；向 JS 写入 `
 ` 字面量时用 `chr(92)+'n'` 构造。
   - 注入验证两个新抓的盲区：子串断言会被注释掉的调用骗过（用行首锚定正则）；「默认拒绝」类守卫的行为断言测不到模式本身（补源码断言钉住模式与白名单交集）。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z3：向量记忆「关键词模式」串记忆通道修复（审核报告全单核实属实）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **「开关」语义审计法**：看到一个布尔开关，必须追它的每一条消费分支——开关关掉后是「什么都不做」还是「降级到另一条路径」。向量记忆的 enabled 就是反例：关闭=关键词检索（更松），用户以为关=关。这类 fail-open 降级是隐私/记忆类功能的头号泄漏源。
+  - **fail-closed 原则**：缓存/会话绑定的钥匙（conversationKey）缺失时必须默认清空重置，不能默认沿用——「没钥匙」要当作「换对话」而不是「同对话」。写守卫时先想清楚默认方向。
+  - **兜底桶污染链**：任何 `id || 'default'` 式兜底 + 按角色共享的存储 + 单字匹配召回，三者叠加会让兜底卡变成跨会话记忆垃圾场；新增归属型存储时拒绝 default 兜底，对账时校验归属。
+  - 注入验证的子串盲区已三次出现：断言 `includes('name')` 会被改名后的其他出现点（JSX 使用处/注释/另一个调用点）骗过——一律用「定义+使用」双锚点或行首锚定正则。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z3：工作区优化指令书落地（布局重排/套餐/GitHub 仓库快照导入）
+- Category: Build Methods
+- Instructions:
+  - GitHub 仓库拉取在 RN 上的正解是 codeload zip + fflate 解压（books 模块已有依赖与防御模式可照抄：只读目录元数据扫描 → 按需解压 → 实际长度复核）；run_shell 是 /system/bin/sh，没有 git 二进制，git clone 死路。
+  - fflate 测试可用 zipSync 直接构造恶意 zip（键名带 ../.. 的越界条目），配合「缩小限额注入 limits 参数」测限额路径，不必真造 50MB 数据。
+  - 指令书/审核报告也会报错文件名（如本次 WorkspaceSettingsSheet.js 不存在）——落地前先 ls 核实，别照单全收。
+  - 沙盒导入类功能的单文件上限应对齐下游读取能力（store 的 MAX_READ_CHARS=1MB），而不是拍脑袋的磁盘口径；超限跳过并计数比中止整批更合理。
+
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: z1005z3：大文件分段读取（offset/limit）与编辑截断守卫
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **读截断 + 写回 = 数据损坏**：凡是「读（带截断）→ 加工 → 写回原路径」的链路，必须检查截断标志。本次两条后端（store.js/safStore.js）的 edit 都漏了这个守卫，>1MB 文件一编辑就砍尾。
+  - **后端包装器是参数丢失的高发区**：给底层函数加新参数时，必须同时检查所有手动封装的 wrapper（createLegacyWorkspaceStore 这类）有没有透传——函数签名不报错，参数静默丢失。测试要在「经工具层调用」这一层断言行为，不能只测底层函数。
+  - 分段读取的返回形状：content/truncated/offset/total/nextOffset——模型靠 nextOffset 续读，提示文案里必须明写「继续读取请用 offset=…」，否则模型不会自己发现。
+
+[User Instruction Summary]
+- Date: 2026-10-05
+- Context: 聊天页顶栏底栏排版优化指令书落地时的裁决
+- Instructions:
+  - **免责声明常驻是硬性合规要求**（「AI 生成可能有误，仅供参考」顶栏常驻，防法律风险）。
+    任何「一次性消失」「可关闭」的优化建议一律否决，不考虑；tests/chatTopBottom.test.mjs 已钉死防回归。
+
+[User Instruction Summary]
+- Date: 2026-10-06
+- Context: 记忆界面指令书落地时的事实核验结论与注入脚本事故
+- Instructions:
+  - **指令书的组件定性必须核验语义而非外形**：该书把 SwitcherModal（角色/群聊切换器）
+    误作「会话切换器」、虚构了「屏幕注视线程卡中卡」（MemoryScreen 从未展示识图内容，
+    threads.js 不存在）。行数/结构大体可信，但「这是什么」要打开源码亲自确认。
+  - **注入验证脚本的恢复必须双向定位限量**：Python str.replace 默认替换**全部**出现；
+    恢复时 replace(new, old) 会把 import 行等处的同名片段一并改写（本次实际造成
+    MemoryScreen 导入行语法错误 + sessionLibrary 注释被代码文本污染）。规则：
+    锚串必须在全文件唯一（count==1），恢复用同一锚串且 count=1，恢复后立刻跑
+    lint+相关测试再放手。
+  - 本地/在线模型归属不能按设置推断：provider 有静默回退（本地失败→在线），
+    只能靠「哪条链路真正产出回复」的回调（onProviderResolved）标记。
+
+[User Instruction Summary]
+- Date: 2026-10-06
+- Context: 本地模型板块指令书落地时的结构裁决
+- Instructions:
+  - **拆分 UI 巨石时反馈层的归属**：项目规则 no-hardcoded-chinese 的豁免清单
+    「只减不增」，新拆出的文件不能进清单。可行解是 hook 返回 { ok, code,
+    message } 编码结果、Alert 集中在豁免壳内映射（与全库 coded-errors 模式
+    一致），而不是给 40+ 条文案补 t() 键与既有的 i18n 迁移任务书撞车。
+  - **审计锚点读拼接源**：拆分会让「读单文件源码」的守护测试批量失效；
+    把拼接源（壳 + 子目录全文件）作为锚点载体，对后续文件迁移保持稳健。
+  - 删除已加载本地模型必须先 unloadLocalModel（返回是否完全释放）再删文件，
+    顺序错了内存泄漏不可逆——这是 C4 类 bug 的通用形态：「先删资源登记，
+    后跳过运行时释放」。

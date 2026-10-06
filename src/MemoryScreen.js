@@ -3,7 +3,8 @@ import { ROUTE_NAMES } from './navigation/routeNames.js';
 import {
   Alert,
   FlatList,
-  Image,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,81 +23,36 @@ import {
 } from './storage.js';
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
-import { buildMemoryListData, groupSessionsByAge } from './memory/memoryBuckets.js';
-import { deleteScreenWatchThread, getScreenWatchThreads } from './screenWatch/threads.js';
-import { useTranslation } from './i18n/I18nContext.js';
+import {
+  buildMemoryListData,
+  buildSessionBadges,
+  filterSessionsForMemory,
+  groupSessionsByAge,
+  hasLocalSessions,
+  LOCAL_FILTER,
+  MEMORY_FILTERS,
+} from './memory/memoryBuckets.js';
+import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
+import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
-import { Card, EmptyState, TopicButton } from './ui/index.js';
+import { EmptyState } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
-function formatTime(timestamp, t) {
-  const value = Number(timestamp);
-  if (!Number.isFinite(value) || value <= 0) return '';
-  const date = new Date(value);
-  const now = new Date();
-  const pad = number => String(number).padStart(2, '0');
-  if (date.toDateString() === now.toDateString()) {
-    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+// 会话行的显示名：群聊用群名（缺省拼成员名），单聊用角色名。
+// 行渲染与长按操作单都要用，抽出来避免两处各写一遍后漂移。
+function sessionDisplayName(session, character, groupMembers, t) {
+  if (session && session.type === 'group') {
+    return String(session.name || '').trim()
+      || (Array.isArray(groupMembers) ? groupMembers : []).map(item => item && item.name).filter(Boolean).join('、')
+      || t('common.groupChat');
   }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return t('memory.date.yesterday');
-  return t('memory.date.md', { m: date.getMonth() + 1, d: date.getDate() });
-}
-
-function RowAction({ icon, color, onPress, label, styles }) {
-  return (
-    <TouchableOpacity
-      style={styles.rowAction}
-      onPress={onPress}
-      accessibilityLabel={label}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-    >
-      <Ionicons name={icon} size={18} color={color} />
-    </TouchableOpacity>
-  );
+  return String((character && character.name) || '').trim() || t('memory.unnamedCharacter');
 }
 
 export default function MemoryScreen({ navigation }) {
-  // 看屏幕对话（screenWatch/threads.js）：与历史会话并列展示/删除
-  // —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
-  const [threads, setThreads] = useState([]);
-  const [threadsOpen, setThreadsOpen] = useState(false);
-
-  const reloadThreads = useCallback(async () => {
-    try {
-      setThreads(await getScreenWatchThreads());
-    } catch (error) {
-      setThreads([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    reloadThreads();
-  }, [reloadThreads]);
-
-  const handleDeleteThread = useCallback(thread => {
-    if (!thread) return;
-    const name = String(thread.characterName || '').trim() || t('common.characterFallback');
-    Alert.alert(
-      t('memory.screenWatch.delete.title'),
-      t('memory.screenWatch.delete.body', { name }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            deleteScreenWatchThread(thread.id)
-              .then(() => reloadThreads())
-              .catch(() => {});
-          },
-        },
-      ]
-    );
-  }, [reloadThreads, t]);
   const {
     sessions,
     characters,
@@ -117,6 +73,9 @@ export default function MemoryScreen({ navigation }) {
   const [editing, setEditing] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [topic, setTopic] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // 列表筛选 chips：全部 / 置顶 / 群聊（「本地」由 Phase 3 按数据有无追加）
+  const [memoryFilter, setMemoryFilter] = useState('all');
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -142,7 +101,7 @@ export default function MemoryScreen({ navigation }) {
         (error && error.message) || t('memory.scan.fail.body')
       );
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -172,7 +131,7 @@ export default function MemoryScreen({ navigation }) {
       Alert.alert(t('memory.recover.fail.title'), (error && error.message) || t('common.error.retryLater'));
       return false;
     }
-  }, [refreshSessions, restoreSession, t]);
+  }, [refreshSessions, restoreSession]);
 
   const characterMap = useMemo(() => {
     const map = new Map();
@@ -215,11 +174,16 @@ export default function MemoryScreen({ navigation }) {
     };
   }, [visibleSessions]);
 
-  // 按时间分档 + 置顶单独成组；默认展开最新的一个分组（通常是「置顶」或「最近」），
+  // 按时间分档 + 置顶单独成组；默认展开最新的一个分组（通常是「置顶」或「最近 7 天」），
   // 让首屏直接看到会话，而不是只剩标题、还要多点一次；其余分组保持折叠。
   // 编辑模式下强制全部展开：折叠里的会话无法被逐条点选。
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
-  const groups = useMemo(() => groupSessionsByAge(visibleSessions), [visibleSessions]);
+  // 先筛选再分组： chips（全部/置顶/群聊）只改喂给分组的数据，不动存储与排序。
+  const filteredSessions = useMemo(
+    () => filterSessionsForMemory(visibleSessions, memoryFilter),
+    [visibleSessions, memoryFilter]
+  );
+  const groups = useMemo(() => groupSessionsByAge(filteredSessions), [filteredSessions]);
   // 仅在「首次拿到非空分组」时自动展开第一组；之后用户手动折叠/展开由用户决定，
   // 不因新增会话等分组变化再次弹出。
   const autoExpandedRef = useRef(false);
@@ -254,6 +218,51 @@ export default function MemoryScreen({ navigation }) {
     });
   }, [groups]);
 
+  // 切换筛选时展开该筛选下的所有组：否则换到「置顶/群聊」这类常无对应分组的
+  // 筛选时会看到全折叠的空列表，以为会话丢了。首次挂载跳过（首屏只展开第一组）。
+  const filterInitRef = useRef(false);
+  useEffect(() => {
+    if (!filterInitRef.current) {
+      filterInitRef.current = true;
+      return;
+    }
+    setExpandedGroups(new Set(groups.map(group => group.id)));
+    // groups 故意不进依赖：它由 memoryFilter 派生，只在筛选变化时需要重展开；
+    // 新会话落库导致 groups 变化时不能打断用户手动折叠的状态。
+  }, [memoryFilter]);
+
+  // 吸顶组头：分组头在长列表里滚动时钉住，知道当前看的是哪一组。
+  const stickyHeaderIndices = useMemo(
+    () => listData
+      .map((entry, index) => (entry.kind === 'header' ? index : -1))
+      .filter(index => index >= 0),
+    [listData]
+  );
+
+  // 筛选 chips：存在本地模型会话时才追加「本地」项（旧数据全是 api 会话，
+  // 常驻一个永远筛不出东西的 chip 只会误导）。
+  const memoryChips = useMemo(
+    () => (hasLocalSessions(visibleSessions) ? [...MEMORY_FILTERS, LOCAL_FILTER] : MEMORY_FILTERS),
+    [visibleSessions]
+  );
+
+  // ⋯ 菜单：教学入口与「展开/折叠全部」从头部收纳进来；计数本就在各分组头里。
+  const menuItems = useMemo(() => ([
+    {
+      key: 'teach',
+      icon: 'help-circle-outline',
+      label: t('memory.a11y.tutorial'),
+      onPress: () => setTopic('memory'),
+    },
+    {
+      key: 'toggle-all',
+      icon: allExpanded ? 'contract-outline' : 'expand-outline',
+      label: allExpanded ? t('memory.collapseAll') : t('memory.expandAll'),
+      disabled: !(loaded && visibleSessions.length > 0),
+      onPress: toggleAllGroups,
+    },
+  ]), [allExpanded, loaded, visibleSessions.length, toggleAllGroups]);
+
   const onOpen = useCallback(async session => {
     if (switchLockRef.current) return;
     switchLockRef.current = true;
@@ -274,7 +283,7 @@ export default function MemoryScreen({ navigation }) {
     } finally {
       switchLockRef.current = false;
     }
-  }, [activeId, activeSessionId, characterMap, navigation, sessions, switchCharacter, switchSession, t]);
+  }, [activeId, activeSessionId, characterMap, navigation, sessions, switchCharacter, switchSession]);
 
   const onPin = useCallback(async session => {
     try {
@@ -282,7 +291,7 @@ export default function MemoryScreen({ navigation }) {
     } catch (error) {
       Alert.alert(t('memory.pin.fail.title'), t('common.error.storageOrPermission'));
     }
-  }, [pinSession, t]);
+  }, [pinSession]);
 
   const onClone = useCallback(session => {
     Alert.alert(t('memory.clone.title'), t('memory.clone.body'), [
@@ -296,7 +305,7 @@ export default function MemoryScreen({ navigation }) {
         },
       },
     ]);
-  }, [cloneSession, t]);
+  }, [cloneSession]);
 
   // 动态可能锚定在某段对话（记忆）上：删除记忆时，提示是否连带删除对应动态。
   const countLinkedMoments = useCallback(async sessionIds => {
@@ -305,7 +314,7 @@ export default function MemoryScreen({ navigation }) {
       throw new Error(t('memory.moments.readFail'));
     }
     return countMomentsBySessionIds(moments, sessionIds);
-  }, [t]);
+  }, []);
 
   // 先删动态再删会话：读不出动态时直接抛错中止，绝不在“动态删除没成功”的情况下
   // 先把会话删掉，留下指向不存在会话的孤儿动态。
@@ -354,7 +363,32 @@ export default function MemoryScreen({ navigation }) {
       .catch(() => {
         Alert.alert(t('common.error.deleteFailed'), t('memory.delete.linkedReadFail.body'));
       });
-  }, [countLinkedMoments, deleteSession, removeMomentsOfSessions, t]);
+  }, [countLinkedMoments, deleteSession, removeMomentsOfSessions]);
+
+  // 长按行弹出操作单：置顶/克隆/删除从「每行常驻三按钮」收进这里。
+  // Android 的 Alert 最多 3 个按钮，取消靠点按外部关闭（cancelable 默认开）；
+  // iOS 追加显式取消按钮（项目现有跨端模式）。
+  const onRowActions = useCallback(session => {
+    const character = characterMap.get(session.characterId);
+    const groupMembers = session.type === 'group'
+      ? (session.members || []).map(id => characterMap.get(id)).filter(Boolean)
+      : [];
+    const buttons = [
+      { text: session.pinned ? t('memory.unpin') : t('memory.pin'), onPress: () => onPin(session) },
+      { text: t('memory.clone.action'), onPress: () => onClone(session) },
+      { text: t('common.delete'), style: 'destructive', onPress: () => onDelete(session) },
+    ];
+    if (Platform.OS === 'ios') buttons.push({ text: t('common.cancel'), style: 'cancel' });
+    // badge 放不下模型全名：长按操作单的副标题补上（本地 · Qwen2.5-1.5B）。
+    const modelLine = session.modelKind === 'local'
+      ? t('memory.localModelLine', { name: String(session.modelName || '').trim() || t('memory.localModelFallback') })
+      : '';
+    Alert.alert(
+      sessionDisplayName(session, character, groupMembers, t),
+      modelLine || undefined,
+      buttons
+    );
+  }, [characterMap, onPin, onClone, onDelete]);
 
   const onOpenResult = useCallback(async result => {
     if (switchLockRef.current) return;
@@ -388,7 +422,7 @@ export default function MemoryScreen({ navigation }) {
     } finally {
       switchLockRef.current = false;
     }
-  }, [activeId, activeSessionId, characters, navigation, refreshSessions, sessions, setPendingTarget, switchCharacter, switchSession, t]);
+  }, [activeId, activeSessionId, characters, navigation, refreshSessions, sessions, setPendingTarget, switchCharacter, switchSession]);
 
   const exitEdit = useCallback(() => {
     setEditing(false);
@@ -455,23 +489,13 @@ export default function MemoryScreen({ navigation }) {
       .catch(() => {
         Alert.alert(t('common.error.deleteFailed'), t('memory.delete.linkedReadFail.body'));
       });
-  }, [countLinkedMoments, deleteSessions, exitEdit, removeMomentsOfSessions, selectedIds, t]);
+  }, [countLinkedMoments, deleteSessions, exitEdit, removeMomentsOfSessions, selectedIds]);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('memory.title')}</Text>
         <View style={styles.headerRight}>
-          <TopicButton
-            style={styles.topicButton}
-            onPress={() => setTopic('memory')}
-            accessibilityLabel={t('memory.a11y.tutorial')}
-          />
-          {editing ? null : (
-            <Text style={styles.count}>
-              {loaded ? t('memory.count', { count: visibleSessions.length }) : t('memory.loading')}
-            </Text>
-          )}
           {loaded && visibleSessions.length > 0 ? (
             <TouchableOpacity
               style={styles.editButton}
@@ -482,19 +506,9 @@ export default function MemoryScreen({ navigation }) {
               <Text style={styles.editButtonText}>{editing ? t('common.done') : t('memory.edit')}</Text>
             </TouchableOpacity>
           ) : null}
-          {loaded && visibleSessions.length > 0 && !editing ? (
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={toggleAllGroups}
-              activeOpacity={0.7}
-              accessibilityLabel={allExpanded ? t('memory.a11y.collapseAll') : t('memory.a11y.expandAll')}
-            >
-              <Text style={styles.editButtonText}>{allExpanded ? t('memory.collapseAll') : t('memory.expandAll')}</Text>
-            </TouchableOpacity>
-          ) : null}
           {editing ? null : (
             <TouchableOpacity
-              style={styles.searchButton}
+              style={styles.headerIconButton}
               onPress={() => setSearchOpen(true)}
               activeOpacity={0.7}
               accessibilityLabel={t('memory.a11y.search')}
@@ -502,58 +516,43 @@ export default function MemoryScreen({ navigation }) {
               <Ionicons name="search" size={18} color={theme.colors.primarySoft} />
             </TouchableOpacity>
           )}
+          {editing ? null : (
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              onPress={() => setMenuOpen(true)}
+              activeOpacity={0.7}
+              accessibilityLabel={t('chat.bubble.moreA11y')}
+            >
+              <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.primarySoft} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
-      {threads.length > 0 ? (
-        <Card style={styles.threadCard}>
-          <TouchableOpacity
-            style={styles.threadHead}
-            onPress={() => setThreadsOpen(value => !value)}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: threadsOpen }}
-          >
-            <Ionicons
-              name={threadsOpen ? 'chevron-down' : 'chevron-forward'}
-              size={16}
-              color={theme.colors.textFaint}
-            />
-            <Text style={styles.threadTitle}>
-              {t('memory.screenWatch.title')}
-            </Text>
-            <Text style={styles.threadCount}>
-              {t('memory.screenWatch.count', { count: threads.length })}
-            </Text>
-          </TouchableOpacity>
-          {threadsOpen ? threads.map(entry => (
-            <View key={entry.id} style={styles.threadItem}>
-              <View style={styles.threadItemHead}>
-                <Text style={styles.threadItemName} numberOfLines={1}>
-                  {String(entry.characterName || '').trim() || t('common.characterFallback')}
-                </Text>
-                <Text style={styles.threadItemMeta}>
-                  {t('memory.screenWatch.entries', { count: entry.entries.length })}
-                </Text>
-                <RowAction
-                  icon="trash-outline"
-                  color={theme.colors.textFaint}
-                  onPress={() => handleDeleteThread(entry)}
-                  label={t('memory.screenWatch.a11y.delete', {
-                    name: String(entry.characterName || '').trim() || t('common.characterFallback'),
-                  })}
-                  styles={styles}
-                />
-              </View>
-              {entry.entries.slice(-2).map(item => (
-                <Text key={item.id} style={styles.threadItemText} numberOfLines={2}>
-                  {item.text}
-                </Text>
-              ))}
-            </View>
-          )) : null}
-        </Card>
+      {loaded && !editing && visibleSessions.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chipRow}
+          keyboardShouldPersistTaps="handled"
+        >
+          {memoryChips.map(chip => {
+            const active = memoryFilter === chip.id;
+            return (
+              <TouchableOpacity
+                key={chip.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setMemoryFilter(chip.id)}
+                activeOpacity={0.75}
+                accessibilityLabel={t('memory.a11y.filter', { label: chip.label })}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{chip.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       ) : null}
-
       {orphans.length > 0 ? (
         <TouchableOpacity
           style={styles.recoverNotice}
@@ -579,6 +578,7 @@ export default function MemoryScreen({ navigation }) {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={stickyHeaderIndices}
           renderItem={({ item }) => {
             if (item.kind === 'header') {
               const expanded = effectiveExpanded.has(item.groupId);
@@ -589,16 +589,14 @@ export default function MemoryScreen({ navigation }) {
                   disabled={editing}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={expanded
-                    ? t('memory.a11y.collapseGroup', { label: t(item.labelKey) })
-                    : t('memory.a11y.expandGroup', { label: t(item.labelKey) })}
+                  accessibilityLabel={expanded ? t('memory.a11y.collapseGroup', { label: item.label }) : t('memory.a11y.expandGroup', { label: item.label })}
                 >
                   <Ionicons
                     name={expanded ? 'chevron-down' : 'chevron-forward'}
                     size={16}
                     color={theme.colors.textFaint}
                   />
-                  <Text style={styles.groupLabel}>{t(item.labelKey)}</Text>
+                  <Text style={styles.groupLabel}>{item.label}</Text>
                   <Text style={styles.groupCount}>{item.count}</Text>
                 </TouchableOpacity>
               );
@@ -609,106 +607,33 @@ export default function MemoryScreen({ navigation }) {
             const groupMembers = isGroup
               ? (session.members || []).map(id => characterMap.get(id)).filter(Boolean)
               : [];
-            const name = isGroup
-              ? (session.name || groupMembers.map(item => item.name).join('、') || t('memory.groupChat'))
-              : ((character && character.name) || t('memory.unnamedCharacter'));
-            const isClone = !!session.clonedFrom;
+            const name = sessionDisplayName(session, character, groupMembers, t);
             return (
-              <Card
+              <SessionRow
                 key={session.id}
-                padded={false}
-                style={[
-                  styles.card,
-                  editing && selectedIds.includes(session.id) && styles.cardSelected,
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.cardMain}
-                  activeOpacity={0.75}
-                  onPress={() => (editing ? toggleSelect(session.id) : onOpen(session))}
-                >
-                  {editing ? (
-                    <Ionicons
-                      name={selectedIds.includes(session.id) ? 'checkbox' : 'square-outline'}
-                      size={22}
-                      color={selectedIds.includes(session.id) ? theme.colors.primaryMuted : theme.colors.textFaint}
-                      style={styles.checkbox}
-                    />
-                  ) : null}
-                  {isGroup ? (
-                    session.avatarUri ? (
-                      <Image source={{ uri: session.avatarUri }} style={styles.avatar} />
-                    ) : (
-                      <View style={styles.groupAvatars}>
-                        {groupMembers.slice(0, 3).map((member, index) => (
-                          member.avatarUri ? (
-                            <Image
-                              key={member.id}
-                              source={{ uri: member.avatarUri }}
-                              style={[styles.groupAvatar, { left: index * 12 }]}
-                            />
-                          ) : (
-                            <View
-                              key={member.id}
-                              style={[styles.groupAvatar, styles.avatarFallback, { left: index * 12 }]}
-                            >
-                              <Text style={styles.avatarText}>
-                                {String(member.name || '?').charAt(0)}
-                              </Text>
-                            </View>
-                          )
-                        ))}
-                      </View>
-                    )
-                  ) : character && character.avatarUri ? (
-                    <Image source={{ uri: character.avatarUri }} style={styles.avatar} />
-                  ) : (
-                    <View style={[styles.avatar, styles.avatarFallback]}>
-                      <Text style={styles.avatarText}>{name.slice(0, 1)}</Text>
-                    </View>
-                  )}
-                  <View style={styles.cardText}>
-                    <View style={styles.nameRow}>
-                      <Text style={styles.name} numberOfLines={1}>{name}</Text>
-                      {isClone ? <Text style={styles.badge}>{t('memory.cloneBadge')}</Text> : null}
-                      {session.pinned ? (
-                        <Ionicons name="star" size={12} color={theme.colors.star} style={styles.pinMark} />
-                      ) : null}
-                    </View>
-                    <Text style={styles.preview} numberOfLines={2}>
-                      {String(session.preview || '').trim()
-                        || String(previewFallback[session.id] || '').trim()
-                        || t('memory.emptyPreview')}
-                    </Text>
-                    <Text style={styles.time}>{formatTime(session.updatedAt, t)}</Text>
-                  </View>
-                </TouchableOpacity>
-                {editing ? null : (
-                  <View style={styles.actions}>
-                    <RowAction
-                      icon={session.pinned ? 'star' : 'star-outline'}
-                      color={session.pinned ? theme.colors.star : theme.colors.textFaint}
-                      label={t('memory.pin')}
-                      styles={styles}
-                      onPress={() => onPin(session)}
-                    />
-                    <RowAction
-                      icon="copy-outline"
-                      color={theme.colors.textFaint}
-                      label={t('memory.clone.action')}
-                      styles={styles}
-                      onPress={() => onClone(session)}
-                    />
-                    <RowAction
-                      icon="trash-outline"
-                      color={theme.colors.danger}
-                      label={t('common.delete')}
-                      styles={styles}
-                      onPress={() => onDelete(session)}
-                    />
-                  </View>
+                mode="manage"
+                avatar={(
+                  <SessionAvatar
+                    isGroup={isGroup}
+                    uri={isGroup ? session.avatarUri : ((character && character.avatarUri) || '')}
+                    name={name}
+                    members={groupMembers}
+                  />
                 )}
-              </Card>
+                name={name}
+                badges={buildSessionBadges(session)}
+                pinned={session.pinned === true}
+                preview={
+                  String(session.preview || '').trim()
+                  || String(previewFallback[session.id] || '').trim()
+                  || t('memory.emptyPreview')
+                }
+                time={formatSessionTime(session.updatedAt)}
+                selectable={editing}
+                selected={selectedIds.includes(session.id)}
+                onPress={() => (editing ? toggleSelect(session.id) : onOpen(session))}
+                onLongPress={editing ? undefined : () => onRowActions(session)}
+              />
             );
           }}
         />
@@ -748,6 +673,12 @@ export default function MemoryScreen({ navigation }) {
         characters={characters}
       />
 
+      <MoreMenuModal
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        items={menuItems}
+      />
+
       <SessionRecoveryModal
         visible={recoverOpen}
         orphans={orphans}
@@ -778,7 +709,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingBottom: 10,
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
-  count: { color: theme.colors.textFaint, fontSize: fonts.scaled(13) },
   recoverNotice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -798,10 +728,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontWeight: '700',
   },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
-  topicButton: {
-    marginRight: 6,
-  },
-  searchButton: {
+  headerIconButton: {
     marginLeft: 12,
     width: 34,
     height: 34,
@@ -812,53 +739,36 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.primaryMutedAlpha(0.35),
   },
+  chipScroll: { flexGrow: 0, marginBottom: 4 },
+  chipRow: { paddingHorizontal: 20, paddingBottom: 6 },
+  chip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  chipActive: {
+    backgroundColor: theme.colors.primaryAlpha(0.18),
+    borderColor: theme.colors.primaryMuted,
+  },
+  chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  chipTextActive: { color: theme.colors.primarySoft },
   editButton: { marginLeft: 12, paddingVertical: 6, paddingHorizontal: 4 },
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
-  checkbox: { marginRight: 10 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
-  threadCard: {
-    marginHorizontal: 20,
-    marginBottom: 10,
-    padding: tokens.metrics.cardPadding,
-  },
-  threadHead: { flexDirection: 'row', alignItems: 'center' },
-  threadTitle: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    fontWeight: '700',
-    marginLeft: 6,
-    flex: 1,
-  },
-  threadCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
-  threadItem: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: tokens.border.thin,
-    borderTopColor: theme.colors.surfaceBorder,
-  },
-  threadItemHead: { flexDirection: 'row', alignItems: 'center' },
-  threadItemName: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-    fontWeight: '600',
-    flex: 1,
-  },
-  threadItemMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginRight: 8 },
-  threadItemText: {
-    color: theme.colors.textMuted,
-    fontSize: fonts.scaled(12),
-    lineHeight: fonts.scaled(18),
-    marginTop: 4,
-  },
   groupHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     marginTop: 6,
+    backgroundColor: theme.colors.background,
   },
   groupLabel: {
     color: theme.colors.textMuted,
-    fontSize: fonts.scaled(13),
+    fontSize: fonts.scaled(12),
     fontWeight: '800',
     marginLeft: 6,
   },
@@ -866,67 +776,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),
     marginLeft: 8,
-  },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 12,
-  },
-  cardSelected: {
-    borderColor: theme.colors.primary,
-    borderWidth: tokens.border.thick,
-    backgroundColor: theme.colors.primaryAlpha(0.06),
-  },
-  cardMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingRight: 6,
-  },
-  avatar: { width: 48, height: 48, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surfaceBorder },
-  groupAvatars: { width: 48, height: 48, marginRight: 0 },
-  groupAvatar: {
-    position: 'absolute',
-    top: 0,
-    width: 34,
-    height: 34,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: theme.colors.surfaceBorder,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceAlt,
-  },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: theme.colors.textMuted, fontSize: fonts.scaled(18), fontWeight: '700' },
-  cardText: { flex: 1, marginLeft: 12 },
-  nameRow: { flexDirection: 'row', alignItems: 'center' },
-  name: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', maxWidth: '70%' },
-  badge: {
-    marginLeft: 6,
-    color: theme.colors.primarySoft,
-    fontSize: fonts.scaled(10),
-    fontWeight: '700',
-    backgroundColor: theme.colors.primaryAlpha(0.2),
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primaryMutedAlpha(0.35),
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    overflow: 'hidden',
-  },
-  pinMark: { marginLeft: 6 },
-  preview: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(20), marginTop: 4 },
-  time: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 5 },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: 8,
-  },
-  rowAction: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   editBar: {
     flexDirection: 'row',

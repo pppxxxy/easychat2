@@ -154,6 +154,7 @@ import ThinkingPanelModal from './chat/ThinkingPanelModal.js';
 import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
+import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
@@ -977,6 +978,29 @@ export default function ChatScreen() {
       ]
     );
   }, [isSending, ready, messages, runSummarize, t]);
+
+  // 「更多」菜单里的新对话入口：单聊走显式确认（破坏性操作），
+  // 群聊直接调 onNewChat——其内部已有确认（旧对话保留在「记忆」中）。
+  const onNewChatFromMenu = useCallback(() => {
+    if (isGroupRef.current) {
+      onNewChat();
+      return;
+    }
+    Alert.alert(
+      '新建对话',
+      '将开启一段新对话，当前对话保留在会话列表与记忆中。',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '新建', style: 'destructive', onPress: () => onNewChat() },
+      ]
+    );
+  }, [onNewChat]);
+
+  // 全屏编辑入口收敛：输入框长按 与「⋯」菜单共用（原右侧 ⛶ 按钮已移除）。
+  const openFullScreen = useCallback(() => {
+    setFullScreenText(input);
+    setFullScreenOpen(true);
+  }, [input]);
 
   // compact 指令：显式输入即代表意图，不再弹确认；runSummarize(manual) 自带
   // 「已完成/失败/无可总结」提示与并发保护。
@@ -2241,10 +2265,6 @@ export default function ChatScreen() {
         groupAvatarUri={groupAvatarUri}
         characterAvatarUri={character.avatarUri}
         displayName={displayName}
-        onNewChat={onNewChat}
-        ready={ready}
-        autoBroadcast={ttsSettings.autoBroadcast}
-        onToggleBroadcast={toggleBroadcast}
         onOpenMore={() => setMoreOpen(true)}
       />
       <View style={styles.aiNoticeBar} pointerEvents="none">
@@ -2343,12 +2363,14 @@ export default function ChatScreen() {
         onInputBlur={() => setInputFocused(false)}
         onSelectionChange={event => {
           inputSelectionRef.current = event.nativeEvent.selection;
+          // @ 自动提及：光标前紧邻 @ 即弹面板（仅群聊；输入法补全的 @ 同样命中）
+          const cursor = event.nativeEvent.selection ? event.nativeEvent.selection.start : 0;
+          if (shouldOpenMentionAtCursor({ text: input, cursor, isGroup: isGroupRef.current })) {
+            setMentionPickerOpen(true);
+          }
         }}
         onOpenSticker={() => setStickerPanelOpen(true)}
-        onOpenFullScreen={() => {
-          setFullScreenText(input);
-          setFullScreenOpen(true);
-        }}
+        onOpenFullScreen={openFullScreen}
         fullScreenDisabled={!ready || sessionOwnerMissing || (!isGroup && !greetingReady)}
         onStop={onStop}
         onSend={onSend}
@@ -2438,49 +2460,24 @@ export default function ChatScreen() {
 
       <SelectionTextModal text={selectionText} onClose={() => setSelectionText('')} />
 
+      {/* 新对话迁入「更多」菜单：单聊需确认（群聊 onNewChat 内部已有确认） */}
       <MoreMenuModal
         visible={moreOpen}
         onClose={() => setMoreOpen(false)}
         items={[
+          // 会话：高频动作与上下文操作（新对话置顶，破坏性操作带红色与确认）
           {
-            key: 'notice',
-            label: t('chat.menu.notice'),
-            icon: 'megaphone-outline',
-            onPress: () => setNoticeOpen(true),
-          },
-          {
-            key: 'model',
-            label: t('chat.menu.model'),
-            icon: 'cube-outline',
-            onPress: openModelPanel,
-          },
-          {
-            key: 'local-logs',
-            label: t('chat.menu.localLogs'),
-            icon: 'document-text-outline',
-            onPress: () => setLocalLogsOpen(true),
-          },
-          {
-            key: 'thinking',
-            label: t('chat.menu.thinking'),
-            icon: 'bulb-outline',
-            onPress: openThinkingPanel,
-          },
-          {
-            key: 'voice',
-            label: t('chat.menu.voice'),
-            icon: 'volume-high-outline',
-            onPress: () => setVoiceSettingsOpen(true),
-          },
-          {
-            key: 'scrubber',
-            label: t('chat.menu.scrubber'),
-            icon: 'options-outline',
-            disabled: scrubberMessages.length === 0,
-            onPress: () => setScrubberOpen(true),
+            key: 'new-chat',
+            section: t('chat.menu.section.chat'),
+            label: t('chat.menu.newChat'),
+            icon: 'chatbox-ellipses-outline',
+            danger: true,
+            disabled: isSending || !ready,
+            onPress: onNewChatFromMenu,
           },
           {
             key: 'search',
+            section: t('chat.menu.section.chat'),
             label: t('chat.menu.search'),
             icon: 'search',
             active: searchOpen,
@@ -2488,13 +2485,75 @@ export default function ChatScreen() {
           },
           {
             key: 'summary',
+            section: t('chat.menu.section.chat'),
             label: summarizing ? t('chat.menu.summarizing') : t('chat.menu.summary'),
             icon: 'book-outline',
             disabled: summarizing || !ready,
             onPress: onSummarize,
           },
           {
+            key: 'scrubber',
+            section: t('chat.menu.section.chat'),
+            label: t('chat.menu.scrubber'),
+            icon: 'options-outline',
+            disabled: scrubberMessages.length === 0,
+            onPress: () => setScrubberOpen(true),
+          },
+          {
+            key: 'fullscreen',
+            section: t('chat.menu.section.chat'),
+            label: t('chat.menu.fullscreen'),
+            icon: 'expand-outline',
+            disabled: !ready || sessionOwnerMissing || (!isGroup && !greetingReady),
+            onPress: openFullScreen,
+          },
+          // 角色与模型：编辑角色/群聊提升为一等公民（原藏在「设置」二级弹层）
+          {
+            key: 'edit-role',
+            section: t('chat.menu.section.roleModel'),
+            label: isGroup ? t('chat.editGroup') : t('chat.editCharacter'),
+            icon: 'create-outline',
+            onPress: () => (isGroup ? setGroupEditOpen(true) : setCharacterEditOpen(true)),
+          },
+          {
+            key: 'model',
+            section: t('chat.menu.section.roleModel'),
+            label: t('chat.menu.model'),
+            icon: 'cube-outline',
+            onPress: openModelPanel,
+          },
+          {
+            key: 'thinking',
+            section: t('chat.menu.section.roleModel'),
+            label: t('chat.menu.thinking'),
+            icon: 'bulb-outline',
+            onPress: openThinkingPanel,
+          },
+          {
+            key: 'voice',
+            section: t('chat.menu.section.roleModel'),
+            label: t('chat.menu.voice'),
+            icon: 'volume-high-outline',
+            onPress: () => setVoiceSettingsOpen(true),
+          },
+          // 其他：低频与系统入口
+          {
+            key: 'notice',
+            section: t('chat.menu.section.other'),
+            label: t('chat.menu.notice'),
+            icon: 'megaphone-outline',
+            onPress: () => setNoticeOpen(true),
+          },
+          {
+            key: 'local-logs',
+            section: t('chat.menu.section.other'),
+            label: t('chat.menu.localLogs'),
+            icon: 'document-text-outline',
+            onPress: () => setLocalLogsOpen(true),
+          },
+          {
             key: 'settings',
+            section: t('chat.menu.section.other'),
             label: t('chat.menu.settings'),
             icon: 'settings-outline',
             onPress: () => setChatSettingsOpen(true),
@@ -2516,6 +2575,8 @@ export default function ChatScreen() {
       <VoiceSettingsModal
         visible={voiceSettingsOpen}
         onClose={() => setVoiceSettingsOpen(false)}
+        autoBroadcast={ttsSettings.autoBroadcast}
+        onToggleBroadcast={toggleBroadcast}
         voiceMode={!isGroup && character.voiceDisplay === 'voice'}
         onToggleVoiceMode={() => {
           if (isGroup || !characterId) return;

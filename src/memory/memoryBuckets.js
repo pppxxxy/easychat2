@@ -1,20 +1,42 @@
-// 记忆分档：按会话最后更新时间把历史对话分成「最近 / 一天前 / 一周前 /
-// 一个月前 / 半年前 / 一年前」，置顶单独成组。纯函数，便于单测与 UI 复用。
+// 记忆分档：置顶单独成组，其余按「最近 7 天 / 更早」两档划分。纯函数，便于单测与 UI 复用。
+// 历史版本曾按 最近/一天前/一周前/一个月前/半年前/一年前 分 6 档——会话量级是个位数到
+// 几十时，组头比会话还多，纵向空间全被标题吃掉（2026-10-06 指令书 Phase 2 收敛为 3 组）。
+// 分组展开态只活在内存（不持久化），换档位 id 无需兼容旧展开状态。
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const PINNED_GROUP_ID = 'pinned';
 
-// maxAge 为开区间上界：age < maxAge 落入该档；最后一档不设上界（一年前及以上）。
-// label 保留给既有测试/调试用中文基准文案；UI 渲染一律走 labelKey + t()。
+// maxAge 为开区间上界：age < maxAge 落入该档；最后一档不设上界。
 export const MEMORY_BUCKETS = [
-  { id: 'recent', label: '最近', labelKey: 'memory.bucket.recent', maxAge: 1 * DAY_MS },
-  { id: 'day', label: '一天前', labelKey: 'memory.bucket.day', maxAge: 7 * DAY_MS },
-  { id: 'week', label: '一周前', labelKey: 'memory.bucket.week', maxAge: 30 * DAY_MS },
-  { id: 'month', label: '一个月前', labelKey: 'memory.bucket.month', maxAge: 180 * DAY_MS },
-  { id: 'halfYear', label: '半年前', labelKey: 'memory.bucket.halfYear', maxAge: 365 * DAY_MS },
-  { id: 'year', label: '一年前', labelKey: 'memory.bucket.year' },
+  { id: 'recent', label: '最近 7 天', maxAge: 7 * DAY_MS },
+  { id: 'older', label: '更早' },
 ];
+
+// 列表筛选 chips（记忆页头部下方）：全部 / 置顶 / 群聊。
+// 「本地」chip 依赖会话的 modelKind 字段（本地模型发送链落盘），
+// 由界面在存在本地会话时把 LOCAL_FILTER 追加进来——旧数据全是无字段的
+// 'api' 会话，常驻一个永远筛不出东西的 chip 只会误导。
+export const MEMORY_FILTERS = Object.freeze([
+  { id: 'all', label: '全部' },
+  { id: 'pinned', label: '置顶' },
+  { id: 'group', label: '群聊' },
+]);
+
+export const LOCAL_FILTER = Object.freeze({ id: 'local', label: '本地' });
+
+export function hasLocalSessions(sessions) {
+  return (Array.isArray(sessions) ? sessions : [])
+    .some(item => item && item.modelKind === 'local');
+}
+
+export function filterSessionsForMemory(sessions, filterId) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  if (filterId === 'pinned') return list.filter(item => item && item.pinned === true);
+  if (filterId === 'group') return list.filter(item => item && item.type === 'group');
+  if (filterId === 'local') return list.filter(item => item && item.modelKind === 'local');
+  return list;
+}
 
 export function bucketIdForTimestamp(timestamp, now = Date.now()) {
   const value = Number(timestamp);
@@ -33,14 +55,26 @@ export function groupSessionsByAge(sessions, now = Date.now()) {
   const groups = [];
   const pinned = list.filter(item => item.pinned === true);
   if (pinned.length > 0) {
-    groups.push({ id: PINNED_GROUP_ID, label: '置顶', labelKey: 'memory.bucket.pinned', sessions: pinned });
+    groups.push({ id: PINNED_GROUP_ID, label: '置顶', sessions: pinned });
   }
   const rest = list.filter(item => item.pinned !== true);
   MEMORY_BUCKETS.forEach(bucket => {
     const items = rest.filter(item => bucketIdForTimestamp(item.updatedAt, now) === bucket.id);
-    if (items.length > 0) groups.push({ id: bucket.id, label: bucket.label, labelKey: bucket.labelKey, sessions: items });
+    if (items.length > 0) groups.push({ id: bucket.id, label: bucket.label, sessions: items });
   });
   return groups;
+}
+
+// 会话行的徽章列表（纯函数，便于单测）：克隆副本 badge + 本地模型 badge
+// （中性属性而非状态，非高亮）。置顶星由行组件按 pinned 单独渲染
+// （它是图标不是文字 badge），这里不重复。最多渲染 2 个由行组件截断。
+export function buildSessionBadges(session) {
+  const badges = [];
+  if (session && session.clonedFrom) badges.push({ text: '副本' });
+  if (session && session.modelKind === 'local') {
+    badges.push({ icon: 'hardware-chip-outline', text: '本地' });
+  }
+  return badges;
 }
 
 // 扁平化成可交给 FlatList 的列表：每组一个头，展开时才插入该组的会话行。
@@ -53,7 +87,6 @@ export function buildMemoryListData(groups, expandedIds) {
       id: `header:${group.id}`,
       groupId: group.id,
       label: group.label,
-      labelKey: group.labelKey,
       count: group.sessions.length,
     });
     if (expanded.has(group.id)) {

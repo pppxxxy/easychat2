@@ -75,6 +75,21 @@ export function sortSessions(list) {
   });
 }
 
+// 会话模型标识（记忆页「本地」badge 的数据源）：modelKind 'local' | 'api' + modelName。
+// 本地模型与云端 API 的对话此前在列表里完全无法区分（2026-10-06 指令书 Phase 3）。
+// 旧数据无字段：读取侧把缺失视为 'api'，不迁移、不回填。
+// 无变化返回 null，调用方据此跳过写盘。
+export function applySessionModelMark(session, mark) {
+  if (!session || typeof session !== 'object') return null;
+  const source = mark && typeof mark === 'object' ? mark : {};
+  const modelKind = source.modelKind === 'local' ? 'local' : 'api';
+  const modelName = String(source.modelName || '').trim().slice(0, 120);
+  if (session.modelKind === modelKind && String(session.modelName || '') === modelName) {
+    return null;
+  }
+  return { ...session, modelKind, modelName };
+}
+
 export function buildPreview(messages, maxLength = 60) {
   const list = Array.isArray(messages) ? messages : [];
   for (let index = list.length - 1; index >= 0; index -= 1) {
@@ -254,8 +269,8 @@ export function buildRestoredSession({ sessionId, characterId, messages, now = D
 }
 
 // 用开场白反推一段孤儿对话属于哪个角色：单聊的第一条助手消息通常就是该角色的 firstMes。
-// 先精确比对（含 {{user}} 替换），再退化为前 24 字前缀比对；命中不唯一一律返回空串
-// ——宁可不猜（用户在恢复弹窗里手选），也不能把对话挂到错误的角色名下。
+// 只做开场白**全文**精确比对（含 {{user}} 替换）；前缀猜测已移除（会把孤儿对话
+// 错误推荐到兜底卡），判不出来返回空串，由恢复弹窗让用户手选。
 export function guessCharacterIdForMessages(messages, characters, { userName = '' } = {}) {
   const user = String(userName || '').trim();
   const normalize = text => {
@@ -279,14 +294,11 @@ export function guessCharacterIdForMessages(messages, characters, { userName = '
   if (exactMatches.length === 1) return exactMatches[0].id;
   if (exactMatches.length > 1) return '';
 
-  // 开场白后面被追加了内容时，用前缀比对。阈值抬到 24 字并要求唯一命中：
-  // 12 字太短——「你好呀，我是…」这类通用开场白会同时命中一堆角色，猜错就把
-  // 对话挂到别人名下（记忆也就跟着串了）。
-  const PREFIX_PROBE = 24;
-  const first = replies[0];
-  const prefixMatches = pool.filter(item => {
-    const probe = item.firstMes.slice(0, PREFIX_PROBE);
-    return probe.length >= PREFIX_PROBE && first.startsWith(probe);
-  });
-  return prefixMatches.length === 1 ? prefixMatches[0].id : '';
+
+  // 前缀猜测已移除（2026-10-05 审核报告）：12 字前缀会把孤儿对话错误推荐到
+  // 兜底卡——助手的开场白也在候选池里，「恢复会话挂到初始卡」那条污染链就是
+  // 从这里起步的。只保留开场白**全文精确命中**这一个强证据；判不出来返回空串，
+  // 由恢复弹窗让用户手选。
+  return '';
+
 }

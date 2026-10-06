@@ -195,6 +195,7 @@ export {
 export {
   createVectorConfig,
   getVectorIndex,
+  clearVectorIndex,
   getVectorIndexStatus,
   getVectorMemoryConfig,
   getVectorMemorySettings,
@@ -249,6 +250,7 @@ export {
   getSessions,
   invalidateSessionSummaries,
   isSessionSummaryRevisionCurrent,
+  markSessionModel,
   migrateLegacyMessages,
   reconcileVectorIndexes,
   reconcileWorldMemories,

@@ -98,6 +98,7 @@ import {
   getVectorIndex,
   getVectorMemoryConfig,
   getWorkspaceSettings,
+  markSessionModel,
   removeVectorIndexForSession,
   updateSessionMemberProfiles,
 } from '../storage.js';
@@ -404,6 +405,7 @@ export default function useChatSend({
         // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置
         // 单独裁剪媒体，避免把图片/音频发给不支持多模态的在线端点。
         let onlineMedia = { allowVision: false, allowAudio: false };
+        let onlineModelName = '';
         try {
           const { configs, activeId } = await getApiConfigs();
           const onlineConfig = configs.find(item => item.id === expectedConfigId)
@@ -413,6 +415,7 @@ export default function useChatSend({
             allowVision: Boolean(onlineConfig && onlineConfig.supportsVision),
             allowAudio: Boolean(onlineConfig && onlineConfig.supportsAudio),
           };
+          onlineModelName = onlineConfig ? String(getActiveModel(onlineConfig) || '').trim() : '';
         } catch (error) {}
         const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
         // 在线路径按工作区模式分流：ask 不暴露任何工具，走原 sendChatMessage（零变化）；
@@ -491,12 +494,18 @@ export default function useChatSend({
              });
             }
         }));
+        // 路由结果由 provider 回调告知（本地成功=local，回退/未启用=api）：
+        // 本地→在线是静默回退，「这次回复是谁产的」只能按真实产出链路标记。
+        let resolvedProvider = null;
         const reply = await sendWithModelProvider({
           messages: localMessages,
           localSettings,
           localItem,
           localFileInfo,
           signal: controller.signal,
+          onProviderResolved: info => {
+            resolvedProvider = info && typeof info === 'object' ? info : null;
+          },
           // 会话标识：跨对话时适配器会清 KV cache，避免新对话串进上一段对话。
           conversationKey: String((sessionGuard && sessionGuard.sessionId) || ''),
           // 本地模型加载进度透传：首条消息前 mmap 权重的耗时对用户可见。
@@ -540,6 +549,16 @@ export default function useChatSend({
         return replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
       });
       if (isCurrentSession()) {
+        // 会话模型标识落盘（记忆页「本地」badge 的数据源）。只在回复真正落入
+        // 当前会话后标记；落盘失败不影响聊天主链路，静默吞掉。
+        if (resolvedProvider) {
+          markSessionModel(sendSessionId, {
+            modelKind: resolvedProvider.kind === 'local' ? 'local' : 'api',
+            modelName: resolvedProvider.kind === 'local'
+              ? String(resolvedProvider.modelName || '')
+              : onlineModelName,
+          }).catch(() => {});
+        }
         maybeAutoSummarize(buildAutoSummaryInput(baseMessages, replyParts, pendingAssistantMessage));
         if (inlineImageEnabledRef.current) {
           // 配图要挂到替换后的文字消息上：pending 占位符已被 replyParts 替换，其 id 已变，

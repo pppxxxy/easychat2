@@ -36,13 +36,22 @@ export async function sendWithModelProvider({
   conversationKey,
   signal,
   tools,
+  onProviderResolved,
 }) {
+  // 路由结果通知（可选）：本地成功=local；本地未启用/被占用/推理失败回退在线=api。
+  // 调用方（聊天发送链）据此给会话落 modelKind/modelName 标识——本地与云端的对话
+  // 此前在会话列表里无法区分。注意本地→在线是静默回退，「本地模型」不能按设置推断，
+  // 只能按「哪条链路真正产出了回复」标记。
+  const notify = typeof onProviderResolved === 'function' ? onProviderResolved : null;
+  const notifyApi = () => { if (notify) notify({ kind: 'api' }); };
   if (!canUseLocalModel(localSettings, localFileInfo, localItem)) {
+    notifyApi();
     return onlineSend();
   }
   const release = tryAcquireResource('local-model');
   if (!release) {
     recordModelLog('api', '本地模型资源被占用，回退在线 API', { level: 'warn' });
+    notifyApi();
     return onlineSend();
   }
   const model = localItem || localSettings;
@@ -52,6 +61,12 @@ export async function sendWithModelProvider({
       recordModelLog('api', '本地模型暂不支持工具调用，已降级为纯对话', { level: 'warn' });
     }
     const result = await runLocalModel(messages, model, { onToken, onReasoning, onModelLoadProgress, conversationKey, signal });
+    if (notify) {
+      notify({
+        kind: 'local',
+        modelName: String((model && (model.name || model.modelName)) || '').trim(),
+      });
+    }
     return result && typeof result.text === 'string' ? result.text : '';
   } catch (error) {
     // 用统一分类判定取消：adapter 在 signal 已中止但异常 name 不是 AbortError 时
@@ -60,6 +75,7 @@ export async function sendWithModelProvider({
     if (info.code === 'ABORTED') throw error;
     recordModelLog('api', `本地推理失败，回退在线 API：${info.message}`, { level: info.level });
     recordDiagnostic('api', error, 'local-model-fallback');
+    notifyApi();
     return onlineSend();
   } finally {
     release();

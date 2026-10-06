@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createSafWorkspaceStore } from '../src/workspace/safStore.js';
+import { createSafWorkspaceStore, SAF_LIMITS } from '../src/workspace/safStore.js';
 import { createExpoSafAdapter } from '../src/workspace/safStore.js';
 
 const ROOT = 'content://tree/primary%3ADocs';
@@ -103,7 +103,7 @@ test('读回与列目录：目录带 /、非白名单扩展名不出现', async 
   assert.deepEqual(files, ['a.txt', 'sub/', 'sub/b.md']);
 
   const read = await store.readWorkspaceFile({ characterId: 'c1', path: 'sub/b.md' });
-  assert.deepEqual(read, { path: 'sub/b.md', content: 'b', truncated: false });
+  assert.deepEqual(read, { path: 'sub/b.md', content: 'b', truncated: false, offset: 0, total: 1 });
 
   // 另一个角色是独立子目录，读不到 c1 的文件
   await assert.rejects(
@@ -231,4 +231,22 @@ test('createExpoSafAdapter：新 API 缺失时明确抛错，齐备时形状正�
     await adapter.delete('content://a');
     assert.deepEqual(listed[2], ['delete', 'content://a']);
   })();
+});
+
+test('SAF：read 分段与 edit 守卫与 legacy 后端同口径', async () => {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: ROOT, adapter });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'big.txt', content: '0123456789' });
+  const head = await store.readWorkspaceFile({ characterId: 'c1', path: 'big.txt', maxChars: 4 });
+  assert.deepEqual(head, { path: 'big.txt', content: '0123', truncated: true, offset: 0, total: 10, nextOffset: 4 });
+  const tail = await store.readWorkspaceFile({ characterId: 'c1', path: 'big.txt', offset: 8 });
+  assert.deepEqual(tail, { path: 'big.txt', content: '89', truncated: false, offset: 8, total: 10 });
+
+  // 编辑守卫：超过编辑上限的文件拒绝回写（SAF 与 legacy 同一规则）。
+  const huge = 'b'.repeat(SAF_LIMITS.MAX_EDIT_CHARS + 1);
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'huge.txt', content: huge });
+  await assert.rejects(
+    store.editWorkspaceFile({ characterId: 'c1', path: 'huge.txt', find: 'b', replace: 'c' }),
+    /文件过大/
+  );
 });
