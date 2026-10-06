@@ -47,6 +47,18 @@ export default function DiaryPanel() {
   const [diaryIndex, setDiaryIndex] = useState(0);
   const [notice, setNotice] = useState('');
   const [viewWidth, setViewWidth] = useState(() => Dimensions.get('window').width - 72);
+  // 开关类控件必须「改了就落盘」（2026-10-07）：此前只改内存 state、要额外点
+  // 底部保存才写盘，用户开完就走 = @easychat2_diary_settings 里 enabled 始终
+  // false，执行器永远筛不到该角色，日记一篇都不会生成。
+  // settingsRef 同步镜像最新设置（函数式更新里读不到最新值时用）；
+  // writeChainRef 串行化写盘（防两次快速点击互相覆盖）；inFlightRef 记在途
+  // 写数，离开面板前若 > 0 先等落盘再走，绝不静默丢弃。
+  const settingsRef = useRef(settings);
+  // 渲染期同步镜像：load() 从存储读回后若不同步，首次改开关会以空设置整表覆盖。
+  settingsRef.current = settings;
+  const writeChainRef = useRef(Promise.resolve());
+  const inFlightRef = useRef(0);
+  const leavingRef = useRef(false);
   // 翻页按钮的程序化滚动目标：按钮与手势翻页共用一个计数器，
   // 按钮只改 state 不滚 ScrollView 的话页面不会动（手势翻页仍由 onMomentumScrollEnd 回写）。
   const pagerRef = useRef(null);
@@ -97,27 +109,73 @@ export default function DiaryPanel() {
     }
   }, [diaryIndex, viewWidth]);
 
+  // 乐观更新 + 立即落盘（串行队列）。失败时不猜、以存储真实值为准回滚并明确
+  // 提示（禁止「catch 后无条件报已保存」的反模式）；旧写的返回值只有在仍是
+  // 最新一次修改时才回写 state，防止慢写覆盖新状态。
+  const persistSettings = useCallback(mutate => {
+    const next = mutate(settingsRef.current);
+    settingsRef.current = next;
+    setSettings(next);
+    setNotice('');
+    inFlightRef.current += 1;
+    const write = writeChainRef.current
+      .catch(() => {})
+      .then(() => saveDiarySettings(next))
+      .then(saved => {
+        if (settingsRef.current === next) {
+          settingsRef.current = saved;
+          setSettings(saved);
+          setNotice(t('diary.notice.saved'));
+        }
+        return saved;
+      })
+      .catch(async () => {
+        const stored = await getDiarySettings().catch(() => null);
+        if (stored) {
+          settingsRef.current = stored;
+          setSettings(stored);
+        }
+        setNotice(t('diary.notice.saveFailed'));
+        return null;
+      })
+      .finally(() => {
+        inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+      });
+    writeChainRef.current = write;
+    return write;
+  }, [t]);
+
   const toggleRole = useCallback((id, enabled, roleName) => {
-    setSettings(current => setRoleDiarySetting(current, id, { enabled, roleName }));
-  }, []);
+    persistSettings(current => setRoleDiarySetting(current, id, { enabled, roleName }));
+  }, [persistSettings]);
 
   const chooseRoleApi = useCallback((id, apiConfigId) => {
-    setSettings(current => setRoleDiarySetting(current, id, { apiConfigId }));
-  }, []);
+    persistSettings(current => setRoleDiarySetting(current, id, { apiConfigId }));
+  }, [persistSettings]);
 
+  // 底部保存按钮保留为兜底（把当前设置整体再落一次盘），不再是唯一落盘路径。
   const save = useCallback(async () => {
     setSaving(true);
-    setNotice('');
     try {
-      const saved = await saveDiarySettings(settings);
-      setSettings(saved);
-      setNotice(t('diary.notice.saved'));
-    } catch (error) {
-      setNotice(t('diary.notice.saveFailed'));
+      await persistSettings(current => current);
     } finally {
       setSaving(false);
     }
-  }, [settings, t]);
+  }, [persistSettings]);
+
+  // 离开前 flush：有在途写盘时先等它落地再放行（leavingRef 防重复拦截）。
+  useEffect(() => {
+    if (!navigation || typeof navigation.addListener !== 'function') return undefined;
+    const unsubscribe = navigation.addListener('beforeRemove', event => {
+      if (leavingRef.current || inFlightRef.current === 0) return;
+      event.preventDefault();
+      leavingRef.current = true;
+      writeChainRef.current.finally(() => {
+        navigation.dispatch(event.data.action);
+      });
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   if (loading) {
     return (
