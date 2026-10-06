@@ -182,6 +182,12 @@ export function AppProvider({ children }) {
     return applyList(list);
   }, [applyList]);
 
+  // 排队版本：给外部（记忆体检弹层的清理动作等）用，避免与角色更新并发读写打架。
+  const refreshCharacters = useCallback(
+    () => enqueueMutation(() => refreshCharactersDirect()),
+    [enqueueMutation, refreshCharactersDirect]
+  );
+
   const restore = useCallback(snapshot => {
     charactersRef.current = snapshot.list;
     activeIdRef.current = snapshot.activeId;
@@ -704,6 +710,7 @@ export function AppProvider({ children }) {
       deleteSession,
       deleteSessions,
       refreshSessions,
+      refreshCharacters,
       refreshAppData,
       ensureCharacterSession,
       ingestProactiveMessages,
@@ -734,6 +741,7 @@ export function AppProvider({ children }) {
       deleteSession,
       deleteSessions,
       refreshSessions,
+      refreshCharacters,
       refreshAppData,
       ensureCharacterSession,
       ingestProactiveMessages,

@@ -2,8 +2,13 @@
 // 任务态用单对象 { kind, progress, writtenBytes, totalBytes } 表达（C2 的实质）：
 // kind 为空即「没有任务在跑」，不存在「busy=true 但任务已死」的孤儿态。
 // 反馈约定同 usePanelModels：不弹 Alert，返回 { ok, code, message } 由壳映射。
+//
+// 状态机（useReducer）：本域四个状态（子 Tab / 下载草稿 / 导入草稿 / 任务）本来就是
+// 一台「获取流程」的状态机，收成一个 reducer 后所有迁移都走 dispatch，杜绝散落的
+// setXxx 交叉更新（U4 的取消 + U2 的草稿互斥都靠类型化的 action 表达）。
+// 对外接口与旧 useState 版完全一致（setter 兼容函数式更新），壳不需要改动。
 
-import { useCallback, useState } from 'react';
+import { useCallback, useReducer } from 'react';
 
 import * as DocumentPicker from 'expo-document-picker';
 
@@ -17,14 +22,21 @@ import { buildModelSummary } from '../modelCompatibility.js';
 import { localModelIdFromFileName } from '../modelState.js';
 import { getPickedAsset } from '../../character/cardHelpers.js';
 import { emptyDownloadDraft, emptyImportDraft } from './panelShared.js';
-
-const IDLE_TASK = { kind: '', progress: 0, writtenBytes: 0, totalBytes: 0 };
+import { acquireReducer, IDLE_TASK } from './acquireReducer.js';
 
 export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
-  const [acquireTab, setAcquireTab] = useState('download');
-  const [downloadDraft, setDownloadDraft] = useState(emptyDownloadDraft);
-  const [importDraft, setImportDraft] = useState(emptyImportDraft);
-  const [task, setTask] = useState(IDLE_TASK);
+  const [state, dispatch] = useReducer(acquireReducer, undefined, () => ({
+    tab: 'download',
+    downloadDraft: emptyDownloadDraft(),
+    importDraft: emptyImportDraft(),
+    task: IDLE_TASK,
+  }));
+  const { tab: acquireTab, downloadDraft, importDraft, task } = state;
+
+  const setAcquireTab = useCallback(value => dispatch({ type: 'tab', value }), []);
+  const setDownloadDraft = useCallback(value => dispatch({ type: 'downloadDraft', value }), []);
+  const setImportDraft = useCallback(value => dispatch({ type: 'importDraft', value }), []);
+  const setTask = useCallback(value => dispatch({ type: 'task', value }), []);
 
   const draftSummary = buildModelSummary(
     { name: `${downloadDraft.name} ${downloadDraft.modelId}`, quant: downloadDraft.quant, paramSize: downloadDraft.paramSize },
@@ -69,7 +81,7 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
       if (error && error.code === 'DOWNLOAD_CANCELLED') return { ok: false, code: 'CANCELLED' };
       return { ok: false, code: 'FAILED', message: error && error.message };
     }
-  }, [downloadDraft, onChanged]);
+  }, [downloadDraft, onChanged, setDownloadDraft, setTask]);
 
   // 取消进行中的下载：幂等（任务不存在时静默返回 false），半成品走既有失败清理。
   const handleCancelDownload = useCallback(() => {
@@ -89,7 +101,7 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
     } catch (error) {
       return { ok: false, code: 'PICK_FAILED', message: error && error.message };
     }
-  }, []);
+  }, [setImportDraft]);
 
   const pickMmproj = useCallback(async () => {
     try {
@@ -101,7 +113,7 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
     } catch (error) {
       return { ok: false, code: 'PICK_FAILED', message: error && error.message };
     }
-  }, []);
+  }, [setImportDraft]);
 
   const handleImport = useCallback(async () => {
     if (!importDraft.sourceUri) return { ok: false, code: 'NO_FILE' };
@@ -120,7 +132,7 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
       setTask(IDLE_TASK);
       return { ok: false, code: 'FAILED', message: error && error.message };
     }
-  }, [importDraft, onChanged]);
+  }, [importDraft, onChanged, setImportDraft, setTask]);
 
   // 选中文件后静默回填（U5）：体积/兼容评估/内存估算由 summaryCard 常驻展示，
   // 不再弹五行小作文。返回摘要给壳——只有「跑不了」档才由壳弹一条警示。
@@ -143,7 +155,7 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
       { name: selection.modelId || selection.modelName || '' },
       { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 }
     );
-  }, [deviceMemoryBytes]);
+  }, [deviceMemoryBytes, setDownloadDraft]);
 
   const rewriteSource = useCallback(source => {
     setDownloadDraft(current => {
@@ -152,7 +164,7 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
       const repoPath = String(current.modelUrl || '').replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '');
       return { ...current, modelUrl: repoPath ? `${source.baseUrl}/${repoPath}` : `${source.baseUrl}/`, sourceId: source.id };
     });
-  }, []);
+  }, [setDownloadDraft]);
 
   return {
     acquireTab,

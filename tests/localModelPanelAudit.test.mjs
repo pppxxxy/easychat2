@@ -17,9 +17,12 @@ const readPanel = name => readFileSync(path.join(HERE, '..', 'src', 'localModel'
 const SHELL = readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
 const PANEL_FILES = [
   'panelShared.js',
+  'acquireReducer.js',
   'usePanelModels.js',
   'useAcquireModel.js',
   'useApiServer.js',
+  'useModelParams.js',
+  'panelFeedback.js',
   'panelStyles.js',
   'ModelsSection.js',
   'AcquireSection.js',
@@ -44,10 +47,11 @@ test('adapter：unload 报告释放是否完全成功（返回值语义）', () 
 });
 
 test('C4：删除已加载模型先停服务再卸载内存，卸载失败中止删除', () => {
-  const start = SHELL.indexOf('const confirmDelete');
-  const end = SHELL.indexOf('// 长按操作单（U6）');
+  // 删除链已从壳抽到 panel/panelFeedback.js：锚点在拼接源上找，对迁移稳健。
+  const start = PANEL.indexOf('const confirmDelete');
+  const end = PANEL.indexOf('// 长按操作单（U6）');
   assert.ok(start > 0 && end > start, 'confirmDelete 区域定位失败');
-  const region = SHELL.slice(start, end);
+  const region = PANEL.slice(start, end);
   // 关键顺序锚点：判加载 → 停服务 → 卸载 → 失败中止 → 删文件 → 删登记
   const loadedAt = region.indexOf('isLocalModelLoaded(item)');
   const stopAt = region.indexOf('stopLocalApiServer()');
@@ -104,13 +108,21 @@ test('U1/U3：三段式分区 + 原生 Switch（假开关 pill 退役）', () =>
 });
 
 test('U2：下载与导入草稿分离，互斥子 Tab 切换各自保留', () => {
-  assert.ok(USE_ACQUIRE.includes('emptyDownloadDraft'));
-  assert.ok(USE_ACQUIRE.includes('emptyImportDraft'));
-  assert.ok(USE_ACQUIRE.includes('useState(emptyDownloadDraft)'));
-  assert.ok(USE_ACQUIRE.includes('useState(emptyImportDraft)'));
-  assert.ok(!PANEL.includes('useState(emptyDraft)'), '单一 14 字段 draft 应已拆分');
+  assert.ok(USE_ACQUIRE.includes('downloadDraft: emptyDownloadDraft()'));
+  assert.ok(USE_ACQUIRE.includes('importDraft: emptyImportDraft()'));
   assert.ok(USE_ACQUIRE.includes('importDraft.sourceUri'));
   assert.ok(USE_ACQUIRE.includes('importDraft.mmprojSourceUri'));
+  assert.ok(!PANEL.includes('useState(emptyDraft)'), '单一 14 字段 draft 应已拆分');
+
+  // useReducer 状态机：状态迁移全部走类型化 action（reducer 在独立纯模块里，行为直测）
+  const REDUCER = readPanel('acquireReducer.js');
+  assert.ok(USE_ACQUIRE.includes("from './acquireReducer.js'"), '获取域应使用状态机');
+  assert.ok(!USE_ACQUIRE.includes('useState('), '获取域不再散落 useState');
+  for (const type of ['tab', 'downloadDraft', 'importDraft', 'task']) {
+    assert.ok(REDUCER.includes(`case '${type}':`), `reducer 缺 action：${type}`);
+  }
+  assert.ok(REDUCER.includes('nextValue'), 'reducer 必须兼容函数式更新（与 useState 语义一致）');
+  assert.ok(REDUCER.includes("kind: ''"), '空闲任务态 kind 为空');
 });
 
 test('U4：下载进度条 + 取消按钮接线', () => {
@@ -120,9 +132,9 @@ test('U4：下载进度条 + 取消按钮接线', () => {
   // 进度条（非一行文字）+ 字节详情（单对象任务态 task.progress/totalBytes）
   assert.ok(ACQUIRE_SECTION.includes('downloadProgressBar'));
   assert.ok(ACQUIRE_SECTION.includes('task.totalBytes'));
-  // 取消按编码区分：hook 识别 DOWNLOAD_CANCELLED，壳对 CANCELLED 不弹错误
+  // 取消按编码区分：hook 识别 DOWNLOAD_CANCELLED，反馈层对 CANCELLED 不弹错误
   assert.ok(USE_ACQUIRE.includes("code === 'DOWNLOAD_CANCELLED'"));
-  assert.ok(SHELL.includes("result.code === 'CANCELLED'"));
+  assert.ok(PANEL.includes("result.code === 'CANCELLED'"));
   // modelManager 侧：登记表 + 幂等取消 + 编码错误
   const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
   assert.ok(manager.includes('activeDownloads'));
@@ -135,16 +147,16 @@ test('U5：搜索选中静默回填，仅「跑不了」档弹警示', () => {
   const start = USE_ACQUIRE.indexOf('const handleSearchSelect');
   const region = USE_ACQUIRE.slice(start, USE_ACQUIRE.indexOf('const rewriteSource'));
   assert.ok(region.includes('buildModelSummary'));
-  assert.ok(!region.includes('Alert.alert'), '选中回填应静默（反馈在壳）');
-  // 壳只在「跑不了」档警示
-  assert.ok(SHELL.includes("summary.compatibility.tier !== 'incompatible'"));
+  assert.ok(!region.includes('Alert.alert'), '选中回填应静默（反馈在 panelFeedback）');
+  // 反馈层只在「跑不了」档警示
+  assert.ok(PANEL.includes("summary.compatibility.tier !== 'incompatible'"));
 });
 
 test('U6：模型行长按操作单（参数/删除），常驻仅 选用/加载', () => {
   assert.ok(MODELS_SECTION.includes('onLongPress={() => onEntryActions(entry)}'));
-  const start = SHELL.indexOf('const onEntryActions');
-  const region = SHELL.slice(start, SHELL.indexOf('// ---- 参数弹窗 ----'));
-  assert.ok(region.includes('openParams(entry)'));
+  const start = PANEL.indexOf('const onEntryActions');
+  const region = PANEL.slice(start, PANEL.indexOf('export function createParamsSaver'));
+  assert.ok(region.includes('onEditParams(entry)'), '长按操作单里的「参数」应打开参数弹窗');
   assert.ok(region.includes('confirmDelete(entry)'));
   assert.ok(region.includes("t('localModel.chip.imported')"), '来源信息应进长按操作单副标题');
   // 常驻四按钮退役：展开机制与行内常驻 参数/删除 按钮已删
@@ -156,11 +168,15 @@ test('U6：模型行长按操作单（参数/删除），常驻仅 选用/加载
   assert.ok(!MODELS_SECTION.includes('options-outline'));
 });
 
-test('C1：拆分后壳只做组合与反馈，panel/ 组件各不超 300 行', () => {
+test('C1：拆分后壳只做组合与渲染，panel/ 组件各不超 300 行', () => {
   const shellLines = SHELL.split('\n').length;
-  // 指令书目标 ≤200；反馈映射集中在豁免壳内（no-hardcoded-chinese 约束下的
-  // 有意取舍，见审查待办登记），上限放宽到 400 防止回涨。
-  assert.ok(shellLines <= 400, `壳应保持精简，当前 ${shellLines} 行`);
+  // 指令书目标 ≤200 已达成：反馈映射抽到 panel/panelFeedback.js、参数弹窗状态抽到
+  // panel/useModelParams.js（i18n 全量清理后壳里已无硬编码文案，随之从
+  // no-hardcoded-chinese 豁免清单移除）。这里按目标值钉死，防回涨。
+  assert.ok(shellLines <= 200, `壳应保持 ≤200 行，当前 ${shellLines} 行`);
+  // 反馈映射必须留在 panel/ 里（不是塞回壳）：壳只做接线。
+  assert.ok(SHELL.includes('createPanelFeedback'), '壳应通过 panelFeedback 接线反馈');
+  assert.ok(!SHELL.includes('Alert.alert'), '壳内不应再直接弹 Alert（统一走 panelFeedback）');
   for (const name of PANEL_FILES) {
     const lines = readPanel(name).split('\n').length;
     assert.ok(lines <= 300, `${name} 应 ≤300 行，当前 ${lines}`);
@@ -188,3 +204,20 @@ test('C5：formatBytes 四处副本合一（utils 为准，modelLogs 再导出�
   const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
   assert.ok(manager.includes("import { formatBytes } from './modelLogs.js'"), 'modelManager 经 modelLogs 再导出继续可用');
 });
+
+test('U7：参数弹窗越界红框 + 恢复默认（单字段与全部）', () => {
+  const MODAL = readPanel('ModelParamsModal.js');
+  const PARAMS = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelParams.js'), 'utf8');
+  // 即时校验是纯函数（可测），弹窗只映射文案
+  assert.ok(PARAMS.includes('export function checkLocalModelParamField'));
+  assert.ok(MODAL.includes('checkLocalModelParamField(field, form[field])'), '输入框样式应跟随即时校验');
+  assert.ok(MODAL.includes('styles.inputError'), '越界要有红框');
+  assert.ok(MODAL.includes("t('localModel.paramsModal.errRange'"), '越界要有行内说明');
+  assert.ok(MODAL.includes("t('localModel.paramsModal.errNumber'"), '非数字也要提示');
+  // 恢复默认：单字段 + 全部（都走 onFieldChange，与手输同一条路径）
+  assert.ok(MODAL.includes('LOCAL_MODEL_PARAM_FIELDS[field].default'), '单字段恢复默认回填各自 default');
+  assert.ok(MODAL.includes("t('localModel.paramsModal.reset')"), '单字段按钮文案');
+  assert.ok(MODAL.includes('resetAll'), '全部恢复默认入口');
+  assert.ok(MODAL.includes("t('localModel.paramsModal.resetAll')"), '全部恢复默认文案');
+});
+

@@ -41,6 +41,17 @@ export function normalizeLocalModelParams(raw) {
   return result;
 }
 
+// 单字段即时校验（U7 越界红框用）：空值 = 用默认，放过；返回稳定 code 供界面映射文案。
+export function checkLocalModelParamField(name, raw) {
+  const rule = LOCAL_MODEL_PARAM_FIELDS[name];
+  if (!rule) return { ok: true, code: '' };
+  if (raw === '' || raw === null || raw === undefined) return { ok: true, code: '' };
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return { ok: false, code: 'NOT_NUMBER' };
+  if (parsed < rule.min || parsed > rule.max) return { ok: false, code: 'OUT_OF_RANGE' };
+  return { ok: true, code: '' };
+}
+
 // 表单校验：空值按「用默认」放过；非数字或越界给出可见错误。
 export function validateLocalModelParams(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};

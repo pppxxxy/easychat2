@@ -33,6 +33,8 @@ export function createPanelStyles(theme, fonts, tokens) {
     tabText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '700' },
     tabTextActive: { color: theme.colors.primary },
     hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 10 },
+    // 面板标题行右侧：教学入口 + 关闭
+    headerActions: { flexDirection: 'row', alignItems: 'center', columnGap: 10 },
     status: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginBottom: 10 },
     logsButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 12 },
     logsButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
@@ -113,5 +115,16 @@ export function createPanelStyles(theme, fonts, tokens) {
     downloadCancelButton: { marginLeft: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.dangerSoft },
     downloadCancelText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(13), fontWeight: '700' },
     paramField: { marginBottom: 4 },
+    // U7 完整版：字段标签行（左侧名称 + 右侧「恢复默认」）+ 越界红框与行内错误
+    paramLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    resetText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600' },
+    inputError: { borderColor: theme.colors.danger || theme.colors.primary, borderWidth: 2 },
+    fieldError: {
+      color: theme.colors.danger || theme.colors.textMuted,
+      fontSize: fonts.scaled(11),
+      marginTop: 4,
+    },
+    resetAll: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 12, marginBottom: 2 },
+    resetAllText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 5 },
   });
 }

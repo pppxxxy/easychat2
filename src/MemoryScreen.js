@@ -33,6 +33,7 @@ import {
   MEMORY_FILTERS,
 } from './memory/memoryBuckets.js';
 import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
+import MemoryCheckupModal from './memory/MemoryCheckupModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
@@ -74,6 +75,8 @@ export default function MemoryScreen({ navigation }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [topic, setTopic] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // 记忆体检（Phase 4）：把两层记忆（会话摘要 / 角色卡条目）摊开看，并可清理残留。
+  const [checkupOpen, setCheckupOpen] = useState(false);
   // 列表筛选 chips：全部 / 置顶 / 群聊（「本地」由 Phase 3 按数据有无追加）
   const [memoryFilter, setMemoryFilter] = useState('all');
   const { theme, fonts, tokens } = useTheme();
@@ -248,6 +251,12 @@ export default function MemoryScreen({ navigation }) {
 
   // ⋯ 菜单：教学入口与「展开/折叠全部」从头部收纳进来；计数本就在各分组头里。
   const menuItems = useMemo(() => ([
+    {
+      key: 'checkup',
+      icon: 'medkit-outline',
+      label: t('memory.checkup.title'),
+      onPress: () => setCheckupOpen(true),
+    },
     {
       key: 'teach',
       icon: 'help-circle-outline',
@@ -693,6 +702,13 @@ export default function MemoryScreen({ navigation }) {
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
         title={t('memory.tutorial.title')}
+      />
+
+      <MemoryCheckupModal
+        visible={checkupOpen}
+        onClose={() => setCheckupOpen(false)}
+        sessions={sessions}
+        characters={characters}
       />
     </View>
   );
