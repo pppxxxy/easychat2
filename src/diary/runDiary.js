@@ -21,7 +21,9 @@ import {
   markRoleDiaryDate,
   normalizeDiaryText,
   resolveRoleDiaryConfigId,
+  pickPrimarySession,
   selectDiaryRoles,
+  selectWindowSessions,
   setDiaryLastRunDate,
   setDiaryLastRunSummary,
   shouldAdvanceDiaryRunDate,
@@ -78,6 +80,9 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
         outcome.skipped += 1;
         continue;
       }
+      // 归属（2026-10-07）：与 collectWindowMessages 共用同一窗口口径，算出本次
+      // 实际贡献对话的会话列表与主会话（贡献消息最多者），随条目一起落盘。
+      const contributingSessionIds = selectWindowSessions(bySession, role.sessionIds, now);
       // 每角色可单独指定写日记的 API；未指定时回退全局/当前激活配置。
       const roleConfigId = resolveRoleDiaryConfigId(settings, character.id);
       const config = configs.find(item => item.id === roleConfigId) || defaultConfig;
@@ -115,6 +120,9 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
         date: role.date,
         text,
         createdAt: now,
+        // 日记绑定历史对话：主会话 + 全部贡献会话（跨多段单聊时都记录）。
+        sessionId: pickPrimarySession(bySession, contributingSessionIds, now),
+        sourceSessionIds: contributingSessionIds,
       };
       await updateDiaries(list => appendDiary(list, entry));
       nextSettings = markRoleDiaryDate(nextSettings, character.id, role.date);

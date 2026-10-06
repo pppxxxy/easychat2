@@ -19,6 +19,7 @@ import {
   setRoleDiarySetting,
 } from './diary/diary.js';
 import { useApp } from './context/AppContext.js';
+import { ROUTE_NAMES } from './navigation/routeNames.js';
 import { EmptyState } from './ui/index.js';
 import PaneHeader from './ui/PaneHeader.js';
 import { useTheme } from './theme/ThemeContext.js';
@@ -34,7 +35,7 @@ export default function DiaryPanel() {
   const { t } = useTranslation();
   const navigation = useNavigation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
-  const { characters } = useApp();
+  const { characters, sessions, switchSession, switchCharacter, activeSessionId } = useApp();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -176,6 +177,60 @@ export default function DiaryPanel() {
     });
     return unsubscribe;
   }, [navigation]);
+
+  // 归属（2026-10-07）：日记绑定来源会话；会话被删时保留条目、展示降级为
+  // 「该对话已删除」（与记忆侧「保留数据 + 展示降级」同口径）。
+  const sessionMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(sessions) ? sessions : []).forEach(session => {
+      if (session && session.id) map.set(session.id, session);
+    });
+    return map;
+  }, [sessions]);
+
+  const diarySource = useCallback(entry => {
+    const ids = Array.isArray(entry.sourceSessionIds) && entry.sourceSessionIds.length
+      ? entry.sourceSessionIds
+      : (entry.sessionId ? [entry.sessionId] : []);
+    if (ids.length === 0) return null; // 旧条目无归属：不显示「来自某某」，原样展示
+    const primaryId = String(entry.sessionId || '').trim() || ids[0];
+    const primary = sessionMap.get(primaryId);
+    if (!primary) {
+      return { id: primaryId, label: t('diary.source.deleted'), openable: false };
+    }
+    const name = String(primary.name || '').trim()
+      || (primary.type === 'group' ? t('diary.source.groupFallback') : (entry.characterName || t('diary.roleFallback')));
+    return {
+      id: primaryId,
+      label: ids.length > 1
+        ? t('diary.source.multi', { name, count: ids.length })
+        : t('diary.source.single', { name }),
+      openable: true,
+    };
+  }, [sessionMap, t]);
+
+  const openDiarySource = useCallback(async entry => {
+    const ids = Array.isArray(entry.sourceSessionIds) && entry.sourceSessionIds.length
+      ? entry.sourceSessionIds
+      : (entry.sessionId ? [entry.sessionId] : []);
+    const targetId = String(entry.sessionId || '').trim() || ids[0] || '';
+    const target = targetId ? sessionMap.get(targetId) : null;
+    if (!target) return;
+    const previousSessionId = activeSessionId;
+    try {
+      if (target.type !== 'group' && target.characterId) {
+        await switchCharacter(target.characterId);
+      }
+      await switchSession(target.id);
+      navigation.navigate(ROUTE_NAMES.chat);
+    } catch (error) {
+      // 失败回滚到原会话（与记忆页打开会话的既有模式一致），不留半切换状态。
+      try {
+        if (previousSessionId) await switchSession(previousSessionId);
+      } catch (rollbackError) {}
+      setNotice(t('diary.source.jumpFailed'));
+    }
+  }, [activeSessionId, navigation, sessionMap, switchCharacter, switchSession, t]);
 
   if (loading) {
     return (
@@ -319,14 +374,34 @@ export default function DiaryPanel() {
               setDiaryIndex(Math.round(e.nativeEvent.contentOffset.x / width));
             }}
           >
-            {roleDiaries.map(entry => (
+            {roleDiaries.map(entry => {
+              const source = diarySource(entry);
+              return (
               <View key={entry.id} style={[styles.diaryPage, { width: viewWidth }]}>
                 <Text style={styles.diaryDate}>{formatDiaryDate(entry.date)}</Text>
+                {source ? (
+                  <TouchableOpacity
+                    style={styles.sourceRow}
+                    onPress={() => (source.openable ? openDiarySource(entry) : null)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('diary.source.a11y')}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={13} color={theme.colors.primaryMuted} />
+                    <Text style={[styles.sourceText, !source.openable && styles.sourceTextMuted]} numberOfLines={1}>
+                      {source.label}
+                    </Text>
+                    {source.openable ? (
+                      <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} />
+                    ) : null}
+                  </TouchableOpacity>
+                ) : null}
                 <ScrollView style={styles.diaryPageScroll} nestedScrollEnabled>
                   <Text style={styles.diaryText}>{entry.text}</Text>
                 </ScrollView>
               </View>
-            ))}
+              );
+            })}
           </ScrollView>
           {roleDiaries.length > 1 ? (
             <View style={styles.diaryNav}>
@@ -433,6 +508,9 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   diaryPage: { paddingRight: 0 },
   diaryPageScroll: { maxHeight: 320, marginTop: 4 },
   diaryDate: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(13), fontWeight: '800' },
+  sourceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  sourceText: { flex: 1, marginHorizontal: 5, color: theme.colors.primaryMuted, fontSize: fonts.scaled(11) },
+  sourceTextMuted: { color: theme.colors.textFaint },
   diaryText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(21) },
   diaryNav: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   diaryNavBtn: { padding: 6, marginLeft: 8 },

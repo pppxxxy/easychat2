@@ -22,10 +22,13 @@ import {
   selectDiariesForCharacter,
   selectDiaryRoles,
   resolveRoleDiaryConfigId,
+  pickPrimarySession,
+  selectWindowSessions,
   setDiaryLastRunDate,
   setDiaryLastRunSummary,
   shouldAdvanceDiaryRunDate,
   setRoleDiaryEnabled,
+  DIARY_SOURCE_SESSION_LIMIT,
   setRoleDiarySetting,
   yesterdayRange,
   MAX_DIARIES_PER_CHARACTER,
@@ -303,4 +306,89 @@ test('日记面板：折叠选角色、单角色开关、专属 API 与左右滑
   // 翻页按钮必须程序化滚动：只改 diaryIndex 不滚 ScrollView 的话按钮按了页面不动
   assert.ok(PANEL_SOURCE.includes('ref={pagerRef}'));
   assert.ok(PANEL_SOURCE.includes('pagerRef.current.scrollTo({ x: diaryIndex * viewWidth, animated: true })'));
+});
+
+test('条目归属字段：旧数据零迁移兼容，新字段归一/去重/封顶', () => {
+  // 旧条目（无归属）：安全降级为 '' / []，不得因此判为损坏
+  const legacy = normalizeDiaryEntry({ id: 'd1', characterId: 'c1', date: '2026-10-05', text: 'x' });
+  assert.equal(legacy.sessionId, '');
+  assert.deepEqual(legacy.sourceSessionIds, []);
+  // 新字段归一：去重、去空、封顶
+  const entry = normalizeDiaryEntry({
+    id: 'd1', characterId: 'c1', date: '2026-10-06', text: 'x',
+    sessionId: 's2',
+    sourceSessionIds: ['s2', 's2', '', 's1', null, 's3'],
+  });
+  assert.equal(entry.sessionId, 's2');
+  assert.deepEqual(entry.sourceSessionIds, ['s2', 's1', 's3']);
+  const many = normalizeDiaryEntry({
+    id: 'd2', characterId: 'c1', date: '2026-10-06', text: 'x',
+    sourceSessionIds: Array.from({ length: DIARY_SOURCE_SESSION_LIMIT + 20 }, (_, i) => `s${i}`),
+  });
+  assert.equal(many.sourceSessionIds.length, DIARY_SOURCE_SESSION_LIMIT);
+});
+
+test('同日覆盖保留归属字段（重跑幂等不丢来源）', () => {
+  const first = appendDiary([], {
+    id: 'diary-c1-2026-10-06', characterId: 'c1', date: '2026-10-06', text: 'v1',
+    sessionId: 's1', sourceSessionIds: ['s1'],
+  });
+  const second = appendDiary(first, {
+    id: 'diary-c1-2026-10-06', characterId: 'c1', date: '2026-10-06', text: 'v2',
+    sessionId: 's2', sourceSessionIds: ['s1', 's2'],
+  });
+  assert.equal(second.length, 1);
+  assert.equal(second[0].text, 'v2');
+  assert.equal(second[0].sessionId, 's2');
+  assert.deepEqual(second[0].sourceSessionIds, ['s1', 's2']);
+});
+
+test('归属会话选择：只认窗口内的有效对话轮（排除 pending/无时间戳/越界）', () => {
+  const now = new Date(2026, 9, 6, 10, 0, 0).getTime(); // 2026-10-06 10:00
+  const { start } = yesterdayRange(now);
+  const inside = start + 3600 * 1000;
+  const outside = now - 60 * 1000;
+  const bySession = {
+    s1: [
+      { role: 'user', text: 'a', timestamp: inside },
+      { role: 'assistant', text: 'b', timestamp: inside + 1000 },
+    ],
+    s2: [
+      { role: 'user', text: 'c', timestamp: inside + 500 },
+      { role: 'assistant', text: 'pending', timestamp: inside + 2000, pending: true },
+    ],
+    s3: [
+      { role: 'user', text: 'no-ts' },
+      { role: 'user', text: 'today', timestamp: outside },
+    ],
+    s4: [],
+  };
+  const ids = ['s1', 's2', 's3', 's4'];
+  // 只有 s1/s2 在窗口内有有效轮次；按最早消息时间排序（s1 的首条更早）
+  assert.deepEqual(selectWindowSessions(bySession, ids, now), ['s1', 's2']);
+  // 主会话：s1 有 2 轮、s2 有 1 轮 → s1
+  assert.equal(pickPrimarySession(bySession, ids, now), 's1');
+  // 并列时取最早开始的一段
+  const tie = {
+    a: [{ role: 'user', text: 'x', timestamp: inside + 100 }],
+    b: [{ role: 'user', text: 'y', timestamp: inside + 50 }],
+  };
+  assert.equal(pickPrimarySession(tie, ['a', 'b'], now), 'b');
+  // 无窗口消息时安全返回
+  assert.deepEqual(selectWindowSessions({ s3: bySession.s3 }, ['s3'], now), []);
+  assert.equal(pickPrimarySession({ s4: [] }, ['s4'], now), '');
+});
+
+test('执行器写入条目携带归属字段；面板展示来源并可跳转（源码锚）', () => {
+  assert.ok(RUNNER_SOURCE.includes('selectWindowSessions(bySession, role.sessionIds, now)'));
+  assert.ok(RUNNER_SOURCE.includes('pickPrimarySession(bySession, contributingSessionIds, now)'));
+  assert.ok(RUNNER_SOURCE.includes('sourceSessionIds: contributingSessionIds'));
+  const panel = read('DiaryPanel.js');
+  assert.ok(panel.includes('diarySource'), '面板应解析来源会话');
+  assert.ok(panel.includes("t('diary.source.deleted')"), '会话被删显示降级文案');
+  assert.ok(panel.includes('switchSession(target.id)'), '来源行应可跳回会话');
+  assert.ok(panel.includes('navigation.navigate(ROUTE_NAMES.chat)'));
+  assert.ok(panel.includes('previousSessionId'), '跳转失败要回滚');
+  // 旧条目无归属时不渲染来源行
+  assert.ok(panel.includes('if (ids.length === 0) return null;'));
 });
