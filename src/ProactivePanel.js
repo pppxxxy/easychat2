@@ -42,7 +42,9 @@ import {
 import { useApp } from './context/AppContext.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
+import { useNavigation } from '@react-navigation/native';
 import { buildProactiveRequestJson } from './proactive/proactiveRequest.js';
+import PaneHeader from './ui/PaneHeader.js';
 
 // 互动：让角色在指定时间主动发消息。面板负责编辑（角色 / 多个时间 / 模式 / API 来源），
 // 实际调度交给原生（WorkManager 或精确闹钟），原生侧另存一份配置供后台发送。
@@ -139,9 +141,10 @@ function TimeField({ value, onCommit, theme, styles }) {
   );
 }
 
-// embedded=true 时不自带滚动容器，交给外层折叠分组滚动
-export default function ProactivePanel({ embedded = false }) {
+// 面板自带滚动容器（Stack 化后不再嵌入折叠分组）。
+export default function ProactivePanel() {
   const { theme, fonts } = useTheme();
+  const navigation = useNavigation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters, sessions } = useApp();
   const { t } = useTranslation();
@@ -162,6 +165,7 @@ export default function ProactivePanel({ embedded = false }) {
   const [notice, setNotice] = useState('');
   // 时间感知开关（与设置页共享同一 chatOptions）：保存槽时决定是否把当前时间写进请求。
   const [timeAware, setTimeAware] = useState(false);
+  const [defaultSettingsOpen, setDefaultSettingsOpen] = useState(false);
   // 已展开的时间槽 id 集合：默认全部收起，避免多个时间占满屏幕。
   const [openSlotIds, setOpenSlotIds] = useState(() => new Set());
   // 权限区是否展开。
@@ -461,16 +465,29 @@ export default function ProactivePanel({ embedded = false }) {
     );
   }
 
-  const Container = embedded ? View : ScrollView;
-  const containerProps = embedded ? { style: styles.content } : { contentContainerStyle: styles.content };
-
   return (
-    <Container {...containerProps}>
-      <Text style={styles.title}>{t('proactive.title')}</Text>
+    <ScrollView contentContainerStyle={styles.content}>
+      <PaneHeader title={t('proactive.title')} onBack={() => navigation.goBack()} />
       <Text style={styles.hint}>
         {t('proactive.intro')}
       </Text>
 
+      <TouchableOpacity
+        style={styles.sectionRow}
+        onPress={() => setDefaultSettingsOpen(v => !v)}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: defaultSettingsOpen }}
+      >
+        <Text style={styles.sectionTitle}>默认设置</Text>
+        <Ionicons
+          name={defaultSettingsOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={theme.colors.textFaint}
+        />
+      </TouchableOpacity>
+      {defaultSettingsOpen ? (
+        <>
       <CollapsibleSelect
         label={t('proactive.sourceLabel')}
         value={(configs.find(item => item.id === configId) || {}).name || ''}
@@ -492,7 +509,6 @@ export default function ProactivePanel({ embedded = false }) {
       <CollapsibleSelect
         label={t('proactive.roleLabel')}
         value={(characters.find(item => item.id === activeRoleId) || {}).name || ''}
-        // 有主动消息（存在任何时间槽）的角色加星标，多于十多个时一眼看出哪些配过。
         options={characters.map(item => ({
           value: item.id,
           label: `${slots.some(slot => slot.roleId === item.id) ? '★ ' : ''}${item.name || t('proactive.role.unnamed')}`,
@@ -503,6 +519,8 @@ export default function ProactivePanel({ embedded = false }) {
         theme={theme}
       />
       <Text style={styles.hint}>{t('proactive.starHint')}</Text>
+        </>
+      ) : null}
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>{t('proactive.slots.title')}</Text>
         <View style={styles.sectionActions}>
@@ -731,7 +749,7 @@ export default function ProactivePanel({ embedded = false }) {
       >
         <Text style={styles.saveButtonText}>{saving ? t('proactive.saving') : t('proactive.save')}</Text>
       </TouchableOpacity>
-    </Container>
+    </ScrollView>
   );
 }
 

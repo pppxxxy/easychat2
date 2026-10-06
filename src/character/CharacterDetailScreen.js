@@ -801,7 +801,7 @@ setWorldInfo(next.worldInfo);
         ],
         updatedAt: Date.now(),
       })
-        .then(() => navigation.navigate(ROUTE_NAMES.extension, { segment: 'forge', ts: Date.now() }))
+        .then(() => navigation.navigate(ROUTE_NAMES.extension, { screen: 'ext-forge', params: { ts: Date.now() } }))
         .catch(() => Alert.alert(t('character.detail.forge.loadFailTitle'), t('common.error.storageOrPermission')));
     };
     Alert.alert(

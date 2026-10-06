@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   FORGE_QUESTIONS,
   appendTranscript,
+  buildAdvancedPrompt,
   buildEditPrompt,
   buildGeneratePrompt,
+  buildJsonRepairPrompt,
   createForgeDraft,
   createForgeState,
   currentQuestion,
@@ -589,11 +591,12 @@ test('标签与集合条目的辅助生成协议纯函数', () => {
   });
   assert.ok(entryPrompt.includes('世界书条目'));
   assert.ok(entryPrompt.includes('旧名'));
-  // 只投影白名单字段：位置/深度不出现在提示词里（保留不改）
+  // 白名单已放开 constant/position/depth：这些字段要投影进提示词并可被 AI 改写
   assert.ok(entryPrompt.includes('"keys"'));
-  assert.equal(entryPrompt.includes('"position"'), false);
-  assert.equal(entryPrompt.includes('"depth"'), false);
-  assert.ok(entryPrompt.includes('只包含这些字段：comment、keys、content'));
+  assert.ok(entryPrompt.includes('"constant"'));
+  assert.ok(entryPrompt.includes('"position"'));
+  assert.ok(entryPrompt.includes('"depth"'));
+  assert.ok(entryPrompt.includes('只包含这些字段：comment、keys、content、constant、position、depth'));
 
   // 宽松解析：代码块/前后文字容错
   assert.deepEqual(parseEntryAssistPatch('```json\n{"comment":"新名"}\n```'), { comment: '新名' });
@@ -770,4 +773,112 @@ test('生成与条目辅助提示词给出可用的正则写法约定', () => {
   assert.ok(entryPrompt.includes('JavaScript 正则的源码'));
   assert.ok(entryPrompt.includes('不要带首尾斜杠'));
   assert.ok(entryPrompt.includes('$1'));
+});
+
+test('整卡生成可只出基础字段，高级内容由第二步补写', () => {
+  const state = { ...createForgeState(1), answers: { advanced: '全部' } };
+  const baseOnly = buildGeneratePrompt(state, { includeAdvanced: false });
+  assert.equal(baseOnly.includes('worldInfo'), false);
+  assert.equal(baseOnly.includes('regexScripts'), false);
+  assert.equal(baseOnly.includes('presets'), false);
+  // 默认（不传选项）仍包含高级内容，保持既有调用语义
+  assert.ok(buildGeneratePrompt(state).includes('worldInfo'));
+
+  const advanced = buildAdvancedPrompt(state, { name: '晚星', description: '北境少女' });
+  assert.ok(advanced.includes('已生成的角色卡'));
+  assert.ok(advanced.includes('北境少女'));
+  assert.ok(advanced.includes('worldInfo'));
+  assert.ok(advanced.includes('regexScripts'));
+  assert.ok(advanced.includes('presets'));
+  assert.ok(advanced.includes('只包含本次要求的这些'));
+
+  const onlyWorld = buildAdvancedPrompt({ ...state, answers: { advanced: '生成世界书' } }, {});
+  assert.ok(onlyWorld.includes('worldInfo'));
+  assert.equal(onlyWorld.includes('regexScripts'), false);
+});
+
+test('世界书提示词教模型输出常驻总览与具体触发条目', () => {
+  const state = { ...createForgeState(1), answers: { advanced: '生成世界书' } };
+  const prompt = buildGeneratePrompt(state);
+  assert.ok(prompt.includes('constant:true'));
+  assert.ok(prompt.includes('position:0'));
+  assert.ok(prompt.includes('世界观总览'));
+  assert.ok(prompt.includes('禁止使用'));
+});
+
+test('条目辅助提示注入角色卡背景与正则样本文本', () => {
+  const prompt = buildEntryAssistPrompt({
+    kind: 'worldInfo',
+    currentEntry: { comment: '等级', keys: ['魅魔'], content: '魅魔有等级' },
+    request: '写详细一点',
+    characterContext: '角色名：莉莉\n角色描述：北境魅魔',
+  });
+  assert.ok(prompt.includes('角色卡背景（改写时必须与之保持一致）'));
+  assert.ok(prompt.includes('北境魅魔'));
+
+  const regexPrompt = buildEntryAssistPrompt({
+    kind: 'regexScripts',
+    currentEntry: { name: '高亮', findRegex: 'foo', replaceString: 'bar' },
+    request: '忽略大小写',
+    sampleText: 'Foo foo FOO',
+  });
+  assert.ok(regexPrompt.includes('需要匹配/处理的样本文本'));
+  assert.ok(regexPrompt.includes('Foo foo FOO'));
+  assert.ok(regexPrompt.includes('JavaScript 正则的源码'));
+});
+
+test('JSON 解析失败的重试提示带原始输出前 500 字', () => {
+  const raw = 'x'.repeat(600);
+  const prompt = buildJsonRepairPrompt(raw);
+  assert.ok(prompt.includes('无法解析'));
+  assert.ok(prompt.includes('x'.repeat(500)));
+  assert.equal(prompt.includes('x'.repeat(501)), false);
+});
+
+test('条目辅助可改世界书的 constant/position/depth', () => {
+  const base = { id: 'w1', comment: '旧', keys: ['a'], content: '旧', constant: false, position: 1, depth: 4, enabled: true };
+  const merged = mergeEntryAssistPatch(base, 'worldInfo', {
+    constant: true,
+    position: 4,
+    depth: 6,
+    keys: ['b'],
+  });
+  assert.equal(merged.constant, true);
+  assert.equal(merged.position, 4);
+  assert.equal(merged.depth, 6);
+  assert.equal(merged.positionLabel, '按深度插入');
+  assert.deepEqual(merged.keys, ['b']);
+  // 非法 position 不采纳；非布尔 constant 不采纳
+  const rejected = mergeEntryAssistPatch(base, 'worldInfo', { position: 99, constant: 'yes' });
+  assert.equal(rejected.position, 1);
+  assert.equal(rejected.constant, false);
+});
+
+test('条目辅助可改正则 flags/placement/两种 Only 并同步 placementLabel', () => {
+  const base = {
+    id: 'r1',
+    name: '高亮',
+    findRegex: 'foo',
+    replaceString: 'bar',
+    flags: 'g',
+    placement: [2],
+    placementLabel: 'AI 输出',
+    markdownOnly: false,
+    promptOnly: false,
+    enabled: true,
+  };
+  const merged = mergeEntryAssistPatch(base, 'regexScripts', {
+    flags: 'gi',
+    placement: [1, 2],
+    markdownOnly: true,
+    promptOnly: false,
+  });
+  assert.equal(merged.flags, 'gi');
+  assert.deepEqual(merged.placement, [1, 2]);
+  assert.equal(merged.placementLabel, '用户输入、AI 输出');
+  assert.equal(merged.markdownOnly, true);
+  // placement 只接受 1/2；全非法时保留原值
+  const kept = mergeEntryAssistPatch(base, 'regexScripts', { placement: [3, 9] });
+  assert.deepEqual(kept.placement, [2]);
+  assert.equal(kept.placementLabel, 'AI 输出');
 });

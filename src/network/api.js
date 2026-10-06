@@ -95,6 +95,20 @@ export function buildSamplingParams(settings) {
   return params;
 }
 
+// 把单次请求的 overrides（{ temperature?, maxTokens? }）叠加到采样参数上。
+// 只认这两个键，值为有限数字才生效；结果仍用请求体的 snake_case 键名，
+// 交给 buildRequestBody 按协议归一（openai 原样、responses 转 max_output_tokens、anthropic 转 max_tokens）。
+export function mergeSamplingOverrides(samplingParams, overrides) {
+  const base = samplingParams && typeof samplingParams === 'object' ? { ...samplingParams } : {};
+  const source = overrides && typeof overrides === 'object' ? overrides : null;
+  if (!source) return base;
+  const temperature = Number(source.temperature);
+  if (Number.isFinite(temperature)) base.temperature = temperature;
+  const maxTokens = Number(source.maxTokens);
+  if (Number.isFinite(maxTokens)) base.max_tokens = Math.round(maxTokens);
+  return base;
+}
+
 export function normalizeChatUrl(baseUrl) {
   const trimmed = ((baseUrl || '').trim() || 'https://api.deepseek.com').replace(/\/+$/, '');
   if (/\/chat\/completions$/i.test(trimmed)) {
@@ -221,7 +235,12 @@ export async function streamChatCompletion(messages, options = {}) {
   const thinkingSettings = await getThinkingSettings().catch(() => null);
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
   const samplingSettings = await getSamplingSettings().catch(() => null);
-  const samplingParams = buildSamplingParams(samplingSettings);
+  // 本次请求的采样覆盖（制卡等需要低温 + 大输出预算的 JSON 生成）：
+  // 只覆盖本次组装出的 samplingParams，不写回设置，不影响全局聊天。
+  const samplingParams = mergeSamplingOverrides(
+    buildSamplingParams(samplingSettings),
+    options && options.overrides
+  );
   // 输出长度：只在模型的「自定义参数」打开时介入（面板上写的就是「留空 = 默认 32000」）。
   // 关闭时完全不干预——不发 max_tokens，保持全局采样设置/服务端默认不动，
   // 避免给不支持大输出的模型悄悄带上 32000 而报错。

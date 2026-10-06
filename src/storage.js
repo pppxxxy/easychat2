@@ -88,6 +88,7 @@ export {
   MUSIC_CLIP_SECONDS,
   MUSIC_CLIP_SAMPLE_RATES,
   DEFAULT_MUSIC_CLIP,
+  UI_SECTION_IDS,
   acknowledgeDisclaimer,
   completeOnboarding,
   getAppearanceSettings,
@@ -102,6 +103,7 @@ export {
   getThinkingSettings,
   getTranscriptionSettings,
   getTtsSettings,
+  getUiSections,
   isDisclaimerAcknowledged,
   isOnboardingDone,
   patchAppearanceSettings,
@@ -116,6 +118,7 @@ export {
   saveThinkingSettings,
   saveTranscriptionSettings,
   saveTtsSettings,
+  saveUiSections,
 } from './storage/settings.js';
 export {
   WORKSPACE_KEY,

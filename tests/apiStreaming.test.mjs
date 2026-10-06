@@ -82,7 +82,8 @@ class FakeXHR {
   }
   open() {}
   setRequestHeader() {}
-  send() {
+  send(body) {
+    this.body = body;
     this.responseText = FakeXHR.responseText;
     if (FakeXHR.autoRespond) {
       queueMicrotask(() => {
@@ -529,5 +530,31 @@ test('配置切换协议会改变指纹（旧来源回复被丢弃）', async ()
   } finally {
     activeConfig = previous;
     globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('overrides 仅覆盖本次请求的 temperature 与 max_tokens', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = JSON.stringify({ choices: [{ message: { content: 'ok' } }] });
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { sendChatMessage } = loadApi();
+    await sendChatMessage([{ role: 'user', content: 'hi' }], {
+      stream: false,
+      overrides: { temperature: 0.3, maxTokens: 8192 },
+    });
+    const withOverrides = JSON.parse(FakeXHR.last.body);
+    assert.equal(withOverrides.temperature, 0.3);
+    assert.equal(withOverrides.max_tokens, 8192);
+
+    // 不传 overrides 时沿用全局采样（stub 为空），不出现制卡参数
+    await sendChatMessage([{ role: 'user', content: 'hi' }], { stream: false });
+    const withoutOverrides = JSON.parse(FakeXHR.last.body);
+    assert.equal(withoutOverrides.temperature, undefined);
+    assert.equal(withoutOverrides.max_tokens, undefined);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
   }
 });

@@ -14,7 +14,24 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 
-const SETTINGS = read('src/SettingsScreen.js');
+// 设置页卡片内容已拆到 settings/sections/*；这些源码断言横跨卡片与其状态宿主，
+// 合并读取以免拆卡后断言错位（行为不变，只换文件）。
+const SECTION_FILES = [
+  'ApiSection.js',
+  'PersonaSection.js',
+  'AppearanceSection.js',
+  'ExperienceSection.js',
+  'ExtensionsSection.js',
+  'VectorSection.js',
+  'WorkspaceSection.js',
+  'GithubSection.js',
+  'AboutSection.js',
+];
+const SETTINGS = [
+  read('src/SettingsScreen.js'),
+  ...SECTION_FILES.map(name => read(`src/settings/sections/${name}`)),
+  read('src/settings/SecretTextField.js'),
+].join('\n');
 const STYLES = read('src/settings/settingsStyles.js');
 const PROFILE = read('src/settings/useUserProfile.js');
 const PKG = JSON.parse(read('package.json'));

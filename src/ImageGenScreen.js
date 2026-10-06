@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -58,7 +59,7 @@ function isImageLike(name, mime) {
   return /\.(png|jpe?g|webp|bmp|gif)$/i.test(String(name || ''));
 }
 
-export default function ImageGenScreen({ embedded = false, active = true }) {
+export default function ImageGenScreen() {
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState({ activeProvider: DEFAULT_PROVIDER, providers: {} });
   const [providerOpen, setProviderOpen] = useState(false);
@@ -103,17 +104,16 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
 
   }, []);
 
-  useEffect(() => {
-    if (active) return;
-    generationControllerRef.current?.abort();
-    generationControllerRef.current = null;
-    detectionControllerRef.current?.abort();
-    detectionControllerRef.current = null;
-    if (mountedRef.current) {
-      setGenerating(false);
-      setDetecting(false);
-    }
-  }, [active]);
+  // 失焦时中止生成/检测：Stack 化后切页面会卸载组件（触发上面的 cleanup），
+  // 但 Tab 切走不卸载——用 useFocusEffect 补失焦清理。
+  useFocusEffect(
+    useCallback(() => () => {
+      generationControllerRef.current?.abort();
+      generationControllerRef.current = null;
+      detectionControllerRef.current?.abort();
+      detectionControllerRef.current = null;
+    }, [])
+  );
 
   useEffect(() => {
     (async () => {
@@ -518,25 +518,56 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, embedded && styles.containerEmbedded]}
+      style={[styles.container]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={[styles.header, embedded && styles.headerEmbedded]}>
-        {embedded ? null : <Text style={styles.title}>{t('imageGen.title')}</Text>}
+      <View style={[styles.header]}>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.configButton}
+            onPress={openSettings}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="settings-outline" size={16} color={theme.colors.primaryContrast} />
+            <Text style={styles.keyButtonText}>{provider.label} · {model || '未填写'}</Text>
+          </TouchableOpacity>
           <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('image-api')}
             accessibilityLabel={t('imageGen.tutorial.a11y')}
           />
-          <TouchableOpacity style={styles.keyButton} onPress={openSettings} activeOpacity={0.8}>
-            <Ionicons name="key-outline" size={16} color={theme.colors.primaryContrast} />
-            <Text style={styles.keyButtonText}>{t('imageGen.fillKey')}</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
+        {results.length > 0 ? (
+          <>
+            <FieldLabel style={styles.label}>{t('imageGen.galleryLabel')}</FieldLabel>
+            <Text style={styles.aigcHint}>{t('imageGen.aigcHint')}</Text>
+            <View style={styles.gallery}>
+              {results.map((result, index) => {
+                const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
+                const key = `${resultToken(result)}:${index}`;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={styles.galleryItem}
+                    onPress={() => onPressResult(result)}
+                    activeOpacity={0.85}
+                  >
+                    {uri ? <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" /> : null}
+                    {busyResult === resultToken(result) ? (
+                      <View style={styles.galleryBusy}>
+                        <ActivityIndicator color={theme.colors.primaryContrast} />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
         <FieldLabel style={styles.label}>{t('imageGen.serviceLabel')}</FieldLabel>
         <TouchableOpacity style={styles.selectButton} onPress={() => setProviderOpen(true)} activeOpacity={0.8}>
           <Text style={styles.selectButtonText}>{provider.label}</Text>
@@ -566,16 +597,6 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           </Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
-
-        <FieldLabel style={styles.label}>{t('imageGen.promptLabel')}</FieldLabel>
-        <TextField
-          style={styles.promptInput}
-          value={prompt}
-          onChangeText={setPrompt}
-          placeholder={t('imageGen.promptPlaceholder')}
-          multiline
-          textAlignVertical="top"
-        />
 
         <FieldLabel style={styles.label}>{t('imageGen.sizeLabel')}</FieldLabel>
         <View style={styles.chipRow}>
@@ -613,44 +634,27 @@ export default function ImageGenScreen({ embedded = false, active = true }) {
           </TouchableOpacity>
         )}
 
+        {generating ? <Text style={styles.generatingHint}>{generateProgress !== null ? t('imageGen.generating.progress', { n: generateProgress }) : t('imageGen.generating.wait')}</Text> : null}
+      </ScrollView>
+
+      <View style={styles.bottomBar}>
+        <TextField
+          style={styles.bottomPromptInput}
+          value={prompt}
+          onChangeText={setPrompt}
+          placeholder={t('imageGen.promptPlaceholder')}
+          multiline
+          textAlignVertical="top"
+        />
         <PrimaryButton
           title={t('imageGen.generate')}
           icon="sparkles"
           onPress={onGenerate}
           disabled={!loaded || generating}
           loading={generating}
-          style={styles.generateButton}
+          style={styles.bottomGenerateButton}
         />
-        {generating ? <Text style={styles.generatingHint}>{generateProgress !== null ? t('imageGen.generating.progress', { n: generateProgress }) : t('imageGen.generating.wait')}</Text> : null}
-
-        {results.length > 0 ? (
-          <>
-            <FieldLabel style={styles.label}>{t('imageGen.galleryLabel')}</FieldLabel>
-            <Text style={styles.aigcHint}>{t('imageGen.aigcHint')}</Text>
-            <View style={styles.gallery}>
-              {results.map((result, index) => {
-                const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
-                const key = `${resultToken(result)}:${index}`;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    style={styles.galleryItem}
-                    onPress={() => onPressResult(result)}
-                    activeOpacity={0.85}
-                  >
-                    {uri ? <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" /> : null}
-                    {busyResult === resultToken(result) ? (
-                      <View style={styles.galleryBusy}>
-                        <ActivityIndicator color={theme.colors.primaryContrast} />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
-      </ScrollView>
+      </View>
 
       <Modal visible={providerOpen} transparent animationType="slide" onRequestClose={() => setProviderOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setProviderOpen(false)}>
@@ -887,6 +891,41 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   generateButton: {
     marginTop: 24,
+  },
+  configButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: tokens.metrics.buttonRadius,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.surfaceBorder,
+  },
+  bottomPromptInput: {
+    flex: 1,
+    minHeight: 40,
+    maxHeight: 100,
+    marginRight: 10,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
+    backgroundColor: theme.colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  bottomGenerateButton: {
+    alignSelf: 'center',
   },
   generatingHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), textAlign: 'center', marginTop: 10 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap' },

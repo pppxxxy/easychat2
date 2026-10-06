@@ -20,16 +20,19 @@ import {
 } from './diary/diary.js';
 import { useApp } from './context/AppContext.js';
 import { EmptyState } from './ui/index.js';
+import PaneHeader from './ui/PaneHeader.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
+import { useNavigation } from '@react-navigation/native';
 
 // 日记：为每个角色单独开关「自动写日记」，并可为该角色指定写日记用的 API（不选则用默认）。
 // 角色用折叠选择器挑选，避免一次罗列一大堆角色卡；每个角色对应一页，页内左右滑动翻阅日记。
 // 日记在「过了一天之后的第一次启动」由 runDiaryForNewDay 生成；这里只做设置与查看。
-// embedded=true 时不自带滚动容器，交给外层折叠分组滚动。
-export default function DiaryPanel({ embedded = false }) {
+// Stack 化后面板自带滚动容器。
+export default function DiaryPanel() {
   const { theme, fonts } = useTheme();
   const { t } = useTranslation();
+  const navigation = useNavigation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters } = useApp();
 
@@ -124,9 +127,6 @@ export default function DiaryPanel({ embedded = false }) {
     );
   }
 
-  const Container = embedded ? View : ScrollView;
-  const containerProps = embedded ? { style: styles.content } : { contentContainerStyle: styles.content };
-
   if (characters.length === 0) {
     return (
       <EmptyState
@@ -141,8 +141,8 @@ export default function DiaryPanel({ embedded = false }) {
   const roleApiName = (configs.find(item => item.id === roleSetting.apiConfigId) || {}).name || '';
 
   return (
-    <Container {...containerProps}>
-      <Text style={styles.title}>{t('diary.title')}</Text>
+    <ScrollView contentContainerStyle={styles.content}>
+      <PaneHeader title={t('diary.title')} onBack={() => navigation.goBack()} />
       <Text style={styles.hint}>
         {t('diary.intro')}
       </Text>
@@ -303,7 +303,7 @@ export default function DiaryPanel({ embedded = false }) {
       >
         <Text style={styles.saveButtonText}>{saving ? t('diary.saving') : t('diary.save')}</Text>
       </TouchableOpacity>
-    </Container>
+    </ScrollView>
   );
 }
 

@@ -29,6 +29,7 @@ import {
 } from './cardForge/forge.js';
 import { deleteForgeImage, pickForgeImage } from './cardForge/media.js';
 import { createRegexScript, createWorldEntry } from './character/cardParser.js';
+import { applyRegexScripts, compileRegex } from './prompt/regexEngine.js';
 import CardPreviewModal from './CardPreviewModal.js';
 import { makeCharacterPresetId } from './character/characterPresets.js';
 import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution.js';
@@ -97,6 +98,8 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
   const [tagText, setTagText] = useState('');
   const [assistTarget, setAssistTarget] = useState(null);
   const [assistText, setAssistText] = useState('');
+  // 正则辅助生成的可选样本文本：用于生成前的替换效果预览。
+  const [assistSample, setAssistSample] = useState('');
   const [assistBusy, setAssistBusy] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
@@ -341,6 +344,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     if (assistBusy) return;
     setAssistTarget(target);
     setAssistText('');
+    setAssistSample('');
   };
 
   const closeAssist = () => {
@@ -351,6 +355,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     setAssistBusy(false);
     setAssistTarget(null);
     setAssistText('');
+    setAssistSample('');
   };
 
   const currentAssistEntry = () => {
@@ -365,6 +370,23 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
     // 字段/标签/条目的 AI 改写同样是生成内容：更新标识（source 区分整卡生成与辅助改写）
     [AIGC_META_FIELD]: buildAigcMeta({ source: 'easychat2-field-assist' }),
   });
+
+  // 条目辅助改写的角色卡背景：条目单独改写时模型看不到角色卡，注入后内容才不会脱节。
+  // 世界书另附已有条目标题，避免新条目与既有条目重复或冲突。整体限长由提示词侧兜底。
+  const buildAssistContext = target => {
+    const parts = [];
+    if (String(form.name || '').trim()) parts.push(`角色名：${form.name}`);
+    if (String(form.description || '').trim()) parts.push(`角色描述：${String(form.description).slice(0, 300)}`);
+    if (String(form.personality || '').trim()) parts.push(`性格：${String(form.personality).slice(0, 150)}`);
+    if (String(form.scenario || '').trim()) parts.push(`场景：${String(form.scenario).slice(0, 150)}`);
+    if (target && target.listKey === 'worldInfo') {
+      const comments = (Array.isArray(form.worldInfo) ? form.worldInfo : [])
+        .map(item => String((item && item.comment) || '').trim())
+        .filter(Boolean);
+      if (comments.length) parts.push(`已有世界书条目标题：${comments.join('、')}`);
+    }
+    return parts.join('\n');
+  };
 
   const submitAssist = async () => {
     const target = assistTarget;
@@ -396,6 +418,8 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           kind: target.listKey,
           currentEntry: currentAssistEntry() || {},
           request,
+          characterContext: buildAssistContext(target),
+          sampleText: target.listKey === 'regexScripts' ? assistSample : '',
         });
       }
       const raw = await onAssistPrompt(prompt, controller.signal);
@@ -409,15 +433,53 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
         }
         const listKey = target.listKey;
         const index = target.index;
-        setForm(current => {
-          const list = Array.isArray(current[listKey]) ? current[listKey] : [];
-          const merged = mergeEntryAssistPatch(list[index], listKey, patch);
-          return applyAigcStamp({
-            ...current,
-            [listKey]: list.map((item, i) => (i === index ? merged : item)),
+        const currentList = Array.isArray(formRef.current[listKey]) ? formRef.current[listKey] : [];
+        const merged = mergeEntryAssistPatch(currentList[index], listKey, patch);
+        const commit = () => {
+          setForm(current => {
+            const list = Array.isArray(current[listKey]) ? current[listKey] : [];
+            return applyAigcStamp({
+              ...current,
+              [listKey]: list.map((item, i) => (i === index ? merged : item)),
+            });
           });
-        });
-        closeAssist();
+          closeAssist();
+        };
+        // 正则应用前试编译：坏正则不再静默入库，直接提示并放弃该条改动。
+        if (listKey === 'regexScripts' && merged.findRegex) {
+          try {
+            compileRegex(merged.findRegex, merged.flags);
+          } catch (error) {
+            Alert.alert(
+              '正则编译失败',
+              `「${merged.name || '正则脚本'}」编译失败：${(error && error.message) || '语法错误'}。该条改动未应用，请调整后重试。`
+            );
+            return;
+          }
+          // 有样本文本时先跑一次替换，展示前后对照，用户确认再入库。
+          const sample = assistSample.trim();
+          if (sample) {
+            let preview = '';
+            try {
+              const placementValue = Array.isArray(merged.placement) && merged.placement.length > 0
+                ? merged.placement[0]
+                : 2;
+              preview = String(applyRegexScripts(sample, [merged], placementValue, { mode: 'both' }));
+            } catch (error) {
+              preview = '';
+            }
+            Alert.alert(
+              '正则效果预览',
+              `替换前：\n${sample.slice(0, 300)}\n\n替换后：\n${preview.slice(0, 300)}`,
+              [
+                { text: '取消', style: 'cancel' },
+                { text: '应用', onPress: commit },
+              ]
+            );
+            return;
+          }
+        }
+        commit();
         return;
       }
 
@@ -927,6 +989,16 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                 autoFocus
                 scrollEnabled={false}
               />
+              {isRegexAssist ? (
+                <TextField
+                  style={styles.assistInput}
+                  value={assistSample}
+                  onChangeText={setAssistSample}
+                  placeholder="可选：粘贴一段样本文本，生成后会预览替换前后效果"
+                  multiline
+                  scrollEnabled={false}
+                />
+              ) : null}
             </ScrollView>
             {assistBusy ? (
               <View style={styles.assistBusyRow}>
