@@ -37,10 +37,11 @@ import MemoryCheckupModal from './memory/MemoryCheckupModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
-import { EmptyState } from './ui/index.js';
+import { Card, EmptyState } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
+import { deleteScreenWatchThread, getScreenWatchThreads } from './screenWatch/threads.js';
 
 // 会话行的显示名：群聊用群名（缺省拼成员名），单聊用角色名。
 // 行渲染与长按操作单都要用，抽出来避免两处各写一遍后漂移。
@@ -88,6 +89,44 @@ export default function MemoryScreen({ navigation }) {
   const [recoverOpen, setRecoverOpen] = useState(false);
   const [userName, setUserName] = useState('');
   const switchLockRef = useRef(false);
+
+  // 看屏幕对话（screenWatch/threads.js）：与历史会话并列展示/删除
+  // —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
+  const [threads, setThreads] = useState([]);
+  const [threadsOpen, setThreadsOpen] = useState(false);
+
+  const reloadThreads = useCallback(async () => {
+    try {
+      setThreads(await getScreenWatchThreads());
+    } catch (error) {
+      setThreads([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadThreads();
+  }, [reloadThreads]);
+
+  const handleDeleteThread = useCallback(thread => {
+    if (!thread) return;
+    const name = String(thread.characterName || '').trim() || t('common.characterFallback');
+    Alert.alert(
+      t('memory.screenWatch.delete.title'),
+      t('memory.screenWatch.delete.body', { name }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            deleteScreenWatchThread(thread.id)
+              .then(() => reloadThreads())
+              .catch(() => {});
+          },
+        },
+      ]
+    );
+  }, [reloadThreads, t]);
 
   const scanOrphans = useCallback(async () => {
     try {
@@ -187,13 +226,21 @@ export default function MemoryScreen({ navigation }) {
     [visibleSessions, memoryFilter]
   );
   const groups = useMemo(() => groupSessionsByAge(filteredSessions), [filteredSessions]);
-  // 仅在「首次拿到非空分组」时自动展开第一组；之后用户手动折叠/展开由用户决定，
-  // 不因新增会话等分组变化再次弹出。
+  // 首次拿到非空分组时自动展开第一组（首屏不留光秃秃的组头）；之后用户手动折叠/展开
+  // 由用户决定。但当分组结构整体换掉、当初展开的组 id 已不存在时（典型：把全部会话
+  // 都置顶后只剩「置顶」一组，而展开态还停在旧的「最近 7 天」），必须补展开，
+  // 否则列表只剩一个折叠组头，看起来像会话全丢了。
   const autoExpandedRef = useRef(false);
   useEffect(() => {
-    if (autoExpandedRef.current || groups.length === 0) return;
-    autoExpandedRef.current = true;
-    setExpandedGroups(new Set([groups[0].id]));
+    if (groups.length === 0) return;
+    if (!autoExpandedRef.current) {
+      autoExpandedRef.current = true;
+      setExpandedGroups(new Set([groups[0].id]));
+      return;
+    }
+    setExpandedGroups(current => (
+      groups.some(group => current.has(group.id)) ? current : new Set([groups[0].id])
+    ));
   }, [groups]);
   const effectiveExpanded = useMemo(() => (
     editing ? new Set(groups.map(group => group.id)) : expandedGroups
@@ -235,10 +282,15 @@ export default function MemoryScreen({ navigation }) {
   }, [memoryFilter]);
 
   // 吸顶组头：分组头在长列表里滚动时钉住，知道当前看的是哪一组。
+  // 只在 iOS 下启用：Android 上 FlatList 在同一次渲染里既换 data 又换
+  // stickyHeaderIndices 会在原生层崩溃（facebook/react-native#25157，本页筛选
+  // 切换/置顶都会触发）；RN 自身对 SectionList 的吸顶在 Android 也默认关闭。
   const stickyHeaderIndices = useMemo(
-    () => listData
-      .map((entry, index) => (entry.kind === 'header' ? index : -1))
-      .filter(index => index >= 0),
+    () => (Platform.OS === 'ios'
+      ? listData
+        .map((entry, index) => (entry.kind === 'header' ? index : -1))
+        .filter(index => index >= 0)
+      : []),
     [listData]
   );
 
@@ -562,6 +614,53 @@ export default function MemoryScreen({ navigation }) {
           })}
         </ScrollView>
       ) : null}
+      {threads.length > 0 ? (
+        <Card style={styles.threadCard}>
+          <TouchableOpacity
+            style={styles.threadHead}
+            onPress={() => setThreadsOpen(value => !value)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: threadsOpen }}
+          >
+            <Ionicons
+              name={threadsOpen ? 'chevron-down' : 'chevron-forward'}
+              size={16}
+              color={theme.colors.textFaint}
+            />
+            <Text style={styles.threadTitle}>{t('memory.screenWatch.title')}</Text>
+            <Text style={styles.threadCount}>
+              {t('memory.screenWatch.count', { count: threads.length })}
+            </Text>
+          </TouchableOpacity>
+          {threadsOpen ? threads.map(entry => (
+            <View key={entry.id} style={styles.threadItem}>
+              <View style={styles.threadItemHead}>
+                <Text style={styles.threadItemName} numberOfLines={1}>
+                  {String(entry.characterName || '').trim() || t('common.characterFallback')}
+                </Text>
+                <Text style={styles.threadItemMeta}>
+                  {t('memory.screenWatch.entries', { count: entry.entries.length })}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleDeleteThread(entry)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={t('memory.screenWatch.a11y.delete', {
+                    name: String(entry.characterName || '').trim() || t('common.characterFallback'),
+                  })}
+                >
+                  <Ionicons name="trash-outline" size={18} color={theme.colors.textFaint} />
+                </TouchableOpacity>
+              </View>
+              {entry.entries.slice(-2).map(item => (
+                <Text key={item.id} style={styles.threadItemText} numberOfLines={2}>
+                  {item.text}
+                </Text>
+              ))}
+            </View>
+          )) : null}
+        </Card>
+      ) : null}
       {orphans.length > 0 ? (
         <TouchableOpacity
           style={styles.recoverNotice}
@@ -725,6 +824,40 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingBottom: 10,
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
+  threadCard: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    padding: tokens.metrics.cardPadding,
+  },
+  threadHead: { flexDirection: 'row', alignItems: 'center' },
+  threadTitle: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(14),
+    fontWeight: '700',
+    marginLeft: 6,
+    flex: 1,
+  },
+  threadCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
+  threadItem: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.surfaceBorder,
+  },
+  threadItemHead: { flexDirection: 'row', alignItems: 'center' },
+  threadItemName: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+    fontWeight: '600',
+    flex: 1,
+  },
+  threadItemMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginRight: 8 },
+  threadItemText: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(12),
+    lineHeight: fonts.scaled(18),
+    marginTop: 4,
+  },
   recoverNotice: {
     flexDirection: 'row',
     alignItems: 'center',
