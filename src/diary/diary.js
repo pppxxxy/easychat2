@@ -55,14 +55,49 @@ export function normalizeDiarySettings(raw) {
       apiConfigId: clean(entry.apiConfigId, 80),
     };
   });
+  // 上次运行的摘要（2026-10-07）：面板据此显示「上次运行：日期｜写入/跳过/失败」，
+  // 让用户能区分「没触发」与「写了没写」。非敏感信息，与设置同键存储。
+  const lastRunSource = source.lastRun && typeof source.lastRun === 'object' && !Array.isArray(source.lastRun)
+    ? source.lastRun
+    : {};
+  const lastRunCount = value => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? Math.floor(num) : 0;
+  };
   // 迁移旧版可能的全局 enabled 字段：老数据没有 roles 时，视为未开启。
   return {
     roles,
+    lastRun: {
+      date: clean(lastRunSource.date, 10),
+      written: lastRunCount(lastRunSource.written),
+      skipped: lastRunCount(lastRunSource.skipped),
+      failed: lastRunCount(lastRunSource.failed),
+    },
     apiConfigId: clean(source.apiConfigId, 80),
     model: clean(source.model, 120),
     // 上次执行写日记的本地日期：用于把「过了一天的第一次启动」做成闸门，
     // 同一天内再次启动不再重复扫描。
     lastRunDate: clean(source.lastRunDate, 10),
+  };
+}
+
+// 「上次运行日期」闸门推进规则（2026-10-07）：
+//   有候选角色（roleCount > 0）时不推进——无论写没写成功、是否因昨天无对话跳过，
+//   都保留当天再次触发的补写机会。此前「纯跳过」也会推进闸门：早上启动时若昨天
+//   该角色没聊过（或消息尚未落盘），闸门被推到今天，用户当天稍后聊天也不再补写。
+//   仅当「确实无需写」（没有任何候选角色，含全部角色都已完成昨天）时才推进，
+//   让下一天能进入新的窗口。规则做成纯函数便于单测钉住。
+export function shouldAdvanceDiaryRunDate({ roleCount = 0 } = {}) {
+  return !(Number(roleCount) > 0);
+}
+
+// 把本次运行摘要写进设置（面板展示用）。摘要缺失/非法一律安全归零。
+export function setDiaryLastRunSummary(settings, summary = {}) {
+  const normalized = normalizeDiarySettings(settings);
+  const source = summary && typeof summary === 'object' && !Array.isArray(summary) ? summary : {};
+  return {
+    ...normalized,
+    lastRun: normalizeDiarySettings({ lastRun: source }).lastRun,
   };
 }
 

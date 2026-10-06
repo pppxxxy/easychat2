@@ -23,6 +23,8 @@ import {
   selectDiaryRoles,
   resolveRoleDiaryConfigId,
   setDiaryLastRunDate,
+  setDiaryLastRunSummary,
+  shouldAdvanceDiaryRunDate,
   setRoleDiaryEnabled,
   setRoleDiarySetting,
   yesterdayRange,
@@ -233,16 +235,39 @@ test('启动执行器：过一天的首次启动、按所选 API、静默失败'
   assert.ok(APP_SOURCE.includes('<DiaryStartup />'));
 });
 
-test('启动执行器：有失败不推进全局日期，同日可重扫补写', () => {
-  // 回归：单角色失败后仍提交 lastRunDate=今天，会让该角色当天日记永久缺失
-  //（同日不再重扫、次日窗口已前移）。失败时保留 nextSettings（不设 lastRunDate）。
-  assert.ok(RUNNER_SOURCE.includes('let hadFailure = false;'));
-  assert.ok(RUNNER_SOURCE.includes('hadFailure = true;'));
-  assert.ok(RUNNER_SOURCE.includes('const finalSettings = hadFailure'));
-  assert.ok(RUNNER_SOURCE.includes('? nextSettings'));
-  assert.ok(RUNNER_SOURCE.includes(': setDiaryLastRunDate(nextSettings, dayKey)'));
-  // 已成功角色通过各自 lastDiaryDate 跳过，只补失败的
+test('闸门推进规则：有候选角色一律不推进（写入/失败/纯跳过都保留当天补写机会）', () => {
+  // 回归（2026-10-07）：此前「纯跳过」也推进 lastRunDate——早上启动时昨天没聊过，
+  // 闸门被推到今天，用户当天稍后聊天也不补写，必须等下一次跨天；失败不推进的
+  // 旧语义同样保留（极少数「当天永久缺失」由本规则一并堵死）。
+  assert.equal(shouldAdvanceDiaryRunDate({ roleCount: 0 }), true, '无候选角色才推进');
+  assert.equal(shouldAdvanceDiaryRunDate({ roleCount: 1 }), false, '有候选角色不推进');
+  assert.equal(shouldAdvanceDiaryRunDate({ roleCount: 3 }), false);
+  assert.equal(shouldAdvanceDiaryRunDate({}), true, '缺参安全视为无需写');
+});
+
+test('启动执行器：按纯函数规则决定闸门，跳过/失败均计数入摘要', () => {
+  // 源码锚：规则经纯函数判定（不是内联布尔），摘要落盘供面板展示
+  assert.ok(RUNNER_SOURCE.includes('shouldAdvanceDiaryRunDate({ roleCount: roles.length })'));
+  assert.ok(RUNNER_SOURCE.includes('? setDiaryLastRunDate(withSummary, dayKey)'));
+  assert.ok(RUNNER_SOURCE.includes(': withSummary'));
+  assert.ok(RUNNER_SOURCE.includes('const outcome = { date: dayKey, written: 0, skipped: 0, failed: 0 };'));
+  assert.ok(RUNNER_SOURCE.includes('outcome.skipped += 1;'));
+  assert.ok(RUNNER_SOURCE.includes('outcome.failed += 1;'));
+  assert.ok(RUNNER_SOURCE.includes('outcome.written += 1;'));
+  assert.ok(RUNNER_SOURCE.includes('setDiaryLastRunSummary(nextSettings, outcome)'));
+  // 已成功角色通过各自 lastDiaryDate 跳过，只补未完成的
   assert.ok(RUNNER_SOURCE.includes('markRoleDiaryDate(nextSettings, character.id, role.date)'));
+});
+
+test('设置摘要 lastRun：归一化与落盘（面板状态行数据源）', () => {
+  const normalized = normalizeDiarySettings({ lastRun: { date: '2026-10-06', written: 2, skipped: 1, failed: 0 } });
+  assert.deepEqual(normalized.lastRun, { date: '2026-10-06', written: 2, skipped: 1, failed: 0 });
+  // 旧数据/非法值安全归零，不得因此判损坏
+  assert.deepEqual(normalizeDiarySettings({}).lastRun, { date: '', written: 0, skipped: 0, failed: 0 });
+  assert.deepEqual(normalizeDiarySettings({ lastRun: 'bad' }).lastRun, { date: '', written: 0, skipped: 0, failed: 0 });
+  assert.equal(normalizeDiarySettings({ lastRun: { written: -3, failed: 'x' } }).lastRun.written, 0);
+  const withSummary = setDiaryLastRunSummary({ roles: {} }, { date: '2026-10-06', written: 1, skipped: 2, failed: 1 });
+  assert.deepEqual(withSummary.lastRun, { date: '2026-10-06', written: 1, skipped: 2, failed: 1 });
 });
 
 test('昨天时间窗用本地日历日两端，避免夏令时偏移', () => {
