@@ -25,7 +25,10 @@ import {
   GhostButton,
   IconButton,
 } from '../ui/index.js';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../theme/ThemeContext.js';
+
+import PaneHeader from '../ui/PaneHeader.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -97,6 +100,7 @@ function BookRow({ item, onPress, onDelete, onMore, styles, theme, t }) {
 }
 
 export default function BookScreen() {
+  const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { t } = useTranslation();
@@ -363,20 +367,23 @@ export default function BookScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('books.title')}</Text>
-        <TouchableOpacity
-          style={styles.importButton}
-          onPress={handleImport}
-          disabled={importing}
-          activeOpacity={0.85}
-        >
-          {importing
-            ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
-            : <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />}
-          <Text style={styles.importText}>{t('books.import')}</Text>
-        </TouchableOpacity>
-      </View>
+      <PaneHeader
+        title={t('books.title')}
+        onBack={() => navigation.goBack()}
+        right={(
+          <TouchableOpacity
+            style={styles.importButton}
+            onPress={handleImport}
+            disabled={importing}
+            activeOpacity={0.85}
+          >
+            {importing
+              ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+              : <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />}
+            <Text style={styles.importText}>{t('books.import')}</Text>
+          </TouchableOpacity>
+        )}
+      />
 
       <View style={styles.searchRow}>
         <Ionicons name="search" size={15} color={theme.colors.textFaint} />

@@ -15,6 +15,8 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+
+import PaneHeader from '../ui/PaneHeader.js';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import {
@@ -624,20 +626,23 @@ export default function MusicScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={styles.listContent}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('music.title')}</Text>
-        <TouchableOpacity
-          style={styles.importButton}
-          onPress={handleImport}
-          disabled={importing}
-          activeOpacity={0.85}
-        >
-          {importing
-            ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
-            : <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />}
-          <Text style={styles.importText}>{t('music.import')}</Text>
-        </TouchableOpacity>
-      </View>
+      <PaneHeader
+        title={t('music.title')}
+        onBack={() => navigation.goBack()}
+        right={(
+          <TouchableOpacity
+            style={styles.importButton}
+            onPress={handleImport}
+            disabled={importing}
+            activeOpacity={0.85}
+          >
+            {importing
+              ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+              : <Ionicons name="add" size={16} color={theme.colors.primaryContrast} />}
+            <Text style={styles.importText}>{t('music.import')}</Text>
+          </TouchableOpacity>
+        )}
+      />
 
       {current ? (
         <Card style={styles.playerCard}>

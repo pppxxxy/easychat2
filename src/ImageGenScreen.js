@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +28,7 @@ import { resolveImageFormat } from './imageGen/imageResultFormat.js';
 import ChapterModal from './books/ChapterModal.js';
 import { getImageDimensions } from './chat/attachments.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
+import PaneHeader from './ui/PaneHeader.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { maskSecrets } from './storage/secrets.js';
@@ -60,6 +61,7 @@ function isImageLike(name, mime) {
 }
 
 export default function ImageGenScreen() {
+  const navigation = useNavigation();
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState({ activeProvider: DEFAULT_PROVIDER, providers: {} });
   const [providerOpen, setProviderOpen] = useState(false);
@@ -509,23 +511,27 @@ export default function ImageGenScreen() {
       style={[styles.container]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={[styles.header]}>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.configButton}
-            onPress={openSettings}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="settings-outline" size={16} color={theme.colors.primaryContrast} />
-            <Text style={styles.keyButtonText}>{provider.label} · {model || t('common.notSet')}</Text>
-          </TouchableOpacity>
-          <TopicButton
-            style={styles.topicButton}
-            onPress={() => setTopic('image-api')}
-            accessibilityLabel={t('imageGen.tutorial.a11y')}
-          />
-        </View>
-      </View>
+      <PaneHeader
+        title={t('ext.home.image')}
+        onBack={() => navigation.goBack()}
+        right={(
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.configButton}
+              onPress={openSettings}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="settings-outline" size={16} color={theme.colors.primaryContrast} />
+              <Text style={styles.keyButtonText}>{provider.label} · {model || t('common.notSet')}</Text>
+            </TouchableOpacity>
+            <TopicButton
+              style={styles.topicButton}
+              onPress={() => setTopic('image-api')}
+              accessibilityLabel={t('imageGen.tutorial.a11y')}
+            />
+          </View>
+        )}
+      />
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
         {results.length > 0 ? (

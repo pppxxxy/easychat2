@@ -53,6 +53,8 @@ import {
 import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution.js';
 import { maskSecrets } from './storage/secrets.js';
 import { Chip, PrimaryButton, SecondaryButton, TextField } from './ui/index.js';
+import PaneHeader from './ui/PaneHeader.js';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 
@@ -62,6 +64,7 @@ const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守�
 const FORGE_SAMPLING_OVERRIDES = { temperature: 0.3, maxTokens: 8192 };
 
 export default function CardForgeScreen() {
+  const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
   const { addCharacter, ensureCharacterSession } = useApp();
   const { t } = useTranslation();
@@ -707,41 +710,44 @@ export default function CardForgeScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.header}>
-        <Text style={styles.title}>{t('forge.screen.title')}</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={[styles.action, busy && styles.actionDisabled]}
-            onPress={openEditor}
-            disabled={busy}
-            activeOpacity={0.8}
-            accessibilityLabel={t('forge.screen.cardA11y')}
-          >
-            <Ionicons name="id-card-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.actionText}>{t('forge.screen.card')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.action, busy && styles.actionDisabled]}
-            onPress={onGenerate}
-            disabled={busy}
-            activeOpacity={0.8}
-            accessibilityLabel={t('forge.screen.generateA11y')}
-          >
-            <Ionicons name="sparkles-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.actionText}>{t('forge.screen.generate')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.action, busy && styles.actionDisabled]}
-            onPress={onReset}
-            disabled={busy}
-            activeOpacity={0.8}
-            accessibilityLabel={t('forge.screen.resetA11y')}
-          >
-            <Ionicons name="refresh-outline" size={15} color={theme.colors.textFaint} />
-            <Text style={styles.actionText}>{t('forge.screen.reset')}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <PaneHeader
+        title={t('forge.screen.title')}
+        onBack={() => navigation.goBack()}
+        right={(
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.action, busy && styles.actionDisabled]}
+              onPress={openEditor}
+              disabled={busy}
+              activeOpacity={0.8}
+              accessibilityLabel={t('forge.screen.cardA11y')}
+            >
+              <Ionicons name="id-card-outline" size={15} color={theme.colors.primarySoft} />
+              <Text style={styles.actionText}>{t('forge.screen.card')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.action, busy && styles.actionDisabled]}
+              onPress={onGenerate}
+              disabled={busy}
+              activeOpacity={0.8}
+              accessibilityLabel={t('forge.screen.generateA11y')}
+            >
+              <Ionicons name="sparkles-outline" size={15} color={theme.colors.primarySoft} />
+              <Text style={styles.actionText}>{t('forge.screen.generate')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.action, busy && styles.actionDisabled]}
+              onPress={onReset}
+              disabled={busy}
+              activeOpacity={0.8}
+              accessibilityLabel={t('forge.screen.resetA11y')}
+            >
+              <Ionicons name="refresh-outline" size={15} color={theme.colors.textFaint} />
+              <Text style={styles.actionText}>{t('forge.screen.reset')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      />
 
       <Text style={styles.draftLine} numberOfLines={1}>
         {hasCardContent(draft)

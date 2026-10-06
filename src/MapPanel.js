@@ -28,7 +28,9 @@ import {
   placeHouse,
   removeHouseAtCell,
 } from './worldMap/map.js';
+import { useNavigation } from '@react-navigation/native';
 import { useApp } from './context/AppContext.js';
+import PaneHeader from './ui/PaneHeader.js';
 import { FieldGroup, PrimaryButton, SecondaryButton, TextField, CollapsibleSelect } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
@@ -42,6 +44,7 @@ const CELL_SIZE = 26;
 // 点格子弹面板编辑；「查看」展开房子列表，点房子可看/改房主与住户。数据存本地。
 // Stack 化后面板自带纵向滚动容器。
 export default function MapPanel() {
+  const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { characters } = useApp();
@@ -252,9 +255,10 @@ export default function MapPanel() {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>{t('map.title')}</Text>
-        {mapMode === 'grid' ? (
+      <PaneHeader
+        title={t('map.title')}
+        onBack={() => navigation.goBack()}
+        right={mapMode === 'grid' ? (
           <TouchableOpacity
             style={styles.viewButton}
             onPress={() => setListOpen(v => !v)}
@@ -265,7 +269,7 @@ export default function MapPanel() {
             <Text style={styles.viewButtonText}>{listOpen ? t('map.list.collapse') : t('map.list.expand')}</Text>
           </TouchableOpacity>
         ) : null}
-      </View>
+      />
       <View style={styles.modeRow}>
         <TouchableOpacity
           style={[styles.modeTab, mapMode === 'grid' && styles.modeTabActive]}
