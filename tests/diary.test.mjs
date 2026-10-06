@@ -433,16 +433,48 @@ test('diaryStartup：跨天判定与执行（注入式，RN-free 可直测）', 
 });
 
 test('R4 可见化：运行摘要进诊断 + 面板状态行（源码锚）', () => {
-  assert.ok(RUNNER_SOURCE.includes("recordDiagnostic("), '运行结果应进诊断');
-  assert.ok(RUNNER_SOURCE.includes("'startup'"), 'kind 用既有白名单（startup）');
+  // 行首调用锚：注入态（void 0 && recordDiagnostic(）不得再命中
+  assert.ok(/^\s{4}recordDiagnostic\(/m.test(RUNNER_SOURCE), '运行结果应进诊断（真实调用，非死代码）');
+  assert.ok(/recordDiagnostic\(\s*\n\s*'startup',/.test(RUNNER_SOURCE), 'kind 用既有白名单（startup）');
   assert.ok(RUNNER_SOURCE.includes('written=${outcome.written} skipped=${outcome.skipped} failed=${outcome.failed}'));
   const panel = read('DiaryPanel.js');
   assert.ok(panel.includes("t('diary.lastRun'"), '面板应显示上次运行状态行');
   assert.ok(panel.includes('settings.lastRun'), '状态行数据来自设置摘要');
-  // App 侧接线：冷启动与回前台都经 diaryStartup（不再直调 runDiaryForNewDay）
+  // App 侧接线：只在 DiaryStartup 函数块内断言（App.js 里还有一个主动消息桥的
+  // AppState 监听，裸串断言会被它满足——substring 陷阱）
   const app = read('../App.js');
-  assert.ok(app.includes('runDiaryIfNewDay({ readSettings: getDiarySettings, run: runDiaryForNewDay })'));
-  assert.ok(app.includes("AppState.addEventListener('change'"), '应有回前台监听');
-  assert.ok(app.includes("previous !== 'active' && next === 'active'"), '只在回前台时补跑');
-  assert.ok(app.includes('startedRef'), '冷启动一次性语义保留');
+  const startAt = app.indexOf('function DiaryStartup');
+  const endAt = app.indexOf('function ProactiveMessageBridge');
+  assert.ok(startAt > 0 && endAt > startAt, 'DiaryStartup 区块定位失败');
+  const block = app.slice(startAt, endAt);
+  const callCount = (block.match(/runDiaryIfNewDay\(/g) || []).length;
+  assert.equal(callCount, 2, '冷启动与回前台各一次 runDiaryIfNewDay');
+  assert.ok(block.includes("AppState.addEventListener('change'"), '应有回前台监听');
+  assert.ok(block.includes('cameToForeground'), '只在回前台时补跑');
+  assert.ok(block.includes('runDiaryForNewDay').valueOf(), '运行器经 diaryStartup 注入');
+  assert.ok(block.includes('startedRef'), '冷启动一次性语义保留');
+});
+
+test('R1 面板：开关路径必须立即落盘，且不得「catch 后无条件成功提示」', () => {
+  const panel = read('DiaryPanel.js');
+  // 开关回调经 persistSettings → 立即 saveDiarySettings（不再是「只改内存 state」）
+  assert.ok(panel.includes('const persistSettings = useCallback'), '应有落盘收口');
+  assert.ok(panel.includes('.then(() => saveDiarySettings(next))'), '落盘必须真的写存储');
+  assert.ok(
+    panel.includes('persistSettings(current => setRoleDiarySetting(current, id, { enabled, roleName }))'),
+    'toggleRole 必须走落盘收口（回归：只 setSettings 不落盘 = 日记永远不生成）'
+  );
+  assert.ok(
+    panel.includes('persistSettings(current => setRoleDiarySetting(current, id, { apiConfigId }))'),
+    'chooseRoleApi 同样即时落盘'
+  );
+  // 失败按真实结果分支：回滚到存储值 + 失败提示（禁止吞异常后报成功）
+  const persist = panel.slice(panel.indexOf('const persistSettings'), panel.indexOf('const toggleRole'));
+  assert.ok(persist.includes("setNotice(t('diary.notice.saveFailed'))"), '失败应提示失败');
+  assert.ok(persist.includes('catch'), '写盘失败必须有失败分支');
+  assert.ok(persist.indexOf('catch') < persist.indexOf("setNotice(t('diary.notice.saveFailed'))"), '失败提示在 catch 分支内');
+  // 离开前 flush：在途写盘未完成不得静默丢弃
+  assert.ok(panel.includes("navigation.addListener('beforeRemove'"), '应有离开拦截');
+  assert.ok(panel.includes('inFlightRef.current === 0'), '无在途写时直接放行');
+  assert.ok(panel.includes('writeChainRef.current.finally'), '有在途写时先 flush 再离开');
 });
