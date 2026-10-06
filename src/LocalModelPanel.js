@@ -172,6 +172,7 @@ export default function LocalModelPanel({ visible, onClose }) {
         busy={params.busy}
         styles={styles}
         theme={theme}
+        t={t}
         onFieldChange={params.setField}
         onClose={params.close}
         onSave={params.save}
