@@ -3,11 +3,13 @@ import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 章末附加区块：标题 + 正文 + 要点列表 + 外链 + 免责声明。
 // 外链点击先 Alert 二次确认，确认文案用 linkNotice（缺省回退到通用提示），确认后才打开。
 export default function ChapterOutro({ outro }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   if (!outro) return null;
 
@@ -18,10 +20,10 @@ export default function ChapterOutro({ outro }) {
   const openLink = () => {
     const url = String(link.url || '');
     if (!url) return;
-    const message = `${linkNotice || '即将打开外部链接。'}\n\n即将打开：${url}`;
-    Alert.alert(link.label || '外部链接', message, [
-      { text: '取消', style: 'cancel' },
-      { text: '继续打开', onPress: () => { Linking.openURL(url).catch(() => {}); } },
+    const message = `${linkNotice || t('books.outro.openExternal')}\n\n${t('books.notice.openingLink', { url })}`;
+    Alert.alert(link.label || t('books.notice.externalLink'), message, [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('books.notice.continueOpen'), onPress: () => { Linking.openURL(url).catch(() => {}); } },
     ]);
   };
 

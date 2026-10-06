@@ -10,6 +10,7 @@ import { REGEX_PLACEMENT_LABELS, WORLD_POSITION_LABELS } from './cardParser.js';
 import { isUnsafeRegexPattern } from '../prompt/regexEngine.js';
 import { getUnsafeWorldEntryKeys } from '../prompt/lorebook.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { splitKeywords, placementText } from './cardHelpers.js';
 
@@ -95,38 +96,9 @@ export function NumberField({ label, value, onCommit }) {
   );
 }
 
-export function CollapsibleSection({ title, count, expanded, onToggle, onAdd, addLabel, icon, children }) {
-  const { theme, fonts, tokens } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  return (
-    <View style={styles.sectionCard}>
-      <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.8}>
-        <View style={styles.sectionTitleRow}>
-          {icon ? <Ionicons name={icon} size={15} color={theme.colors.primaryMuted} /> : null}
-          <Text style={styles.sectionTitle}>{title}</Text>
-          <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{count}</Text>
-          </View>
-        </View>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.primaryMuted} />
-      </TouchableOpacity>
-      {expanded ? (
-        <View style={styles.sectionBody}>
-          {children}
-          {onAdd ? (
-            <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.addButtonText}>{addLabel}</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 export function WorldEntryEditor({ entry, index, onChange, onRemove }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const keys = Array.isArray(entry.keys) ? entry.keys : [];
@@ -146,67 +118,67 @@ export function WorldEntryEditor({ entry, index, onChange, onRemove }) {
     <View style={styles.entryCard}>
       <View style={styles.entryHeader}>
         <Text style={styles.entryTitle} numberOfLines={1}>
-          {entry.comment || `条目 ${index + 1}`}
+          {entry.comment || t('character.editor.world.entryFallback', { n: index + 1 })}
         </Text>
         <TouchableOpacity onPress={onRemove} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={styles.removeText}>删除</Text>
+          <Text style={styles.removeText}>{t('character.editor.delete')}</Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.fieldLabel}>名称</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.nameLabel')}</Text>
       <TextField
         style={styles.inputSmall}
         value={entry.comment}
         onChangeText={comment => onChange({ comment })}
-        placeholder="世界书条目名称"
+        placeholder={t('character.editor.world.namePlaceholder')}
       />
-      <Text style={styles.fieldLabel}>触发关键词（逗号分隔）</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.world.keysLabel')}</Text>
       <TextField
         style={styles.inputSmall}
         value={keys.join(', ')}
         onChangeText={text => onChange({ keys: splitKeywords(text) })}
-        placeholder="关键词一, 关键词二"
+        placeholder={t('character.editor.world.keysPlaceholder')}
       />
       {unsafeKeys.length > 0 ? (
         <Text style={styles.regexUnsafeHint}>
-          {`以下关键词存在嵌套无界量词，疑似灾难性回溯，运行时会跳过：${unsafeKeys.join('、')}`}
+          {t('character.editor.world.unsafeKeys', { keys: unsafeKeys.join('、') })}
         </Text>
       ) : null}
-      <Text style={styles.fieldLabel}>内容</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.world.contentLabel')}</Text>
       <TextField
         style={styles.contentInput}
         value={entry.content}
         onChangeText={content => onChange({ content })}
-        placeholder="命中后注入提示词的内容"
+        placeholder={t('character.editor.world.contentPlaceholder')}
         multiline
         textAlignVertical="top"
       />
       <ToggleRow
-        label="常驻（无需关键词）"
+        label={t('character.editor.world.constant')}
         value={entry.constant}
         onValueChange={constant => onChange({ constant })}
       />
       <ToggleRow
-        label="启用"
+        label={t('character.editor.enabled')}
         value={entry.enabled}
         onValueChange={enabled => onChange({ enabled })}
       />
       <View style={styles.cycleRow}>
         <TouchableOpacity style={styles.cycleButton} onPress={cyclePosition} activeOpacity={0.8}>
-          <Text style={styles.cycleButtonText}>位置：{WORLD_POSITION_LABELS[position]}</Text>
+          <Text style={styles.cycleButtonText}>{t('character.editor.world.position', { label: WORLD_POSITION_LABELS[position] })}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.cycleButton} onPress={cycleRole} activeOpacity={0.8}>
-          <Text style={styles.cycleButtonText}>角色：{entry.role}</Text>
+          <Text style={styles.cycleButtonText}>{t('character.editor.world.role', { role: entry.role })}</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.numberRow}>
         <NumberField
-          label="顺序"
+          label={t('character.editor.order')}
           value={entry.order ?? 100}
           onCommit={order => onChange({ order })}
         />
         {position === 4 ? (
           <NumberField
-            label="深度"
+            label={t('character.editor.depth')}
             value={entry.depth ?? 4}
             onCommit={depth => onChange({ depth })}
           />
@@ -218,6 +190,7 @@ export function WorldEntryEditor({ entry, index, onChange, onRemove }) {
 
 export function RegexEntryEditor({ script, index, onChange, onRemove }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const placement = Array.isArray(script.placement) ? script.placement : [1, 2];
@@ -226,45 +199,48 @@ export function RegexEntryEditor({ script, index, onChange, onRemove }) {
     const next = has
       ? placement.filter(item => item !== value)
       : [...placement, value].sort((a, b) => a - b);
-    onChange({ placement: next, placementLabel: placementText(next) });
+    onChange({
+      placement: next,
+      placementLabel: placementText(next, { scopeFallback: t('character.editor.regex.scopeFallback') }),
+    });
   };
   return (
     <View style={styles.entryCard}>
       <View style={styles.entryHeader}>
         <Text style={styles.entryTitle} numberOfLines={1}>
-          {script.name || `正则 ${index + 1}`}
+          {script.name || t('character.editor.regex.entryFallback', { n: index + 1 })}
         </Text>
         <TouchableOpacity onPress={onRemove} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={styles.removeText}>删除</Text>
+          <Text style={styles.removeText}>{t('character.editor.delete')}</Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.fieldLabel}>名称</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.nameLabel')}</Text>
       <TextField
         style={styles.inputSmall}
         value={script.name}
         onChangeText={name => onChange({ name })}
-        placeholder="正则脚本名称"
+        placeholder={t('character.editor.regex.namePlaceholder')}
       />
-      <Text style={styles.fieldLabel}>匹配表达式</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.regex.findLabel')}</Text>
       <TextField
         style={[styles.contentInput, styles.codeInput]}
         value={script.findRegex}
         onChangeText={findRegex => onChange({ findRegex })}
-        placeholder={'例如：\\bfoo\\b'}
+        placeholder={t('character.editor.regex.findPlaceholder')}
         multiline
         textAlignVertical="top"
       />
       {isUnsafeRegexPattern(script.findRegex) ? (
         <Text style={styles.regexUnsafeHint}>
-          该表达式存在嵌套无界量词，疑似灾难性回溯；为避免卡死界面，运行时会跳过此脚本。
+          {t('character.editor.regex.unsafeHint')}
         </Text>
       ) : null}
-      <Text style={styles.fieldLabel}>替换为</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.regex.replaceLabel')}</Text>
       <TextField
         style={[styles.contentInput, styles.codeInput]}
         value={script.replaceString}
         onChangeText={replaceString => onChange({ replaceString })}
-        placeholder="替换后的文本，可留空表示删除"
+        placeholder={t('character.editor.regex.replacePlaceholder')}
         multiline
         textAlignVertical="top"
       />
@@ -277,27 +253,27 @@ export function RegexEntryEditor({ script, index, onChange, onRemove }) {
         autoCorrect={false}
         placeholder="g"
       />
-      <Text style={styles.dataMeta}>/表达式/flags 使用内嵌 flags；裸表达式的 flags 留空时仅替换首个匹配。</Text>
-      <Text style={styles.fieldLabel}>作用范围</Text>
+      <Text style={styles.dataMeta}>{t('character.editor.regex.flagsHint')}</Text>
+      <Text style={styles.fieldLabel}>{t('character.editor.regex.scopeLabel')}</Text>
       <View style={styles.chipRow}>
         {REGEX_PLACEMENT_KEYS.map(key => (
           <Chip
             key={key}
-            label={REGEX_PLACEMENT_LABELS[key] || `范围 ${key}`}
+            label={REGEX_PLACEMENT_LABELS[key] || t('character.editor.regex.scopeFallback', { key })}
             active={placement.includes(key)}
             onPress={() => togglePlacement(key)}
           />
         ))}
       </View>
-      <Text style={styles.dataMeta}>AI 输出包含开场白与助手历史消息。</Text>
-      <ToggleRow label="启用" value={script.enabled} onValueChange={enabled => onChange({ enabled })} />
+      <Text style={styles.dataMeta}>{t('character.editor.regex.scopeHint')}</Text>
+      <ToggleRow label={t('character.editor.enabled')} value={script.enabled} onValueChange={enabled => onChange({ enabled })} />
       <ToggleRow
-        label="仅用于界面显示"
+        label={t('character.editor.regex.markdownOnly')}
         value={script.markdownOnly}
         onValueChange={markdownOnly => onChange({ markdownOnly })}
       />
       <ToggleRow
-        label="仅用于发送提示词"
+        label={t('character.editor.regex.promptOnly')}
         value={script.promptOnly}
         onValueChange={promptOnly => onChange({ promptOnly })}
       />
@@ -307,6 +283,7 @@ export function RegexEntryEditor({ script, index, onChange, onRemove }) {
 
 export function SummaryRow({ title, meta, enabled, onPress }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <TouchableOpacity style={styles.summaryRow} onPress={onPress} activeOpacity={0.8}>
@@ -316,7 +293,7 @@ export function SummaryRow({ title, meta, enabled, onPress }) {
       </View>
       {enabled === false ? (
         <View style={styles.statusBadge}>
-          <Text style={styles.statusBadgeText}>已停用</Text>
+          <Text style={styles.statusBadgeText}>{t('character.editor.disabled')}</Text>
         </View>
       ) : null}
       <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />

@@ -4,10 +4,12 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Text, View } from 'react-native';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function ThinkingIndicator() {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const progress = useRef(null);
   if (progress.current === null) progress.current = new Animated.Value(0);
@@ -26,8 +28,8 @@ export default function ThinkingIndicator() {
   }, []);
 
   return (
-    <View style={styles.thinkingIndicator} accessible accessibilityLabel="正在思考" accessibilityRole="text">
-      <Text style={styles.thinkingText}>正在思考</Text>
+    <View style={styles.thinkingIndicator} accessible accessibilityLabel={t('chat.thinking.indicator')} accessibilityRole="text">
+      <Text style={styles.thinkingText}>{t('chat.thinking.indicator')}</Text>
       {[0, 1, 2].map(index => (
         <Animated.View
           key={index}

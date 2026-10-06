@@ -2,6 +2,8 @@
 // 与 diagnostics.js 的分工：这里是高频、易失的本地模型事件（加载/推理/服务），
 // 只保留最近若干条供面板即时查看；错误级由调用方额外写入 diagnostics 持久化脱敏日志。
 
+import { tActive } from '../i18n/index.js';
+
 export const MAX_MODEL_LOGS = 200;
 export const MODEL_LOG_LEVELS = ['info', 'warn', 'error'];
 const MAX_FIELD_CHARS = 2000;
@@ -80,7 +82,7 @@ export function formatBytes(value) {
 // 把错误整理成可定位的文本：保留 name/code（原生库常把真实原因放在这里，
 // 只取 message 会丢失关键信息），并带上堆栈的首行调用点。
 export function describeModelError(error) {
-  if (error === null || error === undefined) return '未知错误';
+  if (error === null || error === undefined) return tActive('error.localModel.unknown');
   if (typeof error === 'string') return error;
   const name = clean(error.name);
   const code = clean(error.code);
@@ -88,7 +90,7 @@ export function describeModelError(error) {
   // 泛型 Error 的 name 无信息量，不前缀，避免「Error: xxx」噪声；原生库的
   // 自定义 name（如 LlamaError）与 code 才是定位关键，优先保留。
   const label = [name && name !== 'Error' ? name : '', code].filter(Boolean).join('/');
-  const base = message || label || '未知错误';
+  const base = message || label || tActive('error.localModel.unknown');
   if (!label || base.includes(label)) return base;
   return `${label}: ${base}`;
 }
@@ -101,18 +103,18 @@ export function classifyLocalModelError(error) {
     error && error.message !== undefined ? error.message : (typeof error === 'string' ? error : '')
   );
   if (name === 'AbortError' || code === 'ABORT_ERR' || code === 'ABORTED') {
-    return { code: 'ABORTED', level: 'info', message: message || '本地模型请求已取消' };
+    return { code: 'ABORTED', level: 'info', message: message || tActive('error.localModel.requestCanceled') };
   }
   if (code === 'LOCAL_MODEL_UNAVAILABLE') {
-    return { code, level: 'warn', message: message || '当前构建未包含本地模型能力' };
+    return { code, level: 'warn', message: message || tActive('error.localModel.unavailable') };
   }
   if (code === 'RESOURCE_BUSY') {
-    return { code, level: 'warn', message: message || '本地模型资源被占用' };
+    return { code, level: 'warn', message: message || tActive('error.localModel.resourceBusy') };
   }
   if (code === 'LOAD_FAILED' || code === 'INFERENCE_FAILED') {
-    return { code, level: 'error', message: message || '本地模型推理失败' };
+    return { code, level: 'error', message: message || tActive('error.localModel.inferenceFailed') };
   }
-  if (!message) return { code: 'UNKNOWN', level: 'error', message: '本地模型未知错误' };
+  if (!message) return { code: 'UNKNOWN', level: 'error', message: tActive('error.localModel.unknownError') };
   return { code: 'UNKNOWN', level: 'error', message };
 }
 

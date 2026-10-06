@@ -12,6 +12,7 @@ import {
   resolveViewportCardHeight,
 } from './richHtml.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
@@ -57,6 +58,7 @@ export default function RichHtmlMessage({
   textColor,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { height: windowHeight } = useWindowDimensions();
   const [height, setHeight] = useState(1);
@@ -187,7 +189,7 @@ export default function RichHtmlMessage({
   if (sourceError) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>HTML 内容加载失败</Text>
+        <Text style={styles.errorText}>{t('chat.richHtml.loadFailed')}</Text>
         <TouchableOpacity
           style={styles.retryButton}
           onPress={() => {
@@ -196,9 +198,9 @@ export default function RichHtmlMessage({
           }}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityLabel="重新加载卡片"
+          accessibilityLabel={t('chat.richHtml.reloadA11y')}
         >
-          <Text style={styles.retryButtonText}>重试</Text>
+          <Text style={styles.retryButtonText}>{t('common.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -209,7 +211,7 @@ export default function RichHtmlMessage({
     return (
       <View style={[styles.container, styles.loadingBox, { height: placeholderHeight }]}>
         <ActivityIndicator color={theme.colors.primary} />
-        <Text style={styles.loadingText}>卡片加载中…</Text>
+        <Text style={styles.loadingText}>{t('chat.richHtml.loading')}</Text>
       </View>
     );
   }
@@ -258,7 +260,7 @@ export default function RichHtmlMessage({
       {loading ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator color={theme.colors.primary} />
-          <Text style={styles.loadingText}>卡片加载中…</Text>
+          <Text style={styles.loadingText}>{t('chat.richHtml.loading')}</Text>
         </View>
       ) : null}
     </View>

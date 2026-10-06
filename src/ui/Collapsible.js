@@ -3,10 +3,31 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 折叠分组：标题行点击展开/收起内容。用于设置页把体积较大的区块（外观、生成参数等）
 // 默认收起，避免一屏塞满选项。可受控（open + onToggle）或非受控（defaultOpen）。
-export function CollapsibleSection({ title, icon, defaultOpen = false, open, onToggle, right, children, style }) {
+//
+// 2026-10-05 合并：原 src/character/editors.js 另有一套参数不兼容的 CollapsibleSection
+// （expanded + count 徽章 + onAdd 按钮 + 自己的卡片边框）。两套合并到这里——props 取并集，
+// 视觉沿用本组件（设置页语言）：收起时右侧给摘要（count 或 right 插槽），
+// onAdd 存在时在内容底部渲染添加按钮。这样角色详情页的分组不再在 Card 里再套一层
+// 带边框的卡片（框中框），层级由缩进与间距表达。
+//
+// 迁移对照：editors 版的 `expanded` → 本组件 `open`；`count`/`onAdd`/`addLabel` 同名沿用。
+export function CollapsibleSection({
+  title,
+  icon,
+  defaultOpen = false,
+  open,
+  onToggle,
+  right,
+  count,
+  onAdd,
+  addLabel,
+  children,
+  style,
+}) {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [innerOpen, setInnerOpen] = useState(defaultOpen);
@@ -15,6 +36,7 @@ export function CollapsibleSection({ title, icon, defaultOpen = false, open, onT
     if (open === undefined) setInnerOpen(v => !v);
     if (onToggle) onToggle(!expanded);
   };
+  const hasCount = count !== undefined && count !== null && count !== '';
   return (
     <View style={style}>
       <TouchableOpacity
@@ -28,10 +50,18 @@ export function CollapsibleSection({ title, icon, defaultOpen = false, open, onT
           {icon ? (
             <Ionicons name={icon} size={tokens.iconSize.sm + 1} color={theme.colors.textMuted} />
           ) : null}
-          <Text style={[styles.headTitle, icon ? styles.headTitleSpaced : null]}>{title}</Text>
+          <Text style={[styles.headTitle, icon ? styles.headTitleSpaced : null]} numberOfLines={1}>
+            {title}
+          </Text>
         </View>
         <View style={styles.headRight}>
           {right}
+          {/* 摘要位：count 与 right 可同时存在（count 在前，贴近标题对应的计数语义） */}
+          {hasCount ? (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>{count}</Text>
+            </View>
+          ) : null}
           <Ionicons
             name={expanded ? 'chevron-up' : 'chevron-down'}
             size={16}
@@ -39,7 +69,17 @@ export function CollapsibleSection({ title, icon, defaultOpen = false, open, onT
           />
         </View>
       </TouchableOpacity>
-      {expanded ? <View style={styles.body}>{children}</View> : null}
+      {expanded ? (
+        <View style={styles.body}>
+          {children}
+          {onAdd ? (
+            <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
+              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.addButtonText}>{addLabel}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -53,12 +93,15 @@ export function CollapsibleSelect({
   valueMeta,
   options = [],
   onSelect,
-  placeholder = '未选择',
-  emptyHint = '暂无可选项',
+  placeholder,
+  emptyHint,
   right,
   style,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder !== undefined ? placeholder : t('ui.select.none');
+  const resolvedEmptyHint = emptyHint !== undefined ? emptyHint : t('ui.select.empty');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [open, setOpen] = useState(false);
   const selectedOption = options.find(option => option.value === value);
@@ -75,7 +118,7 @@ export function CollapsibleSelect({
         {label ? <Text style={styles.selectLabel}>{label}</Text> : null}
         <View style={styles.selectValueBox}>
           <Text style={styles.selectValue} numberOfLines={1}>
-            {displayLabel || placeholder}
+            {displayLabel || resolvedPlaceholder}
           </Text>
           {displayMeta ? (
             <Text style={styles.selectMeta} numberOfLines={1}>{displayMeta}</Text>
@@ -90,7 +133,7 @@ export function CollapsibleSelect({
       </TouchableOpacity>
       {open ? (
         options.length === 0 ? (
-          <Text style={styles.selectEmpty}>{emptyHint}</Text>
+          <Text style={styles.selectEmpty}>{resolvedEmptyHint}</Text>
         ) : (
           <View style={styles.selectBody}>
             {options.map(option => {
@@ -133,6 +176,29 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   headTitleSpaced: { marginLeft: 8 },
   headRight: { flexDirection: 'row', alignItems: 'center' },
   body: { marginTop: tokens.spacing.xs },
+  // 摘要徽章（原 editors 版的 count 徽章）：数字或短文本都适用
+  countBadge: {
+    minWidth: 22,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.primaryAlpha(0.16),
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  countBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  // 折叠区底部的添加按钮（原 editors 版的 onAdd/addLabel）
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
+    borderRadius: tokens.radius.md,
+    paddingVertical: 8,
+    marginTop: 8,
+  },
+  addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
 
   select: {
     borderWidth: tokens.border.thin,

@@ -13,11 +13,13 @@ import * as Clipboard from 'expo-clipboard';
 
 import { clearDiagnostics, formatDiagnostics, getDiagnostics } from './storage/diagnostics.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 // 本地诊断日志查看器：只读展示本机留存的异常记录（已脱敏），支持复制/清空。
 // 全程不联网上报，符合 SECURITY.md「未接入分析/遥测 SDK」的承诺。
 export default function DiagnosticsModal({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [entries, setEntries] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -47,17 +49,17 @@ export default function DiagnosticsModal({ visible, onClose }) {
     if (!text) return;
     try {
       await Clipboard.setStringAsync(text);
-      Alert.alert('已复制', '诊断日志已复制到剪贴板，可直接粘贴反馈。');
+      Alert.alert(t('diagnostics.alert.copied.title'), t('diagnostics.alert.copied.body'));
     } catch (error) {
-      Alert.alert('复制失败', '请手动选择文本复制。');
+      Alert.alert(t('diagnostics.alert.copyFailed.title'), t('diagnostics.alert.copyFailed.body'));
     }
-  }, [text]);
+  }, [text, t]);
 
   const confirmClear = useCallback(() => {
-    Alert.alert('清空诊断日志', '确定清空本机留存的诊断记录吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('diagnostics.alert.clear.title'), t('diagnostics.alert.clear.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '清空',
+        text: t('diagnostics.alert.clear.confirm'),
         style: 'destructive',
         onPress: () => {
           clearDiagnostics().catch(() => {});
@@ -65,25 +67,25 @@ export default function DiagnosticsModal({ visible, onClose }) {
         },
       },
     ]);
-  }, []);
+  }, [t]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>诊断日志</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{t('diagnostics.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <Text style={styles.hint}>
-            仅保存在本机、已脱敏，不会上传到任何服务器。遇到异常时可复制后反馈。
+            {t('diagnostics.hint')}
           </Text>
           {loaded && entries.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="checkmark-circle-outline" size={28} color={theme.colors.primaryMuted} />
-              <Text style={styles.emptyText}>暂无可查看的记录。</Text>
+              <Text style={styles.emptyText}>{t('diagnostics.empty')}</Text>
             </View>
           ) : (
             <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
@@ -97,7 +99,7 @@ export default function DiagnosticsModal({ visible, onClose }) {
               activeOpacity={0.8}
               disabled={entries.length === 0}
             >
-              <Text style={[styles.selectButtonText, entries.length === 0 && styles.disabledText]}>清空</Text>
+              <Text style={[styles.selectButtonText, entries.length === 0 && styles.disabledText]}>{t('diagnostics.clear')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.selectButton, entries.length === 0 && styles.disabled]}
@@ -105,7 +107,7 @@ export default function DiagnosticsModal({ visible, onClose }) {
               activeOpacity={0.8}
               disabled={entries.length === 0}
             >
-              <Text style={styles.selectButtonText}>复制全部</Text>
+              <Text style={styles.selectButtonText}>{t('diagnostics.copyAll')}</Text>
             </TouchableOpacity>
           </View>
         </View>

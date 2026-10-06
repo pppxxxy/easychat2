@@ -3,6 +3,7 @@ import { Buffer } from 'buffer';
 
 import { extractCharacterPresets } from './characterPresets.js';
 import { isValidAigcMeta } from '../aigc/attribution.js';
+import { tActive } from '../i18n/index.js';
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -552,7 +553,7 @@ export function ensureUniqueIds(items, prefix) {
 export function normalizeCard(raw) {
   const source = Array.isArray(raw) ? raw.find(isPlainObject) : raw;
   if (!isPlainObject(source)) {
-    throw new Error('角色卡内容不是有效的对象。');
+    throw new Error(tActive('error.cardParser.invalidObject'));
   }
   const data = isPlainObject(source.data) ? source.data : {};
   const extensions = isPlainObject(data.extensions)
@@ -687,7 +688,7 @@ export function parseCardFromJson(text) {
   try {
     raw = JSON.parse(normalizeJsonText(text));
   } catch (error) {
-    throw new Error(`JSON 语法错误：${error.message}`);
+    throw new Error(tActive('error.cardParser.jsonSyntax', { message: error.message }));
   }
   return normalizeCard(raw);
 }
@@ -731,7 +732,7 @@ function readTextChunkBase64(data, keyword) {
     const start = offset + 8;
     const end = start + length;
     if (end + 4 > data.length) {
-      throw new Error(`PNG 数据损坏：${type} 块长度异常`);
+      throw new Error(tActive('error.cardParser.pngChunkLength', { type }));
     }
     if (type === 'tEXt') {
       const separator = data.indexOf(0x00, start);
@@ -767,7 +768,7 @@ function readTextChunkBase64(data, keyword) {
 function readFallbackJsonFromPng(bytes) {
   const data = toUint8Array(bytes);
   if (!isPng(data)) {
-    throw new Error('不是合法的 PNG 文件：签名不匹配');
+    throw new Error(tActive('error.cardParser.pngSignature'));
   }
   for (const keyword of ['ccv3', 'chara']) {
     const base64 = readTextChunkBase64(data, keyword);
@@ -775,7 +776,7 @@ function readFallbackJsonFromPng(bytes) {
       try {
         return decodeBase64(base64);
       } catch (error) {
-        throw new Error(`解码 PNG 中的 base64 数据失败：${error.message}`);
+        throw new Error(tActive('error.cardParser.pngBase64Decode', { message: error.message }));
       }
     }
   }

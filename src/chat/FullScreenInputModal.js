@@ -6,6 +6,7 @@ import { KeyboardAvoidingView, Modal, Platform, Text, TextInput, TouchableOpacit
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function FullScreenInputModal({
@@ -16,6 +17,7 @@ export default function FullScreenInputModal({
   onSend,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const canSend = !!text.trim();
 
@@ -30,11 +32,11 @@ export default function FullScreenInputModal({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.fullScreenHeader}>
-          <Text style={styles.fullScreenTitle}>全屏输入</Text>
+          <Text style={styles.fullScreenTitle}>{t('chat.fullscreen.title')}</Text>
           <TouchableOpacity
             onPress={onClose}
             hitSlop={8}
-            accessibilityLabel="退出全屏"
+            accessibilityLabel={t('chat.fullscreen.closeA11y')}
           >
             <Ionicons name="close" size={24} color={theme.colors.textMuted} />
           </TouchableOpacity>
@@ -43,7 +45,7 @@ export default function FullScreenInputModal({
           style={styles.fullScreenInput}
           value={text}
           onChangeText={onChangeText}
-          placeholder="输入消息..."
+          placeholder={t('chat.composer.placeholder')}
           placeholderTextColor={theme.colors.textFaint}
           multiline
           textAlignVertical="top"
@@ -56,7 +58,7 @@ export default function FullScreenInputModal({
           activeOpacity={0.8}
         >
           <Ionicons name="arrow-up" size={18} color={theme.colors.text} />
-          <Text style={styles.fullScreenSendText}>发送</Text>
+          <Text style={styles.fullScreenSendText}>{t('chat.fullscreen.send')}</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>

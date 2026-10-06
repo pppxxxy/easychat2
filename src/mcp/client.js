@@ -13,6 +13,8 @@
 // 安全约定：token 只进 Authorization 头，绝不进错误消息与日志；
 // 会话过期（404）自动重初始化并重试一次；请求级超时用 AbortController。
 
+import { tActive } from '../i18n/index.js';
+
 export const DEFAULT_GITHUB_MCP_ENDPOINT = 'https://api.githubcopilot.com/mcp/';
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 // 单请求超时：GitHub MCP 冷启动（initialize）偶尔要十几秒，20s 会误杀成
@@ -154,7 +156,10 @@ export function createMcpSession({
           throw fail('MCP_INVALID_RESPONSE', 'GitHub MCP returned an invalid JSON-RPC response.');
         }
         if (payload.error) {
-          throw new Error(`GitHub MCP 错误（${payload.error.code}）：${payload.error.message || '未知错误'}`);
+          throw new Error(tActive('error.mcp.githubError', {
+            code: payload.error.code,
+            message: payload.error.message || tActive('error.mcp.unknown'),
+          }));
         }
         if (notification) return null;
         return payload.result !== undefined ? payload.result : null;

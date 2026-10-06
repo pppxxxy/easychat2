@@ -25,6 +25,7 @@ import {
   saveGlobalPresets,
   saveMemorySummarySettings,
 } from './storage.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 const THRESHOLD_FALLBACK = 40;
 const EMPTY_CHARACTER_PRESETS = [];
@@ -47,6 +48,7 @@ export default function PresetPanel({
   const [saving, setSaving] = useState(false);
   const isCharacterScope = scope === 'character';
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const busyRef = useRef(false);
   const savedThresholdRef = useRef(THRESHOLD_FALLBACK);
@@ -90,7 +92,7 @@ setMemoryEnabled(memory.enabled === true);
         setLoaded(true);
       })
       .catch(() => {
-        if (!cancelled) Alert.alert('预设读取失败', '请重新打开后重试。');
+        if (!cancelled) Alert.alert(t('preset.alert.loadFailed.title'), t('preset.alert.loadFailed.body'));
       });
     return () => {
       cancelled = true;
@@ -99,7 +101,7 @@ setMemoryEnabled(memory.enabled === true);
 
   const togglePreset = useCallback(async (id, value) => {
     if (busyRef.current) {
-      Alert.alert('正在保存', '请等待当前操作完成。');
+      Alert.alert(t('preset.alert.busy.title'), t('preset.alert.busy.body'));
       return;
     }
     if (isCharacterScope) {
@@ -114,15 +116,15 @@ setMemoryEnabled(memory.enabled === true);
       const next = await saveGlobalPresetSettings({ ...enabled, [id]: value });
       setEnabled(next);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('preset.alert.saveFailed.title'), t('preset.alert.saveFailed.body'));
     } finally {
       busyRef.current = false;
     }
-  }, [enabled, isCharacterScope, onCharacterPresetsChange, presets]);
+  }, [enabled, isCharacterScope, onCharacterPresetsChange, presets, t]);
 
   const openEditor = preset => {
     if (busyRef.current) {
-      Alert.alert('正在保存', '请等待当前操作完成。');
+      Alert.alert(t('preset.alert.busy.title'), t('preset.alert.busy.body'));
       return;
     }
     setEditingPreset(preset);
@@ -139,7 +141,7 @@ setMemoryEnabled(memory.enabled === true);
     const name = form.name.trim();
     const prompt = form.prompt.trim();
     if (!name || !prompt) {
-      Alert.alert('信息不全', '名称和提示词不能为空。');
+      Alert.alert(t('preset.alert.infoIncomplete.title'), t('preset.alert.infoIncomplete.body'));
       return;
     }
     busyRef.current = true;
@@ -172,7 +174,7 @@ setMemoryEnabled(memory.enabled === true);
       setPresets(saved);
       setModalOpen(false);
     } catch (error) {
-      Alert.alert('保存失败', error?.message || '请检查存储空间或权限。');
+      Alert.alert(t('preset.alert.saveFailed.title'), error?.message || t('preset.alert.saveFailed.body'));
     } finally {
       busyRef.current = false;
       setSaving(false);
@@ -181,10 +183,10 @@ setMemoryEnabled(memory.enabled === true);
 
   const deletePreset = preset => {
     if (busyRef.current) return;
-    Alert.alert('删除预设', `确定删除「${preset.name || '未命名'}」吗？`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('preset.alert.delete.title'), t('preset.alert.delete.body', { name: preset.name || t('preset.unnamed') }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: async () => {
           if (busyRef.current) return;
@@ -212,7 +214,7 @@ setMemoryEnabled(memory.enabled === true);
               return next;
             });
           } catch (error) {
-            Alert.alert('删除失败', error?.message || '请检查存储空间或权限。');
+            Alert.alert(t('preset.alert.deleteFailed.title'), error?.message || t('preset.alert.saveFailed.body'));
           } finally {
             busyRef.current = false;
             setSaving(false);
@@ -234,7 +236,7 @@ setMemoryEnabled(memory.enabled === true);
       savedThresholdRef.current = Number(saved.threshold) || THRESHOLD_FALLBACK;
       return true;
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('preset.alert.saveFailed.title'), t('preset.alert.saveFailed.body'));
       return false;
     } finally {
       busyRef.current = false;
@@ -244,7 +246,7 @@ setMemoryEnabled(memory.enabled === true);
   const toggleMemory = value => {
     if (!loaded) return;
     if (busyRef.current) {
-      Alert.alert('正在保存', '请等待当前操作完成。');
+      Alert.alert(t('preset.alert.busy.title'), t('preset.alert.busy.body'));
       return;
     }
     persistMemory(value, threshold);
@@ -258,7 +260,7 @@ setMemoryEnabled(memory.enabled === true);
   const commitThreshold = async () => {
     if (thresholdCommitRef.current) return false;
     if (busyRef.current) {
-      Alert.alert('正在保存', '请等待当前操作完成。');
+      Alert.alert(t('preset.alert.busy.title'), t('preset.alert.busy.body'));
       return false;
     }
     if (!loaded) return false;
@@ -267,7 +269,7 @@ setMemoryEnabled(memory.enabled === true);
     const parsed = Math.trunc(Number(raw));
     const value = normalizeThreshold();
     if (value !== parsed) {
-      Alert.alert('阈值无效', `请输入大于 0 的整数，已改为 ${THRESHOLD_FALLBACK}。`);
+      Alert.alert(t('preset.alert.thresholdInvalid.title'), t('preset.alert.thresholdInvalid.body', { fallback: THRESHOLD_FALLBACK }));
     }
     setThreshold(String(value));
     try {
@@ -282,14 +284,14 @@ setMemoryEnabled(memory.enabled === true);
 
   const confirmThreshold = async () => {
     if (busyRef.current) {
-      Alert.alert('正在保存', '请等待当前操作完成。');
+      Alert.alert(t('preset.alert.busy.title'), t('preset.alert.busy.body'));
       return;
     }
     if (!loaded) return;
     const value = normalizeThreshold();
     setThreshold(String(value));
     const saved = await persistMemory(memoryEnabled, value);
-    if (saved) Alert.alert('已保存', `自动总结阈值已设为 ${value} 条可总结消息。`);
+    if (saved) Alert.alert(t('preset.alert.thresholdSaved.title'), t('preset.alert.thresholdSaved.body', { value }));
   };
 
   const handleClose = async () => {
@@ -321,16 +323,16 @@ setMemoryEnabled(memory.enabled === true);
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>{isCharacterScope ? '角色预设' : '全局文本预设'}</Text>
-            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{isCharacterScope ? t('preset.title.character') : t('preset.title.global')}</Text>
+            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.listContent}>
             <Text style={styles.fieldHint}>
               {isCharacterScope
-                ? '这些预设只对当前角色生效，开启后会追加到该角色的系统提示词中。点击条目可编辑。'
-                : '这些预设无视角色卡，对所有对话生效。开启后会追加到系统提示词中。点击条目可编辑。'}
+                ? t('preset.hint.character')
+                : t('preset.hint.global')}
             </Text>
             {presets.map(preset => (
               <View key={preset.id} style={styles.presetRow}>
@@ -357,17 +359,17 @@ setMemoryEnabled(memory.enabled === true);
                   hitSlop={8}
                   onPress={() => deletePreset(preset)}
                   disabled={saving}
-                  accessibilityLabel="删除预设"
+                  accessibilityLabel={t('preset.a11y.delete')}
                 >
                   <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
                 </TouchableOpacity>
               </View>
             ))}
             {loaded && presets.length === 0 ? (
-              <Text style={styles.fieldHint}>暂无预设，点击下方按钮新增。</Text>
+              <Text style={styles.fieldHint}>{t('preset.empty')}</Text>
             ) : null}
             <SecondaryButton
-              title="新增预设"
+              title={t('preset.add')}
               icon="add"
               onPress={() => openEditor(null)}
               disabled={!loaded || saving}
@@ -379,9 +381,9 @@ setMemoryEnabled(memory.enabled === true);
                 <View style={styles.sectionDivider} />
                 <View style={styles.memoryRow}>
                   <View style={styles.memoryText}>
-                    <Text style={styles.presetName}>记忆总结</Text>
+                    <Text style={styles.presetName}>{t('preset.memory.title')}</Text>
                     <Text style={styles.presetDesc}>
-                      独立的全局记忆总结设置，不属于文本预设；达到可总结消息阈值后自动执行。
+                      {t('preset.memory.desc')}
                     </Text>
                   </View>
                   <Switch
@@ -393,7 +395,7 @@ setMemoryEnabled(memory.enabled === true);
 
                   />
                 </View>
-                <FieldLabel style={styles.label}>自动总结阈值（可总结消息条数）</FieldLabel>
+                <FieldLabel style={styles.label}>{t('preset.memory.thresholdLabel')}</FieldLabel>
                 <View style={styles.thresholdRow}>
                   <TextField
                     style={styles.thresholdInput}
@@ -411,7 +413,7 @@ setMemoryEnabled(memory.enabled === true);
                     activeOpacity={0.8}
                   >
                     <Ionicons name="checkmark" size={16} color={theme.colors.primaryContrast} />
-                    <Text style={styles.thresholdConfirmText}>确认</Text>
+                    <Text style={styles.thresholdConfirmText}>{t('common.confirm')}</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -437,29 +439,29 @@ setMemoryEnabled(memory.enabled === true);
           <View style={styles.sheet}>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.title}>
-                {editingPreset ? '编辑预设' : '新增预设'}
+                {editingPreset ? t('preset.editor.editTitle') : t('preset.add')}
               </Text>
-              <FieldLabel style={styles.label}>名称</FieldLabel>
+              <FieldLabel style={styles.label}>{t('preset.editor.nameLabel')}</FieldLabel>
               <TextField
                 value={form.name}
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, name: text }))}
-                placeholder="例如：控制篇幅"
+                placeholder={t('preset.editor.namePlaceholder')}
               />
-              <FieldLabel style={styles.label}>描述（可选）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('preset.editor.descLabel')}</FieldLabel>
               <TextField
                 value={form.description}
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, description: text }))}
-                placeholder="一句话说明用途"
+                placeholder={t('preset.editor.descPlaceholder')}
               />
-              <FieldLabel style={styles.label}>提示词</FieldLabel>
+              <FieldLabel style={styles.label}>{t('preset.editor.promptLabel')}</FieldLabel>
               <TextField
                 style={styles.promptInput}
                 value={form.prompt}
                 editable={!saving}
                 onChangeText={text => setForm(current => ({ ...current, prompt: text }))}
-                placeholder="开启后追加到系统提示词的内容"
+                placeholder={t('preset.editor.promptPlaceholder')}
                 multiline
                 textAlignVertical="top"
               />
@@ -471,7 +473,7 @@ setMemoryEnabled(memory.enabled === true);
                 disabled={saving}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectButtonText}>取消</Text>
+                <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.selectButton, saving && styles.buttonDisabled]}
@@ -479,7 +481,7 @@ setMemoryEnabled(memory.enabled === true);
                 disabled={saving}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectButtonText}>{saving ? '保存中...' : '保存'}</Text>
+                <Text style={styles.selectButtonText}>{saving ? t('common.saving') : t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>

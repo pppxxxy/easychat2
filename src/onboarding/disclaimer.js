@@ -4,13 +4,16 @@ import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import ChapterSections from '../books/ChapterSections.js';
 import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from './disclaimerContent.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 // 条款文本与结构化章节在 `disclaimerContent.js`（零依赖纯数据模块，Node 可测）。
 // 这里只保留展示组件并原样再导出，既有 `from './disclaimer.js'` 的引用无需改动。
 export { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT };
 
-export default function DisclaimerModal({ visible, title = '免责条款', content = DISCLAIMER_TEXT, sections, onClose }) {
+export default function DisclaimerModal({ visible, title, content = DISCLAIMER_TEXT, sections, onClose }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const resolvedTitle = title || t('onboarding.disclaimer.title');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const list = Array.isArray(sections)
     ? sections
@@ -19,7 +22,7 @@ export default function DisclaimerModal({ visible, title = '免责条款', conte
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.title}>{resolvedTitle}</Text>
           <ScrollView style={styles.body}>
             {list ? (
               <ChapterSections sections={list} />
@@ -28,7 +31,7 @@ export default function DisclaimerModal({ visible, title = '免责条款', conte
             )}
           </ScrollView>
           <TouchableOpacity style={styles.button} onPress={onClose} activeOpacity={0.8}>
-            <Text style={styles.buttonText}>我知道了</Text>
+            <Text style={styles.buttonText}>{t('onboarding.disclaimer.accept')}</Text>
           </TouchableOpacity>
         </View>
       </View>

@@ -5,6 +5,7 @@ import { Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-na
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function SwitcherModal({
@@ -20,6 +21,7 @@ export default function SwitcherModal({
   groupSessionName,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -35,7 +37,7 @@ export default function SwitcherModal({
         onPress={onClose}
       >
         <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
-          <Text style={styles.modalTitle}>选择角色或群聊</Text>
+          <Text style={styles.modalTitle}>{t('chat.switcher.title')}</Text>
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
             {characters.map(item => {
               const selected = !isGroup && item.id === activeId;
@@ -64,7 +66,7 @@ export default function SwitcherModal({
                   {selected ? (
                     <View style={styles.modalBadge}>
                       <Ionicons name="checkmark" size={12} color={theme.colors.text} />
-                      <Text style={styles.modalBadgeText}>当前</Text>
+                      <Text style={styles.modalBadgeText}>{t('chat.switcher.current')}</Text>
                     </View>
                   ) : null}
                 </TouchableOpacity>
@@ -95,7 +97,7 @@ export default function SwitcherModal({
                   {selected ? (
                     <View style={styles.modalBadge}>
                       <Ionicons name="checkmark" size={12} color={theme.colors.text} />
-                      <Text style={styles.modalBadgeText}>当前</Text>
+                      <Text style={styles.modalBadgeText}>{t('chat.switcher.current')}</Text>
                     </View>
                   ) : null}
                 </TouchableOpacity>

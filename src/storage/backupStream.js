@@ -9,6 +9,8 @@
 // undefined 字段被省略、数组中的 undefined 变 null 等细节
 // （由 tests/backupStream.test.mjs 以多种形状锁定）。
 
+import { tActive } from '../i18n/index.js';
+
 // 单个片段的字符上限：媒体 base64 可达数十 MB，再切一层保证写盘方
 // 每次写入量可控、片与片之间有机会检查取消。
 export const BACKUP_CHUNK_CHARS = 256 * 1024;
@@ -51,7 +53,7 @@ function* yieldSerializedValue(value) {
 // 顶层为对象；字段按插入顺序输出，与 JSON.stringify 的键序语义一致。
 export function* createBackupChunkGenerator(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('备份内容无效');
+    throw new Error(tActive('error.storage.backupContentInvalid'));
   }
   yield '{';
   let first = true;

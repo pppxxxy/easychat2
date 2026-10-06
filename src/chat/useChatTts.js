@@ -13,8 +13,10 @@ import { toSpeechText } from './speechText.js';
 import { saveTtsSettings } from '../storage.js';
 import { synthesize, speak as ttsSpeak, stop as ttsStop, isSystemProvider } from '../tts/index.js';
 import { getTtsProvider } from '../tts/providers.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useChatTts() {
+  const { t } = useTranslation();
   const [ttsSettings, setTtsSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   const ttsRef = useRef({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   // 当前播报是「自动」还是「手动」触发：关闭自动播报只停自动那次，不打断手动播报。
@@ -40,9 +42,9 @@ export default function useChatTts() {
         ttsRef.current = previous;
         setTtsSettings(previous);
       }
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('chat.tts.saveFailed.title'), t('chat.tts.saveFailed.body'));
     }
-  }, []);
+  }, [t]);
 
   // 手动播报：点消息下方的「播报」始终可用，不受顶部自动播报开关限制。
   const broadcastMessage = useCallback(async (text, source = 'manual') => {
@@ -55,9 +57,9 @@ export default function useChatTts() {
     try {
       await ttsSpeak({ provider, config, text: content });
     } catch (error) {
-      Alert.alert('播报失败', maskSecrets((error && error.message) || '请稍后重试。'));
+      Alert.alert(t('chat.tts.broadcastFailed.title'), maskSecrets((error && error.message) || t('chat.tts.broadcastFailed.body')));
     }
-  }, []);
+  }, [t]);
 
   // 自动播报：仅当自动播报开关开启时才在回复完成后朗读。
   const autoBroadcastMessage = useCallback(async text => {

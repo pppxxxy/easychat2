@@ -32,6 +32,7 @@ import { registerDefaultWorkspaceTools } from '../workspace/native.js';
 import { ensureGithubMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
+  ATTACH_ERROR,
   getImageDimensions,
   getImageFileInfo,
   MAX_IMAGE_ATTACHMENTS,
@@ -102,6 +103,20 @@ import {
 } from '../storage.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { runPlugins } from '../plugins/registry.js';
+
+// 发送流程内部哨兵错误：只用于 catch 里分流提示，不直接展示给用户；
+// 用 code 判等而不是文案（用户可见文案走 i18n，随语言变化，不能当判等依据）。
+const SEND_ERROR = {
+  IMAGE_MISSING: 'send-image-missing',
+  IMAGE_TOTAL_TOO_LARGE: 'send-image-total-too-large',
+  VIDEO_MISSING: 'send-video-missing',
+  VIDEO_TOTAL_TOO_LARGE: 'send-video-total-too-large',
+};
+const sendError = code => {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+};
 
 export default function useChatSend({
   // 守卫（来自 useSessionGuard）
@@ -261,7 +276,7 @@ export default function useChatSend({
          onError: error => {
           if (__DEV__) console.warn('[webSearch] failed', maskSecrets(error?.message || String(error)));
           // registry 内部已按会话去重，这里不会每条消息都弹
-          Alert.alert('联网搜索失败', maskSecrets((error && error.message) || '请检查搜索服务配置。'));
+          Alert.alert(tRef.current('chat.send.webSearchFailed.title'), maskSecrets((error && error.message) || tRef.current('chat.send.webSearchFailed.body')));
         },
       });
       const currentSession = sessionsRef.current.find(
@@ -587,7 +602,7 @@ export default function useChatSend({
     const members = groupCharactersRef.current;
     if (members.length === 0) {
       // 输入框在 onSend 里已清空，这里必须给个提示，不能让用户以为发出去又什么都没发生。
-      Alert.alert('无法发送', '这个群聊没有可用的角色（成员可能已被删除）。');
+      Alert.alert(tRef.current('chat.send.noMembers.title'), tRef.current('chat.send.noMembers.body'));
       return false;
     }
     const sendSessionId = activeSessionIdRef.current;
@@ -620,7 +635,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
          signal: controller.signal,
          onError: error => {
            if (__DEV__) console.warn('[webSearch] failed', maskSecrets(error?.message || String(error)));
-           Alert.alert('联网搜索失败', maskSecrets((error && error.message) || '请检查搜索服务配置。'));
+           Alert.alert(tRef.current('chat.send.webSearchFailed.title'), maskSecrets((error && error.message) || tRef.current('chat.send.webSearchFailed.body')));
          },
        });
        if (!isCurrent() || controller.signal.aborted) return false;
@@ -728,7 +743,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              if (!isCurrent()) return false;
              working = working.map(item => (
               item.id === pendingMessage.id
-                ? { ...item, text: reply || '没有收到回复。', pending: false, waitingForResponse: false }
+                ? { ...item, text: reply || tRef.current('chat.send.noReply'), pending: false, waitingForResponse: false }
                 : item
             ));
             setMessages(working);
@@ -746,7 +761,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
               item.id === pendingMessage.id
                 ? {
                   ...item,
-                  text: `${speaker.name} 本次回复失败`,
+                  text: tRef.current('chat.send.memberReplyFailed', { name: speaker.name }),
                   pending: false,
                   waitingForResponse: false,
                 }
@@ -783,7 +798,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         if (!isCurrent()) return false;
         const groupName = String(activeSessionRef.current?.name || '').trim()
           || members.map(item => String(item.name || '').trim()).filter(Boolean).join('、')
-          || '群聊';
+          || tRef.current('chat.session.defaultGroupName');
         const pendingMessage = {
           id: `${Date.now()}-ensemble-assistant`,
           role: ASSISTANT_ID,
@@ -875,7 +890,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        }
        if (isCanceledError(error)) return false;
         if (isCurrent()) {
-          Alert.alert('群聊回复失败', '请稍后重试。');
+          Alert.alert(tRef.current('chat.send.groupReplyFailed.title'), tRef.current('chat.send.groupReplyFailed.body'));
         }
         return false;
       } finally {
@@ -905,11 +920,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
     const videoAttachments = allAttachments.filter(item => item && item.kind === 'video');
     const textAttachments = allAttachments.filter(item => item && item.kind === 'text');
     if (imageAttachments.length > MAX_IMAGE_ATTACHMENTS) {
-      Alert.alert('图片过多', `一次最多发送 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+      Alert.alert(tRef.current('chat.send.tooManyImages.title'), tRef.current('chat.send.tooManyImages.body', { max: MAX_IMAGE_ATTACHMENTS }));
       return false;
     }
     if (videoAttachments.length > MAX_VIDEO_ATTACHMENTS) {
-      Alert.alert('视频过多', `一次最多发送 ${MAX_VIDEO_ATTACHMENTS} 条视频。`);
+      Alert.alert(tRef.current('chat.send.tooManyVideos.title'), tRef.current('chat.send.tooManyVideos.body', { max: MAX_VIDEO_ATTACHMENTS }));
       return false;
     }
     if (!isSessionGuardCurrent(sessionGuard)
@@ -922,14 +937,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
        || (abortRef.current && abortRef.current.signal.aborted)) return false;
      if (!isGroupRef.current && !greetingReady) return false;
      if (isGroupRef.current && groupCharactersRef.current.length === 0) {
-       Alert.alert('无法发送', '这个群聊没有可用的角色（成员可能已被删除）。');
+       Alert.alert(tRef.current('chat.send.noMembers.title'), tRef.current('chat.send.noMembers.body'));
        return false;
      }
      if (isGroupRef.current) openingRequestRef.current += 1;
      if (sessionOwnerMissing) {
-      Alert.alert('角色资料缺失', '这段历史对话可以查看，恢复角色资料后才能发送消息。');
-      return false;
-    }
+       Alert.alert(tRef.current('chat.send.ownerMissing.title'), tRef.current('chat.send.ownerMissing.sendBody'));
+       return false;
+     }
       let visionEnabled = false;
       let audioInputEnabled = false;
       let videoEnabled = false;
@@ -961,7 +976,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
      try {
        sizedImages = await Promise.all(imageAttachments.map(async item => {
          const info = await getImageFileInfo(item.uri);
-         if (!info.exists) throw new Error('图片不存在');
+         if (!info.exists) throw sendError(SEND_ERROR.IMAGE_MISSING);
          return { ...item, size: info.size || Number(item.size) || 0 };
          }));
          if (isCanceled()) return false;
@@ -969,12 +984,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
      } catch (error) {
        // 三种失败要分开说：文件已不存在（如撤回后原文件被清理）不能被说成「图片过大」，
        // 那会让用户去换更小的图，而真正的问题是这张图没了。
-       if (error && error.message === '图片不存在') {
-         Alert.alert('图片已失效', '这张图片的文件已不存在，请重新选择图片。');
-       } else if (error && error.message === '无法读取图片大小') {
-         Alert.alert('图片读取失败', '无法读取图片大小，请重新选择图片。');
+       if (error && error.code === SEND_ERROR.IMAGE_MISSING) {
+         Alert.alert(tRef.current('chat.send.imageMissing.title'), tRef.current('chat.send.imageMissing.body'));
+       } else if (error && error.code === ATTACH_ERROR.IMAGE_SIZE_UNREADABLE) {
+         Alert.alert(tRef.current('chat.send.imageReadFailed.title'), tRef.current('chat.send.imageReadFailed.sizeBody'));
        } else {
-         Alert.alert('图片过大', '一次发送的图片总大小过大，请减少图片后再试。');
+         Alert.alert(tRef.current('chat.send.imageTooLarge.title'), tRef.current('chat.send.imageTooLarge.totalBody'));
        }
        return false;
      }
@@ -987,16 +1002,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
       const item = sizedImages[index];
       const kind = item.kind === STICKER_MESSAGE_KIND ? STICKER_MESSAGE_KIND : 'image';
       if (kind === 'image' && !visionEnabled) {
-        Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
-        return false;
-      }
-       let dataUri = '';
-       if (visionEnabled) {
-          const estimatedBase64Bytes = Math.ceil(Number(item.size || 0) * 4 / 3);
-          if (totalBase64Bytes + estimatedBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
-            Alert.alert('图片过大', '图片总大小过大，请减少图片后再试。');
-            return false;
-          }
+         Alert.alert(tRef.current('chat.send.noVision.title'), tRef.current('chat.send.noVision.body'));
+         return false;
+       }
+        let dataUri = '';
+        if (visionEnabled) {
+           const estimatedBase64Bytes = Math.ceil(Number(item.size || 0) * 4 / 3);
+           if (totalBase64Bytes + estimatedBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
+             Alert.alert(tRef.current('chat.send.imageTooLarge.title'), tRef.current('chat.send.imageTooLarge.totalBodyShort'));
+             return false;
+           }
           totalBase64Bytes += estimatedBase64Bytes;
           try {
             dataUri = await readImageDataUri(item.uri, item.mime);
@@ -1008,14 +1023,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
               totalBase64Bytes - estimatedBase64Bytes + actualBase64Bytes
             );
               if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
-                throw new Error('图片总大小过大');
+                throw sendError(SEND_ERROR.IMAGE_TOTAL_TOO_LARGE);
               }
               if (isCanceled()) return false;
           } catch (error) {
-           if (error && error.message === '图片总大小过大') {
-             Alert.alert('图片过大', '图片总大小过大，请减少图片后再试。');
+           if (error && error.code === SEND_ERROR.IMAGE_TOTAL_TOO_LARGE) {
+             Alert.alert(tRef.current('chat.send.imageTooLarge.title'), tRef.current('chat.send.imageTooLarge.totalBodyShort'));
            } else {
-             Alert.alert('图片读取失败', '请重新选择图片。');
+             Alert.alert(tRef.current('chat.send.imageReadFailed.title'), tRef.current('chat.send.imageReadFailed.retryBody'));
            }
            return false;
          }
@@ -1045,7 +1060,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     // 把图片的额度连带吃光。
     if (videoAttachments.length > 0) {
       if (!videoEnabled) {
-        Alert.alert('不支持看视频', '当前来源未标记为支持看视频（且需 OpenAI 兼容协议），请在设置中确认模型能力。');
+        Alert.alert(tRef.current('chat.send.noVideo.title'), tRef.current('chat.send.noVideo.body'));
         return false;
       }
       let totalVideoBase64Bytes = 0;
@@ -1054,22 +1069,22 @@ if (!isCurrent() || controller.signal.aborted) return false;
         let size = Number(item.size || 0);
         try {
           const info = await getImageFileInfo(item.uri);
-          if (!info.exists) throw new Error('视频不存在');
-          size = info.size || size;
-          validateVideoSize({ size });
-        } catch (error) {
-          if (error && error.message === '视频不存在') {
-            Alert.alert('视频已失效', '这条视频的文件已不存在，请重新选择视频。');
-          } else {
-            Alert.alert('视频过大', `视频需小于 ${Math.round(MAX_VIDEO_BYTES / (1024 * 1024))}MB，请选择更短的视频。`);
-          }
+           if (!info.exists) throw sendError(SEND_ERROR.VIDEO_MISSING);
+           size = info.size || size;
+           validateVideoSize({ size });
+         } catch (error) {
+           if (error && error.code === SEND_ERROR.VIDEO_MISSING) {
+             Alert.alert(tRef.current('chat.send.videoMissing.title'), tRef.current('chat.send.videoMissing.body'));
+           } else {
+             Alert.alert(tRef.current('chat.send.videoTooLarge.title'), tRef.current('chat.send.videoTooLarge.body', { max: Math.round(MAX_VIDEO_BYTES / (1024 * 1024)) }));
+           }
           return false;
         }
         let dataUri = '';
         try {
           const estimatedBase64Bytes = Math.ceil(size * 4 / 3);
           if (totalVideoBase64Bytes + estimatedBase64Bytes > MAX_VIDEO_BASE64_BYTES) {
-            throw new Error('视频总大小过大');
+            throw sendError(SEND_ERROR.VIDEO_TOTAL_TOO_LARGE);
           }
           totalVideoBase64Bytes += estimatedBase64Bytes;
           dataUri = await readVideoDataUri(item.uri, item.mime);
@@ -1079,10 +1094,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
             totalVideoBase64Bytes,
             totalVideoBase64Bytes - estimatedBase64Bytes + Math.ceil(base64Length * 3 / 4)
           );
-          if (totalVideoBase64Bytes > MAX_VIDEO_BASE64_BYTES) throw new Error('视频总大小过大');
+          if (totalVideoBase64Bytes > MAX_VIDEO_BASE64_BYTES) throw sendError(SEND_ERROR.VIDEO_TOTAL_TOO_LARGE);
           if (isCanceled()) return false;
         } catch (error) {
-          Alert.alert('视频读取失败', '请重新选择视频。');
+          Alert.alert(tRef.current('chat.send.videoReadFailed.title'), tRef.current('chat.send.videoReadFailed.body'));
           return false;
         }
         if (!isSessionGuardCurrent(sessionGuard)) return false;
@@ -1170,7 +1185,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             && getConfigFingerprint(latestConfig) !== expectedConfigFingerprint
           )
         ) {
-         Alert.alert('模型来源已切换', '请重新发送这条消息。');
+         Alert.alert(tRef.current('chat.send.sourceChanged.title'), tRef.current('chat.send.sourceChanged.resendBody'));
          return false;
        }
         if (
@@ -1179,11 +1194,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
           && latestConfig.supportsVision !== true
           && !localMedia.vision
         ) {
-         Alert.alert('不支持识图', '当前来源未标记为支持识图，请在设置中确认模型能力。');
+         Alert.alert(tRef.current('chat.send.noVision.title'), tRef.current('chat.send.noVision.body'));
          return false;
        }
      } catch (error) {
-       Alert.alert('配置读取失败', '请稍后重试。');
+       Alert.alert(tRef.current('chat.send.configReadFailed.title'), tRef.current('chat.send.configReadFailed.body'));
        return false;
      }
      const baseAttachmentIds = baseAttachments.map(item => String(item.id || ''));
@@ -1222,7 +1237,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         setQuoteTarget(draftQuote);
         syncProtectedAttachmentUris();
         if (sourceChangedRef.current) {
-          Alert.alert('模型来源已切换', '已保留原消息草稿，请重新发送。');
+          Alert.alert(tRef.current('chat.send.sourceChanged.title'), tRef.current('chat.send.sourceChanged.draftKeptBody'));
         }
         return false;
       }
@@ -1249,7 +1264,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        if (!isSessionGuardCurrent(sessionGuard)) return false;
        const originalMessages = messages;
        if (sessionOwnerMissing) {
-        Alert.alert('角色资料缺失', '恢复角色资料后才能重新生成回复。');
+        Alert.alert(tRef.current('chat.send.ownerMissing.title'), tRef.current('chat.send.ownerMissing.regenBody'));
         return false;
       }
       const index = messages.findIndex(item => item.id === targetId);
@@ -1289,7 +1304,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        try {
          sizedMedia = await Promise.all(mediaItems.map(async item => {
            const info = await getImageFileInfo(item.image.uri);
-           if (!info.exists) throw new Error('图片不存在');
+           if (!info.exists) throw sendError(SEND_ERROR.IMAGE_MISSING);
              const dimensions = item.image.width > 0 && item.image.height > 0
                ? { width: item.image.width, height: item.image.height }
                : await getImageDimensions(item.image.uri);
@@ -1302,7 +1317,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
          }));
            validateImageBatch(sizedMedia, { requireDimensions: true });
        } catch (error) {
-         Alert.alert('图片过大', '重新生成所需的图片大小或数量超限。');
+         Alert.alert(tRef.current('chat.send.imageTooLarge.title'), tRef.current('chat.send.imageTooLarge.regenBody'));
          return false;
        }
         const imageMessages = [];
@@ -1313,7 +1328,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
           if (includeImage) {
             const estimatedBase64Bytes = Math.ceil(Number(media.size || 0) * 4 / 3);
             if (totalBase64Bytes + estimatedBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
-              Alert.alert('图片过大', '重新生成所需的图片总大小过大。');
+              Alert.alert(tRef.current('chat.send.imageTooLarge.title'), tRef.current('chat.send.imageTooLarge.regenTotalBody'));
               return false;
             }
             totalBase64Bytes += estimatedBase64Bytes;
@@ -1326,7 +1341,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
               totalBase64Bytes - estimatedBase64Bytes + actualBase64Bytes
             );
             if (totalBase64Bytes > MAX_IMAGE_BASE64_BYTES) {
-              Alert.alert('图片过大', '重新生成所需的图片总大小过大。');
+              Alert.alert(tRef.current('chat.send.imageTooLarge.title'), tRef.current('chat.send.imageTooLarge.regenTotalBody'));
               return false;
             }
           }
@@ -1364,7 +1379,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         if (handled === false && isSessionGuardCurrent(sessionGuard)) {
           setMessages(originalMessages);
           if (sourceChangedRef.current) {
-            Alert.alert('模型来源已切换', '已保留原消息，请重新生成。');
+            Alert.alert(tRef.current('chat.send.sourceChanged.title'), tRef.current('chat.send.sourceChanged.regenBody'));
           }
           return false;
         }
@@ -1408,14 +1423,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
     // 图片/表情包撤回后回填到附件区，文字撤回后回填到输入框——文案随之区分。
     const isMediaPlan = Array.isArray(plan.attachments) && plan.attachments.length > 0;
     Alert.alert(
-      '修改重发',
+      tRef.current('chat.editResend.title'),
       isMediaPlan
-        ? '确定撤回这条图片消息及其后续回复，并把图片放回待发送附件吗？'
-        : '确定撤回这条消息及其后续回复，并将原文字回退到输入框吗？',
+        ? tRef.current('chat.editResend.mediaBody')
+        : tRef.current('chat.editResend.textBody'),
       [
-        { text: '取消', style: 'cancel' },
+        { text: tRef.current('common.cancel'), style: 'cancel' },
         {
-          text: '撤回并编辑',
+          text: tRef.current('chat.editResend.confirm'),
           style: 'destructive',
           onPress: async () => {
             if (isSending || isSwitching || !isSessionGuardCurrent(sessionGuard) || abortRef.current) return;
@@ -1470,7 +1485,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
               }
               setQuoteTarget(null);
             } catch (error) {
-              Alert.alert('撤回失败', '记忆摘要未能同步重置，请稍后重试。');
+              Alert.alert(tRef.current('chat.editResend.failed.title'), tRef.current('chat.editResend.failed.body'));
             }
           },
         },

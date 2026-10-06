@@ -10,6 +10,8 @@
 //
 // 惰性 require：测试环境 require 原生模块会抛（与 native.js 同一套路）。
 
+import { tActive } from '../i18n/index.js';
+
 export const PICKER_CANCELLED = 'picker-cancelled';
 
 let fsModule;
@@ -61,7 +63,7 @@ export async function pickWorkspaceFolder() {
   const fileSystem = getFileSystemNext();
   if (!fileSystem || typeof fileSystem.Directory !== 'function'
     || typeof fileSystem.Directory.pickDirectoryAsync !== 'function') {
-    throw new Error('当前环境不支持选择文件夹。');
+    throw new Error(tActive('error.workspace.pickerUnsupported'));
   }
   try {
     const directory = await fileSystem.Directory.pickDirectoryAsync();

@@ -11,6 +11,8 @@
 
 import { Buffer } from 'buffer';
 
+import { tActive } from '../i18n/index.js';
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const COLOR_TYPE_BY_CHANNELS = { 1: 0, 2: 4, 3: 2, 4: 6 };
 
@@ -72,16 +74,16 @@ export function encodePngFromRgb(pixels, width, height, channels = 3) {
   const w = Math.trunc(Number(width));
   const h = Math.trunc(Number(height));
   const c = Math.trunc(Number(channels));
-  if (!(w > 0) || !(h > 0)) throw new Error('图片尺寸无效');
+  if (!(w > 0) || !(h > 0)) throw new Error(tActive('error.imageGen.pngInvalidSize'));
   // 不能写成 `!COLOR_TYPE_BY_CHANNELS[c]`：灰度通道 1 映射到颜色类型 0（falsy），
   // 会被误判为「不支持」而拒绝。用 hasOwnProperty 精确判定键是否存在。
   if (!Object.prototype.hasOwnProperty.call(COLOR_TYPE_BY_CHANNELS, c)) {
-    throw new Error(`不支持的通道数：${channels}`);
+    throw new Error(tActive('error.imageGen.pngUnsupportedChannels', { channels }));
   }
   const source = pixels instanceof Uint8Array ? pixels : Uint8Array.from(pixels || []);
   const expected = w * h * c;
   if (source.length < expected) {
-    throw new Error(`像素数据不足：需要 ${expected} 字节，实际 ${source.length}`);
+    throw new Error(tActive('error.imageGen.pngPixelsInsufficient', { expected, actual: source.length }));
   }
   // 每行前置一个 filter 字节（0 = None）。
   const stride = w * c;

@@ -13,7 +13,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ChatScreen from './src/ChatScreen.js';
-import CharacterScreen from './src/CharacterScreen.js';
+import CharacterStack from './src/character/CharacterStack.js';
 import MemoryScreen from './src/MemoryScreen.js';
 import ExtensionScreen from './src/ExtensionScreen.js';
 import SettingsScreen from './src/SettingsScreen.js';
@@ -615,7 +615,8 @@ function AppShell() {
             避免为 i18n 重命名路由带来的连锁改动风险。 */}
         <Tab.Screen name={ROUTE_NAMES.chat} component={ChatScreen} options={{ tabBarLabel: t('app.tab.chat') }} />
         <Tab.Screen name={ROUTE_NAMES.memory} component={MemoryScreen} options={{ tabBarLabel: t('app.tab.memory') }} />
-        <Tab.Screen name={ROUTE_NAMES.character} component={CharacterScreen} options={{ tabBarLabel: t('app.tab.character') }} />
+        {/* 角色 Tab 现在是一个原生栈（角色库 ⇄ 角色详情），见 src/character/CharacterStack.js */}
+        <Tab.Screen name={ROUTE_NAMES.character} component={CharacterStack} options={{ tabBarLabel: t('app.tab.character') }} />
         <Tab.Screen name={ROUTE_NAMES.extension} component={ExtensionScreen} options={{ tabBarLabel: t('app.tab.extension') }} />
         <Tab.Screen name={ROUTE_NAMES.settings} component={SettingsScreen} options={{ tabBarLabel: t('app.tab.settings') }} />
       </Tab.Navigator>

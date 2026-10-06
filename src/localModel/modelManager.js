@@ -11,6 +11,7 @@ import {
   localModelPath as safeLocalModelPath,
 } from './modelState.js';
 import { formatBytes } from './modelLogs.js';
+import { tActive } from '../i18n/index.js';
 
 export const LOCAL_MODEL_DIRECTORY = 'local-models';
 
@@ -107,13 +108,13 @@ async function downloadToFile(fs, url, destination, onProgress, expectedBytes = 
       onProgress(total > 0 ? Math.min(1, written / total) : 0);
     });
     const result = await task.downloadAsync();
-    if (!result || !result.uri) throw new Error('模型下载失败');
+    if (!result || !result.uri) throw new Error(tActive('error.localModel.downloadFailed'));
     // 404/403 的错误页会被完整写成文件，必须在落位前按状态码拒绝。
     const status = Number(result.status);
-    if (Number.isFinite(status) && status >= 400) throw new Error(`模型下载失败（HTTP ${status}）`);
+    if (Number.isFinite(status) && status >= 400) throw new Error(tActive('error.localModel.downloadHttpFailed', { status }));
     const info = await fs.getInfoAsync(result.uri);
     const size = parsePositiveSize(info);
-    if (!info || info.exists === false || size <= 0) throw new Error('模型文件为空');
+    if (!info || info.exists === false || size <= 0) throw new Error(tActive('error.localModel.fileEmpty'));
     // 大小强校验：优先用目录声明的字节数，缺省用 Content-Length 兜底，拦截截断的下载。
     const expected = Number(expectedBytes) > 0 ? Number(expectedBytes) : contentLength;
     const check = verifyDownloadedSize(size, expected);
@@ -137,7 +138,7 @@ async function copyToFile(fs, sourceUri, destination) {
   try {
     const info = await fs.getInfoAsync(sourceUri);
     const size = parsePositiveSize(info);
-    if (!info || info.exists === false || size <= 0) throw new Error('所选文件为空');
+    if (!info || info.exists === false || size <= 0) throw new Error(tActive('error.localModel.pickedFileEmpty'));
     await fs.copyAsync({ from: sourceUri, to: staging });
     await swapIntoPlace(fs, staging, destination);
     return size;
@@ -154,7 +155,7 @@ export async function downloadLocalModel(input = {}, options = {}) {
   const register = resolveRegister(options);
   const url = String(input.modelUrl || '').trim();
   const id = localModelIdFromFileName(input.modelId || input.modelName || input.modelUrl);
-  if (!id || !/^https?:\/\//i.test(url)) throw new Error('请填写有效的模型地址与模型 id');
+  if (!id || !/^https?:\/\//i.test(url)) throw new Error(tActive('error.localModel.invalidUrlOrId'));
   const destination = localModelPath(id);
   const mmprojUrl = String(input.mmprojUrl || '').trim();
   const mmprojDestination = mmprojUrl ? localModelMmprojPath(id) : '';
@@ -198,7 +199,7 @@ export async function importLocalModel(input = {}, options = {}) {
   const register = resolveRegister(options);
   const sourceUri = String(input.sourceUri || '').trim();
   const id = localModelIdFromFileName(input.modelId || input.sourceUri || input.name);
-  if (!sourceUri || !id) throw new Error('请选择要导入的 GGUF 文件');
+  if (!sourceUri || !id) throw new Error(tActive('error.localModel.pickGguf'));
   const destination = localModelPath(id);
   const mmprojSourceUri = String(input.mmprojSourceUri || '').trim();
   const mmprojDestination = mmprojSourceUri ? localModelMmprojPath(id) : '';

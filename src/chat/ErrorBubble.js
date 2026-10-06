@@ -6,10 +6,12 @@ import * as Clipboard from 'expo-clipboard';
 
 import { maskSecrets } from '../storage/secrets.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function ErrorBubble({ message, rawError, onCopied, fullWidth, selectionMode, selected }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -35,9 +37,9 @@ export default function ErrorBubble({ message, rawError, onCopied, fullWidth, se
          fullWidth ? styles.errorBubbleFullWidth : styles.errorBubbleBounded,
         selected ? styles.bubbleSelected : null,
       ]}>
-        <Text style={styles.errorBadge}>系统报错</Text>
+        <Text style={styles.errorBadge}>{t('chat.error.badge')}</Text>
         <TouchableOpacity onPress={() => setExpanded(current => !current)} activeOpacity={0.8}>
-          <Text style={styles.errorSummary}>请求失败，点击查看详情</Text>
+          <Text style={styles.errorSummary}>{t('chat.error.summary')}</Text>
         </TouchableOpacity>
         {expanded ? (
           <Text style={styles.errorDetail} selectable>
@@ -47,7 +49,7 @@ export default function ErrorBubble({ message, rawError, onCopied, fullWidth, se
         {!selectionMode ? (
           <View style={styles.errorActions}>
             <TouchableOpacity style={styles.copyButton} onPress={onCopy}>
-              <Text style={styles.copyButtonText}>{copied ? '已复制' : '复制报错'}</Text>
+              <Text style={styles.copyButtonText}>{copied ? t('common.copied') : t('chat.error.copy')}</Text>
             </TouchableOpacity>
           </View>
         ) : null}

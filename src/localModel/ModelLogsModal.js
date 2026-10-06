@@ -8,6 +8,7 @@ import * as Clipboard from 'expo-clipboard';
 
 import { clearModelLogs, formatModelLogs, getModelLogs } from './modelLogs.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 function formatTime(at) {
   const date = new Date(Number(at) || Date.now());
@@ -17,6 +18,7 @@ function formatTime(at) {
 
 export default function ModelLogsModal({ visible, onClose }) {
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [logs, setLogs] = useState([]);
 
@@ -36,39 +38,39 @@ export default function ModelLogsModal({ visible, onClose }) {
     if (!text) return;
     try {
       await Clipboard.setStringAsync(text);
-      Alert.alert('已复制', '本地模型日志已复制，可直接粘贴反馈。');
+      Alert.alert(t('localModel.logs.alertCopied.title'), t('localModel.logs.alertCopied.body'));
     } catch (error) {
-      Alert.alert('复制失败', '请手动长按选择文本复制。');
+      Alert.alert(t('localModel.logs.alertCopyFailed.title'), t('localModel.logs.alertCopyFailed.body'));
     }
-  }, []);
+  }, [t]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>本地模型日志</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{t('localModel.logs.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <Text style={styles.hint}>
-            记录加载 / 推理 / 本地 API 的关键过程与错误（仅本机内存，含模型路径与内存信息）。出错时可复制后反馈。
+            {t('localModel.logs.hint')}
           </Text>
           <View style={styles.toolbar}>
-            <TouchableOpacity onPress={refresh} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="刷新">
-              <Text style={styles.toolbarText}>刷新</Text>
+            <TouchableOpacity onPress={refresh} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('localModel.logs.refresh')}>
+              <Text style={styles.toolbarText}>{t('localModel.logs.refresh')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={copyAll} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="复制全部">
-              <Text style={styles.toolbarText}>复制全部</Text>
+            <TouchableOpacity onPress={copyAll} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('localModel.logs.copyAll')}>
+              <Text style={styles.toolbarText}>{t('localModel.logs.copyAll')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={clear} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="清空">
-              <Text style={styles.dangerText}>清空</Text>
+            <TouchableOpacity onPress={clear} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('localModel.logs.clear')}>
+              <Text style={styles.dangerText}>{t('localModel.logs.clear')}</Text>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.content}>
             {logs.length === 0 ? (
-              <Text style={styles.empty}>暂无日志。加载或使用本地模型后会在这里记录。</Text>
+              <Text style={styles.empty}>{t('localModel.logs.empty')}</Text>
             ) : (
               logs.slice().reverse().map((entry, index) => (
                 <View key={`${entry.at}-${index}`} style={styles.row}>

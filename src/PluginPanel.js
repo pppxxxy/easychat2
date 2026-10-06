@@ -18,8 +18,10 @@ import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getPlugins, savePlugins } from './storage.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { PROVIDERS, getProvider, missingRequiredFields } from './plugins/providers.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 export default function PluginPanel({ visible, onClose }) {
+  const { t } = useTranslation();
   const [plugins, setPlugins] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,14 +62,14 @@ export default function PluginPanel({ visible, onClose }) {
          setLoaded(true);
          if (migratedFrom) {
            Alert.alert(
-             '搜索引擎已更新',
-             `原先选择的搜索服务（${migratedFrom}）已停服或不可用，已切换为默认服务，请重新检查密钥设置。`
+             t('plugin.alert.engineMigrated.title'),
+             t('plugin.alert.engineMigrated.body', { name: migratedFrom })
            );
            savePlugins(cleaned).catch(() => {});
          }
       })
       .catch(() => {
-        if (!cancelled) Alert.alert('联网搜索读取失败', '请重新打开后重试。');
+        if (!cancelled) Alert.alert(t('plugin.alert.loadFailed.title'), t('plugin.alert.loadFailed.body'));
       });
     return () => {
       cancelled = true;
@@ -100,7 +102,7 @@ export default function PluginPanel({ visible, onClose }) {
           pluginsRef.current = fallback;
           setPlugins(fallback);
         }
-        Alert.alert('保存失败', '请检查存储空间或权限。');
+        Alert.alert(t('plugin.alert.saveFailed.title'), t('plugin.alert.saveFailed.body'));
         return null;
       } finally {
         if (version === persistVersionRef.current) setSaving(false);
@@ -108,34 +110,34 @@ export default function PluginPanel({ visible, onClose }) {
     });
     persistQueueRef.current = task.catch(() => null);
     return task;
-  }, []);
+  }, [t]);
 
   const togglePlugin = useCallback(async (plugin, value) => {
     if (value && plugin.type === 'web-search') {
       const config = plugin.config || {};
       const provider = getProvider(config.provider);
       if (missingRequiredFields(provider, config).length > 0) {
-        Alert.alert('请先填写密钥', '开启联网搜索前，请先填写搜索服务的密钥或地址。');
+        Alert.alert(t('plugin.alert.keyRequired.title'), t('plugin.alert.keyRequired.body'));
         return;
       }
     }
     const next = updatePlugin(plugin.id, item => ({ ...item, enabled: value }));
     await persist(next);
-  }, [persist, updatePlugin]);
+  }, [persist, updatePlugin, t]);
 
   const openKeyUrl = useCallback(async url => {
     if (!url) return;
     try {
       const canOpen = await Linking.canOpenURL(url);
       if (!canOpen) {
-        Alert.alert('无法打开链接', url);
+        Alert.alert(t('plugin.alert.openLinkFailed.title'), url);
         return;
       }
       await Linking.openURL(url);
     } catch (error) {
-      Alert.alert('无法打开链接', url);
+      Alert.alert(t('plugin.alert.openLinkFailed.title'), url);
     }
-  }, []);
+  }, [t]);
 
   const setConfigField = useCallback((id, key, value) => {
     updatePlugin(id, plugin => ({
@@ -169,16 +171,16 @@ export default function PluginPanel({ visible, onClose }) {
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>联网搜索</Text>
-            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{t('plugin.title')}</Text>
+            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <FieldHint style={styles.hint}>
-              联网搜索为全局能力，开启后对后续请求生效。命中触发词时会获取实时资料并注入对话。
+              {t('plugin.hint.global')}
             </FieldHint>
-            <FieldHint style={styles.hint}>搜索会把命中的关键词发送到所选搜索服务商。</FieldHint>
+            <FieldHint style={styles.hint}>{t('plugin.hint.privacy')}</FieldHint>
             {loaded ? plugins.map(plugin => {
               const config = plugin.config || {};
               const currentProvider = PROVIDERS.find(
@@ -188,8 +190,8 @@ export default function PluginPanel({ visible, onClose }) {
                 <View key={plugin.id} style={styles.card}>
                   <View style={styles.cardHeader}>
                     <View style={styles.cardText}>
-                      <Text style={styles.name}>{plugin.name}</Text>
-                      <Text style={styles.desc}>{plugin.description}</Text>
+                      <Text style={styles.name}>{plugin.nameKey ? t(plugin.nameKey) : plugin.name}</Text>
+                      <Text style={styles.desc}>{plugin.descriptionKey ? t(plugin.descriptionKey) : plugin.description}</Text>
                     </View>
                     <Switch
                       value={plugin.enabled === true}
@@ -201,7 +203,7 @@ export default function PluginPanel({ visible, onClose }) {
 
                   {plugin.type === 'web-search' ? (
                     <View style={styles.config}>
-                      <FieldLabel style={styles.label}>搜索服务</FieldLabel>
+                      <FieldLabel style={styles.label}>{t('plugin.providerLabel')}</FieldLabel>
                       <View style={styles.providerRow}>
                         {PROVIDERS.map(provider => {
                           const active = config.provider === provider.id;
@@ -213,20 +215,20 @@ export default function PluginPanel({ visible, onClose }) {
                               activeOpacity={0.8}
                             >
                               <Text style={[styles.providerText, active && styles.providerTextActive]}>
-                                {provider.label}
+                                {provider.labelKey ? t(provider.labelKey) : provider.label}
                               </Text>
                             </TouchableOpacity>
                           );
                         })}
                       </View>
 
-                      <FieldLabel style={styles.label}>API 密钥</FieldLabel>
+                      <FieldLabel style={styles.label}>{t('plugin.apiKeyLabel')}</FieldLabel>
                       <View style={styles.keyRow}>
                         <TextField
                           style={styles.keyInput}
                           value={config.apiKey || ''}
                           onChangeText={text => setConfigField(plugin.id, 'apiKey', text)}
-                          placeholder="填写搜索服务密钥"
+                          placeholder={t('plugin.apiKeyPlaceholder')}
                           secureTextEntry={!showKey[plugin.id]}
                           autoCapitalize="none"
                         />
@@ -255,10 +257,10 @@ export default function PluginPanel({ visible, onClose }) {
                               onPress={() => openKeyUrl(link.url)}
                               activeOpacity={0.8}
                               accessibilityRole="link"
-                              accessibilityLabel={link.label}
+                              accessibilityLabel={link.labelKey ? t(link.labelKey) : link.label}
                             >
                               <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
-                              <Text style={styles.keyLinkText}>{link.label}</Text>
+                              <Text style={styles.keyLinkText}>{link.labelKey ? t(link.labelKey) : link.label}</Text>
                               <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
                             </TouchableOpacity>
                           ))}
@@ -267,11 +269,11 @@ export default function PluginPanel({ visible, onClose }) {
 
                       {(currentProvider.extraFields || []).includes('cx') ? (
                         <>
-                          <FieldLabel style={styles.label}>搜索引擎 ID（cx）</FieldLabel>
+                          <FieldLabel style={styles.label}>{t('plugin.cxLabel')}</FieldLabel>
                           <TextField
                             value={config.cx || ''}
                             onChangeText={text => setConfigField(plugin.id, 'cx', text)}
-                            placeholder="Google 自定义搜索引擎 ID"
+                            placeholder={t('plugin.cxPlaceholder')}
                             autoCapitalize="none"
                           />
                         </>
@@ -279,7 +281,7 @@ export default function PluginPanel({ visible, onClose }) {
 
                       {currentProvider.custom ? (
                         <>
-                          <FieldLabel style={styles.label}>自定义接口地址</FieldLabel>
+                          <FieldLabel style={styles.label}>{t('plugin.customUrlLabel')}</FieldLabel>
                           <TextField
                             value={config.customBaseUrl || ''}
                             onChangeText={text => setConfigField(plugin.id, 'customBaseUrl', text)}
@@ -289,7 +291,7 @@ export default function PluginPanel({ visible, onClose }) {
                         </>
                       ) : null}
 
-                      <FieldLabel style={styles.label}>结果条数（1-10）</FieldLabel>
+                      <FieldLabel style={styles.label}>{t('plugin.maxResultsLabel')}</FieldLabel>
                       <TextField
                         value={String(config.maxResults ?? 5)}
                         onChangeText={text => setConfigField(plugin.id, 'maxResults', text)}
@@ -308,7 +310,7 @@ export default function PluginPanel({ visible, onClose }) {
               disabled={saving}
               activeOpacity={0.8}
             >
-              <Text style={styles.saveText}>{saving ? '保存中...' : '保存'}</Text>
+              <Text style={styles.saveText}>{saving ? t('common.saving') : t('common.save')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

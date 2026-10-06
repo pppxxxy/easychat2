@@ -1,7 +1,10 @@
+import { tActive } from '../i18n/index.js';
+
 export const VECTOR_PROVIDERS = [
   {
     id: 'openai-embeddings',
     label: 'OpenAI 兼容',
+    labelKey: 'vectorProvider.openaiEmbeddings',
     baseUrl: 'https://api.openai.com/v1',
     endpoint: '/embeddings',
     model: 'text-embedding-3-small',
@@ -26,7 +29,7 @@ export function buildEmbeddingUrl(baseUrl) {
 }
 
 export function mapEmbeddingError(status) {
-  if (status === 401 || status === 403) return '密钥无效或未授权';
-  if (status === 429) return '请求过于频繁，请稍后重试';
-  return `向量服务请求失败（HTTP ${status}）`;
+  if (status === 401 || status === 403) return tActive('error.vectorMemory.httpAuth');
+  if (status === 429) return tActive('error.vectorMemory.httpRateLimited');
+  return tActive('error.vectorMemory.httpFailed', { status });
 }

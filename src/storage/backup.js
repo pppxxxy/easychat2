@@ -10,6 +10,7 @@ import {
   planBackupImport,
 } from './dataBackup.js';
 import { recordDiagnostic } from './diagnostics.js';
+import { tActive } from '../i18n/index.js';
 import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
 import { createBackupChunkGenerator } from './backupStream.js';
 
@@ -40,7 +41,7 @@ async function readRawStorageString(key) {
   } catch (error) {
     const recovered = await readLargeAsyncStorageValue(key);
     if (recovered !== null) return recovered;
-    throw new Error(`无法读取待恢复数据：${key}`);
+    throw new Error(tActive('error.backup.restoreReadFailed', { key }));
   }
 }
 
@@ -207,7 +208,7 @@ async function writeBackupStream(uri, payload, { signal, report }) {
       bytes += encoded.length;
       pieceCount += 1;
       if (bytes > BACKUP_MAX_BYTES) {
-        throw new Error(`备份文件过大，当前上限为 ${Math.round(BACKUP_MAX_BYTES / 1024 / 1024)}MB`);
+        throw new Error(tActive('error.backup.tooLarge', { mb: Math.round(BACKUP_MAX_BYTES / 1024 / 1024) }));
       }
       // 每片之后让出一次事件循环：写盘阶段不再独占主线程，取消能及时生效。
       if (pieceCount % 4 === 0) {

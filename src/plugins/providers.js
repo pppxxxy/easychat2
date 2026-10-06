@@ -2,7 +2,7 @@ export const PROVIDERS = [
   {
     id: 'serpapi',
     label: 'SerpAPI',
-    keyLinks: [{ label: '获取 SerpAPI Key', url: 'https://serpapi.com/manage-api-key' }],
+    keyLinks: [{ label: '获取 SerpAPI Key', labelKey: 'plugin.keyLink.serpapi', url: 'https://serpapi.com/manage-api-key' }],
     baseUrl: 'https://serpapi.com/search',
     method: 'GET',
     authType: 'query',
@@ -18,8 +18,8 @@ export const PROVIDERS = [
     id: 'google-cse',
     label: 'Google CSE',
     keyLinks: [
-      { label: '获取 API Key（凭据）', url: 'https://console.cloud.google.com/apis/credentials' },
-      { label: '创建搜索引擎（cx）', url: 'https://programmablesearchengine.google.com/' },
+      { label: '获取 API Key（凭据）', labelKey: 'plugin.keyLink.googleApiKey', url: 'https://console.cloud.google.com/apis/credentials' },
+      { label: '创建搜索引擎（cx）', labelKey: 'plugin.keyLink.googleCx', url: 'https://programmablesearchengine.google.com/' },
     ],
     baseUrl: 'https://www.googleapis.com/customsearch/v1',
     method: 'GET',
@@ -36,7 +36,7 @@ export const PROVIDERS = [
   {
     id: 'brave',
     label: 'Brave Search',
-    keyLinks: [{ label: '获取 Brave Search Key', url: 'https://api.search.brave.com/app/keys' }],
+    keyLinks: [{ label: '获取 Brave Search Key', labelKey: 'plugin.keyLink.brave', url: 'https://api.search.brave.com/app/keys' }],
     baseUrl: 'https://api.search.brave.com/res/v1/web/search',
     method: 'GET',
     authType: 'header',
@@ -51,7 +51,7 @@ export const PROVIDERS = [
   {
     id: 'tavily',
     label: 'Tavily',
-    keyLinks: [{ label: '获取 Tavily Key', url: 'https://app.tavily.com/home' }],
+    keyLinks: [{ label: '获取 Tavily Key', labelKey: 'plugin.keyLink.tavily', url: 'https://app.tavily.com/home' }],
     baseUrl: 'https://api.tavily.com/search',
     method: 'POST',
     authType: 'body',
@@ -66,6 +66,7 @@ export const PROVIDERS = [
   {
     id: 'custom',
     label: '自定义',
+    labelKey: 'plugin.provider.custom',
     baseUrl: '',
     method: 'GET',
     authType: 'header',

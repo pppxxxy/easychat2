@@ -93,7 +93,7 @@ easychat2/
 │   │   └── ScrollScrubber.js     # 快速定位滑动条：拖动跳转会话任意位置
 │   ├── MemoryScreen.js       # 记忆页：历史会话列表、置顶、克隆、删除
 │   ├── SearchScreen.js       # 跨会话搜索：关键词检索历史消息并跳转定位
-│   ├── CharacterScreen.js    # 角色库陈列、角色编辑与角色卡导入
+│   ├── character/            # 角色域：CharacterStack（列表⇄详情栈）+ 列表页/详情页 + 卡解析/导出/编辑子组件
 │   ├── ImageGenScreen.js     # 生图界面：服务/模型选择、图生图与结果画廊
 │   ├── ExtensionScreen.js    # 扩展页：切换内嵌小游戏、生图、制卡与世界分组
 │   ├── SettingsScreen.js     # API 地址 / 模型 / Key 配置
@@ -220,8 +220,8 @@ easychat2/
 
 ### 角色管理
 **目的**: 陈列角色库并切换当前角色，编辑角色核心字段（角色名/开场白/系统提示词/描述/性格/场景），新建/删除角色，从 PNG/JSON 角色卡导入标准字段、世界书与正则脚本，并把角色导出为标准 V2 卡
-**位置**: `src/CharacterScreen.js`
-**关键文件**: `src/CharacterScreen.js`
+**位置**: `src/character/CharacterStack.js`（原生栈）、`src/character/CharacterLibraryScreen.js`（列表页）、`src/character/CharacterDetailScreen.js`（编辑表单）
+**关键文件**: `src/character/CharacterLibraryScreen.js`、`src/character/CharacterDetailScreen.js`、`src/character/CharacterStack.js`
 **依赖**: `src/character/cardParser.js`、`src/character/cardExporter.js`、`src/storage/secrets.js`、`expo-document-picker`、`expo-file-system`、`expo-sqlite`、`expo-sharing`、`buffer`、`src/context/AppContext.js`
 **被依赖**: `App.js`
 
@@ -230,7 +230,7 @@ easychat2/
 **位置**: `src/character/cardParser.js`、`src/prompt/lorebook.js`、`src/prompt/regexEngine.js`、`src/prompt/chatPipeline.js`
 **关键文件**: `src/character/cardParser.js`、`src/prompt/chatPipeline.js`
 **依赖**: `parsecard`、`buffer`
-**被依赖**: `ChatScreen`、`CharacterScreen`
+**被依赖**: `ChatScreen`、`CharacterLibraryScreen`、`CharacterDetailScreen`
 
 ### 设置界面（API 配置 / 人设 / 外观 / 对话配图 / 生成参数 / 向量记忆）
 **目的**: 集中管理 API 来源（接口地址、模型列表与密钥）、用户人设、外观、对话配图、生成参数与向量记忆，支持创建、折叠选择、切换、编辑、删除；当前来源由 `getActiveApiConfig` 读取、当前模型由 `getActiveModel` 读取
@@ -340,7 +340,7 @@ easychat2/
 **位置**: `src/context/AppContext.js`、`src/context/characterLibrary.js`、`src/context/sessionLibrary.js`
 **关键文件**: `src/context/AppContext.js`
 **依赖**: `src/storage.js`
-**被依赖**: `ChatScreen`、`CharacterScreen`、`MemoryScreen`
+**被依赖**: `ChatScreen`、`CharacterLibraryScreen`、`CharacterDetailScreen`、`MemoryScreen`
 
 ### 数据持久化
 **目的**: 以稳定键名读写 API 配置、角色库、当前角色、会话列表、当前会话与按会话隔离的消息，并迁移旧版单角色、旧版单 API 配置与旧版按角色存储的消息；聊天图片文件保存在文档目录，消息删除后按所有会话引用安全回收，屏蔽 `AsyncStorage` 细节
@@ -373,7 +373,7 @@ flowchart TB
         App["App.js 应用外壳与底部导航"]
         Chat["ChatScreen 聊天界面"]
         Memory["MemoryScreen 历史会话"]
-        Character["CharacterScreen 角色库与编辑"]
+        Character["CharacterStack 角色库与编辑（列表页⇄详情页）"]
         Settings["SettingsScreen API 配置"]
     end
     subgraph STATE["状态层"]

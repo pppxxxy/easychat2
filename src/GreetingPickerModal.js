@@ -11,6 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { buildGreetingImport, removeGreetingDraftIndex } from './character/cardGreetings.js';
 
 // 导入角色卡时选择开场白：挑一条、就地修改，或新增。确认后返回
@@ -24,6 +25,7 @@ export default function GreetingPickerModal({
   initialSelectedIndex,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const source = Array.isArray(candidates) ? candidates : [];
   const [drafts, setDrafts] = useState([]);
@@ -77,22 +79,22 @@ export default function GreetingPickerModal({
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>选择开场白</Text>
+            <Text style={styles.title}>{t('greetingPicker.title')}</Text>
             <TouchableOpacity
               onPress={() => { if (!saving) onCancel(); }}
               disabled={saving}
               hitSlop={8}
-              accessibilityLabel="关闭"
+              accessibilityLabel={t('greetingPicker.closeA11y')}
             >
               <Ionicons name="close" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
           <Text style={styles.hint}>
             {mode === 'select'
-              ? '选择后，之后新建的对话会默认使用这条开场白。也可以修改或新增。'
+              ? t('greetingPicker.hintSelect')
               : source.length > 0
-                ? '这张卡包含多条开场白，选一条作为开场白；也可以修改或新增。未选中的会保留为备用开场白。'
-                : '这张卡没有开场白，可以新增一条，或直接跳过。'}
+                ? t('greetingPicker.hintMultiple')
+                : t('greetingPicker.hintEmpty')}
           </Text>
 
           <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
@@ -106,7 +108,7 @@ export default function GreetingPickerModal({
                 size={18}
                 color={selectedIndex < 0 ? theme.colors.primary : theme.colors.textFaint}
               />
-              <Text style={[styles.rowText, styles.rowTextMuted]}>不使用开场白（由我先说）</Text>
+              <Text style={[styles.rowText, styles.rowTextMuted]}>{t('greetingPicker.none')}</Text>
             </TouchableOpacity>
 
             {drafts.map((text, index) => (
@@ -123,10 +125,10 @@ export default function GreetingPickerModal({
                   />
                   <View style={styles.rowBody}>
                     <Text style={styles.rowLabel}>
-                      {index === 0 && source[0] && source[0].source === 'first' ? '开场白' : `开场白 ${index + 1}`}
+                      {index === 0 && source[0] && source[0].source === 'first' ? t('greetingPicker.firstLabel') : t('greetingPicker.itemLabel', { n: index + 1 })}
                     </Text>
                     <Text style={styles.rowPreview} numberOfLines={3}>
-                      {String(text || '').trim() || '（空白，请在下方填写）'}
+                      {String(text || '').trim() || t('greetingPicker.emptyItem')}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -134,7 +136,7 @@ export default function GreetingPickerModal({
                   style={styles.remove}
                   onPress={() => removeDraft(index)}
                   hitSlop={8}
-                  accessibilityLabel="删除这条开场白"
+                  accessibilityLabel={t('greetingPicker.removeA11y')}
                 >
                   <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
                 </TouchableOpacity>
@@ -144,18 +146,18 @@ export default function GreetingPickerModal({
 
           <TouchableOpacity style={styles.addButton} onPress={addDraft} activeOpacity={0.8}>
             <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.addButtonText}>新增一条</Text>
+            <Text style={styles.addButtonText}>{t('greetingPicker.add')}</Text>
           </TouchableOpacity>
 
           {selectedIndex >= 0 ? (
             <>
-              <Text style={styles.editLabel}>编辑选中的开场白</Text>
+              <Text style={styles.editLabel}>{t('greetingPicker.editLabel')}</Text>
               <TextField
                 style={styles.editInput}
                 value={drafts[selectedIndex] || ''}
                 onChangeText={value => updateDraft(selectedIndex, value)}
                 multiline
-                placeholder="填写开场白内容"
+                placeholder={t('greetingPicker.editPlaceholder')}
               />
             </>
           ) : null}
@@ -167,7 +169,7 @@ export default function GreetingPickerModal({
               disabled={saving}
               activeOpacity={0.8}
             >
-              <Text style={styles.ghostText}>取消</Text>
+              <Text style={styles.ghostText}>{t('greetingPicker.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.primary, saving && styles.disabled]}
@@ -175,7 +177,7 @@ export default function GreetingPickerModal({
               disabled={saving}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryText}>{saving ? '保存中...' : (mode === 'select' ? '使用此开场白' : '导入')}</Text>
+              <Text style={styles.primaryText}>{saving ? t('greetingPicker.saving') : (mode === 'select' ? t('greetingPicker.useThis') : t('greetingPicker.import'))}</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -23,6 +23,9 @@ import {
   patchAppearanceSettings,
 } from '../storage.js';
 import { tokens } from './tokens.js';
+// 注意：App.js 里 ThemeProvider 在 I18nProvider 外层，useTranslation 在此只能拿到
+// 基准语言回退；这个失败提示需要跟随当前语言，故用模块级 tActive。
+import { tActive } from '../i18n/index.js';
 
 const ThemeContext = createContext(null);
 
@@ -85,7 +88,7 @@ export function ThemeProvider({ children }) {
           setThemeId(fallback.themeId);
           setFontScaleId(fallback.fontScaleId);
         }
-        Alert.alert('外观设置保存失败', '请检查存储空间或权限。');
+        Alert.alert(tActive('theme.alert.saveFailed.title'), tActive('common.error.storageOrPermission'));
       });
   }, []);
 

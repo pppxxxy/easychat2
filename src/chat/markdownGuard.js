@@ -7,6 +7,8 @@
 //
 // 纯函数，便于单测，聊天页与预览共用同一上限。
 
+import { tActive } from '../i18n/index.js';
+
 // 单个 Markdown 渲染块的字符上限。正常助手回复远低于此；超过大概率是异常/注入。
 export const MAX_MARKDOWN_CHARS = 20000;
 
@@ -16,7 +18,7 @@ export function clampMarkdownText(text, max = MAX_MARKDOWN_CHARS) {
   const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : MAX_MARKDOWN_CHARS;
   if (source.length <= limit) return { text: source, truncated: false };
   return {
-    text: `${source.slice(0, limit)}\n\n…（内容过长，已截断显示；剩余 ${source.length - limit} 字符未渲染）`,
+    text: `${source.slice(0, limit)}\n\n${tActive('chat.markdown.truncated', { count: source.length - limit })}`,
     truncated: true,
   };
 }

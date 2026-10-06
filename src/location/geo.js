@@ -57,6 +57,33 @@ export function wgs84ToGcj02(lat, lng) {
   return { latitude: latitude + dLat, longitude: longitude + dLng };
 }
 
+// GCJ-02 → WGS-84：在图上标点时的反向换算。
+// 图上点的是 GCJ-02 坐标（高德瓦片），存盘必须回到 WGS-84，否则下次按 WGS-84
+// 再转一次 GCJ-02 标注会叠加偏移。正向变换没有闭式逆解，用不动点迭代收敛：
+// 每轮用「目标 − 正向(当前估计)」修正估计值，境内通常 2 轮内到 1e-9 量级。
+const GCJ_INVERSE_ITERATIONS = 8;
+const GCJ_INVERSE_EPSILON = 1e-9;
+
+export function gcj02ToWgs84(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  // 境外不做偏移，正向是恒等映射，反向同样原样返回。
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || isOutOfChina(latitude, longitude)) {
+    return { latitude, longitude };
+  }
+  let guessLat = latitude;
+  let guessLng = longitude;
+  for (let i = 0; i < GCJ_INVERSE_ITERATIONS; i += 1) {
+    const forward = wgs84ToGcj02(guessLat, guessLng);
+    const dLat = forward.latitude - latitude;
+    const dLng = forward.longitude - longitude;
+    if (Math.abs(dLat) < GCJ_INVERSE_EPSILON && Math.abs(dLng) < GCJ_INVERSE_EPSILON) break;
+    guessLat -= dLat;
+    guessLng -= dLng;
+  }
+  return { latitude: guessLat, longitude: guessLng };
+}
+
 export function formatCoordinate(lat, lng, digits = 6) {
   const latitude = Number(lat);
   const longitude = Number(lng);

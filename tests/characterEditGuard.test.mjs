@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 import {
   getCharacterEditGuard,
   isFormDirty,
@@ -14,7 +16,11 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_SOURCE = readFileSync(path.join(HERE, '..', 'App.js'), 'utf8');
-const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CharacterScreen.js'), 'utf8');
+// 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+// （列表页）与 character/CharacterDetailScreen.js（编辑表单、未保存拦截信箱、编辑草稿都在这里）。
+// 下面所有源码断言的目标字符串都在详情页，故读取路径改指详情页，约束不变。
+const CHARACTER_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterDetailScreen.js'), 'utf8');
+const CHARACTER_LIBRARY_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterLibraryScreen.js'), 'utf8');
 
 test('未保存信箱默认安全：无脏值不误拦截', async () => {
   const guard = getCharacterEditGuard();
@@ -94,9 +100,13 @@ test('shouldConfirmTabLeave：只有角色页有脏编辑且目标是别的 tab 
 
 test('save 返回布尔且角色页注册信箱', () => {
   // save 各中断路径 return false、落库成功 return true
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert('角色加载中', '请稍候再保存。');\n      return false;"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert(t('character.detail.loading.title'), t('character.detail.loading.body'));\n      return false;"), '应引用角色加载中的 i18n 键');
+  assert.equal(zhCN['character.detail.loading.title'], '角色加载中', '语言包中文值正确');
+  assert.equal(zhCN['character.detail.loading.body'], '请稍候再保存。', '语言包中文值正确');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("if (formSignatureRef.current !== saveFormSignature) return true;"));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("Alert.alert(t('character.detail.saved.title'), t('character.detail.saved.body'));"), '应引用已保存提示的 i18n 键');
+  assert.equal(zhCN['character.detail.saved.title'], '已保存', '语言包中文值正确');
+  assert.equal(zhCN['character.detail.saved.body'], '角色设定已同步，聊天页会立即生效。', '语言包中文值正确');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return true;'));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('return false;'));
   // 渲染提交后同步信箱；卸载/变化时回落安全值
@@ -121,11 +131,18 @@ test('编辑草稿防丢链路完整接线', () => {
   // seed 完成后读即取走检测草稿，恢复/丢弃二选一；表单归属变化时丢弃不误恢复
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('takeCharacterEditDraft(draftOwnerId)'));
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("if (formOwnerIdRef.current !== draftOwnerId || seededIdRef.current !== draftOwnerId) return;"));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("text: '恢复',"));
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("text: t('character.detail.draftFound.restore'),"), '应引用恢复按钮的 i18n 键');
+  assert.equal(zhCN['character.detail.draftFound.restore'], '恢复', '语言包中文值正确');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('applyDraftFormState(buildCharacterFormState(draft.formState))'));
-  // 保存成功与用户放弃切换都清草稿
+  // 保存成功清草稿
   assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(character.id).catch(() => {});"));
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("clearCharacterEditDraft(activeId).catch(() => {});"));
+  // 「用户放弃切换就清草稿」：原实现写死 `clearCharacterEditDraft(activeId)`。拆分后
+  // 详情页不再持有 activeId 表单态，该清草稿动作改由列表页的 onSwitch 在用户点
+  // 「放弃并切换」时执行——详情页此时尚未挂载（navigate 在切换成功之后），表单归属
+  // 天然是即将切走的旧角色。这里按新机制断言同等约束：详情页必须有 activeId 这一来源，
+  // 列表页的放弃分支必须清掉当前角色的草稿。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('activeId,'));
+  assert.ok(CHARACTER_LIBRARY_SOURCE.includes('clearCharacterEditDraft(activeId).catch(() => {});'));
 });
 
 test('脏判定以 seed 快照为基准，不因角色后台更新误报', () => {
@@ -140,7 +157,9 @@ test('脏判定以 seed 快照为基准，不因角色后台更新误报', () =>
     false
   );
   // formReady 闸门由 isFormDirty 内部处理
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './character/characterEditGuard.js'"));
+  // 2026-10-05 拆分：详情页与 characterEditGuard.js 同在 src/character/ 下，
+  // 相对导入随之变为 './characterEditGuard.js'（原为 './character/characterEditGuard.js'）。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes("from './characterEditGuard.js'"));
 });
 
 test('保存后表单等于已保存内容即视为干净（规范化不致误报未保存）', () => {

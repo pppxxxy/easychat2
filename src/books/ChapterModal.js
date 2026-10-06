@@ -17,15 +17,19 @@ import ChapterOutro from './ChapterOutro.js';
 import ChapterSections from './ChapterSections.js';
 import { Card, PrimaryButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function ChapterModal({
   visible,
   onClose,
   chapterIds,
-  title = '使用教程',
-  buttonText = '关闭',
+  title,
+  buttonText,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const titleText = title || t('tutorial.title');
+  const buttonTextValue = buttonText || t('common.close');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const chapters = getOnboardingChapters(chapterIds);
   const scrollRef = useRef(null);
@@ -42,8 +46,8 @@ export default function ChapterModal({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭教学">
+          <Text style={styles.title}>{titleText}</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('tutorial.a11yClose')}>
             <Ionicons name="close" size={22} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </View>
@@ -101,8 +105,8 @@ export default function ChapterModal({
                 {(chapter.items || []).map(item => (
                   <View key={`${chapter.id}-${item.name}`} style={styles.item}>
                     <Text style={styles.itemName}>{item.name}</Text>
-                    <Text style={styles.itemWhere}>位置：{item.where}</Text>
-                    <Text style={styles.itemUsage}>用法：{item.usage}</Text>
+                    <Text style={styles.itemWhere}>{t('tutorial.itemWhere', { where: item.where })}</Text>
+                    <Text style={styles.itemUsage}>{t('tutorial.itemUsage', { usage: item.usage })}</Text>
                   </View>
                 ))}
                 {chapter.note ? <Text style={styles.note}>{chapter.note}</Text> : null}
@@ -112,7 +116,7 @@ export default function ChapterModal({
           })}
         </ScrollView>
         <View style={styles.footer}>
-          <PrimaryButton title={buttonText} onPress={onClose} />
+          <PrimaryButton title={buttonTextValue} onPress={onClose} />
         </View>
       </View>
     </Modal>

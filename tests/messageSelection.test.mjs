@@ -167,7 +167,8 @@ test('主动消息刷新不清空输入/附件，也不打断进行中的请求'
 test('MessageBubble 的引用/重选回调保持稳定引用以击穿 memo', () => {
   // onPressQuoteBlock 改为经 messagesRef 查询，不再依赖 messages 数组
   assert.ok(CHAT_SCREEN_SOURCE.includes('const exists = messagesRef.current.some(item => item.id === quote.id);'));
-  assert.ok(CHAT_SCREEN_SOURCE.includes('}, [scrollToMessage]);'));
+  // i18n 迁移后回调内引用 t()，依赖多了 t；核心约束不变：不依赖 messages 数组
+  assert.ok(CHAT_SCREEN_SOURCE.includes('}, [scrollToMessage, t]);'));
   // openGreetingPicker 经 messagesRef 读取当前消息，不再依赖 messages
   assert.ok(CHAT_SCREEN_SOURCE.includes('const current = messagesRef.current.find(item => isGreetingMessage(item, activeSessionIdRef.current));'));
   // 渲染处不再内联箭头函数

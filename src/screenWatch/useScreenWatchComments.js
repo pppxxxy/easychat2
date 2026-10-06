@@ -136,7 +136,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       try {
         dataUris = await Promise.all(uris.map(uri => readImageDataUri(uri)));
       } catch (readError) {
-        throw Object.assign(new Error('截图读取失败'), { code: 'CAPTURE_READ' });
+        throw Object.assign(new Error(t('error.screenWatch.captureReadFailed')), { code: 'CAPTURE_READ' });
       }
       if (controller.signal.aborted) return false;
       // 对话线程历史（不含本次要说的话）：让角色记住这场对话的前文，连续截屏不再各说各话。
@@ -170,7 +170,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       if (controller.signal.aborted) return false;
       // 接口空响应返回占位文本：那不是角色评论，按失败处理。
       const text = String(raw || '').trim();
-      if (!text || text === EMPTY_REPLY_TEXT) throw new Error('没有收到回复内容');
+      if (!text || text === EMPTY_REPLY_TEXT) throw new Error(t('error.comments.noReply'));
       // 对话线程落库：用户的话（若有）+ 角色回复。写线程失败不影响本次评论结果。
       if (thread) {
         try {

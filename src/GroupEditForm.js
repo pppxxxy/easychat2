@@ -19,9 +19,11 @@ import { markMediaWrite, updateSessionInfo } from './storage.js';
 import { getPickedAsset } from './character/cardHelpers.js';
 import { FieldLabel, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 export default function GroupEditForm({ visible, session, members, onClose, onSaved }) {
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [name, setName] = useState('');
   const [avatarUri, setAvatarUri] = useState('');
@@ -92,7 +94,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
       pendingImageUrisRef.current.set(field, dest);
       setter(dest);
     } catch (error) {
-      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert(t('group.alert.readImageFailed.title'), t('group.alert.readImageFailed.body'));
     }
   };
 
@@ -137,7 +139,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
        }
 
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限，已填内容不会丢失。');
+      Alert.alert(t('group.alert.saveFailed.title'), t('group.alert.saveFailed.body'));
     } finally {
       if (sessionRef.current === stamp) setSaving(false);
     }
@@ -158,7 +160,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
           onPress={() => setter('')}
           activeOpacity={0.8}
         >
-          <Text style={[styles.pickChipText, !current && styles.pickChipTextActive]}>不使用</Text>
+          <Text style={[styles.pickChipText, !current && styles.pickChipTextActive]}>{t('group.noImage')}</Text>
         </TouchableOpacity>
         {memberList.map(item => {
            const uri = String(item[field] || '');
@@ -170,7 +172,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
               style={[styles.pickChip, active && styles.pickChipActive]}
               onPress={() => {
                 if (!uri) {
-                  Alert.alert('无法选择', `「${item.name || '该角色'}」没有头像。`);
+                  Alert.alert(t('group.alert.cannotPick.title'), t('group.alert.cannotPick.body', { name: item.name || t('group.characterFallback') }));
                   return;
                 }
                 setter(uri);
@@ -187,7 +189,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
                 </View>
               )}
               <Text style={[styles.pickChipText, active && styles.pickChipTextActive]} numberOfLines={1}>
-                {item.name || '未命名'}
+                {item.name || t('group.unnamed')}
               </Text>
             </TouchableOpacity>
           );
@@ -204,8 +206,8 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>群聊设置</Text>
-            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.headerTitle}>{t('group.title')}</Text>
+            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel={t('group.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -216,14 +218,14 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
             scrollEnabled={!saving}
             pointerEvents={saving ? 'none' : 'auto'}
           >
-            <FieldLabel style={styles.label}>群名</FieldLabel>
+            <FieldLabel style={styles.label}>{t('group.nameLabel')}</FieldLabel>
             <TextField
               value={name}
               onChangeText={setName}
-              placeholder="例如：周末闲聊群"
+              placeholder={t('group.namePlaceholder')}
             />
 
-            <FieldLabel style={styles.label}>群头像</FieldLabel>
+            <FieldLabel style={styles.label}>{t('group.avatarLabel')}</FieldLabel>
             <View style={styles.previewRow}>
               <View style={styles.previewBoxRound}>
                 {avatarUri ? (
@@ -234,42 +236,42 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
               </View>
               <View style={styles.previewActions}>
                 <TouchableOpacity style={styles.smallButton} onPress={() => pickImage(setAvatarUri, 'avatarUri')} activeOpacity={0.8}>
-                  <Text style={styles.smallButtonText}>选择图片</Text>
+                  <Text style={styles.smallButtonText}>{t('group.pickImage')}</Text>
                 </TouchableOpacity>
                 {avatarUri ? (
                   <TouchableOpacity onPress={() => clearImage('avatarUri', setAvatarUri)} hitSlop={8}>
-                    <Text style={styles.removeText}>清除</Text>
+                    <Text style={styles.removeText}>{t('group.clear')}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
             </View>
-            {renderMemberPicks(avatarUri, setAvatarUri, '或用成员头像', 'avatarUri')}
+            {renderMemberPicks(avatarUri, setAvatarUri, t('group.orMemberAvatar'), 'avatarUri')}
 
-            <FieldLabel style={styles.label}>群背景</FieldLabel>
+            <FieldLabel style={styles.label}>{t('group.bgLabel')}</FieldLabel>
             <View style={styles.previewRow}>
               <View style={styles.previewBoxWide}>
                 {bgUri ? (
                   <Image source={{ uri: bgUri }} style={styles.previewImage} />
                 ) : (
-                  <Text style={styles.previewEmpty}>无背景</Text>
+                  <Text style={styles.previewEmpty}>{t('group.noBg')}</Text>
                 )}
               </View>
               <View style={styles.previewActions}>
                 <TouchableOpacity style={styles.smallButton} onPress={() => pickImage(setBgUri, 'bgUri')} activeOpacity={0.8}>
-                  <Text style={styles.smallButtonText}>选择图片</Text>
+                  <Text style={styles.smallButtonText}>{t('group.pickImage')}</Text>
                 </TouchableOpacity>
                 {bgUri ? (
                   <TouchableOpacity onPress={() => clearImage('bgUri', setBgUri)} hitSlop={8}>
-                    <Text style={styles.removeText}>清除</Text>
+                    <Text style={styles.removeText}>{t('group.clear')}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
             </View>
-            {renderMemberPicks(bgUri, setBgUri, '或用成员背景', 'bgUri')}
+            {renderMemberPicks(bgUri, setBgUri, t('group.orMemberBg'), 'bgUri')}
           </ScrollView>
           <View style={styles.footer}>
             <TouchableOpacity style={styles.footerGhost} onPress={handleClose} activeOpacity={0.8}>
-              <Text style={styles.footerGhostText}>取消</Text>
+              <Text style={styles.footerGhostText}>{t('group.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.footerPrimary, saving && styles.footerDisabled]}
@@ -278,7 +280,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
               activeOpacity={0.85}
             >
               <Ionicons name="save-outline" size={16} color={theme.colors.text} />
-              <Text style={styles.footerPrimaryText}>{saving ? '保存中...' : '保存'}</Text>
+              <Text style={styles.footerPrimaryText}>{saving ? t('group.saving') : t('group.save')}</Text>
             </TouchableOpacity>
           </View>
         </View>

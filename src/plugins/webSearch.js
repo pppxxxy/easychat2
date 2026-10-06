@@ -1,6 +1,7 @@
 import { getProvider, missingRequiredFields } from './providers.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import vendorXhr from '../network/vendorHttp.js';
+import { tActive } from '../i18n/index.js';
 
 const SEARCH_TIMEOUT_MS = 10000;
 const CACHE_TTL_MS = 60000;
@@ -56,7 +57,7 @@ function cacheKey(providerId, query, limit, source) {
 }
 
 function createAbortError() {
-  const error = new Error('搜索已中断');
+  const error = new Error(tActive('error.webSearch.aborted'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -71,13 +72,13 @@ function xhrRequest({ method, url, headers, body, signal, timeoutMs = SEARCH_TIM
     signal,
     timeoutMs,
     defaultTimeoutMs: SEARCH_TIMEOUT_MS,
-    onTimeoutError: () => new Error('搜索超时'),
+    onTimeoutError: () => new Error(tActive('error.webSearch.timeout')),
     onAbortError: () => createAbortError(),
-    onAbortEventError: () => new Error('搜索已中断'),
-    onNetworkError: () => new Error('搜索网络请求失败'),
-    onHttpError: status => new Error(`搜索失败（HTTP ${status}）`),
+    onAbortEventError: () => new Error(tActive('error.webSearch.aborted')),
+    onNetworkError: () => new Error(tActive('error.webSearch.networkFailed')),
+    onHttpError: status => new Error(tActive('error.webSearch.httpFailed', { status })),
     parse: xhr => JSON.parse(xhr.responseText || '{}'),
-    onParseError: () => new Error('搜索返回无法解析'),
+    onParseError: () => new Error(tActive('error.webSearch.parseFailed')),
   });
 }
 
@@ -87,7 +88,7 @@ export function buildRequest(provider, config, query, limit) {
     : provider.baseUrl;
   if (!base) return null;
   if (!/^https?:\/\/[^/\s]+/i.test(base)) {
-    throw new Error('搜索服务地址无效');
+    throw new Error(tActive('error.webSearch.invalidBaseUrl'));
   }
   const params = { ...(provider.extra || {}) };
   (provider.extraFields || []).forEach(field => {
@@ -196,5 +197,5 @@ export async function runWebSearch({ query, config, maxResults, signal = null })
   }
   // 失败的尝试也计入限流，避免配置错误时反复冲击服务商
   callTimes.push(Date.now());
-  throw lastError || new Error('搜索超时');
+  throw lastError || new Error(tActive('error.webSearch.timeout'));
 }

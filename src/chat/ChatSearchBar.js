@@ -5,6 +5,7 @@ import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function ChatSearchBar({
@@ -18,6 +19,7 @@ export default function ChatSearchBar({
   onClose,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   if (!visible) return null;
@@ -29,7 +31,7 @@ export default function ChatSearchBar({
         style={styles.searchInput}
         value={query}
         onChangeText={onChangeQuery}
-        placeholder="在本对话中搜索"
+        placeholder={t('chat.search.placeholder')}
         placeholderTextColor={theme.colors.textFaint}
         autoFocus
         returnKeyType="search"

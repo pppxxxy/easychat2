@@ -17,9 +17,11 @@ import ChapterOutro from './books/ChapterOutro.js';
 import ChapterSections from './books/ChapterSections.js';
 import { GhostButton, PrimaryButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 export default function OnboardingModal({ visible, onFinish }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const chapters = Array.isArray(ONBOARDING_CHAPTERS) ? ONBOARDING_CHAPTERS : [];
   const [index, setIndex] = useState(0);
@@ -50,13 +52,13 @@ export default function OnboardingModal({ visible, onFinish }) {
       <View style={styles.container}>
         <View style={styles.header}>
           <View style={styles.progressWrap}>
-            <Text style={styles.progressText}>{`新手教学 ${index + 1} / ${total}`}</Text>
+            <Text style={styles.progressText}>{t('onboarding.progress', { index: index + 1, total })}</Text>
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${((index + 1) / total) * 100}%` }]} />
             </View>
           </View>
-          <TouchableOpacity onPress={onFinish} hitSlop={8} accessibilityLabel="跳过新手教学">
-            <Text style={styles.skipText}>跳过</Text>
+          <TouchableOpacity onPress={onFinish} hitSlop={8} accessibilityLabel={t('onboarding.skipA11y')}>
+            <Text style={styles.skipText}>{t('onboarding.skip')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -112,13 +114,13 @@ export default function OnboardingModal({ visible, onFinish }) {
 
         <View style={styles.footer}>
           <GhostButton
-            title="上一步"
+            title={t('onboarding.prev')}
             onPress={goPrev}
             disabled={isFirst}
             style={styles.footerButton}
           />
           <PrimaryButton
-            title={isLast ? '开始使用' : '下一步'}
+            title={isLast ? t('onboarding.start') : t('onboarding.next')}
             onPress={goNext}
             style={[styles.footerButton, styles.footerPrimary]}
           />

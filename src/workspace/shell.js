@@ -15,6 +15,7 @@
 // 顶层不 import react-native（惰性 require），纯 Node 测试可直接加载纯函数。
 
 import { sanitizeSandboxId } from './paths.js';
+import { tActive } from '../i18n/index.js';
 
 export const SHELL_OUTPUT_LIMIT = 64 * 1024;
 export const SHELL_TIMEOUT_MS = 30000;
@@ -49,7 +50,7 @@ export function isShellAvailable() {
 export function sandboxPathFromUri(uri) {
   const value = String(uri || '');
   if (!value.startsWith('file://')) {
-    throw new Error('命令执行只能作用于应用私有工作区（拿不到本地路径）。');
+    throw new Error(tActive('error.workspace.shellPrivateOnly'));
   }
   const withoutScheme = value.slice('file://'.length);
   let decoded = withoutScheme;
@@ -60,7 +61,7 @@ export function sandboxPathFromUri(uri) {
   }
   // Windows 风格的 file:///C:/ 不在安卓目标内；这里只要求 path 是绝对路径。
   if (!decoded.startsWith('/')) {
-    throw new Error('工作区路径不是绝对路径，无法作为命令工作目录。');
+    throw new Error(tActive('error.workspace.shellPathNotAbsolute'));
   }
   return decoded;
 }
@@ -104,9 +105,9 @@ export async function execShellCommand({
   requestId = createShellRequestId(),
 } = {}) {
   const text = String(command === undefined || command === null ? '' : command).trim();
-  if (!text) throw new Error('命令不能为空。');
+  if (!text) throw new Error(tActive('error.workspace.shellCommandEmpty'));
   if (!native || typeof native.exec !== 'function') {
-    throw new Error('当前环境不支持执行命令（仅 Android 原生构建可用）。');
+    throw new Error(tActive('error.workspace.shellUnsupported'));
   }
   // 已经中止就先返回，连原生都不进：既省一次进程启动，也避免「用户已点停止，
   // 结果还跑了一条命令」这种界面状态与实际不符的情况。
@@ -145,7 +146,7 @@ export async function execShellCommand({
 }
 
 function makeAbortError() {
-  const error = new Error('已停止生成。');
+  const error = new Error(tActive('error.agent.generationStopped'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -168,6 +169,6 @@ export function createShellRunner({ sandboxRoot, native } = {}) {
 // 沙盒目录的真实路径：根 + sanitize 过的角色 id（与 paths.sandboxDirectory 同一规则）。
 export function sandboxDirectoryPath(sandboxRoot, characterId) {
   const base = String(sandboxRoot || '').replace(/\/+$/, '');
-  if (!base) throw new Error('命令执行缺少沙盒根路径。');
+  if (!base) throw new Error(tActive('error.workspace.shellRootMissing'));
   return `${base}/${sanitizeSandboxId(characterId)}`;
 }

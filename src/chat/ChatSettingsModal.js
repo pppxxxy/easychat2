@@ -5,6 +5,7 @@ import { Modal, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function ChatSettingsModal({
@@ -15,6 +16,7 @@ export default function ChatSettingsModal({
   onOpenEditor,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -30,7 +32,7 @@ export default function ChatSettingsModal({
         onPress={onClose}
       >
         <View style={styles.modalSheet}>
-          <Text style={styles.modalTitle}>聊天设置</Text>
+          <Text style={styles.modalTitle}>{t('chat.settings.title')}</Text>
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => {
@@ -41,7 +43,7 @@ export default function ChatSettingsModal({
           >
             <View style={styles.linkLeft}>
               <Ionicons name="settings-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.chatSettingsText}>系统设置</Text>
+              <Text style={styles.chatSettingsText}>{t('chat.settings.system')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>

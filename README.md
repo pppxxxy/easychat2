@@ -158,7 +158,7 @@ easychat2/
 ├── assets/                 # 图标、自适应图标与启动图
 ├── src/                    # 业务代码：约 25 个领域子目录 + 各 Screen 入口
 │   ├── ChatScreen.js       # 聊天页入口（UI 细节拆在 src/chat/）
-│   ├── CharacterScreen.js  # 角色库与角色卡导入
+│   ├── character/          # 角色域：CharacterStack（角色库⇄角色详情栈）+ 列表页/详情页 + 卡解析与导出
 │   ├── SettingsScreen.js   # 设置
 │   ├── ...                 # 其余屏幕（记忆 / 扩展 / 搜索 / 生图 / 各面板）
 │   └── <domain>/           # agent / storage / chat / workspace / localModel / moments / ...

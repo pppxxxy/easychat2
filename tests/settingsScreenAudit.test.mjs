@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 
@@ -44,14 +46,14 @@ test('模型能力按「模型」一份：添加即弹确认、芯片可编辑�
 test('能力弹层：自定义参数总开关 + 上下文/输出长度同框 + 思考参数折叠选择器', () => {
   // 总开关默认关闭；关闭时不渲染高级参数区
   assert.ok(/customParams:\s*false/.test(SETTINGS), '草稿默认关闭自定义参数');
-  assert.ok(SETTINGS.includes('自定义参数（高级）'), '有总开关行');
+  assert.ok(SETTINGS.includes("t('settings.capability.customParams')"), '有总开关行');
   assert.ok(SETTINGS.includes('capabilityDraft.customParams === true ? ('), '关闭时不渲染高级参数');
   assert.ok(SETTINGS.includes('customParams: capabilityDraft.customParams === true,'), '确认写回开关');
 
   // 上下文窗口 + 输出长度：同一参数框，默认值 200000 / 32000
-  assert.ok(SETTINGS.includes('上下文窗口（tokens）') && SETTINGS.includes('输出长度（tokens）'), '两个字段都在');
-  assert.ok(SETTINGS.includes('留空 = 默认 200000'), '上下文默认值提示');
-  assert.ok(SETTINGS.includes('留空 = 默认 32000'), '输出长度默认值提示');
+  assert.ok(SETTINGS.includes("t('settings.capability.contextWindow')") && SETTINGS.includes("t('settings.capability.outputLength')"), '两个字段都在');
+  assert.ok(SETTINGS.includes("t('settings.capability.contextWindowPlaceholder')"), '上下文默认值提示');
+  assert.ok(SETTINGS.includes("t('settings.capability.outputLengthPlaceholder')"), '输出长度默认值提示');
   assert.ok(SETTINGS.includes('capabilityDraft.maxOutput'), '输出长度接入草稿');
   assert.ok(SETTINGS.includes('maxOutput: Math.max(0, Math.floor(Number(capabilityDraft.maxOutput)) || 0)'),
     '确认写回输出长度');
@@ -73,8 +75,8 @@ test('能力弹层：自定义参数总开关 + 上下文/输出长度同框 + �
   // 弹层：往上靠 + 内容可滚动（变长后底部按钮不被顶出屏幕）
   assert.ok(SETTINGS.includes('styles.capabilityBackdrop') && SETTINGS.includes('styles.capabilitySheet'),
     '弹层专属容器样式');
-  const modalStart = SETTINGS.indexOf('确认模型能力');
-  const modalEnd = SETTINGS.indexOf('免责条款', modalStart);
+  const modalStart = SETTINGS.indexOf("t('settings.capability.title')");
+  const modalEnd = SETTINGS.indexOf("t('settings.about.disclaimer')", modalStart);
   assert.ok(modalStart > 0 && modalEnd > modalStart, '必须能截出能力弹层渲染区');
   assert.ok(SETTINGS.slice(modalStart, modalEnd).includes('</ScrollView>'), '能力弹层内容区可滚动');
   assert.ok(STYLES.includes("capabilityBackdrop: { justifyContent: 'flex-start'"), '从顶部起排（往上挪）');
@@ -95,8 +97,10 @@ test('API 配置：切走前确认未保存的修改，基线在加载/落盘后
   assert.ok(SETTINGS.includes('const selectConfig = async id => {'));
   assert.ok(SETTINGS.includes('const applyVendorPreset = async preset => {'));
   // 确认弹窗必须提供「继续编辑 / 放弃并切换」两支，且放弃时还原基线快照
-  assert.ok(SETTINGS.includes("'继续编辑'"));
-  assert.ok(SETTINGS.includes("'放弃并切换'"));
+  assert.ok(SETTINGS.includes("t('settings.api.dirty.keep')"), '应引用继续编辑按钮的 i18n 键');
+  assert.equal(zhCN['settings.api.dirty.keep'], '继续编辑', '语言包中文值正确');
+  assert.ok(SETTINGS.includes("t('settings.api.dirty.discard')"), '应引用放弃并切换按钮的 i18n 键');
+  assert.equal(zhCN['settings.api.dirty.discard'], '放弃并切换', '语言包中文值正确');
   assert.ok(SETTINGS.includes('JSON.parse(apiBaselineRef.current)'));
 });
 
@@ -105,7 +109,9 @@ test('密钥输入：四处 secureTextEntry 全部走带显隐切换的 SecretTe
   // 组件内部持有显隐状态；明文不再由调用点写死
   assert.ok(SETTINGS.includes('secureTextEntry={!visible}'));
   assert.equal(SETTINGS.includes('secureTextEntry\n'), false, '不应再有裸 secureTextEntry');
-  assert.equal((SETTINGS.match(/accessibilityLabel=\{visible \? '隐藏密钥' : '显示密钥'\}/g) || []).length, 1);
+  assert.equal((SETTINGS.match(/accessibilityLabel=\{visible \? t\('settings\.secret\.hide'\) : t\('settings\.secret\.show'\)\}/g) || []).length, 1, '显隐切换可访问名应走 i18n 键');
+  assert.equal(zhCN['settings.secret.hide'], '隐藏密钥', '语言包中文值正确');
+  assert.equal(zhCN['settings.secret.show'], '显示密钥', '语言包中文值正确');
   assert.ok(STYLES.includes('secretRow:') && STYLES.includes('secretToggle:'));
 });
 
@@ -113,13 +119,16 @@ test('关于卡：显示应用版本号（expo-constants，依赖已声明）', 
   assert.equal(PKG.dependencies['expo-constants'], '~18.0.14');
   assert.ok(SETTINGS.includes("import Constants from 'expo-constants';"));
   assert.ok(SETTINGS.includes('const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || \'\') : \'\';'));
-  assert.ok(SETTINGS.includes('>当前版本</Text>'));
+  assert.ok(SETTINGS.includes(">{t('settings.about.version')}</Text>"), '应引用当前版本标签的 i18n 键');
+  assert.equal(zhCN['settings.about.version'], '当前版本', '语言包中文值正确');
   assert.ok(STYLES.includes('versionText:'));
 });
 
 test('删除人设保持有确认弹窗（审查存疑项，核实为已有，钉住防回归）', () => {
-  assert.ok(PROFILE.includes("'删除人设'"));
-  assert.ok(PROFILE.includes("'确定删除这个人设吗？'"));
+  assert.ok(PROFILE.includes("t('settings.profile.alert.delete.title')"), '应引用删除人设标题的 i18n 键');
+  assert.equal(zhCN['settings.profile.alert.delete.title'], '删除人设', '语言包中文值正确');
+  assert.ok(PROFILE.includes("t('settings.profile.alert.delete.body')"), '应引用删除人设正文的 i18n 键');
+  assert.equal(zhCN['settings.profile.alert.delete.body'], '确定删除这个人设吗？', '语言包中文值正确');
   assert.ok(PROFILE.includes("'destructive'"));
 });
 
@@ -133,9 +142,11 @@ test('模型列表：检测与按输入搜索共用同一拉取逻辑，且搜�
   // searchModels：按输入过滤，未匹配给提示，空输入列出全部
   assert.ok(SETTINGS.includes('const searchModels = async () => {'));
   assert.ok(SETTINGS.includes('all.filter(model => model.toLowerCase().includes(query))'));
-  assert.ok(SETTINGS.includes("'未找到匹配的模型'"));
+  assert.ok(SETTINGS.includes("t('settings.api.noMatch.title')"), '应引用未找到匹配模型提示的 i18n 键');
+  assert.equal(zhCN['settings.api.noMatch.title'], '未找到匹配的模型', '语言包中文值正确');
   // 搜索按钮在模型输入行内、紧邻「添加」，并带可访问名
   assert.ok(SETTINGS.includes('onPress={searchModels}'));
-  assert.ok(SETTINGS.includes('accessibilityLabel="按输入内容搜索接口上的模型"'));
+  assert.ok(SETTINGS.includes("accessibilityLabel={t('settings.api.a11ySearchModels')}"), '搜索按钮可访问名应走 i18n 键');
+  assert.equal(zhCN['settings.api.a11ySearchModels'], '按输入内容搜索接口上的模型', '语言包中文值正确');
   assert.ok(STYLES.includes('modelSearchButton:'));
 });

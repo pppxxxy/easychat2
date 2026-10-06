@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const read = relPath => fs.readFileSync(path.resolve(relPath), 'utf8');
 
 test('useChatTts 提供角色语音合成：落盘到 voice/ 目录并走密钥登记与回收保护', () => {
@@ -41,26 +43,39 @@ test('MessageBubble 渲染三档语音形态：纯语音隐藏正文、语音+�
 });
 
 test('CharacterEditForm 提供三档语音形态选择并随保存写回', () => {
-  const source = read('src/CharacterEditForm.js');
-  assert.match(source, /仅文字/, '应提供仅文字选项');
-  assert.match(source, /语音 \+ 原文/, '应提供语音+原文选项');
-  assert.match(source, /纯语音/, '应提供纯语音选项');
-  assert.match(source, /patch\('voiceDisplay', option\.value\)/, '选择应写回表单');
-  assert.match(source, /voiceDisplay:\s*\['text', 'voice-text', 'voice'\]\.includes\(draft\.voiceDisplay\)/, '保存应规范化 voiceDisplay');
+  // 语音形态选择器已抽为共享组件 CharacterFormFields，EditForm 只传 handler；
+  // 保存规范化在 EditForm 的 save 里。两条断言分指两个文件。
+  const shared = read('src/character/CharacterFormFields.js');
+  assert.match(shared, /t\('character\.fields\.voice\.text'\)/, '应提供仅文字选项（走 i18n 键）');
+  assert.equal(zhCN['character.fields.voice.text'], '仅文字', '语言包中文值正确');
+  assert.match(shared, /t\('character\.fields\.voice\.voiceText'\)/, '应提供语音+原文选项（走 i18n 键）');
+  assert.equal(zhCN['character.fields.voice.voiceText'], '语音 + 原文', '语言包中文值正确');
+  assert.match(shared, /t\('character\.fields\.voice\.voice'\)/, '应提供纯语音选项（走 i18n 键）');
+  assert.equal(zhCN['character.fields.voice.voice'], '纯语音', '语言包中文值正确');
+  assert.match(shared, /patch\('voiceDisplay', option\.value\)/, '选择应写回表单');
+
+  const editForm = read('src/CharacterEditForm.js');
+  assert.match(editForm, /voiceDisplay:\s*\['text', 'voice-text', 'voice'\]\.includes\(draft\.voiceDisplay\)/, '保存应规范化 voiceDisplay');
 });
 
-test('CharacterScreen 主角色编辑页同样提供并保存语音形态', () => {
-  const source = read('src/CharacterScreen.js');
+test('角色详情页（原 CharacterScreen 主角色编辑页）同样提供并保存语音形态', () => {
+  // 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+  // （列表页）与 character/CharacterDetailScreen.js（编辑表单）。语音形态选择与保存都在详情页，
+  // 断言目标随之改指详情页，约束不变。
+  const source = read('src/character/CharacterDetailScreen.js');
   assert.match(source, /const \[voiceDisplay, setVoiceDisplay\] = useState\('text'\)/);
   assert.match(source, /voiceDisplay,\s*\n\s*\}\), \[/, '表单签名应包含 voiceDisplay');
   assert.match(source, /voiceDisplay: \['text', 'voice-text', 'voice'\]\.includes\(voiceDisplay\)/, '保存应写回 voiceDisplay');
-  assert.match(source, /语音形态/);
-  assert.match(source, /纯语音/);
+  assert.match(source, /t\('character\.detail\.voice\.label'\)/, '应引用语音形态标签的 i18n 键');
+  assert.equal(zhCN['character.detail.voice.label'], '语音形态', '语言包中文值正确');
+  assert.match(source, /t\('character\.detail\.voice\.voiceOnly'\)/, '应引用纯语音选项的 i18n 键');
+  assert.equal(zhCN['character.detail.voice.voiceOnly'], '纯语音', '语言包中文值正确');
 });
 
 test('模型能力弹窗（按模型一份）提供语音识别开关并写入该模型条目', () => {
   const source = read('src/SettingsScreen.js');
-  assert.match(source, /支持语音识别/, '能力弹窗应有语音识别开关');
+  assert.match(source, /t\('settings\.capability\.audio'\)/, '能力弹窗应有语音识别开关（走 i18n 键）');
+  assert.ok(zhCN['settings.capability.audio'].includes('支持语音识别'), '语言包中文值正确');
   assert.match(source, /supportsAudio: capabilityDraft\.supportsAudio === true/, '确认时按草稿写条目');
   assert.match(source, /supportsAudio: caps\.supportsAudio/, '打开弹窗时按该模型的现存条目回填');
   assert.match(source, /modelCapabilities: \{ \.\.\.\(selected\.modelCapabilities \|\| \{\}\), \[name\]: entry \}/, '写入 modelCapabilities[模型名]');
@@ -77,8 +92,10 @@ test('语音兜底接线：supportsAudio 时转写失败按 input_audio 直发�
   assert.match(sendSource, /voiceAudio,\s*\n\s*expectedConfigId,/, '兜底音频应随请求 payload 传递');
   assert.match(sendSource, /voiceAudio,\s*\n\s*\}\);/, 'requestReply 应把兜底音频传给 buildRequestMessages');
   assert.match(chatSource, /voice-transcribe/, '转写失败应记录诊断日志');
-  assert.match(chatSource, /语音转写失败/, '网络类转写失败应有可见提示');
-  assert.match(chatSource, /未配置语音转写/, '无转写来源时应有补配引导');
+  assert.match(chatSource, /t\('chat\.voice\.transcribeFail\.title'\)/, '网络类转写失败应有可见提示（走 i18n 键）');
+  assert.equal(zhCN['chat.voice.transcribeFail.title'], '语音转写失败', '语言包中文值正确');
+  assert.match(chatSource, /t\('chat\.voice\.noTranscription\.title'\)/, '无转写来源时应有补配引导（走 i18n 键）');
+  assert.equal(zhCN['chat.voice.noTranscription.title'], '未配置语音转写', '语言包中文值正确');
   const pipelineSource = read('src/prompt/chatPipeline.js');
   assert.match(pipelineSource, /type: 'input_audio', input_audio: \{ data: voiceBase64, format: voiceFormat \}/, '兜底应按 OpenAI input_audio 格式构造');
 });

@@ -20,8 +20,10 @@ import {
   setActivePersonaId,
 } from '../storage.js';
 import { getPickedAsset } from '../character/cardHelpers.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useUserProfile() {
+  const { t } = useTranslation();
   const [userName, setUserName] = useState('');
   const [userPersona, setUserPersona] = useState('');
   const [userAvatarUri, setUserAvatarUri] = useState('');
@@ -81,13 +83,13 @@ export default function useUserProfile() {
       return true;
     } catch (error) {
       if (profileMountedRef.current) {
-        Alert.alert('保存失败', '用户资料未保存，当前内容仍保留在界面，请稍后重试。');
+        Alert.alert(t('settings.profile.alert.saveFailed.title'), t('settings.profile.alert.saveFailed.body'));
       }
       return false;
     } finally {
       if (profileSavingRef.current === saving) profileSavingRef.current = null;
     }
-  }, []);
+  }, [t]);
   profileFlushRef.current = flushUserProfile;
 
   const saveUserProfileDelayed = useMemo(() => {
@@ -141,7 +143,7 @@ export default function useUserProfile() {
       setActivePersonaIdState(resolved);
       await refreshPersonas();
     } catch (error) {
-      Alert.alert('切换失败', '请稍后重试。');
+      Alert.alert(t('settings.profile.alert.switchFailed.title'), t('settings.profile.alert.switchFailed.body'));
     }
   };
 
@@ -152,19 +154,19 @@ export default function useUserProfile() {
       await createPersona({ userName: '', persona: '' });
       await refreshPersonas();
     } catch (error) {
-      Alert.alert('新增失败', '请重试。');
+      Alert.alert(t('settings.profile.alert.addFailed.title'), t('settings.profile.alert.addFailed.body'));
     }
   };
 
   const removePersona = id => {
     if (personas.length <= 1) {
-      Alert.alert('无法删除', '至少保留一个人设。');
+      Alert.alert(t('settings.profile.alert.cannotDelete.title'), t('settings.profile.alert.cannotDelete.body'));
       return;
     }
-    Alert.alert('删除人设', '确定删除这个人设吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('settings.profile.alert.delete.title'), t('settings.profile.alert.delete.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: async () => {
           const saved = await flushUserProfile();
@@ -173,7 +175,7 @@ export default function useUserProfile() {
             await deletePersona(id);
             await refreshPersonas();
           } catch (error) {
-            Alert.alert('删除失败', '请检查存储空间或权限。');
+            Alert.alert(t('settings.profile.alert.deleteFailed.title'), t('settings.profile.alert.deleteFailed.body'));
           }
         },
       },
@@ -199,14 +201,14 @@ export default function useUserProfile() {
       await FileSystem.copyAsync({ from: asset.uri, to: dest });
       changeUserAvatar(dest);
     } catch (error) {
-      Alert.alert('图片读取失败', '请重试。');
+      Alert.alert(t('settings.profile.alert.avatarFailed.title'), t('settings.profile.alert.avatarFailed.body'));
     }
   };
 
   const saveUserProfileNow = async () => {
     if (!userProfileLoaded) return;
     const saved = await flushUserProfile();
-    if (saved) Alert.alert('已保存', '用户人设已保存到本机。');
+    if (saved) Alert.alert(t('settings.profile.alert.saved.title'), t('settings.profile.alert.saved.body'));
   };
 
   // 加载：人设列表、激活人设与用户资料。挂载时调用一次。

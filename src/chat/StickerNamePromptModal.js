@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function StickerNamePromptModal({
@@ -15,6 +16,7 @@ export default function StickerNamePromptModal({
   stickerSaving,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -29,12 +31,12 @@ export default function StickerNamePromptModal({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.modalSheet}>
-          <Text style={styles.modalTitle}>保存为表情包</Text>
+          <Text style={styles.modalTitle}>{t('chat.bubble.saveAsSticker')}</Text>
           <TextInput
             style={styles.stickerNameInput}
             value={draft}
             onChangeText={onChangeDraft}
-            placeholder="请输入表情包名称"
+            placeholder={t('chat.sticker.namePlaceholder')}
             placeholderTextColor={theme.colors.textFaint}
             autoFocus
             maxLength={40}
@@ -47,7 +49,7 @@ export default function StickerNamePromptModal({
               disabled={stickerSaving}
               activeOpacity={0.8}
             >
-              <Text style={styles.selectButtonText}>取消</Text>
+              <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.selectButton, stickerSaving && styles.sendButtonDisabled]}

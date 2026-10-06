@@ -6,6 +6,7 @@ import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'reac
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
 function formatBytes(value) {
@@ -37,6 +38,7 @@ export default function ModelPanelModal({
   onOpenModelLogs,
 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
@@ -51,8 +53,8 @@ export default function ModelPanelModal({
         onPress={onClose}
       >
         <Pressable style={styles.modelSheet} onPress={() => {}}>
-          <Text style={styles.modelTitle}>切换模型</Text>
-          <Text style={styles.modelLabel}>来源</Text>
+          <Text style={styles.modelTitle}>{t('chat.modelPanel.title')}</Text>
+          <Text style={styles.modelLabel}>{t('chat.modelPanel.source')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.modelSourceRow}>
               {apiConfigs.map(config => {
@@ -69,20 +71,20 @@ export default function ModelPanelModal({
                       style={[styles.modelSourceText, selected && styles.modelSourceTextActive]}
                       numberOfLines={1}
                     >
-                      {config.name || '未命名配置'}
+                      {config.name || t('chat.modelPanel.unnamedConfig')}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
           </ScrollView>
-          <Text style={styles.modelLabel}>模型</Text>
+          <Text style={styles.modelLabel}>{t('chat.modelPanel.model')}</Text>
           <ScrollView style={styles.modelListScroll}>
             {(() => {
               const source = apiConfigs.find(item => item.id === modelSourceId);
               const models = (source && source.models) || [];
               if (models.length === 0) {
-                return <Text style={styles.modelEmpty}>该来源没有模型。</Text>;
+                return <Text style={styles.modelEmpty}>{t('chat.modelPanel.emptyModels')}</Text>;
               }
               return models.map(model => {
                 const isActive = source.activeModel === model;
@@ -105,19 +107,19 @@ export default function ModelPanelModal({
           </ScrollView>
 
           <View style={styles.localHeaderRow}>
-            <Text style={styles.modelLabel}>本地模型</Text>
+            <Text style={styles.modelLabel}>{t('chat.modelPanel.localTitle')}</Text>
             <TouchableOpacity
               onPress={onOpenModelLogs}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="本地模型运行日志"
+              accessibilityLabel={t('chat.modelPanel.logsA11y')}
             >
-              <Text style={styles.localLogLink}>运行日志</Text>
+              <Text style={styles.localLogLink}>{t('chat.modelPanel.logsLink')}</Text>
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.modelListScroll}>
             {localModels.length === 0 ? (
-              <Text style={styles.modelEmpty}>还没有本地模型，可在设置 → 关于 → 本地模型中下载或导入。</Text>
+              <Text style={styles.modelEmpty}>{t('chat.modelPanel.localEmpty')}</Text>
             ) : (
               localModels.map(entry => {
                 const active = entry.id === activeLocalModelId;
@@ -127,7 +129,7 @@ export default function ModelPanelModal({
                   <View key={entry.id} style={styles.localRow}>
                     <View style={styles.localInfo}>
                       <Text style={styles.localName} numberOfLines={1}>
-                        {entry.name || entry.id}{active ? ' · 当前' : ''}
+                        {entry.name || entry.id}{active ? ` · ${t('chat.modelPanel.current')}` : ''}
                       </Text>
                       {meta ? <Text style={styles.localMeta} numberOfLines={1}>{meta}</Text> : null}
                     </View>
@@ -137,9 +139,9 @@ export default function ModelPanelModal({
                       onPress={() => (active ? onDeactivateLocalModel() : onActivateLocalModel(entry))}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel={`${active ? '卸载' : '加载'} ${entry.name || entry.id}`}
+                      accessibilityLabel={t(active ? 'chat.modelPanel.unloadA11y' : 'chat.modelPanel.loadA11y', { name: entry.name || entry.id })}
                     >
-                      <Text style={styles.localActionText}>{loading ? '加载中' : active ? '卸载' : '加载'}</Text>
+                      <Text style={styles.localActionText}>{loading ? t('chat.modelPanel.loading') : active ? t('chat.modelPanel.unload') : t('chat.modelPanel.load')}</Text>
                     </TouchableOpacity>
                   </View>
                 );
@@ -152,7 +154,7 @@ export default function ModelPanelModal({
             onPress={onClose}
             activeOpacity={0.8}
           >
-            <Text style={styles.modelCloseText}>关闭</Text>
+            <Text style={styles.modelCloseText}>{t('common.close')}</Text>
           </TouchableOpacity>
         </Pressable>
       </Pressable>

@@ -8,6 +8,7 @@ import {
   setJsonWithSecrets,
 } from './io.js';
 import { normalizeProtocol } from '../apiProtocols.js';
+import { tActive } from '../i18n/index.js';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
 const API_CONFIGS_KEY = '@easychat2_api_configs';
@@ -156,7 +157,7 @@ function normalizeApiConfig(raw, index = 0) {
     : (models.includes(legacyModel) ? legacyModel : (models[0] || ''));
   return {
     id: String(source.id || `cfg-${index}`),
-    name: String(source.name || `配置 ${index + 1}`),
+    name: String(source.name || tActive('apiPreset.numberedName', { index: index + 1 })),
     baseUrl: typeof source.baseUrl === 'string' ? source.baseUrl : DEFAULT_API_CONFIG.baseUrl,
     apiKey: String(source.apiKey || ''),
     vendorId: String(source.vendorId || ''),
@@ -251,14 +252,14 @@ export async function getApiConfigs() {
       ? legacy.value
       : null;
     const seed = legacyValue
-      ? { ...legacyValue, id: 'default', name: '默认配置' }
-      : { id: 'default', name: '默认配置' };
+      ? { ...legacyValue, id: 'default', name: tActive('apiPreset.defaultName') }
+      : { id: 'default', name: tActive('apiPreset.defaultName') };
     configs = [normalizeApiConfig(seed, 0)];
     needsPersist = true;
   }
 
   if (configs.length === 0) {
-    configs = [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
+    configs = [normalizeApiConfig({ id: 'default', name: tActive('apiPreset.defaultName') }, 0)];
     needsPersist = true;
   }
   if (!configs.some(item => item.id === activeId)) {
@@ -280,7 +281,7 @@ export function saveApiConfigs(configs, activeId) {
     );
     const list = normalized.length
       ? normalized
-      : [normalizeApiConfig({ id: 'default', name: '默认配置' }, 0)];
+      : [normalizeApiConfig({ id: 'default', name: tActive('apiPreset.defaultName') }, 0)];
     const resolvedActive = list.some(item => item.id === activeId)
       ? String(activeId)
       : list[0].id;

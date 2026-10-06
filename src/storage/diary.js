@@ -12,6 +12,7 @@ import {
   removeRolesFromDiarySettings,
 } from '../diary/diary.js';
 import { CORRUPT_BACKUP_SUFFIX, backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 const DIARY_SETTINGS_KEY = '@easychat2_diary_settings';
 const DIARY_INDEX_KEY = '@easychat2_diary_index';
@@ -87,7 +88,7 @@ export async function getDiaries() {
 async function readDiariesForMutation() {
   const { status, diaries } = await getDiariesStatus();
   if (status === 'corrupt') {
-    throw new Error('日记读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.diaryReadFailed'));
   }
   return diaries;
 }

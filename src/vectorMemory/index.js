@@ -6,6 +6,7 @@ import {
 } from './providers.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import vendorXhr from '../network/vendorHttp.js';
+import { tActive } from '../i18n/index.js';
 
 const DEFAULT_MAX_CHARS = 400;
 const DEFAULT_BATCH_SIZE = 16;
@@ -109,12 +110,12 @@ function xhrPostJson({ url, headers, body, timeoutMs, signal = null }) {
 
 function extractVectors(data, expected) {
   const rows = data && Array.isArray(data.data) ? data.data : [];
-  if (rows.length !== expected) throw new Error('向量数量与文本数量不一致');
+  if (rows.length !== expected) throw new Error(tActive('error.vectorMemory.countMismatch'));
   return rows
     .map(row => (Array.isArray(row && row.embedding) ? row.embedding.map(Number) : null))
     .map(vec => (vec && vec.every(Number.isFinite) ? vec : null))
     .map(vec => {
-      if (!vec) throw new Error('向量格式无效');
+      if (!vec) throw new Error(tActive('error.vectorMemory.invalidVector'));
       return vec;
     });
 }
@@ -124,15 +125,15 @@ export async function embedTexts({ config, texts, signal = null }) {
   // 登记向量服务密钥：报错文本可能带出裸 Key
   registerSecretValues([resolved.apiKey]);
   const url = buildEmbeddingUrl(resolved.baseUrl);
-  if (!url) throw new Error('请先填写向量服务地址');
+  if (!url) throw new Error(tActive('error.vectorMemory.baseUrlRequired'));
   if (!/^https?:\/\/[^/\s]+/i.test(url)) {
-    throw new Error('请填写有效的 HTTP(S) 向量服务地址');
+    throw new Error(tActive('error.vectorMemory.invalidBaseUrl'));
   }
-  if (!resolved.apiKey) throw new Error('请先填写向量服务密钥');
+  if (!resolved.apiKey) throw new Error(tActive('error.vectorMemory.apiKeyRequired'));
   const list = (Array.isArray(texts) ? texts : []).map(text => String(text || ''));
   if (list.length === 0) return [];
   if (signal && signal.aborted) throw createVectorAbortError();
-  if (!resolved.model) throw new Error('请先填写向量模型');
+  if (!resolved.model) throw new Error(tActive('error.vectorMemory.modelRequired'));
   const provider = getVectorProvider(resolved.providerId);
   const headers = { 'Content-Type': 'application/json' };
   if (provider.auth && provider.auth.type === 'header') {
@@ -322,7 +323,7 @@ export async function testVectorConnection(config) {
   const resolved = normalizeVectorConfig(config);
   const [vector] = await embedTexts({ config: resolved, texts: ['连接测试'] });
   if (!Array.isArray(vector) || vector.length === 0) {
-    throw new Error('未返回有效向量');
+    throw new Error(tActive('error.vectorMemory.noValidVector'));
   }
   return vector.length;
 }

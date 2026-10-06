@@ -9,7 +9,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const source = fs.readFileSync(path.resolve('src/CharacterScreen.js'), 'utf8');
+// 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+// （列表页）与 character/CharacterDetailScreen.js（编辑表单）。两处标签 chips 现在都在
+// 详情页（表单标签 + 角色数据里导入卡片的标签），断言目标随之改指详情页，约束不变。
+const source = fs.readFileSync(path.resolve('src/character/CharacterDetailScreen.js'), 'utf8');
 
 test('标签 chips 使用复合 key，不用 tag 本身（防重复标签警告/复用错位）', () => {
   assert.ok(!/key=\{tag\}/.test(source), '不得用 tag 直接作 key');

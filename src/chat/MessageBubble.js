@@ -24,6 +24,7 @@ import { clampMarkdownText } from './markdownGuard.js';
 import { shouldRenderRichHtml, splitFullHtmlDocument } from './richHtml.js';
 import RichHtmlMessage from './RichHtmlMessage.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { USER_ID } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
 import ThinkingIndicator from './ThinkingIndicator.js';
@@ -75,6 +76,7 @@ function renderHighlightedText(text, keyword, styles) {
 
 const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, bubbleStyle = 'rounded', onReselectGreeting, onStartSelection, selectionMode, selected, onSaveImage, onSaveAsSticker, onDeleteImageMessage }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const plainBubbles = bubbleStyle === 'plain';
   const assistantTextColor = plainBubbles ? theme.colors.text : theme.colors.bubbleAssistantText;
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens, { bubbleStyle }), [theme, fonts, tokens, bubbleStyle]);
@@ -201,46 +203,46 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
   const messageActionItems = isMediaMessage
     ? [
         onSaveImage
-          ? { key: 'save', label: '保存图片', icon: 'download-outline', onPress: () => onSaveImage(message.image) }
+          ? { key: 'save', label: t('chat.bubble.saveImage'), icon: 'download-outline', onPress: () => onSaveImage(message.image) }
           : null,
         onSaveAsSticker && !message.image.stickerId
-          ? { key: 'sticker', label: '保存为表情包', icon: 'happy-outline', onPress: () => onSaveAsSticker(message.image) }
+          ? { key: 'sticker', label: t('chat.bubble.saveAsSticker'), icon: 'happy-outline', onPress: () => onSaveAsSticker(message.image) }
           : null,
         onQuote
-          ? { key: 'quote', label: '引用', icon: 'chatbubble-ellipses-outline', onPress: () => onQuote(message) }
+          ? { key: 'quote', label: t('chat.bubble.quote'), icon: 'chatbubble-ellipses-outline', onPress: () => onQuote(message) }
           : null,
         isUser && onEditUserMessage
-          ? { key: 'edit', label: '修改重发', icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
+          ? { key: 'edit', label: t('chat.bubble.editResend'), icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
           : null,
         onDeleteImageMessage
-          ? { key: 'delete', label: '删除消息', icon: 'trash-outline', onPress: () => onDeleteImageMessage(message.id) }
+          ? { key: 'delete', label: t('chat.bubble.deleteMessage'), icon: 'trash-outline', onPress: () => onDeleteImageMessage(message.id) }
           : null,
         onStartSelection
-          ? { key: 'select-message', label: '选择消息', icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
+          ? { key: 'select-message', label: t('chat.bubble.selectMessage'), icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
           : null,
       ].filter(Boolean)
     : [
       isGreeting && onReselectGreeting
-        ? { key: 'reselect', label: '重选', icon: 'refresh-outline', onPress: onReselectGreeting }
+        ? { key: 'reselect', label: t('chat.bubble.reselect'), icon: 'refresh-outline', onPress: onReselectGreeting }
         : null,
       {
         key: 'copy',
-        label: copied ? '已复制' : '复制',
+        label: copied ? t('common.copied') : t('common.copy'),
         icon: copied ? 'checkmark-outline' : 'copy-outline',
         onPress: onCopy,
       },
-      { key: 'quote', label: '引用', icon: 'chatbubble-ellipses-outline', onPress: () => onQuote?.(message) },
-      { key: 'select', label: '选择文本', icon: 'text-outline', onPress: () => onSelectText?.(plainText) },
+      { key: 'quote', label: t('chat.bubble.quote'), icon: 'chatbubble-ellipses-outline', onPress: () => onQuote?.(message) },
+      { key: 'select', label: t('chat.bubble.selectText'), icon: 'text-outline', onPress: () => onSelectText?.(plainText) },
       !isUser && onGenerateImage
-        ? { key: 'image', label: '生成配图', icon: 'image-outline', onPress: () => onGenerateImage(message.id, message.text) }
+        ? { key: 'image', label: t('chat.bubble.generateImage'), icon: 'image-outline', onPress: () => onGenerateImage(message.id, message.text) }
         : null,
       isUser && onEditUserMessage
-        ? { key: 'edit', label: '修改重发', icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
+        ? { key: 'edit', label: t('chat.bubble.editResend'), icon: 'create-outline', onPress: () => onEditUserMessage(message.id) }
         : (!isUser && canRegenerate
-          ? { key: 'regenerate', label: '重新生成', icon: 'reload-outline', onPress: () => onRegenerate?.(message.id) }
+          ? { key: 'regenerate', label: t('chat.bubble.regenerate'), icon: 'reload-outline', onPress: () => onRegenerate?.(message.id) }
           : null),
       onStartSelection
-        ? { key: 'select-message', label: '选择消息', icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
+        ? { key: 'select-message', label: t('chat.bubble.selectMessage'), icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
         : null,
     ].filter(Boolean);
 
@@ -252,7 +254,7 @@ const fullWidthAssistant = !isUser && fullWidth;
       ) : (
         <View style={styles.avatarPlaceholderUser}>
           <Text style={styles.avatarPlaceholderText}>
-            {'我'}
+            {t('chat.bubble.me')}
           </Text>
         </View>
       )}
@@ -337,13 +339,13 @@ const fullWidthAssistant = !isUser && fullWidth;
               onPress={() => onPressQuote?.(message.quoted)}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel={`引用 ${message.quoted.name || ''}`}
+              accessibilityLabel={t('chat.bubble.quoteA11y', { name: message.quoted.name || '' })}
             >
               <Text
                 style={[styles.quoteName, isUser ? styles.quoteNameUser : styles.quoteNameAssistant]}
                 numberOfLines={1}
               >
-                {message.quoted.name || '原文'}
+                {message.quoted.name || t('chat.bubble.quoteOriginal')}
               </Text>
               <Text
                 style={[styles.quoteText, isUser ? styles.quoteTextUser : styles.quoteTextAssistant]}
@@ -370,7 +372,7 @@ const fullWidthAssistant = !isUser && fullWidth;
                 >
                   <View style={[styles.reasoningHeader, !expanded && styles.reasoningHeaderCollapsed]}>
                     <Ionicons name="bulb-outline" size={12} color={theme.colors.textFaint} />
-                    <Text style={styles.reasoningLabel}>思考过程</Text>
+                    <Text style={styles.reasoningLabel}>{t('chat.bubble.thinking')}</Text>
                     <Ionicons
                       name={expanded ? 'chevron-up' : 'chevron-down'}
                       size={12}
@@ -398,13 +400,13 @@ const fullWidthAssistant = !isUser && fullWidth;
                 onPress={() => { shareVideoFile(message.image); }}
                 activeOpacity={0.85}
                 accessibilityRole="button"
-                accessibilityLabel={`视频：${message.image.name || '未命名'}`}
+                accessibilityLabel={t('chat.bubble.videoA11y', { name: message.image.name || t('chat.bubble.unnamed') })}
               >
                 <Ionicons name="videocam" size={26} color={theme.colors.primarySoft} />
                 <Text style={styles.videoCardName} numberOfLines={1}>
-                  {message.image.name || '视频'}
+                  {message.image.name || t('chat.bubble.videoFallback')}
                 </Text>
-                <Text style={styles.videoCardHint}>点按用其他应用打开</Text>
+                <Text style={styles.videoCardHint}>{t('chat.bubble.videoOpenHint')}</Text>
               </TouchableOpacity>
             ) : (
               <View style={styles.mediaBox}>
@@ -475,19 +477,19 @@ const fullWidthAssistant = !isUser && fullWidth;
             {message.inlineImage.status === 'loading' ? (
               <View style={[styles.inlineImageBox, styles.inlineImageLoading]}>
                 <ActivityIndicator color={theme.colors.primary} />
-                <Text style={styles.inlineImageHint}>配图生成中...</Text>
+                <Text style={styles.inlineImageHint}>{t('chat.bubble.inlineLoading')}</Text>
               </View>
             ) : message.inlineImage.status === 'error' ? (
               <View style={[styles.inlineImageBox, styles.inlineImageError]}>
                 <Text style={styles.inlineImageHint} numberOfLines={2}>
-                  {message.inlineImage.message || '配图生成失败'}
+                  {message.inlineImage.message || t('chat.bubble.inlineError')}
                 </Text>
                 <TouchableOpacity
                   style={styles.inlineImageRetry}
                   onPress={() => onGenerateImage?.(message.id, message.text)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.inlineImageRetryText}>重试</Text>
+                  <Text style={styles.inlineImageRetryText}>{t('common.retry')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -506,7 +508,7 @@ const fullWidthAssistant = !isUser && fullWidth;
               onPress={() => setActionsOpen(true)}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="更多操作"
+              accessibilityLabel={t('chat.bubble.moreA11y')}
             >
               <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
             </TouchableOpacity>
@@ -516,7 +518,7 @@ const fullWidthAssistant = !isUser && fullWidth;
                 onPress={() => onBroadcast(rawText != null ? rawText : message.text)}
                 activeOpacity={0.8}
               >
-                <Text style={styles.messageActionText}>播报</Text>
+                <Text style={styles.messageActionText}>{t('chat.bubble.broadcast')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -536,7 +538,7 @@ const fullWidthAssistant = !isUser && fullWidth;
             onPress={() => setActionsOpen(false)}
           >
             <View style={styles.messageActionsSheet}>
-              <Text style={styles.modalTitle}>消息操作</Text>
+              <Text style={styles.modalTitle}>{t('chat.bubble.actionsTitle')}</Text>
               {messageActionItems.map(item => (
                 <TouchableOpacity
                   key={item.key}

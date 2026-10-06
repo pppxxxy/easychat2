@@ -22,6 +22,7 @@ import {
   sanitizeSandboxId,
 } from './paths.js';
 import { applyWorkspaceEdit } from './edit.js';
+import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 6;
@@ -33,13 +34,13 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 
 function assertAdapter(adapter) {
   if (!adapter || typeof adapter.listChildren !== 'function') {
-    throw new Error('外部工作区缺少 adapter 注入。');
+    throw new Error(tActive('error.workspace.adapterMissing'));
   }
   if (typeof adapter.createDirectory !== 'function' || typeof adapter.createFile !== 'function') {
-    throw new Error('外部工作区缺少 adapter 的创建能力。');
+    throw new Error(tActive('error.workspace.adapterNoCreate'));
   }
   if (typeof adapter.readText !== 'function' || typeof adapter.writeText !== 'function') {
-    throw new Error('外部工作区缺少 adapter 的读写能力。');
+    throw new Error(tActive('error.workspace.adapterNoReadWrite'));
   }
 }
 
@@ -105,7 +106,7 @@ function splitRelative(relative) {
 
 function assertRoot(rootUri) {
   const value = String(rootUri || '');
-  if (!value) throw new Error('外部工作区缺少根目录。');
+  if (!value) throw new Error(tActive('error.workspace.rootMissing'));
 }
 
 export function createSafWorkspaceStore({ root, adapter } = {}) {
@@ -144,9 +145,9 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       assertAllowedWorkspaceFile(relative);
       const { name, directories } = splitRelative(relative);
       const directoryUri = await locateDirectory(characterId, directories, false);
-      if (!directoryUri) throw new Error(`文件不存在：${relative}`);
+      if (!directoryUri) throw new Error(tActive('error.workspace.fileNotFound', { path: relative }));
       const found = await findChild(adapter, directoryUri, name, false);
-      if (!found) throw new Error(`文件不存在：${relative}`);
+      if (!found) throw new Error(tActive('error.workspace.fileNotFound', { path: relative }));
       const text = String(await adapter.readText(found.uri));
       if (text.length > maxChars) {
         return { path: relative, content: text.slice(0, maxChars), truncated: true };
@@ -214,7 +215,7 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       const relative = normalizeWorkspacePath(path);
       const { file } = await locateFile({ characterId, path: relative, create: false });
       if (!file) return { path: relative, deleted: false };
-      if (typeof adapter.delete !== 'function') throw new Error('外部工作区缺少 adapter 的删除能力。');
+      if (typeof adapter.delete !== 'function') throw new Error(tActive('error.workspace.adapterNoDelete'));
       await adapter.delete(file.uri);
       return { path: relative, deleted: true };
     },
@@ -226,7 +227,7 @@ export function createExpoSafAdapter(fileSystemModule) {
   const Directory = fileSystemModule && fileSystemModule.Directory;
   const File = fileSystemModule && fileSystemModule.File;
   if (typeof Directory !== 'function' || typeof File !== 'function') {
-    throw new Error('当前环境的 expo-file-system 不含 Directory/File 新 API。');
+    throw new Error(tActive('error.workspace.newFileSystemApiMissing'));
   }
   return {
     async listChildren(dirUri) {

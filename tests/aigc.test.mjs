@@ -15,12 +15,13 @@ import {
   isValidAigcMeta,
 } from '../src/aigc/attribution.js';
 import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from '../src/onboarding/disclaimerContent.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const readSource = name => readFileSync(path.join(HERE, '..', ...name), 'utf8');
 const FORGE_SCREEN = readSource(['src', 'CardForgeScreen.js']);
 const FORGE_EDITOR = readSource(['src', 'CardForgeEditor.js']);
-const CHARACTER_SCREEN = readSource(['src', 'CharacterScreen.js']);
+const CHARACTER_SCREEN = readSource(['src', 'character', 'CharacterLibraryScreen.js']);
 const CARD_EXPORTER = readSource(['src', 'character', 'cardExporter.js']);
 const MOMENTS_VIEW = readSource(['src', 'MomentsView.js']);
 const IMAGE_GEN = readSource(['src', 'ImageGenScreen.js']);
@@ -81,16 +82,22 @@ test('制卡 AI 路径统一打标并做 IP 提示', () => {
   assert.ok(FORGE_SCREEN.includes('applyAigcAttribution(draft, model)'));
   assert.equal((FORGE_SCREEN.match(/applyAigcAttribution\(draft, model\)/g) || []).length, 2);
   assert.ok(FORGE_SCREEN.includes('activeForgeModel'));
-  assert.ok(FORGE_SCREEN.includes("Alert.alert('版权风险提示'"));
+  assert.ok(FORGE_SCREEN.includes("Alert.alert(t('forge.screen.alert.ipNotice.title')"));
+  assert.equal(zhCN['forge.screen.alert.ipNotice.title'], '版权风险提示', '语言包中文值正确');
   // 字段辅助生成同样写生成标识（source 区分）
   assert.ok(FORGE_EDITOR.includes("source: 'easychat2-field-assist'"));
   // 编辑器界面有显式标识提示（引用 AIGC_NOTICE_TEXT 常量）与内容编号徽标
-  assert.ok(FORGE_EDITOR.includes('${AIGC_NOTICE_TEXT}'));
-  assert.ok(FORGE_EDITOR.includes('内容编号'));
+  assert.ok(FORGE_EDITOR.includes("t('forge.aigc.notice', { notice: AIGC_NOTICE_TEXT })"), '应引用显式标识提示的 i18n 键并注入 AIGC_NOTICE_TEXT');
+  assert.ok(zhCN['forge.aigc.notice'].includes('{notice}'), '语言包中文值正确');
+  assert.ok(FORGE_EDITOR.includes("t('forge.aigc.badge'"), '应引用内容编号徽标的 i18n 键');
+  assert.ok(zhCN['forge.aigc.badge'].includes('内容编号'), '语言包中文值正确');
 });
 
 test('AI 生成卡的角色页徽标与导出注入', () => {
-  // 角色页：aigcMeta 存在时显示徽标
+  // 角色页：aigcMeta 存在时显示徽标。
+  // 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
+  // （列表页，页头徽标在这里）与 character/CharacterDetailScreen.js（编辑表单），
+  // 断言目标随之改指列表页，约束不变。
   assert.ok(CHARACTER_SCREEN.includes('本卡由 AI 生成'));
   // 导出：显式标识进 creator_notes，隐式标识进 extensions.easychat2.aigc_meta
   assert.ok(CARD_EXPORTER.includes('appendExportNotice(String(source.creatorNotes || \'\')'));
@@ -101,8 +108,10 @@ test('AI 生成卡的角色页徽标与导出注入', () => {
 });
 
 test('动态与生图界面有 AI 生成显式标识', () => {
-  assert.ok(MOMENTS_VIEW.includes('动态与回复由 AI 生成'));
-  assert.ok(IMAGE_GEN.includes('画廊中的图片由 AI 生成'));
+  assert.ok(MOMENTS_VIEW.includes("t('moments.aigcHint')"), '应引用动态 AI 标识的 i18n 键');
+  assert.ok(zhCN['moments.aigcHint'].includes('动态与回复由 AI 生成'), '语言包中文值正确');
+  assert.ok(IMAGE_GEN.includes("t('imageGen.aigcHint')"), '应引用生图 AI 标识的 i18n 键');
+  assert.ok(zhCN['imageGen.aigcHint'].includes('画廊中的图片由 AI 生成'), '语言包中文值正确');
   // 聊天页提示行（既有合规项保持）。文案常量 2026-09-27 随 ChatScreen 拆分
   // 移至 src/chat/chatConstants.js，断言改指向新文件、约束不变。
   assert.ok(readSource(['src', 'chat', 'chatConstants.js']).includes('AI 生成可能有误，仅供参考'));

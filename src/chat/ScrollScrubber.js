@@ -11,6 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 import { indexFromRatio } from './scrollScrubberMath.js';
 
 export { getScrollRange, indexFromRatio } from './scrollScrubberMath.js';
@@ -33,6 +34,7 @@ export default function ScrollScrubber({
   const translateY = useRef(new Animated.Value(0)).current;
   const previewIndexRef = useRef(-1);
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const trackHeightRef = useRef(0);
   const messageCountRef = useRef(messageCount);
@@ -148,7 +150,7 @@ export default function ScrollScrubber({
           style={styles.dismiss}
           activeOpacity={1}
           onPress={onClose}
-          accessibilityLabel="关闭定位"
+          accessibilityLabel={t('chat.scrubber.closeA11y')}
         />
         <View style={styles.panel}>
           <TouchableOpacity
@@ -158,7 +160,7 @@ export default function ScrollScrubber({
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-up" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.jumpText}>回到开头</Text>
+            <Text style={styles.jumpText}>{t('chat.scrubber.toStart')}</Text>
           </TouchableOpacity>
 
           <View
@@ -167,16 +169,16 @@ export default function ScrollScrubber({
                trackHeightRef.current = event.nativeEvent.layout.height;
              }}
               accessibilityRole="adjustable"
-              accessibilityLabel="内容定位滑块"
+              accessibilityLabel={t('chat.scrubber.trackA11y')}
               accessibilityValue={{
                 min: 0,
                 max: Math.max(count - 1, 0),
                 now: previewIndex,
-                text: count > 0 ? `${previewIndex + 1} / ${count}` : '无消息',
+                text: count > 0 ? `${previewIndex + 1} / ${count}` : t('chat.scrubber.noMessages'),
               }}
               accessibilityActions={[
-                { name: 'increment', label: '下一条' },
-                { name: 'decrement', label: '上一条' },
+                { name: 'increment', label: t('chat.scrubber.next') },
+                { name: 'decrement', label: t('chat.scrubber.prev') },
               ]}
               onAccessibilityAction={onAccessibilityAction}
              {...panResponder.panHandlers}
@@ -194,7 +196,7 @@ export default function ScrollScrubber({
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-down" size={16} color={theme.colors.primarySoft} />
-            <Text style={styles.jumpText}>回到最新</Text>
+            <Text style={styles.jumpText}>{t('chat.scrubber.toEnd')}</Text>
           </TouchableOpacity>
         </View>
 

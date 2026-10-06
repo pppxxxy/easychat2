@@ -10,6 +10,7 @@
 // index.js 用内置 XMLHttpRequest 驱动（RN 无 fetch 流，沿用 api.js 的既有做法）。
 
 import { decodeBase64ToBytes, encodePngBase64FromRgb } from './png.js';
+import { tActive } from '../i18n/index.js';
 
 export const LOCAL_DREAM_DEFAULT_URL = 'http://127.0.0.1:8081';
 export const LOCAL_DREAM_GENERATE_PATH = '/generate';
@@ -219,7 +220,7 @@ export function completeEventToImage(event) {
 export function describeLocalDreamNetworkError(error) {
   const message = String((error && error.message) || error || '');
   if (/无法连接|Network request failed|连接|refused|ECONNREFUSED/i.test(message)) {
-    return '无法连接本地 Local Dream（默认 127.0.0.1:8081）。请先打开 Local Dream、加载一个模型，确认 HTTP API 已开启后重试。';
+    return tActive('error.localDream.unreachable');
   }
-  return message || '本地生图请求失败';
+  return message || tActive('error.localDream.requestFailed');
 }

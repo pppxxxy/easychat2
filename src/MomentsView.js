@@ -34,19 +34,26 @@ import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { maskSecrets } from './storage/secrets.js';
 
-function formatTime(timestamp) {
+function formatTime(timestamp, t) {
   const value = Number(timestamp);
   if (!Number.isFinite(value) || value <= 0) return '';
   const date = new Date(value);
   const pad = number => String(number).padStart(2, '0');
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return t('moments.time.format', {
+    m: date.getMonth() + 1,
+    d: date.getDate(),
+    hh: pad(date.getHours()),
+    mm: pad(date.getMinutes()),
+  });
 }
 
 export default function MomentsView({ active = true }) {
   const { theme, fonts, tokens } = useTheme();
   const { characters, sessions } = useApp();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -116,14 +123,14 @@ export default function MomentsView({ active = true }) {
   }).catch(error => {
     if (mountedRef.current) {
       Alert.alert(
-        '保存失败',
+        t('moments.alert.saveFailed.title'),
         String((error && error.message) || '').includes('动态记录读取失败')
-          ? '动态记录读取失败，为避免覆盖已保留原数据，本次改动未保存。'
-          : '请检查存储空间或权限。'
+          ? t('moments.alert.saveFailed.bodyReadFailed')
+          : t('moments.alert.saveFailed.bodyStorage')
       );
     }
     return null;
-  }), []);
+  }), [t]);
 
   const toggleLike = useCallback(moment => {
     mutateMoments(list => list.map(item => {
@@ -140,10 +147,10 @@ export default function MomentsView({ active = true }) {
       return {
         ...item,
         likedByUser: true,
-        likes: [...likes, { id: `user-${Date.now()}`, by: 'user', name: '我', createdAt: Date.now() }],
+        likes: [...likes, { id: `user-${Date.now()}`, by: 'user', name: t('moments.default.userName'), createdAt: Date.now() }],
       };
     }));
-  }, [mutateMoments]);
+  }, [mutateMoments, t]);
 
   // 停止某条动态正在进行的角色回复：中止请求，后续回包会被 isCanceledError 丢弃。
   const cancelReply = useCallback(momentId => {
@@ -155,10 +162,10 @@ export default function MomentsView({ active = true }) {
   }, []);
 
   const removeMoment = useCallback(moment => {
-    Alert.alert('删除动态', '确定删除这条动态吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('moments.alert.delete.title'), t('moments.alert.delete.body'), [
+      { text: t('moments.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('moments.delete'),
         style: 'destructive',
         onPress: () => {
           cancelReply(moment.id);
@@ -166,7 +173,7 @@ export default function MomentsView({ active = true }) {
         },
       },
     ]);
-  }, [cancelReply, moments, mutateMoments]);
+  }, [cancelReply, moments, mutateMoments, t]);
 
   const appendComment = useCallback((momentId, comment) => {
     mutateMoments(list => list.map(item => (
@@ -188,7 +195,7 @@ export default function MomentsView({ active = true }) {
     }
     const character = charactersRef.current.find(item => item.id === moment.characterId);
     if (!character) {
-      Alert.alert('角色没有回复', '暂时找不到这条动态对应的角色（可能已被删除或尚未加载），请稍后再试。');
+      Alert.alert(t('moments.alert.noReply.title'), t('moments.alert.noReply.bodyMissing'));
       return;
     }
     const controller = new AbortController();
@@ -205,8 +212,8 @@ export default function MomentsView({ active = true }) {
         getApiConfigs(),
       ]);
       if (controller.signal.aborted || !mountedRef.current) return;
-      const charName = String(moment.characterName || character.name || '').trim() || '角色';
-      const userName = String((profile && profile.userName) || '').trim() || '用户';
+      const charName = String(moment.characterName || character.name || '').trim() || t('moments.default.characterName');
+      const userName = String((profile && profile.userName) || '').trim() || t('app.default.userName');
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
       // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
       // 内置助手按会话级；来源会话计入判定，避免把角色卡旧记忆带进来。
@@ -244,10 +251,10 @@ export default function MomentsView({ active = true }) {
       if (controller.signal.aborted || !mountedRef.current) return;
       // 接口空响应会返回占位文本：那不是角色回复，不能写进动态。
       if (String(raw || '').trim() === EMPTY_REPLY_TEXT) {
-        throw new Error('没有收到回复内容，请稍后再试。');
+        throw new Error(t('moments.error.noReply'));
       }
       const text = normalizeMomentReply(raw);
-      if (!text) throw new Error('没有收到回复内容，请稍后再试。');
+      if (!text) throw new Error(t('moments.error.noReply'));
       appendComment(momentId, {
         id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         by: 'character',
@@ -258,7 +265,7 @@ export default function MomentsView({ active = true }) {
       });
     } catch (error) {
       if (!isCanceledError(error) && mountedRef.current) {
-        Alert.alert('角色没有回复', maskSecrets((error && error.message) || '请稍后再试。'));
+        Alert.alert(t('moments.alert.noReply.title'), maskSecrets((error && error.message) || t('moments.alert.noReply.bodyRetry')));
       }
     } finally {
       // 请求簿记必须同源同判：controller、replyingRef 与“正在回复”状态是同一次请求的三份记录。
@@ -281,7 +288,7 @@ export default function MomentsView({ active = true }) {
         }
       }
     }
-  }, [appendComment]);
+  }, [appendComment, t]);
   requestReplyRef.current = requestReply;
 
   const submitComment = useCallback(async moment => {
@@ -290,7 +297,7 @@ export default function MomentsView({ active = true }) {
     const comment = {
       id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       by: 'user',
-      name: '我',
+      name: t('moments.default.userName'),
       text,
       createdAt: Date.now(),
       likedByCharacter: false,
@@ -310,7 +317,7 @@ export default function MomentsView({ active = true }) {
             )),
         };
       }));
-      if (!next) throw new Error('动态保存失败');
+      if (!next) throw new Error(t('moments.error.saveFailed'));
       // 保存期间用户可能已经输入了新草稿，只有内容仍是本次提交的文本时才清空。
       setCommentDrafts(current => {
         if (String(current[moment.id] || '').trim() !== text) return current;
@@ -319,9 +326,9 @@ export default function MomentsView({ active = true }) {
       const latest = next.find(item => item.id === moment.id);
       if (latest) requestReply(latest);
     } catch (error) {
-      Alert.alert('评论保存失败', '评论仍保留在输入框中，请稍后重试。');
+      Alert.alert(t('moments.alert.commentSaveFailed.title'), t('moments.alert.commentSaveFailed.body'));
     }
-  }, [commentDrafts, mutateMoments, requestReply]);
+  }, [commentDrafts, mutateMoments, requestReply, t]);
 
   // 用户发布动态：写入 by=user 的动态后，后台串行触发「最活跃保底 + 随机」角色评论。
   const submitPost = useCallback(async () => {
@@ -333,7 +340,7 @@ export default function MomentsView({ active = true }) {
       id: momentId,
       authorType: 'user',
       characterId: '',
-      characterName: '我',
+      characterName: t('moments.default.userName'),
       avatarUri: '',
       sessionId: '',
       trigger: 'user-post',
@@ -345,7 +352,7 @@ export default function MomentsView({ active = true }) {
     };
     try {
       const next = await mutateMoments(list => [moment, ...(Array.isArray(list) ? list : [])]);
-      if (!next) throw new Error('动态保存失败');
+      if (!next) throw new Error(t('moments.error.saveFailed'));
       setPostDraft('');
       // 与 requestReply 同源登记：挂 AbortController，用户动态的评论生成也要能「停止」
       // （否则卡片上的停止按钮是空操作），并在切走/卸载时统一中止，不再后台偷跑扣费。
@@ -369,15 +376,15 @@ export default function MomentsView({ active = true }) {
           }
         });
     } catch (error) {
-      Alert.alert('发布失败', '请检查存储空间或权限。');
+      Alert.alert(t('moments.alert.postFailed.title'), t('moments.alert.postFailed.body'));
     } finally {
       setPosting(false);
     }
-  }, [mutateMoments, postDraft, posting]);
+  }, [mutateMoments, postDraft, posting, t]);
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
-    const displayName = String(item.characterName || '').trim() || '角色';
+    const displayName = String(item.characterName || '').trim() || t('moments.default.characterName');
     const avatarUri = String(item.avatarUri || '').trim();
     return (
       <Card>
@@ -395,12 +402,12 @@ export default function MomentsView({ active = true }) {
           </View>
           <View style={styles.cardTitleWrap}>
             <Text style={styles.cardName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.cardTime}>{formatTime(item.createdAt)}</Text>
+            <Text style={styles.cardTime}>{formatTime(item.createdAt, t)}</Text>
           </View>
           <TouchableOpacity
             onPress={() => removeMoment(item)}
             hitSlop={8}
-            accessibilityLabel="删除动态"
+            accessibilityLabel={t('moments.deleteA11y')}
           >
             <Ionicons name="trash-outline" size={16} color={theme.colors.textFaint} />
           </TouchableOpacity>
@@ -413,7 +420,7 @@ export default function MomentsView({ active = true }) {
             style={styles.likeButton}
             onPress={() => toggleLike(item)}
             activeOpacity={0.8}
-            accessibilityLabel={item.likedByUser ? '取消点赞' : '点赞'}
+            accessibilityLabel={item.likedByUser ? t('moments.like.unlikeA11y') : t('moments.like.a11y')}
           >
             <Ionicons
               name={item.likedByUser ? 'heart' : 'heart-outline'}
@@ -421,7 +428,7 @@ export default function MomentsView({ active = true }) {
               color={item.likedByUser ? theme.colors.danger : theme.colors.textFaint}
             />
             <Text style={[styles.likeText, item.likedByUser && styles.likeTextActive]}>
-              {likeCount > 0 ? `${likeCount} 赞` : '赞'}
+              {likeCount > 0 ? t('moments.like.count', { n: likeCount }) : t('moments.like.label')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -430,7 +437,7 @@ export default function MomentsView({ active = true }) {
           <View style={styles.commentList}>
             {item.comments.map(comment => (
               <View key={comment.id} style={styles.commentRow}>
-                <Text style={styles.commentName}>{comment.name || '我'}</Text>
+                <Text style={styles.commentName}>{comment.name || t('moments.default.userName')}</Text>
                 <Text style={styles.commentText}>{comment.text}</Text>
                 {comment.likedByCharacter ? (
                   <Ionicons
@@ -448,14 +455,14 @@ export default function MomentsView({ active = true }) {
         {replying.includes(item.id) ? (
           <View style={styles.replyPendingRow}>
             <Text style={styles.replyPending}>
-              {item.authorType === 'user' ? '角色们正在评论…' : `${item.characterName || '角色'}正在回复…`}
+              {item.authorType === 'user' ? t('moments.replying.commenting') : t('moments.replying.character', { name: item.characterName || t('moments.default.characterName') })}
             </Text>
             <TouchableOpacity
               onPress={() => cancelReply(item.id)}
               hitSlop={8}
-              accessibilityLabel="停止回复"
+              accessibilityLabel={t('moments.replying.stopA11y')}
             >
-              <Text style={styles.replyCancel}>停止</Text>
+              <Text style={styles.replyCancel}>{t('moments.replying.stop')}</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -465,21 +472,21 @@ export default function MomentsView({ active = true }) {
             style={styles.commentInput}
             value={commentDrafts[item.id] || ''}
             onChangeText={value => setCommentDrafts(current => ({ ...current, [item.id]: value }))}
-            placeholder="写评论..."
+            placeholder={t('moments.comment.placeholder')}
             placeholderTextColor={theme.colors.textFaint}
           />
           <TouchableOpacity
             style={styles.commentSend}
             onPress={() => submitComment(item)}
             activeOpacity={0.8}
-            accessibilityLabel="发表评论"
+            accessibilityLabel={t('moments.comment.sendA11y')}
           >
             <Ionicons name="send" size={14} color={theme.colors.primaryContrast} />
           </TouchableOpacity>
         </View>
       </Card>
     );
-  }, [cancelReply, commentDrafts, removeMoment, replying, styles, submitComment, theme.colors, toggleLike]);
+  }, [cancelReply, commentDrafts, removeMoment, replying, styles, submitComment, t, theme.colors, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
@@ -490,7 +497,7 @@ export default function MomentsView({ active = true }) {
             style={styles.postInput}
             value={postDraft}
             onChangeText={setPostDraft}
-            placeholder="分享点什么…"
+            placeholder={t('moments.post.placeholder')}
             placeholderTextColor={theme.colors.textFaint}
             multiline
           />
@@ -499,21 +506,21 @@ export default function MomentsView({ active = true }) {
             onPress={submitPost}
             disabled={!postDraft.trim() || posting}
             activeOpacity={0.8}
-            accessibilityLabel="发布动态"
+            accessibilityLabel={t('moments.post.sendA11y')}
           >
             <Ionicons name="send" size={15} color={theme.colors.primaryContrast} />
           </TouchableOpacity>
         </View>
         <EmptyState
           icon="planet-outline"
-          title="还没有动态"
-          description="和角色多聊聊，重要时刻会自动出现；也可以在上面分享你的动态。"
+          title={t('moments.empty.title')}
+          description={t('moments.empty.description')}
         />
         <ChapterModal
           visible={!!topic}
           onClose={() => setTopic(null)}
           chapterIds={topic ? [topic] : []}
-          title="教学"
+          title={t('moments.tutorial.title')}
         />
       </View>
     );
@@ -533,7 +540,7 @@ export default function MomentsView({ active = true }) {
                 style={styles.postInput}
                 value={postDraft}
                 onChangeText={setPostDraft}
-                placeholder="分享点什么…"
+                placeholder={t('moments.post.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 multiline
               />
@@ -542,13 +549,13 @@ export default function MomentsView({ active = true }) {
                 onPress={submitPost}
                 disabled={!postDraft.trim() || posting}
                 activeOpacity={0.8}
-                accessibilityLabel="发布动态"
+                accessibilityLabel={t('moments.post.sendA11y')}
               >
                 <Ionicons name="send" size={15} color={theme.colors.primaryContrast} />
               </TouchableOpacity>
             </View>
             {/* 动态由 AI 生成：显式标识常驻列表头部（与聊天页提示行同口径） */}
-            <Text style={styles.aigcHint}>动态与回复由 AI 生成，可能有误。</Text>
+            <Text style={styles.aigcHint}>{t('moments.aigcHint')}</Text>
           </>
         )}
         renderItem={renderItem}
@@ -557,19 +564,20 @@ export default function MomentsView({ active = true }) {
         visible={!!topic}
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
-        title="教学"
+        title={t('moments.tutorial.title')}
       />
     </View>
   );
 }
 
 function MomentHeader({ styles, onPress }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.headerRow}>
-      <Text style={styles.headerTitle}>动态</Text>
+      <Text style={styles.headerTitle}>{t('moments.title')}</Text>
       <TopicButton
         onPress={onPress}
-        accessibilityLabel="查看动态教学"
+        accessibilityLabel={t('moments.tutorial.a11y')}
       />
     </View>
   );

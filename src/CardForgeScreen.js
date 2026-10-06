@@ -50,12 +50,14 @@ import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from 
 import { maskSecrets } from './storage/secrets.js';
 import { Chip, PrimaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守输出格式要求，只输出要求的 JSON。';
 
 export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const { theme, fonts, tokens } = useTheme();
   const { addCharacter, ensureCharacterSession } = useApp();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [state, setState] = useState(null);
@@ -101,11 +103,11 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     applyState(next);
     return saveCardForge(next).catch(() => {
       if (mountedRef.current) {
-        Alert.alert('草稿保存失败', '当前内容已保留在界面，请检查存储空间或权限。');
+        Alert.alert(t('forge.screen.alert.draftSaveFailed.title'), t('forge.screen.alert.draftSaveFailed.body'));
       }
       return false;
     });
-  }, [applyState]);
+  }, [applyState, t]);
 
   const isRequestCurrent = useCallback((token, controller) => (
     mountedRef.current
@@ -152,7 +154,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
          if (result.status === 'corrupt') {
            loadErrorRef.current = true;
            applyState(createForgeState());
-           Alert.alert('制卡草稿读取失败', '原始草稿已保留，请使用“重新开始”清理后再编辑。');
+           Alert.alert(t('forge.screen.alert.draftLoadFailed.title'), t('forge.screen.alert.draftLoadFailed.bodyCorrupt'));
            return;
          }
          loadErrorRef.current = false;
@@ -162,7 +164,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         if (cancelled || revisionAtStart !== draftRevisionRef.current) return;
          loadErrorRef.current = true;
          applyState(createForgeState());
-         Alert.alert('制卡草稿读取失败', '请稍后重试。');
+         Alert.alert(t('forge.screen.alert.draftLoadFailed.title'), t('forge.screen.alert.draftLoadFailed.bodyRetry'));
        });
 
     return () => {
@@ -203,10 +205,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     // 塞进字段/标签。这里按生成失败抛出，让编辑器统一提示重试。
     const text = String(raw == null ? '' : raw).trim();
     if (!text || text === EMPTY_REPLY_TEXT) {
-      throw new Error('AI 没有返回有效内容，请重试。');
+      throw new Error(t('forge.screen.error.emptyAiReply'));
     }
     return raw;
-  }, []);
+  }, [t]);
 
   // 制卡预览的模拟对话：把当前草稿组装成角色结构，走真实聊天管道请求模型。
   // 纯内存测试——不写会话、不落草稿、不影响角色库。
@@ -268,7 +270,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   // 与「辅助生成」同源的配置守卫与取消语义；无识图能力时明确拒绝而不是发纯文字。
   const imageToCard = useCallback(async ({ uri, hint, hasAvatar, hasBg, signal }) => {
     const source = String(uri || '');
-    if (!source) throw new Error('图片路径无效。');
+    if (!source) throw new Error(t('forge.screen.error.invalidImagePath'));
     const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
       getApiConfigs(),
       getLocalModelSettings().catch(() => null),
@@ -279,10 +281,10 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     const vision = capabilitiesForModel(current, current ? getActiveModel(current) : '').supportsVision === true
       || localMedia.vision;
     if (!vision) {
-      throw new Error('当前模型未标记为支持识图，无法按图片生成角色；请在设置中换用支持识图的模型。');
+      throw new Error(t('forge.screen.error.visionUnsupported'));
     }
     const dataUri = await readImageDataUri(source);
-    if (!dataUri) throw new Error('读取图片失败，请重新选择图片。');
+    if (!dataUri) throw new Error(t('forge.screen.error.readImageFailed'));
     const prompt = buildImageCardPrompt({ hint, hasAvatar, hasBg });
     const raw = await sendChatMessage([
       { role: 'system', content: FORGE_SYSTEM },
@@ -303,7 +305,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     if (!patch) return null;
     // 草稿的集合字段（世界书/正则/预设）保持原样：按图生成只负责文本字段。
     return patch;
-  }, []);
+  }, [t]);
 
   // AI 生成/改写后统一处理：给草稿打生成标识（随卡入库与导出），
   // 并对文本做知名 IP 关键词提示——命中只提醒不阻断，责任约定见免责条款。
@@ -317,22 +319,22 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       ...worldTexts,
     ]);
     if (hits.length > 0 && mountedRef.current) {
-      Alert.alert('版权风险提示', ipKeywordNotice(hits));
+      Alert.alert(t('forge.screen.alert.ipNotice.title'), ipKeywordNotice(hits));
     }
     return stamped;
-  }, []);
+  }, [t]);
 
   const submitAnswer = useCallback((question, value) => {
     const text = String(value || '').trim();
     if (!text || busy || !question || !activeRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
-      Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再编辑。');
+      Alert.alert(t('forge.screen.alert.draftResetNeeded.title'), t('forge.screen.alert.draftResetNeeded.bodyEdit'));
       return;
     }
     setFreeQuestionId('');
     setFreeText('');
     update(recordAnswer(stateRef.current, question.id, text));
-  }, [busy, update]);
+  }, [busy, update, t]);
 
   const onPickOption = useCallback((question, option) => {
     if (busy) return;
@@ -347,7 +349,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const onGenerate = useCallback(() => {
     if (busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
-      Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再生成。');
+      Alert.alert(t('forge.screen.alert.draftResetNeeded.title'), t('forge.screen.alert.draftResetNeeded.bodyGenerate'));
       return;
     }
     const run = async () => {
@@ -364,7 +366,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         if (!patch) {
           await update(appendTranscript(stateRef.current, {
             role: 'note',
-            text: '生成失败：模型没有返回可用的 JSON，再试一次。',
+            text: t('forge.screen.note.generateNoJson'),
           }));
           return;
         }
@@ -376,14 +378,14 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         next = appendTranscript(next, {
           role: 'ai',
           text: changed.length > 0
-            ? `已生成/更新：${changed.join('、')}。点「卡片」查看，或继续说修改要求。`
-            : '生成结果与当前内容一致。',
+            ? t('forge.screen.note.generated', { fields: changed.join('、') })
+            : t('forge.screen.note.generateNoChange'),
         });
         const saved = await update(next);
         if (saved && isRequestCurrent(token, controller)) setEditorOpen(true);
       } catch (error) {
         if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
-          Alert.alert('生成失败', maskSecrets((error && error.message) || '请稍后重试。'));
+          Alert.alert(t('forge.screen.alert.generateFailed.title'), maskSecrets((error && error.message) || t('forge.screen.alert.retryLater')));
         }
       } finally {
         if (requestTokenRef.current === token) busyRef.current = false;
@@ -394,20 +396,20 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       }
     };
     if (hasCardContent(stateRef.current && stateRef.current.draft)) {
-      Alert.alert('生成卡片', '会按问答与你的要求重写当前草稿，继续吗？', [
-        { text: '取消', style: 'cancel' },
-        { text: '生成', onPress: () => { run(); } },
+      Alert.alert(t('forge.screen.alert.generateConfirm.title'), t('forge.screen.alert.generateConfirm.body'), [
+        { text: t('forge.screen.cancel'), style: 'cancel' },
+        { text: t('forge.screen.generate'), onPress: () => { run(); } },
       ]);
       return;
     }
     run();
-  }, [activeForgeModel, applyAigcAttribution, askModel, busy, isRequestCurrent, update]);
+  }, [activeForgeModel, applyAigcAttribution, askModel, busy, isRequestCurrent, update, t]);
 
   const onSend = useCallback(async () => {
     const text = String(input || '').trim();
     if (!text || busy || busyRef.current || !activeRef.current || !mountedRef.current) return;
     if (loadErrorRef.current) {
-      Alert.alert('草稿需要重置', '请先重新开始，清理损坏草稿后再发送。');
+      Alert.alert(t('forge.screen.alert.draftResetNeeded.title'), t('forge.screen.alert.draftResetNeeded.bodySend'));
       return;
     }
     atBottomRef.current = true;
@@ -436,7 +438,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       if (!patch) {
         await update(appendTranscript(stateRef.current, {
           role: 'note',
-          text: '这次没解析出可用的卡片内容，换个说法再试（例如「把性格改得更冷淡」）。',
+          text: t('forge.screen.note.editNoPatch'),
         }));
         return;
       }
@@ -448,13 +450,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       next = appendTranscript(next, {
         role: 'ai',
         text: changed.length > 0
-          ? `已更新：${changed.join('、')}。`
-          : '内容没有变化，可以说得更具体些。',
+          ? t('forge.screen.note.updated', { fields: changed.join('、') })
+          : t('forge.screen.note.editNoChange'),
       });
       await update(next);
     } catch (error) {
       if (isRequestCurrent(token, controller) && !isCanceledError(error)) {
-        Alert.alert('制卡失败', maskSecrets((error && error.message) || '请稍后重试。'));
+        Alert.alert(t('forge.screen.alert.forgeFailed.title'), maskSecrets((error && error.message) || t('forge.screen.alert.retryLater')));
       }
     } finally {
       if (requestTokenRef.current === token) busyRef.current = false;
@@ -463,7 +465,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         setBusy(false);
       }
     }
-  }, [activeForgeModel, applyAigcAttribution, askModel, busy, input, isRequestCurrent, update]);
+  }, [activeForgeModel, applyAigcAttribution, askModel, busy, input, isRequestCurrent, update, t]);
 
   const onSaveDraft = useCallback(nextDraft => {
     if (!mountedRef.current || !activeRef.current || busyRef.current) return;
@@ -475,7 +477,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
     if (busy || busyRef.current || importingRef.current) return;
     const draft = stateRef.current && stateRef.current.draft;
     if (!hasCardContent(draft)) {
-      Alert.alert('卡片还是空的', '先回答问题后点「生成」，或直接输入你的要求。');
+      Alert.alert(t('forge.screen.alert.cardEmpty.title'), t('forge.screen.alert.cardEmpty.body'));
       return;
     }
     importingRef.current = true;
@@ -520,11 +522,11 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
        await update(appendTranscript(nextState, {
 
         role: 'note',
-        text: `已导入角色库：${created.name}。可以去「角色」页查看，或继续修改后再次导入。`,
+        text: t('forge.screen.note.imported', { name: created.name }),
       }));
-      Alert.alert('已导入', `角色「${created.name}」已加入角色库，并已为它准备好新会话。`);
+      Alert.alert(t('forge.screen.alert.imported.title'), t('forge.screen.alert.imported.body', { name: created.name }));
     } catch (error) {
-      Alert.alert('导入失败', maskSecrets((error && error.message) || '请检查存储空间或权限。'));
+      Alert.alert(t('forge.screen.alert.importFailed.title'), maskSecrets((error && error.message) || t('forge.screen.alert.importFailed.body')));
     } finally {
       if (requestTokenRef.current === importToken) {
         importingRef.current = false;
@@ -532,14 +534,14 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
         if (mountedRef.current) setBusy(false);
       }
     }
-  }, [addCharacter, busy, ensureCharacterSession, update]);
+  }, [addCharacter, busy, ensureCharacterSession, update, t]);
 
   const onReset = useCallback(() => {
     if (busy) return;
-    Alert.alert('重新开始', '会清空当前问答与草稿，继续吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('forge.screen.alert.reset.title'), t('forge.screen.alert.reset.body'), [
+      { text: t('forge.screen.cancel'), style: 'cancel' },
       {
-        text: '清空',
+        text: t('forge.screen.resetConfirm'),
         style: 'destructive',
          onPress: async () => {
            if (!mountedRef.current || !activeRef.current || busyRef.current) return;
@@ -555,7 +557,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
              await deleteForgeDraftImages();
              } catch (error) {
                if (mountedRef.current) {
-                 Alert.alert('清空失败', '请检查存储空间或权限。');
+                 Alert.alert(t('forge.screen.alert.clearFailed.title'), t('forge.screen.alert.clearFailed.body'));
                }
              } finally {
                if (requestTokenRef.current === resetToken) {
@@ -567,7 +569,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
       },
     ]);
-  }, [busy, update]);
+  }, [busy, update, t]);
 
   if (!state) {
     return (
@@ -583,9 +585,9 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
   const tagLine = Array.isArray(draft.tags) && draft.tags.length > 0 ? ` · ${draft.tags.join('、')}` : '';
   // 生成的高级内容在这里给出可见计数，否则用户不知道世界书 / 正则 / 预设有没有一起生成
   const advancedParts = [
-    [Array.isArray(draft.worldInfo) ? draft.worldInfo.length : 0, '世界书'],
-    [Array.isArray(draft.regexScripts) ? draft.regexScripts.length : 0, '正则'],
-    [Array.isArray(draft.presets) ? draft.presets.length : 0, '预设'],
+    [Array.isArray(draft.worldInfo) ? draft.worldInfo.length : 0, t('forge.screen.count.world')],
+    [Array.isArray(draft.regexScripts) ? draft.regexScripts.length : 0, t('forge.screen.count.regex')],
+    [Array.isArray(draft.presets) ? draft.presets.length : 0, t('forge.screen.count.preset')],
   ].filter(item => item[0] > 0).map(item => `${item[1]} ${item[0]}`);
   const advancedLine = advancedParts.length > 0 ? ` · ${advancedParts.join(' / ')}` : '';
 
@@ -605,11 +607,11 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
             style={styles.freeInput}
             value={freeText}
             onChangeText={setFreeText}
-            placeholder={currentQ.freeHint || '输入你的设定'}
+            placeholder={currentQ.freeHint || t('forge.screen.freePlaceholder')}
             autoFocus
           />
           <PrimaryButton
-            title="确定"
+            title={t('forge.screen.confirm')}
             small
             onPress={() => submitAnswer(currentQ, freeText)}
             disabled={busy || !freeText.trim()}
@@ -625,45 +627,45 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.header}>
-        <Text style={styles.title}>制卡</Text>
+        <Text style={styles.title}>{t('forge.screen.title')}</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={[styles.action, busy && styles.actionDisabled]}
             onPress={openEditor}
             disabled={busy}
             activeOpacity={0.8}
-            accessibilityLabel="查看当前角色卡"
+            accessibilityLabel={t('forge.screen.cardA11y')}
           >
             <Ionicons name="id-card-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.actionText}>卡片</Text>
+            <Text style={styles.actionText}>{t('forge.screen.card')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.action, busy && styles.actionDisabled]}
             onPress={onGenerate}
             disabled={busy}
             activeOpacity={0.8}
-            accessibilityLabel="根据问答生成卡片"
+            accessibilityLabel={t('forge.screen.generateA11y')}
           >
             <Ionicons name="sparkles-outline" size={15} color={theme.colors.primarySoft} />
-            <Text style={styles.actionText}>生成</Text>
+            <Text style={styles.actionText}>{t('forge.screen.generate')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.action, busy && styles.actionDisabled]}
             onPress={onReset}
             disabled={busy}
             activeOpacity={0.8}
-            accessibilityLabel="清空重新开始"
+            accessibilityLabel={t('forge.screen.resetA11y')}
           >
             <Ionicons name="refresh-outline" size={15} color={theme.colors.textFaint} />
-            <Text style={styles.actionText}>重来</Text>
+            <Text style={styles.actionText}>{t('forge.screen.reset')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <Text style={styles.draftLine} numberOfLines={1}>
         {hasCardContent(draft)
-          ? `草稿：${draftName || '未命名'}${tagLine}${advancedLine}`
-          : '还没有内容：先回答问题，或直接在下面说要求'}
+          ? t('forge.screen.draftLine', { name: draftName || t('forge.screen.draftUntitled'), tags: tagLine, advanced: advancedLine })
+          : t('forge.screen.draftEmpty')}
       </Text>
 
       <ScrollView
@@ -700,7 +702,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
       {busy ? (
         <View style={styles.busyRow}>
           <ActivityIndicator size="small" color={theme.colors.primary} />
-          <Text style={styles.busyText}>正在写卡…</Text>
+          <Text style={styles.busyText}>{t('forge.screen.busy')}</Text>
         </View>
       ) : null}
 
@@ -709,13 +711,13 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="直接说需求或修改意见，例如：想让她更冷淡一点"
+          placeholder={t('forge.screen.inputPlaceholder')}
           onSubmitEditing={onSend}
           returnKeyType="send"
           editable={!busy}
         />
         <PrimaryButton
-          title="发送"
+          title={t('forge.screen.send')}
           small
           onPress={onSend}
           disabled={busy || !input.trim()}
@@ -725,7 +727,7 @@ export default function CardForgeScreen({ active = true, refreshKey = 0 }) {
 
       <View style={styles.importRow}>
         <PrimaryButton
-          title="导入到角色库"
+          title={t('forge.screen.import')}
           icon="download-outline"
           onPress={onImport}
           disabled={busy}

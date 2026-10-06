@@ -34,6 +34,7 @@ import {
 } from '../storage.js';
 import { indexMessages } from '../vectorMemory/index.js';
 import { getVectorOwnerId, shouldIndexSession } from '../vectorMemory/scope.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useSessionMessages({
   activeSessionId,
@@ -63,6 +64,11 @@ export default function useSessionMessages({
   resetSessionUi,
   onProfileLoaded,
 }) {
+  // 翻译经 ref 取用：加载/落盘 effect 的依赖刻意收窄（不含 t），
+  // 直接闭包 t 会在切换语言后继续用旧语言。
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  tRef.current = t;
   // 落盘基准与保存队列：快照比对去重、失败重试、串行写。
   const lastSavedSnapshotRef = useRef(null);
   const saveFailedRef = useRef(false);
@@ -217,8 +223,8 @@ export default function useSessionMessages({
           setMessages([]);
           setGreetingReady(false);
           Alert.alert(
-            '聊天记录读取失败',
-            '本次没能读出该会话的消息（可能因数据过大）。系统已停止本次自动写回；继续发送会生成新记录，请先保留设备数据后再操作。'
+            tRef.current('chat.session.loadFailed.title'),
+            tRef.current('chat.session.loadFailed.corruptBody')
           );
           return;
         }
@@ -325,8 +331,8 @@ export default function useSessionMessages({
         // 读取失败时以前是静默显示空对话，用户很容易误以为记录被清空了。
         // 明确告知：记录还在，只是这次没读出来；且不会覆盖原数据。
         Alert.alert(
-          '聊天记录读取失败',
-          '本次没能读出该会话的消息（可能因数据过大）。记录本身没有被删除，可稍后重试；继续发送可能覆盖原内容。'
+          tRef.current('chat.session.loadFailed.title'),
+          tRef.current('chat.session.loadFailed.readBody')
         );
       })
       .finally(() => {
@@ -459,7 +465,7 @@ export default function useSessionMessages({
         scheduleSaveRetry();
         if (!saveFailedRef.current) {
           saveFailedRef.current = true;
-          Alert.alert('聊天记录保存失败', '请检查存储空间或权限。');
+          Alert.alert(tRef.current('chat.session.saveFailed.title'), tRef.current('chat.session.saveFailed.body'));
         }
       });
     return () => {

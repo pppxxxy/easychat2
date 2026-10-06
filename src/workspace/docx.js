@@ -5,6 +5,8 @@
 
 import { strToU8, zipSync } from 'fflate';
 
+import { tActive } from '../i18n/index.js';
+
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 
 function escapeXml(value) {
@@ -81,7 +83,7 @@ export function bytesToBase64(bytes) {
   }
   const encode = globalThis.btoa;
   if (typeof encode === 'function') return encode(binary);
-  throw new Error('当前环境缺少 base64 编码能力。');
+  throw new Error(tActive('error.workspace.base64Unavailable'));
 }
 
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';

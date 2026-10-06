@@ -1,5 +1,7 @@
 // 原生重负载资源互斥：录音、TTS、本地推理等同一时间只允许一个持有者。
 
+import { tActive } from './i18n/index.js';
+
 let owner = '';
 
 export function getResourceOwner() {
@@ -21,7 +23,7 @@ export function tryAcquireResource(name) {
 export async function withResource(name, operation) {
   const release = tryAcquireResource(name);
   if (!release) {
-    const error = new Error(`资源忙：${owner || 'unknown'}`);
+    const error = new Error(tActive('error.resourceMutex.busy', { owner: owner || 'unknown' }));
     error.code = 'RESOURCE_BUSY';
     throw error;
   }

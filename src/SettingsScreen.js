@@ -89,9 +89,9 @@ import SamplingCard from './settings/SamplingCard.js';
 import { createSettingsStyles } from './settings/settingsStyles.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
-  { value: 'start', label: '开头', meta: '取回复首段' },
-  { value: 'middle', label: '高潮（正中）', meta: '取回复中段' },
-  { value: 'end', label: '结尾（默认）', meta: '取回复末段' },
+  { value: 'start', labelKey: 'settings.inlineImage.position.start', metaKey: 'settings.inlineImage.position.startMeta' },
+  { value: 'middle', labelKey: 'settings.inlineImage.position.middle', metaKey: 'settings.inlineImage.position.middleMeta' },
+  { value: 'end', labelKey: 'settings.inlineImage.position.end', metaKey: 'settings.inlineImage.position.endMeta' },
 ];
 
 const WORKSPACE_MODE_OPTIONS = [
@@ -175,6 +175,7 @@ function snapshotActiveConfig(state) {
 // 密钥输入的显隐切换：填 Key 时核对内容是高频动作，secureTextEntry 一锁到底只能盲填。
 function SecretTextField({ value, onChangeText, placeholder, onEndEditing, theme, styles }) {
   const [visible, setVisible] = useState(false);
+  const { t } = useTranslation();
   return (
     <View style={styles.secretRow}>
       <TextField
@@ -191,7 +192,7 @@ function SecretTextField({ value, onChangeText, placeholder, onEndEditing, theme
         style={styles.secretToggle}
         onPress={() => setVisible(next => !next)}
         activeOpacity={0.7}
-        accessibilityLabel={visible ? '隐藏密钥' : '显示密钥'}
+        accessibilityLabel={visible ? t('settings.secret.hide') : t('settings.secret.show')}
       >
         <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={17} color={theme.colors.textMuted} />
       </TouchableOpacity>
@@ -331,6 +332,7 @@ export default function SettingsScreen() {
   const [githubPageBusy, setGithubPageBusy] = useState(false);
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
+  const activeThemeEntry = themes.find(item => item.id === themeId) || null;
   const { refreshAppData, character } = useApp();
 
   const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -421,7 +423,7 @@ export default function SettingsScreen() {
       const current = await getThinkingSettings();
       await saveThinkingSettings({ ...current, display });
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
@@ -439,7 +441,7 @@ export default function SettingsScreen() {
       inlineImageRef.current = saved;
       setInlineImage(saved);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
@@ -462,7 +464,7 @@ export default function SettingsScreen() {
       setImageGenProviders(list);
       setInlineImageProviders(Object.keys(list));
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
@@ -483,20 +485,20 @@ export default function SettingsScreen() {
         model: models[0] || provider.defaultModel || '',
       });
       if (result.ok) {
-        Alert.alert('检测成功', result.modelFound === false
-          ? `${result.message}\n（模型名可能不正确，但接口已连通）`
+        Alert.alert(t('settings.inlineImage.detectOk.title'), result.modelFound === false
+          ? t('settings.inlineImage.detectOk.modelMaybeWrong', { message: result.message })
           : result.message);
       } else if (result.needsProbe) {
-        Alert.alert('列表接口不可用', '该服务的模型列表接口无法访问，请在「扩展 → 生图」中试生成验证。');
+        Alert.alert(t('settings.inlineImage.probeUnavailable.title'), t('settings.inlineImage.probeUnavailable.body'));
       } else {
-        Alert.alert('检测失败', result.error || '无法连接');
+        Alert.alert(t('settings.inlineImage.detectFail.title'), result.error || t('settings.inlineImage.detectFail.fallback'));
       }
     } catch (error) {
-      Alert.alert('检测失败', (error && error.message) || '无法连接');
+      Alert.alert(t('settings.inlineImage.detectFail.title'), (error && error.message) || t('settings.inlineImage.detectFail.fallback'));
     } finally {
       setImageGenTesting('');
     }
-  }, [imageGenTesting]);
+  }, [imageGenTesting, t]);
 
   const toggleMoments = useCallback(async () => {
     const next = !momentsEnabled;
@@ -505,7 +507,7 @@ export default function SettingsScreen() {
       await saveMomentsSettings({ enabled: next });
     } catch (error) {
       setMomentsEnabled(!next);
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, [momentsEnabled]);
 
@@ -516,7 +518,7 @@ export default function SettingsScreen() {
     try {
       await saveChatOptions(next);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
@@ -541,7 +543,7 @@ export default function SettingsScreen() {
       const saved = await patchWorkspaceSettings({ mode });
       setCommandExecution(saved.allowCommandExecution);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
@@ -659,7 +661,7 @@ export default function SettingsScreen() {
       setWorkspaceFolder(saved.location);
       setCommandExecution(saved.allowCommandExecution);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
@@ -671,7 +673,7 @@ export default function SettingsScreen() {
         .then(saved => {
           if (settingsMountedRef.current) setCommandExecution(saved.allowCommandExecution);
         })
-        .catch(() => Alert.alert('保存失败', '请检查存储空间或权限。'));
+        .catch(() => Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission')));
       return;
     }
     Alert.alert(
@@ -687,7 +689,7 @@ export default function SettingsScreen() {
               .then(saved => {
                 if (settingsMountedRef.current) setCommandExecution(saved.allowCommandExecution);
               })
-              .catch(() => Alert.alert('保存失败', '请检查存储空间或权限。'));
+              .catch(() => Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission')));
           },
         },
       ]
@@ -711,7 +713,7 @@ export default function SettingsScreen() {
         setLoaded(true);
       })
       .catch(() => {
-        if (apiMountedRef.current) Alert.alert('读取配置失败', '请重新打开应用后重试。');
+        if (apiMountedRef.current) Alert.alert(t('settings.api.loadFailed.title'), t('settings.api.loadFailed.body'));
       });
     loadUserProfile();
     return () => {
@@ -763,7 +765,7 @@ export default function SettingsScreen() {
     try {
       await persist(list, id);
     } catch (error) {
-      if (apiMountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
+      if (apiMountedRef.current) Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     } finally {
       apiBusyRef.current = false;
       if (apiMountedRef.current) setApiSaving(false);
@@ -804,12 +806,12 @@ export default function SettingsScreen() {
       return;
     }
     Alert.alert(
-      '有未保存的修改',
-      '当前配置的改动还没有保存。要放弃这些修改并切换吗？',
+      t('settings.api.dirty.title'),
+      t('settings.api.dirty.body'),
       [
-        { text: '继续编辑', style: 'cancel', onPress: () => resolve(false) },
+        { text: t('settings.api.dirty.keep'), style: 'cancel', onPress: () => resolve(false) },
         {
-          text: '放弃并切换',
+          text: t('settings.api.dirty.discard'),
           style: 'destructive',
           onPress: () => {
             const baseline = apiBaselineRef.current ? JSON.parse(apiBaselineRef.current) : null;
@@ -862,7 +864,7 @@ export default function SettingsScreen() {
   const openApiKeyUrl = url => {
     if (!url) return;
     Linking.openURL(url).catch(() => {
-      Alert.alert('无法打开链接', url);
+      Alert.alert(t('settings.api.openLinkFailed'), url);
     });
   };
 
@@ -871,13 +873,13 @@ export default function SettingsScreen() {
     const current = apiStateRef.current;
     const target = current.configs.find(item => item.id === current.activeId);
     if (!target || current.configs.length <= 1) {
-      Alert.alert('无法删除', '至少保留一套 API 配置。');
+      Alert.alert(t('settings.api.deleteBlocked.title'), t('settings.api.deleteBlocked.body'));
       return;
     }
-    Alert.alert('删除配置', `确定删除“${target.name}”吗？`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('settings.api.delete.title'), t('settings.api.delete.body', { name: target.name }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           if (!canChangeApi()) return;
@@ -918,9 +920,9 @@ export default function SettingsScreen() {
           : item
       );
       await persist(trimmed, selected.id);
-      if (apiMountedRef.current) Alert.alert('已保存', 'API 配置已保存到本机。');
+      if (apiMountedRef.current) Alert.alert(t('settings.api.saved.title'), t('settings.api.saved.body'));
     } catch (error) {
-      if (apiMountedRef.current) Alert.alert('保存失败', '请检查存储空间或权限。');
+      if (apiMountedRef.current) Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     } finally {
       apiBusyRef.current = false;
       if (apiMountedRef.current) setApiSaving(false);
@@ -936,27 +938,27 @@ export default function SettingsScreen() {
       .map(item => String(item || '').trim())
       .filter(Boolean);
     if (trimmedModels.length === 0) {
-      Alert.alert('模型不能为空', '请至少添加一个模型。');
+      Alert.alert(t('settings.api.noModels.title'), t('settings.api.noModels.body'));
       return;
     }
      const trimmedBaseUrl = String(selected.baseUrl || '').trim();
      if (!trimmedBaseUrl) {
-       Alert.alert('地址不能为空', '请填写 API 地址。');
+       Alert.alert(t('settings.api.noAddress.title'), t('settings.api.noAddress.body'));
        return;
      }
      if (!/^https?:\/\//i.test(trimmedBaseUrl)) {
-       Alert.alert('地址格式无效', 'API 地址必须以 http:// 或 https:// 开头。');
+       Alert.alert(t('settings.api.badAddress.title'), t('settings.api.badAddress.body'));
        return;
      }
      if (/^http:\/\//i.test(trimmedBaseUrl)) {
 
       const confirmed = await new Promise(resolve => {
         Alert.alert(
-          '当前使用 HTTP',
-          '该地址不是 HTTPS，API Key 会以明文传输，存在被窃听的风险。仍要保存吗？',
+          t('settings.api.http.title'),
+          t('settings.api.http.body'),
           [
-            { text: '取消', style: 'cancel', onPress: () => resolve(false) },
-            { text: '仍然保存', style: 'destructive', onPress: () => resolve(true) }
+            { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+            { text: t('settings.api.http.saveAnyway'), style: 'destructive', onPress: () => resolve(true) }
           ],
           { cancelable: true, onDismiss: () => resolve(false) }
         );
@@ -1027,14 +1029,14 @@ export default function SettingsScreen() {
           timeoutMs: 15000,
           nativeTimeout: true,
           cancelHandle: request,
-          onTimeoutError: () => new Error('超时'),
-          onAbortError: () => new Error('检测已取消'),
-          onAbortEventError: () => new Error('检测已取消'),
-          onCancelError: () => new Error('检测已取消'),
-          onNetworkError: () => new Error('网络错误'),
-          onHttpError: () => new Error('请求失败'),
+          onTimeoutError: () => new Error(t('settings.api.err.timeout')),
+          onAbortError: () => new Error(t('settings.api.err.cancelled')),
+          onAbortEventError: () => new Error(t('settings.api.err.cancelled')),
+          onCancelError: () => new Error(t('settings.api.err.cancelled')),
+          onNetworkError: () => new Error(t('settings.api.err.network')),
+          onHttpError: () => new Error(t('settings.api.err.request')),
           parse: xhr => xhr.responseText,
-          onParseError: () => new Error('请求失败'),
+          onParseError: () => new Error(t('settings.api.err.request')),
         });
         if (!isCurrent()) return result;
         const data = JSON.parse(text);
@@ -1052,7 +1054,7 @@ export default function SettingsScreen() {
     const current = apiStateRef.current;
     const selected = current.configs.find(item => item.id === current.activeId);
     if (!selected?.apiKey.trim() || !selected?.baseUrl.trim()) {
-      Alert.alert('请先填写 API 地址和 Key');
+      Alert.alert(t('settings.api.fillRequired'));
       return null;
     }
     invalidateModels();
@@ -1080,7 +1082,7 @@ export default function SettingsScreen() {
       setModelList(result);
       setModelModalVisible(true);
     } else {
-      Alert.alert('未检测到模型', '无法获取模型列表，请检查 API 地址和 Key。');
+      Alert.alert(t('settings.api.noModelsDetected.title'), t('settings.api.noModelsDetected.body'));
     }
   };
 
@@ -1094,12 +1096,12 @@ export default function SettingsScreen() {
     if (!isCurrent()) return;
     endModelRequest();
     if (all.length === 0) {
-      Alert.alert('未检测到模型', '无法获取模型列表，请检查 API 地址和 Key。');
+      Alert.alert(t('settings.api.noModelsDetected.title'), t('settings.api.noModelsDetected.body'));
       return;
     }
     const matched = query ? all.filter(model => model.toLowerCase().includes(query)) : all;
     if (matched.length === 0) {
-      Alert.alert('未找到匹配的模型', `接口返回的模型里没有匹配「${modelDraft.trim()}」的项。`);
+      Alert.alert(t('settings.api.noMatch.title'), t('settings.api.noMatch.body', { query: modelDraft.trim() }));
       return;
     }
     modelSourceRef.current = selected;
@@ -1179,7 +1181,7 @@ export default function SettingsScreen() {
     if (!selected) return;
     const models = Array.isArray(selected.models) ? selected.models : [];
     if (models.length <= 1) {
-      Alert.alert('至少保留一个模型', '模型列表不能为空。');
+      Alert.alert(t('settings.api.keepOne.title'), t('settings.api.keepOne.body'));
       return;
     }
     const nextModels = models.filter(item => item !== model);
@@ -1197,13 +1199,13 @@ export default function SettingsScreen() {
 
   const openGitHub = () => {
     Linking.openURL('https://github.com/pppxxxy/easychat2').catch(() =>
-      Alert.alert('无法打开', '请手动访问 GitHub：https://github.com/pppxxxy/easychat2')
+      Alert.alert(t('settings.about.cantOpen.title'), t('settings.about.cantOpen.github'))
     );
   };
 
   const checkUpdate = () => {
     Linking.openURL('https://github.com/pppxxxy/easychat2/releases').catch(() =>
-      Alert.alert('无法打开', '请手动访问 GitHub Releases 页面检查更新。')
+      Alert.alert(t('settings.about.cantOpen.title'), t('settings.about.cantOpen.releases'))
     );
   };
 
@@ -1219,21 +1221,21 @@ export default function SettingsScreen() {
         keyboardDismissMode="on-drag"
       >
         <View style={styles.pageHeader}>
-          <Text style={styles.title}>设置</Text>
-          <FieldHint style={styles.hint}>配置 API、用户人设与全局对话预设。</FieldHint>
+          <Text style={styles.title}>{t('settings.title')}</Text>
+          <FieldHint style={styles.hint}>{t('settings.subtitle')}</FieldHint>
         </View>
 
         <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="key-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>API 配置</Text>
+              <Text style={styles.cardTitle}>{t('settings.api.title')}</Text>
             </View>
             <View style={styles.headerActions}>
               <TopicButton
                 style={styles.topicButtonSpaced}
                 onPress={() => setTopic('chat-api')}
-                accessibilityLabel="查看 API 配置教学"
+                accessibilityLabel={t('settings.api.a11yTutorial')}
               />
               <TouchableOpacity
                 style={[styles.pillButton, (!loaded || apiSaving) && styles.buttonDisabled]}
@@ -1242,33 +1244,36 @@ export default function SettingsScreen() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-                <Text style={styles.pillButtonText}>新建</Text>
+                <Text style={styles.pillButtonText}>{t('settings.api.add')}</Text>
               </TouchableOpacity>
             </View>
           </View>
           <CollapsibleSelect
-            label="当前配置"
+            label={t('settings.api.current')}
             value={activeId}
             options={configs.map(item => ({
               value: item.id,
-              label: item.name || '未命名配置',
-              meta: `${item.baseUrl || '未填写地址'} · ${item.activeModel || '未填写模型'}`,
+              label: item.name || t('settings.api.unnamed'),
+              meta: t('settings.api.meta', {
+                baseUrl: item.baseUrl || t('settings.api.noAddress'),
+                model: item.activeModel || t('settings.api.noModel'),
+              }),
             }))}
             onSelect={id => selectConfig(id)}
-            placeholder="未选择配置"
-            emptyHint="暂无配置，点右上角「新建」"
+            placeholder={t('settings.api.noneSelected')}
+            emptyHint={t('settings.api.emptyHint')}
             style={styles.configSelect}
           />
 
           {active ? (
             <>
-              <FieldLabel style={styles.label}>配置名称</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.name')}</FieldLabel>
               <TextField
                 value={active.name}
                 onChangeText={name => updateField({ name })}
-                placeholder="例如：DeepSeek 主力"
+                placeholder={t('settings.api.namePlaceholder')}
               />
-              <FieldLabel style={styles.label}>API 地址</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.baseUrl')}</FieldLabel>
               <TextField
                 value={active.baseUrl}
                 onChangeText={baseUrl => updateField({ baseUrl })}
@@ -1276,8 +1281,8 @@ export default function SettingsScreen() {
                 autoCorrect={false}
                 placeholder="https://api.deepseek.com"
               />
-              <FieldHint style={styles.hint}>可填根地址，或带 /v1、/v1/chat/completions 的完整地址。</FieldHint>
-              <FieldLabel style={styles.label}>接口协议</FieldLabel>
+              <FieldHint style={styles.hint}>{t('settings.api.baseUrlHint')}</FieldHint>
+              <FieldLabel style={styles.label}>{t('settings.api.protocol')}</FieldLabel>
               <View style={styles.thinkingFormatRow}>
                 {CHAT_PROTOCOL_OPTIONS.map(option => {
                   const isActive = (active.protocol || 'openai') === option.id;
@@ -1297,12 +1302,12 @@ export default function SettingsScreen() {
               </View>
               <FieldHint style={styles.hint}>
                 {(active.protocol || 'openai') === 'anthropic'
-                  ? 'Anthropic Messages 协议：端点 /v1/messages，鉴权 x-api-key；不支持内联音频。'
+                  ? t('settings.api.protocolAnthropic')
                   : (active.protocol === 'openai-responses'
-                    ? 'OpenAI Responses 协议：端点 /v1/responses，事件式流式。'
-                    : 'OpenAI 兼容协议：端点 /v1/chat/completions，最通用。')}
+                    ? t('settings.api.protocolResponses')
+                    : t('settings.api.protocolOpenai'))}
               </FieldHint>
-              <FieldLabel style={styles.label}>模型列表</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.modelList')}</FieldLabel>
               <View style={styles.modelRow}>
                 <TextField
                   style={styles.modelInput}
@@ -1310,7 +1315,7 @@ export default function SettingsScreen() {
                   onChangeText={setModelDraft}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="输入模型名后点击添加"
+                  placeholder={t('settings.api.modelPlaceholder')}
                   onSubmitEditing={addModel}
                 />
                 <TouchableOpacity
@@ -1319,7 +1324,7 @@ export default function SettingsScreen() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.detectButtonText}>添加</Text>
+                  <Text style={styles.detectButtonText}>{t('settings.api.addModel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.detectButton, styles.modelSearchButton, detectingModels && styles.buttonDisabled]}
@@ -1327,10 +1332,10 @@ export default function SettingsScreen() {
                   disabled={detectingModels}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="按输入内容搜索接口上的模型"
+                  accessibilityLabel={t('settings.api.a11ySearchModels')}
                 >
                   <Ionicons name="search" size={15} color={theme.colors.primarySoft} />
-                  <Text style={styles.detectButtonText}>搜索</Text>
+                  <Text style={styles.detectButtonText}>{t('settings.api.search')}</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.modelChips}>
@@ -1356,7 +1361,7 @@ export default function SettingsScreen() {
                       <TouchableOpacity
                         onPress={() => openCapabilityEditor(model)}
                         hitSlop={6}
-                        accessibilityLabel={`配置模型 ${model} 的能力`}
+                        accessibilityLabel={t('settings.api.a11yConfigureCapability', { model })}
                         style={styles.modelChipCaps}
                       >
                         <Ionicons
@@ -1374,7 +1379,7 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
-              <FieldHint style={styles.hint}>点击模型将其设为当前模型；点右侧滑杆图标可为每个模型单独确认能力（思考/识图/视频/语音识别）。</FieldHint>
+              <FieldHint style={styles.hint}>{t('settings.api.modelListHint')}</FieldHint>
               <TouchableOpacity
                 style={[styles.detectButton, detectingModels && styles.buttonDisabled]}
                 onPress={detectModels}
@@ -1383,7 +1388,7 @@ export default function SettingsScreen() {
               >
                 <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
                 <Text style={styles.detectButtonText}>
-                  {detectingModels ? '检测中...' : '检测模型'}
+                  {detectingModels ? t('common.detecting') : t('settings.api.detectModels')}
                 </Text>
               </TouchableOpacity>
               <FieldLabel style={styles.label}>API Key</FieldLabel>
@@ -1400,25 +1405,25 @@ export default function SettingsScreen() {
                   onPress={() => openApiKeyUrl(active.apiKeyUrl)}
                   activeOpacity={0.7}
                   accessibilityRole="link"
-                  accessibilityLabel="点击获取密钥"
+                  accessibilityLabel={t('settings.api.getKeyA11y')}
                 >
-                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
+                  <Text style={styles.apiKeyLink}>{t('settings.api.getKey')}</Text>
                 </TouchableOpacity>
               ) : null}
               {activeVendor && activeVendor.note ? (
                 <Text style={styles.vendorEditorNote}>{activeVendor.note}</Text>
               ) : null}
               <FieldHint style={styles.hint}>
-                API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。
+                {t('settings.api.keyHint')}
               </FieldHint>
               <PrimaryButton
-                title="保存配置"
+                title={t('settings.api.save')}
                 icon="save-outline"
                 onPress={save}
                 style={styles.actionBtn}
               />
               <DangerButton
-                title="删除当前配置"
+                title={t('settings.api.deleteCurrent')}
                 icon="trash-outline"
                 onPress={deleteConfig}
                 disabled={configs.length <= 1}
@@ -1432,33 +1437,33 @@ export default function SettingsScreen() {
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="person-circle-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>用户人设</Text>
+              <Text style={styles.cardTitle}>{t('settings.persona.title')}</Text>
             </View>
             <TopicButton
               onPress={() => setTopic('user-persona')}
-              accessibilityLabel="查看用户人设教学"
+              accessibilityLabel={t('settings.persona.a11yTutorial')}
             />
           </View>
           <Text style={styles.fieldHint}>
-            这里的信息会被注入到提示词中，角色的正则脚本可以通过 {"{{user}}"} 引用你的名字。头像为全部人设共用。
+            {t('settings.persona.hint')}
           </Text>
-          <FieldLabel style={styles.label}>我的身份</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.persona.identity')}</FieldLabel>
           <CollapsibleSelect
-            label="当前人设"
+            label={t('settings.persona.current')}
             value={activePersonaId}
-            valueMeta={userPersona ? userPersona.slice(0, 40) : '未填写描述'}
+            valueMeta={userPersona ? userPersona.slice(0, 40) : t('settings.persona.noDescription')}
             options={personas.map(item => ({
               value: item.id,
-              label: String(item.userName || '').trim() || '未命名人设',
-              meta: String(item.persona || '').trim().slice(0, 40) || '未填写描述',
+              label: String(item.userName || '').trim() || t('settings.persona.unnamed'),
+              meta: String(item.persona || '').trim().slice(0, 40) || t('settings.persona.noDescription'),
             }))}
             onSelect={id => selectPersona(id)}
-            placeholder="未选择人设"
+            placeholder={t('settings.persona.noneSelected')}
           />
           <View style={styles.personaActions}>
             <TouchableOpacity style={styles.personaAddChip} onPress={addPersona} activeOpacity={0.8}>
               <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.personaAddText}>新增人设</Text>
+              <Text style={styles.personaAddText}>{t('settings.persona.add')}</Text>
             </TouchableOpacity>
             {personas.length > 1 ? (
               <TouchableOpacity
@@ -1467,7 +1472,7 @@ export default function SettingsScreen() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
+                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>{t('settings.persona.deleteCurrent')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -1478,23 +1483,23 @@ export default function SettingsScreen() {
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text style={styles.avatarPlaceholderText}>
-                    {userName ? userName.charAt(0) : '我'}
+                    {userName ? userName.charAt(0) : t('settings.persona.avatarFallback')}
                   </Text>
                 </View>
               )}
             </View>
             <View style={styles.imageActions}>
               <TouchableOpacity style={styles.smallButton} onPress={pickUserAvatar} activeOpacity={0.8}>
-                <Text style={styles.smallButtonText}>{userAvatarUri ? '更换头像' : '选择头像'}</Text>
+                <Text style={styles.smallButtonText}>{userAvatarUri ? t('settings.persona.changeAvatar') : t('settings.persona.pickAvatar')}</Text>
               </TouchableOpacity>
               {userAvatarUri ? (
                 <TouchableOpacity onPress={() => changeUserAvatar('')} hitSlop={8}>
-                  <Text style={styles.removeText}>清除</Text>
+                  <Text style={styles.removeText}>{t('settings.persona.clear')}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
           </View>
-          <FieldLabel style={styles.label}>人设名称（当前人设）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.persona.name')}</FieldLabel>
           <TextField
             value={userName}
             onChangeText={text => {
@@ -1504,31 +1509,31 @@ export default function SettingsScreen() {
               )));
               saveUserProfileDelayed(text, userPersona, userAvatarUri);
             }}
-            placeholder="例如：小明"
+            placeholder={t('settings.persona.namePlaceholder')}
           />
-          <FieldLabel style={styles.label}>人设描述</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.persona.description')}</FieldLabel>
           <TextField
             style={styles.multilineInput}
             value={userPersona}
             onChangeText={text => { setUserPersona(text); saveUserProfileDelayed(userName, text, userAvatarUri); }}
-            placeholder="描述你自己的性格、背景、喜好等"
+            placeholder={t('settings.persona.descriptionPlaceholder')}
             multiline
             textAlignVertical="top"
           />
           <SecondaryButton
-            title="保存用户人设"
+            title={t('settings.persona.save')}
             icon="save-outline"
             onPress={saveUserProfileNow}
             style={styles.actionBtn}
           />
-          {userProfileSaved ? <Text style={styles.savedHint}>已自动保存</Text> : null}
+          {userProfileSaved ? <Text style={styles.savedHint}>{t('settings.persona.autoSaved')}</Text> : null}
         </Card>
 
         <Card>
           <CollapsibleSection
-            title="外观"
+            title={t('settings.appearance.title')}
             icon="color-palette-outline"
-            right={<Text style={styles.collapseSummary}>{`${(themes.find(t => t.id === themeId) || {}).label || ''}`}</Text>}
+            right={<Text style={styles.collapseSummary}>{activeThemeEntry ? t(activeThemeEntry.labelKey) : ''}</Text>}
           >
             <View style={styles.appearanceRow}>
               {themes.map(item => {
@@ -1542,19 +1547,19 @@ export default function SettingsScreen() {
                     }]}
                     onPress={() => setThemeId(item.id)}
                     activeOpacity={0.85}
-                    accessibilityLabel={`切换到${item.label}主题`}
+                    accessibilityLabel={t('settings.appearance.switchTheme', { name: t(item.labelKey) })}
                   >
                     <View style={[styles.themeSwatch, { backgroundColor: item.colors.background }]}>
                       <View style={[styles.themeSwatchDot, { backgroundColor: item.colors.primary }]} />
                     </View>
                     <Text style={[styles.themeChipText, active && { color: item.colors.primary, fontWeight: '800' }]}>
-                      {item.label}
+                      {t(item.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-            <FieldLabel style={styles.label}>字体大小</FieldLabel>
+            <FieldLabel style={styles.label}>{t('settings.appearance.fontScale')}</FieldLabel>
             <View style={styles.fontRow}>
               {fontScales.map(item => {
                 const active = item.id === fontScaleId;
@@ -1566,7 +1571,7 @@ export default function SettingsScreen() {
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                      {item.label}
+                      {t(item.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1754,17 +1759,17 @@ export default function SettingsScreen() {
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="image-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>对话配图</Text>
+              <Text style={styles.cardTitle}>{t('settings.inlineImage.title')}</Text>
             </View>
             <TopicButton
               onPress={() => setTopic('inline-image')}
-              accessibilityLabel="查看对话配图教学"
+              accessibilityLabel={t('settings.inlineImage.a11yTutorial')}
             />
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>自动配图</Text>
+              <Text style={styles.linkText}>{t('settings.inlineImage.auto')}</Text>
             </View>
             <Switch
               value={inlineImage.enabled}
@@ -1773,27 +1778,29 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <FieldLabel style={styles.label}>生图服务</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.provider')}</FieldLabel>
           <CollapsibleSelect
-            label="当前服务"
+            label={t('settings.inlineImage.currentProvider')}
             value={inlineImage.providerId}
             options={IMAGE_PROVIDERS.map(provider => ({
               value: provider.id,
               label: provider.label,
               meta: inlineImageProviders.includes(provider.id)
-                ? `已配置 · ${String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || '默认模型'}`
-                : '未配置密钥',
+                ? t('settings.inlineImage.metaConfigured', {
+                  model: String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || t('settings.inlineImage.defaultModel'),
+                })
+                : t('settings.inlineImage.metaNotConfigured'),
             }))}
             onSelect={id => updateInlineImage({ providerId: id })}
-            placeholder="未选择服务"
+            placeholder={t('settings.inlineImage.noneSelected')}
           />
           {activeImageProvider ? (
             <View style={styles.providerEditor}>
-              <Text style={styles.providerEditorTitle}>{activeImageProvider.label} 配置</Text>
+              <Text style={styles.providerEditorTitle}>{t('settings.inlineImage.providerConfig', { name: activeImageProvider.label })}</Text>
               {activeImageProvider.keyHint ? (
-                <FieldHint style={styles.hint}>密钥：{activeImageProvider.keyHint}</FieldHint>
+                <FieldHint style={styles.hint}>{t('settings.inlineImage.keyHint', { hint: activeImageProvider.keyHint })}</FieldHint>
               ) : null}
-              <FieldLabel style={styles.label}>API 地址</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.baseUrl')}</FieldLabel>
               <TextField
                 value={String((imageGenProviders[activeImageProvider.id] || {}).baseUrl || '')}
                 onChangeText={text => updateImageGenProvider(activeImageProvider.id, { baseUrl: text })}
@@ -1816,16 +1823,16 @@ export default function SettingsScreen() {
                   activeOpacity={0.7}
                   accessibilityRole="link"
                 >
-                  <Text style={styles.apiKeyLink}>点击获取密钥 →</Text>
+                  <Text style={styles.apiKeyLink}>{t('settings.api.getKey')}</Text>
                 </TouchableOpacity>
               ) : null}
-              <FieldLabel style={styles.label}>模型名（可用逗号或换行分隔多个）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.inlineImage.modelLabel')}</FieldLabel>
               <TextField
                 value={String((imageGenProviders[activeImageProvider.id] || {}).model || '')}
                 onChangeText={text => updateImageGenProvider(activeImageProvider.id, { model: text })}
                 autoCapitalize="none"
                 autoCorrect={false}
-                placeholder={activeImageProvider.defaultModel || '模型名'}
+                placeholder={activeImageProvider.defaultModel || t('settings.inlineImage.modelPlaceholder')}
               />
               <TouchableOpacity
                 style={[styles.detectButton, imageGenTesting === activeImageProvider.id && styles.buttonDisabled]}
@@ -1835,7 +1842,7 @@ export default function SettingsScreen() {
               >
                 <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
                 <Text style={styles.detectButtonText}>
-                  {imageGenTesting === activeImageProvider.id ? '检测中...' : '检测连通性'}
+                  {imageGenTesting === activeImageProvider.id ? t('common.detecting') : t('settings.inlineImage.test')}
                 </Text>
               </TouchableOpacity>
               {activeImageProvider.networkNote ? (
@@ -1843,26 +1850,30 @@ export default function SettingsScreen() {
               ) : null}
             </View>
           ) : null}
-          <FieldLabel style={styles.label}>配图位置</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.position')}</FieldLabel>
           <CollapsibleSelect
-            label="取回复的哪一段"
+            label={t('settings.inlineImage.positionLabel')}
             value={inlineImage.imagePosition}
-            options={INLINE_IMAGE_POSITION_OPTIONS}
+            options={INLINE_IMAGE_POSITION_OPTIONS.map(option => ({
+              ...option,
+              label: t(option.labelKey),
+              meta: t(option.metaKey),
+            }))}
             onSelect={value => updateInlineImage({ imagePosition: value })}
-            placeholder="结尾"
+            placeholder={t('settings.inlineImage.position.endShort')}
           />
           <FieldHint style={styles.hint}>
-            自动配图会先请模型把该段对话转写成「角色说完这段话后所处的画面」再出图；开头 / 高潮（正中）/ 结尾指从本轮回复里取哪一段。
+            {t('settings.inlineImage.hint')}
           </FieldHint>
-          <FieldLabel style={styles.label}>风格前缀（可选）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.stylePrefix')}</FieldLabel>
           <TextField
             value={inlineImage.stylePrefix}
             onChangeText={text => updateInlineImage({ stylePrefix: text })}
-            placeholder="例如：anime style, detailed"
+            placeholder={t('settings.inlineImage.stylePrefixPlaceholder')}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <FieldLabel style={styles.label}>尺寸（宽*高）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.size')}</FieldLabel>
           <TextField
             value={inlineImage.size}
             onChangeText={text => updateInlineImage({ size: text })}
@@ -1870,20 +1881,20 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <FieldLabel style={styles.label}>提示词长度上限（字符）</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.inlineImage.maxPromptChars')}</FieldLabel>
           <TextField
             value={String(inlineImage.maxPromptChars)}
             onChangeText={text => updateInlineImage({ maxPromptChars: text.replace(/[^0-9]/g, '') })}
             keyboardType="number-pad"
             placeholder="400"
           />
-          <Text style={styles.fieldHint}>密钥仅保存在本机，与「扩展 → 生图」共用同一份配置。</Text>
+          <Text style={styles.fieldHint}>{t('settings.inlineImage.keyNote')}</Text>
         </Card>
 
         <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="options-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>全局配置</Text>
+            <Text style={styles.cardTitle}>{t('settings.global.title')}</Text>
           </View>
           <TouchableOpacity
             style={styles.linkRow}
@@ -1892,11 +1903,11 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="list-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>全局预设 / 记忆总结</Text>
+              <Text style={styles.linkText}>{t('settings.global.presets')}</Text>
             </View>
             <View style={styles.linkRight}>
               <Text style={styles.linkValue}>
-                {enabledPresetCount > 0 ? `文本预设 ${enabledPresetCount} 项` : '文本预设未开启'}
+                {enabledPresetCount > 0 ? t('settings.global.presetCount', { count: enabledPresetCount }) : t('settings.global.presetDisabled')}
               </Text>
               <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
             </View>
@@ -1904,7 +1915,7 @@ export default function SettingsScreen() {
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="pulse-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>流式输出</Text>
+              <Text style={styles.linkText}>{t('settings.global.streaming')}</Text>
             </View>
             <Switch
               value={chatOptions.streaming}
@@ -1916,7 +1927,7 @@ export default function SettingsScreen() {
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="resize-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>全宽对话</Text>
+              <Text style={styles.linkText}>{t('settings.global.fullWidth')}</Text>
             </View>
             <Switch
               value={chatOptions.fullWidth}
@@ -1928,11 +1939,11 @@ export default function SettingsScreen() {
                   return;
                 }
                 Alert.alert(
-                  '开启全宽对话',
-                  '全宽模式下部分角色卡可能出现屏幕滑动问题。',
+                  t('settings.global.fullWidthConfirm.title'),
+                  t('settings.global.fullWidthConfirm.body'),
                   [
-                    { text: '取消', style: 'cancel' },
-                    { text: '仍然开启', onPress: () => updateChatOption('fullWidth', true) },
+                    { text: t('common.cancel'), style: 'cancel' },
+                    { text: t('settings.global.fullWidthConfirm.ok'), onPress: () => updateChatOption('fullWidth', true) },
                   ]
                 );
               }}
@@ -1943,7 +1954,7 @@ export default function SettingsScreen() {
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="code-slash-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>富 HTML 渲染</Text>
+              <Text style={styles.linkText}>{t('settings.global.richHtml')}</Text>
             </View>
             <Switch
               value={chatOptions.richHtml !== false}
@@ -1952,11 +1963,11 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.fieldHint}>{'开启后，含 <style>/<script> 的助手消息用 WebView 渲染，可还原角色卡的样式与交互；折叠状态栏始终保留 WebView 渲染。'}</Text>
+          <Text style={styles.fieldHint}>{t('settings.global.richHtmlHint')}</Text>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="save-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>保留输入草稿</Text>
+              <Text style={styles.linkText}>{t('settings.global.keepDraft')}</Text>
             </View>
             <Switch
               value={chatOptions.keepDraft === true}
@@ -1965,11 +1976,11 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.fieldHint}>开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。</Text>
+          <Text style={styles.fieldHint}>{t('settings.global.keepDraftHint')}</Text>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="time-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>时间感知</Text>
+              <Text style={styles.linkText}>{t('settings.global.timeAware')}</Text>
             </View>
             <Switch
               value={chatOptions.timeAware === true}
@@ -1978,7 +1989,7 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <Text style={styles.fieldHint}>开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。</Text>
+          <Text style={styles.fieldHint}>{t('settings.global.timeAwareHint')}</Text>
           {locationSettings && locationSettings.enabled === true ? (
             <>
               <View style={styles.capabilityRow}>
@@ -1999,12 +2010,16 @@ export default function SettingsScreen() {
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="bulb-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>思考内容展示</Text>
+              <Text style={styles.linkText}>{t('settings.global.thinkingDisplay')}</Text>
             </View>
             <View style={styles.thinkingDisplayChips}>
               {THINKING_DISPLAYS.map(display => {
                 const active = thinkingDisplay === display;
-                const label = display === 'open' ? '开启' : display === 'fold' ? '折叠' : '关闭';
+                const label = display === 'open'
+                  ? t('settings.global.thinkingDisplay.open')
+                  : display === 'fold'
+                    ? t('settings.global.thinkingDisplay.fold')
+                    : t('settings.global.thinkingDisplay.closed');
                 return (
                   <TouchableOpacity
                     key={display}
@@ -2023,12 +2038,16 @@ export default function SettingsScreen() {
           <View style={styles.thinkingDisplayRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="chatbubbles-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>气泡风格</Text>
+              <Text style={styles.linkText}>{t('settings.global.bubbleStyle')}</Text>
             </View>
             <View style={styles.thinkingDisplayChips}>
               {BUBBLE_STYLES.map(style => {
                 const active = (chatOptions.bubbleStyle || 'rounded') === style;
-                const label = style === 'rounded' ? '圆润' : style === 'card' ? '卡片' : '无底纹';
+                const label = style === 'rounded'
+                  ? t('settings.global.bubble.rounded')
+                  : style === 'card'
+                    ? t('settings.global.bubble.card')
+                    : t('settings.global.bubble.plain');
                 return (
                   <TouchableOpacity
                     key={style}
@@ -2044,7 +2063,7 @@ export default function SettingsScreen() {
               })}
             </View>
           </View>
-          <Text style={styles.fieldHint}>{'圆润：大圆角气泡（默认）；卡片：统一中等圆角、无尾角，偏阅读；无底纹：去掉气泡底色与阴影，仅靠左右对齐区分角色。'}</Text>
+          <Text style={styles.fieldHint}>{t('settings.global.bubbleHint')}</Text>
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => setPluginEntryOpen(true)}
@@ -2052,7 +2071,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="extension-puzzle-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>联网搜索</Text>
+              <Text style={styles.linkText}>{t('settings.global.webSearch')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -2063,7 +2082,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="volume-high-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>语音播报</Text>
+              <Text style={styles.linkText}>{t('settings.global.tts')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -2074,14 +2093,14 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="mic-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>语音转文字</Text>
+              <Text style={styles.linkText}>{t('settings.global.transcription')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="planet-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>动态</Text>
+              <Text style={styles.linkText}>{t('settings.global.moments')}</Text>
             </View>
             <Switch
               value={momentsEnabled}
@@ -2098,16 +2117,16 @@ export default function SettingsScreen() {
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="git-network-outline" size={16} color={theme.colors.primaryMuted} />
-              <Text style={styles.cardTitle}>向量记忆</Text>
+              <Text style={styles.cardTitle}>{t('settings.vector.title')}</Text>
             </View>
             <TopicButton
               onPress={() => setTopic('vector-api')}
-              accessibilityLabel="查看向量记忆教学"
+              accessibilityLabel={t('settings.vector.a11yTutorial')}
             />
           </View>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
-              <Text style={styles.linkText}>启用向量检索</Text>
+              <Text style={styles.linkText}>{t('settings.vector.enable')}</Text>
             </View>
             <Switch
               value={vectorPayload.enabled === true}
@@ -2116,40 +2135,43 @@ export default function SettingsScreen() {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
-          <FieldLabel style={styles.label}>向量配置</FieldLabel>
+          <FieldLabel style={styles.label}>{t('settings.vector.config')}</FieldLabel>
           <CollapsibleSelect
-            label="当前配置"
+            label={t('settings.api.current')}
             value={vectorPayload.activeId}
             options={(vectorPayload.configs || []).map(item => ({
               value: item.id,
-              label: item.name || '未命名配置',
-              meta: `${item.baseUrl || '未填写地址'} · ${item.model || '未填写模型'}`,
+              label: item.name || t('settings.api.unnamed'),
+              meta: t('settings.api.meta', {
+                baseUrl: item.baseUrl || t('settings.api.noAddress'),
+                model: item.model || t('settings.api.noModel'),
+              }),
             }))}
             onSelect={id => selectVectorConfig(id)}
-            placeholder="未选择配置"
+            placeholder={t('settings.api.noneSelected')}
           />
           <View style={styles.personaActions}>
             <TouchableOpacity style={styles.personaAddChip} onPress={addVectorConfig} activeOpacity={0.8}>
               <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.personaAddText}>新增配置</Text>
+              <Text style={styles.personaAddText}>{t('settings.vector.add')}</Text>
             </TouchableOpacity>
             {(vectorPayload.configs || []).length > 1 ? (
               <TouchableOpacity style={styles.personaAddChip} onPress={removeVectorConfig} activeOpacity={0.8}>
                 <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>删除当前</Text>
+                <Text style={[styles.personaAddText, { color: theme.colors.danger }]}>{t('settings.vector.deleteCurrent')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
           {currentVectorConfig ? (
             <>
-              <FieldLabel style={styles.label}>配置名称</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.api.name')}</FieldLabel>
               <TextField
                 value={currentVectorConfig.name}
                 onChangeText={text => updateVectorConfig({ name: text })}
                 onEndEditing={() => flushVectorMemory()}
-                placeholder="例如：OpenAI Embeddings"
+                placeholder={t('settings.vector.namePlaceholder')}
               />
-              <FieldLabel style={styles.label}>接口地址</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.baseUrl')}</FieldLabel>
               <TextField
                 value={currentVectorConfig.baseUrl}
                 onChangeText={text => updateVectorConfig({ baseUrl: text })}
@@ -2158,7 +2180,7 @@ export default function SettingsScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <FieldLabel style={styles.label}>密钥</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.apiKey')}</FieldLabel>
               <SecretTextField
                 value={currentVectorConfig.apiKey}
                 onChangeText={text => updateVectorConfig({ apiKey: text })}
@@ -2167,7 +2189,7 @@ export default function SettingsScreen() {
                 theme={theme}
                 styles={styles}
               />
-              <FieldLabel style={styles.label}>模型</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.model')}</FieldLabel>
               <TextField
                 value={currentVectorConfig.model}
                 onChangeText={text => updateVectorConfig({ model: text })}
@@ -2176,7 +2198,7 @@ export default function SettingsScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <FieldLabel style={styles.label}>召回条数（1 - 20）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.topK')}</FieldLabel>
               <TextField
                 value={vectorTopKDraft}
                 onChangeText={text => setVectorTopKDraft(text.replace(/[^0-9]/g, ''))}
@@ -2191,7 +2213,7 @@ export default function SettingsScreen() {
                 keyboardType="number-pad"
                 placeholder="5"
               />
-              <FieldLabel style={styles.label}>分片长度（字符，1 - 2000）</FieldLabel>
+              <FieldLabel style={styles.label}>{t('settings.vector.chunkSize')}</FieldLabel>
               <TextField
                 value={vectorMaxCharsDraft}
                 onChangeText={text => setVectorMaxCharsDraft(text.replace(/[^0-9]/g, ''))}
@@ -2207,7 +2229,7 @@ export default function SettingsScreen() {
                 placeholder="400"
               />
               <SecondaryButton
-                title={vectorTesting ? '测试中...' : '测试连接'}
+                title={vectorTesting ? t('settings.vector.testing') : t('settings.vector.test')}
                 icon="pulse-outline"
                 onPress={testVector}
                 loading={vectorTesting}
@@ -2216,7 +2238,7 @@ export default function SettingsScreen() {
             </>
           ) : null}
           <Text style={styles.fieldHint}>
-            未配置或请求失败时自动降级为本地关键词检索；密钥仅保存在本机。
+            {t('settings.vector.hint')}
           </Text>
         </Card>
 
@@ -2246,40 +2268,40 @@ export default function SettingsScreen() {
         <Card>
           <View style={styles.cardTitleRow}>
             <Ionicons name="information-circle-outline" size={16} color={theme.colors.primaryMuted} />
-            <Text style={styles.cardTitle}>关于</Text>
+            <Text style={styles.cardTitle}>{t('settings.about.title')}</Text>
           </View>
           <View style={styles.linkRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="pricetag-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>当前版本</Text>
+              <Text style={styles.linkText}>{t('settings.about.version')}</Text>
             </View>
-            <Text style={styles.versionText}>{APP_VERSION || '未知'}</Text>
+            <Text style={styles.versionText}>{APP_VERSION || t('settings.about.versionUnknown')}</Text>
           </View>
           <TouchableOpacity style={styles.linkRow} onPress={openTutorial} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
               <Ionicons name="book-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>使用教程</Text>
+              <Text style={styles.linkText}>{t('settings.about.tutorial')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={openDisclaimer} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
               <Ionicons name="document-text-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>免责条款</Text>
+              <Text style={styles.linkText}>{t('settings.about.disclaimer')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={openGitHub} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
               <Ionicons name="logo-github" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>GitHub 地址</Text>
+              <Text style={styles.linkText}>{t('settings.about.github')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.linkRow} onPress={checkUpdate} activeOpacity={0.7}>
             <View style={styles.linkLeft}>
               <Ionicons name="refresh-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>检测更新</Text>
+              <Text style={styles.linkText}>{t('settings.about.checkUpdate')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -2290,7 +2312,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="bug-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>诊断日志</Text>
+              <Text style={styles.linkText}>{t('settings.about.diagnostics')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -2301,7 +2323,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="archive-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>备份与恢复</Text>
+              <Text style={styles.linkText}>{t('settings.about.backup')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -2312,7 +2334,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.linkLeft}>
               <Ionicons name="hardware-chip-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>本地模型</Text>
+              <Text style={styles.linkText}>{t('settings.about.localModel')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
@@ -2361,10 +2383,10 @@ export default function SettingsScreen() {
           onPress={() => setVendorPickerOpen(false)}
         >
           <Pressable style={styles.modalSheet} onPress={() => {}}>
-            <Text style={styles.modalTitle}>选择厂商 / 协议</Text>
-            <FieldHint style={styles.hint}>选中后会自动填好地址与鉴权，只需再补 API Key。</FieldHint>
+            <Text style={styles.modalTitle}>{t('settings.vendorPicker.title')}</Text>
+            <FieldHint style={styles.hint}>{t('settings.vendorPicker.hint')}</FieldHint>
             <ScrollView style={styles.vendorList} keyboardShouldPersistTaps="handled">
-              <Text style={styles.vendorSectionLabel}>推荐平台（官方直连）</Text>
+              <Text style={styles.vendorSectionLabel}>{t('settings.vendorPicker.recommended')}</Text>
               {CHAT_API_VENDORS.map(vendor => (
                 <TouchableOpacity
                   key={vendor.id}
@@ -2375,14 +2397,14 @@ export default function SettingsScreen() {
                   <View style={styles.vendorRowHead}>
                     <Text style={styles.vendorName}>{vendor.name}</Text>
                     <Text style={styles.vendorCategory}>
-                      {vendor.category.map(item => (item === 'image' ? '生图' : '对话')).join(' / ')}
+                      {vendor.category.map(item => (item === 'image' ? t('settings.vendorPicker.categoryImage') : t('settings.vendorPicker.categoryChat'))).join(' / ')}
                     </Text>
                   </View>
-                  <Text style={styles.vendorBaseUrl}>{vendor.baseUrl || '地址由控制台提供'}</Text>
+                  <Text style={styles.vendorBaseUrl}>{vendor.baseUrl || t('settings.vendorPicker.urlFromConsole')}</Text>
                   <Text style={styles.vendorNote}>{vendor.note}</Text>
                 </TouchableOpacity>
               ))}
-              <Text style={styles.vendorSectionLabel}>协议</Text>
+              <Text style={styles.vendorSectionLabel}>{t('settings.vendorPicker.protocols')}</Text>
               {API_PROTOCOL_PRESETS.map(preset => (
                 <TouchableOpacity
                   key={preset.id}
@@ -2396,7 +2418,7 @@ export default function SettingsScreen() {
                       {preset.name}
                     </Text>
                     {preset.disabled ? (
-                      <Text style={styles.vendorCategory}>暂未开放</Text>
+                      <Text style={styles.vendorCategory}>{t('settings.vendorPicker.comingSoon')}</Text>
                     ) : null}
                   </View>
                   <Text style={styles.vendorNote}>{preset.note}</Text>
@@ -2418,7 +2440,7 @@ export default function SettingsScreen() {
           onPress={() => setModelModalVisible(false)}
         >
           <Pressable style={styles.modalSheet} onPress={() => {}}>
-            <Text style={styles.modalTitle}>可用模型</Text>
+            <Text style={styles.modalTitle}>{t('settings.modelModal.title')}</Text>
             <ScrollView
               style={styles.modalList}
               contentContainerStyle={styles.modalListContent}
@@ -2447,15 +2469,14 @@ export default function SettingsScreen() {
       >
         <View style={[styles.modalBackdrop, styles.capabilityBackdrop]}>
           <View style={[styles.modalSheet, styles.capabilitySheet]}>
-            <Text style={styles.modalTitle}>确认模型能力</Text>
+            <Text style={styles.modalTitle}>{t('settings.capability.title')}</Text>
             <FieldHint style={styles.hint}>
-              {capabilityEditorModel ? `模型：${capabilityEditorModel}。` : ''}
-              每个模型单独一套：决定聊天页是否开放「思考」、图片/视频上传与语音识别。
-              确认后还需点表单里的「保存配置」才会写入本机。
+              {capabilityEditorModel ? t('settings.capability.modelLine', { model: capabilityEditorModel }) : ''}
+              {t('settings.capability.hint')}
             </FieldHint>
             <ScrollView style={styles.capabilityScroll} contentContainerStyle={styles.capabilityScrollContent}>
             <View style={styles.capabilityRow}>
-              <Text style={styles.capabilityLabel}>支持思考（推理模型）</Text>
+              <Text style={styles.capabilityLabel}>{t('settings.capability.thinking')}</Text>
               <Switch
                 value={capabilityDraft.supportsThinking}
                 onValueChange={value => setCapabilityDraft(current => ({
@@ -2467,7 +2488,7 @@ export default function SettingsScreen() {
               />
             </View>
             <View style={styles.capabilityRow}>
-              <Text style={styles.capabilityLabel}>支持识图（多模态模型）</Text>
+              <Text style={styles.capabilityLabel}>{t('settings.capability.vision')}</Text>
               <Switch
                 value={capabilityDraft.supportsVision}
                 onValueChange={value => setCapabilityDraft(current => ({
@@ -2479,7 +2500,7 @@ export default function SettingsScreen() {
               />
             </View>
             <View style={styles.capabilityRow}>
-              <Text style={styles.capabilityLabel}>支持视频（聊天视频附件 / 悬浮窗帧序列观屏）</Text>
+              <Text style={styles.capabilityLabel}>{t('settings.capability.video')}</Text>
               <Switch
                 value={capabilityDraft.supportsVideo === true}
                 onValueChange={value => setCapabilityDraft(current => ({
@@ -2491,7 +2512,7 @@ export default function SettingsScreen() {
               />
             </View>
             <View style={styles.capabilityRow}>
-              <Text style={styles.capabilityLabel}>支持语音识别（音频兜底发送）</Text>
+              <Text style={styles.capabilityLabel}>{t('settings.capability.audio')}</Text>
               <Switch
                 value={capabilityDraft.supportsAudio}
                 onValueChange={value => setCapabilityDraft(current => ({
@@ -2504,9 +2525,9 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.capabilityRow}>
               <View style={styles.capabilityLabelBlock}>
-                <Text style={styles.capabilityLabelStacked}>自定义参数（高级）</Text>
+                <Text style={styles.capabilityLabelStacked}>{t('settings.capability.customParams')}</Text>
                 <Text style={styles.capabilitySubLabel}>
-                  默认关闭：思考字段名、上下文窗口与输出长度都按默认值发送
+                  {t('settings.capability.customParamsHint')}
                 </Text>
               </View>
               <Switch
@@ -2530,9 +2551,9 @@ export default function SettingsScreen() {
                       activeOpacity={0.8}
                     >
                       <View style={styles.collapseHeaderText}>
-                        <Text style={styles.paramLabel}>思考参数</Text>
+                        <Text style={styles.paramLabel}>{t('settings.capability.thinkingParams')}</Text>
                         <Text style={styles.collapseValue} numberOfLines={1}>
-                          {matchedThinkingPreset ? matchedThinkingPreset.name : '自定义'}
+                          {matchedThinkingPreset ? matchedThinkingPreset.name : t('settings.capability.customPreset')}
                         </Text>
                       </View>
                       <Ionicons
@@ -2610,7 +2631,7 @@ export default function SettingsScreen() {
 
                 <View style={styles.paramBox}>
                   <View style={styles.paramField}>
-                    <Text style={styles.paramLabel}>上下文窗口（tokens）</Text>
+                    <Text style={styles.paramLabel}>{t('settings.capability.contextWindow')}</Text>
                     <TextField
                       value={capabilityDraft.contextWindow}
                       onChangeText={value => setCapabilityDraft(current => ({
@@ -2618,11 +2639,11 @@ export default function SettingsScreen() {
                         contextWindow: String(value || '').replace(/[^0-9]/g, ''),
                       }))}
                       keyboardType="number-pad"
-                      placeholder="留空 = 默认 200000"
+                      placeholder={t('settings.capability.contextWindowPlaceholder')}
                     />
                   </View>
                   <View style={[styles.paramField, styles.paramFieldLast]}>
-                    <Text style={styles.paramLabel}>输出长度（tokens）</Text>
+                    <Text style={styles.paramLabel}>{t('settings.capability.outputLength')}</Text>
                     <TextField
                       value={capabilityDraft.maxOutput}
                       onChangeText={value => setCapabilityDraft(current => ({
@@ -2630,17 +2651,17 @@ export default function SettingsScreen() {
                         maxOutput: String(value || '').replace(/[^0-9]/g, ''),
                       }))}
                       keyboardType="number-pad"
-                      placeholder="留空 = 默认 32000"
+                      placeholder={t('settings.capability.outputLengthPlaceholder')}
                     />
                   </View>
                   <FieldHint style={styles.paramHint}>
-                    上下文窗口用于工作区面板的上下文占用显示与 80% 自动压缩；输出长度是单次回复的最大生成量。留空都按默认值发送。
+                    {t('settings.capability.advancedHint')}
                   </FieldHint>
                 </View>
               </>
             ) : (
               <FieldHint style={styles.hint}>
-                已关闭自定义参数：思考字段名与格式、上下文窗口、输出长度都按默认值发送（reasoning_effort + effort、窗口 200000、输出 32000）。
+                {t('settings.capability.customParamsOff')}
               </FieldHint>
             )}
             </ScrollView>
@@ -2650,14 +2671,14 @@ export default function SettingsScreen() {
                 onPress={() => setCapabilityOpen(false)}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectButtonText}>取消</Text>
+                <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.selectButton}
                 onPress={confirmCapability}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectButtonText}>确认保存</Text>
+                <Text style={styles.selectButtonText}>{t('settings.capability.confirm')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2666,7 +2687,7 @@ export default function SettingsScreen() {
 
       <DisclaimerModal
         visible={disclaimerOpen}
-        title="免责条款"
+        title={t('settings.about.disclaimer')}
         onClose={() => setDisclaimerOpen(false)}
       />
 
@@ -2710,7 +2731,7 @@ export default function SettingsScreen() {
         visible={!!topic}
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
-        title="教学"
+        title={t('settings.tutorial.title')}
       />
     </KeyboardAvoidingView>
   );

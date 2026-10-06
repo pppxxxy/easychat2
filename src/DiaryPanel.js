@@ -21,6 +21,7 @@ import {
 import { useApp } from './context/AppContext.js';
 import { EmptyState } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 // 日记：为每个角色单独开关「自动写日记」，并可为该角色指定写日记用的 API（不选则用默认）。
 // 角色用折叠选择器挑选，避免一次罗列一大堆角色卡；每个角色对应一页，页内左右滑动翻阅日记。
@@ -28,6 +29,7 @@ import { useTheme } from './theme/ThemeContext.js';
 // embedded=true 时不自带滚动容器，交给外层折叠分组滚动。
 export default function DiaryPanel({ embedded = false }) {
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const { characters } = useApp();
 
@@ -58,11 +60,11 @@ export default function DiaryPanel({ embedded = false }) {
       setConfigs(api.configs);
       setDiaries(list);
     } catch (error) {
-      setNotice('读取日记设置失败，请重试。');
+      setNotice(t('diary.notice.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load().catch(() => {});
@@ -106,13 +108,13 @@ export default function DiaryPanel({ embedded = false }) {
     try {
       const saved = await saveDiarySettings(settings);
       setSettings(saved);
-      setNotice('日记设置已保存');
+      setNotice(t('diary.notice.saved'));
     } catch (error) {
-      setNotice('保存失败，请检查存储空间或权限。');
+      setNotice(t('diary.notice.saveFailed'));
     } finally {
       setSaving(false);
     }
-  }, [settings]);
+  }, [settings, t]);
 
   if (loading) {
     return (
@@ -129,21 +131,20 @@ export default function DiaryPanel({ embedded = false }) {
     return (
       <EmptyState
         icon="book-outline"
-        title="还没有角色"
-        description="先到「角色」页添加或导入一个角色，再回来为它开启日记。"
+        title={t('diary.empty.title')}
+        description={t('diary.empty.description')}
       />
     );
   }
 
-  const roleName = (activeRole && activeRole.name) || '该角色';
+  const roleName = (activeRole && activeRole.name) || t('diary.roleFallback');
   const roleApiName = (configs.find(item => item.id === roleSetting.apiConfigId) || {}).name || '';
 
   return (
     <Container {...containerProps}>
-      <Text style={styles.title}>日记</Text>
+      <Text style={styles.title}>{t('diary.title')}</Text>
       <Text style={styles.hint}>
-        开启后，角色会在「过了一天的第一次启动」时，为前一天与你的对话写一篇日记。
-        每个角色单独设置，写日记用的 API 可为该角色单独指定，不选则用默认配置。
+        {t('diary.intro')}
       </Text>
 
       {/* 折叠选择角色：避免一次把所有角色卡都列出来。 */}
@@ -154,7 +155,7 @@ export default function DiaryPanel({ embedded = false }) {
           activeOpacity={0.8}
           accessibilityRole="button"
         >
-          <Text style={styles.collapsibleLabel}>选择角色</Text>
+          <Text style={styles.collapsibleLabel}>{t('diary.roleLabel')}</Text>
           <Text style={styles.collapsibleValue} numberOfLines={1}>{roleName}</Text>
           <Ionicons name={rolePickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textFaint} />
         </TouchableOpacity>
@@ -171,7 +172,7 @@ export default function DiaryPanel({ embedded = false }) {
                   activeOpacity={0.85}
                 >
                   <Text style={[styles.optionText, active && styles.optionTextActive]} numberOfLines={1}>
-                    {item.name || '未命名'}
+                    {item.name || t('diary.unnamed')}
                   </Text>
                   {on ? <Ionicons name="book" size={14} color={theme.colors.primary} /> : null}
                   {active ? <Ionicons name="checkmark" size={16} color={theme.colors.primary} style={styles.optionCheck} /> : null}
@@ -185,8 +186,8 @@ export default function DiaryPanel({ embedded = false }) {
       {/* 当前角色设置：开关 + 专属 API 折叠选择 */}
       <View style={styles.switchRow}>
         <View style={styles.switchLabelWrap}>
-          <Text style={styles.switchLabel}>{`让「${roleName}」写日记`}</Text>
-          <Text style={styles.switchHint}>开启后该角色才会自动生成日记</Text>
+          <Text style={styles.switchLabel}>{t('diary.enableFor', { name: roleName })}</Text>
+          <Text style={styles.switchHint}>{t('diary.enableHint')}</Text>
         </View>
         <Switch
           value={roleSetting.enabled === true}
@@ -202,8 +203,8 @@ export default function DiaryPanel({ embedded = false }) {
           activeOpacity={0.8}
           accessibilityRole="button"
         >
-          <Text style={styles.collapsibleLabel}>{`「${roleName}」的写日记 API`}</Text>
-          <Text style={styles.collapsibleValue} numberOfLines={1}>{roleApiName || '默认（当前配置）'}</Text>
+          <Text style={styles.collapsibleLabel}>{t('diary.apiLabel', { name: roleName })}</Text>
+          <Text style={styles.collapsibleValue} numberOfLines={1}>{roleApiName || t('diary.apiDefaultShort')}</Text>
           <Ionicons name={apiPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textFaint} />
         </TouchableOpacity>
         {apiPickerOpen ? (
@@ -214,7 +215,7 @@ export default function DiaryPanel({ embedded = false }) {
               activeOpacity={0.85}
             >
               <Text style={[styles.optionText, !roleSetting.apiConfigId && styles.optionTextActive]}>
-                默认（当前激活配置）
+                {t('diary.apiDefault')}
               </Text>
               {!roleSetting.apiConfigId ? <Ionicons name="checkmark" size={16} color={theme.colors.primary} /> : null}
             </TouchableOpacity>
@@ -233,7 +234,7 @@ export default function DiaryPanel({ embedded = false }) {
               );
             })}
             {configs.length === 0 ? (
-              <Text style={styles.hint}>还没有 API 配置，将使用「设置」里的当前激活配置。</Text>
+              <Text style={styles.hint}>{t('diary.apiEmpty')}</Text>
             ) : null}
           </View>
         ) : null}
@@ -241,13 +242,13 @@ export default function DiaryPanel({ embedded = false }) {
 
       {/* 日记翻阅：整个区域是一页一页的日记，左右滑动查看不同日期。 */}
       <View style={styles.diaryHeaderRow}>
-        <Text style={styles.sectionTitle}>{`${roleName}的日记`}</Text>
+        <Text style={styles.sectionTitle}>{t('diary.sectionTitle', { name: roleName })}</Text>
         {roleDiaries.length > 0 ? (
           <Text style={styles.diaryCounter}>{`${diaryIndex + 1} / ${roleDiaries.length}`}</Text>
         ) : null}
       </View>
       {roleDiaries.length === 0 ? (
-        <Text style={styles.hint}>还没有日记。开启后，等过一天再启动应用就会生成。</Text>
+        <Text style={styles.hint}>{t('diary.empty')}</Text>
       ) : (
         <View style={styles.diaryPager} onLayout={e => setViewWidth(e.nativeEvent.layout.width - 24)}>
           <ScrollView
@@ -275,7 +276,7 @@ export default function DiaryPanel({ embedded = false }) {
                 style={[styles.diaryNavBtn, diaryIndex <= 0 && styles.diaryNavDisabled]}
                 disabled={diaryIndex <= 0}
                 onPress={() => setDiaryIndex(i => Math.max(0, i - 1))}
-                accessibilityLabel="上一天"
+                accessibilityLabel={t('diary.prevDay')}
               >
                 <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
               </TouchableOpacity>
@@ -283,7 +284,7 @@ export default function DiaryPanel({ embedded = false }) {
                 style={[styles.diaryNavBtn, diaryIndex >= roleDiaries.length - 1 && styles.diaryNavDisabled]}
                 disabled={diaryIndex >= roleDiaries.length - 1}
                 onPress={() => setDiaryIndex(i => Math.min(roleDiaries.length - 1, i + 1))}
-                accessibilityLabel="下一天"
+                accessibilityLabel={t('diary.nextDay')}
               >
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
               </TouchableOpacity>
@@ -300,7 +301,7 @@ export default function DiaryPanel({ embedded = false }) {
         disabled={saving}
         activeOpacity={0.85}
       >
-        <Text style={styles.saveButtonText}>{saving ? '保存中…' : '保存设置'}</Text>
+        <Text style={styles.saveButtonText}>{saving ? t('diary.saving') : t('diary.save')}</Text>
       </TouchableOpacity>
     </Container>
   );

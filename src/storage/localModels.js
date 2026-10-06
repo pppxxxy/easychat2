@@ -16,6 +16,7 @@ import {
   normalizeLocalModelSettings,
   migrateLegacyLocalModelSettings,
 } from '../localModel/modelState.js';
+import { tActive } from '../i18n/index.js';
 
 export function localModelItemKey(id) {
   return `${LOCAL_MODEL_ITEM_PREFIX}::${String(id || '')}`;
@@ -109,7 +110,7 @@ export async function getLocalModelItem(id) {
 // 写入条目后写索引（提交点）。任一步失败都回滚，避免「条目在、索引没了」。
 export async function saveLocalModelItem(item) {
   const normalized = normalizeLocalModelItem(item);
-  if (!normalized.id) throw new Error('模型缺少 id');
+  if (!normalized.id) throw new Error(tActive('error.storage.modelMissingId'));
   const now = Date.now();
   const next = {
     ...normalized,

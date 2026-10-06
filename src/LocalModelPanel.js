@@ -30,15 +30,16 @@ import { getPickedAsset } from './character/cardHelpers.js';
 import ModelSearchModal from './localModel/ModelSearchModal.js';
 import ModelLogsModal from './localModel/ModelLogsModal.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
-const PARAM_LABELS = {
-  contextSize: '上下文长度（tokens）',
-  gpuLayers: 'GPU 层数',
-  threads: '线程数（0=自动）',
-  temperature: '温度',
-  topP: 'Top P',
-  topK: 'Top K（0=关闭）',
-  maxTokens: '最大生成长度（-1=不限）',
+const PARAM_LABEL_KEYS = {
+  contextSize: 'localModel.param.contextSize',
+  gpuLayers: 'localModel.param.gpuLayers',
+  threads: 'localModel.param.threads',
+  temperature: 'localModel.param.temperature',
+  topP: 'localModel.param.topP',
+  topK: 'localModel.param.topK',
+  maxTokens: 'localModel.param.maxTokens',
 };
 
 function emptyDraft() {
@@ -83,7 +84,9 @@ function tierColor(theme, tier) {
 
 export default function LocalModelPanel({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const paramLabel = useCallback(field => t(PARAM_LABEL_KEYS[field] || '') || field, [t]);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState(null);
   const [draft, setDraft] = useState(emptyDraft);
@@ -145,28 +148,28 @@ export default function LocalModelPanel({ visible, onClose }) {
     if (!item) return;
     const info = await getLocalModelFileInfo(item).catch(() => ({ exists: false }));
     if (!info || info.exists === false) {
-      Alert.alert('模型未就绪', '模型文件缺失，请重新下载或删除该条。');
+      Alert.alert(t('localModel.alert.modelNotReady.title'), t('localModel.alert.modelNotReady.fileMissing'));
       return;
     }
     try {
       const next = await saveLocalModelSettings(applyActiveLocalModel(settings, item));
       setSettings(next);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('localModel.alert.saveFailed.title'), t('localModel.alert.saveFailed.body'));
     }
   };
 
   const toggleEnabled = async () => {
     if (!settings) return;
     if (!settings.activeModelId) {
-      Alert.alert('未选择模型', '请先在列表中选用一个本地模型。');
+      Alert.alert(t('localModel.alert.noModelSelected.title'), t('localModel.alert.noModelSelected.body'));
       return;
     }
     if (!settings.enabled) {
       const item = await getLocalModelItem(settings.activeModelId).catch(() => null);
       const info = item ? await getLocalModelFileInfo(item).catch(() => ({ exists: false })) : { exists: false };
       if (!info.exists) {
-        Alert.alert('模型未就绪', '请先下载模型文件。');
+        Alert.alert(t('localModel.alert.modelNotReady.title'), t('localModel.alert.modelNotReady.downloadFirst'));
         return;
       }
     }
@@ -174,7 +177,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       const next = await saveLocalModelSettings({ ...settings, enabled: !settings.enabled });
       setSettings(next);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('localModel.alert.saveFailed.title'), t('localModel.alert.saveFailed.body'));
     }
   };
 
@@ -184,7 +187,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       const next = await saveLocalModelSettings({ ...settings, enableMediaInput: !settings.enableMediaInput });
       setSettings(next);
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限。');
+      Alert.alert(t('localModel.alert.saveFailed.title'), t('localModel.alert.saveFailed.body'));
     }
   };
 
@@ -201,7 +204,7 @@ export default function LocalModelPanel({ visible, onClose }) {
   const startApi = async () => {
     if (apiBusy) return;
     if (!isLocalApiServerAvailable()) {
-      Alert.alert('不可用', '当前构建未包含本地 API 服务模块。');
+      Alert.alert(t('localModel.alert.apiUnavailable.title'), t('localModel.alert.apiUnavailable.body'));
       return;
     }
     setApiBusy(true);
@@ -223,12 +226,12 @@ export default function LocalModelPanel({ visible, onClose }) {
       setApiStatus({ running: true, port: Number(status && status.port) || apiServer.port });
       if (keyWasEmpty) {
         Alert.alert(
-          '已生成随机密钥',
-          `未填写 API Key，已自动生成并保存：\n${effectiveKey}\n\n客户端请求需携带 Authorization: Bearer <此密钥>，可在上方输入框查看或修改。`
+          t('localModel.alert.apiKeyGenerated.title'),
+          t('localModel.alert.apiKeyGenerated.body', { key: effectiveKey })
         );
       }
     } catch (error) {
-      Alert.alert('启动失败', error.message || '请检查端口是否被占用。');
+      Alert.alert(t('localModel.alert.apiStartFailed.title'), error.message || t('localModel.alert.apiStartFailed.body'));
     } finally {
       setApiBusy(false);
     }
@@ -242,7 +245,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       await persistApiServer({ enabled: false });
       setApiStatus({ running: false, port: 0 });
     } catch (error) {
-      Alert.alert('停止失败', error.message || '请重试。');
+      Alert.alert(t('localModel.alert.apiStopFailed.title'), error.message || t('localModel.alert.apiStopFailed.body'));
     } finally {
       setApiBusy(false);
     }
@@ -261,22 +264,23 @@ export default function LocalModelPanel({ visible, onClose }) {
     try {
       await Clipboard.setStringAsync(apiAddress);
       Alert.alert(
-        '已复制',
-        `${apiAddress}\n\n在同机客户端的 base_url / 接口地址中填入此地址。${
+        t('localModel.alert.addressCopied.title'),
+        t(
           apiServer.apiKey?.trim()
-            ? '请求需携带 Authorization: Bearer <上方输入框里的密钥>。'
-            : '启动时会自动生成随机密钥，请从上方输入框复制。'
-        }`
+            ? 'localModel.alert.addressCopied.bodyWithKey'
+            : 'localModel.alert.addressCopied.bodyNoKey',
+          { address: apiAddress }
+        )
       );
     } catch (error) {
-      Alert.alert('复制失败', `请手动记录：${apiAddress}`);
+      Alert.alert(t('localModel.alert.copyFailed.title'), t('localModel.alert.copyFailed.body', { address: apiAddress }));
     }
   }, [apiAddress, apiServer.apiKey]);
 
   const openParams = async entry => {
     const item = await getLocalModelItem(entry.id).catch(() => null);
     if (!item) {
-      Alert.alert('参数不可用', '模型条目读取失败。');
+      Alert.alert(t('localModel.alert.paramsUnavailable.title'), t('localModel.alert.paramsUnavailable.body'));
       return;
     }
     setParamsTarget(item);
@@ -289,7 +293,7 @@ export default function LocalModelPanel({ visible, onClose }) {
     if (!paramsTarget || paramsBusy) return;
     const check = validateLocalModelParams(paramsForm);
     if (!check.valid) {
-      Alert.alert('参数有误', check.errors.map(item => `${PARAM_LABELS[item.field] || item.field}：${item.message}`).join('\n'));
+      Alert.alert(t('localModel.alert.paramsInvalid.title'), check.errors.map(item => `${paramLabel(item.field)}：${item.message}`).join('\n'));
       return;
     }
     setParamsBusy(true);
@@ -305,17 +309,17 @@ export default function LocalModelPanel({ visible, onClose }) {
       setParamsTarget(null);
       await refresh();
     } catch (error) {
-      Alert.alert('保存失败', error.message || '请重试。');
+      Alert.alert(t('localModel.alert.saveFailed.title'), error.message || t('localModel.alert.saveFailed.retry'));
     } finally {
       setParamsBusy(false);
     }
   };
 
   const confirmDelete = entry => {
-    Alert.alert('删除本地模型', `确定删除「${entry.name || entry.id}」及其文件与参数？`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('localModel.alert.deleteModel.title'), t('localModel.alert.deleteModel.body', { name: entry.name || entry.id }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: async () => {
           const item = await getLocalModelItem(entry.id).catch(() => null);
@@ -327,7 +331,7 @@ export default function LocalModelPanel({ visible, onClose }) {
               const next = await saveLocalModelSettings(clearActiveLocalModel(settings));
               setSettings(next);
             } catch (error) {
-              Alert.alert('保存失败', '请检查存储空间或权限。');
+              Alert.alert(t('localModel.alert.saveFailed.title'), t('localModel.alert.saveFailed.body'));
             }
             setApiStatus({ running: false, port: 0 });
           } else {
@@ -349,12 +353,12 @@ export default function LocalModelPanel({ visible, onClose }) {
     try {
       const { removed, freedBytes } = await cleanupOrphanLocalModelFiles();
       if (removed === 0) {
-        Alert.alert('清理完成', '没有发现可回收的下载残留。');
+        Alert.alert(t('localModel.alert.cleanupDone.title'), t('localModel.alert.cleanupDone.empty'));
       } else {
-        Alert.alert('清理完成', `已删除 ${removed} 个下载残留，回收约 ${formatBytes(freedBytes) || '0B'}。`);
+        Alert.alert(t('localModel.alert.cleanupDone.title'), t('localModel.alert.cleanupDone.body', { count: removed, size: formatBytes(freedBytes) || '0B' }));
       }
     } catch (error) {
-      Alert.alert('清理失败', error.message || '请重试。');
+      Alert.alert(t('localModel.alert.cleanupFailed.title'), error.message || t('localModel.alert.cleanupFailed.body'));
     } finally {
       setCleanupBusy(false);
     }
@@ -364,7 +368,7 @@ export default function LocalModelPanel({ visible, onClose }) {
     if (busy) return;
     const url = draft.modelUrl.trim();
     if (!draft.modelId.trim() || !/^https?:\/\//i.test(url)) {
-      Alert.alert('信息不完整', '请填写模型 ID 与有效的 GGUF 下载地址。');
+      Alert.alert(t('localModel.alert.downloadInfoIncomplete.title'), t('localModel.alert.downloadInfoIncomplete.body'));
       return;
     }
     setBusy(true);
@@ -383,11 +387,11 @@ export default function LocalModelPanel({ visible, onClose }) {
         mmprojUrl: draft.mmprojUrl,
         onProgress: setProgress,
       });
-      Alert.alert('模型下载完成', `已保存「${item.name || item.id}」，可在上方列表选用。`);
+      Alert.alert(t('localModel.alert.downloadDone.title'), t('localModel.alert.downloadDone.body', { name: item.name || item.id }));
       setDraft(emptyDraft());
       await refresh();
     } catch (error) {
-      Alert.alert('模型下载失败', error.message || '请检查地址与网络。');
+      Alert.alert(t('localModel.alert.downloadFailed.title'), error.message || t('localModel.alert.downloadFailed.body'));
     } finally {
       setBusy(false);
     }
@@ -400,7 +404,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       if (!asset || !asset.uri) return;
       setDraft(current => ({ ...current, importSourceUri: asset.uri, importName: asset.name || '' }));
     } catch (error) {
-      Alert.alert('选择文件失败', error.message || '请重试。');
+      Alert.alert(t('localModel.alert.pickFileFailed.title'), error.message || t('localModel.alert.pickFileFailed.body'));
     }
   };
 
@@ -411,14 +415,14 @@ export default function LocalModelPanel({ visible, onClose }) {
       if (!asset || !asset.uri) return;
       setDraft(current => ({ ...current, mmprojSourceUri: asset.uri, mmprojSourceName: asset.name || '' }));
     } catch (error) {
-      Alert.alert('选择文件失败', error.message || '请重试。');
+      Alert.alert(t('localModel.alert.pickFileFailed.title'), error.message || t('localModel.alert.pickFileFailed.body'));
     }
   };
 
   const handleImport = async () => {
     if (importBusy) return;
     if (!draft.importSourceUri) {
-      Alert.alert('未选择文件', '请先选择要导入的 GGUF 文件。');
+      Alert.alert(t('localModel.alert.noFileSelected.title'), t('localModel.alert.noFileSelected.body'));
       return;
     }
     setImportBusy(true);
@@ -428,11 +432,11 @@ export default function LocalModelPanel({ visible, onClose }) {
         name: draft.importName,
         mmprojSourceUri: draft.mmprojSourceUri,
       });
-      Alert.alert('导入完成', `已导入「${item.name || item.id}」，可在上方列表选用。`);
+      Alert.alert(t('localModel.alert.importDone.title'), t('localModel.alert.importDone.body', { name: item.name || item.id }));
       setDraft(current => ({ ...current, importSourceUri: '', importName: '', mmprojSourceUri: '', mmprojSourceName: '' }));
       await refresh();
     } catch (error) {
-      Alert.alert('导入失败', error.message || '请重试。');
+      Alert.alert(t('localModel.alert.importFailed.title'), error.message || t('localModel.alert.importFailed.body'));
     } finally {
       setImportBusy(false);
     }
@@ -460,15 +464,12 @@ export default function LocalModelPanel({ visible, onClose }) {
       { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 }
     );
     const memText = summary.memory.totalBytes > 0
-      ? `预计占用约 ${formatBytes(summary.memory.totalBytes)}（含权重 + 上下文缓存 + 运行时开销）`
-      : '（未能读取设备内存，请优先选体积较小、量化等级较低的模型）';
-    const tierText = summary.compatibility.label ? `兼容评估：${summary.compatibility.label}\n` : '';
+      ? t('localModel.alert.preDownload.memory', { size: formatBytes(summary.memory.totalBytes) })
+      : t('localModel.alert.preDownload.memoryUnknown');
+    const tierText = summary.compatibility.label ? t('localModel.alert.preDownload.tier', { label: summary.compatibility.label }) : '';
     Alert.alert(
-      '下载前请确认',
-      `${tierText}${memText}\n\n`
-      + '注意：上下文长度（context size）越长，KV 缓存占用越大，总内存会明显增加。'
-      + '请优先选择标「推荐」的量化，并在选用后把上下文设为能跑稳的档位；'
-      + '若加载失败或闪退，多半是内存超出上限，改用更小的模型/更低的上下文即可。'
+      t('localModel.alert.preDownload.title'),
+      `${tierText}${memText}\n\n${t('localModel.alert.preDownload.body')}`
     );
   };
 
@@ -487,24 +488,24 @@ export default function LocalModelPanel({ visible, onClose }) {
     if (!entry || loadBusyId) return;
     const release = tryAcquireResource('local-model');
     if (!release) {
-      Alert.alert('资源忙', '录音、语音合成或本地推理正在进行，请稍后再加载。');
+      Alert.alert(t('localModel.alert.resourceBusy.title'), t('localModel.alert.resourceBusy.body'));
       return;
     }
     setLoadBusyId(entry.id);
     setLoadProgress(0);
     try {
       const item = await getLocalModelItem(entry.id).catch(() => null);
-      if (!item) throw new Error('模型条目不存在');
+      if (!item) throw new Error(t('localModel.error.itemMissing'));
       const info = await getLocalModelFileInfo(item).catch(() => ({ exists: false }));
-      if (!info || info.exists === false) throw new Error('模型文件缺失，请重新下载或导入');
+      if (!info || info.exists === false) throw new Error(t('localModel.error.fileMissing'));
       await loadLocalModel(item, {
         onProgress: p => setLoadProgress(Math.max(0, Math.min(100, Math.round(Number(p) || 0)))),
       });
       setLoadedModelId(entry.id);
       setLoadProgress(100);
-      Alert.alert('已加载', '模型已加载到内存，聊天页选择「本地」来源即可使用。');
+      Alert.alert(t('localModel.alert.modelLoaded.title'), t('localModel.alert.modelLoaded.body'));
     } catch (error) {
-      Alert.alert('加载失败', error.message || '请检查模型文件与设备内存。');
+      Alert.alert(t('localModel.alert.loadFailed.title'), error.message || t('localModel.alert.loadFailed.body'));
     } finally {
       release();
       setLoadBusyId('');
@@ -522,17 +523,17 @@ export default function LocalModelPanel({ visible, onClose }) {
           onPress={() => setExpandedId(expanded ? '' : entry.id)}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityLabel={`展开 ${entry.name || entry.id}`}
+          accessibilityLabel={t('localModel.a11y.expand', { name: entry.name || entry.id })}
         >
           <View style={styles.itemInfo}>
-            <Text style={styles.itemName} numberOfLines={1}>{entry.name || entry.id}{active ? ' · 当前' : ''}</Text>
+            <Text style={styles.itemName} numberOfLines={1}>{entry.name || entry.id}{active ? t('localModel.currentSuffix') : ''}</Text>
             <View style={styles.chipRow}>
-              {summary.quantLabel ? <Text style={styles.chip}>量化 {summary.quantLabel}</Text> : null}
-              {summary.paramLabel ? <Text style={styles.chip}>规模 {summary.paramLabel}</Text> : null}
+              {summary.quantLabel ? <Text style={styles.chip}>{t('localModel.chip.quant', { label: summary.quantLabel })}</Text> : null}
+              {summary.paramLabel ? <Text style={styles.chip}>{t('localModel.chip.size', { label: summary.paramLabel })}</Text> : null}
               {entry.modelBytes > 0 ? <Text style={styles.chip}>{formatBytes(entry.modelBytes)}</Text> : null}
-              {entry.hasVision ? <Text style={styles.chip}>识图</Text> : null}
-              {entry.hasAudio ? <Text style={styles.chip}>听声</Text> : null}
-              {entry.imported ? <Text style={styles.chip}>本地导入</Text> : null}
+              {entry.hasVision ? <Text style={styles.chip}>{t('localModel.chip.vision')}</Text> : null}
+              {entry.hasAudio ? <Text style={styles.chip}>{t('localModel.chip.audio')}</Text> : null}
+              {entry.imported ? <Text style={styles.chip}>{t('localModel.chip.imported')}</Text> : null}
               <Text style={[styles.tierChip, { color: tierColor(theme, summary.compatibility.tier) }]}>{summary.compatibility.label}</Text>
             </View>
           </View>
@@ -542,7 +543,7 @@ export default function LocalModelPanel({ visible, onClose }) {
           <>
             <View style={styles.itemActions}>
               {active ? (
-                <View style={styles.activeCheck} accessibilityLabel="当前选用的模型">
+                <View style={styles.activeCheck} accessibilityLabel={t('localModel.a11y.currentModel')}>
                   <Ionicons name="checkmark-circle" size={18} color={theme.colors.primary} />
                 </View>
               ) : null}
@@ -551,9 +552,9 @@ export default function LocalModelPanel({ visible, onClose }) {
                 onPress={() => selectActive(entry)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel={active ? '当前活动模型' : `选用 ${entry.name || entry.id}`}
+                accessibilityLabel={active ? t('localModel.a11y.activeModel') : t('localModel.a11y.selectModel', { name: entry.name || entry.id })}
               >
-                <Text style={styles.selectButtonText}>{active ? '已选用' : '选用'}</Text>
+                <Text style={styles.selectButtonText}>{active ? t('localModel.selected') : t('localModel.select')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.iconButton, loadBusyId === entry.id && styles.loadButtonBusy]}
@@ -562,25 +563,25 @@ export default function LocalModelPanel({ visible, onClose }) {
                 activeOpacity={0.8}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  loadedModelId === entry.id ? '模型已加载' : `加载 ${entry.name || entry.id}`
+                  loadedModelId === entry.id ? t('localModel.a11y.modelLoaded') : t('localModel.a11y.loadModel', { name: entry.name || entry.id })
                 }
               >
                 <Ionicons name="hardware-chip-outline" size={16} color={theme.colors.primarySoft} />
                 <Text style={styles.iconButtonText}>
-                  {loadBusyId === entry.id ? `加载中 ${loadProgress}%` : loadedModelId === entry.id ? '已加载' : '加载'}
+                  {loadBusyId === entry.id ? t('localModel.loading', { progress: loadProgress }) : loadedModelId === entry.id ? t('localModel.loaded') : t('localModel.load')}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconButton} onPress={() => openParams(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="参数">
+              <TouchableOpacity style={styles.iconButton} onPress={() => openParams(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('localModel.params')}>
                 <Ionicons name="options-outline" size={16} color={theme.colors.primarySoft} />
-                <Text style={styles.iconButtonText}>参数</Text>
+                <Text style={styles.iconButtonText}>{t('localModel.params')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconButton} onPress={() => confirmDelete(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="删除">
+              <TouchableOpacity style={styles.iconButton} onPress={() => confirmDelete(entry)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('common.delete')}>
                 <Ionicons name="trash-outline" size={16} color={theme.colors.dangerSoft} />
-                <Text style={styles.dangerText}>删除</Text>
+                <Text style={styles.dangerText}>{t('common.delete')}</Text>
               </TouchableOpacity>
             </View>
             {loadBusyId === entry.id ? (
-              <View style={styles.loadProgressRow} accessibilityLabel={`加载进度 ${loadProgress}%`}>
+              <View style={styles.loadProgressRow} accessibilityLabel={t('localModel.a11y.loadProgress', { progress: loadProgress })}>
                 <View style={styles.loadProgressBar}>
                   <View style={[styles.loadProgressFill, { width: `${loadProgress}%` }]} />
                 </View>
@@ -599,24 +600,24 @@ export default function LocalModelPanel({ visible, onClose }) {
         <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
             <View style={styles.header}>
-              <Text style={styles.title}>本地模型</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+              <Text style={styles.title}>{t('localModel.title')}</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
                 <Ionicons name="close" size={22} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-              <Text style={styles.hint}>本地模型需要包含 llama.rn 的原生构建。未完成原生构建或模型未就绪时，聊天继续使用在线 API。</Text>
-              <Text style={styles.status}>{isLocalModelModuleAvailable() ? '当前构建已包含本地模型模块' : '当前构建未包含本地模型模块'}</Text>
-              <TouchableOpacity style={styles.logsButton} onPress={() => setLogsOpen(true)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="查看运行日志">
+              <Text style={styles.hint}>{t('localModel.hint')}</Text>
+              <Text style={styles.status}>{isLocalModelModuleAvailable() ? t('localModel.moduleAvailable') : t('localModel.moduleUnavailable')}</Text>
+              <TouchableOpacity style={styles.logsButton} onPress={() => setLogsOpen(true)} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('localModel.viewLogs')}>
                 <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
-                <Text style={styles.logsButtonText}>查看运行日志</Text>
+                <Text style={styles.logsButtonText}>{t('localModel.viewLogs')}</Text>
               </TouchableOpacity>
 
               <View style={styles.activeRow}>
                 <Text style={styles.activeText}>
                   {settings && settings.activeModelId
-                    ? `当前模型：${settings.modelName || settings.activeModelId}`
-                    : '当前未选用本地模型'}
+                    ? t('localModel.currentModel', { name: settings.modelName || settings.activeModelId })
+                    : t('localModel.noCurrentModel')}
                 </Text>
                 <TouchableOpacity
                   style={[styles.toggle, settings && settings.enabled && styles.toggleOn]}
@@ -624,9 +625,9 @@ export default function LocalModelPanel({ visible, onClose }) {
                   activeOpacity={0.8}
                   accessibilityRole="switch"
                   accessibilityState={{ checked: Boolean(settings && settings.enabled) }}
-                  accessibilityLabel="启用本地模型"
+                  accessibilityLabel={t('localModel.a11y.enableToggle')}
                 >
-                  <Text style={styles.toggleText}>{settings && settings.enabled ? '已启用' : '已关闭'}</Text>
+                  <Text style={styles.toggleText}>{settings && settings.enabled ? t('localModel.enabled') : t('localModel.disabled')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -636,72 +637,72 @@ export default function LocalModelPanel({ visible, onClose }) {
                 activeOpacity={0.8}
                 accessibilityRole="switch"
                 accessibilityState={{ checked: Boolean(settings && settings.enableMediaInput) }}
-                accessibilityLabel="允许图片/音频输入"
+                accessibilityLabel={t('localModel.mediaInput.title')}
               >
                 <View style={styles.mediaInfo}>
-                  <Text style={styles.mediaTitle}>允许图片/音频输入</Text>
+                  <Text style={styles.mediaTitle}>{t('localModel.mediaInput.title')}</Text>
                   <Text style={styles.mediaHint}>
                     {settings && settings.enableMediaInput
-                      ? '已开启：模型支持识图/听声时，图片与音频会发给本地推理'
-                      : '默认关闭：本地推理只发送文字'}
+                      ? t('localModel.mediaInput.hintOn')
+                      : t('localModel.mediaInput.hintOff')}
                   </Text>
                 </View>
                 <View style={[styles.toggle, settings && settings.enableMediaInput && styles.toggleOn]}>
-                  <Text style={styles.toggleText}>{settings && settings.enableMediaInput ? '开' : '关'}</Text>
+                  <Text style={styles.toggleText}>{settings && settings.enableMediaInput ? t('common.on') : t('common.off')}</Text>
                 </View>
               </TouchableOpacity>
 
               <View style={styles.labelRow}>
-                <Text style={styles.labelInline}>已安装模型（{entries.length}）</Text>
+                <Text style={styles.labelInline}>{t('localModel.installedCount', { count: entries.length })}</Text>
                 <TouchableOpacity
                   style={styles.searchModelButton}
                   onPress={handleCleanupOrphans}
                   disabled={cleanupBusy}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="清理下载残留"
+                  accessibilityLabel={t('localModel.cleanup.button')}
                 >
                   <Ionicons name="trash-bin-outline" size={14} color={theme.colors.primarySoft} />
-                  <Text style={styles.searchModelText}>{cleanupBusy ? '清理中…' : '清理残留'}</Text>
+                  <Text style={styles.searchModelText}>{cleanupBusy ? t('localModel.cleanup.busy') : t('localModel.cleanup.button')}</Text>
                 </TouchableOpacity>
               </View>
               {entries.length === 0 ? (
-                <Text style={styles.empty}>还没有本地模型，可在下方搜索下载或导入本地 GGUF 文件。</Text>
+                <Text style={styles.empty}>{t('localModel.empty')}</Text>
               ) : (
                 entries.map(renderEntry)
               )}
 
-              <Text style={styles.label}>下载模型</Text>
+              <Text style={styles.label}>{t('localModel.download.section')}</Text>
               <View style={styles.labelRow}>
-                <Text style={styles.labelInline}>模型 ID</Text>
+                <Text style={styles.labelInline}>{t('localModel.download.modelId')}</Text>
                 <TouchableOpacity
                   style={styles.searchModelButton}
                   onPress={() => setSearchVisible(true)}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="搜索模型"
+                  accessibilityLabel={t('localModel.download.search')}
                 >
                   <Ionicons name="search" size={14} color={theme.colors.primarySoft} />
-                  <Text style={styles.searchModelText}>搜索模型</Text>
+                  <Text style={styles.searchModelText}>{t('localModel.download.search')}</Text>
                 </TouchableOpacity>
               </View>
               <TextInput
                 style={styles.input}
                 value={draft.modelId}
                 onChangeText={text => setDraft(current => ({ ...current, modelId: text }))}
-                placeholder="例如 qwen2.5-1.5b"
+                placeholder={t('localModel.download.modelIdPlaceholder')}
                 placeholderTextColor={theme.colors.textFaint}
               />
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryName} numberOfLines={1}>{draft.name || draft.modelId || '未选择模型'}</Text>
+                <Text style={styles.summaryName} numberOfLines={1}>{draft.name || draft.modelId || t('localModel.summary.noModel')}</Text>
                 <View style={styles.summaryRow}>
-                  {draftSummary.quantLabel ? <Text style={styles.summaryChip}>量化 {draftSummary.quantLabel}</Text> : null}
-                  {draftSummary.paramLabel ? <Text style={styles.summaryChip}>规模 {draftSummary.paramLabel}</Text> : null}
-                  {draftSummary.memory.totalBytes > 0 ? <Text style={styles.summaryChip}>占用约 {formatBytes(draftSummary.memory.totalBytes)}</Text> : null}
+                  {draftSummary.quantLabel ? <Text style={styles.summaryChip}>{t('localModel.chip.quant', { label: draftSummary.quantLabel })}</Text> : null}
+                  {draftSummary.paramLabel ? <Text style={styles.summaryChip}>{t('localModel.chip.size', { label: draftSummary.paramLabel })}</Text> : null}
+                  {draftSummary.memory.totalBytes > 0 ? <Text style={styles.summaryChip}>{t('localModel.summary.memory', { size: formatBytes(draftSummary.memory.totalBytes) })}</Text> : null}
                   <Text style={[styles.summaryTier, { color: tierColor(theme, draftSummary.compatibility.tier) }]}>{draftSummary.compatibility.label}</Text>
                 </View>
                 <Text style={styles.summaryHint}>
-                  内存占用随上下文长度增加；若加载失败或闪退，请改用更小的模型或降低上下文。
+                  {t('localModel.summary.hint')}
                 </Text>
               </View>
 
@@ -713,14 +714,14 @@ export default function LocalModelPanel({ visible, onClose }) {
                     onPress={() => rewriteSource(source)}
                     activeOpacity={0.8}
                     accessibilityRole="button"
-                    accessibilityLabel={`使用 ${source.name} 下载源`}
+                    accessibilityLabel={t('localModel.a11y.useSource', { name: source.name })}
                   >
                     <Text style={[styles.sourceChipText, draft.sourceId === source.id && styles.sourceChipTextActive]}>{source.name}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={styles.label}>GGUF 下载地址</Text>
+              <Text style={styles.label}>{t('localModel.download.urlLabel')}</Text>
               <TextInput
                 style={styles.input}
                 value={draft.modelUrl}
@@ -731,14 +732,14 @@ export default function LocalModelPanel({ visible, onClose }) {
               />
               {draft.mmprojUrls.length > 0 ? (
                 <>
-                  <Text style={styles.label}>配套 mmproj（可选，多模态）</Text>
+                  <Text style={styles.label}>{t('localModel.download.mmprojLabel')}</Text>
                   <View style={styles.sourceRow}>
                     <TouchableOpacity
                       style={[styles.sourceChip, !draft.mmprojUrl && styles.sourceChipActive]}
                       onPress={() => setDraft(current => ({ ...current, mmprojUrl: '' }))}
                       activeOpacity={0.8}
                     >
-                      <Text style={[styles.sourceChipText, !draft.mmprojUrl && styles.sourceChipTextActive]}>不下载</Text>
+                      <Text style={[styles.sourceChipText, !draft.mmprojUrl && styles.sourceChipTextActive]}>{t('localModel.download.mmprojSkip')}</Text>
                     </TouchableOpacity>
                     {draft.mmprojUrls.map((url, index) => (
                       <TouchableOpacity
@@ -753,26 +754,26 @@ export default function LocalModelPanel({ visible, onClose }) {
                   </View>
                 </>
               ) : null}
-              {busy ? <Text style={styles.progress}>下载进度：{Math.round(progress * 100)}%</Text> : null}
+              {busy ? <Text style={styles.progress}>{t('localModel.download.progress', { progress: Math.round(progress * 100) })}</Text> : null}
               <TouchableOpacity style={styles.primary} onPress={handleDownload} disabled={busy} activeOpacity={0.8}>
-                <Text style={styles.primaryText}>{busy ? '下载中...' : '下载并登记模型'}</Text>
+                <Text style={styles.primaryText}>{busy ? t('localModel.download.busy') : t('localModel.download.button')}</Text>
               </TouchableOpacity>
 
-              <Text style={styles.label}>导入本地文件</Text>
+              <Text style={styles.label}>{t('localModel.import.section')}</Text>
               <TouchableOpacity style={styles.secondary} onPress={pickGguf} activeOpacity={0.8}>
-                <Text style={styles.secondaryText}>{draft.importSourceUri ? `已选择：${draft.importName || 'GGUF 文件'}` : '选择 GGUF 文件'}</Text>
+                <Text style={styles.secondaryText}>{draft.importSourceUri ? t('localModel.import.selectedGguf', { name: draft.importName || t('localModel.import.ggufFile') }) : t('localModel.import.pickGguf')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondary} onPress={pickMmproj} activeOpacity={0.8}>
-                <Text style={styles.secondaryText}>{draft.mmprojSourceUri ? `mmproj：${draft.mmprojSourceName || '已选择'}` : '选择 mmproj（可选）'}</Text>
+                <Text style={styles.secondaryText}>{draft.mmprojSourceUri ? t('localModel.import.selectedMmproj', { name: draft.mmprojSourceName || t('localModel.import.mmprojSelected') }) : t('localModel.import.pickMmproj')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.primary} onPress={handleImport} disabled={importBusy} activeOpacity={0.8}>
-                <Text style={styles.primaryText}>{importBusy ? '导入中...' : '导入到应用'}</Text>
+                <Text style={styles.primaryText}>{importBusy ? t('localModel.import.busy') : t('localModel.import.button')}</Text>
               </TouchableOpacity>
 
-              <Text style={styles.label}>本地 API 服务（OpenAI 兼容）</Text>
-              <Text style={styles.hint}>固定监听 127.0.0.1，供同机客户端调用；推理复用当前加载的本地模型。请求强制携带 Bearer 密钥（留空会自动生成），同机其他应用无法匿名调用。</Text>
+              <Text style={styles.label}>{t('localModel.api.section')}</Text>
+              <Text style={styles.hint}>{t('localModel.api.hint')}</Text>
               <View style={styles.apiPortRow}>
-                <Text style={styles.labelInline}>端口</Text>
+                <Text style={styles.labelInline}>{t('localModel.api.port')}</Text>
                 <TextInput
                   style={[styles.input, styles.apiPortInput]}
                   value={String(apiServer.port)}
@@ -785,33 +786,33 @@ export default function LocalModelPanel({ visible, onClose }) {
                 style={styles.input}
                 value={apiServer.apiKey}
                 onChangeText={text => setApiServer(current => ({ ...current, apiKey: text }))}
-                placeholder="API Key（留空将自动生成随机密钥）"
+                placeholder={t('localModel.api.keyPlaceholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 autoCapitalize="none"
               />
               <Text style={styles.apiStatus}>
-                {apiStatus.running ? '运行中' : '未启动'}
+                {apiStatus.running ? t('localModel.api.running') : t('localModel.api.stopped')}
               </Text>
               <TouchableOpacity
                 style={styles.apiAddressRow}
                 onPress={copyApiAddress}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`复制本地 API 地址 ${apiAddress}`}
+                accessibilityLabel={t('localModel.a11y.copyApiAddress', { address: apiAddress })}
               >
                 <Text style={styles.apiAddress} numberOfLines={1}>{apiAddress}</Text>
                 <View style={styles.apiCopyChip}>
                   <Ionicons name="copy-outline" size={14} color={theme.colors.primarySoft} />
-                  <Text style={styles.apiCopyText}>复制</Text>
+                  <Text style={styles.apiCopyText}>{t('common.copy')}</Text>
                 </View>
               </TouchableOpacity>
-              <Text style={styles.apiAddressHint}>在上方选择模型并点击「启动服务」后，把此地址填入同机客户端的 base_url。</Text>
+              <Text style={styles.apiAddressHint}>{t('localModel.api.addressHint')}</Text>
               <View style={styles.apiButtonRow}>
                 <TouchableOpacity style={[styles.secondary, styles.apiButton]} onPress={startApi} disabled={apiBusy} activeOpacity={0.8}>
-                  <Text style={styles.secondaryText}>{apiBusy ? '处理中...' : '启动服务'}</Text>
+                  <Text style={styles.secondaryText}>{apiBusy ? t('common.loading') : t('localModel.api.start')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.secondary, styles.apiButton]} onPress={stopApi} disabled={apiBusy} activeOpacity={0.8}>
-                  <Text style={styles.secondaryText}>停止服务</Text>
+                  <Text style={styles.secondaryText}>{t('localModel.api.stop')}</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -823,16 +824,16 @@ export default function LocalModelPanel({ visible, onClose }) {
         <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
             <View style={styles.header}>
-              <Text style={styles.title}>推理参数</Text>
-              <TouchableOpacity onPress={() => setParamsTarget(null)} hitSlop={8} accessibilityLabel="关闭">
+              <Text style={styles.title}>{t('localModel.paramsModal.title')}</Text>
+              <TouchableOpacity onPress={() => setParamsTarget(null)} hitSlop={8} accessibilityLabel={t('common.close')}>
                 <Ionicons name="close" size={22} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.hint}>{paramsTarget ? `${paramsTarget.name || paramsTarget.id}：参数只作用于该模型。` : ''}</Text>
+            <Text style={styles.hint}>{paramsTarget ? t('localModel.paramsModal.hint', { name: paramsTarget.name || paramsTarget.id }) : ''}</Text>
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
               {Object.keys(LOCAL_MODEL_PARAM_FIELDS).map(field => (
                 <View key={field} style={styles.paramField}>
-                  <Text style={styles.label}>{PARAM_LABELS[field] || field}</Text>
+                  <Text style={styles.label}>{paramLabel(field)}</Text>
                   <TextInput
                     style={styles.input}
                     value={paramsForm[field] ?? ''}
@@ -843,7 +844,7 @@ export default function LocalModelPanel({ visible, onClose }) {
               ))}
               {paramsBusy ? <ActivityIndicator color={theme.colors.primary} style={styles.loading} /> : null}
               <TouchableOpacity style={styles.primary} onPress={saveParams} disabled={paramsBusy} activeOpacity={0.8}>
-                <Text style={styles.primaryText}>{paramsBusy ? '保存中...' : '保存参数'}</Text>
+                <Text style={styles.primaryText}>{paramsBusy ? t('common.saving') : t('localModel.paramsModal.save')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

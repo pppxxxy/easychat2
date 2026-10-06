@@ -20,6 +20,7 @@ import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
 import { buildDownloadUrl, listModelFiles, searchModels } from './modelCatalog.js';
 import { rankModelFiles } from './modelCompatibility.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
 
 function formatBytes(value) {
   const bytes = Number(value);
@@ -48,6 +49,7 @@ function tierColor(theme, tier) {
 
 export default function ModelSearchModal({ visible, onClose, initialSourceId, onSelect, totalMemoryBytes = 0 }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [sourceId, setSourceId] = useState(initialSourceId || 'huggingface');
   const [query, setQuery] = useState('');
@@ -89,7 +91,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
       setResults(list);
     } catch (searchError) {
       setResults([]);
-      setError(searchError && searchError.message ? searchError.message : '搜索失败，请检查网络。');
+      setError(searchError && searchError.message ? searchError.message : t('localModel.search.errorSearch'));
     } finally {
       setBusy(false);
     }
@@ -106,7 +108,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
       setFiles(list);
     } catch (filesError) {
       setFiles({ modelFiles: [], projectorFiles: [] });
-      setError(filesError && filesError.message ? filesError.message : '读取模型文件失败。');
+      setError(filesError && filesError.message ? filesError.message : t('localModel.search.errorFiles'));
     } finally {
       setFilesBusy(false);
     }
@@ -116,7 +118,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
     if (!activeRepo) return;
     const modelUrl = buildDownloadUrl(sourceId, activeRepo.repoId, activeRepo.revision, file.path);
     if (!modelUrl) {
-      setError('无法生成下载地址，请改用其他来源。');
+      setError(t('localModel.search.errorNoUrl'));
       return;
     }
     if (typeof onSelect === 'function') {
@@ -146,8 +148,8 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
       <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>{activeRepo ? '选择量化文件' : '搜索模型'}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.title}>{activeRepo ? t('localModel.search.titlePick') : t('localModel.search.titleSearch')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -168,7 +170,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                   }}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={`使用 ${source.name}`}
+                  accessibilityLabel={t('localModel.a11y.useSource', { name: source.name })}
                 >
                   <Text style={[styles.sourceChipText, active && styles.sourceChipTextActive]}>{source.name}</Text>
                 </TouchableOpacity>
@@ -186,10 +188,10 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                   setError('');
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="返回搜索结果"
+                accessibilityLabel={t('localModel.search.backA11y')}
               >
                 <Ionicons name="chevron-back" size={16} color={theme.colors.primarySoft} />
-                <Text style={styles.backText}>返回</Text>
+                <Text style={styles.backText}>{t('localModel.search.back')}</Text>
               </TouchableOpacity>
               <Text style={styles.repoName} numberOfLines={1}>{activeRepo.repoId}</Text>
             </View>
@@ -199,7 +201,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                 style={styles.searchInput}
                 value={query}
                 onChangeText={setQuery}
-                placeholder="输入模型关键词，如 Qwen2.5 1.5B"
+                placeholder={t('localModel.search.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 autoCapitalize="none"
                 returnKeyType="search"
@@ -211,7 +213,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                 disabled={!query.trim() || busy}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel="搜索"
+                accessibilityLabel={t('localModel.search.buttonA11y')}
               >
                 <Ionicons name="search" size={16} color={theme.colors.primaryContrast} />
               </TouchableOpacity>
@@ -233,7 +235,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                       onPress={() => selectFile(file)}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel={`选择 ${file.path}`}
+                      accessibilityLabel={t('localModel.search.a11yPickFile', { name: file.path })}
                     >
                       <View style={styles.fileInfo}>
                         <View style={styles.fileNameRow}>
@@ -246,23 +248,23 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                         </View>
                         <Text style={styles.fileMeta}>
                           {formatBytes(file.size) || file.path}
-                          {summary.memory.totalBytes > 0 ? ` · 约需内存 ${formatBytes(summary.memory.totalBytes)}` : ''}
+                          {summary.memory.totalBytes > 0 ? t('localModel.search.metaMemory', { size: formatBytes(summary.memory.totalBytes) }) : ''}
                           {summary.paramLabel ? ` · ${summary.paramLabel}` : ''}
-                          {totalMemoryBytes <= 0 ? ' · 内存未知，无法判断是否可跑' : ''}
+                          {totalMemoryBytes <= 0 ? t('localModel.search.metaMemoryUnknown') : ''}
                         </Text>
                       </View>
                       <Ionicons name="download-outline" size={18} color={theme.colors.primary} />
                     </TouchableOpacity>
                   ))}
                   {rankedFiles.length === 0 ? (
-                    <Text style={styles.empty}>该仓库没有可用的 GGUF 模型文件。</Text>
+                    <Text style={styles.empty}>{t('localModel.search.noFiles')}</Text>
                   ) : null}
                   {totalMemoryBytes <= 0 ? (
-                    <Text style={styles.compatHint}>未能读取设备内存，无法给出「推荐 / 难跑」判断；请优先选择体积较小的量化（如 Q4_K_M）。</Text>
+                    <Text style={styles.compatHint}>{t('localModel.search.compatHint')}</Text>
                   ) : null}
                   {files && files.projectorFiles && files.projectorFiles.length > 0 ? (
                     <>
-                      <Text style={styles.groupLabel}>配套 mmproj（多模态投影）</Text>
+                      <Text style={styles.groupLabel}>{t('localModel.search.mmprojGroup')}</Text>
                       {files.projectorFiles.map(file => (
                         <View key={file.path} style={styles.projectorRow}>
                           <Text style={styles.fileName} numberOfLines={1}>{fileBaseName(file.path)}</Text>
@@ -283,23 +285,23 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
                   onPress={() => openRepo(repo)}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={`查看 ${repo.repoId} 的文件`}
+                  accessibilityLabel={t('localModel.search.a11yOpenRepo', { name: repo.repoId })}
                 >
                   <View style={styles.fileInfo}>
                     <Text style={styles.fileName} numberOfLines={1}>{repo.name}</Text>
                     <Text style={styles.fileMeta} numberOfLines={1}>{repo.repoId}</Text>
                     <Text style={styles.fileMeta}>
-                      {repo.downloads > 0 ? `下载 ${repo.downloads}` : ''}
-                      {repo.likes > 0 ? ` · 喜欢 ${repo.likes}` : ''}
+                      {repo.downloads > 0 ? t('localModel.search.metaDownloads', { count: repo.downloads }) : ''}
+                      {repo.likes > 0 ? t('localModel.search.metaLikes', { count: repo.likes }) : ''}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
                 </TouchableOpacity>
               ))
             ) : results ? (
-              <Text style={styles.empty}>没有找到 GGUF 模型，换个关键词试试。</Text>
+              <Text style={styles.empty}>{t('localModel.search.noResults')}</Text>
             ) : (
-              <Text style={styles.empty}>输入关键词后点击搜索，只会显示含 GGUF 的仓库。</Text>
+              <Text style={styles.empty}>{t('localModel.search.hint')}</Text>
             )}
           </ScrollView>
         </View>

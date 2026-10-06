@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { validateImageSize } from './attachments.js';
 import { markMediaWrite } from '../storage/mediaProtection.js';
+import { tActive } from '../i18n/index.js';
 
 const STICKER_SCALE = 0.5;
 
@@ -22,7 +23,7 @@ export async function deleteStickerImage(uri) {
 
 export async function createStickerImage(uri, sourceWidth = 0, sourceHeight = 0) {
   const sourceUri = String(uri || '');
-  if (!sourceUri) throw new Error('图片路径无效');
+  if (!sourceUri) throw new Error(tActive('chat.error.attach.imagePathInvalid'));
   const fileInfo = await FileSystem.getInfoAsync(sourceUri);
   validateImageSize({ size: fileInfo && fileInfo.size });
   const size = sourceWidth > 0 && sourceHeight > 0

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -18,8 +17,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { markMediaWrite } from './storage/mediaProtection.js';
 import { buildSystemPrompt } from './character/cardParser.js';
 import { useApp } from './context/AppContext.js';
-import { FieldHint, FieldLabel, TextField } from './ui/index.js';
+import { CharacterFormFields } from './character/CharacterFormFields.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 function getPickedAsset(result) {
   if (!result || result.canceled || result.type === 'cancel') return null;
@@ -52,6 +52,7 @@ function emptyDraft(character) {
 export default function CharacterEditForm({ visible, character, onClose, onSaved }) {
   const { updateCharacter } = useApp();
   const { theme, fonts } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [draft, setDraft] = useState(() => emptyDraft(character));
   const [tagDraft, setTagDraft] = useState('');
@@ -123,7 +124,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       pendingImageUrisRef.current.set(key, dest);
       patch(key, dest);
     } catch (error) {
-      if (isCurrent()) Alert.alert('图片读取失败', '请重试。');
+      if (isCurrent()) Alert.alert(t('character.edit.alert.readImageFailed.title'), t('character.edit.alert.readImageFailed.body'));
     }
   };
 
@@ -193,7 +194,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
     const trimmedPrompt = draft.systemPrompt.trim();
     const next = {
       id: characterId || 'default',
-      name: draft.name.trim() || 'EasyChat2 助手',
+      name: draft.name.trim() || t('character.edit.defaultName'),
       // 「人设/系统提示」允许并保持空白：默认值仅在 chatPipeline 发送时兜底，
       // 用户主动留空的人设不能被覆写成默认卡文案。
       systemPrompt: trimmedPrompt,
@@ -233,7 +234,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
        }
 
     } catch (error) {
-      Alert.alert('保存失败', '请检查存储空间或权限，已填内容不会丢失。');
+      Alert.alert(t('character.edit.alert.saveFailed.title'), t('character.edit.alert.saveFailed.body'));
     } finally {
       if (sessionRef.current === session) setSaving(false);
     }
@@ -253,8 +254,8 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>编辑角色</Text>
-            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel="关闭">
+            <Text style={styles.headerTitle}>{t('character.edit.title')}</Text>
+            <TouchableOpacity onPress={handleClose} disabled={saving} hitSlop={8} accessibilityLabel={t('character.edit.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -265,201 +266,22 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
             scrollEnabled={!saving}
             pointerEvents={saving ? 'none' : 'auto'}
           >
-            <FieldLabel style={styles.label}>角色名</FieldLabel>
-            <TextField
-              value={draft.name}
-              onChangeText={text => patch('name', text)}
-              placeholder="例如：严谨的代码助手"
+            <CharacterFormFields
+              draft={draft}
+              patch={patch}
+              styles={styles}
+              onPickAvatar={() => pickImage('avatarUri')}
+              onPickBg={() => pickImage('bgUri')}
+              onClearAvatar={() => clearImage('avatarUri')}
+              onClearBg={() => clearImage('bgUri')}
+              addGreeting={addGreeting}
+              updateGreeting={updateGreeting}
+              removeGreeting={removeGreeting}
+              tagDraft={tagDraft}
+              setTagDraft={setTagDraft}
+              addTag={addTag}
+              removeTag={removeTag}
             />
-
-            <FieldLabel style={styles.label}>角色头像</FieldLabel>
-            <View style={styles.imageRow}>
-              <View style={styles.avatarBox}>
-                {draft.avatarUri ? (
-                  <Image source={{ uri: draft.avatarUri }} style={styles.avatarImage} />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarPlaceholderText}>
-                      {(draft.name || '?').charAt(0)}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.imageActions}>
-                <TouchableOpacity
-                  style={styles.smallButton}
-                  onPress={() => pickImage('avatarUri')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.smallButtonText}>{draft.avatarUri ? '更换' : '选择头像'}</Text>
-                </TouchableOpacity>
-                {draft.avatarUri ? (
-                  <TouchableOpacity onPress={() => clearImage('avatarUri')} hitSlop={8}>
-                    <Text style={styles.removeText}>清除</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </View>
-
-            <FieldLabel style={styles.label}>背景图</FieldLabel>
-            <View style={styles.imageRow}>
-              {draft.bgUri ? (
-                <Image source={{ uri: draft.bgUri }} style={styles.bgPreview} />
-              ) : null}
-              <View style={styles.imageActions}>
-                <TouchableOpacity
-                  style={styles.smallButton}
-                  onPress={() => pickImage('bgUri')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.smallButtonText}>{draft.bgUri ? '更换' : '选择背景'}</Text>
-                </TouchableOpacity>
-                {draft.bgUri ? (
-                  <TouchableOpacity onPress={() => clearImage('bgUri')} hitSlop={8}>
-                    <Text style={styles.removeText}>清除</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </View>
-
-            <FieldLabel style={styles.label}>人设 / 系统提示词</FieldLabel>
-            <TextField
-              style={styles.multiline}
-              value={draft.systemPrompt}
-              onChangeText={text => patch('systemPrompt', text)}
-              placeholder="描述角色的语气、知识和回答方式"
-              multiline
-              textAlignVertical="top"
-            />
-            <FieldLabel style={styles.label}>角色描述</FieldLabel>
-            <TextField
-              style={styles.multiline}
-              value={draft.description}
-              onChangeText={text => patch('description', text)}
-              placeholder="角色的背景、外貌与身份设定"
-              multiline
-              textAlignVertical="top"
-            />
-            <FieldLabel style={styles.label}>性格</FieldLabel>
-            <TextField
-              style={styles.multilineSmall}
-              value={draft.personality}
-              onChangeText={text => patch('personality', text)}
-              placeholder="角色的性格特点"
-              multiline
-              textAlignVertical="top"
-            />
-            <FieldLabel style={styles.label}>场景</FieldLabel>
-            <TextField
-              style={styles.multilineSmall}
-              value={draft.scenario}
-              onChangeText={text => patch('scenario', text)}
-              placeholder="剧情发生的背景与情境"
-              multiline
-              textAlignVertical="top"
-            />
-            <FieldLabel style={styles.label}>开场白</FieldLabel>
-            <TextField
-              style={styles.multilineSmall}
-              value={draft.firstMes}
-              onChangeText={text => patch('firstMes', text)}
-              placeholder="角色登场时的第一句话"
-              multiline
-              textAlignVertical="top"
-            />
-
-            <FieldLabel style={styles.label}>备用开场白</FieldLabel>
-            {draft.alternateGreetings.map((item, index) => (
-              <View key={`greeting-${index}`} style={styles.greetingRow}>
-                <TextField
-                  style={[styles.multilineSmall, styles.greetingInput]}
-                  value={item}
-                  onChangeText={value => updateGreeting(index, value)}
-                  placeholder={`备用开场白 ${index + 1}`}
-                  multiline
-                  textAlignVertical="top"
-                />
-                <TouchableOpacity
-                  style={styles.greetingRemove}
-                  onPress={() => removeGreeting(index)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel="删除备用开场白"
-                >
-                  <Ionicons name="close" size={16} color={theme.colors.dangerSoft} />
-                </TouchableOpacity>
-              </View>
-            ))}
-            <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-              <Text style={styles.secondaryButtonText}>添加备用开场白</Text>
-            </TouchableOpacity>
-
-            <FieldLabel style={styles.label}>对话示例</FieldLabel>
-            <TextField
-              style={styles.multiline}
-              value={draft.mesExample}
-              onChangeText={text => patch('mesExample', text)}
-              placeholder="<START>\n{{user}}: 你好\n{{char}}: 你好呀"
-              multiline
-              textAlignVertical="top"
-            />
-            <FieldHint style={styles.hint}>对话示例会作为示范注入系统提示词，可用 {`{{user}}`} 与 {`{{char}}`} 占位。</FieldHint>
-
-            <FieldLabel style={styles.label}>语音形态</FieldLabel>
-            <View style={styles.voiceRow}>
-              {[
-                { value: 'text', label: '仅文字' },
-                { value: 'voice-text', label: '语音 + 原文' },
-                { value: 'voice', label: '纯语音' },
-              ].map(option => {
-                const active = draft.voiceDisplay === option.value;
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[styles.voiceChip, active && styles.voiceChipActive]}
-                    onPress={() => patch('voiceDisplay', option.value)}
-                    activeOpacity={0.8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`语音形态 ${option.label}`}
-                    accessibilityState={{ selected: active }}
-                  >
-                    <Text style={[styles.voiceChipText, active && styles.voiceChipTextActive]}>
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <FieldHint style={styles.hint}>纯语音会隐藏回复正文（仍计入对话与记忆）；语音合成失败时自动退回仅文字。</FieldHint>
-
-            <FieldLabel style={styles.label}>标签</FieldLabel>
-            <View style={styles.tagRow}>
-              {draft.tags.map(tag => (
-                <TouchableOpacity
-                  key={tag}
-                  style={styles.tagChip}
-                  onPress={() => removeTag(tag)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.tagChipText}>{tag}</Text>
-                  <Ionicons name="close" size={12} color={theme.colors.primarySoft} />
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.tagInputRow}>
-              <TextField
-                style={styles.tagInput}
-                value={tagDraft}
-                onChangeText={setTagDraft}
-                onSubmitEditing={addTag}
-                placeholder="输入标签后回车添加"
-                returnKeyType="done"
-              />
-              <TouchableOpacity style={styles.tagAdd} onPress={addTag} activeOpacity={0.8}>
-                <Ionicons name="add" size={18} color={theme.colors.primaryContrast} />
-              </TouchableOpacity>
-            </View>
-            <FieldHint style={styles.hint}>世界书与正则脚本请在「角色」页编辑。</FieldHint>
           </ScrollView>
           <View style={styles.footer}>
             <TouchableOpacity
@@ -468,7 +290,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               disabled={saving}
               activeOpacity={0.8}
             >
-              <Text style={styles.footerGhostText}>取消</Text>
+              <Text style={styles.footerGhostText}>{t('character.edit.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.footerPrimary, saving && styles.footerDisabled]}
@@ -477,7 +299,7 @@ export default function CharacterEditForm({ visible, character, onClose, onSaved
               activeOpacity={0.85}
             >
               <Ionicons name="save-outline" size={16} color={theme.colors.text} />
-              <Text style={styles.footerPrimaryText}>{saving ? '保存中...' : '保存'}</Text>
+              <Text style={styles.footerPrimaryText}>{saving ? t('character.edit.saving') : t('character.edit.save')}</Text>
             </TouchableOpacity>
           </View>
         </View>

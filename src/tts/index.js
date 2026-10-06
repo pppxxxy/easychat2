@@ -3,6 +3,7 @@ import { Buffer } from 'buffer';
 import { TTS_MAX_CHARS, getTtsProvider } from './providers.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import vendorXhr from '../network/vendorHttp.js';
+import { tActive } from '../i18n/index.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -52,11 +53,11 @@ export function truncateText(text, maxChars = TTS_MAX_CHARS) {
 }
 
 export function mapHttpError(status) {
-  if (status === 401 || status === 403) return '密钥无效或未授权';
-  if (status === 429) return '请求过于频繁，请稍后重试';
-  if (status === 404) return '接口地址不存在（404），请核对官方文档端点与服务地址';
-  if (status === 400) return '请求被服务拒绝（400），请检查模型名与必填参数';
-  return `播报失败（HTTP ${status}）`;
+  if (status === 401 || status === 403) return tActive('error.tts.httpAuth');
+  if (status === 429) return tActive('error.tts.httpRateLimited');
+  if (status === 404) return tActive('error.tts.httpNotFound');
+  if (status === 400) return tActive('error.tts.httpBadRequest');
+  return tActive('error.tts.httpFailed', { status });
 }
 
 export function isSystemProvider(provider) {
@@ -105,18 +106,18 @@ export function buildTtsRequest(provider, config, text, token) {
   let url = String(config.baseUrl || provider.baseUrl || '').trim();
   if (!url) return null;
   if (!/^(?:https?|wss?):\/\/[^/\s]+/i.test(url)) {
-    throw new Error('请填写有效的语音服务地址');
+    throw new Error(tActive('error.tts.invalidBaseUrl'));
   }
   // XHR 无法打开 WebSocket 连接：wss 端点（如讯飞）直接明确失败，
   // 不要让用户面对一个难以理解的 XHR 网络错误。
   if (/^wss:/i.test(url)) {
-    throw new Error('该语音服务使用 WebSocket 协议（wss），当前引擎暂不支持，请改用其他引擎或 HTTP 端点');
+    throw new Error(tActive('error.tts.wssUnsupported'));
   }
   // 腾讯云需要 TC3-HMAC-SHA256 签名，当前引擎未实现：
   // 绝不把 SecretKey 当明文 Authorization 头发送（必然 401 且密钥暴露在头里），
   // 明确失败优于静默泄露。
   if (provider.signer === 'tencent') {
-    throw new Error('腾讯云语音签名（TC3-HMAC-SHA256）尚未实现，暂时无法使用该引擎');
+    throw new Error(tActive('error.tts.tencentSignerNotImplemented'));
   }
   // 凭据前置校验：声明表按 optional 标注必填项，缺参直接本地报错——
   // 发出去只会得到服务端难懂的 401/400，用户无从知道缺哪个字段。
@@ -124,7 +125,7 @@ export function buildTtsRequest(provider, config, text, token) {
     if (!field || !field.key || field.key === 'baseUrl' || field.optional) return;
     const value = config[field.key];
     if (value === undefined || value === null || String(value).trim() === '') {
-      throw new Error(`请先填写${field.label || field.key}`);
+      throw new Error(tActive('error.tts.fieldRequired', { field: field.label || field.key }));
     }
   });
   // payloadDefaults 深拷贝后作为载荷基底：浅拷贝会让 setByPath 写穿到
@@ -244,10 +245,10 @@ export async function resolveToken(provider, config, { now = Date.now(), signal 
     if (error && error.name === 'AbortError') throw error;
     // 令牌端点的 401/403 意味着密钥错误，400 意味着参数/密钥格式问题：
     // 用专属文案替代通用 mapHttpError（它会给"请检查模型名"这类无关建议）。
-    throw new Error('令牌获取失败，请检查 API Key 与 Secret Key 是否正确');
+    throw new Error(tActive('error.tts.tokenFailedCheckKeys'));
   });
   const token = String(getByPath(data, auth.tokenPath || 'access_token') || '');
-  if (!token) throw new Error('令牌获取失败');
+  if (!token) throw new Error(tActive('error.tts.tokenFailed'));
   const ttl = Number(auth.tokenTtlSec) || 0;
   tokenCache.set(cacheKey, {
     token,
@@ -257,7 +258,7 @@ export async function resolveToken(provider, config, { now = Date.now(), signal 
 }
 
 function createTtsAbortError() {
-  const error = new Error('播报已中断');
+  const error = new Error(tActive('error.tts.aborted'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -295,7 +296,7 @@ function extractServiceError(parsed) {
   ];
   for (const candidate of messageCandidates) {
     const text = String(candidate || '').trim();
-    if (text) return `服务返回错误：${text.slice(0, 200)}`;
+    if (text) return tActive('error.tts.serviceError', { message: text.slice(0, 200) });
   }
   const codeCandidates = [
     parsed.err_no,
@@ -306,7 +307,7 @@ function extractServiceError(parsed) {
   ];
   for (const candidate of codeCandidates) {
     if (candidate !== undefined && candidate !== null && String(candidate) !== '') {
-      return `服务返回错误码：${String(candidate).slice(0, 100)}`;
+      return tActive('error.tts.serviceErrorCode', { code: String(candidate).slice(0, 100) });
     }
   }
   return '';
@@ -321,13 +322,13 @@ function xhrJson({ method, url, headers, body, timeoutMs, signal }) {
     signal,
     timeoutMs,
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    onTimeoutError: () => new Error('播报超时，请稍后重试'),
+    onTimeoutError: () => new Error(tActive('error.tts.timeout')),
     onAbortError: () => createTtsAbortError(),
-    onAbortEventError: () => new Error('播报已中断'),
-    onNetworkError: () => new Error('播报网络请求失败'),
+    onAbortEventError: () => new Error(tActive('error.tts.aborted')),
+    onNetworkError: () => new Error(tActive('error.tts.networkFailed')),
     onHttpError: status => new Error(mapHttpError(status)),
     parse: xhr => JSON.parse(xhr.responseText || '{}'),
-    onParseError: () => new Error('播报返回无法解析'),
+    onParseError: () => new Error(tActive('error.tts.parseFailed')),
   });
 }
 
@@ -344,14 +345,14 @@ function xhrAudio({ method, url, headers, body, timeoutMs, mode, path, signal })
     // arraybuffer，RN 的 XHR.responseText getter 会直接抛错（非 text 类型），
     // 被 parseAudioResponse 的 try/catch 吞掉后变成「未获取到音频数据」。
     responseType: mode === 'binary' ? 'arraybuffer' : undefined,
-    onTimeoutError: () => new Error('播报超时，请稍后重试'),
+    onTimeoutError: () => new Error(tActive('error.tts.timeout')),
     onAbortError: () => createTtsAbortError(),
-    onAbortEventError: () => new Error('播报已中断'),
-    onNetworkError: () => new Error('播报网络请求失败'),
+    onAbortEventError: () => new Error(tActive('error.tts.aborted')),
+    onNetworkError: () => new Error(tActive('error.tts.networkFailed')),
     onHttpError: status => new Error(mapHttpError(status)),
     parse: xhr => parseAudioResponse(xhr, { mode, path }),
     onParseError: error => (
-      error && error.__audioError ? error : new Error('音频数据无法解码')
+      error && error.__audioError ? error : new Error(tActive('error.tts.audioDecodeFailed'))
     ),
   });
 }
@@ -369,7 +370,7 @@ function parseAudioResponse(xhr, { mode, path }) {
     }
     if (!raw) {
       const serviceError = extractServiceError(parsed);
-      throw tagAudioError(new Error(serviceError || '未获取到音频数据'));
+      throw tagAudioError(new Error(serviceError || tActive('error.tts.noAudioData')));
     }
     // MiniMax 等平台的 audio 是 hex 编码（官方默认），按 base64 解会得到坏音频。
     if (mode === 'hex') {
@@ -379,7 +380,7 @@ function parseAudioResponse(xhr, { mode, path }) {
   }
   const response = xhr.response;
   if (!response || (typeof response === 'string' && !response)) {
-    throw tagAudioError(new Error('未获取到音频数据'));
+    throw tagAudioError(new Error(tActive('error.tts.noAudioData')));
   }
   // HTTP 200 但实际是 JSON 错误体（百度常见）：音频二进制不会以 '{' 开头，
   // 命中则解析出真实错误，不再报"音频数据无法解码"。
@@ -405,20 +406,20 @@ function tagAudioError(error) {
 
 export async function synthesize({ provider, config = {}, text, signal = null }) {
   const resolvedProvider = typeof provider === 'string' ? getTtsProvider(provider) : provider;
-  if (!resolvedProvider) throw new Error('未知的播报服务');
+  if (!resolvedProvider) throw new Error(tActive('error.tts.unknownProvider'));
   // 登记播报密钥：报错文本可能带出裸 Key/Secret
   registerSecretValues([config.apiKey, config.appSecretKey]);
   const content = truncateText(text, Number(resolvedProvider.maxChars) > 0
     ? Math.trunc(Number(resolvedProvider.maxChars))
     : TTS_MAX_CHARS);
-  if (!content) throw new Error('没有可播报的内容');
+  if (!content) throw new Error(tActive('error.tts.emptyContent'));
   if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };  const token = await resolveToken(resolvedProvider, config, { signal }).catch(error => {
     if (error && error.name === 'AbortError') throw error;
     // 令牌拿不到还发空令牌请求，只会得到难懂的 401/403：直接抛清楚原因。
-    throw new Error(error && error.message ? error.message : '令牌获取失败');
+    throw new Error(error && error.message ? error.message : tActive('error.tts.tokenFailed'));
   });
   const request = buildTtsRequest(resolvedProvider, config, content, token);
-  if (!request) throw new Error('播报服务未配置接口地址');
+  if (!request) throw new Error(tActive('error.tts.notConfigured'));
   const response = resolvedProvider.response || {};
   const audio = await xhrAudio({
     ...request,
@@ -486,10 +487,10 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
     if (isSystemProvider(resolvedProvider)) {
       const speech = getSpeechModule();
       if (!speech || typeof speech.speak !== 'function') {
-        throw new Error('当前设备不支持系统语音合成');
+        throw new Error(tActive('error.tts.systemTtsUnsupported'));
       }
       const content = truncateText(text);
-      if (!content) throw new Error('没有可播报的内容');
+      if (!content) throw new Error(tActive('error.tts.emptyContent'));
       const options = {};
       if (config.voice) options.voice = config.voice;
       const speed = Number(config.speed);
@@ -509,7 +510,7 @@ export async function speak({ provider, config = {}, text, onDone, onError }) {
     if (token !== speakGeneration) return;
     const audio = getAudioModule();
     if (!audio || typeof audio.createAudioPlayer !== 'function') {
-      throw new Error('当前设备不支持音频播放');
+      throw new Error(tActive('error.tts.audioPlaybackUnsupported'));
     }
     const uri = `data:${result.mime || 'audio/mp3'};base64,${result.base64}`;
     const player = audio.createAudioPlayer({ uri });

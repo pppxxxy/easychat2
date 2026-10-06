@@ -1,3 +1,5 @@
+import { tActive } from '../i18n/index.js';
+
 export const REGEX_PLACEMENT = {
   USER_INPUT: 1,
   AI_OUTPUT: 2,
@@ -142,7 +144,7 @@ export function compileRegex(findRegex, flags = 'g') {
       pattern = pattern.slice(1, delimiter);
     }
   }
-  if (pattern.length === 0) throw new Error('匹配表达式不能为空。');
+  if (pattern.length === 0) throw new Error(tActive('error.regex.emptyPattern'));
   return new RegExp(pattern, effectiveFlags);
 }
 

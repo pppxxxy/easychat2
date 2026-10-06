@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { tActive } from '../i18n/index.js';
 
 const COMMENTS_PREFIX = '@easychat2_music_comments';
 const COMMENTS_MAX = 50;
@@ -62,9 +63,9 @@ export function getMusicComments(songId) {
 export function appendMusicComment(songId, comment) {
   const targetId = String(songId || '');
   return commentsMutation.enqueue(async () => {
-    if (!targetId) throw new Error('评论信息不完整');
+    if (!targetId) throw new Error(tActive('error.comments.incomplete'));
     const normalized = normalizeMusicComment(comment);
-    if (!normalized.id || !normalized.text) throw new Error('评论信息不完整');
+    if (!normalized.id || !normalized.text) throw new Error(tActive('error.comments.incomplete'));
     const existing = await readCommentListStatus(targetId);
     if (existing.some(entry => entry.id === normalized.id)) return existing;
     const next = [...existing, normalized].slice(-COMMENTS_MAX);

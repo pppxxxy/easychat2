@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 
@@ -65,7 +67,8 @@ test('useChatSend：发送时复检 + includeVideo 标记 + 视频独立数量�
     SEND.includes("&& String(current.protocol || 'openai') === 'openai';"),
     '发送侧门控：按模型能力 + 协议限定'
   );
-  assert.ok(SEND.includes("if (!videoEnabled) {\n        Alert.alert('不支持看视频'"), '发送时复检，未支持直接拒绝');
+  assert.ok(SEND.includes("if (!videoEnabled) {\n        Alert.alert(tRef.current('chat.send.noVideo.title')"), '发送时复检，未支持直接拒绝（走 i18n 键）');
+  assert.equal(zhCN['chat.send.noVideo.title'], '不支持看视频', '语言包中文值正确');
   assert.ok(SEND.includes("imageMessages.push({ ...videoMessage, dataUri, includeVideo: videoEnabled });"),
     '视频消息带 includeVideo 标记（管道按它裁剪）');
   assert.ok(SEND.includes('MAX_VIDEO_ATTACHMENTS') && SEND.includes('validateVideoSize'), '数量与大小校验复用附件层');

@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { assignStableCharacterIds } from '../context/characterIdentity.js';
 import { normalizeCharacterPresets } from '../character/characterPresets.js';
+import { tActive } from '../i18n/index.js';
 import { readJsonStatus, utf8ByteLength } from './io.js';
 
 const CHARACTER_KEY = '@easychat2_character';
@@ -535,7 +536,7 @@ export async function getCharacterLibrary() {
 
 export async function saveCharacterLibrary(list) {
   if (characterLibraryWriteBlocked) {
-    throw new Error('角色库仍在恢复中，请稍后重试。');
+    throw new Error(tActive('error.storage.characterLibraryRecovering'));
   }
   const { list: ensured } = ensureDefaultCharacter(list);
   const next = sortCharacters(ensured);
@@ -570,7 +571,7 @@ function characterEditDraftKey(id) {
 
 export async function saveCharacterEditDraft(characterId, formState, characterSignature = '') {
   const id = String(characterId || '');
-  if (!id) throw new Error('草稿缺少角色 id');
+  if (!id) throw new Error(tActive('error.storage.draftMissingCharacterId'));
   await AsyncStorage.setItem(characterEditDraftKey(id), JSON.stringify({
     formState,
     characterSignature: String(characterSignature || ''),

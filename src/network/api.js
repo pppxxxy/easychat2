@@ -10,6 +10,7 @@ import {
   parseProtocolError,
   parseStreamPayload,
 } from '../apiProtocols.js';
+import { tActive } from '../i18n/index.js';
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
 // 用同一个 30s 阈值会误报“请求超时”。
@@ -19,7 +20,15 @@ const IDLE_TIMEOUT_MS = 30000;
 // 接口没有返回内容时的占位文本。调用方可用它区分“真的没回复”，
 // 避免把这段占位当成角色的真实回复（例如写入动态评论）。
 export const EMPTY_REPLY_TEXT = '没有收到回复。';
+// 旧版哨兵文案：isConfigChangedError 仍兼容匹配它（老会话/旧调用方抛出的实例）。
 export const CONFIG_CHANGED_ERROR = '模型来源已切换，请重新发送';
+
+// 配置指纹变化时中止在途请求：文案走 i18n，分类判定改看 code，不再依赖文案相等。
+function configChangedError() {
+  const error = new Error(tActive('error.api.configChanged'));
+  error.code = 'CONFIG_CHANGED';
+  return error;
+}
 
 function fingerprint(value) {
   let hash = 2166136261;
@@ -52,7 +61,7 @@ export function getConfigFingerprint(config) {
 }
 
 export function isConfigChangedError(error) {
-  return !!error && error.message === CONFIG_CHANGED_ERROR;
+  return !!error && (error.code === 'CONFIG_CHANGED' || error.message === CONFIG_CHANGED_ERROR);
 }
 
 export function buildThinkingParams(config, settings) {
@@ -152,7 +161,7 @@ async function resolveChatConfig(options = {}) {
   const { configs } = await getApiConfigs();
   const config = (Array.isArray(configs) ? configs : []).find(item => item.id === configId);
   if (!config) {
-    throw new Error('所选 API 配置不存在，请重新选择。');
+    throw new Error(tActive('error.api.configNotFound'));
   }
   const model = String((options && options.model) || '').trim();
   return model ? { ...config, activeModel: model } : config;
@@ -173,17 +182,17 @@ export async function streamChatCompletion(messages, options = {}) {
   }
   const config = await resolveChatConfig(options);
   if (!config) {
-    throw new Error(CONFIG_CHANGED_ERROR);
+    throw configChangedError();
   }
   if (options && options.expectedConfigId && config.id !== options.expectedConfigId) {
-    throw new Error(CONFIG_CHANGED_ERROR);
+    throw configChangedError();
   }
   if (
     options
     && options.expectedConfigFingerprint
     && getConfigFingerprint(config) !== options.expectedConfigFingerprint
   ) {
-    throw new Error(CONFIG_CHANGED_ERROR);
+    throw configChangedError();
   }
   if (signal && signal.aborted) {
     throw createAbortError();
@@ -191,23 +200,23 @@ export async function streamChatCompletion(messages, options = {}) {
   // 登记当前密钥：报错文本可能带出裸 Key，脱敏时才能按真实值兜住
   registerSecretValues([config.apiKey]);
   if (!config.apiKey) {
-    throw new Error('请先在“设置”里填写 API Key。');
+    throw new Error(tActive('error.api.apiKeyMissing'));
   }
   if (!String(config.baseUrl || '').trim()) {
-    throw new Error('请先在“设置 → API 配置”里填写 API 地址。');
+    throw new Error(tActive('error.api.baseUrlMissing'));
   }
   const model = getActiveModel(config);
   const hasModel = (Array.isArray(config.models) && config.models.length > 0)
     || String(config.activeModel || '').trim()
     || String(config.model || '').trim();
   if (!hasModel) {
-    throw new Error('请先在“设置 → API 配置”里添加并选择模型。');
+    throw new Error(tActive('error.api.modelMissing'));
   }
   const protocol = normalizeProtocol(config.protocol);
 
   const url = normalizeProtocolUrl(protocol, config.baseUrl);
   if (!/^https?:\/\/[^/\s]+/i.test(url)) {
-    throw new Error('请填写有效的 HTTP(S) API 地址。');
+    throw new Error(tActive('error.api.invalidUrl'));
   }
   const thinkingSettings = await getThinkingSettings().catch(() => null);
   const thinkingParams = buildThinkingParams(config, thinkingSettings);
@@ -231,7 +240,7 @@ export async function streamChatCompletion(messages, options = {}) {
         && getConfigFingerprint(latestConfig) !== options.expectedConfigFingerprint
       )
     ) {
-      throw new Error(CONFIG_CHANGED_ERROR);
+      throw configChangedError();
     }
   }
 
@@ -312,7 +321,7 @@ export async function streamChatCompletion(messages, options = {}) {
           && getConfigFingerprint(latestConfig) !== options.expectedConfigFingerprint
         )
       ) {
-        throw new Error(CONFIG_CHANGED_ERROR);
+        throw configChangedError();
       }
     };
     const finishWithConfig = callback => {

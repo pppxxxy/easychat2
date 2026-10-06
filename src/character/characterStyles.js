@@ -7,9 +7,67 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   flex: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
   pageHeader: { marginTop: 4, marginBottom: 14 },
+  // 详情页顶部返回入口（角色库 ⇄ 角色详情拆成原生栈之后新增）
+  detailBackRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 6, marginBottom: 2 },
+  detailBackText: { color: theme.colors.primarySoft, fontSize: 13, fontWeight: '700', marginLeft: 2 },
+  // 详情页分段控件：横向 chips，沿用设置页 chips 的视觉语言（不引第三方库）。
+  segmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  segmentChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  segmentChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  segmentChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
+  segmentChipTextActive: { color: theme.colors.primaryContrast },
+  // 分段内区块：标题右侧计数、区块说明、底部「添加」条（替代原折叠区的加号）
+  sectionCount: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 6 },
+  cardHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 6, marginBottom: 4 },
+  addEntryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
+    borderRadius: tokens.radius.md,
+    paddingVertical: 9,
+    marginTop: 10,
+  },
+  addEntryText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 5 },
   title: { color: theme.colors.text, fontSize: 24, fontWeight: '800', marginBottom: 6 },
   hint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: 19 },
   aigcBadge: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', marginTop: 2 },
+  // 页头「当前：名字」pill：卡片上不再用文字角标标当前角色，全名挪到这里。
+  currentPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: tokens.radius.pill,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
+    backgroundColor: theme.colors.primaryAlpha(0.1),
+    maxWidth: '100%',
+  },
+  currentPillDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: theme.colors.primarySoft,
+    marginRight: 6,
+  },
+  currentPillText: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', flexShrink: 1 },
 
   cardHeader: {
     flexDirection: 'row',
@@ -350,6 +408,8 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     justifyContent: 'space-between',
     marginTop: 4,
   },
+  // FlatList numColumns=2 的行容器：两列均分（卡片自身 width:48% + 间距）。
+  characterRow: { justifyContent: 'space-between' },
   characterCard: {
     width: '48%',
     backgroundColor: theme.colors.surface,
@@ -365,9 +425,10 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     borderWidth: tokens.border.thick,
     backgroundColor: theme.colors.primaryAlpha(0.06),
   },
+  // 封面改竖版 3:4：比 1:1 方图更像「卡」，也给名称留出叠字空间。
   characterCardImageWrap: {
     width: '100%',
-    aspectRatio: 1,
+    aspectRatio: 3 / 4,
     backgroundColor: theme.colors.surfaceBorder,
   },
   characterCardImage: { width: '100%', height: '100%' },
@@ -378,6 +439,11 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     justifyContent: 'center',
     backgroundColor: theme.colors.primaryAlpha(0.18),
   },
+  // 无头像时的两段式铺底（浅→深），替代渐变库；纯 View 叠层，不新增依赖。
+  characterCardFallbackDeep: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: theme.colors.primaryAlpha(0.06),
+  },
   characterCardFallbackText: {
     color: theme.colors.primarySoft,
     fontSize: 34,
@@ -385,6 +451,60 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     textShadowColor: theme.colors.primaryAlpha(0.4),
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
+  },
+  // 名称叠在封面底部：两段式遮罩保证任何头像上文字都可读（不引渐变库）。
+  characterCardScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '45%',
+    backgroundColor: 'rgba(12,12,24,0.12)',
+  },
+  characterCardScrimDeep: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '24%',
+    backgroundColor: 'rgba(12,12,24,0.5)',
+  },
+  characterCardNameOverlay: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  characterCardName: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    flexShrink: 1,
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  // 「当前」由文字角标改为卡面上的实心圆点（与 2px 描边同色，成套出现）。
+  characterCardCurrentDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: theme.colors.primarySoft,
+    marginRight: 6,
+  },
+  // 群聊角标：左上小圆点 + 人群图标（与角色卡同构但可区分）。
+  characterCardGroupBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   characterCardBadge: {
     position: 'absolute',

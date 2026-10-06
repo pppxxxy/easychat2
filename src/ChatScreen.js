@@ -107,6 +107,7 @@ import {
 } from './vectorMemory/index.js';
 import { getVectorOwnerId } from './vectorMemory/scope.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
 import ModelLogsModal from './localModel/ModelLogsModal.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
@@ -173,6 +174,7 @@ const COMPACT_COMMAND_PATTERN = /^\/?compact$/i;
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const scrollRef = useRef(null);
   const errorRawRef = useRef({});
@@ -247,8 +249,8 @@ export default function ChatScreen() {
     const memberNames = (session.members || [])
       .map(id => (map.get(id) || {}).name)
       .filter(Boolean);
-    return String(session.name || '').trim() || memberNames.join('、') || '群聊';
-  }, [characterMap]);
+    return String(session.name || '').trim() || memberNames.join('、') || t('common.groupChat');
+  }, [characterMap, t]);
   const isGroupRef = useRef(isGroup);
   isGroupRef.current = isGroup;
   const summarizingRef = useRef(false);
@@ -824,7 +826,7 @@ export default function ChatScreen() {
       ? selectManualSummarizable(list, session.summarizedUpTo)
       : selectSummarizable(list, session.summarizedUpTo);
     if (picked.length === 0) {
-      if (manual) Alert.alert('无法总结', '当前没有新的可总结消息。');
+      if (manual) Alert.alert(t('chat.summary.unavailable.title'), t('chat.summary.unavailable.none'));
       return;
     }
     summarizingRef.current = true;
@@ -882,20 +884,20 @@ export default function ChatScreen() {
         });
       await refreshSessions().catch(() => {});
       if (result.skipped) {
-        if (manual) Alert.alert('总结完成', '本轮没有提取出可保存的新记忆。');
+        if (manual) Alert.alert(t('chat.summary.done.title'), t('chat.summary.done.empty'));
         return;
       }
       if (manual) {
         Alert.alert(
-          '已完成',
+          t('chat.summary.saved.title'),
           result.scoped
-            ? '记忆已压缩为本会话上下文，不再写入世界书。'
-            : '记忆总结已写入角色世界书。'
+            ? t('chat.summary.saved.scoped')
+            : t('chat.summary.saved.worldbook')
         );
       }
     } catch (error) {
       if (manual) {
-        Alert.alert('记忆总结失败', '请稍后重试。');
+        Alert.alert(t('chat.summary.fail.title'), t('common.error.retryLater'));
       } else if (__DEV__) {
         console.warn('[memorySummary] automatic summary failed', error);
       }
@@ -903,7 +905,7 @@ export default function ChatScreen() {
       summarizingRef.current = false;
       setSummarizing(false);
     }
-  }, [character, characters, updateCharacter, refreshSessions]);
+  }, [character, characters, updateCharacter, refreshSessions, t]);
 
   const maybeAutoSummarize = useCallback(async list => {
     if (summarizingRef.current) return;
@@ -948,54 +950,54 @@ export default function ChatScreen() {
   const onSummarize = useCallback(() => {
     if (summarizingRef.current || isSending || !ready) return;
     if (isGroupRef.current) {
-      Alert.alert('群聊暂不支持', '记忆总结仅适用于单聊会话。');
+      Alert.alert(t('chat.summary.groupUnsupported.title'), t('chat.summary.groupUnsupported.body'));
       return;
     }
     const session = sessionsRef.current.find(
       item => item.id === activeSessionIdRef.current
     );
     if (!session) {
-      Alert.alert('无法总结', '当前没有可总结的会话。');
+      Alert.alert(t('chat.summary.unavailable.title'), t('chat.summary.noSession'));
       return;
     }
     const picked = selectManualSummarizable(messages, session.summarizedUpTo);
     if (picked.length === 0) {
-      Alert.alert('无法总结', '当前没有新的可总结消息。');
+      Alert.alert(t('chat.summary.unavailable.title'), t('chat.summary.unavailable.none'));
       return;
     }
     Alert.alert(
-      '开始记忆总结？',
-      `将总结当前会话的 ${picked.length} 条消息，本次操作不受自动开关和阈值限制。`,
+      t('chat.summary.confirm.title'),
+      t('chat.summary.confirm.body', { count: picked.length }),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '开始总结',
+          text: t('chat.summary.confirm.action'),
           onPress: () => runSummarize(session, messages, true),
         },
       ]
     );
-  }, [isSending, ready, messages, runSummarize]);
+  }, [isSending, ready, messages, runSummarize, t]);
 
   // compact 指令：显式输入即代表意图，不再弹确认；runSummarize(manual) 自带
   // 「已完成/失败/无可总结」提示与并发保护。
   const runCompactCommand = useCallback(async () => {
     if (summarizingRef.current) {
-      Alert.alert('正在压缩', '上一次压缩还没有完成，请稍候。');
+      Alert.alert(t('chat.compact.busy.title'), t('chat.compact.busy.body'));
       return;
     }
     if (isGroupRef.current) {
-      Alert.alert('群聊暂不支持', '压缩仅适用于单聊会话。');
+      Alert.alert(t('chat.summary.groupUnsupported.title'), t('chat.compact.groupUnsupported.body'));
       return;
     }
     const session = sessionsRef.current.find(
       item => item.id === activeSessionIdRef.current
     );
     if (!session) {
-      Alert.alert('无法压缩', '当前没有可压缩的会话。');
+      Alert.alert(t('chat.compact.noSession.title'), t('chat.compact.noSession.body'));
       return;
     }
     await runSummarize(session, messagesRef.current, true);
-  }, [runSummarize]);
+  }, [runSummarize, t]);
 
   const buildAssistantReply = useCallback(replyText => {
     const list = Array.isArray(stickersRef.current) ? stickersRef.current : [];
@@ -1122,12 +1124,12 @@ export default function ChatScreen() {
     const isUserMessage = message.role === USER_ID;
     const speakerName = String(message.speakerName || '').trim();
     const name = isUserMessage
-      ? (userNameRef.current || '我')
+      ? (userNameRef.current || t('chat.quote.meFallback'))
       : (speakerName || String(character?.name || '').trim());
     const payload = buildQuotePayload(message, name);
     if (!payload) return;
     setQuoteTarget(payload);
-  }, [character]);
+  }, [character, t]);
 
   const onPressQuoteBlock = useCallback(quote => {
     if (!quote || !quote.id) return;
@@ -1136,12 +1138,12 @@ export default function ChatScreen() {
     // 每 token 全量重渲染并重跑 Markdown 解析。
     const exists = messagesRef.current.some(item => item.id === quote.id);
     if (!exists) {
-      Alert.alert('原消息已删除', '无法定位到被引用的消息。');
+      Alert.alert(t('chat.quote.deleted.title'), t('chat.quote.deleted.body'));
       return;
     }
     setFocusedMessageId(quote.id);
     scrollToMessage(quote.id);
-  }, [scrollToMessage]);
+  }, [scrollToMessage, t]);
 
   const startMessageSelection = useCallback(messageId => {
     if (!messageId || !ready || isSending) return;
@@ -1197,14 +1199,14 @@ export default function ChatScreen() {
     // 仍能得到与清空一致的收尾。
     const clearsAll = messagesRef.current.length > 0 && messagesAfter.length === 0;
     Alert.alert(
-      '删除消息',
+      t('chat.deleteMessages.title'),
       clearsAll
-        ? `确定删除全部 ${ids.length} 条消息吗？这会同时重置本会话的开场白与记忆摘要。`
-        : `确定删除选中的 ${ids.length} 条消息吗？`,
+        ? t('chat.deleteMessages.allBody', { count: ids.length })
+        : t('chat.deleteMessages.body', { count: ids.length }),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '删除',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             if (
@@ -1231,7 +1233,7 @@ export default function ChatScreen() {
                 });
               }
             } catch (error) {
-              Alert.alert('删除失败', '总结数据未能同步，请稍后重试。');
+              Alert.alert(t('common.error.deleteFailed'), t('chat.deleteMessages.syncFail.body'));
               return;
             }
             if (
@@ -1278,7 +1280,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [character, characterId, characters, isSending, persistDraftNow, ready, refreshSessions, removeVectorIndexForMessages, removeVectorIndexForSession, selectedMessageIds, setSessionGreetingSelected, updateCharacter]);
+  }, [character, characterId, characters, isSending, persistDraftNow, ready, refreshSessions, removeVectorIndexForMessages, removeVectorIndexForSession, selectedMessageIds, setSessionGreetingSelected, t, updateCharacter]);
 
   // 生成配图用的场景描述：取回复对应位置的段落，交给模型转写成一句画面描述。
   // 转写失败（无配置 / 请求错误 / 空结果）时回退用该段原文，保证配图流程不中断。
@@ -1328,13 +1330,13 @@ export default function ChatScreen() {
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
-      Alert.alert('配图生成中', '请稍后重试。');
+      Alert.alert(t('chat.inlineImage.busy.title'), t('common.error.retryLater'));
       return;
     }
     const settings = inlineImageSettings;
     const providerId = settings.providerId || '';
     if (!providerId) {
-      Alert.alert('未配置生图服务', '请到「设置 → 对话配图」选择生图服务并填写密钥。');
+      Alert.alert(t('chat.inlineImage.noProvider.title'), t('chat.inlineImage.noProvider.pick'));
       return;
     }
     const provider = getImageProvider(providerId);
@@ -1347,7 +1349,7 @@ export default function ChatScreen() {
       genConfig = null;
     }
     if (!genConfig || !String(genConfig.baseUrl || provider.baseUrl || '').trim()) {
-      Alert.alert('未配置生图服务', '请到「设置 → 对话配图」填写服务地址与密钥。');
+      Alert.alert(t('chat.inlineImage.noProvider.title'), t('chat.inlineImage.noProvider.config'));
       return;
     }
 
@@ -1374,7 +1376,7 @@ export default function ChatScreen() {
         settings.maxPromptChars
       );
       if (!prompt) {
-        throw new Error('没有可用的配图提示词');
+        throw new Error(t('chat.inlineImage.noPrompt'));
       }
       const response = await generateImage({
         provider,
@@ -1390,7 +1392,7 @@ export default function ChatScreen() {
         item.id === messageId
           ? {
             ...item,
-            inlineImage: first ? { status: 'done', ...first } : { status: 'error', message: '未获取到图片' },
+            inlineImage: first ? { status: 'done', ...first } : { status: 'error', message: t('chat.inlineImage.noImage') },
           }
           : item
       )));
@@ -1398,7 +1400,7 @@ export default function ChatScreen() {
        if (!controller.signal.aborted && activeSessionIdRef.current === sessionId) {
          setMessages(current => current.map(item => (
            item.id === messageId
-             ? { ...item, inlineImage: { status: 'error', message: (error && error.message) || '配图生成失败' } }
+             ? { ...item, inlineImage: { status: 'error', message: (error && error.message) || t('chat.inlineImage.fail') } }
              : item
          )));
        }
@@ -1409,7 +1411,7 @@ export default function ChatScreen() {
        }
 
     }
-  }, [inlineImageSettings, resolveInlineImageScene]);
+  }, [inlineImageSettings, resolveInlineImageScene, t]);
 
   // 角色语音形态（需求 5）：回复 settle 后按角色卡 voiceDisplay 合成语音并挂到消息。
   // 合成由 useChatTts.synthesizeVoice 完成（失败静默返回 null，降级仅文字）。
@@ -1439,7 +1441,7 @@ export default function ChatScreen() {
       if (result && typeof result.catch === 'function') {
         result.catch(error => {
           if (!isConfigChangedError(error)) {
-            Alert.alert('发送失败', maskSecrets((error && error.message) || '请稍后重试。'));
+            Alert.alert(t('chat.send.fail.title'), maskSecrets((error && error.message) || t('common.error.retryLater')));
           }
         });
       }
@@ -1449,14 +1451,14 @@ export default function ChatScreen() {
       return;
     }
     Alert.alert(
-      '确认卡片操作',
-      `将发送：${maskSecrets(String(command || '').slice(0, 500))}`,
+      t('chat.cardCommand.title'),
+      t('chat.cardCommand.body', { command: maskSecrets(String(command || '').slice(0, 500)) }),
       [
-        { text: '取消', style: 'cancel' },
-        { text: '发送', onPress: execute },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('chat.send.action'), onPress: execute },
       ],
     );
-  }, []);
+  }, [t]);
 
   const removeAttachment = useCallback(id => {
      if (isSending || sendLockRef.current) return;
@@ -1499,8 +1501,8 @@ export default function ChatScreen() {
             : await pickAttachment();
       if (picked && picked.denied) {
         Alert.alert(
-          '需要相机权限',
-          '拍照或拍摄视频需要访问相机。请在系统「设置 → 应用 → EasyChat2 → 权限」中开启相机权限后重试。'
+          t('chat.attach.cameraPerm.title'),
+          t('chat.attach.cameraPerm.body')
         );
         return;
       }
@@ -1512,7 +1514,7 @@ export default function ChatScreen() {
       if (kind === 'text') {
         if (!isTextLike(picked.name, picked.mime)) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('不支持的文件', '当前仅支持纯文本类文档。');
+          Alert.alert(t('chat.attach.unsupported.title'), t('chat.attach.unsupported.textOnly'));
           return;
         }
         const text = await readTextAttachment(picked.uri);
@@ -1537,7 +1539,7 @@ export default function ChatScreen() {
       if (kind === 'video' || kind === 'video-camera') {
         if (!isVideo(picked.name, picked.mime)) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('不支持的文件', '请选择视频文件。');
+          Alert.alert(t('chat.attach.unsupported.title'), t('chat.attach.unsupported.videoOnly'));
           return;
         }
         const fileInfo = await getImageFileInfo(picked.uri);
@@ -1547,23 +1549,23 @@ export default function ChatScreen() {
         }
         if (!fileInfo.exists) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('视频已失效', '这条视频的文件已不存在，请重新选择视频。');
+          Alert.alert(t('chat.attach.video.invalid.title'), t('chat.attach.video.invalid.body'));
           return;
         }
         const size = fileInfo.size || picked.size;
         if (!(Number(size) > 0)) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('视频读取失败', '无法读取视频大小，请重新选择视频。');
+          Alert.alert(t('chat.attach.video.readFail.title'), t('chat.attach.video.readFail.body'));
           return;
         }
         if (Number(size) > MAX_VIDEO_BYTES) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('视频过大', `视频需小于 ${Math.round(MAX_VIDEO_BYTES / (1024 * 1024))}MB，请选择更短的视频。`);
+          Alert.alert(t('chat.attach.video.tooLarge.title'), t('chat.attach.video.tooLarge.body', { size: Math.round(MAX_VIDEO_BYTES / (1024 * 1024)) }));
           return;
         }
         if (attachmentsRef.current.filter(item => item.kind === 'video').length >= MAX_VIDEO_ATTACHMENTS) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('视频过多', `一次最多添加 ${MAX_VIDEO_ATTACHMENTS} 条视频。`);
+          Alert.alert(t('chat.attach.video.tooMany.title'), t('chat.attach.video.tooMany.body', { count: MAX_VIDEO_ATTACHMENTS }));
           return;
         }
         const { configs, activeId } = await getApiConfigs();
@@ -1576,7 +1578,7 @@ export default function ChatScreen() {
           && String(current.protocol || 'openai') === 'openai';
         if (!videoAllowed) {
           deleteTemporaryImage(picked.uri);
-          Alert.alert('不支持看视频', '当前来源未标记为支持看视频（且需 OpenAI 兼容协议），请在设置中确认模型能力。');
+          Alert.alert(t('chat.attach.video.unsupported.title'), t('chat.attach.video.unsupported.body'));
           return;
         }
         durableUri = await persistVideoAttachment(picked.uri, picked.mime, picked.name);
@@ -1610,12 +1612,12 @@ export default function ChatScreen() {
       }
        if (!isImage(picked.name, picked.mime)) {
          deleteTemporaryImage(picked.uri);
-         Alert.alert('不支持的文件', '请选择图片文件。');
+         Alert.alert(t('chat.attach.unsupported.title'), t('chat.attach.unsupported.imageOnly'));
          return;
        }
        if (!isVisionImage(picked.name, picked.mime)) {
          deleteTemporaryImage(picked.uri);
-         Alert.alert('不支持的图片格式', '请选择 PNG、JPEG、WebP 或 GIF 图片。');
+         Alert.alert(t('chat.attach.imageFormat.title'), t('chat.attach.imageFormat.body'));
          return;
        }
        const fileInfo = await getImageFileInfo(picked.uri);
@@ -1623,7 +1625,7 @@ export default function ChatScreen() {
         deleteTemporaryImage(picked.uri);
         return;
       }
-      if (!fileInfo.exists) throw new Error('图片不存在');
+      if (!fileInfo.exists) throw new Error(t('chat.attach.imageMissing'));
       const size = fileInfo.size || picked.size;
       validateImageSize({ size });
       if (isSending || isSwitching || sendLockRef.current) {
@@ -1640,7 +1642,7 @@ export default function ChatScreen() {
       validateImageSize({ size, width: dimensions.width, height: dimensions.height });
       if (attachmentsRef.current.filter(item => item.kind === 'image').length >= MAX_IMAGE_ATTACHMENTS) {
         deleteTemporaryImage(picked.uri);
-        Alert.alert('图片过多', `一次最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+        Alert.alert(t('chat.attach.image.tooMany.title'), t('chat.attach.image.tooMany.body', { count: MAX_IMAGE_ATTACHMENTS }));
         return;
       }
       const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
@@ -1653,7 +1655,7 @@ export default function ChatScreen() {
       const imageCaps = current ? capabilitiesForModel(current, getActiveModel(current)) : null;
       if (!(imageCaps && imageCaps.supportsVision === true) && !localMedia.vision) {
         deleteTemporaryImage(picked.uri);
-        Alert.alert('不支持识图', '当前模型未标记为支持识图，请在设置中确认该模型的能力。');
+        Alert.alert(t('chat.attach.visionUnsupported.title'), t('chat.attach.visionUnsupported.body'));
         return;
       }
       if (!isSessionGuardCurrent(sessionGuard) || isSending || isSwitching || sessionTransitionPending || sendLockRef.current) {
@@ -1696,22 +1698,22 @@ export default function ChatScreen() {
       if (picked && picked.uri) deleteTemporaryImage(picked.uri);
       if (error && error.code === 'ENCODING') {
         Alert.alert(
-          '无法识别文件编码',
-          '请确认文件为 UTF-8、UTF-16、GBK 或 BIG5 编码的纯文本文件。'
+          t('chat.attach.encoding.title'),
+          t('chat.attach.encoding.body')
         );
       } else {
         Alert.alert(
-          '文件读取失败',
+          t('chat.attach.readFail.title'),
           ['文件过大', '图片过大', '图片分辨率过大', '图片总大小过大'].includes(error && error.message)
-            ? '文件过大，请选择更小的文件。'
-            : '请重试。'
+            ? t('chat.attach.readFail.tooLarge')
+            : t('common.error.retry')
         );
       }
      } finally {
        attachmentPickerLockRef.current = false;
        setAttachmentLoading(false);
      }
-   }, [attachmentLoading, captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sessionTransitionPending, syncProtectedAttachmentUris]);
+   }, [attachmentLoading, captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sessionTransitionPending, syncProtectedAttachmentUris, t]);
 
   const pickAttachmentMenu = useCallback(() => {
     setAttachmentMenuOpen(true);
@@ -1742,10 +1744,10 @@ export default function ChatScreen() {
     const sessionId = activeSessionIdRef.current;
     const sessionVersion = sessionVersionRef.current;
     const session = sessionsRef.current.find(item => item.id === sessionId);
-    Alert.alert('删除图片消息', '确定删除这张图片消息吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('chat.deleteImage.title'), t('chat.deleteImage.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           if (
@@ -1765,14 +1767,14 @@ export default function ChatScreen() {
         },
       },
     ]);
-  }, [characterId, removeVectorIndexForMessage]);
+  }, [characterId, removeVectorIndexForMessage, t]);
 
   const confirmStickerName = useCallback(async () => {
     if (stickerSaveLockRef.current) return;
     const source = stickerNamePrompt;
     const name = String(stickerNameDraft || '').trim();
      if (!source || !name) {
-       if (source) Alert.alert('请输入名称', '表情包需要一个名称，方便模型理解。');
+       if (source) Alert.alert(t('chat.sticker.nameRequired.title'), t('chat.sticker.nameRequired.body'));
        return;
      }
      if (
@@ -1817,13 +1819,13 @@ export default function ChatScreen() {
        sourceConsumed = true;
     } catch (error) {
       if (processedUri) deleteStickerImage(processedUri);
-      Alert.alert('保存表情包失败', (error && error.message) || '请稍后重试。');
+      Alert.alert(t('chat.sticker.saveFail.title'), (error && error.message) || t('common.error.retryLater'));
      } finally {
        if (sourceConsumed && source && source.uri) deleteTemporaryImage(source.uri);
        stickerSaveLockRef.current = false;
        setStickerSaving(false);
      }
-  }, [deleteStickerImage, deleteTemporaryImage, saveSticker, stickerNameDraft, stickerNamePrompt]);
+  }, [deleteStickerImage, deleteTemporaryImage, saveSticker, stickerNameDraft, stickerNamePrompt, t]);
 
   const addStickerFromPicker = useCallback(async () => {
     const sessionGuard = captureSessionGuard();
@@ -1843,7 +1845,7 @@ export default function ChatScreen() {
        }
       if (!isImage(picked.name, picked.mime)) {
         deleteTemporaryImage(picked.uri);
-        Alert.alert('不支持的文件', '请选择一张图片。');
+        Alert.alert(t('chat.attach.unsupported.title'), t('chat.attach.unsupported.pickImage'));
         return;
       }
       const fileInfo = await getImageFileInfo(picked.uri);
@@ -1851,7 +1853,7 @@ export default function ChatScreen() {
         deleteTemporaryImage(picked.uri);
         return;
       }
-      if (!fileInfo.exists) throw new Error('图片不存在');
+      if (!fileInfo.exists) throw new Error(t('chat.attach.imageMissing'));
       const size = fileInfo.size || picked.size;
       validateImageSize({ size });
       const dimensions = picked.width && picked.height
@@ -1872,11 +1874,11 @@ export default function ChatScreen() {
       });
     } catch (error) {
       if (picked && picked.uri) deleteTemporaryImage(picked.uri);
-      Alert.alert('选择图片失败', (error && error.message) || '请重试。');
+      Alert.alert(t('chat.pickImage.fail.title'), (error && error.message) || t('common.error.retry'));
     } finally {
       stickerPickerLockRef.current = false;
     }
-  }, [captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, openStickerNamePrompt, sessionTransitionPending, stickerSaving]);
+  }, [captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, openStickerNamePrompt, sessionTransitionPending, stickerSaving, t]);
 
   useEffect(() => {
     if (!ready || stickerSaving || stickerNamePrompt || stickerPickerLockRef.current) return undefined;
@@ -1897,7 +1899,7 @@ export default function ChatScreen() {
           return;
         }
         const fileInfo = await getImageFileInfo(picked.uri);
-        if (!fileInfo.exists) throw new Error('图片不存在');
+        if (!fileInfo.exists) throw new Error(t('chat.attach.imageMissing'));
         const size = fileInfo.size || picked.size;
         validateImageSize({ size });
         const dimensions = picked.width && picked.height
@@ -1922,7 +1924,7 @@ export default function ChatScreen() {
        });
      })().catch(error => {
        if (picked && picked.uri) deleteTemporaryImage(picked.uri);
-       if (!cancelled) Alert.alert('选择图片失败', (error && error.message) || '请重试。');
+       if (!cancelled) Alert.alert(t('chat.pickImage.fail.title'), (error && error.message) || t('common.error.retry'));
      }).finally(() => {
       stickerPickerLockRef.current = false;
     });
@@ -1930,36 +1932,36 @@ export default function ChatScreen() {
       cancelled = true;
       stickerPickerLockRef.current = false;
     };
-  }, [captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, openStickerNamePrompt, ready, sessionTransitionPending, stickerNamePrompt, stickerSaving]);
+  }, [captureSessionGuard, deleteTemporaryImage, isSending, isSessionGuardCurrent, isSwitching, openStickerNamePrompt, ready, sessionTransitionPending, stickerNamePrompt, stickerSaving, t]);
 
   const saveImage = useCallback(async image => {
     if (!image || !image.uri) return;
     try {
       const available = await Sharing.isAvailableAsync().catch(() => false);
-      if (!available) throw new Error('当前设备不支持保存图片');
+      if (!available) throw new Error(t('chat.saveImage.unsupported'));
       await Sharing.shareAsync(String(image.uri), {
         mimeType: String(image.mime || 'image/jpeg'),
-        dialogTitle: '保存图片',
+        dialogTitle: t('chat.saveImage.dialogTitle'),
         UTI: 'public.image',
       });
     } catch (error) {
-      Alert.alert('保存图片失败', (error && error.message) || '请稍后重试。');
+      Alert.alert(t('chat.saveImage.fail.title'), (error && error.message) || t('common.error.retryLater'));
     }
-  }, []);
+  }, [t]);
 
   const openImageActions = useCallback((image, messageId) => {
     if (!image || !image.uri) return;
     // 长按是隐藏手势，这里是媒体消息的第二入口；菜单项与气泡「⋯」保持一致
     // （含「引用」——媒体消息的引用走 buildQuotePayload 的占位文本）。
     const target = messagesRef.current.find(item => item && item.id === messageId);
-    Alert.alert('图片操作', image.stickerName ? `「${image.stickerName}」` : '选择图片操作', [
-      { text: '取消', style: 'cancel' },
-      { text: '保存', onPress: () => saveImage(image) },
-      { text: '保存为表情包', onPress: () => openStickerNamePrompt(image) },
-      ...(target ? [{ text: '引用', onPress: () => onQuoteMessage(target) }] : []),
-      { text: '删除消息', style: 'destructive', onPress: () => confirmDeleteImageMessage(messageId) },
+    Alert.alert(t('chat.imageActions.title'), image.stickerName ? t('chat.imageActions.stickerTitle', { name: image.stickerName }) : t('chat.imageActions.choose'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.save'), onPress: () => saveImage(image) },
+      { text: t('chat.imageActions.saveAsSticker'), onPress: () => openStickerNamePrompt(image) },
+      ...(target ? [{ text: t('chat.imageActions.quote'), onPress: () => onQuoteMessage(target) }] : []),
+      { text: t('chat.deleteMessages.title'), style: 'destructive', onPress: () => confirmDeleteImageMessage(messageId) },
     ]);
-  }, [confirmDeleteImageMessage, onQuoteMessage, openStickerNamePrompt, saveImage]);
+  }, [confirmDeleteImageMessage, onQuoteMessage, openStickerNamePrompt, saveImage, t]);
 
   const sendSticker = useCallback(async sticker => {
      if (!sticker || messageSelectionOpen || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
@@ -1981,9 +1983,9 @@ export default function ChatScreen() {
          setStickerPanelOpen(false);
        }
     } catch (error) {
-      Alert.alert('发送表情包失败', (error && error.message) || '请稍后重试。');
+      Alert.alert(t('chat.sticker.sendFail.title'), (error && error.message) || t('common.error.retryLater'));
     }
-  }, [captureSessionGuard, input, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending]);
+  }, [captureSessionGuard, input, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending, t]);
 
   // 把助手回复拆成 [文字消息, ...表情包消息]。表情包名称严格取自用户现有表情包，
   // 白名单外的 [[表情包:xxx]] 由 extractStickerDirectives 丢弃并保留原样。
@@ -2033,9 +2035,9 @@ export default function ChatScreen() {
     try {
       await recorder.start();
     } catch (error) {
-      Alert.alert('无法录音', maskSecrets((error && error.message) || '请检查麦克风权限。'));
+      Alert.alert(t('chat.voice.startFail.title'), maskSecrets((error && error.message) || t('chat.voice.startFail.body')));
     }
-  }, [voiceEnabled, isSending, isSwitching, messageSelectionOpen, voiceBusy, greetingReady, activeSessionId, openGreetingPicker, recorder]);
+  }, [voiceEnabled, isSending, isSwitching, messageSelectionOpen, voiceBusy, greetingReady, activeSessionId, openGreetingPicker, recorder, t]);
 
   const onCancelVoice = useCallback(async () => {
     try {
@@ -2051,7 +2053,7 @@ export default function ChatScreen() {
     try {
       audio = await recorder.stop();
     } catch (error) {
-      Alert.alert('录音失败', maskSecrets((error && error.message) || '请重试。'));
+      Alert.alert(t('chat.voice.recordFail.title'), maskSecrets((error && error.message) || t('common.error.retry')));
       setVoiceBusy(false);
       return;
     }
@@ -2074,8 +2076,8 @@ export default function ChatScreen() {
       // 无任何可用的转写来源：明确提示引导补配，本条仍按占位发送（不阻断）。
       if (target.source === 'none') {
         Alert.alert(
-          '未配置语音转写',
-          '当前聊天来源不支持转写时，可在「设置 → 语音转文字」新增独立转写配置：点厂商芯片（硅基流动 / Groq / OpenAI）一键预填端点与模型，再填入 API Key。本条语音将以占位文本发送。'
+          t('chat.voice.noTranscription.title'),
+          t('chat.voice.noTranscription.body')
         );
       }
       // 该会话已确认来源不支持转写：跳过请求，直接用占位（需求 3.5）。
@@ -2092,15 +2094,15 @@ export default function ChatScreen() {
           if (isUnsupportedTranscriptionError(error)) {
             transcriptionSupportedRef.current[guard.sessionId] = false;
             Alert.alert(
-              '当前来源不支持语音转写',
-              '可在「设置 → 语音转文字」新增独立转写配置：点厂商芯片（硅基流动 / Groq / OpenAI）一键预填，或改用支持音频的模型并在「设置 → API」打开「支持语音识别」。本条语音将以占位文本发送。'
+              t('chat.voice.unsupported.title'),
+              t('chat.voice.unsupported.body')
             );
           } else {
             // 网络类/其他失败：明确告知（角色收不到文字的根因可见），本条按占位发送。
             recordDiagnostic('api', error, 'voice-transcribe');
             Alert.alert(
-              '语音转写失败',
-              `已按占位文本发送，角色收不到语音内容。原因：${String((error && error.message) || '未知')}\n\n可到「设置 → 语音转文字」检查接口地址、密钥与模型名。`
+              t('chat.voice.transcribeFail.title'),
+              t('chat.voice.transcribeFail.body', { reason: String((error && error.message) || t('chat.voice.unknownReason')) })
             );
           }
         }
@@ -2117,7 +2119,7 @@ export default function ChatScreen() {
     } finally {
       setVoiceBusy(false);
     }
-  }, [voiceBusy, recorder, captureSessionGuard, isSessionGuardCurrent, sendMessage]);
+  }, [voiceBusy, recorder, captureSessionGuard, isSessionGuardCurrent, sendMessage, t]);
 
 
   const insertMention = useCallback(name => {
@@ -2137,8 +2139,8 @@ export default function ChatScreen() {
     : (character.bgUri || '');
   const groupAvatarUri = isGroup ? String(activeSession?.avatarUri || '') : '';
   const displayName = isGroup
-    ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || '群聊')
-    : (sessionOwnerMissing ? '角色资料缺失' : (character.name || 'EasyChat2 助手'));
+    ? (activeSession?.name || groupCharacters.map(item => item.name).join('、') || t('common.groupChat'))
+    : (sessionOwnerMissing ? t('chat.displayName.missingOwner') : (character.name || t('chat.displayName.defaultAssistant')));
   const inputDisabled = !ready || isSending || isSwitching || attachmentLoading || messageSelectionOpen || sessionOwnerMissing || sessionTransitionPending || (!isGroup && !greetingReady);
 
   const runRecordTurn = useCallback(async (userText, assistantText, sender = null) => {
@@ -2311,8 +2313,8 @@ export default function ChatScreen() {
       />
 
       {modelLoadProgress != null ? (
-        <View style={styles.modelLoadBanner} accessibilityLabel={`本地模型加载中 ${modelLoadProgress}%`}>
-          <Text style={styles.modelLoadText}>{`本地模型加载中 ${modelLoadProgress}%`}</Text>
+        <View style={styles.modelLoadBanner} accessibilityLabel={t('chat.modelLoad.progress', { progress: modelLoadProgress })}>
+          <Text style={styles.modelLoadText}>{t('chat.modelLoad.progress', { progress: modelLoadProgress })}</Text>
           <View style={styles.modelLoadTrack}>
             <View style={[styles.modelLoadFill, { width: `${modelLoadProgress}%` }]} />
           </View>
@@ -2442,58 +2444,58 @@ export default function ChatScreen() {
         items={[
           {
             key: 'notice',
-            label: '公告',
+            label: t('chat.menu.notice'),
             icon: 'megaphone-outline',
             onPress: () => setNoticeOpen(true),
           },
           {
             key: 'model',
-            label: '模型',
+            label: t('chat.menu.model'),
             icon: 'cube-outline',
             onPress: openModelPanel,
           },
           {
             key: 'local-logs',
-            label: '本地日志',
+            label: t('chat.menu.localLogs'),
             icon: 'document-text-outline',
             onPress: () => setLocalLogsOpen(true),
           },
           {
             key: 'thinking',
-            label: '思考',
+            label: t('chat.menu.thinking'),
             icon: 'bulb-outline',
             onPress: openThinkingPanel,
           },
           {
             key: 'voice',
-            label: '语音',
+            label: t('chat.menu.voice'),
             icon: 'volume-high-outline',
             onPress: () => setVoiceSettingsOpen(true),
           },
           {
             key: 'scrubber',
-            label: '定位',
+            label: t('chat.menu.scrubber'),
             icon: 'options-outline',
             disabled: scrubberMessages.length === 0,
             onPress: () => setScrubberOpen(true),
           },
           {
             key: 'search',
-            label: '搜索',
+            label: t('chat.menu.search'),
             icon: 'search',
             active: searchOpen,
             onPress: () => (searchOpen ? closeSearch() : setSearchOpen(true)),
           },
           {
             key: 'summary',
-            label: summarizing ? '总结中' : '总结',
+            label: summarizing ? t('chat.menu.summarizing') : t('chat.menu.summary'),
             icon: 'book-outline',
             disabled: summarizing || !ready,
             onPress: onSummarize,
           },
           {
             key: 'settings',
-            label: '设置',
+            label: t('chat.menu.settings'),
             icon: 'settings-outline',
             onPress: () => setChatSettingsOpen(true),
           },
@@ -2504,7 +2506,7 @@ export default function ChatScreen() {
         visible={chatSettingsOpen}
         onClose={() => setChatSettingsOpen(false)}
         onOpenSystemSettings={() => { if (navigation) navigation.navigate(ROUTE_NAMES.settings); }}
-        editLabel={isGroup ? '编辑群聊' : '编辑角色'}
+        editLabel={isGroup ? t('chat.editGroup') : t('chat.editCharacter')}
         onOpenEditor={() => {
           if (isGroup) setGroupEditOpen(true);
           else setCharacterEditOpen(true);
@@ -2519,7 +2521,7 @@ export default function ChatScreen() {
           if (isGroup || !characterId) return;
           const next = character.voiceDisplay === 'voice' ? 'text' : 'voice';
           updateCharacter({ id: characterId, voiceDisplay: next }).catch(() => {
-            Alert.alert('保存失败', '请检查存储空间或权限。');
+            Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
           });
         }}
         onOpenTranscription={() => setTranscriptionPanelOpen(true)}
@@ -2536,7 +2538,7 @@ export default function ChatScreen() {
         onClose={() => setCharacterEditOpen(false)}
         onSaved={() => {
           setCharacterEditOpen(false);
-          Alert.alert('已保存', '角色设定已同步，聊天页会立即生效。');
+          Alert.alert(t('chat.saved.title'), t('chat.saved.character'));
         }}
       />
 
@@ -2548,7 +2550,7 @@ export default function ChatScreen() {
         onSaved={() => {
           setGroupEditOpen(false);
           refreshSessions().catch(() => {});
-          Alert.alert('已保存', '群聊信息已更新。');
+          Alert.alert(t('chat.saved.title'), t('chat.saved.group'));
         }}
       />
 
@@ -2563,7 +2565,7 @@ export default function ChatScreen() {
 
       <DisclaimerModal
         visible={noticeOpen}
-        title="公告"
+        title={t('chat.menu.notice')}
         onClose={() => setNoticeOpen(false)}
       />
 

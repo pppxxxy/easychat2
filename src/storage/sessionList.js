@@ -26,6 +26,7 @@ import {
   updateVectorIndex,
 } from './vector.js';
 import { CORRUPT_BACKUP_SUFFIX, readJson } from './io.js';
+import { tActive } from '../i18n/index.js';
 import { markMediaWrite } from './mediaProtection.js';
 import { collectChatImageFiles, collectVoiceFiles } from './sessionFiles.js';
 import {
@@ -56,7 +57,7 @@ import {
 export async function reconcileVectorIndexes() {
   const sessionsStatus = await readSessionsStatus();
   if (sessionsStatus.status === 'corrupt') {
-    throw new Error('会话列表读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.sessionListReadFailed'));
   }
   const sessionMap = new Map(
     sessionsStatus.sessions.map(session => [String(session.id || ''), session])
@@ -65,7 +66,7 @@ export async function reconcileVectorIndexes() {
   try {
     keys = await AsyncStorage.getAllKeys();
   } catch (error) {
-    throw new Error('向量索引列表读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.vectorIndexListReadFailed'));
   }
   const prefix = `${VECTOR_INDEX_PREFIX}::`;
   const vectorKeys = (Array.isArray(keys) ? keys : [])
@@ -249,10 +250,10 @@ async function updateSessionMemberProfilesInternal(sessionId, memberProfiles) {
 async function cloneSessionInternal(sessionId) {
   const sessions = await requireSessions();
   const source = sessions.find(session => session.id === sessionId);
-  if (!source) throw new Error('会话不存在');
+  if (!source) throw new Error(tActive('error.storage.sessionNotFound'));
   const messageState = await getMessagesBySessionStatus(sessionId);
   if (messageState.status === 'corrupt') {
-    throw new Error('聊天记录读取失败，无法克隆');
+    throw new Error(tActive('error.storage.chatLogReadFailedClone'));
   }
   const messages = messageState.messages;
   const now = Date.now();
@@ -450,7 +451,7 @@ export async function findOrphanSessions() {
   try {
     keys = await AsyncStorage.getAllKeys();
   } catch (error) {
-    throw new Error('会话列表读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.sessionListReadFailed'));
   }
   const prefix = `${MESSAGES_KEY_PREFIX}::`;
   const ids = (Array.isArray(keys) ? keys : [])
@@ -464,7 +465,7 @@ export async function findOrphanSessions() {
   const { status, sessions } = await readSessionsStatus();
   // 列表读不出时不能判定孤儿（否则会把所有消息体都误判成“会话丢失”），
   // 明确抛错让调用方提示“读不到”，而不是伪装成“没有丢失的对话”。
-  if (status === 'corrupt') throw new Error('会话列表读取失败，请稍后重试');
+  if (status === 'corrupt') throw new Error(tActive('error.storage.sessionListReadFailed'));
   const known = new Set(sessions.map(session => session.id));
   // 老版本按角色 id 存消息（messagesKey(characterId)），键的形状和会话键一样，
   // 会把它们当成孤儿。这里按角色库排除，避免把历史遗留键恢复成重复的对话。
@@ -522,7 +523,7 @@ export async function findOrphanSessions() {
 async function restoreSessionInternal(sessionId, characterId) {
   const id = String(sessionId || '');
   const owner = String(characterId || '');
-  if (!id) throw new Error('恢复参数不完整');
+  if (!id) throw new Error(tActive('error.storage.restoreParamsIncomplete'));
   const sessions = await requireSessions();
   const existing = sessions.find(session => session.id === id);
   if (existing) {
@@ -530,14 +531,14 @@ async function restoreSessionInternal(sessionId, characterId) {
     return existing;
   }
   const messages = await getMessagesBySession(id);
-  if (messages.length === 0) throw new Error('这段对话没有可恢复的消息');
-  if (!isMessageGroup(messages) && !owner) throw new Error('恢复参数不完整');
+  if (messages.length === 0) throw new Error(tActive('error.storage.noRestorableMessages'));
+  if (!isMessageGroup(messages) && !owner) throw new Error(tActive('error.storage.restoreParamsIncomplete'));
   const restored = buildRestoredSession({ sessionId: id, characterId: owner, messages });
   // 会话摘要还在（单独按 sessionId 存）：把总结边界接到最后一条摘要的边界上，
   // 免得下次总结把已经总结过的消息再总结一遍（弹窗承诺“记忆摘要会回来”）。
   const summaryStatus = await getSessionSummariesStatus(id);
   if (summaryStatus.status === 'corrupt') {
-    throw new Error('记忆摘要读取失败，请稍后重试');
+    throw new Error(tActive('error.storage.summaryReadFailed'));
   }
   if (summaryStatus.summaries.length > 0) {
     const boundary = String(summaryStatus.summaries[summaryStatus.summaries.length - 1].boundary || '');

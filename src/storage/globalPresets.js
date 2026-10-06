@@ -3,6 +3,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import GLOBAL_PRESETS from '../settings/presets.js';
+import { tActive } from '../i18n/index.js';
 import { backupCorruptValue, readJsonStatus } from './io.js';
 
 const GLOBAL_PRESETS_KEY = '@easychat2_global_presets';
@@ -13,7 +14,7 @@ function normalizePreset(source) {
     || typeof source.id !== 'string' || !source.id.trim()
     || typeof source.name !== 'string' || !source.name.trim()
     || typeof source.prompt !== 'string' || !source.prompt.trim()) {
-    throw new Error('预设需要有效的 ID、名称和提示词');
+    throw new Error(tActive('error.presets.invalid'));
   }
   return {
     id: source.id.trim(),
@@ -24,10 +25,10 @@ function normalizePreset(source) {
 }
 
 function normalizePresetList(presets) {
-  if (!Array.isArray(presets)) throw new Error('预设列表格式错误');
+  if (!Array.isArray(presets)) throw new Error(tActive('error.presets.listInvalid'));
   const list = presets.map(normalizePreset);
   if (new Set(list.map(preset => preset.id)).size !== list.length) {
-    throw new Error('预设 ID 重复');
+    throw new Error(tActive('error.presets.duplicateId'));
   }
   return list;
 }

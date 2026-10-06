@@ -25,11 +25,13 @@ import {
 import { maskSecrets } from './storage/secrets.js';
 import { PrimaryButton, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
+import { useTranslation } from './i18n/I18nContext.js';
 
 // 制卡预览：只读展示当前草稿，并允许用真实模型多轮模拟对话。
 // 对话仅存在于本组件的内存状态里，关闭即重置，不写入角色库或聊天记录。
 export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }) {
   const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [turns, setTurns] = useState([]);
@@ -79,7 +81,7 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
     () => buildPreviewDisplayTurns(turns, draft),
     [turns, draft]
   );
-  const name = String((draft && draft.name) || '').trim() || '未命名';
+  const name = String((draft && draft.name) || '').trim() || t('forge.preview.unnamed');
   const tags = Array.isArray(draft && draft.tags) ? draft.tags : [];
 
   const clear = () => {
@@ -92,7 +94,7 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
     const text = String(input || '').trim();
     if (!text || busy) return;
     if (typeof onSendTurn !== 'function') {
-      Alert.alert('功能不可用', '当前没有可用的模型配置。');
+      Alert.alert(t('forge.preview.alert.unavailable.title'), t('forge.preview.alert.unavailable.body'));
       return;
     }
     const history = capPreviewHistory(turnsRef.current);
@@ -105,12 +107,12 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
     try {
       const reply = await onSendTurn(history, text, controller.signal);
       const cleaned = String(reply || '').trim();
-      if (!cleaned) throw new Error('模型没有返回内容。');
+      if (!cleaned) throw new Error(t('forge.preview.error.emptyReply'));
       scrollPendingRef.current = true;
       setTurns(current => [...current, { id: `preview-a-${Date.now()}`, role: 'assistant', text: cleaned }]);
     } catch (error) {
       if (!isCanceledError(error)) {
-        Alert.alert('模拟对话失败', maskSecrets((error && error.message) || '请稍后重试。'));
+        Alert.alert(t('forge.preview.alert.failed.title'), maskSecrets((error && error.message) || t('forge.preview.alert.failed.body')));
       }
     } finally {
       if (abortRef.current === controller) {
@@ -127,8 +129,8 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>预览</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel="关闭预览">
+          <Text style={styles.title}>{t('forge.preview.title')}</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('forge.preview.closeA11y')}>
             <Ionicons name="close" size={22} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </View>
@@ -161,26 +163,26 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
               </View>
             ))}
             {sections.length === 0 ? (
-              <Text style={styles.emptyHint}>这张卡还没有可展示的内容，可以先在卡片里补充。</Text>
+              <Text style={styles.emptyHint}>{t('forge.preview.emptyCard')}</Text>
             ) : null}
           </View>
 
           <View style={styles.chatHeader}>
-            <Text style={styles.chatTitle}>模拟对话</Text>
+            <Text style={styles.chatTitle}>{t('forge.preview.chatTitle')}</Text>
             <TouchableOpacity
               onPress={clear}
               hitSlop={8}
               disabled={busy}
               accessibilityRole="button"
-              accessibilityLabel="清空模拟对话"
+              accessibilityLabel={t('forge.preview.clearA11y')}
             >
-              <Text style={[styles.clearText, busy && styles.disabled]}>{'清空'}</Text>
+              <Text style={[styles.clearText, busy && styles.disabled]}>{t('forge.preview.clear')}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.chatHint}>用当前模型按这张卡的设定真实扮演，仅用于测试，不会写入角色库或聊天记录。</Text>
+          <Text style={styles.chatHint}>{t('forge.preview.chatHint')}</Text>
 
           {turns.length === 0 ? (
-            <Text style={styles.emptyHint}>这张卡还没有开场白，直接发一句话开始模拟。</Text>
+            <Text style={styles.emptyHint}>{t('forge.preview.noOpening')}</Text>
           ) : displayTurns.map(turn => {
             const isUser = turn.role === 'user';
             return (
@@ -199,7 +201,7 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
           {busy ? (
             <View style={styles.busyRow}>
               <ActivityIndicator size="small" color={theme.colors.primary} />
-              <Text style={styles.busyText}>角色正在输入…</Text>
+              <Text style={styles.busyText}>{t('forge.preview.typing')}</Text>
             </View>
           ) : null}
         </ScrollView>
@@ -209,13 +211,13 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder="以用户身份发一句话，测试这张卡"
+            placeholder={t('forge.preview.inputPlaceholder')}
             onSubmitEditing={send}
             returnKeyType="send"
             editable={!busy}
           />
           <PrimaryButton
-            title="发送"
+            title={t('forge.preview.send')}
             small
             onPress={send}
             disabled={busy || !input.trim()}

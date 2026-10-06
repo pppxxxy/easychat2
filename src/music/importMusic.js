@@ -9,6 +9,7 @@ import { getPickedAsset } from '../character/cardHelpers.js';
 import { markMediaWrite } from '../storage/mediaProtection.js';
 
 import { MUSIC_DIR_NAME, saveMusicItem } from './library.js';
+import { tActive } from '../i18n/index.js';
 
 export function makeMusicItemId(now = Date.now()) {
   return `m-${now}-${Math.random().toString(36).slice(2, 8)}`;
@@ -82,7 +83,7 @@ export async function importMusicFromPicker({ now = Date.now() } = {}) {
   const id = makeMusicItemId(now);
   const fileName = String(asset.name || '');
   if (!isMusicFileName(fileName)) {
-    throw Object.assign(new Error('请选择音频文件（mp3/m4a/wav/flac 等）'), { code: 'UNSUPPORTED_FORMAT' });
+    throw Object.assign(new Error(tActive('error.music.unsupportedFormat')), { code: 'UNSUPPORTED_FORMAT' });
   }
   const dest = `${musicLibraryDir()}${id}${musicFileExtension(fileName, asset.mimeType)}`;
   await FileSystem.makeDirectoryAsync(musicLibraryDir(), { intermediates: true });
