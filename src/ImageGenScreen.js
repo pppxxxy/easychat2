@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -495,24 +495,12 @@ export default function ImageGenScreen() {
     }
   }, [busyResult, t]);
 
-  const copyResult = useCallback(async result => {
-    const value = result.url || result.base64 || '';
-    if (!value) return;
-    try {
-      await Clipboard.setStringAsync(value);
-      Alert.alert(t('imageGen.alert.copied.title'), result.url ? t('imageGen.alert.copied.bodyUrl') : t('imageGen.alert.copied.bodyData'));
-    } catch (error) {
-      Alert.alert(t('imageGen.alert.copyFailed.title'), t('imageGen.alert.copyFailed.body'));
-    }
-  }, [t]);
-
   const onPressResult = useCallback(result => {
     Alert.alert(t('imageGen.alert.imageAction.title'), t('imageGen.alert.imageAction.body'), [
       { text: t('imageGen.cancel'), style: 'cancel' },
       { text: t('imageGen.saveShare'), onPress: () => saveResult(result) },
-      { text: t('imageGen.copy'), onPress: () => copyResult(result) },
     ]);
-  }, [copyResult, saveResult, t]);
+  }, [saveResult, t]);
 
   const imagePreview = useMemo(() => (imageUri ? { uri: imageUri } : null), [imageUri]);
 
