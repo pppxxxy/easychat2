@@ -19,6 +19,7 @@ import {
   setRoleDiarySetting,
 } from './diary/diary.js';
 import { useApp } from './context/AppContext.js';
+import { ROUTE_NAMES } from './navigation/routeNames.js';
 import { EmptyState } from './ui/index.js';
 import PaneHeader from './ui/PaneHeader.js';
 import { useTheme } from './theme/ThemeContext.js';
@@ -34,7 +35,7 @@ export default function DiaryPanel() {
   const { t } = useTranslation();
   const navigation = useNavigation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
-  const { characters } = useApp();
+  const { characters, sessions, switchSession, switchCharacter, activeSessionId } = useApp();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,6 +48,18 @@ export default function DiaryPanel() {
   const [diaryIndex, setDiaryIndex] = useState(0);
   const [notice, setNotice] = useState('');
   const [viewWidth, setViewWidth] = useState(() => Dimensions.get('window').width - 72);
+  // 开关类控件必须「改了就落盘」（2026-10-07）：此前只改内存 state、要额外点
+  // 底部保存才写盘，用户开完就走 = @easychat2_diary_settings 里 enabled 始终
+  // false，执行器永远筛不到该角色，日记一篇都不会生成。
+  // settingsRef 同步镜像最新设置（函数式更新里读不到最新值时用）；
+  // writeChainRef 串行化写盘（防两次快速点击互相覆盖）；inFlightRef 记在途
+  // 写数，离开面板前若 > 0 先等落盘再走，绝不静默丢弃。
+  const settingsRef = useRef(settings);
+  // 渲染期同步镜像：load() 从存储读回后若不同步，首次改开关会以空设置整表覆盖。
+  settingsRef.current = settings;
+  const writeChainRef = useRef(Promise.resolve());
+  const inFlightRef = useRef(0);
+  const leavingRef = useRef(false);
   // 翻页按钮的程序化滚动目标：按钮与手势翻页共用一个计数器，
   // 按钮只改 state 不滚 ScrollView 的话页面不会动（手势翻页仍由 onMomentumScrollEnd 回写）。
   const pagerRef = useRef(null);
@@ -97,27 +110,127 @@ export default function DiaryPanel() {
     }
   }, [diaryIndex, viewWidth]);
 
+  // 乐观更新 + 立即落盘（串行队列）。失败时不猜、以存储真实值为准回滚并明确
+  // 提示（禁止「catch 后无条件报已保存」的反模式）；旧写的返回值只有在仍是
+  // 最新一次修改时才回写 state，防止慢写覆盖新状态。
+  const persistSettings = useCallback(mutate => {
+    const next = mutate(settingsRef.current);
+    settingsRef.current = next;
+    setSettings(next);
+    setNotice('');
+    inFlightRef.current += 1;
+    const write = writeChainRef.current
+      .catch(() => {})
+      .then(() => saveDiarySettings(next))
+      .then(saved => {
+        if (settingsRef.current === next) {
+          settingsRef.current = saved;
+          setSettings(saved);
+          setNotice(t('diary.notice.saved'));
+        }
+        return saved;
+      })
+      .catch(async () => {
+        const stored = await getDiarySettings().catch(() => null);
+        if (stored) {
+          settingsRef.current = stored;
+          setSettings(stored);
+        }
+        setNotice(t('diary.notice.saveFailed'));
+        return null;
+      })
+      .finally(() => {
+        inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+      });
+    writeChainRef.current = write;
+    return write;
+  }, [t]);
+
   const toggleRole = useCallback((id, enabled, roleName) => {
-    setSettings(current => setRoleDiarySetting(current, id, { enabled, roleName }));
-  }, []);
+    persistSettings(current => setRoleDiarySetting(current, id, { enabled, roleName }));
+  }, [persistSettings]);
 
   const chooseRoleApi = useCallback((id, apiConfigId) => {
-    setSettings(current => setRoleDiarySetting(current, id, { apiConfigId }));
-  }, []);
+    persistSettings(current => setRoleDiarySetting(current, id, { apiConfigId }));
+  }, [persistSettings]);
 
+  // 底部保存按钮保留为兜底（把当前设置整体再落一次盘），不再是唯一落盘路径。
   const save = useCallback(async () => {
     setSaving(true);
-    setNotice('');
     try {
-      const saved = await saveDiarySettings(settings);
-      setSettings(saved);
-      setNotice(t('diary.notice.saved'));
-    } catch (error) {
-      setNotice(t('diary.notice.saveFailed'));
+      await persistSettings(current => current);
     } finally {
       setSaving(false);
     }
-  }, [settings, t]);
+  }, [persistSettings]);
+
+  // 离开前 flush：有在途写盘时先等它落地再放行（leavingRef 防重复拦截）。
+  useEffect(() => {
+    if (!navigation || typeof navigation.addListener !== 'function') return undefined;
+    const unsubscribe = navigation.addListener('beforeRemove', event => {
+      if (leavingRef.current || inFlightRef.current === 0) return;
+      event.preventDefault();
+      leavingRef.current = true;
+      writeChainRef.current.finally(() => {
+        navigation.dispatch(event.data.action);
+      });
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // 归属（2026-10-07）：日记绑定来源会话；会话被删时保留条目、展示降级为
+  // 「该对话已删除」（与记忆侧「保留数据 + 展示降级」同口径）。
+  const sessionMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(sessions) ? sessions : []).forEach(session => {
+      if (session && session.id) map.set(session.id, session);
+    });
+    return map;
+  }, [sessions]);
+
+  const diarySource = useCallback(entry => {
+    const ids = Array.isArray(entry.sourceSessionIds) && entry.sourceSessionIds.length
+      ? entry.sourceSessionIds
+      : (entry.sessionId ? [entry.sessionId] : []);
+    if (ids.length === 0) return null; // 旧条目无归属：不显示「来自某某」，原样展示
+    const primaryId = String(entry.sessionId || '').trim() || ids[0];
+    const primary = sessionMap.get(primaryId);
+    if (!primary) {
+      return { id: primaryId, label: t('diary.source.deleted'), openable: false };
+    }
+    const name = String(primary.name || '').trim()
+      || (primary.type === 'group' ? t('diary.source.groupFallback') : (entry.characterName || t('diary.roleFallback')));
+    return {
+      id: primaryId,
+      label: ids.length > 1
+        ? t('diary.source.multi', { name, count: ids.length })
+        : t('diary.source.single', { name }),
+      openable: true,
+    };
+  }, [sessionMap, t]);
+
+  const openDiarySource = useCallback(async entry => {
+    const ids = Array.isArray(entry.sourceSessionIds) && entry.sourceSessionIds.length
+      ? entry.sourceSessionIds
+      : (entry.sessionId ? [entry.sessionId] : []);
+    const targetId = String(entry.sessionId || '').trim() || ids[0] || '';
+    const target = targetId ? sessionMap.get(targetId) : null;
+    if (!target) return;
+    const previousSessionId = activeSessionId;
+    try {
+      if (target.type !== 'group' && target.characterId) {
+        await switchCharacter(target.characterId);
+      }
+      await switchSession(target.id);
+      navigation.navigate(ROUTE_NAMES.chat);
+    } catch (error) {
+      // 失败回滚到原会话（与记忆页打开会话的既有模式一致），不留半切换状态。
+      try {
+        if (previousSessionId) await switchSession(previousSessionId);
+      } catch (rollbackError) {}
+      setNotice(t('diary.source.jumpFailed'));
+    }
+  }, [activeSessionId, navigation, sessionMap, switchCharacter, switchSession, t]);
 
   if (loading) {
     return (
@@ -146,6 +259,16 @@ export default function DiaryPanel() {
       <Text style={styles.hint}>
         {t('diary.intro')}
       </Text>
+      {settings.lastRun && settings.lastRun.date ? (
+        <Text style={styles.statusLine}>
+          {t('diary.lastRun', {
+            date: settings.lastRun.date,
+            written: settings.lastRun.written,
+            skipped: settings.lastRun.skipped,
+            failed: settings.lastRun.failed,
+          })}
+        </Text>
+      ) : null}
 
       {/* 折叠选择角色：避免一次把所有角色卡都列出来。 */}
       <View style={styles.collapsible}>
@@ -261,14 +384,34 @@ export default function DiaryPanel() {
               setDiaryIndex(Math.round(e.nativeEvent.contentOffset.x / width));
             }}
           >
-            {roleDiaries.map(entry => (
+            {roleDiaries.map(entry => {
+              const source = diarySource(entry);
+              return (
               <View key={entry.id} style={[styles.diaryPage, { width: viewWidth }]}>
                 <Text style={styles.diaryDate}>{formatDiaryDate(entry.date)}</Text>
+                {source ? (
+                  <TouchableOpacity
+                    style={styles.sourceRow}
+                    onPress={() => (source.openable ? openDiarySource(entry) : null)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('diary.source.a11y')}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={13} color={theme.colors.primaryMuted} />
+                    <Text style={[styles.sourceText, !source.openable && styles.sourceTextMuted]} numberOfLines={1}>
+                      {source.label}
+                    </Text>
+                    {source.openable ? (
+                      <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} />
+                    ) : null}
+                  </TouchableOpacity>
+                ) : null}
                 <ScrollView style={styles.diaryPageScroll} nestedScrollEnabled>
                   <Text style={styles.diaryText}>{entry.text}</Text>
                 </ScrollView>
               </View>
-            ))}
+              );
+            })}
           </ScrollView>
           {roleDiaries.length > 1 ? (
             <View style={styles.diaryNav}>
@@ -375,10 +518,14 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   diaryPage: { paddingRight: 0 },
   diaryPageScroll: { maxHeight: 320, marginTop: 4 },
   diaryDate: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(13), fontWeight: '800' },
+  sourceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  sourceText: { flex: 1, marginHorizontal: 5, color: theme.colors.primaryMuted, fontSize: fonts.scaled(11) },
+  sourceTextMuted: { color: theme.colors.textFaint },
   diaryText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(21) },
   diaryNav: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   diaryNavBtn: { padding: 6, marginLeft: 8 },
   diaryNavDisabled: { opacity: 0.3 },
+  statusLine: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 6 },
   notice: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 14 },
   saveButton: {
     marginTop: 22,

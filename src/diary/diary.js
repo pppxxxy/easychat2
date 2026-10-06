@@ -55,14 +55,49 @@ export function normalizeDiarySettings(raw) {
       apiConfigId: clean(entry.apiConfigId, 80),
     };
   });
+  // 上次运行的摘要（2026-10-07）：面板据此显示「上次运行：日期｜写入/跳过/失败」，
+  // 让用户能区分「没触发」与「写了没写」。非敏感信息，与设置同键存储。
+  const lastRunSource = source.lastRun && typeof source.lastRun === 'object' && !Array.isArray(source.lastRun)
+    ? source.lastRun
+    : {};
+  const lastRunCount = value => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? Math.floor(num) : 0;
+  };
   // 迁移旧版可能的全局 enabled 字段：老数据没有 roles 时，视为未开启。
   return {
     roles,
+    lastRun: {
+      date: clean(lastRunSource.date, 10),
+      written: lastRunCount(lastRunSource.written),
+      skipped: lastRunCount(lastRunSource.skipped),
+      failed: lastRunCount(lastRunSource.failed),
+    },
     apiConfigId: clean(source.apiConfigId, 80),
     model: clean(source.model, 120),
     // 上次执行写日记的本地日期：用于把「过了一天的第一次启动」做成闸门，
     // 同一天内再次启动不再重复扫描。
     lastRunDate: clean(source.lastRunDate, 10),
+  };
+}
+
+// 「上次运行日期」闸门推进规则（2026-10-07）：
+//   有候选角色（roleCount > 0）时不推进——无论写没写成功、是否因昨天无对话跳过，
+//   都保留当天再次触发的补写机会。此前「纯跳过」也会推进闸门：早上启动时若昨天
+//   该角色没聊过（或消息尚未落盘），闸门被推到今天，用户当天稍后聊天也不再补写。
+//   仅当「确实无需写」（没有任何候选角色，含全部角色都已完成昨天）时才推进，
+//   让下一天能进入新的窗口。规则做成纯函数便于单测钉住。
+export function shouldAdvanceDiaryRunDate({ roleCount = 0 } = {}) {
+  return !(Number(roleCount) > 0);
+}
+
+// 把本次运行摘要写进设置（面板展示用）。摘要缺失/非法一律安全归零。
+export function setDiaryLastRunSummary(settings, summary = {}) {
+  const normalized = normalizeDiarySettings(settings);
+  const source = summary && typeof summary === 'object' && !Array.isArray(summary) ? summary : {};
+  return {
+    ...normalized,
+    lastRun: normalizeDiarySettings({ lastRun: source }).lastRun,
   };
 }
 
@@ -128,9 +163,23 @@ export function removeRolesFromDiarySettings(settings, characterIds) {
   return { ...normalized, roles };
 }
 
+// 单篇日记最多记录的来源会话数：面板只展示主会话 + 段数，无需无限增长。
+export const DIARY_SOURCE_SESSION_LIMIT = 50;
+
 export function normalizeDiaryEntry(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const createdAt = Number(source.createdAt);
+  // 归属字段（2026-10-07）：日记绑定来源会话，与「记忆」同口径（会话 id 即归属）。
+  // 旧条目缺字段 → '' / []，不得因此判为损坏（合法性判定仍只看 id/characterId/date）。
+  const rawIds = Array.isArray(source.sourceSessionIds) ? source.sourceSessionIds : [];
+  const seen = new Set();
+  const sourceSessionIds = [];
+  rawIds.forEach(item => {
+    const id = clean(item, 120);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    sourceSessionIds.push(id);
+  });
   return {
     id: clean(source.id, 120),
     characterId: clean(source.characterId, 80),
@@ -138,6 +187,8 @@ export function normalizeDiaryEntry(raw) {
     date: clean(source.date, 10),
     text: clean(source.text, DIARY_TEXT_MAX),
     createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0,
+    sessionId: clean(source.sessionId, 120),
+    sourceSessionIds: sourceSessionIds.slice(0, DIARY_SOURCE_SESSION_LIMIT),
   };
 }
 
@@ -231,6 +282,54 @@ export function collectWindowMessages(messagesBySession, sessionIds, now = Date.
   return result
     .sort((a, b) => messageTimestamp(a) - messageTimestamp(b))
     .slice(-DIARY_SOURCE_MESSAGE_LIMIT);
+}
+
+// 统计一段会话在「昨天窗口」内的有效对话轮数与最早时间戳。
+function countWindowTurns(messages, start, end) {
+  let count = 0;
+  let first = 0;
+  (Array.isArray(messages) ? messages : []).forEach(item => {
+    if (!isConversationTurn(item)) return;
+    if (!inWindow(item, start, end)) return;
+    count += 1;
+    const timestamp = messageTimestamp(item);
+    if (!first || timestamp < first) first = timestamp;
+  });
+  return { count, first };
+}
+
+// 本次日记实际用到了哪些会话（窗口内确有对话的），按最早消息时间排序去重。
+// 与 collectWindowMessages 共用同一套窗口口径（yesterdayRange + isConversationTurn
+// + inWindow），保证「写了哪些消息」与「归属哪些会话」永远一致。
+export function selectWindowSessions(messagesBySession, sessionIds, now = Date.now()) {
+  const { start, end } = yesterdayRange(now);
+  const entries = [];
+  (Array.isArray(sessionIds) ? sessionIds : []).forEach(sessionId => {
+    const id = clean(sessionId, 120);
+    if (!id) return;
+    const messages = Array.isArray(messagesBySession[sessionId]) ? messagesBySession[sessionId] : [];
+    const { count, first } = countWindowTurns(messages, start, end);
+    if (count > 0) entries.push({ id, first, count });
+  });
+  return entries
+    .sort((a, b) => (a.first - b.first) || String(a.id).localeCompare(String(b.id)))
+    .map(item => item.id);
+}
+
+// 主会话：窗口内贡献消息最多的一段；并列时取最早开始的一段（确定性，不随排序抖动）。
+export function pickPrimarySession(messagesBySession, sessionIds, now = Date.now()) {
+  const { start, end } = yesterdayRange(now);
+  let best = { id: '', count: 0, first: 0 };
+  (Array.isArray(sessionIds) ? sessionIds : []).forEach(sessionId => {
+    const id = clean(sessionId, 120);
+    if (!id) return;
+    const messages = Array.isArray(messagesBySession[sessionId]) ? messagesBySession[sessionId] : [];
+    const { count, first } = countWindowTurns(messages, start, end);
+    if (count === 0) return;
+    const better = count > best.count || (count === best.count && best.id !== '' && first < best.first);
+    if (best.id === '' || better) best = { id, count, first };
+  });
+  return best.id;
 }
 
 export function buildDiaryTranscript(messages, { charName = '角色', userName = '用户' } = {}) {
