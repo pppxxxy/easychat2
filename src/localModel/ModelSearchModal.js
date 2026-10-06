@@ -20,19 +20,7 @@ import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
 import { buildDownloadUrl, listModelFiles, searchModels } from './modelCatalog.js';
 import { rankModelFiles } from './modelCompatibility.js';
 import { useTheme } from '../theme/ThemeContext.js';
-
-function formatBytes(value) {
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes) || bytes <= 0) return '';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let size = bytes;
-  let index = 0;
-  while (size >= 1024 && index < units.length - 1) {
-    size /= 1024;
-    index += 1;
-  }
-  return `${size >= 10 || index === 0 ? Math.round(size) : size.toFixed(1)}${units[index]}`;
-}
+import { formatBytes } from '../utils/format.js';
 
 function fileBaseName(filePath) {
   return String(filePath || '').split('/').pop().replace(/\.gguf$/i, '');

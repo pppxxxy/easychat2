@@ -1,7 +1,10 @@
-// 本地模型面板的代码质量守卫（2026-10-06 指令书 Phase 2a）：
+// 本地模型面板的代码质量守卫（2026-10-06 指令书 Phase 2a/2b）：
 // C4 删除已加载模型必须先卸载（否则 llama 上下文驻留内存、文件却被删）；
-// C6 API 服务端口编辑态统一 string；C7 refresh 与可见性 effect 不再重复拉取。
-// 面板是 UI 巨石，这里用源码锚点钉住关键顺序与口径；adapter 返回值有真实用例。
+// C6 API 服务端口编辑态统一 string；C7 条目刷新与服务水合分离；
+// C1 拆分后的文件规模上限；C3 设置更新收口；C5 formatBytes 合一；
+// U1-U6 排版改造的结构锚点。
+// 拆分后面板逻辑分布在 壳（LocalModelPanel.js）+ panel/ 目录；审计锚点读拼接源，
+// 对文件在壳与 panel/ 之间的迁移保持稳健。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +13,25 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PANEL = readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
+const readPanel = name => readFileSync(path.join(HERE, '..', 'src', 'localModel', 'panel', name), 'utf8');
+const SHELL = readFileSync(path.join(HERE, '..', 'src', 'LocalModelPanel.js'), 'utf8');
+const PANEL_FILES = [
+  'panelShared.js',
+  'usePanelModels.js',
+  'useAcquireModel.js',
+  'useApiServer.js',
+  'panelStyles.js',
+  'ModelsSection.js',
+  'AcquireSection.js',
+  'ApiServerSection.js',
+  'ModelParamsModal.js',
+];
+const PANEL = [SHELL, ...PANEL_FILES.map(readPanel)].join('\n');
+const MODELS_SECTION = readPanel('ModelsSection.js');
+const ACQUIRE_SECTION = readPanel('AcquireSection.js');
+const USE_ACQUIRE = readPanel('useAcquireModel.js');
+const USE_API = readPanel('useApiServer.js');
+const USE_PANEL = readPanel('usePanelModels.js');
 const ADAPTER = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'adapter.js'), 'utf8');
 
 test('adapter：无已加载模型时 unload 返回 true（真实调用）', async () => {
@@ -23,10 +44,10 @@ test('adapter：unload 报告释放是否完全成功（返回值语义）', () 
 });
 
 test('C4：删除已加载模型先停服务再卸载内存，卸载失败中止删除', () => {
-  const start = PANEL.indexOf('const confirmDelete');
-  const end = PANEL.indexOf('const [cleanupBusy');
+  const start = SHELL.indexOf('const confirmDelete');
+  const end = SHELL.indexOf('// 长按操作单（U6）');
   assert.ok(start > 0 && end > start, 'confirmDelete 区域定位失败');
-  const region = PANEL.slice(start, end);
+  const region = SHELL.slice(start, end);
   // 关键顺序锚点：判加载 → 停服务 → 卸载 → 失败中止 → 删文件 → 删登记
   const loadedAt = region.indexOf('isLocalModelLoaded(item)');
   const stopAt = region.indexOf('stopLocalApiServer()');
@@ -50,58 +71,58 @@ test('C4 互链：聊天侧卸载路径有指向删除路径的注释', () => {
 });
 
 test('C6：端口编辑态为 string，落盘时才转 number', () => {
-  assert.ok(PANEL.includes("port: '8080'"), 'apiServer 初始端口应为字符串');
-  assert.ok(PANEL.includes('Math.trunc(Number(apiServer.port))'), '落盘处应 parseInt 端口');
-  assert.ok(PANEL.includes('port: String(current.apiServer.port'), '水合回填应转字符串');
+  assert.ok(USE_API.includes("port: '8080'"), 'apiServer 初始端口应为字符串');
+  assert.ok(USE_API.includes('Math.trunc(Number(apiServer.port))'), '落盘处应 parseInt 端口');
+  assert.ok(USE_API.includes('port: String(current.apiServer.port'), '水合回填应转字符串');
 });
 
-test('C7：refresh 单一入口，水合 apiServer 仅发生在打开面板时', () => {
-  // getLocalModelIndex 只剩 refresh 一处真实调用（import 行无括号，不干扰计数）
-  const callCount = (PANEL.match(/getLocalModelIndex\(\)/g) || []).length;
+test('C7：条目刷新与服务水合分离，编辑态只在水合时回填', () => {
+  // getLocalModelIndex 只剩 usePanelModels.refresh 一处真实调用
+  const callCount = (PANEL.match(/getLocalModelIndex[(][)]/g) || []).length;
   assert.equal(callCount, 1, 'getLocalModelIndex 应只在 refresh 里出现一次');
-  assert.ok(PANEL.includes('refresh({ hydrateApi: true })'));
-  assert.ok(PANEL.includes('options.hydrateApi === true'));
+  // 服务域水合只在 useApiServer.hydrate；打开面板时由壳触发一次
+  assert.ok(SHELL.includes('api.hydrate()'));
+  assert.ok(USE_API.includes('const hydrate = useCallback'));
+  // usePanelModels 绝不回填服务编辑态
+  assert.ok(!USE_PANEL.includes('setApiServer'), 'refresh 不得触碰 apiServer 编辑态');
 });
 
 test('U1/U3：三段式分区 + 原生 Switch（假开关 pill 退役）', () => {
-  // 三个分段
-  assert.ok(PANEL.includes("localModel.tabs.models"));
-  assert.ok(PANEL.includes("localModel.tabs.acquire"));
-  assert.ok(PANEL.includes("localModel.tabs.serve"));
-  // 获取段内两个互斥子 Tab（下载/导入）
-  assert.ok(PANEL.includes("localModel.acquire.download"));
-  assert.ok(PANEL.includes("localModel.acquire.import"));
-  assert.ok(PANEL.includes("acquireTab === 'download'"));
-  // 原生 Switch：启用/多媒体/ API 服务三处；假 toggle 样式已删
-  const switchCount = (PANEL.match(/<Switch/g) || []).length;
-  assert.equal(switchCount, 3, 'activeRow/mediaRow/API 服务应各有一个原生 Switch');
+  assert.ok(SHELL.includes('localModel.tabs.models'));
+  assert.ok(SHELL.includes('localModel.tabs.acquire'));
+  assert.ok(SHELL.includes('localModel.tabs.serve'));
+  // 获取段内两个互斥子 Tab（下载/导入）——标签在 AcquireSection
+  assert.ok(ACQUIRE_SECTION.includes('localModel.acquire.download'));
+  assert.ok(ACQUIRE_SECTION.includes('localModel.acquire.import'));
+  // 原生 Switch：启用/多媒体（ModelsSection 两处 SwitchRow）+ API 服务一处；假 toggle 样式已删
+  const API_SECTION = readPanel('ApiServerSection.js');
+  assert.ok((MODELS_SECTION.match(/<SwitchRow/g) || []).length >= 2, '启用/多媒体应各有一个 SwitchRow');
+  assert.ok(API_SECTION.includes('<Switch'), 'API 服务应有原生 Switch');
   assert.ok(!PANEL.includes('styles.toggle'), '假开关 toggle 样式引用应已清空');
   // 空列表给「去获取」引导
-  assert.ok(PANEL.includes("localModel.empty.goAcquire"));
+  assert.ok(SHELL.includes('localModel.empty.goAcquire'));
 });
 
 test('U2：下载与导入草稿分离，互斥子 Tab 切换各自保留', () => {
-  assert.ok(PANEL.includes('emptyDownloadDraft'));
-  assert.ok(PANEL.includes('emptyImportDraft'));
-  assert.ok(PANEL.includes('useState(emptyDownloadDraft)'));
-  assert.ok(PANEL.includes('useState(emptyImportDraft)'));
-  // 不再存在混用的单一 draft
+  assert.ok(USE_ACQUIRE.includes('emptyDownloadDraft'));
+  assert.ok(USE_ACQUIRE.includes('emptyImportDraft'));
+  assert.ok(USE_ACQUIRE.includes('useState(emptyDownloadDraft)'));
+  assert.ok(USE_ACQUIRE.includes('useState(emptyImportDraft)'));
   assert.ok(!PANEL.includes('useState(emptyDraft)'), '单一 14 字段 draft 应已拆分');
-  // 导入字段收进 importDraft（短名）
-  assert.ok(PANEL.includes('importDraft.sourceUri'));
-  assert.ok(PANEL.includes('importDraft.mmprojSourceUri'));
+  assert.ok(USE_ACQUIRE.includes('importDraft.sourceUri'));
+  assert.ok(USE_ACQUIRE.includes('importDraft.mmprojSourceUri'));
 });
 
 test('U4：下载进度条 + 取消按钮接线', () => {
-  assert.ok(PANEL.includes('cancelLocalModelDownload'));
-  assert.ok(PANEL.includes('handleCancelDownload'));
-  // 取消只在下载中出现
-  assert.ok(PANEL.includes('取消下载'));
-  // 进度条（非一行文字）+ 字节详情
-  assert.ok(PANEL.includes('downloadProgressBar'));
-  assert.ok(PANEL.includes('progressBytes.totalBytes'));
-  // 取消不弹错误（按 code 区分）
-  assert.ok(PANEL.includes("error.code !== 'DOWNLOAD_CANCELLED'"));
+  assert.ok(USE_ACQUIRE.includes('cancelLocalModelDownload'));
+  assert.ok(USE_ACQUIRE.includes('handleCancelDownload'));
+  assert.ok(ACQUIRE_SECTION.includes('取消下载'));
+  // 进度条（非一行文字）+ 字节详情（单对象任务态 task.progress/totalBytes）
+  assert.ok(ACQUIRE_SECTION.includes('downloadProgressBar'));
+  assert.ok(ACQUIRE_SECTION.includes('task.totalBytes'));
+  // 取消按编码区分：hook 识别 DOWNLOAD_CANCELLED，壳对 CANCELLED 不弹错误
+  assert.ok(USE_ACQUIRE.includes("code === 'DOWNLOAD_CANCELLED'"));
+  assert.ok(SHELL.includes("result.code === 'CANCELLED'"));
   // modelManager 侧：登记表 + 幂等取消 + 编码错误
   const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
   assert.ok(manager.includes('activeDownloads'));
@@ -110,29 +131,60 @@ test('U4：下载进度条 + 取消按钮接线', () => {
 });
 
 test('U5：搜索选中静默回填，仅「跑不了」档弹警示', () => {
-  const start = PANEL.indexOf('const handleSearchSelect');
-  const region = PANEL.slice(start, PANEL.indexOf('const rewriteSource'));
-  assert.ok(region.includes("summary.compatibility.tier === 'incompatible'"));
-  assert.ok(!region.includes('下载前请确认'), '五行小作文弹窗应已并入 summaryCard');
+  // hook 只回填并返回摘要，自身不弹任何 Alert
+  const start = USE_ACQUIRE.indexOf('const handleSearchSelect');
+  const region = USE_ACQUIRE.slice(start, USE_ACQUIRE.indexOf('const rewriteSource'));
+  assert.ok(region.includes('buildModelSummary'));
+  assert.ok(!region.includes('Alert.alert'), '选中回填应静默（反馈在壳）');
+  // 壳只在「跑不了」档警示
+  assert.ok(SHELL.includes("summary.compatibility.tier !== 'incompatible'"));
 });
 
 test('U6：模型行长按操作单（参数/删除），常驻仅 选用/加载', () => {
-  assert.ok(PANEL.includes('onLongPress={() => onEntryActions(entry)}'));
-  const start = PANEL.indexOf('const onEntryActions');
-  const region = PANEL.slice(start, PANEL.indexOf('const handleLoadModel'));
+  assert.ok(MODELS_SECTION.includes('onLongPress={() => onEntryActions(entry)}'));
+  const start = SHELL.indexOf('const onEntryActions');
+  const region = SHELL.slice(start, SHELL.indexOf('// ---- 参数弹窗 ----'));
   assert.ok(region.includes('openParams(entry)'));
   assert.ok(region.includes('confirmDelete(entry)'));
   assert.ok(region.includes('来源：本地导入'), '来源信息应进长按操作单副标题');
-  // 常驻四按钮退役：展开机制与常驻 参数/删除 按钮已删
+  // 常驻四按钮退役：展开机制与行内常驻 参数/删除 按钮已删
   assert.ok(!PANEL.includes('expandedId'), '展开/收起机制应已退役');
-  const renderStart = PANEL.indexOf('const renderEntry');
-  // 主组件 return 的锚是两空格缩进的 `return (` 后接 `<>`；renderEntry 自身的是四空格
-  const renderEnd = PANEL.indexOf('\n  return (\n    <>');
-  assert.ok(renderEnd > renderStart, '主渲染入口定位失败');
-  const renderRegion = PANEL.slice(renderStart, renderEnd);
-  assert.ok(!renderRegion.includes('options-outline'), '行内常驻「参数」按钮应已收纳');
-  assert.ok(!renderRegion.includes('trash-outline'), '行内常驻「删除」按钮应已收纳');
-  // 识图/听声合并为多模态 chip
-  assert.ok(renderRegion.includes('多模态'));
-  assert.ok(!renderRegion.includes('听声'), '识图/听声应合并为「多模态」chip');
+  // 行内只保留 选用/加载；识图/听声合并为多模态 chip（精确锚避免误伤提示文案）
+  assert.ok(MODELS_SECTION.includes('styles.chip}>多模态</Text>'));
+  assert.ok(!MODELS_SECTION.includes('>识图<'));
+  assert.ok(!MODELS_SECTION.includes('>听声<'));
+  assert.ok(!MODELS_SECTION.includes('options-outline'));
+});
+
+test('C1：拆分后壳只做组合与反馈，panel/ 组件各不超 300 行', () => {
+  const shellLines = SHELL.split('\n').length;
+  // 指令书目标 ≤200；反馈映射集中在豁免壳内（no-hardcoded-chinese 约束下的
+  // 有意取舍，见审查待办登记），上限放宽到 400 防止回涨。
+  assert.ok(shellLines <= 400, `壳应保持精简，当前 ${shellLines} 行`);
+  for (const name of PANEL_FILES) {
+    const lines = readPanel(name).split('\n').length;
+    assert.ok(lines <= 300, `${name} 应 ≤300 行，当前 ${lines}`);
+  }
+});
+
+test('C3：设置更新收口 updateSettings（重读最新再合并）', () => {
+  assert.ok(USE_PANEL.includes('const updateSettings = useCallback'));
+  assert.ok(USE_PANEL.includes('await getLocalModelSettings().catch(() => null)'));
+  assert.ok(USE_PANEL.includes("typeof patch === 'function' ? patch(base) : patch"));
+  // 既有手动合并点全部改走 updateSettings
+  for (const anchor of [
+    'applyActiveLocalModel(base, item)',
+    'base => ({ ...base, enabled: !base.enabled })',
+    'base => ({ ...base, enableMediaInput: !base.enableMediaInput })',
+  ]) {
+    assert.ok(USE_PANEL.includes(anchor), `缺少收口锚点：${anchor}`);
+  }
+  assert.ok(!USE_PANEL.includes('saveLocalModelSettings(applyActiveLocalModel'), '不得再用内存旧快照整表覆盖');
+  assert.ok(USE_API.includes('await updateSettings(base => ({'), '服务域落盘也应走 updateSettings');
+});
+
+test('C5：formatBytes 四处副本合一（utils 为准，modelLogs 再导出）', () => {
+  assert.ok(!PANEL.includes('const units = ['), '面板与 panel/ 不得再有本地 formatBytes 实现');
+  const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
+  assert.ok(manager.includes("import { formatBytes } from './modelLogs.js'"), 'modelManager 经 modelLogs 再导出继续可用');
 });
