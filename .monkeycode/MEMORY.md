@@ -216,3 +216,17 @@ Entries discovered by the Agent during task execution should follow this format:
     lint+相关测试再放手。
   - 本地/在线模型归属不能按设置推断：provider 有静默回退（本地失败→在线），
     只能靠「哪条链路真正产出回复」的回调（onProviderResolved）标记。
+
+[User Instruction Summary]
+- Date: 2026-10-06
+- Context: 本地模型板块指令书落地时的结构裁决
+- Instructions:
+  - **拆分 UI 巨石时反馈层的归属**：项目规则 no-hardcoded-chinese 的豁免清单
+    「只减不增」，新拆出的文件不能进清单。可行解是 hook 返回 { ok, code,
+    message } 编码结果、Alert 集中在豁免壳内映射（与全库 coded-errors 模式
+    一致），而不是给 40+ 条文案补 t() 键与既有的 i18n 迁移任务书撞车。
+  - **审计锚点读拼接源**：拆分会让「读单文件源码」的守护测试批量失效；
+    把拼接源（壳 + 子目录全文件）作为锚点载体，对后续文件迁移保持稳健。
+  - 删除已加载本地模型必须先 unloadLocalModel（返回是否完全释放）再删文件，
+    顺序错了内存泄漏不可逆——这是 C4 类 bug 的通用形态：「先删资源登记，
+    后跳过运行时释放」。
