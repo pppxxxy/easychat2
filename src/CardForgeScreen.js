@@ -723,7 +723,7 @@ export default function CardForgeScreen() {
               accessibilityLabel={t('forge.screen.cardA11y')}
             >
               <Ionicons name="id-card-outline" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.actionText}>{t('forge.screen.card')}</Text>
+              <Text style={styles.actionText} numberOfLines={1}>{t('forge.screen.card')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.action, busy && styles.actionDisabled]}
@@ -733,7 +733,7 @@ export default function CardForgeScreen() {
               accessibilityLabel={t('forge.screen.generateA11y')}
             >
               <Ionicons name="sparkles-outline" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.actionText}>{t('forge.screen.generate')}</Text>
+              <Text style={styles.actionText} numberOfLines={1}>{t('forge.screen.generate')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.action, busy && styles.actionDisabled]}
@@ -743,7 +743,7 @@ export default function CardForgeScreen() {
               accessibilityLabel={t('forge.screen.resetA11y')}
             >
               <Ionicons name="refresh-outline" size={15} color={theme.colors.textFaint} />
-              <Text style={styles.actionText}>{t('forge.screen.reset')}</Text>
+              <Text style={styles.actionText} numberOfLines={1}>{t('forge.screen.reset')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -847,13 +847,13 @@ export default function CardForgeScreen() {
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   action: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 6,
+    flexShrink: 1,
     marginLeft: 6,
     borderRadius: tokens.radius.pill,
     backgroundColor: theme.colors.surface,

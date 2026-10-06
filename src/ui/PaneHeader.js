@@ -30,8 +30,14 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 10,
   },
-  backButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingRight: 10 },
+  // 返回是逃生通道：永不收缩（flexShrink:0）。
+  backButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingRight: 10, flexShrink: 0 },
   backButtonText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 2 },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6, flex: 1 },
-  right: { marginLeft: 8 },
+  // title 用固有宽度 + 可收缩（不是 flex:1）：空间不足时与 right 协商收缩并截断，
+  // 而不是被 right 的长内容顶到 0。
+  title: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700', marginLeft: 6, flexShrink: 1 },
+  // marginLeft:'auto' 在空间富余时把动作推到最右（视觉与 flex:1 版本一致），
+  // 溢出时归零、参与收缩协商——right 的长内容（如识图配置的动态模型名）不再
+  // 把自身溢出屏幕，也不会把 title 整个挤没（2026-10-06 教学按钮被挤出屏幕）。
+  right: { marginLeft: 'auto', flexShrink: 1 },
 });
