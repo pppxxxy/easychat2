@@ -484,8 +484,6 @@ export default function MapPanel() {
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 200 },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   viewButton: {
     flexDirection: 'row',
     alignItems: 'center',

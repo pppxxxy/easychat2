@@ -561,15 +561,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   centerSmall: { alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 10,
-  },
-  headerTitle: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '700' },
   importButton: {
     flexDirection: 'row',
     alignItems: 'center',

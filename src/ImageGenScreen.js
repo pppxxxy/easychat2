@@ -800,27 +800,9 @@ export default function ImageGenScreen() {
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
-  containerEmbedded: { paddingTop: 0 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  headerEmbedded: { justifyContent: 'flex-end', paddingTop: 4 },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(22), fontWeight: '800' },
   topicButton: {
     marginRight: 8,
-  },
-  keyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.primary,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   keyButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 6, maxWidth: 150 },
   body: { flex: 1 },
