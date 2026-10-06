@@ -21,6 +21,15 @@ export const LARGE_IMPORT_BYTES = 2 * 1024 * 1024;
 export const MAX_IMPORT_BYTES = 32 * 1024 * 1024;
 export const CHARACTER_LIST_COLLAPSE_LIMIT = 10;
 
+// FlatList 在 numColumns>1 时，scrollToIndex 的 index 按「行」计数（内部 getItemCount
+// = ceil(项数/列数)）。定位滑块给的是「项」序号，套用前必须折算成行号，否则滑到
+// 下半部分（项序号 ≥ 行数）会命中 VirtualizedList 的越界 invariant 直接闪退。
+export function gridRowIndex(itemIndex, columns = 1) {
+  const cols = Math.max(1, Math.floor(Number(columns) || 1));
+  const index = Math.max(0, Math.floor(Number(itemIndex) || 0));
+  return Math.floor(index / cols);
+}
+
 export function formatImportSize(bytes) {
   const value = Number(bytes);
   if (!Number.isFinite(value) || value <= 0) return '';

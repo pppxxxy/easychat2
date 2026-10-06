@@ -49,5 +49,8 @@ test('定位滑块走 FlatList scrollToIndex，无任何布局测量补丁', () 
   // 新链路：FlatList + scrollToIndex + 失败回退。
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('scrollToIndex'), '定位走 scrollToIndex');
   assert.ok(CHARACTER_SCREEN_SOURCE.includes('onScrollToIndexFailed'), '必须有失败回退');
-  assert.ok(CHARACTER_SCREEN_SOURCE.includes('numColumns={2}'), '网格为 2 列 FlatList');
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('numColumns={CHARACTER_GRID_COLUMNS}'), '网格为 2 列 FlatList');
+  // 回归：numColumns>1 时 scrollToIndex 的 index 是行号而非项序号，套用前必须折算，
+  // 否则滑到下半部分会命中 VirtualizedList 越界 invariant 闪退。
+  assert.ok(CHARACTER_SCREEN_SOURCE.includes('gridRowIndex('), 'scrollToIndex 前应折算行号');
 });

@@ -39,7 +39,11 @@ import { isValidAigcMeta } from '../aigc/attribution.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
-import { CHARACTER_LIST_COLLAPSE_LIMIT } from './cardHelpers.js';
+import { CHARACTER_LIST_COLLAPSE_LIMIT, gridRowIndex } from './cardHelpers.js';
+
+// 角色库网格列数。FlatList 在 numColumns>1 时，scrollToIndex 的 index 按「行」计数，
+// 定位滑块给的是「项」序号，需经 gridRowIndex 折算，否则下半部分会越界闪退。
+const CHARACTER_GRID_COLUMNS = 2;
 
 export default function CharacterLibraryScreen() {
   const {
@@ -167,9 +171,12 @@ export default function CharacterLibraryScreen() {
 
   // 定位滑块：FlatList numColumns 虚拟化后，直接用官方 scrollToIndex 定位，
   // 不再需要任何布局测量（网格几何推导随 FlatList 化一并退役）。
+  // 注意：numColumns>1 时 scrollToIndex 的 index 是「行号」而非「项序号」，
+  // 滑块给的是项序号，需按列数折算，否则越界闪退。
   const onCharacterScrubberSeek = useCallback(index => {
     if (!displayedCharacterItems[index]) return;
-    listRef.current?.scrollToIndex?.({ index, animated: true, viewPosition: 0 });
+    const rowIndex = gridRowIndex(index, CHARACTER_GRID_COLUMNS);
+    listRef.current?.scrollToIndex?.({ index: rowIndex, animated: true, viewPosition: 0 });
   }, [displayedCharacterItems]);
 
   const onCharacterScrubberToStart = useCallback(() => {
@@ -181,10 +188,13 @@ export default function CharacterLibraryScreen() {
   }, []);
 
   // scrollToIndex 对尚未渲染的项会失败（虚拟化窗口外），先滚到估算位置再重试。
-  const onScrollToIndexFailed = useCallback(({ index }) => {
-    listRef.current?.scrollToOffset?.({ offset: Math.max(0, index) * 120, animated: false });
+  // index 同样是行号；估算步长优先用框架给的平均行高，避免固定值偏差过大导致重试反复失败。
+  const onScrollToIndexFailed = useCallback(({ index, averageItemLength }) => {
+    const step = Math.max(1, Number(averageItemLength) || 120);
+    const rowIndex = Math.max(0, Number(index) || 0);
+    listRef.current?.scrollToOffset?.({ offset: rowIndex * step, animated: false });
     setTimeout(() => {
-      listRef.current?.scrollToIndex?.({ index, animated: true, viewPosition: 0 });
+      listRef.current?.scrollToIndex?.({ index: rowIndex, animated: true, viewPosition: 0 });
     }, 120);
   }, []);
 
@@ -642,7 +652,7 @@ export default function CharacterLibraryScreen() {
         style={styles.container}
         data={displayedCharacterItems}
         keyExtractor={entry => entry.id}
-        numColumns={2}
+        numColumns={CHARACTER_GRID_COLUMNS}
         columnWrapperStyle={styles.characterRow}
         renderItem={renderCardItem}
         keyboardShouldPersistTaps="handled"

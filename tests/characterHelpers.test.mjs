@@ -8,6 +8,7 @@ import {
   characterWithFormState,
   formatImportSize,
   getPickedAsset,
+  gridRowIndex,
   hasCardContent,
   isLargeImport,
   isPngBuffer,
@@ -99,4 +100,21 @@ test('worldEntryMeta：常驻 / 关键词 / 内容摘要 / 未设置', () => {
   assert.equal(worldEntryMeta({ keys: ['a', 'b'] }), '关键词：a、b');
   assert.equal(worldEntryMeta({ content: '  一段内容  ' }), '一段内容');
   assert.equal(worldEntryMeta({}), '未设置关键词');
+});
+
+test('gridRowIndex：网格定位按行号折算（回归：numColumns 下半部分越界闪退）', () => {
+  // 2 列：项序号 0..9 折成行 0..4；越界区（项序号 ≥ 行数）必须落在合法行内
+  assert.equal(gridRowIndex(0, 2), 0);
+  assert.equal(gridRowIndex(1, 2), 0);
+  assert.equal(gridRowIndex(2, 2), 1);
+  assert.equal(gridRowIndex(9, 2), 4);
+  // 20 项 2 列 → 最多 9 行；原先直接传项序号 11 会命中越界 invariant
+  assert.equal(gridRowIndex(11, 2), 5);
+  assert.equal(gridRowIndex(19, 2), 9);
+  // 单列等价于原值
+  assert.equal(gridRowIndex(7, 1), 7);
+  // 非法输入安全兜底
+  assert.equal(gridRowIndex(-3, 2), 0);
+  assert.equal(gridRowIndex(5, 0), 5);
+  assert.equal(gridRowIndex(NaN, 2), 0);
 });
