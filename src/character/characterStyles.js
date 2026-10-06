@@ -5,7 +5,13 @@ import { Platform, StyleSheet } from 'react-native';
 
 export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create({
   flex: { flex: 1, backgroundColor: theme.colors.background },
+  // container 的 padding 被 CharacterDetailScreen 的 ScrollView 依赖，不能动；
+  // 库列表（FlatList）走无 padding 的 flex 外框 + listContent 内容内边距
+  // （padding 挂 style 是 RN 明确告诫的反模式：Android 静止时生效但 JS 滚动度量
+  // 与原生可滚范围差一个上下 padding 之和，scrollToEnd/定位滑块系统性少滚）。
   container: { flex: 1, backgroundColor: theme.colors.background, padding: 18 },
+  flex: { flex: 1, backgroundColor: theme.colors.background },
+  listContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
   pageHeader: { marginTop: 4, marginBottom: 14 },
   // 详情页顶部返回入口（角色库 ⇄ 角色详情拆成原生栈之后新增）
   detailBackRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 6, marginBottom: 2 },
