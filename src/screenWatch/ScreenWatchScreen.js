@@ -19,6 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { Card, EmptyState, GhostButton } from '../ui/index.js';
+import PaneHeader from '../ui/PaneHeader.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 import { markMediaWrite } from '../storage/mediaProtection.js';
@@ -320,9 +321,7 @@ export default function ScreenWatchScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.listContent}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('screenWatch.title')}</Text>
-      </View>
+      <PaneHeader title={t('screenWatch.title')} onBack={() => navigation.goBack()} />
 
       {overlaySupported ? (
         <Card style={styles.captureCard}>

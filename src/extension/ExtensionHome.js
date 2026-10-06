@@ -127,6 +127,9 @@ export default function ExtensionHome() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.titleBar}>
+        <Text style={styles.titleText}>{t('app.tab.extension')}</Text>
+      </View>
       <FlatList
         data={GROUPS}
         keyExtractor={g => g.id}
@@ -144,6 +147,8 @@ export default function ExtensionHome() {
 
 const createStyles = (theme, fonts, tokens) => ({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  titleBar: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
+  titleText: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
   listContent: { paddingHorizontal: 20, paddingBottom: 30 },
   group: { marginBottom: tokens.spacing.lg },
   groupTitle: {

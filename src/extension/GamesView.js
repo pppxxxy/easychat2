@@ -5,11 +5,13 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { EmptyState, PrimaryButton } from '../ui/index.js';
+import PaneHeader from '../ui/PaneHeader.js';
 import { GAMES } from '../games/games.js';
 import DailyWifeView from '../games/DailyWifeView.js';
 
@@ -22,6 +24,7 @@ try {
 }
 
 export default function GamesView() {
+  const navigation = useNavigation();
   const [activeGameId, setActiveGameId] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -68,6 +71,7 @@ export default function GamesView() {
   if (!WebViewComponent) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
+        <PaneHeader title={t('ext.home.games')} onBack={() => navigation.goBack()} />
         <EmptyState
           icon="alert-circle-outline"
           title={t('ext.games.env.title')}
@@ -122,6 +126,7 @@ export default function GamesView() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      <PaneHeader title={t('ext.home.games')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.listContent}>
         <Text style={styles.sectionHeader}>{t('ext.games.section.native')}</Text>
         {nativeGames.map(game => (

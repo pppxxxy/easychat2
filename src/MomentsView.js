@@ -33,6 +33,8 @@ import { runUserMomentComments } from './moments/runUserMomentComments.js';
 import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
+import PaneHeader from './ui/PaneHeader.js';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { maskSecrets } from './storage/secrets.js';
@@ -51,6 +53,7 @@ function formatTime(timestamp, t) {
 }
 
 export default function MomentsView({ active = true }) {
+  const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
   const { characters, sessions } = useApp();
   const { t } = useTranslation();
@@ -515,7 +518,11 @@ export default function MomentsView({ active = true }) {
   if (loaded && moments.length === 0) {
     return (
       <View style={styles.wrap}>
-        <MomentHeader styles={styles} onPress={() => setTopic('moments')} />
+        <PaneHeader
+          title={t('moments.title')}
+          onBack={() => navigation.goBack()}
+          right={<TopicButton onPress={() => setTopic('moments')} accessibilityLabel={t('moments.tutorial.a11y')} />}
+        />
         <View style={styles.postComposer}>
           <TextInput
             style={styles.postInput}
@@ -552,7 +559,11 @@ export default function MomentsView({ active = true }) {
 
   return (
     <View style={styles.wrap}>
-      <MomentHeader styles={styles} onPress={() => setTopic('moments')} />
+      <PaneHeader
+        title={t('moments.title')}
+        onBack={() => navigation.goBack()}
+        right={<TopicButton onPress={() => setTopic('moments')} accessibilityLabel={t('moments.tutorial.a11y')} />}
+      />
       <FlatList
         data={moments}
         keyExtractor={item => item.id}
@@ -589,19 +600,6 @@ export default function MomentsView({ active = true }) {
         onClose={() => setTopic(null)}
         chapterIds={topic ? [topic] : []}
         title={t('moments.tutorial.title')}
-      />
-    </View>
-  );
-}
-
-function MomentHeader({ styles, onPress }) {
-  const { t } = useTranslation();
-  return (
-    <View style={styles.headerRow}>
-      <Text style={styles.headerTitle}>{t('moments.title')}</Text>
-      <TopicButton
-        onPress={onPress}
-        accessibilityLabel={t('moments.tutorial.a11y')}
       />
     </View>
   );
