@@ -26,35 +26,14 @@ export function normalizeAllowCommandExecution(value, mode) {
   return value === true;
 }
 
-// 从 GitHub 拉取的项目清单条目：id = 沙盒内的目录名（owner__repo）。
-export function normalizeWorkspaceProjects(raw) {
-  const list = Array.isArray(raw) ? raw : [];
-  return list
-    .filter(item => item && typeof item === 'object' && String(item.id || '').trim())
-    .map(item => ({
-      id: String(item.id).trim(),
-      name: String(item.name || item.id).trim(),
-      repo: String(item.repo || '').trim(),
-      branch: String(item.branch || '').trim(),
-      updatedAt: Number(item.updatedAt) > 0 ? Number(item.updatedAt) : 0,
-    }));
-}
-
 export function normalizeWorkspaceSettings(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const mode = normalizeWorkspaceMode(source.mode);
-  const projects = normalizeWorkspaceProjects(source.projects);
-  const requestedProject = String(source.activeProjectId || '').trim();
   return {
-    mode,
+    mode: normalizeWorkspaceMode(source.mode),
     location: normalizeWorkspaceLocation(source.location),
-    allowCommandExecution: normalizeAllowCommandExecution(source.allowCommandExecution, mode),
+    allowCommandExecution: normalizeAllowCommandExecution(source.allowCommandExecution, source.mode),
     // 工作区角色（面板顶部选择；空 = 未设置，面板打开时落到默认工作助手，该卡不存在则回落内置助手）。
     assistantCharacterId: String(source.assistantCharacterId || '').trim(),
-    // 从 GitHub 拉取的项目（沙盒内 projects/<owner>__<repo>）与当前选中的项目；
-    // 选中的 id 若已不在清单里就回落空，避免指向一个已被删掉的项目。
-    projects,
-    activeProjectId: projects.some(item => item.id === requestedProject) ? requestedProject : '',
   };
 }
 

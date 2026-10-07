@@ -6,7 +6,7 @@ import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
 
-import { buildChangeEntry, createHistoryRecordingStore } from '../src/workspace/history.js';
+import { buildBatchEntry, buildChangeEntry, createHistoryRecordingStore } from '../src/workspace/history.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -85,6 +85,53 @@ test('装饰器：写/改/删都记录；写失败不记录；记录失败不影
   assert.equal(written.length, 2, '记录失败绝不影响写入结果');
 });
 
+test('buildBatchEntry：op=import、count 归一、path 截断', () => {
+  const entry = buildBatchEntry({ path: 'repos/a/b/main/', count: 12 }, { now: 5, idFactory: () => 'chg-b' });
+  assert.equal(entry.op, 'import');
+  assert.equal(entry.count, 12);
+  assert.equal(entry.path, 'repos/a/b/main/');
+  assert.equal(entry.id, 'chg-b');
+  assert.equal(entry.at, 5);
+  assert.equal(entry.length, 0);
+});
+
+test('批量导入：批内逐文件写只记一条汇总；abort 不记；批内跳过探测', async () => {
+  const calls = [];
+  let uriProbes = 0;
+  const base = {
+    fileUri: async () => { uriProbes += 1; return 'file:///ws/x'; },
+    writeWorkspaceFile: async ({ path: p, content }) => ({ path: p, length: String(content || '').length }),
+    deleteFile: async ({ path: p }) => ({ path: p, deleted: true }),
+  };
+  const store = createHistoryRecordingStore(base, {
+    record: (characterId, entry) => { calls.push({ characterId, entry }); },
+  });
+
+  store.beginBatch('c1', { path: 'repos/a/b/main/' });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'repos/a/b/main/1.txt', content: 'x' });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'repos/a/b/main/2.txt', content: 'yy' });
+  await store.deleteFile({ characterId: 'c1', path: 'repos/a/b/main/2.txt' });
+  assert.equal(calls.length, 0, '批内不产生逐文件记录（含回滚删除）');
+  assert.equal(uriProbes, 0, '批内跳过存在性探测');
+  const done = store.endBatch();
+  assert.equal(done.count, 2);
+  assert.equal(calls.length, 1, '结束时只记一条汇总');
+  assert.equal(calls[0].entry.op, 'import');
+  assert.equal(calls[0].entry.count, 2);
+  assert.equal(calls[0].entry.path, 'repos/a/b/main/');
+
+  // 取消/回滚：abortBatch 什么都不记。
+  store.beginBatch('c1', { path: 'repos/a/b/main/' });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'repos/a/b/main/3.txt', content: 'z' });
+  store.abortBatch();
+  assert.equal(calls.length, 1, 'abort 后仍只有那一条汇总');
+
+  // 批结束后恢复逐条记录。
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'solo.txt', content: 'k' });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].entry.op, 'write');
+});
+
 // ---------- 存储域：往返/上限/分区（AsyncStorage 桩） ----------
 
 const store = new Map();
@@ -159,6 +206,16 @@ test('改动历史存储：追加（新的在前）、按角色分区、清空�
   assert.equal((await workspace.getWorkspaceChanges('c2')).length, 1, '清空一个角色不影响另一个');
 });
 
+test('改动历史存储：import 汇总条目可往返（op 不被归一成 write）', async () => {
+  store.clear();
+  await workspace.appendWorkspaceChange('imp', { op: 'import', path: 'repos/a/b/main/', count: 7, at: 10 });
+  const list = await workspace.getWorkspaceChanges('imp');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].op, 'import');
+  assert.equal(list[0].count, 7);
+  assert.equal(list[0].path, 'repos/a/b/main/');
+});
+
 test('改动历史存储：每角色上限裁剪（只保留最近 WORKSPACE_CHANGE_LIMIT 条）', async () => {
   store.clear();
   const total = workspace.WORKSPACE_CHANGE_LIMIT + 5;
@@ -169,4 +226,22 @@ test('改动历史存储：每角色上限裁剪（只保留最近 WORKSPACE_CHA
   assert.equal(list.length, workspace.WORKSPACE_CHANGE_LIMIT, '超出上限被裁剪');
   assert.equal(list[0].at, total, '保留的是最新的那条');
   assert.equal(list[list.length - 1].at, total - workspace.WORKSPACE_CHANGE_LIMIT + 1, '最旧的被丢弃');
+});
+test('仓库清单快照：按角色+仓库分区往返，非法值归一', async () => {
+  store.clear();
+  assert.equal(await workspace.getRepoSnapshot('c1', 'o/r/main'), null, '没有快照返回 null');
+
+  await workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['a.js', 'src/b.js'], at: 123 });
+  const snap = await workspace.getRepoSnapshot('c1', 'o/r/main');
+  assert.deepEqual(snap, { at: 123, paths: ['a.js', 'src/b.js'] });
+  assert.equal(await workspace.getRepoSnapshot('c1', 'o/other/main'), null, '仓库之间互不影响');
+  assert.equal(await workspace.getRepoSnapshot('c2', 'o/r/main'), null, '角色之间互不影响');
+
+  // 覆盖写：同一仓库再次拉取/推送后基线更新。
+  await workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['only.js'], at: 456 });
+  assert.deepEqual((await workspace.getRepoSnapshot('c1', 'o/r/main')).paths, ['only.js']);
+
+  // 非法输入：空 id 直接忽略，不写脏数据。
+  assert.equal(await workspace.setRepoSnapshot('', 'o/r/main', { paths: ['x'] }), null);
+  assert.equal(await workspace.getRepoSnapshot('c1', ''), null);
 });

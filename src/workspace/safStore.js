@@ -237,6 +237,26 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       await adapter.delete(file.uri);
       return { path: relative, deleted: true };
     },
+
+    // 目录改名/移动（重命名 GitHub 仓库时同步本地副本）。SAF 后端要求 adapter 提供 moveDirectory
+    // （expo v19 的 Directory.move）；源不存在返回 moved:false，目标已存在拒绝覆盖。
+    async moveWorkspaceDirectory({ characterId, from, to } = {}) {
+      const source = normalizeWorkspacePath(from);
+      const target = normalizeWorkspacePath(to);
+      if (source === target) return { from: source, to: target, moved: false };
+      const sourceUri = await locateDirectory(characterId, source.split('/'), false);
+      if (!sourceUri) return { from: source, to: target, moved: false };
+      const targetUri = await locateDirectory(characterId, target.split('/'), false);
+      if (targetUri) throw new Error(tActive('error.workspace.moveTargetExists', { path: target }));
+      if (typeof adapter.moveDirectory !== 'function') {
+        throw new Error(tActive('error.workspace.moveUnsupported'));
+      }
+      const targetParent = target.split('/').slice(0, -1);
+      const parentUri = await locateDirectory(characterId, targetParent, true);
+      const targetName = target.split('/').slice(-1)[0];
+      await adapter.moveDirectory(sourceUri, parentUri, targetName);
+      return { from: source, to: target, moved: true };
+    },
   };
 }
 
@@ -272,6 +292,13 @@ export function createExpoSafAdapter(fileSystemModule) {
     },
     async delete(uri) {
       new File(uri).delete();
+    },
+    // expo v19：Directory.move(destination) 把目录改名/搬到目标路径（目标不应已存在）。
+    async moveDirectory(uri, parentUri, name) {
+      const base = String(parentUri || '').endsWith('/') ? parentUri : `${parentUri}/`;
+      const destination = `${base}${name}`;
+      new Directory(uri).move(destination);
+      return destination;
     },
   };
 }

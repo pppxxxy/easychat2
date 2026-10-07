@@ -65,8 +65,7 @@ import TutorialModal from './TutorialModal.js';
 import DiagnosticsModal from './DiagnosticsModal.js';
 import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
-import WorkspacePanel from './WorkspacePanel.js';
-import WorkspaceChat from './workspace/WorkspaceChat.js';
+import WorkspaceScreen from './workspace/screen/WorkspaceScreen.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import useGithubMcp from './settings/useGithubMcp.js';
@@ -270,7 +269,6 @@ export default function SettingsScreen() {
     resetWorkspaceFolder,
     toggleCommandExecution,
   } = useWorkspaceSettings();
-  const characterId = (character && character.id) || 'default';
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
     enabled: false,
@@ -308,10 +306,9 @@ export default function SettingsScreen() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [localModelOpen, setLocalModelOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  // 工作区主界面是聊天（WorkspaceChat）；文件 / 环境配置 / 历史这些子面板由它按需打开，
-  // 用 initialSection 指定要直接展开的那一项。
-  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
-  const [workspacePanelSection, setWorkspacePanelSection] = useState('');
+  // 工作区是**一个**屏幕（WorkspaceScreen）：聊天 / 文件 / GitHub / 设置都是它内部的面板。
+  // 这里不再分别挂 WorkspaceChat 与 WorkspacePanel 两个平级 Modal——那正是「历史改动盖在
+  // 工作区上面」的三层 z 轴堆叠（用户截图 S3/S4）。
   // GitHub MCP 连接的编排已抽到 settings/useGithubMcp.js。
   const {
     githubMcp,
@@ -1975,19 +1972,9 @@ export default function SettingsScreen() {
         visible={localModelOpen}
         onClose={() => setLocalModelOpen(false)}
       />
-      <WorkspaceChat
+      <WorkspaceScreen
         visible={workspaceOpen}
         onClose={() => setWorkspaceOpen(false)}
-        onOpenPanel={section => {
-          setWorkspacePanelSection(String(section || ''));
-          setWorkspacePanelOpen(true);
-        }}
-      />
-      <WorkspacePanel
-        visible={workspacePanelOpen}
-        onClose={() => setWorkspacePanelOpen(false)}
-        characterId={characterId}
-        initialSection={workspacePanelSection}
       />
 
       <ChapterModal

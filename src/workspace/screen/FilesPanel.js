@@ -22,32 +22,31 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 
-import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHeader, TextField } from './ui/index.js';
-import { useTheme } from './theme/ThemeContext.js';
-import { useTranslation } from './i18n/I18nContext.js';
-import { useApp } from './context/AppContext.js';
-import { capabilitiesForModel, getActiveModel, getApiConfigs } from './storage/apiConfigs.js';
+import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHeader, TextField } from '../../ui/index.js';
+import { useTheme } from '../../theme/ThemeContext.js';
+import { useTranslation } from '../../i18n/I18nContext.js';
+import { useApp } from '../../context/AppContext.js';
+import { capabilitiesForModel, getActiveModel, getApiConfigs } from '../../storage/apiConfigs.js';
 import {
   clearWorkspaceChanges,
   getWorkspaceChanges,
   getWorkspaceSettings,
   patchWorkspaceSettings,
-} from './storage/workspace.js';
-import { getActiveLocalModel } from './storage/localModels.js';
-import { getCharacterLibrary } from './storage/characters.js';
-import { getMessagesBySession, getSessions } from './storage/sessions.js';
-import { getThinkingSettings, saveThinkingSettings } from './storage/settings.js';
-import { resolveWorkspaceAssistant } from './workspace/assistant.js';
-import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
-import { normalizeLocalModelParams } from './localModel/modelParams.js';
-import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
-import { createWorkspaceStore, describeWorkspaceRoot } from './workspace/native.js';
-import WorkspaceChat from './workspace/WorkspaceChat.js';
-import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from './workspace/paths.js';
-import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
-import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
-import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from './workspace/catalog.js';
-import WorkspaceRepoSheet from './workspace/WorkspaceRepoSheet.js';
+} from '../../storage/workspace.js';
+import { getActiveLocalModel } from '../../storage/localModels.js';
+import { getCharacterLibrary } from '../../storage/characters.js';
+import { getMessagesBySession, getSessions } from '../../storage/sessions.js';
+import { getThinkingSettings, saveThinkingSettings } from '../../storage/settings.js';
+import { resolveWorkspaceAssistant } from '../assistant.js';
+import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { normalizeLocalModelParams } from '../../localModel/modelParams.js';
+import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from '../docx.js';
+import { createWorkspaceStore, describeWorkspaceRoot } from '../native.js';
+import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.js';
+import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
+import { WORKSPACE_ROOT_KINDS } from '../location.js';
+import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
+import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles } from './buildTree.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -63,6 +62,7 @@ const CHANGE_OP_META = {
   write: { icon: 'document-text-outline', labelKey: 'workspace.panel.history.op.write' },
   edit: { icon: 'create-outline', labelKey: 'workspace.panel.history.op.edit' },
   delete: { icon: 'trash-outline', labelKey: 'workspace.panel.history.op.delete' },
+  import: { icon: 'cloud-download-outline', labelKey: 'workspace.panel.history.op.import' },
 };
 
 // 思考强度四档；off = 关闭思考（enabled: false），其余对应 level。
@@ -76,14 +76,13 @@ function formatTokens(value) {
   return String(tokens);
 }
 
-export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default', initialSection = '' }) {
+export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '' }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
-  const { characters, refreshAppData } = useApp();
+  const { refreshAppData } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [mode, setMode] = useState('ask');
-  const [chatOpen, setChatOpen] = useState(false);
   // 根可能被用户在设置里改（应用内默认 ↔ 外部文件夹），故随设置变化而不是一次算死。
   const [root, setRoot] = useState(() => describeWorkspaceRoot(null));
   const [files, setFiles] = useState([]);
@@ -101,6 +100,9 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   // 查看文件：文件列表与历史改动两段。
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerTab, setViewerTab] = useState('files');
+  // 文件区当前所在目录（'' = 根层，按项目分组）。进入项目/目录后逐层下钻，
+  // 路径只在面包屑里出现，不再把「repos/x/main/src/…」整条挤在文件行里被截断（诉求④）。
+  const [subdir, setSubdir] = useState('');
   const [changes, setChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState('');
@@ -109,7 +111,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   // 套餐：写入进度 {id, done, total}；条目状态 'absent' | 'same' | 'diff'（弹层打开时比对）。
   const [bundleBusy, setBundleBusy] = useState(null);
   const [catalogStatuses, setCatalogStatuses] = useState({});
-  const [repoOpen, setRepoOpen] = useState(false);
   // 对话调优（思考强度/上下文占用）折叠卡：默认收起，把主操作让给文件与导入。
   const [tuningOpen, setTuningOpen] = useState(false);
   const [catalogInputs, setCatalogInputs] = useState({});
@@ -129,8 +130,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
 
   const canWrite = mode === 'write';
   const external = root.kind === WORKSPACE_ROOT_KINDS.SAF;
-  const characterName = (Array.isArray(characters) ? characters : [])
-    .find(item => item && item.id === characterId)?.name || '';
 
   const refresh = useCallback(async (ownerId = characterId) => {
     const store = storeRef.current;
@@ -214,7 +213,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     setForm(null);
     setViewerOpen(false);
     setCharacterPickerOpen(false);
-    setChatOpen(false);
     (async () => {
       try {
         const settings = await getWorkspaceSettings();
@@ -602,36 +600,231 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     }
   }, [customBusy, customUrl, t, writeCatalogFile]);
 
-  // 文件行渲染（主列表与「查看文件」共用同一份，避免两处漂移）。
-  const renderFileRow = name => (
-    <View key={name} style={styles.fileRow}>
-      <TouchableOpacity style={styles.fileMain} onPress={() => openFile(name)} activeOpacity={0.8}>
+  // —— 文件区分组与下钻（诉求④）——
+  // 根层：工作区自己的散文件 + 每个导入项目一张卡；进入项目/目录后逐层列出直接子项。
+  // 路径只在面包屑里出现，不再把 repos/x/main/src/… 整条挤进文件行被截断。
+  const { rootEntries, groups } = useMemo(() => groupWorkspaceFiles(files), [files]);
+  const children = useMemo(() => directoryChildren(files, subdir), [files, subdir]);
+  const crumbs = useMemo(
+    () => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')),
+    [subdir, t]
+  );
+  // 当前目录被删空（或换了角色/根）时退回根层，避免停在空目录里。
+  useEffect(() => {
+    if (!subdir) return;
+    if (!files.some(entry => String(entry).startsWith(subdir))) setSubdir('');
+  }, [files, subdir]);
+
+  const renderEntryRow = entry => (
+    <View key={entry.path} style={styles.fileRow}>
+      <TouchableOpacity
+        style={styles.fileMain}
+        onPress={() => (entry.isDirectory ? setSubdir(entry.path) : openFile(entry.path))}
+        activeOpacity={0.8}
+      >
         <Ionicons
-          name={String(name).endsWith('/') ? 'folder-outline' : (isDocxName(name) ? 'document-outline' : 'document-text-outline')}
+          name={entry.isDirectory ? 'folder-outline' : (isDocxName(entry.path) ? 'document-outline' : 'document-text-outline')}
           size={16}
           color={theme.colors.primaryMuted}
         />
-        <Text style={styles.fileName} numberOfLines={1}>{name}</Text>
+        <Text style={styles.fileName} numberOfLines={1}>{entry.name}</Text>
       </TouchableOpacity>
-      {!String(name).endsWith('/') ? (
+      {entry.isDirectory ? null : (
         <>
-          <TouchableOpacity style={styles.fileAction} onPress={() => shareFile(name)} accessibilityLabel={t('workspace.panel.a11y.share', { name })}>
+          <TouchableOpacity
+            style={styles.fileAction}
+            onPress={() => shareFile(entry.path)}
+            accessibilityLabel={t('workspace.panel.a11y.share', { name: entry.name })}
+          >
             <Ionicons name="share-outline" size={16} color={theme.colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.fileAction} onPress={() => handleDelete(name)} accessibilityLabel={t('workspace.panel.a11y.delete', { name })}>
+          <TouchableOpacity
+            style={styles.fileAction}
+            onPress={() => handleDelete(entry.path)}
+            accessibilityLabel={t('workspace.panel.a11y.delete', { name: entry.name })}
+          >
             <Ionicons name="trash-outline" size={16} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </>
-      ) : null}
+      )}
     </View>
   );
 
+  const renderProjectCard = group => (
+    <TouchableOpacity
+      key={group.id}
+      style={styles.projectCard}
+      onPress={() => setSubdir(group.prefix)}
+      activeOpacity={0.85}
+    >
+      <Ionicons
+        name="logo-github"
+        size={18}
+        color={theme.colors.primaryMuted}
+      />
+      <View style={styles.projectMain}>
+        <Text style={styles.projectName} numberOfLines={1}>{group.label}</Text>
+        <Text style={styles.projectMeta} numberOfLines={1}>
+          {t('workspace.panel.group.files', { count: group.fileCount + group.dirCount })}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />
+    </TouchableOpacity>
+  );
+
+  const renderFileBrowser = () => {
+    if (loading) return <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>;
+    if (error) return null;
+    if (files.length === 0) {
+      return (
+        <EmptyState
+          icon="briefcase-outline"
+          title={t('workspace.panel.empty.title')}
+          description={canWrite ? t('workspace.panel.empty.write') : t('workspace.panel.empty.read')}
+        />
+      );
+    }
+    if (subdir) {
+      return (
+        <>
+          <View style={styles.crumbRow}>
+            {crumbs.map((crumb, index) => (
+              <View key={crumb.path || 'root'} style={styles.crumbItem}>
+                {index > 0 ? <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} /> : null}
+                <TouchableOpacity onPress={() => setSubdir(crumb.path)} activeOpacity={0.7}>
+                  <Text
+                    style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]}
+                    numberOfLines={1}
+                  >
+                    {crumb.name}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+          {children.map(renderEntryRow)}
+        </>
+      );
+    }
+    return (
+      <>
+        {rootEntries.length > 0 ? (
+          <>
+            <FieldLabel>{t('workspace.panel.group.workspace')}</FieldLabel>
+            {directoryChildren(rootEntries, '').map(renderEntryRow)}
+          </>
+        ) : null}
+        {groups.length > 0 ? (
+          <>
+            <FieldLabel>{t('workspace.panel.group.projects')}</FieldLabel>
+            {groups.map(renderProjectCard)}
+          </>
+        ) : null}
+      </>
+    );
+  };
+
+  // 查看文件（已创建的文件 / 历史改动）：面板**内部**的层，不再是一个独立 Modal——
+  // 全局弹窗嵌套到此为止（v2 §3 交互规则 3：面板内二级层深度 ≤ 2）。
+  const renderViewerBody = () => (
+    <>
+      <SheetHeader title={t('workspace.panel.viewer.title')} onClose={() => setViewerOpen(false)} />
+      <View style={styles.viewerTabs}>
+        {['files', 'history'].map(tab => {
+          const active = viewerTab === tab;
+          return (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.viewerTab, active && styles.viewerTabActive]}
+              onPress={() => openViewer(tab)}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.viewerTabText, active && styles.viewerTabTextActive]}>
+                {t(tab === 'files' ? 'workspace.panel.viewer.tab.files' : 'workspace.panel.viewer.tab.history')}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {viewerTab === 'files' ? renderFileBrowser() : (
+        <>
+          {changesLoading ? (
+            <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
+          ) : null}
+          {!changesLoading && changes.length === 0 ? (
+            <EmptyState
+              icon="time-outline"
+              title={t('workspace.panel.viewer.history.empty.title')}
+              description={t('workspace.panel.viewer.history.empty.body')}
+            />
+          ) : null}
+          {!changesLoading && changes.length > 0 ? (
+            <TouchableOpacity style={styles.clearHistoryRow} onPress={clearHistory} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={13} color={theme.colors.textMuted} />
+              <Text style={styles.clearHistoryText}>{t('workspace.panel.viewer.clear.action')}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {changes.map(entry => {
+            const meta = CHANGE_OP_META[entry.op] || CHANGE_OP_META.write;
+            const expanded = expandedChangeId === entry.id;
+            return (
+              <View key={entry.id} style={styles.changeCard}>
+                <TouchableOpacity
+                  style={styles.changeMain}
+                  onPress={() => setExpandedChangeId(expanded ? '' : entry.id)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={meta.icon} size={15} color={theme.colors.primaryMuted} />
+                  <View style={styles.changeText}>
+                    <Text style={styles.changeTitle} numberOfLines={1}>
+                      {t(meta.labelKey)}{' '}{entry.path}
+                    </Text>
+                    <Text style={styles.changeMeta} numberOfLines={1}>
+                      {formatChangeTime(entry.at)}
+                      {entry.op === 'write' ? ` · ${t('workspace.panel.history.chars', { count: entry.length })}` : ''}
+                      {entry.op === 'write' && entry.created ? ` · ${t('workspace.panel.history.created')}` : ''}
+                      {entry.op === 'edit' ? ` · ${t('workspace.panel.history.replaced', { count: entry.count })}${entry.all ? `（${t('workspace.panel.history.all')}）` : ''}` : ''}
+                      {entry.op === 'delete' ? ` · ${t('workspace.panel.history.deleted')}` : ''}
+                      {entry.op === 'import' ? ` · ${t('workspace.panel.history.imported', { count: entry.count })}` : ''}
+                    </Text>
+                  </View>
+                  <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
+                </TouchableOpacity>
+                {expanded && entry.op === 'edit' ? (
+                  <View style={styles.changeDetail}>
+                    <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.find')}</Text>
+                    <Text style={styles.changeDetailText}>{entry.find}</Text>
+                    <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.replace')}</Text>
+                    <Text style={styles.changeDetailText}>{entry.replace}</Text>
+                  </View>
+                ) : null}
+                {expanded && entry.op !== 'edit' ? (
+                  <View style={styles.changeDetail}>
+                    <Text style={styles.changeDetailText}>
+                      {entry.op === 'delete'
+                        ? t('workspace.panel.history.deleted')
+                        : entry.op === 'import'
+                          ? t('workspace.panel.history.detail.import', { count: entry.count, path: entry.path })
+                          : t('workspace.panel.history.detail.write', { chars: entry.length })}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </>
+      )}
+    </>
+  );
+
+  // 文件面板（工作区单屏内的「文件」领域）：不再自套 Modal、不再自带顶部标题栏——
+  // 那是单屏的职责。面板内的二级层（预览/表单/环境模板/角色切换）仍是本组件内部的层。
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />
+    <View style={styles.container}>
 
         <ScrollView contentContainerStyle={styles.body}>
+          {viewerOpen ? renderViewerBody() : (
+          <>
           <View style={styles.statusBar}>
             <View style={styles.modeBadge}>
               <Text style={styles.modeBadgeText} numberOfLines={1}>{modeLabel}</Text>
@@ -650,22 +843,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             <Text style={styles.sandboxHint} numberOfLines={2}>{t('workspace.panel.sandbox.externalHint')}</Text>
           ) : null}
 
-          <TouchableOpacity
-            style={styles.chatPrimary}
-            onPress={() => setChatOpen(true)}
-            activeOpacity={0.85}
-            accessibilityLabel={t('workspace.panel.openChat')}
-          >
-            <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryContrast} />
-            <Text style={styles.chatPrimaryText} numberOfLines={1}>{t('workspace.panel.openChat')}</Text>
-            <Ionicons name="chevron-forward" size={15} color={theme.colors.primaryContrast} />
-          </TouchableOpacity>
-
           <View style={styles.importRow}>
-            <TouchableOpacity style={styles.importButton} onPress={() => setRepoOpen(true)} activeOpacity={0.85}>
-              <Ionicons name="logo-github" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.importButtonText}>{t('workspace.panel.repo.entry')}</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.importButton} onPress={() => setCatalogOpen(true)} activeOpacity={0.85}>
               <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
               <Text style={styles.importButtonText}>{t('workspace.panel.catalog.entry')}</Text>
@@ -740,21 +918,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             </View>
           ) : null}
 
-          {loading ? (
-            <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
-          ) : null}
-
-          {!loading && files.length === 0 && !error ? (
-            <EmptyState
-              icon="briefcase-outline"
-              title={t('workspace.panel.empty.title')}
-              description={canWrite
-                ? t('workspace.panel.empty.write')
-                : t('workspace.panel.empty.read')}
-            />
-          ) : null}
-
-          {files.map(name => renderFileRow(name))}
+          {renderFileBrowser()}
 
           <View style={styles.collapsedSection}>
             <TouchableOpacity
@@ -820,6 +984,8 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
               </>
             ) : null}
           </View>
+          </>
+          )}
         </ScrollView>
         <Modal visible={characterPickerOpen} animationType="slide" onRequestClose={() => setCharacterPickerOpen(false)}>
           <View style={styles.container}>
@@ -837,104 +1003,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
                   ) : null}
                 </View>
               ))}
-            </ScrollView>
-          </View>
-        </Modal>
-
-        <Modal visible={viewerOpen} animationType="slide" onRequestClose={() => setViewerOpen(false)}>
-          <View style={styles.container}>
-            <SheetHeader title={t('workspace.panel.viewer.title')} onClose={() => setViewerOpen(false)} />
-            <View style={styles.viewerTabs}>
-              {['files', 'history'].map(tab => {
-                const active = viewerTab === tab;
-                return (
-                  <TouchableOpacity
-                    key={tab}
-                    style={[styles.viewerTab, active && styles.viewerTabActive]}
-                    onPress={() => openViewer(tab)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.viewerTabText, active && styles.viewerTabTextActive]}>
-                      {t(tab === 'files' ? 'workspace.panel.viewer.tab.files' : 'workspace.panel.viewer.tab.history')}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <ScrollView contentContainerStyle={styles.body}>
-              {viewerTab === 'files' ? (
-                files.length === 0 ? (
-                  <EmptyState
-                    icon="folder-open-outline"
-                    title={t('workspace.panel.empty.title')}
-                    description={canWrite ? t('workspace.panel.empty.write') : t('workspace.panel.empty.read')}
-                  />
-                ) : files.map(name => renderFileRow(name))
-              ) : (
-                <>
-                  {changesLoading ? (
-                    <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
-                  ) : null}
-                  {!changesLoading && changes.length === 0 ? (
-                    <EmptyState
-                      icon="time-outline"
-                      title={t('workspace.panel.viewer.history.empty.title')}
-                      description={t('workspace.panel.viewer.history.empty.body')}
-                    />
-                  ) : null}
-                  {!changesLoading && changes.length > 0 ? (
-                    <TouchableOpacity style={styles.clearHistoryRow} onPress={clearHistory} activeOpacity={0.8}>
-                      <Ionicons name="trash-outline" size={13} color={theme.colors.textMuted} />
-                      <Text style={styles.clearHistoryText}>{t('workspace.panel.viewer.clear.action')}</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {changes.map(entry => {
-                    const meta = CHANGE_OP_META[entry.op] || CHANGE_OP_META.write;
-                    const expanded = expandedChangeId === entry.id;
-                    return (
-                      <View key={entry.id} style={styles.changeCard}>
-                        <TouchableOpacity
-                          style={styles.changeMain}
-                          onPress={() => setExpandedChangeId(expanded ? '' : entry.id)}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name={meta.icon} size={15} color={theme.colors.primaryMuted} />
-                          <View style={styles.changeText}>
-                            <Text style={styles.changeTitle} numberOfLines={1}>
-                              {t(meta.labelKey)}{' '}{entry.path}
-                            </Text>
-                            <Text style={styles.changeMeta} numberOfLines={1}>
-                              {formatChangeTime(entry.at)}
-                              {entry.op === 'write' ? ` · ${t('workspace.panel.history.chars', { count: entry.length })}` : ''}
-                              {entry.op === 'write' && entry.created ? ` · ${t('workspace.panel.history.created')}` : ''}
-                              {entry.op === 'edit' ? ` · ${t('workspace.panel.history.replaced', { count: entry.count })}${entry.all ? `（${t('workspace.panel.history.all')}）` : ''}` : ''}
-                              {entry.op === 'delete' ? ` · ${t('workspace.panel.history.deleted')}` : ''}
-                            </Text>
-                          </View>
-                          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
-                        </TouchableOpacity>
-                        {expanded && entry.op === 'edit' ? (
-                          <View style={styles.changeDetail}>
-                            <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.find')}</Text>
-                            <Text style={styles.changeDetailText}>{entry.find}</Text>
-                            <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.replace')}</Text>
-                            <Text style={styles.changeDetailText}>{entry.replace}</Text>
-                          </View>
-                        ) : null}
-                        {expanded && entry.op !== 'edit' ? (
-                          <View style={styles.changeDetail}>
-                            <Text style={styles.changeDetailText}>
-                              {entry.op === 'delete'
-                                ? t('workspace.panel.history.deleted')
-                                : t('workspace.panel.history.detail.write', { chars: entry.length })}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </>
-              )}
             </ScrollView>
           </View>
         </Modal>
@@ -1057,14 +1125,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           </View>
         </Modal>
 
-        <WorkspaceRepoSheet
-          visible={repoOpen}
-          onClose={() => setRepoOpen(false)}
-          characterId={characterId}
-          storeRef={storeRef}
-          onImported={() => { refresh(); }}
-        />
-
         <Modal visible={!!preview} animationType="slide" onRequestClose={() => setPreview(null)}>
           <View style={styles.container}>
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
@@ -1085,17 +1145,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           </View>
         </Modal>
 
-        <WorkspaceChat
-          visible={chatOpen}
-          onClose={() => setChatOpen(false)}
-          characterId={characterId}
-          mode={mode}
-          settings={settingsRef.current}
-          characterName={characterName}
-          onFilesChanged={refresh}
-        />
       </View>
-    </Modal>
   );
 }
 
@@ -1159,7 +1209,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   collapsedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
   collapsedHeaderText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12.5), fontWeight: '600' },
-  fileToolsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  // flexWrap 是止血：四个按钮横排不换行时，窄屏末位会被裁成「📂 查...」（真机截图）。
+  fileToolsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 },
   fileToolButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1344,5 +1395,25 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   fileMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   fileName: { color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 8, flex: 1 },
   fileAction: { paddingHorizontal: 6, paddingVertical: 4 },
+  // 面包屑（进入项目/目录后逐层定位，替代把整条长路径塞进文件行）。
+  crumbRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 },
+  crumbItem: { flexDirection: 'row', alignItems: 'center', marginRight: 4 },
+  crumbText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginHorizontal: 2 },
+  crumbTextActive: { color: theme.colors.primary, fontWeight: '700' },
+  // 项目卡：根层每个导入项目一张（诉求④）。
+  projectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  projectMain: { flex: 1, marginLeft: 10, marginRight: 8 },
+  projectName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
+  projectMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
   previewText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(20), marginTop: 8 },
 });

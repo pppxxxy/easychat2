@@ -24,6 +24,11 @@ import { createMutationQueue, readJson } from './io.js';
 export const WORKSPACE_KEY = '@easychat2_workspace';
 export const WORKSPACE_CHANGES_KEY = '@easychat2_workspace_changes';
 export const WORKSPACE_CHATS_KEY = '@easychat2_workspace_chats';
+// 每个仓库的「本地副本清单快照」：最近一次拉取/推送成功时的文件路径列表，
+// 供 GitHub 工作台算「待同步」的增删（见 workspace/screen/repoDiff.js）。
+export const WORKSPACE_REPO_SNAPSHOTS_KEY = '@easychat2_workspace_repo_snapshots';
+const REPO_SNAPSHOT_CHARACTER_LIMIT = 20;
+const REPO_SNAPSHOT_PATH_LIMIT = 2000;
 export const WORKSPACE_CHAT_LIMIT_SIZE = WORKSPACE_CHAT_LIMIT;
 export const WORKSPACE_CHAT_MESSAGE_LIMIT_SIZE = WORKSPACE_CHAT_MESSAGE_LIMIT;
 export const WORKSPACE_CHANGE_LIMIT = 200;
@@ -70,7 +75,8 @@ export function normalizeWorkspaceChange(raw) {
   return {
     id: String(source.id || `chg-${Math.random().toString(36).slice(2, 10)}`),
     at: Math.max(0, Math.floor(Number(source.at)) || 0),
-    op: ['write', 'edit', 'delete'].includes(source.op) ? source.op : 'write',
+    // import = 批量导入的汇总条目（一次导入一条，count 为写入文件数）。
+    op: ['write', 'edit', 'delete', 'import'].includes(source.op) ? source.op : 'write',
     path: truncate(source.path, 200),
     created: source.created === true,
     length: Math.max(0, Math.floor(Number(source.length)) || 0),
@@ -131,6 +137,58 @@ export function clearWorkspaceChanges(characterId) {
     delete store[key];
     await AsyncStorage.setItem(WORKSPACE_CHANGES_KEY, JSON.stringify(store));
     return removed;
+  });
+}
+
+// ---- 仓库本地副本清单快照（GitHub 工作台的「待同步」依据） ----
+
+function normalizeRepoSnapshotsStore(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const out = {};
+  Object.entries(source).forEach(([characterId, repos]) => {
+    const key = String(characterId || '').trim();
+    if (!key || !repos || typeof repos !== 'object' || Array.isArray(repos)) return;
+    const bucket = {};
+    Object.entries(repos).forEach(([repoId, snapshot]) => {
+      const id = String(repoId || '').trim();
+      if (!id || !snapshot || typeof snapshot !== 'object') return;
+      const paths = Array.isArray(snapshot.paths)
+        ? snapshot.paths.map(item => String(item || '')).filter(Boolean).slice(0, REPO_SNAPSHOT_PATH_LIMIT)
+        : [];
+      bucket[id] = { at: Math.max(0, Math.floor(Number(snapshot.at)) || 0), paths };
+    });
+    if (Object.keys(bucket).length) out[key] = bucket;
+  });
+  return out;
+}
+
+export async function getRepoSnapshot(characterId, repoId) {
+  const key = String(characterId || '').trim();
+  const id = String(repoId || '').trim();
+  if (!key || !id) return null;
+  const store = normalizeRepoSnapshotsStore(await readJson(WORKSPACE_REPO_SNAPSHOTS_KEY, null));
+  return (store[key] && store[key][id]) || null;
+}
+
+// 写入某仓库的清单快照（拉取/推送成功后调用）。写失败由调用方吞掉——快照是辅助信息。
+export function setRepoSnapshot(characterId, repoId, { paths, at = Date.now() } = {}) {
+  const key = String(characterId || '').trim();
+  const id = String(repoId || '').trim();
+  if (!key || !id) return Promise.resolve(null);
+  return workspaceChangesMutation.enqueue(async () => {
+    const store = normalizeRepoSnapshotsStore(await readJson(WORKSPACE_REPO_SNAPSHOTS_KEY, null));
+    const bucket = store[key] || {};
+    bucket[id] = { at, paths: Array.isArray(paths) ? paths.slice(0, REPO_SNAPSHOT_PATH_LIMIT) : [] };
+    // 每个角色最多保留 N 个仓库快照，按时间淘汰最旧的。
+    const ids = Object.keys(bucket);
+    if (ids.length > REPO_SNAPSHOT_CHARACTER_LIMIT) {
+      ids.sort((a, b) => (bucket[b].at || 0) - (bucket[a].at || 0))
+        .slice(REPO_SNAPSHOT_CHARACTER_LIMIT)
+        .forEach(extra => { delete bucket[extra]; });
+    }
+    store[key] = bucket;
+    await AsyncStorage.setItem(WORKSPACE_REPO_SNAPSHOTS_KEY, JSON.stringify(store));
+    return bucket[id];
   });
 }
 

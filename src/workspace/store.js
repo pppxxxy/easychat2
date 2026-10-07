@@ -12,7 +12,9 @@ import { applyWorkspaceEdit } from './edit.js';
 import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
-const MAX_DEPTH = 6;
+// 6 会把导入仓库里 src/i18n/locales/zh-CN/x.js 这类真实路径直接藏掉（实测：注入 4 个
+// 深路径文件只列出 2 个）。提到 12 覆盖正常项目结构；MAX_FILES=2000 仍是主护栏。
+const MAX_DEPTH = 12;
 const MAX_READ_CHARS = 1024 * 1024;
 // 编辑专用上限：读路径 1MB 截断是为上下文经济；编辑要的是完整性，给到 4MB，
 // 超过则拒绝（见 editWorkspaceFile 的截断守卫）。
@@ -34,9 +36,15 @@ async function getInfo(fileSystem, uri) {
 
 async function ensureDirectory(fileSystem, uri) {
   const info = await getInfo(fileSystem, uri);
-  if (!info || !info.exists) {
-    await fileSystem.makeDirectoryAsync(uri, { intermediates: true });
+  if (info && info.exists) {
+    // 父路径被一个同名文件占着：再往下写只会拿到 Android 裸抛的 ENOTDIR（错误信息里
+    // 没有「谁占了路」）。这里快速失败并说清原因，排查成本从「猜」降到「一眼」。
+    if (info.isDirectory === false) {
+      throw new Error(tActive('error.workspace.parentIsFile', { path: uri }));
+    }
+    return;
   }
+  await fileSystem.makeDirectoryAsync(uri, { intermediates: true });
 }
 
 async function walk(fileSystem, directoryUri, prefix, results, depth) {
@@ -128,6 +136,35 @@ export async function writeWorkspaceBinaryFile({ root, characterId, path, base64
   return { path: relative, base64Length: payload.length };
 }
 
+// 目录改名/移动（重命名 GitHub 仓库时同步本地副本目录）。
+// from/to 都是沙盒内相对路径；目标已存在则拒绝（不覆盖既有目录）；源不存在返回 moved:false。
+export async function moveWorkspaceDirectory({ root, characterId, from, to, fileSystem } = {}) {
+  assertFileSystem(fileSystem);
+  const source = normalizeWorkspacePath(from);
+  const target = normalizeWorkspacePath(to);
+  if (source === target) return { from: source, to: target, moved: false };
+  const sandbox = sandboxDirectory(root, characterId);
+  const sourceUri = `${sandbox}${source}`;
+  const sourceInfo = await getInfo(fileSystem, sourceUri);
+  if (!sourceInfo || !sourceInfo.exists) return { from: source, to: target, moved: false };
+  if (sourceInfo.isDirectory === false) {
+    throw new Error(tActive('error.workspace.moveSourceNotDirectory', { path: source }));
+  }
+  const targetUri = `${sandbox}${target}`;
+  const targetInfo = await getInfo(fileSystem, targetUri);
+  if (targetInfo && targetInfo.exists) {
+    throw new Error(tActive('error.workspace.moveTargetExists', { path: target }));
+  }
+  const targetSegments = target.split('/');
+  const targetParent = targetSegments.slice(0, -1).join('/');
+  await ensureDirectory(fileSystem, targetParent ? `${sandbox}${targetParent}/` : sandbox);
+  if (typeof fileSystem.moveAsync !== 'function') {
+    throw new Error(tActive('error.workspace.moveUnsupported'));
+  }
+  await fileSystem.moveAsync({ from: sourceUri, to: targetUri });
+  return { from: source, to: target, moved: true };
+}
+
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
 
 // 新建目录（含中间层级）。已存在且是目录时 created=false，不报错。
@@ -186,6 +223,10 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
 
     createWorkspaceDirectory: ({ characterId, path } = {}) => createWorkspaceDirectory({
       root, characterId, path, fileSystem,
+    }),
+
+    moveWorkspaceDirectory: ({ characterId, from, to } = {}) => moveWorkspaceDirectory({
+      root, characterId, from, to, fileSystem,
     }),
 
     // 面板的分享/删除要拿到具体文件 uri。legacy 后端里 uri 就是拼出来的字符串。

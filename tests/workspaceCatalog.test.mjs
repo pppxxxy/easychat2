@@ -56,7 +56,7 @@ test('paths 黑名单（m1005m2 合并后的语义）：目录文件全部可写
 });
 
 test('面板接线：下载中心入口/写入走 store/自定义下载的三道闸', () => {
-  const source = readSource('src/WorkspacePanel.js');
+  const source = readSource('src/workspace/screen/FilesPanel.js');
   assert.ok(source.includes("t('workspace.panel.catalog.entry')"), '动作行有下载中心入口');
   assert.ok(source.includes('store.writeWorkspaceFile({ characterId, path, content })'), '写入与手写同一路径（自动进历史改动）');
   // 自定义下载的三道闸：https、512KB 上限、命名清洗

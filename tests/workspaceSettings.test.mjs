@@ -82,57 +82,23 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     assistantCharacterId: '',
-    projects: [],
-    activeProjectId: '',
   });
   assert.deepEqual(normalizeWorkspaceSettings(null), {
     mode: 'ask',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     assistantCharacterId: '',
-    projects: [],
-    activeProjectId: '',
   });
   assert.deepEqual(normalizeWorkspaceSettings('nope'), {
     mode: 'ask',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     assistantCharacterId: '',
-    projects: [],
-    activeProjectId: '',
   });
   // 工作区角色：去首尾空白；非字符串噪声归一为空串。
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: '  abc  ' }).assistantCharacterId, 'abc');
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: 42 }).assistantCharacterId, '42');
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: null }).assistantCharacterId, '');
-});
-
-test('从 GitHub 拉取的项目清单：丢弃噪声条目，选中项失效时回落空', () => {
-  const settings = normalizeWorkspaceSettings({
-    mode: 'write',
-    projects: [
-      { id: 'a__b', name: 'a/b', repo: 'a/b', branch: 'main', updatedAt: 123 },
-      { id: '   ', name: 'noise' },
-      null,
-      { id: 'c__d' },
-    ],
-    activeProjectId: 'c__d',
-  });
-  assert.deepEqual(settings.projects.map(item => item.id), ['a__b', 'c__d'], '空 id 与噪声条目被丢弃');
-  assert.equal(settings.projects[0].branch, 'main');
-  assert.equal(settings.projects[0].updatedAt, 123);
-  assert.equal(settings.projects[1].name, 'c__d', '缺 name 时回落 id');
-  assert.equal(settings.activeProjectId, 'c__d');
-
-  // 选中的项目已不在清单里 → 回落空，避免指向一个已被删掉的项目
-  assert.equal(normalizeWorkspaceSettings({
-    projects: [{ id: 'a__b' }],
-    activeProjectId: 'gone',
-  }).activeProjectId, '');
-
-  // 非法/缺失一律空数组
-  assert.deepEqual(normalizeWorkspaceSettings({ projects: 'nope' }).projects, []);
-  assert.deepEqual(normalizeWorkspaceSettings({}).projects, []);
 });
 
 test('命令执行开关只在可改模式下成立（其余模式一律归零）', () => {
@@ -168,7 +134,7 @@ test('工作区根：非法 location 一律回落应用内默认', () => {
 test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
   store.clear();
   const { getWorkspaceSettings, saveWorkspaceSettings, WORKSPACE_KEY } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '', projects: [], activeProjectId: '' };
+  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '' };
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   const saved = await saveWorkspaceSettings({ mode: 'write' });
   assert.deepEqual(saved, { ...defaultSettings, mode: 'write' });
@@ -178,7 +144,7 @@ test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
 
 test('损坏或非法值回落默认模式', async () => {
   const { getWorkspaceSettings } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '', projects: [], activeProjectId: '' };
+  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '' };
   store.set('@easychat2_workspace', '{not json');
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   store.set('@easychat2_workspace', JSON.stringify({ mode: 'rm -rf' }));

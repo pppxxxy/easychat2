@@ -10,6 +10,7 @@ import {
   registerDefaultWorkspaceTools,
   resolveShellRunner,
   shellGateReason,
+  terminalGateReason,
 } from '../src/workspace/native.js';
 import { registerWorkspaceTools, unregisterWorkspaceTools, WORKSPACE_TOOL_NAMES } from '../src/workspace/tools.js';
 
@@ -126,4 +127,18 @@ test('unregisterWorkspaceTools 能把 run_shell 一起摘掉（关开关后不�
   unregisterWorkspaceTools();
   assert.equal(getTool('run_shell'), null, '必须能摘掉，否则门控第一层就漏了');
   assert.deepEqual(listToolsForMode(AGENT_MODES.WRITE), []);
+});
+
+test('终端门控：共用「允许执行命令」开关，但不要求工作模式；外部根/原生缺失同样不可用', () => {
+  const base = { location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: true };
+  const available = { shellAvailable: true };
+  assert.equal(terminalGateReason({ ...base, mode: 'ask' }, available), '', '用户亲手输入的命令不要求可改模式');
+  assert.equal(terminalGateReason({ ...base, mode: 'write' }, available), '');
+  assert.equal(terminalGateReason(null, available), 'SWITCH_OFF', '开关关着 → 终端也不可用（不新开安全面）');
+  assert.equal(terminalGateReason({ ...base, allowCommandExecution: false }, available), 'SWITCH_OFF');
+  assert.equal(terminalGateReason({
+    ...base,
+    location: { kind: 'saf', uri: 'content://tree/primary%3ADocs', name: 'Docs' },
+  }, available), 'EXTERNAL_ROOT', '无 root 的 sh 碰不到 content://');
+  assert.equal(terminalGateReason(base, { shellAvailable: false }), 'SHELL_NOT_AVAILABLE');
 });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createWorkspaceDirectory,
+  moveWorkspaceDirectory,
   editWorkspaceFile,
   listWorkspaceFiles,
   readWorkspaceFile,
@@ -56,6 +57,18 @@ function createMemoryFs() {
     seedFile(uri, content) {
       api.makeDirectoryAsync(uri.slice(0, uri.lastIndexOf('/') + 1));
       entries.set(uri, { type: 'file', content });
+    },
+    async moveAsync({ from, to }) {
+      const fromPrefix = from.endsWith('/') ? from : `${from}/`;
+      const toPrefix = to.endsWith('/') ? to : `${to}/`;
+      const moves = [];
+      for (const [key, value] of entries.entries()) {
+        if (key === from) moves.push([key, to, value]);
+        else if (key.startsWith(fromPrefix)) moves.push([key, `${toPrefix}${key.slice(fromPrefix.length)}`, value]);
+      }
+      if (moves.length === 0) throw new Error('ENOENT');
+      for (const [key] of moves) entries.delete(key);
+      for (const [, target, value] of moves) entries.set(target, value);
     },
   };
   return api;
@@ -143,6 +156,31 @@ test('二进制写入 .docx 可被 list 看到，但 read 拒绝', async () => {
   );
 });
 
+test('write：父路径被同名文件占用时给出明确错误，不裸奔 ENOTDIR', async () => {
+  const fileSystem = {
+    async getInfoAsync(uri) {
+      if (uri === `${root}c1/notes/`) return { exists: true, isDirectory: false };
+      if (uri === `${root}c1/`) return { exists: true, isDirectory: true };
+      return { exists: false };
+    },
+    async makeDirectoryAsync() { throw new Error('父路径被占用时不该尝试建目录'); },
+    async writeAsStringAsync() { throw new Error('父路径被占用时不该写入'); },
+    async readAsStringAsync() { throw new Error('不该读'); },
+  };
+  await assert.rejects(
+    writeWorkspaceFile({ root, characterId: 'c1', path: 'notes/a.md', content: 'x', fileSystem }),
+    /已被同名文件占用/,
+  );
+});
+
+test('list：深路径文件不再被 MAX_DEPTH 藏掉（6 → 12）', async () => {
+  const fileSystem = createMemoryFs();
+  const deep = 'repos/demo/main/src/i18n/locales/zh-CN/app.js';
+  await writeWorkspaceFile({ root, characterId: 'c1', path: deep, content: 'export default {}', fileSystem });
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(files.includes(deep), '8 段深的真实项目路径必须可见');
+});
+
 test('缺少 fileSystem 注入时抛错', async () => {
   await assert.rejects(
     listWorkspaceFiles({ root, characterId: 'c1' }),
@@ -211,4 +249,36 @@ test('edit 守卫：超过读上限的文件可完整编辑；超过编辑上限
   );
   const untouched = await fileSystem.readAsStringAsync(`${root}c1/huge.txt`);
   assert.equal(untouched.length, huge.length, '拒绝后文件必须原样未动');
+});
+test('moveWorkspaceDirectory：目录改名（重命名仓库同步本地副本）', async () => {
+  const fileSystem = createMemoryFs();
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'repos/o/old/main/a.js', content: 'a', fileSystem });
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'repos/o/old/main/src/b.js', content: 'b', fileSystem });
+
+  const moved = await moveWorkspaceDirectory({
+    root, characterId: 'c1', from: 'repos/o/old', to: 'repos/o/renamed', fileSystem,
+  });
+  assert.deepEqual(moved, { from: 'repos/o/old', to: 'repos/o/renamed', moved: true });
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(files.includes('repos/o/renamed/main/a.js'), '文件跟到新目录');
+  assert.ok(files.includes('repos/o/renamed/main/src/b.js'), '子目录结构保留');
+  assert.ok(!files.some(name => name.startsWith('repos/o/old/')), '旧目录已不在');
+
+  // 源不存在：moved:false，不报错。
+  const missing = await moveWorkspaceDirectory({
+    root, characterId: 'c1', from: 'repos/o/nope', to: 'repos/o/x', fileSystem,
+  });
+  assert.equal(missing.moved, false);
+
+  // 目标已存在：拒绝覆盖。
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'repos/o/taken/main/c.js', content: 'c', fileSystem });
+  await assert.rejects(
+    moveWorkspaceDirectory({ root, characterId: 'c1', from: 'repos/o/renamed', to: 'repos/o/taken', fileSystem }),
+    /已存在/,
+  );
+  // 源是文件：明确拒绝。
+  await assert.rejects(
+    moveWorkspaceDirectory({ root, characterId: 'c1', from: 'repos/o/taken/main/c.js', to: 'repos/o/moved.js', fileSystem }),
+    /不是目录/,
+  );
 });

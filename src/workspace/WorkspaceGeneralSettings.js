@@ -38,6 +38,7 @@ export default function WorkspaceGeneralSettings({
   onClose,
   mode = 'ask',
   onSelectMode,
+  embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t, localeId, locales, setLocaleId } = useTranslation();
@@ -48,18 +49,10 @@ export default function WorkspaceGeneralSettings({
     ? locales
     : [{ id: 'zh-CN', label: '简体中文' }];
 
-  return (
+  // 面板内容抽出来：embedded（工作区「设置」面板内嵌）与 Modal 两种外壳共用同一份，
+  // 避免两处漂移。embedded 时不再有背景遮罩与标题栏——那是单屏/面板的职责。
+  const sheetContent = (
     <>
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-        <Pressable style={styles.backdrop} onPress={onClose}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>{t('workspace.general.title')}</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={8}>
-                <Ionicons name="close" size={20} color={theme.colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent}>
               <Text style={styles.sectionLabel}>{t('workspace.general.language')}</Text>
               <View style={styles.chipWrap}>
                 {localeList.map(item => (
@@ -103,6 +96,31 @@ export default function WorkspaceGeneralSettings({
                 </View>
                 <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />
               </TouchableOpacity>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        <View style={styles.embeddedRoot}>{sheetContent}</View>
+        <TutorialModal visible={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <Pressable style={styles.backdrop} onPress={onClose}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>{t('workspace.general.title')}</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={8}>
+                <Ionicons name="close" size={20} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent}>
+              {sheetContent}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -114,6 +132,8 @@ export default function WorkspaceGeneralSettings({
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  // embedded：作为工作区「设置」面板的一节内嵌，不再有遮罩与底部弹层外壳。
+  embeddedRoot: { paddingHorizontal: 16, paddingTop: 12 },
   backdrop: {
     flex: 1,
     backgroundColor: theme.colors.overlay,

@@ -19,7 +19,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -30,8 +29,8 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useTheme } from '../theme/ThemeContext.js';
-import { useTranslation } from '../i18n/I18nContext.js';
+import { useTheme } from '../../theme/ThemeContext.js';
+import { useTranslation } from '../../i18n/I18nContext.js';
 import {
   appendWorkspaceChatMessages,
   clearWorkspaceChats,
@@ -41,30 +40,29 @@ import {
   getWorkspaceSettings,
   patchWorkspaceSettings,
   setActiveWorkspaceChat,
-} from '../storage/workspace.js';
+} from '../../storage/workspace.js';
 import {
   capabilitiesForModel,
   getActiveModel,
   getApiConfigs,
   saveApiConfigs,
-} from '../storage/apiConfigs.js';
-import { getActiveLocalModel } from '../storage/localModels.js';
-import { getCharacterLibrary } from '../storage/characters.js';
-import { getGithubMcpSettings } from '../storage/githubMcp.js';
-import { getMessagesBySession, getSessions } from '../storage/sessions.js';
+} from '../../storage/apiConfigs.js';
+import { getActiveLocalModel } from '../../storage/localModels.js';
+import { getCharacterLibrary } from '../../storage/characters.js';
+import { getMessagesBySession, getSessions } from '../../storage/sessions.js';
 import {
   getThinkingSettings,
   getTranscriptionSettings,
   saveThinkingSettings,
-} from '../storage/settings.js';
-import { computeContextUsage, resolveContextWindow } from '../chat/contextUsage.js';
-import { filterRequestMedia } from '../prompt/chatPipeline.js';
-import { isCanceledError } from '../network/api.js';
-import { resolveTranscription, transcribeAudio } from '../transcription.js';
-import { maskSecrets } from '../storage/secrets.js';
-import { runAgentTurn } from '../agent/loop.js';
-import { listToolsForMode } from '../agent/tools/registry.js';
-import { requestToolApproval } from '../chat/toolApproval.js';
+} from '../../storage/settings.js';
+import { computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { filterRequestMedia } from '../../prompt/chatPipeline.js';
+import { isCanceledError } from '../../network/api.js';
+import { resolveTranscription, transcribeAudio } from '../../transcription.js';
+import { maskSecrets } from '../../storage/secrets.js';
+import { runAgentTurn } from '../../agent/loop.js';
+import { listToolsForMode } from '../../agent/tools/registry.js';
+import { requestToolApproval } from '../../chat/toolApproval.js';
 import {
   isImage,
   isTextLike,
@@ -72,29 +70,18 @@ import {
   pickAttachment,
   readImageDataUri,
   readTextAttachment,
-} from '../chat/attachments.js';
-import useChatRecorder from '../chat/useChatRecorder.js';
-import { resolveWorkspaceAssistant } from './assistant.js';
-import { createWorkspaceStore, registerDefaultWorkspaceTools } from './native.js';
-import { upsertWorkspaceChat } from './chats.js';
-import WorkspaceHistorySheet from './WorkspaceHistorySheet.js';
-import {
-  buildRepoHeaders,
-  buildRepoZipUrl,
-  downloadBinary,
-  extractRepoFiles,
-  importProjectToWorkspace,
-  parseRepoInput,
-  projectDirectoryName,
-} from './project.js';
-import WorkspaceGeneralSettings from './WorkspaceGeneralSettings.js';
-import WorkspaceProjectSheet from './WorkspaceProjectSheet.js';
-import WorkspaceSettingsSheet from './WorkspaceSettingsSheet.js';
+} from '../../chat/attachments.js';
+import useChatRecorder from '../../chat/useChatRecorder.js';
+import { resolveWorkspaceAssistant } from '../assistant.js';
+import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
+import { upsertWorkspaceChat } from '../chats.js';
+import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
+import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
 import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
-} from './chat.js';
+} from '../chat.js';
 
 const MAX_ATTACHMENTS = 3;
 
@@ -104,7 +91,7 @@ function nextId() {
   return `wsc-${Date.now().toString(36)}-${messageSeq}`;
 }
 
-export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
+export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -117,8 +104,6 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('');
-  const [generalOpen, setGeneralOpen] = useState(false);
-  const [projectOpen, setProjectOpen] = useState(false);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
   const [characterId, setCharacterId] = useState('default');
   const [characterName, setCharacterName] = useState('');
@@ -129,9 +114,6 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
   const [thinking, setThinking] = useState({ enabled: false, level: 'medium' });
   const [characters, setCharacters] = useState([]);
   const [usage, setUsage] = useState(null);
-  const [projects, setProjects] = useState([]);
-  const [activeProjectId, setActiveProjectId] = useState('');
-  const [pulling, setPulling] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   // 工作区会话（持久化）：列表 + 当前会话。消息随会话存盘，切回旧会话能看回几轮之前的指令。
   const [chatList, setChatList] = useState([]);
@@ -149,6 +131,17 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
   // recorder 每次渲染都是新对象；把它放进 ref，避免关闭清理 effect 反复触发。
   const recorderRef = useRef(recorder);
   recorderRef.current = recorder;
+
+  // 跨面板交接：GitHub 工作台的「让助手推送」把一条指令填进输入框。
+  // 用 token 判定是否已消费——同一段文本也能重复交接（用户可能连点两次）。
+  const consumedDraftRef = useRef(0);
+  useEffect(() => {
+    if (!draft || !draft.text) return;
+    if (consumedDraftRef.current === draft.token) return;
+    consumedDraftRef.current = draft.token;
+    setSettingsOpen(false);
+    setInput(prev => (prev ? `${prev}\n${draft.text}` : draft.text));
+  }, [draft]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -169,8 +162,6 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     setSending(false);
     setSettingsOpen(false);
     setSettingsSection('');
-    setGeneralOpen(false);
-    setProjectOpen(false);
     setHistoryOpen(false);
     if (recorderRef.current.recording) recorderRef.current.cancel();
   }, [visible]);
@@ -249,8 +240,6 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
         setMode(settings.mode);
         setWsSettings(settings);
         wsSettingsRef.current = settings;
-        setProjects(Array.isArray(settings.projects) ? settings.projects : []);
-        setActiveProjectId(settings.activeProjectId || '');
         try {
           storeRef.current = createWorkspaceStore(settings);
         } catch (error) {
@@ -464,79 +453,6 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
   }, [characterId, importBusy, t]);
 
   // 下载失败的文案：project.js 只给错误码与英文细节，中文提示在这一层取（i18n 收口）。
-  const describeProjectError = useCallback(error => {
-    const code = error && error.code;
-    if (code === 'REPO_AUTH') return t('workspace.project.err.auth');
-    if (code === 'REPO_NOT_FOUND') return t('workspace.project.err.notFound');
-    if (code === 'REPO_NETWORK') return t('workspace.project.err.network');
-    if (code === 'REPO_TIMEOUT') return t('workspace.project.err.timeout');
-    return maskSecrets((error && error.message) || t('workspace.project.err.badRepo'));
-  }, [t]);
-
-  // 拉取项目：GitHub zipball → fflate 解压 → 写入沙盒 projects/<owner>__<repo>/。
-  // 之后的提交/推送走聊天里的 GitHub MCP 工具（create_or_update_file / push_files）。
-  const handlePullProject = useCallback(async ({ repo, branch } = {}) => {
-    if (pulling) return;
-    const store = storeRef.current;
-    if (!store) {
-      Alert.alert(t('workspace.project.title'), t('workspace.panel.err.fileSystem'));
-      return;
-    }
-    const parsed = parseRepoInput(repo);
-    if (!parsed) {
-      Alert.alert(t('workspace.project.err.title'), t('workspace.project.err.badRepo'));
-      return;
-    }
-    if (mode !== 'write') {
-      Alert.alert(t('workspace.project.err.title'), t('workspace.project.err.needWrite'));
-      return;
-    }
-    setPulling(true);
-    try {
-      const { githubToken } = await getGithubMcpSettings().catch(() => ({ githubToken: '' }));
-      const bytes = await downloadBinary(
-        buildRepoZipUrl(parsed.owner, parsed.repo, branch),
-        buildRepoHeaders(githubToken)
-      );
-      const { files } = extractRepoFiles(bytes);
-      if (!files.length) {
-        Alert.alert(t('workspace.project.err.title'), t('workspace.project.err.empty'));
-        return;
-      }
-      const projectName = projectDirectoryName(parsed.owner, parsed.repo);
-      const result = await importProjectToWorkspace({
-        store,
-        characterId,
-        projectName,
-        files,
-      });
-      const label = `${parsed.owner}/${parsed.repo}`;
-      const nextProjects = [
-        ...projects.filter(item => item.id !== projectName),
-        { id: projectName, name: label, repo: label, branch: String(branch || ''), updatedAt: Date.now() },
-      ];
-      if (mountedRef.current) {
-        setProjects(nextProjects);
-        setActiveProjectId(projectName);
-      }
-      await patchWorkspaceSettings({ projects: nextProjects, activeProjectId: projectName }).catch(() => {});
-      Alert.alert(
-        t('workspace.project.doneTitle'),
-        t('workspace.project.done', { name: label, count: result.written })
-      );
-    } catch (error) {
-      Alert.alert(t('workspace.project.err.title'), describeProjectError(error));
-    } finally {
-      if (mountedRef.current) setPulling(false);
-    }
-  }, [characterId, describeProjectError, mode, projects, pulling, t]);
-
-  const handleSelectProject = useCallback(async id => {
-    const next = String(id || '');
-    setActiveProjectId(next);
-    await patchWorkspaceSettings({ activeProjectId: next }).catch(() => {});
-  }, []);
-
   // ---- 聊天 ----
 
   const onPickAttachment = useCallback(async () => {
@@ -717,68 +633,26 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     return () => clearTimeout(timer);
   }, [messages, toolStatus]);
 
-  const railItems = [
-    {
-      id: 'newChat',
-      icon: 'add-circle-outline',
-      label: t('workspace.rail.newChat'),
-      onPress: handleNewChat,
-    },
-    {
-      id: 'newProject',
-      icon: 'git-branch-outline',
-      label: t('workspace.rail.newProject'),
-      onPress: () => setProjectOpen(true),
-    },
-    {
-      id: 'history',
-      icon: 'time-outline',
-      label: t('workspace.rail.history'),
-      onPress: () => setHistoryOpen(true),
-    },
-    {
-      id: 'general',
-      icon: 'settings-outline',
-      label: t('workspace.rail.general'),
-      onPress: () => setGeneralOpen(true),
-    },
-  ];
-
+  // 对话面板（工作区单屏内的「对话」领域）：不再自套 Modal、不再自带顶栏与左栏——
+  // 那是单屏的职责。顶部一条紧凑动作行保留「新建对话 / 查找历史」。
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <View style={styles.embeddedRoot}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={[styles.container, styles.containerEmbedded]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.topBar}>
-          <Text style={styles.title}>{t('workspace.home.title')}</Text>
-          <TouchableOpacity
-            style={styles.exitButton}
-            onPress={onClose}
-            hitSlop={8}
-            accessibilityLabel={t('workspace.home.exit')}
-          >
-            <Ionicons name="close" size={22} color={theme.colors.text} />
-          </TouchableOpacity>
+        <View style={styles.embeddedBar}>
+            <TouchableOpacity style={styles.embeddedAction} onPress={handleNewChat} activeOpacity={0.8}>
+              <Ionicons name="add-circle-outline" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.embeddedActionText}>{t('workspace.rail.newChat')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.embeddedAction} onPress={() => setHistoryOpen(true)} activeOpacity={0.8}>
+              <Ionicons name="time-outline" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.embeddedActionText}>{t('workspace.rail.history')}</Text>
+            </TouchableOpacity>
         </View>
 
         <View style={styles.mainRow}>
-          <View style={styles.rail}>
-            {railItems.map(item => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.railItem}
-                onPress={item.onPress}
-                activeOpacity={0.8}
-              >
-                <Ionicons name={item.icon} size={21} color={theme.colors.primarySoft} />
-                <Text style={styles.railLabel} numberOfLines={2}>{item.label}</Text>
-              </TouchableOpacity>
-            ))}
-            {/* 预留位：后续新增的工作区入口接在这里，不挤右侧聊天区。 */}
-            <View style={styles.railSpacer} />
-          </View>
-
           <View style={styles.chatColumn}>
             {onOpenPanel ? (
               <TouchableOpacity
@@ -794,6 +668,30 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
               </TouchableOpacity>
             ) : null}
 
+            {settingsOpen ? (
+              <ScrollView contentContainerStyle={styles.body}>
+                <WorkspaceSettingsSheet
+                  embedded
+                  section={settingsSection}
+                  onToggleSection={setSettingsSection}
+                  models={models}
+                  activeModel={activeModel}
+                  onSelectModel={handleSelectModel}
+                  thinking={thinking}
+                  onSelectThinking={handleSelectThinking}
+                  mode={mode}
+                  onSelectMode={handleSelectMode}
+                  characters={characters}
+                  characterId={characterId}
+                  onSelectCharacter={handleSelectCharacter}
+                  usage={usage}
+                  onImportFile={handleImportFile}
+                  importBusy={importBusy}
+                  onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
+                />
+              </ScrollView>
+            ) : (
+            <>
             <ScrollView ref={scrollRef} contentContainerStyle={styles.body}>
               {messages.length === 0 ? (
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
@@ -914,49 +812,11 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
                 </TouchableOpacity>
               )}
             </View>
+            </>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
-
-      <WorkspaceSettingsSheet
-        visible={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        section={settingsSection}
-        onToggleSection={setSettingsSection}
-        models={models}
-        activeModel={activeModel}
-        onSelectModel={handleSelectModel}
-        thinking={thinking}
-        onSelectThinking={handleSelectThinking}
-        mode={mode}
-        onSelectMode={handleSelectMode}
-        characters={characters}
-        characterId={characterId}
-        onSelectCharacter={handleSelectCharacter}
-        usage={usage}
-        onImportFile={handleImportFile}
-        importBusy={importBusy}
-        onOpenPanel={section => {
-          if (onOpenPanel) onOpenPanel(section);
-        }}
-      />
-
-      <WorkspaceGeneralSettings
-        visible={generalOpen}
-        onClose={() => setGeneralOpen(false)}
-        mode={mode}
-        onSelectMode={handleSelectMode}
-      />
-
-      <WorkspaceProjectSheet
-        visible={projectOpen}
-        onClose={() => setProjectOpen(false)}
-        projects={projects}
-        activeProjectId={activeProjectId}
-        onSelectProject={handleSelectProject}
-        onPull={handlePullProject}
-        pulling={pulling}
-      />
 
       <WorkspaceHistorySheet
         visible={historyOpen}
@@ -968,12 +828,25 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
         onClearAll={handleClearChats}
         busy={historyBusy}
       />
-    </Modal>
+    </View>
   );
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 44 },
+  // embedded：外层由 WorkspaceScreen 提供容器与安全区，这里不再重复留白。
+  embeddedRoot: { flex: 1 },
+  containerEmbedded: { paddingTop: 0 },
+  embeddedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: tokens.border.thin,
+    borderBottomColor: theme.colors.divider,
+  },
+  embeddedAction: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
+  embeddedActionText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

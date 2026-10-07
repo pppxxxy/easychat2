@@ -20,6 +20,8 @@ ios/
 !plugins/shellExecutor/android/**
 !plugins/screenOverlay/android/
 !plugins/screenOverlay/android/**
+!plugins/chaquopy/android/
+!plugins/chaquopy/android/**
 *.jks
 *.keystore
 .env
