@@ -10,6 +10,16 @@ export const CHAT_API_VENDORS = [
     note: '国内直连，兼容 OpenAI 接口规范。',
   },
   {
+    id: 'openrouter',
+    name: 'OpenRouter（聚合）',
+    category: ['chat'],
+    baseUrl: 'https://openrouter.ai/api/v1',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://openrouter.ai/keys',
+    note: '聚合多家上游；模型名需带厂商前缀（如 google/gemma-…）。上游错误会原样透传，报错文本已尽量带上游原始原因。',
+  },
+  {
     id: 'anthropic',
     name: 'Anthropic（Claude）',
     category: ['chat'],
