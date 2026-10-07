@@ -117,34 +117,37 @@ const GITHUB_TOKEN_PAGE_URL = 'https://github.com/settings/tokens/new?scopes=rep
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
 // 每项标注适用模型；只有选「自定义」才露出字段名输入框。
+// 维护提示：hint 里的示例模型名一律用**下限式**写法（「X 及后续」「X+」），
+// 能只写厂商/协议名就不写具体版本；示例名随版本演进更新，最后核对 2026-10
+// （当时现役：Claude Opus 5.5 / qwen3.8-max / GLM-5.3 / DeepSeek-V4）。
 const THINKING_PRESETS = [
   {
     id: 'reasoning_effort',
     field: 'reasoning_effort',
     format: 'effort',
     name: 'reasoning_effort（档位）',
-    hint: 'OpenAI o 系列 / GPT-5 / Grok / DeepSeek-R1：取 low、medium、high，由「思考档位」设置决定',
+    hint: 'OpenAI GPT-5 系及后续 / Grok / DeepSeek-V4+：取 low、medium、high，由「思考档位」设置决定',
   },
   {
     id: 'thinking_bool',
     field: 'thinking',
     format: 'boolean',
     name: 'thinking: true（布尔开关）',
-    hint: 'Claude 3.7 之前的 Anthropic 接口、部分国产模型：只有开/关，没有档位',
+    hint: 'Anthropic Messages 接口（Claude 4.x 及后续）、部分国产模型：只有开/关，没有档位',
   },
   {
     id: 'thinking_object',
     field: 'thinking',
     format: 'object',
     name: 'thinking: { type: "enabled", depth }（对象）',
-    hint: 'Claude 3.7+ / 智谱 GLM / 阿里百炼部分模型：对象形式，带 depth 档位',
+    hint: 'Claude Opus 5.x+ / 智谱 GLM-5+ / 阿里百炼部分模型：对象形式，带 depth 档位',
   },
   {
     id: 'enable_thinking',
     field: 'enable_thinking',
     format: 'boolean',
     name: 'enable_thinking: true（布尔开关）',
-    hint: '通义千问 Qwen3 系 / 部分国产开源模型：字段名不同，取值格式与上一项一致',
+    hint: '通义千问 Qwen3.5+（含 qwen3.7/3.8）/ 部分国产开源模型：字段名不同，取值格式与上一项一致',
   },
   {
     id: 'reasoning_object',
@@ -1079,6 +1082,12 @@ export default function SettingsScreen() {
     && preset.format === capabilityDraft.thinkingFormat
   )) || null;
 
+  // 自定义态但取值格式为空：confirmCapability 会把空格式**静默归一**成 'effort'——
+  // 用户没选格式就保存 = 配置悄悄配错（服务端静默忽略，极难排查），因此禁用确认。
+  const customFormatMissing = capabilityDraft.supportsThinking === true
+    && !matchedThinkingPreset
+    && !['effort', 'boolean', 'object'].includes(capabilityDraft.thinkingFormat);
+
   // 拉取该 API 配置的模型清单（GET /models，含 /v1 回退）。抽出来给「检测模型」与
   // 「搜索」共用，避免两处各写一遍 XHR/鉴权/解析。isCurrent 供取消/竞态校验。
   const fetchProviderModels = async (selected, request, isCurrent) => {
@@ -1991,11 +2000,15 @@ export default function SettingsScreen() {
                               style={[styles.presetItem, active && styles.presetItemActive]}
                               onPress={() => setCapabilityDraft(current => ({
                                 ...current,
+                                // 自定义（2026-10-07 死局修复）：此前把当前值原样写回，
+                                // 状态零变化；而自定义输入块只在「不匹配任何预设」时渲染，
+                                // 默认值恰命中预设 1 → 点多少下都没反应。置空 format 即
+                                // 脱离全部预设（预设 format 均非空）；字段名保留旧值省得重输。
                                 thinkingField: preset.id === 'custom'
                                   ? current.thinkingField
                                   : preset.field,
                                 thinkingFormat: preset.id === 'custom'
-                                  ? current.thinkingFormat
+                                  ? ''
                                   : preset.format,
                               }))}
                               activeOpacity={0.8}
@@ -2041,6 +2054,9 @@ export default function SettingsScreen() {
                             );
                           })}
                         </View>
+                        {customFormatMissing ? (
+                          <Text style={styles.customFormatHint}>{t('settings.capability.customFormatRequired')}</Text>
+                        ) : null}
                       </View>
                     ) : null}
                   </View>
@@ -2091,8 +2107,9 @@ export default function SettingsScreen() {
                 <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.selectButton}
+                style={[styles.selectButton, customFormatMissing && styles.buttonDisabled]}
                 onPress={confirmCapability}
+                disabled={customFormatMissing}
                 activeOpacity={0.8}
               >
                 <Text style={styles.selectButtonText}>{t('settings.capability.confirm')}</Text>

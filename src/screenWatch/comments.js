@@ -54,6 +54,22 @@ export function appendScreenWatchComment(comment) {
   });
 }
 
+// 单条删除（幂等，对照 threads.deleteScreenWatchThread 的风格）：
+// id 为空或不存在时原样返回当前列表，不报错。只动 comments 存储——
+// 对话线程（threads）不级联删除，两者的管理入口不同（线程在记忆页）。
+export function deleteScreenWatchComment(id) {
+  return commentsMutation.enqueue(async () => {
+    const targetId = String(id || '');
+    if (!targetId) return readCommentListStatus();
+    const existing = await readCommentListStatus();
+    if (!existing.some(entry => entry.id === targetId)) return existing;
+    const next = existing.filter(entry => entry.id !== targetId);
+    if (next.length === 0) await AsyncStorage.removeItem(SCREEN_WATCH_COMMENTS_KEY);
+    else await AsyncStorage.setItem(SCREEN_WATCH_COMMENTS_KEY, JSON.stringify(next));
+    return next;
+  });
+}
+
 export function clearScreenWatchComments() {
   return commentsMutation.enqueue(async () => {
     await AsyncStorage.removeItem(SCREEN_WATCH_COMMENTS_KEY);

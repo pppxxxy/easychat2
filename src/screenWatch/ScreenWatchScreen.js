@@ -74,6 +74,8 @@ export default function ScreenWatchScreen() {
     setCharacterId,
     generate,
     retry,
+    remove,
+    clearAll,
   } = useScreenWatchComments({ characters, defaultCharacterId: activeId });
 
   const selectedCharacter = useMemo(
@@ -299,6 +301,40 @@ export default function ScreenWatchScreen() {
     await generate({ userText: text });
   }, [draft, generate, generating]);
 
+  // 删除单条评论卡片（带二次确认，范式照抄记忆页删线程）：只删 comments 存储，
+  // 对话线程（含截图与对话文本、作为 AI 上下文）不动——那是记忆页的管辖。
+  const handleDeleteComment = useCallback(comment => {
+    if (!comment || !comment.id) return;
+    Alert.alert(
+      t('screenWatch.comments.delete.title'),
+      t('screenWatch.comments.delete.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => remove(comment.id),
+        },
+      ]
+    );
+  }, [remove, t]);
+
+  const handleClearComments = useCallback(() => {
+    if (comments.length === 0) return;
+    Alert.alert(
+      t('screenWatch.comments.clear.title'),
+      t('screenWatch.comments.clear.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => clearAll(),
+        },
+      ]
+    );
+  }, [clearAll, comments.length, t]);
+
   const handleQuoteComment = useCallback(async comment => {
     if (!comment || !comment.characterId) return;
     try {
@@ -471,13 +507,22 @@ export default function ScreenWatchScreen() {
                 <Text style={styles.commentName} numberOfLines={1}>
                   {comment.characterName || t('common.characterFallback')} · {t('screenWatch.commentLabel')}
                 </Text>
-                <TouchableOpacity
-                  style={styles.quoteButton}
-                  onPress={() => handleQuoteComment(comment)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.quoteButtonText}>{t('screenWatch.quote')}</Text>
-                </TouchableOpacity>
+                <View style={styles.commentActions}>
+                  <TouchableOpacity
+                    style={styles.commentDeleteButton}
+                    onPress={() => handleDeleteComment(comment)}
+                    accessibilityLabel={t('screenWatch.comments.delete.a11y')}
+                  >
+                    <Ionicons name="trash-outline" size={14} color={theme.colors.textFaint} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.quoteButton}
+                    onPress={() => handleQuoteComment(comment)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.quoteButtonText}>{t('screenWatch.quote')}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <Text style={styles.commentText}>{comment.text}</Text>
             </View>
@@ -491,6 +536,19 @@ export default function ScreenWatchScreen() {
               <Text style={styles.commentToggleText}>{t('screenWatch.comments.expand', { count: comments.length })}</Text>
               <Ionicons name="chevron-down" size={14} color={theme.colors.textFaint} />
             </TouchableOpacity>
+          ) : null}
+          {comments.length > 0 ? (
+            <TouchableOpacity
+              style={styles.commentsClear}
+              onPress={handleClearComments}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="trash-outline" size={13} color={theme.colors.textFaint} />
+              <Text style={styles.commentsClearText}>{t('screenWatch.comments.clear')}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {comments.length > 0 ? (
+            <Text style={styles.commentsHint}>{t('screenWatch.comments.threadsHint')}</Text>
           ) : null}
         </>
       )}
@@ -602,5 +660,24 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 3,
   },
   quoteButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(11), fontWeight: '600' },
+  // 评论卡片头右侧的操作组：删除（垃圾桶）+ 接话，删除尺寸/配色对照 quoteButton。
+  commentActions: { flexDirection: 'row', alignItems: 'center' },
+  commentDeleteButton: { paddingHorizontal: 8, paddingVertical: 3, marginRight: 4 },
+  // 清空全部 + 两套存储的说明：评论只在这里展示，对话线程归记忆页管。
+  commentsClear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: 2,
+  },
+  commentsClearText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginLeft: 5 },
+  commentsHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 6,
+  },
   commentText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
 });

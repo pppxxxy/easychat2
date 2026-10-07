@@ -47,3 +47,24 @@ test('ScreenWatchScreen：截屏→评论→接话接线', () => {
   assert.ok(hook.includes("code: 'NO_VISION'"), '无视觉能力时以 NO_VISION 分流提示');
   assert.ok(hook.includes("t('screenWatch.error.noVision')"), 'NO_VISION 文案走 i18n key');
 });
+
+test('面板评论删除/清空接线（2026-10-07）：带确认、只动 comments 存储', () => {
+  const screen = readSource('src/screenWatch/ScreenWatchScreen.js');
+  // 卡片头删除按钮 + 二次确认（范式同记忆页删线程）
+  assert.ok(screen.includes('handleDeleteComment(comment)'), '评论卡片必须接删除处理');
+  assert.ok(screen.includes("t('screenWatch.comments.delete.title')"), '删除必须二次确认');
+  assert.ok(screen.includes("style: 'destructive'"), '确认按钮 destructive 样式（同记忆页范式）');
+  // 清空全部：接通此前从未被任何 UI 调用的 clearScreenWatchComments
+  assert.ok(screen.includes('handleClearComments'), '列表底部必须有清空入口');
+  assert.ok(screen.includes("t('screenWatch.comments.clear.title')"), '清空同样必须二次确认');
+  // hook 暴露 remove/clearAll 并被解构
+  const hook = readSource('src/screenWatch/useScreenWatchComments.js');
+  assert.ok(hook.includes('remove') && hook.includes('clearAll'), 'hook 必须暴露 remove/clearAll');
+  assert.ok(hook.includes('deleteScreenWatchComment') && hook.includes('clearScreenWatchComments'),
+    'hook 必须调用数据层单删与整清');
+  // 裁决边界：删除不做级联，线程归记忆页
+  assert.ok(screen.includes("t('screenWatch.comments.threadsHint')"), '面板必须提示线程归记忆页管理');
+  const dataLayer = readSource('src/screenWatch/comments.js');
+  assert.ok(dataLayer.includes('export function deleteScreenWatchComment'), '数据层单删函数必须存在');
+  assert.ok(!/from '\.\/threads(\.js)?'/.test(dataLayer), 'comments 数据层不得引用 threads 模块（删除不级联到线程）');
+});

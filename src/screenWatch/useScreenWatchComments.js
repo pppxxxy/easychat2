@@ -19,7 +19,7 @@ import {
 } from '../storage.js';
 
 import { maskSecrets } from '../storage/secrets.js';
-import { appendScreenWatchComment, getScreenWatchComments } from './comments.js';
+import { appendScreenWatchComment, clearScreenWatchComments, deleteScreenWatchComment, getScreenWatchComments } from './comments.js';
 import { buildScreenWatchPrompt } from './commentPrompts.js';
 import {
   THREAD_ROLE_CHARACTER,
@@ -237,6 +237,21 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     return generate(failed);
   }, [generate]);
 
+  // 删除单条评论卡片（幂等）：失败静默（与 MemoryScreen 删线程的 .catch 同范式）。
+  // 只动 comments 存储；对话线程在记忆页管理，不做级联。
+  const remove = useCallback(id => deleteScreenWatchComment(id)
+    .then(next => {
+      if (mountedRef.current) setComments(next);
+    })
+    .catch(() => {}), []);
+
+  // 清空全部评论：数据层 clearScreenWatchComments 一直存在，此前没有任何 UI 接线。
+  const clearAll = useCallback(() => clearScreenWatchComments()
+    .then(() => {
+      if (mountedRef.current) setComments([]);
+    })
+    .catch(() => {}), []);
+
   return useMemo(() => ({
     comments,
     generating,
@@ -246,5 +261,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     setCharacterId,
     generate,
     retry,
-  }), [comments, generating, error, characterId, generate, retry]);
+    remove,
+    clearAll,
+  }), [clearAll, comments, generating, error, characterId, generate, remove, retry]);
 }

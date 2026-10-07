@@ -84,8 +84,8 @@ test('能力弹层：自定义参数总开关 + 上下文/输出长度同框 + �
   assert.ok(SETTINGS.includes('THINKING_PRESETS.map'), '展开后渲染预设列表');
   assert.ok(SETTINGS.includes('matchedThinkingPreset'), '标题显示当前命中的预设');
   assert.ok(SETTINGS.includes('{!matchedThinkingPreset ? ('), '仅「自定义」时显示手输框');
-  assert.ok(SETTINGS.includes('OpenAI o 系列'), '预设带适用模型说明：OpenAI');
-  assert.ok(SETTINGS.includes('Claude 3.7'), '预设带适用模型说明：Claude');
+  assert.ok(SETTINGS.includes('OpenAI GPT-5 系'), '预设带适用模型说明：OpenAI（2026-10 更新后锚点）');
+  assert.ok(SETTINGS.includes('Claude Opus 5'), '预设带适用模型说明：Claude（2026-10 更新后锚点）');
   assert.ok(SETTINGS.includes('通义千问 Qwen3'), '预设带适用模型说明：Qwen');
   assert.ok(SETTINGS.includes('rawCapabilityForModel'), '回填走原始值（关掉开关也记得上次填的）');
 
