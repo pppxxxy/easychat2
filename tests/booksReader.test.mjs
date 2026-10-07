@@ -233,6 +233,24 @@ test('章节目录：搜索 + 当前章标记 + 粗略已读百分比', () => {
   assert.ok(view.includes("t('books.reader.chapter.done')"), '读满显示已读完');
 });
 
+test('章节目录：打开定位/跳章跟随当前章，虚拟化窗口外有兜底', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  // ref 接到章节 FlatList 本体（而非其它列表）
+  const listBlock = view.slice(view.indexOf('<FlatList'), view.indexOf('<ChapterScrubber'));
+  assert.ok(listBlock.length > 0, '必须能截出章节 FlatList');
+  assert.ok(listBlock.includes('ref={chapterListRef}'), '章节 FlatList 必须有 ref');
+  assert.ok(listBlock.includes('onScrollToIndexFailed={onChapterScrollToIndexFailed}'), '必须接 scrollToIndex 失败兜底');
+  // 打开目录定位 + 跟随（滑块松手跳章后 currentChapterIndex 变化时滚动过去）
+  assert.ok(view.includes('viewPosition: 0.5'), '高亮行落在视口中部');
+  assert.ok(/if \(!showChapters\) return undefined;[\s\S]{0,200}?scrollToChapter\(currentChapterIndex\)/.test(view),
+    '目录打开时定位到当前章，currentChapterIndex 变化时跟随');
+  // 搜索态不打断：目标章不在过滤结果内就跳过
+  assert.ok(view.includes('if (index < 0) return;'), '目标章不在过滤结果内时列表不动');
+  // 兜底：先按平均行高滚到估算位置，下一帧重试 scrollToIndex
+  assert.ok(/scrollToOffset\?\.\s*\(\{ offset: target \* step/.test(view), '失败先滚估算位置');
+  assert.ok(/setTimeout\(\(\) => \{\s*list\.scrollToIndex\?\./.test(view), '下一帧重试 scrollToIndex');
+});
+
 test('章节定位条：打开停在当前章，拖动时显示第几章', () => {
   const view = readSource('src/books/BookReaderView.js');
   const scrubber = readSource('src/books/ChapterScrubber.js');

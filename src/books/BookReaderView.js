@@ -212,6 +212,41 @@ export default function BookReaderView({ item, content, onBack }) {
     if (mdListRef.current) mdListRef.current.scrollToIndex({ index: blockIndex, animated: false });
   }, [mdListRef, paged, reader]);
 
+  // ---- 目录列表定位与跟随（2026-10-07 修复）----
+  // 滑块松手跳章后 currentChapterIndex 重算，但 FlatList 视口不会自己动：
+  // 打开目录时定位到当前章（高亮行落在视口中部），跳章/过滤结果变化时跟随。
+  const chapterListRef = useRef(null);
+
+  const scrollToChapter = useCallback(chapterIndex => {
+    const list = chapterListRef.current;
+    if (!list) return;
+    const index = filteredChapters.findIndex(entry => entry.index === chapterIndex);
+    // 搜索过滤后目标章不在结果内：不打断用户搜索态，列表原地不动。
+    if (index < 0) return;
+    list.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  }, [filteredChapters]);
+
+  useEffect(() => {
+    if (!showChapters) return undefined;
+    // Modal 内容首帧尚未完成布局，scrollToIndex 可能直接失败——延一帧再定位，
+    // 失败仍有 onChapterScrollToIndexFailed 兜底。
+    const frame = requestAnimationFrame(() => scrollToChapter(currentChapterIndex));
+    return () => cancelAnimationFrame(frame);
+  }, [currentChapterIndex, scrollToChapter, showChapters]);
+
+  // 虚拟化窗口外的 scrollToIndex 会失败：先按平均行高滚到估算位置，下一帧重试
+  // （同 CharacterLibraryScreen 的成熟兜底）。
+  const onChapterScrollToIndexFailed = useCallback(({ index, averageItemLength }) => {
+    const list = chapterListRef.current;
+    if (!list) return;
+    const step = Math.max(1, Number(averageItemLength) || 60);
+    const target = Math.max(0, Number(index) || 0);
+    list.scrollToOffset?.({ offset: target * step, animated: false });
+    setTimeout(() => {
+      list.scrollToIndex?.({ index: target, viewPosition: 0.5, animated: true });
+    }, 120);
+  }, []);
+
   // 评论面板当前选中的角色：按钮文案要写具体名字（原来是「让TA聊聊这一页」）。
   const activeCharacter = useMemo(() => (
     (characters || []).find(entry => entry && entry.id === characterId) || null
@@ -660,6 +695,8 @@ export default function BookReaderView({ item, content, onBack }) {
               ) : (
                 <FlatList
                   data={filteredChapters}
+                  ref={chapterListRef}
+                  onScrollToIndexFailed={onChapterScrollToIndexFailed}
                   keyExtractor={entry => `${entry.blockIndex}-${entry.index}`}
                   contentContainerStyle={styles.chapterList}
                   renderItem={({ item: entry }) => {
