@@ -160,7 +160,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               <TerminalPanel characterId={characterId} />
             ) : null}
             {panel === 'settings' ? (
-              <WorkspaceSettingsPanel onClose={backToChat} />
+              <WorkspaceSettingsPanel characterId={characterId} onClose={backToChat} />
             ) : null}
           </View>
         </View>

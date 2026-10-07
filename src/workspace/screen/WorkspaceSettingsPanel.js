@@ -11,13 +11,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { FieldHint, FieldLabel, GhostButton, SecondaryButton } from '../../ui/index.js';
 import WorkspaceCapabilitiesCard from '../../WorkspaceCapabilitiesCard.js';
 import WorkspaceGeneralSettings from '../WorkspaceGeneralSettings.js';
+import PythonSection from './PythonSection.js';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import useWorkspaceSettings from '../../settings/useWorkspaceSettings.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { isShellAvailable } from '../shell.js';
 
-export default function WorkspaceSettingsPanel() {
+export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
   const { theme, fonts } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
@@ -94,6 +95,8 @@ export default function WorkspaceSettingsPanel() {
             ? t('settings.workspace.shell.hint')
             : t('settings.workspace.shell.hintReadonly'))}
       </FieldHint>
+
+      <PythonSection characterId={characterId} />
 
       <WorkspaceCapabilitiesCard
         settings={{ mode: workspaceMode, location: workspaceFolder, allowCommandExecution: commandExecution }}

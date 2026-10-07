@@ -109,6 +109,8 @@ export const error = {
   'error.workspace.moveSourceNotDirectory': '要移动的源不是目录：{path}',
   'error.workspace.moveTargetExists': '目标位置已存在，未做覆盖：{path}',
   'error.workspace.moveUnsupported': '当前文件系统后端不支持移动目录。',
+  'error.workspace.pythonCodeEmpty': '要运行的 Python 代码不能为空。',
+  'error.workspace.pythonUnsupported': '当前安装的版本不含 Python 运行时（需按 plugins/withChaquopy.js 启用后重新构建）。',
   'error.workspace.shellPrivateOnly': '命令执行只能作用于应用私有工作区（拿不到本地路径）。',
   'error.workspace.shellPathNotAbsolute': '工作区路径不是绝对路径，无法作为命令工作目录。',
   'error.workspace.shellCommandEmpty': '命令不能为空。',

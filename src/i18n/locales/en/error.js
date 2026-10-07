@@ -109,6 +109,8 @@ export const error = {
   'error.workspace.moveSourceNotDirectory': 'The move source is not a directory: {path}',
   'error.workspace.moveTargetExists': 'The destination already exists; nothing was overwritten: {path}',
   'error.workspace.moveUnsupported': 'This file-system backend does not support moving directories.',
+  'error.workspace.pythonCodeEmpty': 'The Python code to run must not be empty.',
+  'error.workspace.pythonUnsupported': 'This build has no Python runtime (enable plugins/withChaquopy.js and rebuild).',
   'error.workspace.shellPrivateOnly': 'Command execution only works on the app\'s private workspace (no local path available).',
   'error.workspace.shellPathNotAbsolute': 'The workspace path is not absolute and cannot be used as the command working directory.',
   'error.workspace.shellCommandEmpty': 'The command must not be empty.',
