@@ -82,6 +82,7 @@ easychat2/
 │   │   ├── BranchForkRow.js      # 分叉点入口（可展开，切换/删除分支）
 │   │   ├── conversationExport.js # 对话导出纯逻辑：提取/截断/占位/MD/HTML/脱敏
 │   │   ├── ConversationExportModal.js # 导出面板（长图/Markdown/HTML）
+│   │   ├── schedule.js           # 角色作息纯逻辑：解析/时段判断/静态规则文本
 │   │   ├── ShareCard.js          # 分享卡片气泡视图（长图截图源）
 │   │   ├── ChatComposer.js / ChatTopBar.js / ChatSearchBar.js / ChatSettingsModal.js
 │   │   ├── MessageBubble.js / ErrorBubble.js / ThinkingIndicator.js / VoiceBubble.js
@@ -246,6 +247,12 @@ easychat2/
 **位置**: 纯逻辑 `src/chat/conversationExport.js`；文件写出 `src/storage/chatExport.js`；UI `src/chat/ConversationExportModal.js` + `src/chat/ShareCard.js`；接线 `src/ChatScreen.js`。
 **说明**: 三种格式共用「可导出消息提取」（过滤 pending/transient、上限 `EXPORT_MAX_MESSAGES` 截断、媒体转 `[图片]/[表情包：名]/[视频]/[语音]` 占位、正文与说话人经 `maskSecrets` 脱敏）。长图由 `ShareCard` 渲染气泡，`captureRef(scrollRef,{snapshotContentContainer:true})` 截取整段为 PNG；Markdown/HTML 由纯函数生成（HTML 内容转义）。文件写 `cacheDirectory/chat-export/` 并滚动清理，经 `expo-sharing` 系统分享。
 **测试**: `tests/conversationExport.test.mjs`（纯逻辑）、`tests/chatExport.test.mjs`（文件写出）、`tests/chatExportUi.test.mjs`（接线锚点）。
+
+### 角色作息 / 日程表
+**目的**: 为每个角色设定可选作息（起床/上班/下班/睡觉），让普通对话与主动消息在深夜/工作时间的语气与篇幅更贴合真人。
+**位置**: 纯逻辑 `src/chat/schedule.js`；存储 `src/storage/schedule.js`；UI `src/extension/SchedulePanel.js`（拓展页入口 `ext-schedule`）；注入接线 `src/chat/useChatSend.js`、`src/proactive/proactiveRequest.js`、`src/prompt/chatPipeline.js`。
+**说明**: 作息按角色存 `@easychat2_character_schedules`（map）。注入的是**静态规则文本**（四时刻 + 「按当前时间判断睡眠/工作/空闲」说明，不含时间戳），因此可安全写入主动消息的 `requestJson` 快照（触发时用 `{{proactive_now}}` 占位符替换真实时间）；普通对话与主动消息共用同一段文本。启用作息即附带当前时间（`timeAware || isScheduleActive`）。深夜更像「我也还没睡」，工作时间回复更短。不改原生模块。
+**测试**: `tests/schedule.test.mjs`（纯逻辑）、`tests/scheduleStorage.test.mjs`（存储生命周期）、`tests/scheduleUi.test.mjs`（接线锚点）。
 
 ### 记忆页
 **目的**: 逐行陈列历史会话，支持点击续聊、置顶、克隆与删除

@@ -1,0 +1,22 @@
+// i18n 词条 · 作息域（zh-CN 基准）。聚合入口见 ../zh-CN.js。
+export const schedule = {
+  'schedule.title': '作息',
+  'schedule.selectRole': '选择角色',
+  'schedule.enable': '启用角色作息',
+  'schedule.wake': '起床',
+  'schedule.workStart': '上班',
+  'schedule.workEnd': '下班',
+  'schedule.sleep': '睡觉',
+  'schedule.timePlaceholder': 'HH:MM',
+  'schedule.preview': '作息预览',
+  'schedule.period.sleep': '睡眠时段',
+  'schedule.period.work': '工作时段',
+  'schedule.period.free': '空闲时段',
+  'schedule.currentPeriod': '按此作息，现在处于「{period}」',
+  'schedule.hint': '启用后，角色会结合当前时间调整语气与篇幅：深夜更像「我也还没睡」，工作时间回复更简短（如「在忙，晚点细聊」）。对普通对话与主动消息都生效。',
+  'schedule.disabledHint': '作息未启用：角色不会感知作息，行为与之前一致。',
+  'schedule.save': '保存',
+  'schedule.saved': '已保存',
+  'schedule.saveFailed': '保存失败',
+  'schedule.noRoles': '还没有角色，先到角色页创建一个。',
+};
