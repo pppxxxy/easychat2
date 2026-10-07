@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { mergeChapterProgress, normalizeChapterProgress } from './chapterProgress.js';
 import { tActive } from '../i18n/index.js';
 
 export const BOOKS_INDEX_KEY = '@easychat2_books_index';
@@ -65,6 +66,9 @@ export function normalizeBookItem(raw) {
     // 源格式（txt/md/markdown/docx/html），决定阅读器是否走 Markdown 渲染；旧条目为空。
     format: String(source.format || '').trim().toLowerCase(),
     progress: normalizeProgress(source.progress),
+    // 按章阅读进度（chapterIndex → 0-100 取整）：只有真的读到的章才有值，
+    // 其余视为未读。旧数据无该字段迁移为 {}，且不从旧位置反推历史章进度。
+    chapterProgress: normalizeChapterProgress(source.chapterProgress),
     chapters: normalizeChapters(source.chapters),
   };
 }
@@ -162,7 +166,9 @@ export function saveBookItem(item) {
 
 // 进度只存 { blockIndex, pageIndex, anchorText }：字号/主题变化会改变总页数，
 // 百分比是显示期计算值，不持久化。
-export function saveBookProgress(id, progress) {
+// chapterProgressPatch（可选）：按章进度补丁，与已存映射合并（同章取历史最大，
+// 不回退）。progress 传 null 时不动阅读位置、只合并补丁。
+export function saveBookProgress(id, progress, chapterProgressPatch = null) {
   return booksMutation.enqueue(async () => {
     const targetId = String(id || '');
     if (!targetId) throw new Error(tActive('error.books.infoIncomplete'));
@@ -170,7 +176,13 @@ export function saveBookProgress(id, progress) {
     if (result.status === 'corrupt') throw new Error(tActive('error.books.shelfReadFailed'));
     const target = result.items.find(entry => entry.id === targetId);
     if (!target) return null;
-    const updated = normalizeBookItem({ ...target, progress });
+    const updated = normalizeBookItem({
+      ...target,
+      ...(progress ? { progress } : {}),
+      chapterProgress: chapterProgressPatch
+        ? mergeChapterProgress(target.chapterProgress, chapterProgressPatch)
+        : (target.chapterProgress || {}),
+    });
     await writeBookCollection(result.items.map(entry => (entry.id === targetId ? updated : entry)));
     return updated;
   });

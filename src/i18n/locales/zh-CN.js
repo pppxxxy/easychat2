@@ -544,6 +544,7 @@ export const zhCN = {
   'books.reader.chapter.search': '搜索章节名',
   'books.reader.chapter.noMatch': '没有匹配的章节',
   'books.reader.chapter.current': '正在阅读',
+  'books.reader.chapter.unread': '未读',
   'books.reader.chapter.progress': '已读 {percent}%',
   'books.reader.chapter.done': '已读完',
   'books.reader.chapter.position': '第 {index} / {total} 章',

@@ -69,8 +69,9 @@ test('阅读进度落库：防抖保存 + 退出/卸载兜底（monkey 审查缺
   const reader = readSource('src/books/useBookReader.js');
   assert.ok(reader.includes('location'), 'useBookReader 必须暴露当前阅读位置');
   const view = readSource('src/books/BookReaderView.js');
-  assert.ok(view.includes('saveBookProgress(item.id, location)'), '翻页/退出必须写回进度');
-  assert.ok(/setTimeout\([\s\S]{0,160}saveBookProgress/.test(view), '位置变化必须防抖保存');
+  assert.ok(view.includes('saveBookProgress(item.id, location'), '翻页/退出必须写回进度');
+  assert.ok(view.includes('saveBookProgress(item.id, pending'), 'flush 路径同样写回');
+  assert.ok(/setTimeout\([\s\S]{0,200}saveBookProgress/.test(view), '位置变化必须防抖保存');
   assert.ok(view.includes('flushProgress'), '退出必须兜底 flush');
   assert.ok(view.includes('onPress={handleBack}'), '返回按钮必须走 flush 路径');
   assert.ok(/useEffect\(\(\) => \(\) => flushProgress\(\)/.test(view), '组件卸载必须兜底保存');
@@ -215,7 +216,7 @@ test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系�
   assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(view), 'Modal 顶部内缩同步放宽');
 });
 
-test('章节目录：搜索 + 当前章标记 + 粗略已读百分比', () => {
+test('章节目录：搜索 + 当前章标记 + 按章进度三态', () => {
   const view = readSource('src/books/BookReaderView.js');
   // 搜索
   assert.ok(view.includes('chapterQuery'), '有搜索关键词状态');
@@ -225,10 +226,13 @@ test('章节目录：搜索 + 当前章标记 + 粗略已读百分比', () => {
   // 过滤后仍按原下标高亮与跳转（否则搜索一次就会跳错章）
   assert.ok(/chapterEntries[\s\S]{0,200}?index,/.test(view) || view.includes('({ ...chapter, index })'),
     '章节条目携带原下标');
-  // 当前章 + 百分比
+  // 当前章 + 按章进度（2026-10-07「已读完」虚报修复：不再从位置反推历史章）
   assert.ok(view.includes('currentChapterIndex'), '算当前所在章');
-  assert.ok(view.includes('chapterReadPercent'), '算粗略已读百分比');
+  assert.ok(!view.includes('chapterReadPercent'), '不得保留位置反推的 chapterReadPercent（虚报根源）');
+  assert.ok(view.includes('computeChapterPercent'), '当前章用页粒度纯函数计算');
+  assert.ok(view.includes('chapterProgressMap'), '目录读显式记录的按章进度映射');
   assert.ok(view.includes("t('books.reader.chapter.current')"), '「正在阅读」标记');
+  assert.ok(view.includes("t('books.reader.chapter.unread')"), '未记录的章显示「未读」');
   assert.ok(/t\('books\.reader\.chapter\.progress',\s*\{\s*percent/.test(view), '百分比文案带参数');
   assert.ok(view.includes("t('books.reader.chapter.done')"), '读满显示已读完');
 });
@@ -249,6 +253,21 @@ test('章节目录：打开定位/跳章跟随当前章，虚拟化窗口外有�
   // 兜底：先按平均行高滚到估算位置，下一帧重试 scrollToIndex
   assert.ok(/scrollToOffset\?\.\s*\(\{ offset: target \* step/.test(view), '失败先滚估算位置');
   assert.ok(/setTimeout\(\(\) => \{\s*list\.scrollToIndex\?\./.test(view), '下一帧重试 scrollToIndex');
+});
+
+test('按章进度写入：跨章结算被离开的章，同章取最大，flush 带补丁', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(view.includes('lastSeenChapterRef'), '必须记录最后所见章（结算依据）');
+  assert.ok(view.includes('recordChapter(prev.chapterIndex, prev.percent)'),
+    '跨章时先按最后所见结算被离开的章（跳章不丢进度）');
+  assert.ok(/stored >= percent\) return;/.test(view), '同章取历史最大值，回翻不降级');
+  assert.ok(view.includes('pendingChapterPatchRef'), '章进度补丁随防抖链路落库');
+  assert.ok(view.includes('saveBookProgress(item.id, pending, hasPatch ? patch : null)'),
+    'flush 必须带未落库的章进度补丁');
+  const lib = readSource('src/books/library.js');
+  assert.ok(lib.includes('mergeChapterProgress(target.chapterProgress, chapterProgressPatch)'),
+    '存储层合并同章取最大（只增不降是存储不变量）');
+  assert.ok(lib.includes('normalizeChapterProgress(source.chapterProgress)'), '条目归一化迁移按章进度');
 });
 
 test('章节定位条：打开停在当前章，拖动时显示第几章', () => {
