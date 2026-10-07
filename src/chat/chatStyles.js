@@ -859,6 +859,24 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderRadius: tokens.radius.xs,
     backgroundColor: theme.colors.primary,
   },
+  engineBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: 5,
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  engineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 7,
+  },
+  engineText: {
+    flex: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
   errorBubbleBounded: {
      backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,

@@ -11,6 +11,9 @@
 // 纯模块单例（无 RN/Expo 依赖），可直接 Node 测试。
 
 let state = { status: 'idle', progress: 0, modelId: '', ramEstimate: 0, support: { vision: false, audio: false }, error: '' };
+// 本地→在线回退的最近一次时间戳（0 = 无）。与状态机分开：回退是「事件」不是「状态」，
+// 10 秒展示窗由派生层判定（engineStatus.deriveEngineStatus），不污染 idle/loading/ready/error。
+let fallbackAt = 0;
 const listeners = new Set();
 
 function emit() {
@@ -23,7 +26,7 @@ function emit() {
 }
 
 export function getRuntimeState() {
-  return { ...state, support: { ...state.support } };
+  return { ...state, support: { ...state.support }, fallbackAt };
 }
 
 export function subscribeRuntime(listener) {
@@ -84,8 +87,20 @@ export function setRuntimeIdle() {
   emit();
 }
 
+// 记录一次「本地失败→在线回退」事件：状态条据此在 10 秒窗内展示警告。
+export function setRuntimeFallback(at = Date.now()) {
+  fallbackAt = Number(at) > 0 ? Number(at) : Date.now();
+  emit();
+}
+
+export function clearRuntimeFallback() {
+  fallbackAt = 0;
+  emit();
+}
+
 // 仅测试用：清空订阅者与状态。
 export function __resetRuntimeForTests() {
   listeners.clear();
   state = { status: 'idle', progress: 0, modelId: '', ramEstimate: 0, support: { vision: false, audio: false }, error: '' };
+  fallbackAt = 0;
 }

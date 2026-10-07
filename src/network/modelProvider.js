@@ -4,6 +4,7 @@ import { recordDiagnostic } from '../storage/diagnostics.js';
 import { isLocalModelModuleAvailable, runLocalModel } from '../localModel/adapter.js';
 import { classifyLocalModelError, recordModelLog } from '../localModel/modelLogs.js';
 import { isLocalModelItemReady, normalizeLocalModelSettings } from '../localModel/modelState.js';
+import { setRuntimeFallback } from '../localModel/runtime.js';
 import { tryAcquireResource } from '../resourceMutex.js';
 
 // 就绪判定（纯函数，便于单测）：v5 Stage A 起只认活动条目（单一事实源），
@@ -76,6 +77,8 @@ export async function sendWithModelProvider({
     if (info.code === 'ABORTED') throw error;
     recordModelLog('api', `本地推理失败，回退在线 API：${info.message}`, { level: info.level });
     recordDiagnostic('api', error, 'local-model-fallback');
+    // 广播回退事件：聊天层引擎状态条据此展示 10 秒警告，用户才知道这条回复来自在线。
+    setRuntimeFallback();
     notifyApi();
     return onlineSend();
   } finally {
