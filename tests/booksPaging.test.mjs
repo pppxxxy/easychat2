@@ -14,6 +14,7 @@ import {
 } from '../src/books/blocks.js';
 import {
   findPageByAnchor,
+  pageBodyText,
   pageText,
   paginateLines,
 } from '../src/books/pagination.js';
@@ -155,6 +156,23 @@ test('页正文：按行拼接并截断', () => {
   assert.equal(pageText(lines, pages[0]), '第一行\n第二行');
   assert.equal(pageText(lines, pages[0], { maxChars: 5 }), '第一行\n第'.slice(0, 5));
   assert.equal(pageText(lines, null), '');
+});
+
+test('可见页正文 pageBodyText 不截断；pageText 摘录路径保持 600 上限（回归）', () => {
+  // 600 字是评论摘录上限，曾被误用于可见页正文：小字号密页 600+ 字被静默丢尾。
+  const longText = '字'.repeat(300);
+  const lines = [
+    { text: `开头-${longText}`, height: 20 },
+    { text: `结尾-${longText}`, height: 20 },
+  ];
+  const pages = paginateLines(lines, 40);
+  const body = pageBodyText(lines, pages[0]);
+  assert.equal(body, `开头-${longText}\n结尾-${longText}`, '可见页必须包含末行全文');
+  assert.ok(body.length > 600, '构造的页正文应超过旧 600 字上限');
+
+  const excerpt = pageText(lines, pages[0]);
+  assert.ok(excerpt.length <= 600, '评论摘录路径仍截断到 600');
+  assert.ok(!excerpt.includes(`结尾-${longText}`), '摘录路径丢尾是预期行为（不回流到可见页）');
 });
 
 test('重测定位：锚匹配优先，找不到夹取回退', () => {

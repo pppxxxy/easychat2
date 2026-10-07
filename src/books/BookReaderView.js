@@ -33,7 +33,7 @@ import { splitBookIntoBlocks } from './blocks.js';
 import ChapterScrubber from './ChapterScrubber.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
-import { pageText } from './pagination.js';
+import { pageBodyText, pageText } from './pagination.js';
 import {
   PAGE_TURN_MODES,
   getBookReaderSettings,
@@ -497,7 +497,7 @@ export default function BookReaderView({ item, content, onBack }) {
   }, [contentArea.width, pageAnim, pageTurn]);
 
   const pageBody = reader.status === MEASURE_READY && reader.page
-    ? pageText(reader.lines, reader.page)
+    ? pageBodyText(reader.lines, reader.page)
     : '';
 
   return (
@@ -565,8 +565,14 @@ export default function BookReaderView({ item, content, onBack }) {
                   setContentArea(current => (current.width === width && current.height === height ? current : { width, height }));
                 }}
               >
+                {/* 断行策略两处（可见页 + 下方测量 Text）必须同为 simple：
+                    Android 默认 HIGH_QUALITY 是段落感知均衡断行，同一行文字在
+                    「整块测量」与「行子集重排」两种上下文里断点可以不同 → 子集比
+                    测量多出一行 → 末行被视图边界裁掉一半（2026-10-07 真机修复）。
+                    simple 是无记忆贪心断行，与上下文无关，两处断行逐行一致。
+                    这是组件 prop 不是样式键，不能进 buildPageTextProps 的 style。 */}
                 {pageBody ? (
-                  <Text style={[styles.pageText, textProps]}>{pageBody}</Text>
+                  <Text textBreakStrategy="simple" style={[styles.pageText, textProps]}>{pageBody}</Text>
                 ) : (
                   <View style={styles.center}>
                     <ActivityIndicator color={theme.colors.primary} />
@@ -574,6 +580,7 @@ export default function BookReaderView({ item, content, onBack }) {
                 )}
                 <Text
                   key={`measure-${reader.measureNonce}`}
+                  textBreakStrategy="simple"
                   style={[styles.pageText, textProps, styles.measureText]}
                   onTextLayout={reader.handleTextLayout}
                 >

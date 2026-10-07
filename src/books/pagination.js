@@ -38,14 +38,20 @@ function buildPage(lines, firstLine, lineCount) {
   };
 }
 
-// 页正文（供评论摘录）：页内行文本以换行连接，截断到 maxChars。
-export function pageText(measuredLines, page, { maxChars = 600 } = {}) {
+// 页正文（阅读页可见文本）：页内行文本以换行连接，**不截断**——可见页必须
+// 完整渲染分到本页的全部行，静默丢字比溢出更不可接受（2026-10-07 末行修复）。
+export function pageBodyText(measuredLines, page) {
   const lines = Array.isArray(measuredLines) ? measuredLines : [];
   if (!page) return '';
   const start = Math.max(0, Math.floor(page.firstLine) || 0);
   const end = Math.min(lines.length, start + Math.max(0, Math.floor(page.lineCount) || 0));
-  const text = lines.slice(start, end).map(line => String((line && line.text) || '')).join('\n');
-  return text.slice(0, Math.max(1, Math.floor(maxChars) || 600));
+  return lines.slice(start, end).map(line => String((line && line.text) || '')).join('\n');
+}
+
+// 页正文摘录（供评论 prompt）：在上面的基础上截断到 maxChars。
+// 只有评论摘录路径允许截断；阅读页正文必须走 pageBodyText。
+export function pageText(measuredLines, page, { maxChars = 600 } = {}) {
+  return pageBodyText(measuredLines, page).slice(0, Math.max(1, Math.floor(maxChars) || 600));
 }
 
 // 重测后定位：优先找行文本包含 anchor 的第一页；找不到（锚行被重排跨页）退回

@@ -2,7 +2,7 @@
 // 关键回归钉：
 // - 测量 Text 与可见页 Text 必须共用同一份排版 props（buildPageTextProps 唯一来源），
 //   且测量 Text 必须不可见但参与布局（opacity 0，而非 display:none）；
-// - 可见页只渲染分到本页的行（pageText）——测量漂移不得造成页面溢出；
+// - 可见页只渲染分到本页的行（pageBodyText，不截断）——测量漂移不得造成页面溢出；
 // - 导入必须是 '*/*' + 扩展名校验（厂商文件管理器把 .txt 标成 octet-stream）；
 // - 编码检测必须拒绝非 UTF-8（U+FFFD 比例），不允许静默导入乱码书。
 
@@ -28,7 +28,12 @@ test('useBookReader：测量-分页-重定位机制齐全', () => {
 
 test('BookReaderView：可见页只渲染本页行，测量 Text 参与布局但不可见', () => {
   const source = readSource('src/books/BookReaderView.js');
-  assert.ok(source.includes('pageText(reader.lines, reader.page)'), '可见页必须由本页行拼成');
+  assert.ok(source.includes('pageBodyText(reader.lines, reader.page)'), '可见页必须由本页行拼成（pageBodyText 不截断）');
+  assert.ok(!source.includes('pageText(reader.lines, reader.page)'), '可见页不得走 600 字截断的 pageText（评论摘录专用）');
+  // 断行策略统一（2026-10-07 末行半裁修复）：两处必须同时声明，只改一处两上下文
+  // 断行不一致，切页错位/末行裁切就会回来。
+  const strategies = source.match(/textBreakStrategy="simple"/g) || [];
+  assert.equal(strategies.length, 2, '可见页 Text 与测量 Text 必须同时声明 textBreakStrategy="simple"');
   assert.ok(/opacity:\s*0/.test(source), '测量 Text 用 opacity 0（display:none 不产生布局，无法测量）');
   assert.ok(source.includes('onTextLayout={reader.handleTextLayout}'), '测量 Text 接线 onTextLayout');
   assert.ok(source.includes('TAP_ZONE_RATIO'), '左右点按翻页区');
