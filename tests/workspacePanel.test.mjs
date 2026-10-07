@@ -52,9 +52,9 @@ test('SettingsScreen：工作区卡片提供面板入口', () => {
 });
 
 test('SettingsScreen：选文件夹 + 命令开关都走 patch（不许整体 save 冲掉彼此）', () => {
-  // 状态与写入逻辑仍在 SettingsScreen；工作区卡片 UI 在 WorkspaceSection。
-  const source = readSource('src/SettingsScreen.js') + readSource('src/settings/sections/WorkspaceSection.js');
-  assert.ok(source.includes("from './workspace/picker.js'"), '接入选文件夹能力');
+  // 快赢2 后状态与写入逻辑在 settings/useWorkspaceSettings.js；工作区卡片 UI 在 WorkspaceSection。
+  const source = readSource('src/settings/useWorkspaceSettings.js') + readSource('src/settings/sections/WorkspaceSection.js');
+  assert.ok(/from '\.\.?\/workspace\/picker\.js'/.test(source), '接入选文件夹能力');
   assert.ok(source.includes('pickWorkspaceFolder()'), '调用系统目录选择器');
   assert.ok(/patchWorkspaceSettings\(\{ location:/.test(source), '文件夹走局部更新');
   assert.ok(/patchWorkspaceSettings\(\{ allowCommandExecution/.test(source), '命令开关走局部更新');
