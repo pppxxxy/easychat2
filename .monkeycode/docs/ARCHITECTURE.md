@@ -80,6 +80,9 @@ easychat2/
 │   │   ├── branchTree.js         # 对话分支纯逻辑：切尾段/切换计划/分组/描述符
 │   │   ├── MessageList.js        # 消息列表渲染段（窗口化 + 空状态 + 加载更早 + 分叉入口）
 │   │   ├── BranchForkRow.js      # 分叉点入口（可展开，切换/删除分支）
+│   │   ├── conversationExport.js # 对话导出纯逻辑：提取/截断/占位/MD/HTML/脱敏
+│   │   ├── ConversationExportModal.js # 导出面板（长图/Markdown/HTML）
+│   │   ├── ShareCard.js          # 分享卡片气泡视图（长图截图源）
 │   │   ├── ChatComposer.js / ChatTopBar.js / ChatSearchBar.js / ChatSettingsModal.js
 │   │   ├── MessageBubble.js / ErrorBubble.js / ThinkingIndicator.js / VoiceBubble.js
 │   │   ├── AnimatedEntry.js / MoreMenuModal.js / SwitcherModal.js / MentionPickerModal.js
@@ -237,6 +240,12 @@ easychat2/
 **关键文件**: `src/chat/branchTree.js`、`src/storage/sessionBranches.js`、`src/chat/BranchForkRow.js`、`src/chat/useChatBranches.js`
 **说明**: 活动时间线仍是 `@easychat2_messages::<sessionId>` 的扁平数组（不改读写形状，老消息缺 `branchId` 视为根分支）。撤回前用 `branchFromTail` 切出尾段、`archiveBranch` 先写条目后写索引（索引是提交点）；分叉点入口按 `forkMessageId` 分组，在对应消息之后渲染；切换用 `planCheckout` 计算「分叉点及其之前 + 分支尾段」，并把被替换掉的当前尾段也归档为新分支（来回切换不丢消息），目标分支被消费后删除。`sessionFiles.js` 媒体回收把分支条目纳入在用集合，会话删除连带清理分支键。
 **测试**: `tests/branchTree.test.mjs`（纯逻辑）、`tests/sessionBranches.test.mjs`（存储生命周期）、`tests/chatBranchTreeUi.test.mjs`（UI 接线锚点）。
+
+### 对话导出 / 分享卡片
+**目的**: 聊天页「⋯」菜单「导出对话」，把当前会话导出为带气泡样式的长图、Markdown、HTML；全程本地、无后端。
+**位置**: 纯逻辑 `src/chat/conversationExport.js`；文件写出 `src/storage/chatExport.js`；UI `src/chat/ConversationExportModal.js` + `src/chat/ShareCard.js`；接线 `src/ChatScreen.js`。
+**说明**: 三种格式共用「可导出消息提取」（过滤 pending/transient、上限 `EXPORT_MAX_MESSAGES` 截断、媒体转 `[图片]/[表情包：名]/[视频]/[语音]` 占位、正文与说话人经 `maskSecrets` 脱敏）。长图由 `ShareCard` 渲染气泡，`captureRef(scrollRef,{snapshotContentContainer:true})` 截取整段为 PNG；Markdown/HTML 由纯函数生成（HTML 内容转义）。文件写 `cacheDirectory/chat-export/` 并滚动清理，经 `expo-sharing` 系统分享。
+**测试**: `tests/conversationExport.test.mjs`（纯逻辑）、`tests/chatExport.test.mjs`（文件写出）、`tests/chatExportUi.test.mjs`（接线锚点）。
 
 ### 记忆页
 **目的**: 逐行陈列历史会话，支持点击续聊、置顶、克隆与删除
