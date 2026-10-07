@@ -98,6 +98,8 @@
     "src/chat/replyFlow.js",
     "src/chat/useChatSend.js",
     "src/chat/MessageList.js",
+    "src/chat/BranchForkRow.js",
+    "src/chat/useChatBranches.js",
     "src/chat/chatStyles.js",
     "src/localModel/ModelSearchModal.js",
     "src/localModel/ModelLogsModal.js",

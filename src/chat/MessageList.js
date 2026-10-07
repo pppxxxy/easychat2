@@ -10,6 +10,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import AnimatedEntry from './AnimatedEntry.js';
 import ErrorBubble from './ErrorBubble.js';
 import MessageBubble from './MessageBubble.js';
+import BranchForkRow from './BranchForkRow.js';
 import { SYSTEM_ERROR_ID } from './chatConstants.js';
 import { containsHtml } from './plainText.js';
 import { shouldRenderRichHtml } from './richHtml.js';
@@ -65,6 +66,9 @@ function MessageList({
   toggleSelectedMessage,
   ready,
   isSending,
+  branchesByFork,
+  onCheckoutBranch,
+  onDeleteBranch,
 }) {
   // 窗口化：只渲染尾部 windowSize 条；被切走的更早消息通过「加载更早消息」放开。
   const { t } = useTranslation();
@@ -73,6 +77,8 @@ function MessageList({
     ? renderedMessages.slice(totalCount - windowSize)
     : renderedMessages;
   const hiddenCount = totalCount - visibleMessages.length;
+  const forkMap = branchesByFork instanceof Map ? branchesByFork : null;
+  const rootBranches = forkMap ? (forkMap.get('') || []) : [];
   return (
       <ScrollView
         ref={scrollRef}
@@ -139,6 +145,19 @@ function MessageList({
                 </Text>
               </TouchableOpacity>
             ) : null,
+            // 从会话最前分叉的分支：仅在完整展示到开头（未隐藏更早消息）时渲染在顶部。
+            hiddenCount === 0 && rootBranches.length > 0 ? (
+              <BranchForkRow
+                key="branch-fork-root"
+                forkMessageId=""
+                branches={rootBranches}
+                styles={styles}
+                theme={theme}
+                onCheckoutBranch={onCheckoutBranch}
+                onDeleteBranch={onDeleteBranch}
+                checkoutDisabled={isSending || !ready}
+              />
+            ) : null,
             ...visibleMessages.map((message, index) => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
             const selected = selectedMessageIdSet.has(String(message.id || ''));
@@ -153,6 +172,20 @@ function MessageList({
             const distanceFromBottom = totalCount - 1 - (hiddenCount + index);
             const shouldAnimate = distanceFromBottom < 15;
             const entryDelay = distanceFromBottom * 40;
+            // 该消息之后是否有分叉点分支入口（按消息 id 命中）。
+            const forkBranches = forkMap ? (forkMap.get(String(message.id || '')) || []) : [];
+            const forkRow = forkBranches.length > 0 ? (
+              <BranchForkRow
+                key={`branch-fork-${message.id}`}
+                forkMessageId={String(message.id || '')}
+                branches={forkBranches}
+                styles={styles}
+                theme={theme}
+                onCheckoutBranch={onCheckoutBranch}
+                onDeleteBranch={onDeleteBranch}
+                checkoutDisabled={isSending || !ready}
+              />
+            ) : null;
             const body = (
                 <AnimatedEntry delay={entryDelay} enabled={shouldAnimate}>
                   {message.role === SYSTEM_ERROR_ID ? (
@@ -215,14 +248,17 @@ function MessageList({
             );
             if (richInteractive && !messageSelectionOpen) {
               return (
-                <View key={message.id} onLayout={event => onMessageLayout(message.id, event)}>
-                  {body}
-                </View>
+                <React.Fragment key={message.id}>
+                  <View onLayout={event => onMessageLayout(message.id, event)}>
+                    {body}
+                  </View>
+                  {forkRow}
+                </React.Fragment>
               );
             }
             return (
+              <React.Fragment key={message.id}>
               <Pressable
-                key={message.id}
                 onLayout={event => onMessageLayout(message.id, event)}
                 // onLongPress 必须始终非空：长按触发进入多选后本轮会重渲染，
                 // 若此时把 onLongPress 置空，松手时 RN Pressability 的
@@ -244,6 +280,8 @@ function MessageList({
               >
                 {body}
               </Pressable>
+              {forkRow}
+              </React.Fragment>
             );
             }),
           ]

@@ -13,12 +13,11 @@ import {
 } from './mediaProtection.js';
 import { CORRUPT_BACKUP_SUFFIX, createMutationQueue, readLargeAsyncStorageValue } from './io.js';
 import {
+  BRANCH_ITEM_PREFIX,
   MESSAGES_KEY_PREFIX,
   protectedChatImageUris,
   protectedVoiceUris,
-} from './sessionCore.js';
-
-export function imageUrisFromMessages(messages) {
+} from './sessionCore.js';export function imageUrisFromMessages(messages) {
   const result = new Set();
   (Array.isArray(messages) ? messages : []).forEach(item => {
     const uri = String(item && item.image && item.image.uri || '');
@@ -52,12 +51,17 @@ async function collectMediaFilesInternal({ directoryName, segment, urisFromMessa
   const messageKeys = keys.filter(key => (
     key === MESSAGES_KEY_PREFIX || String(key).startsWith(`${MESSAGES_KEY_PREFIX}::`)
   ));
+  // 分支条目同样引用聊天图片/语音：被归档的分支若只存在于分支键里，
+  // 不纳入扫描就会把仍可恢复的媒体误删（需求 4.4）。损坏备份键不算引用源。
+  const branchItemKeys = keys.filter(key => (
+    typeof key === 'string' && key.startsWith(`${BRANCH_ITEM_PREFIX}::`)
+  ));
   const referenced = new Set(
     (Array.isArray(protectedUris) ? protectedUris : [])
       .map(uri => String(uri || ''))
       .filter(uri => uri.includes(segment))
   );
-  for (const key of messageKeys) {
+  for (const key of [...messageKeys, ...branchItemKeys]) {
     if (String(key).endsWith(CORRUPT_BACKUP_SUFFIX)) return false;
     let raw = null;
     try {

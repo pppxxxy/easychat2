@@ -27,6 +27,37 @@ export function removeMessagesByIds(messages, messageIds) {
     .filter(message => !message || !ids.has(String(message.id || '')));
 }
 
+// 判断被删除的消息是否构成「自某点起的连续尾段」。是则返回保留段信息，供撤回路径
+// 归档成分支（需求 1.3）；不是则返回 null（普通删除，不建分支）。
+// 返回 { kept, tail, forkMessageId }：kept 为保留段，tail 为被删除的连续尾段。
+export function getContinuousTailPlan(messages, messageIds) {
+  const list = Array.isArray(messages) ? messages : [];
+  const ids = new Set(
+    (Array.isArray(messageIds) ? messageIds : [messageIds])
+      .map(id => String(id || ''))
+      .filter(Boolean)
+  );
+  if (ids.size === 0) return null;
+  const indices = [];
+  list.forEach((message, index) => {
+    if (message && ids.has(String(message.id || ''))) indices.push(index);
+  });
+  if (indices.length === 0 || indices.length !== ids.size) return null;
+  // 连续且到队尾：删除的是 [start, end)
+  const start = indices[0];
+  const isContiguous = indices.every((value, offset) => value === start + offset);
+  if (!isContiguous) return null;
+  if (indices[indices.length - 1] !== list.length - 1) return null;
+  const kept = list.slice(0, start);
+  const tail = list.slice(start);
+  if (tail.length === 0) return null;
+  return {
+    kept,
+    tail,
+    forkMessageId: kept.length ? String(kept[kept.length - 1] && kept[kept.length - 1].id || '') : '',
+  };
+}
+
 // 撤回后回填到附件区的图片/表情包描述符。
 // size 故意留 0：发送路径会用 getImageFileInfo 重新 stat 磁盘（见 useChatSend 的
 // sizedImages），不依赖这里存的数值；写死错误的大小反而会误导。

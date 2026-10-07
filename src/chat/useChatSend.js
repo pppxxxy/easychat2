@@ -103,6 +103,7 @@ import {
 import { getWorkspaceSettings } from '../storage/workspace.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { runPlugins } from '../plugins/registry.js';
+import { archiveBranch } from '../storage/sessionBranches.js';
 
 // 发送流程内部哨兵错误：只用于 catch 里分流提示，不直接展示给用户；
 // 用 code 判等而不是文案（用户可见文案走 i18n，随语言变化，不能当判等依据）。
@@ -187,6 +188,21 @@ export default function useChatSend({
   // 本地模型首次加载进度（0-100）：本地路径首条消息会在推理前 mmap 数 GB 权重，
   // 期间「正在思考」看不出是在加载。null = 未在加载（在线路径或无本地模型）。
   const [modelLoadProgress, setModelLoadProgress] = useState(null);
+  // 分支变更计数：撤回归档 / 切换 / 删除分支后自增，驱动 UI 重新读取分支索引。
+  const [branchesRefreshToken, setBranchesRefreshToken] = useState(0);
+  const bumpBranchesRefresh = useCallback(() => {
+    setBranchesRefreshToken(token => token + 1);
+  }, []);
+  // 归档被撤回的尾段。失败不阻断撤回主链路（仅开发告警），成功则通知 UI 刷新。
+  const archiveActiveTail = useCallback(async (sessionId, forkMessageId, tail) => {
+    if (!Array.isArray(tail) || tail.length === 0) return;
+    try {
+      const descriptor = await archiveBranch(sessionId, forkMessageId, tail);
+      if (descriptor) bumpBranchesRefresh();
+    } catch (error) {
+      if (__DEV__) console.warn('[branch] archive failed', error);
+    }
+  }, [bumpBranchesRefresh]);
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false, voiceAudio = null }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
@@ -1285,9 +1301,13 @@ if (!isCurrent() || controller.signal.aborted) return false;
         Alert.alert(tRef.current('chat.send.ownerMissing.title'), tRef.current('chat.send.ownerMissing.regenBody'));
         return false;
       }
-      const index = messages.findIndex(item => item.id === targetId);
-      if (index < 0 || messages[index].role !== ASSISTANT_ID) return false;
-      let userStart = index - 1;
+       const index = messages.findIndex(item => item.id === targetId);
+       if (index < 0 || messages[index].role !== ASSISTANT_ID) return false;
+       // 重新生成会丢弃被重生成助手消息及其之后的所有消息：先留一份尾段，
+       // 成功后归档成分支（失败路径会恢复整条时间线，不归档，避免重复）。
+       const removedTail = messages.slice(index);
+       const removedForkId = index > 0 ? String(messages[index - 1] && messages[index - 1].id || '') : '';
+       let userStart = index - 1;
       while (userStart >= 0 && messages[userStart].role === USER_ID) {
         userStart -= 1;
       }
@@ -1426,12 +1446,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
               if (__DEV__) console.warn('[memorySummary] regenerate invalidation failed', error);
             }
           }
+          // 归档被重生成丢弃的旧尾段（含旧回复），让用户可回到旧版本。
+          await archiveActiveTail(sessionGuard.sessionId, removedForkId, removedTail);
         }
         return handled !== false && isSessionGuardCurrent(sessionGuard) && !abortRef.current;
     } finally {
       endSendOperation(token);
     }
-  }, [beginSendOperation, captureSessionGuard, character, endSendOperation, isSending, isSessionGuardCurrent, isSwitching, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending, updateCharacter]);
+  }, [archiveActiveTail, beginSendOperation, captureSessionGuard, character, endSendOperation, isSending, isSessionGuardCurrent, isSwitching, messages, ready, removeVectorIndexForSession, requestReply, sessionOwnerMissing, sessionTransitionPending, updateCharacter]);
 
   const editUserMessage = useCallback(targetId => {
     if (isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
@@ -1487,6 +1509,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
                  await removeVectorIndexForSession(vectorOwnerId, sessionGuard.sessionId);
                }
               if (!isSessionGuardCurrent(sessionGuard)) return;
+              // 归档被「修改重发」丢弃的尾段（含被编辑的原用户消息及其后所有消息）。
+              const latestMessages = messagesRef.current;
+              const keptCount = latestPlan.messages.length;
+              const removedTail = latestMessages.slice(keptCount);
+              const removedForkId = keptCount > 0
+                ? String(latestMessages[keptCount - 1] && latestMessages[keptCount - 1].id || '')
+                : '';
+              await archiveActiveTail(sessionGuard.sessionId, removedForkId, removedTail);
               setMessages(latestPlan.messages);
               setInput(latestPlan.text);
               // 图片消息把撤下来的图片放回附件区：文件仍在文档目录，落入附件列表即
@@ -1509,7 +1539,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         },
       ]
     );
-  }, [captureSessionGuard, character, characterId, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, sessionTransitionPending, syncProtectedAttachmentUris, updateCharacter]);
+  }, [archiveActiveTail, captureSessionGuard, character, characterId, isSending, isSessionGuardCurrent, isSwitching, ready, removeVectorIndexForSession, sessionTransitionPending, syncProtectedAttachmentUris, updateCharacter]);
 
   const messageActionsRef = useRef({});
   useEffect(() => {
@@ -1535,5 +1565,6 @@ if (!isCurrent() || controller.signal.aborted) return false;
     onRegenerateMessage,
     onEditUserMessage,
     modelLoadProgress,
+    branchesRefreshToken,
   };
 }

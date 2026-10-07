@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import {
+  getContinuousTailPlan,
   getEditResendPlan,
   removeMessagesByIds,
   selectableMessageIds,
@@ -176,4 +177,44 @@ test('MessageBubble 的引用/重选回调保持稳定引用以击穿 memo', () 
   assert.equal(CHAT_SCREEN_SOURCE.includes('() => startMessageSelection(message.id)'), false);
   assert.ok(MESSAGE_LIST_SOURCE.includes('onReselectGreeting={sessionOwnerMissing ? undefined : onReselectGreeting}'));
   assert.ok(MESSAGE_LIST_SOURCE.includes('onStartSelection={richInteractive ? startMessageSelection : undefined}'));
+});
+
+test('getContinuousTailPlan：连续到队尾的删除返回归档计划', () => {
+  const messages = [
+    { id: 'a', role: 'user', text: '1' },
+    { id: 'b', role: 'assistant', text: '2' },
+    { id: 'c', role: 'user', text: '3' },
+  ];
+  const plan = getContinuousTailPlan(messages, ['c']);
+  assert.deepEqual(plan.kept.map(m => m.id), ['a', 'b']);
+  assert.deepEqual(plan.tail.map(m => m.id), ['c']);
+  assert.equal(plan.forkMessageId, 'b');
+
+  const all = getContinuousTailPlan(messages, ['a', 'b', 'c']);
+  assert.deepEqual(all.kept, []);
+  assert.equal(all.forkMessageId, '');
+});
+
+test('getContinuousTailPlan：非连续或非队尾删除不建分支', () => {
+  const messages = [
+    { id: 'a', role: 'user', text: '1' },
+    { id: 'b', role: 'assistant', text: '2' },
+    { id: 'c', role: 'user', text: '3' },
+  ];
+  assert.equal(getContinuousTailPlan(messages, ['a']), null, '中间删除不算尾段');
+  assert.equal(getContinuousTailPlan(messages, ['a', 'c']), null, '不连续');
+  assert.equal(getContinuousTailPlan(messages, []), null);
+  assert.equal(getContinuousTailPlan(messages, ['missing']), null);
+});
+
+test('撤回路径归档尾段：编辑重发/重新生成/连续尾段删除都先留分支', () => {
+  const CHAT_SEND_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useChatSend.js'), 'utf8');
+  // 编辑重发：归档被丢弃尾段后再 setMessages
+  assert.ok(CHAT_SEND_SOURCE.includes('const removedTail = latestMessages.slice(keptCount);'));
+  assert.ok(CHAT_SEND_SOURCE.includes('await archiveActiveTail(sessionGuard.sessionId, removedForkId, removedTail);'));
+  // 重新生成：捕获被重生成尾段并归档
+  assert.ok(CHAT_SEND_SOURCE.includes('const removedTail = messages.slice(index);'));
+  // 删除连续尾段：ChatScreen 走 getContinuousTailPlan 后归档
+  assert.ok(CHAT_SCREEN_SOURCE.includes('const tailPlan = getContinuousTailPlan(messagesRef.current, ids);'));
+  assert.ok(CHAT_SCREEN_SOURCE.includes('await archiveBranch(sessionId, tailPlan.forkMessageId, tailPlan.tail).catch(() => {});'));
 });
