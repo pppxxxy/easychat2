@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {} }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [] }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -49,11 +49,18 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
   };
   const io = {
     async readJsonStatus(key) {
+      if (throwsOnRead.has(key)) {
+        // 模拟 getItem 抛错（如 CursorWindow 2MB 上限）且分块兜底也读不回：
+        // 连原始串都没有，只能返回 raw: undefined。
+        return { status: 'corrupt', raw: undefined };
+      }
       if (!storage.has(key)) return { status: 'missing' };
+      const raw = storage.get(key);
       try {
-        return { status: 'ok', value: JSON.parse(storage.get(key)) };
+        return { status: 'ok', value: JSON.parse(raw) };
       } catch (error) {
-        return { status: 'corrupt' };
+        // 与真实 io.js 对齐：corrupt 时回传能拿到的原始串，供导出侧 opaqueRaw 抢救。
+        return { status: 'corrupt', raw: typeof raw === 'string' ? raw : undefined };
       }
     },
     async readLargeAsyncStorageValue() { return null; },
@@ -110,6 +117,11 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
     }
   }
   const newFileSystem = { File: FakeFile };
+  const diagnostics = {
+    recordDiagnostic(kind, error, context = '') {
+      recordDiagnosticCalls.push({ kind, message: error && error.message, context });
+    },
+  };
   const originalLoad = Module._load;
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === '@react-native-async-storage/async-storage') return asyncStorage;
@@ -117,6 +129,7 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
     if (request === 'expo-file-system') return newFileSystem;
     if (request.endsWith('/dataBackup.js')) return dataBackup;
     if (request.endsWith('/io.js')) return io;
+    if (request.endsWith('/diagnostics.js')) return diagnostics;
     return originalLoad.call(this, request, parent, isMain);
   };
   const runtime = new Module(sourcePath);
@@ -172,7 +185,7 @@ test('importBackup：媒体写入失败后回滚已存在媒体', async () => {
   assert.equal(files.get('file:///doc/voice/old.m4a'), 'OLD');
 });
 
-test('exportBackup：损坏键与读不出的媒体计入 incomplete 并回传清单', async () => {
+test('exportBackup：损坏键被抢救为 opaqueRaw，读不出的媒体计入 incomplete', async () => {
   const storage = new Map([
     ['@easychat2_ok', JSON.stringify({ ok: true })],
     ['@easychat2_broken', '{ not valid json'],
@@ -193,9 +206,14 @@ test('exportBackup：损坏键与读不出的媒体计入 incomplete 并回传�
   const backup = loadBackup({ storage, files, directories });
   const result = await backup.exportBackup({ appVersion: 'test' });
   assert.equal(result.incomplete, true);
-  assert.deepEqual(result.unreadableKeys, ['@easychat2_broken']);
+  // parse 失败但原始串拿得到：进 partialKeys，原始串原样入包，不再算「读取失败」
+  assert.deepEqual(result.unreadableKeys, []);
+  assert.deepEqual(result.partialKeys, ['@easychat2_broken']);
+  const salvaged = result.payload.storage.find(item => item.key === '@easychat2_broken');
+  assert.equal(salvaged.opaqueRaw, '{ not valid json');
+  assert.equal(salvaged.value, undefined);
   assert.deepEqual(result.unreadableMedia, ['avatars/bad.jpg']);
-  assert.equal(result.storageCount, 1);
+  assert.equal(result.storageCount, 2);
   assert.equal(result.mediaCount, 1);
 });
 
@@ -285,4 +303,71 @@ test('exportBackup：写盘阶段可取消（signal 在流式写入中生效）'
   assert.ok(phases.includes('writing'), '取消应发生在写盘阶段');
   const leftovers = [...files.keys()].filter(uri => uri.includes('easychat2-backup-'));
   assert.equal(leftovers.length, 0, '取消后不应残留半成品备份文件');
+});
+
+test('exportBackup：三态分流——正常/损坏抢救/真读不出互不混淆', async () => {
+  const storage = new Map([
+    ['@easychat2_good', JSON.stringify({ ok: true })],
+    ['@easychat2_broken', '{ not valid json'],
+    ['@easychat2_dead', JSON.stringify({ ignored: true })],
+  ]);
+  const files = new Map();
+  const directories = {
+    'file:///doc/avatars/': [],
+    'file:///doc/stickers/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/characters/': [],
+    'file:///doc/card-forge/': [],
+  };
+  const diagnosticCalls = [];
+  const backup = loadBackup({
+    storage,
+    files,
+    directories,
+    throwsOnRead: new Set(['@easychat2_dead']),
+    recordDiagnosticCalls: diagnosticCalls,
+  });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  // 正常键：结构化 value
+  assert.deepEqual(result.payload.storage.find(i => i.key === '@easychat2_good').value, { ok: true });
+  // 损坏键：opaqueRaw 原样入包，计入 partialKeys，不计入 unreadableKeys
+  const broken = result.payload.storage.find(i => i.key === '@easychat2_broken');
+  assert.equal(broken.opaqueRaw, '{ not valid json');
+  assert.deepEqual(result.partialKeys, ['@easychat2_broken']);
+  // 真读不出：计入 unreadableKeys，不上包
+  assert.deepEqual(result.unreadableKeys, ['@easychat2_dead']);
+  assert.equal(result.payload.storage.some(i => i.key === '@easychat2_dead'), false);
+  // 键名进诊断日志（带原因）
+  assert.equal(diagnosticCalls.length, 1);
+  assert.equal(diagnosticCalls[0].kind, 'storage');
+  assert.match(diagnosticCalls[0].message, /@easychat2_dead/);
+  assert.equal(diagnosticCalls[0].context, 'backup-export');
+  assert.equal(result.incomplete, true);
+});
+
+test('importBackup：opaqueRaw 条目原样写回（不 parse），并汇报抢救数量', async () => {
+  const storage = new Map();
+  const files = new Map();
+  const backup = loadBackup({ storage, files });
+  const result = await backup.importBackup(payload([
+    { key: '@easychat2_good', value: { ok: true } },
+    { key: '@easychat2_broken', opaqueRaw: '{ not valid json' },
+  ]), 'merge');
+  // 正常键仍走 JSON.stringify
+  assert.equal(storage.get('@easychat2_good'), JSON.stringify({ ok: true }));
+  // 损坏键原样写回，未被再次 stringify
+  assert.equal(storage.get('@easychat2_broken'), '{ not valid json');
+  assert.equal(result.opaqueCount, 1);
+});
+
+test('importBackup：不含 opaqueRaw 的旧备份照常导入', async () => {
+  const storage = new Map();
+  const files = new Map();
+  const backup = loadBackup({ storage, files });
+  const result = await backup.importBackup(payload([
+    { key: '@easychat2_old', value: { legacy: true } },
+  ]), 'merge');
+  assert.equal(storage.get('@easychat2_old'), JSON.stringify({ legacy: true }));
+  assert.equal(result.opaqueCount, 0);
 });
