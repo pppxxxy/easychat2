@@ -1,5 +1,14 @@
 // Shared field definitions, preservation limits and text helpers.
 
+// 制卡请求共用的系统提示词与采样参数。原本只写在 CardForgeScreen.js 里，
+// 「从对话生成角色卡」是第二条制卡入口，两处各写一份必然漂移（字段规则、
+// 温度、maxTokens 一旦不一致，同一张卡在不同入口的表现就会不同），故上提到此。
+export const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守输出格式要求，只输出要求的 JSON。';
+
+// 制卡请求用独立采样：低温提高 JSON 稳定性，大 max_tokens 避免长 JSON 被截断。
+// 仅覆盖本次请求（api.mergeSamplingOverrides），不写回设置、不影响全局聊天采样。
+export const FORGE_SAMPLING_OVERRIDES = { temperature: 0.3, maxTokens: 8192 };
+
 export const FORGE_FIELDS = [
   'name',
   'description',
