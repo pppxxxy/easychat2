@@ -57,7 +57,7 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, locationText, extraSystemPrompt, voiceAudio }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, scheduleText, locationText, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   const history = buildHistory(historyMessages, scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
@@ -94,6 +94,11 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const timeText = String(currentTimeText || '').trim();
   if (timeText) {
     systemContent = `${replaceUser(timeText)}\n\n${systemContent}`;
+  }
+  // 角色作息：启用时附上作息与「按当前时间判断状态」的规则，紧跟在时间行之后。
+  const scheduleLine = String(scheduleText || '').trim();
+  if (scheduleLine) {
+    systemContent = `${replaceUser(scheduleLine)}\n\n${systemContent}`;
   }
   // 位置感知：开启且存在最近一次成功位置时附上「[当前位置] …」，置于提示最前。
   const locationLine = String(locationText || '').trim();

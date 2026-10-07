@@ -75,8 +75,23 @@ test('主动消息请求：时间感知写占位符，不固化保存时刻', ()
   assert.ok(!offSystem.content.includes('2026-09-30'));
 });
 
-test('主动消息请求：历史只取最近 N 条且过滤占位/系统错误', () => {
-  const history = [];
+test('主动消息请求：作息规则静态写入快照，不含具体时间戳', () => {
+  const messages = buildProactiveRequestMessages({
+    character,
+    timeAware: true,
+    scheduleText: '[角色作息] 起床 07:00 · 上班 09:00 · 下班 18:00 · 睡觉 23:00。\n- 睡眠时段：像「我也还没睡」。',
+  });
+  const system = messages.find(item => item.role === 'system');
+  assert.ok(system.content.includes('起床 07:00'), '作息写入系统提示');
+  assert.ok(system.content.includes('我也还没睡'));
+  // 静态文本：不含具体日期（主动消息快照会在未来任意时刻触发）
+  assert.equal(/20\d\d-\d\d-\d\d/.test(system.content.replace(PROACTIVE_TIME_TOKEN, '')), false);
+  // 未传 scheduleText 时不注入
+  const plain = buildProactiveRequestMessages({ character });
+  assert.equal(plain.find(item => item.role === 'system').content.includes('角色作息'), false);
+});
+
+test('主动消息请求：历史只取最近 N 条且过滤占位/系统错误', () => {  const history = [];
   for (let i = 0; i < 40; i += 1) {
     history.push({ id: `m${i}`, role: i % 2 ? 'assistant' : 'user', text: `第${i}条` });
   }
