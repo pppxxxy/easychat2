@@ -11,6 +11,7 @@ import { recordDiagnostic } from '../storage/diagnostics.js';
 import {
   buildRequestBody,
   buildRequestHeaders,
+  describeErrorPayload,
   normalizeProtocol,
   normalizeProtocolUrl,
   parseFinalPayload,
@@ -18,6 +19,22 @@ import {
   parseStreamPayload,
 } from '../apiProtocols.js';
 import { tActive } from '../i18n/index.js';
+import { trimMessagesToContext } from '../localModel/localContext.js';
+
+// F4：在线路径上下文硬裁剪（纯函数，可测）。仅当模型声明了 contextWindow > 0 且未
+// 显式关闭时生效；直接复用本地模型同款裁剪（系统提示恒保留）。未声明窗口 = 原样返回，
+// 不做按兜底的激进裁剪。返回原始数组（不裁剪时）或裁剪后的数组。
+export function trimOnlineMessages(messages, { contextWindow = 0, reserveOutputTokens = 0, enabled = true } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  const declared = Math.floor(Number(contextWindow) || 0);
+  if (!enabled || declared <= 0) return list;
+  const result = trimMessagesToContext(list, {
+    contextSize: declared,
+    reserveOutputTokens: reserveOutputTokens > 0 ? reserveOutputTokens : 512,
+    minKeep: 1,
+  });
+  return result.removedCount > 0 ? result.messages : list;
+}
 
 // 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
 // 用同一个 30s 阈值会误报“请求超时”。
@@ -130,10 +147,10 @@ export function normalizeChatUrl(baseUrl) {
 function formatApiError(text, status) {
   try {
     const data = JSON.parse(text);
-    const message = data.error?.message || data.message || data.error;
-    if (typeof message === 'string' && message.trim()) {
-      return message.trim();
-    }
+    // 复用共享错误解析：兼容 OpenRouter 形态的 metadata.raw（上游原始错误）。
+    const described = describeErrorPayload(data.error)
+      || (typeof data.message === 'string' ? data.message.trim() : '');
+    if (described) return described;
   } catch (error) {}
 
   const trimmed = (text || '').trim();
@@ -158,9 +175,8 @@ export function normalizeAssistantContent(value) {
 
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
-  if (typeof payload.error === 'string') return payload.error;
-  if (typeof payload.error.message === 'string') return payload.error.message;
-  return '接口返回错误。';
+  // 复用共享错误解析：error.message + metadata.raw（OpenRouter 上游真凶）。
+  return describeErrorPayload(payload.error) || '接口返回错误。';
 }
 
 export function createAbortError() {
@@ -257,6 +273,15 @@ export async function streamChatCompletion(messages, options = {}) {
       ? modelCaps.maxOutput
       : DEFAULT_MAX_OUTPUT_TOKENS;
   }
+  // F4 在线路径上下文硬裁剪：只在模型**声明了** contextWindow（且未显式关闭裁剪）时
+  // 生效，复用本地模型同款 trimMessagesToContext（系统提示恒保留、最旧的非系统消息先丢）。
+  // 未声明窗口时不做任何裁剪——避免按 200K 兜底误伤大窗口模型。这样即便「记忆总结」
+  // 关闭、80% 自动压缩不接线，超窗请求也有最后一道防线。
+  const requestMessages = trimOnlineMessages(messages, {
+    contextWindow: modelCaps.contextWindow,
+    reserveOutputTokens: Number(samplingParams.max_tokens) > 0 ? Number(samplingParams.max_tokens) : 0,
+    enabled: !(options && options.disableContextTrim === true),
+  });
   if (options && (options.expectedConfigId || options.expectedConfigFingerprint)) {
     const latestConfig = await getActiveApiConfig();
     if (
@@ -586,7 +611,7 @@ export async function streamChatCompletion(messages, options = {}) {
       const body = buildRequestBody({
         protocol,
         model,
-        messages,
+        messages: requestMessages,
         stream,
         tools,
         toolChoice,
