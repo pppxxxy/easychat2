@@ -4,10 +4,16 @@
 
 import { buildPreview } from '../context/sessionLibrary.js';
 
-// 会话内唯一分支 id。random 可注入，便于测试与去重断言。
-export function createBranchId(now = Date.now(), random = Math.random) {
-  const suffix = Math.floor(random() * 0x1000000).toString(36);
-  return `branch-${now}-${suffix}`;
+// 会话内唯一分支 id。existing 可传入已占用的 id 集合；random 可注入，便于测试。
+export function createBranchId(now = Date.now(), random = Math.random, existing = null) {
+  const used = existing instanceof Set
+    ? existing
+    : new Set((Array.isArray(existing) ? existing : []).map(String));
+  let id = `branch-${now}-${Math.floor(random() * 0x1000000).toString(36)}`;
+  if (!used.has(id)) return id;
+  let counter = 1;
+  while (used.has(`${id}-${counter}`)) counter += 1;
+  return `${id}-${counter}`;
 }
 
 // 从活动消息数组切出「分叉点之后」的尾段：forkIndex 是尾段起点。
@@ -77,36 +83,4 @@ export function groupBranchesByFork(branches) {
     map.set(key, list);
   });
   return map;
-}
-
-// 判断某段尾段是否与既有分支消息序列内容一致：用于来回切换时避免产生重复分支。
-// 只比较能代表内容的稳定字段（id / role / text / timestamp），忽略瞬时展示字段。
-function messageFingerprint(message) {
-  return JSON.stringify([
-    String(message && message.id || ''),
-    String(message && message.role || ''),
-    String(message && message.text || ''),
-    Number(message && message.timestamp) || 0,
-  ]);
-}
-
-export function sameMessageSequence(a, b) {
-  const left = Array.isArray(a) ? a : [];
-  const right = Array.isArray(b) ? b : [];
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (messageFingerprint(left[index]) !== messageFingerprint(right[index])) return false;
-  }
-  return true;
-}
-
-// 从既有分支描述符 + 待归档尾段中，找出内容完全一致的分支，避免重复归档。
-// candidates 为 [{ descriptor, messages }]。
-export function findDuplicateBranch(candidates, tail) {
-  const list = Array.isArray(candidates) ? candidates : [];
-  for (const candidate of list) {
-    if (!candidate || !candidate.descriptor) continue;
-    if (sameMessageSequence(candidate.messages, tail)) return candidate.descriptor;
-  }
-  return null;
 }

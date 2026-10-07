@@ -6,10 +6,8 @@ import {
   branchFromTail,
   buildBranchDescriptor,
   createBranchId,
-  findDuplicateBranch,
   groupBranchesByFork,
   planCheckout,
-  sameMessageSequence,
 } from '../src/chat/branchTree.js';
 
 const msg = (id, role, text, timestamp = 0) => ({ id, role, text, timestamp });
@@ -77,20 +75,12 @@ test('groupBranchesByFork：按分叉点分组计数', () => {
   assert.equal(groupBranchesByFork([]).size, 0);
 });
 
-test('sameMessageSequence / findDuplicateBranch：内容一致才算重复', () => {
-  const tail = [msg('b', 'assistant', '剧情', 10)];
-  assert.equal(sameMessageSequence(tail, [{ ...tail[0] }]), true);
-  assert.equal(sameMessageSequence(tail, [msg('b', 'assistant', '改过', 10)]), false);
-  assert.equal(sameMessageSequence(tail, []), false);
-  const dup = findDuplicateBranch(
-    [{ descriptor: { id: 'old' }, messages: [{ ...tail[0] }] }],
-    tail
-  );
-  assert.equal(dup.id, 'old');
-  assert.equal(findDuplicateBranch([], tail), null);
-});
-
 test('createBranchId：注入 random 时结果确定且带 branch- 前缀', () => {
   assert.equal(createBranchId(100, () => 0), 'branch-100-0');
   assert.match(createBranchId(100), /^branch-100-/);
+});
+
+test('createBranchId：与既有 id 冲突时追加计数器后缀', () => {
+  const existing = new Set(['branch-100-0']);
+  assert.equal(createBranchId(100, () => 0, existing), 'branch-100-0-1');
 });

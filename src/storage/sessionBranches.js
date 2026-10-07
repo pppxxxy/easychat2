@@ -7,7 +7,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { buildBranchDescriptor } from '../chat/branchTree.js';
+import { buildBranchDescriptor, createBranchId } from '../chat/branchTree.js';
 import { backupCorruptValue, readJsonStatus } from './io.js';
 import { markMediaWrite } from './mediaProtection.js';
 import {
@@ -83,7 +83,7 @@ async function archiveBranchInternal(sessionId, forkMessageId, messages) {
   if (!sid || list.length === 0) return null;
   const status = await readBranchIndex(sid);
   if (status.status === 'corrupt') return null;
-  const branchId = createItemBranchId(status.branches);
+  const branchId = createBranchId(Date.now(), Math.random, status.branches.map(item => item.id));
   const stamped = list.map(item => ({
     ...item,
     branchId,
@@ -100,16 +100,6 @@ async function archiveBranchInternal(sessionId, forkMessageId, messages) {
     // 索引未写成即视为未归档：条目成为无主键，下次会话删除/回收会一并清理。
     return null;
   }
-}
-
-// 会话内唯一 id；索引已含该 id 时追加计数器后缀，避免极端碰撞。
-function createItemBranchId(existing) {
-  const used = new Set((Array.isArray(existing) ? existing : []).map(item => String(item && item.id || '')));
-  const base = `branch-${Date.now()}-${Math.floor(Math.random() * 0x1000000).toString(36)}`;
-  if (!used.has(base)) return base;
-  let counter = 1;
-  while (used.has(`${base}-${counter}`)) counter += 1;
-  return `${base}-${counter}`;
 }
 
 export function archiveBranch(sessionId, forkMessageId, messages) {

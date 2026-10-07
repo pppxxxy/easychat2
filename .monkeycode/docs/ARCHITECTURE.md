@@ -75,8 +75,11 @@ easychat2/
 │   │   ├── useChatRecorder.js    # 录音生命周期（expo-audio）
 │   │   ├── useChatTts.js         # 播报开关与自动播报接线
 │   │   ├── useScrollScrubber.js  # 快速定位滑动条状态
+│   │   ├── useChatBranches.js    # 读取当前会话分支索引（分叉点入口数据源）
 │   │   ├── replyFlow.js          # 回复流纯函数：合并流式文本/思考、错误分类、重生成计划
-│   │   ├── MessageList.js        # 消息列表渲染段（窗口化 + 空状态 + 加载更早）
+│   │   ├── branchTree.js         # 对话分支纯逻辑：切尾段/切换计划/分组/描述符
+│   │   ├── MessageList.js        # 消息列表渲染段（窗口化 + 空状态 + 加载更早 + 分叉入口）
+│   │   ├── BranchForkRow.js      # 分叉点入口（可展开，切换/删除分支）
 │   │   ├── ChatComposer.js / ChatTopBar.js / ChatSearchBar.js / ChatSettingsModal.js
 │   │   ├── MessageBubble.js / ErrorBubble.js / ThinkingIndicator.js / VoiceBubble.js
 │   │   ├── AnimatedEntry.js / MoreMenuModal.js / SwitcherModal.js / MentionPickerModal.js
@@ -227,6 +230,13 @@ easychat2/
 **消息列表窗口化**: `MessageList` 默认只渲染尾部窗口（`MESSAGE_WINDOW_INITIAL` = 80 条），「加载更早消息」每次放开 `MESSAGE_WINDOW_STEP` = 200 条，窗口上限即消息总数；定位/搜索跳转到窗口外消息时先按 `MESSAGE_WINDOW_STEP_SCROLL` = 400 条扩窗再重试滚动。目的是把超长会话的挂载消息数封顶，降低首次渲染与滚动开销。
 
 **两个结构性守卫测试**: `tests/chatScreenSplit.test.mjs` 用声明顺序测试防止 hook 调用早于其依赖的 `useState`（TDZ），并用双向参数匹配测试保证每个 hook 的签名参数与调用点实参一一对应——两处都是实战中发现的 P0 缺陷，属永久回归门禁。
+
+### 对话树 / 分支回溯
+**目的**: 把「修改重发 / 重新生成 / 删除连续尾段」从「直接丢弃被撤回尾段」升级为「归档成分支」，让角色扮演用户能在多条剧情走向间来回切换。首期仅单聊。
+**位置**: 纯逻辑 `src/chat/branchTree.js`；存储 `src/storage/sessionBranches.js`；UI `src/chat/BranchForkRow.js` + `src/chat/useChatBranches.js`；接线 `src/chat/useChatSend.js`、`src/ChatScreen.js`、`src/chat/MessageList.js`
+**关键文件**: `src/chat/branchTree.js`、`src/storage/sessionBranches.js`、`src/chat/BranchForkRow.js`、`src/chat/useChatBranches.js`
+**说明**: 活动时间线仍是 `@easychat2_messages::<sessionId>` 的扁平数组（不改读写形状，老消息缺 `branchId` 视为根分支）。撤回前用 `branchFromTail` 切出尾段、`archiveBranch` 先写条目后写索引（索引是提交点）；分叉点入口按 `forkMessageId` 分组，在对应消息之后渲染；切换用 `planCheckout` 计算「分叉点及其之前 + 分支尾段」，并把被替换掉的当前尾段也归档为新分支（来回切换不丢消息），目标分支被消费后删除。`sessionFiles.js` 媒体回收把分支条目纳入在用集合，会话删除连带清理分支键。
+**测试**: `tests/branchTree.test.mjs`（纯逻辑）、`tests/sessionBranches.test.mjs`（存储生命周期）、`tests/chatBranchTreeUi.test.mjs`（UI 接线锚点）。
 
 ### 记忆页
 **目的**: 逐行陈列历史会话，支持点击续聊、置顶、克隆与删除
