@@ -151,7 +151,7 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   assert.ok(SCREEN.includes("useState('chat')"), '默认落在对话面板');
   assert.ok(SCREEN.includes('WorkspaceChat'), '对话面板');
   assert.ok(SCREEN.includes('WorkspacePanel'), '文件面板');
-  assert.ok(SCREEN.includes('WorkspaceRepoSheet'), 'GitHub 面板');
+  assert.ok(SCREEN.includes('GithubPanel'), 'GitHub 面板');
   assert.ok(SCREEN.includes('WorkspaceSettingsPanel'), '设置面板');
   // 面板单开：任一时刻只渲染一个（互斥的 panel 状态）。
   assert.ok(SCREEN.includes("panel === 'chat'") && SCREEN.includes("panel === 'files'"), '面板互斥渲染');

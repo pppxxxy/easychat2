@@ -23,7 +23,7 @@ import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore } from '../native.js';
 import WorkspaceChat from '../WorkspaceChat.js';
 import WorkspacePanel from '../../WorkspacePanel.js';
-import WorkspaceRepoSheet from '../WorkspaceRepoSheet.js';
+import GithubPanel from './GithubPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
 
 // 左栏四个领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub 再次，设置最后。
@@ -138,13 +138,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               />
             ) : null}
             {panel === 'github' ? (
-              <WorkspaceRepoSheet
-                visible={visible}
-                onClose={backToChat}
-                characterId={characterId}
-                storeRef={storeRef}
-                onImported={() => {}}
-              />
+              <GithubPanel characterId={characterId} storeRef={storeRef} />
             ) : null}
             {panel === 'settings' ? (
               <WorkspaceSettingsPanel onClose={backToChat} />
