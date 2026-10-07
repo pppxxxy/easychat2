@@ -9,6 +9,7 @@ export const common = {
   'common.saving': '保存中...',
   'common.delete': '删除',
   'common.close': '关闭',
+  'common.back': '返回',
   'common.retry': '重试',
   'common.copy': '复制',
   'common.copied': '已复制',

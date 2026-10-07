@@ -145,6 +145,7 @@ export const chat = {
   'chat.displayName.defaultAssistant': 'EasyChat2 Assistant',
   'chat.modelLoad.progress': 'Loading local model {progress}%',
   'chat.menu.notice': 'Announcement',
+  'chat.menu.memoryProvenance': 'Memory provenance',
   'chat.menu.sessionStats': 'Session stats',
   'chat.stats.title': 'Session stats',
   'chat.stats.messages': 'Messages',
