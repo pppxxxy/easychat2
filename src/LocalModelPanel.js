@@ -116,6 +116,7 @@ export default function LocalModelPanel({ visible, onClose }) {
                   onSelectActive={feedback.onSelectActive}
                   onLoadModel={feedback.onLoadModel}
                   onEntryActions={feedback.onEntryActions}
+                  onDeleteEntry={feedback.confirmDelete}
                   loadBusyId={models.loadBusyId}
                   loadProgress={models.loadProgress}
                   loadedModelId={models.loadedModelId}

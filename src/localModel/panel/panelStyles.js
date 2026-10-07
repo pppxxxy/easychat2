@@ -81,6 +81,9 @@ export function createPanelStyles(theme, fonts, tokens) {
     selectButtonActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.18) },
     selectButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
     iconButton: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
+    // 删除按钮是 itemActions 行的最后一个元素：marginRight 归零，danger 色（变体）。
+    deleteIconButton: { marginRight: 0 },
+    deleteIconButtonText: { color: theme.colors.danger || theme.colors.textFaint },
     iconButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
     itemBytes: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 8 },
     empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 8 },

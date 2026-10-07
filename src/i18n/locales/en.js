@@ -2372,6 +2372,7 @@ export const en = {
   'localModel.select': 'Select',
   'localModel.a11y.modelLoaded': 'Model loaded',
   'localModel.a11y.loadModel': 'Load {name}',
+  'localModel.a11y.deleteModel': 'Delete model {name}',
   'localModel.loading': 'Loading {progress}%',
   'localModel.loaded': 'Loaded',
   'localModel.load': 'Load',

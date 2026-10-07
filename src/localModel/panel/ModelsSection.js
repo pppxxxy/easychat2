@@ -24,6 +24,7 @@ export default function ModelsSection({
   onSelectActive,
   onLoadModel,
   onEntryActions,
+  onDeleteEntry,
   loadBusyId,
   loadProgress,
   loadedModelId,
@@ -80,6 +81,19 @@ export default function ModelsSection({
             <Text style={styles.iconButtonText}>
               {loading ? t('localModel.loading', { progress: loadProgress }) : loadedModelId === entry.id ? t('localModel.loaded') : t('localModel.load')}
             </Text>
+          </TouchableOpacity>
+          {/* 删除（2026-10-07）：此前只能长按唤出操作单，卡片上没有可见入口。
+              直接接壳的 confirmDelete——它已带确认弹窗 + 卸载 + 停服务 + 重置选用
+              的完整善后链，不另起一套删除逻辑；长按操作单保留（双入口无害）。 */}
+          <TouchableOpacity
+            style={[styles.iconButton, styles.deleteIconButton]}
+            onPress={() => onDeleteEntry(entry)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={t('localModel.a11y.deleteModel', { name: entry.name || entry.id })}
+          >
+            <Ionicons name="trash-bin-outline" size={16} color={theme.colors.danger || theme.colors.textFaint} />
+            <Text style={[styles.iconButtonText, styles.deleteIconButtonText]}>{t('common.delete')}</Text>
           </TouchableOpacity>
         </View>
         {loading ? (
