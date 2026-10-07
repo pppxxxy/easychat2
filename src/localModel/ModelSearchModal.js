@@ -17,7 +17,8 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
-import { buildDownloadUrl, listModelFiles, searchModels } from './modelCatalog.js';
+import { buildDownloadUrl, catalogProviderForSource, listModelFiles, searchModels } from './modelCatalog.js';
+import { selectFeaturedModels } from './featured.js';
 import { rankModelFiles } from './modelCompatibility.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -53,6 +54,12 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
   const rankedFiles = useMemo(
     () => rankModelFiles((files && files.modelFiles) || [], { totalMemoryBytes, contextSize: 2048 }),
     [files, totalMemoryBytes]
+  );
+
+  // 精选目录（v5 Stage E）：按设备内存挑选的小尺寸仓库，点击直接进入该仓库文件层。
+  const featured = useMemo(
+    () => selectFeaturedModels({ totalMemoryBytes, sourceId }),
+    [totalMemoryBytes, sourceId]
   );
 
   useEffect(() => {
@@ -289,7 +296,39 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
             ) : results ? (
               <Text style={styles.empty}>{t('localModel.search.noResults')}</Text>
             ) : (
-              <Text style={styles.empty}>{t('localModel.search.hint')}</Text>
+              <>
+                {featured.length > 0 ? (
+                  <>
+                    <Text style={styles.groupLabel}>{t('localModel.featured.title')}</Text>
+                    {featured.map(item => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.featuredRow}
+                        onPress={() => openRepo({
+                          repoId: item.repoId,
+                          name: item.name,
+                          provider: catalogProviderForSource(sourceId),
+                          revision: 'main',
+                        })}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('localModel.featured.a11yPick', { name: item.name })}
+                      >
+                        <View style={styles.fileInfo}>
+                          <Text style={styles.fileName} numberOfLines={1}>{item.name}</Text>
+                          <Text style={styles.fileMeta} numberOfLines={1}>{item.repoId}</Text>
+                          <Text style={styles.fileMeta}>
+                            {t(item.noteKey)}
+                            {item.memoryKnown && !item.fits ? ` · ${t('localModel.featured.tooBig')}` : ''}
+                          </Text>
+                        </View>
+                        <Ionicons name="download-outline" size={16} color={theme.colors.primary} />
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                ) : null}
+                <Text style={styles.empty}>{t('localModel.search.hint')}</Text>
+              </>
             )}
           </ScrollView>
         </View>
@@ -330,6 +369,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   error: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(12), marginTop: 8 },
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 14, textAlign: 'center' },
   resultRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.surfaceBorder },
+  featuredRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 10, marginBottom: 8, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), backgroundColor: theme.colors.primaryAlpha(0.08) },
   fileRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.surfaceBorder },
   fileInfo: { flex: 1, marginRight: 8 },
   fileNameRow: { flexDirection: 'row', alignItems: 'center' },
