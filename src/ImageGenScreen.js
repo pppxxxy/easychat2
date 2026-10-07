@@ -26,7 +26,7 @@ import { generateImage, detectImageProvider, probeImageProvider } from './imageG
 import { getImageGenSettings, saveImageGenSettings } from './storage/settings.js';
 import { resolveImageFormat } from './imageGen/imageResultFormat.js';
 import ChapterModal from './books/ChapterModal.js';
-import { getImageDimensions } from './chat/attachments.js';
+import { getImageDimensions, takePhoto } from './chat/attachments.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
 import PaneHeader from './ui/PaneHeader.js';
 import { useTheme } from './theme/ThemeContext.js';
@@ -335,6 +335,34 @@ export default function ImageGenScreen() {
      if (saved) setSettingsOpen(false);
   }, [draftApiKey, draftBaseUrl, draftExtra, draftModel, persistProvider, providerId, t]);
 
+  // 参考图落地：相册选图与拍照共用同一套校验与状态写入（尺寸/大小校验失败只提示、
+  // 不落地；校验异常降级为跳过，不阻断已选中的图）。
+  const applyReferenceImage = useCallback(async ({ uri, mime, name, size }) => {
+    if (!isImageLike(name, mime)) {
+      Alert.alert(t('imageGen.alert.unsupportedFile.title'), t('imageGen.alert.unsupportedFile.body'));
+      return;
+    }
+    // 尺寸/大小校验单独隔离：getInfoAsync / Image.getSize 在 content://、
+    // ph:// 或 HEIC 上可能抛错，校验失败只降级为跳过，不阻断选图本身。
+    try {
+      const info = await FileSystem.getInfoAsync(uri);
+      const bytes = Number(size || info.size || 0);
+      if (bytes > MAX_REFERENCE_IMAGE_BYTES) {
+        Alert.alert(t('imageGen.alert.imageTooLarge.title'), t('imageGen.alert.imageTooLarge.body'));
+        return;
+      }
+      const dimensions = await getImageDimensions(uri);
+      if (dimensions.width * dimensions.height > MAX_REFERENCE_IMAGE_PIXELS) {
+        Alert.alert(t('imageGen.alert.imageTooManyPixels.title'), t('imageGen.alert.imageTooManyPixels.body'));
+        return;
+      }
+    } catch (error) {
+      if (__DEV__) console.warn('[image-gen] reference validation skipped', error);
+    }
+    setImageUri(uri);
+    setImageMime(mime || 'image/png');
+  }, [t]);
+
   const pickImage = useCallback(async () => {
     try {
       const picked = await DocumentPicker.getDocumentAsync({
@@ -343,33 +371,36 @@ export default function ImageGenScreen() {
       });
       if (picked.canceled || !picked.assets || !picked.assets.length) return;
       const asset = picked.assets[0];
-      if (!isImageLike(asset.name, asset.mimeType)) {
-        Alert.alert(t('imageGen.alert.unsupportedFile.title'), t('imageGen.alert.unsupportedFile.body'));
-        return;
-      }
-      // 尺寸/大小校验单独隔离：getInfoAsync / Image.getSize 在 content://、
-      // ph:// 或 HEIC 上可能抛错，校验失败只降级为跳过，不阻断选图本身。
-      try {
-        const info = await FileSystem.getInfoAsync(asset.uri);
-        const size = Number(asset.size || info.size || 0);
-        if (size > MAX_REFERENCE_IMAGE_BYTES) {
-          Alert.alert(t('imageGen.alert.imageTooLarge.title'), t('imageGen.alert.imageTooLarge.body'));
-          return;
-        }
-        const dimensions = await getImageDimensions(asset.uri);
-        if (dimensions.width * dimensions.height > MAX_REFERENCE_IMAGE_PIXELS) {
-          Alert.alert(t('imageGen.alert.imageTooManyPixels.title'), t('imageGen.alert.imageTooManyPixels.body'));
-          return;
-        }
-      } catch (error) {
-        if (__DEV__) console.warn('[image-gen] reference validation skipped', error);
-      }
-      setImageUri(asset.uri);
-      setImageMime(asset.mimeType || 'image/png');
+      await applyReferenceImage({
+        uri: asset.uri,
+        mime: asset.mimeType,
+        name: asset.name,
+        size: asset.size,
+      });
     } catch (error) {
       Alert.alert(t('imageGen.alert.pickImageFailed.title'), t('imageGen.alert.pickImageFailed.body'));
     }
-  }, [t]);
+  }, [applyReferenceImage, t]);
+
+  // 拍照直连图生图参考图。权限被拒时给出可操作提示（与聊天拍照同语义）。
+  const captureImage = useCallback(async () => {
+    try {
+      const picked = await takePhoto();
+      if (picked && picked.denied) {
+        Alert.alert(t('imageGen.alert.cameraPerm.title'), t('imageGen.alert.cameraPerm.body'));
+        return;
+      }
+      if (!picked) return;
+      await applyReferenceImage({
+        uri: picked.uri,
+        mime: picked.mime,
+        name: picked.name,
+        size: picked.size,
+      });
+    } catch (error) {
+      Alert.alert(t('imageGen.alert.takePhotoFailed.title'), t('imageGen.alert.takePhotoFailed.body'));
+    }
+  }, [applyReferenceImage, t]);
 
   const clearImage = useCallback(() => {
     setImageUri('');
@@ -628,10 +659,16 @@ export default function ImageGenScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity style={styles.uploadButton} onPress={pickImage} activeOpacity={0.8}>
-            <Ionicons name="image-outline" size={18} color={theme.colors.textMuted} />
-            <Text style={styles.uploadButtonText}>{t('imageGen.pickImage')}</Text>
-          </TouchableOpacity>
+          <View style={styles.uploadRow}>
+            <TouchableOpacity style={[styles.uploadButton, styles.uploadButtonHalf]} onPress={pickImage} activeOpacity={0.8}>
+              <Ionicons name="image-outline" size={18} color={theme.colors.textMuted} />
+              <Text style={styles.uploadButtonText}>{t('imageGen.pickImage')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.uploadButton, styles.uploadButtonHalf]} onPress={captureImage} activeOpacity={0.8}>
+              <Ionicons name="camera-outline" size={18} color={theme.colors.textMuted} />
+              <Text style={styles.uploadButtonText}>{t('imageGen.takePhoto')}</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {generating ? <Text style={styles.generatingHint}>{generateProgress !== null ? t('imageGen.generating.progress', { n: generateProgress }) : t('imageGen.generating.wait')}</Text> : null}
@@ -846,6 +883,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   selectButtonText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
   placeholderText: { color: theme.colors.textFaint },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  uploadRow: { flexDirection: 'row', gap: 8 },
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -857,6 +895,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     paddingVertical: 18,
   },
+  uploadButtonHalf: { flex: 1 },
   uploadButtonText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 8 },
   previewRow: { alignSelf: 'flex-start' },
   preview: { width: 120, height: 120, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surface },

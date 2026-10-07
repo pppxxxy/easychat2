@@ -56,6 +56,8 @@ test('生图：底部弹层用 slide 动画；尺寸助手与聊天附件共用�
   assert.equal(IMAGE_GEN.includes('animationType="fade"'), false);
   // getImageDimensions 去重：不再本地实现，改用 chat/attachments.js 的导出
   assert.equal(IMAGE_GEN.includes('function getImageDimensions('), false);
-  assert.ok(IMAGE_GEN.includes("import { getImageDimensions } from './chat/attachments.js';"));
+  assert.match(IMAGE_GEN, /import \{[^}]*getImageDimensions[^}]*\} from '\.\/chat\/attachments\.js';/);
   assert.ok(ATTACHMENTS.includes('export function getImageDimensions('));
+  // 拍照参考图：复用聊天附件的 takePhoto，不自行直连 expo-image-picker
+  assert.match(IMAGE_GEN, /import \{[^}]*takePhoto[^}]*\} from '\.\/chat\/attachments\.js';/);
 });
