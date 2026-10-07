@@ -51,18 +51,21 @@ export function generateLocalApiKey() {
 // 启动服务：host 固定回环，端口/apiKey 规范化后交给原生。
 // apiKey 为空时自动生成稳定密钥（并随结果返回，调用方负责持久化与展示），
 // 原生永远收到非空密钥 —— 免鉴权放行已在两端同时移除。
-export async function startLocalApiServer({ port, apiKey, modelId } = {}) {
+// modelsJson（可选）：已安装模型条目数组（v5 Stage D），原生据此做 /v1/models 全量返回。
+export async function startLocalApiServer({ port, apiKey, modelId, models } = {}) {
   const native = getNative();
   if (!native || typeof native.start !== 'function') throw unavailableError();
   const normalized = normalizeLocalModelApiServer({ enabled: true, port, apiKey });
   const effectiveApiKey = normalized.apiKey && normalized.apiKey.trim()
     ? normalized.apiKey.trim()
     : generateLocalApiKey();
+  const modelsJson = JSON.stringify(Array.isArray(models) ? models : []);
   const result = await native.start(
     normalized.host,
     normalized.port,
     effectiveApiKey,
-    String(modelId || 'local-model')
+    String(modelId || 'local-model'),
+    modelsJson
   );
   recordModelLog('api', `本地 API 服务已启动 127.0.0.1:${normalized.port}${normalized.apiKey ? '' : '（已自动生成随机密钥）'}`);
   return {
@@ -90,6 +93,30 @@ export async function getLocalApiServerStatus() {
   } catch (error) {
     return { running: false, host: '127.0.0.1', port: 0 };
   }
+}
+
+// ---- OpenAI SSE 分片构造（v5 Stage D，纯函数可测）----
+//
+// 流式回写给原生的是「原始 SSE 文本」：原生只负责按字节写 chunk，不解析。
+// 契约与 OpenAI chat.completion.chunk 对齐：首个 content 分片 + 结尾 [DONE]。
+export function buildOpenAiSseChunk({ model = 'local-model', delta = {} } = {}) {
+  const payload = {
+    id: 'chatcmpl-local',
+    object: 'chat.completion.chunk',
+    model: String(model || 'local-model'),
+    choices: [{ index: 0, delta, finish_reason: null }],
+  };
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+export function buildOpenAiSseFinal({ model = 'local-model', finishReason = 'stop' } = {}) {
+  const payload = {
+    id: 'chatcmpl-local',
+    object: 'chat.completion.chunk',
+    model: String(model || 'local-model'),
+    choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+  };
+  return `data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`;
 }
 
 // 解析原生事件：兼容 JSON 字符串 / 对象 / 数组三种编组，统一成 { requestId, path, body }。
@@ -138,24 +165,63 @@ export async function respondLocalApiServer(requestId, response) {
   return native.respond(String(requestId || ''), JSON.stringify(response || {}));
 }
 
+// 流式回写：把累计的 SSE 文本片段推给原生（原生按 chunked 写出）。原生未实现时降级 false。
+export async function respondLocalApiServerStream(requestId, sseText, done = false) {
+  const native = getNative();
+  if (!native || typeof native.respondStream !== 'function') return false;
+  return native.respondStream(String(requestId || ''), String(sseText || ''), Boolean(done));
+}
+
 // 把原生请求接到推理函数：收到请求 -> runInference(messages, model) -> 回写 { text, model }。
 // addListener/respond 可注入（便于单测），默认走真实原生桥。
 // 串行化：外部 OpenAI 客户端可能并发打本机端点；llama.rn 的常驻 context **非并发安全**
 // （两个 completion 同时跑轻则串话、重则原生崩溃）。这里用一条 FIFO promise 链把请求排队，
 // 同一时刻只处理一个；跨模块（与聊天推理争用）仍靠 App 侧 tryAcquireResource 兜底。
-export function attachLocalApiServerInference({ model, runInference, addListener, respond } = {}) {
+//
+// v5 Stage D：请求体 stream=true 时走 SSE——runInference 的 onToken 逐片经 respondStream
+// 推送（OpenAI chat.completion.chunk），结尾补 finish + [DONE]；原生未实现 respondStream
+// 时降级为一次性整段回写（现有行为），客户端仍能拿到完整回复。
+export function attachLocalApiServerInference({ model, runInference, addListener, respond, respondStream } = {}) {
   if (typeof runInference !== 'function') return () => {};
   const listen = typeof addListener === 'function' ? addListener : addLocalApiServerRequestListener;
   const reply = typeof respond === 'function' ? respond : respondLocalApiServer;
+  const replyStream = typeof respondStream === 'function' ? respondStream : respondLocalApiServerStream;
   const modelId = String((model && model.id) || 'local-model');
   let queue = Promise.resolve();
   const handle = async event => {
+    const stream = Boolean(event.body && event.body.stream);
     try {
       const messages = Array.isArray(event.body && event.body.messages) ? event.body.messages : [];
+      if (stream) {
+        let buffer = '';
+        let tokenEmitted = false;
+        const onToken = token => {
+          if (typeof token !== 'string' || !token) return;
+          tokenEmitted = true;
+          buffer += buildOpenAiSseChunk({ model: modelId, delta: { content: token } });
+        };
+        const text = await runInference(messages, model, { onToken });
+        // runInference 未走流式（未调用 onToken）时兜底：整段作为单个分片。
+        if (!tokenEmitted) {
+          buffer += buildOpenAiSseChunk({ model: modelId, delta: { content: typeof text === 'string' ? text : '' } });
+        }
+        buffer += buildOpenAiSseFinal({ model: modelId });
+        const streamed = await replyStream(event.requestId, buffer, true);
+        if (streamed === false) {
+          // 原生不支持流式：退回一次性整段回写，客户端仍收到完整回复。
+          await reply(event.requestId, { text: typeof text === 'string' ? text : '', model: modelId });
+        }
+        return;
+      }
       const text = await runInference(messages, model);
       await reply(event.requestId, { text: typeof text === 'string' ? text : '', model: modelId });
     } catch (error) {
       recordModelLog('api', `本地 API 推理失败：${describeModelError(error)}`, { level: 'error' });
+      if (stream) {
+        const fallback = `${buildOpenAiSseChunk({ model: modelId, delta: { content: '' } })}${buildOpenAiSseFinal({ model: modelId })}`;
+        const streamed = await replyStream(event.requestId, fallback, true);
+        if (streamed !== false) return;
+      }
       await reply(event.requestId, { text: '', model: modelId });
     }
   };

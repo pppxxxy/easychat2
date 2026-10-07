@@ -509,7 +509,7 @@ function LocalApiServerBridge() {
   useEffect(() => {
     if (!isLocalApiServerAvailable()) return undefined;
     const unsubscribe = attachLocalApiServerInference({
-      runInference: async messages => {
+      runInference: async (messages, model, options = {}) => {
         const item = await getActiveLocalModel().catch(() => null);
         if (!item) throw new Error('No local model selected');
         const release = tryAcquireResource('local-model');
@@ -519,6 +519,8 @@ function LocalApiServerBridge() {
           // 避免上一个客户端请求的内容串进下一个请求。
           const result = await runLocalModel(messages, item, {
             conversationKey: `api-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            // v5 Stage D：把流式 token 透传给 API 服务器桥（stream=true 时逐片回写 SSE）。
+            onToken: typeof options.onToken === 'function' ? options.onToken : undefined,
           });
           return result && typeof result.text === 'string' ? result.text : '';
         } finally {

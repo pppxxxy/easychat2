@@ -82,9 +82,10 @@ test('C6：端口编辑态为 string，落盘时才转 number', () => {
 });
 
 test('C7：条目刷新与服务水合分离，编辑态只在水合时回填', () => {
-  // getLocalModelIndex 只剩 usePanelModels.refresh 一处真实调用
+  // getLocalModelIndex 出现在 refresh（条目列表）与 useApiServer.startApi（v5 Stage D
+  // 把已装模型列表下发原生做 /v1/models）——两处都是读取，不下发编辑态。
   const callCount = (PANEL.match(/getLocalModelIndex[(][)]/g) || []).length;
-  assert.equal(callCount, 1, 'getLocalModelIndex 应只在 refresh 里出现一次');
+  assert.equal(callCount, 2, 'getLocalModelIndex 应只在 refresh 与 startApi 各出现一次');
   // 服务域水合只在 useApiServer.hydrate；打开面板时由壳触发一次
   assert.ok(SHELL.includes('api.hydrate()'));
   assert.ok(USE_API.includes('const hydrate = useCallback'));

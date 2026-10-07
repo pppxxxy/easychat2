@@ -7,7 +7,7 @@ import { useCallback, useMemo, useState } from 'react';
 
 import * as Clipboard from 'expo-clipboard';
 
-import { getLocalModelSettings } from '../../storage/localModels.js';
+import { getLocalModelIndex, getLocalModelSettings } from '../../storage/localModels.js';
 import {
   getLocalApiServerStatus,
   isLocalApiServerAvailable,
@@ -53,10 +53,13 @@ export function useApiServer({ updateSettings }) {
       // 留空即自动生成随机密钥（两端都强制鉴权）；生成后持久化，重启不变。
       const keyWasEmpty = !String(apiServer.apiKey || '').trim();
       const saved = await persistApiServer({ enabled: true });
+      // v5 Stage D：把已安装模型列表下发给原生，/v1/models 才能全量返回。
+      const installedModels = await getLocalModelIndex().catch(() => []);
       const status = await startLocalApiServer({
         port: Number((saved.apiServer && saved.apiServer.port) || apiServer.port) || 8080,
         apiKey: apiServer.apiKey,
         modelId: saved.activeModelId || 'local-model',
+        models: installedModels,
       });
       const effectiveKey = String((status && status.apiKey) || apiServer.apiKey || '');
       if (keyWasEmpty && effectiveKey) {
