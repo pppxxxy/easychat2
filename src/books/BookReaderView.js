@@ -566,9 +566,28 @@ export default function BookReaderView({ item, content, onBack }) {
     return { transform: [{ translateX: pageAnim }] };
   }, [contentArea.width, pageAnim, pageTurn]);
 
+  // 断行策略两处 Text（可见页 + 下方测量 Text）必须同为 simple：Android 默认
+  // HIGH_QUALITY 是段落感知均衡断行，同一行文字在「整块测量」与「行子集重排」
+  // 两种上下文里断点可以不同 → 子集比测量多出一行 → 末行被视图边界裁掉一半
+  //（2026-10-07 真机修复）。simple 是无记忆贪心断行，与上下文无关，两处逐行
+  // 一致；它是组件 prop 不是样式键，不能进 buildPageTextProps 的 style。
   const pageBody = reader.status === MEASURE_READY && reader.page
     ? pageBodyText(reader.lines, reader.page)
     : '';
+
+  // DEV 不变式守卫：可见页实测行数若超过分页分配的行数，说明断行漂移回来了
+  //（页尾末行会被视图边界裁掉一半）。它以两处 Text 的 simple 断行声明为前置
+  // 条件，只挂开发期告警，不参与发布逻辑。
+  const handlePageTextLayout = useCallback(event => {
+    if (!reader.page) return;
+    const rendered = ((event && event.nativeEvent && event.nativeEvent.lines) || []).length;
+    if (rendered > reader.page.lineCount) {
+      console.warn(
+        `[BookReader] line overflow: rendered ${rendered} lines > allocated`
+        + ` ${reader.page.lineCount} (block ${reader.blockIndex}, page ${reader.pageIndex})`
+      );
+    }
+  }, [reader]);
 
   return (
     <View style={styles.container}>
@@ -635,14 +654,14 @@ export default function BookReaderView({ item, content, onBack }) {
                   setContentArea(current => (current.width === width && current.height === height ? current : { width, height }));
                 }}
               >
-                {/* 断行策略两处（可见页 + 下方测量 Text）必须同为 simple：
-                    Android 默认 HIGH_QUALITY 是段落感知均衡断行，同一行文字在
-                    「整块测量」与「行子集重排」两种上下文里断点可以不同 → 子集比
-                    测量多出一行 → 末行被视图边界裁掉一半（2026-10-07 真机修复）。
-                    simple 是无记忆贪心断行，与上下文无关，两处断行逐行一致。
-                    这是组件 prop 不是样式键，不能进 buildPageTextProps 的 style。 */}
                 {pageBody ? (
-                  <Text textBreakStrategy="simple" style={[styles.pageText, textProps]}>{pageBody}</Text>
+                  <Text
+                    textBreakStrategy="simple"
+                    style={[styles.pageText, textProps]}
+                    onTextLayout={__DEV__ ? handlePageTextLayout : undefined}
+                  >
+                    {pageBody}
+                  </Text>
                 ) : (
                   <View style={styles.center}>
                     <ActivityIndicator color={theme.colors.primary} />

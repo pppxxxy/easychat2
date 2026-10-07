@@ -270,6 +270,20 @@ test('按章进度写入：跨章结算被离开的章，同章取最大，flush
   assert.ok(lib.includes('normalizeChapterProgress(source.chapterProgress)'), '条目归一化迁移按章进度');
 });
 
+test('DEV 行数守卫：可见页实测行数超过分页分配即告警', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(/onTextLayout=\{__DEV__ \? handlePageTextLayout : undefined\}/.test(view),
+    '守卫仅 DEV 期接线（发布路径零开销）');
+  assert.ok(view.includes('rendered > reader.page.lineCount'), '实测行数超分配即告警（断行漂移回潮的哨兵）');
+  // 守卫只挂可见页；测量 Text 的 onTextLayout 仍是测量链路的 handleTextLayout
+  assert.ok(view.includes('onTextLayout={reader.handleTextLayout}'), '测量 Text 接线保持不变');
+  // 注释修订：被证伪的旧断言不得回潮
+  const hook = readSource('src/books/useBookReader.js');
+  assert.ok(!hook.includes('绝不造成页面溢出'), '「测量漂移绝不溢出」旧断言已证伪，注释必须如实');
+  assert.ok(hook.includes('textBreakStrategy="simple"') || hook.includes('textBreakStrategy=\\"simple\\"'),
+    '头注释必须指明两处 Text 的 simple 断行约定');
+});
+
 test('章节定位条：打开停在当前章，拖动时显示第几章', () => {
   const view = readSource('src/books/BookReaderView.js');
   const scrubber = readSource('src/books/ChapterScrubber.js');
