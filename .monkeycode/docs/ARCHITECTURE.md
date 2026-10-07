@@ -281,6 +281,7 @@ easychat2/
 - **推理侧常驻上下文**：`adapter.js` 维护单个常驻 llama 上下文（load/unload），多模态经 `initMultimodal`；`resourceMutex` 保证本地推理、录音等原生重负载不并发持有资源。
 - **单一事实源（v5 Stage A）**：`@easychat2_local_model` 设置键只含 `{ enabled, enableMediaInput, activeModelId, apiServer, schema: 2, updatedAt }`；单模型的路径/体积/参数只存在于条目键。旧结构一次性迁移（写条目 + 清空 legacy 字段 + 盖 schema:2），读路径统一走 `getActiveLocalModel()`，不再镜像。
 - **运行态广播（v5 Stage A）**：`adapter.js` 在 load/unload 出入口向 `runtime.js`（模块单例 `idle→loading→ready→error` + 订阅）发事件，供聊天层状态条与模型中心运行卡消费；推理/裁剪/think 流路径不变。
+- **下载即任务（v5 Stage B）**：`downloadQueue.js` 是模块级持久化串行队列（`@easychat2_download_queue`）——入队即返回、同时只跑一个、出队先做磁盘预检（`getFreeDiskStorageBytes`，不足直接失败并指路清理）、官方源失败自动改写 hf-mirror 续试。断点续传降级为「断点重下」：重启后残留的 `running` 任务在水合时降为 `pending` 重下；不做真后台/锁屏续传（Expo 体系成本不成比例），UI 文案如实提示保持前台。
 - **在线/本地回退**：`modelProvider.js` 的 `canUseLocalModel` / `sendWithModelProvider` 决定走本地还是在线；模型未就绪、未装适配器或推理失败时自动回退在线 API，用户无感。
 - **思考流切分**：`thinkStream.js` 处理 Qwen3 风格的 ` thinking…</think>` 流式切分，含「只出现闭合标签、无开启标签」的兜底（`createThinkSplitter` 增量喂入、返回 `{ reasoning, text }` 分段）——修复前该形态会把整段思考内容当正文显示。
 - **本地 API 服务**：HTTP 层在 Kotlin（nanohttpd），推理经 `LocalApiServer:onRequest` 事件回 JS，复用同一常驻上下文；**Bearer 鉴权强制开启**——apiKey 留空时由 `generateLocalApiKey()` 自动生成，校验用 `MessageDigest.isEqual` 常量时间比较，空 key 一律拒绝（401）。`App.js` 的 `LocalApiServerBridge` 负责接线，并退后台/卸载时停服。
