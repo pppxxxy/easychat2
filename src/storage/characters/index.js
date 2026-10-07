@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { tActive } from '../../i18n/index.js';
+import { recordDiagnostic } from '../diagnostics.js';
 import { readJsonStatus } from '../io.js';
 import {
   DEFAULT_CHARACTER,
@@ -250,6 +251,9 @@ export async function getCharacterLibrary() {
   let items = [];
   let needsPersist = false;
   let writeBlocked = false;
+  // 遗留键清理的守卫输入（见 getCharacterLibrary 尾部）：索引健康 + 逐角色键全部解析。
+  let indexHealthy = false;
+  let allItemsResolved = false;
 
   if (index.ids) {
     const loaded = await readCharacterItems(index.ids);
@@ -272,6 +276,8 @@ export async function getCharacterLibrary() {
 
     const availableIds = new Set(items.map(item => item.id));
     const unresolved = index.ids.filter(id => !availableIds.has(id));
+    indexHealthy = true;
+    allItemsResolved = unresolved.length === 0;
     if (unresolved.length > 0) {
       writeBlocked = true;
     }
@@ -339,6 +345,29 @@ export async function getCharacterLibrary() {
   // 播种成功（或无需播种）后打一次性标记：避免用户主动清空后每次启动又被填回。
   if (!greetingSeeded && !isCharacterLibraryWriteBlocked()) {
     await markDefaultGreetingSeeded();
+  }
+  // ---- 守卫式一次性清理：角色遗留单体键（2026-10-07 收尾任务书）----
+  // @easychat2_characters 是旧版「整库一个键」存储（>2MB 触发 CursorWindow 上限，
+  // 当年正是它促发按 id 拆键迁移），迁移完成后一直没删——如今读不出（超限），
+  // 却让每次备份导出都报「备份不完整」。守卫全绿才清：索引健康 + 逐角色键全部
+  // 解析 + 写闸未触发（含持久化/标记写入未失败）。恢复老备份时先走 legacy 合并
+  // → persistLibrary 写好逐角色键与索引 → 走到这里才清，顺序即保护。
+  // 探测用 getAllKeys 成员判断，绝不能用 getItem 探测（超限值直接抛错——问题本身）。
+  if (indexHealthy && allItemsResolved && !isCharacterLibraryWriteBlocked()) {
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const legacyNames = [CHARACTERS_KEY, CHARACTER_KEY]
+        .filter(name => (allKeys || []).includes(name));
+      if (legacyNames.length > 0) {
+        await AsyncStorage.multiRemove(legacyNames);
+        // 等诊断落盘：本函数已到末尾，await 无代价且让测试可确定性断言。
+        await recordDiagnostic(
+          'storage',
+          new Error(`已清理角色遗留存储键：${legacyNames.join(', ')}`),
+          'character-legacy-cleanup'
+        );
+      }
+    } catch (error) {}
   }
   return list;
 }

@@ -1846,3 +1846,137 @@ test('新建会话前迁移卡上记忆：搬进唯一会话的会话级摘要�
   const firstRow = sessions.find(item => item.id === first.id);
   assert.equal(firstRow.summarizedUpTo, 'mg-1', '总结边界推进到迁移条目的 boundary');
 });
+
+// ---- 角色遗留键守卫式清理（2026-10-07 收尾任务书）----
+// @easychat2_characters 是旧版整库单体键（>2MB 触发 CursorWindow 上限），
+// 迁移后一直没删：读不出、备份导出永远报「备份不完整」。清理必须守卫全绿。
+
+const DIAGNOSTICS_KEY = '@easychat2_diagnostics';
+const LEGACY_SINGLE_KEY = '@easychat2_character';
+// diagnostics.js 惰性取 AsyncStorage 时读 .default（RN 包的默认导出形态），
+// 测试桩没有该属性会让诊断静默丢弃——补自引用。
+if (!AsyncStorage.default) AsyncStorage.default = AsyncStorage;
+
+function readDiagnostics() {
+  const raw = store.get(DIAGNOSTICS_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+test('遗留键清理：健康索引 + 旧键存在 → 删除并记诊断', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  store.set(CHARACTERS_KEY, JSON.stringify([{ id: 'fossil', name: '化石' }]));
+  store.set(LEGACY_SINGLE_KEY, JSON.stringify({ id: 'ancient', name: '更古老' }));
+  const list = await storage.getCharacterLibrary();
+  assert.ok(list.some(item => item.id === 'default'), '现行库正常返回');
+  assert.equal(store.has(CHARACTERS_KEY), false, '旧单体键已清');
+  assert.equal(store.has(LEGACY_SINGLE_KEY), false, '更老的单角色键已顺带清');
+  const hit = readDiagnostics().find(entry => entry.context === 'character-legacy-cleanup');
+  assert.ok(hit, '诊断必须记录 character-legacy-cleanup');
+  assert.ok(hit.message.includes(CHARACTERS_KEY) && hit.message.includes(LEGACY_SINGLE_KEY),
+    '诊断列出被清键名');
+});
+
+test('遗留键清理：索引有解析不了的 id（写闸触发）→ 不删', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default', 'lost-card']));
+  store.set(CHARACTERS_KEY, JSON.stringify([{ id: 'fossil', name: '化石' }]));
+  await storage.getCharacterLibrary();
+  assert.equal(store.has(CHARACTERS_KEY), true, '写闸触发时旧键必须保留');
+  assert.equal(readDiagnostics().some(entry => entry.context === 'character-legacy-cleanup'), false,
+    '不得出现清理诊断');
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), true, '写闸语义不回归');
+});
+
+test('遗留键清理：恢复老备份场景先合并持久化、后删旧键（顺序保护）', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  store.set(CHARACTERS_KEY, JSON.stringify([
+    { id: 'default', builtin: true, name: 'EasyChat2 助手' },
+    { id: 'rescued', name: '迁移前角色' },
+  ]));
+  const ops = [];
+  const origMultiSet = AsyncStorage.multiSet;
+  const origMultiRemove = AsyncStorage.multiRemove;
+  AsyncStorage.multiSet = async pairs => {
+    ops.push(`persist:${pairs.map(([key]) => key).join('|')}`);
+    return origMultiSet(pairs);
+  };
+  AsyncStorage.multiRemove = async keys => {
+    ops.push(`remove:${keys.join('|')}`);
+    return origMultiRemove(keys);
+  };
+  try {
+    const list = await storage.getCharacterLibrary();
+    assert.ok(list.some(item => item.id === 'rescued'), 'legacy 角色先合并恢复');
+    assert.ok(store.has(`${CHARACTER_ITEM_PREFIX}::rescued`), 'rescued 已写成逐角色键');
+    assert.equal(store.has(CHARACTERS_KEY), false, '持久化完成后旧键才被清');
+  } finally {
+    AsyncStorage.multiSet = origMultiSet;
+    AsyncStorage.multiRemove = origMultiRemove;
+  }
+  const persistOp = ops.findIndex(op => op.startsWith('persist:'));
+  const removeOp = ops.findIndex(op => op.includes(CHARACTERS_KEY));
+  assert.ok(persistOp >= 0, '必须有逐角色键持久化');
+  assert.ok(removeOp > persistOp, '清理（multiRemove 旧键）必须在持久化之后');
+});
+
+test('遗留键清理：旧键不存在时无操作、无诊断，行为与旧版一致', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  const before = readDiagnostics().length;
+  const list = await storage.getCharacterLibrary();
+  assert.deepEqual(list.map(item => item.id), ['default'], '返回内容与旧版一致（回归快照）');
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
+  assert.equal(readDiagnostics().length, before, '无清理诊断');
+  // 幂等：清理完成后的后续启动不再有动作
+  await storage.getCharacterLibrary();
+  assert.equal(readDiagnostics().filter(entry => entry.context === 'character-legacy-cleanup').length, 0);
+});
+
+test('遗留键清理源码锚：守卫条件、成员探测、位置在持久化之后', () => {
+  const source = fs.readFileSync(path.resolve('src/storage/characters/index.js'), 'utf8');
+  const blockStart = source.indexOf('守卫式一次性清理：角色遗留单体键');
+  const blockEnd = source.indexOf('return list;', blockStart);
+  assert.ok(blockStart > 0 && blockEnd > blockStart, '清理块必须存在且在函数尾部');
+  const block = source.slice(blockStart, blockEnd);
+  // 守卫三条件（写闸含持久化失败：isCharacterLibraryWriteBlocked 在 persist catch 里置位）
+  assert.ok(/indexHealthy && allItemsResolved && !isCharacterLibraryWriteBlocked\(\)/.test(block),
+    '守卫必须同时要求索引健康 + 全部解析 + 写闸未触发');
+  // 探测必须走 getAllKeys 成员判断：>2MB 的值 getItem 直接抛错（正是本问题）
+  assert.ok(block.includes('getAllKeys'), '探测必须用 getAllKeys');
+  assert.ok(!/getItem\(/.test(block), '清理块内禁止 getItem 探测（超限值会抛错）');
+  assert.ok(block.includes("'character-legacy-cleanup'"), '诊断必须带 context 标记');
+  assert.ok(block.includes('CHARACTER_KEY') && block.includes('CHARACTERS_KEY'),
+    '两个遗留键（整库单体 + 更老单角色）都要清');
+  // 顺序：清理块必须位于问候播种之后（播种又在 persist 之后）——顺序即恢复老备份的保护
+  const seedAt = source.indexOf('await markDefaultGreetingSeeded()');
+  assert.ok(seedAt > 0 && blockStart > seedAt, '清理必须放在持久化/播种成功之后');
+});
+
+test('遗留键清理：持久化失败（写闸在尾部置位）→ 不删', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default']));
+  // legacyOnlyDefaultRecovery 路径强制 needsPersist=true（index 单条 + 无迁移标记 +
+  // legacy 比已加载多），再让 persistLibrary 的索引提交点写入失败：失败把写闸置位
+  // 但不提前返回，清理在函数尾部——必须看到写闸已触发而放弃删除。
+  store.set(CHARACTERS_KEY, JSON.stringify([
+    { id: 'default', builtin: true, name: 'EasyChat2 助手' },
+    { id: 'rescued', name: '待恢复角色' },
+  ]));
+  failedSets.add(CHARACTER_INDEX_KEY);
+  try {
+    await storage.getCharacterLibrary();
+  } finally {
+    failedSets.delete(CHARACTER_INDEX_KEY);
+  }
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), true, '写闸已置位');
+  assert.equal(store.has(CHARACTERS_KEY), true, '持久化未成功时旧键必须保留');
+  assert.equal(readDiagnostics().some(entry => entry.context === 'character-legacy-cleanup'), false,
+    '不得出现清理诊断');
+});
