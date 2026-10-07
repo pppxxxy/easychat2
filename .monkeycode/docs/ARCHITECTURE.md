@@ -84,7 +84,11 @@ easychat2/
 │   │   ├── ThinkingPanelModal.js / VoiceSettingsModal.js / SelectionTextModal.js
 │   │   ├── FullScreenInputModal.js / chatConstants.js / chatHelpers.js / chatStyles.js
 │   │   ├── chatSearchMath.js / audioModules.js
-│   │   ├── groupChat.js / groupMentions.js / chatRace.js / messageSelection.js
+│   │   ├── groupChat.js           # 群聊 barrel，21 个旧公开导出
+│   │   ├── groupChat/             # 8 个实现模块
+│   │   │   ├── constants.js / textUtils.js / profile.js / scheduler.js
+│   │   │   └── opening.js / mediaPrompt.js / context.js / ensemble.js
+│   │   ├── groupMentions.js / chatRace.js / messageSelection.js
 │   │   ├── chatMedia.js      # 图片/表情包消息结构与模型提示
 │   │   ├── attachments.js / stickerImages.js / stickerDirectives.js
 │   │   │   / voiceMessages.js / speechText.js   # 附件、表情包、语音与朗读文本
@@ -110,13 +114,26 @@ easychat2/
 │   │   ├── apiVendors.js         # 聊天 API 厂商与协议预设
 │   │   ├── vendorHttp.js         # 厂商请求统一层（地址归一化、鉴权、SSE 解析）
 │   │   └── modelProvider.js      # 在线/本地 provider 选择与推理回退
+│   ├── apiProtocols.js         # 协议适配 barrel，公开导出保持
+│   ├── apiProtocols/           # 9 个纯函数实现模块
+│   │   ├── constants.js / urls.js / multimodal.js / tools.js / messages.js
+│   │   └── body.js / errors.js / stream.js / final.js
 │   ├── resourceMutex.js      # 本地推理/录音等原生重负载资源互斥
 │   ├── character/            # 角色卡 schema 与角色编辑
-│   │   ├── cardParser.js         # 角色卡 JSON/PNG 解析与字段标准化
+│   │   ├── cardParser.js         # 角色卡解析 barrel，公开导出保持
+│   │   ├── cardParser/           # 7 个实现模块
+│   │   │   ├── normalizeUtils.js / worldInfo.js / regexScripts.js / standardFields.js
+│   │   │   └── normalizeCard.js / json.js / png.js
 │   │   ├── cardExporter.js       # 角色卡 V2 构造、PNG 编码与文件导出
 │   │   ├── cardGreetings.js      # 备用开场白导入与候选
 │   │   ├── cardHelpers.js        # 角色卡字段辅助
 │   │   └── editors.js / characterStyles.js
+│   ├── cardForge/
+│   │   ├── forge.js              # 制卡纯逻辑 barrel，31 个旧公开导出
+│   │   ├── forge/                # 7 个实现模块
+│   │   │   ├── shared.js / advanced.js / draft.js / state.js
+│   │   │   └── prompts.js / patch.js / assist.js
+│   │   └── preview.js / media.js / mediaPaths.js
 │   ├── prompt/               # 提示词管线：世界书 + 正则 + 消息组装
 │   │   ├── chatPipeline.js       # 系统提示词 + 历史 + 用户消息组装
 │   │   ├── lorebook.js           # 世界书条目激活判定
@@ -231,6 +248,12 @@ easychat2/
 **关键文件**: `src/character/cardParser.js`、`src/prompt/chatPipeline.js`
 **依赖**: `parsecard`、`buffer`
 **被依赖**: `ChatScreen`、`CharacterLibraryScreen`、`CharacterDetailScreen`
+
+**拆分结构**（四处 barrel 的既有公开导出保持）：
+- `src/character/cardParser.js` 转发 `cardParser/` 的 7 个模块：`normalizeUtils`（取值工具）、`worldInfo`（世界书归一）、`regexScripts`（正则归一）、`standardFields`（标准字段与系统提示）、`normalizeCard`（整卡归一）、`json`（JSON 清洗/解析）、`png`（PNG 读取）。内部主链为 `png → json → normalizeCard → standardFields/worldInfo/regexScripts → normalizeUtils`；`parsecard`/`buffer` 位于 `png.js`，`normalizeCard.js` 另依赖角色预设、AIGC 标识与 i18n。
+- `src/chat/groupChat.js` 转发 `groupChat/` 的 8 个模块及既有 `groupMentions.js`，保持 21 个公开符号。`constants`/`textUtils` 为基础，`profile` 管成员简介，`scheduler` 管发言调度，`opening` 管开场，后三者依赖 `network/api.js`；`mediaPrompt` 复用 `chatMedia.js`/`prompt/regexEngine.js`，供 `context` 与 `ensemble` 共用。`context` 组装历史/群聊情境并调用 `prompt/chatPipeline.js`，`ensemble` 组装群像提示并解析/合并回复段。
+- `src/cardForge/forge.js` 转发 `forge/` 的 7 个模块，保持 31 个公开符号。`shared` 提供字段/标签/限额与文本工具，`advanced` 清洗高级条目，`draft` 做草稿与角色转换，`state` 管问答/记录，`prompts` 构造生成/编辑提示，`patch` 解析模型 JSON 并合并草稿，`assist` 管字段/标签/条目辅助生成。依赖限定在该目录内部：`state → draft`、`prompts → state/draft`、`patch → advanced/draft`，各层复用 `shared`；`advanced` 为内部实现。
+- `src/apiProtocols.js` 转发 `apiProtocols/` 的 9 个纯函数模块：`constants`（协议标识）、`urls`（URL/鉴权头）、`multimodal`（多模态块）、`tools`（工具转换）、`messages`（消息转换）、`body`（请求体）、`errors`（错误解析）、`stream`（流式解析）、`final`（非流式解析）。主要依赖为 `body → messages/tools`、`messages → multimodal`、`final → stream → errors`；传输仍由 `src/network/api.js` 承担。
 
 ### 设置界面（API 配置 / 人设 / 外观 / 对话配图 / 生成参数 / 向量记忆）
 **目的**: 集中管理 API 来源（接口地址、模型列表与密钥）、用户人设、外观、对话配图、生成参数与向量记忆，支持创建、折叠选择、切换、编辑、删除；当前来源由 `getActiveApiConfig` 读取、当前模型由 `getActiveModel` 读取
@@ -490,7 +513,7 @@ stateDiagram-v2
 - **请求走 XHR 增量解析 SSE**：RN 的 `fetch` 不暴露 `response.body`，`api.js` 因此使用内置 `XMLHttpRequest` 的 `onprogress` 与累计 `responseText` 解析 `stream: true` 的 SSE，逐片段通过 `onChunk` 回调上抛累计文本，无需新增依赖。超时改为空闲超时，30 秒无数据才判定失败。
 - **请求可取消**：`sendChatMessage` 接受 `AbortSignal`，取消时以 `AbortError` 拒绝并清理监听；`ChatScreen` 为每次发送创建 `AbortController`，在用户点击「停止」、切换角色或组件卸载时中断，已收到的部分文本按失败保留规则处理。
 - **运行时垫片先行**：`Buffer` 垫片置于 `App.js` 首行导入，规避 ES 模块提升导致的求值顺序问题；Metro 全局开启 `unstable_enablePackageExports` 以解析 `parsecard` 的 `exports` 字段。
-- **解析与解析库解耦**：`parsecard` 只用于 PNG `tEXt` 文本块主读取；字段映射、世界书与正则标准化全部在 `cardParser.js` 完成，避免 `parsecard` 构造时丢弃 `character_book`/`regex_scripts` 或忽略顶层字段。`iTXt` 无压缩块由本地兜底读取，压缩块因 RN 无 zlib 而跳过。
+- **解析与解析库解耦**：`parsecard` 只用于 PNG `tEXt` 文本块主读取；字段映射、世界书与正则标准化全部在 `src/character/cardParser/` 实现、由 `cardParser.js` 转发，避免 `parsecard` 构造时丢弃 `character_book`/`regex_scripts` 或忽略顶层字段。`iTXt` 无压缩块由本地兜底读取，压缩块因 RN 无 zlib 而跳过。
 - **解析错误与无数据分离**：PNG 未找到 `chara`/`ccv3` 文本块属于「无数据」，返回 `null` 并由界面给出友好提示；文件损坏、base64 解码失败、JSON 语法错误才抛出并附带脱敏详情。解析错误经共享的 `src/storage/secrets.js` 脱敏后才展示与记录。
 - **世界书独立引擎**：`lorebook.js` 在不引入 UI 依赖的前提下实现常驻/关键词激活、次要关键词、概率与扫描深度，`chatPipeline.js` 按位置与顺序拼装系统消息或按深度插入消息。
 - **正则运行时应用**：助手回复以原始文本落盘，提示词版本与展示版本在发送和渲染时分别计算（`promptOnly`/`markdownOnly` 区分），避免污染历史且保证幂等。

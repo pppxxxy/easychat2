@@ -539,7 +539,7 @@
 - SSE 流内 `error` 负载：抛出其 `message`
 - SSE 流内所有 `data:` 行都无法解析为 JSON：`Error('接口返回了无法解析的内容。')`
 
-**地址归一化规则** `normalizeProtocolUrl(protocol, baseUrl)`（纯函数在 `src/apiProtocols.js`；`src/api.js` 仍导出旧名 `normalizeChatUrl` 供设置页/主动面板探测模型用）：
+**地址归一化规则** `normalizeProtocolUrl(protocol, baseUrl)`（由 `src/apiProtocols.js` 转发，实现在 `src/apiProtocols/urls.js`；`src/network/api.js` 仍导出旧名 `normalizeChatUrl` 供设置页/主动面板探测模型用）：
 
 | 协议 | 输入结尾 | 归一化结果 |
 |------|----------|-----------|
@@ -557,6 +557,8 @@
 - `openai`：请求体 `{ model, messages, stream, ...thinking, ...sampling, tools?, tool_choice? }`；SSE 解析 `choices[0].delta.{content, reasoning_content|reasoning, tool_calls}`。
 - `openai-responses`：`{ model, input[], instructions, stream, store:false, max_output_tokens, reasoning? }`；system 抽到 `instructions`，消息转 `input`（文本 `input_text`、图片 `input_image`、函数调用 `function_call`/`function_call_output`）；SSE 事件 `response.output_text.delta`/`response.reasoning_summary_text.delta`/`response.function_call_arguments.delta`/`response.completed`。
 - `anthropic`：`{ model, max_tokens, messages, system?, tools?, tool_choice?, thinking? }`；system 抽顶层、`tool_calls`→`tool_use`、`tool`→`tool_result`、连续同角色合并、首轮强制为 user（开头 assistant 文本并入 system）；开思考时 `max_tokens` 自动抬高到 `budget_tokens + 1024` 并省略 `temperature`；SSE 事件 `content_block_delta.text_delta`/`thinking_delta`/`input_json_delta`、`message_delta.stop_reason`。内联音频（`input_audio`）被丢弃，仅保留文本。
+
+**实现定位**：`src/apiProtocols.js` 为 barrel，保持上述公开导出；实现拆到 `src/apiProtocols/` 的 9 个模块：`constants.js`（协议标识/归一）、`urls.js`（URL/鉴权头）、`multimodal.js`（多模态块）、`tools.js`（工具定义/选择转换）、`messages.js`（消息转换）、`body.js`（请求体）、`errors.js`（错误解析）、`stream.js`（流式解析）、`final.js`（非流式解析）。内部依赖为 `body → messages/tools`、`messages → multimodal`、`final → stream → errors`。
 
 **外部 HTTP 契约**（以 openai 为例，其余协议见上）：
 
@@ -790,6 +792,8 @@ data: [DONE]
 
 ## 卡解析与提示管线接口
 
+**实现定位**：`src/character/cardParser.js` 为 barrel，既有导入路径与公开导出保持。实现位于 `src/character/cardParser/` 的 7 个模块：`normalizeUtils.js`（取值工具）、`worldInfo.js`（世界书归一/工厂/标签）、`regexScripts.js`（正则归一/工厂/标签）、`standardFields.js`（字段抽取与 `buildSystemPrompt`）、`normalizeCard.js`（整卡归一与 `ensureUniqueIds`）、`json.js`（`parseCardFromJson`）、`png.js`（`parseCardFromPng` / `readCardJsonFromPng`）。
+
 ### `parseCardFromJson(text)`
 **位置**: `src/character/cardParser.js`
 **返回**: 标准化角色卡 `{ name, fields, systemPrompt, worldInfo, regexScripts, presets, extensions, extra }`
@@ -835,6 +839,8 @@ data: [DONE]
 ### 群聊接口
 **位置**: `src/chat/groupChat.js`
 
+**实现定位**：该文件为 barrel，保留 21 个旧公开导出，其中提及解析与常量的 4 个符号继续转发自 `src/chat/groupMentions.js`。其余实现位于 `src/chat/groupChat/` 的 8 个模块：`constants.js`、`textUtils.js`（内部名称/JSON 工具）、`profile.js`（简介）、`scheduler.js`（调度）、`opening.js`（开场）、`mediaPrompt.js`（内部发言者标签/媒体提示）、`context.js`（历史/情境/逐角色请求）、`ensemble.js`（群像提示/回复解析/合并）。`profile`/`scheduler`/`opening` 调用网络层；`context` 复用提示管线，`mediaPrompt` 复用媒体文本与正则模块。
+
 | 函数 | 说明 |
 |------|------|
 | `parseMentions(text, characters)` | 解析消息中的 `@角色名`，返回角色 `id` 列表；`@全体` 返回全部成员 `id` |
@@ -854,6 +860,21 @@ data: [DONE]
 | `mergeAdjacentSegments(segments)` | 合并同一发言者的连续段，丢弃空文本段 |
 
 **常量**: `MAX_SPEAKERS = 3`、`PROFILE_MIN_CHARS = 30`、`MEMBER_RECENT_LINES = 3`、`GROUP_RECENT_LINES = 8`、`ENSEMBLE_MODE = 'ensemble'`、`TURN_MODE = 'turn'`。
+
+### 制卡纯逻辑接口定位
+**位置**: `src/cardForge/forge.js`（barrel，保留 31 个旧公开导出）
+
+实现位于 `src/cardForge/forge/` 的 7 个模块，依赖限定在该目录内部：
+
+| 实现模块 | barrel 转发的旧公开导出 |
+|----------|-------------------------|
+| `shared.js` | `FORGE_FIELDS`、`FIELD_LABELS`、`MAX_PRESERVED_TEXT`、`MAX_PRESERVED_ITEMS`、`MAX_FORGE_TAG_COUNT` |
+| `state.js` | `FORGE_QUESTIONS`、`requestedAdvancedSections`、`createForgeState`、`appendTranscript`、`currentQuestion`、`summarizeAnswers`、`recordAnswer` |
+| `draft.js` | `createForgeDraft`、`projectForgeDraft`、`draftFromCharacter`、`draftToCharacterPatch`、`hasCardContent` |
+| `prompts.js` | `buildGeneratePrompt`、`buildAdvancedPrompt`、`buildJsonRepairPrompt`、`buildEditPrompt`、`buildImageCardPrompt` |
+| `patch.js` | `parseCardPatch`、`mergeDraft` |
+| `assist.js` | `FIELD_ASSIST_SYSTEM`、`buildFieldAssistPrompt`、`parseFieldAssistText`、`buildTagsAssistPrompt`、`buildEntryAssistPrompt`、`parseEntryAssistPatch`、`mergeEntryAssistPatch` |
+| `advanced.js` | 高级条目清洗的内部实现，由 `patch.js` 使用 |
 
 ### 附件接口
 **位置**: `src/chat/attachments.js`

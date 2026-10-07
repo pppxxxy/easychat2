@@ -112,6 +112,7 @@ npm test             # 运行 Node 单元与回归测试
 | `src/chat/useSessionGuard.js` | 会话竞态守卫（版本号、单飞锁、AbortController） |
 | `src/chat/MessageList.js` | 消息列表渲染（窗口化 + 加载更早） |
 | `src/chat/replyFlow.js` | 回复流纯函数（合并/错误分类/重生成计划） |
+| `src/chat/groupChat.js` + `src/chat/groupChat/` | 群聊 barrel + 8 个实现模块，保持 21 个旧公开导出 |
 | `src/chat/*` | 聊天页拆分模块：hook、纯函数、样式、消息气泡与各类弹窗 |
 | `src/character/CharacterStack.js` | 角色 Tab 的原生栈（角色库 ⇄ 角色详情） |
 | `src/character/CharacterLibraryScreen.js` | 角色库列表页：陈列、搜索、置顶、多选删除、群聊创建、导入入口 |
@@ -128,12 +129,14 @@ npm test             # 运行 Node 单元与回归测试
 | `src/network/modelProvider.js` | 在线/本地推理选择与回退 |
 | `src/storage/` | 存储域实现（io / backupStream / 各数据域） |
 | `src/storage/backupStream.js` | 备份导出分块生成器（逐块可取消） |
-| `src/character/cardParser.js` | 角色卡 JSON/PNG 解析与标准化 |
+| `src/character/cardParser.js` + `src/character/cardParser/` | 角色卡解析 barrel + 7 个实现模块，公开导出保持 |
+| `src/cardForge/forge.js` + `src/cardForge/forge/` | 制卡纯逻辑 barrel + 7 个实现模块，保持 31 个旧公开导出 |
 | `src/prompt/chatPipeline.js` | 世界书/正则/角色预设提示词组装 |
 | `src/characterPresets.js` | 角色卡预设规范化与解析 |
 | `src/storage.js` | 持久化门面（转发 `src/storage/`） |
 | `src/storage/secretStore.js` | 密钥安全存储（AsyncStorage 只留引用） |
 | `src/network/api.js` | 大模型接口调用（`streamChatCompletion` 结构化 + `sendChatMessage` 薄包装） |
+| `src/apiProtocols.js` + `src/apiProtocols/` | 协议适配 barrel + 9 个纯函数实现模块，公开导出保持 |
 | `src/agent/loop.js` | Agent 工具调用循环（跨轮累积、上限收尾、取消） |
 | `src/agent/tools/registry.js` | 工具注册表与 ask/read/write 模式门控 |
 | `src/workspace/paths.js` | 工作区路径安全（沙盒相对路径 + 扩展名白名单） |
