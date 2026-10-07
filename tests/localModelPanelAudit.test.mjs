@@ -25,6 +25,7 @@ const PANEL_FILES = [
   'panelFeedback.js',
   'panelStyles.js',
   'ModelsSection.js',
+  'EngineCard.js',
   'AcquireSection.js',
   'ApiServerSection.js',
   'ModelParamsModal.js',
@@ -81,9 +82,10 @@ test('C6：端口编辑态为 string，落盘时才转 number', () => {
 });
 
 test('C7：条目刷新与服务水合分离，编辑态只在水合时回填', () => {
-  // getLocalModelIndex 只剩 usePanelModels.refresh 一处真实调用
+  // getLocalModelIndex 出现在 refresh（条目列表）与 useApiServer.startApi（v5 Stage D
+  // 把已装模型列表下发原生做 /v1/models）——两处都是读取，不下发编辑态。
   const callCount = (PANEL.match(/getLocalModelIndex[(][)]/g) || []).length;
-  assert.equal(callCount, 1, 'getLocalModelIndex 应只在 refresh 里出现一次');
+  assert.equal(callCount, 2, 'getLocalModelIndex 应只在 refresh 与 startApi 各出现一次');
   // 服务域水合只在 useApiServer.hydrate；打开面板时由壳触发一次
   assert.ok(SHELL.includes('api.hydrate()'));
   assert.ok(USE_API.includes('const hydrate = useCallback'));
@@ -125,17 +127,16 @@ test('U2：下载与导入草稿分离，互斥子 Tab 切换各自保留', () =
   assert.ok(REDUCER.includes("kind: ''"), '空闲任务态 kind 为空');
 });
 
-test('U4：下载进度条 + 取消按钮接线', () => {
-  assert.ok(USE_ACQUIRE.includes('cancelLocalModelDownload'));
-  assert.ok(USE_ACQUIRE.includes('handleCancelDownload'));
+test('U4：下载进度条 + 取消按钮接线（v5 Stage B：走持久化队列）', () => {
+  // 获取域经 downloadQueue 接线：入队 / 取消 / 订阅镜像任务态
+  assert.ok(USE_ACQUIRE.includes('enqueueDownload'));
+  assert.ok(USE_ACQUIRE.includes('cancelQueuedDownload'));
+  assert.ok(USE_ACQUIRE.includes('subscribeDownloadQueue'));
   assert.ok(ACQUIRE_SECTION.includes("t('localModel.download.cancelA11y')"));
   // 进度条（非一行文字）+ 字节详情（单对象任务态 task.progress/totalBytes）
   assert.ok(ACQUIRE_SECTION.includes('downloadProgressBar'));
   assert.ok(ACQUIRE_SECTION.includes('task.totalBytes'));
-  // 取消按编码区分：hook 识别 DOWNLOAD_CANCELLED，反馈层对 CANCELLED 不弹错误
-  assert.ok(USE_ACQUIRE.includes("code === 'DOWNLOAD_CANCELLED'"));
-  assert.ok(PANEL.includes("result.code === 'CANCELLED'"));
-  // modelManager 侧：登记表 + 幂等取消 + 编码错误
+  // 队列侧：登记表 + 幂等取消 + 编码错误仍在 modelManager
   const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
   assert.ok(manager.includes('activeDownloads'));
   assert.ok(manager.includes('export async function cancelLocalModelDownload'));

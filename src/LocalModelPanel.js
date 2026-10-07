@@ -43,8 +43,8 @@ export default function LocalModelPanel({ visible, onClose }) {
   const acquire = useAcquireModel({ deviceMemoryBytes: models.deviceMemoryBytes, onChanged: refresh });
   const api = useApiServer({ updateSettings });
 
-  const saveParams = useMemo(() => createParamsSaver({ t, settings, updateSettings, refresh }),
-    [t, settings, updateSettings, refresh]);
+  const saveParams = useMemo(() => createParamsSaver({ t, refresh }),
+    [t, refresh]);
   const params = useModelParams({ t, saveParams });
   const feedback = useMemo(() => createPanelFeedback({
     t,
@@ -60,7 +60,6 @@ export default function LocalModelPanel({ visible, onClose }) {
     if (!visible) return;
     refresh();
     api.hydrate();
-    // api.hydrate 由 useApiServer 以 useCallback 稳定提供，只在打开面板时全量水合。
   }, [visible, refresh]);
 
   return (
@@ -110,11 +109,14 @@ export default function LocalModelPanel({ visible, onClose }) {
                   entries={models.entries}
                   deviceMemoryBytes={models.deviceMemoryBytes}
                   cleanupBusy={models.cleanupBusy}
+                  runtime={models.runtime}
                   onCleanupOrphans={feedback.onCleanupOrphans}
                   onToggleEnabled={feedback.onToggleEnabled}
                   onToggleMediaInput={feedback.onToggleMediaInput}
                   onSelectActive={feedback.onSelectActive}
                   onLoadModel={feedback.onLoadModel}
+                  onUnloadModel={feedback.onUnloadModel}
+                  onOpenLogs={() => setLogsOpen(true)}
                   onEntryActions={feedback.onEntryActions}
                   onDeleteEntry={feedback.confirmDelete}
                   loadBusyId={models.loadBusyId}
@@ -175,6 +177,7 @@ export default function LocalModelPanel({ visible, onClose }) {
         theme={theme}
         t={t}
         onFieldChange={params.setField}
+        onApplyPreset={params.applyPreset}
         onClose={params.close}
         onSave={params.save}
       />

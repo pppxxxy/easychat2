@@ -14,6 +14,8 @@ import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
@@ -29,6 +31,12 @@ import java.util.concurrent.TimeUnit
  * 发给 JS，JS 用常驻 adapter 推理后调 `respond(requestId, json)` 回写，原生再组装响应。
  * 数组/对象跨桥不可靠，事件与回写统一用 JSON 字符串契约。
  *
+ * v5 Stage D：
+ * - GET /v1/models 返回 start 时下发的全部已安装条目（modelsJson），而非单一 modelId；
+ * - POST /v1/chat/completions 请求体 stream=true 时用 chunked 响应 + PipedOutputStream，
+ *   JS 逐片 respondStream 写入 SSE，写完 done=true 关闭（真流式，不再整段回包）；
+ * - 请求体的 model 字段由 JS 侧匹配/临时加载（原生不复制模型管理逻辑）。
+ *
  * 仅绑定 127.0.0.1；鉴权强制：apiKey 为空时自动生成随机密钥（绝不放行匿名请求），
  * 回显在启动结果里供 JS 展示；比较用恒定时间，Bearer 前缀严格校验。
  */
@@ -43,12 +51,18 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
     // Kotlin 外层类访问不到 inner 类的构造属性，放 inner 会 Unresolved reference。
     private var apiKey: String = ""
     private var modelId: String = "local-model"
+    // 已安装模型条目（JSON 数组字符串），start 时由 JS 下发，供 /v1/models 全量返回。
+    private var modelsJson: String = "[]"
 
     private class PendingRequest {
         val latch = CountDownLatch(1)
 
         @Volatile
         var responseJson: String? = null
+
+        // 流式响应：JS 经 respondStream 写入，原生 chunked 泵读。非流式请求为 null。
+        @Volatile
+        var streamOut: PipedOutputStream? = null
     }
 
     private inner class ApiServer(host: String, port: Int) :
@@ -89,10 +103,7 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         val uri = session.uri ?: ""
         if (session.method == Method.GET && uri == "/v1/models") {
             if (!checkAuth(session)) return unauthorized()
-            val data = JSONArray()
-            data.put(JSONObject().put("id", modelId).put("object", "model").put("owned_by", "local"))
-            val body = JSONObject().put("object", "list").put("data", data)
-            return jsonResponse(Response.Status.OK, body.toString())
+            return jsonResponse(Response.Status.OK, buildModelsBody())
         }
         if (session.method == Method.POST && uri == "/v1/chat/completions") {
             if (!checkAuth(session)) return unauthorized()
@@ -113,14 +124,54 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         )
     }
 
+    // /v1/models：全量已安装条目。modelsJson 为 JS 下发的 JSON 数组字符串；缺失/损坏
+    // 时回退为单一 modelId，保证客户端至少能看到当前模型。
+    private fun buildModelsBody(): String {
+        return try {
+            val installed = JSONArray(modelsJson)
+            val data = JSONArray()
+            for (index in 0 until installed.length()) {
+                val entry = installed.optJSONObject(index) ?: continue
+                val id = entry.optString("id", "")
+                if (id.isEmpty()) continue
+                data.put(
+                    JSONObject()
+                        .put("id", id)
+                        .put("object", "model")
+                        .put("owned_by", "local")
+                )
+            }
+            if (data.length() == 0) {
+                data.put(JSONObject().put("id", modelId).put("object", "model").put("owned_by", "local"))
+            }
+            JSONObject().put("object", "list").put("data", data).toString()
+        } catch (error: Exception) {
+            JSONObject()
+                .put("object", "list")
+                .put("data", JSONArray().put(JSONObject().put("id", modelId).put("object", "model").put("owned_by", "local")))
+                .toString()
+        }
+    }
+
     private fun handleChat(raw: String): Response {
         val requestId = UUID.randomUUID().toString()
         val entry = PendingRequest()
-        pending[requestId] = entry
+        val stream = JSONObject(raw).optBoolean("stream", false)
         val payload = JSONObject()
             .put("requestId", requestId)
             .put("path", "/v1/chat/completions")
             .put("body", raw)
+        if (stream) {
+            // 真流式：建管道，HTTP 线程返回 chunked 响应后由 NanoHTTPD 泵读；
+            // JS 经 respondStream 逐片写入，done=true 时关闭管道结束响应。
+            val pipeOut = PipedOutputStream()
+            entry.streamOut = pipeOut
+            pending[requestId] = entry
+            emitRequest(payload.toString())
+            val source = PipedInputStream(pipeOut, STREAM_PIPE_BUFFER)
+            return NanoHTTPD.newChunkedResponse(Response.Status.OK, "text/event-stream", source)
+        }
+        pending[requestId] = entry
         emitRequest(payload.toString())
         val done = entry.latch.await(REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         pending.remove(requestId)
@@ -139,37 +190,19 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
             val result = JSONObject(responseJson)
             val text = result.optString("text", "")
             val model = result.optString("model", modelId)
-            val stream = JSONObject(raw).optBoolean("stream", false)
-            if (stream) {
-                val chunk = JSONObject()
-                    .put("id", "chatcmpl-local")
-                    .put("object", "chat.completion.chunk")
-                    .put("model", model)
-                val choices = JSONArray()
-                choices.put(
-                    JSONObject()
-                        .put("index", 0)
-                        .put("delta", JSONObject().put("content", text))
-                        .put("finish_reason", "stop")
-                )
-                chunk.put("choices", choices)
-                val sse = "data: $chunk\n\ndata: [DONE]\n\n"
-                NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/event-stream", sse)
-            } else {
-                val choices = JSONArray()
-                choices.put(
-                    JSONObject()
-                        .put("index", 0)
-                        .put("message", JSONObject().put("role", "assistant").put("content", text))
-                        .put("finish_reason", "stop")
-                )
-                val body = JSONObject()
-                    .put("id", "chatcmpl-local")
-                    .put("object", "chat.completion")
-                    .put("model", model)
-                    .put("choices", choices)
-                jsonResponse(Response.Status.OK, body.toString())
-            }
+            val choices = JSONArray()
+            choices.put(
+                JSONObject()
+                    .put("index", 0)
+                    .put("message", JSONObject().put("role", "assistant").put("content", text))
+                    .put("finish_reason", "stop")
+            )
+            val body = JSONObject()
+                .put("id", "chatcmpl-local")
+                .put("object", "chat.completion")
+                .put("model", model)
+                .put("choices", choices)
+            jsonResponse(Response.Status.OK, body.toString())
         } catch (error: Exception) {
             jsonResponse(
                 Response.Status.INTERNAL_ERROR,
@@ -191,7 +224,7 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
     fun removeListeners(count: Int) {}
 
     @ReactMethod
-    fun start(host: String, port: Int, apiKey: String, modelId: String, promise: Promise) {
+    fun start(host: String, port: Int, apiKey: String, modelId: String, modelsJson: String, promise: Promise) {
         try {
             stopServer()
             // 空密钥不再意味着免鉴权：自动生成随机密钥并回显给 JS（持久化由 JS 侧
@@ -199,6 +232,7 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
             val requestedKey = apiKey.trim()
             this.apiKey = if (requestedKey.isEmpty()) generateApiKey() else requestedKey
             this.modelId = modelId
+            this.modelsJson = modelsJson
             val next = ApiServer(HOST, port)
             next.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             server = next
@@ -233,6 +267,31 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(true)
     }
 
+    // 流式回写：把 SSE 文本片段写入管道；done=true 时关闭管道，结束 chunked 响应。
+    @ReactMethod
+    fun respondStream(requestId: String, sseText: String, done: Boolean, promise: Promise) {
+        val entry = pending[requestId]
+        val out = entry?.streamOut
+        if (out == null) {
+            promise.resolve(false)
+            return
+        }
+        try {
+            if (sseText.isNotEmpty()) {
+                out.write(sseText.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+            if (done) {
+                out.close()
+                pending.remove(requestId)
+            }
+            promise.resolve(true)
+        } catch (error: Exception) {
+            pending.remove(requestId)
+            promise.reject("LOCAL_API_STREAM_FAILED", error.message, error)
+        }
+    }
+
     private fun statusMap(running: Boolean, port: Int): WritableMap {
         val map = Arguments.createMap()
         map.putBoolean("running", running)
@@ -255,8 +314,13 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         } catch (error: Exception) {}
         server = null
         // 唤醒等待 JS 回写的 HTTP 线程：只 clear 不 countDown 会让这些线程
-        // 一直阻塞到 120s 超时，停止/重启期间空占线程。
-        pending.values.forEach { it.latch.countDown() }
+        // 一直阻塞到 120s 超时，停止/重启期间空占线程。流式管道也一并关闭。
+        pending.values.forEach {
+            it.latch.countDown()
+            try {
+                it.streamOut?.close()
+            } catch (error: Exception) {}
+        }
         pending.clear()
     }
 
@@ -278,5 +342,6 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         private const val HOST = "127.0.0.1"
         private const val EVENT_REQUEST = "LocalApiServer:onRequest"
         private const val REQUEST_TIMEOUT_MS = 120_000L
+        private const val STREAM_PIPE_BUFFER = 64 * 1024
     }
 }

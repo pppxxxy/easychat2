@@ -154,7 +154,7 @@ test('deleteLocalModelItem：级联删除条目、索引项并清空活动指针
   assert.equal(await storage.getActiveLocalModel(), null);
 });
 
-test('getLocalModelIndex：旧单模型设置迁移成条目并回填 activeModelId', async () => {
+test('getLocalModelIndex：旧单模型设置迁移成条目并回填 activeModelId，且清空 legacy 字段', async () => {
   reset();
   store.set(SETTINGS_KEY, JSON.stringify({
     enabled: true,
@@ -171,7 +171,10 @@ test('getLocalModelIndex：旧单模型设置迁移成条目并回填 activeMode
   assert.equal(item.params.contextSize, 4096);
   const settings = await storage.getLocalModelSettings();
   assert.equal(settings.activeModelId, 'legacy');
-  assert.equal(settings.modelPath, 'file:///documents/local-models/legacy.gguf');
+  assert.equal(settings.schema, 2);
+  // v5 Stage A：迁移后设置键只剩单一事实源，legacy 字段已清零。
+  assert.equal('modelPath' in settings, false);
+  assert.equal('modelId' in settings, false);
 });
 
 test('getLocalModelIndex：无旧模型时返回空且不写入条目', async () => {
@@ -247,3 +250,23 @@ test('本地模型设置走保险箱读写：apiServer.apiKey 经 WithSecrets �
     ioStub.setJsonWithSecrets = originalSet;
   }
 });
+
+test('v2 单一事实源：保存设置只落 schema:2，且不含 legacy 单模型字段', async () => {
+  reset();
+  const saved = await storage.saveLocalModelSettings({ enabled: true, activeModelId: 'm1', modelPath: 'file:///should-be-dropped.gguf' });
+  assert.equal(saved.schema, 2);
+  const persisted = JSON.parse(store.get(SETTINGS_KEY));
+  assert.equal(persisted.schema, 2);
+  assert.equal('modelPath' in persisted, false);
+  assert.equal('modelId' in persisted, false);
+  assert.equal(persisted.activeModelId, 'm1');
+});
+
+test('v2 迁移：无旧模型时也落 schema:2（不再每次判定为待迁移）', async () => {
+  reset();
+  store.set(SETTINGS_KEY, JSON.stringify({ enabled: false }));
+  await storage.getLocalModelSettings();
+  const persisted = JSON.parse(store.get(SETTINGS_KEY));
+  assert.equal(persisted.schema, 2);
+});
+

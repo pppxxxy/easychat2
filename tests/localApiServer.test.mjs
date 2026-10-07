@@ -6,6 +6,8 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 import {
   addLocalApiServerRequestListener,
   attachLocalApiServerInference,
+  buildOpenAiSseChunk,
+  buildOpenAiSseFinal,
   getLocalApiServerStatus,
   isLocalApiServerAvailable,
   parseLocalApiServerRequest,
@@ -210,4 +212,55 @@ test('attachLocalApiServerInference：并发请求串行执行（不重叠打同
   await Promise.all([first, second]);
   assert.equal(maxActive, 1, '同一时刻至多一个推理在跑');
   assert.deepEqual(events, ['start:A', 'end:A', 'start:B', 'end:B'], '严格 FIFO 串行');
+});
+
+test('buildOpenAiSseChunk/Final：OpenAI chat.completion.chunk 契约', () => {
+  const chunk = buildOpenAiSseChunk({ model: 'qwen', delta: { content: '你' } });
+  assert.ok(chunk.startsWith('data: '), 'SSE 以 data: 开头');
+  assert.ok(chunk.endsWith('\n\n'), 'SSE 以空行结尾');
+  const body = JSON.parse(chunk.slice(6).trim());
+  assert.equal(body.object, 'chat.completion.chunk');
+  assert.equal(body.model, 'qwen');
+  assert.equal(body.choices[0].delta.content, '你');
+  const final = buildOpenAiSseFinal({ model: 'qwen' });
+  assert.ok(final.includes('"finish_reason":"stop"'), '结尾标注 finish_reason');
+  assert.ok(final.trim().endsWith('data: [DONE]'), '结尾补 [DONE]');
+});
+
+test('attachLocalApiServerInference：stream=true 走 SSE 分片回写', async () => {
+  let handler = null;
+  const streamed = [];
+  attachLocalApiServerInference({
+    model: { id: 'qwen' },
+    runInference: async (messages, model, options) => {
+      // 模拟流式推理：逐 token 回调
+      options.onToken('你');
+      options.onToken('好');
+      return '你好';
+    },
+    addListener: cb => { handler = cb; return () => {}; },
+    respondStream: async (requestId, sseText, done) => { streamed.push({ requestId, sseText, done }); return true; },
+    respond: async () => true,
+  });
+  await handler({ requestId: 's1', body: { stream: true, messages: [{ role: 'user', content: 'hi' }] } });
+  assert.equal(streamed.length, 1);
+  assert.equal(streamed[0].done, true);
+  const sse = streamed[0].sseText;
+  assert.ok(sse.includes('"content":"你"') && sse.includes('"content":"好"'), '每个 token 一个分片');
+  assert.ok(sse.includes('"finish_reason":"stop"'));
+  assert.ok(sse.trim().endsWith('data: [DONE]'));
+});
+
+test('attachLocalApiServerInference：stream 但原生不支持 respondStream 时退回整段回写', async () => {
+  let handler = null;
+  const replies = [];
+  attachLocalApiServerInference({
+    model: { id: 'qwen' },
+    runInference: async () => '完整回复',
+    addListener: cb => { handler = cb; return () => {}; },
+    respondStream: async () => false, // 原生未实现
+    respond: async (requestId, response) => { replies.push({ requestId, response }); return true; },
+  });
+  await handler({ requestId: 's2', body: { stream: true, messages: [] } });
+  assert.deepEqual(replies[0], { requestId: 's2', response: { text: '完整回复', model: 'qwen' } });
 });

@@ -48,6 +48,7 @@ import { maskSecrets } from './src/storage/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/character/characterEditGuard.js';
 import { recordDiagnostic } from './src/storage/diagnostics.js';
 import { runLocalModel } from './src/localModel/adapter.js';
+import { hydrateDownloadQueue } from './src/localModel/downloadQueue.js';
 import {
   attachLocalApiServerInference,
   isLocalApiServerAvailable,
@@ -330,6 +331,19 @@ function DiaryStartup() {
   return null;
 }
 
+// 下载队列启动水合（v5 Stage B）：冷启动读持久化队列，把崩溃残留的 running 任务
+// 恢复为 pending 并自动重下（断点重下）。与 UI 无关，挂载即跑一次。
+function DownloadQueueStartup() {
+  const { loaded } = useApp();
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || startedRef.current) return;
+    startedRef.current = true;
+    hydrateDownloadQueue().catch(() => {});
+  }, [loaded]);
+  return null;
+}
+
 // 定时主动消息：通知点击（热启动走事件、冷启动走启动 intent）切换到对应角色并进入聊天页。
 // 与上下文约定一致：切换失败回滚由 AppContext 负责，这里只提示，不在 context 层弹 UI。
 function ProactiveMessageBridge({ navigationReady }) {
@@ -495,7 +509,7 @@ function LocalApiServerBridge() {
   useEffect(() => {
     if (!isLocalApiServerAvailable()) return undefined;
     const unsubscribe = attachLocalApiServerInference({
-      runInference: async messages => {
+      runInference: async (messages, model, options = {}) => {
         const item = await getActiveLocalModel().catch(() => null);
         if (!item) throw new Error('No local model selected');
         const release = tryAcquireResource('local-model');
@@ -505,6 +519,8 @@ function LocalApiServerBridge() {
           // 避免上一个客户端请求的内容串进下一个请求。
           const result = await runLocalModel(messages, item, {
             conversationKey: `api-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            // v5 Stage D：把流式 token 透传给 API 服务器桥（stream=true 时逐片回写 SSE）。
+            onToken: typeof options.onToken === 'function' ? options.onToken : undefined,
           });
           return result && typeof result.text === 'string' ? result.text : '';
         } finally {
@@ -655,6 +671,7 @@ export default function App() {
                 {startupReady ? <AppShell /> : null}
                 {startupReady ? <StartupSession /> : null}
                 {startupReady ? <DiaryStartup /> : null}
+                {startupReady ? <DownloadQueueStartup /> : null}
                 <StartupFlow onReady={handleStartupReady} />
               </AppProvider>
             </I18nProvider>

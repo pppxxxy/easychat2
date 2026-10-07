@@ -102,7 +102,6 @@ import { getVectorOwnerId } from './vectorMemory/scope.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
-import ModelLogsModal from './localModel/ModelLogsModal.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
 import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
@@ -155,6 +154,9 @@ import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
 import ChatComposer from './chat/ChatComposer.js';
+import EngineStatusBar from './localModel/EngineStatusBar.js';
+import { useLocalEngineStatus } from './localModel/useLocalEngineStatus.js';
+import LocalModelPanel from './LocalModelPanel.js';
 import useChatRecorder from './chat/useChatRecorder.js';
 import AttachmentMenuModal from './chat/AttachmentMenuModal.js';
 import {
@@ -309,11 +311,10 @@ export default function ChatScreen() {
     localModels,
     activeLocalModelId,
     loadingLocalModelId,
-    activateLocalModel,
-    deactivateLocalModel,
-    localLogsOpen,
-    setLocalLogsOpen,
+    selectLocalModel,
   } = useChatModelThinking({ isSending, sendLockRef });
+  const localEngine = useLocalEngineStatus();
+  const [hubOpen, setHubOpen] = useState(false);
    const [attachments, setAttachments] = useState([]);
    const attachmentsRef = useRef([]);
    attachmentsRef.current = attachments;
@@ -2334,6 +2335,14 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
+      <EngineStatusBar
+        enabled={localEngine.enabled}
+        activeModelId={localEngine.activeModelId}
+        activeModelName={localEngine.activeModelName}
+        fallbackAt={localEngine.fallbackAt}
+        onOpenHub={() => setModelPanelOpen(true)}
+      />
+
       <ChatComposer
         quoteTarget={quoteTarget}
         quoteLocked={isSending || !!sendLockRef.current}
@@ -2542,7 +2551,7 @@ export default function ChatScreen() {
             section: t('chat.menu.section.other'),
             label: t('chat.menu.localLogs'),
             icon: 'document-text-outline',
-            onPress: () => setLocalLogsOpen(true),
+            onPress: () => setHubOpen(true),
           },
           {
             key: 'settings',
@@ -2634,12 +2643,11 @@ export default function ChatScreen() {
         localModels={localModels}
         activeLocalModelId={activeLocalModelId}
         loadingLocalModelId={loadingLocalModelId}
-        onActivateLocalModel={activateLocalModel}
-        onDeactivateLocalModel={deactivateLocalModel}
-        onOpenModelLogs={() => setLocalLogsOpen(true)}
+        onSelectLocalModel={selectLocalModel}
+        onManageLocalModels={() => { setModelPanelOpen(false); setHubOpen(true); }}
       />
 
-      <ModelLogsModal visible={localLogsOpen} onClose={() => setLocalLogsOpen(false)} />
+      <LocalModelPanel visible={hubOpen} onClose={() => setHubOpen(false)} />
 
       <ThinkingPanelModal
         visible={thinkingOpen}

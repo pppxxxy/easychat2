@@ -1910,6 +1910,11 @@ export default function SettingsScreen() {
                       keyboardType="number-pad"
                       placeholder={t('settings.capability.outputLengthPlaceholder')}
                     />
+                    {/* F3：部分模型（如 Gemma 系列）输出上限仅 8192；32000 会被上游 400。
+                        这里只给提示不硬约束，避免误伤大窗口/私有模型。 */}
+                    <FieldHint style={styles.paramHint}>
+                      {t('settings.capability.outputLengthHint')}
+                    </FieldHint>
                   </View>
                   <FieldHint style={styles.paramHint}>
                     {t('settings.capability.advancedHint')}

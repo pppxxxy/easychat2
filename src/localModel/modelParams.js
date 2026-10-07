@@ -1,6 +1,8 @@
 // 本地模型推理参数：每个模型一套，纯函数，不依赖 RN/Expo，便于单测。
 // 参数随模型条目一起存储；删除模型即级联删除其参数（同一 item 键）。
 
+import { estimateModelMemory } from './modelCompatibility.js';
+
 export const LOCAL_MODEL_PARAM_FIELDS = {
   contextSize: { min: 512, max: 131072, integer: true, default: 2048 },
   gpuLayers: { min: 0, max: 999, integer: true, default: 0 },
@@ -22,6 +24,35 @@ export const DEFAULT_LOCAL_MODEL_PARAMS = {
   topK: 0,
   maxTokens: 512,
 };
+
+// 参数预设（v5 Stage C）：面向常见用途的一组起点，避免用户面对 7 个裸数字字段。
+// 预设只覆盖采样相关字段；contextSize/gpuLayers/threads 等与设备相关的字段不动，
+// 由用户在「高级」里按机型调整（contextSize 变更会即时显示内存影响）。
+export const LOCAL_MODEL_PARAM_PRESETS = [
+  { id: 'chat', labelKey: 'localModel.params.preset.chat', params: { temperature: 0.9, topP: 0.95, topK: 40, maxTokens: 512 } },
+  { id: 'writing', labelKey: 'localModel.params.preset.writing', params: { temperature: 1.1, topP: 0.95, topK: 60, maxTokens: 1024 } },
+  { id: 'code', labelKey: 'localModel.params.preset.code', params: { temperature: 0.3, topP: 0.9, topK: 20, maxTokens: 1024 } },
+];
+
+// 应用预设：在现有参数上覆盖预设字段，返回归一化结果（非法值自动夹取）。
+export function applyLocalModelParamPreset(current, presetId) {
+  const preset = LOCAL_MODEL_PARAM_PRESETS.find(item => item.id === presetId);
+  const base = normalizeLocalModelParams(current);
+  if (!preset) return base;
+  return normalizeLocalModelParams({ ...base, ...preset.params });
+}
+
+// contextSize 变更的内存影响（纯函数，复用 modelCompatibility.estimateModelMemory）：
+// 供参数弹窗即时显示「上下文越大，KV 占用越大」的代价，教用户权衡。
+export function contextSizeMemoryDelta({ paramBillion = 0, bitsPerWeight = 0, from = 0, to = 0 } = {}) {
+  const before = estimateModelMemory({ paramBillion, bitsPerWeight, contextSize: from });
+  const after = estimateModelMemory({ paramBillion, bitsPerWeight, contextSize: to });
+  return {
+    beforeBytes: before.kvBytes,
+    afterBytes: after.kvBytes,
+    deltaBytes: after.kvBytes - before.kvBytes,
+  };
+}
 
 function clampLocalModelParam(name, raw) {
   const rule = LOCAL_MODEL_PARAM_FIELDS[name];

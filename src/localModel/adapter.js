@@ -2,9 +2,17 @@
 // 未包含原生模块或模型未就绪时保持在线 API 可用；同一时刻只维护一个已加载上下文。
 
 import { normalizeLocalModelParams } from './modelParams.js';
+import { estimateModelMemory, parseQuantization, parseParamScaleB } from './modelCompatibility.js';
 import { describeModelError, formatBytes, recordModelLog } from './modelLogs.js';
 import { trimMessagesToContext } from './localContext.js';
 import { createThinkSplitter, splitThinkContent } from './thinkStream.js';
+import {
+  setRuntimeError,
+  setRuntimeIdle,
+  setRuntimeLoading,
+  setRuntimeProgress,
+  setRuntimeReady,
+} from './runtime.js';
 import { tActive } from '../i18n/index.js';
 
 let moduleState;
@@ -107,6 +115,24 @@ export function buildCompletionParams(model, override) {
   };
 }
 
+// 运行内存估算（近似）：复用 modelCompatibility 的纯函数，供运行态状态条展示。
+// 真值拿不到（原生不回报实际 RSS），UI 一律按「约」标注。
+function estimateRuntimeMemory(model) {
+  const source = model && typeof model === 'object' ? model : {};
+  const params = effectiveParams(source);
+  const text = [source.name, source.id, source.quant, source.modelUrl].filter(Boolean).join(' ');
+  const quant = parseQuantization(text);
+  const paramBillion = Number(source.paramSize) > 0
+    ? Number(source.paramSize)
+    : (parseParamScaleB(text) || parseParamScaleB(source.quant));
+  const memory = estimateModelMemory({
+    paramBillion,
+    bitsPerWeight: quant ? quant.bitsPerWeight : 0,
+    contextSize: params.contextSize,
+  });
+  return memory.totalBytes;
+}
+
 // 加载常驻上下文：key 命中直接复用；否则先释放旧模型再初始化。
 export async function loadLocalModel(model, { onProgress } = {}) {
   const module = getModule();
@@ -121,16 +147,20 @@ export async function loadLocalModel(model, { onProgress } = {}) {
   if (current && current.key === key) return current;
   await unloadLocalModel();
 
+  const runtimeModelId = String((model && (model.id || model.modelId)) || '');
+  setRuntimeLoading(runtimeModelId, 0);
   recordModelLog('load', `开始加载 ${modelPath}`, {
     context: buildLoadContext(model, key),
   });
   let context;
   try {
     context = await module.initLlama(buildContextParams(model), progress => {
+      setRuntimeProgress(progress);
       if (typeof onProgress === 'function') onProgress(progress);
     });
   } catch (error) {
     error.code = error.code || 'LOAD_FAILED';
+    setRuntimeError(error, runtimeModelId);
     recordModelLog('load', `加载失败：${describeModelError(error)}`, { level: 'error', context: buildLoadContext(model, key) });
     throw error;
   }
@@ -150,6 +180,7 @@ export async function loadLocalModel(model, { onProgress } = {}) {
   }
 
   current = { key, context, support, conversationKey: '' };
+  setRuntimeReady({ modelId: runtimeModelId, ramEstimate: estimateRuntimeMemory(model), support });
   recordModelLog('load', `模型加载完成${support.vision || support.audio ? `（${[support.vision ? '视觉' : '', support.audio ? '音频' : ''].filter(Boolean).join('+')}）` : ''}`, { context: key });
   return current;
 }
@@ -157,7 +188,10 @@ export async function loadLocalModel(model, { onProgress } = {}) {
 // 返回是否完全释放：删除已加载模型等场景必须知道「内存真的还回来了」——
 // 释放失败时原生上下文可能泄漏，调用方应中止后续破坏性操作（如删文件）。
 export async function unloadLocalModel() {
-  if (!current) return true;
+  if (!current) {
+    setRuntimeIdle();
+    return true;
+  }
   const { context, key } = current;
   current = null;
   let releaseFailed = false;
@@ -179,6 +213,8 @@ export async function unloadLocalModel() {
   }
   // 释放失败时上下文可能泄漏在原生侧，不能记成「已释放」误导排查。
   recordModelLog('unload', releaseFailed ? '模型释放未完全成功' : '模型已释放', { context: key });
+  if (!releaseFailed) setRuntimeIdle();
+  else setRuntimeError(new Error('模型释放未完全成功'), '');
   return !releaseFailed;
 }
 

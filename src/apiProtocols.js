@@ -23,6 +23,6 @@ export { buildRequestHeaders, normalizeProtocolUrl } from './apiProtocols/urls.j
 export { parseDataUri } from './apiProtocols/multimodal.js';
 export { toAnthropicRequest, toResponsesRequest } from './apiProtocols/messages.js';
 export { buildRequestBody } from './apiProtocols/body.js';
-export { parseProtocolError } from './apiProtocols/errors.js';
+export { parseProtocolError, describeErrorPayload } from './apiProtocols/errors.js';
 export { normalizeAssistantValue, parseStreamPayload } from './apiProtocols/stream.js';
 export { parseFinalPayload } from './apiProtocols/final.js';

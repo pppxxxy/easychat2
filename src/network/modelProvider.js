@@ -3,15 +3,17 @@
 import { recordDiagnostic } from '../storage/diagnostics.js';
 import { isLocalModelModuleAvailable, runLocalModel } from '../localModel/adapter.js';
 import { classifyLocalModelError, recordModelLog } from '../localModel/modelLogs.js';
-import { isLocalModelItemReady, isLocalModelReady, normalizeLocalModelSettings } from '../localModel/modelState.js';
+import { isLocalModelItemReady, normalizeLocalModelSettings } from '../localModel/modelState.js';
+import { setRuntimeFallback } from '../localModel/runtime.js';
 import { tryAcquireResource } from '../resourceMutex.js';
 
-// 就绪判定（纯函数，便于单测）：优先按活动条目，其次回退旧单模型设置。
+// 就绪判定（纯函数，便于单测）：v5 Stage A 起只认活动条目（单一事实源），
+// 不再回退旧单模型设置。moduleAvailable 为假或未启用时分级返回原因。
 export function resolveLocalModelReadiness({ settings, item = null, fileInfo = null, moduleAvailable = false } = {}) {
   const normalized = normalizeLocalModelSettings(settings);
   if (!moduleAvailable) return { ready: false, reason: 'unavailable' };
   if (!normalized.enabled) return { ready: false, reason: 'disabled' };
-  const ready = item ? isLocalModelItemReady(item, fileInfo) : isLocalModelReady(settings, fileInfo);
+  const ready = isLocalModelItemReady(item, fileInfo);
   return ready ? { ready: true, reason: '' } : { ready: false, reason: 'not-ready' };
 }
 
@@ -54,7 +56,7 @@ export async function sendWithModelProvider({
     notifyApi();
     return onlineSend();
   }
-  const model = localItem || localSettings;
+  const model = localItem;
   try {
     // v1 本地模型不支持工具调用：请求了工具时降级为纯对话并留日志，不静默吞掉。
     if (Array.isArray(tools) && tools.length > 0) {
@@ -75,6 +77,8 @@ export async function sendWithModelProvider({
     if (info.code === 'ABORTED') throw error;
     recordModelLog('api', `本地推理失败，回退在线 API：${info.message}`, { level: info.level });
     recordDiagnostic('api', error, 'local-model-fallback');
+    // 广播回退事件：聊天层引擎状态条据此展示 10 秒警告，用户才知道这条回复来自在线。
+    setRuntimeFallback();
     notifyApi();
     return onlineSend();
   } finally {

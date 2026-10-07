@@ -311,6 +311,7 @@ export const settings = {
   'settings.capability.customFormatRequired': 'Pick a value format before saving',
   'settings.capability.outputLength': 'Output length (tokens)',
   'settings.capability.outputLengthPlaceholder': 'empty = default 32000',
+  'settings.capability.outputLengthHint': 'If the output cap exceeds what the model supports, the upstream rejects the request (e.g. Gemma often caps at 8192). When unsure, use 4096; if it still fails, check the provider\'s model docs.',
   'settings.capability.advancedHint': 'The context window drives the workspace panel usage display and the 80% auto-compact threshold; output length is the max tokens per reply. Leave empty to use defaults.',
   'settings.capability.customParamsOff': 'Custom parameters are off: thinking field/format, context window and output length are all sent with defaults (reasoning_effort + effort, window 200000, output 32000).',
   'settings.capability.confirm': 'Confirm',

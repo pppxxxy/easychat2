@@ -74,6 +74,17 @@ export function createPanelFeedback({
     else alertCancelable(t('localModel.alert.loadFailed.title'), (result && result.message) || t('localModel.alert.loadFailed.body'));
   };
 
+  // 卸载运行状态卡入口（v5 Stage C）：模型中心成为唯一卸载点。
+  const onUnloadModel = async () => {
+    const result = await models.handleUnloadModel();
+    if (result.ok) {
+      alertCancelable(t('localModel.alert.modelUnloaded.title'), t('localModel.alert.modelUnloaded.body'));
+      return;
+    }
+    if (result.code === 'RESOURCE_BUSY') alertCancelable(t('localModel.alert.resourceBusy.title'), t('localModel.alert.resourceBusy.body'));
+    else alertCancelable(t('localModel.alert.unloadFailed.title'), (result && result.message) || t('localModel.alert.unloadFailed.body'));
+  };
+
   const onCleanupOrphans = async () => {
     const result = await models.handleCleanupOrphans();
     if (!result.ok) {
@@ -86,11 +97,12 @@ export function createPanelFeedback({
 
   const onDownload = async () => {
     const result = await acquire.handleDownload();
-    if (result.ok) alertCancelable(t('localModel.alert.downloadDone.title'), t('localModel.alert.downloadDone.body', { name: result.name }));
-    else if (result.code === 'INCOMPLETE_INPUT') alertCancelable(t('localModel.alert.downloadInfoIncomplete.title'), t('localModel.alert.downloadInfoIncomplete.body'));
-    else if (result.code === 'CANCELLED') {
-      // 用户主动取消不是失败：半成品已由 modelManager 的失败清理路径删除，不弹错误。
-    } else alertCancelable(t('localModel.alert.downloadFailed.title'), (result && result.message) || t('localModel.alert.downloadFailed.body'));
+    if (result.ok) {
+      // 入队成功：真正下载由持久化队列执行，完成后再刷新列表；这里只提示已加入队列。
+      alertCancelable(t('localModel.alert.downloadQueued.title'), t('localModel.alert.downloadQueued.body', { name: result.name }));
+    } else if (result.code === 'INCOMPLETE_INPUT') alertCancelable(t('localModel.alert.downloadInfoIncomplete.title'), t('localModel.alert.downloadInfoIncomplete.body'));
+    else if (result.code === 'DUPLICATE') { /* 已在队列中，静默 */ }
+    else alertCancelable(t('localModel.alert.downloadFailed.title'), (result && result.message) || t('localModel.alert.downloadFailed.body'));
   };
 
   const onPick = pickResult => {
@@ -198,6 +210,7 @@ export function createPanelFeedback({
     onToggleEnabled,
     onToggleMediaInput,
     onLoadModel,
+    onUnloadModel,
     onCleanupOrphans,
     onDownload,
     onPick,
@@ -212,7 +225,7 @@ export function createPanelFeedback({
 }
 
 // 参数弹窗的保存动作（弹窗状态在 useModelParams 里，这里只处理校验/落盘/反馈）。
-export function createParamsSaver({ t, settings, updateSettings, refresh }) {
+export function createParamsSaver({ t, refresh }) {
   return async function saveParams(target, form) {
     const check = validateLocalModelParams(form);
     if (!check.valid) {
@@ -224,13 +237,7 @@ export function createParamsSaver({ t, settings, updateSettings, refresh }) {
     }
     try {
       const saved = await saveLocalModelItem({ ...target, params: normalizeLocalModelParams(form) });
-      if (settings && settings.activeModelId === saved.id) {
-        await updateSettings(base => ({
-          ...base,
-          contextSize: saved.params.contextSize,
-          gpuLayers: saved.params.gpuLayers,
-        }));
-      }
+      // 参数只存在于条目键（单一事实源）；设置键不再镜像 contextSize/gpuLayers。
       await refresh();
       return { ok: true, saved };
     } catch (error) {

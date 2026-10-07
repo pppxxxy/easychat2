@@ -6,7 +6,9 @@ import React from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { checkLocalModelParamField, LOCAL_MODEL_PARAM_FIELDS } from '../modelParams.js';
+import { checkLocalModelParamField, LOCAL_MODEL_PARAM_FIELDS, LOCAL_MODEL_PARAM_PRESETS, contextSizeMemoryDelta } from '../modelParams.js';
+import { formatBytes } from '../../utils/format.js';
+import { parseQuantization, parseParamScaleB } from '../modelCompatibility.js';
 import { PARAM_LABEL_KEYS } from './panelShared.js';
 
 export default function ModelParamsModal({
@@ -18,6 +20,7 @@ export default function ModelParamsModal({
   theme,
   t,
   onFieldChange,
+  onApplyPreset,
   onClose,
   onSave,
 }) {
@@ -34,6 +37,27 @@ export default function ModelParamsModal({
     if (check.code === 'NOT_NUMBER') return t('localModel.paramsModal.errNumber');
     const def = LOCAL_MODEL_PARAM_FIELDS[field] || {};
     return t('localModel.paramsModal.errRange', { min: def.min, max: def.max });
+  };
+
+  // contextSize 的内存影响（v5 Stage C）：教用户「上下文越大，KV 占用越大」的代价。
+  const contextMemoryHint = () => {
+    const current = Number(form.contextSize);
+    const base = Number(LOCAL_MODEL_PARAM_FIELDS.contextSize.default);
+    if (!Number.isFinite(current) || current === base) return '';
+    const text = [target && target.name, target && target.id, target && target.quant].filter(Boolean).join(' ');
+    const quant = parseQuantization(text);
+    const paramBillion = Number(target && target.paramSize) > 0
+      ? Number(target.paramSize)
+      : (parseParamScaleB(text) || 0);
+    const delta = contextSizeMemoryDelta({
+      paramBillion,
+      bitsPerWeight: quant ? quant.bitsPerWeight : 0,
+      from: base,
+      to: current,
+    });
+    if (delta.deltaBytes === 0) return '';
+    const sign = delta.deltaBytes > 0 ? '+' : '-';
+    return t('localModel.paramsModal.contextMemory', { size: `${sign}${formatBytes(Math.abs(delta.deltaBytes))}` });
   };
 
   // 全部恢复默认：逐字段回填各自 default（与单字段按钮走同一条 onFieldChange）。
@@ -55,6 +79,21 @@ export default function ModelParamsModal({
           </View>
           <Text style={styles.hint}>{target ? t('localModel.paramsModal.hint', { name: target.name || target.id }) : ''}</Text>
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <View style={styles.sourceRow}>
+              {LOCAL_MODEL_PARAM_PRESETS.map(preset => (
+                <TouchableOpacity
+                  key={preset.id}
+                  style={styles.sourceChip}
+                  onPress={() => onApplyPreset && onApplyPreset(preset.id)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t(preset.labelKey)}
+                >
+                  <Text style={styles.sourceChipText}>{t(preset.labelKey)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {contextMemoryHint() ? <Text style={styles.fieldError} accessibilityLabel={contextMemoryHint()}>{contextMemoryHint()}</Text> : null}
             {Object.keys(LOCAL_MODEL_PARAM_FIELDS).map(field => {
               const errorText = fieldError(field);
               return (

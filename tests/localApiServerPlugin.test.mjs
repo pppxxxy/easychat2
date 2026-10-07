@@ -147,6 +147,19 @@ test('Kotlin 服务契约：仅回环、Bearer、JSON 字符串编组、事件�
   assert.ok(source.includes('NanoHTTPD'));
 });
 
+test('Kotlin v5 Stage D：/v1/models 全量 + chunked SSE 流式 + respondStream', () => {
+  const module = readFileSync(path.join(KOTLIN_DIR, 'LocalApiServerModule.kt'), 'utf8');
+  // /v1/models 返回 start 时下发的全部已安装条目
+  assert.ok(module.includes('modelsJson'), 'models 列表应由 start 下发');
+  assert.ok(module.includes('buildModelsBody'), '应有全量模型响应构造');
+  assert.match(module, /fun start\(host: String, port: Int, apiKey: String, modelId: String, modelsJson: String, promise: Promise\)/, 'start 应接收 modelsJson');
+  // 真流式：chunked 响应 + 管道
+  assert.ok(module.includes('newChunkedResponse'), '流式应用 chunked 响应');
+  assert.ok(module.includes('PipedOutputStream') && module.includes('PipedInputStream'), '流式应用管道');
+  assert.match(module, /fun respondStream\(requestId: String, sseText: String, done: Boolean, promise: Promise\)/, '应导出 respondStream');
+  assert.ok(module.includes('text/event-stream'), 'SSE 内容类型');
+});
+
 test('Kotlin 嵌套类型/静态方法正确限定（外层类不继承 NanoHTTPD）', () => {
   const module = readFileSync(path.join(KOTLIN_DIR, 'LocalApiServerModule.kt'), 'utf8');
   // 外层 LocalApiServerModule 不继承 NanoHTTPD，Response/IHTTPSession/Method 必须 import 或限定，

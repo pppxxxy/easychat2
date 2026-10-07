@@ -129,5 +129,6 @@ export function createPanelStyles(theme, fonts, tokens) {
     },
     resetAll: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 12, marginBottom: 2 },
     resetAllText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 5 },
+    engineCard: { borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), borderRadius: tokens.radius.md, padding: 12, marginBottom: 8, backgroundColor: theme.colors.primaryAlpha(0.08) },
   });
 }

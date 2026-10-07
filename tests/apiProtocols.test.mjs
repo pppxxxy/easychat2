@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildRequestBody,
   buildRequestHeaders,
+  describeErrorPayload,
   normalizeProtocol,
   normalizeProtocolUrl,
   parseDataUri,
@@ -48,6 +49,17 @@ test('buildRequestHeaders 按协议给默认鉴权头', () => {
   // 显式配置的鉴权头覆盖默认值
   const custom = buildRequestHeaders('anthropic', { apiKey: 'k', authHeader: 'api-key', authScheme: 'Token ' });
   assert.equal(custom['api-key'], 'Token k');
+});
+
+test('buildRequestHeaders：OpenRouter 附加归属头，其它厂商不带', () => {
+  const openrouter = buildRequestHeaders('openai', { apiKey: 'k', baseUrl: 'https://openrouter.ai/api/v1' });
+  assert.equal(openrouter['HTTP-Referer'], 'https://github.com/pppxxxy/easychat2');
+  assert.equal(openrouter['X-Title'], 'EasyChat2');
+  assert.equal(openrouter.Authorization, 'Bearer k');
+  // 非 OpenRouter 的 baseUrl 不应带上归属头
+  const deepseek = buildRequestHeaders('openai', { apiKey: 'k', baseUrl: 'https://api.deepseek.com' });
+  assert.equal(deepseek['HTTP-Referer'], undefined);
+  assert.equal(deepseek['X-Title'], undefined);
 });
 
 test('parseDataUri 解析 base64 / url 两种', () => {
@@ -240,6 +252,31 @@ test('parseProtocolError 覆盖各协议错误体', () => {
   assert.equal(parseProtocolError('anthropic', { type: 'error', error: { type: 'x', message: 'over' } }), 'over');
   assert.equal(parseProtocolError('openai-responses', { error: 'plain' }), 'plain');
   assert.equal(parseProtocolError('openai', {}), '');
+});
+
+test('parseProtocolError：OpenRouter 形态带出 metadata.raw 与上游名（F1）', () => {
+  const payload = {
+    error: {
+      message: 'Provider returned error',
+      metadata: {
+        raw: 'max_tokens must be at most 8192',
+        provider_name: 'Google',
+      },
+    },
+  };
+  const text = parseProtocolError('openai', payload);
+  assert.ok(text.includes('Provider returned error'), '保留 message');
+  assert.ok(text.includes('max_tokens must be at most 8192'), '带出上游原始错误（真凶）');
+  assert.ok(text.includes('Google'), '带出上游厂商名');
+  // 仅 message、无 metadata 时保持旧行为
+  assert.equal(parseProtocolError('openai', { error: { message: 'only' } }), 'only');
+});
+
+test('describeErrorPayload：截断超长错误文本（≤500 字符）', () => {
+  const long = 'x'.repeat(900);
+  const described = describeErrorPayload({ message: long });
+  assert.ok(described.length <= 501, `应截断，实际 ${described.length}`);
+  assert.ok(described.endsWith('…'));
 });
 
 test('视频部分：OpenAI 兼容透传，Anthropic/Responses 丢弃但保留文本', () => {

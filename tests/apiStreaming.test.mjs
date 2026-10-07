@@ -560,3 +560,22 @@ test('overrides 仅覆盖本次请求的 temperature 与 max_tokens', async () =
     FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
   }
 });
+
+test('trimOnlineMessages（F4）：未声明窗口不裁剪，声明后丢弃最旧非系统消息', () => {
+  const { trimOnlineMessages } = loadApi();
+  const system = { role: 'system', content: '人设' };
+  const history = [];
+  for (let i = 0; i < 40; i += 1) history.push({ role: 'user', content: `第${i}条`.repeat(50) });
+  const messages = [system, ...history];
+
+  // 未声明窗口（0）：原样返回，绝不裁剪
+  assert.equal(trimOnlineMessages(messages, { contextWindow: 0 }).length, messages.length);
+  // 显式关闭：即便声明了也不裁剪
+  assert.equal(trimOnlineMessages(messages, { contextWindow: 2000, enabled: false }).length, messages.length);
+
+  // 声明小窗口：触发裁剪，且系统提示保留
+  const trimmed = trimOnlineMessages(messages, { contextWindow: 2000, reserveOutputTokens: 512 });
+  assert.ok(trimmed.length < messages.length, '应丢弃最旧的非系统消息');
+  assert.ok(trimmed.some(item => item.role === 'system' && item.content === '人设'), '系统提示恒保留');
+  assert.equal(trimmed[trimmed.length - 1].content, history[history.length - 1].content, '保留最新消息');
+});
