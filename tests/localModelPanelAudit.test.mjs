@@ -233,3 +233,14 @@ test('卡片删除按钮接现成 confirmDelete（2026-10-07）：不另起删�
   const styles = readPanel('panelStyles.js');
   assert.ok(/deleteIconButton:\s*\{[^}]*marginRight:\s*0/.test(styles), '删除按钮为行尾元素，marginRight 必须归零');
 });
+
+test('弹窗点外可取消（2026-10-07）：panelFeedback 全部弹窗走 alertCancelable', () => {
+  const feedback = readPanel('panelFeedback.js');
+  assert.ok(feedback.includes('const alertCancelable'), 'helper 必须存在');
+  assert.ok(feedback.includes('{ cancelable: true, onDismiss: () => {} }'), 'helper 必须传 cancelable + onDismiss');
+  assert.equal(feedback.split('Alert.alert(').length - 1, 1,
+    '裸 Alert.alert 只允许在 helper 内部出现一次（新增弹窗必须走 helper）');
+  assert.ok(feedback.includes('alertCancelable(entry.name || entry.id'), '长按操作单必须走可取消弹窗');
+  assert.ok(feedback.includes('alertCancelable(t(\'localModel.alert.deleteModel.title\')'),
+    '删除确认弹窗同样可点外取消（点外=取消，不误删）');
+});
