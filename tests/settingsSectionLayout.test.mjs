@@ -77,3 +77,14 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
       `${file} 必须有 settings.localModel.title/entry`);
   }
 });
+
+test('API 折叠头不再显示配置方名（2026-10-07 裁决），仅保留未配置提示', () => {
+  const screen = read('src/SettingsScreen.js');
+  assert.ok(!screen.includes('apiSummary'), 'apiSummary 计算与渲染必须整体移除');
+  assert.ok(screen.includes("t('settings.summary.unconfigured')"), '未配置状态保留小字提示');
+  const apiHead = screen.slice(screen.indexOf("flashSection === 'api'"), screen.indexOf('<SamplingCard'));
+  assert.ok(apiHead.includes('TopicButton') && apiHead.includes("t('settings.api.add')"), '教学与新建按钮保留');
+  const summaryText = /<Text style=\{styles\.collapseSummary\}[^>]*>\{([^}]*)\}<\/Text>/.exec(apiHead);
+  assert.ok(summaryText && summaryText[1].includes('settings.summary.unconfigured'),
+    'API 头唯一的摘要文本只允许「未配置」提示（配置名/模型名不得回流）');
+});

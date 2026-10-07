@@ -1285,10 +1285,9 @@ export default function SettingsScreen() {
   };
 
   // ---- 折叠头摘要行：收起时一眼看到关键状态 ----
-  const apiSummary = active
-    ? [String(active.name || '').trim() || t('settings.api.unnamed'), String(active.activeModel || '').trim()]
-      .filter(Boolean).join(' · ')
-    : t('settings.summary.unconfigured');
+  // API 头不再拼「配置名 · 模型名」（2026-10-07 用户裁决：展开后「当前配置」
+  // 下拉行本来就有名字，收起态再显示一遍纯属重复还挤压按钮）；只保留未配置
+  // 时的「未配置」小字提示，避免新用户以为这区是空的。
   const personaSummary = String(userName || '').trim() || t('settings.summary.personaEmpty');
   const appearanceSummary = [
     (themes.find(item => item.id === themeId) || {}).labelKey
@@ -1520,7 +1519,9 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('api', next)}
             right={(
               <View style={styles.summaryRow}>
-                <Text style={styles.collapseSummary} numberOfLines={1}>{apiSummary}</Text>
+                {!active ? (
+                  <Text style={styles.collapseSummary} numberOfLines={1}>{t('settings.summary.unconfigured')}</Text>
+                ) : null}
                 <TopicButton
                   style={styles.topicButtonSpaced}
                   onPress={() => setTopic('chat-api')}
