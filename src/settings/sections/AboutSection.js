@@ -14,7 +14,6 @@ export default function AboutSection(props) {
     openTutorial,
     setBackupOpen,
     setDiagnosticsOpen,
-    setLocalModelOpen,
   } = props;
   return (
     <>
@@ -72,17 +71,6 @@ export default function AboutSection(props) {
             <View style={styles.linkLeft}>
               <Ionicons name="archive-outline" size={17} color={theme.colors.primaryMuted} />
               <Text style={styles.linkText}>{t('settings.about.backup')}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setLocalModelOpen(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.linkLeft}>
-              <Ionicons name="hardware-chip-outline" size={17} color={theme.colors.primaryMuted} />
-              <Text style={styles.linkText}>{t('settings.about.localModel')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
           </TouchableOpacity>

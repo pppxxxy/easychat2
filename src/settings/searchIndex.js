@@ -13,6 +13,7 @@ export const SETTINGS_SECTION_LABELS = {
   vector: '向量记忆',
   workspace: '工作区',
   github: 'GitHub',
+  localmodel: '本地模型',
   about: '关于',
   language: '界面语言',
 };
@@ -66,6 +67,9 @@ export const SETTINGS_SEARCH_INDEX = [
   { sectionId: 'github', label: 'GitHub 连接', keywords: ['github', 'mcp', '连接'] },
   { sectionId: 'github', label: 'GitHub 令牌', keywords: ['github', 'pat', '令牌', 'token'] },
 
+  // 本地模型：2026-10-07 从关于卡的一行升级为独立卡（sectionId 随之迁移）。
+  { sectionId: 'localmodel', label: '本地模型', keywords: ['本地模型', 'local model', 'llama', 'gguf', '端侧'] },
+
   { sectionId: 'about', label: '当前版本', keywords: ['版本', 'version'] },
   { sectionId: 'about', label: '使用教程', keywords: ['教程', '帮助', '引导', 'tutorial'] },
   { sectionId: 'about', label: '免责条款', keywords: ['免责', '条款', '协议', 'disclaimer'] },
@@ -73,9 +77,8 @@ export const SETTINGS_SEARCH_INDEX = [
   { sectionId: 'about', label: '检测更新', keywords: ['更新', '升级', 'update'] },
   { sectionId: 'about', label: '诊断日志', keywords: ['诊断', '日志', 'log', '报错'] },
   { sectionId: 'about', label: '备份与恢复', keywords: ['备份', '恢复', 'backup', '导出', '导入'] },
-  { sectionId: 'about', label: '本地模型', keywords: ['本地模型', 'local model', 'llama', 'gguf'] },
 
-  // 界面语言：设置页最下方的独立卡（默认展开）——搜「语言」直接跳到它。
+  // 界面语言：独立卡（默认展开）——搜「语言」直接跳到它。
   { sectionId: 'language', label: '界面语言', keywords: ['语言', 'language', '中文', 'english', 'locale', '切换语言'] },
 ];
 

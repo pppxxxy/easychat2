@@ -101,6 +101,13 @@ const CHAT_PROTOCOL_OPTIONS = [
 // app.json 的 expo.version）。
 const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || '') : '';
 
+// 设置卡渲染顺序（单一事实源）：JSX 顺序、stickyHeaderIndices、sectionOffsetsRef
+// 与搜索索引（searchIndex.js 的 sectionId）都以它为准——调序必须五处同步，漏一处
+// 即搜索跳错或吸顶错位。2026-10-07 调序：本地模型从「关于」卡里的一行升级为
+// 独立卡（GitHub 之后），「关于」按用户预期殿底；语言移到关于之前，可发现性
+// 由搜索 + 默认展开保障（不再依赖垫底）。
+const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'localmodel', 'language', 'about'];
+
 // GitHub 令牌创建页（方式二「打开令牌页」的落地页）。
 // 为什么不做网页授权：GitHub 的远程 MCP 不提供动态客户端注册（RFC 7591 的 /register
 // 端点不存在）——流程会在「注册应用」一步失败，浏览器根本不会打开，用户看到的就是
@@ -1314,8 +1321,7 @@ export default function SettingsScreen() {
   const aboutSummary = APP_VERSION ? `v${APP_VERSION}` : '';
 
   // 折叠头吸顶：只把「已收起」的卡设为 sticky（展开的卡较高，吸顶会遮挡其内容）。
-  // 子节点顺序：0=页头，1..N=各卡（与下方渲染顺序一致）。
-  const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'about', 'language'];
+  // 子节点顺序：0=页头，1..N=各卡（顺序见模块级 SECTION_RENDER_ORDER）。
   const stickyHeaderIndices = SECTION_RENDER_ORDER
     .map((id, index) => (isSectionOpen(id) ? null : index + 1))
     .filter(value => value !== null);
@@ -1442,7 +1448,6 @@ export default function SettingsScreen() {
     checkUpdate,
     setDiagnosticsOpen,
     setBackupOpen,
-    setLocalModelOpen,
   };
 
   return (
@@ -1676,23 +1681,35 @@ export default function SettingsScreen() {
           </CollapsibleSection>
         </Card>
 
+        {/* 本地模型：2026-10-07 从「关于」卡里的一行升级为独立卡——它点开的是
+            完整三段式面板（模型/获取/服务），入口配得上自己的卡片。 */}
         <Card
-          style={[styles.sectionCard, flashSection === 'about' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.about = event.nativeEvent.layout.y; }}
+          style={[styles.sectionCard, flashSection === 'localmodel' && styles.sectionCardFlash]}
+          onLayout={event => { sectionOffsetsRef.current.localmodel = event.nativeEvent.layout.y; }}
         >
           <CollapsibleSection
-            title={t('settings.about.title')}
-            icon="information-circle-outline"
-            open={isSectionOpen('about')}
-            onToggle={next => toggleSection('about', next)}
-            right={<Text style={styles.collapseSummary} numberOfLines={1}>{aboutSummary}</Text>}
+            title={t('settings.localModel.title')}
+            icon="hardware-chip-outline"
+            open={isSectionOpen('localmodel')}
+            onToggle={next => toggleSection('localmodel', next)}
           >
-          <AboutSection {...sectionProps} />
+            <TouchableOpacity
+              style={styles.linkRow}
+              onPress={() => setLocalModelOpen(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.linkLeft}>
+                <Ionicons name="hardware-chip-outline" size={17} color={theme.colors.primaryMuted} />
+                <Text style={styles.linkText}>{t('settings.localModel.entry')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+            </TouchableOpacity>
           </CollapsibleSection>
         </Card>
 
-        {/* 语言：设置页最下面单独放一份（默认展开）——此前只藏在外观折叠卡里，
-            找语言的人翻不到；两处是同一项设置，改哪边都同步。 */}
+        {/* 语言：独立卡、默认展开——此前只藏在外观折叠卡里，找语言的人翻不到。
+            2026-10-07 调序：语言移到「关于」之前（关于殿底是用户对设置页的
+            强预期），可发现性由搜索 + 默认展开保障，不再依赖垫底。 */}
         <Card
           style={[styles.sectionCard, flashSection === 'language' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.language = event.nativeEvent.layout.y; }}
@@ -1729,6 +1746,21 @@ export default function SettingsScreen() {
                 );
               })}
             </View>
+          </CollapsibleSection>
+        </Card>
+
+        <Card
+          style={[styles.sectionCard, flashSection === 'about' && styles.sectionCardFlash]}
+          onLayout={event => { sectionOffsetsRef.current.about = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title={t('settings.about.title')}
+            icon="information-circle-outline"
+            open={isSectionOpen('about')}
+            onToggle={next => toggleSection('about', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{aboutSummary}</Text>}
+          >
+          <AboutSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 

@@ -66,6 +66,7 @@ export function CollapsibleSection({
             name={expanded ? 'chevron-up' : 'chevron-down'}
             size={16}
             color={theme.colors.textFaint}
+            style={styles.headChevron}
           />
         </View>
       </TouchableOpacity>
@@ -174,7 +175,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   headLeft: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
   headTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800' },
   headTitleSpaced: { marginLeft: 8 },
-  headRight: { flexDirection: 'row', alignItems: 'center' },
+  // 右侧插槽参与收缩协商：headLeft 可缩 + headRight 可缩 + 摘要文本可缩，
+  // 长摘要（如长 API 名）才推不动按钮、挤不出屏幕（2026-10-07 API 行溢出修复）。
+  headRight: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+  // 折叠箭头与右侧插槽之间保底间距：摘要很短时按钮不贴死箭头。
+  headChevron: { marginLeft: 6 },
   body: { marginTop: tokens.spacing.xs },
   // 摘要徽章（原 editors 版的 count 徽章）：数字或短文本都适用
   countBadge: {
