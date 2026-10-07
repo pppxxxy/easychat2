@@ -105,6 +105,7 @@ export const error = {
   'error.workspace.rootMissing': '外部工作区缺少根目录。',
   'error.workspace.fileNotFound': '文件不存在：{path}',
   'error.workspace.newFileSystemApiMissing': '当前环境的 expo-file-system 不含 Directory/File 新 API。',
+  'error.workspace.parentIsFile': '父路径已被同名文件占用，无法在此建目录：{path}',
   'error.workspace.shellPrivateOnly': '命令执行只能作用于应用私有工作区（拿不到本地路径）。',
   'error.workspace.shellPathNotAbsolute': '工作区路径不是绝对路径，无法作为命令工作目录。',
   'error.workspace.shellCommandEmpty': '命令不能为空。',

@@ -105,6 +105,31 @@ test('scanRepoZipball：条目数/总量/包大小限额（用缩小限额测，
   );
 });
 
+test('extractRepoFiles：跳过 zip 目录条目——.github/ 不得变成 0 字节文件（真机死亡链）', () => {
+  // 真实 GitHub zipball 会把目录也列成条目（名字以 / 结尾、size=0）。此前它们被
+  // stripZipballEntry 折成 '.github' 当 0 字节文本写入，随后 '.github/workflows' 建
+  // 同名父目录时撞上该文件 → ENOTDIR → 整包回滚。任何前部带子目录的仓库必死。
+  const bytes = zipSync({
+    'demo-main/': new Uint8Array(0),
+    'demo-main/.c8rc.json': strToU8('{}'),
+    'demo-main/.gitattributes': strToU8('* text=auto'),
+    'demo-main/.github/': new Uint8Array(0),
+    'demo-main/.github/workflows/': new Uint8Array(0),
+    'demo-main/.github/workflows/ci.yml': strToU8('name: ci'),
+  });
+  const scan = scanRepoZipball(bytes, 'demo-main/');
+  assert.deepEqual(scan.files.map(item => item.path).sort(),
+    ['.c8rc.json', '.gitattributes', '.github/workflows/ci.yml']);
+  assert.ok(scan.skippedDirs >= 2, '目录条目必须计数');
+
+  const { files, skippedDirs } = extractRepoFiles(bytes, 'demo-main/');
+  const paths = files.map(item => item.path).sort();
+  assert.deepEqual(paths, ['.c8rc.json', '.gitattributes', '.github/workflows/ci.yml']);
+  assert.ok(!paths.includes('.github'), '目录条目不得被当成文件落盘');
+  assert.ok(skippedDirs >= 2, '目录条目在 extract 结果里也要计数');
+  assert.equal(files.find(item => item.path === '.github/workflows/ci.yml').content, 'name: ci');
+});
+
 test('extractRepoFiles：只落文本，二进制与超限跳过并计数', () => {
   const bytes = buildZipball('demo-main/', {
     'README.md': '文本内容',

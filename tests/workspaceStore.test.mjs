@@ -143,6 +143,31 @@ test('二进制写入 .docx 可被 list 看到，但 read 拒绝', async () => {
   );
 });
 
+test('write：父路径被同名文件占用时给出明确错误，不裸奔 ENOTDIR', async () => {
+  const fileSystem = {
+    async getInfoAsync(uri) {
+      if (uri === `${root}c1/notes/`) return { exists: true, isDirectory: false };
+      if (uri === `${root}c1/`) return { exists: true, isDirectory: true };
+      return { exists: false };
+    },
+    async makeDirectoryAsync() { throw new Error('父路径被占用时不该尝试建目录'); },
+    async writeAsStringAsync() { throw new Error('父路径被占用时不该写入'); },
+    async readAsStringAsync() { throw new Error('不该读'); },
+  };
+  await assert.rejects(
+    writeWorkspaceFile({ root, characterId: 'c1', path: 'notes/a.md', content: 'x', fileSystem }),
+    /已被同名文件占用/,
+  );
+});
+
+test('list：深路径文件不再被 MAX_DEPTH 藏掉（6 → 12）', async () => {
+  const fileSystem = createMemoryFs();
+  const deep = 'repos/demo/main/src/i18n/locales/zh-CN/app.js';
+  await writeWorkspaceFile({ root, characterId: 'c1', path: deep, content: 'export default {}', fileSystem });
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(files.includes(deep), '8 段深的真实项目路径必须可见');
+});
+
 test('缺少 fileSystem 注入时抛错', async () => {
   await assert.rejects(
     listWorkspaceFiles({ root, characterId: 'c1' }),

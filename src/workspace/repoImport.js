@@ -11,6 +11,10 @@
 //   2) 再解压实际需要的条目，按**实际解出长度**复核（声明值可以伪造）；
 //   3) zip-slip：逐条目剥掉 zipball 顶层目录后，路径段里出现 '..'、空段、绝对路径
 //      一律跳过并计数，绝不落到沙盒外。
+//   4) 目录条目：zipball 会把目录也列成条目（名字以 '/' 结尾、originalSize=0，GitHub
+//      codeload 实测如此）。必须显式跳过——否则 '.github/' 会被折成 '.github' 当 0 字节
+//      文本写入，随后 '.github/workflows' 要建同名父目录时撞上这个文件 → ENOTDIR →
+//      整包回滚。任何前部带子目录的仓库都会 100% 导入失败（真机必现）。
 
 import { unzipSync, strFromU8 } from 'fflate';
 import { isTextWorkspaceFile } from './paths.js';
@@ -29,6 +33,13 @@ function fail(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+// zipball 的目录条目：名字以 '/' 结尾（GitHub codeload 实测如此，如 '.github/'、
+// '.github/workflows/'）。它们不是文件，必须跳过；被当成文件写进沙盒会让同名的
+// 后续文件建目录失败（ENOTDIR）。顶层目录 '{repo}-{branch}/' 也走这里。
+function isZipDirectoryEntry(name) {
+  return String(name || '').endsWith('/');
 }
 
 export function buildReposApiUrl({ page = 1 } = {}) {
@@ -105,8 +116,13 @@ export function scanRepoZipball(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) 
   let totalBytes = 0;
   let skippedSlip = 0;
   let skippedOversize = 0;
+  let skippedDirs = 0;
   const files = [];
   for (const entry of declared) {
+    if (isZipDirectoryEntry(entry.name)) {
+      skippedDirs += 1; // 目录条目：不是文件，跳过（顶层目录也在此）
+      continue;
+    }
     const relative = stripZipballEntry(entry.name, rootPrefix);
     if (!relative) {
       if (String(entry.name || '').replace(/\/$/, '') !== String(rootPrefix || '').replace(/\/$/, '')) {
@@ -126,14 +142,15 @@ export function scanRepoZipball(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) 
   if (totalBytes > limits.MAX_TOTAL_UNCOMPRESSED_BYTES) {
     throw fail('REPO_LIMIT_TOTAL', `解压总量超过 ${Math.floor(limits.MAX_TOTAL_UNCOMPRESSED_BYTES / 1024 / 1024)}MB 上限`);
   }
-  return { files, skippedSlip, skippedOversize, totalBytes, entryCount: declared.length };
+  return { files, skippedSlip, skippedOversize, skippedDirs, totalBytes, entryCount: declared.length };
 }// 解压并筛出可落盘的**文本**文件（工作区不收二进制；图片等跳过并计数）。
-// 返回 { files: [{ path, content }], skippedBinary, skippedSlip }。
+// 返回 { files: [{ path, content }], skippedBinary, skippedSlip, skippedOversize, skippedDirs }。
 export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) {
   const scan = scanRepoZipball(bytes, rootPrefix, limits);
   const wanted = new Set(scan.files.map(item => item.path));
   const extracted = unzipSync(bytes, {
     filter: file => {
+      if (isZipDirectoryEntry(file.name)) return false;
       const relative = stripZipballEntry(file.name, rootPrefix);
       return !!relative && wanted.has(relative);
     },
@@ -141,6 +158,7 @@ export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS)
   const files = [];
   let skippedBinary = 0;
   for (const [entryName, data] of Object.entries(extracted)) {
+    if (isZipDirectoryEntry(entryName)) continue;
     const relative = stripZipballEntry(entryName, rootPrefix);
     if (!relative || !wanted.has(relative)) continue;
     if (data.length > limits.MAX_FILE_BYTES) {
@@ -153,5 +171,11 @@ export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS)
     }
     files.push({ path: relative, content: strFromU8(data) });
   }
-  return { files, skippedBinary, skippedSlip: scan.skippedSlip, skippedOversize: scan.skippedOversize };
+  return {
+    files,
+    skippedBinary,
+    skippedSlip: scan.skippedSlip,
+    skippedOversize: scan.skippedOversize,
+    skippedDirs: scan.skippedDirs,
+  };
 }

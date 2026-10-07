@@ -12,7 +12,9 @@ import { applyWorkspaceEdit } from './edit.js';
 import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
-const MAX_DEPTH = 6;
+// 6 会把导入仓库里 src/i18n/locales/zh-CN/x.js 这类真实路径直接藏掉（实测：注入 4 个
+// 深路径文件只列出 2 个）。提到 12 覆盖正常项目结构；MAX_FILES=2000 仍是主护栏。
+const MAX_DEPTH = 12;
 const MAX_READ_CHARS = 1024 * 1024;
 // 编辑专用上限：读路径 1MB 截断是为上下文经济；编辑要的是完整性，给到 4MB，
 // 超过则拒绝（见 editWorkspaceFile 的截断守卫）。
@@ -34,9 +36,15 @@ async function getInfo(fileSystem, uri) {
 
 async function ensureDirectory(fileSystem, uri) {
   const info = await getInfo(fileSystem, uri);
-  if (!info || !info.exists) {
-    await fileSystem.makeDirectoryAsync(uri, { intermediates: true });
+  if (info && info.exists) {
+    // 父路径被一个同名文件占着：再往下写只会拿到 Android 裸抛的 ENOTDIR（错误信息里
+    // 没有「谁占了路」）。这里快速失败并说清原因，排查成本从「猜」降到「一眼」。
+    if (info.isDirectory === false) {
+      throw new Error(tActive('error.workspace.parentIsFile', { path: uri }));
+    }
+    return;
   }
+  await fileSystem.makeDirectoryAsync(uri, { intermediates: true });
 }
 
 async function walk(fileSystem, directoryUri, prefix, results, depth) {

@@ -105,6 +105,7 @@ export const error = {
   'error.workspace.rootMissing': 'The external workspace is missing its root directory.',
   'error.workspace.fileNotFound': 'File not found: {path}',
   'error.workspace.newFileSystemApiMissing': 'This environment\'s expo-file-system does not include the new Directory/File API.',
+  'error.workspace.parentIsFile': 'A file with the same name already occupies this path, so a directory cannot be created here: {path}',
   'error.workspace.shellPrivateOnly': 'Command execution only works on the app\'s private workspace (no local path available).',
   'error.workspace.shellPathNotAbsolute': 'The workspace path is not absolute and cannot be used as the command working directory.',
   'error.workspace.shellCommandEmpty': 'The command must not be empty.',
