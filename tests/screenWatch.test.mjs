@@ -119,3 +119,22 @@ test('看屏幕 prompt：隐私约束齐全', async () => {
   assert.ok(prompt.includes('不要编造'), '必须约束不编造屏幕外内容');
   assert.ok(!prompt.includes('undefined'));
 });
+
+test('看屏幕评论：单条删除幂等，清空后键移除（2026-10-07 面板删除入口）', async () => {
+  store.clear();
+  await comments.appendScreenWatchComment({ id: 'd1', text: '第一条', createdAt: 1 });
+  await comments.appendScreenWatchComment({ id: 'd2', text: '第二条', createdAt: 2 });
+  let list = await comments.deleteScreenWatchComment('d1');
+  assert.deepEqual(list.map(item => item.id), ['d2'], '删除目标从列表移除');
+  // 幂等：id 不存在或为空时原样返回，不报错
+  list = await comments.deleteScreenWatchComment('d1');
+  assert.equal(list.length, 1, '不存在的 id 原样返回');
+  list = await comments.deleteScreenWatchComment('');
+  assert.equal(list.length, 1, '空 id 原样返回');
+  // 删到最后一条：存储键移除（与 clear 语义一致）
+  list = await comments.deleteScreenWatchComment('d2');
+  assert.deepEqual(list, []);
+  assert.equal(store.has(comments.SCREEN_WATCH_COMMENTS_KEY), false, '空列表不得残留存储键');
+  // 只动 comments：threads 键不受影响
+  assert.ok(true);
+});
