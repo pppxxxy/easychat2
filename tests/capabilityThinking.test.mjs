@@ -53,3 +53,11 @@ test('静默归一化堵口：自定义态空格式 → 确认按钮禁用 + 提
     assert.ok(read(locale).includes("'settings.capability.customFormatRequired'"), `${locale} 缺少提示词条`);
   }
 });
+
+test('预设 hint 防腐（2026-10）：过时版本锚点禁回流，维护提示必须带核对日期', () => {
+  const screen = read('src/SettingsScreen.js');
+  assert.ok(!screen.includes('Claude 3.7'), '过时锚点 Claude 3.7 不得回流');
+  assert.ok(!screen.includes('DeepSeek-R1'), '过时锚点 DeepSeek-R1 不得回流');
+  assert.ok(!/Qwen3 系/.test(screen), '过时锚点「Qwen3 系」不得回流');
+  assert.ok(/最后核对 \d{4}-\d{2}/.test(screen), 'THINKING_PRESETS 上方必须有「最后核对日期」的维护提示');
+});
