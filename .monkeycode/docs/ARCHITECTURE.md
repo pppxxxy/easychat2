@@ -274,11 +274,13 @@ easychat2/
 ### 本地模型（llama.rn）
 **目的**: 在设备上运行 GGUF 大模型，作为在线 API 的可选替代；提供模型下载/导入/删除、参数、内存估算与兼容分级、运行日志，并对外暴露一个本地 OpenAI 兼容 HTTP 服务
 **位置**: `src/localModel/`、`src/network/modelProvider.js`、`src/resourceMutex.js`、`src/LocalModelPanel.js`、`plugins/withLocalApiServer.js`、`plugins/proactiveMessage/`（Kotlin）
-**关键文件**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/network/modelProvider.js`
+**关键文件**: `src/localModel/modelManager.js`、`src/localModel/adapter.js`、`src/localModel/runtime.js`、`src/localModel/localApiServer.js`、`src/localModel/thinkStream.js`、`src/network/modelProvider.js`
 **依赖**: `llama.rn@0.12.9`（可选原生依赖）、`expo-file-system`、`buffer`、`react-native`（NativeModules/EventEmitter）
 **被依赖**: `src/ChatScreen.js`、`src/SettingsScreen.js`、`src/ExtensionScreen.js`
 **说明**:
 - **推理侧常驻上下文**：`adapter.js` 维护单个常驻 llama 上下文（load/unload），多模态经 `initMultimodal`；`resourceMutex` 保证本地推理、录音等原生重负载不并发持有资源。
+- **单一事实源（v5 Stage A）**：`@easychat2_local_model` 设置键只含 `{ enabled, enableMediaInput, activeModelId, apiServer, schema: 2, updatedAt }`；单模型的路径/体积/参数只存在于条目键。旧结构一次性迁移（写条目 + 清空 legacy 字段 + 盖 schema:2），读路径统一走 `getActiveLocalModel()`，不再镜像。
+- **运行态广播（v5 Stage A）**：`adapter.js` 在 load/unload 出入口向 `runtime.js`（模块单例 `idle→loading→ready→error` + 订阅）发事件，供聊天层状态条与模型中心运行卡消费；推理/裁剪/think 流路径不变。
 - **在线/本地回退**：`modelProvider.js` 的 `canUseLocalModel` / `sendWithModelProvider` 决定走本地还是在线；模型未就绪、未装适配器或推理失败时自动回退在线 API，用户无感。
 - **思考流切分**：`thinkStream.js` 处理 Qwen3 风格的 ` thinking…</think>` 流式切分，含「只出现闭合标签、无开启标签」的兜底（`createThinkSplitter` 增量喂入、返回 `{ reasoning, text }` 分段）——修复前该形态会把整段思考内容当正文显示。
 - **本地 API 服务**：HTTP 层在 Kotlin（nanohttpd），推理经 `LocalApiServer:onRequest` 事件回 JS，复用同一常驻上下文；**Bearer 鉴权强制开启**——apiKey 留空时由 `generateLocalApiKey()` 自动生成，校验用 `MessageDigest.isEqual` 常量时间比较，空 key 一律拒绝（401）。`App.js` 的 `LocalApiServerBridge` 负责接线，并退后台/卸载时停服。
