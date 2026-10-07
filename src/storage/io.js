@@ -113,9 +113,16 @@ export async function readLargeAsyncStorageValue(key) {
   }
 }
 
+// 读取键并区分三种结果：
+// - ok：读到且 JSON 结构完好（value 为解析结果）；
+// - missing：键不存在；
+// - corrupt：getItem 抛错或 JSON.parse 失败，且大值兜底也救不回。
+// corrupt 分支附带 raw（能拿到的原始字符串，拿不到为 undefined）：备份导出据此
+// 把「读到了原始串但结构坏了」的键以原始形态抢救进备份，而不是静默丢弃。
 export async function readJsonStatus(key) {
+  let raw;
   try {
-    const raw = await AsyncStorage.getItem(key);
+    raw = await AsyncStorage.getItem(key);
     if (raw === null || raw === undefined) return { status: 'missing' };
     return { status: 'ok', value: JSON.parse(raw) };
   } catch (error) {
@@ -124,8 +131,11 @@ export async function readJsonStatus(key) {
       try {
         return { status: 'ok', value: JSON.parse(recovered) };
       } catch (parseError) {}
+      return { status: 'corrupt', raw: recovered };
     }
-    return { status: 'corrupt' };
+    // getItem 抛错（如 CursorWindow 2MB 读取上限）且分块兜底也读不回：
+    // 连原始串都拿不到，返回 undefined 让调用方归入「真读不出」。
+    return { status: 'corrupt', raw: typeof raw === 'string' ? raw : undefined };
   }
 }
 

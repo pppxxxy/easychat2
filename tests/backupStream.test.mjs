@@ -24,6 +24,7 @@ test('分块拼接与 JSON.stringify 逐字等价（多种形状）', () => {
       storage: [
         { key: '@easychat2_characters', value: [{ id: 'c1', name: '中文角色' }] },
         { key: '@easychat2_settings', value: { keepDraft: false, nested: { deep: [1, null, 'x'] } } },
+        { key: '@easychat2_broken', opaqueRaw: '{ 结构损坏但抢救的原始串 \n' },
       ],
       media: [
         { path: 'avatars/c1.jpg', base64: 'AA==' },

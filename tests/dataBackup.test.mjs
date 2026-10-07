@@ -142,3 +142,42 @@ test('buildBackupPayload：合并递归后仍脱敏密钥并过滤 pending', () 
   assert.equal(payload.storage[0].value[0].id, 'm2');
   assert.equal(payload.storage[0].value[0].apiKey, '');
 });
+
+test('buildBackupPayload：opaqueRaw 条目原样保留，不做脱敏/序列化', () => {
+  const payload = buildBackupPayload({
+    appVersion: 'v',
+    storage: [
+      { key: '@easychat2_good', value: { apiKey: 'hidden' } },
+      { key: '@easychat2_broken', opaqueRaw: '{ bad json with apiKey sk-leak' },
+    ],
+    media: [],
+  });
+  const broken = payload.storage.find(i => i.key === '@easychat2_broken');
+  assert.equal(broken.opaqueRaw, '{ bad json with apiKey sk-leak');
+  assert.equal(broken.value, undefined);
+  // 正常键仍走脱敏
+  assert.equal(payload.storage.find(i => i.key === '@easychat2_good').value.apiKey, '');
+});
+
+test('validateBackupPayload：含 opaqueRaw 的条目通过；旧格式照常通过', () => {
+  const withOpaque = {
+    schemaVersion: 1,
+    storage: [{ key: '@easychat2_broken', opaqueRaw: '{ bad' }],
+    media: [],
+  };
+  assert.equal(validateBackupPayload(withOpaque).valid, true);
+  const legacy = { schemaVersion: 1, storage: [{ key: '@easychat2_a', value: {} }], media: [] };
+  assert.equal(validateBackupPayload(legacy).valid, true);
+});
+
+test('planBackupImport：opaqueRaw 条目透传，不做结构化清理', () => {
+  const plan = planBackupImport({
+    schemaVersion: 1,
+    storage: [
+      { key: '@easychat2_broken', opaqueRaw: '{ bad', value: { apiKey: 'sk-leak', pending: true } },
+    ],
+    media: [],
+  });
+  assert.equal(plan.valid, true);
+  assert.deepEqual(plan.storage[0], { key: '@easychat2_broken', opaqueRaw: '{ bad' });
+});

@@ -27,6 +27,16 @@ const PHASE_LABEL_KEYS = {
   writing: 'backup.phase.writing',
 };
 
+// 失败/抢救键名在弹窗里的呈现：去掉 @easychat2_ 前缀降低视觉噪音，
+// ≤3 个全列，>3 个列前 3 + 「等 N 个」（任务书 P0-1）。键名本身是存储键，
+// 不是用户文案，故不经过 t()。
+function formatKeyNames(keys, t) {
+  const names = (Array.isArray(keys) ? keys : []).map(key => String(key).replace(/^@easychat2_/, ''));
+  if (names.length === 0) return '';
+  if (names.length <= 3) return names.join('、');
+  return t('backup.keysTruncated', { names: names.slice(0, 3).join('、'), count: names.length });
+}
+
 function progressText(progress, t) {
   if (!progress) return t('backup.progress.busy');
   const label = t(PHASE_LABEL_KEYS[progress.phase] || 'backup.phase.busy');
@@ -66,10 +76,20 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         onProgress: setProgress,
       });
       const summary = t('backup.summary', { keys: result.storageCount, media: result.mediaCount, size: (result.bytes / 1024 / 1024).toFixed(2) });
-      // 读不出的键/文件会被跳过：必须明确告知，避免用户拿到“成功”的残缺备份。
-      const incompleteNote = result.incomplete
-        ? t('backup.incompleteNote', { keys: result.unreadableKeys.length, media: result.unreadableMedia.length })
-        : '';
+      // 读不出的键/文件会被跳过，抢救原始数据的键也在其中：必须明确告知，
+      // 避免用户拿到“成功”的残缺备份。失败键名直接列出（任务书 P0-1）。
+      const unreadableNames = formatKeyNames(result.unreadableKeys, t);
+      const partialNames = formatKeyNames(result.partialKeys, t);
+      const noteParts = [];
+      if (result.incomplete) {
+        noteParts.push(t('backup.incompleteNote', {
+          keys: result.unreadableKeys.length,
+          media: result.unreadableMedia.length,
+        }));
+        if (unreadableNames) noteParts.push(t('backup.incompleteNote.keys', { names: unreadableNames }));
+        if (partialNames) noteParts.push(t('backup.incompleteNote.partial', { names: partialNames }));
+      }
+      const incompleteNote = noteParts.join('');
       if (await Sharing.isAvailableAsync()) {
         if (result.incomplete) {
           Alert.alert(t('backup.alert.incomplete.title'), t('backup.alert.incomplete.shareBody', { summary, note: incompleteNote }));

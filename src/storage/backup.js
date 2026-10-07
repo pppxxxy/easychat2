@@ -32,7 +32,12 @@ async function readRawValue(key) {
   // readJsonStatus 在 getItem 抛错或 JSON.parse 失败时已经调用过
   // readLargeAsyncStorageValue 兜底读取；这里再读一次是重复的昂贵 SQLite 全值读取。
   const status = await readJsonStatus(key);
-  return status.status === 'ok' ? status.value : undefined;
+  if (status.status === 'ok') return { value: status.value };
+  // 结构损坏但拿到了原始串：交给导出侧以 opaqueRaw 抢救，避免静默丢弃。
+  if (status.status === 'corrupt' && typeof status.raw === 'string') {
+    return { opaqueRaw: status.raw };
+  }
+  return {};
 }
 
 async function readRawStorageString(key) {
@@ -139,15 +144,34 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
   const storage = [];
   // 记录读不出的键：数据恰好损坏时最需要备份，静默跳过会让用户拿到一份
   // “看起来成功、实则残缺”的备份。这里统计并回传给 UI 明确提示。
+  //
+  // 三态口径（P1）：
+  // - storage：JSON 结构完好，正常入包；
+  // - partialKeys：结构损坏但原始串拿得到，以 opaqueRaw 原样入包（数据不丢，
+  //   应用内可能读不出，但恢复时逐字节还原）；
+  // - unreadableKeys：真读不出（getItem 抛错 + 大值兜底也 null），只能跳过。
   const unreadableKeys = [];
+  const partialKeys = [];
   report('storage', 0, managedKeys.length);
   for (let index = 0; index < managedKeys.length; index += 1) {
     throwIfAborted(signal);
     const key = managedKeys[index];
-    const value = await readRawValue(key);
-    if (value !== undefined) storage.push({ key, value });
-    else unreadableKeys.push(key);
+    const read = await readRawValue(key);
+    if (read.value !== undefined) storage.push({ key, value: read.value });
+    else if (read.opaqueRaw !== undefined) {
+      storage.push({ key, opaqueRaw: read.opaqueRaw });
+      partialKeys.push(key);
+    } else {
+      unreadableKeys.push(key);
+    }
     report('storage', index + 1, managedKeys.length);
+  }
+  // 失败键名必须留痕：弹窗只显示数量、诊断日志此前完全没记录，用户无从排查
+  // 是哪个键失败。这里把键名（去前缀前）写进诊断日志，供「诊断日志」回看。
+  if (unreadableKeys.length > 0) {
+    recordDiagnostic('storage', new Error(tActive('error.backup.exportUnreadable', {
+      keys: unreadableKeys.join(', '),
+    })), 'backup-export');
   }
   const media = [];
   const unreadableMedia = [];
@@ -185,8 +209,9 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
     mediaCount: media.length,
     bytes,
     unreadableKeys,
+    partialKeys,
     unreadableMedia,
-    incomplete: unreadableKeys.length > 0 || unreadableMedia.length > 0,
+    incomplete: unreadableKeys.length > 0 || unreadableMedia.length > 0 || partialKeys.length > 0,
   };
 }
 
@@ -239,13 +264,21 @@ export async function importBackup(payload, mode = 'merge') {
     .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
   const storageSnapshot = await snapshotStorageKeys(storageKeys);
   const mediaSnapshot = await snapshotMediaFiles(plan.media);
+  let opaqueCount = 0;
   try {
     if (plan.mode === 'replace' && storageKeys.length > 0) {
       // 只清理备份包明确管理的键：读取失败或新版本新增的本机键应保留。
       await AsyncStorage.multiRemove(storageKeys);
     }
     for (const item of plan.storage) {
-      await AsyncStorage.setItem(item.key, JSON.stringify(item.value));
+      // opaqueRaw 条目是结构损坏时抢救下来的原始串：原样写回，不做 parse——
+      // 它的价值恰恰在于「应用读不出但字节不丢」，重新序列化会再次损坏。
+      if (typeof item.opaqueRaw === 'string') {
+        await AsyncStorage.setItem(item.key, item.opaqueRaw);
+        opaqueCount += 1;
+      } else {
+        await AsyncStorage.setItem(item.key, JSON.stringify(item.value));
+      }
     }
     for (const item of plan.media) {
       const uri = `${FileSystem.documentDirectory}${item.path}`;
@@ -266,5 +299,5 @@ export async function importBackup(payload, mode = 'merge') {
     recordDiagnostic('storage', error, 'importBackup');
     throw error;
   }
-  return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode };
+  return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode, opaqueCount };
 }
