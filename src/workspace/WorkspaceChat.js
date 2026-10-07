@@ -815,6 +815,30 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel, embedded 
               </TouchableOpacity>
             ) : null}
 
+            {embedded && settingsOpen ? (
+              <ScrollView contentContainerStyle={styles.body}>
+                <WorkspaceSettingsSheet
+                  embedded
+                  section={settingsSection}
+                  onToggleSection={setSettingsSection}
+                  models={models}
+                  activeModel={activeModel}
+                  onSelectModel={handleSelectModel}
+                  thinking={thinking}
+                  onSelectThinking={handleSelectThinking}
+                  mode={mode}
+                  onSelectMode={handleSelectMode}
+                  characters={characters}
+                  characterId={characterId}
+                  onSelectCharacter={handleSelectCharacter}
+                  usage={usage}
+                  onImportFile={handleImportFile}
+                  importBusy={importBusy}
+                  onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
+                />
+              </ScrollView>
+            ) : (
+            <>
             <ScrollView ref={scrollRef} contentContainerStyle={styles.body}>
               {messages.length === 0 ? (
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
@@ -935,10 +959,13 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel, embedded 
                 </TouchableOpacity>
               )}
             </View>
+            </>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
 
+      {embedded ? null : (
       <WorkspaceSettingsSheet
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -961,6 +988,7 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel, embedded 
           if (onOpenPanel) onOpenPanel(section);
         }}
       />
+      )}
 
       <WorkspaceGeneralSettings
         visible={generalOpen}

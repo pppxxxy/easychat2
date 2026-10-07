@@ -40,6 +40,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [panel, setPanel] = useState('chat');
+  // 跨面板深链：聊天面板里的「导出/历史/环境配置」要直接落到文件面板的对应层
+  //（文件面板的 initialSection 效应按 section 打开 docx 表单 / viewer / catalog）。
+  const [filesSection, setFilesSection] = useState('');
   // 工作区上下文：解析出的角色 + 沙盒 store。GitHub 面板与设置面板要用它们，
   // 由屏幕统一持有，避免每个面板各建一份（对话/文件面板仍是自包含的，见各自实现）。
   const [characterId, setCharacterId] = useState('default');
@@ -76,7 +79,10 @@ export default function WorkspaceScreen({ visible, onClose }) {
     return () => { alive = false; };
   }, [visible]);
 
-  const openFiles = useCallback(() => setPanel('files'), []);
+  const openFiles = useCallback(section => {
+    setFilesSection(String(section || ''));
+    setPanel('files');
+  }, []);
   const backToChat = useCallback(() => setPanel('chat'), []);
 
   return (
@@ -134,6 +140,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               <WorkspacePanel
                 visible={visible}
                 embedded
+                initialSection={filesSection}
                 onClose={backToChat}
               />
             ) : null}

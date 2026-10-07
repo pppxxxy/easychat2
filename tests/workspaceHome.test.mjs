@@ -237,3 +237,26 @@ test('新增文案中英齐备', () => {
     assert.ok(EN.includes(`'${key}'`), `en 缺 ${key}`);
   }
 });
+
+test('Stage 4：对话面板内嵌设置层，设置面板收编语言/模式/帮助', () => {
+  const SCREEN = read('src/workspace/screen/WorkspaceScreen.js');
+  const SETTINGS_PANEL = read('src/workspace/screen/WorkspaceSettingsPanel.js');
+  const GENERAL = read('src/workspace/WorkspaceGeneralSettings.js');
+  const SETTINGS_SHEET = read('src/workspace/WorkspaceSettingsSheet.js');
+
+  // 设置面板收编 WorkspaceGeneralSettings（语言/模式/帮助）——单屏下旧左栏不可达，
+  // 这是它们唯一的入口。
+  assert.ok(SETTINGS_PANEL.includes('<WorkspaceGeneralSettings'), '设置面板内嵌综合设置');
+  assert.ok(SETTINGS_PANEL.includes('embedded'), '内嵌模式');
+  assert.ok(GENERAL.includes('embedded = false'), 'GeneralSettings 支持 embedded');
+  assert.ok(GENERAL.includes('styles.embeddedRoot'), 'embedded 有独立外壳样式');
+
+  // 对话面板的设置层走面板内嵌，不再弹 Modal。
+  assert.ok(SETTINGS_SHEET.includes('embedded = false'), 'SettingsSheet 支持 embedded');
+  assert.ok(CHAT.includes('embedded && settingsOpen'), '对话面板内嵌设置层');
+  assert.ok(CHAT.includes('{embedded ? null : ('), 'embedded 时不再渲染独立 Modal');
+
+  // 跨面板深链：导出/历史/环境配置要落到文件面板对应层。
+  assert.ok(SCREEN.includes('initialSection={filesSection}'), '深链 section 传给文件面板');
+  assert.ok(SCREEN.includes('setFilesSection(String(section'), 'openFiles 记录 section');
+});

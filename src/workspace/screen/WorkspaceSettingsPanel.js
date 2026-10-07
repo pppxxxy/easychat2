@@ -5,27 +5,22 @@
 // 面板内的二级层（选文件夹走系统选择器）不在本组件里，不产生任何 Modal 嵌套。
 
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, GhostButton, SecondaryButton } from '../../ui/index.js';
 import WorkspaceCapabilitiesCard from '../../WorkspaceCapabilitiesCard.js';
+import WorkspaceGeneralSettings from '../WorkspaceGeneralSettings.js';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import useWorkspaceSettings from '../../settings/useWorkspaceSettings.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { isShellAvailable } from '../shell.js';
 
-const MODE_OPTIONS = [
-  { id: 'ask', labelKey: 'settings.workspace.mode.ask', hintKey: 'settings.workspace.hint.ask' },
-  { id: 'read', labelKey: 'settings.workspace.mode.read', hintKey: 'settings.workspace.hint.read' },
-  { id: 'write', labelKey: 'settings.workspace.mode.write', hintKey: 'settings.workspace.hint.write' },
-];
-
 export default function WorkspaceSettingsPanel() {
-  const { theme, fonts, tokens } = useTheme();
+  const { theme, fonts } = useTheme();
   const { t } = useTranslation();
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const {
     workspaceMode,
     workspaceFolder,
@@ -37,29 +32,16 @@ export default function WorkspaceSettingsPanel() {
     toggleCommandExecution,
   } = useWorkspaceSettings();
 
-  const activeMode = MODE_OPTIONS.find(option => option.id === workspaceMode) || MODE_OPTIONS[0];
   const isExternal = workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF;
 
   return (
     <ScrollView contentContainerStyle={styles.body}>
-      <FieldLabel style={styles.label}>{t('settings.workspace.mode')}</FieldLabel>
-      <View style={styles.chipRow}>
-        {MODE_OPTIONS.map(option => {
-          const active = option.id === workspaceMode;
-          return (
-            <TouchableOpacity
-              key={option.id}
-              style={[styles.chip, active && styles.chipActive]}
-              onPress={() => updateWorkspaceMode(option.id)}
-              activeOpacity={0.85}
-              accessibilityLabel={t(option.labelKey)}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{t(option.labelKey)}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <FieldHint style={styles.hint}>{t(activeMode.hintKey)}</FieldHint>
+      {/* 语言 / 助手工作模式 / 帮助：收编自 WorkspaceGeneralSettings（内嵌，不再弹层）。 */}
+      <WorkspaceGeneralSettings
+        embedded
+        mode={workspaceMode}
+        onSelectMode={updateWorkspaceMode}
+      />
 
       <FieldLabel style={styles.label}>{t('settings.workspace.folder')}</FieldLabel>
       <View style={styles.row}>
@@ -121,23 +103,9 @@ export default function WorkspaceSettingsPanel() {
   );
 }
 
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+const createStyles = (theme, fonts) => StyleSheet.create({
   body: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 40 },
   label: { marginTop: 12 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: tokens.radius.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    backgroundColor: theme.colors.surface,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  chipActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary },
-  chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
-  chipTextActive: { color: theme.colors.primaryContrast },
   hint: { marginTop: 2 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
   rowSpaced: { marginTop: 16 },

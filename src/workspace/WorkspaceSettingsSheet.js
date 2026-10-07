@@ -65,6 +65,7 @@ export default function WorkspaceSettingsSheet({
   onImportFile,
   importBusy = false,
   onOpenPanel,
+  embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
@@ -258,17 +259,9 @@ export default function WorkspaceSettingsSheet({
     },
   ];
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>{t('workspace.settings.title')}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={20} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent}>
+  // 面板内容抽出：embedded（对话面板内嵌）与 Modal 两种外壳共用，避免两处漂移。
+  const sheetContent = (
+    <>
             {rows.map(row => {
               const expanded = section === row.id;
               return (
@@ -312,6 +305,25 @@ export default function WorkspaceSettingsSheet({
                   : <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />}
               </TouchableOpacity>
             ))}
+    </>
+  );
+
+  if (embedded) {
+    return <View style={styles.embeddedRoot}>{sheetContent}</View>;
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>{t('workspace.settings.title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={20} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent}>
+            {sheetContent}
           </ScrollView>
         </Pressable>
       </Pressable>
@@ -320,6 +332,8 @@ export default function WorkspaceSettingsSheet({
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  // embedded：作为对话面板内的设置层，不再有遮罩与底部弹层外壳。
+  embeddedRoot: { paddingHorizontal: 4 },
   backdrop: {
     flex: 1,
     backgroundColor: theme.colors.overlay,
