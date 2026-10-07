@@ -30,8 +30,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "选择图片发送到聊天或保存为表情包",
-          "cameraPermission": "拍摄照片发送到聊天"
+          "photosPermission": "选择图片发送到聊天、生成图片或保存为表情包",
+          "cameraPermission": "拍照发送到聊天或作为图生图参考图"
         }
       ],
       "expo-secure-store",
@@ -84,8 +84,8 @@
     },
     "ios": {
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "选择图片发送到聊天或保存为表情包",
-        "NSCameraUsageDescription": "拍摄照片发送到聊天"
+        "NSPhotoLibraryUsageDescription": "选择图片发送到聊天、生成图片或保存为表情包",
+        "NSCameraUsageDescription": "拍照发送到聊天或作为图生图参考图"
       }
     },
     "extra": {
