@@ -3,8 +3,15 @@ import { Buffer } from 'buffer';
 import { appendExportNotice, isValidAigcMeta } from '../aigc/attribution.js';
 import { MEMORY_SUMMARY_PREFIX } from '../memory/memoryConstants.js';
 import { tActive } from '../i18n/index.js';
+import {
+  createPlaceholderPng,
+  encodeBitmapPng,
+  injectCharaChunk as injectCharaChunkShared,
+  isPng,
+  toUint8Array,
+} from '../share/png.js';
+import { encodeQr, EC_LEVEL_L } from '../share/qr.js';
 
-const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 export const MAX_CARD_FILE_BYTES = 32 * 1024 * 1024;
 
 function isPlainObject(value) {
@@ -26,205 +33,22 @@ export function assertCardFileSize(bytes, format) {
   }
 }
 
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) {
-      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    }
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
+// PNG 原语（CRC/分块/tEXt/deflate/占位图/嵌入 chara 块）已迁至 src/share/png.js，
+// 与分享二维码共用同一套实现。这里保留同名导出，外部调用点不变。
+// base64 编码经依赖注入（Buffer 由本模块提供），让 share/png.js 保持零依赖、Node 可直测。
 
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (let i = 0; i < bytes.length; i += 1) {
-    crc = CRC_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
+export { createPlaceholderPng, isPng };
 
-function adler32(bytes) {
-  let a = 1;
-  let b = 0;
-  for (let i = 0; i < bytes.length; i += 1) {
-    a = (a + bytes[i]) % 65521;
-    b = (b + a) % 65521;
-  }
-  return ((b << 16) | a) >>> 0;
-}
-
-function uint32BE(value) {
-  return Uint8Array.from([
-    (value >>> 24) & 0xff,
-    (value >>> 16) & 0xff,
-    (value >>> 8) & 0xff,
-    value & 0xff,
-  ]);
-}
-
-function readUint32(data, offset) {
-  return (
-    ((data[offset] << 24)
-      | (data[offset + 1] << 16)
-      | (data[offset + 2] << 8)
-      | data[offset + 3]) >>> 0
-  );
-}
-
-function concatBytes(parts) {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
-function toUint8Array(input) {
-  if (input instanceof Uint8Array) return input;
-  if (input instanceof ArrayBuffer) return new Uint8Array(input);
-  if (input && typeof input.length === 'number') return Uint8Array.from(input);
-  return new Uint8Array(0);
-}
-
-function isPng(bytes) {
-  if (bytes.length < 8) return false;
-  return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
-}
-
-function makeChunk(type, data) {
-  const typeBytes = Uint8Array.from(Array.from(type).map(ch => ch.charCodeAt(0)));
-  const body = concatBytes([typeBytes, data]);
-  return concatBytes([uint32BE(data.length), body, uint32BE(crc32(body))]);
-}
-
-function encodeLatin1(text) {
-  const out = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i += 1) {
-    out[i] = text.charCodeAt(i) & 0xff;
-  }
-  return out;
-}
-
-function makeTextChunk(keyword, value) {
-  return makeChunk(
-    'tEXt',
-    concatBytes([
-      encodeLatin1(keyword),
-      Uint8Array.from([0]),
-      encodeLatin1(value),
-    ])
-  );
-}
-
-function deflateStored(bytes) {
-  const parts = [Uint8Array.from([0x78, 0x01])];
-  const maxBlock = 65535;
-  let offset = 0;
-  do {
-    const size = Math.min(bytes.length - offset, maxBlock);
-    const final = offset + size >= bytes.length ? 1 : 0;
-    parts.push(Uint8Array.from([
-      final,
-      size & 0xff,
-      (size >>> 8) & 0xff,
-      (~size) & 0xff,
-      ((~size) >>> 8) & 0xff,
-    ]));
-    parts.push(bytes.slice(offset, offset + size));
-    offset += size;
-  } while (offset < bytes.length);
-  parts.push(uint32BE(adler32(bytes)));
-  return concatBytes(parts);
-}
-
-export function createPlaceholderPng(width = 2, height = 2) {
-  const rowSize = 1 + width * 3;
-  const raw = new Uint8Array(height * rowSize);
-  for (let y = 0; y < height; y += 1) {
-    const rowStart = y * rowSize;
-    raw[rowStart] = 0;
-    for (let x = 0; x < width; x += 1) {
-      const pixel = rowStart + 1 + x * 3;
-      raw[pixel] = 0x6c;
-      raw[pixel + 1] = 0x63;
-      raw[pixel + 2] = 0xff;
-    }
-  }
-  const ihdr = concatBytes([
-    uint32BE(width),
-    uint32BE(height),
-    Uint8Array.from([8, 2, 0, 0, 0]),
-  ]);
-  return concatBytes([
-    PNG_SIGNATURE,
-    makeChunk('IHDR', ihdr),
-    makeChunk('IDAT', deflateStored(raw)),
-    makeChunk('IEND', new Uint8Array(0)),
-  ]);
-}
-
-function textChunkKeyword(bytes, dataStart, dataEnd) {
-  for (let index = dataStart; index < dataEnd; index += 1) {
-    if (bytes[index] === 0) {
-      let keyword = '';
-      for (let cursor = dataStart; cursor < index; cursor += 1) {
-        keyword += String.fromCharCode(bytes[cursor]);
-      }
-      return keyword;
-    }
-  }
-  return '';
-}
-
-// 导出时先移除原图里已有的角色卡 tEXt chunk，否则 parsecard 读取时
-// 仍会优先命中旧 ccv3/chara，导致编辑后的内容被旧卡覆盖。
 export function injectCharaChunk(pngBytes, jsonText) {
-  const bytes = toUint8Array(pngBytes);
-  if (!isPng(bytes)) {
+  try {
+    return injectCharaChunkShared(
+      pngBytes,
+      jsonText,
+      text => Buffer.from(String(text), 'utf8').toString('base64')
+    );
+  } catch (error) {
     throw new Error(tActive('error.cardExport.invalidPng'));
   }
-  const base64 = Buffer.from(String(jsonText), 'utf8').toString('base64');
-  const textChunk = makeTextChunk('chara', base64);
-  const parts = [PNG_SIGNATURE];
-  let offset = 8;
-  let inserted = false;
-  while (offset + 8 <= bytes.length) {
-    const length = readUint32(bytes, offset);
-    const type = String.fromCharCode(
-      bytes[offset + 4],
-      bytes[offset + 5],
-      bytes[offset + 6],
-      bytes[offset + 7]
-    );
-    const total = 12 + length;
-    let isCharacterCardChunk = false;
-    // 三种文本块的关键词都是“首个 null 前的字符串”，可用同一提取器。
-    // 只清 tEXt 会漏掉 iTXt/zTXt 里的旧卡数据：导出后 PNG 同时携带新旧两份
-    // chara/ccv3 载荷，偏好 iTXt 的读取方（含部分第三方工具）会读到旧卡。
-    if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
-      const keyword = textChunkKeyword(bytes, offset + 8, offset + 8 + length);
-      isCharacterCardChunk = keyword === 'chara' || keyword === 'ccv3';
-    }
-    if (type === 'IDAT' && !inserted) {
-      parts.push(textChunk);
-      inserted = true;
-    }
-    if (!isCharacterCardChunk) {
-      parts.push(bytes.slice(offset, offset + total));
-    }
-    offset += total;
-    if (type === 'IEND') break;
-  }
-  if (!inserted) {
-    parts.push(textChunk);
-  }
-  return concatBytes(parts);
 }
 
 function mapWorldEntry(entry) {
@@ -401,5 +225,41 @@ export async function exportCardFile(character, format, avatarBytes) {
   assertCardFileSize(Buffer.byteLength(json, 'utf8'), 'json');
   const uri = `${dir}${name}.json`;
   await FileSystem.writeAsStringAsync(uri, json);
+  return uri;
+}
+
+// ---- 分享用的落盘入口 ----
+// 放在本模块（角色卡域的文件封装点）而不是 UI 里：UI 层被禁止直接 import
+// expo-file-system（见 eslint.config.mjs 的分层规则），且写入逻辑与导出同源，
+// 分散到两处必然漂移。
+
+// 分享二维码：把分享码编成二维码 PNG 并落盘到缓存，返回可给 <Image> 用的 uri。
+export async function exportShareQrFile(code, options = {}) {
+  const { modules } = encodeQr(String(code || ''), { level: EC_LEVEL_L });
+  const bytes = encodeBitmapPng(modules, {
+    scale: Number.isFinite(options.scale) ? options.scale : 6,
+    quiet: Number.isFinite(options.quiet) ? options.quiet : 4,
+    dark: 0x00,
+    light: 0xff,
+  });
+  const dir = `${FileSystem.cacheDirectory}card-share/`;
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  const uri = `${dir}qr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}.png`;
+  await FileSystem.writeAsStringAsync(uri, Buffer.from(bytes).toString('base64'), {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return uri;
+}
+
+// 分享为图片：带角色数据的 PNG（对方存图后可用导入功能读回），返回 uri。
+export async function exportSharePngFile(character, avatarBytes) {
+  const bytes = cardToPng(character, avatarBytes);
+  assertCardFileSize(bytes.length, 'png');
+  const dir = `${FileSystem.cacheDirectory}card-share/`;
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  const uri = `${dir}${safeFileName(character)}-share.png`;
+  await FileSystem.writeAsStringAsync(uri, Buffer.from(bytes).toString('base64'), {
+    encoding: FileSystem.EncodingType.Base64,
+  });
   return uri;
 }

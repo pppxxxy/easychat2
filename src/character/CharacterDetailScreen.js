@@ -24,6 +24,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Buffer } from 'buffer';
 
@@ -35,6 +36,8 @@ import {
   parseCardFromPng,
 } from './cardParser.js';
 import { exportCardFile } from './cardExporter.js';
+import CardShareModal from './CardShareModal.js';
+import { decodeCardShareCode, isCardShareCode } from '../share/cardShare.js';
 import ChapterModal from '../books/ChapterModal.js';
 import GreetingPickerModal from '../GreetingPickerModal.js';
 import { listGreetingCandidates } from './cardGreetings.js';
@@ -134,6 +137,9 @@ export default function CharacterDetailScreen() {
   const [presetPanelOpen, setPresetPanelOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportBusyRef = useRef(false);
+  // 分享：二维码 / 分享码 / 带数据的 PNG。
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareAvatarBytes, setShareAvatarBytes] = useState(null);
   const [tagDraft, setTagDraft] = useState('');
   const [formReady, setFormReady] = useState(false);
   const [switchAuthorization, setSwitchAuthorization] = useState(0);
@@ -867,6 +873,64 @@ setWorldInfo(next.worldInfo);
     );
   };
 
+  // 分享面板：打开前先把头像字节读出来（分享 PNG 时要用），读不到就退化为占位图，
+  // 与导出 PNG 的行为一致——不能因为头像读不出就让整个分享不可用。
+  const onShare = useCallback(async () => {
+    if (!loaded || exporting) return;
+    setShareAvatarBytes(null);
+    setShareOpen(true);
+    const bytes = await readAvatarBytes(editedCharacter && editedCharacter.avatarUri);
+    if (bytes) setShareAvatarBytes(bytes);
+  }, [editedCharacter, exporting, loaded]);
+
+  // 从剪贴板导入分享码：本应用没有内置扫码器，对方用任意扫码工具读出文本后
+  // 回到这里粘贴，等价于「扫码导入」。走与文件导入完全相同的一条落库路径。
+  const importFromClipboard = useCallback(async () => {
+    if (importing || !loaded) return;
+    let text = '';
+    try {
+      text = String(await Clipboard.getStringAsync() || '').trim();
+    } catch (error) {
+      Alert.alert(t('character.share.pasteFail.title'), t('character.share.pasteFail.body'));
+      return;
+    }
+    if (!text) {
+      Alert.alert(t('character.share.pasteEmpty.title'), t('character.share.pasteEmpty.body'));
+      return;
+    }
+    if (!isCardShareCode(text)) {
+      Alert.alert(t('character.share.pasteInvalid.title'), t('character.share.pasteInvalid.body'));
+      return;
+    }
+    setImporting(true);
+    setImportStatus({ phase: 'reading', large: false, size: text.length });
+    try {
+      let parsed;
+      try {
+        parsed = parseCardFromJson(decodeCardShareCode(text));
+      } catch (error) {
+        Alert.alert(t('character.detail.importParseFail.title'), maskSecrets((error && error.message) || t('character.detail.importParseFail.fallback')));
+        return;
+      }
+      if (!hasCardContent(parsed)) {
+        Alert.alert(t('character.detail.importEmpty.title'), t('character.detail.importEmpty.body'));
+        return;
+      }
+      const patch = buildCharacterPatch(parsed);
+      setPendingImport({
+        patch,
+        treatAsPng: false,
+        assetUri: '',
+        large: false,
+        size: text.length,
+        candidates: listGreetingCandidates(parsed.fields || {}),
+      });
+    } finally {
+      setImporting(false);
+      setImportStatus(null);
+    }
+  }, [importing, loaded, t]);
+
   // seed 与草稿恢复共用的表单写入序列：把一份 formState 应用到表单 state。
   const applyDraftFormState = useCallback(next => {
     setName(next.name);
@@ -1140,11 +1204,34 @@ setWorldInfo(next.worldInfo);
             </Text>
           </TouchableOpacity>
           <Text style={styles.importHint}>{t('character.detail.import.hint')}</Text>
+          <TouchableOpacity
+            style={[styles.importButton, (importing || !loaded) && styles.buttonDisabled]}
+            onPress={importFromClipboard}
+            disabled={importing || !loaded}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="clipboard-outline" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.importButtonText}>{t('character.share.pasteImport')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.importHint}>{t('character.share.pasteImportHint')}</Text>
           <TopicButton
             style={styles.topicButton}
             onPress={() => setTopic('character-card')}
             accessibilityLabel={t('character.detail.import.a11yTutorial')}
           />
+
+          <TouchableOpacity
+            style={styles.presetEntryRow}
+            onPress={onShare}
+            disabled={exporting || !loaded}
+            activeOpacity={0.7}
+          >
+            <View style={styles.presetEntryLeft}>
+              <Ionicons name="qr-code-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.presetEntryText}>{t('character.share.entry')}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.presetEntryRow}
@@ -1534,6 +1621,13 @@ setWorldInfo(next.worldInfo);
           </View>
         </View>
       </Modal>
+
+      <CardShareModal
+        visible={shareOpen}
+        onClose={() => setShareOpen(false)}
+        character={editedCharacter}
+        avatarBytes={shareAvatarBytes}
+      />
 
       <ChapterModal
         visible={!!topic}
