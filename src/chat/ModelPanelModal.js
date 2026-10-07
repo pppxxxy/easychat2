@@ -1,5 +1,6 @@
 // 切换模型弹窗。从 src/ChatScreen.js 原样外提（无行为变化）。
-// 2026-10-01 追加「本地模型」分组：可加载/卸载本地模型并打开运行日志。
+// v5 Stage C：瘦身为「纯切换器」——本地模型只做选用/取消选用（切换开关），
+// 加载/卸载/删除/参数等写操作统一收进「模型中心」（底部「管理本地模型…」入口）。
 
 import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
@@ -20,10 +21,8 @@ export default function ModelPanelModal({
   isSending,
   localModels = [],
   activeLocalModelId = '',
-  loadingLocalModelId = '',
-  onActivateLocalModel,
-  onDeactivateLocalModel,
-  onOpenModelLogs,
+  onSelectLocalModel,
+  onManageLocalModels,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
@@ -96,14 +95,6 @@ export default function ModelPanelModal({
 
           <View style={styles.localHeaderRow}>
             <Text style={styles.modelLabel}>{t('chat.modelPanel.localTitle')}</Text>
-            <TouchableOpacity
-              onPress={onOpenModelLogs}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel={t('chat.modelPanel.logsA11y')}
-            >
-              <Text style={styles.localLogLink}>{t('chat.modelPanel.logsLink')}</Text>
-            </TouchableOpacity>
           </View>
           <ScrollView style={styles.modelListScroll}>
             {localModels.length === 0 ? (
@@ -111,7 +102,6 @@ export default function ModelPanelModal({
             ) : (
               localModels.map(entry => {
                 const active = entry.id === activeLocalModelId;
-                const loading = entry.id === loadingLocalModelId;
                 const meta = [entry.quant, formatBytes(entry.modelBytes)].filter(Boolean).join(' · ');
                 return (
                   <View key={entry.id} style={styles.localRow}>
@@ -122,20 +112,32 @@ export default function ModelPanelModal({
                       {meta ? <Text style={styles.localMeta} numberOfLines={1}>{meta}</Text> : null}
                     </View>
                     <TouchableOpacity
-                      style={[styles.localAction, active && styles.localActionActive, (isSending || loading) && styles.actionDisabled]}
-                      disabled={isSending || loading}
-                      onPress={() => (active ? onDeactivateLocalModel() : onActivateLocalModel(entry))}
+                      style={[styles.localAction, active && styles.localActionActive, isSending && styles.actionDisabled]}
+                      disabled={isSending}
+                      onPress={() => onSelectLocalModel(entry, !active)}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel={t(active ? 'chat.modelPanel.unloadA11y' : 'chat.modelPanel.loadA11y', { name: entry.name || entry.id })}
+                      accessibilityLabel={t(active ? 'chat.modelPanel.deselectA11y' : 'chat.modelPanel.selectA11y', { name: entry.name || entry.id })}
                     >
-                      <Text style={styles.localActionText}>{loading ? t('chat.modelPanel.loading') : active ? t('chat.modelPanel.unload') : t('chat.modelPanel.load')}</Text>
+                      <Text style={styles.localActionText}>{active ? t('chat.modelPanel.deselect') : t('chat.modelPanel.select')}</Text>
                     </TouchableOpacity>
                   </View>
                 );
               })
             )}
           </ScrollView>
+
+          {/* 管理入口：加载/卸载/删除/参数等写操作统一在模型中心（v5 Stage C）。 */}
+          <TouchableOpacity
+            style={styles.modelClose}
+            onPress={onManageLocalModels}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.modelPanel.manageA11y')}
+          >
+            <Ionicons name="settings-outline" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.localLogLink}>{t('chat.modelPanel.manage')}</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.modelClose}

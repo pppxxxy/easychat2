@@ -28,6 +28,9 @@ import {
   LOCAL_MODEL_PARAM_FIELDS,
   normalizeLocalModelParams,
   validateLocalModelParams,
+  applyLocalModelParamPreset,
+  contextSizeMemoryDelta,
+  LOCAL_MODEL_PARAM_PRESETS,
 } from '../src/localModel/modelParams.js';
 import {
   getResourceOwner,
@@ -149,6 +152,33 @@ test('validateLocalModelParams：空值放过，非数字与越界报错', () =>
   assert.equal(bad.valid, false);
   assert.deepEqual(bad.errors.map(item => item.field).sort(), ['contextSize', 'temperature']);
 });
+
+test('applyLocalModelParamPreset：覆盖采样字段并保留设备相关字段', () => {
+  const base = { contextSize: 8192, gpuLayers: 20, threads: 4, temperature: 1, topP: 1, topK: 0, maxTokens: 512 };
+  const chat = applyLocalModelParamPreset(base, 'chat');
+  assert.equal(chat.temperature, 0.9);
+  assert.equal(chat.topP, 0.95);
+  assert.equal(chat.topK, 40);
+  // 设备相关字段不动
+  assert.equal(chat.contextSize, 8192);
+  assert.equal(chat.gpuLayers, 20);
+  assert.equal(chat.threads, 4);
+  const code = applyLocalModelParamPreset(base, 'code');
+  assert.equal(code.temperature, 0.3);
+  // 未知预设原样返回（归一化）
+  assert.deepEqual(applyLocalModelParamPreset(base, 'nope'), normalizeLocalModelParams(base));
+  assert.equal(LOCAL_MODEL_PARAM_PRESETS.length, 3);
+});
+
+test('contextSizeMemoryDelta：上下文越大 KV 占用越大', () => {
+  const delta = contextSizeMemoryDelta({ paramBillion: 1.5, bitsPerWeight: 4.85, from: 2048, to: 8192 });
+  assert.ok(delta.afterBytes > delta.beforeBytes, '更大上下文 KV 占用应更高');
+  assert.ok(delta.deltaBytes > 0);
+  // 参数规模未知时 KV 估算为 0，不虚报
+  const unknown = contextSizeMemoryDelta({ paramBillion: 0, bitsPerWeight: 0, from: 2048, to: 8192 });
+  assert.equal(unknown.deltaBytes, 0);
+});
+
 
 test('normalizeLocalModelItem：非负字段、布尔与 params 均被规范化', () => {
   const item = normalizeLocalModelItem({

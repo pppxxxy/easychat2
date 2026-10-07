@@ -41,7 +41,6 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
   const [localModels, setLocalModels] = useState([]);
   const [activeLocalModelId, setActiveLocalModelId] = useState('');
   const [loadingLocalModelId, setLoadingLocalModelId] = useState('');
-  const [localLogsOpen, setLocalLogsOpen] = useState(false);
 
   const openModelPanel = useCallback(async () => {
     if (isSending || sendLockRef.current) return;
@@ -162,6 +161,13 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
     }
   }, [t]);
 
+  // 纯切换器（v5 Stage C）：选用本地模型 = 加载并设为活动（切换开关语义，非独立「加载」按钮）；
+  // 取消选用 = 卸载并回到在线。显式的加载/卸载/停服务/删除/参数入口统一收进模型中心。
+  const selectLocalModel = useCallback(async (entry, select) => {
+    if (select) await activateLocalModel(entry);
+    else await deactivateLocalModel();
+  }, [activateLocalModel, deactivateLocalModel]);
+
   return {
     modelPanelOpen,
     setModelPanelOpen,
@@ -184,7 +190,6 @@ export default function useChatModelThinking({ isSending, sendLockRef }) {
     loadingLocalModelId,
     activateLocalModel,
     deactivateLocalModel,
-    localLogsOpen,
-    setLocalLogsOpen,
+    selectLocalModel,
   };
 }

@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { getLocalModelItem } from '../../storage/localModels.js';
-import { LOCAL_MODEL_PARAM_FIELDS } from '../modelParams.js';
+import { applyLocalModelParamPreset, LOCAL_MODEL_PARAM_FIELDS } from '../modelParams.js';
 
 export function useModelParams({ t, saveParams }) {
   const [target, setTarget] = useState(null);
@@ -41,6 +41,16 @@ export function useModelParams({ t, saveParams }) {
     setForm(current => ({ ...current, [field]: text }));
   }, []);
 
+  // 应用预设：在现有表单值上覆盖采样字段，回填为字符串（与手输同一 state）。
+  const applyPreset = useCallback(presetId => {
+    setForm(current => {
+      const merged = applyLocalModelParamPreset(current, presetId);
+      const next = {};
+      Object.keys(LOCAL_MODEL_PARAM_FIELDS).forEach(field => { next[field] = String(merged[field]); });
+      return next;
+    });
+  }, []);
+
   return {
     target,
     form,
@@ -49,5 +59,6 @@ export function useModelParams({ t, saveParams }) {
     save,
     close,
     setField,
+    applyPreset,
   };
 }
