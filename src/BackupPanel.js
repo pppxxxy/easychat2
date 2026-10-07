@@ -76,9 +76,10 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         onProgress: setProgress,
       });
       const summary = t('backup.summary', { keys: result.storageCount, media: result.mediaCount, size: (result.bytes / 1024 / 1024).toFixed(2) });
-      // 读不出的键/文件会被跳过：必须明确告知，避免用户拿到“成功”的残缺备份。
-      // 失败键名直接列出，便于用户/开发者定位是哪个键（任务书 P0-1）。
+      // 读不出的键/文件会被跳过，抢救原始数据的键也在其中：必须明确告知，
+      // 避免用户拿到“成功”的残缺备份。失败键名直接列出（任务书 P0-1）。
       const unreadableNames = formatKeyNames(result.unreadableKeys, t);
+      const partialNames = formatKeyNames(result.partialKeys, t);
       const noteParts = [];
       if (result.incomplete) {
         noteParts.push(t('backup.incompleteNote', {
@@ -86,6 +87,7 @@ export default function BackupPanel({ visible, onClose, onImported }) {
           media: result.unreadableMedia.length,
         }));
         if (unreadableNames) noteParts.push(t('backup.incompleteNote.keys', { names: unreadableNames }));
+        if (partialNames) noteParts.push(t('backup.incompleteNote.partial', { names: partialNames }));
       }
       const incompleteNote = noteParts.join('');
       if (await Sharing.isAvailableAsync()) {

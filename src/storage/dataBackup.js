@@ -72,6 +72,14 @@ export function isAllowedMediaPath(relativePath) {
   ));
 }
 
+// storage 条目要么带结构化 value（正常键），要么带 opaqueRaw（结构损坏但已抢救的
+// 原始字符串）。老备份（schemaVersion 1、只有 value）照常通过；新备份新增的
+// opaqueRaw 字段对代码结构透明——老版本 App 读到它会当作未知字段忽略该键的
+// value 缺失路径（见 planBackupImport 的兼容分支），不会崩溃。
+function isOpaqueRawEntry(item) {
+  return typeof item.opaqueRaw === 'string';
+}
+
 export function validateBackupPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return { valid: false, error: '备份文件格式无效' };
@@ -106,11 +114,18 @@ export function buildBackupPayload({ storage = [], media = [], appVersion = '' }
     secretsExcluded: true,
     storage: storage
       .filter(item => item && typeof item.key === 'string')
-      .map(item => ({
-        key: item.key,
-        // 顶层不按存储键判定密钥（与原实现一致）；嵌套键才参与脱敏。
-        value: sanitizeAndFilterBackupValue(item.value),
-      })),
+      .map(item => {
+        // 结构损坏但读到原始串的键：原样存 opaqueRaw，不做脱敏/过滤——
+        // 它本就不是可解析的结构，任何遍历都无从下手，且脱敏会破坏原始字节。
+        if (isOpaqueRawEntry(item)) {
+          return { key: item.key, opaqueRaw: item.opaqueRaw };
+        }
+        return {
+          key: item.key,
+          // 顶层不按存储键判定密钥（与原实现一致）；嵌套键才参与脱敏。
+          value: sanitizeAndFilterBackupValue(item.value),
+        };
+      }),
     media: media
       .filter(item => item && isAllowedMediaPath(item.path) && typeof item.base64 === 'string')
       .map(item => ({ path: String(item.path), base64: item.base64 })),
@@ -126,10 +141,12 @@ export function planBackupImport(payload, mode = 'merge') {
     mode: mode === 'replace' ? 'replace' : 'merge',
     // 导入是独立于导出的防线：即便备份来自旧版本或被手工构造，也在此剥离密钥字段
     // 并丢弃 pending 占位消息，避免绕过「pending 不落盘」与密钥保险箱约束。
-    storage: payload.storage.map(item => ({
-      key: item.key,
-      value: sanitizeAndFilterBackupValue(item.value),
-    })),
+    // opaqueRaw 条目无结构化值可清理，原样透传（恢复侧原样写回）。
+    storage: payload.storage.map(item => (
+      isOpaqueRawEntry(item)
+        ? { key: item.key, opaqueRaw: item.opaqueRaw }
+        : { key: item.key, value: sanitizeAndFilterBackupValue(item.value) }
+    )),
     media: payload.media,
   };
 }

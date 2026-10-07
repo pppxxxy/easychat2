@@ -2459,6 +2459,7 @@ export const en = {
   'backup.summary': '{keys} data keys and {media} media files ({size}MB)',
   'backup.incompleteNote': '\\n\\nNote: {keys} data keys and {media} media files could not be read and are not included in the backup.',
   'backup.incompleteNote.keys': '\\n\\nData keys that could not be read and were not included: {names}',
+  'backup.incompleteNote.partial': '\\n\\nKeys whose raw data was salvaged (not lost after restore): {names}',
   'backup.keysTruncated': '{names} and {count} in total',
   'backup.alert.incomplete.title': 'Incomplete backup',
   'backup.alert.incomplete.shareBody': 'Backup generated ({summary}), but some data could not be read{note}\\nWhat is shared is this incomplete backup.',
