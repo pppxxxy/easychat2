@@ -1148,6 +1148,7 @@ export const en = {
   'settings.capability.customParamsHint': 'Off by default: thinking field, context window and output length are sent with defaults',
   'settings.capability.thinkingParams': 'Thinking parameters',
   'settings.capability.customPreset': 'Custom',
+  'settings.capability.customFormatRequired': 'Pick a value format before saving',
   'settings.capability.outputLength': 'Output length (tokens)',
   'settings.capability.outputLengthPlaceholder': 'empty = default 32000',
   'settings.capability.advancedHint': 'The context window drives the workspace panel usage display and the 80% auto-compact threshold; output length is the max tokens per reply. Leave empty to use defaults.',

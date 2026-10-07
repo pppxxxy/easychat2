@@ -356,6 +356,8 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     marginTop: 3,
   },
   customThinkingBlock: { paddingBottom: 10 },
+  // 自定义态未选取值格式时的提示（确认按钮此时被禁用，见 SettingsScreen）。
+  customFormatHint: { color: theme.colors.danger || theme.colors.text, fontSize: fonts.scaled(11), marginTop: 6 },
 
   linkRow: {
     flexDirection: 'row',

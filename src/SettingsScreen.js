@@ -1079,6 +1079,12 @@ export default function SettingsScreen() {
     && preset.format === capabilityDraft.thinkingFormat
   )) || null;
 
+  // 自定义态但取值格式为空：confirmCapability 会把空格式**静默归一**成 'effort'——
+  // 用户没选格式就保存 = 配置悄悄配错（服务端静默忽略，极难排查），因此禁用确认。
+  const customFormatMissing = capabilityDraft.supportsThinking === true
+    && !matchedThinkingPreset
+    && !['effort', 'boolean', 'object'].includes(capabilityDraft.thinkingFormat);
+
   // 拉取该 API 配置的模型清单（GET /models，含 /v1 回退）。抽出来给「检测模型」与
   // 「搜索」共用，避免两处各写一遍 XHR/鉴权/解析。isCurrent 供取消/竞态校验。
   const fetchProviderModels = async (selected, request, isCurrent) => {
@@ -1991,11 +1997,15 @@ export default function SettingsScreen() {
                               style={[styles.presetItem, active && styles.presetItemActive]}
                               onPress={() => setCapabilityDraft(current => ({
                                 ...current,
+                                // 自定义（2026-10-07 死局修复）：此前把当前值原样写回，
+                                // 状态零变化；而自定义输入块只在「不匹配任何预设」时渲染，
+                                // 默认值恰命中预设 1 → 点多少下都没反应。置空 format 即
+                                // 脱离全部预设（预设 format 均非空）；字段名保留旧值省得重输。
                                 thinkingField: preset.id === 'custom'
                                   ? current.thinkingField
                                   : preset.field,
                                 thinkingFormat: preset.id === 'custom'
-                                  ? current.thinkingFormat
+                                  ? ''
                                   : preset.format,
                               }))}
                               activeOpacity={0.8}
@@ -2041,6 +2051,9 @@ export default function SettingsScreen() {
                             );
                           })}
                         </View>
+                        {customFormatMissing ? (
+                          <Text style={styles.customFormatHint}>{t('settings.capability.customFormatRequired')}</Text>
+                        ) : null}
                       </View>
                     ) : null}
                   </View>
@@ -2091,8 +2104,9 @@ export default function SettingsScreen() {
                 <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.selectButton}
+                style={[styles.selectButton, customFormatMissing && styles.buttonDisabled]}
                 onPress={confirmCapability}
+                disabled={customFormatMissing}
                 activeOpacity={0.8}
               >
                 <Text style={styles.selectButtonText}>{t('settings.capability.confirm')}</Text>

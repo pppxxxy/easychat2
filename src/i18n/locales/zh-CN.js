@@ -1152,6 +1152,7 @@ export const zhCN = {
   'settings.capability.customParamsHint': '默认关闭：思考字段名、上下文窗口与输出长度都按默认值发送',
   'settings.capability.thinkingParams': '思考参数',
   'settings.capability.customPreset': '自定义',
+  'settings.capability.customFormatRequired': '请选择取值格式后再保存',
   'settings.capability.outputLength': '输出长度（tokens）',
   'settings.capability.outputLengthPlaceholder': '留空 = 默认 32000',
   'settings.capability.advancedHint': '上下文窗口用于工作区面板的上下文占用显示与 80% 自动压缩；输出长度是单次回复的最大生成量。留空都按默认值发送。',
