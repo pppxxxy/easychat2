@@ -88,7 +88,14 @@ import {
 import { getStickers, saveSticker, deleteStickers, reorderStickers } from './storage/stickers.js';
 import { getUserProfile } from './storage/personas.js';
 import { setProtectedChatImageUris, setSessionGreetingSelected } from './storage/sessions.js';
-import { archiveBranch } from './storage/sessionBranches.js';
+import {
+  archiveBranch,
+  deleteBranch as deleteBranchStore,
+  getBranch,
+  pruneStaleBranches,
+} from './storage/sessionBranches.js';
+import useChatBranches from './chat/useChatBranches.js';
+import { planCheckout } from './chat/branchTree.js';
 import { getMomentsSettings, updateMoments } from './storage/moments.js';
 import { getAffinityStatus, saveAffinity } from './storage/affinity.js';
 import {
@@ -1077,6 +1084,7 @@ export default function ChatScreen() {
     onRegenerateMessage,
     onEditUserMessage,
     modelLoadProgress,
+    branchesRefreshToken,
   } = useChatSend({
     beginSendOperation,
     endSendOperation,
@@ -1135,10 +1143,90 @@ export default function ChatScreen() {
     setQuoteTarget,
   });
 
+  const { branchesByFork, reload: reloadBranches } = useChatBranches({
+    activeSessionId,
+    refreshToken: branchesRefreshToken,
+  });
+
+  // 切换到某条分支：把活动时间线替换为「分叉点及其之前 + 分支尾段」。
+  // 被替换掉的当前尾段也归档成新分支，使来回切换不丢消息。
+  const onCheckoutBranch = useCallback(async branch => {
+    if (!branch || !branch.id || isSending || isSwitching || sessionTransitionPending || !ready) return;
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId) return;
+    try {
+      const loaded = await getBranch(sessionId, branch.id);
+      if (loaded.status === 'corrupt') {
+        Alert.alert(t('chat.branch.checkoutFailed.title'), t('chat.branch.checkoutFailed.body'));
+        return;
+      }
+      if (loaded.status !== 'ok' || !loaded.branch) {
+        // 分支正文缺失（索引还在）：删除该失效分支；损坏则保留待重试。
+        if (loaded.status === 'missing') {
+          await deleteBranchStore(sessionId, branch.id).catch(() => {});
+        }
+        Alert.alert(t('chat.branch.stale.title'), t('chat.branch.stale.body'));
+        reloadBranches();
+        return;
+      }
+      const target = { id: branch.id, forkMessageId: branch.forkMessageId, messages: loaded.branch.messages };
+      const plan = planCheckout(messagesRef.current, target);
+      if (plan.stale) {
+        Alert.alert(t('chat.branch.stale.title'), t('chat.branch.stale.body'));
+        await pruneStaleBranches(sessionId, new Set(messagesRef.current.map(item => String(item && item.id || '')))).catch(() => {});
+        reloadBranches();
+        return;
+      }
+      // 归档被替换掉的当前尾段（非空时）。
+      if (plan.removedTail.length > 0) {
+        await archiveBranch(sessionId, plan.forkMessageId, plan.removedTail).catch(() => {});
+      }
+      // 目标分支已被消费：删掉它的归档（消息已进入活动时间线）。
+      await deleteBranchStore(sessionId, branch.id).catch(() => {});
+      const nextMessages = [...plan.prefix, ...plan.activated];
+      const checkoutSession = sessionsRef.current.find(item => item.id === sessionId);
+      const sessionCharacterId = String((checkoutSession && checkoutSession.characterId) || '');
+      const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
+      const characterExists = latestCharacters.some(item => item.id === sessionCharacterId);
+      const sessionCharacter = latestCharacters.find(item => item.id === sessionCharacterId) || character;
+      const scoped = isBuiltinAssistant(sessionCharacter)
+        || !characterExists
+        || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, sessionId);
+      await invalidateHistorySummaries({
+        session: checkoutSession,
+        messages: nextMessages,
+        removedIds: plan.removedTail.map(item => String(item && item.id || '')),
+        scoped,
+        character: sessionCharacter,
+        updateCharacter,
+      }).catch(() => {});
+      const vectorOwnerId = getVectorOwnerId(checkoutSession, characterId);
+      if (vectorOwnerId) {
+        await removeVectorIndexForSession(vectorOwnerId, sessionId).catch(() => {});
+      }
+      setMessages(nextMessages);
+      reloadBranches();
+      autoScrollToBottom();
+    } catch (error) {
+      Alert.alert(t('chat.branch.checkoutFailed.title'), t('chat.branch.checkoutFailed.body'));
+    }
+  }, [autoScrollToBottom, character, characterId, isSending, isSwitching, ready, reloadBranches, sessionTransitionPending, t, updateCharacter]);
+
+  const onDeleteBranch = useCallback(async branch => {
+    if (!branch || !branch.id) return;
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId) return;
+    try {
+      await deleteBranchStore(sessionId, branch.id);
+      reloadBranches();
+    } catch (error) {
+      Alert.alert(t('chat.branch.deleteFailed.title'), t('chat.branch.deleteFailed.body'));
+    }
+  }, [reloadBranches, t]);
+
   const onSelectText = useCallback(text => {
     setSelectionText(String(text || ''));
   }, []);
-
   const onQuoteMessage = useCallback(message => {
     if (!message || !message.id) return;
     const isUserMessage = message.role === USER_ID;
@@ -2332,6 +2420,9 @@ export default function ChatScreen() {
         toggleSelectedMessage={ toggleSelectedMessage }
         ready={ ready }
         isSending={ isSending }
+        branchesByFork={ branchesByFork }
+        onCheckoutBranch={ onCheckoutBranch }
+        onDeleteBranch={ onDeleteBranch }
       />
 
       {modelLoadProgress != null ? (
