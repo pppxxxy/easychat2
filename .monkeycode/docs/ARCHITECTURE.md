@@ -285,7 +285,7 @@ easychat2/
 - **一处管理，处处切换（v5 Stage C）**：聊天层 `EngineStatusBar`（+ `useLocalEngineStatus` + 纯 `engineStatus.js`）常驻显示引擎 `idle/loading/ready/error` 与 10 秒本地→在线回退警告，数据源同为 `runtime.js`；聊天模型选择器 `chat/ModelPanelModal.js` 瘦身为纯切换器（选用/取消选用），加载/卸载/删除/参数统一收进模型中心（`LocalModelPanel.js` + `panel/EngineCard.js` 运行状态卡）。参数弹窗新增三个预设（聊天/写作/代码）与 contextSize 内存影响即时提示。
 - **在线/本地回退**：`modelProvider.js` 的 `canUseLocalModel` / `sendWithModelProvider` 决定走本地还是在线；模型未就绪、未装适配器或推理失败时自动回退在线 API，用户无感。
 - **思考流切分**：`thinkStream.js` 处理 Qwen3 风格的 ` thinking…</think>` 流式切分，含「只出现闭合标签、无开启标签」的兜底（`createThinkSplitter` 增量喂入、返回 `{ reasoning, text }` 分段）——修复前该形态会把整段思考内容当正文显示。
-- **本地 API 服务**：HTTP 层在 Kotlin（nanohttpd），推理经 `LocalApiServer:onRequest` 事件回 JS，复用同一常驻上下文；**Bearer 鉴权强制开启**——apiKey 留空时由 `generateLocalApiKey()` 自动生成，校验用 `MessageDigest.isEqual` 常量时间比较，空 key 一律拒绝（401）。`App.js` 的 `LocalApiServerBridge` 负责接线，并退后台/卸载时停服。
+- **本地 API 服务**：HTTP 层在 Kotlin（nanohttpd），推理经 `LocalApiServer:onRequest` 事件回 JS，复用同一常驻上下文；**Bearer 鉴权强制开启**——apiKey 留空时由 `generateLocalApiKey()` 自动生成，校验用 `MessageDigest.isEqual` 常量时间比较，空 key 一律拒绝（401）。`App.js` 的 `LocalApiServerBridge` 负责接线，并退后台/卸载时停服。v5 Stage D：`/v1/models` 返回全部已安装条目（JS 启动时下发 `modelsJson`）；`stream:true` 走真 chunked SSE（`PipedOutputStream` + `respondStream`，逐 token 回写 OpenAI `chat.completion.chunk`），原生无 `respondStream` 时降级整段回包。
 - **构建约束**：Android ABI 必须为 `arm64-v8a,x86_64`（`llama.rn` 只提供 64 位预编译库），由 `expo-build-properties` 强制；`expo prebuild` 会改写 `app.json`/`package.json`，提交前须回退非预期改动。
 
 ### 语音消息与转写
