@@ -540,6 +540,7 @@ export const en = {
   'books.reader.chapter.search': 'Search chapter titles',
   'books.reader.chapter.noMatch': 'No matching chapters',
   'books.reader.chapter.current': 'Reading now',
+  'books.reader.chapter.unread': 'Unread',
   'books.reader.chapter.progress': '{percent}% read',
   'books.reader.chapter.done': 'Finished',
   'books.reader.chapter.position': 'Chapter {index} / {total}',

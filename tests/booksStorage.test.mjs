@@ -200,3 +200,30 @@ test('书评：追加、幂等、上限、锚归一化与随书删除', async ()
   assert.deepEqual(await comments.getBookComments('book-b'), []);
   await assert.rejects(() => comments.appendBookComment('book-c', { id: 'm2', text: '  ' }));
 });
+
+test('书架：按章进度补丁合并落库（同章取最大），旧条目迁移为空映射', async () => {
+  store.clear();
+  // 旧条目：无 chapterProgress 字段 → 归一化迁移为 {}，不反推任何「已读完」
+  await library.saveBookItem(makeBook({ id: 'cp1' }));
+  let reloaded = (await library.getBooks()).find(item => item.id === 'cp1');
+  assert.deepEqual(reloaded.chapterProgress, {}, '无字段迁移为空映射');
+
+  // 补丁合并：progress 为 null 时不动阅读位置
+  await library.saveBookProgress('cp1', { blockIndex: 2, pageIndex: 0, anchorText: 'a' });
+  let updated = await library.saveBookProgress('cp1', null, { 3: 23 });
+  assert.deepEqual(updated.chapterProgress, { 3: 23 });
+  assert.equal(updated.progress.blockIndex, 2, 'null progress 不动位置');
+
+  // 同章取历史最大：回翻写入更小值不降级
+  updated = await library.saveBookProgress('cp1', { blockIndex: 3, pageIndex: 1, anchorText: 'b' }, { 3: 75 });
+  assert.deepEqual(updated.chapterProgress, { 3: 75 });
+  updated = await library.saveBookProgress('cp1', { blockIndex: 3, pageIndex: 0, anchorText: 'c' }, { 3: 40 });
+  assert.deepEqual(updated.chapterProgress, { 3: 75 }, '回翻不降进度');
+
+  // 非法值在存储层归一化：脏补丁不能落库
+  updated = await library.saveBookProgress('cp1', null, { 3: 999, 'x': 5, '4': 8 });
+  assert.deepEqual(updated.chapterProgress, { 3: 100, 4: 8 });
+
+  reloaded = (await library.getBooks()).find(item => item.id === 'cp1');
+  assert.deepEqual(reloaded.chapterProgress, { 3: 100, 4: 8 }, '合并结果持久化');
+});

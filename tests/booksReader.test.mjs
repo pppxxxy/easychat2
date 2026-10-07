@@ -2,7 +2,7 @@
 // 关键回归钉：
 // - 测量 Text 与可见页 Text 必须共用同一份排版 props（buildPageTextProps 唯一来源），
 //   且测量 Text 必须不可见但参与布局（opacity 0，而非 display:none）；
-// - 可见页只渲染分到本页的行（pageText）——测量漂移不得造成页面溢出；
+// - 可见页只渲染分到本页的行（pageBodyText，不截断）——测量漂移不得造成页面溢出；
 // - 导入必须是 '*/*' + 扩展名校验（厂商文件管理器把 .txt 标成 octet-stream）；
 // - 编码检测必须拒绝非 UTF-8（U+FFFD 比例），不允许静默导入乱码书。
 
@@ -28,7 +28,12 @@ test('useBookReader：测量-分页-重定位机制齐全', () => {
 
 test('BookReaderView：可见页只渲染本页行，测量 Text 参与布局但不可见', () => {
   const source = readSource('src/books/BookReaderView.js');
-  assert.ok(source.includes('pageText(reader.lines, reader.page)'), '可见页必须由本页行拼成');
+  assert.ok(source.includes('pageBodyText(reader.lines, reader.page)'), '可见页必须由本页行拼成（pageBodyText 不截断）');
+  assert.ok(!source.includes('pageText(reader.lines, reader.page)'), '可见页不得走 600 字截断的 pageText（评论摘录专用）');
+  // 断行策略统一（2026-10-07 末行半裁修复）：两处必须同时声明，只改一处两上下文
+  // 断行不一致，切页错位/末行裁切就会回来。
+  const strategies = source.match(/textBreakStrategy="simple"/g) || [];
+  assert.equal(strategies.length, 2, '可见页 Text 与测量 Text 必须同时声明 textBreakStrategy="simple"');
   assert.ok(/opacity:\s*0/.test(source), '测量 Text 用 opacity 0（display:none 不产生布局，无法测量）');
   assert.ok(source.includes('onTextLayout={reader.handleTextLayout}'), '测量 Text 接线 onTextLayout');
   assert.ok(source.includes('TAP_ZONE_RATIO'), '左右点按翻页区');
@@ -64,8 +69,9 @@ test('阅读进度落库：防抖保存 + 退出/卸载兜底（monkey 审查缺
   const reader = readSource('src/books/useBookReader.js');
   assert.ok(reader.includes('location'), 'useBookReader 必须暴露当前阅读位置');
   const view = readSource('src/books/BookReaderView.js');
-  assert.ok(view.includes('saveBookProgress(item.id, location)'), '翻页/退出必须写回进度');
-  assert.ok(/setTimeout\([\s\S]{0,160}saveBookProgress/.test(view), '位置变化必须防抖保存');
+  assert.ok(view.includes('saveBookProgress(item.id, location'), '翻页/退出必须写回进度');
+  assert.ok(view.includes('saveBookProgress(item.id, pending'), 'flush 路径同样写回');
+  assert.ok(/setTimeout\([\s\S]{0,200}saveBookProgress/.test(view), '位置变化必须防抖保存');
   assert.ok(view.includes('flushProgress'), '退出必须兜底 flush');
   assert.ok(view.includes('onPress={handleBack}'), '返回按钮必须走 flush 路径');
   assert.ok(/useEffect\(\(\) => \(\) => flushProgress\(\)/.test(view), '组件卸载必须兜底保存');
@@ -210,7 +216,7 @@ test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系�
   assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(view), 'Modal 顶部内缩同步放宽');
 });
 
-test('章节目录：搜索 + 当前章标记 + 粗略已读百分比', () => {
+test('章节目录：搜索 + 当前章标记 + 按章进度三态', () => {
   const view = readSource('src/books/BookReaderView.js');
   // 搜索
   assert.ok(view.includes('chapterQuery'), '有搜索关键词状态');
@@ -220,12 +226,62 @@ test('章节目录：搜索 + 当前章标记 + 粗略已读百分比', () => {
   // 过滤后仍按原下标高亮与跳转（否则搜索一次就会跳错章）
   assert.ok(/chapterEntries[\s\S]{0,200}?index,/.test(view) || view.includes('({ ...chapter, index })'),
     '章节条目携带原下标');
-  // 当前章 + 百分比
+  // 当前章 + 按章进度（2026-10-07「已读完」虚报修复：不再从位置反推历史章）
   assert.ok(view.includes('currentChapterIndex'), '算当前所在章');
-  assert.ok(view.includes('chapterReadPercent'), '算粗略已读百分比');
+  assert.ok(!view.includes('chapterReadPercent'), '不得保留位置反推的 chapterReadPercent（虚报根源）');
+  assert.ok(view.includes('computeChapterPercent'), '当前章用页粒度纯函数计算');
+  assert.ok(view.includes('chapterProgressMap'), '目录读显式记录的按章进度映射');
   assert.ok(view.includes("t('books.reader.chapter.current')"), '「正在阅读」标记');
+  assert.ok(view.includes("t('books.reader.chapter.unread')"), '未记录的章显示「未读」');
   assert.ok(/t\('books\.reader\.chapter\.progress',\s*\{\s*percent/.test(view), '百分比文案带参数');
   assert.ok(view.includes("t('books.reader.chapter.done')"), '读满显示已读完');
+});
+
+test('章节目录：打开定位/跳章跟随当前章，虚拟化窗口外有兜底', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  // ref 接到章节 FlatList 本体（而非其它列表）
+  const listBlock = view.slice(view.indexOf('<FlatList'), view.indexOf('<ChapterScrubber'));
+  assert.ok(listBlock.length > 0, '必须能截出章节 FlatList');
+  assert.ok(listBlock.includes('ref={chapterListRef}'), '章节 FlatList 必须有 ref');
+  assert.ok(listBlock.includes('onScrollToIndexFailed={onChapterScrollToIndexFailed}'), '必须接 scrollToIndex 失败兜底');
+  // 打开目录定位 + 跟随（滑块松手跳章后 currentChapterIndex 变化时滚动过去）
+  assert.ok(view.includes('viewPosition: 0.5'), '高亮行落在视口中部');
+  assert.ok(/if \(!showChapters\) return undefined;[\s\S]{0,200}?scrollToChapter\(currentChapterIndex\)/.test(view),
+    '目录打开时定位到当前章，currentChapterIndex 变化时跟随');
+  // 搜索态不打断：目标章不在过滤结果内就跳过
+  assert.ok(view.includes('if (index < 0) return;'), '目标章不在过滤结果内时列表不动');
+  // 兜底：先按平均行高滚到估算位置，下一帧重试 scrollToIndex
+  assert.ok(/scrollToOffset\?\.\s*\(\{ offset: target \* step/.test(view), '失败先滚估算位置');
+  assert.ok(/setTimeout\(\(\) => \{\s*list\.scrollToIndex\?\./.test(view), '下一帧重试 scrollToIndex');
+});
+
+test('按章进度写入：跨章结算被离开的章，同章取最大，flush 带补丁', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(view.includes('lastSeenChapterRef'), '必须记录最后所见章（结算依据）');
+  assert.ok(view.includes('recordChapter(prev.chapterIndex, prev.percent)'),
+    '跨章时先按最后所见结算被离开的章（跳章不丢进度）');
+  assert.ok(/stored >= percent\) return;/.test(view), '同章取历史最大值，回翻不降级');
+  assert.ok(view.includes('pendingChapterPatchRef'), '章进度补丁随防抖链路落库');
+  assert.ok(view.includes('saveBookProgress(item.id, pending, hasPatch ? patch : null)'),
+    'flush 必须带未落库的章进度补丁');
+  const lib = readSource('src/books/library.js');
+  assert.ok(lib.includes('mergeChapterProgress(target.chapterProgress, chapterProgressPatch)'),
+    '存储层合并同章取最大（只增不降是存储不变量）');
+  assert.ok(lib.includes('normalizeChapterProgress(source.chapterProgress)'), '条目归一化迁移按章进度');
+});
+
+test('DEV 行数守卫：可见页实测行数超过分页分配即告警', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  assert.ok(/onTextLayout=\{__DEV__ \? handlePageTextLayout : undefined\}/.test(view),
+    '守卫仅 DEV 期接线（发布路径零开销）');
+  assert.ok(view.includes('rendered > reader.page.lineCount'), '实测行数超分配即告警（断行漂移回潮的哨兵）');
+  // 守卫只挂可见页；测量 Text 的 onTextLayout 仍是测量链路的 handleTextLayout
+  assert.ok(view.includes('onTextLayout={reader.handleTextLayout}'), '测量 Text 接线保持不变');
+  // 注释修订：被证伪的旧断言不得回潮
+  const hook = readSource('src/books/useBookReader.js');
+  assert.ok(!hook.includes('绝不造成页面溢出'), '「测量漂移绝不溢出」旧断言已证伪，注释必须如实');
+  assert.ok(hook.includes('textBreakStrategy="simple"') || hook.includes('textBreakStrategy=\\"simple\\"'),
+    '头注释必须指明两处 Text 的 simple 断行约定');
 });
 
 test('章节定位条：打开停在当前章，拖动时显示第几章', () => {

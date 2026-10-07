@@ -1,10 +1,17 @@
 // 阅读器分页状态机：隐藏 Text 测量 → pagination.js 装箱 → 页导航。
 // 正确性关键（三处必须一致）：
 // 1. 隐藏测量 Text 与可见页 Text 用**同一份排版 props**（本模块 buildPageTextProps
-//    统一产出，字号/行高/断行策略任何一项不一致都会切页错位）；
+//    统一产出，字号/行高任何一项不一致都会切页错位）；
 // 2. 行高恒定（fontSize × LINE_HEIGHT_RATIO）：切页按「每页行数 = 页高 ÷ 行高」计算，
 //    不依赖各平台 onTextLayout 行对象里参差的 height 字段；
-// 3. 可见页只渲染「分到本页的行」——测量漂移最多影响断页位置，绝不造成页面溢出。
+// 3. 可见页只渲染「分到本页的行」，且两处 Text 的断行策略必须同为
+//    textBreakStrategy="simple"（组件 prop，在 BookReaderView 声明）。Android 默认
+//    HIGH_QUALITY 是段落感知均衡断行，同一行文字在「整块测量」与「行子集重排」
+//    两种上下文里断点可以不同——子集比测量多出一行，末行就被视图边界裁掉一半
+//    （旧注释的「绝不溢出」安全断言已被真机证伪，2026-10-07 修复）。
+//    simple 无记忆贪心断行与上下文无关，两处逐行一致；DEV 期另有可见页行数守卫
+//    （BookReaderView.handlePageTextLayout）即时暴露漂移。旧注释「测量漂移最多
+//    影响断页位置」的安全断言已被真机证伪，不得原样恢复。
 // 整书不能一次测量：按块（blocks.js）逐块测，跨块翻页时短暂进入 measuring 态。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,6 +24,8 @@ export const MEASURE_BUSY = 'busy';
 export const MEASURE_READY = 'ready';
 
 // 排版 props 的唯一来源：测量 Text 与可见页 Text 都从这里取。
+// 注意 textBreakStrategy 是组件 prop 不是样式键，不能进这里的返回值——
+// 它在 BookReaderView 的两处 Text 上直接声明（必须同为 "simple"，见文件头第 3 条）。
 export function buildPageTextProps({ fonts, fontSize, colors }) {
   const scaled = fonts.scaled(fontSize);
   return {

@@ -30,10 +30,11 @@ import { useApp } from '../context/AppContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 import { splitBookIntoBlocks } from './blocks.js';
+import { computeChapterPercent, normalizeChapterProgress } from './chapterProgress.js';
 import ChapterScrubber from './ChapterScrubber.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
-import { pageText } from './pagination.js';
+import { pageBodyText, pageText } from './pagination.js';
 import {
   PAGE_TURN_MODES,
   getBookReaderSettings,
@@ -190,18 +191,28 @@ export default function BookReaderView({ item, content, onBack }) {
     return found;
   }, [chapterEntries, readingBlockIndex]);
 
-  // 章节的**粗略**已读百分比：章内已读块 / 该章总块数。
-  // 一本书里块的大小基本均匀，够回答「这章读到哪了」，不追求精确。
-  const chapterReadPercent = useCallback(index => {
-    if (chapterEntries.length === 0) return 0;
-    const start = chapterEntries[index].blockIndex;
-    const end = index + 1 < chapterEntries.length
-      ? chapterEntries[index + 1].blockIndex
-      : Math.max(start + 1, blocks.length);
-    const total = Math.max(1, end - start);
-    const read = Math.min(total, Math.max(0, readingBlockIndex - start));
-    return Math.round((read / total) * 100);
-  }, [blocks.length, chapterEntries, readingBlockIndex]);
+  // ---- 按章阅读进度（2026-10-07「已读完」虚报修复）----
+  // 目录里每章的进度取自显式记录的 chapterProgress（chapterIndex → 0-100）：
+  // 只有真的读到的章才有百分比，其余一律「未读」；同章取历史最大不回退，
+  // 绝不从当前阅读位置反推历史章的进度（跳章集体虚报的根源）。
+  const [chapterProgressMap, setChapterProgressMap] = useState(
+    () => normalizeChapterProgress(item.chapterProgress)
+  );
+  const chapterProgressRef = useRef(chapterProgressMap);
+  const pendingChapterPatchRef = useRef({});
+  const lastSeenChapterRef = useRef(null);
+
+  // 当前章的页粒度百分比（4 面读到第 3 面 = 75%），location 就绪才有值。
+  const chapterPercent = useMemo(() => {
+    if (!location || chapterEntries.length === 0) return null;
+    return computeChapterPercent({
+      chapterEntries,
+      blockCount: Math.max(1, blocks.length),
+      blockIndex: location.blockIndex,
+      pageIndex: location.pageIndex,
+      pageCount: paged ? reader.pageCount : 1,
+    });
+  }, [blocks.length, chapterEntries, location, paged, reader.pageCount]);
 
   const jumpToBlock = useCallback(blockIndex => {
     if (paged) {
@@ -211,6 +222,41 @@ export default function BookReaderView({ item, content, onBack }) {
     setMdBlockIndex(blockIndex);
     if (mdListRef.current) mdListRef.current.scrollToIndex({ index: blockIndex, animated: false });
   }, [mdListRef, paged, reader]);
+
+  // ---- 目录列表定位与跟随（2026-10-07 修复）----
+  // 滑块松手跳章后 currentChapterIndex 重算，但 FlatList 视口不会自己动：
+  // 打开目录时定位到当前章（高亮行落在视口中部），跳章/过滤结果变化时跟随。
+  const chapterListRef = useRef(null);
+
+  const scrollToChapter = useCallback(chapterIndex => {
+    const list = chapterListRef.current;
+    if (!list) return;
+    const index = filteredChapters.findIndex(entry => entry.index === chapterIndex);
+    // 搜索过滤后目标章不在结果内：不打断用户搜索态，列表原地不动。
+    if (index < 0) return;
+    list.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  }, [filteredChapters]);
+
+  useEffect(() => {
+    if (!showChapters) return undefined;
+    // Modal 内容首帧尚未完成布局，scrollToIndex 可能直接失败——延一帧再定位，
+    // 失败仍有 onChapterScrollToIndexFailed 兜底。
+    const frame = requestAnimationFrame(() => scrollToChapter(currentChapterIndex));
+    return () => cancelAnimationFrame(frame);
+  }, [currentChapterIndex, scrollToChapter, showChapters]);
+
+  // 虚拟化窗口外的 scrollToIndex 会失败：先按平均行高滚到估算位置，下一帧重试
+  // （同 CharacterLibraryScreen 的成熟兜底）。
+  const onChapterScrollToIndexFailed = useCallback(({ index, averageItemLength }) => {
+    const list = chapterListRef.current;
+    if (!list) return;
+    const step = Math.max(1, Number(averageItemLength) || 60);
+    const target = Math.max(0, Number(index) || 0);
+    list.scrollToOffset?.({ offset: target * step, animated: false });
+    setTimeout(() => {
+      list.scrollToIndex?.({ index: target, viewPosition: 0.5, animated: true });
+    }, 120);
+  }, []);
 
   // 评论面板当前选中的角色：按钮文案要写具体名字（原来是「让TA聊聊这一页」）。
   const activeCharacter = useMemo(() => (
@@ -305,36 +351,60 @@ export default function BookReaderView({ item, content, onBack }) {
   // 阅读进度落库：翻页/滚动位置变化防抖 800ms 保存，退出阅读器时兜底保存一次。
   // 只存 { blockIndex, pageIndex, anchorText } —— 字号变化会改变页数，
   // 百分比是显示期计算值（见 library.js 注释）。
+  // 同一防抖链路顺带落按章进度补丁：跨章时先按最后所见结算被离开的章
+  // （跳章不丢进度），再记录当前章；同章取历史最大（回翻不降级）。
   const locationRef = useRef(null);
   locationRef.current = location;
   const progressTimerRef = useRef(null);
   const progressSavedRef = useRef('');
 
   useEffect(() => {
-    if (!location) return undefined;
+    if (!location || chapterPercent == null) return undefined;
+    const chapterIndex = currentChapterIndex;
+    const prev = lastSeenChapterRef.current;
+    lastSeenChapterRef.current = { chapterIndex, percent: chapterPercent };
+    const recordChapter = (index, percent) => {
+      if (!Number.isFinite(percent)) return;
+      const stored = Number(chapterProgressRef.current[index]);
+      if (Number.isFinite(stored) && stored >= percent) return; // 历史最大，不回退
+      chapterProgressRef.current = { ...chapterProgressRef.current, [index]: percent };
+      pendingChapterPatchRef.current[index] = percent;
+    };
+    recordChapter(chapterIndex, chapterPercent);
+    if (prev && prev.chapterIndex !== chapterIndex) recordChapter(prev.chapterIndex, prev.percent);
+    const patch = pendingChapterPatchRef.current;
+    if (Object.keys(patch).length > 0) setChapterProgressMap(chapterProgressRef.current);
     const stamp = `${location.blockIndex}:${location.pageIndex}:${location.anchorText}`;
-    if (stamp === progressSavedRef.current) return undefined;
+    const hasPatch = Object.keys(patch).length > 0;
+    if (stamp === progressSavedRef.current && !hasPatch) return undefined;
     progressTimerRef.current = setTimeout(() => {
       progressSavedRef.current = stamp;
-      saveBookProgress(item.id, location).catch(() => {});
+      pendingChapterPatchRef.current = {};
+      saveBookProgress(item.id, location, { ...patch }).catch(() => {});
     }, 800);
     return () => {
       if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
     };
-  }, [item.id, location]);
+  }, [chapterPercent, currentChapterIndex, item.id, location]);
 
-  // 退出兜底：防抖窗口内退出时立刻补写当前位置（fire-and-forget，失败不阻塞返回）。
+  // 退出兜底：防抖窗口内退出时立刻补写当前位置与未落库的章进度（fire-and-forget，
+  // 失败不阻塞返回）。location 为 null（未完成测量）时只补章进度、不动阅读位置。
   const flushProgress = useCallback(() => {
     if (progressTimerRef.current) {
       clearTimeout(progressTimerRef.current);
       progressTimerRef.current = null;
     }
     const pending = locationRef.current;
-    if (!pending) return;
-    const stamp = `${pending.blockIndex}:${pending.pageIndex}:${pending.anchorText}`;
-    if (stamp === progressSavedRef.current) return;
-    progressSavedRef.current = stamp;
-    saveBookProgress(item.id, pending).catch(() => {});
+    const patch = { ...pendingChapterPatchRef.current };
+    pendingChapterPatchRef.current = {};
+    const hasPatch = Object.keys(patch).length > 0;
+    if (!pending && !hasPatch) return;
+    const stamp = pending
+      ? `${pending.blockIndex}:${pending.pageIndex}:${pending.anchorText}`
+      : '';
+    if (stamp && stamp === progressSavedRef.current && !hasPatch) return;
+    if (stamp) progressSavedRef.current = stamp;
+    saveBookProgress(item.id, pending, hasPatch ? patch : null).catch(() => {});
   }, [item.id]);
 
   // 组件卸载（切页/换书等路径）同样兜底一次。flushProgress 幂等：
@@ -496,9 +566,28 @@ export default function BookReaderView({ item, content, onBack }) {
     return { transform: [{ translateX: pageAnim }] };
   }, [contentArea.width, pageAnim, pageTurn]);
 
+  // 断行策略两处 Text（可见页 + 下方测量 Text）必须同为 simple：Android 默认
+  // HIGH_QUALITY 是段落感知均衡断行，同一行文字在「整块测量」与「行子集重排」
+  // 两种上下文里断点可以不同 → 子集比测量多出一行 → 末行被视图边界裁掉一半
+  //（2026-10-07 真机修复）。simple 是无记忆贪心断行，与上下文无关，两处逐行
+  // 一致；它是组件 prop 不是样式键，不能进 buildPageTextProps 的 style。
   const pageBody = reader.status === MEASURE_READY && reader.page
-    ? pageText(reader.lines, reader.page)
+    ? pageBodyText(reader.lines, reader.page)
     : '';
+
+  // DEV 不变式守卫：可见页实测行数若超过分页分配的行数，说明断行漂移回来了
+  //（页尾末行会被视图边界裁掉一半）。它以两处 Text 的 simple 断行声明为前置
+  // 条件，只挂开发期告警，不参与发布逻辑。
+  const handlePageTextLayout = useCallback(event => {
+    if (!reader.page) return;
+    const rendered = ((event && event.nativeEvent && event.nativeEvent.lines) || []).length;
+    if (rendered > reader.page.lineCount) {
+      console.warn(
+        `[BookReader] line overflow: rendered ${rendered} lines > allocated`
+        + ` ${reader.page.lineCount} (block ${reader.blockIndex}, page ${reader.pageIndex})`
+      );
+    }
+  }, [reader]);
 
   return (
     <View style={styles.container}>
@@ -566,7 +655,13 @@ export default function BookReaderView({ item, content, onBack }) {
                 }}
               >
                 {pageBody ? (
-                  <Text style={[styles.pageText, textProps]}>{pageBody}</Text>
+                  <Text
+                    textBreakStrategy="simple"
+                    style={[styles.pageText, textProps]}
+                    onTextLayout={__DEV__ ? handlePageTextLayout : undefined}
+                  >
+                    {pageBody}
+                  </Text>
                 ) : (
                   <View style={styles.center}>
                     <ActivityIndicator color={theme.colors.primary} />
@@ -574,6 +669,7 @@ export default function BookReaderView({ item, content, onBack }) {
                 )}
                 <Text
                   key={`measure-${reader.measureNonce}`}
+                  textBreakStrategy="simple"
                   style={[styles.pageText, textProps, styles.measureText]}
                   onTextLayout={reader.handleTextLayout}
                 >
@@ -653,11 +749,14 @@ export default function BookReaderView({ item, content, onBack }) {
               ) : (
                 <FlatList
                   data={filteredChapters}
+                  ref={chapterListRef}
+                  onScrollToIndexFailed={onChapterScrollToIndexFailed}
                   keyExtractor={entry => `${entry.blockIndex}-${entry.index}`}
                   contentContainerStyle={styles.chapterList}
                   renderItem={({ item: entry }) => {
                     const current = entry.index === currentChapterIndex;
-                    const percent = chapterReadPercent(entry.index);
+                    // 三态：未记录 → 未读；≥100 → 已读完；其余按记录的百分比。
+                    const percent = chapterProgressMap[entry.index];
                     return (
                       <TouchableOpacity
                         style={[styles.chapterRow, current && styles.chapterRowCurrent]}
@@ -680,9 +779,11 @@ export default function BookReaderView({ item, content, onBack }) {
                           ) : null}
                         </View>
                         <Text style={styles.chapterPercent}>
-                          {percent >= 100
-                            ? t('books.reader.chapter.done')
-                            : t('books.reader.chapter.progress', { percent })}
+                          {percent == null
+                            ? t('books.reader.chapter.unread')
+                            : percent >= 100
+                              ? t('books.reader.chapter.done')
+                              : t('books.reader.chapter.progress', { percent })}
                         </Text>
                       </TouchableOpacity>
                     );
