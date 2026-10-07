@@ -24,13 +24,15 @@ import { createWorkspaceStore } from '../native.js';
 import ChatPanel from './ChatPanel.js';
 import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
+import TerminalPanel from './TerminalPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
 
-// 左栏四个领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub 再次，设置最后。
+// 左栏五个领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub / 终端再次，设置最后。
 const DOMAIN_KEYS = [
   { id: 'chat', icon: 'chatbubbles-outline', labelKey: 'workspace.screen.rail.chat' },
   { id: 'files', icon: 'folder-outline', labelKey: 'workspace.screen.rail.files' },
   { id: 'github', icon: 'logo-github', labelKey: 'workspace.screen.rail.github' },
+  { id: 'terminal', icon: 'terminal-outline', labelKey: 'workspace.screen.rail.terminal' },
   { id: 'settings', icon: 'settings-outline', labelKey: 'workspace.screen.rail.settings' },
 ];
 
@@ -153,6 +155,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
             ) : null}
             {panel === 'github' ? (
               <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
+            ) : null}
+            {panel === 'terminal' ? (
+              <TerminalPanel characterId={characterId} />
             ) : null}
             {panel === 'settings' ? (
               <WorkspaceSettingsPanel onClose={backToChat} />

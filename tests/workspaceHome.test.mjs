@@ -123,11 +123,13 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   assert.ok(SCREEN.includes("workspace.screen.rail.chat"), '左栏：对话');
   assert.ok(SCREEN.includes("workspace.screen.rail.files"), '左栏：文件');
   assert.ok(SCREEN.includes("workspace.screen.rail.github"), '左栏：GitHub');
+  assert.ok(SCREEN.includes("workspace.screen.rail.terminal"), '左栏：终端');
   assert.ok(SCREEN.includes("workspace.screen.rail.settings"), '左栏：设置');
   assert.ok(SCREEN.includes("useState('chat')"), '默认落在对话面板');
   assert.ok(SCREEN.includes('<ChatPanel'), '对话面板');
   assert.ok(SCREEN.includes('<FilesPanel'), '文件面板');
   assert.ok(SCREEN.includes('GithubPanel'), 'GitHub 面板');
+  assert.ok(SCREEN.includes('TerminalPanel'), '终端面板');
   assert.ok(SCREEN.includes('WorkspaceSettingsPanel'), '设置面板');
   assert.ok(SCREEN.includes("panel === 'chat'") && SCREEN.includes("panel === 'files'"), '面板互斥渲染');
 

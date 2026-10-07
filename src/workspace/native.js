@@ -93,6 +93,29 @@ export function shellGateReason(settings, { shellAvailable = false } = {}) {
   return '';
 }
 
+// 终端面板的门控（纯判定，可单测）。与 agent 的 run_shell 共用「允许执行命令」开关——
+// 不新开一条安全面：开关关着时终端也进不去。区别只在**不要求工作模式**（命令由用户亲手
+// 输入、不经过模型），以及不需要逐条确认（见 v4 §4）。外部根同样不可用：无 root 的 sh
+// 碰不到 SAF 的 content://。
+export function terminalGateReason(settings, { shellAvailable = false } = {}) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  if (source.allowCommandExecution !== true) return 'SWITCH_OFF';
+  if (normalizeWorkspaceLocation(source.location).kind === WORKSPACE_ROOT_KINDS.SAF) return 'EXTERNAL_ROOT';
+  if (!shellAvailable) return 'SHELL_NOT_AVAILABLE';
+  return '';
+}
+
+// 终端的工作目录根：应用私有工作区的**真实路径**（file:// 转绝对路径）。
+// 门控不过或路径拿不到时返回 null（面板据此显示原因，而不是执行了再报错）。
+export function resolveTerminalSandboxRoot(settings, { shellAvailable = false } = {}) {
+  if (terminalGateReason(settings, { shellAvailable }) !== '') return null;
+  try {
+    return sandboxPathFromUri(defaultWorkspaceRoot()).replace(/\/+$/, '');
+  } catch (error) {
+    return null;
+  }
+}
+
 // 返回 null 表示「不注册」，而不是「注册了再报错」。
 export function resolveShellRunner(settings) {
   if (shellGateReason(settings, { shellAvailable: isShellAvailable() }) !== '') return null;
