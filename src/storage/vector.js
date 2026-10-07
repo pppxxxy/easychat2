@@ -133,6 +133,21 @@ function normalizeVectorIndex(index) {
       text: String(item.text),
       vector: Array.isArray(item.vector) ? item.vector.map(Number) : [],
       signature: String(item.signature || ''),
+      // 溯源字段（记忆溯源）：普通记忆由某条消息切出，来源就是 messageId；
+      // AI 合并出来的记忆（origin='merged'）来源的两条原文已被删除，只能靠
+      // mergedFrom 快照留证，否则证据链会随合并一起断掉。
+      origin: item.origin === 'merged' ? 'merged' : 'message',
+      mergedFrom: Array.isArray(item.mergedFrom)
+        ? item.mergedFrom
+          .filter(entry => entry && entry.id)
+          .map(entry => ({
+            id: String(entry.id),
+            sessionId: String(entry.sessionId || ''),
+            messageId: String(entry.messageId || ''),
+            text: String(entry.text || ''),
+            at: Number(entry.at) || 0,
+          }))
+        : [],
     }));
 }
 

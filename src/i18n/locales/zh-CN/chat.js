@@ -148,6 +148,7 @@ export const chat = {
   'chat.modelLoad.progress': '本地模型加载中 {progress}%',
   'chat.menu.notice': '公告',
   'chat.menu.export': '导出对话',
+  'chat.menu.memoryProvenance': '记忆溯源',
   'chat.menu.sessionStats': '本会话统计',
   'chat.stats.title': '本会话统计',
   'chat.stats.messages': '消息条数',

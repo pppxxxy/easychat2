@@ -156,6 +156,7 @@ import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import SessionStatsModal from './chat/SessionStatsModal.js';
+import MemoryProvenanceModal from './memory/MemoryProvenanceModal.js';
 import { summarizeStats } from './chat/sessionStats.js';
 import { clearSessionStats, getSessionStats } from './storage/sessionStats.js';
 import ConversationExportModal from './chat/ConversationExportModal.js';
@@ -335,6 +336,8 @@ export default function ChatScreen() {
   // 本会话统计面板：打开时读该会话的累计数据（请求链路在 useChatSend 里打点）。
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsSummary, setStatsSummary] = useState(null);
+  // 记忆溯源面板：按当前角色读向量记忆索引，做溯源与冲突检测。
+  const [memoryProvenanceOpen, setMemoryProvenanceOpen] = useState(false);
    const [attachments, setAttachments] = useState([]);
    const attachmentsRef = useRef([]);
    attachmentsRef.current = attachments;
@@ -2709,6 +2712,14 @@ export default function ChatScreen() {
           },
           // 其他：低频与系统入口
           {
+            key: 'memory-provenance',
+            section: t('chat.menu.section.other'),
+            label: t('chat.menu.memoryProvenance'),
+            icon: 'git-network-outline',
+            disabled: !characterId,
+            onPress: () => setMemoryProvenanceOpen(true),
+          },
+          {
             key: 'session-stats',
             section: t('chat.menu.section.other'),
             label: t('chat.menu.sessionStats'),
@@ -2747,7 +2758,7 @@ export default function ChatScreen() {
         onClear={clearSessionStatsForActive}
       />
 
-      <ConversationExportModal
+<ConversationExportModal
         visible={exportOpen}
         onClose={() => setExportOpen(false)}
         messages={messages}
@@ -2763,6 +2774,14 @@ export default function ChatScreen() {
         messages={selectedMessagesForCard}
         characterName={String(character.name || '')}
         userName={String(userNameRef.current || '')}
+      />
+
+      <MemoryProvenanceModal
+        visible={memoryProvenanceOpen}
+        onClose={() => setMemoryProvenanceOpen(false)}
+        characterId={characterId}
+        characterName={String(character.name || '')}
+        sessions={sessions}
       />
 
       <ChatSettingsModal

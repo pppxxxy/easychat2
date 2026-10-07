@@ -148,6 +148,7 @@ export const chat = {
   'chat.modelLoad.progress': 'Loading local model {progress}%',
   'chat.menu.notice': 'Announcement',
   'chat.menu.export': 'Export chat',
+  'chat.menu.memoryProvenance': 'Memory provenance',
   'chat.menu.sessionStats': 'Session stats',
   'chat.stats.title': 'Session stats',
   'chat.stats.messages': 'Messages',
