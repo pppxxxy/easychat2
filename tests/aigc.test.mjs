@@ -16,6 +16,7 @@ import {
 } from '../src/aigc/attribution.js';
 import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from '../src/onboarding/disclaimerContent.js';
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { createForgeDraft, draftFromCharacter, draftToCharacterPatch, mergeDraft, parseCardPatch, projectForgeDraft } from '../src/cardForge/forge.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const readSource = name => readFileSync(path.join(HERE, '..', ...name), 'utf8');
@@ -103,8 +104,29 @@ test('AI 生成卡的角色页徽标与导出注入', () => {
   assert.ok(CARD_EXPORTER.includes('appendExportNotice(String(source.creatorNotes || \'\')'));
   assert.ok(CARD_EXPORTER.includes('aigc_meta: aigcMeta'));
   assert.ok(CARD_EXPORTER.includes('isValidAigcMeta(source.aigcMeta)'));
-  // 制卡导入链路把 aigcMeta 带进角色库
-  assert.ok(readSource(['src', 'cardForge', 'forge.js']).includes('aigcMeta: source.aigcMeta'));
+});
+
+test('制卡导入、AI 改写和角色回写保留原始生成标识', () => {
+  const meta = buildAigcMeta({ model: 'test-model', generatedAt: 1700000000000 });
+  const draft = draftFromCharacter({ name: '原角色', aigcMeta: meta });
+  assert.strictEqual(draft.aigcMeta, meta);
+  assert.equal(Object.hasOwn(projectForgeDraft(draft), 'aigcMeta'), false);
+  const patch = parseCardPatch(JSON.stringify({ name: '新角色', aigcMeta: { source: 'replacement' } }));
+  assert.deepEqual(patch, { name: '新角色' });
+  const merged = mergeDraft(draft, patch, 1).draft;
+  assert.strictEqual(merged.aigcMeta, meta);
+  const character = draftToCharacterPatch(merged, { now: 1 });
+  assert.equal(character.name, '新角色');
+  assert.strictEqual(character.aigcMeta, meta);
+  assert.equal(createForgeDraft().aigcMeta, null);
+  for (const invalid of [undefined, null, '', 'invalid', 1, false]) {
+    assert.equal(draftFromCharacter({ aigcMeta: invalid }).aigcMeta, null);
+    assert.equal(draftToCharacterPatch({ aigcMeta: invalid }).aigcMeta, null);
+  }
+  // Preserve the existing distinction between character import and direct draft export.
+  const array = [meta];
+  assert.equal(draftFromCharacter({ aigcMeta: array }).aigcMeta, null);
+  assert.strictEqual(draftToCharacterPatch({ aigcMeta: array }).aigcMeta, array);
 });
 
 test('动态与生图界面有 AI 生成显式标识', () => {
