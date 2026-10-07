@@ -70,7 +70,8 @@ export function normalizeWorkspaceChange(raw) {
   return {
     id: String(source.id || `chg-${Math.random().toString(36).slice(2, 10)}`),
     at: Math.max(0, Math.floor(Number(source.at)) || 0),
-    op: ['write', 'edit', 'delete'].includes(source.op) ? source.op : 'write',
+    // import = 批量导入的汇总条目（一次导入一条，count 为写入文件数）。
+    op: ['write', 'edit', 'delete', 'import'].includes(source.op) ? source.op : 'write',
     path: truncate(source.path, 200),
     created: source.created === true,
     length: Math.max(0, Math.floor(Number(source.length)) || 0),

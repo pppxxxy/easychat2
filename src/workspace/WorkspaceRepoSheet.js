@@ -5,7 +5,7 @@
 // 产物是**分支快照**：没有 .git 历史；提交回 GitHub 由工作区 agent 走 GitHub 工具。
 // URL/解析/限额/zip-slip 全部在 repoImport.js（纯函数，Node 直测），这里只做流程与渲染。
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -56,11 +56,15 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
   const [branch, setBranch] = useState('');
   const [busy, setBusy] = useState(false);
   const [errorText, setErrorText] = useState('');
+  // 导入进度与取消：600 文件的仓库此前只有一个转圈，用户既不知道写到哪、也没法停。
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const cancelRef = useRef(false);
 
   const reset = useCallback(() => {
     setRepos([]); setRepoPage(1); setReposDone(false); setSearch('');
     setPublicInput(''); setSelectedRepo(null); setBranches([]); setBranch('');
-    setBusy(false); setErrorText('');
+    setBusy(false); setErrorText(''); setProgress({ done: 0, total: 0 });
+    cancelRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -173,13 +177,16 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
     const written = [];
     try {
       for (let index = 0; index < files.length; index += 1) {
+        if (cancelRef.current) {
+          throw Object.assign(new Error('import cancelled'), { code: 'REPO_CANCELLED' });
+        }
         const file = files[index];
         const path = `${base}${file.path}`;
         if (!overwrite && existingPaths.has(path)) continue;
         await store.writeWorkspaceFile({ characterId, path, content: file.content });
         written.push(path);
-        if (index % 10 === 9 || index === files.length - 1) {
-          setBusy(true);
+        if (index % 5 === 4 || index === files.length - 1) {
+          setProgress({ done: written.length, total: files.length });
         }
       }
     } catch (error) {
@@ -198,6 +205,9 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
     const repo = selectedRepo.repo;
     setBusy(true);
     setErrorText('');
+    setProgress({ done: 0, total: 0 });
+    cancelRef.current = false;
+    let batchOpen = false;
     try {
       setPhase('importing');
       const zipUrl = buildRepoZipUrl({ owner: selectedRepo.owner, repo, branch: branchName });
@@ -210,7 +220,7 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
         throw Object.assign(new Error('zip too large (Content-Length)'), { code: 'REPO_LIMIT_DOWNLOAD' });
       }
       const buffer = await response.arrayBuffer();
-      const { files, skippedBinary, skippedSlip, skippedOversize } = extractRepoFiles(
+      const { files, skippedBinary, skippedSlip, skippedOversize, skippedDirs } = extractRepoFiles(
         new Uint8Array(buffer),
         `${repo}-${branchName}/`
       );
@@ -243,7 +253,13 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
         }
         overwrite = choice === 'overwrite';
       }
+      // 批量导入期间挂起逐文件历史，结束时合成一条汇总——600 文件的仓库不再刷 600 条。
+      if (typeof store.beginBatch === 'function') {
+        store.beginBatch(characterId, { path: base });
+        batchOpen = true;
+      }
       const { written } = await writeImportedFiles(repo, branchName, files, existingPaths, overwrite);
+      if (batchOpen) { store.endBatch?.(); batchOpen = false; }
       if (typeof onImported === 'function') onImported();
       setPhase('list');
       Alert.alert(
@@ -253,10 +269,17 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
           binary: skippedBinary,
           oversize: skippedOversize,
           slip: skippedSlip,
+          dirs: skippedDirs,
         })
       );
     } catch (error) {
+      // 取消/失败都要收掉批：取消是回滚，不落汇总条目。
+      if (batchOpen) { store.abortBatch?.(); batchOpen = false; }
       setPhase('branches');
+      if (error && error.code === 'REPO_CANCELLED') {
+        Alert.alert(t('workspace.panel.repo.title'), t('workspace.panel.repo.cancelled'));
+        return;
+      }
       Alert.alert(
         t('workspace.panel.repo.title'),
         t('workspace.panel.repo.errImport'),
@@ -267,6 +290,7 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
       );
     } finally {
       setBusy(false);
+      setProgress({ done: 0, total: 0 });
     }
   }, [busy, characterId, onImported, selectedRepo, storeRef, t, token, writeImportedFiles]);
 
@@ -395,7 +419,18 @@ export default function WorkspaceRepoSheet({ visible, onClose, characterId, stor
           {phase === 'importing' ? (
             <View style={styles.center}>
               <ActivityIndicator color={theme.colors.primary} />
-              <Text style={styles.importingText}>{t('workspace.panel.repo.importing')}</Text>
+              <Text style={styles.importingText}>
+                {progress.total > 0
+                  ? t('workspace.panel.repo.progress', { done: progress.done, total: progress.total })
+                  : t('workspace.panel.repo.importing')}
+              </Text>
+              <View style={styles.actions}>
+                <PrimaryButton
+                  title={t('workspace.panel.repo.cancel')}
+                  small
+                  onPress={() => { cancelRef.current = true; }}
+                />
+              </View>
             </View>
           ) : null}
         </ScrollView>

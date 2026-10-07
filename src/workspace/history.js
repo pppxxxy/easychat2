@@ -37,6 +37,29 @@ export function buildChangeEntry(input = {}, { now = Date.now(), idFactory } = {
   };
 }
 
+// 批量导入的汇总记录：一次导入只记一条，而不是每文件一条。
+// 600 文件的仓库逐文件记 = 600 条历史 + 600 次存在性探测，历史页直接被刷屏；
+// 汇总条把「导入了哪个仓库目录、写了多少文件」一次说清（明细仍可从文件列表看）。
+export function buildBatchEntry(input = {}, { now = Date.now(), idFactory } = {}) {
+  const source = input && typeof input === 'object' ? input : {};
+  const makeId = typeof idFactory === 'function'
+    ? idFactory
+    : () => `chg-${now}-${++changeSeq}`;
+  return {
+    id: makeId(),
+    at: now,
+    op: 'import',
+    path: truncate(source.path, 200),
+    created: false,
+    length: 0,
+    base64Length: 0,
+    count: Math.max(0, Math.floor(Number(source.count)) || 0),
+    all: false,
+    find: '',
+    replace: '',
+  };
+}
+
 // 惰性 require：本模块保持零静态依赖（Node 测试直接注入 record 即可）。
 function defaultRecord(characterId, entry) {
   try {
@@ -66,9 +89,33 @@ export function createHistoryRecordingStore(store, { record } = {}) {
       return false;
     }
   };
+  // 批量导入：beginBatch 之后逐文件写不再各记一条（导入 600 文件 = 600 条历史），
+  // 只累计数量，endBatch 时合成一条汇总；abortBatch（取消/回滚）什么都不记。
+  // 批内也跳过 probeExists——批量导入里「这个文件是不是新建」对每个文件都没有意义，
+  // 每写一个文件多一次原生探测纯属浪费。
+  let batch = null;
   return {
     ...store,
+    beginBatch(characterId, meta = {}) {
+      batch = { characterId, count: 0, path: String((meta && meta.path) || '') };
+    },
+    endBatch() {
+      if (!batch) return null;
+      const done = batch;
+      batch = null;
+      recordSafely(done.characterId, buildBatchEntry({ path: done.path, count: done.count }));
+      return done;
+    },
+    abortBatch() {
+      batch = null;
+    },
     async writeWorkspaceFile(args = {}) {
+      if (batch) {
+        const result = await store.writeWorkspaceFile(args);
+        batch.count += 1;
+        if (!batch.path) batch.path = (result && result.path) || args.path;
+        return result;
+      }
       const existed = await probeExists(args.characterId, args.path);
       const result = await store.writeWorkspaceFile(args);
       recordSafely(args.characterId, buildChangeEntry({
@@ -80,6 +127,11 @@ export function createHistoryRecordingStore(store, { record } = {}) {
       return result;
     },
     async writeWorkspaceBinaryFile(args = {}) {
+      if (batch) {
+        const result = await store.writeWorkspaceBinaryFile(args);
+        batch.count += 1;
+        return result;
+      }
       const existed = await probeExists(args.characterId, args.path);
       const result = await store.writeWorkspaceBinaryFile(args);
       recordSafely(args.characterId, buildChangeEntry({
@@ -105,7 +157,8 @@ export function createHistoryRecordingStore(store, { record } = {}) {
     },
     async deleteFile(args = {}) {
       const result = await store.deleteFile(args);
-      if (result && result.deleted) {
+      // 批内的删除是导入失败时的回滚，不是用户改动，不单独记账。
+      if (result && result.deleted && !batch) {
         recordSafely(args.characterId, buildChangeEntry({
           op: 'delete',
           path: (result && result.path) || args.path,

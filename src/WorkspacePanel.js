@@ -63,6 +63,7 @@ const CHANGE_OP_META = {
   write: { icon: 'document-text-outline', labelKey: 'workspace.panel.history.op.write' },
   edit: { icon: 'create-outline', labelKey: 'workspace.panel.history.op.edit' },
   delete: { icon: 'trash-outline', labelKey: 'workspace.panel.history.op.delete' },
+  import: { icon: 'cloud-download-outline', labelKey: 'workspace.panel.history.op.import' },
 };
 
 // 思考强度四档；off = 关闭思考（enabled: false），其余对应 level。
@@ -909,6 +910,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
                               {entry.op === 'write' && entry.created ? ` · ${t('workspace.panel.history.created')}` : ''}
                               {entry.op === 'edit' ? ` · ${t('workspace.panel.history.replaced', { count: entry.count })}${entry.all ? `（${t('workspace.panel.history.all')}）` : ''}` : ''}
                               {entry.op === 'delete' ? ` · ${t('workspace.panel.history.deleted')}` : ''}
+                              {entry.op === 'import' ? ` · ${t('workspace.panel.history.imported', { count: entry.count })}` : ''}
                             </Text>
                           </View>
                           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
@@ -926,7 +928,9 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
                             <Text style={styles.changeDetailText}>
                               {entry.op === 'delete'
                                 ? t('workspace.panel.history.deleted')
-                                : t('workspace.panel.history.detail.write', { chars: entry.length })}
+                                : entry.op === 'import'
+                                  ? t('workspace.panel.history.detail.import', { count: entry.count, path: entry.path })
+                                  : t('workspace.panel.history.detail.write', { chars: entry.length })}
                             </Text>
                           </View>
                         ) : null}
@@ -1159,7 +1163,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   collapsedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
   collapsedHeaderText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12.5), fontWeight: '600' },
-  fileToolsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  // flexWrap 是止血：四个按钮横排不换行时，窄屏末位会被裁成「📂 查...」（真机截图）。
+  fileToolsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 },
   fileToolButton: {
     flexDirection: 'row',
     alignItems: 'center',
