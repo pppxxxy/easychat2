@@ -1,0 +1,26 @@
+// i18n 词条 · app 域（zh-CN 基准）。聚合入口见 ../zh-CN.js。
+  // ---- 应用外壳 / 底部导航（App.js）----
+export const app = {
+  'app.tab.chat': '聊天',
+  'app.tab.memory': '记忆',
+  'app.tab.character': '角色',
+  'app.tab.extension': '扩展',
+  'app.tab.settings': '设置',
+  'app.crash.title': '启动失败',
+  'app.crash.hint': '请把以下内容截图反馈：',
+  'app.save.failed.title': '保存失败',
+  'app.save.failed.body': '完成状态保存失败，请重试。',
+  'app.migration.failed.title': '启动迁移失败',
+  'app.migration.failed.body': '旧聊天记录整理未能完成，请检查存储空间后重启应用。',
+  'app.crash.copy': '复制反馈内容',
+  'app.crash.copied.title': '已复制',
+  'app.crash.copied.body': '崩溃信息已复制到剪贴板，可直接粘贴反馈。',
+  'app.openRole.failed.title': '打开失败',
+  'app.openRole.failed.body': '该角色可能已删除，无法打开主动消息会话。',
+  'app.tabLeave.title': '未保存的修改',
+  'app.tabLeave.body': '角色编辑尚未保存，修改不会在聊天中生效。切换标签不会丢失编辑，退出应用会丢失。',
+  'app.tabLeave.stay': '留下编辑',
+  'app.tabLeave.leave': '直接离开',
+  'app.tabLeave.saveAndLeave': '保存并离开',
+  'app.default.userName': '用户',
+};

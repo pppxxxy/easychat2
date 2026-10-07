@@ -37,7 +37,6 @@ import { runDiaryIfNewDay, shouldRunDiaryForDay } from '../src/diary/diaryStartu
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
-const STORAGE_SOURCE = read('storage.js');
 const DIARY_STORAGE_SOURCE = read('storage/diary.js');
 const RUNNER_SOURCE = read('diary/runDiary.js');
 const PANEL_SOURCE = read('DiaryPanel.js');

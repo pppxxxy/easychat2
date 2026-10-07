@@ -1,0 +1,21 @@
+// i18n 词条 · sessionRecovery 域（zh-CN 基准）。聚合入口见 ../zh-CN.js。
+export const sessionRecovery = {
+  'sessionRecovery.title': '关闭',
+  'sessionRecovery.back': '返回列表',
+  'sessionRecovery.subtitleGroup': '这段对话原本属于哪个角色？选定后，它和它的记忆摘要都会回到列表里。',
+  'sessionRecovery.subtitleSingle': '（无预览）',
+  'sessionRecovery.previewLabel': '{count} 条消息 · {time}',
+  'sessionRecovery.noPreview': ' · 疑似群聊（{speakers} 位）',
+  'sessionRecovery.meta': '没有可选角色',
+  'sessionRecovery.timeUnknown': '请先在角色页创建或导入角色。',
+  'sessionRecovery.a11y.recoverTo': '恢复到 {name}',
+  'sessionRecovery.unnamedCharacter': '未命名角色',
+  'sessionRecovery.subtitleList': '这些对话的消息都还在，只是会话记录丢了（旧版本新建对话时误删）。点进任意一段，选它原本属于哪个角色即可找回。',
+  'sessionRecovery.subtitleEmpty': '没有发现丢失的对话。',
+  'sessionRecovery.a11y.pickSession': '选择这段对话',
+  'sessionRecovery.metaGroup': ' · 疑似群聊',
+  'sessionRecovery.metaGroupSuffix': ' · 疑似群聊（{count} 位）',
+  'sessionRecovery.noCharacters.desc': '请先在角色页创建或导入角色。',
+  'sessionRecovery.noCharacters.title': '没有可选角色',
+  'sessionRecovery.recommended': '推荐',
+};

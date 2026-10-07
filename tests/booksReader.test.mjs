@@ -10,6 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 function readSource(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -132,7 +133,7 @@ test('导入失败提示按 code 走文案键，不渲染原始 error.message', 
   assert.ok(/error\.code = 'EMPTY_BOOK'/.test(imp), '空内容错误必须带 code 才能被上层的文案分支识别');
 
   for (const locale of ['zh-CN', 'en']) {
-    const table = readSource(`src/i18n/locales/${locale}.js`);
+    const table = localeSource(`src/i18n/locales/${locale}`);
     for (const key of keys) {
       assert.ok(table.includes(`'${key}'`), `${locale} 缺少文案键 ${key}`);
     }

@@ -30,7 +30,6 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
-const STORAGE_SOURCE = read('storage.js');
 const STORAGE_WORLD_MAP_SOURCE = read('storage/worldMap.js');
 const PANEL_SOURCE = read('MapPanel.js');
 

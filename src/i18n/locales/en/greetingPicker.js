@@ -1,0 +1,20 @@
+// i18n 词条 · greetingPicker 域（English）。聚合入口见 ../en.js。
+export const greetingPicker = {
+  'greetingPicker.title': 'Choose a greeting',
+  'greetingPicker.closeA11y': 'Close',
+  'greetingPicker.hintSelect': 'Once chosen, new conversations will use this greeting by default. You can also edit or add one.',
+  'greetingPicker.hintMultiple': 'This card has multiple greetings — pick one as the greeting; you can also edit or add. Unpicked ones are kept as alternate greetings.',
+  'greetingPicker.hintEmpty': 'This card has no greeting — add one, or skip.',
+  'greetingPicker.none': 'No greeting (I\'ll speak first)',
+  'greetingPicker.firstLabel': 'Greeting',
+  'greetingPicker.itemLabel': 'Greeting {n}',
+  'greetingPicker.emptyItem': '(blank — fill in below)',
+  'greetingPicker.removeA11y': 'Delete this greeting',
+  'greetingPicker.add': 'Add one',
+  'greetingPicker.editLabel': 'Edit the selected greeting',
+  'greetingPicker.editPlaceholder': 'Write the greeting',
+  'greetingPicker.cancel': 'Cancel',
+  'greetingPicker.saving': 'Saving...',
+  'greetingPicker.useThis': 'Use this greeting',
+  'greetingPicker.import': 'Import',
+};

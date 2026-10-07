@@ -10,6 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 function readSource(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -39,7 +40,7 @@ test('ScreenWatchScreen：截屏→评论→接话接线', () => {
   assert.ok(source.includes('setPendingQuote'), '接话复用 pendingQuote');
   // 限制文案已迁 i18n：断言 key 存在，并断言基准语言词条确实说明了限制
   assert.ok(source.includes("t('screenWatch.limits')"), 'v1 固有限制必须如实告知用户（i18n key）');
-  const zh = readSource('src/i18n/locales/zh-CN.js');
+  const zh = localeSource('src/i18n/locales/zh-CN');
   assert.ok(zh.includes('只包含本应用的画面') && zh.includes('悬浮窗'),
     'zh-CN 限制词条必须说明只截本应用、跨应用走悬浮窗');
   // NO_VISION 分流在 hook 层（面板只显示 hook 给的错误文案）

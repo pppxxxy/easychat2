@@ -1,0 +1,31 @@
+// i18n 词条 · common 域（zh-CN 基准）。聚合入口见 ../zh-CN.js。
+  // ---- 通用 ----
+  // ---- i18n 迁移批次：硬编码中文清理（2026-10-05）----
+export const common = {
+  'common.characterFallback': '角色',
+  'common.cancel': '取消',
+  'common.confirm': '确定',
+  'common.save': '保存',
+  'common.saving': '保存中...',
+  'common.delete': '删除',
+  'common.close': '关闭',
+  'common.retry': '重试',
+  'common.copy': '复制',
+  'common.copied': '已复制',
+  'common.done': '完成',
+  'common.loading': '处理中...',
+  'common.hintLabel': '说明',
+  'common.expand': '展开{label}',
+  'common.collapse': '收起{label}',
+  'common.notSet': '未填写',
+  'common.error.retry': '请重试。',
+  'common.groupChat': '群聊',
+  'common.error.saveFailed': '保存失败',
+  'common.error.deleteFailed': '删除失败',
+  'common.error.storageOrPermission': '请检查存储空间或权限。',
+  'common.error.retryLater': '请稍后重试。',
+  'common.detecting': '检测中...',
+  'common.on': '关',
+  'common.off': '清理下载残留',
+  'common.unnamedCharacter': '未命名角色',
+};

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 import {
   OVERLAY_EVENT_CAPTURE,
@@ -113,8 +114,8 @@ test('跨应用截屏兜底：屏幕静止时用最近帧交付，不空等超�
 });
 
 test('识图测试：改名 + 失败暴露真实原因（不再一律甩「检查 API 配置」）', () => {
-  const zh = read('src/i18n/locales/zh-CN.js');
-  const en = read('src/i18n/locales/en.js');
+  const zh = localeSource('src/i18n/locales/zh-CN');
+  const en = localeSource('src/i18n/locales/en');
   assert.ok(zh.includes("'screenWatch.capture': '识图测试'"), '按钮改名「识图测试」');
   assert.ok(en.includes("'screenWatch.capture': 'Vision test'"), '英文同步改名');
   assert.ok(!zh.includes('截屏给TA看看'), '旧名移除');

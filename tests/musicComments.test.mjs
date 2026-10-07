@@ -11,6 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 function readSource(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -80,8 +81,8 @@ test('听歌面板：无音频能力时给出提示接线', () => {
   assert.ok(hook.includes('prepareSongAudioForModel') && hook.includes('voiceAudio'), '具备能力时把歌曲音频随请求发送');
   assert.ok(hook.includes('sendWithModelProvider'), '经模型路由（本地多模态优先）');
   assert.ok(hook.includes('filterRequestMedia'), '本地/在线分别按能力裁剪媒体');
-  const zh = readSource('src/i18n/locales/zh-CN.js');
-  const en = readSource('src/i18n/locales/en.js');
+  const zh = localeSource('src/i18n/locales/zh-CN');
+  const en = localeSource('src/i18n/locales/en');
   assert.ok(zh.includes("'music.comments.noAudio'") && en.includes("'music.comments.noAudio'"),
     '中英文案齐备');
 });

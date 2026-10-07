@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 function read(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -20,8 +21,8 @@ const GENERAL = read('src/workspace/WorkspaceGeneralSettings.js');
 const PROJECT_SHEET = read('src/workspace/WorkspaceProjectSheet.js');
 const PANEL = read('src/WorkspacePanel.js');
 const SETTINGS = read('src/SettingsScreen.js');
-const ZH = read('src/i18n/locales/zh-CN.js');
-const EN = read('src/i18n/locales/en.js');
+const ZH = localeSource('src/i18n/locales/zh-CN');
+const EN = localeSource('src/i18n/locales/en');
 
 test('主界面：进来就是聊天，左列四入口 + 预留位，右上退出叉', () => {
   assert.ok(CHAT.includes("t('workspace.rail.newChat')"), '左列：新建对话');

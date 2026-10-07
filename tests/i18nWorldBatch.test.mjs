@@ -10,6 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 const FILES = [
   'src/extension/ExtensionHome.js',
@@ -105,7 +106,7 @@ test('插值占位符：中英一致（漏参数会让界面露出 {xxx}）', as
 });
 
 test('「角色」兜底走 common.characterFallback，评论落库不再写入默认名', () => {
-  const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN.js'), 'utf8');
+  const zh = localeSource('src/i18n/locales/zh-CN');
   assert.ok(zh.includes("'common.characterFallback': '角色'"));
   // 三个评论 hook 落库时 characterName 允许为空（显示层补），否则切语言后旧评论不会变
   ['src/music/useMusicComments.js', 'src/books/useBookComments.js', 'src/screenWatch/useScreenWatchComments.js']
