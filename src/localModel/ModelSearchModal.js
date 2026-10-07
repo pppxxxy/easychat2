@@ -36,7 +36,7 @@ function tierColor(theme, tier) {
   return theme.colors.textFaint;
 }
 
-export default function ModelSearchModal({ visible, onClose, initialSourceId, onSelect, totalMemoryBytes = 0 }) {
+export default function ModelSearchModal({ visible, onClose, initialSourceId, initialQuery = '', onSelect, totalMemoryBytes = 0 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -65,17 +65,22 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, on
   useEffect(() => {
     if (!visible) return;
     setSourceId(initialSourceId || 'huggingface');
-    setQuery('');
+    setQuery(initialQuery || '');
     setBusy(false);
     setFilesBusy(false);
     setError('');
     setResults(null);
     setActiveRepo(null);
     setFiles(null);
-  }, [visible, initialSourceId]);
+    // 从模型库「未安装精选卡」进入：带上仓库坐标，自动搜一次直达文件层。
+    const seed = String(initialQuery || '').trim();
+    if (seed) {
+      runSearch(seed);
+    }
+  }, [visible, initialSourceId, initialQuery]);
 
-  const runSearch = async () => {
-    const text = query.trim();
+  const runSearch = async override => {
+    const text = String(override !== undefined ? override : query).trim();
     if (!text || busy) return;
     setBusy(true);
     setError('');

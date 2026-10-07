@@ -25,6 +25,8 @@ const PANEL_FILES = [
   'panelFeedback.js',
   'panelStyles.js',
   'ModelsSection.js',
+  'ModelCard.js',
+  'DownloadTasks.js',
   'EngineCard.js',
   'AcquireSection.js',
   'ApiServerSection.js',
@@ -32,6 +34,7 @@ const PANEL_FILES = [
 ];
 const PANEL = [SHELL, ...PANEL_FILES.map(readPanel)].join('\n');
 const MODELS_SECTION = readPanel('ModelsSection.js');
+const MODEL_CARD = readPanel('ModelCard.js');
 const ACQUIRE_SECTION = readPanel('AcquireSection.js');
 const USE_ACQUIRE = readPanel('useAcquireModel.js');
 const USE_API = readPanel('useApiServer.js');
@@ -153,20 +156,24 @@ test('U5：搜索选中静默回填，仅「跑不了」档弹警示', () => {
   assert.ok(PANEL.includes("summary.compatibility.tier !== 'incompatible'"));
 });
 
-test('U6：模型行长按操作单（参数/删除），常驻仅 选用/加载', () => {
-  assert.ok(MODELS_SECTION.includes('onLongPress={() => onEntryActions(entry)}'));
-  const start = PANEL.indexOf('const onEntryActions');
-  const region = PANEL.slice(start, PANEL.indexOf('export function createParamsSaver'));
-  assert.ok(region.includes('onEditParams(entry)'), '长按操作单里的「参数」应打开参数弹窗');
-  assert.ok(region.includes('confirmDelete(entry)'));
-  assert.ok(region.includes("t('localModel.chip.imported')"), '来源信息应进长按操作单副标题');
-  // 常驻四按钮退役：展开机制与行内常驻 参数/删除 按钮已删
-  assert.ok(!PANEL.includes('expandedId'), '展开/收起机制应已退役');
-  // 行内只保留 选用/加载；识图/听声合并为多模态 chip（精确锚避免误伤提示文案）
-  assert.ok(MODELS_SECTION.includes("t('localModel.chip.multimodal')"));
-  assert.ok(!MODELS_SECTION.includes('>识图<'));
-  assert.ok(!MODELS_SECTION.includes('>听声<'));
-  assert.ok(!MODELS_SECTION.includes('options-outline'));
+test('模型卡（v5 Stage C）：设为当前/参数 + ⋯ 菜单（加载/卸载、删除），常驻动作归位', () => {
+  // 卡片原语：参数走 onEditParams，删除走 ⋯ 菜单里的 onDelete
+  assert.ok(MODEL_CARD.includes('onEditParams(entry)'), '卡片「参数」应打开参数弹窗');
+  assert.ok(MODEL_CARD.includes('onDelete(entry)'), '⋯ 菜单里的「删除」应接 onDelete');
+  assert.ok(MODEL_CARD.includes('onUnloadModel(entry)') && MODEL_CARD.includes('onLoadModel(entry)'), '⋯ 菜单含加载/卸载');
+  assert.ok(MODEL_CARD.includes('cardMenu'), '有 ⋯ 菜单');
+  // 设为当前为主操作；当前态显示「已选用」
+  assert.ok(MODEL_CARD.includes("t('localModel.card.setCurrent')") || MODEL_CARD.includes("t('localModel.selected')"));
+  // 三态徽章：当前 / 已安装 / 未安装
+  assert.ok(MODEL_CARD.includes("'localModel.badge.current'") && MODEL_CARD.includes("'localModel.badge.notInstalled'"));
+  // 识图/听声/多模态并入单行摘要（不再用旧的多模态合并 chip）
+  assert.ok(MODEL_CARD.includes("t('localModel.chip.noVision')") || MODEL_CARD.includes("t('localModel.chip.vision')"));
+  // 未安装精选卡走「下载」入口
+  assert.ok(MODEL_CARD.includes("t('localModel.card.download')"));
+  // ModelsSection 组装三态卡 + 未安装精选卡
+  assert.ok(MODELS_SECTION.includes('<ModelCard'));
+  assert.ok(MODELS_SECTION.includes('featuredEntries'));
+  assert.ok(MODELS_SECTION.includes('uninstalled'));
 });
 
 test('C1：拆分后壳只做组合与渲染，panel/ 组件各不超 300 行', () => {
@@ -223,12 +230,11 @@ test('U7：参数弹窗越界红框 + 恢复默认（单字段与全部）', () 
 });
 
 
-test('卡片删除按钮接现成 confirmDelete（2026-10-07）：不另起删除逻辑', () => {
-  const models = readPanel('ModelsSection.js');
-  assert.ok(models.includes('onDeleteEntry'), 'ModelsSection 必须接收 onDeleteEntry');
-  assert.ok(models.includes('onPress={() => onDeleteEntry(entry)}'), '删除按钮必须直连 onDeleteEntry');
-  assert.ok(models.includes("t('localModel.a11y.deleteModel'"), '删除按钮必须有 a11y 标签');
-  assert.ok(models.includes('trash-bin-outline'), '删除按钮用 trash-bin 图标');
+test('卡片删除接现成 confirmDelete（2026-10-07）：不另起删除逻辑', () => {
+  assert.ok(MODEL_CARD.includes('onDelete(entry)'), 'ModelCard 删除应接 onDelete');
+  assert.ok(MODEL_CARD.includes('trash-bin-outline'), '删除用 trash-bin 图标');
+  // ModelsSection 把 onDeleteEntry 透传给卡片
+  assert.ok(MODELS_SECTION.includes('onDelete={onDeleteEntry}'), 'ModelsSection 必须把 onDeleteEntry 透传给卡片');
   // 壳透传现成的 confirmDelete（已带确认弹窗 + 卸载 + 停服务 + 重置选用）
   assert.ok(SHELL.includes('onDeleteEntry={feedback.confirmDelete}'), '壳必须透传 feedback.confirmDelete');
   const styles = readPanel('panelStyles.js');

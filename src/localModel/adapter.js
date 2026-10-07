@@ -179,7 +179,7 @@ export async function loadLocalModel(model, { onProgress } = {}) {
     }
   }
 
-  current = { key, context, support, conversationKey: '' };
+  current = { key, context, support, conversationKey: '', conversations: new Set() };
   setRuntimeReady({ modelId: runtimeModelId, ramEstimate: estimateRuntimeMemory(model), support });
   recordModelLog('load', `模型加载完成${support.vision || support.audio ? `（${[support.vision ? '视觉' : '', support.audio ? '音频' : ''].filter(Boolean).join('+')}）` : ''}`, { context: key });
   return current;
@@ -247,6 +247,11 @@ export function getLoadedLocalModelSupport() {
   return current ? { ...current.support } : { vision: false, audio: false };
 }
 
+// 已加载上下文服务过的不同会话数（v5 Stage C，运行状态卡展示）。纯记账。
+export function getLoadedConversationCount() {
+  return current && current.conversations instanceof Set ? current.conversations.size : 0;
+}
+
 function abortError() {
   const error = new Error(tActive('error.localModel.requestCanceled'));
   error.name = 'AbortError';
@@ -265,6 +270,11 @@ export async function runLocalModel(messages, model, { onToken, onReasoning, sig
   // 会话切换时清 KV cache：常驻上下文跨对话会残留上一段对话的缓存，导致
   // 新对话的思考/回复「串」进上一段对话的内容。同一对话内保留缓存以复用前缀。
   const nextConversationKey = String(conversationKey || '');
+  // 会话 KV 计数（v5 Stage C）：记录本次常驻上下文服务过的不同会话——纯记账，
+  // 不参与推理/裁剪/think 路径。面板「运行状态卡」据此显示「会话KV N 个」。
+  if (nextConversationKey && current && current.conversations instanceof Set) {
+    current.conversations.add(nextConversationKey);
+  }
   // fail-closed：**没钥匙也清**。此前 key 为空时直接沿用缓存——而总结/群聊/动态
   // 回复等路径不传 key，上一段对话的 KV 缓存会串进这些独立生成（注释自己都写过
   // 这个后果）。方向必须反过来：宁可损失前缀复用，不可跨对话串上下文。

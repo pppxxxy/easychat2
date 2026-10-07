@@ -1,12 +1,7 @@
-// 本地模型面板 · 壳（拆分后只做三件事）：
-//   1) 组合三个数据域 hook（usePanelModels / useAcquireModel / useApiServer）；
-//   2) 三段式分区渲染（模型/获取/服务，渲染细节在各 Section 组件）；
-//   3) 把反馈映射与参数弹窗接上。
-// 反馈映射（40+ 条 Alert 分发）与参数弹窗状态分别抽到
-// panel/panelFeedback.js 与 panel/useModelParams.js——壳此前在 no-hardcoded-chinese
-// 豁免清单里，i18n 全量清理后已无硬编码文案，抽出后本文件从豁免清单移除。
+// 模型中心壳：组合三个数据域 hook + 三段式分区渲染 + 反馈/参数接线。
+// 反馈映射在 panel/panelFeedback.js，参数弹窗状态在 panel/useModelParams.js。
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -34,8 +29,8 @@ export default function LocalModelPanel({ visible, onClose }) {
   const styles = useMemo(() => createPanelStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [section, setSection] = useState('models');
   const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [logsOpen, setLogsOpen] = useState(false);
-  // 面板长说明的落点是「教学」的 local-model 章（含下载/导入/加载/API 服务全流程）。
   const [topicOpen, setTopicOpen] = useState(false);
 
   const models = usePanelModels({ visible });
@@ -43,8 +38,7 @@ export default function LocalModelPanel({ visible, onClose }) {
   const acquire = useAcquireModel({ deviceMemoryBytes: models.deviceMemoryBytes, onChanged: refresh });
   const api = useApiServer({ updateSettings });
 
-  const saveParams = useMemo(() => createParamsSaver({ t, refresh }),
-    [t, refresh]);
+  const saveParams = useMemo(() => createParamsSaver({ t, refresh }), [t, refresh]);
   const params = useModelParams({ t, saveParams });
   const feedback = useMemo(() => createPanelFeedback({
     t,
@@ -56,11 +50,13 @@ export default function LocalModelPanel({ visible, onClose }) {
     onEditParams: params.openParams,
   }), [t, models, acquire, api, updateSettings, refresh, params.openParams]);
 
-  useEffect(() => {
-    if (!visible) return;
-    refresh();
-    api.hydrate();
-  }, [visible, refresh]);
+  useEffect(() => { if (visible) { refresh(); api.hydrate(); } }, [visible, refresh]);
+
+  const onDownloadFeatured = useCallback(entry => {
+    setSearchQuery(String((entry && entry.repoPath) || ''));
+    setSection('acquire');
+    setSearchVisible(true);
+  }, []);
 
   return (
     <>
@@ -68,7 +64,7 @@ export default function LocalModelPanel({ visible, onClose }) {
         <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
             <View style={styles.header}>
-              <Text style={styles.title}>{t('localModel.title')}</Text>
+              <Text style={styles.title}>{t('localModel.center.title')}</Text>
               <View style={styles.headerActions}>
                 <TopicButton
                   onPress={() => setTopicOpen(true)}
@@ -107,7 +103,6 @@ export default function LocalModelPanel({ visible, onClose }) {
                   moduleAvailable={isLocalModelModuleAvailable()}
                   settings={settings}
                   entries={models.entries}
-                  deviceMemoryBytes={models.deviceMemoryBytes}
                   cleanupBusy={models.cleanupBusy}
                   runtime={models.runtime}
                   onCleanupOrphans={feedback.onCleanupOrphans}
@@ -117,13 +112,15 @@ export default function LocalModelPanel({ visible, onClose }) {
                   onLoadModel={feedback.onLoadModel}
                   onUnloadModel={feedback.onUnloadModel}
                   onOpenLogs={() => setLogsOpen(true)}
-                  onEntryActions={feedback.onEntryActions}
+                  onEditParams={params.openParams}
                   onDeleteEntry={feedback.confirmDelete}
                   loadBusyId={models.loadBusyId}
                   loadProgress={models.loadProgress}
                   loadedModelId={models.loadedModelId}
                   onGoAcquire={() => setSection('acquire')}
                   goAcquireLabel={t('localModel.empty.goAcquire')}
+                  featuredEntries={models.featuredEntries}
+                  onDownloadFeatured={onDownloadFeatured}
                 />
               ) : null}
               {section === 'acquire' ? (
@@ -186,6 +183,7 @@ export default function LocalModelPanel({ visible, onClose }) {
         visible={searchVisible}
         onClose={() => setSearchVisible(false)}
         initialSourceId={acquire.downloadDraft.sourceId || 'huggingface'}
+        initialQuery={searchQuery}
         onSelect={feedback.onSearchSelect}
         totalMemoryBytes={models.deviceMemoryBytes}
       />
