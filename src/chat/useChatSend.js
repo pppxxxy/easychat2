@@ -48,6 +48,8 @@ import {
 } from './attachments.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
 import { createVoiceMessage } from './voiceMessages.js';
+import { createRequestMeter, estimatePromptTokens, estimateReplyTokens } from './sessionStats.js';
+import { recordSessionRequest } from '../storage/sessionStats.js';
 import { stop as ttsStop } from '../tts/index.js';
 import { maskSecrets } from '../storage/secrets.js';
 import { resolveStickerNames } from './stickerDirectives.js';
@@ -266,6 +268,9 @@ export default function useChatSend({
       waitingForResponse: true,
       timestamp: Date.now(),
     };
+    // 本会话统计打点：声明在 try 之外（catch 的失败/取消分支也要记账），
+    // 真正赋值在请求发出前；未赋值时是空操作。异常一律吞掉——统计绝不能影响聊天主链路。
+    let recordStats = () => {};
 
      setMessages([...baseMessages, pendingAssistantMessage]);
      setIsSending(true);
@@ -421,6 +426,7 @@ export default function useChatSend({
         // 单独裁剪媒体，避免把图片/音频发给不支持多模态的在线端点。
         let onlineMedia = { allowVision: false, allowAudio: false };
         let onlineModelName = '';
+        let onlineConfigLabel = '';
         try {
           const { configs, activeId } = await getApiConfigs();
           const onlineConfig = configs.find(item => item.id === expectedConfigId)
@@ -431,6 +437,7 @@ export default function useChatSend({
             allowAudio: Boolean(onlineConfig && onlineConfig.supportsAudio),
           };
           onlineModelName = onlineConfig ? String(getActiveModel(onlineConfig) || '').trim() : '';
+          onlineConfigLabel = onlineConfig ? String(onlineConfig.name || onlineConfig.id || '') : '';
         } catch (error) {}
         const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
         // 在线路径按工作区模式分流：ask 不暴露任何工具，走原 sendChatMessage（零变化）；
@@ -447,6 +454,28 @@ export default function useChatSend({
           } catch (error) {}
           agentTools = listToolsForMode(workspaceMode);
         }
+        // token 是估算（在线 API 不返回 usage），口径与上下文占用同一估算器，服务商之间可比。
+        let resolvedProvider = null;
+        const meter = createRequestMeter();
+        recordStats = (completionText, extra = {}) => {
+          try {
+            const timing = meter.finish();
+            const isLocal = Boolean(resolvedProvider && resolvedProvider.kind === 'local');
+            recordSessionRequest(sendSessionId, {
+              configId: isLocal ? 'local' : (expectedConfigId || 'unknown'),
+              configLabel: isLocal
+                ? tRef.current('chat.stats.localProvider')
+                : (onlineConfigLabel || expectedConfigId || ''),
+              model: isLocal ? String(resolvedProvider.modelName || '') : onlineModelName,
+              promptTokens: estimatePromptTokens(requestMessages),
+              completionTokens: estimateReplyTokens(completionText || ''),
+              firstTokenMs: timing.firstTokenMs,
+              generationMs: timing.generationMs,
+              at: timing.finishedAt,
+              ...extra,
+            }).catch(() => {});
+          } catch (error) {}
+        };
         const onlineSend = () => (agentTools.length > 0
           ? runAgentTurn(onlineMessages, {
               mode: workspaceMode,
@@ -458,6 +487,7 @@ export default function useChatSend({
                 stream: chatOptions.stream,
               },
               onToken: fullText => {
+                meter.markFirstToken();
                 if (!isCurrentSession() || controller.signal.aborted) return;
                 setMessages(current => {
                   if (!isCurrentSession()) return current;
@@ -495,6 +525,7 @@ export default function useChatSend({
               signal: controller.signal,
            stream: chatOptions.stream,
            onChunk: fullText => {
+             meter.markFirstToken();
              if (!isCurrentSession() || controller.signal.aborted) return;
              setMessages(current => {
                if (!isCurrentSession()) return current;
@@ -511,7 +542,6 @@ export default function useChatSend({
         }));
         // 路由结果由 provider 回调告知（本地成功=local，回退/未启用=api）：
         // 本地→在线是静默回退，「这次回复是谁产的」只能按真实产出链路标记。
-        let resolvedProvider = null;
         const reply = await sendWithModelProvider({
           messages: localMessages,
           localSettings,
@@ -530,6 +560,7 @@ export default function useChatSend({
             setModelLoadProgress(Number.isFinite(num) ? Math.max(0, Math.min(100, Math.round(num))) : null);
           },
           onToken: fullText => {
+            meter.markFirstToken();
             if (!isCurrentSession() || controller.signal.aborted) return;
             setMessages(current => mergeStreamedText(current, pendingAssistantMessage.id, fullText));
           },
@@ -546,6 +577,7 @@ export default function useChatSend({
         });
 
        if (controller.signal.aborted) {
+         recordStats('');
          clearToolStatus();
          setMessages(current => (
            isCurrentSession()
@@ -558,6 +590,8 @@ export default function useChatSend({
        const replyParts = buildAssistantReply(reply);
        const replyText = replyParts.find(item => item.role === ASSISTANT_ID && !item.kind)?.text
          || '';
+       // 记账放在拿到终稿之后：生成时长含解析开销，但只是毫秒级，换来「成功请求」口径准确。
+       recordStats(replyText);
        clearToolStatus();
        setMessages(current => {
         if (!isCurrentSession()) return current;
@@ -600,6 +634,7 @@ export default function useChatSend({
        }
        if (isCanceledError(error)) {
         // 停止：已有内容（含只生成了思考）就保留并落盘，只有占位符才整条移除
+         recordStats('');
          setMessages(current => (
            isCurrentSession()
              ? settlePendingMessage(current, pendingAssistantMessage.id)
@@ -608,6 +643,8 @@ export default function useChatSend({
          return false;
        }
        if (classifyReplyError(error, isConfigChangedError, isCanceledError) === 'failure') {
+        // 失败也记一笔（只计请求数与失败数，token 记 0）——服务商的失败率同样是性价比信号。
+        recordStats('', { failed: true });
         const { message: errorMessage, rawText } = buildReplyErrorMessage(pendingAssistantMessage.id, error);
         if (isCurrentSession()) {
           errorRawRef.current[errorMessage.id] = rawText;
@@ -650,6 +687,33 @@ export default function useChatSend({
      const controller = sendLockRef.current?.controller || new AbortController();
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
+     // 群聊同样计入本会话统计：配置名/模型名在这里读一次，供每组请求记账。
+     let groupConfigLabel = '';
+     let groupModelName = '';
+     try {
+       const { configs, activeId } = await getApiConfigs();
+       const currentConfig = configs.find(item => item.id === expectedConfigId)
+         || configs.find(item => item.id === activeId)
+         || configs[0];
+       groupConfigLabel = currentConfig ? String(currentConfig.name || currentConfig.id || '') : '';
+       groupModelName = currentConfig ? String(getActiveModel(currentConfig) || '') : '';
+     } catch (error) {}
+     const recordGroupStats = (meter, replyText, extra = {}) => {
+       try {
+         const timing = meter.finish();
+         recordSessionRequest(sendSessionId, {
+           configId: expectedConfigId || 'unknown',
+           configLabel: groupConfigLabel || expectedConfigId || '',
+           model: groupModelName,
+           promptTokens: 0,
+           completionTokens: estimateReplyTokens(replyText || ''),
+           firstTokenMs: timing.firstTokenMs,
+           generationMs: timing.generationMs,
+           at: timing.finishedAt,
+           ...extra,
+         }).catch(() => {});
+       } catch (error) {}
+     };
      setIsSending(true);
      atBottomRef.current = true;
      setMessages(baseMessages);
@@ -768,12 +832,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
                profiles: memberProfiles,
                imageMessages,
             });
+            const speakerMeter = createRequestMeter();
             const reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
              expectedConfigFingerprint,
              signal: controller.signal,
               stream: chatOptions.stream,
             });
+            recordGroupStats(speakerMeter, reply);
              if (!isCurrent()) return false;
              working = working.map(item => (
               item.id === pendingMessage.id
@@ -847,6 +913,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         setMessages(working);
         scrollToBottom();
         let reply = '';
+        const ensembleMeter = createRequestMeter();
         try {
            reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
@@ -854,6 +921,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              signal: controller.signal,
             stream: chatOptions.stream,
             onChunk: fullText => {
+              ensembleMeter.markFirstToken();
               if (!isCurrent() || controller.signal.aborted) return;
               setMessages(current => current.map(item => (
                 item.id === pendingMessage.id
@@ -876,6 +944,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
           if (isCurrent()) setMessages(working);
           return false;
         }
+        recordGroupStats(ensembleMeter, reply);
         if (!isCurrent()) return false;
         const segments = mergeAdjacentSegments(parseEnsembleReply(reply, members));
         if (segments.length === 0) {
