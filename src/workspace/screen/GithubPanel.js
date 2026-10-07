@@ -18,12 +18,14 @@ import {
   Alert,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Clipboard from 'expo-clipboard';
 
 import { FieldHint, FieldLabel, GhostButton, PrimaryButton } from '../../ui/index.js';
 import { useTheme } from '../../theme/ThemeContext.js';
@@ -32,7 +34,15 @@ import { getGithubMcpSettings } from '../../storage/githubMcp.js';
 import { isTextLike, readTextAttachment } from '../../chat/attachments.js';
 import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
 import { breadcrumbsOf, directoryChildren } from '../screen/buildTree.js';
-import { listRepos } from '../github/restApi.js';
+import {
+  canDeleteRepo,
+  createRepo,
+  deleteRepo,
+  fetchTokenScopes,
+  listRepos,
+  renameRepo,
+  repoWebUrl,
+} from '../github/restApi.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
 const ERROR_KEYS = {
@@ -63,11 +73,16 @@ export default function GithubPanel({ characterId, storeRef }) {
   const [allFiles, setAllFiles] = useState([]);
   const [subdir, setSubdir] = useState('');
   const [search, setSearch] = useState('');
-  // 面板内层：'' | 'newEntry' | 'preview'
+  // 面板内层：'' | 'newEntry' | 'preview' | 'newRepo' | 'manage'
   const [layer, setLayer] = useState('');
   const [entryForm, setEntryForm] = useState({ kind: 'text', name: '', content: '' });
   const [preview, setPreview] = useState(null);
   const [actionBusy, setActionBusy] = useState('');
+  // ⑤ 新建仓库表单 / ⑥ 仓库管理（删除需手动输名 + token scope）。
+  const [newRepo, setNewRepo] = useState({ name: '', description: '', isPrivate: true, autoInit: false });
+  const [renameValue, setRenameValue] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [scopes, setScopes] = useState([]);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -258,6 +273,118 @@ export default function GithubPanel({ characterId, storeRef }) {
     }
   }, [characterId, current, entryForm, refreshLocal, storeRef, subdir, t]);
 
+  // ⑥ 仓库管理：打开时读 token scope（删除仓库需要 delete_repo，没勾就明确引导，
+  // 不是点了才报错）。
+  const openManage = useCallback(async () => {
+    if (!current) {
+      Alert.alert(t('workspace.github.title'), t('workspace.github.manage.needRepo'));
+      return;
+    }
+    setRenameValue(current.repo);
+    setDeleteConfirm('');
+    setLayer('manage');
+    if (token) {
+      try {
+        const list = await fetchTokenScopes({ token });
+        if (mountedRef.current) setScopes(list);
+      } catch (caught) {
+        if (mountedRef.current) setScopes([]);
+      }
+    }
+  }, [current, t, token]);
+
+  const copyRepoLink = useCallback(async () => {
+    if (!current) return;
+    try {
+      await Clipboard.setStringAsync(repoWebUrl(current.owner, current.repo));
+      Alert.alert(t('workspace.github.title'), t('workspace.github.manage.copied'));
+    } catch (caught) {}
+  }, [current, t]);
+
+  const submitRename = useCallback(async () => {
+    if (!current) return;
+    const next = renameValue.trim();
+    if (!next || next === current.repo) return;
+    setActionBusy('rename');
+    try {
+      const updated = await renameRepo({ token, owner: current.owner, repo: current.repo, newName: next });
+      const branch = updated.defaultBranch || current.branch;
+      if (mountedRef.current) {
+        setRepos(prev => prev.map(item => (item.fullName === `${current.owner}/${current.repo}` ? updated : item)));
+        setCurrent({ owner: updated.owner, repo: updated.repo, branch });
+        setSubdir(`repos/${updated.owner}/${updated.repo}/${branch}/`);
+        setLayer('');
+      }
+      await refreshLocal();
+      Alert.alert(t('workspace.github.title'), t('workspace.github.manage.renamed'));
+    } catch (caught) {
+      Alert.alert(t('workspace.github.title'), describeError(caught));
+    } finally {
+      if (mountedRef.current) setActionBusy('');
+    }
+  }, [current, describeError, refreshLocal, renameValue, t, token]);
+
+  // 删除仓库——三层硬约束，任缺一层都删不掉：
+  // ① UI：必须手动输入完整仓库名（下面按 deleteConfirm 是否匹配禁用按钮）；
+  // ② 权限：token 必须带 delete_repo scope（没勾时明确提示去哪勾）；
+  // ③ 后端：restApi.deleteRepo 要求 confirm 逐字相同，否则连请求都不发。
+  const submitDelete = useCallback(async () => {
+    if (!current) return;
+    const fullName = `${current.owner}/${current.repo}`;
+    if (deleteConfirm.trim() !== fullName) return;
+    if (!canDeleteRepo(scopes)) return;
+    setActionBusy('delete');
+    try {
+      await deleteRepo({ token, owner: current.owner, repo: current.repo, confirm: fullName });
+      if (mountedRef.current) {
+        setRepos(prev => prev.filter(item => item.fullName !== fullName));
+        setCurrent(null);
+        setSubdir('');
+        setDeleteConfirm('');
+        setLayer('');
+      }
+      Alert.alert(t('workspace.github.title'), t('workspace.github.manage.deleteDone'));
+    } catch (caught) {
+      Alert.alert(t('workspace.github.title'), describeError(caught));
+    } finally {
+      if (mountedRef.current) setActionBusy('');
+    }
+  }, [current, deleteConfirm, describeError, scopes, t, token]);
+
+  // ⑤ 新建仓库：成功后自动成为当前仓库，并在本地建同名骨架目录。
+  const submitCreateRepo = useCallback(async () => {
+    const name = newRepo.name.trim();
+    if (!name) return;
+    setActionBusy('createRepo');
+    try {
+      const created = await createRepo({
+        token,
+        name,
+        description: newRepo.description,
+        isPrivate: newRepo.isPrivate,
+        autoInit: newRepo.autoInit,
+      });
+      const branch = created.defaultBranch || 'main';
+      const store = storeRef && storeRef.current;
+      if (store) {
+        await store
+          .createWorkspaceDirectory({ characterId, path: `repos/${created.owner}/${created.repo}/${branch}` })
+          .catch(() => {});
+      }
+      if (mountedRef.current) {
+        setRepos(prev => [created, ...prev.filter(item => item.fullName !== created.fullName)]);
+        setNewRepo({ name: '', description: '', isPrivate: true, autoInit: false });
+      }
+      selectRepo(created);
+      await refreshLocal();
+      Alert.alert(t('workspace.github.title'), t('workspace.github.createRepo.done', { name: created.fullName }));
+    } catch (caught) {
+      Alert.alert(t('workspace.github.title'), describeError(caught));
+    } finally {
+      if (mountedRef.current) setActionBusy('');
+    }
+  }, [characterId, describeError, newRepo, refreshLocal, selectRepo, storeRef, t, token]);
+
   const canAct = Boolean(current) && Boolean(storeRef && storeRef.current);
 
   return (
@@ -396,6 +523,109 @@ export default function GithubPanel({ characterId, storeRef }) {
                 ) : null}
               </>
             ) : null}
+
+            {layer === 'newRepo' ? (
+              <View style={styles.formCard}>
+                <FieldLabel>{t('workspace.github.createRepo.title')}</FieldLabel>
+                <TextInput
+                  style={styles.input}
+                  value={newRepo.name}
+                  onChangeText={value => setNewRepo(current2 => ({ ...current2, name: value }))}
+                  placeholder={t('workspace.github.createRepo.namePlaceholder')}
+                  placeholderTextColor={theme.colors.textFaint}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newRepo.description}
+                  onChangeText={value => setNewRepo(current2 => ({ ...current2, description: value }))}
+                  placeholder={t('workspace.github.createRepo.descPlaceholder')}
+                  placeholderTextColor={theme.colors.textFaint}
+                />
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>{t('workspace.github.createRepo.private')}</Text>
+                  <Switch
+                    value={newRepo.isPrivate}
+                    onValueChange={value => setNewRepo(current2 => ({ ...current2, isPrivate: value }))}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                    thumbColor={theme.colors.primaryContrast}
+                  />
+                </View>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>{t('workspace.github.createRepo.autoInit')}</Text>
+                  <Switch
+                    value={newRepo.autoInit}
+                    onValueChange={value => setNewRepo(current2 => ({ ...current2, autoInit: value }))}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                    thumbColor={theme.colors.primaryContrast}
+                  />
+                </View>
+                <FieldHint>{t('workspace.github.createRepo.hint')}</FieldHint>
+                <View style={styles.actions}>
+                  <GhostButton title={t('common.cancel')} small onPress={() => setLayer('')} />
+                  <PrimaryButton title={t('workspace.github.createRepo.action')} small onPress={submitCreateRepo} />
+                </View>
+              </View>
+            ) : null}
+
+            {layer === 'manage' && current ? (
+              <View style={styles.formCard}>
+                <FieldLabel>{t('workspace.github.manage.title')}</FieldLabel>
+                <TouchableOpacity style={styles.manageRow} onPress={copyRepoLink} activeOpacity={0.8}>
+                  <Ionicons name="link-outline" size={16} color={theme.colors.primaryMuted} />
+                  <Text style={styles.manageText}>{t('workspace.github.manage.copy')}</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.input}
+                  value={renameValue}
+                  onChangeText={setRenameValue}
+                  placeholder={t('workspace.github.manage.renamePlaceholder')}
+                  placeholderTextColor={theme.colors.textFaint}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <View style={styles.actions}>
+                  <PrimaryButton title={t('workspace.github.manage.renameAction')} small onPress={submitRename} />
+                </View>
+                <FieldHint>{t('workspace.github.manage.renameLocalNote')}</FieldHint>
+
+                <View style={styles.dangerBlock}>
+                  <Text style={styles.dangerTitle}>{t('workspace.github.manage.delete')}</Text>
+                  {canDeleteRepo(scopes) ? (
+                    <>
+                      <FieldHint>{t('workspace.github.manage.deleteHint', { name: `${current.owner}/${current.repo}` })}</FieldHint>
+                      <TextInput
+                        style={styles.input}
+                        value={deleteConfirm}
+                        onChangeText={setDeleteConfirm}
+                        placeholder={t('workspace.github.manage.deletePlaceholder', { name: `${current.owner}/${current.repo}` })}
+                        placeholderTextColor={theme.colors.textFaint}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      <View style={styles.actions}>
+                        <PrimaryButton
+                          title={t('workspace.github.manage.deleteAction')}
+                          small
+                          disabled={deleteConfirm.trim() !== `${current.owner}/${current.repo}`}
+                          onPress={submitDelete}
+                        />
+                      </View>
+                    </>
+                  ) : (
+                    <FieldHint>{t('workspace.github.manage.deleteNoScope')}</FieldHint>
+                  )}
+                </View>
+              </View>
+            ) : null}
+
+            {current ? (
+              <View style={styles.pushBar}>
+                <Text style={styles.pushText}>{t('workspace.github.push.pending', { count: localCount(current) })}</Text>
+                <FieldHint>{t('workspace.github.push.hint')}</FieldHint>
+              </View>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -433,6 +663,22 @@ export default function GithubPanel({ characterId, storeRef }) {
           accessibilityLabel={t('workspace.github.toolbar.refresh')}
         >
           <Ionicons name="refresh-outline" size={19} color={theme.colors.primarySoft} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolButton, !token && styles.toolDisabled]}
+          onPress={() => { setNewRepo({ name: '', description: '', isPrivate: true, autoInit: false }); setLayer('newRepo'); }}
+          disabled={!token}
+          accessibilityLabel={t('workspace.github.toolbar.createRepo')}
+        >
+          <Ionicons name="add-circle-outline" size={19} color={theme.colors.primarySoft} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolButton, !canAct && styles.toolDisabled]}
+          onPress={openManage}
+          disabled={!canAct}
+          accessibilityLabel={t('workspace.github.toolbar.manage')}
+        >
+          <Ionicons name="options-outline" size={19} color={theme.colors.primarySoft} />
         </TouchableOpacity>
       </View>
     </View>
@@ -506,6 +752,32 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 8,
   },
   contentInput: { minHeight: 72, textAlignVertical: 'top' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  switchLabel: { color: theme.colors.text, fontSize: fonts.scaled(12.5), flex: 1, marginRight: 8 },
+  manageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginTop: 8,
+  },
+  manageText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), marginLeft: 8 },
+  dangerBlock: {
+    marginTop: 14,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.divider,
+    paddingTop: 12,
+  },
+  dangerTitle: { color: theme.colors.danger, fontSize: fonts.scaled(13), fontWeight: '700', marginBottom: 6 },
+  pushBar: {
+    marginTop: 14,
+    borderTopWidth: tokens.border.thin,
+    borderTopColor: theme.colors.divider,
+    paddingTop: 10,
+  },
+  pushText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginBottom: 2 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
   layerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   layerTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6, flex: 1 },

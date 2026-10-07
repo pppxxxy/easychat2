@@ -164,5 +164,30 @@ test('GithubPanel：四键工具条 + 仓库列表 + 当前仓库树 + 搜索（
   assert.ok(PANEL_SRC.includes('createWorkspaceDirectory(') && PANEL_SRC.includes('writeWorkspaceFile('), '新建文件/文件夹落盘');
   assert.ok(PANEL_SRC.includes('refreshLocal') && PANEL_SRC.includes('loadRepos(1)'), '④ 刷新：重扫本地树 + 重拉列表');
   assert.ok(!/<Modal/.test(PANEL_SRC), '面板内不再有 Modal（二级层都是面板内的层）');
-  assert.ok(!PANEL_SRC.includes('deleteRepo('), '删除不在 3a 面板里（红线操作只走 ⑥ 且需手动输名）');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.pending'), '底部推送条显示本地副本文件数');
+});
+
+test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
+  assert.ok(PANEL_SRC.includes('workspace.github.toolbar.createRepo'), '⑤ 新建仓库键');
+  assert.ok(PANEL_SRC.includes('workspace.github.toolbar.manage'), '⑥ 仓库管理键');
+  assert.ok(PANEL_SRC.includes('createRepo('), '建仓库走 REST');
+  assert.ok(PANEL_SRC.includes('renameRepo('), '重命名走 REST');
+  assert.ok(PANEL_SRC.includes('deleteRepo('), '删除走 REST');
+  // 红线三层，缺一不可：
+  // ① UI：必须手动输入完整仓库名（按钮的禁用条件就是它）
+  assert.ok(
+    /disabled=\{deleteConfirm\.trim\(\) !== `\$\{current\.owner\}\/\$\{current\.repo\}`\}/.test(PANEL_SRC),
+    '① 手动输完整仓库名才可点删除'
+  );
+  // ② 权限：token 必须带 delete_repo scope，没有就只显示引导
+  assert.ok(PANEL_SRC.includes('canDeleteRepo(scopes)'), '② token scope 检查');
+  assert.ok(PANEL_SRC.includes('workspace.github.manage.deleteNoScope'), '② 无 scope 时的明确引导');
+  // ③ 后端：restApi.deleteRepo 的 confirm 逐字守卫（单测已证「不匹配不发请求」）
+  assert.ok(
+    /deleteRepo\(\{ token, owner: current\.owner, repo: current\.repo, confirm: fullName \}\)/.test(PANEL_SRC),
+    '③ 后端 confirm 守卫'
+  );
+  assert.ok(PANEL_SRC.includes('repoWebUrl('), '复制仓库链接');
+  // 面板不删本地文件（远端删除不会连带删本地副本）。
+  assert.ok(!PANEL_SRC.includes('deleteFile('), '不自动删本地副本');
 });
