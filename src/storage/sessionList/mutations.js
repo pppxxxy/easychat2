@@ -24,6 +24,7 @@ import { tActive } from '../../i18n/index.js';
 import { markMediaWrite } from '../mediaProtection.js';
 import { collectChatImageFiles, collectVoiceFiles } from '../sessionFiles.js';
 import { getMessagesBySessionStatus } from '../sessionMessages.js';
+import { deleteAllBranchesInternal } from '../sessionBranches.js';
 import {
   ACTIVE_SESSION_KEY,
   LEGACY_MESSAGES_KEY,
@@ -208,6 +209,7 @@ async function deleteSessionInternal(sessionId) {
       sessionDraftKey(sessionId),
     ]);
   } catch (error) {}
+  await deleteAllBranchesInternal(sessionId);
   await collectChatImageFiles();
   await collectVoiceFiles();
   // 会话结构变了：卡上记忆要按新的会话数重新判定归属。删到 0 个会话、或删掉的是
@@ -277,6 +279,7 @@ async function deleteSessionsInternal(sessionIds) {
       sessionDraftKey(id),
     ]));
   } catch (error) {}
+  for (const id of ids) await deleteAllBranchesInternal(id);
   await collectChatImageFiles();
   await collectVoiceFiles();
   // 批量删除同样要销旧账：按受影响角色逐一重新判定卡上记忆的归属。

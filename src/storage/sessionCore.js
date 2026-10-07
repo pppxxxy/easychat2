@@ -17,6 +17,11 @@ const SESSION_DRAFT_PREFIX = '@easychat2_session_draft';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
+// 对话分支：每个会话一份轻量索引 + 每条分支正文一个键。
+// 索引是写盘提交点（先写条目、后写索引）；条目按 <sessionId>::<branchId> 分键，
+// 避免把分支正文塞进消息单键（Android 单值读取上限）。
+const BRANCH_INDEX_PREFIX = '@easychat2_branch_index';
+const BRANCH_ITEM_PREFIX = '@easychat2_branch_item';
 
 // 跨模块共享的可变状态：全部集中在本层，兄弟模块 import 后引用同一实例。
 const sessionMutation = createMutationQueue();
@@ -52,11 +57,24 @@ export function sessionDraftKey(sessionId) {
   return `${SESSION_DRAFT_PREFIX}::${String(sessionId || '')}`;
 }
 
+export function sessionBranchIndexKey(sessionId) {
+  return `${BRANCH_INDEX_PREFIX}::${String(sessionId || '')}`;
+}
+
+export function sessionBranchItemKey(sessionId, branchId) {
+  return `${BRANCH_ITEM_PREFIX}::${String(sessionId || '')}::${String(branchId || '')}`;
+}
+
+// 某会话全部分支条目键的前缀：用于会话删除/孤儿清理时批量识别。
+export function sessionBranchItemPrefix(sessionId) {
+  return `${BRANCH_ITEM_PREFIX}::${String(sessionId || '')}::`;
+}
+
 export function legacySessionId(characterId) {
   return `legacy-${characterId}`;
 }
 
-export { MESSAGES_KEY_PREFIX, LEGACY_MESSAGES_KEY, ACTIVE_SESSION_KEY };
+export { MESSAGES_KEY_PREFIX, LEGACY_MESSAGES_KEY, ACTIVE_SESSION_KEY, BRANCH_ITEM_PREFIX };
 
 function ensureUniqueSessionIds(list) {
   // 消息体按会话 id 存键。若把重复 id 重命名成一个新 id，新 id 下没有消息，
