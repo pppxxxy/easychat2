@@ -29,7 +29,7 @@ import {
   removePlace,
   updateLocationSettings,
   upsertPlace,
-} from '../storage.js';
+} from '../storage/location.js';
 import { formatCoordinate, resolveActivePlace, wgs84ToGcj02 } from '../location/geo.js';
 import { buildRealMapHtml } from './realMapHtml.js';
 

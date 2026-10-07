@@ -10,7 +10,7 @@ import {
   getLocalModelItem,
   getLocalModelSettings,
   saveLocalModelSettings,
-} from '../../storage.js';
+} from '../../storage/localModels.js';
 import { cleanupOrphanLocalModelFiles, getLocalModelFileInfo } from '../modelManager.js';
 import { loadLocalModel } from '../adapter.js';
 import { tryAcquireResource } from '../../resourceMutex.js';

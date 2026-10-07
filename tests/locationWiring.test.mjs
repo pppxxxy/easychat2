@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 function read(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -52,7 +53,7 @@ test('位置清单：单选、增删改、示例一次写入', () => {
   // 示例只在首次写入（seeded 标记），删光后不再自动冒出来
   assert.ok(source.includes('loaded.seeded !== true && loaded.places.length === 0'), '首次进入才写示例');
   assert.ok(source.includes('seeded: true'), '写示例时打标记');
-  const zh = read('src/i18n/locales/zh-CN.js');
+  const zh = localeSource('src/i18n/locales/zh-CN');
   assert.ok(zh.includes("'world.map.real.example.qingdao': '山东青岛'"), '示例：山东青岛');
   assert.ok(zh.includes("'world.map.real.example.washington': '美国华盛顿'"), '示例：美国华盛顿');
   assert.ok(zh.includes("'world.map.real.example.hogwarts': '霍格沃茨魔法学院'"), '示例：霍格沃茨魔法学院');

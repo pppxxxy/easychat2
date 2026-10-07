@@ -53,7 +53,7 @@ export function resolveWorkspaceCharacter(characterId, list) {
 export async function resolveWorkspaceAssistant(characterId = '') {
   const wanted = String(characterId || '').trim();
   try {
-    const { getCharacterLibrary } = require('../storage.js');
+    const { getCharacterLibrary } = require('../storage/characters.js');
     const list = await getCharacterLibrary();
     const picked = resolveWorkspaceCharacter(wanted, list);
     if (picked.character) {

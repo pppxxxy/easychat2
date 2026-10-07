@@ -23,7 +23,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { IMAGE_PROVIDERS, getImageProvider, providerRequiresApiKey } from './imageGen/providers.js';
 import { generateImage, detectImageProvider, probeImageProvider } from './imageGen/index.js';
-import { getImageGenSettings, saveImageGenSettings } from './storage.js';
+import { getImageGenSettings, saveImageGenSettings } from './storage/settings.js';
 import { resolveImageFormat } from './imageGen/imageResultFormat.js';
 import ChapterModal from './books/ChapterModal.js';
 import { getImageDimensions } from './chat/attachments.js';

@@ -40,16 +40,9 @@ import {
 } from './cardForge/forge.js';
 import { promoteForgeImageToAvatar, deleteForgeDraftImages, deleteForgeImage } from './cardForge/media.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
-import {
-  clearCardForge,
-  getActiveLocalModel,
-  getActiveModel,
-  capabilitiesForModel,
-  getApiConfigs,
-  getCardForgeStatus,
-  getLocalModelSettings,
-  saveCardForge,
-} from './storage.js';
+import { clearCardForge, getCardForgeStatus, saveCardForge } from './storage/cardForge.js';
+import { getActiveLocalModel, getLocalModelSettings } from './storage/localModels.js';
+import { getActiveModel, capabilitiesForModel, getApiConfigs } from './storage/apiConfigs.js';
 import { AIGC_META_FIELD, buildAigcMeta, findIpKeywords, ipKeywordNotice } from './aigc/attribution.js';
 import { maskSecrets } from './storage/secrets.js';
 import { Chip, PrimaryButton, SecondaryButton, TextField } from './ui/index.js';

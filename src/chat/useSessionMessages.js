@@ -18,20 +18,21 @@ import {
 import { generateOpening } from './groupChat.js';
 import {
   DEFAULT_CHARACTER,
-  getApiConfigs,
-  getEnabledGlobalPresetPrompts,
-  getMessagesBySessionStatus,
-  getSessionDraft,
-  getUserProfile,
   hasShownDefaultGreeting,
   markDefaultGreetingShown,
+} from '../storage/characters.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
+import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
+import {
+  getMessagesBySessionStatus,
+  getSessionDraft,
   saveMessagesBySession,
   saveSessionDraft,
   clearSessionDraft,
   setSessionGreetingSelected,
-  getVectorMemoryConfig,
-  updateVectorIndex,
-} from '../storage.js';
+} from '../storage/sessions.js';
+import { getUserProfile } from '../storage/personas.js';
+import { getVectorMemoryConfig, updateVectorIndex } from '../storage/vector.js';
 import { indexMessages } from '../vectorMemory/index.js';
 import { getVectorOwnerId, shouldIndexSession } from '../vectorMemory/scope.js';
 import { useTranslation } from '../i18n/I18nContext.js';

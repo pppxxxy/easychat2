@@ -13,7 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
-import { getMomentsSettings, getProactiveSettings } from '../storage.js';
+import { getMomentsSettings, getProactiveSettings } from '../storage/moments.js';
 import { getMusicItems } from '../music/library.js';
 import { getBooks } from '../books/library.js';
 import { getWorldMap } from '../storage/worldMap.js';

@@ -20,11 +20,8 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from '../context/AppContext.js';
-import {
-  getCharacterLibrary,
-  getSessionSummariesStatus,
-  reconcileWorldMemories,
-} from '../storage.js';
+import { getCharacterLibrary } from '../storage/characters.js';
+import { getSessionSummariesStatus, reconcileWorldMemories } from '../storage/sessions.js';
 import { Card, FieldHint, GhostButton, PrimaryButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';

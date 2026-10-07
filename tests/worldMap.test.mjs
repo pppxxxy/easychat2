@@ -30,7 +30,6 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = name => readFileSync(path.join(HERE, '..', 'src', name), 'utf8');
-const STORAGE_SOURCE = read('storage.js');
 const STORAGE_WORLD_MAP_SOURCE = read('storage/worldMap.js');
 const PANEL_SOURCE = read('MapPanel.js');
 
@@ -173,10 +172,10 @@ test('地图存储：单键读写、损坏备份、删除联动', () => {
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('backupCorruptValue(WORLD_MAP_KEY)'));
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('detachCharacterFromWorldMap'));
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('enqueueWorldMapMutation'));
-  // 角色删除时联动：改由 worldMap 域注册生命周期钩子（storage.js 只跑钩子）
+  // 角色删除时联动：改由 worldMap 域注册生命周期钩子（storage/characterState.js 只跑钩子）
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('onCharacterDeleted'), '地图域必须注册角色删除钩子');
   assert.ok(STORAGE_WORLD_MAP_SOURCE.includes('detachCharacterFromWorldMap'));
-  assert.ok(STORAGE_SOURCE.includes('runCharacterCleanup'), 'barrel 必须调用钩子运行器');
+  assert.ok(read('storage/characterState.js').includes('runCharacterCleanup'), '保存编排必须调用钩子运行器');
 });
 
 test('地图入口已在拓展首页注册（Stack 化，不再 embedded）', () => {

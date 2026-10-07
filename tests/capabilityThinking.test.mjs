@@ -11,6 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 const read = relativePath => fs.readFileSync(path.resolve(relativePath), 'utf8');
 
@@ -49,8 +50,8 @@ test('静默归一化堵口：自定义态空格式 → 确认按钮禁用 + 提
     'customFormatMissing 条件：思考开 + 未命中预设 + 格式为空');
   assert.ok(screen.includes('disabled={customFormatMissing}'), '确认按钮必须禁用');
   assert.ok(screen.includes("t('settings.capability.customFormatRequired')"), '必须渲染提示行');
-  for (const locale of ['src/i18n/locales/zh-CN.js', 'src/i18n/locales/en.js']) {
-    assert.ok(read(locale).includes("'settings.capability.customFormatRequired'"), `${locale} 缺少提示词条`);
+  for (const locale of ['src/i18n/locales/zh-CN', 'src/i18n/locales/en']) {
+    assert.ok(localeSource(locale).includes("'settings.capability.customFormatRequired'"), `${locale} 缺少提示词条`);
   }
 });
 

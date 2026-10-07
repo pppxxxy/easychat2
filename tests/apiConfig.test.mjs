@@ -100,7 +100,11 @@ const storageMock = {
 };
 
 const apiModule = loadWithStubs('src/network/api.js', {
+  // 快赢1 后 api.js 直达 apiConfigs.js / settings.js（原经 storage.js 门面）——
+  // 基名映射到同一份 mock，覆盖面不变。
   'storage.js': storageMock,
+  'apiConfigs.js': storageMock,
+  'settings.js': storageMock,
   'secrets.js': { registerSecretValues: () => {} },
 });
 const { getConfigFingerprint, EMPTY_REPLY_TEXT } = apiModule;

@@ -26,21 +26,17 @@ import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHea
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { useApp } from './context/AppContext.js';
+import { capabilitiesForModel, getActiveModel, getApiConfigs } from './storage/apiConfigs.js';
 import {
-  capabilitiesForModel,
   clearWorkspaceChanges,
-  getActiveLocalModel,
-  getActiveModel,
-  getApiConfigs,
-  getCharacterLibrary,
-  getMessagesBySession,
-  getSessions,
-  getThinkingSettings,
   getWorkspaceChanges,
   getWorkspaceSettings,
   patchWorkspaceSettings,
-  saveThinkingSettings,
-} from './storage.js';
+} from './storage/workspace.js';
+import { getActiveLocalModel } from './storage/localModels.js';
+import { getCharacterLibrary } from './storage/characters.js';
+import { getMessagesBySession, getSessions } from './storage/sessions.js';
+import { getThinkingSettings, saveThinkingSettings } from './storage/settings.js';
 import { resolveWorkspaceAssistant } from './workspace/assistant.js';
 import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';

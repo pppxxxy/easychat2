@@ -34,26 +34,29 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import {
   appendWorkspaceChatMessages,
-  capabilitiesForModel,
   clearWorkspaceChats,
   createWorkspaceChat,
   deleteWorkspaceChat,
-  getActiveLocalModel,
-  getActiveModel,
-  getApiConfigs,
-  getCharacterLibrary,
-  getGithubMcpSettings,
-  getMessagesBySession,
-  getSessions,
-  getThinkingSettings,
-  getTranscriptionSettings,
   getWorkspaceChats,
   getWorkspaceSettings,
   patchWorkspaceSettings,
-  saveApiConfigs,
-  saveThinkingSettings,
   setActiveWorkspaceChat,
-} from '../storage.js';
+} from '../storage/workspace.js';
+import {
+  capabilitiesForModel,
+  getActiveModel,
+  getApiConfigs,
+  saveApiConfigs,
+} from '../storage/apiConfigs.js';
+import { getActiveLocalModel } from '../storage/localModels.js';
+import { getCharacterLibrary } from '../storage/characters.js';
+import { getGithubMcpSettings } from '../storage/githubMcp.js';
+import { getMessagesBySession, getSessions } from '../storage/sessions.js';
+import {
+  getThinkingSettings,
+  getTranscriptionSettings,
+  saveThinkingSettings,
+} from '../storage/settings.js';
 import { computeContextUsage, resolveContextWindow } from '../chat/contextUsage.js';
 import { filterRequestMedia } from '../prompt/chatPipeline.js';
 import { isCanceledError } from '../network/api.js';

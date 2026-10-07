@@ -66,7 +66,8 @@ test('面板接线：下载中心入口/写入走 store/自定义下载的三道
 });
 
 test('设置页接线：PAT 连接 + 打开令牌页两条路 + 断开 + 错误码映射', () => {
-  const source = readSource('src/SettingsScreen.js');
+  // 快赢2 后 GitHub 编排整体在 settings/useGithubMcp.js（SettingsScreen 只留解构接线）。
+  const source = readSource('src/settings/useGithubMcp.js');
   assert.ok(source.includes('connectGithubMcpWithToken'), '连接入口');
   // 方式二不再是 OAuth 网页授权：GitHub 的远程 MCP 不提供动态客户端注册
   //（RFC 7591 /register 不存在），流程会在注册应用一步失败、浏览器根本打不开

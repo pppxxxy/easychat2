@@ -8,11 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
 import { buildRequestMessages } from '../prompt/chatPipeline.js';
-import {
-  getApiConfigs,
-  getEnabledGlobalPresetPrompts,
-  getUserProfile,
-} from '../storage.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
+import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
+import { getUserProfile } from '../storage/personas.js';
 
 import { appendBookComment, getBookComments } from './comments.js';
 import { buildPassageCommentPrompt } from './commentPrompts.js';

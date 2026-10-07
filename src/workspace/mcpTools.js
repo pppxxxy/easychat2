@@ -35,7 +35,7 @@ function acquireSession(settings, { fetchImpl, sessionFactory } = {}) {
   if (typeof sessionFactory === 'function') return sessionFactory(settings, { fetchImpl });
   if (sharedSession && sharedSessionKey === sessionKey(settings)) return sharedSession;
   // 惰性 require：Node 测试环境不起 RN 存储。
-  const { createGithubMcpSessionFromSettings } = require('../storage.js');
+  const { createGithubMcpSessionFromSettings } = require('../storage/githubMcp.js');
   sharedSession = createGithubMcpSessionFromSettings(settings, { fetchImpl });
   sharedSessionKey = sessionKey(settings);
   return sharedSession;
@@ -139,7 +139,7 @@ export async function ensureGithubMcpToolsRegistered({ getSettings, ...hooks } =
     return registerGithubMcpTools(await getSettings(), hooks);
   }
   // 惰性 require：RN/Metro 下成立（babel CJS 互操作）；Node 原生 ESM 走注入。
-  const { getGithubMcpSettings } = require('../storage.js');
+  const { getGithubMcpSettings } = require('../storage/githubMcp.js');
   const settings = await getGithubMcpSettings();
   return registerGithubMcpTools(settings, hooks);
 }

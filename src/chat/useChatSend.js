@@ -84,24 +84,23 @@ import {
   isSessionScopedMemory,
   planMemoryBudget,
 } from '../memory/memorySummary.js';
+import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
+import { capabilitiesForModel, getApiConfigs, getActiveModel } from '../storage/apiConfigs.js';
+import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
+import { getEnabledPlugins } from '../storage/settings.js';
+import { getUserProfile } from '../storage/personas.js';
+import { getLocationSettings } from '../storage/location.js';
 import {
-  getActiveLocalModel,
-  capabilitiesForModel,
-  getApiConfigs,
-  getActiveModel,
-  getEnabledGlobalPresetPrompts,
-  getEnabledPlugins,
-  getUserProfile,
-  getLocalModelSettings,
-  getLocationSettings,
   getSessionSummaries,
+  markSessionModel,
+  updateSessionMemberProfiles,
+} from '../storage/sessions.js';
+import {
   getVectorIndex,
   getVectorMemoryConfig,
-  getWorkspaceSettings,
-  markSessionModel,
   removeVectorIndexForSession,
-  updateSessionMemberProfiles,
-} from '../storage.js';
+} from '../storage/vector.js';
+import { getWorkspaceSettings } from '../storage/workspace.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { runPlugins } from '../plugins/registry.js';
 

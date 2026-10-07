@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getWorldMap, updateWorldMap } from './storage.js';
+import { getWorldMap, updateWorldMap } from './storage/worldMap.js';
 import {
   assignHouseNumbers,
   canAddResident,

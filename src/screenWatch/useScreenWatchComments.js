@@ -8,15 +8,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
 import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
-import {
-  getActiveLocalModel,
-  capabilitiesForModel,
-  getApiConfigs,
-  getActiveModel,
-  getEnabledGlobalPresetPrompts,
-  getLocalModelSettings,
-  getUserProfile,
-} from '../storage.js';
+import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
+import { capabilitiesForModel, getApiConfigs, getActiveModel } from '../storage/apiConfigs.js';
+import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
+import { getUserProfile } from '../storage/personas.js';
 
 import { maskSecrets } from '../storage/secrets.js';
 import { appendScreenWatchComment, clearScreenWatchComments, deleteScreenWatchComment, getScreenWatchComments } from './comments.js';

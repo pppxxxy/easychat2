@@ -19,6 +19,8 @@
     "src/SettingsScreen.js",
     "src/settings/useVectorSettings.js",
     "src/settings/useUserProfile.js",
+    "src/settings/useGithubMcp.js",
+    "src/settings/useWorkspaceSettings.js",
     "src/settings/SamplingCard.js",
     "src/settings/settingsStyles.js",
     "src/settings/CollapsibleHint.js",

@@ -21,7 +21,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
-import { getTranscriptionSettings, saveTranscriptionSettings } from './storage.js';
+import { getTranscriptionSettings, saveTranscriptionSettings } from './storage/settings.js';
 import { TRANSCRIPTION_API_VENDORS } from './network/apiVendors.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';

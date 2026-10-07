@@ -15,7 +15,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { exportBackup, importBackup } from './storage.js';
+import { exportBackup, importBackup } from './storage/backup.js';
 import { validateBackupPayload } from './storage/dataBackup.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';

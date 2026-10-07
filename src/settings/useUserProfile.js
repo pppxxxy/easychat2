@@ -15,10 +15,10 @@ import {
   getActivePersonaId,
   getPersonas,
   getUserProfile,
-  markMediaWrite,
   saveUserProfile,
   setActivePersonaId,
-} from '../storage.js';
+} from '../storage/personas.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
 import { getPickedAsset } from '../character/cardHelpers.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 

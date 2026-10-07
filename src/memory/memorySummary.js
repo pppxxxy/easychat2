@@ -7,7 +7,7 @@ import {
   invalidateSessionSummaries,
   isSessionSummaryRevisionCurrent,
   setSessionSummarizedUpTo,
-} from '../storage.js';
+} from '../storage/sessions.js';
 
 import { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
 import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';

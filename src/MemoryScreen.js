@@ -13,14 +13,9 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext.js';
-import {
-  deleteMomentsBySessionIds,
-  findOrphanSessions,
-  getMessagesBySession,
-  getMomentsStatus,
-  getUserProfile,
-  restoreSession,
-} from './storage.js';
+import { deleteMomentsBySessionIds, getMomentsStatus } from './storage/moments.js';
+import { findOrphanSessions, getMessagesBySession, restoreSession } from './storage/sessions.js';
+import { getUserProfile } from './storage/personas.js';
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
 import {

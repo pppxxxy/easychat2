@@ -7,7 +7,7 @@ import { useCallback, useMemo, useState } from 'react';
 
 import * as Clipboard from 'expo-clipboard';
 
-import { getLocalModelSettings } from '../../storage.js';
+import { getLocalModelSettings } from '../../storage/localModels.js';
 import {
   getLocalApiServerStatus,
   isLocalApiServerAvailable,

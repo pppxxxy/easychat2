@@ -1,0 +1,31 @@
+// i18n 词条 · common 域（English）。聚合入口见 ../en.js。
+  // ---- Common ----
+  // ---- i18n 迁移批次：硬编码中文清理（2026-10-05）----
+export const common = {
+  'common.characterFallback': 'Character',
+  'common.cancel': 'Cancel',
+  'common.confirm': 'Confirm',
+  'common.save': 'Save',
+  'common.saving': 'Saving...',
+  'common.delete': 'Delete',
+  'common.close': 'Close',
+  'common.retry': 'Retry',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied',
+  'common.done': 'Done',
+  'common.loading': 'Working...',
+  'common.hintLabel': 'Note',
+  'common.expand': 'Expand {label}',
+  'common.collapse': 'Collapse {label}',
+  'common.notSet': 'Not set',
+  'common.error.retry': 'Please try again.',
+  'common.groupChat': 'Group Chat',
+  'common.error.saveFailed': 'Save Failed',
+  'common.error.deleteFailed': 'Delete Failed',
+  'common.error.storageOrPermission': 'Please check storage space or permissions.',
+  'common.error.retryLater': 'Please try again later.',
+  'common.detecting': 'Detecting...',
+  'common.on': 'On',
+  'common.off': 'Off',
+  'common.unnamedCharacter': 'Unnamed character',
+};

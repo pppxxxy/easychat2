@@ -7,7 +7,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { createVectorConfig, getVectorMemorySettings, saveVectorMemorySettings } from '../storage.js';
+import {
+  createVectorConfig,
+  getVectorMemorySettings,
+  saveVectorMemorySettings,
+} from '../storage/vector.js';
 import { testVectorConnection } from '../vectorMemory/index.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 

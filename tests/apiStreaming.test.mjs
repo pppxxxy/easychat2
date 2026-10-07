@@ -28,7 +28,9 @@ const recordedDiagnostics = [];
 Module._load = function patchedLoad(request, parent, isMain) {
   // 按 basename 匹配，兼容源码搬迁后 `./x.js` → `../x.js` 的相对路径变化。
   const base = String(request).split('/').pop();
-  if (base === 'storage.js') {
+  // 快赢1 后 api.js 直达 storage/apiConfigs.js 与 storage/settings.js（原经 storage.js
+  // 门面），两个基名映射到同一份 mock（已含 getSamplingSettings/getThinkingSettings）。
+  if (base === 'storage.js' || base === 'apiConfigs.js' || base === 'settings.js') {
     return {
       getActiveApiConfig: async () => activeConfig,
       getActiveModel: config => config.activeModel,

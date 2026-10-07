@@ -73,35 +73,28 @@ import ScrollScrubber from './chat/ScrollScrubber.js';
 import { maskSecrets } from './storage/secrets.js';
 import { hideVariantStatusBar } from './chat/speechText.js';
 import { recordDiagnostic } from './storage/diagnostics.js';
+import { capabilitiesForModel, getApiConfigs, getActiveModel } from './storage/apiConfigs.js';
+import { getActiveLocalModel, getLocalModelSettings } from './storage/localModels.js';
 import {
-  capabilitiesForModel,
-  getApiConfigs,
-  getActiveModel,
-  getActiveLocalModel,
   getChatOptions,
   getImageGenSettings,
-  getLocalModelSettings,
   getInlineImageSettings,
   getMemorySummarySettings,
-  getStickers,
   getThinkingSettings,
   getTranscriptionSettings,
-  getUserProfile,
-  setProtectedChatImageUris,
   getTtsSettings,
-  getMomentsSettings,
-  getAffinityStatus,
-  saveAffinity,
-  updateMoments,
-  saveSticker,
-  deleteStickers,
-  reorderStickers,
-  setSessionGreetingSelected,
+} from './storage/settings.js';
+import { getStickers, saveSticker, deleteStickers, reorderStickers } from './storage/stickers.js';
+import { getUserProfile } from './storage/personas.js';
+import { setProtectedChatImageUris, setSessionGreetingSelected } from './storage/sessions.js';
+import { getMomentsSettings, updateMoments } from './storage/moments.js';
+import { getAffinityStatus, saveAffinity } from './storage/affinity.js';
+import {
   getVectorMemoryConfig,
   removeVectorIndexForMessage,
   removeVectorIndexForMessages,
   removeVectorIndexForSession,
-} from './storage.js';
+} from './storage/vector.js';
 
 import {
 } from './vectorMemory/index.js';

@@ -1,0 +1,21 @@
+// i18n 词条 · sessionRecovery 域（English）。聚合入口见 ../en.js。
+export const sessionRecovery = {
+  'sessionRecovery.title': 'Close',
+  'sessionRecovery.back': 'Back',
+  'sessionRecovery.subtitleGroup': 'Subtitle Group',
+  'sessionRecovery.subtitleSingle': 'Subtitle Single',
+  'sessionRecovery.previewLabel': '{count} messages · {time}',
+  'sessionRecovery.noPreview': ' · Possible group chat ({speakers} members)',
+  'sessionRecovery.meta': 'Meta',
+  'sessionRecovery.timeUnknown': 'Time Unknown',
+  'sessionRecovery.a11y.recoverTo': 'Restore to {name}',
+  'sessionRecovery.unnamedCharacter': 'Unnamed Character',
+  'sessionRecovery.subtitleList': 'Subtitle List',
+  'sessionRecovery.subtitleEmpty': 'Subtitle Empty',
+  'sessionRecovery.a11y.pickSession': 'Pick Session',
+  'sessionRecovery.metaGroup': ' · Possible group chat',
+  'sessionRecovery.metaGroupSuffix': ' · Possible group chat ({count} speakers)',
+  'sessionRecovery.noCharacters.desc': 'Create or import a character on the Characters page first.',
+  'sessionRecovery.noCharacters.title': 'No characters available',
+  'sessionRecovery.recommended': 'Recommended',
+};

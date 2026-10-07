@@ -31,9 +31,21 @@ for (const file of walk(SRC)) {
   });
 }
 
-const zhSrc = fs.readFileSync(path.join(ROOT, 'src/i18n/locales/zh-CN.js'), 'utf8');
+// 快赢3 后语言包按域拆分（locales/<语言>/<域>.js）：递归收集全部 .js 的键
+// （聚合入口无键行，拼入无害）。键匹配须转义感知且不锚定行首——历史文件里
+// 存在「一行双键」（如 zh-CN backup 域），只认行首会漏计第二个键。
 const existing = new Set();
-for (const m of zhSrc.matchAll(/^\s*'([^']+)':/gm)) existing.add(m[1]);
+(function collectLocaleKeys(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectLocaleKeys(full);
+    else if (entry.name.endsWith('.js')) {
+      for (const m of fs.readFileSync(full, 'utf8').matchAll(/'((?:[^'\\]|\\.)+)'\s*:/g)) {
+        existing.add(m[1]);
+      }
+    }
+  }
+})(path.join(ROOT, 'src', 'i18n', 'locales'));
 const missing = [...refs.keys()].filter(k => !existing.has(k)).sort();
 
 if (process.argv.includes('--json')) {

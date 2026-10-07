@@ -4,15 +4,11 @@
 // - 与同住反应一样，这是增值功能，绝不写回会话消息或记忆；失败静默；
 // - 逐角色串行调用模型，合并进动态评论；每条动态同一时刻只跑一轮（防并发重复扣费）。
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
-import {
-  getApiConfigs,
-  getCharacterLibrary,
-  getMessagesBySession,
-  getMoments,
-  getSessions,
-  getUserProfile,
-  updateMoments,
-} from '../storage.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
+import { getCharacterLibrary } from '../storage/characters.js';
+import { getMessagesBySession, getSessions } from '../storage/sessions.js';
+import { getMoments, updateMoments } from '../storage/moments.js';
+import { getUserProfile } from '../storage/personas.js';
 import {
   buildMomentMemoryText,
   buildMomentReplyPrompt,

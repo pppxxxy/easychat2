@@ -12,6 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 import { SETTINGS_SEARCH_INDEX, settingsSectionLabel } from '../src/settings/searchIndex.js';
 
@@ -69,9 +70,9 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
   assert.ok(screen.includes("t('settings.localModel.title')"), '本地模型独立卡使用新文案键');
   assert.ok(screen.includes('onPress={() => setLocalModelOpen(true)}'), '本地模型卡直连面板');
   // 文案键迁移：旧键退役
-  const locales = ['src/i18n/locales/zh-CN.js', 'src/i18n/locales/en.js'];
+  const locales = ['src/i18n/locales/zh-CN', 'src/i18n/locales/en'];
   for (const file of locales) {
-    const table = read(file);
+    const table = localeSource(file);
     assert.ok(!table.includes("'settings.about.localModel'"), `${file} 旧键 settings.about.localModel 必须删除`);
     assert.ok(table.includes("'settings.localModel.title'") && table.includes("'settings.localModel.entry'"),
       `${file} 必须有 settings.localModel.title/entry`);

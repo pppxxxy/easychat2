@@ -9,7 +9,11 @@
 
 import { Alert, Platform } from 'react-native';
 
-import { deleteLocalModelItem, getLocalModelItem, saveLocalModelItem } from '../../storage.js';
+import {
+  deleteLocalModelItem,
+  getLocalModelItem,
+  saveLocalModelItem,
+} from '../../storage/localModels.js';
 import { deleteLocalModel } from '../modelManager.js';
 import { isLocalModelLoaded, unloadLocalModel } from '../adapter.js';
 import { stopLocalApiServer } from '../localApiServer.js';

@@ -28,12 +28,9 @@ import { useApp } from '../context/AppContext.js';
 import { selectSessionsForCharacters } from '../context/sessionLibrary.js';
 import { useNavigation } from '@react-navigation/native';
 import ScrollScrubber from '../chat/ScrollScrubber.js';
-import {
-  clearCharacterEditDraft,
-  createGroupSession,
-  deleteMomentsForCharacterDeletion,
-  getMomentsStatus,
-} from '../storage.js';
+import { clearCharacterEditDraft } from '../storage/characters.js';
+import { createGroupSession } from '../storage/sessions.js';
+import { deleteMomentsForCharacterDeletion, getMomentsStatus } from '../storage/moments.js';
 import { countMomentsForCharacterDeletion } from '../moments/moments.js';
 import { isValidAigcMeta } from '../aigc/attribution.js';
 import { useTheme } from '../theme/ThemeContext.js';

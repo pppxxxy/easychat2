@@ -1,0 +1,20 @@
+// i18n 词条 · greetingPicker 域（zh-CN 基准）。聚合入口见 ../zh-CN.js。
+export const greetingPicker = {
+  'greetingPicker.title': '选择开场白',
+  'greetingPicker.closeA11y': '关闭',
+  'greetingPicker.hintSelect': '选择后，之后新建的对话会默认使用这条开场白。也可以修改或新增。',
+  'greetingPicker.hintMultiple': '这张卡包含多条开场白，选一条作为开场白；也可以修改或新增。未选中的会保留为备用开场白。',
+  'greetingPicker.hintEmpty': '这张卡没有开场白，可以新增一条，或直接跳过。',
+  'greetingPicker.none': '不使用开场白（由我先说）',
+  'greetingPicker.firstLabel': '开场白',
+  'greetingPicker.itemLabel': '开场白 {n}',
+  'greetingPicker.emptyItem': '（空白，请在下方填写）',
+  'greetingPicker.removeA11y': '删除这条开场白',
+  'greetingPicker.add': '新增一条',
+  'greetingPicker.editLabel': '编辑选中的开场白',
+  'greetingPicker.editPlaceholder': '填写开场白内容',
+  'greetingPicker.cancel': '取消',
+  'greetingPicker.saving': '保存中...',
+  'greetingPicker.useThis': '使用此开场白',
+  'greetingPicker.import': '导入',
+};

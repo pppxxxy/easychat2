@@ -32,33 +32,26 @@ import {
   rawCapabilityForModel,
   getApiConfigs,
   normalizeCapabilityEntry,
+  saveApiConfigs,
+} from './storage/apiConfigs.js';
+import {
   getChatOptions,
-  getGlobalPresetSettings,
-  getGlobalPresets,
   getImageGenSettings,
   getInlineImageSettings,
-  getLocationSettings,
-  getMomentsSettings,
-  saveMomentsSettings,
   getThinkingSettings,
   getUiSections,
-  clearVectorIndex,
-  getWorkspaceSettings,
-  patchWorkspaceSettings,
-  clearGithubMcpCredentials,
-  connectGithubMcpWithToken,
-  getGithubMcpSettings,
-  saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
   saveUiSections,
-  updateLocationSettings,
-} from './storage.js';
+} from './storage/settings.js';
+import { getGlobalPresetSettings, getGlobalPresets } from './storage/globalPresets.js';
+import { getLocationSettings, updateLocationSettings } from './storage/location.js';
+import { getMomentsSettings, saveMomentsSettings } from './storage/moments.js';
+import { clearVectorIndex } from './storage/vector.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
-import { pickWorkspaceFolder } from './workspace/picker.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './network/apiVendors.js';
 import {
   Card,
@@ -76,6 +69,8 @@ import WorkspacePanel from './WorkspacePanel.js';
 import WorkspaceChat from './workspace/WorkspaceChat.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
+import useGithubMcp from './settings/useGithubMcp.js';
+import useWorkspaceSettings from './settings/useWorkspaceSettings.js';
 import SamplingCard from './settings/SamplingCard.js';
 import { searchSettings, settingsSectionLabel } from './settings/searchIndex.js';
 import { createSettingsStyles } from './settings/settingsStyles.js';
@@ -108,11 +103,6 @@ const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version |
 // 由搜索 + 默认展开保障（不再依赖垫底）。
 const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'localmodel', 'language', 'about'];
 
-// GitHub 令牌创建页（方式二「打开令牌页」的落地页）。
-// 为什么不做网页授权：GitHub 的远程 MCP 不提供动态客户端注册（RFC 7591 的 /register
-// 端点不存在）——流程会在「注册应用」一步失败，浏览器根本不会打开，用户看到的就是
-// 「点了按钮没跳转」。令牌页一定可用，且能顺带把权限勾选问清楚。
-const GITHUB_TOKEN_PAGE_URL = 'https://github.com/settings/tokens/new?scopes=repo,read:user&description=EasyChat2';
 
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
@@ -269,13 +259,17 @@ export default function SettingsScreen() {
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
-  const [workspaceMode, setWorkspaceMode] = useState('ask');
-  const workspaceModeRef = useRef('ask');
-  const [workspaceFolder, setWorkspaceFolder] = useState({ kind: 'app', uri: '', name: '' });
-  const [commandExecution, setCommandExecution] = useState(false);
-  const [workspaceFolderBusy, setWorkspaceFolderBusy] = useState(false);
-  // 异步保存（选文件夹 / 命令开关）回来时组件可能已卸载，setState 前先查这个 ref。
-  const settingsMountedRef = useRef(true);
+  // 工作区设置的编排（模式 / 文件夹 / 命令开关）已抽到 settings/useWorkspaceSettings.js。
+  const {
+    workspaceMode,
+    workspaceFolder,
+    commandExecution,
+    workspaceFolderBusy,
+    updateWorkspaceMode,
+    chooseWorkspaceFolder,
+    resetWorkspaceFolder,
+    toggleCommandExecution,
+  } = useWorkspaceSettings();
   const characterId = (character && character.id) || 'default';
   const [thinkingDisplay, setThinkingDisplay] = useState('fold');
   const [inlineImage, setInlineImage] = useState({
@@ -318,13 +312,17 @@ export default function SettingsScreen() {
   // 用 initialSection 指定要直接展开的那一项。
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   const [workspacePanelSection, setWorkspacePanelSection] = useState('');
-  // GitHub MCP 连接：设置、PAT 输入与忙碌态。
-  // 两个按钮的进行中状态必须分开：此前共用 githubBusy，点「打开令牌页」时亮的是
-  // 上面「连接」按钮的「连接中…」，用户以为状态串了、也看不出自己点的那步在干嘛。
-  const [githubMcp, setGithubMcp] = useState(null);
-  const [githubPat, setGithubPat] = useState('');
-  const [githubBusy, setGithubBusy] = useState(false);
-  const [githubPageBusy, setGithubPageBusy] = useState(false);
+  // GitHub MCP 连接的编排已抽到 settings/useGithubMcp.js。
+  const {
+    githubMcp,
+    githubPat,
+    setGithubPat,
+    githubBusy,
+    githubPageBusy,
+    connectGithubPat,
+    openGithubTokenPage,
+    disconnectGithub,
+  } = useGithubMcp();
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
   const { refreshAppData, character } = useApp();
@@ -456,14 +454,6 @@ export default function SettingsScreen() {
       .catch(() => {});
     getThinkingSettings()
       .then(settings => setThinkingDisplay(settings.display))
-      .catch(() => {});
-    getWorkspaceSettings()
-      .then(settings => {
-        workspaceModeRef.current = settings.mode;
-        setWorkspaceMode(settings.mode);
-        setWorkspaceFolder(settings.location);
-        setCommandExecution(settings.allowCommandExecution);
-      })
       .catch(() => {});
     loadVectorSettings();
 
@@ -611,173 +601,6 @@ export default function SettingsScreen() {
       getLocationSettings().then(setLocationSettings).catch(() => {});
     }
   }, [t]);
-
-  const updateWorkspaceMode = useCallback(async mode => {
-    workspaceModeRef.current = mode;
-    setWorkspaceMode(mode);
-    try {
-      // 局部更新：整体 save 会把 location / allowCommandExecution 归一化回默认值，
-      // 表现为「切一下模式，刚选好的文件夹和命令开关就没了」。
-      const saved = await patchWorkspaceSettings({ mode });
-      setCommandExecution(saved.allowCommandExecution);
-    } catch (error) {
-      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
-    }
-  }, []);
-
-  // —— GitHub MCP 连接 ——
-  // 网页认证：发现授权服务器 → 动态注册 → 系统浏览器授权（PKCE）→ 回调换令牌。
-  // 任何一步失败都提示改用 PAT；令牌方式是稳定兜底。
-  // data 层错误带稳定 code：这里按 code 映射成用户文案（纯模块不做 i18n）。
-  const GITHUB_ERROR_KEYS = {
-    GITHUB_TOKEN_EMPTY: 'settings.github.err.empty',
-    GITHUB_ENDPOINT_HTTPS: 'settings.github.err.endpoint',
-    GITHUB_NOT_CONNECTED: 'settings.github.err.notConnected',
-    MCP_AUTH_FAILED: 'settings.github.err.auth',
-    MCP_HTTP_ERROR: 'settings.github.err.mcpHttp',
-    MCP_INVALID_RESPONSE: 'settings.github.err.mcpResponse',
-    OAUTH_METADATA_NOT_FOUND: 'settings.github.err.metadata',
-    OAUTH_NO_REGISTRATION: 'settings.github.err.registration',
-    MCP_TIMEOUT: 'settings.github.err.mcpTimeout',
-    OAUTH_STATE_MISMATCH: 'settings.github.err.state',
-    OAUTH_TIMEOUT: 'settings.github.err.timeout',
-    OAUTH_ACCESS_DENIED: 'settings.github.err.denied',
-    OAUTH_TOKEN_EXCHANGE: 'settings.github.err.exchange',
-    OAUTH_BROWSER_UNAVAILABLE: 'settings.github.err.browser',
-  };
-  const githubAlertText = (error, translate) => {
-    const key = error && error.code && GITHUB_ERROR_KEYS[error.code];
-    return key ? translate(key) : ((error && error.message) || translate('settings.github.err.body'));
-  };
-  const githubMcpSummaryRef = useRef({ allowedCount: 0, confirmCount: 0, deniedCount: 0 });
-  const loadGithubMcp = useCallback(async () => {
-    try { setGithubMcp(await getGithubMcpSettings()); } catch (error) { setGithubMcp(null); }
-  }, []);
-
-  useEffect(() => { loadGithubMcp(); }, [loadGithubMcp]);
-
-  const afterGithubConnect = useCallback(async () => {
-    await loadGithubMcp();
-    Alert.alert(
-      t('settings.github.done.title'),
-      t('settings.github.done.body', {
-        count: githubMcpSummaryRef.current.allowedCount,
-        confirm: githubMcpSummaryRef.current.confirmCount,
-        denied: githubMcpSummaryRef.current.deniedCount,
-      })
-    );
-  }, [loadGithubMcp, t]);
-
-  const connectGithubPat = useCallback(async () => {
-    if (githubBusy) return;
-    const token = githubPat.trim();
-    if (!token) {
-      Alert.alert(t('settings.github.err.title'), t('settings.github.err.empty'));
-      return;
-    }
-    setGithubBusy(true);
-    try {
-      const summary = await connectGithubMcpWithToken({ token, authMethod: 'pat' });
-      githubMcpSummaryRef.current = summary;
-      setGithubPat('');
-      await afterGithubConnect();
-    } catch (error) {
-      Alert.alert(t('settings.github.err.title'), githubAlertText(error, t));
-    } finally {
-      setGithubBusy(false);
-    }
-  }, [afterGithubConnect, githubBusy, githubPat, t]);
-
-  // 方式二：打开 GitHub 令牌创建页（不是 OAuth 网页授权）。
-  // GitHub 的远程 MCP 不支持动态客户端注册，网页授权必然在「注册应用」一步失败、
-  // 浏览器根本打不开——用户的实际观感就是「点了按钮没跳转」。令牌页则一定可用：
-  // 在那里生成 PAT（权限已预勾选），复制回来粘贴到上面的输入框即可。
-  const openGithubTokenPage = useCallback(async () => {
-    if (githubPageBusy) return;
-    setGithubPageBusy(true);
-    try {
-      await Linking.openURL(GITHUB_TOKEN_PAGE_URL);
-    } catch (error) {
-      Alert.alert(t('settings.github.err.title'), t('settings.github.err.openPage'));
-    } finally {
-      setGithubPageBusy(false);
-    }
-  }, [githubPageBusy, t]);
-
-  const disconnectGithub = useCallback(() => {
-    Alert.alert(t('settings.github.disconnect.title'), t('settings.github.disconnect.body'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('settings.github.disconnect.ok'),
-        style: 'destructive',
-        onPress: () => { clearGithubMcpCredentials().then(loadGithubMcp).catch(() => {}); },
-      },
-    ]);
-  }, [loadGithubMcp, t]);
-
-  // 选文件夹：系统选择器（SAF）已经带 takePersistableUriPermission，重启后仍有效。
-  // 取消不是错误，不提示；失败才提示。
-  const chooseWorkspaceFolder = useCallback(async () => {
-    if (workspaceFolderBusy) return;
-    setWorkspaceFolderBusy(true);
-    try {
-      const picked = await pickWorkspaceFolder();
-      if (!picked) return;
-      const saved = await patchWorkspaceSettings({ location: { kind: 'saf', uri: picked.uri, name: picked.name } });
-      setWorkspaceFolder(saved.location);
-      setCommandExecution(saved.allowCommandExecution);
-    } catch (error) {
-      Alert.alert(t('settings.workspace.folder.err.title'), (error && error.message) || t('settings.workspace.folder.err.body'));
-    } finally {
-      setWorkspaceFolderBusy(false);
-    }
-  }, [t, workspaceFolderBusy]);
-
-  const resetWorkspaceFolder = useCallback(async () => {
-    try {
-      const saved = await patchWorkspaceSettings({ location: { kind: 'app', uri: '', name: '' } });
-      setWorkspaceFolder(saved.location);
-      setCommandExecution(saved.allowCommandExecution);
-    } catch (error) {
-      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
-    }
-  }, []);
-
-  // 命令执行的开关放在确认弹框之后：这是「模型生成的命令会在手机里真的跑」的开关，
-  // 不能一点就生效。
-  const toggleCommandExecution = useCallback((value) => {
-    if (!value) {
-      patchWorkspaceSettings({ allowCommandExecution: false })
-        .then(saved => {
-          if (settingsMountedRef.current) setCommandExecution(saved.allowCommandExecution);
-        })
-        .catch(() => Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission')));
-      return;
-    }
-    Alert.alert(
-      t('settings.workspace.shell.confirm.title'),
-      t('settings.workspace.shell.confirm.body'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('settings.workspace.shell.confirm.ok'),
-          style: 'destructive',
-          onPress: () => {
-            patchWorkspaceSettings({ allowCommandExecution: true })
-              .then(saved => {
-                if (settingsMountedRef.current) setCommandExecution(saved.allowCommandExecution);
-              })
-              .catch(() => Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission')));
-          },
-        },
-      ]
-    );
-  }, [t]);
-
-  useEffect(() => {
-    settingsMountedRef.current = true;
-    return () => { settingsMountedRef.current = false; };
-  }, []);
 
   useEffect(() => {
     apiMountedRef.current = true;

@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { searchMessages } from './storage.js';
+import { searchMessages } from './storage/sessions.js';
 import SessionRow, { SessionAvatar } from './memory/SessionRow.js';
 import { EmptyState } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';

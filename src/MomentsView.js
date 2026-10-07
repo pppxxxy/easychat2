@@ -14,15 +14,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './network/api.js';
 import { buildRequestMessages } from './prompt/chatPipeline.js';
-import {
-  getEnabledGlobalPresetPrompts,
-  getApiConfigs,
-  getMessagesBySession,
-  getMoments,
-  getSessionSummaries,
-  getUserProfile,
-  updateMoments,
-} from './storage.js';
+import { getEnabledGlobalPresetPrompts } from './storage/globalPresets.js';
+import { getApiConfigs } from './storage/apiConfigs.js';
+import { getMessagesBySession, getSessionSummaries } from './storage/sessions.js';
+import { getMoments, updateMoments } from './storage/moments.js';
+import { getUserProfile } from './storage/personas.js';
 import {
   buildMomentMemoryText,
   buildMomentReplyPrompt,

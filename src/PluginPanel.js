@@ -15,7 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
-import { getPlugins, savePlugins } from './storage.js';
+import { getPlugins, savePlugins } from './storage/settings.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { PROVIDERS, getProvider, missingRequiredFields } from './plugins/providers.js';
 import { useTranslation } from './i18n/I18nContext.js';

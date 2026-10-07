@@ -18,10 +18,7 @@ import {
   getTheme,
   resolveFontScale,
 } from './themes.js';
-import {
-  getAppearanceSettings,
-  patchAppearanceSettings,
-} from '../storage.js';
+import { getAppearanceSettings, patchAppearanceSettings } from '../storage/settings.js';
 import { tokens } from './tokens.js';
 // 注意：App.js 里 ThemeProvider 在 I18nProvider 外层，useTranslation 在此只能拿到
 // 基准语言回退；这个失败提示需要跟随当前语言，故用模块级 tActive。
