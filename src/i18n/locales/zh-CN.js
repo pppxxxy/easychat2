@@ -37,6 +37,7 @@ import { onboarding } from './zh-CN/onboarding.js';
 import { plugin } from './zh-CN/plugin.js';
 import { preset } from './zh-CN/preset.js';
 import { proactive } from './zh-CN/proactive.js';
+import { schedule } from './zh-CN/schedule.js';
 import { screenWatch } from './zh-CN/screenWatch.js';
 import { search } from './zh-CN/search.js';
 import { sessionRecovery } from './zh-CN/sessionRecovery.js';
@@ -76,6 +77,7 @@ export const zhCN = {
   ...plugin,
   ...preset,
   ...proactive,
+  ...schedule,
   ...screenWatch,
   ...search,
   ...sessionRecovery,

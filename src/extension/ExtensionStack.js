@@ -22,6 +22,7 @@ import MusicScreen from '../music/MusicScreen.js';
 import BookScreen from '../books/BookScreen.js';
 import ScreenWatchScreen from '../screenWatch/ScreenWatchScreen.js';
 import ProactivePanel from '../ProactivePanel.js';
+import SchedulePanel from './SchedulePanel.js';
 import DiaryPanel from '../DiaryPanel.js';
 import MapPanel from '../MapPanel.js';
 
@@ -45,6 +46,7 @@ export default function ExtensionStack() {
       <Stack.Screen name="ext-books" component={BookScreen} />
       <Stack.Screen name="ext-screen" component={ScreenWatchScreen} />
       <Stack.Screen name="ext-proactive" component={ProactivePanel} />
+      <Stack.Screen name="ext-schedule" component={SchedulePanel} />
       <Stack.Screen name="ext-diary" component={DiaryPanel} />
       <Stack.Screen name="ext-map" component={MapPanel} />
     </Stack.Navigator>

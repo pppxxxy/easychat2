@@ -134,6 +134,7 @@
     "src/extension/ExtensionHome.js",
     "src/extension/GamesView.js",
     "src/extension/ExtensionStack.js",
+    "src/extension/SchedulePanel.js",
     "src/ui/PaneHeader.js"
   ],
   "reporter": ["text-summary", "lcov"],

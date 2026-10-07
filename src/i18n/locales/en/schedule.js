@@ -1,0 +1,22 @@
+// i18n entries · schedule domain (en). Aggregated in ../en.js.
+export const schedule = {
+  'schedule.title': 'Schedule',
+  'schedule.selectRole': 'Character',
+  'schedule.enable': "Enable character's schedule",
+  'schedule.wake': 'Wake',
+  'schedule.workStart': 'Work starts',
+  'schedule.workEnd': 'Work ends',
+  'schedule.sleep': 'Sleep',
+  'schedule.timePlaceholder': 'HH:MM',
+  'schedule.preview': 'Schedule preview',
+  'schedule.period.sleep': 'sleeping hours',
+  'schedule.period.work': 'working hours',
+  'schedule.period.free': 'free time',
+  'schedule.currentPeriod': 'By this schedule, it is now "{period}"',
+  'schedule.hint': "When enabled, the character adjusts tone and length by the current time: late at night it feels like \"I'm still up too\", during work hours replies are shorter (e.g. \"busy, talk later\"). Applies to normal chat and proactive messages.",
+  'schedule.disabledHint': 'Schedule disabled: the character does not sense a routine; behavior is unchanged.',
+  'schedule.save': 'Save',
+  'schedule.saved': 'Saved',
+  'schedule.saveFailed': 'Save failed',
+  'schedule.noRoles': 'No characters yet. Create one on the Characters tab first.',
+};
