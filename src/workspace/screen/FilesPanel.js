@@ -658,7 +658,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       activeOpacity={0.85}
     >
       <Ionicons
-        name={group.kind === 'legacy' ? 'archive-outline' : 'logo-github'}
+        name="logo-github"
         size={18}
         color={theme.colors.primaryMuted}
       />
@@ -666,7 +666,6 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         <Text style={styles.projectName} numberOfLines={1}>{group.label}</Text>
         <Text style={styles.projectMeta} numberOfLines={1}>
           {t('workspace.panel.group.files', { count: group.fileCount + group.dirCount })}
-          {group.kind === 'legacy' ? ` · ${t('workspace.panel.group.legacy')}` : ''}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />

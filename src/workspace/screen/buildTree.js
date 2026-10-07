@@ -5,18 +5,16 @@
 // 路径被截断成「repos/leiting-zhanji-h5/main/RE...」。分组 + 逐层下钻后，
 // 文件按项目成卡、点进去只看当前层，长路径问题自然消失。
 //
-// 两种项目前缀（v1 §0 缺陷 4 的两套规范，读侧都兼容）：
-//   repos/<owner>/<repo>/<branch>/…   面板侧导入（分支快照，v2 起为唯一写入规范）
-//   projects/<owner>__<repo>/…        聊天侧导入（旧规范，只读兼容，不迁移文件）
+// 项目前缀（v2 起为唯一规范；旧的 projects/<owner>__<repo>/ 已随聊天侧导入一并移除）：
+//   repos/<owner>/<repo>/<branch>/…   分支快照（GitHub 工作台拉取）
 
 export const REPOS_PREFIX = 'repos';
-export const LEGACY_PROJECTS_PREFIX = 'projects';
 
 function segments(path) {
   return String(path || '').split('/').filter(Boolean);
 }
 
-// 从相对路径解析出项目组。返回 { id, label, kind, prefix } 或 null（不属于任何项目）。
+// 从相对路径解析出项目组。返回 { id, label, prefix } 或 null（不属于任何项目）。
 // id/prefix 用于 listWorkspaceFiles({ subdir }) 下钻；label 是展示名。
 export function projectGroupOf(path) {
   const segs = segments(path);
@@ -34,18 +32,7 @@ export function projectGroupOf(path) {
     return {
       id: `${REPOS_PREFIX}/${prefix.replace(/\/$/, '')}`,
       label: branch ? `${owner}/${repo} · ${branch}` : `${owner}/${repo}`,
-      kind: 'repo',
       prefix: `${REPOS_PREFIX}/${prefix}`,
-    };
-  }
-  if (segs[0] === LEGACY_PROJECTS_PREFIX) {
-    if (segs.length < 2) return null;
-    const name = segs[1];
-    return {
-      id: `${LEGACY_PROJECTS_PREFIX}/${name}`,
-      label: name.replace(/__/, '/'),
-      kind: 'legacy',
-      prefix: `${LEGACY_PROJECTS_PREFIX}/${name}/`,
     };
   }
   return null;
@@ -70,11 +57,8 @@ export function groupWorkspaceFiles(files) {
     if (String(entry).endsWith('/')) bucket.dirCount += 1;
     else bucket.fileCount += 1;
   }
-  // 稳定的展示顺序：新导入的（repos）在前，旧的（projects）在后；组内按 id 字典序。
-  const groups = [...groupsById.values()].sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === 'repo' ? -1 : 1;
-    return a.id.localeCompare(b.id);
-  });
+  // 稳定顺序：按 id 字典序（同一仓库的多个分支相邻）。
+  const groups = [...groupsById.values()].sort((a, b) => a.id.localeCompare(b.id));
   return { rootEntries, groups };
 }
 

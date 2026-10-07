@@ -9,9 +9,8 @@ import {
   projectGroupOf,
 } from '../src/workspace/screen/buildTree.js';
 
-test('projectGroupOf：repos 分支快照 / projects 旧规范 / 非项目返回 null', () => {
+test('projectGroupOf：repos 分支快照 / 非项目返回 null（旧 projects/ 规范已移除）', () => {
   const repo = projectGroupOf('repos/pppxxxy/easychat2/main/src/app.js');
-  assert.equal(repo.kind, 'repo');
   assert.equal(repo.prefix, 'repos/pppxxxy/easychat2/main/');
   assert.equal(repo.label, 'pppxxxy/easychat2 · main');
 
@@ -24,11 +23,7 @@ test('projectGroupOf：repos 分支快照 / projects 旧规范 / 非项目返回
   assert.equal(shallow.label, 'octocat/Hello-World');
   assert.equal(projectGroupOf('repos/octocat/Hello-World/').prefix, 'repos/octocat/Hello-World/');
 
-  const legacy = projectGroupOf('projects/octocat__Hello-World/a.txt');
-  assert.equal(legacy.kind, 'legacy');
-  assert.equal(legacy.prefix, 'projects/octocat__Hello-World/');
-  assert.equal(legacy.label, 'octocat/Hello-World');
-
+  assert.equal(projectGroupOf('projects/octocat__Hello-World/a.txt'), null, '旧 projects/ 规范已移除');
   assert.equal(projectGroupOf('css/app.css'), null, '普通目录不是项目');
   assert.equal(projectGroupOf('a.txt'), null, '根级文件不是项目');
   assert.equal(projectGroupOf('repos/'), null, '只有 repos 前缀不算');
@@ -44,20 +39,15 @@ test('groupWorkspaceFiles：根级散文件与项目卡分开，计数正确', (
     'repos/pppxxxy/easychat2/main/App.js',
     'repos/pppxxxy/easychat2/main/src/',
     'repos/pppxxxy/easychat2/main/src/app.js',
-    'projects/octocat__Hello-World/',
-    'projects/octocat__Hello-World/README',
   ];
   const { rootEntries, groups } = groupWorkspaceFiles(files);
   assert.deepEqual(rootEntries, ['a.txt', 'css/', 'css/app.css']);
-  assert.equal(groups.length, 2);
+  assert.equal(groups.length, 1);
   // repos 组在前（新规范），projects 组在后（旧规范只读兼容）
-  assert.equal(groups[0].kind, 'repo');
   assert.equal(groups[0].id, 'repos/pppxxxy/easychat2/main');
   assert.equal(groups[0].label, 'pppxxxy/easychat2 · main');
   assert.equal(groups[0].fileCount, 2);
   assert.equal(groups[0].dirCount, 2);
-  assert.equal(groups[1].kind, 'legacy');
-  assert.equal(groups[1].fileCount, 1);
 });
 
 test('directoryChildren：只列当前层，目录在前文件在后', () => {
