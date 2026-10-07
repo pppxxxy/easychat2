@@ -128,7 +128,7 @@ test('BUBBLE_STYLES 单一来源且被样式决策/设置层共用', async () =>
   const chatStyles = fs.readFileSync(path.resolve('src/chat/chatStyles.js'), 'utf8');
   assert.ok(chatStyles.includes('resolveBubbleStyle'), '样式工厂消费纯决策层');
   assert.ok(!/export const BUBBLE_STYLES/.test(chatStyles), '不得重复定义');
-  const settings = fs.readFileSync(path.resolve('src/storage/settings.js'), 'utf8');
+  const settings = fs.readFileSync(path.resolve('src/storage/settings/chatOptions.js'), 'utf8');
   assert.ok(settings.includes('BUBBLE_STYLES'), '设置层用同一白名单归一');
   const msg = fs.readFileSync(path.resolve('src/chat/MessageBubble.js'), 'utf8');
   assert.ok(msg.includes('plainBubbles') && msg.includes('assistantTextColor'), '无底纹时助手正文改用正文色');

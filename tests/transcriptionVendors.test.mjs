@@ -35,7 +35,7 @@ test('getTranscriptionVendor：未知 id 返回 null', () => {
 });
 
 test('normalizeTranscriptionSettings 保留 vendorId（否则改过端点后密钥链接消失）', () => {
-  const source = read('src/storage/settings.js');
+  const source = read('src/storage/settings/tts.js');
   assert.match(
     source,
     /vendorId: String\(\(item && item\.vendorId\) \|\| ''\)/,

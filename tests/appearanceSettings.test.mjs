@@ -74,19 +74,52 @@ const ioStub = {
 };
 
 const sourcePath = path.resolve('src/storage/settings.js');
+const SETTINGS_DIR = path.resolve('src/storage/settings');
+
+// settings.js barrel 会 require 拆出的 src/storage/settings/ 子模块；这些模块是 ESM，
+// 若走 require(esm) 其内部依赖会绕过 Module._load 打桩（AsyncStorage / io）。这里按需
+// 把它们转成 CJS 再加载，使 /io.js 与 AsyncStorage 桩对子模块同样生效。
+function loadSettingsModule(absPath) {
+  const cached = Module._cache[absPath];
+  if (cached) return cached.exports;
+  const code = babel.transformSync(fs.readFileSync(absPath, 'utf8'), {
+    babelrc: false,
+    configFile: false,
+    filename: absPath,
+    presets: [[presetEnv, { targets: { node: 'current' }, modules: 'commonjs' }]],
+  }).code;
+  const mod = new Module(absPath);
+  mod.filename = absPath;
+  mod.paths = Module._nodeModulePaths(path.dirname(absPath));
+  // 写入 Module._cache：让多个子模块 import 同一叶子时拿到同一实例，匹配真实 ESM 单例语义。
+  Module._cache[absPath] = mod;
+  try {
+    mod._compile(code, absPath);
+  } catch (error) {
+    delete Module._cache[absPath];
+    throw error;
+  }
+  return mod.exports;
+}
+
+const originalLoad = Module._load;
+Module._load = function patchedLoad(request, parent, isMain) {
+  if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
+  if (request.endsWith('/io.js')) return ioStub;
+  if (parent && parent.filename && request.startsWith('.')) {
+    const resolved = path.resolve(path.dirname(parent.filename), request);
+    if (resolved.startsWith(`${SETTINGS_DIR}${path.sep}`) && fs.existsSync(resolved)) {
+      return loadSettingsModule(resolved);
+    }
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
 const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
   babelrc: false,
   configFile: false,
   filename: sourcePath,
   presets: [[presetEnv, { targets: { node: 'current' }, modules: 'commonjs' }]],
 }).code;
-
-const originalLoad = Module._load;
-Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
-  if (request.endsWith('/io.js')) return ioStub;
-  return originalLoad.call(this, request, parent, isMain);
-};
 const runtime = new Module(sourcePath);
 runtime.filename = sourcePath;
 runtime.paths = Module._nodeModulePaths(path.dirname(sourcePath));

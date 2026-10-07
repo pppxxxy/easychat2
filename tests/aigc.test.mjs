@@ -26,7 +26,7 @@ const CHARACTER_SCREEN = readSource(['src', 'character', 'CharacterLibraryScreen
 const CARD_EXPORTER = readSource(['src', 'character', 'cardExporter.js']);
 const MOMENTS_VIEW = readSource(['src', 'MomentsView.js']);
 const IMAGE_GEN = readSource(['src', 'ImageGenScreen.js']);
-const STORAGE_SETTINGS = readSource(['src', 'storage', 'settings.js']);
+const STORAGE_SETTINGS = readSource(['src', 'storage', 'settings', 'onboarding.js']);
 const README = readSource(['README.md']);
 const DISCLAIMER = DISCLAIMER_TEXT;
 
