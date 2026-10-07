@@ -8,11 +8,17 @@ import {
 } from './modelParams.js';
 import { parseParamScaleB, parseQuantization } from './modelCompatibility.js';
 
-// 存储键：设置键（兼容旧单模型）、多模型索引键、模型条目键前缀。
+// 存储键：设置键（多模型单一事实源）、多模型索引键、模型条目键前缀。
 export const LOCAL_MODEL_SETTINGS_KEY = '@easychat2_local_model';
 export const LOCAL_MODEL_INDEX_KEY = '@easychat2_local_model_index';
 export const LOCAL_MODEL_ITEM_PREFIX = '@easychat2_local_model_item';
 export const LOCAL_MODEL_ITEM_VERSION = 1;
+
+// 设置键 schema 版本（v5 Stage A）：v2 起设置键只保留
+// { enabled, enableMediaInput, activeModelId, apiServer, schema, updatedAt }，
+// 单模型的路径/体积/参数等全部只存在于条目键。旧结构（无 schema 或 schema<2）
+// 由存储层一次性迁移清零，读路径此后只见单一事实源。
+export const LOCAL_MODEL_SETTINGS_SCHEMA = 2;
 
 // 模型下载源预设：官方 Hugging Face、国内镜像 hf-mirror.com 与魔搭社区。
 export const LOCAL_MODEL_DOWNLOAD_SOURCES = [
@@ -65,41 +71,27 @@ export function normalizeLocalModelApiServer(raw) {
 
 export const DEFAULT_LOCAL_MODEL_SETTINGS = {
   enabled: false,
-  // 旧单模型字段：迁移期保留，供既有面板与聊天路径继续读取，后续切换多模型后再收敛。
-  modelId: '',
-  modelName: '',
-  modelUrl: '',
-  modelPath: '',
-  modelSha256: '',
-  modelBytes: 0,
-  contextSize: 2048,
-  gpuLayers: 0,
   // 多模态输入默认关：仅当模型有能力且用户开启时，才把图片/音频发给本地推理。
   enableMediaInput: false,
-  // 多模型字段：当前活动模型 id 与本地 API 服务设置。
+  // 多模型单一事实源：当前活动模型 id 与本地 API 服务设置。
+  // 单模型的路径/体积/参数只存在于条目键（@easychat2_local_model_item::<id>），
+  // 设置键不再镜像——这是 v5 Stage A「状态收口」的核心。
   activeModelId: '',
   apiServer: { ...DEFAULT_LOCAL_MODEL_API_SERVER },
+  schema: LOCAL_MODEL_SETTINGS_SCHEMA,
   updatedAt: 0,
 };
 
 export function normalizeLocalModelSettings(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const bytes = Number(source.modelBytes);
-  const contextSize = Number(source.contextSize);
-  const gpuLayers = Number(source.gpuLayers);
+  const schema = Number(source.schema);
   return {
     enabled: source.enabled === true,
-    modelId: String(source.modelId || ''),
-    modelName: String(source.modelName || ''),
-    modelUrl: String(source.modelUrl || ''),
-    modelPath: String(source.modelPath || ''),
-    modelSha256: String(source.modelSha256 || ''),
-    modelBytes: Number.isFinite(bytes) && bytes >= 0 ? Math.floor(bytes) : 0,
-    contextSize: Number.isFinite(contextSize) && contextSize > 0 ? Math.max(512, Math.floor(contextSize)) : 2048,
-    gpuLayers: Number.isFinite(gpuLayers) && gpuLayers >= 0 ? Math.floor(gpuLayers) : 0,
     enableMediaInput: source.enableMediaInput === true,
     activeModelId: String(source.activeModelId || '').trim(),
     apiServer: normalizeLocalModelApiServer(source.apiServer),
+    // 未写 schema 的旧结构归 0，供存储层判定「需要一次性迁移清零」。
+    schema: Number.isFinite(schema) && schema > 0 ? Math.floor(schema) : 0,
     updatedAt: Number.isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : 0,
   };
 }
@@ -109,14 +101,8 @@ export function localModelPath(modelId, extension = 'gguf') {
   return `${safeId || 'model'}.${extension}`;
 }
 
-// 旧单模型就绪判断：仍供既有在线/本地路由使用，切换多模型后再改为按 activeModelId。
-export function isLocalModelReady(settings, fileInfo = null) {
-  const normalized = normalizeLocalModelSettings(settings);
-  if (!normalized.enabled || !normalized.modelId || !normalized.modelPath) return false;
-  if (fileInfo && fileInfo.exists === false) return false;
-  if (fileInfo && Number(normalized.modelBytes) > 0 && Number(fileInfo.size) !== Number(normalized.modelBytes)) return false;
-  return true;
-}
+// 旧单模型就绪判断已在 v5 Stage A 退役：设置键不再持有单模型路径/体积，
+// 就绪判定统一走 isLocalModelItemReady（按 activeModelId 取条目）。
 
 function toNonNegativeInt(value) {
   const number = Number(value);
@@ -274,7 +260,7 @@ export function buildLocalModelItem(raw = {}) {
   });
 }
 
-// 选用活动模型：activeModelId 为主，同时镜像旧单模型字段，让既有在线/本地路由无需改动即可读到。
+// 选用活动模型：只写 activeModelId（单一事实源），不再镜像旧单模型字段。
 export function applyActiveLocalModel(settings, item, now = Date.now()) {
   const normalizedSettings = normalizeLocalModelSettings(settings);
   const normalizedItem = normalizeLocalModelItem(item);
@@ -283,29 +269,19 @@ export function applyActiveLocalModel(settings, item, now = Date.now()) {
     ...normalizedSettings,
     enabled: true,
     activeModelId: normalizedItem.id,
-    modelId: normalizedItem.id,
-    modelName: normalizedItem.name,
-    modelUrl: normalizedItem.modelUrl,
-    modelPath: normalizedItem.modelPath,
-    modelBytes: normalizedItem.modelBytes,
-    contextSize: normalizedItem.params.contextSize,
-    gpuLayers: normalizedItem.params.gpuLayers,
+    schema: LOCAL_MODEL_SETTINGS_SCHEMA,
     updatedAt: now,
   };
 }
 
-// 删除活动模型：清空指针与旧单模型字段，回到纯在线状态。
+// 删除活动模型：清空指针，回到纯在线状态。
 export function clearActiveLocalModel(settings, now = Date.now()) {
   const normalized = normalizeLocalModelSettings(settings);
   return {
     ...normalized,
     enabled: false,
     activeModelId: '',
-    modelId: '',
-    modelName: '',
-    modelUrl: '',
-    modelPath: '',
-    modelBytes: 0,
+    schema: LOCAL_MODEL_SETTINGS_SCHEMA,
     updatedAt: now,
   };
 }
@@ -331,14 +307,18 @@ export function isLocalModelItemReady(item, fileInfo = null) {
 }
 
 // 旧单模型设置 → 多模型设置 + 条目。纯函数：只做结构转换，落盘由存储层负责。
-// 没有旧模型时返回 null 条目，仅迁移设置结构。
+// v5 Stage A：返回的 settings 是 v2 单一事实源（不再镜像旧字段）；旧单模型字段只
+// 用于构造 item。没有旧模型时返回 null 条目，仅归一化设置结构。
 export function migrateLegacyLocalModelSettings(legacy) {
   const source = legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy : {};
   const legacyId = String(source.modelId || '').trim();
   const hasModel = legacyId !== '' || String(source.modelPath || '').trim() !== '';
   const settings = normalizeLocalModelSettings({
-    ...source,
+    enabled: source.enabled,
+    enableMediaInput: source.enableMediaInput,
     activeModelId: hasModel ? legacyId : String(source.activeModelId || '').trim(),
+    apiServer: source.apiServer,
+    schema: LOCAL_MODEL_SETTINGS_SCHEMA,
   });
   if (!hasModel) return { settings, item: null };
   const now = toTimestamp(source.updatedAt) || Date.now();

@@ -212,7 +212,7 @@ export function createPanelFeedback({
 }
 
 // 参数弹窗的保存动作（弹窗状态在 useModelParams 里，这里只处理校验/落盘/反馈）。
-export function createParamsSaver({ t, settings, updateSettings, refresh }) {
+export function createParamsSaver({ t, refresh }) {
   return async function saveParams(target, form) {
     const check = validateLocalModelParams(form);
     if (!check.valid) {
@@ -224,13 +224,7 @@ export function createParamsSaver({ t, settings, updateSettings, refresh }) {
     }
     try {
       const saved = await saveLocalModelItem({ ...target, params: normalizeLocalModelParams(form) });
-      if (settings && settings.activeModelId === saved.id) {
-        await updateSettings(base => ({
-          ...base,
-          contextSize: saved.params.contextSize,
-          gpuLayers: saved.params.gpuLayers,
-        }));
-      }
+      // 参数只存在于条目键（单一事实源）；设置键不再镜像 contextSize/gpuLayers。
       await refresh();
       return { ok: true, saved };
     } catch (error) {

@@ -10,6 +10,7 @@ import {
   LOCAL_MODEL_INDEX_KEY,
   LOCAL_MODEL_ITEM_PREFIX,
   LOCAL_MODEL_SETTINGS_KEY,
+  LOCAL_MODEL_SETTINGS_SCHEMA,
   localModelIndexEntry,
   normalizeLocalModelIndexEntry,
   normalizeLocalModelItem,
@@ -24,11 +25,18 @@ export function localModelItemKey(id) {
 
 export async function getLocalModelSettings() {
   // 设置键的 apiServer.apiKey 是密钥：与其他配置一致走保险箱读写，避免明文落盘。
+  const raw = await readJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, null);
+  const normalized = normalizeLocalModelSettings(raw);
+  if (normalized.schema >= LOCAL_MODEL_SETTINGS_SCHEMA) return normalized;
+  // 旧结构（无 schema 或 schema<2）：一次性迁移——写条目/索引 + 清空 legacy 字段 +
+  // 记 schema:2。迁移后设置键只剩单一事实源字段，读路径不再见 legacy。
+  await migrateLegacyLocalModel();
   return normalizeLocalModelSettings(await readJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, null));
 }
 
 export async function saveLocalModelSettings(settings) {
-  const normalized = normalizeLocalModelSettings(settings);
+  // 写入一律盖 schema:2：调用方传的是已归一化的 v2 设置，此处兜底防止漏盖。
+  const normalized = { ...normalizeLocalModelSettings(settings), schema: LOCAL_MODEL_SETTINGS_SCHEMA };
   await setJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, normalized);
   return normalized;
 }
@@ -56,18 +64,19 @@ export async function getLocalModelIndex() {
   return rebuildLocalModelIndex();
 }
 
-// 旧单模型设置迁移成多模型：写条目 + 写索引，并把 activeModelId 回填到设置键。
-// 设置键的旧字段被保留（面板/聊天旧路径仍在读），属叠加而非覆盖。
+// 旧单模型设置一次性迁移成多模型（v5 Stage A）：写条目 + 写索引 + 回填
+// activeModelId，并把 legacy 字段清零、盖上 schema:2。此后读路径只见单一事实源。
+// 无旧模型时也要落一次 schema:2，避免每次都判定为「待迁移」。
 export async function migrateLegacyLocalModel() {
   const legacy = await readJson(LOCAL_MODEL_SETTINGS_KEY, null);
   const { settings, item } = migrateLegacyLocalModelSettings(legacy);
-  if (!item) return [];
   try {
-    await AsyncStorage.setItem(localModelItemKey(item.id), JSON.stringify(item));
-    const entry = localModelIndexEntry(item);
-    await writeIndexEntries([entry]);
-    await setJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, settings);
-    return [entry];
+    if (item) {
+      await AsyncStorage.setItem(localModelItemKey(item.id), JSON.stringify(item));
+      await writeIndexEntries([localModelIndexEntry(item)]);
+    }
+    await setJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, { ...settings, schema: LOCAL_MODEL_SETTINGS_SCHEMA });
+    return item ? [localModelIndexEntry(item)] : [];
   } catch (error) {
     return [];
   }

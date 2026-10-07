@@ -116,7 +116,9 @@ export default function ModelsSection({
       <View style={styles.activeRow}>
         <Text style={styles.activeText}>
           {settings && settings.activeModelId
-            ? t('localModel.currentModel', { name: settings.modelName || settings.activeModelId })
+            ? t('localModel.currentModel', {
+              name: (entries.find(item => item.id === settings.activeModelId) || {}).name || settings.activeModelId,
+            })
             : t('localModel.viewLogs')}
         </Text>
         <SwitchRow

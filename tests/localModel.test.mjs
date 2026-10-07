@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_LOCAL_MODEL_ITEM,
-  DEFAULT_LOCAL_MODEL_SETTINGS,
   LOCAL_MODEL_DOWNLOAD_SOURCES,
   LOCAL_MODEL_INDEX_KEY,
   LOCAL_MODEL_ITEM_PREFIX,
@@ -14,7 +13,6 @@ import {
   clearActiveLocalModel,
   getLocalModelMediaCapabilities,
   isLocalModelItemReady,
-  isLocalModelReady,
   localModelCapabilities,
   localModelIdFromFileName,
   localModelIndexEntry,
@@ -43,9 +41,18 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 test('normalizeLocalModelSettings：非法值回退安全默认值', () => {
   const settings = normalizeLocalModelSettings({ enabled: true, modelId: 'q4', contextSize: 1, gpuLayers: -2 });
   assert.equal(settings.enabled, true);
-  assert.equal(settings.contextSize, 512);
-  assert.equal(settings.gpuLayers, 0);
-  assert.equal(normalizeLocalModelSettings(null).modelId, DEFAULT_LOCAL_MODEL_SETTINGS.modelId);
+  // v5 Stage A：设置键不再持有 legacy 单模型字段（单一事实源）。
+  assert.equal('modelId' in settings, false);
+  assert.equal('contextSize' in settings, false);
+  assert.equal('gpuLayers' in settings, false);
+  assert.deepEqual(settings, {
+    enabled: true,
+    enableMediaInput: false,
+    activeModelId: '',
+    apiServer: { enabled: false, host: '127.0.0.1', port: 8080, apiKey: '' },
+    schema: 0,
+    updatedAt: 0,
+  });
 });
 
 test('模型下载源预设包含 Hugging Face 与 hf-mirror，并可拼接仓库路径', () => {
@@ -63,14 +70,6 @@ test('模型下载源预设包含 Hugging Face 与 hf-mirror，并可拼接仓�
 
 test('localModelPath：模型 id 被限制为安全文件名', () => {
   assert.match(localModelPath('Qwen/Model:v1'), /Qwen_Model_v1\.gguf$/);
-});
-
-test('isLocalModelReady：需要启用、路径和存在文件', () => {
-  const base = { enabled: true, modelId: 'm1', modelPath: 'file:///m1.gguf', modelBytes: 10 };
-  assert.equal(isLocalModelReady(base, { exists: true, size: 10 }), true);
-  assert.equal(isLocalModelReady({ ...base, enabled: false }, { exists: true, size: 10 }), false);
-  assert.equal(isLocalModelReady(base, { exists: true, size: 9 }), false);
-  assert.equal(isLocalModelReady(base, { exists: false }), false);
 });
 
 test('resourceMutex：同一时刻只允许一个资源持有者', async () => {
@@ -99,13 +98,17 @@ test('modelProvider：本地不可用时走在线，本地异常时只回退一�
   assert.equal(onlineCalls, 1);
 });
 
-test('normalizeLocalModelSettings：补全多模型字段并保留旧单模型字段', () => {
+test('normalizeLocalModelSettings：v2 只保留单一事实源字段', () => {
   const legacy = normalizeLocalModelSettings({ enabled: true, modelId: 'm1', modelPath: 'file:///m1.gguf' });
   assert.equal(legacy.activeModelId, '');
   assert.equal(legacy.apiServer.host, '127.0.0.1');
   assert.equal(legacy.apiServer.enabled, false);
-  assert.equal(legacy.modelPath, 'file:///m1.gguf');
+  // legacy 字段不再进入设置对象
+  assert.equal('modelPath' in legacy, false);
+  assert.equal('modelId' in legacy, false);
   assert.equal(normalizeLocalModelSettings({ activeModelId: ' a ' }).activeModelId, 'a');
+  assert.equal(normalizeLocalModelSettings({ schema: 2 }).schema, 2);
+  assert.equal(normalizeLocalModelSettings({ schema: 'x' }).schema, 0);
   assert.deepEqual(normalizeLocalModelSettings(null).apiServer, { enabled: false, host: '127.0.0.1', port: 8080, apiKey: '' });
 });
 
@@ -220,7 +223,9 @@ test('migrateLegacyLocalModelSettings：旧单模型转成条目并回填 active
   });
   assert.equal(settings.activeModelId, 'qwen-q4');
   assert.equal(settings.enabled, true);
-  assert.equal(settings.modelPath, 'file:///documents/local-models/qwen-q4.gguf');
+  // v5 Stage A：迁移后的设置是 v2 单一事实源，不再镜像 legacy 字段。
+  assert.equal('modelPath' in settings, false);
+  assert.equal(settings.schema, 2);
   assert.equal(item.id, 'qwen-q4');
   assert.equal(item.name, 'Qwen Q4');
   assert.equal(item.params.contextSize, 4096);
@@ -272,9 +277,9 @@ test('localModelCapabilities：显式标记优先于 mmproj 推断', () => {
   assert.equal(caps.hasAudio, true);
 });
 
-test('applyActiveLocalModel：选用模型镜像旧单模型字段并启用', () => {
+test('applyActiveLocalModel：选用模型只写 activeModelId（单一事实源）并启用', () => {
   const settings = applyActiveLocalModel(
-    { enabled: false, modelId: 'old', modelPath: 'file:///old.gguf' },
+    { enabled: false },
     {
       id: 'new',
       name: 'New',
@@ -287,21 +292,20 @@ test('applyActiveLocalModel：选用模型镜像旧单模型字段并启用', ()
   );
   assert.equal(settings.activeModelId, 'new');
   assert.equal(settings.enabled, true);
-  assert.equal(settings.modelId, 'new');
-  assert.equal(settings.modelPath, 'file:///new.gguf');
-  assert.equal(settings.contextSize, 4096);
-  assert.equal(settings.gpuLayers, 20);
+  assert.equal(settings.schema, 2);
   assert.equal(settings.updatedAt, 123);
+  // 不再镜像 legacy 单模型字段
+  assert.equal('modelId' in settings, false);
+  assert.equal('modelPath' in settings, false);
+  assert.equal('contextSize' in settings, false);
 });
 
 test('applyActiveLocalModel：空条目不改动设置；clearActiveLocalModel 回到在线', () => {
-  const base = normalizeLocalModelSettings({ enabled: true, activeModelId: 'm1', modelPath: 'file:///m1.gguf', modelId: 'm1' });
+  const base = normalizeLocalModelSettings({ enabled: true, activeModelId: 'm1' });
   assert.deepEqual(applyActiveLocalModel(base, {}), base);
   const cleared = clearActiveLocalModel(base, 9);
   assert.equal(cleared.enabled, false);
   assert.equal(cleared.activeModelId, '');
-  assert.equal(cleared.modelId, '');
-  assert.equal(cleared.modelPath, '');
   assert.equal(cleared.updatedAt, 9);
 });
 
@@ -321,13 +325,13 @@ test('getLocalModelMediaCapabilities：本地开关与条目能力共同决定�
   );
 });
 
-test('resolveLocalModelReadiness：模块不可用/未启用/未就绪分级', () => {
-  const settings = { enabled: true, modelId: 'm', modelPath: 'file:///m.gguf', modelBytes: 10 };
+test('resolveLocalModelReadiness：模块不可用/未启用/未就绪分级（只认条目）', () => {
+  const settings = { enabled: true, activeModelId: 'm' };
   const readyItem = { id: 'm', modelPath: 'file:///m.gguf', modelBytes: 10 };
   assert.equal(resolveLocalModelReadiness({ settings, moduleAvailable: false }).reason, 'unavailable');
   assert.equal(resolveLocalModelReadiness({ settings: { ...settings, enabled: false }, moduleAvailable: true }).reason, 'disabled');
-  assert.equal(resolveLocalModelReadiness({ settings, moduleAvailable: true, fileInfo: { exists: true, size: 10 } }).ready, true);
-  assert.equal(resolveLocalModelReadiness({ settings, moduleAvailable: true, fileInfo: { exists: true, size: 9 } }).reason, 'not-ready');
+  // v5 Stage A：无条目即未就绪，不再回退设置里的 legacy 单模型字段
+  assert.equal(resolveLocalModelReadiness({ settings, moduleAvailable: true, fileInfo: { exists: true, size: 10 } }).reason, 'not-ready');
   assert.equal(resolveLocalModelReadiness({ settings, item: readyItem, moduleAvailable: true, fileInfo: { exists: true, size: 10 } }).ready, true);
   assert.equal(resolveLocalModelReadiness({ settings, item: readyItem, moduleAvailable: true, fileInfo: { exists: false } }).reason, 'not-ready');
 });

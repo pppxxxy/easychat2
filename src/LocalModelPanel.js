@@ -43,8 +43,8 @@ export default function LocalModelPanel({ visible, onClose }) {
   const acquire = useAcquireModel({ deviceMemoryBytes: models.deviceMemoryBytes, onChanged: refresh });
   const api = useApiServer({ updateSettings });
 
-  const saveParams = useMemo(() => createParamsSaver({ t, settings, updateSettings, refresh }),
-    [t, settings, updateSettings, refresh]);
+  const saveParams = useMemo(() => createParamsSaver({ t, refresh }),
+    [t, refresh]);
   const params = useModelParams({ t, saveParams });
   const feedback = useMemo(() => createPanelFeedback({
     t,
