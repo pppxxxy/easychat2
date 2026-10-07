@@ -20,7 +20,9 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginLeft: 8 },
-  collapseSummary: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 6 },
+  // flexShrink 必须在 Text 上：numberOfLines 只在宽度受限时生效，无收缩时文本
+  // 恒为内容宽，长 API 名会把「教学/新建」整体推出屏（2026-10-07 修复）。
+  collapseSummary: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 6, flexShrink: 1 },
   // 折叠化设置页：卡片间距收紧，让折叠头与摘要行尽量在一屏内铺开成「目录」。
   sectionCard: { marginBottom: tokens.spacing.sm },
   // 搜索命中跳转后的短暂高亮（背景闪烁由状态定时清除）。
@@ -225,6 +227,8 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderColor: theme.colors.surfaceBorder,
     fontSize: fonts.scaled(14),
     minWidth: 84,
+    // 挤压顺序：字段名先省略号 → 输入框收窄（minWidth 84 是下限）→ Switch 固定不动。
+    flexShrink: 1,
     marginRight: 10,
     textAlign: 'right',
   },
@@ -361,8 +365,10 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.divider,
   },
-  linkLeft: { flexDirection: 'row', alignItems: 'center' },
-  linkText: { color: theme.colors.textMuted, fontSize: fonts.scaled(15), marginLeft: 10 },
+  // flex: 1 让左侧吃剩余空间、受挤压时先收缩（字段名省略号让位 → 输入框变窄
+  // → Switch 永不被推出屏）；AboutSection 等短标签行在空间充足时无视觉变化。
+  linkLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  linkText: { color: theme.colors.textMuted, fontSize: fonts.scaled(15), marginLeft: 10, flexShrink: 1 },
   linkRight: { flexDirection: 'row', alignItems: 'center' },
   linkValue: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginRight: 6 },
 

@@ -96,7 +96,7 @@ export default function SamplingCard({ open, onToggle, flash } = {}) {
         icon="analytics-outline"
         open={open}
         onToggle={onToggle}
-        right={<Text style={styles.collapseSummary}>
+        right={<Text style={styles.collapseSummary} numberOfLines={1}>
           {enabledCount > 0 ? t('settings.sampling.enabledCount', { count: enabledCount }) : t('settings.sampling.serverDefault')}
         </Text>}
       >
@@ -105,7 +105,7 @@ export default function SamplingCard({ open, onToggle, flash } = {}) {
           return (
             <View key={item.name} style={styles.capabilityRow}>
               <View style={styles.linkLeft}>
-                <Text style={styles.linkText}>{t(item.labelKey)}</Text>
+                <Text style={styles.linkText} numberOfLines={1}>{t(item.labelKey)}</Text>
               </View>
               <View style={styles.samplingRight}>
                 <TextField
