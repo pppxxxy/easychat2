@@ -45,6 +45,7 @@ import { createStickerImage, deleteStickerImage } from './chat/stickerImages.js'
 import { getCachedDisplayText } from './memory/displayTextCache.js';
 import { isGreetingMessage, listGreetingCandidates } from './character/cardGreetings.js';
 import {
+  getContinuousTailPlan,
   removeMessagesByIds,
   selectableMessageIds,
   toggleMessageSelection,
@@ -87,6 +88,7 @@ import {
 import { getStickers, saveSticker, deleteStickers, reorderStickers } from './storage/stickers.js';
 import { getUserProfile } from './storage/personas.js';
 import { setProtectedChatImageUris, setSessionGreetingSelected } from './storage/sessions.js';
+import { archiveBranch } from './storage/sessionBranches.js';
 import { getMomentsSettings, updateMoments } from './storage/moments.js';
 import { getAffinityStatus, saveAffinity } from './storage/affinity.js';
 import {
@@ -1259,6 +1261,12 @@ export default function ChatScreen() {
               || activeSessionIdRef.current !== sessionId
             ) return;
             sessionVersionRef.current += 1;
+            // 删除的消息若是「自某点起的连续尾段」，先归档成分支再移除，
+            // 使「全选 + 删除」的整段清理仍可回溯（需求 1.3）。
+            const tailPlan = getContinuousTailPlan(messagesRef.current, ids);
+            if (tailPlan && tailPlan.tail.length > 0) {
+              await archiveBranch(sessionId, tailPlan.forkMessageId, tailPlan.tail).catch(() => {});
+            }
             if (clearsAll && !isGroupRef.current) {
               setGreetingReady(false);
               setSessionGreetingSelected(sessionId, false)
