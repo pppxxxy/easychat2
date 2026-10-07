@@ -155,6 +155,7 @@ import ThinkingPanelModal from './chat/ThinkingPanelModal.js';
 import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
+import ConversationExportModal from './chat/ConversationExportModal.js';
 import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
@@ -290,6 +291,7 @@ export default function ChatScreen() {
   const messageSelectionOpen = selectedMessageIds.length > 0;
    const [isSwitching, setIsSwitching] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const [transcriptionPanelOpen, setTranscriptionPanelOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
@@ -2608,6 +2610,14 @@ export default function ChatScreen() {
             disabled: !ready || sessionOwnerMissing || (!isGroup && !greetingReady),
             onPress: openFullScreen,
           },
+          {
+            key: 'export',
+            section: t('chat.menu.section.chat'),
+            label: t('chat.menu.export'),
+            icon: 'share-outline',
+            disabled: !ready || messages.length === 0,
+            onPress: () => setExportOpen(true),
+          },
           // 角色与模型：编辑角色/群聊提升为一等公民（原藏在「设置」二级弹层）
           {
             key: 'edit-role',
@@ -2662,10 +2672,19 @@ export default function ChatScreen() {
         ]}
       />
 
+      <ConversationExportModal
+        visible={exportOpen}
+        onClose={() => setExportOpen(false)}
+        messages={messages}
+        title={displayName}
+        characterName={String(character.name || '')}
+        userName={String(userNameRef.current || '')}
+        isGroup={isGroup}
+      />
+
       <ChatSettingsModal
         visible={chatSettingsOpen}
-        onClose={() => setChatSettingsOpen(false)}
-        onOpenSystemSettings={() => { if (navigation) navigation.navigate(ROUTE_NAMES.settings); }}
+        onClose={() => setChatSettingsOpen(false)}        onOpenSystemSettings={() => { if (navigation) navigation.navigate(ROUTE_NAMES.settings); }}
         editLabel={isGroup ? t('chat.editGroup') : t('chat.editCharacter')}
         onOpenEditor={() => {
           if (isGroup) setGroupEditOpen(true);

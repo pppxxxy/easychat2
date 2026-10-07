@@ -480,6 +480,136 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     justifyContent: 'center',
     backgroundColor: hexToRgba(theme.colors.danger, 0.16),
   },
+  exportSheet: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.lg,
+    padding: tokens.metrics.cardPadding,
+    maxHeight: '82%',
+    ...tokens.elevation(2, theme),
+  },
+  exportHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: tokens.spacing.sm,
+  },
+  exportSegments: {
+    flexDirection: 'row',
+    backgroundColor: hexToRgba(theme.colors.text, 0.08),
+    borderRadius: tokens.radius.pill,
+    padding: 3,
+    marginBottom: tokens.spacing.md,
+  },
+  exportSegment: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderRadius: tokens.radius.pill,
+  },
+  exportSegmentActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  exportSegmentText: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+  },
+  exportSegmentTextActive: {
+    color: theme.colors.primaryContrast,
+    fontWeight: '700',
+  },
+  exportHint: {
+    color: theme.colors.textFaint,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: tokens.spacing.sm,
+  },
+  exportPreviewWrap: {
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    overflow: 'hidden',
+    marginBottom: tokens.spacing.md,
+    backgroundColor: theme.colors.background,
+  },
+  exportPrimaryButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.primary,
+  },
+  exportPrimaryButtonDisabled: {
+    opacity: tokens.opacity.disabled,
+  },
+  exportPrimaryButtonText: {
+    color: theme.colors.primaryContrast,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  shareCard: {
+    width: 360,
+    padding: 20,
+    backgroundColor: theme.colors.background,
+  },
+  shareCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: theme.colors.text,
+  },
+  shareCardSub: {
+    fontSize: 12,
+    color: theme.colors.textFaint,
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  shareCardTrunc: {
+    color: theme.colors.star,
+  },
+  shareCardRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  shareCardRowRight: {
+    justifyContent: 'flex-end',
+  },
+  shareCardRowLeft: {
+    justifyContent: 'flex-start',
+  },
+  shareCardBubble: {
+    maxWidth: '82%',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  shareCardBubbleUser: {
+    backgroundColor: theme.colors.primary,
+  },
+  shareCardBubbleAssistant: {
+    backgroundColor: theme.colors.surface,
+  },
+  shareCardMeta: {
+    fontSize: 11,
+    opacity: 0.7,
+    marginBottom: 4,
+    color: theme.colors.primaryContrast,
+  },
+  shareCardMetaAssistant: {
+    color: theme.colors.textFaint,
+  },
+  shareCardBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: theme.colors.primaryContrast,
+  },
+  shareCardBodyAssistant: {
+    color: theme.colors.text,
+  },
+  shareCardFooter: {
+    marginTop: 18,
+    fontSize: 11,
+    color: theme.colors.textFaint,
+    textAlign: 'center',
+  },
   emptyGreetingButton: {
     marginTop: 14,
     paddingHorizontal: 18,

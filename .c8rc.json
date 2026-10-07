@@ -100,6 +100,8 @@
     "src/chat/MessageList.js",
     "src/chat/BranchForkRow.js",
     "src/chat/useChatBranches.js",
+    "src/chat/ShareCard.js",
+    "src/chat/ConversationExportModal.js",
     "src/chat/chatStyles.js",
     "src/localModel/ModelSearchModal.js",
     "src/localModel/ModelLogsModal.js",
