@@ -38,7 +38,7 @@ import {
   MUSIC_CLIP_SECONDS,
   getMusicClipSettings,
   saveMusicClipSettings,
-} from '../storage.js';
+} from '../storage/settings.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { useTranslation } from '../i18n/I18nContext.js';

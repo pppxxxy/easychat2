@@ -5,7 +5,7 @@ import { Modal, Pressable, Switch, Text, TouchableOpacity, View } from 'react-na
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
-import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage.js';
+import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage/settings.js';
 import { THINKING_DISPLAY_LABELS, THINKING_LEVEL_LABELS } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
 

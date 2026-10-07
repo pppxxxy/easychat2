@@ -40,7 +40,9 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (base === 'api.js') {
     return { sendChatMessage: async () => summaryText };
   }
-  if (base === 'storage.js') {
+  // 快赢1 后 memorySummary.js 直达 storage/sessions.js（原经 storage.js 门面），
+  // 两个基名映射到同一份 mock，覆盖面不变。
+  if (base === 'storage.js' || base === 'sessions.js') {
     return storageMock;
   }
   if (base === 'cardParser.js') {

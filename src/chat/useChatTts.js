@@ -10,7 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { markMediaWrite } from '../storage/mediaProtection.js';
 import { maskSecrets } from '../storage/secrets.js';
 import { toSpeechText } from './speechText.js';
-import { saveTtsSettings } from '../storage.js';
+import { saveTtsSettings } from '../storage/settings.js';
 import { synthesize, speak as ttsSpeak, stop as ttsStop, isSystemProvider } from '../tts/index.js';
 import { getTtsProvider } from '../tts/providers.js';
 import { useTranslation } from '../i18n/I18nContext.js';

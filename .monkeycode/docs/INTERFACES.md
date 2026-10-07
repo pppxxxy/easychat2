@@ -405,7 +405,7 @@
 **导出的默认值**:
 - `DEFAULT_CHARACTER` 含 `id`、`builtin`（初始卡标记，改名/改提示后仍可识别）、`name`、`systemPrompt`、`systemPromptComposed`、`lastUsedAt`，以及扩展字段 `description`、`personality`、`scenario`、`firstMes`、`mesExample`、`creatorNotes`、`postHistoryInstructions`、`tags`、`worldInfo`、`regexScripts`（后四类缺省为空串/空数组）
 
-**存储域模块（`src/storage/`）**: `src/storage.js` 是门面，实际读写按域拆分在 `src/storage/` 下（`characters.js` / `apiConfigs.js` / `sessionCore.js` / `sessionList.js` / `sessionMessages.js` / `sessionFiles.js` / `sessions.js` / `settings.js` / `localModels.js` / `vector.js` / `stickers.js` / `moments.js` / `diary.js` / `affinity.js` / `worldMap.js` / `location.js` / `globalPresets.js` / `personas.js` / `cardForge.js` / `backup.js` / `backupStream.js`）。测试加载这些子模块时**必须写回 `Module._cache`**，否则模块级共享状态会被复制（见 AGENTS.md）。
+**存储域模块（`src/storage/`）**: `src/storage.js` 是过渡期纯转发门面（应用代码一律直达 `storage/<域>.js`，guard:structure 有导入禁令），实际读写按域拆分在 `src/storage/` 下（`characters.js` / `apiConfigs.js` / `sessionCore.js` / `sessionList.js` / `sessionMessages.js` / `sessionFiles.js` / `sessions.js` / `settings.js` / `localModels.js` / `vector.js` / `stickers.js` / `moments.js` / `diary.js` / `affinity.js` / `worldMap.js` / `location.js` / `globalPresets.js` / `personas.js` / `cardForge.js` / `backup.js` / `backupStream.js`）。测试加载这些子模块时**必须写回 `Module._cache`**，否则模块级共享状态会被复制（见 AGENTS.md）。
 
 **写队列工厂（`src/storage/io.js`）**:
 
@@ -1238,7 +1238,7 @@ data: [DONE]
 
 ### `DISCLAIMER_TEXT` / `DISCLAIMER_SECTIONS` / `DisclaimerModal`
 **位置**: `src/onboarding/disclaimer.js`
-**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DISCLAIMER_SECTIONS` 为同源的分节结构 `[{ title?, icon?, body?, bullets? }]`；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, sections?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`、`sections` 缺省为 `DISCLAIMER_SECTIONS`（传入 `content` 时以文本渲染），用于启动弹窗与聊天「公告」。条款含 AI 生成内容标识约定（不得删标传播、仅供个人创作测试用途）、技术局限告知与生成内容责任归属；确认状态按 `DISCLAIMER_VERSION`（`src/storage.js`，当前 2）比对——版本升级后存量用户需重新确认
+**说明**: `DISCLAIMER_TEXT` 为免责条款纯文本；`DISCLAIMER_SECTIONS` 为同源的分节结构 `[{ title?, icon?, body?, bullets? }]`；`DisclaimerModal`（默认导出）Props 为 `{ visible, title?, content?, sections?, onClose }`，`content` 缺省为 `DISCLAIMER_TEXT`、`sections` 缺省为 `DISCLAIMER_SECTIONS`（传入 `content` 时以文本渲染），用于启动弹窗与聊天「公告」。条款含 AI 生成内容标识约定（不得删标传播、仅供个人创作测试用途）、技术局限告知与生成内容责任归属；确认状态按 `DISCLAIMER_VERSION`（`src/storage/settings.js`，当前 2）比对——版本升级后存量用户需重新确认
 
 ### AI 生成内容标识
 **位置**: `src/aigc/attribution.js`

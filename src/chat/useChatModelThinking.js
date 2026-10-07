@@ -11,14 +11,15 @@ import {
   capabilitiesForModel,
   getApiConfigs,
   getActiveModel,
+  saveApiConfigs,
+} from '../storage/apiConfigs.js';
+import {
   getLocalModelIndex,
   getLocalModelItem,
   getLocalModelSettings,
-  getThinkingSettings,
-  saveApiConfigs,
   saveLocalModelSettings,
-  saveThinkingSettings,
-} from '../storage.js';
+} from '../storage/localModels.js';
+import { getThinkingSettings, saveThinkingSettings } from '../storage/settings.js';
 import { loadLocalModel, unloadLocalModel } from '../localModel/adapter.js';
 import { stopLocalApiServer } from '../localModel/localApiServer.js';
 import { describeModelError, recordModelLog } from '../localModel/modelLogs.js';

@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { getDiaries, getDiarySettings, getApiConfigs, saveDiarySettings } from './storage.js';
+import { getDiaries, getDiarySettings, saveDiarySettings } from './storage/diary.js';
+import { getApiConfigs } from './storage/apiConfigs.js';
 import {
   formatDiaryDate,
   getRoleDiarySetting,

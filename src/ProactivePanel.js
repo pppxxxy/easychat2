@@ -24,9 +24,9 @@ import {
   getProactiveSettings,
   makeProactiveSlotId,
   saveProactiveSettings,
-  getApiConfigs,
-  getChatOptions,
-} from './storage.js';
+} from './storage/moments.js';
+import { getApiConfigs } from './storage/apiConfigs.js';
+import { getChatOptions } from './storage/settings.js';
 import {
   cancelDailySchedule,
   canScheduleExactAlarms,

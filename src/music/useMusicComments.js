@@ -9,13 +9,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
 import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { buildRequestMessages, filterRequestMedia } from '../prompt/chatPipeline.js';
-import {
-  getActiveLocalModel,
-  getApiConfigs,
-  getEnabledGlobalPresetPrompts,
-  getLocalModelSettings,
-  getUserProfile,
-} from '../storage.js';
+import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
+import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
+import { getUserProfile } from '../storage/personas.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 

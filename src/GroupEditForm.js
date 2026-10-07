@@ -15,7 +15,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { markMediaWrite, updateSessionInfo } from './storage.js';
+import { markMediaWrite } from './storage/mediaProtection.js';
+import { updateSessionInfo } from './storage/sessions.js';
 import { getPickedAsset } from './character/cardHelpers.js';
 import { FieldLabel, TextField } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';

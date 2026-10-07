@@ -10,13 +10,15 @@ import React, {
 
 import {
   DEFAULT_CHARACTER,
-  saveCharacterState,
   getActiveCharacterId,
   getCharacterLibrary,
   isCharacterLibraryWriteBlocked,
   saveCharacterLibrary,
   setActiveCharacterId,
   sortCharacters,
+} from '../storage/characters.js';
+import { saveCharacterState } from '../storage/characterState.js';
+import {
   getSessions,
   getActiveSessionId,
   whenSessionMutationsSettled,
@@ -24,15 +26,14 @@ import {
   setSessionPinned,
   startNewSession,
   appendProactiveMessage,
-  getProactiveSettings,
-  bindProactiveSlotSession,
   cloneSession as cloneSessionStorage,
   deleteSession as deleteSessionStorage,
   deleteSessions as deleteSessionsStorage,
-   collectOrphanImageFiles,
-   reconcileVectorIndexes,
-   reconcileWorldMemories,
-   } from '../storage.js';
+  reconcileVectorIndexes,
+  reconcileWorldMemories,
+} from '../storage/sessions.js';
+import { getProactiveSettings, bindProactiveSlotSession } from '../storage/moments.js';
+import { collectOrphanImageFiles } from '../storage/orphanMedia.js';
 
 import {
   describeDefaultArtwork,

@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Switch, Text, View } from 'react-native';
 
-import { SAMPLING_FIELDS, getSamplingSettings, saveSamplingSettings } from '../storage.js';
+import { SAMPLING_FIELDS, getSamplingSettings, saveSamplingSettings } from '../storage/settings.js';
 import { Card, CollapsibleSection, TextField } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createSettingsStyles } from './settingsStyles.js';

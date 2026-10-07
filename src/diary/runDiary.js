@@ -2,16 +2,11 @@
 // 设计上不弹 UI、不抛错给上层：后台任务失败只影响日记，不能拖垮启动。
 import { EMPTY_REPLY_TEXT, sendChatMessage } from '../network/api.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
-import {
-  getApiConfigs,
-  getCharacterLibrary,
-  getDiarySettings,
-  getMessagesBySession,
-  getSessions,
-  getUserProfile,
-  saveDiarySettings,
-  updateDiaries,
-} from '../storage.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
+import { getCharacterLibrary } from '../storage/characters.js';
+import { getDiarySettings, saveDiarySettings, updateDiaries } from '../storage/diary.js';
+import { getMessagesBySession, getSessions } from '../storage/sessions.js';
+import { getUserProfile } from '../storage/personas.js';
 import {
   appendDiary,
   buildDiaryPrompt,

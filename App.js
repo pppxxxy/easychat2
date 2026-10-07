@@ -22,15 +22,14 @@ import OnboardingModal from './src/OnboardingModal.js';
 import {
   acknowledgeDisclaimer,
   completeOnboarding,
-  getActiveLocalModel,
-  getDiarySettings,
   isDisclaimerAcknowledged,
   isOnboardingDone,
-  migrateLegacyMessages,
-  DEFAULT_CHARACTER,
-  getUserProfile,
-  markDefaultGreetingShown,
-} from './src/storage.js';
+} from './src/storage/settings.js';
+import { getActiveLocalModel } from './src/storage/localModels.js';
+import { getDiarySettings } from './src/storage/diary.js';
+import { migrateLegacyMessages } from './src/storage/sessions.js';
+import { DEFAULT_CHARACTER, markDefaultGreetingShown } from './src/storage/characters.js';
+import { getUserProfile } from './src/storage/personas.js';
 import { AppProvider, useApp } from './src/context/AppContext.js';
 import { runDiaryForNewDay } from './src/diary/runDiary.js';
 import { runDiaryIfNewDay } from './src/diary/diaryStartup.js';

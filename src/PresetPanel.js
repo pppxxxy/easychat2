@@ -20,11 +20,10 @@ import {
   createGlobalPresetId,
   getGlobalPresetSettings,
   getGlobalPresets,
-  getMemorySummarySettings,
   saveGlobalPresetSettings,
   saveGlobalPresets,
-  saveMemorySummarySettings,
-} from './storage.js';
+} from './storage/globalPresets.js';
+import { getMemorySummarySettings, saveMemorySummarySettings } from './storage/settings.js';
 import { useTranslation } from './i18n/I18nContext.js';
 
 const THRESHOLD_FALLBACK = 40;

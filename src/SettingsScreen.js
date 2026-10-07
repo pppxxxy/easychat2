@@ -32,30 +32,30 @@ import {
   rawCapabilityForModel,
   getApiConfigs,
   normalizeCapabilityEntry,
+  saveApiConfigs,
+} from './storage/apiConfigs.js';
+import {
   getChatOptions,
-  getGlobalPresetSettings,
-  getGlobalPresets,
   getImageGenSettings,
   getInlineImageSettings,
-  getLocationSettings,
-  getMomentsSettings,
-  saveMomentsSettings,
   getThinkingSettings,
   getUiSections,
-  clearVectorIndex,
-  getWorkspaceSettings,
-  patchWorkspaceSettings,
-  clearGithubMcpCredentials,
-  connectGithubMcpWithToken,
-  getGithubMcpSettings,
-  saveApiConfigs,
   saveChatOptions,
   saveInlineImageSettings,
   saveImageGenSettings,
   saveThinkingSettings,
   saveUiSections,
-  updateLocationSettings,
-} from './storage.js';
+} from './storage/settings.js';
+import { getGlobalPresetSettings, getGlobalPresets } from './storage/globalPresets.js';
+import { getLocationSettings, updateLocationSettings } from './storage/location.js';
+import { getMomentsSettings, saveMomentsSettings } from './storage/moments.js';
+import { clearVectorIndex } from './storage/vector.js';
+import { getWorkspaceSettings, patchWorkspaceSettings } from './storage/workspace.js';
+import {
+  clearGithubMcpCredentials,
+  connectGithubMcpWithToken,
+  getGithubMcpSettings,
+} from './storage/githubMcp.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { pickWorkspaceFolder } from './workspace/picker.js';

@@ -1,4 +1,11 @@
-import { DEFAULT_MAX_OUTPUT_TOKENS, capabilitiesForModel, getActiveApiConfig, getActiveModel, getApiConfigs, getSamplingSettings, getThinkingSettings } from '../storage.js';
+import {
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  capabilitiesForModel,
+  getActiveApiConfig,
+  getActiveModel,
+  getApiConfigs,
+} from '../storage/apiConfigs.js';
+import { getSamplingSettings, getThinkingSettings } from '../storage/settings.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 import {

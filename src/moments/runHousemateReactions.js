@@ -3,13 +3,10 @@
 // - 这是增值功能，绝不写回会话消息或记忆；失败静默，不能拖垮发动态的主流程；
 // - 逐角色串行调用模型，合并进动态列表；已反应过的角色不重复调用（不重复扣费）。
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from '../network/api.js';
-import {
-  getApiConfigs,
-  getCharacterLibrary,
-  getMoments,
-  getWorldMap,
-  updateMoments,
-} from '../storage.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
+import { getCharacterLibrary } from '../storage/characters.js';
+import { getMoments, updateMoments } from '../storage/moments.js';
+import { getWorldMap } from '../storage/worldMap.js';
 import { housemateCharacterIds, houseNumberLabel } from '../worldMap/map.js';
 import {
   buildHousemateReactionPrompt,

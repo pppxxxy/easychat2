@@ -14,7 +14,7 @@ import {
   setProtectedChatImageUris,
   setSessionGreetingSelected,
   startNewSession,
-} from '../storage.js';
+} from '../storage/sessions.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useSessionSwitch({

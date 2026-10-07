@@ -21,7 +21,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { EmptyState, FieldHint, FieldLabel, PrimaryButton, SheetHeader, TextField } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
-import { getGithubMcpSettings } from '../storage.js';
+import { getGithubMcpSettings } from '../storage/githubMcp.js';
 import {
   buildBranchesApiUrl,
   buildRepoApiUrl,

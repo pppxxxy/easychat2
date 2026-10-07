@@ -5,8 +5,8 @@ import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
 
-// characterLibrary 依赖 storage.js（会拉入 async-storage / secrets），
-// 沿用仓库既有做法：babel 转译到真实源码路径后注入内存模块加载。
+// characterLibrary 依赖 storage/characters.js（快赢1 前经 storage.js 门面，
+// 会拉入 async-storage / secrets），沿用仓库既有做法：babel 转译到真实源码路径后注入内存模块加载。
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
@@ -40,7 +40,12 @@ const storageMock = { __esModule: true, DEFAULT_CHARACTER, sortCharacters };
 
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === '../storage.js' || request.endsWith('/storage')) return storageMock;
+  // 快赢1 后 characterLibrary.js 直达 storage/characters.js（原经 storage.js 门面）。
+  if (
+    request === '../storage.js'
+    || request.endsWith('/storage')
+    || request.endsWith('/storage/characters.js')
+  ) return storageMock;
   return originalLoad.call(this, request, parent, isMain);
 };
 

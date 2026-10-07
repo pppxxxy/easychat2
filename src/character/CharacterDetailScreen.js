@@ -45,15 +45,15 @@ import PresetPanel from '../PresetPanel.js';
 import { compileRegex, isUnsafeRegexPattern } from '../prompt/regexEngine.js';
 import { getUnsafeWorldEntryKeys } from '../prompt/lorebook.js';
 import { maskSecrets } from '../storage/secrets.js';
+import { getMomentsStatus } from '../storage/moments.js';
+import { markMediaWrite } from '../storage/mediaProtection.js';
+import { getUserProfile } from '../storage/personas.js';
+import { saveCardForge } from '../storage/cardForge.js';
 import {
-  getMomentsStatus,
-  markMediaWrite,
-  getUserProfile,
-  saveCardForge,
   saveCharacterEditDraft,
   takeCharacterEditDraft,
   clearCharacterEditDraft,
-} from '../storage.js';
+} from '../storage/characters.js';
 import { isRecentMediaUri } from '../storage/mediaProtection.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createForgeState, draftFromCharacter } from '../cardForge/forge.js';

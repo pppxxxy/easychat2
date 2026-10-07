@@ -5,7 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { FieldLabel } from '../../ui/index.js';
 import { hexToRgba } from '../../theme/themes.js';
 import { BUBBLE_STYLES } from '../../theme/themes.js';
-import { THINKING_DISPLAYS } from '../../storage.js';
+import { THINKING_DISPLAYS } from '../../storage/settings.js';
 import CollapsibleHint from '../CollapsibleHint.js';
 
 export default function AppearanceSection(props) {

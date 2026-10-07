@@ -183,12 +183,12 @@ test('制卡屏：按图生成走真实多模态请求 + 导入时提升图片�
 
 test('制卡草稿图不进孤儿回收扫描范围（目录选择的理由必须成立）', () => {
   // 回收器只扫这三个目录：草稿图若放在它们里面，保护窗口一过就会被当孤儿删掉。
-  const storage = read('src/storage.js');
-  const collect = storage.slice(storage.indexOf('export async function collectAvatarImageFiles'));
+  const orphanMedia = read('src/storage/orphanMedia.js');
+  const collect = orphanMedia.slice(orphanMedia.indexOf('export async function collectAvatarImageFiles'));
   assert.ok(collect.includes("avatars/"), '头像回收器扫 avatars/');
   assert.equal(
-    storage.includes(`${FORGE_MEDIA_DIRECTORY}/`),
+    orphanMedia.includes(`${FORGE_MEDIA_DIRECTORY}/`),
     false,
-    'storage.js 的回收器不得扫描 card-forge/（草稿图要留到导入角色库）'
+    '孤儿媒体回收器不得扫描 card-forge/（草稿图要留到导入角色库）'
   );
 });

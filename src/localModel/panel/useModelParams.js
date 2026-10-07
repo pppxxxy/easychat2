@@ -4,7 +4,7 @@
 import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { getLocalModelItem } from '../../storage.js';
+import { getLocalModelItem } from '../../storage/localModels.js';
 import { LOCAL_MODEL_PARAM_FIELDS } from '../modelParams.js';
 
 export function useModelParams({ t, saveParams }) {

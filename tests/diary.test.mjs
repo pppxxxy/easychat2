@@ -217,11 +217,11 @@ test('日记存储使用索引+分键，索引最后写并清理旧条目', () =
   assert.ok(DIARY_STORAGE_SOURCE.includes('backupCorruptValue(DIARY_SETTINGS_KEY)'));
   assert.ok(DIARY_STORAGE_SOURCE.includes('saveDiarySettings'));
   assert.ok(DIARY_STORAGE_SOURCE.includes('getDiariesStatus'));
-  // 角色删除联动清理：改由 diary 域注册生命周期钩子（storage.js 只跑钩子）
+  // 角色删除联动清理：改由 diary 域注册生命周期钩子（storage/characterState.js 只跑钩子）
   assert.ok(DIARY_STORAGE_SOURCE.includes('onCharacterDeleted'), '日记域必须注册角色删除钩子');
   assert.ok(DIARY_STORAGE_SOURCE.includes('deleteDiariesForCharacterDeletion'));
   assert.ok(DIARY_STORAGE_SOURCE.includes('removeRolesFromDiarySettings'));
-  assert.ok(STORAGE_SOURCE.includes('runCharacterCleanup'), 'barrel 必须调用钩子运行器');
+  assert.ok(read('storage/characterState.js').includes('runCharacterCleanup'), '保存编排必须调用钩子运行器');
 });
 
 test('启动执行器：过一天的首次启动、按所选 API、静默失败', () => {

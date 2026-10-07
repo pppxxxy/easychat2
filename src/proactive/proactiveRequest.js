@@ -183,13 +183,15 @@ export async function buildProactiveRequestJson({
   protocol = 'openai',
   model = '',
 } = {}) {
-  const {
-    getMessagesBySession,
-    getSessionSummaries,
-    getSessions,
-    getEnabledGlobalPresetPrompts,
-    getUserProfile,
-  } = await import('../storage.js');
+  const [
+    { getMessagesBySession, getSessionSummaries, getSessions },
+    { getEnabledGlobalPresetPrompts },
+    { getUserProfile },
+  ] = await Promise.all([
+    import('../storage/sessions.js'),
+    import('../storage/globalPresets.js'),
+    import('../storage/personas.js'),
+  ]);
   const { buildMemorySummaryText, isBuiltinAssistant, isSessionScopedMemory } = await import('../memory/memorySummary.js');
 
   let historyMessages = [];
