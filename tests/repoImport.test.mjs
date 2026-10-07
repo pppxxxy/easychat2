@@ -160,30 +160,30 @@ test('套餐：id 引用的条目都存在，full 含 gitconfig 且需提交身�
   assert.match(buildCatalogContent(gitconfig, { userName: 'zh', userEmail: 'z@e.com' }), /name = zh/);
 });
 
-test('接线源码断言：重排顺序 + 套餐接线 + 导入入口', () => {
-  const panel = fs.readFileSync(path.resolve('src/WorkspacePanel.js'), 'utf8');
+test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工作台单一导入入口', () => {
+  const panel = fs.readFileSync(path.resolve('src/workspace/screen/FilesPanel.js'), 'utf8');
   const order = [
     panel.indexOf('styles.statusBar'),
-    panel.indexOf('styles.chatPrimary'),
     panel.indexOf('styles.importRow'),
     panel.indexOf('styles.fileToolsRow'),
     panel.indexOf('styles.collapsedHeader'),
   ];
-  assert.ok(order.every(index => index > 0), '五个区块都存在');
-  assert.deepEqual([...order].sort((a, b) => a - b), order, '顺序必须为 状态条→对话→导入行→文件工具→折叠卡');
-  assert.ok(panel.includes('setChatOpen(true)'), '对话入口保持既有行为');
+  assert.ok(order.every(index => index > 0), '四个区块都存在');
+  assert.deepEqual([...order].sort((a, b) => a - b), order, '顺序必须为 状态条→导入行→文件工具→折叠卡');
   // 定义与按钮绑定都要在：只留定义不解绑按钮不算接线（注入验证抓过子串盲区）。
   assert.match(panel, /const handleBundleWrite = useCallback/, '套餐一键写入（定义）');
   assert.match(panel, /onPress=\{\(\) => handleBundleWrite\(bundle\.id\)\}/, '套餐一键写入（按钮绑定）');
   assert.ok(panel.includes('catalogStatuses'), '写入状态徽章已接线');
-  assert.ok(panel.includes('<WorkspaceRepoSheet'), 'GitHub 导入弹层已挂载');
-  // 旧布局的杂混按钮行不得复活
+  // 旧布局的杂混按钮行不得复活；聊天入口归单屏，不再挂在文件面板上。
   assert.ok(!panel.includes('styles.chatLauncher'), '旧底部对话入口应被移除');
-  // 凭据单一来源：repo 弹层复用 MCP 设置里的 token，不得新建第二套凭据存储。
-  const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceRepoSheet.js'), 'utf8');
-  // 定义（import）与实际调用都要在：只留 import 不调用等于凭据断链（注入验证抓过）。
-  assert.match(sheet, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
-  assert.ok(!sheet.includes('AsyncStorage') && !sheet.includes('@easychat2_'), '弹层不得自建凭据存储键');
-  // 安全分级不动：弹层文案如实声明快照边界，不得出现绕过分级的话术。
-  assert.ok(sheet.includes('snapshotNote') || sheet.includes('快照'), '快照边界文案必须在位');
+  assert.ok(!panel.includes('setChatOpen(true)'), '聊天入口不再是文件面板的一部分');
+  assert.ok(!panel.includes('WorkspaceRepoSheet'), 'GitHub 导入不再是文件面板内的弹层');
+
+  // 凭据单一来源：GitHub 工作台复用 MCP 设置里的 token，不得新建第二套凭据存储。
+  const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
+  assert.match(github, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
+  assert.ok(!github.includes('AsyncStorage') && !github.includes('@easychat2_'), '面板不得自建凭据存储键');
+  // 快照边界如实声明；拉取链路必须复用 repoImport 的限额与解压（含目录条目修复）。
+  assert.ok(github.includes('workspace.github.pull.hint'), '快照边界文案必须在位');
+  assert.ok(github.includes('extractRepoFiles(') && github.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
 });

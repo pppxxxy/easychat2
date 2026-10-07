@@ -21,8 +21,8 @@ import { useTranslation } from '../../i18n/I18nContext.js';
 import { getWorkspaceSettings } from '../../storage/workspace.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore } from '../native.js';
-import WorkspaceChat from '../WorkspaceChat.js';
-import WorkspacePanel from '../../WorkspacePanel.js';
+import ChatPanel from './ChatPanel.js';
+import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
 
@@ -129,7 +129,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
 
           <View style={styles.content}>
             {panel === 'chat' ? (
-              <WorkspaceChat
+              <ChatPanel
                 visible={visible}
                 onClose={onClose}
                 embedded
@@ -137,7 +137,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               />
             ) : null}
             {panel === 'files' ? (
-              <WorkspacePanel
+              <FilesPanel
                 visible={visible}
                 embedded
                 initialSection={filesSection}

@@ -35,11 +35,17 @@ import { isTextLike, readTextAttachment } from '../../chat/attachments.js';
 import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
 import { breadcrumbsOf, directoryChildren } from '../screen/buildTree.js';
 import {
+  buildRepoZipUrl,
+  extractRepoFiles,
+  REPO_IMPORT_LIMITS,
+} from '../repoImport.js';
+import {
   canDeleteRepo,
   createRepo,
   deleteRepo,
   fetchTokenScopes,
   listRepos,
+  mapGithubError,
   renameRepo,
   repoWebUrl,
 } from '../github/restApi.js';
@@ -83,6 +89,11 @@ export default function GithubPanel({ characterId, storeRef }) {
   const [renameValue, setRenameValue] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [scopes, setScopes] = useState([]);
+  // 拉取快照（codeload zipball → 本地副本）：分支、进度、取消。
+  const [pullBranch, setPullBranch] = useState('main');
+  const [pullBusy, setPullBusy] = useState(false);
+  const [pullProgress, setPullProgress] = useState({ done: 0, total: 0 });
+  const pullCancelRef = useRef(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -156,6 +167,7 @@ export default function GithubPanel({ characterId, storeRef }) {
     const next = { owner: repo.owner, repo: repo.repo, branch: repo.defaultBranch || 'main' };
     setCurrent(next);
     setSubdir(repoPrefix(next));
+    setPullBranch(next.branch);
     setSearch('');
     setLayer('');
     setErrorText('');
@@ -206,6 +218,83 @@ export default function GithubPanel({ characterId, storeRef }) {
       Alert.alert(t('workspace.github.title'), t('workspace.github.err.open'));
     }
   }, [characterId, storeRef, t]);
+
+  // 拉取当前仓库的分支快照到本地副本（codeload zipball → 文本文件落盘）。
+  // 与 Stage 0 的修复同一条链路：目录条目已跳过、父路径被文件占用有明确报错、
+  // 一次导入只记一条汇总历史（批内挂起逐文件记录）。带进度与取消（取消即回滚）。
+  const pullSnapshot = useCallback(async () => {
+    if (!current || pullBusy) return;
+    const store = storeRef && storeRef.current;
+    if (!store) return;
+    const branch = String(pullBranch || current.branch || '').trim() || current.branch;
+    setPullBusy(true);
+    setPullProgress({ done: 0, total: 0 });
+    pullCancelRef.current = false;
+    let batchOpen = false;
+    try {
+      const url = buildRepoZipUrl({ owner: current.owner, repo: current.repo, branch });
+      const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!response.ok) throw mapGithubError(response.status, { headers: response.headers });
+      const declared = Number(response.headers.get('content-length') || 0);
+      if (declared > REPO_IMPORT_LIMITS.MAX_DOWNLOAD_BYTES) {
+        throw Object.assign(new Error('zip too large'), { code: 'REPO_LIMIT_DOWNLOAD' });
+      }
+      const buffer = await response.arrayBuffer();
+      const { files, skippedBinary, skippedSlip, skippedOversize, skippedDirs } = extractRepoFiles(
+        new Uint8Array(buffer),
+        `${current.repo}-${branch}/`
+      );
+      if (files.length === 0) {
+        Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
+        return;
+      }
+      const base = `repos/${current.owner}/${current.repo}/${branch}/`;
+      if (typeof store.beginBatch === 'function') {
+        store.beginBatch(characterId, { path: base });
+        batchOpen = true;
+      }
+      let written = 0;
+      for (let index = 0; index < files.length; index += 1) {
+        if (pullCancelRef.current) {
+          throw Object.assign(new Error('pull cancelled'), { code: 'PULL_CANCELLED' });
+        }
+        await store.writeWorkspaceFile({
+          characterId,
+          path: `${base}${files[index].path}`,
+          content: files[index].content,
+        });
+        written += 1;
+        if (index % 5 === 4 || index === files.length - 1) {
+          setPullProgress({ done: written, total: files.length });
+        }
+      }
+      if (batchOpen) { store.endBatch?.(); batchOpen = false; }
+      if (mountedRef.current) {
+        setCurrent(prev => (prev ? { ...prev, branch } : prev));
+        setSubdir(base);
+      }
+      await refreshLocal();
+      Alert.alert(t('workspace.github.title'), t('workspace.github.pull.done', {
+        count: written,
+        binary: skippedBinary,
+        oversize: skippedOversize,
+        slip: skippedSlip,
+        dirs: skippedDirs,
+      }));
+    } catch (caught) {
+      if (batchOpen) { store.abortBatch?.(); batchOpen = false; }
+      if (caught && caught.code === 'PULL_CANCELLED') {
+        Alert.alert(t('workspace.github.title'), t('workspace.github.pull.cancelled'));
+      } else {
+        Alert.alert(t('workspace.github.title'), describeError(caught));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setPullBusy(false);
+        setPullProgress({ done: 0, total: 0 });
+      }
+    }
+  }, [characterId, current, describeError, pullBranch, pullBusy, refreshLocal, storeRef, t, token]);
 
   // ② 导入本地文件：手机多选 → 文本文件写进当前仓库的本地副本。
   const importLocalFiles = useCallback(async () => {
@@ -493,6 +582,35 @@ export default function GithubPanel({ characterId, storeRef }) {
                   </>
                 )}
 
+                <View style={styles.pullRow}>
+                  <TextInput
+                    style={[styles.input, styles.branchInput]}
+                    value={pullBranch}
+                    onChangeText={setPullBranch}
+                    placeholder={t('workspace.github.pull.branchPlaceholder')}
+                    placeholderTextColor={theme.colors.textFaint}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <PrimaryButton
+                    title={pullBusy
+                      ? (pullProgress.total > 0
+                        ? t('workspace.github.pull.progress', { done: pullProgress.done, total: pullProgress.total })
+                        : t('workspace.github.pull.busy'))
+                      : t('workspace.github.pull.action')}
+                    small
+                    onPress={pullSnapshot}
+                  />
+                  {pullBusy ? (
+                    <GhostButton
+                      title={t('workspace.github.pull.cancel')}
+                      small
+                      onPress={() => { pullCancelRef.current = true; }}
+                    />
+                  ) : null}
+                </View>
+                <FieldHint>{t('workspace.github.pull.hint')}</FieldHint>
+
                 {layer === 'newEntry' ? (
                   <View style={styles.formCard}>
                     <FieldLabel>
@@ -778,6 +896,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingTop: 10,
   },
   pushText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginBottom: 2 },
+  pullRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  branchInput: { flex: 1, marginTop: 0, marginRight: 8 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
   layerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   layerTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6, flex: 1 },

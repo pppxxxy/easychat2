@@ -8,12 +8,14 @@
 // - 新增根文件 → 直接失败（先把新文件归域，或迁走一个既有根文件做净零交换）；
 // - 每完成一批归域迁移 → 把 MAX_ROOT_FILES 下调到新的实际值（随手随迁）；
 // - 上调阈值 = 棘轮失效，禁止；确需放宽必须在本文件说明理由并经用户确认。
+//
+// 2026-10-08 Stage 5：WorkspacePanel.js 迁至 workspace/screen/FilesPanel.js，33 → 32。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const MAX_ROOT_FILES = 33;
+const MAX_ROOT_FILES = 32;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.join(here, '..', 'src');
@@ -90,4 +92,25 @@ if (!/from\s+'[^']*workspace\/screen\/WorkspaceScreen\.js'/.test(settingsSource)
   process.exit(1);
 }
 console.log('[guard:structure] ok：工作区单屏装配（SettingsScreen → WorkspaceScreen）。');
+
+// ---- 工作区面板禁止自套 Modal（2026-10-08 Stage 5）----
+// 四个领域面板（对话/文件/GitHub/设置）都是 WorkspaceScreen 内部的 View，
+// 唯一的一层 Modal 在 WorkspaceScreen。面板自己再包一层 Modal 就是 z 轴堆叠复发。
+const screenDir = path.join(srcDir, 'workspace', 'screen');
+const panelFiles = readdirSync(screenDir).filter(name => name.endsWith('.js') && name !== 'WorkspaceScreen.js');
+const selfWrapped = [];
+for (const name of panelFiles) {
+  const source = readFileSync(path.join(screenDir, name), 'utf8');
+  if (/<Modal\s+visible=\{visible\}/.test(source)) selfWrapped.push(name);
+}
+if (selfWrapped.length > 0) {
+  console.error(
+    '[guard:structure] 以下工作区面板仍自套 Modal：\n'
+    + selfWrapped.map(f => `  src/workspace/screen/${f}`).join('\n')
+    + '\n面板必须是 WorkspaceScreen 内的 View（唯一 Modal 在 WorkspaceScreen）。'
+  );
+  process.exit(1);
+}
+console.log('[guard:structure] ok：工作区面板未自套 Modal。');
+
 

@@ -22,33 +22,31 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 
-import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHeader, TextField } from './ui/index.js';
-import { useTheme } from './theme/ThemeContext.js';
-import { useTranslation } from './i18n/I18nContext.js';
-import { useApp } from './context/AppContext.js';
-import { capabilitiesForModel, getActiveModel, getApiConfigs } from './storage/apiConfigs.js';
+import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHeader, TextField } from '../../ui/index.js';
+import { useTheme } from '../../theme/ThemeContext.js';
+import { useTranslation } from '../../i18n/I18nContext.js';
+import { useApp } from '../../context/AppContext.js';
+import { capabilitiesForModel, getActiveModel, getApiConfigs } from '../../storage/apiConfigs.js';
 import {
   clearWorkspaceChanges,
   getWorkspaceChanges,
   getWorkspaceSettings,
   patchWorkspaceSettings,
-} from './storage/workspace.js';
-import { getActiveLocalModel } from './storage/localModels.js';
-import { getCharacterLibrary } from './storage/characters.js';
-import { getMessagesBySession, getSessions } from './storage/sessions.js';
-import { getThinkingSettings, saveThinkingSettings } from './storage/settings.js';
-import { resolveWorkspaceAssistant } from './workspace/assistant.js';
-import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
-import { normalizeLocalModelParams } from './localModel/modelParams.js';
-import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './workspace/docx.js';
-import { createWorkspaceStore, describeWorkspaceRoot } from './workspace/native.js';
-import WorkspaceChat from './workspace/WorkspaceChat.js';
-import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from './workspace/paths.js';
-import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
-import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
-import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from './workspace/catalog.js';
-import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles } from './workspace/screen/buildTree.js';
-import WorkspaceRepoSheet from './workspace/WorkspaceRepoSheet.js';
+} from '../../storage/workspace.js';
+import { getActiveLocalModel } from '../../storage/localModels.js';
+import { getCharacterLibrary } from '../../storage/characters.js';
+import { getMessagesBySession, getSessions } from '../../storage/sessions.js';
+import { getThinkingSettings, saveThinkingSettings } from '../../storage/settings.js';
+import { resolveWorkspaceAssistant } from '../assistant.js';
+import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { normalizeLocalModelParams } from '../../localModel/modelParams.js';
+import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from '../docx.js';
+import { createWorkspaceStore, describeWorkspaceRoot } from '../native.js';
+import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.js';
+import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
+import { WORKSPACE_ROOT_KINDS } from '../location.js';
+import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
+import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles } from './buildTree.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -78,14 +76,13 @@ function formatTokens(value) {
   return String(tokens);
 }
 
-export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default', initialSection = '', embedded = false }) {
+export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '' }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
-  const { characters, refreshAppData } = useApp();
+  const { refreshAppData } = useApp();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [mode, setMode] = useState('ask');
-  const [chatOpen, setChatOpen] = useState(false);
   // 根可能被用户在设置里改（应用内默认 ↔ 外部文件夹），故随设置变化而不是一次算死。
   const [root, setRoot] = useState(() => describeWorkspaceRoot(null));
   const [files, setFiles] = useState([]);
@@ -114,7 +111,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   // 套餐：写入进度 {id, done, total}；条目状态 'absent' | 'same' | 'diff'（弹层打开时比对）。
   const [bundleBusy, setBundleBusy] = useState(null);
   const [catalogStatuses, setCatalogStatuses] = useState({});
-  const [repoOpen, setRepoOpen] = useState(false);
   // 对话调优（思考强度/上下文占用）折叠卡：默认收起，把主操作让给文件与导入。
   const [tuningOpen, setTuningOpen] = useState(false);
   const [catalogInputs, setCatalogInputs] = useState({});
@@ -134,8 +130,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
 
   const canWrite = mode === 'write';
   const external = root.kind === WORKSPACE_ROOT_KINDS.SAF;
-  const characterName = (Array.isArray(characters) ? characters : [])
-    .find(item => item && item.id === characterId)?.name || '';
 
   const refresh = useCallback(async (ownerId = characterId) => {
     const store = storeRef.current;
@@ -219,7 +213,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     setForm(null);
     setViewerOpen(false);
     setCharacterPickerOpen(false);
-    setChatOpen(false);
     (async () => {
       try {
         const settings = await getWorkspaceSettings();
@@ -825,17 +818,10 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     </>
   );
 
-  // embedded = 作为 WorkspaceScreen 的「文件」面板内嵌渲染：不再自套 Modal、不再自带
-  // 顶部 SheetHeader（那是单屏的职责）。面板内的二级层（预览/表单/环境模板）仍是本组件
-  // 内部的层，不产生跨面板的 Modal 叠 Modal。
-  const Root = embedded ? View : Modal;
-  const rootProps = embedded
-    ? { style: styles.embeddedRoot }
-    : { visible, animationType: 'slide', onRequestClose: onClose };
+  // 文件面板（工作区单屏内的「文件」领域）：不再自套 Modal、不再自带顶部标题栏——
+  // 那是单屏的职责。面板内的二级层（预览/表单/环境模板/角色切换）仍是本组件内部的层。
   return (
-    <Root {...rootProps}>
-      <View style={[styles.container, embedded && styles.containerEmbedded]}>
-        {embedded ? null : <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />}
+    <View style={styles.container}>
 
         <ScrollView contentContainerStyle={styles.body}>
           {viewerOpen ? renderViewerBody() : (
@@ -858,22 +844,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             <Text style={styles.sandboxHint} numberOfLines={2}>{t('workspace.panel.sandbox.externalHint')}</Text>
           ) : null}
 
-          <TouchableOpacity
-            style={styles.chatPrimary}
-            onPress={() => setChatOpen(true)}
-            activeOpacity={0.85}
-            accessibilityLabel={t('workspace.panel.openChat')}
-          >
-            <Ionicons name="sparkles-outline" size={17} color={theme.colors.primaryContrast} />
-            <Text style={styles.chatPrimaryText} numberOfLines={1}>{t('workspace.panel.openChat')}</Text>
-            <Ionicons name="chevron-forward" size={15} color={theme.colors.primaryContrast} />
-          </TouchableOpacity>
-
           <View style={styles.importRow}>
-            <TouchableOpacity style={styles.importButton} onPress={() => setRepoOpen(true)} activeOpacity={0.85}>
-              <Ionicons name="logo-github" size={15} color={theme.colors.primaryContrast} />
-              <Text style={styles.importButtonText}>{t('workspace.panel.repo.entry')}</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.importButton} onPress={() => setCatalogOpen(true)} activeOpacity={0.85}>
               <Ionicons name="download-outline" size={15} color={theme.colors.primaryContrast} />
               <Text style={styles.importButtonText}>{t('workspace.panel.catalog.entry')}</Text>
@@ -1155,14 +1126,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           </View>
         </Modal>
 
-        <WorkspaceRepoSheet
-          visible={repoOpen}
-          onClose={() => setRepoOpen(false)}
-          characterId={characterId}
-          storeRef={storeRef}
-          onImported={() => { refresh(); }}
-        />
-
         <Modal visible={!!preview} animationType="slide" onRequestClose={() => setPreview(null)}>
           <View style={styles.container}>
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
@@ -1183,25 +1146,12 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           </View>
         </Modal>
 
-        <WorkspaceChat
-          visible={chatOpen}
-          onClose={() => setChatOpen(false)}
-          characterId={characterId}
-          mode={mode}
-          settings={settingsRef.current}
-          characterName={characterName}
-          onFilesChanged={refresh}
-        />
       </View>
-    </Root>
   );
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
-  // embedded：外层容器由 WorkspaceScreen 提供，不再重复留白。
-  embeddedRoot: { flex: 1 },
-  containerEmbedded: { paddingTop: 0 },
   body: { paddingHorizontal: 20, paddingBottom: 40 },
   statusBar: {
     flexDirection: 'row',

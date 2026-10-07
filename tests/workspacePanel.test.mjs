@@ -12,7 +12,7 @@ function readSource(relativePath) {
 }
 
 test('文件面板：根层按项目分组 + 逐层下钻（诉求④）', () => {
-  const source = readSource('src/WorkspacePanel.js');
+  const source = readSource('src/workspace/screen/FilesPanel.js');
   assert.ok(source.includes('groupWorkspaceFiles'), '根层按项目分组');
   assert.ok(source.includes('directoryChildren'), '逐层列出当前目录的直接子项');
   assert.ok(source.includes('breadcrumbsOf'), '面包屑定位当前目录');
@@ -27,7 +27,7 @@ test('文件面板：根层按项目分组 + 逐层下钻（诉求④）', () =>
 });
 
 test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () => {
-  const source = readSource('src/WorkspacePanel.js');
+  const source = readSource('src/workspace/screen/FilesPanel.js');
   assert.ok(source.includes("mode === 'write'"), '写操作必须仅可改模式');
   // 面板不再自己拼 uri：换成后端接口，角色隔离由 store 以 characterId 分沙盒保证；
 // ownerId 允许显式传入（打开面板解析出工作区角色后立即用新 id 刷新列表）。
@@ -87,7 +87,7 @@ test('SettingsScreen：选文件夹 + 命令开关都走 patch（不许整体 sa
 });
 
 test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', async () => {
-  const source = readSource('src/WorkspacePanel.js');
+  const source = readSource('src/workspace/screen/FilesPanel.js');
   assert.ok(source.includes('useTranslation'), '接入 useTranslation');
   assert.ok(/const \{ t \} = useTranslation\(\)/.test(source), '取 t');
   const CJK = /[\u4e00-\u9fff]/;
@@ -134,7 +134,7 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
 });
 
 test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () => {
-  const source = readSource('src/WorkspacePanel.js');
+  const source = readSource('src/workspace/screen/FilesPanel.js');
   // 思考强度：四档 chips（off=关闭思考），点选立即保存，打开面板回读当前档位。
   assert.ok(source.includes("const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];"), '四档可选');
   assert.ok(source.includes('saveThinkingSettings(next)'), '点选立即保存');
@@ -143,7 +143,7 @@ test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () 
   assert.ok(source.includes('getThinkingSettings()'), '打开时回读当前强度');
   // 上下文占用：与 ChatScreen.maybeAutoSummarize 同一口径；无会话显示空态。
   assert.ok(
-    source.includes("import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';"),
+    /import \{ AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow \} from '(?:\.\.\/)+chat\/contextUsage\.js';/.test(source),
     '复用 contextUsage 纯口径'
   );
   // 钉住「过滤 + 排序」整体：两条相邻断言分别锁 type 过滤与 characterId 匹配，
