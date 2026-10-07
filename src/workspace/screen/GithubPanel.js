@@ -398,6 +398,22 @@ export default function GithubPanel({ characterId, storeRef }) {
     try {
       const updated = await renameRepo({ token, owner: current.owner, repo: current.repo, newName: next });
       const branch = updated.defaultBranch || current.branch;
+      // 本地副本目录同步改名（repos/<owner>/<旧名> → repos/<owner>/<新名>）。
+      // 失败不阻断重命名（远端已改成功），只如实告知本地目录没跟着动。
+      const store = storeRef && storeRef.current;
+      let movedLocal = false;
+      if (store && typeof store.moveWorkspaceDirectory === 'function') {
+        try {
+          const moved = await store.moveWorkspaceDirectory({
+            characterId,
+            from: `repos/${current.owner}/${current.repo}`,
+            to: `repos/${updated.owner}/${updated.repo}`,
+          });
+          movedLocal = Boolean(moved && moved.moved);
+        } catch (error) {
+          movedLocal = false;
+        }
+      }
       if (mountedRef.current) {
         setRepos(prev => prev.map(item => (item.fullName === `${current.owner}/${current.repo}` ? updated : item)));
         setCurrent({ owner: updated.owner, repo: updated.repo, branch });
@@ -405,13 +421,15 @@ export default function GithubPanel({ characterId, storeRef }) {
         setLayer('');
       }
       await refreshLocal();
-      Alert.alert(t('workspace.github.title'), t('workspace.github.manage.renamed'));
+      Alert.alert(t('workspace.github.title'), t(
+        movedLocal ? 'workspace.github.manage.renamedAndMoved' : 'workspace.github.manage.renamed'
+      ));
     } catch (caught) {
       Alert.alert(t('workspace.github.title'), describeError(caught));
     } finally {
       if (mountedRef.current) setActionBusy('');
     }
-  }, [current, describeError, refreshLocal, renameValue, t, token]);
+  }, [characterId, current, describeError, refreshLocal, renameValue, storeRef, t, token]);
 
   // 删除仓库——三层硬约束，任缺一层都删不掉：
   // ① UI：必须手动输入完整仓库名（下面按 deleteConfirm 是否匹配禁用按钮）；

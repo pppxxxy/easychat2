@@ -70,6 +70,23 @@ function createFakeSaf() {
       if (!node) throw new Error('missing');
       nodes.delete(uri);
     },
+    // 目录改名：整棵子树换 uri 前缀（与真实 Directory.move 的语义一致）。
+    async moveDirectory(uri, parentUri, name) {
+      const node = nodes.get(uri);
+      if (!node || !node.isDirectory) throw new Error('not a directory');
+      if (!nodes.has(parentUri)) throw new Error(`missing parent ${parentUri}`);
+      counter += 1;
+      const destination = `${parentUri}/dir-${counter}`;
+      const prefix = `${uri}/`;
+      const moved = [...nodes.entries()].filter(([key]) => key === uri || key.startsWith(prefix));
+      for (const [key] of moved) nodes.delete(key);
+      for (const [key, value] of moved) {
+        const nextKey = key === uri ? destination : `${destination}/${key.slice(prefix.length)}`;
+        nodes.set(nextKey, { ...value, uri: nextKey });
+      }
+      nodes.get(destination).name = name;
+      return destination;
+    },
   };
   return api;
 }
@@ -248,5 +265,26 @@ test('SAF：read 分段与 edit 守卫与 legacy 后端同口径', async () => {
   await assert.rejects(
     store.editWorkspaceFile({ characterId: 'c1', path: 'huge.txt', find: 'b', replace: 'c' }),
     /文件过大/
+  );
+});
+test('moveWorkspaceDirectory：SAF 后端目录改名（重命名仓库同步本地副本）', async () => {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: ROOT, adapter });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'repos/o/old/main/a.js', content: 'hello' });
+
+  const moved = await store.moveWorkspaceDirectory({
+    characterId: 'c1', from: 'repos/o/old', to: 'repos/o/renamed',
+  });
+  assert.deepEqual(moved, { from: 'repos/o/old', to: 'repos/o/renamed', moved: true });
+  const read = await store.readWorkspaceFile({ characterId: 'c1', path: 'repos/o/renamed/main/a.js' });
+  assert.equal(read.content, 'hello', '改名后文件仍可读');
+  assert.equal(await store.fileUri({ characterId: 'c1', path: 'repos/o/old/main/a.js' }), null, '旧路径已不存在');
+
+  // 源不存在：moved:false；目标已存在：拒绝覆盖。
+  assert.equal((await store.moveWorkspaceDirectory({ characterId: 'c1', from: 'repos/o/none', to: 'repos/o/x' })).moved, false);
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'repos/o/taken/main/b.js', content: 'b' });
+  await assert.rejects(
+    store.moveWorkspaceDirectory({ characterId: 'c1', from: 'repos/o/renamed', to: 'repos/o/taken' }),
+    /已存在/,
   );
 });

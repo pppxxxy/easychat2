@@ -136,6 +136,35 @@ export async function writeWorkspaceBinaryFile({ root, characterId, path, base64
   return { path: relative, base64Length: payload.length };
 }
 
+// 目录改名/移动（重命名 GitHub 仓库时同步本地副本目录）。
+// from/to 都是沙盒内相对路径；目标已存在则拒绝（不覆盖既有目录）；源不存在返回 moved:false。
+export async function moveWorkspaceDirectory({ root, characterId, from, to, fileSystem } = {}) {
+  assertFileSystem(fileSystem);
+  const source = normalizeWorkspacePath(from);
+  const target = normalizeWorkspacePath(to);
+  if (source === target) return { from: source, to: target, moved: false };
+  const sandbox = sandboxDirectory(root, characterId);
+  const sourceUri = `${sandbox}${source}`;
+  const sourceInfo = await getInfo(fileSystem, sourceUri);
+  if (!sourceInfo || !sourceInfo.exists) return { from: source, to: target, moved: false };
+  if (sourceInfo.isDirectory === false) {
+    throw new Error(tActive('error.workspace.moveSourceNotDirectory', { path: source }));
+  }
+  const targetUri = `${sandbox}${target}`;
+  const targetInfo = await getInfo(fileSystem, targetUri);
+  if (targetInfo && targetInfo.exists) {
+    throw new Error(tActive('error.workspace.moveTargetExists', { path: target }));
+  }
+  const targetSegments = target.split('/');
+  const targetParent = targetSegments.slice(0, -1).join('/');
+  await ensureDirectory(fileSystem, targetParent ? `${sandbox}${targetParent}/` : sandbox);
+  if (typeof fileSystem.moveAsync !== 'function') {
+    throw new Error(tActive('error.workspace.moveUnsupported'));
+  }
+  await fileSystem.moveAsync({ from: sourceUri, to: targetUri });
+  return { from: source, to: target, moved: true };
+}
+
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
 
 // 新建目录（含中间层级）。已存在且是目录时 created=false，不报错。
@@ -194,6 +223,10 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
 
     createWorkspaceDirectory: ({ characterId, path } = {}) => createWorkspaceDirectory({
       root, characterId, path, fileSystem,
+    }),
+
+    moveWorkspaceDirectory: ({ characterId, from, to } = {}) => moveWorkspaceDirectory({
+      root, characterId, from, to, fileSystem,
     }),
 
     // 面板的分享/删除要拿到具体文件 uri。legacy 后端里 uri 就是拼出来的字符串。
