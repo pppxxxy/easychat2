@@ -71,7 +71,8 @@ test('getVectorOwnerId：无主分段返回空串，不再兜底 default', () =>
 });
 
 test('对账归属校验钉死在源码：会话存在但主人不符也必须清', () => {
-  const source = readSource('src/storage/sessionList.js');
+  // sessionList.js 2026-10-07 拆成 barrel + sessionList/ 子目录；对账实现在 vectorReconcile.js。
+  const source = readSource('src/storage/sessionList/vectorReconcile.js');
   // 锚定 shouldIndexSession 与归属比较同时出现在 reconcile 的过滤回调里。
   // c1005c1 起改为「先 shouldIndexSession 早退，再单独比对 characterId 并计数残留」。
   assert.ok(source.includes('if (!shouldIndexSession(session)) return false;'),

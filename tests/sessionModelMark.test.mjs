@@ -16,7 +16,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (...segments) => readFileSync(path.join(HERE, '..', ...segments), 'utf8');
 
 const PROVIDER = read('src', 'network', 'modelProvider.js');
-const SESSION_LIST = read('src', 'storage', 'sessionList.js');
+// sessionList.js 2026-10-07 拆成 barrel + sessionList/ 子目录；落盘实现在 mutations.js。
+const SESSION_LIST = read('src', 'storage', 'sessionList', 'mutations.js');
 const SESSIONS_BARREL = read('src', 'storage', 'sessions.js');
 const STORAGE_BARREL = read('src', 'storage.js');
 const CHAT_SEND = read('src', 'chat', 'useChatSend.js');
