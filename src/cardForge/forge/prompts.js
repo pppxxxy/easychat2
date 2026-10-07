@@ -128,7 +128,8 @@ export function buildJsonRepairPrompt(rawOutput) {
 
 // 角色卡 JSON 的输出规则。整卡生成、按图生成、字段描述共用同一份，
 // 避免三处各写一遍后互相漂移（字段名/清空语义/中文要求必须一致）。
-function buildCardOutputRules() {
+// 「从对话生成角色卡」也复用这一份，保证两条制卡入口产出的字段结构完全一致。
+export function buildCardOutputRules() {
   return [
     '- 只输出一个 JSON 对象，不要任何解释、前后缀或代码块标记。',
     '- 字段固定为：name, description, personality, scenario, firstMes, mesExample, creatorNotes, postHistoryInstructions, tags。',

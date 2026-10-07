@@ -3,10 +3,19 @@
 export {
   FORGE_FIELDS,
   FIELD_LABELS,
+  FORGE_SAMPLING_OVERRIDES,
+  FORGE_SYSTEM,
   MAX_PRESERVED_TEXT,
   MAX_PRESERVED_ITEMS,
   MAX_FORGE_TAG_COUNT,
 } from './forge/shared.js';
+
+export {
+  CONVERSATION_MESSAGE_MAX_CHARS,
+  CONVERSATION_TRANSCRIPT_MAX_CHARS,
+  buildConversationCardPrompt,
+  formatConversationTranscript,
+} from './forge/conversation.js';
 
 export {
   FORGE_QUESTIONS,
