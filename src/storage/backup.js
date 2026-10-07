@@ -149,6 +149,13 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
     else unreadableKeys.push(key);
     report('storage', index + 1, managedKeys.length);
   }
+  // 失败键名必须留痕：弹窗只显示数量、诊断日志此前完全没记录，用户无从排查
+  // 是哪个键失败。这里把键名写进诊断日志，供「诊断日志」回看。
+  if (unreadableKeys.length > 0) {
+    recordDiagnostic('storage', new Error(tActive('error.backup.exportUnreadable', {
+      keys: unreadableKeys.join(', '),
+    })), 'backup-export');
+  }
   const media = [];
   const unreadableMedia = [];
   report('media', 0, 0);
