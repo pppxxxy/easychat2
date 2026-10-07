@@ -12,7 +12,9 @@ import {
   saveLocalModelSettings,
 } from '../../storage/localModels.js';
 import { cleanupOrphanLocalModelFiles, getLocalModelFileInfo } from '../modelManager.js';
-import { loadLocalModel } from '../adapter.js';
+import { loadLocalModel, unloadLocalModel } from '../adapter.js';
+import { getRuntimeState, subscribeRuntime } from '../runtime.js';
+import { stopLocalApiServer } from '../localApiServer.js';
 import { tryAcquireResource } from '../../resourceMutex.js';
 import { applyActiveLocalModel } from '../modelState.js';
 import { getDeviceMemoryInfo } from '../deviceMemory.js';
@@ -26,6 +28,10 @@ export function usePanelModels({ visible }) {
   const [loadBusyId, setLoadBusyId] = useState('');
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadedModelId, setLoadedModelId] = useState('');
+  // 运行态（v5 Stage C）：模型中心运行状态卡直接读 runtime 单例，与聊天层同源。
+  const [runtime, setRuntime] = useState(() => getRuntimeState());
+
+  useEffect(() => subscribeRuntime(setRuntime), []);
 
   const refresh = useCallback(async () => {
     const [list, current] = await Promise.all([
@@ -137,6 +143,26 @@ export function usePanelModels({ visible }) {
     }
   }, [loadBusyId]);
 
+  // 卸载当前常驻上下文：停本地 API 服务 → 释放模型 → 关闭本地模式。
+  // 与聊天侧卸载同链（C4），模型中心成为唯一卸载入口（v5 Stage C）。
+  const handleUnloadModel = useCallback(async () => {
+    const release = tryAcquireResource('local-model');
+    if (!release) return { ok: false, code: 'RESOURCE_BUSY' };
+    try {
+      await stopLocalApiServer().catch(() => {});
+      const released = await unloadLocalModel();
+      if (released === false) return { ok: false, code: 'UNLOAD_INCOMPLETE' };
+      await updateSettings(base => ({ ...base, enabled: false }));
+      setLoadedModelId('');
+      setLoadProgress(0);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, code: 'UNLOAD_FAILED', message: error && error.message };
+    } finally {
+      release();
+    }
+  }, [updateSettings]);
+
   // 扫描并清理下载/导入被杀留下的 .download/.old/.import 残留（数 GB 隐形占用）。
   const handleCleanupOrphans = useCallback(async () => {
     if (cleanupBusy) return { ok: false, code: 'BUSY' };
@@ -159,6 +185,7 @@ export function usePanelModels({ visible }) {
     loadBusyId,
     loadProgress,
     loadedModelId,
+    runtime,
     setLoadedModelId,
     refresh,
     updateSettings,
@@ -166,6 +193,7 @@ export function usePanelModels({ visible }) {
     toggleEnabled,
     toggleMediaInput,
     handleLoadModel,
+    handleUnloadModel,
     handleCleanupOrphans,
   };
 }

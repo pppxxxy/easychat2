@@ -25,6 +25,7 @@ const PANEL_FILES = [
   'panelFeedback.js',
   'panelStyles.js',
   'ModelsSection.js',
+  'EngineCard.js',
   'AcquireSection.js',
   'ApiServerSection.js',
   'ModelParamsModal.js',

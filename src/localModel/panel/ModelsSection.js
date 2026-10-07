@@ -8,6 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { buildModelSummary } from '../modelCompatibility.js';
 import { formatBytes } from '../../utils/format.js';
 import { tierColor } from './panelShared.js';
+import EngineCard from './EngineCard.js';
 
 export default function ModelsSection({
   styles,
@@ -18,11 +19,14 @@ export default function ModelsSection({
   entries,
   deviceMemoryBytes,
   cleanupBusy,
+  runtime,
   onCleanupOrphans,
   onToggleEnabled,
   onToggleMediaInput,
   onSelectActive,
   onLoadModel,
+  onUnloadModel,
+  onOpenLogs,
   onEntryActions,
   onDeleteEntry,
   loadBusyId,
@@ -112,6 +116,18 @@ export default function ModelsSection({
     <>
       <Text style={styles.hint}>{t('localModel.hint')}</Text>
       <Text style={styles.status}>{moduleAvailable ? t('localModel.modulePresent') : t('localModel.hint')}</Text>
+
+      {/* 运行状态卡（v5 Stage C）：模型库页顶常驻，读 runtime 单例——就绪/加载/失败三态
+          与聊天层引擎状态条同源；卸载入口收在这里（模型中心成为唯一卸载点）。 */}
+      <EngineCard
+        styles={styles}
+        theme={theme}
+        t={t}
+        runtime={runtime}
+        entries={entries}
+        onUnloadModel={onUnloadModel}
+        onOpenLogs={onOpenLogs}
+      />
 
       <View style={styles.activeRow}>
         <Text style={styles.activeText}>

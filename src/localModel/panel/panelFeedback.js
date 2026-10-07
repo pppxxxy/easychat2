@@ -74,6 +74,17 @@ export function createPanelFeedback({
     else alertCancelable(t('localModel.alert.loadFailed.title'), (result && result.message) || t('localModel.alert.loadFailed.body'));
   };
 
+  // 卸载运行状态卡入口（v5 Stage C）：模型中心成为唯一卸载点。
+  const onUnloadModel = async () => {
+    const result = await models.handleUnloadModel();
+    if (result.ok) {
+      alertCancelable(t('localModel.alert.modelUnloaded.title'), t('localModel.alert.modelUnloaded.body'));
+      return;
+    }
+    if (result.code === 'RESOURCE_BUSY') alertCancelable(t('localModel.alert.resourceBusy.title'), t('localModel.alert.resourceBusy.body'));
+    else alertCancelable(t('localModel.alert.unloadFailed.title'), (result && result.message) || t('localModel.alert.unloadFailed.body'));
+  };
+
   const onCleanupOrphans = async () => {
     const result = await models.handleCleanupOrphans();
     if (!result.ok) {
@@ -199,6 +210,7 @@ export function createPanelFeedback({
     onToggleEnabled,
     onToggleMediaInput,
     onLoadModel,
+    onUnloadModel,
     onCleanupOrphans,
     onDownload,
     onPick,
