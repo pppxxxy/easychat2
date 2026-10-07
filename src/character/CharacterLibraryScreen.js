@@ -649,7 +649,8 @@ export default function CharacterLibraryScreen() {
           页头与工具条收进 ListHeaderComponent，长列表只渲染视口内卡片。 */}
       <FlatList
         ref={listRef}
-        style={styles.container}
+        contentContainerStyle={styles.listContent}
+        style={styles.flex}
         data={displayedCharacterItems}
         keyExtractor={entry => entry.id}
         numColumns={CHARACTER_GRID_COLUMNS}

@@ -367,13 +367,14 @@ export default function BookReaderView({ item, content, onBack }) {
   }, []);
 
   const cyclePageTurn = useCallback(() => {
-    // 切模式前先把在途动画停表并复位。
-    // 不同模式给 Animated.View 的动画属性并不一样（tap/slide 是 translateX、curl 是
-    // rotateY + perspective、fade 是 opacity），而 useNativeDriver 的动画跑在原生侧：
-    // 运行中增删这些属性会让原生动画节点被卸载/重建，表现就是「连点几次翻页方式后
-    // 直接闪退」。先停表再换结构，就不存在「在途动画 + 结构突变」的组合了。
+    // 切模式只做三件事：停在途动画、解翻页锁、换状态。
+    // 动画属性的结构交换靠分页 Animated.View 的 key={pageTurn} 重挂解决——
+    // 78ec0a1 的「stopAnimation + setValue(0)」只防住了在途动画窗口，
+    // curl→fade（transform 整体撤掉换 opacity）单点一次就能在原生侧踩出
+    // IllegalArgumentException：RN 0.81 原生动画换结构是先挂新后卸旧、
+    // restoreDefaultValues 夹在中间，帧延迟的值传播可能踩到拆一半的旧图。
+    // 进度归零已移交下方 effect（提交后、新图挂稳时执行）。
     pageAnim.stopAnimation();
-    pageAnim.setValue(0);
     turningRef.current = false;
     const index = PAGE_TURN_MODES.indexOf(pageTurn);
     const next = PAGE_TURN_MODES[(index + 1) % PAGE_TURN_MODES.length];
@@ -386,6 +387,13 @@ export default function BookReaderView({ item, content, onBack }) {
   useEffect(() => () => {
     pageAnim.stopAnimation();
   }, [pageAnim]);
+
+  // 复位时机后移（2026-10-06 旋转翻页闪退修复）：key 重挂走 React 规范卸载/
+  // 挂载路径，旧原生节点图随旧视图消亡、新图全新挂载；此时再归零就不会有
+  // setAnimatedNodeValue 的帧延迟传播踩到拆一半的旧图。
+  useEffect(() => {
+    pageAnim.setValue(0);
+  }, [pageAnim, pageTurn]);
 
   // 模式提示 1.6s 后自动消失。
   useEffect(() => {
@@ -461,8 +469,10 @@ export default function BookReaderView({ item, content, onBack }) {
   }, [pageTurn, turnPage]);
 
   // 翻页动画样式：slide 平移；curl 绕书脊 3D 翻转（旋转翻页）；fade 淡出淡入。
-  // tap 与 slide 共用同一套 translateX 结构（tap 下进度恒为 0，视觉上不位移）：
-  // 回到点击模式时不再把 transform 整个摘掉，少一次「动画属性凭空消失」的结构突变。
+  // tap 与 slide 共用同一套 translateX 结构（tap 下进度恒为 0，视觉上不位移）。
+  // 不变量：各模式结构允许不同，前提是分页 Animated.View 以 pageTurn 为 key
+  // 重挂——禁止在活视图上原地换动画属性结构（RN 0.81 原生动画 attach-before-
+  // detach 的原地交换不安全，78ec0a1 与 2026-10-06 两次闪退同源）。
   const pageAnimStyle = useMemo(() => {
     const width = contentArea.width || 320;
     if (pageTurn === 'curl') {
@@ -548,6 +558,7 @@ export default function BookReaderView({ item, content, onBack }) {
           <TouchableWithoutFeedback onPress={handleTap}>
             <View style={styles.pageArea} {...(panResponder ? panResponder.panHandlers : null)}>
               <Animated.View
+                key={pageTurn}
                 style={[styles.pageInnerWrap, pageAnimStyle]}
                 onLayout={event => {
                   const { width, height } = event.nativeEvent.layout;
@@ -939,7 +950,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   chapterPercent: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
   commentsBody: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
   sectionHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
-  chipScroll: { flexGrow: 0, marginBottom: 10 },
+  chipScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 10 },
   characterChip: {
     borderRadius: tokens.radius.sm,
     borderWidth: tokens.border.thin,

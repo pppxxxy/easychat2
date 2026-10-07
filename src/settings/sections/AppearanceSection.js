@@ -19,9 +19,6 @@ export default function AppearanceSection(props) {
     fontScales,
     fontScaleId,
     setFontScaleId,
-    locales,
-    localeId,
-    setLocaleId,
     thinkingDisplay,
     updateThinkingDisplay,
     chatOptions,
@@ -66,27 +63,6 @@ export default function AppearanceSection(props) {
                   >
                     <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
                       {t(item.labelKey)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <FieldLabel style={styles.label}>{t('settings.appearance.language')}</FieldLabel>
-            <View style={styles.fontRow}>
-              {locales.map(item => {
-                const active = item.id === localeId;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.fontChip, active && styles.fontChipActive]}
-                    onPress={() => setLocaleId(item.id)}
-                    activeOpacity={0.85}
-                    accessibilityLabel={item.english}
-                  >
-                    {/* 语言名用各自的写法展示：英文界面下「简体中文」仍显示为中文，
-                        用户不必先读懂当前界面语言才能找到自己的语言。 */}
-                    <Text style={[styles.fontChipText, active && styles.fontChipTextActive]}>
-                      {item.label}
                     </Text>
                   </TouchableOpacity>
                 );

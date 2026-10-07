@@ -684,6 +684,7 @@ export default function MemoryScreen({ navigation }) {
         />
       ) : (
         <FlatList
+          style={styles.list}
           data={listData}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
@@ -890,7 +891,10 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.primaryMutedAlpha(0.35),
   },
-  chipScroll: { flexGrow: 0, marginBottom: 4 },
+  // flexGrow:0 只阻止拉伸，阻止不了收缩：RN 横向 ScrollView 基础样式
+  // baseHorizontal 自带 flexShrink:1，纵向空间不足时（展开看屏幕卡/恢复条/
+  // 大字号）压缩量会落到 chips 行把胶囊压扁——必须显式 flexShrink:0。
+  chipScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 4 },
   chipRow: { paddingHorizontal: 20, paddingBottom: 6 },
   chip: {
     marginRight: 8,
@@ -909,6 +913,9 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   chipTextActive: { color: theme.colors.primarySoft },
   editButton: { marginLeft: 12, paddingVertical: 6, paddingHorizontal: 4 },
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
+  // FlatList 显式接管剩余空间：溢出压力全部由列表吸收，
+  // 不再外溢到 chips 等非列表元素（与 chipScroll 的 flexShrink:0 配套）。
+  list: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   groupHeader: {
     flexDirection: 'row',

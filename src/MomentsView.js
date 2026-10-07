@@ -607,14 +607,6 @@ export default function MomentsView({ active = true }) {
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   wrap: { flex: 1 },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 10,
-  },
   listContent: { paddingHorizontal: 16, paddingBottom: 30 },
   postComposer: {
     flexDirection: 'row',
