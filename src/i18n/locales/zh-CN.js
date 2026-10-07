@@ -2384,6 +2384,7 @@ export const zhCN = {
   'localModel.select': '选用',
   'localModel.a11y.modelLoaded': '模型已加载',
   'localModel.a11y.loadModel': '加载 {name}',
+  'localModel.a11y.deleteModel': '删除模型 {name}',
   'localModel.loading': '加载中 {progress}%',
   'localModel.loaded': '已加载',
   'localModel.load': '加载',

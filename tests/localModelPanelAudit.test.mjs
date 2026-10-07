@@ -221,3 +221,26 @@ test('U7：参数弹窗越界红框 + 恢复默认（单字段与全部）', () 
   assert.ok(MODAL.includes("t('localModel.paramsModal.resetAll')"), '全部恢复默认文案');
 });
 
+
+test('卡片删除按钮接现成 confirmDelete（2026-10-07）：不另起删除逻辑', () => {
+  const models = readPanel('ModelsSection.js');
+  assert.ok(models.includes('onDeleteEntry'), 'ModelsSection 必须接收 onDeleteEntry');
+  assert.ok(models.includes('onPress={() => onDeleteEntry(entry)}'), '删除按钮必须直连 onDeleteEntry');
+  assert.ok(models.includes("t('localModel.a11y.deleteModel'"), '删除按钮必须有 a11y 标签');
+  assert.ok(models.includes('trash-bin-outline'), '删除按钮用 trash-bin 图标');
+  // 壳透传现成的 confirmDelete（已带确认弹窗 + 卸载 + 停服务 + 重置选用）
+  assert.ok(SHELL.includes('onDeleteEntry={feedback.confirmDelete}'), '壳必须透传 feedback.confirmDelete');
+  const styles = readPanel('panelStyles.js');
+  assert.ok(/deleteIconButton:\s*\{[^}]*marginRight:\s*0/.test(styles), '删除按钮为行尾元素，marginRight 必须归零');
+});
+
+test('弹窗点外可取消（2026-10-07）：panelFeedback 全部弹窗走 alertCancelable', () => {
+  const feedback = readPanel('panelFeedback.js');
+  assert.ok(feedback.includes('const alertCancelable'), 'helper 必须存在');
+  assert.ok(feedback.includes('{ cancelable: true, onDismiss: () => {} }'), 'helper 必须传 cancelable + onDismiss');
+  assert.equal(feedback.split('Alert.alert(').length - 1, 1,
+    '裸 Alert.alert 只允许在 helper 内部出现一次（新增弹窗必须走 helper）');
+  assert.ok(feedback.includes('alertCancelable(entry.name || entry.id'), '长按操作单必须走可取消弹窗');
+  assert.ok(feedback.includes('alertCancelable(t(\'localModel.alert.deleteModel.title\')'),
+    '删除确认弹窗同样可点外取消（点外=取消，不误删）');
+});
