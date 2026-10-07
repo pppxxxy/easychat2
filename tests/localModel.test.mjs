@@ -39,7 +39,6 @@ import {
   withResource,
 } from '../src/resourceMutex.js';
 import { canUseLocalModel, resolveLocalModelReadiness, sendWithModelProvider } from '../src/network/modelProvider.js';
-import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 test('normalizeLocalModelSettings：非法值回退安全默认值', () => {
   const settings = normalizeLocalModelSettings({ enabled: true, modelId: 'q4', contextSize: 1, gpuLayers: -2 });
@@ -429,21 +428,18 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
     '本地思考应写入 reasoning 字段'
   );
 
-  // Phase 2 拆分后加载逻辑在 usePanelModels，行渲染在 ModelsSection
+  // Phase 2 拆分后加载逻辑在 usePanelModels，行渲染在 ModelCard（v5 Stage C）
   const panel = read('localModel/panel/usePanelModels.js');
-  const section = read('localModel/panel/ModelsSection.js');
+  const card = read('localModel/panel/ModelCard.js');
   // 面板加载按钮：进度百分比、已加载态、互斥锁
   assert.ok(panel.includes('const handleLoadModel = useCallback'), '应有面板加载处理函数');
   assert.ok(panel.includes("tryAcquireResource('local-model')"), '加载应走 local-model 互斥锁');
   assert.ok(panel.includes('onProgress: p => setLoadProgress'), '应接线加载进度');
-  assert.ok(section.includes("t('localModel.loading', { progress: loadProgress })"), '按钮应引用加载百分比的 i18n 键');
-  assert.ok(zhCN['localModel.loading'].includes('{progress}%'), '语言包中文值正确');
-  assert.ok(section.includes("t('localModel.loaded')"), '按钮应引用已加载态的 i18n 键');
-  assert.equal(zhCN['localModel.loaded'], '已加载', '语言包中文值正确');
-  assert.ok(section.includes('loadProgressBar'), '应有进度条');
-  // 当前选用标识：名称行 badge + 已选用按钮态（原勾图标随 U6 行长按化退役）
-  assert.ok(section.includes("t('localModel.currentSuffix')"), '当前模型名称行应有「· 当前」标识');
-  assert.ok(section.includes("t('localModel.selected')"), '当前模型按钮应为「已选用」态');
+  assert.ok(card.includes('loadProgressBar'), '加载中应有进度条');
+  assert.ok(card.includes("t('localModel.a11y.loadProgress'"), '进度条应引用加载进度的 i18n 键');
+  // 当前选用标识：状态徽章「当前」+ 主操作「已选用」态
+  assert.ok(card.includes("'localModel.badge.current'"), '当前模型应有「当前」徽章');
+  assert.ok(card.includes("t('localModel.selected')"), '当前模型主操作应为「已选用」态');
 });
 
 test('adapter 参数构造：buildContextParams/buildCompletionParams 纯函数', async () => {

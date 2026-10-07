@@ -33,6 +33,7 @@ import { onboarding } from './en/onboarding.js';
 import { plugin } from './en/plugin.js';
 import { preset } from './en/preset.js';
 import { proactive } from './en/proactive.js';
+import { schedule } from './en/schedule.js';
 import { screenWatch } from './en/screenWatch.js';
 import { search } from './en/search.js';
 import { sessionRecovery } from './en/sessionRecovery.js';
@@ -72,6 +73,7 @@ export const en = {
   ...plugin,
   ...preset,
   ...proactive,
+  ...schedule,
   ...screenWatch,
   ...search,
   ...sessionRecovery,

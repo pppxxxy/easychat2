@@ -143,6 +143,7 @@ export function buildProactiveRequestMessages({
   messageType = 'DEFAULT',
   customPrompt = '',
   timeAware = false,
+  scheduleText = '',
 } = {}) {
   const cleanCharacter = character && typeof character === 'object'
     ? {
@@ -157,6 +158,11 @@ export function buildProactiveRequestMessages({
   const trimmedHistory = (Array.isArray(historyMessages) ? historyMessages : [])
     .filter(item => item && !item.pending && (item.role === 'user' || item.role === 'assistant'))
     .slice(-PROACTIVE_HISTORY_LIMIT);
+  // 作息规则是静态文本（不含时间戳），可安全快照；模型结合触发时的当前时间判断时段。
+  const extraSystemPrompt = [
+    buildProactiveExtraPrompt({ messageType, customPrompt }),
+    String(scheduleText || '').trim(),
+  ].filter(Boolean).join('\n\n');
   return buildRequestMessages({
     character: cleanCharacter,
     historyMessages: trimmedHistory,
@@ -164,7 +170,7 @@ export function buildProactiveRequestMessages({
     userProfile,
     globalPresets,
     summaryText,
-    extraSystemPrompt: buildProactiveExtraPrompt({ messageType, customPrompt }),
+    extraSystemPrompt,
     // 保存时不能固化真实时间：占位符由原生在触发时替换成触发时刻。
     currentTimeText: timeAware ? PROACTIVE_TIME_TOKEN : '',
   });
@@ -228,6 +234,25 @@ export async function buildProactiveRequestJson({
     userProfile = null;
   }
 
+  // 角色作息：读取角色作息并生成静态规则文本；启用作息时即使全局 timeAware 关闭，
+  // 也写入时间占位符（规则需要当前时间判断时段）。
+  let scheduleText = '';
+  let scheduleActive = false;
+  try {
+    const [{ getCharacterSchedule }, { buildSchedulePrompt, isScheduleActive }] = await Promise.all([
+      import('../storage/schedule.js'),
+      import('../chat/schedule.js'),
+    ]);
+    const schedule = character && character.id ? await getCharacterSchedule(character.id) : null;
+    if (isScheduleActive(schedule)) {
+      scheduleText = buildSchedulePrompt(schedule);
+      scheduleActive = true;
+    }
+  } catch (error) {
+    scheduleText = '';
+    scheduleActive = false;
+  }
+
   const messages = buildProactiveRequestMessages({
     character,
     historyMessages,
@@ -236,7 +261,8 @@ export async function buildProactiveRequestJson({
     summaryText,
     messageType,
     customPrompt,
-    timeAware,
+    timeAware: timeAware || scheduleActive,
+    scheduleText,
   });
   try {
     // 快照升级为按协议组好的完整请求体（含 model/生成参数）；原生直接发送。

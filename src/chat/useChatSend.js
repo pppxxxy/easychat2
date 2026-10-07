@@ -54,6 +54,8 @@ import { stop as ttsStop } from '../tts/index.js';
 import { maskSecrets } from '../storage/secrets.js';
 import { resolveStickerNames } from './stickerDirectives.js';
 import { buildTimeAwareText } from './currentTime.js';
+import { buildSchedulePrompt, isScheduleActive } from './schedule.js';
+import { getCharacterSchedule } from '../storage/schedule.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -386,6 +388,23 @@ export default function useChatSend({
        } catch (error) {
          locationLine = '';
        }
+       // 角色作息：读取会话所属角色的作息；启用时注入静态作息规则，并附带当前时间
+       // （规则要靠当前时间判断时段，故启用作息即附带时间，与全局 timeAware 解耦）。
+       let scheduleText = '';
+       let scheduleActive = false;
+       try {
+         const scheduleCharacterId = String(
+           (currentSession && currentSession.characterId) || character.id || ''
+         );
+         const schedule = scheduleCharacterId ? await getCharacterSchedule(scheduleCharacterId) : null;
+         if (isScheduleActive(schedule)) {
+           scheduleText = buildSchedulePrompt(schedule);
+           scheduleActive = true;
+         }
+       } catch (error) {
+         scheduleText = '';
+         scheduleActive = false;
+       }
        const requestMessages = buildRequestMessages({
          character,
          historyMessages: trimmedHistory,
@@ -400,8 +419,10 @@ export default function useChatSend({
          quote,
          // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
          stickerNames: resolveStickerNames(stickersRef.current),
-         // 时间感知开启时附上当前时间（每次请求现算，保证准确）。
-         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware),
+         // 时间感知开启（或角色作息启用）时附上当前时间（每次请求现算，保证准确）。
+         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive),
+         // 角色作息启用时附上作息规则（含「按当前时间判断状态」）。
+         scheduleText,
          // 真实位置开启且存在最近位置时附上位置行。
          locationText: locationLine,
          // 语音兜底（需求 6.2）：转写失败且来源支持音频时按 input_audio 直发。

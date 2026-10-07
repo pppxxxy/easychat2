@@ -65,6 +65,7 @@ export default function EngineStatusBar({
     >
       <View style={[styles.engineDot, { backgroundColor: dotColor }]} />
       <Text style={styles.engineText} numberOfLines={1}>{label}</Text>
+      <Text style={styles.engineManage}>{t('localModel.engine.manage')}</Text>
       <Ionicons name="chevron-forward" size={14} color={theme.colors.textFaint} />
     </TouchableOpacity>
   );

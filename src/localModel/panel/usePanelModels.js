@@ -3,7 +3,7 @@
 // （豁免文件 LocalModelPanel.js）统一映射成用户可见文案。这样新文件不背
 // no-hardcoded-chinese 的新债，文案继续由《中英文切换修复任务书》A4 组统一迁移。
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   getLocalModelIndex,
@@ -18,6 +18,7 @@ import { stopLocalApiServer } from '../localApiServer.js';
 import { tryAcquireResource } from '../../resourceMutex.js';
 import { applyActiveLocalModel } from '../modelState.js';
 import { getDeviceMemoryInfo } from '../deviceMemory.js';
+import { selectFeaturedModels } from '../featured.js';
 
 export function usePanelModels({ visible }) {
   const [entries, setEntries] = useState([]);
@@ -177,6 +178,24 @@ export function usePanelModels({ visible }) {
     }
   }, [cleanupBusy]);
 
+  // 未安装精选卡（v5 Stage C/E）：目录里尚未安装的仓库坐标，灰态展示。
+  const featuredEntries = useMemo(() => {
+    const installedRepos = new Set(entries.map(item => String(item.repoPath || '')).filter(Boolean));
+    return selectFeaturedModels({ totalMemoryBytes: deviceMemoryBytes })
+      .filter(item => !installedRepos.has(item.repoId))
+      .map(item => ({
+        id: item.repoId,
+        name: item.name,
+        paramSize: item.paramSize,
+        hasVision: false,
+        hasAudio: false,
+        modelBytes: 0,
+        imported: false,
+        sourceId: item.sourceId || '',
+        repoPath: item.repoId,
+      }));
+  }, [entries, deviceMemoryBytes]);
+
   return {
     entries,
     settings,
@@ -186,6 +205,7 @@ export function usePanelModels({ visible }) {
     loadProgress,
     loadedModelId,
     runtime,
+    featuredEntries,
     setLoadedModelId,
     refresh,
     updateSettings,

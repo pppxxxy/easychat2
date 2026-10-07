@@ -156,9 +156,11 @@ import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import SessionStatsModal from './chat/SessionStatsModal.js';
+import MemoryProvenanceModal from './memory/MemoryProvenanceModal.js';
 import { summarizeStats } from './chat/sessionStats.js';
 import { clearSessionStats, getSessionStats } from './storage/sessionStats.js';
 import ConversationExportModal from './chat/ConversationExportModal.js';
+import ConversationCardModal from './chat/ConversationCardModal.js';
 import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
@@ -295,6 +297,8 @@ export default function ChatScreen() {
    const [isSwitching, setIsSwitching] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // 从选中对话生成角色卡（对话即制卡）：素材 = 多选的消息，按会话顺序排列。
+  const [cardFromChatOpen, setCardFromChatOpen] = useState(false);
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const [transcriptionPanelOpen, setTranscriptionPanelOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
@@ -332,6 +336,8 @@ export default function ChatScreen() {
   // 本会话统计面板：打开时读该会话的累计数据（请求链路在 useChatSend 里打点）。
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsSummary, setStatsSummary] = useState(null);
+  // 记忆溯源面板：按当前角色读向量记忆索引，做溯源与冲突检测。
+  const [memoryProvenanceOpen, setMemoryProvenanceOpen] = useState(false);
    const [attachments, setAttachments] = useState([]);
    const attachmentsRef = useRef([]);
    attachmentsRef.current = attachments;
@@ -1302,6 +1308,18 @@ export default function ChatScreen() {
       return current.length === next.length ? [] : next;
     });
   }, [isSending, ready]);
+
+  // 选中的消息按**会话顺序**取出（不是点击顺序）：提炼角色时要还原对话的先后，
+  // 打乱顺序会让模型读不出「角色态度怎么变的」。过滤 messages 天然保序。
+  const selectedMessagesForCard = useMemo(
+    () => (Array.isArray(messages) ? messages : [])
+      .filter(item => item && item.id && selectedMessageIdSet.has(String(item.id))),
+    [messages, selectedMessageIdSet]
+  );
+  const openCardFromSelection = useCallback(() => {
+    if (selectedMessagesForCard.length === 0 || isSending) return;
+    setCardFromChatOpen(true);
+  }, [isSending, selectedMessagesForCard.length]);
 
   const confirmDeleteSelectedMessages = useCallback(() => {
     const ids = selectedMessageIds.slice();
@@ -2395,6 +2413,7 @@ export default function ChatScreen() {
         onCancelSelection={cancelMessageSelection}
         onToggleSelectAll={toggleSelectAllMessages}
         onDeleteSelected={confirmDeleteSelectedMessages}
+        onForgeCard={openCardFromSelection}
         onOpenSwitcher={() => setSwitcherOpen(true)}
         loaded={loaded}
         isGroup={isGroup}
@@ -2693,6 +2712,14 @@ export default function ChatScreen() {
           },
           // 其他：低频与系统入口
           {
+            key: 'memory-provenance',
+            section: t('chat.menu.section.other'),
+            label: t('chat.menu.memoryProvenance'),
+            icon: 'git-network-outline',
+            disabled: !characterId,
+            onPress: () => setMemoryProvenanceOpen(true),
+          },
+          {
             key: 'session-stats',
             section: t('chat.menu.section.other'),
             label: t('chat.menu.sessionStats'),
@@ -2731,7 +2758,7 @@ export default function ChatScreen() {
         onClear={clearSessionStatsForActive}
       />
 
-      <ConversationExportModal
+<ConversationExportModal
         visible={exportOpen}
         onClose={() => setExportOpen(false)}
         messages={messages}
@@ -2739,6 +2766,22 @@ export default function ChatScreen() {
         characterName={String(character.name || '')}
         userName={String(userNameRef.current || '')}
         isGroup={isGroup}
+      />
+
+      <ConversationCardModal
+        visible={cardFromChatOpen}
+        onClose={() => setCardFromChatOpen(false)}
+        messages={selectedMessagesForCard}
+        characterName={String(character.name || '')}
+        userName={String(userNameRef.current || '')}
+      />
+
+      <MemoryProvenanceModal
+        visible={memoryProvenanceOpen}
+        onClose={() => setMemoryProvenanceOpen(false)}
+        characterId={characterId}
+        characterName={String(character.name || '')}
+        sessions={sessions}
       />
 
       <ChatSettingsModal

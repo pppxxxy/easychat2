@@ -1084,6 +1084,12 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),
   },
+  engineManage: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(11),
+    fontWeight: '700',
+    marginRight: 4,
+  },
   errorBubbleBounded: {
      backgroundColor: theme.colors.dangerSurface,
      borderColor: theme.colors.danger,

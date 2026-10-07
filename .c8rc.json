@@ -108,6 +108,8 @@
     "src/localModel/EngineStatusBar.js",
     "src/localModel/useLocalEngineStatus.js",
     "src/localModel/panel/ModelsSection.js",
+    "src/localModel/panel/DownloadTasks.js",
+    "src/localModel/panel/ModelCard.js",
     "src/localModel/panel/AcquireSection.js",
     "src/localModel/panel/ApiServerSection.js",
     "src/localModel/panel/EngineCard.js",
@@ -134,6 +136,7 @@
     "src/extension/ExtensionHome.js",
     "src/extension/GamesView.js",
     "src/extension/ExtensionStack.js",
+    "src/extension/SchedulePanel.js",
     "src/ui/PaneHeader.js"
   ],
   "reporter": ["text-summary", "lcov"],

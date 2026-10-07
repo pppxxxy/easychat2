@@ -16,6 +16,7 @@ export default function ChatTopBar({
   onToggleSelectAll,
   allSelected,
   onDeleteSelected,
+  onForgeCard,
   onOpenSwitcher,
   loaded,
   isGroup,
@@ -59,6 +60,21 @@ export default function ChatTopBar({
               />
               <Text style={styles.selectionActionText}>{allSelected ? t('chat.topBar.selection.unselectAll') : t('chat.topBar.selection.selectAll')}</Text>
             </TouchableOpacity>
+            {typeof onForgeCard === 'function' ? (
+              <TouchableOpacity
+                style={[styles.selectionAction, isSending && styles.actionDisabled]}
+                onPress={onForgeCard}
+                disabled={isSending}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={t('chat.topBar.a11y.forgeCard')}
+              >
+                <Ionicons name="id-card-outline" size={16} color={theme.colors.primarySoft} />
+                <Text style={styles.selectionActionText} numberOfLines={1}>
+                  {t('chat.topBar.selection.forgeCard')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={[styles.selectionAction, styles.selectionDeleteAction, isSending && styles.actionDisabled]}
               onPress={onDeleteSelected}

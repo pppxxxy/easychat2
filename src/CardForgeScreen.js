@@ -31,6 +31,8 @@ import {
   currentQuestion,
   draftToCharacterPatch,
   FIELD_ASSIST_SYSTEM,
+  FORGE_SAMPLING_OVERRIDES,
+  FORGE_SYSTEM,
   hasCardContent,
   mergeDraft,
   parseCardPatch,
@@ -51,10 +53,8 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 
-const FORGE_SYSTEM = '你是中文角色卡撰写与编辑助手，严格遵守输出格式要求，只输出要求的 JSON。';
-// 制卡请求用独立采样：低温提高 JSON 稳定性，大 max_tokens 避免长 JSON 被截断。
-// 仅覆盖本次请求（api.mergeSamplingOverrides），不写回设置、不影响全局聊天采样。
-const FORGE_SAMPLING_OVERRIDES = { temperature: 0.3, maxTokens: 8192 };
+// FORGE_SYSTEM 与 FORGE_SAMPLING_OVERRIDES 已上提到 cardForge/forge/shared.js：
+// 「从对话生成角色卡」是第二条制卡入口，两份系统提示词/采样参数各写一份必然漂移。
 
 export default function CardForgeScreen() {
   const navigation = useNavigation();

@@ -9,6 +9,7 @@ export const common = {
   'common.saving': 'Saving...',
   'common.delete': 'Delete',
   'common.close': 'Close',
+  'common.back': 'Back',
   'common.retry': 'Retry',
   'common.copy': 'Copy',
   'common.copied': 'Copied',
