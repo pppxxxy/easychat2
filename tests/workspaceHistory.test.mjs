@@ -227,3 +227,21 @@ test('改动历史存储：每角色上限裁剪（只保留最近 WORKSPACE_CHA
   assert.equal(list[0].at, total, '保留的是最新的那条');
   assert.equal(list[list.length - 1].at, total - workspace.WORKSPACE_CHANGE_LIMIT + 1, '最旧的被丢弃');
 });
+test('仓库清单快照：按角色+仓库分区往返，非法值归一', async () => {
+  store.clear();
+  assert.equal(await workspace.getRepoSnapshot('c1', 'o/r/main'), null, '没有快照返回 null');
+
+  await workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['a.js', 'src/b.js'], at: 123 });
+  const snap = await workspace.getRepoSnapshot('c1', 'o/r/main');
+  assert.deepEqual(snap, { at: 123, paths: ['a.js', 'src/b.js'] });
+  assert.equal(await workspace.getRepoSnapshot('c1', 'o/other/main'), null, '仓库之间互不影响');
+  assert.equal(await workspace.getRepoSnapshot('c2', 'o/r/main'), null, '角色之间互不影响');
+
+  // 覆盖写：同一仓库再次拉取/推送后基线更新。
+  await workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['only.js'], at: 456 });
+  assert.deepEqual((await workspace.getRepoSnapshot('c1', 'o/r/main')).paths, ['only.js']);
+
+  // 非法输入：空 id 直接忽略，不写脏数据。
+  assert.equal(await workspace.setRepoSnapshot('', 'o/r/main', { paths: ['x'] }), null);
+  assert.equal(await workspace.getRepoSnapshot('c1', ''), null);
+});

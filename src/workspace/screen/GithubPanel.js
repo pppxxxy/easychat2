@@ -31,9 +31,11 @@ import { FieldHint, FieldLabel, GhostButton, PrimaryButton } from '../../ui/inde
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { getGithubMcpSettings } from '../../storage/githubMcp.js';
+import { getRepoSnapshot, setRepoSnapshot } from '../../storage/workspace.js';
 import { isTextLike, readTextAttachment } from '../../chat/attachments.js';
 import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
 import { breadcrumbsOf, directoryChildren } from '../screen/buildTree.js';
+import { diffRepoSnapshot, localRepoPaths } from './repoDiff.js';
 import {
   buildRepoZipUrl,
   extractRepoFiles,
@@ -62,7 +64,7 @@ const ERROR_KEYS = {
   DELETE_CONFIRM_REQUIRED: 'workspace.github.err.deleteConfirm',
 };
 
-export default function GithubPanel({ characterId, storeRef }) {
+export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -94,6 +96,8 @@ export default function GithubPanel({ characterId, storeRef }) {
   const [pullBusy, setPullBusy] = useState(false);
   const [pullProgress, setPullProgress] = useState({ done: 0, total: 0 });
   const pullCancelRef = useRef(false);
+  // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
+  const [snapshotPaths, setSnapshotPaths] = useState([]);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -193,6 +197,31 @@ export default function GithubPanel({ characterId, storeRef }) {
   const children = useMemo(() => directoryChildren(repoEntries, subdir), [repoEntries, subdir]);
   const crumbs = useMemo(() => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')), [subdir, t]);
 
+  const repoId = current ? `${current.owner}/${current.repo}/${current.branch}` : '';
+
+  // 载入该仓库的清单快照（拉取/推送成功时更新）——「待同步」的基线。
+  useEffect(() => {
+    let alive = true;
+    if (!repoId) {
+      setSnapshotPaths([]);
+      return () => { alive = false; };
+    }
+    (async () => {
+      try {
+        const snapshot = await getRepoSnapshot(characterId, repoId);
+        if (alive) setSnapshotPaths(snapshot && Array.isArray(snapshot.paths) ? snapshot.paths : []);
+      } catch (error) {
+        if (alive) setSnapshotPaths([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [characterId, repoId]);
+
+  const diff = useMemo(
+    () => diffRepoSnapshot({ files: allFiles, prefix: current ? repoPrefix(current) : '', snapshotPaths }),
+    [allFiles, current, repoPrefix, snapshotPaths]
+  );
+
   // 搜索：过滤当前仓库树的全部文件（本地副本全量路径匹配，不区分大小写）。
   const searchResults = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -274,6 +303,14 @@ export default function GithubPanel({ characterId, storeRef }) {
         setSubdir(base);
       }
       await refreshLocal();
+      // 拉取成功即刷新基线：快照 = 本地副本当前清单（以刷新后的实际列表为准）。
+      const pulledId = `${current.owner}/${current.repo}/${branch}`;
+      try {
+        const list = await store.listWorkspaceFiles({ characterId });
+        const paths = localRepoPaths({ files: list, prefix: base });
+        await setRepoSnapshot(characterId, pulledId, { paths });
+        if (mountedRef.current) setSnapshotPaths(paths);
+      } catch (error) {}
       Alert.alert(t('workspace.github.title'), t('workspace.github.pull.done', {
         count: written,
         binary: skippedBinary,
@@ -491,6 +528,40 @@ export default function GithubPanel({ characterId, storeRef }) {
       if (mountedRef.current) setActionBusy('');
     }
   }, [characterId, describeError, newRepo, refreshLocal, selectRepo, storeRef, t, token]);
+
+  // 把当前清单设为新基线（助手推送成功后，用户手动确认「已同步」）。
+  const markSynced = useCallback(async () => {
+    if (!current) return;
+    const paths = localRepoPaths({ files: allFiles, prefix: repoPrefix(current) });
+    try {
+      await setRepoSnapshot(characterId, repoId, { paths });
+      if (mountedRef.current) setSnapshotPaths(paths);
+      Alert.alert(t('workspace.github.title'), t('workspace.github.push.markedSynced'));
+    } catch (error) {}
+  }, [allFiles, characterId, current, repoId, repoPrefix, t]);
+
+  // 一键交接：把「哪个仓库/分支、增删了哪些文件」写成一条指令，填进对话面板的输入框，
+  // 由助手用 GitHub 工具逐条确认后提交（本面板不做直连推送，写远端一律经确认）。
+  const handoffPush = useCallback(() => {
+    if (!current || typeof onHandoff !== 'function') return;
+    const parts = [t('workspace.github.push.instructionHead', {
+      owner: current.owner, repo: current.repo, branch: current.branch,
+    })];
+    if (diff.added.length) {
+      parts.push(t('workspace.github.push.instructionAdded', {
+        count: diff.added.length,
+        list: diff.added.slice(0, 50).join('\n'),
+      }));
+    }
+    if (diff.removed.length) {
+      parts.push(t('workspace.github.push.instructionRemoved', {
+        count: diff.removed.length,
+        list: diff.removed.slice(0, 50).join('\n'),
+      }));
+    }
+    parts.push(t('workspace.github.push.instructionTail'));
+    onHandoff(parts.join('\n\n'));
+  }, [current, diff, onHandoff, t]);
 
   const canAct = Boolean(current) && Boolean(storeRef && storeRef.current);
 
@@ -758,8 +829,22 @@ export default function GithubPanel({ characterId, storeRef }) {
 
             {current ? (
               <View style={styles.pushBar}>
-                <Text style={styles.pushText}>{t('workspace.github.push.pending', { count: localCount(current) })}</Text>
-                <FieldHint>{t('workspace.github.push.hint')}</FieldHint>
+                <Text style={styles.pushText}>
+                  {diff.pending > 0
+                    ? t('workspace.github.push.summary', {
+                      added: diff.added.length,
+                      removed: diff.removed.length,
+                      total: diff.total,
+                    })
+                    : t('workspace.github.push.none')}
+                </Text>
+                <FieldHint>{t('workspace.github.push.contentNote')}</FieldHint>
+                <View style={styles.actions}>
+                  {diff.pending > 0 && typeof onHandoff === 'function' ? (
+                    <PrimaryButton title={t('workspace.github.push.handoff')} small onPress={handoffPush} />
+                  ) : null}
+                  <GhostButton title={t('workspace.github.push.markSynced')} small onPress={markSynced} />
+                </View>
               </View>
             ) : null}
           </>

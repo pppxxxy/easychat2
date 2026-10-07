@@ -164,7 +164,7 @@ test('GithubPanel：四键工具条 + 仓库列表 + 当前仓库树 + 搜索（
   assert.ok(PANEL_SRC.includes('createWorkspaceDirectory(') && PANEL_SRC.includes('writeWorkspaceFile('), '新建文件/文件夹落盘');
   assert.ok(PANEL_SRC.includes('refreshLocal') && PANEL_SRC.includes('loadRepos(1)'), '④ 刷新：重扫本地树 + 重拉列表');
   assert.ok(!/<Modal/.test(PANEL_SRC), '面板内不再有 Modal（二级层都是面板内的层）');
-  assert.ok(PANEL_SRC.includes('workspace.github.push.pending'), '底部推送条显示本地副本文件数');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.summary'), '底部推送条显示待同步增删');
 });
 
 test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
@@ -190,4 +190,18 @@ test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
   assert.ok(PANEL_SRC.includes('repoWebUrl('), '复制仓库链接');
   // 面板不删本地文件（远端删除不会连带删本地副本）。
   assert.ok(!PANEL_SRC.includes('deleteFile('), '不自动删本地副本');
+});
+
+test('GithubPanel：快照 diff + 一键交接给助手推送', () => {
+  assert.ok(PANEL_SRC.includes('diffRepoSnapshot('), '待同步由快照 diff 算出（不是假数字）');
+  assert.ok(PANEL_SRC.includes('getRepoSnapshot(') && PANEL_SRC.includes('setRepoSnapshot('), '基线读写存储域');
+  assert.ok(PANEL_SRC.includes('localRepoPaths('), '拉取成功后用实际清单刷新基线');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.none'), '无待同步时如实显示');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.contentNote'), '如实标注「内容改动判定不了」');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.handoff') && PANEL_SRC.includes('onHandoff('),
+    '一键交接把指令交给对话面板');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.instructionHead'), '交接指令含仓库与分支');
+  assert.ok(PANEL_SRC.includes('workspace.github.push.markSynced'), '推送成功后手动确认新基线');
+  // 本面板不直连推送：写远端一律经助手 + 逐条确认（面板里不得出现 MCP 推送调用）。
+  assert.ok(!PANEL_SRC.includes('push_files'), '面板不直接调 GitHub 推送');
 });

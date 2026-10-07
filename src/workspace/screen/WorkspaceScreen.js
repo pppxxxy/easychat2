@@ -43,6 +43,8 @@ export default function WorkspaceScreen({ visible, onClose }) {
   // 跨面板深链：聊天面板里的「导出/历史/环境配置」要直接落到文件面板的对应层
   //（文件面板的 initialSection 效应按 section 打开 docx 表单 / viewer / catalog）。
   const [filesSection, setFilesSection] = useState('');
+  // 跨面板交接：GitHub 工作台的「让助手推送」把一条指令填进对话面板的输入框。
+  const [draft, setDraft] = useState(null);
   // 工作区上下文：解析出的角色 + 沙盒 store。GitHub 面板与设置面板要用它们，
   // 由屏幕统一持有，避免每个面板各建一份（对话/文件面板仍是自包含的，见各自实现）。
   const [characterId, setCharacterId] = useState('default');
@@ -84,6 +86,11 @@ export default function WorkspaceScreen({ visible, onClose }) {
     setPanel('files');
   }, []);
   const backToChat = useCallback(() => setPanel('chat'), []);
+  // 交接：切到对话面板并把指令交给它填进输入框（token 让同一段文本也能重复交接）。
+  const handoffToChat = useCallback(text => {
+    setDraft({ text: String(text || ''), token: Date.now() });
+    setPanel('chat');
+  }, []);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -132,7 +139,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               <ChatPanel
                 visible={visible}
                 onClose={onClose}
-                embedded
+                draft={draft}
                 onOpenPanel={openFiles}
               />
             ) : null}
@@ -145,7 +152,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               />
             ) : null}
             {panel === 'github' ? (
-              <GithubPanel characterId={characterId} storeRef={storeRef} />
+              <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
             ) : null}
             {panel === 'settings' ? (
               <WorkspaceSettingsPanel onClose={backToChat} />

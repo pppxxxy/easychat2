@@ -229,3 +229,12 @@ test('Stage 4：对话面板内嵌设置层，设置面板收编语言/模式/�
   assert.ok(SCREEN.includes('initialSection={filesSection}'), '深链 section 传给文件面板');
   assert.ok(SCREEN.includes('setFilesSection(String(section'), 'openFiles 记录 section');
 });
+
+test('跨面板交接：GitHub 工作台 → 对话面板输入框', () => {
+  assert.ok(SCREEN.includes('handoffToChat'), '单屏持有交接回调');
+  assert.ok(SCREEN.includes('onHandoff={handoffToChat}'), 'GitHub 面板接上交接');
+  assert.ok(SCREEN.includes('draft={draft}'), '草稿传给对话面板');
+  assert.ok(SCREEN.includes("setPanel('chat')"), '交接后切到对话面板');
+  assert.ok(CHAT.includes('consumedDraftRef'), '对话面板消费草稿（token 去重）');
+  assert.ok(CHAT.includes('setInput(prev =>'), '草稿填进输入框');
+});

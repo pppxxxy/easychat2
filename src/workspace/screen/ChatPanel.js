@@ -91,7 +91,7 @@ function nextId() {
   return `wsc-${Date.now().toString(36)}-${messageSeq}`;
 }
 
-export default function ChatPanel({ visible, onOpenPanel }) {
+export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -131,6 +131,17 @@ export default function ChatPanel({ visible, onOpenPanel }) {
   // recorder 每次渲染都是新对象；把它放进 ref，避免关闭清理 effect 反复触发。
   const recorderRef = useRef(recorder);
   recorderRef.current = recorder;
+
+  // 跨面板交接：GitHub 工作台的「让助手推送」把一条指令填进输入框。
+  // 用 token 判定是否已消费——同一段文本也能重复交接（用户可能连点两次）。
+  const consumedDraftRef = useRef(0);
+  useEffect(() => {
+    if (!draft || !draft.text) return;
+    if (consumedDraftRef.current === draft.token) return;
+    consumedDraftRef.current = draft.token;
+    setSettingsOpen(false);
+    setInput(prev => (prev ? `${prev}\n${draft.text}` : draft.text));
+  }, [draft]);
 
   useEffect(() => {
     mountedRef.current = true;
