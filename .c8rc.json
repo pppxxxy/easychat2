@@ -108,6 +108,8 @@
     "src/localModel/EngineStatusBar.js",
     "src/localModel/useLocalEngineStatus.js",
     "src/localModel/panel/ModelsSection.js",
+    "src/localModel/panel/DownloadTasks.js",
+    "src/localModel/panel/ModelCard.js",
     "src/localModel/panel/AcquireSection.js",
     "src/localModel/panel/ApiServerSection.js",
     "src/localModel/panel/EngineCard.js",

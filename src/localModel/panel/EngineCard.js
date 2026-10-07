@@ -1,46 +1,79 @@
 // 模型中心「运行状态卡」（v5 Stage C）：读 runtime 单例（与聊天层引擎状态条同源），
-// 常驻模型库页顶；就绪时给一键卸载入口，并链接运行日志。纯渲染，数据由壳装配。
+// 常驻模型库页顶。展示 就绪/加载/失败 三态、内存占用、会话 KV 计数与下载来源；
+// 就绪时给一键卸载入口，并链接运行日志。纯渲染，数据由壳装配。
 
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { formatBytes } from '../../utils/format.js';
+import { getLoadedConversationCount } from '../adapter.js';
+
+function sourceLabel(entry, t) {
+  if (!entry) return t('localModel.source.unknown');
+  if (entry.imported) return t('localModel.source.imported');
+  const id = String(entry.sourceId || '');
+  if (id === 'huggingface') return t('localModel.source.huggingface');
+  if (id === 'hf-mirror') return t('localModel.source.hfMirror');
+  if (id === 'modelscope') return t('localModel.source.modelscope');
+  return t('localModel.source.unknown');
+}
 
 export default function EngineCard({ styles, theme, t, runtime, entries, onUnloadModel, onOpenLogs }) {
   if (!runtime || runtime.status === 'idle') return null;
-  const activeName = (entries.find(item => item.id === runtime.modelId) || {}).name || runtime.modelId;
-  const label = runtime.status === 'ready'
-    ? t('localModel.engine.cardReady', { name: activeName, size: formatBytes(runtime.ramEstimate) || '—' })
+  const activeItem = entries.find(item => item.id === runtime.modelId) || null;
+  const activeName = (activeItem && activeItem.name) || runtime.modelId;
+  const ready = runtime.status === 'ready';
+
+  const headText = ready
+    ? t('localModel.run.running', { name: activeName })
     : runtime.status === 'loading'
       ? t('localModel.engine.cardLoading', { progress: runtime.progress })
       : t('localModel.engine.cardError');
+  const metaText = ready
+    ? t('localModel.run.meta', {
+      size: formatBytes(runtime.ramEstimate) || '—',
+      count: getLoadedConversationCount(),
+      source: sourceLabel(activeItem, t),
+    })
+    : '';
+
   return (
-    <View style={styles.engineCard}>
-      <View style={styles.activeRow}>
-        <Text style={styles.activeText} numberOfLines={1}>{label}</Text>
-        {runtime.status === 'ready' ? (
+    <View style={styles.runCard}>
+      <View style={styles.runHead}>
+        <View style={styles.runNameWrap}>
+          <View style={styles.runDot} />
+          <Text style={styles.runName} numberOfLines={1}>{headText}</Text>
+        </View>
+        {ready ? (
+          <Text style={styles.runBadge} numberOfLines={1}>{t('localModel.badge.installed')}</Text>
+        ) : null}
+      </View>
+      {metaText ? <Text style={styles.runMeta} numberOfLines={1}>{metaText}</Text> : null}
+      <View style={styles.runActions}>
+        {ready ? (
           <TouchableOpacity
-            style={styles.searchModelButton}
+            style={styles.runButton}
             onPress={onUnloadModel}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel={t('localModel.engine.unloadA11y')}
           >
-            <Text style={styles.searchModelText}>{t('localModel.engine.unload')}</Text>
+            <Ionicons name="power-outline" size={13} color={theme.colors.dangerSoft} />
+            <Text style={[styles.runButtonText, styles.runButtonDanger]}>{t('localModel.engine.unload')}</Text>
           </TouchableOpacity>
         ) : null}
+        <TouchableOpacity
+          style={styles.runButton}
+          onPress={onOpenLogs}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={t('localModel.engine.logsA11y')}
+        >
+          <Ionicons name="document-text-outline" size={13} color={theme.colors.primarySoft} />
+          <Text style={styles.runButtonText}>{t('localModel.engine.logs')}</Text>
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={styles.resetAll}
-        onPress={onOpenLogs}
-        activeOpacity={0.8}
-        accessibilityRole="button"
-        accessibilityLabel={t('localModel.engine.logsA11y')}
-      >
-        <Ionicons name="document-text-outline" size={13} color={theme.colors.primarySoft} />
-        <Text style={styles.resetAllText}>{t('localModel.engine.logs')}</Text>
-      </TouchableOpacity>
     </View>
   );
 }
