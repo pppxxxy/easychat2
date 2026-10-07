@@ -125,17 +125,16 @@ test('U2：下载与导入草稿分离，互斥子 Tab 切换各自保留', () =
   assert.ok(REDUCER.includes("kind: ''"), '空闲任务态 kind 为空');
 });
 
-test('U4：下载进度条 + 取消按钮接线', () => {
-  assert.ok(USE_ACQUIRE.includes('cancelLocalModelDownload'));
-  assert.ok(USE_ACQUIRE.includes('handleCancelDownload'));
+test('U4：下载进度条 + 取消按钮接线（v5 Stage B：走持久化队列）', () => {
+  // 获取域经 downloadQueue 接线：入队 / 取消 / 订阅镜像任务态
+  assert.ok(USE_ACQUIRE.includes('enqueueDownload'));
+  assert.ok(USE_ACQUIRE.includes('cancelQueuedDownload'));
+  assert.ok(USE_ACQUIRE.includes('subscribeDownloadQueue'));
   assert.ok(ACQUIRE_SECTION.includes("t('localModel.download.cancelA11y')"));
   // 进度条（非一行文字）+ 字节详情（单对象任务态 task.progress/totalBytes）
   assert.ok(ACQUIRE_SECTION.includes('downloadProgressBar'));
   assert.ok(ACQUIRE_SECTION.includes('task.totalBytes'));
-  // 取消按编码区分：hook 识别 DOWNLOAD_CANCELLED，反馈层对 CANCELLED 不弹错误
-  assert.ok(USE_ACQUIRE.includes("code === 'DOWNLOAD_CANCELLED'"));
-  assert.ok(PANEL.includes("result.code === 'CANCELLED'"));
-  // modelManager 侧：登记表 + 幂等取消 + 编码错误
+  // 队列侧：登记表 + 幂等取消 + 编码错误仍在 modelManager
   const manager = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
   assert.ok(manager.includes('activeDownloads'));
   assert.ok(manager.includes('export async function cancelLocalModelDownload'));

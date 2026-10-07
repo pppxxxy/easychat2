@@ -41,6 +41,8 @@ export const localModel = {
   'localModel.alert.downloadInfoIncomplete.body': '请填写模型 ID 与有效的 GGUF 下载地址。',
   'localModel.alert.downloadDone.title': '模型下载完成',
   'localModel.alert.downloadDone.body': '已保存「{name}」，可在上方列表选用。',
+  'localModel.alert.downloadQueued.title': '已加入下载队列',
+  'localModel.alert.downloadQueued.body': '「{name}」已加入下载队列，完成后会出现在上方列表。请保持应用在前台。',
   'localModel.alert.downloadFailed.title': '模型下载失败',
   'localModel.alert.downloadFailed.body': '请检查地址与网络。',
   'localModel.alert.pickFileFailed.title': '选择文件失败',

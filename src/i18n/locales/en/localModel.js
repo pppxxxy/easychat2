@@ -41,6 +41,8 @@ export const localModel = {
   'localModel.alert.downloadInfoIncomplete.body': 'Enter a model ID and a valid GGUF download URL.',
   'localModel.alert.downloadDone.title': 'Download complete',
   'localModel.alert.downloadDone.body': 'Saved "{name}". You can select it in the list above.',
+  'localModel.alert.downloadQueued.title': 'Added to download queue',
+  'localModel.alert.downloadQueued.body': '"{name}" was added to the download queue and will appear in the list above when done. Keep the app in the foreground.',
   'localModel.alert.downloadFailed.title': 'Download failed',
   'localModel.alert.downloadFailed.body': 'Check the URL and network.',
   'localModel.alert.pickFileFailed.title': 'File selection failed',

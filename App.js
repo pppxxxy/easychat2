@@ -48,6 +48,7 @@ import { maskSecrets } from './src/storage/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/character/characterEditGuard.js';
 import { recordDiagnostic } from './src/storage/diagnostics.js';
 import { runLocalModel } from './src/localModel/adapter.js';
+import { hydrateDownloadQueue } from './src/localModel/downloadQueue.js';
 import {
   attachLocalApiServerInference,
   isLocalApiServerAvailable,
@@ -327,6 +328,19 @@ function DiaryStartup() {
     return () => subscription.remove();
   }, [loaded]);
 
+  return null;
+}
+
+// 下载队列启动水合（v5 Stage B）：冷启动读持久化队列，把崩溃残留的 running 任务
+// 恢复为 pending 并自动重下（断点重下）。与 UI 无关，挂载即跑一次。
+function DownloadQueueStartup() {
+  const { loaded } = useApp();
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || startedRef.current) return;
+    startedRef.current = true;
+    hydrateDownloadQueue().catch(() => {});
+  }, [loaded]);
   return null;
 }
 
@@ -655,6 +669,7 @@ export default function App() {
                 {startupReady ? <AppShell /> : null}
                 {startupReady ? <StartupSession /> : null}
                 {startupReady ? <DiaryStartup /> : null}
+                {startupReady ? <DownloadQueueStartup /> : null}
                 <StartupFlow onReady={handleStartupReady} />
               </AppProvider>
             </I18nProvider>

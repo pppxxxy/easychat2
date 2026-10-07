@@ -8,15 +8,17 @@
 // setXxx 交叉更新（U4 的取消 + U2 的草稿互斥都靠类型化的 action 表达）。
 // 对外接口与旧 useState 版完全一致（setter 兼容函数式更新），壳不需要改动。
 
-import { useCallback, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 
 import * as DocumentPicker from 'expo-document-picker';
 
+import { importLocalModel } from '../modelManager.js';
 import {
-  cancelLocalModelDownload,
-  downloadLocalModel,
-  importLocalModel,
-} from '../modelManager.js';
+  cancelQueuedDownload,
+  enqueueDownload,
+  getDownloadQueueSnapshot,
+  subscribeDownloadQueue,
+} from '../downloadQueue.js';
 import { rewriteDownloadSourceUrl } from '../modelCatalog.js';
 import { buildModelSummary } from '../modelCompatibility.js';
 import { localModelIdFromFileName } from '../modelState.js';
@@ -38,6 +40,46 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
   const setImportDraft = useCallback(value => dispatch({ type: 'importDraft', value }), []);
   const setTask = useCallback(value => dispatch({ type: 'task', value }), []);
 
+  // 任务态不再由本组件持有：镜像持久化下载队列的当前任务（v5 Stage B）。
+  // 面板关掉再打开、甚至 app 重启后，队列仍在推进（重启后 running→pending 重下）。
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+  const knownIdsRef = useRef(new Set());
+  useEffect(() => {
+    let active = true;
+    const sync = snapshot => {
+      if (!active) return;
+      const current = snapshot && snapshot.current;
+      const pending = snapshot && snapshot.tasks.find(item => item.status === 'pending');
+      if (current) {
+        setTask({
+          kind: 'download',
+          progress: Number(current.progress) || 0,
+          writtenBytes: Number(current.writtenBytes) || 0,
+          totalBytes: Number(current.totalBytes) || 0,
+          modelId: current.id,
+        });
+      } else if (pending) {
+        // 排队等待中：进度 0，但 kind 非空以显示「下载中」。
+        setTask({ kind: 'download', progress: 0, writtenBytes: 0, totalBytes: 0, modelId: pending.id });
+      } else {
+        setTask(IDLE_TASK);
+      }
+      // 任务完成（从快照消失）后刷新已装列表：队列与面板解耦，完成时主动通知一次。
+      const currentIds = new Set((snapshot && snapshot.tasks ? snapshot.tasks : []).map(item => item.id));
+      for (const id of knownIdsRef.current) {
+        if (!currentIds.has(id)) {
+          Promise.resolve(onChangedRef.current && onChangedRef.current()).catch(() => {});
+          break;
+        }
+      }
+      knownIdsRef.current = currentIds;
+    };
+    const unsubscribe = subscribeDownloadQueue(sync);
+    sync(getDownloadQueueSnapshot());
+    return () => { active = false; unsubscribe(); };
+  }, [setTask]);
+
   const draftSummary = buildModelSummary(
     { name: `${downloadDraft.name} ${downloadDraft.modelId}`, quant: downloadDraft.quant, paramSize: downloadDraft.paramSize },
     { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 }
@@ -48,47 +90,30 @@ export function useAcquireModel({ deviceMemoryBytes, onChanged }) {
     if (!downloadDraft.modelId.trim() || !/^https?:\/\//i.test(url)) {
       return { ok: false, code: 'INCOMPLETE_INPUT' };
     }
-    setTask({ kind: 'download', progress: 0, writtenBytes: 0, totalBytes: 0 });
-    try {
-      const item = await downloadLocalModel({
-        modelId: downloadDraft.modelId,
-        modelName: downloadDraft.name || downloadDraft.modelId,
-        modelUrl: url,
-        sourceId: downloadDraft.sourceId,
-        repoPath: downloadDraft.repoPath,
-        quant: downloadDraft.quant,
-        paramSize: downloadDraft.paramSize,
-        modelExpectedBytes: downloadDraft.modelExpectedBytes,
-        modelSha256: downloadDraft.modelSha256,
-        mmprojUrl: downloadDraft.mmprojUrl,
-        onProgress: (progress, info) => {
-          setTask(current => ({
-            ...current,
-            kind: 'download',
-            progress,
-            writtenBytes: (info && info.writtenBytes) || 0,
-            totalBytes: (info && info.totalBytes) || 0,
-          }));
-        },
-      });
-      setDownloadDraft(emptyDownloadDraft());
-      setTask(IDLE_TASK);
-      await onChanged();
-      return { ok: true, name: item.name || item.id };
-    } catch (error) {
-      setTask(IDLE_TASK);
-      // 用户主动取消不是失败：半成品已由 modelManager 的失败清理路径删除。
-      if (error && error.code === 'DOWNLOAD_CANCELLED') return { ok: false, code: 'CANCELLED' };
-      return { ok: false, code: 'FAILED', message: error && error.message };
-    }
-  }, [downloadDraft, onChanged, setDownloadDraft, setTask]);
+    // 入队即返回：真正的下载由持久化队列串行执行，与面板生命周期解耦。
+    const result = await enqueueDownload({
+      modelId: downloadDraft.modelId,
+      name: downloadDraft.name || downloadDraft.modelId,
+      modelUrl: url,
+      sourceId: downloadDraft.sourceId,
+      repoPath: downloadDraft.repoPath,
+      quant: downloadDraft.quant,
+      paramSize: downloadDraft.paramSize,
+      modelExpectedBytes: downloadDraft.modelExpectedBytes,
+      modelSha256: downloadDraft.modelSha256,
+      mmprojUrl: downloadDraft.mmprojUrl,
+    });
+    if (!result.ok) return { ok: false, code: result.code };
+    setDownloadDraft(emptyDownloadDraft());
+    return { ok: true, name: downloadDraft.name || downloadDraft.modelId, queued: true };
+  }, [downloadDraft, setDownloadDraft]);
 
-  // 取消进行中的下载：幂等（任务不存在时静默返回 false），半成品走既有失败清理。
+  // 取消：优先取消正在跑的任务，其次移除排队中的同 id 任务。幂等。
   const handleCancelDownload = useCallback(() => {
     const id = localModelIdFromFileName(
       downloadDraft.modelId || downloadDraft.name || downloadDraft.modelUrl
     );
-    return cancelLocalModelDownload(id).catch(() => false);
+    return cancelQueuedDownload(id).catch(() => false);
   }, [downloadDraft.modelId, downloadDraft.name, downloadDraft.modelUrl]);
 
   const pickGguf = useCallback(async () => {

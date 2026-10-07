@@ -86,11 +86,12 @@ export function createPanelFeedback({
 
   const onDownload = async () => {
     const result = await acquire.handleDownload();
-    if (result.ok) alertCancelable(t('localModel.alert.downloadDone.title'), t('localModel.alert.downloadDone.body', { name: result.name }));
-    else if (result.code === 'INCOMPLETE_INPUT') alertCancelable(t('localModel.alert.downloadInfoIncomplete.title'), t('localModel.alert.downloadInfoIncomplete.body'));
-    else if (result.code === 'CANCELLED') {
-      // 用户主动取消不是失败：半成品已由 modelManager 的失败清理路径删除，不弹错误。
-    } else alertCancelable(t('localModel.alert.downloadFailed.title'), (result && result.message) || t('localModel.alert.downloadFailed.body'));
+    if (result.ok) {
+      // 入队成功：真正下载由持久化队列执行，完成后再刷新列表；这里只提示已加入队列。
+      alertCancelable(t('localModel.alert.downloadQueued.title'), t('localModel.alert.downloadQueued.body', { name: result.name }));
+    } else if (result.code === 'INCOMPLETE_INPUT') alertCancelable(t('localModel.alert.downloadInfoIncomplete.title'), t('localModel.alert.downloadInfoIncomplete.body'));
+    else if (result.code === 'DUPLICATE') { /* 已在队列中，静默 */ }
+    else alertCancelable(t('localModel.alert.downloadFailed.title'), (result && result.message) || t('localModel.alert.downloadFailed.body'));
   };
 
   const onPick = pickResult => {
