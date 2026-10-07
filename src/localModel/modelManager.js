@@ -34,6 +34,18 @@ export function localModelDirectory() {
   return `${FileSystem.documentDirectory || FileSystem.cacheDirectory || ''}${LOCAL_MODEL_DIRECTORY}/`;
 }
 
+// 出队预检用的剩余磁盘字节：expo-file-system legacy 的 getFreeDiskStorageAsync。
+// 拿不到时返回 0（调用方据此跳过预检，不误伤下载）。纯读取，不写文件。
+export async function getFreeDiskStorageBytes() {
+  try {
+    const value = await FileSystem.getFreeDiskStorageAsync();
+    const bytes = Number(value);
+    return Number.isFinite(bytes) && bytes > 0 ? Math.floor(bytes) : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
 export function localModelPath(modelId, extension = 'gguf') {
   return `${localModelDirectory()}${safeLocalModelPath(modelId, extension)}`;
 }

@@ -176,3 +176,19 @@ export async function getActiveLocalModel() {
   if (!settings.activeModelId) return null;
   return getLocalModelItem(settings.activeModelId);
 }
+
+// ---- 下载队列持久化（v5 Stage B）----
+//
+// 队列是「任务」而非「表单动作」：任务的进度/取消/重试与任何 UI 生命周期解耦，
+// 且活过 app 重启。这里只做键的读写原语，队列语义在 localModel/downloadQueue.js。
+export const LOCAL_MODEL_QUEUE_KEY = '@easychat2_download_queue';
+
+export async function readDownloadQueue() {
+  const stored = await readJsonStatus(LOCAL_MODEL_QUEUE_KEY);
+  if (stored.status !== 'ok' || !Array.isArray(stored.value)) return [];
+  return stored.value;
+}
+
+export async function writeDownloadQueue(tasks) {
+  await AsyncStorage.setItem(LOCAL_MODEL_QUEUE_KEY, JSON.stringify(Array.isArray(tasks) ? tasks : []));
+}
