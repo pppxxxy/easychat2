@@ -232,6 +232,8 @@ export const settings = {
   'settings.global.keepDraftHint': 'When on, unsent text is remembered when you leave or switch characters and refilled next time; when off, the input is cleared every time.',
   'settings.global.timeAware': 'Time Awareness',
   'settings.global.timeAwareHint': 'When on, the current date and time are sent with every chat so the character knows the time and day of week; when off, the character has no sense of time. Off by default.',
+  'settings.global.chatTools': 'In-chat tools (web search)',
+  'settings.global.chatToolsHint': 'When on, the character can decide on its own to search the web during a chat (configure a search service on the Extensions tab first). The search shows as a "Searching…" bubble in the message list; your question is sent to the third-party search service. Independent of the "Web Search" plugin on the Extensions tab: that one searches automatically on keyword matches, this one is model-initiated. Off by default.',
   'settings.global.thinkingDisplay': 'Thinking Display',
   'settings.global.thinkingDisplay.open': 'On',
   'settings.global.thinkingDisplay.fold': 'Folded',

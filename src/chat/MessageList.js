@@ -9,9 +9,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import AnimatedEntry from './AnimatedEntry.js';
 import ErrorBubble from './ErrorBubble.js';
+import ToolBubble from './ToolBubble.js';
+import { TOOL_BUBBLE_KIND, SYSTEM_ERROR_ID } from './chatConstants.js';
 import MessageBubble from './MessageBubble.js';
 import BranchForkRow from './BranchForkRow.js';
-import { SYSTEM_ERROR_ID } from './chatConstants.js';
 import { containsHtml } from './plainText.js';
 import { shouldRenderRichHtml } from './richHtml.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -188,7 +189,9 @@ function MessageList({
             ) : null;
             const body = (
                 <AnimatedEntry delay={entryDelay} enabled={shouldAnimate}>
-                  {message.role === SYSTEM_ERROR_ID ? (
+                  {message.kind === TOOL_BUBBLE_KIND ? (
+                    <ToolBubble message={message} />
+                  ) : message.role === SYSTEM_ERROR_ID ? (
                     <ErrorBubble
                       message={message}
                       rawError={errorRawRef.current[message.id]}

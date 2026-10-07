@@ -232,6 +232,8 @@ export const settings = {
   'settings.global.keepDraftHint': '开启后，退出或切换角色时会记住输入框里还没发出去的文字，下次回到这个对话自动填回；关闭则每次进入都清空。',
   'settings.global.timeAware': '时间感知',
   'settings.global.timeAwareHint': '开启后，每次对话都会把「当前的日期与时间」告诉角色，让它知道现在是几点、星期几；关闭则角色不感知时间。默认关闭。',
+  'settings.global.chatTools': '聊天内工具（联网搜索）',
+  'settings.global.chatToolsHint': '开启后，角色可以在聊天中自己决定联网搜索（需要先在扩展页配置好搜索服务）。搜索过程会在消息流里显示「正在搜索…」；搜索时你的提问会发送给第三方搜索服务。与扩展页的「联网搜索」插件各自独立：那个是关键词命中就自动搜，这个是模型自主决定。默认关闭。',
   'settings.global.thinkingDisplay': '思考内容展示',
   'settings.global.thinkingDisplay.open': '开启',
   'settings.global.thinkingDisplay.fold': '折叠',

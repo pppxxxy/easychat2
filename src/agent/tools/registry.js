@@ -4,6 +4,11 @@
 //   ask（询问）   —— 不暴露任何工具
 //   read（只读）  —— 仅 readOnly 工具
 //   write（可改） —— 全部工具
+//
+// 另有一类「聊天内工具」（chatTool: true）：它们是受控白名单（目前只有联网搜索），
+// 与工作区模式无关——聊天页默认就是 ask，如果照搬上表它们将永远不可用。
+// 门控改为独立的 allowChatTools 开关，由聊天路径按用户设置显式打开；
+// 两条门控互不影响：ask 模式下工作区工具依旧一律不放行。
 
 import { tActive } from '../../i18n/index.js';
 
@@ -56,6 +61,8 @@ export function registerTool(definition) {
       : DEFAULT_TOOL_TIMEOUT_MS,
     // 需要用户逐次点头的工具（目前只有 run_shell）。缺省 false，故既有工具行为不变。
     requiresConfirmation: source.requiresConfirmation === true,
+    // 聊天内受控工具（联网搜索）：不受工作区模式门控，由 allowChatTools 单独放行。
+    chatTool: source.chatTool === true,
   };
   registry.set(name, normalized);
   return normalized;
@@ -78,8 +85,10 @@ export function listRegisteredTools() {
 }
 
 // 执行层门控：与暴露层（listToolsForMode）一致，防越权双保险。
-export function canRunTool(tool, mode) {
+// chatTool 走独立通道：调用方必须显式传 allowChatTools 才放行（见文件头说明）。
+export function canRunTool(tool, mode, options = {}) {
   if (!tool) return false;
+  if (tool.chatTool === true) return options.allowChatTools === true;
   const resolved = mode || AGENT_MODES.ASK;
   if (resolved === AGENT_MODES.WRITE) return true;
   if (resolved === AGENT_MODES.READ) return tool.readOnly === true;
@@ -87,9 +96,11 @@ export function canRunTool(tool, mode) {
 }
 
 // 暴露层：按模式生成发往模型的 tool 定义。
-export function listToolsForMode(mode) {
+// 聊天内工具只有在 allowChatTools 时才一并列出——不列出模型就不会调用，
+// 这是「不暴露即不可达」的第一层。
+export function listToolsForMode(mode, options = {}) {
   return listRegisteredTools()
-    .filter(tool => canRunTool(tool, mode))
+    .filter(tool => canRunTool(tool, mode, options))
     .map(tool => ({
       type: 'function',
       function: {
@@ -104,7 +115,7 @@ export async function runTool(call, ctx = {}) {
   const name = String((call && call.name) || '').trim();
   const tool = registry.get(name);
   if (!tool) return toErrorResult(`未知工具：${name || '(空)'}`);
-  if (!canRunTool(tool, ctx.mode)) {
+  if (!canRunTool(tool, ctx.mode, { allowChatTools: ctx.allowChatTools === true })) {
     return toErrorResult(`当前模式不允许调用工具：${name}`);
   }
 

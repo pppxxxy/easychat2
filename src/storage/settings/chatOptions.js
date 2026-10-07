@@ -27,6 +27,9 @@ function normalizeChatOptions(raw) {
     timeAware: source.timeAware === true,
     // 气泡风格：圆润（默认）/ 卡片 / 无底纹；非法值回落默认。
     bubbleStyle: BUBBLE_STYLES.includes(source.bubbleStyle) ? source.bubbleStyle : 'rounded',
+    // 聊天内工具（联网搜索）：开启后角色可在聊天中自主调用搜索工具，
+    // 过程以「正在搜索…」气泡显示。缺省关闭——它会把提问发给第三方搜索服务。
+    chatTools: source.chatTools === true,
   };
 }
 

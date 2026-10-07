@@ -27,6 +27,8 @@ import { getEditResendPlan } from './messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn } from '../agent/loop.js';
+import { registerChatTools, unregisterChatTools } from './chatTools.js';
+import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { requestToolApproval } from './toolApproval.js';
 import { registerDefaultWorkspaceTools } from '../workspace/native.js';
 import { ensureGithubMcpToolsRegistered } from '../workspace/mcpTools.js';
@@ -105,6 +107,7 @@ import {
   removeVectorIndexForSession,
 } from '../storage/vector.js';
 import { getWorkspaceSettings } from '../storage/workspace.js';
+import { getChatOptions } from '../storage/settings/chatOptions.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { runPlugins } from '../plugins/registry.js';
 import { archiveBranch } from '../storage/sessionBranches.js';
@@ -226,25 +229,29 @@ export default function useChatSend({
      const controller = sendLockRef.current?.controller || new AbortController();
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
-     // 工具状态气泡（read/write 模式下由 onToolEvent 驱动）；临时、不落库。
-     const toolStatusId = `${Date.now()}-tool-status`;
-     const clearToolStatus = () => {
+     // 工具过程气泡：由 onToolEvent 驱动，临时消息（不落库、不进上下文）。
+     // 同一个气泡对象原地更新状态（running → done/error），不逐轮堆叠。
+     const toolStatusId = `${Date.now()}-tool-bubble`;
+     const clearToolBubble = () => {
        if (!isCurrentSession()) return;
        setMessages(current => (
          isCurrentSession() ? current.filter(item => item.id !== toolStatusId) : current
        ));
      };
-     const setToolStatus = text => {
+     const setToolBubble = (name, status, error = '') => {
        if (!isCurrentSession()) return;
        setMessages(current => {
          if (!isCurrentSession()) return current;
          const without = current.filter(item => item.id !== toolStatusId);
-         if (!text) return without;
+         if (!name || !status) return without;
          return [...without, {
            id: toolStatusId,
            role: ASSISTANT_ID,
-           text,
-           kind: 'tool-status',
+           text: '',
+           kind: TOOL_BUBBLE_KIND,
+           toolName: name,
+           toolStatus: status,
+           toolError: error,
            pending: true,
            transient: true,
            timestamp: Date.now(),
@@ -461,8 +468,25 @@ export default function useChatSend({
           onlineConfigLabel = onlineConfig ? String(onlineConfig.name || onlineConfig.id || '') : '';
         } catch (error) {}
         const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
-        // 在线路径按工作区模式分流：ask 不暴露任何工具，走原 sendChatMessage（零变化）；
+        // 聊天内受控工具（联网搜索）：独立开关，与工作区模式无关——聊天页默认 ask，
+        // 若沿用工作区门控则永远不可用。关闭时必须**摘掉注册**（不只是不勾选），
+        // 否则执行路径仍能调到它。
+        let chatToolsEnabled = false;
+        try {
+          const chatOptionsForTools = await getChatOptions();
+          chatToolsEnabled = chatOptionsForTools.chatTools === true;
+        } catch (error) {
+          chatToolsEnabled = false;
+        }
+        try {
+          if (chatToolsEnabled) registerChatTools();
+          else unregisterChatTools();
+        } catch (error) {
+          chatToolsEnabled = false;
+        }
+        // 在线路径按工作区模式分流：ask 不暴露工作区工具，走原 sendChatMessage（零变化）；
         // read/write 走 runAgentTurn（agent 工具循环）。工具集由注册表按模式派生。
+        // 聊天内工具在上述任一模式下都可用（由 allowChatTools 单独放行）。
         let agentTools = [];
         if (workspaceMode !== 'ask') {
           try {
@@ -473,8 +497,11 @@ export default function useChatSend({
           try {
             await ensureGithubMcpToolsRegistered();
           } catch (error) {}
-          agentTools = listToolsForMode(workspaceMode);
         }
+        agentTools = listToolsForMode(
+          workspaceMode,
+          { allowChatTools: chatToolsEnabled }
+        );
         // token 是估算（在线 API 不返回 usage），口径与上下文占用同一估算器，服务商之间可比。
         let resolvedProvider = null;
         const meter = createRequestMeter();
@@ -523,10 +550,14 @@ export default function useChatSend({
                 });
               },
               onToolEvent: event => {
-                // 轻提示：start 打一条临时气泡，end 清掉（不落库，pending 过滤兜底）。
+                // 可见的工具过程气泡：start 时挂出「正在…」，end 时原地改成「完成/失败」。
+                // 结束后不立刻清掉——用户要能看到「刚才搜过」，它随本轮结束一起消失
+                //（下面 clearToolBubble 在各收尾分支统一调用），且不落库。
                 if (!event) return;
-                if (event.phase === 'start') setToolStatus(tRef.current('chat.tool.status.reading', { name: event.name }));
-                else setToolStatus('');
+                if (event.phase === 'start') setToolBubble(event.name, 'running');
+                else if (event.phase === 'end') {
+                  setToolBubble(event.name, event.ok === false ? 'error' : 'done', event.error || '');
+                }
               },
               // 逐条确认（目前只有 run_shell）：这里是唯一能问到用户的出口，
               // 所以必须接上——不接的话 registry 会把需要确认的工具一律拒绝。
@@ -539,6 +570,7 @@ export default function useChatSend({
                 signal: controller.signal,
               }),
               context: { characterId: character.id, sessionId: sendSessionId },
+              allowChatTools: chatToolsEnabled,
             })
           : sendChatMessage(onlineMessages, {
               expectedConfigId,
@@ -569,6 +601,9 @@ export default function useChatSend({
           localItem,
           localFileInfo,
           signal: controller.signal,
+          // 把本轮工具集告诉适配层：本地模型不支持工具调用时会降级为纯对话并留日志。
+          // 不透传的话，用户在本地模型下开着聊天内工具会「看不到搜索气泡、也没有任何说明」。
+          tools: agentTools,
           onProviderResolved: info => {
             resolvedProvider = info && typeof info === 'object' ? info : null;
           },
@@ -599,7 +634,7 @@ export default function useChatSend({
 
        if (controller.signal.aborted) {
          recordStats('');
-         clearToolStatus();
+         clearToolBubble();
          setMessages(current => (
            isCurrentSession()
              ? settlePendingMessage(current, pendingAssistantMessage.id)
@@ -613,7 +648,7 @@ export default function useChatSend({
          || '';
        // 记账放在拿到终稿之后：生成时长含解析开销，但只是毫秒级，换来「成功请求」口径准确。
        recordStats(replyText);
-       clearToolStatus();
+       clearToolBubble();
        setMessages(current => {
         if (!isCurrentSession()) return current;
         return replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
@@ -643,7 +678,7 @@ export default function useChatSend({
         recordTurnRef.current?.(userText, replyText, senderSnapshot);
       }
      } catch (error) {
-       clearToolStatus();
+       clearToolBubble();
        if (isConfigChangedError(error)) {
          sourceChangedRef.current = true;
          setMessages(current => (
