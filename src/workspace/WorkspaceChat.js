@@ -104,7 +104,7 @@ function nextId() {
   return `wsc-${Date.now().toString(36)}-${messageSeq}`;
 }
 
-export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
+export default function WorkspaceChat({ visible, onClose, onOpenPanel, embedded = false }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -744,25 +744,45 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
     },
   ];
 
+  // embedded = 作为 WorkspaceScreen 的「对话」面板内嵌渲染：不再自套 Modal、不再自带
+  // 顶栏与左栏（那是单屏的职责），改为一条紧凑动作行（新建对话 / 查找历史）。
+  const Root = embedded ? View : Modal;
+  const rootProps = embedded
+    ? { style: styles.embeddedRoot }
+    : { visible, animationType: 'slide', onRequestClose: onClose };
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Root {...rootProps}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={[styles.container, embedded && styles.containerEmbedded]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.topBar}>
-          <Text style={styles.title}>{t('workspace.home.title')}</Text>
-          <TouchableOpacity
-            style={styles.exitButton}
-            onPress={onClose}
-            hitSlop={8}
-            accessibilityLabel={t('workspace.home.exit')}
-          >
-            <Ionicons name="close" size={22} color={theme.colors.text} />
-          </TouchableOpacity>
-        </View>
+        {embedded ? (
+          <View style={styles.embeddedBar}>
+            <TouchableOpacity style={styles.embeddedAction} onPress={handleNewChat} activeOpacity={0.8}>
+              <Ionicons name="add-circle-outline" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.embeddedActionText}>{t('workspace.rail.newChat')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.embeddedAction} onPress={() => setHistoryOpen(true)} activeOpacity={0.8}>
+              <Ionicons name="time-outline" size={16} color={theme.colors.primarySoft} />
+              <Text style={styles.embeddedActionText}>{t('workspace.rail.history')}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.topBar}>
+            <Text style={styles.title}>{t('workspace.home.title')}</Text>
+            <TouchableOpacity
+              style={styles.exitButton}
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityLabel={t('workspace.home.exit')}
+            >
+              <Ionicons name="close" size={22} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.mainRow}>
+          {embedded ? null : (
           <View style={styles.rail}>
             {railItems.map(item => (
               <TouchableOpacity
@@ -778,6 +798,7 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
             {/* 预留位：后续新增的工作区入口接在这里，不挤右侧聊天区。 */}
             <View style={styles.railSpacer} />
           </View>
+          )}
 
           <View style={styles.chatColumn}>
             {onOpenPanel ? (
@@ -968,12 +989,25 @@ export default function WorkspaceChat({ visible, onClose, onOpenPanel }) {
         onClearAll={handleClearChats}
         busy={historyBusy}
       />
-    </Modal>
+    </Root>
   );
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 44 },
+  // embedded：外层由 WorkspaceScreen 提供容器与安全区，这里不再重复留白。
+  embeddedRoot: { flex: 1 },
+  containerEmbedded: { paddingTop: 0 },
+  embeddedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: tokens.border.thin,
+    borderBottomColor: theme.colors.divider,
+  },
+  embeddedAction: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
+  embeddedActionText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -131,11 +131,34 @@ test('新建项目：拉取接线（zipball → 解压 → 写沙盒 → 记入�
   assert.ok(PROJECT_SHEET.includes('onSelectProject'), '已有项目可切换');
 });
 
-test('入口接线：设置页进的是聊天主界面，子面板按 need 打开并定位', () => {
-  assert.ok(SETTINGS.includes("import WorkspaceChat from './workspace/WorkspaceChat.js'"), '引入主界面');
-  assert.ok(SETTINGS.includes('<WorkspaceChat'), '主入口渲染的是聊天主界面');
-  assert.ok(SETTINGS.includes('onOpenPanel={section => {'), '子面板回调');
-  assert.ok(SETTINGS.includes('initialSection={workspacePanelSection}'), '把 section 传给子面板');
+test('入口接线：设置页只挂一个工作区单屏，四领域面板由单屏内部分发', () => {
+  // 单屏原则：设置页不得再直接挂 WorkspaceChat / WorkspacePanel（那会回到三层 Modal 堆叠）。
+  assert.ok(SETTINGS.includes("import WorkspaceScreen from './workspace/screen/WorkspaceScreen.js'"), '引入单屏');
+  assert.ok(SETTINGS.includes('<WorkspaceScreen'), '主入口渲染的是单屏');
+  assert.ok(!/from\s+'[^']*WorkspacePanel\.js'/.test(SETTINGS), '设置页不得再引入 WorkspacePanel');
+  assert.ok(!/<WorkspacePanel/.test(SETTINGS), '设置页不得再渲染 WorkspacePanel');
+  assert.ok(!/from\s+'[^']*WorkspaceChat\.js'/.test(SETTINGS), '设置页不得再引入 WorkspaceChat');
+  assert.ok(!/<WorkspaceChat/.test(SETTINGS), '设置页不得再渲染 WorkspaceChat');
+  assert.ok(!SETTINGS.includes('onOpenPanel'), '设置页不再持有子面板回调状态');
+  assert.ok(!SETTINGS.includes('workspacePanelOpen'), '三层堆叠的旧状态已删除');
+
+  // 单屏本身：左栏四领域键 + 面板宿主。
+  const SCREEN = read('src/workspace/screen/WorkspaceScreen.js');
+  assert.ok(SCREEN.includes("workspace.screen.rail.chat"), '左栏：对话');
+  assert.ok(SCREEN.includes("workspace.screen.rail.files"), '左栏：文件');
+  assert.ok(SCREEN.includes("workspace.screen.rail.github"), '左栏：GitHub');
+  assert.ok(SCREEN.includes("workspace.screen.rail.settings"), '左栏：设置');
+  assert.ok(SCREEN.includes("useState('chat')"), '默认落在对话面板');
+  assert.ok(SCREEN.includes('WorkspaceChat'), '对话面板');
+  assert.ok(SCREEN.includes('WorkspacePanel'), '文件面板');
+  assert.ok(SCREEN.includes('WorkspaceRepoSheet'), 'GitHub 面板');
+  assert.ok(SCREEN.includes('WorkspaceSettingsPanel'), '设置面板');
+  // 面板单开：任一时刻只渲染一个（互斥的 panel 状态）。
+  assert.ok(SCREEN.includes("panel === 'chat'") && SCREEN.includes("panel === 'files'"), '面板互斥渲染');
+
+  // 旧组件支持内嵌：不再各自套一层 Modal。
+  assert.ok(CHAT.includes('embedded'), 'WorkspaceChat 支持 embedded');
+  assert.ok(PANEL.includes('embedded'), 'WorkspacePanel 支持 embedded');
 
   assert.ok(PANEL.includes('initialSection = '), 'WorkspacePanel 接受 initialSection');
   assert.ok(PANEL.includes("if (section === 'viewer')"), 'viewer 定位');

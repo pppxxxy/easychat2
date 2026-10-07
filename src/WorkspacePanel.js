@@ -77,7 +77,7 @@ function formatTokens(value) {
   return String(tokens);
 }
 
-export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default', initialSection = '' }) {
+export default function WorkspacePanel({ visible, onClose, characterId: initialCharacterId = 'default', initialSection = '', embedded = false }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const { characters, refreshAppData } = useApp();
@@ -627,10 +627,17 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     </View>
   );
 
+  // embedded = 作为 WorkspaceScreen 的「文件」面板内嵌渲染：不再自套 Modal、不再自带
+  // 顶部 SheetHeader（那是单屏的职责）。面板内的二级层（预览/表单/环境模板）仍是本组件
+  // 内部的层，不产生跨面板的 Modal 叠 Modal。
+  const Root = embedded ? View : Modal;
+  const rootProps = embedded
+    ? { style: styles.embeddedRoot }
+    : { visible, animationType: 'slide', onRequestClose: onClose };
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />
+    <Root {...rootProps}>
+      <View style={[styles.container, embedded && styles.containerEmbedded]}>
+        {embedded ? null : <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />}
 
         <ScrollView contentContainerStyle={styles.body}>
           <View style={styles.statusBar}>
@@ -1099,12 +1106,15 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
           onFilesChanged={refresh}
         />
       </View>
-    </Modal>
+    </Root>
   );
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
+  // embedded：外层容器由 WorkspaceScreen 提供，不再重复留白。
+  embeddedRoot: { flex: 1 },
+  containerEmbedded: { paddingTop: 0 },
   body: { paddingHorizontal: 20, paddingBottom: 40 },
   statusBar: {
     flexDirection: 'row',

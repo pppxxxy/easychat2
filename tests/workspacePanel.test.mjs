@@ -42,13 +42,15 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
   assert.ok(source.includes("openViewer('history')") || source.includes("openViewer(tab)"), '分段切换走 openViewer');
 });
 
-test('SettingsScreen：工作区卡片提供面板入口', () => {
-  // 工作区卡片 UI 已拆到 settings/sections/WorkspaceSection.js。
-  const source = readSource('src/settings/sections/WorkspaceSection.js') + readSource('src/SettingsScreen.js');
-  assert.ok(source.includes("from './WorkspacePanel.js'"), '导入工作区面板');
-  assert.ok(source.includes('<WorkspacePanel'), '渲染工作区面板');
-  assert.ok(/setWorkspaceOpen\(true\)/.test(source), '卡片按钮打开面板');
-  assert.ok(source.includes('characterId={characterId}'), '面板按当前角色沙盒传入');
+test('SettingsScreen：工作区卡片打开的是单屏（不再是平级面板 Modal）', () => {
+  // 工作区卡片 UI 在 settings/sections/WorkspaceSection.js；入口装配在 SettingsScreen。
+  const card = readSource('src/settings/sections/WorkspaceSection.js');
+  const settings = readSource('src/SettingsScreen.js');
+  assert.ok(/setWorkspaceOpen\(true\)/.test(card), '卡片按钮打开工作区');
+  assert.ok(settings.includes("from './workspace/screen/WorkspaceScreen.js'"), '设置页挂的是工作区单屏');
+  assert.ok(settings.includes('<WorkspaceScreen'), '渲染工作区单屏');
+  assert.ok(!settings.includes('<WorkspacePanel'), '设置页不得再直接渲染 WorkspacePanel');
+  assert.ok(!settings.includes('<WorkspaceChat'), '设置页不得再直接渲染 WorkspaceChat');
 });
 
 test('SettingsScreen：选文件夹 + 命令开关都走 patch（不许整体 save 冲掉彼此）', () => {

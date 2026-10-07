@@ -66,3 +66,28 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 console.log('[guard:structure] ok：storage.js 门面导入禁令通过。');
+
+// ---- 工作区单屏装配禁令（2026-10-08 Stage 1）----
+// 工作区只能有一层 Modal：设置页挂 WorkspaceScreen，四个领域面板由它内部按需渲染。
+// 此前设置页同时挂 WorkspaceChat 与 WorkspacePanel 两个平级 Modal，点链接再掀内部 viewer，
+// 形成三层 z 轴堆叠（用户截图「历史改动盖在工作区上面」的根因）。这条规则拦住回退。
+const settingsScreenPath = path.join(srcDir, 'SettingsScreen.js');
+const settingsSource = readFileSync(settingsScreenPath, 'utf8');
+const WORKSPACE_MODAL_RE = /from\s+'[^']*(?:WorkspacePanel|WorkspaceChat)\.js'/;
+if (WORKSPACE_MODAL_RE.test(settingsSource)) {
+  console.error(
+    '[guard:structure] SettingsScreen.js 仍在直接引入 WorkspacePanel/WorkspaceChat。\n'
+    + '工作区必须只挂一个 WorkspaceScreen（workspace/screen/WorkspaceScreen.js），\n'
+    + '聊天/文件/GitHub/设置都是它内部的面板——否则三层 Modal 堆叠会复发。'
+  );
+  process.exit(1);
+}
+if (!/from\s+'[^']*workspace\/screen\/WorkspaceScreen\.js'/.test(settingsSource)) {
+  console.error(
+    '[guard:structure] SettingsScreen.js 未挂 WorkspaceScreen（工作区单屏）。'
+    + '工作区入口必须走 workspace/screen/WorkspaceScreen.js。'
+  );
+  process.exit(1);
+}
+console.log('[guard:structure] ok：工作区单屏装配（SettingsScreen → WorkspaceScreen）。');
+
