@@ -47,6 +47,7 @@ import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from './workspac
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from './workspace/naming.js';
 import { WORKSPACE_ROOT_KINDS } from './workspace/location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from './workspace/catalog.js';
+import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles } from './workspace/screen/buildTree.js';
 import WorkspaceRepoSheet from './workspace/WorkspaceRepoSheet.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
@@ -102,6 +103,9 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
   // 查看文件：文件列表与历史改动两段。
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerTab, setViewerTab] = useState('files');
+  // 文件区当前所在目录（'' = 根层，按项目分组）。进入项目/目录后逐层下钻，
+  // 路径只在面包屑里出现，不再把「repos/x/main/src/…」整条挤在文件行里被截断（诉求④）。
+  const [subdir, setSubdir] = useState('');
   const [changes, setChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState('');
@@ -603,28 +607,222 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
     }
   }, [customBusy, customUrl, t, writeCatalogFile]);
 
-  // 文件行渲染（主列表与「查看文件」共用同一份，避免两处漂移）。
-  const renderFileRow = name => (
-    <View key={name} style={styles.fileRow}>
-      <TouchableOpacity style={styles.fileMain} onPress={() => openFile(name)} activeOpacity={0.8}>
+  // —— 文件区分组与下钻（诉求④）——
+  // 根层：工作区自己的散文件 + 每个导入项目一张卡；进入项目/目录后逐层列出直接子项。
+  // 路径只在面包屑里出现，不再把 repos/x/main/src/… 整条挤进文件行被截断。
+  const { rootEntries, groups } = useMemo(() => groupWorkspaceFiles(files), [files]);
+  const children = useMemo(() => directoryChildren(files, subdir), [files, subdir]);
+  const crumbs = useMemo(
+    () => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')),
+    [subdir, t]
+  );
+  // 当前目录被删空（或换了角色/根）时退回根层，避免停在空目录里。
+  useEffect(() => {
+    if (!subdir) return;
+    if (!files.some(entry => String(entry).startsWith(subdir))) setSubdir('');
+  }, [files, subdir]);
+
+  const renderEntryRow = entry => (
+    <View key={entry.path} style={styles.fileRow}>
+      <TouchableOpacity
+        style={styles.fileMain}
+        onPress={() => (entry.isDirectory ? setSubdir(entry.path) : openFile(entry.path))}
+        activeOpacity={0.8}
+      >
         <Ionicons
-          name={String(name).endsWith('/') ? 'folder-outline' : (isDocxName(name) ? 'document-outline' : 'document-text-outline')}
+          name={entry.isDirectory ? 'folder-outline' : (isDocxName(entry.path) ? 'document-outline' : 'document-text-outline')}
           size={16}
           color={theme.colors.primaryMuted}
         />
-        <Text style={styles.fileName} numberOfLines={1}>{name}</Text>
+        <Text style={styles.fileName} numberOfLines={1}>{entry.name}</Text>
       </TouchableOpacity>
-      {!String(name).endsWith('/') ? (
+      {entry.isDirectory ? null : (
         <>
-          <TouchableOpacity style={styles.fileAction} onPress={() => shareFile(name)} accessibilityLabel={t('workspace.panel.a11y.share', { name })}>
+          <TouchableOpacity
+            style={styles.fileAction}
+            onPress={() => shareFile(entry.path)}
+            accessibilityLabel={t('workspace.panel.a11y.share', { name: entry.name })}
+          >
             <Ionicons name="share-outline" size={16} color={theme.colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.fileAction} onPress={() => handleDelete(name)} accessibilityLabel={t('workspace.panel.a11y.delete', { name })}>
+          <TouchableOpacity
+            style={styles.fileAction}
+            onPress={() => handleDelete(entry.path)}
+            accessibilityLabel={t('workspace.panel.a11y.delete', { name: entry.name })}
+          >
             <Ionicons name="trash-outline" size={16} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </>
-      ) : null}
+      )}
     </View>
+  );
+
+  const renderProjectCard = group => (
+    <TouchableOpacity
+      key={group.id}
+      style={styles.projectCard}
+      onPress={() => setSubdir(group.prefix)}
+      activeOpacity={0.85}
+    >
+      <Ionicons
+        name={group.kind === 'legacy' ? 'archive-outline' : 'logo-github'}
+        size={18}
+        color={theme.colors.primaryMuted}
+      />
+      <View style={styles.projectMain}>
+        <Text style={styles.projectName} numberOfLines={1}>{group.label}</Text>
+        <Text style={styles.projectMeta} numberOfLines={1}>
+          {t('workspace.panel.group.files', { count: group.fileCount + group.dirCount })}
+          {group.kind === 'legacy' ? ` · ${t('workspace.panel.group.legacy')}` : ''}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />
+    </TouchableOpacity>
+  );
+
+  const renderFileBrowser = () => {
+    if (loading) return <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>;
+    if (error) return null;
+    if (files.length === 0) {
+      return (
+        <EmptyState
+          icon="briefcase-outline"
+          title={t('workspace.panel.empty.title')}
+          description={canWrite ? t('workspace.panel.empty.write') : t('workspace.panel.empty.read')}
+        />
+      );
+    }
+    if (subdir) {
+      return (
+        <>
+          <View style={styles.crumbRow}>
+            {crumbs.map((crumb, index) => (
+              <View key={crumb.path || 'root'} style={styles.crumbItem}>
+                {index > 0 ? <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} /> : null}
+                <TouchableOpacity onPress={() => setSubdir(crumb.path)} activeOpacity={0.7}>
+                  <Text
+                    style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]}
+                    numberOfLines={1}
+                  >
+                    {crumb.name}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+          {children.map(renderEntryRow)}
+        </>
+      );
+    }
+    return (
+      <>
+        {rootEntries.length > 0 ? (
+          <>
+            <FieldLabel>{t('workspace.panel.group.workspace')}</FieldLabel>
+            {directoryChildren(rootEntries, '').map(renderEntryRow)}
+          </>
+        ) : null}
+        {groups.length > 0 ? (
+          <>
+            <FieldLabel>{t('workspace.panel.group.projects')}</FieldLabel>
+            {groups.map(renderProjectCard)}
+          </>
+        ) : null}
+      </>
+    );
+  };
+
+  // 查看文件（已创建的文件 / 历史改动）：面板**内部**的层，不再是一个独立 Modal——
+  // 全局弹窗嵌套到此为止（v2 §3 交互规则 3：面板内二级层深度 ≤ 2）。
+  const renderViewerBody = () => (
+    <>
+      <SheetHeader title={t('workspace.panel.viewer.title')} onClose={() => setViewerOpen(false)} />
+      <View style={styles.viewerTabs}>
+        {['files', 'history'].map(tab => {
+          const active = viewerTab === tab;
+          return (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.viewerTab, active && styles.viewerTabActive]}
+              onPress={() => openViewer(tab)}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.viewerTabText, active && styles.viewerTabTextActive]}>
+                {t(tab === 'files' ? 'workspace.panel.viewer.tab.files' : 'workspace.panel.viewer.tab.history')}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {viewerTab === 'files' ? renderFileBrowser() : (
+        <>
+          {changesLoading ? (
+            <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
+          ) : null}
+          {!changesLoading && changes.length === 0 ? (
+            <EmptyState
+              icon="time-outline"
+              title={t('workspace.panel.viewer.history.empty.title')}
+              description={t('workspace.panel.viewer.history.empty.body')}
+            />
+          ) : null}
+          {!changesLoading && changes.length > 0 ? (
+            <TouchableOpacity style={styles.clearHistoryRow} onPress={clearHistory} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={13} color={theme.colors.textMuted} />
+              <Text style={styles.clearHistoryText}>{t('workspace.panel.viewer.clear.action')}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {changes.map(entry => {
+            const meta = CHANGE_OP_META[entry.op] || CHANGE_OP_META.write;
+            const expanded = expandedChangeId === entry.id;
+            return (
+              <View key={entry.id} style={styles.changeCard}>
+                <TouchableOpacity
+                  style={styles.changeMain}
+                  onPress={() => setExpandedChangeId(expanded ? '' : entry.id)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={meta.icon} size={15} color={theme.colors.primaryMuted} />
+                  <View style={styles.changeText}>
+                    <Text style={styles.changeTitle} numberOfLines={1}>
+                      {t(meta.labelKey)}{' '}{entry.path}
+                    </Text>
+                    <Text style={styles.changeMeta} numberOfLines={1}>
+                      {formatChangeTime(entry.at)}
+                      {entry.op === 'write' ? ` · ${t('workspace.panel.history.chars', { count: entry.length })}` : ''}
+                      {entry.op === 'write' && entry.created ? ` · ${t('workspace.panel.history.created')}` : ''}
+                      {entry.op === 'edit' ? ` · ${t('workspace.panel.history.replaced', { count: entry.count })}${entry.all ? `（${t('workspace.panel.history.all')}）` : ''}` : ''}
+                      {entry.op === 'delete' ? ` · ${t('workspace.panel.history.deleted')}` : ''}
+                      {entry.op === 'import' ? ` · ${t('workspace.panel.history.imported', { count: entry.count })}` : ''}
+                    </Text>
+                  </View>
+                  <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
+                </TouchableOpacity>
+                {expanded && entry.op === 'edit' ? (
+                  <View style={styles.changeDetail}>
+                    <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.find')}</Text>
+                    <Text style={styles.changeDetailText}>{entry.find}</Text>
+                    <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.replace')}</Text>
+                    <Text style={styles.changeDetailText}>{entry.replace}</Text>
+                  </View>
+                ) : null}
+                {expanded && entry.op !== 'edit' ? (
+                  <View style={styles.changeDetail}>
+                    <Text style={styles.changeDetailText}>
+                      {entry.op === 'delete'
+                        ? t('workspace.panel.history.deleted')
+                        : entry.op === 'import'
+                          ? t('workspace.panel.history.detail.import', { count: entry.count, path: entry.path })
+                          : t('workspace.panel.history.detail.write', { chars: entry.length })}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </>
+      )}
+    </>
   );
 
   // embedded = 作为 WorkspaceScreen 的「文件」面板内嵌渲染：不再自套 Modal、不再自带
@@ -640,6 +838,8 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
         {embedded ? null : <SheetHeader title={t('workspace.panel.title')} onClose={onClose} />}
 
         <ScrollView contentContainerStyle={styles.body}>
+          {viewerOpen ? renderViewerBody() : (
+          <>
           <View style={styles.statusBar}>
             <View style={styles.modeBadge}>
               <Text style={styles.modeBadgeText} numberOfLines={1}>{modeLabel}</Text>
@@ -748,21 +948,7 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
             </View>
           ) : null}
 
-          {loading ? (
-            <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
-          ) : null}
-
-          {!loading && files.length === 0 && !error ? (
-            <EmptyState
-              icon="briefcase-outline"
-              title={t('workspace.panel.empty.title')}
-              description={canWrite
-                ? t('workspace.panel.empty.write')
-                : t('workspace.panel.empty.read')}
-            />
-          ) : null}
-
-          {files.map(name => renderFileRow(name))}
+          {renderFileBrowser()}
 
           <View style={styles.collapsedSection}>
             <TouchableOpacity
@@ -828,6 +1014,8 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
               </>
             ) : null}
           </View>
+          </>
+          )}
         </ScrollView>
         <Modal visible={characterPickerOpen} animationType="slide" onRequestClose={() => setCharacterPickerOpen(false)}>
           <View style={styles.container}>
@@ -845,107 +1033,6 @@ export default function WorkspacePanel({ visible, onClose, characterId: initialC
                   ) : null}
                 </View>
               ))}
-            </ScrollView>
-          </View>
-        </Modal>
-
-        <Modal visible={viewerOpen} animationType="slide" onRequestClose={() => setViewerOpen(false)}>
-          <View style={styles.container}>
-            <SheetHeader title={t('workspace.panel.viewer.title')} onClose={() => setViewerOpen(false)} />
-            <View style={styles.viewerTabs}>
-              {['files', 'history'].map(tab => {
-                const active = viewerTab === tab;
-                return (
-                  <TouchableOpacity
-                    key={tab}
-                    style={[styles.viewerTab, active && styles.viewerTabActive]}
-                    onPress={() => openViewer(tab)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.viewerTabText, active && styles.viewerTabTextActive]}>
-                      {t(tab === 'files' ? 'workspace.panel.viewer.tab.files' : 'workspace.panel.viewer.tab.history')}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <ScrollView contentContainerStyle={styles.body}>
-              {viewerTab === 'files' ? (
-                files.length === 0 ? (
-                  <EmptyState
-                    icon="folder-open-outline"
-                    title={t('workspace.panel.empty.title')}
-                    description={canWrite ? t('workspace.panel.empty.write') : t('workspace.panel.empty.read')}
-                  />
-                ) : files.map(name => renderFileRow(name))
-              ) : (
-                <>
-                  {changesLoading ? (
-                    <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
-                  ) : null}
-                  {!changesLoading && changes.length === 0 ? (
-                    <EmptyState
-                      icon="time-outline"
-                      title={t('workspace.panel.viewer.history.empty.title')}
-                      description={t('workspace.panel.viewer.history.empty.body')}
-                    />
-                  ) : null}
-                  {!changesLoading && changes.length > 0 ? (
-                    <TouchableOpacity style={styles.clearHistoryRow} onPress={clearHistory} activeOpacity={0.8}>
-                      <Ionicons name="trash-outline" size={13} color={theme.colors.textMuted} />
-                      <Text style={styles.clearHistoryText}>{t('workspace.panel.viewer.clear.action')}</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {changes.map(entry => {
-                    const meta = CHANGE_OP_META[entry.op] || CHANGE_OP_META.write;
-                    const expanded = expandedChangeId === entry.id;
-                    return (
-                      <View key={entry.id} style={styles.changeCard}>
-                        <TouchableOpacity
-                          style={styles.changeMain}
-                          onPress={() => setExpandedChangeId(expanded ? '' : entry.id)}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name={meta.icon} size={15} color={theme.colors.primaryMuted} />
-                          <View style={styles.changeText}>
-                            <Text style={styles.changeTitle} numberOfLines={1}>
-                              {t(meta.labelKey)}{' '}{entry.path}
-                            </Text>
-                            <Text style={styles.changeMeta} numberOfLines={1}>
-                              {formatChangeTime(entry.at)}
-                              {entry.op === 'write' ? ` · ${t('workspace.panel.history.chars', { count: entry.length })}` : ''}
-                              {entry.op === 'write' && entry.created ? ` · ${t('workspace.panel.history.created')}` : ''}
-                              {entry.op === 'edit' ? ` · ${t('workspace.panel.history.replaced', { count: entry.count })}${entry.all ? `（${t('workspace.panel.history.all')}）` : ''}` : ''}
-                              {entry.op === 'delete' ? ` · ${t('workspace.panel.history.deleted')}` : ''}
-                              {entry.op === 'import' ? ` · ${t('workspace.panel.history.imported', { count: entry.count })}` : ''}
-                            </Text>
-                          </View>
-                          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
-                        </TouchableOpacity>
-                        {expanded && entry.op === 'edit' ? (
-                          <View style={styles.changeDetail}>
-                            <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.find')}</Text>
-                            <Text style={styles.changeDetailText}>{entry.find}</Text>
-                            <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.replace')}</Text>
-                            <Text style={styles.changeDetailText}>{entry.replace}</Text>
-                          </View>
-                        ) : null}
-                        {expanded && entry.op !== 'edit' ? (
-                          <View style={styles.changeDetail}>
-                            <Text style={styles.changeDetailText}>
-                              {entry.op === 'delete'
-                                ? t('workspace.panel.history.deleted')
-                                : entry.op === 'import'
-                                  ? t('workspace.panel.history.detail.import', { count: entry.count, path: entry.path })
-                                  : t('workspace.panel.history.detail.write', { chars: entry.length })}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </>
-              )}
             </ScrollView>
           </View>
         </Modal>
@@ -1359,5 +1446,25 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   fileMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   fileName: { color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 8, flex: 1 },
   fileAction: { paddingHorizontal: 6, paddingVertical: 4 },
+  // 面包屑（进入项目/目录后逐层定位，替代把整条长路径塞进文件行）。
+  crumbRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 },
+  crumbItem: { flexDirection: 'row', alignItems: 'center', marginRight: 4 },
+  crumbText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginHorizontal: 2 },
+  crumbTextActive: { color: theme.colors.primary, fontWeight: '700' },
+  // 项目卡：根层每个导入项目一张（诉求④）。
+  projectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: tokens.radius.sm,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  projectMain: { flex: 1, marginLeft: 10, marginRight: 8 },
+  projectName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
+  projectMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
   previewText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(20), marginTop: 8 },
 });

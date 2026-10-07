@@ -11,6 +11,21 @@ function readSource(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
 }
 
+test('文件面板：根层按项目分组 + 逐层下钻（诉求④）', () => {
+  const source = readSource('src/WorkspacePanel.js');
+  assert.ok(source.includes('groupWorkspaceFiles'), '根层按项目分组');
+  assert.ok(source.includes('directoryChildren'), '逐层列出当前目录的直接子项');
+  assert.ok(source.includes('breadcrumbsOf'), '面包屑定位当前目录');
+  assert.ok(source.includes('setSubdir(group.prefix)'), '点项目卡进入该项目');
+  assert.ok(source.includes('setSubdir(crumb.path)'), '面包屑可回上层');
+  assert.ok(source.includes('workspace.panel.group.projects'), '项目分组标题走 i18n');
+  assert.ok(source.includes('workspace.panel.breadcrumb.root'), '面包屑根名走 i18n');
+  assert.ok(!/files\.map\(name => renderFileRow/.test(source), '不再把整条长路径一维平铺');
+  // 查看文件是面板内的层，不再是一个独立 Modal（全局弹窗嵌套到此为止）。
+  assert.ok(!source.includes('<Modal visible={viewerOpen}'), 'viewer 不再是独立 Modal');
+  assert.ok(source.includes('renderViewerBody'), 'viewer 改为面板内渲染');
+});
+
 test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () => {
   const source = readSource('src/WorkspacePanel.js');
   assert.ok(source.includes("mode === 'write'"), '写操作必须仅可改模式');
