@@ -146,6 +146,9 @@ import ThinkingPanelModal from './chat/ThinkingPanelModal.js';
 import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
+import SessionStatsModal from './chat/SessionStatsModal.js';
+import { summarizeStats } from './chat/sessionStats.js';
+import { clearSessionStats, getSessionStats } from './storage/sessionStats.js';
 import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
@@ -315,6 +318,9 @@ export default function ChatScreen() {
   } = useChatModelThinking({ isSending, sendLockRef });
   const localEngine = useLocalEngineStatus();
   const [hubOpen, setHubOpen] = useState(false);
+  // 本会话统计面板：打开时读该会话的累计数据（请求链路在 useChatSend 里打点）。
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [statsSummary, setStatsSummary] = useState(null);
    const [attachments, setAttachments] = useState([]);
    const attachmentsRef = useRef([]);
    attachmentsRef.current = attachments;
@@ -2236,6 +2242,44 @@ export default function ChatScreen() {
     recordTurnRef.current = recordTurn;
   }, [recordTurn]);
 
+  // 本会话统计：打开时按当前会话 id 读累计数据（失败不打断，显示空面板）。
+  const openSessionStats = useCallback(async () => {
+    const sessionId = String(activeSessionIdRef.current || '');
+    if (!sessionId) {
+      setStatsSummary(summarizeStats(null));
+      setStatsOpen(true);
+      return;
+    }
+    try {
+      const stats = await getSessionStats(sessionId);
+      setStatsSummary(summarizeStats(stats));
+    } catch (error) {
+      setStatsSummary(summarizeStats(null));
+    }
+    setStatsOpen(true);
+  }, []);
+
+  const clearSessionStatsForActive = useCallback(() => {
+    const sessionId = String(activeSessionIdRef.current || '');
+    Alert.alert(
+      t('chat.stats.clearConfirm.title'),
+      t('chat.stats.clearConfirm.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('chat.stats.clearConfirm.confirm'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearSessionStats(sessionId);
+            } catch (error) {}
+            setStatsSummary(summarizeStats(null));
+          },
+        },
+      ]
+    );
+  }, [t]);
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -2540,6 +2584,13 @@ export default function ChatScreen() {
           },
           // 其他：低频与系统入口
           {
+            key: 'session-stats',
+            section: t('chat.menu.section.other'),
+            label: t('chat.menu.sessionStats'),
+            icon: 'stats-chart-outline',
+            onPress: openSessionStats,
+          },
+          {
             key: 'notice',
             section: t('chat.menu.section.other'),
             label: t('chat.menu.notice'),
@@ -2561,6 +2612,14 @@ export default function ChatScreen() {
             onPress: () => setChatSettingsOpen(true),
           },
         ]}
+      />
+
+      <SessionStatsModal
+        visible={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        summary={statsSummary}
+        messageCount={messages.filter(item => item && !item.transient).length}
+        onClear={clearSessionStatsForActive}
       />
 
       <ChatSettingsModal
