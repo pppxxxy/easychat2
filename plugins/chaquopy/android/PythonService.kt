@@ -51,7 +51,10 @@ class PythonService : Service() {
         private const val ERROR_BUSY = "上一个脚本还在跑：解释器是单例，脚本串行执行。"
     }
 
-    private var running = false
+    // @Volatile：worker 线程（脚本跑完）写它，主线程（看门狗、取消）读它。两者之间
+    // 没有同步边（只靠 Handler 消息传值），不加 volatile 就是数据竞争——可能表现为
+    // 看门狗把刚跑完的脚本杀掉，或点了停止却没反应。
+    @Volatile private var running = false
     private var watchdog: Runnable? = null
 
     private val handler = object : Handler(Looper.getMainLooper()) {

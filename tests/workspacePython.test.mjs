@@ -560,6 +560,23 @@ test('隔离：客户端用 Messenger 跨进程通信，并在 pid 相同（未�
   assert.ok(/python_not_isolated/.test(code), 'pid 相同（未隔离）时要明确拒绝，而不是照跑');
   // 超时上限：JS 传天文数字等于没有上限
   assert.ok(/MAX_TIMEOUT_MS/.test(code), '原生侧要有超时硬上限');
+
+  // 两个时序问题——都不需要真机就能判定，且只有文本断言能挡（Kotlin 在本环境编不了）：
+  // 1) 进程被杀（超时/中止）后绑定仍有效，系统可能把服务重新拉起并**再次**回调
+  //    onServiceConnected。不判 settled 就会把脚本发第二遍——模型给的代码可能有副作用
+  //    （写文件、发网络请求），跑两次不是「多此一举」而是错。停脚本这条链路上必现。
+  // 2) running 由 worker 线程写、主线程（看门狗/取消）读，两者之间没有同步边，
+  //    不加 @Volatile 就是数据竞争：可能表现为看门狗误杀刚跑完的脚本，或点停止没反应。
+  const connectedBody = code.slice(
+    code.indexOf('override fun onServiceConnected'),
+    code.indexOf('override fun onServiceDisconnected'),
+  );
+  assert.ok(connectedBody.length > 0, '找得到 onServiceConnected 的实现');
+  assert.ok(/if \(settled\)/.test(connectedBody),
+    'onServiceConnected 必须先判 settled（服务被重新拉起时会再回调一次，重发 = 脚本跑第二次）');
+  const serviceCode = stripComments(fs.readFileSync(path.join(KOTLIN_DIR, 'PythonService.kt'), 'utf8'));
+  assert.ok(/@Volatile\s+private\s+var\s+running/.test(serviceCode),
+    'running 必须 @Volatile：worker 线程写、主线程读，没有同步边');
 });
 
 // 服务声明必须真的写进清单——**验的是函数输出，不是源码里有没有这行字**。

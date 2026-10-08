@@ -133,6 +133,17 @@ class PythonBridgeModule(private val reactContext: ReactApplicationContext) :
         }
 
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            // 进程被杀（超时/中止）后，绑定仍然有效，系统可能把服务重新拉起并**再次**
+            // 回调这里。这次请求早就结算过了（settled），再发一遍等于把脚本跑第二次——
+            // 而模型给的代码可能有副作用（写文件、发请求）。所以先判 settled。
+            if (settled) {
+                try {
+                    context.unbindService(this)
+                } catch (error: Throwable) {
+                    // 已经解绑过就忽略。
+                }
+                return
+            }
             val target = binder?.let { Messenger(it) }
             if (target == null) {
                 settle { promise.reject(errorCode, "Python 服务没有返回通信通道。") }
