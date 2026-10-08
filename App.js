@@ -55,6 +55,7 @@ import {
   stopLocalApiServer,
 } from './src/localModel/localApiServer.js';
 import { tryAcquireResource } from './src/resourceMutex.js';
+import SecurityGate from './src/security/SecurityGate.js';
 import { useTabIconScale } from './src/ui/animations.js';
 
 const Tab = createBottomTabNavigator();
@@ -653,6 +654,9 @@ function AppShell() {
         <Tab.Screen name={ROUTE_NAMES.extension} component={ExtensionScreen} options={{ tabBarLabel: t('app.tab.extension') }} />
         <Tab.Screen name={ROUTE_NAMES.settings} component={SettingsScreen} options={{ tabBarLabel: t('app.tab.settings') }} />
       </Tab.Navigator>
+      {/* 隐私安全闸门：应用锁（生物识别）与单角色锁（密码）统一覆盖层。
+          放在 Tab.Navigator 之后，保证绝对定位覆盖层盖住页面与底栏。 */}
+      <SecurityGate navigationRef={navigationRef} />
     </NavigationContainer>
   );
 }

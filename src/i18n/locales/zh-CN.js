@@ -40,6 +40,7 @@ import { proactive } from './zh-CN/proactive.js';
 import { schedule } from './zh-CN/schedule.js';
 import { screenWatch } from './zh-CN/screenWatch.js';
 import { search } from './zh-CN/search.js';
+import { security } from './zh-CN/security.js';
 import { sessionRecovery } from './zh-CN/sessionRecovery.js';
 import { settings } from './zh-CN/settings.js';
 import { theme } from './zh-CN/theme.js';
@@ -80,6 +81,7 @@ export const zhCN = {
   ...schedule,
   ...screenWatch,
   ...search,
+  ...security,
   ...sessionRecovery,
   ...settings,
   ...theme,

@@ -106,6 +106,29 @@ async function readSecret(id) {
   }
 }
 
+async function deleteSecret(id) {
+  secretCache.delete(id);
+  const store = getSecureStore();
+  if (!store || typeof store.deleteItemAsync !== 'function') return;
+  try {
+    await store.deleteItemAsync(SECURE_STORE_PREFIX + id);
+  } catch (error) {}
+}
+
+// 通用安全存储读写：供密钥字段以外的敏感值（如单角色锁密码）复用，保持
+// 「expo-secure-store 只在本模块出现」的单一封装点。写入失败会抛出，调用方需处理。
+export async function writeSecureValue(id, value) {
+  await writeSecret(String(id), String(value));
+}
+
+export async function readSecureValue(id) {
+  return readSecret(String(id));
+}
+
+export async function removeSecureValue(id) {
+  await deleteSecret(String(id));
+}
+
 async function protectValue(value, namespace, path) {
   if (Array.isArray(value)) {
     const out = [];
