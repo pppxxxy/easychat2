@@ -715,6 +715,31 @@ data: [DONE]
 
 原生侧（`ShellExecutorModule.kt`）约束：`ProcessBuilder("/system/bin/sh","-c",cmd)`，cwd = 传入沙盒；stdout/stderr **并发**读取（防管道死锁）；输出上限 64KB 且超限继续排空；超时/中止 `destroyForcibly`；按 `requestId` 精确 kill；JS 实例销毁时清理全部子进程。**不需要任何 Manifest 权限**。
 
+### Python 运行时（run_python + 手动运行）
+**位置**: `src/workspace/python.js`（JS 桥）、`plugins/chaquopy/android/`（Kotlin 桥/服务 + `python/easychat2_bridge.py`）、`plugins/withChaquopy.js`（prebuild 插件）
+
+解释器是 **Chaquopy 内置的 CPython**（Gradle 级集成，包只能构建时用 pip 块装进 APK，**没有运行时 pip**）。脚本跑在 `:python` **独立进程**里——Chaquopy 自身没有中断能力，杀进程是唯一能停掉跑飞脚本的办法，所以「停止」= 杀那个进程。
+
+| 导出 | 说明 |
+|------|------|
+| `probePython({ native })` | 异步真实探测：`{ available, reason, pid, error }`；`reason` 区分 `NO_BRIDGE` / `PROBE_FAILED` / `NOT_ISOLATED` / `START_FAILED` |
+| `isPythonAvailable({ native })` | `probePython` 的布尔包装；**不可用不乐观假定**（缺原生能力一律 false） |
+| `isPythonBridgePresent({ native })` | 只表示「桥注册了」；用于**同步**场景（工具注册），不代表能跑 |
+| `parsePythonPayload(text)` | 解析桥返回的**一整条 JSON 字符串**；空/坏内容给出可定位错误（带原文片段） |
+| `runPythonScript({ code, cwdPath, timeoutMs, signal, native })` | 执行；`timeoutMs>0` 为原生看门狗；中止时先请求杀进程再抛 `AbortError` |
+| `cancelPythonScript({ native })` | 请求杀掉 `:python` 进程（返回「请求是否送达」，不表示已停） |
+| `createPythonRunner({ sandboxRoot, native })` | 工具用运行器：按 `characterId` 拼子目录，固定看门狗 `PYTHON_WATCHDOG_MS` |
+| `formatPythonToolResult(result)` | 给模型的文本（措辞与 `formatShellResult` 一致）；`isError` **由 exitCode 现算** |
+| `probeInstalledPackages(...)` / `parsePackageProbe` / `buildPackageProbeScript` | 向解释器查**实装**依赖（声明 ≠ 实装），探测失败返回 `null` |
+| `pythonGateReason(settings, { pythonAvailable })` | 手动运行的门控：`EXTERNAL_ROOT` / `NOT_BUNDLED` / `''` |
+| `PYTHON_WATCHDOG_MS`(30s) / `PYTHON_TOOL_TIMEOUT_MS`(60s) / `PYTHON_OUTPUT_LIMIT`(64KB) | 工具超时**大于**看门狗：让原生先杀并给出真原因 |
+
+**返回契约（别改回去）**：Python 侧 `run_code` 返回 `json.dumps({stdout, stderr, exitCode})`，解析在 JS 侧。历史两坑：① `PyObject.asMap()["stdout"]` 编译不过（`Map<PyObject,PyObject>` 键类型不匹配）；② `PyObject.get("stdout")` 编译得过但真机「退出码 0、无输出」——`get` 是 **`getattr()`** 语义，对 dict 取不到键且不抛错。
+
+三层门控（`run_python`）：**不注册**（`native.js` 的 `pythonAgentGateReason`：开关关 / 非可改 / 外部根 / 原生缺失）→ **不进列表** → **逐条确认**（弹框显示代码**原文**，不做 JSON 转义）。`run_python` 与 `run_shell` **互不代偿**：各看各的开关。
+
+原生侧约束：`PythonService.kt`（`:python` 进程）独占地 `Python.start(AndroidPlatform(...))`，跑完**先回消息再** `Process.killProcess`，串行执行（解释器单例 + `os.chdir`/`sys.stdout` 是进程级全局状态），超时看门狗先 `clearWatchdog()` 再判定；`PythonBridgeModule.kt` 是纯客户端（bindService + `Messenger`，**不**启动解释器）。客户端比对服务回报的 pid 与自身 pid，相同则**拒绝执行**（隔离没生效时「停止」会杀掉 UI 进程，失败朝安全方向倒）。Manifest 由插件写入 `android:process=":python"` + `exported="false"`。
+
 ### 工作区设置
 **位置**: `src/storage/workspace.js`（持久化）、`src/workspace/settings.js`（纯归一）
 
@@ -726,6 +751,7 @@ data: [DONE]
 | `WORKSPACE_MODES` / `normalizeWorkspaceMode` | `['ask','read','write']`，与 agent 工具门控共用 `AGENT_MODES` |
 | `normalizeWorkspaceLocation` / `resolveWorkspaceRoot` / `workspaceCapabilities` | 根归一（只认 `content://` 的 SAF，其余回应用内）、根 uri 解析、能力矩阵（外部根 `canShell:false`） |
 | `normalizeAllowCommandExecution(value, mode)` | 命令执行只在「可改」模式成立，其余模式一律归零 |
+| `normalizeAllowPythonExecution(value, mode)` | 模型运行 Python 的开关，规则同上。与命令执行**各自独立**（开一个不带开另一个） |
 
 ### 工作区面板
 **位置**: `src/WorkspacePanel.js`（设置页「工作区」卡片打开）、`src/WorkspaceCapabilitiesCard.js`（能力说明）
@@ -734,7 +760,9 @@ data: [DONE]
 
 面板底部有「向助手下达指令」入口，打开**工作区指令对话框**（`src/workspace/WorkspaceChat.js`，纯消息构造在 `src/workspace/chat.js`）：内嵌迷你对话，直连 agent 工具循环（`runAgentTurn`，按当前工作模式暴露工具），流式回显；可附加文本文件（内容并入指令）/图片（多模态），可录音转文字（复用 `transcription.js` + 当前转写配置）。对话不持久化，关闭即清空；`run_shell` 的逐条确认复用 `src/chat/toolApproval.js`。工具跑完回调 `onFilesChanged` 刷新面板文件列表。该 UI 文件登记在 `.c8rc.json` 排除清单。
 
-设置页工作区卡片新增：**工作区文件夹**（选择/恢复默认，`src/workspace/picker.js`）、**允许执行命令**开关（需二次确认，只读模式/外部根下置灰）、**能力说明卡片**（1→5 循环 + 当前边界，数据在 `src/workspace/capabilities.js`）。
+系统提示按**注册表里真实存在的工具**补执行类说明（`workspace/chat.js` 的 `EXECUTION_TOOL_HINTS` / `workspaceExecutionToolHints`）：只有 `run_shell` / `run_python` 真注册了才写进去，且只写「可改」模式。`buildWorkspaceAgentSystemPrompt({ mode, characterName, tools })` 的 `tools` 必须是 `listToolsForMode()` 的结果——**注册表是唯一判据**，不能用设置里的开关代替（开关开着但原生模块缺失或根是外部文件夹时工具并不存在，提示词会承诺一个调不动的能力）。`run_python` 那条明确写着「写出代码片段不等于真的跑过」：这是 2026-10-08 真机现象换来的——模型没调工具，而是写了个 `>>> 1234 * 567` 的代码块把答案贴上去，看着像跑过了。**主聊天页（`useChatSend.js`）不做同类注入**：那里的 system 是用户自己写的角色卡，往角色扮演提示里塞工具说明会污染人设；工具定义本身已随请求下发，模型据此决定是否调用。
+
+设置页工作区卡片新增：**工作区文件夹**（选择/恢复默认，`src/workspace/picker.js`）、**允许执行命令**开关（需二次确认，只读模式/外部根下置灰）、**允许模型运行 Python**开关（同样二次确认；与命令执行相互独立）、**Python 环境**小节（`src/workspace/screen/PythonSection.js`：可用性 + 实装依赖 + 手动运行/停止）、**能力说明卡片**（1→5 循环 + 当前边界，数据在 `src/workspace/capabilities.js`）。
 
 ### 文件夹选择器
 **位置**: `src/workspace/picker.js`

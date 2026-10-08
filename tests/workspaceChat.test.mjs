@@ -7,6 +7,7 @@ import {
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
   workspaceAgentModeHint,
+  workspaceExecutionToolHints,
 } from '../src/workspace/chat.js';
 
 test('buildWorkspaceAgentSystemPrompt：基础提示 + 角色名 + 模式提示', () => {
@@ -19,6 +20,39 @@ test('buildWorkspaceAgentSystemPrompt：基础提示 + 角色名 + 模式提示'
   assert.notEqual(workspaceAgentModeHint('read'), workspaceAgentModeHint('write'));
   // 未知模式回退到只读问答
   assert.equal(workspaceAgentModeHint('WEIRD'), workspaceAgentModeHint('ask'));
+});
+
+// 2026-10-08 真机观察：用户开了 Python 开关后让模型「用 python 算一下 1234*567」，
+// 模型**没有调用工具**，而是写了个 `>>> 1234 * 567` 的代码块把答案算出来贴上去——
+// 看起来像跑过了，其实一次都没跑（当时跑的是没带这版工具的旧包，但提示词这一侧的
+// 缺口是真实存在的：模式提示只列了文件操作，模型没有「我这儿真能跑代码」这条信息）。
+//
+// 所以：提示词要按**注册表里真实存在的工具**补上执行类说明，并明确点出
+// 「写出代码不等于真的跑过」——后者是这次真机现象直接换来的。
+test('系统提示：只在工具真的注册了时才写执行类说明，且点明「写出代码 ≠ 跑过」', () => {
+  const base = ['list_workspace_files', 'read_workspace_file'];
+
+  const withPython = buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: [...base, 'run_python'] });
+  assert.match(withPython, /run_python/, '注册了就必须告诉模型它能用');
+  assert.match(withPython, /不等于真的跑过/, '要明确否掉「写代码块就算执行过」这种假动作');
+  assert.equal(/run_shell/.test(withPython), false, '没注册的工具不得出现在提示词里');
+
+  const withShell = buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: [...base, 'run_shell'] });
+  assert.match(withShell, /run_shell/);
+  assert.equal(/run_python/.test(withShell), false);
+
+  // 没传 / 空清单 → 一条执行类说明都不能有：不能承诺一个调不动的能力
+  assert.equal(/run_python|run_shell/.test(buildWorkspaceAgentSystemPrompt({ mode: 'write' })), false);
+  assert.equal(/run_python|run_shell/.test(buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: [] })), false);
+
+  // 只读/询问模式：即便调用方把工具名传进来也不许提（两道门，各管各的）
+  assert.equal(/run_python/.test(buildWorkspaceAgentSystemPrompt({ mode: 'read', tools: ['run_python'] })), false);
+  assert.equal(/run_python/.test(buildWorkspaceAgentSystemPrompt({ mode: 'ask', tools: ['run_python'] })), false);
+
+  // 纯函数出口：命中哪些工具就返回哪几条说明，顺序稳定
+  assert.deepEqual(workspaceExecutionToolHints(['run_python', 'x']).length, 1);
+  assert.deepEqual(workspaceExecutionToolHints(['run_shell', 'run_python']).length, 2);
+  assert.deepEqual(workspaceExecutionToolHints(null), []);
 });
 
 test('projectWorkspaceChatHistory：只保留有文字的 user/assistant', () => {

@@ -23,9 +23,9 @@ test('1→5 循环恰好五步，顺序与语义对应需求原文', () => {
   assert.ok(keys.every(key => key.startsWith('workspace.capability.step.')));
 });
 
-test('边界条目覆盖四条硬约束（工具集 / shell 开关 / 外部根 / shell 范围）+ 本地模型', () => {
+test('边界条目覆盖五条硬约束（工具集 / 两个开关 / 隔离 / 外部根 / shell 范围）+ 本地模型', () => {
   assert.deepEqual(CAPABILITY_LIMITS.map(limit => limit.id), [
-    'tools', 'shellSwitch', 'externalRoot', 'shellScope', 'localModel', 'githubImport',
+    'tools', 'shellSwitch', 'pythonSwitch', 'pythonIsolation', 'externalRoot', 'shellScope', 'localModel', 'githubImport',
   ]);
 });
 
@@ -53,6 +53,28 @@ test('run_shell 只有「开关开 + 可改 + 应用内根 + 原生可用」才�
   assert.equal(activeWorkspaceTools({ ...base, mode: 'read' }, { shellAvailable: true }).includes('run_shell'), false);
 });
 
+// run_python 与 run_shell 同一套门控，但看的是**另一个开关**（allowPythonExecution）。
+// 「开命令执行就顺带出现 run_python」是必须被钉死的错误——两条执行面风险不同，
+// 用户只授权了 shell 却拿到能联网的 Python，是安全开关最糟的形态。
+test('run_python 门控与 run_shell 同形，但用独立开关（互不代偿）', () => {
+  const shellOn = { mode: 'write', location: APP_ROOT, allowCommandExecution: true, allowPythonExecution: false };
+  const shellTools = activeWorkspaceTools(shellOn, { shellAvailable: true, pythonAvailable: true });
+  assert.ok(shellTools.includes('run_shell'));
+  assert.equal(shellTools.includes('run_python'), false, '只开命令执行不得出现 run_python');
+
+  const pythonOn = { mode: 'write', location: APP_ROOT, allowCommandExecution: false, allowPythonExecution: true };
+  const pythonTools = activeWorkspaceTools(pythonOn, { shellAvailable: true, pythonAvailable: true });
+  assert.ok(pythonTools.includes('run_python'));
+  assert.equal(pythonTools.includes('run_shell'), false, '只开 Python 不得出现 run_shell');
+
+  // 四种缺一不可
+  const base = { mode: 'write', location: APP_ROOT, allowPythonExecution: true };
+  assert.equal(activeWorkspaceTools({ ...base, allowPythonExecution: false }, { pythonAvailable: true }).includes('run_python'), false);
+  assert.equal(activeWorkspaceTools({ ...base, location: SAF_ROOT }, { pythonAvailable: true }).includes('run_python'), false);
+  assert.equal(activeWorkspaceTools(base, { pythonAvailable: false }).includes('run_python'), false);
+  assert.equal(activeWorkspaceTools({ ...base, mode: 'read' }, { pythonAvailable: true }).includes('run_python'), false);
+});
+
 test('capabilityViewModel：界面渲染模型齐备且 shellEnabled 口径与工具集一致', () => {
   const model = capabilityViewModel({ mode: 'write', location: APP_ROOT, allowCommandExecution: true }, { shellAvailable: true });
   assert.equal(model.titleKey, CAPABILITY_TITLE_KEY);
@@ -70,6 +92,23 @@ test('capabilityViewModel：界面渲染模型齐备且 shellEnabled 口径与�
   const ask = capabilityViewModel({ mode: 'ask' }, {});
   assert.deepEqual(ask.tools, []);
   assert.equal(ask.shellEnabled, false);
+  assert.equal(ask.pythonEnabled, false);
+});
+
+// 说明里的 pythonEnabled 必须与工具集口径一致：说「开着」但工具不在清单里
+// （或反过来）都是误导——这正是「能力说明」这个模块存在的意义。
+test('capabilityViewModel：pythonEnabled 与工具集口径一致', () => {
+  const on = { mode: 'write', location: APP_ROOT, allowPythonExecution: true };
+  const model = capabilityViewModel(on, { pythonAvailable: true });
+  assert.equal(model.pythonEnabled, true);
+  assert.ok(model.tools.includes('run_python'));
+
+  const external = capabilityViewModel({ ...on, location: SAF_ROOT }, { pythonAvailable: true });
+  assert.equal(external.pythonEnabled, false, '外部根下不可用，说明也必须跟着变');
+  assert.equal(external.tools.includes('run_python'), false);
+
+  const notIsolated = capabilityViewModel(on, { pythonAvailable: false });
+  assert.equal(notIsolated.pythonEnabled, false, '原生侧不可用时说明不能说「开着」');
 });
 
 test('能力说明的每个键都在两种语言里有词条', async () => {

@@ -27,6 +27,12 @@
       "./plugins/withLocalApiServer",
       "./plugins/withShellExecutor",
       "./plugins/withScreenOverlay",
+    [
+      "./plugins/withChaquopy",
+      {
+        "minimalPackages": false
+      }
+    ],
       [
         "expo-image-picker",
         {

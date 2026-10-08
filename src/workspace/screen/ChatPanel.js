@@ -541,7 +541,21 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const controller = new AbortController();
     controllerRef.current = controller;
 
-    const systemPrompt = buildWorkspaceAgentSystemPrompt({ mode, characterName });
+    // 先注册工具、再拼提示词：提示词里要不要写「可以跑 Python / 可以执行命令」，判据是
+    // **注册表里真的有**（开关开着但原生模块缺失、或根是外部文件夹时并不存在），
+    // 所以必须以后者为准——否则提示词会承诺一个调不动的能力，模型会反复尝试然后乱解释。
+    let tools = [];
+    if (mode !== 'ask') {
+      try {
+        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings);
+        tools = listToolsForMode(mode);
+      } catch (error) {}
+    }
+    const systemPrompt = buildWorkspaceAgentSystemPrompt({
+      mode,
+      characterName,
+      tools: tools.map(item => item.function.name),
+    });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,
       history: projectWorkspaceChatHistory(history),
@@ -553,14 +567,6 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       const cfg = configs.find(item => item.id === activeId) || configs[0] || null;
       request = filterRequestMedia(request, { allowVision: Boolean(cfg && cfg.supportsVision), allowAudio: false });
     } catch (error) {}
-
-    let tools = [];
-    if (mode !== 'ask') {
-      try {
-        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings);
-        tools = listToolsForMode(mode);
-      } catch (error) {}
-    }
 
     try {
       await runAgentTurn(request, {

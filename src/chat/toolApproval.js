@@ -33,10 +33,13 @@ export function describeToolApproval({ name, args, t } = {}) {
   const translate = typeof t === 'function' ? t : key => key;
   const values = args && typeof args === 'object' ? args : {};
   const command = String(values.command === undefined || values.command === null ? '' : values.command);
-  // run_shell 之外的需确认工具（GitHub 写操作等）没有 command 字段：把参数
-  // 摘要亮出来——「允许执行工具吗」等于让用户盲签，看不到参数就不算知情同意。
+  // run_python 的参数是 code：**原样显示，不做 JSON 转义**——用户要审的就是这段代码，
+  // 转义成 "\n" 反而看不清（与命令原文同一条原则：看不到原文就不算知情同意）。
+  const code = String(values.code === undefined || values.code === null ? '' : values.code);
+  // 其余需确认工具（GitHub 写操作等）没有 command/code 字段：把参数摘要亮出来——
+  // 「允许执行工具吗」等于让用户盲签。
   let argsSummary = '';
-  if (!command && Object.keys(values).length > 0) {
+  if (!command && !code && Object.keys(values).length > 0) {
     try {
       argsSummary = JSON.stringify(values, null, 2);
     } catch (error) {
@@ -44,13 +47,19 @@ export function describeToolApproval({ name, args, t } = {}) {
     }
     if (argsSummary.length > 600) argsSummary = `${argsSummary.slice(0, 600)}\n…（参数过长已截断）`;
   }
+  let body;
+  if (command) {
+    body = translate('chat.tool.approval.body', { command });
+  } else if (code) {
+    body = translate('chat.tool.approval.bodyCode', { code });
+  } else if (argsSummary) {
+    body = translate('chat.tool.approval.bodyArgs', { args: argsSummary });
+  } else {
+    body = translate('chat.tool.approval.bodyEmpty');
+  }
   return {
     title: translate('chat.tool.approval.title', { name }),
-    body: command
-      ? translate('chat.tool.approval.body', { command })
-      : (argsSummary
-        ? translate('chat.tool.approval.bodyArgs', { args: argsSummary })
-        : translate('chat.tool.approval.bodyEmpty')),
+    body,
     deny: translate('chat.tool.approval.deny'),
     allow: translate('chat.tool.approval.allow'),
   };

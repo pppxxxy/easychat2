@@ -12,13 +12,13 @@ import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { capabilityViewModel } from './workspace/capabilities.js';
 
-export default function WorkspaceCapabilitiesCard({ settings, shellAvailable = false }) {
+export default function WorkspaceCapabilitiesCard({ settings, shellAvailable = false, pythonAvailable = false }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const model = useMemo(
-    () => capabilityViewModel(settings, { shellAvailable }),
-    [settings, shellAvailable]
+    () => capabilityViewModel(settings, { shellAvailable, pythonAvailable }),
+    [settings, shellAvailable, pythonAvailable]
   );
 
   return (

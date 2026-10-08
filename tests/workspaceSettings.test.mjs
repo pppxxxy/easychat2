@@ -11,6 +11,7 @@ import {
   DEFAULT_WORKSPACE_MODE,
   isExternalWorkspaceRoot,
   normalizeAllowCommandExecution,
+  normalizeAllowPythonExecution,
   normalizeWorkspaceMode,
   normalizeWorkspaceSettings,
   WORKSPACE_MODES,
@@ -81,18 +82,21 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
     mode: 'write',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
+    allowPythonExecution: false,
     assistantCharacterId: '',
   });
   assert.deepEqual(normalizeWorkspaceSettings(null), {
     mode: 'ask',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
+    allowPythonExecution: false,
     assistantCharacterId: '',
   });
   assert.deepEqual(normalizeWorkspaceSettings('nope'), {
     mode: 'ask',
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
+    allowPythonExecution: false,
     assistantCharacterId: '',
   });
   // 工作区角色：去首尾空白；非字符串噪声归一为空串。
@@ -110,6 +114,37 @@ test('命令执行开关只在可改模式下成立（其余模式一律归零�
   // 归一化整体也遵守同一规则：模式回落到只读时，开关随之归零而不是留在存储里骗人
   const settings = normalizeWorkspaceSettings({ mode: 'read', allowCommandExecution: true });
   assert.equal(settings.allowCommandExecution, false);
+});
+
+// 两个执行开关（命令执行 / 模型运行 Python）必须**各自独立**：
+// 开一个不能顺手打开另一个，关一个也不能影响另一个。安全开关最糟的形态就是
+// 「点一下开了两个」——用户以为自己只允许了 shell，实际把能联网的 Python 也放开了。
+test('两个执行开关互相独立：开一个不会带开另一个', async () => {
+  store.clear();
+  const { patchWorkspaceSettings } = loadWorkspaceStorage();
+
+  // 只开命令执行 → Python 开关必须仍是关的
+  const shellOnly = await patchWorkspaceSettings({ mode: 'write', allowCommandExecution: true });
+  assert.equal(shellOnly.allowCommandExecution, true);
+  assert.equal(shellOnly.allowPythonExecution, false, '开命令执行不得顺手打开 Python');
+
+  // 只开 Python → 关掉命令执行也不能把 Python 带关
+  const pythonOnly = await patchWorkspaceSettings({ allowCommandExecution: false, allowPythonExecution: true });
+  assert.equal(pythonOnly.allowCommandExecution, false);
+  assert.equal(pythonOnly.allowPythonExecution, true, '关命令执行不得带关 Python');
+
+  // 两个都开，随后只关一个
+  await patchWorkspaceSettings({ allowCommandExecution: true, allowPythonExecution: true });
+  const shellOff = await patchWorkspaceSettings({ allowCommandExecution: false });
+  assert.equal(shellOff.allowPythonExecution, true, '关一个不能影响另一个');
+
+  // Python 开关与命令执行遵守同一条模式规则
+  assert.equal(normalizeAllowPythonExecution(true, 'write'), true);
+  assert.equal(normalizeAllowPythonExecution(true, 'read'), false);
+  assert.equal(normalizeAllowPythonExecution(true, 'ask'), false);
+  assert.equal(normalizeAllowPythonExecution('yes', 'write'), false);
+  const readMode = normalizeWorkspaceSettings({ mode: 'read', allowPythonExecution: true });
+  assert.equal(readMode.allowPythonExecution, false);
 });
 
 test('工作区根：非法 location 一律回落应用内默认', () => {
@@ -134,7 +169,7 @@ test('工作区根：非法 location 一律回落应用内默认', () => {
 test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
   store.clear();
   const { getWorkspaceSettings, saveWorkspaceSettings, WORKSPACE_KEY } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '' };
+  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, allowPythonExecution: false, assistantCharacterId: '' };
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   const saved = await saveWorkspaceSettings({ mode: 'write' });
   assert.deepEqual(saved, { ...defaultSettings, mode: 'write' });
@@ -144,7 +179,7 @@ test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
 
 test('损坏或非法值回落默认模式', async () => {
   const { getWorkspaceSettings } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, assistantCharacterId: '' };
+  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, allowPythonExecution: false, assistantCharacterId: '' };
   store.set('@easychat2_workspace', '{not json');
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   store.set('@easychat2_workspace', JSON.stringify({ mode: 'rm -rf' }));

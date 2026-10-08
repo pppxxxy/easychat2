@@ -10,6 +10,7 @@ import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
 import { fileExtension } from './paths.js';
 import { createLegacyWorkspaceStore, WORKSPACE_LIMITS } from './store.js';
 import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
+import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 
 function resolveStore({ store, root, fileSystem } = {}) {
   if (store) return store;
@@ -182,35 +183,67 @@ const SHELL_TOOL_DEFINITION = {
   }),
 };
 
+// Python 执行工具。与 run_shell 同一套三层门控（不注册 → 不进清单 → 逐条确认），
+// 差别在两处：
+// 1) 它需要**另一个开关**（允许模型运行 Python）——Python 能联网、能读整个应用沙盒，
+//    与 shell 是两条独立的执行面，不该共用一个开关；
+// 2) 脚本跑在独立进程里（:python），超时会被强杀——所以模型用它不会把应用占死。
+const PYTHON_TOOL_DEFINITION = {
+  name: 'run_python',
+  description: '在应用私有工作区中执行一段 Python 代码（Chaquopy 内置 CPython）。仅「可改」模式且用户开启「允许模型运行 Python」时可用，每次执行都会先请用户确认。没有运行时 pip，只能用已打进包的库（requests 等）；工作目录是该角色的工作区子目录；脚本在独立进程里运行，超时会被强制终止，输出过大时会截断。',
+  readOnly: false,
+  requiresConfirmation: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      code: { type: 'string', description: '要执行的 Python 代码（单段脚本，不是交互式会话；每次执行的状态不保留）。' },
+    },
+    required: ['code'],
+  },
+  execute: (options, args, ctx) => options.python.run({
+    code: args.code,
+    signal: ctx && ctx.signal,
+    characterId: ctx && ctx.characterId,
+  }),
+};
+
 export const WORKSPACE_TOOL_NAMES = Object.freeze(WORKSPACE_TOOL_DEFINITIONS.map(item => item.name));
 export const SHELL_TOOL_NAME = SHELL_TOOL_DEFINITION.name;
+export const PYTHON_TOOL_NAME = PYTHON_TOOL_DEFINITION.name;
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell } = {}) {
+// 需要长超时的执行类工具（用户确认 + 执行本身都慢）。其余工具用注册表的默认超时。
+const SLOW_TOOL_TIMEOUTS = Object.freeze({
+  [SHELL_TOOL_NAME]: SHELL_TOOL_TIMEOUT_MS,
+  [PYTHON_TOOL_NAME]: PYTHON_TOOL_TIMEOUT_MS,
+});
+
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python } = {}) {
   const options = { store: resolveStore({ store, root, fileSystem }) };
-  const definitions = shell && typeof shell.run === 'function'
-    ? [...WORKSPACE_TOOL_DEFINITIONS, SHELL_TOOL_DEFINITION]
-    : WORKSPACE_TOOL_DEFINITIONS;
+  const definitions = [
+    ...WORKSPACE_TOOL_DEFINITIONS,
+    ...(shell && typeof shell.run === 'function' ? [SHELL_TOOL_DEFINITION] : []),
+    ...(python && typeof python.run === 'function' ? [PYTHON_TOOL_DEFINITION] : []),
+  ];
   return definitions.map(definition => ({
     name: definition.name,
     description: definition.description,
     parameters: definition.parameters,
     readOnly: definition.readOnly,
-    // 只有 shell 会带 true；其余工具保持 undefined，注册表归一化成 false。
+    // 只有 run_shell / run_python 会带 true；其余工具保持 undefined，注册表归一化成 false。
     ...(definition.requiresConfirmation ? { requiresConfirmation: true } : {}),
-    // 命令执行比文件操作慢得多（用户确认 + 命令本身），给更长的执行超时。
-    ...(definition.name === SHELL_TOOL_NAME ? { timeoutMs: SHELL_TOOL_TIMEOUT_MS } : {}),
+    ...(SLOW_TOOL_TIMEOUTS[definition.name] ? { timeoutMs: SLOW_TOOL_TIMEOUTS[definition.name] } : {}),
     execute: async (args, ctx) => definition.execute(options, args || {}, ctx || {}),
   }));
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }
 
 export function unregisterWorkspaceTools() {
-  // run_shell 不在基础清单里（它按开关单独加），但注册过就必须能摘掉，
-  // 否则关掉开关后它仍留在注册表里——门控就漏了第一层。
-  for (const name of [...WORKSPACE_TOOL_NAMES, SHELL_TOOL_NAME]) unregisterTool(name);
+  // run_shell / run_python 不在基础清单里（它们按开关单独加），但注册过就必须能摘掉，
+  // 否则关掉开关后它们仍留在注册表里——门控就漏了第一层。
+  for (const name of [...WORKSPACE_TOOL_NAMES, SHELL_TOOL_NAME, PYTHON_TOOL_NAME]) unregisterTool(name);
 }

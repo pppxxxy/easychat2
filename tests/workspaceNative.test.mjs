@@ -7,12 +7,15 @@ import {
   defaultWorkspaceRoot,
   describeWorkspaceRoot,
   getWorkspaceFileSystem,
+  pythonAgentGateReason,
   registerDefaultWorkspaceTools,
+  resolvePythonRunner,
   resolveShellRunner,
   shellGateReason,
   terminalGateReason,
 } from '../src/workspace/native.js';
 import { registerWorkspaceTools, unregisterWorkspaceTools, WORKSPACE_TOOL_NAMES } from '../src/workspace/tools.js';
+import { PYTHON_WATCHDOG_MS } from '../src/workspace/python.js';
 
 test.beforeEach(() => {
   clearTools();
@@ -127,6 +130,79 @@ test('unregisterWorkspaceTools 能把 run_shell 一起摘掉（关开关后不�
   unregisterWorkspaceTools();
   assert.equal(getTool('run_shell'), null, '必须能摘掉，否则门控第一层就漏了');
   assert.deepEqual(listToolsForMode(AGENT_MODES.WRITE), []);
+});
+
+// ---- run_python 的三层门控（第一层：注册与否）----
+//
+// 与 run_shell 同一套形状，两个关键差别：
+// 1) 看的是独立开关 allowPythonExecution（开 shell 不该带出 Python）；
+// 2) 「原生可用」在注册时只能用**同步**判断（桥是否注册）——真实的可用性探测是异步的，
+//    启动路径上没法 await。这个取舍要写清楚：代价是「桥在但解释器起不来」时工具仍会
+//    注册、每次调用回一条诚实的错误，而不是界面说谎。
+
+test('run_python 默认不注册（开关默认关）', () => {
+  const names = registerDefaultWorkspaceTools(null);
+  assert.equal(names.includes('run_python'), false);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).some(item => item.function.name === 'run_python'), false);
+});
+
+test('pythonAgentGateReason：开关 / 模式 / 外部根 / 原生可用，四条缺一不可', () => {
+  const base = { location: { kind: 'app', uri: '', name: '' }, allowPythonExecution: true };
+  const available = { pythonAvailable: true };
+  assert.equal(pythonAgentGateReason({ ...base, mode: 'write' }, available), '');
+  assert.equal(pythonAgentGateReason(null, available), 'SWITCH_OFF');
+  assert.equal(pythonAgentGateReason({ ...base, mode: 'write', allowPythonExecution: false }, available), 'SWITCH_OFF');
+  assert.equal(pythonAgentGateReason({ ...base, mode: 'read' }, available), 'NOT_WRITE_MODE');
+  assert.equal(pythonAgentGateReason({ ...base, mode: 'ask' }, available), 'NOT_WRITE_MODE');
+  assert.equal(pythonAgentGateReason({
+    ...base,
+    mode: 'write',
+    location: { kind: 'saf', uri: 'content://tree/primary%3ADocs', name: 'Docs' },
+  }, available), 'EXTERNAL_ROOT', 'Python 的工作目录必须是真实路径，content:// 用不了');
+  assert.equal(pythonAgentGateReason({ ...base, mode: 'write' }, { pythonAvailable: false }), 'PYTHON_NOT_AVAILABLE');
+  // 真实环境的 resolvePythonRunner：测试环境拿不到原生模块，故一律 null
+  assert.equal(resolvePythonRunner({ ...base, mode: 'write' }), null);
+
+  // 关键：命令执行的开关**不能**代偿 Python 的开关（反向也一样）
+  const shellOnly = { location: { kind: 'app', uri: '', name: '' }, mode: 'write', allowCommandExecution: true };
+  assert.equal(pythonAgentGateReason(shellOnly, available), 'SWITCH_OFF', '只开命令执行不得注册 run_python');
+  const pythonOnly = { location: { kind: 'app', uri: '', name: '' }, mode: 'write', allowPythonExecution: true };
+  assert.equal(shellGateReason(pythonOnly, { shellAvailable: true }), 'SWITCH_OFF', '只开 Python 不得注册 run_shell');
+});
+
+test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐条确认与更长超时', () => {
+  const names = registerWorkspaceTools({
+    store: createWorkspaceStore(null),
+    python: { run: async () => ({ content: 'ok', isError: false }) },
+  });
+  assert.deepEqual(names, [
+    'list_workspace_files',
+    'read_workspace_file',
+    'create_workspace_dir',
+    'write_workspace_file',
+    'edit_workspace_file',
+    'export_workspace_docx',
+    'run_python',
+  ]);
+  const pythonTool = getTool('run_python');
+  assert.equal(pythonTool.readOnly, false, '执行代码是写操作：只读模式不得暴露');
+  assert.equal(pythonTool.requiresConfirmation, true, '必须逐条确认（用户要能看懂要跑什么）');
+  assert.ok(pythonTool.timeoutMs > 15000, '执行需要比默认 15s 更长的工具超时');
+  // 工具超时必须大于原生看门狗：让原生先动手，模型收到的是「超时被强制终止」这条真话，
+  // 而不是工具层自己编一个超时把真相盖掉（与 shell 的 30s/60s 同一口径）。
+  assert.ok(pythonTool.timeoutMs > PYTHON_WATCHDOG_MS,
+    `工具超时(${pythonTool.timeoutMs}ms)必须大于原生看门狗(${PYTHON_WATCHDOG_MS}ms)`);
+  assert.equal(listToolsForMode(AGENT_MODES.READ).some(item => item.function.name === 'run_python'), false);
+});
+
+test('unregisterWorkspaceTools 能把 run_python 一起摘掉（关开关后不留残留）', () => {
+  registerWorkspaceTools({
+    store: createWorkspaceStore(null),
+    python: { run: async () => ({ content: 'ok', isError: false }) },
+  });
+  assert.ok(getTool('run_python'), '先确认注册上了');
+  unregisterWorkspaceTools();
+  assert.equal(getTool('run_python'), null, '必须能摘掉，否则门控第一层就漏了');
 });
 
 test('终端门控：共用「允许执行命令」开关，但不要求工作模式；外部根/原生缺失同样不可用', () => {
