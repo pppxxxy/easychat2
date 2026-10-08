@@ -36,6 +36,7 @@ import { proactive } from './en/proactive.js';
 import { schedule } from './en/schedule.js';
 import { screenWatch } from './en/screenWatch.js';
 import { search } from './en/search.js';
+import { security } from './en/security.js';
 import { sessionRecovery } from './en/sessionRecovery.js';
 import { settings } from './en/settings.js';
 import { theme } from './en/theme.js';
@@ -76,6 +77,7 @@ export const en = {
   ...schedule,
   ...screenWatch,
   ...search,
+  ...security,
   ...sessionRecovery,
   ...settings,
   ...theme,

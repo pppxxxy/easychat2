@@ -14,6 +14,7 @@ export const SETTINGS_SECTION_LABELS = {
   workspace: '工作区',
   github: 'GitHub',
   localmodel: '本地模型',
+  security: '隐私与安全',
   about: '关于',
   language: '界面语言',
 };
@@ -69,6 +70,10 @@ export const SETTINGS_SEARCH_INDEX = [
 
   // 本地模型：2026-10-07 从关于卡的一行升级为独立卡（sectionId 随之迁移）。
   { sectionId: 'localmodel', label: '本地模型', keywords: ['本地模型', 'local model', 'llama', 'gguf', '端侧'] },
+
+  { sectionId: 'security', label: '应用锁', keywords: ['应用锁', '生物识别', '指纹', '面容', 'face id', 'touch id', 'app lock', '锁定'] },
+  { sectionId: 'security', label: '单角色锁', keywords: ['角色锁', '密码', 'pin', 'passcode', '隐私', '安全', '锁'] },
+  { sectionId: 'security', label: '离开后重新上锁', keywords: ['重新上锁', '后台', 'relock', 'background'] },
 
   { sectionId: 'about', label: '当前版本', keywords: ['版本', 'version'] },
   { sectionId: 'about', label: '使用教程', keywords: ['教程', '帮助', '引导', 'tutorial'] },

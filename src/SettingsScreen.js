@@ -81,7 +81,20 @@ import ExtensionsSection from './settings/sections/ExtensionsSection.js';
 import VectorSection from './settings/sections/VectorSection.js';
 import WorkspaceSection from './settings/sections/WorkspaceSection.js';
 import GithubSection from './settings/sections/GithubSection.js';
+import SecuritySection from './settings/sections/SecuritySection.js';
 import AboutSection from './settings/sections/AboutSection.js';
+import { authenticateBiometric, getBiometricAvailability } from './security/biometrics.js';
+import PinModal from './security/PinModal.js';
+import {
+  getAppLockSettings,
+  getCharacterLocks,
+  PIN_MAX_LENGTH,
+  PIN_MIN_LENGTH,
+  removeCharacterLock,
+  saveAppLockSettings,
+  setCharacterLock,
+  subscribeSecuritySettings,
+} from './storage/security.js';
 
 // 接口协议选项：openai（Chat Completions，最通用）、openai-responses（/v1/responses）、
 // anthropic（/v1/messages）。切换时按协议给出对应默认鉴权头。
@@ -100,7 +113,7 @@ const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version |
 // 即搜索跳错或吸顶错位。2026-10-07 调序：本地模型从「关于」卡里的一行升级为
 // 独立卡（GitHub 之后），「关于」按用户预期殿底；语言移到关于之前，可发现性
 // 由搜索 + 默认展开保障（不再依赖垫底）。
-const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'localmodel', 'language', 'about'];
+const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'localmodel', 'security', 'language', 'about'];
 
 
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
@@ -322,7 +335,7 @@ export default function SettingsScreen() {
   } = useGithubMcp();
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
-  const { refreshAppData, character } = useApp();
+  const { refreshAppData, character, characters } = useApp();
 
   const styles = useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
@@ -441,6 +454,131 @@ export default function SettingsScreen() {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, [navigation]);
+
+  // ---- 隐私与安全：应用锁（生物识别）+ 单角色锁（数字密码）。----
+  // 密码本体只在 storage/security.js 落系统安全存储，这里只持有「上锁名单」与开关。
+  const [appLockSettings, setAppLockSettings] = useState({ enabled: false, relockOnBackground: true });
+  const [characterLocks, setCharacterLocks] = useState({});
+  const [securityLoaded, setSecurityLoaded] = useState(false);
+  const [biometricAvailability, setBiometricAvailability] = useState(null);
+  const [pinTarget, setPinTarget] = useState(null);
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      Promise.all([getAppLockSettings(), getCharacterLocks()])
+        .then(([appLock, locks]) => {
+          if (cancelled) return;
+          setAppLockSettings(appLock);
+          setCharacterLocks(locks);
+          setSecurityLoaded(true);
+        })
+        .catch(() => {
+          if (!cancelled) setSecurityLoaded(true);
+        });
+    };
+    load();
+    // 保存后由存储层广播，保持本页与 SecurityGate 一致（避免跨页面状态不同步）。
+    const unsubscribe = subscribeSecuritySettings(load);
+    getBiometricAvailability()
+      .then(availability => {
+        if (!cancelled) setBiometricAvailability(availability);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const toggleAppLock = useCallback(async () => {
+    const enabling = appLockSettings.enabled !== true;
+    if (enabling) {
+      // 开启前先确认设备可用，并当场验证一次，避免「开了却验证不了」。
+      const availability = await getBiometricAvailability();
+      setBiometricAvailability(availability);
+      if (!availability.available) {
+        Alert.alert(t('settings.security.appLockUnavailableTitle'), t('settings.security.appLockUnavailable'));
+        return;
+      }
+      const result = await authenticateBiometric({
+        promptMessage: t('settings.security.appLockPrompt'),
+        cancelLabel: t('common.cancel'),
+      });
+      if (!result.success) return;
+    }
+    try {
+      const saved = await saveAppLockSettings({ enabled: enabling });
+      setAppLockSettings(saved);
+    } catch (error) {
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
+    }
+  }, [appLockSettings.enabled, t]);
+
+  const toggleRelockOnBackground = useCallback(async () => {
+    try {
+      const saved = await saveAppLockSettings({
+        relockOnBackground: appLockSettings.relockOnBackground !== true,
+      });
+      setAppLockSettings(saved);
+    } catch (error) {
+      Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
+    }
+  }, [appLockSettings.relockOnBackground, t]);
+
+  const toggleCharacterLock = useCallback(characterItem => {
+    const id = characterItem && characterItem.id ? String(characterItem.id) : '';
+    if (!id) return;
+    if (characterLocks[id]) {
+      Alert.alert(
+        t('settings.security.removeLockTitle'),
+        t('settings.security.removeLockMessage', { name: characterItem.name || '' }),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          {
+            text: t('settings.security.removeLockConfirm'),
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await removeCharacterLock(id);
+                setCharacterLocks(current => {
+                  const next = { ...current };
+                  delete next[id];
+                  return next;
+                });
+              } catch (error) {
+                Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setPinError('');
+    setPinTarget({ id, name: characterItem.name || '' });
+  }, [characterLocks, t]);
+
+  const handlePinSubmit = useCallback(async pin => {
+    if (!pinTarget) return;
+    setPinBusy(true);
+    setPinError('');
+    try {
+      const ok = await setCharacterLock(pinTarget.id, pin);
+      if (ok) {
+        setCharacterLocks(current => ({ ...current, [pinTarget.id]: true }));
+        setPinTarget(null);
+      } else {
+        setPinError(t('settings.security.pin.tooShort', { min: PIN_MIN_LENGTH }));
+      }
+    } catch (error) {
+      setPinError(t('common.error.saveFailed'));
+    } finally {
+      setPinBusy(false);
+    }
+  }, [pinTarget, t]);
 
   useEffect(() => {
     getChatOptions()
@@ -1268,6 +1406,15 @@ export default function SettingsScreen() {
     connectGithubPat,
     openGithubTokenPage,
     disconnectGithub,
+    // 隐私与安全
+    securityLoaded,
+    appLockSettings,
+    biometricAvailability,
+    characterLocks,
+    characters,
+    toggleAppLock,
+    toggleRelockOnBackground,
+    toggleCharacterLock,
     // 关于
     appVersion: APP_VERSION,
     openTutorial,
@@ -1537,6 +1684,21 @@ export default function SettingsScreen() {
           </CollapsibleSection>
         </Card>
 
+        {/* 隐私与安全：应用锁（生物识别）+ 单角色锁（数字密码）。放在「关于」之前。 */}
+        <Card
+          style={[styles.sectionCard, flashSection === 'security' && styles.sectionCardFlash]}
+          onLayout={event => { sectionOffsetsRef.current.security = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title={t('settings.security.title')}
+            icon="shield-checkmark-outline"
+            open={isSectionOpen('security')}
+            onToggle={next => toggleSection('security', next)}
+          >
+            <SecuritySection {...sectionProps} />
+          </CollapsibleSection>
+        </Card>
+
         {/* 语言：独立卡、默认展开——此前只藏在外观折叠卡里，找语言的人翻不到。
             2026-10-07 调序：语言移到「关于」之前（关于殿底是用户对设置页的
             强预期），可发现性由搜索 + 默认展开保障，不再依赖垫底。 */}
@@ -1618,6 +1780,24 @@ export default function SettingsScreen() {
         />
 
       </ScrollView>
+
+      <PinModal
+        visible={!!pinTarget}
+        mode="set"
+        title={t('settings.security.pin.setTitle')}
+        subtitle={pinTarget
+          ? t('settings.security.pin.setSubtitle', { name: pinTarget.name, min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })
+          : ''}
+        confirmLabel={t('settings.security.pin.setConfirm')}
+        error={pinError}
+        busy={pinBusy}
+        onSubmit={handlePinSubmit}
+        onCancel={() => {
+          if (pinBusy) return;
+          setPinTarget(null);
+          setPinError('');
+        }}
+      />
 
       <Modal
         visible={vendorPickerOpen}

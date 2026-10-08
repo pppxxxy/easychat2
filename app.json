@@ -35,6 +35,12 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "使用面容 ID 解锁应用锁"
+        }
+      ],
       "expo-font",
       [
         "expo-build-properties",
@@ -85,7 +91,8 @@
     "ios": {
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "选择图片发送到聊天、生成图片或保存为表情包",
-        "NSCameraUsageDescription": "拍照发送到聊天或作为图生图参考图"
+        "NSCameraUsageDescription": "拍照发送到聊天或作为图生图参考图",
+        "NSFaceIDUsageDescription": "使用面容 ID 解锁应用锁"
       }
     },
     "extra": {
