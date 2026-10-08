@@ -53,12 +53,15 @@ export async function runAgentTurn(messages, options = {}) {
   // 没接钩子时，requiresConfirmation 的工具在 runTool 里按「未确认」被拒绝。
   const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
   const context = options.context || {};
+  // 聊天内受控工具（联网搜索）的放行开关：必须一路传到 runTool 的执行门控，
+  // 否则暴露层放行了、执行层仍会按工作区模式拒绝，表现为「模型调了但总失败」。
+  const allowChatTools = options.allowChatTools === true;
   const maxRounds = Number.isInteger(options.maxRounds) && options.maxRounds > 0
     ? options.maxRounds
     : DEFAULT_MAX_TOOL_ROUNDS;
   const tools = Array.isArray(options.tools) && options.tools.length
     ? options.tools
-    : listToolsForMode(mode);
+    : listToolsForMode(mode, { allowChatTools });
 
   // requestOptions 只承载配置守卫等透传项，不允许夹带 tools/toolChoice。
   const {
@@ -111,6 +114,7 @@ export async function runAgentTurn(messages, options = {}) {
         outcome = await runTool(call, {
           signal,
           mode,
+          allowChatTools,
           characterId: context.characterId,
           sessionId: context.sessionId,
           // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要

@@ -22,13 +22,24 @@ test('接线导入与 mode 读取', () => {
 });
 
 test('ask 零变化：不注册工具、走 sendChatMessage；read/write 走 runAgentTurn', () => {
-  assert.ok(source.includes("if (workspaceMode !== 'ask')"), '仅非 ask 才注册/派生工具');
+  assert.ok(source.includes("if (workspaceMode !== 'ask')"), '仅非 ask 才注册/派生工作区工具');
   // 必须把当前工作区设置一并传入：后端（应用内 / 外部文件夹）由设置决定，
   // 不传等于永远走应用私有根，用户选的文件夹会被静默忽略。
   assert.ok(source.includes('registerDefaultWorkspaceTools(workspaceSettings)'), '注册默认工作区工具并带上设置');
   assert.ok(/agentTools\.length > 0[\s\S]{0,80}runAgentTurn/.test(source), '有工具才走循环');
-  assert.ok(source.includes('sendChatMessage(onlineMessages'), 'ask 路径仍是 sendChatMessage');
-  assert.ok(source.includes('listToolsForMode(workspaceMode)'), '工具集按当前模式派生');
+  assert.ok(source.includes('sendChatMessage(onlineMessages'), '无工具时仍是 sendChatMessage');
+  // 工具集按模式派生，并带上聊天内工具的放行开关（默认关闭 → 与旧行为一致）。
+  assert.ok(/listToolsForMode\(\s*workspaceMode,\s*\{ allowChatTools: chatToolsEnabled \}\s*\)/.test(source),
+    '工具集按当前模式派生，并透传聊天内工具开关');
+  assert.ok(/let chatToolsEnabled = false;/.test(source), '聊天内工具默认关闭（缺省不改变发送行为）');
+});
+
+// 新增语义（与上面那条并存）：聊天内工具是**独立开关**，开启后即使工作在 ask 模式
+// 也要走 runAgentTurn——否则聊天页（默认 ask）永远用不上它。
+test('聊天内工具开启后 ask 模式也走 runAgentTurn（独立于工作区门控）', () => {
+  assert.ok(source.includes('registerChatTools()'), '开启时注册聊天内工具');
+  assert.ok(source.includes('unregisterChatTools()'), '关闭时必须真摘掉注册（不是仅不勾选）');
+  assert.ok(/chatOptionsForTools\.chatTools === true/.test(source), '读数来自 chatOptions');
 });
 
 test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
@@ -43,6 +54,8 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
   assert.ok(/onToken:/.test(block) && /onReasoning:/.test(block) && /onToolEvent:/.test(block),
     '三条 UI 回调齐全');
   assert.ok(/context:\s*\{[\s\S]*characterId[\s\S]*sessionId/.test(block), '工具沙盒上下文');
+  assert.ok(/allowChatTools:\s*chatToolsEnabled/.test(block),
+    '开关要传到 loop：只放行暴露层、执行层仍按工作区拒绝，会表现为「模型调了但总失败」');
 });
 
 // 审批钩子漏接 = 需要确认的工具全部跑不了（registry 的无 confirm 即拒绝）。
@@ -67,27 +80,43 @@ test('审批钩子无硬编码中文（注释除外）', () => {
   assert.deepEqual(offenders, [], `onToolApproval 回调仍含硬编码中文：\n${offenders.join('\n')}`);
 });
 
-test('工具状态气泡：临时不落库 + 三个出口清理', () => {
-  assert.ok(source.includes("kind: 'tool-status'"), '工具状态有独立 kind');
-  assert.ok(/text,\s*\n\s*kind: 'tool-status',\s*\n\s*pending: true,\s*\n\s*transient: true/.test(source),
-    '工具气泡同时 pending+transient（落库过滤会剔除）');
+// 气泡形态已从「一段文字、end 时清掉」升级为「可见的结构化气泡」（见
+// tests/chatTools.test.mjs 的展示逻辑断言）。这里只钉住两条不变的属性：
+// 临时不落库、三个出口清理。
+test('工具气泡：临时不落库 + 三个出口清理', () => {
+  assert.ok(source.includes('TOOL_BUBBLE_KIND'), '工具气泡有独立 kind');
+  assert.ok(/kind: TOOL_BUBBLE_KIND,[\s\S]{0,300}transient: true/.test(source),
+    '工具气泡标记 transient（落库过滤会剔除）');
   assert.ok(source.includes("event.phase === 'start'"), 'start 打气泡');
-  assert.ok(source.includes('setToolStatus('), 'end 清气泡');
-  const clears = (source.match(/clearToolStatus\(\)/g) || []).length;
+  assert.ok(source.includes('setToolBubble('), 'end/收尾更新气泡状态');
+  const clears = (source.match(/clearToolBubble\(\)/g) || []).length;
   assert.ok(clears >= 3, `至少三处清理（中止/成功/异常），实际 ${clears}`);
 });
 
-// 气泡文案必须走 t()：只断言词条存在是不够的，调用点换回硬编码中文时上面那组
-// 断言全绿（词条仍在 locales 里），注入验证实测漏过——这里把调用点钉死。
-test('工具气泡文案：调用点走 t()，且当前语言经 ref 取（不用闭包旧 t）', () => {
-  const call = /setToolStatus\(\s*tRef\.current\(\s*'chat\.tool\.status\.reading'\s*,\s*\{\s*name:\s*event\.name\s*\}\s*\)\s*\)/;
-  assert.ok(call.test(source), '气泡文案必须 tRef.current(\'chat.tool.status.reading\', { name })');
+// 气泡文案必须走 i18n：只断言词条存在是不够的，调用点换回硬编码中文时词条断言
+// 全绿（词条仍在 locales 里），注入验证实测漏过——这里把调用点钉死。
+// 展示映射在 chat/toolBubbleView.js（纯函数，产出 i18n key），组件再 t() 一次。
+test('工具气泡文案：映射走 i18n key，不在组件里硬编码中文', () => {
+  const component = fs.readFileSync(path.resolve('src/chat/ToolBubble.js'), 'utf8');
+  const mapping = fs.readFileSync(path.resolve('src/chat/toolBubbleView.js'), 'utf8');
 
-  // ref 必须在渲染期同步：只 useRef(t) 不赋值会永久停在首启语言。
-  assert.ok(/const tRef = useRef\(t\)/.test(source), 'tRef 初始化为当前 t');
-  assert.ok(/^\s*tRef\.current = t;?\s*$/m.test(source), 'tRef.current 每次渲染同步当前语言');
+  assert.ok(component.includes("from './toolBubbleView.js'"), '组件消费纯映射模块');
+  assert.ok(/t\(view\.nameKey,\s*view\.nameParams\)/.test(component), '工具名走 t()');
+  assert.ok(/t\(view\.statusKey\)/.test(component), '状态文案走 t()');
+  assert.ok(mapping.includes('chat.toolBubble.name.'), '映射模块产出 i18n key 前缀');
+  assert.ok(mapping.includes('chat.toolBubble.status.'), '状态 key 前缀也在映射模块');
 
-  // onToolEvent 回调体内不得残留硬编码中文（气泡文案正是从那里漏出去的）。
+  // 组件与映射模块都不得含硬编码中文（注释除外）
+  for (const [label, text] of [['ToolBubble.js', component], ['toolBubbleView.js', mapping]]) {
+    const CJK = /[\u4e00-\u9fff]/;
+    const offenders = text.split('\n')
+      .filter(line => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .map(line => line.replace(/\/\/.*$/, ''))
+      .filter(line => CJK.test(line));
+    assert.deepEqual(offenders, [], `${label} 仍含硬编码中文：\n${offenders.join('\n')}`);
+  }
+
+  // 气泡数据由 onToolEvent 驱动——send 侧回调体内不得残留硬编码中文
   const start = source.indexOf('onToolEvent:');
   assert.ok(start >= 0, '存在 onToolEvent');
   const block = source.slice(start, start + 900);

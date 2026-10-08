@@ -114,6 +114,19 @@ export default function ExperienceSection(props) {
             />
           </View>
           <CollapsibleHint>{t('settings.global.timeAwareHint')}</CollapsibleHint>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="search-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('settings.global.chatTools')}</Text>
+            </View>
+            <Switch
+              value={chatOptions.chatTools === true}
+              onValueChange={value => updateChatOption('chatTools', value)}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <CollapsibleHint>{t('settings.global.chatToolsHint')}</CollapsibleHint>
           {locationSettings && locationSettings.enabled === true ? (
             <>
               <View style={styles.capabilityRow}>

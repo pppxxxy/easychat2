@@ -3,6 +3,8 @@
 export const USER_ID = 'user';
 export const ASSISTANT_ID = 'assistant';
 export const SYSTEM_ERROR_ID = 'system-error';
+// 聊天内工具调用的过程气泡（「正在搜索…」）：临时消息，不落库、不进上下文。
+export const TOOL_BUBBLE_KIND = 'tool-bubble';
 export const THINKING_PLACEHOLDER = '正在思考...';
 export const NEAR_BOTTOM_THRESHOLD = 80;
 export const AI_DISCLAIMER_TEXT = 'AI 生成可能有误，仅供参考';
