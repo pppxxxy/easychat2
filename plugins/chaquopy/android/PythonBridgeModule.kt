@@ -8,6 +8,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.WritableMap
+import org.json.JSONObject
 import java.io.File
 
 /**
@@ -71,17 +72,25 @@ class PythonBridgeModule(private val reactContext: ReactApplicationContext) :
             try {
                 ensureStarted()
                 val module = Python.getInstance().getModule("easychat2_bridge")
-                val result = module.callAttr("run_code", code, cwdPath)
+                // 结果是一条 JSON 字符串，在这里解析成 WritableMap。契约见 easychat2_bridge.py。
+                //
+                // **不要再改成直接读 PyObject**：PyObject 虽然实现了 Map<String, PyObject>，
+                // 但那是**属性访问**（等价 Python 的 getattr），不是取字典项——
+                // result.get("stdout") 对 dict 只会返回 null，编译得过、也不抛错，
+                // 真机表现是「退出码 0、没有任何输出」（2026-10-08 踩过）。
+                // 容器访问要经 asMap()（Map<PyObject, PyObject>，键是 PyObject）或把键包成
+                // PyObject，两条路都要把 Chaquopy 的转换细节漏进这里。传字符串则只剩
+                // str() 一种解释，没有歧义空间。
+                val payload = module.callAttr("run_code", code, cwdPath).toString()
+                val parsed = try {
+                    JSONObject(payload)
+                } catch (error: Throwable) {
+                    throw IllegalStateException("Python 桥返回的不是合法 JSON：${payload.take(200)}", error)
+                }
                 val map: WritableMap = Arguments.createMap()
-                // 用 PyObject.get(name) 取字典项，**不要** asMap()：
-                // asMap() 返回 Map<PyObject, PyObject>，Kotlin 的 Map.get 要求键类型
-                // 精确匹配，传 String 会编译不过（Type inference failed: 'K' must be
-                // mentioned in input types）——上一版就是这样把 release 构建打挂的。
-                // PyObject 自身重写了 get(Object)（语义等于 getattr，缺失返回 null），
-                // 它才是这里该用的入口。
-                map.putString("stdout", result.get("stdout")?.toString() ?: "")
-                map.putString("stderr", result.get("stderr")?.toString() ?: "")
-                map.putInt("exitCode", result.get("exitCode")?.toString()?.toIntOrNull() ?: 0)
+                map.putString("stdout", parsed.optString("stdout", ""))
+                map.putString("stderr", parsed.optString("stderr", ""))
+                map.putInt("exitCode", parsed.optInt("exitCode", 0))
                 promise.resolve(map)
             } catch (error: Throwable) {
                 promise.reject("python_failed", error.message ?: "Python 执行失败。")

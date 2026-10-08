@@ -1,12 +1,13 @@
-// Python 环境（Chaquopy，T2）：JS 纯逻辑 + 预构建插件的纯变换。
+// Python 环境（Chaquopy，T2）：JS 纯逻辑 + 预构建插件的纯变换 + 桥的契约。
 //
-// 默认不启用（app.json 不挂 withChaquopy）——Gradle 级集成只能靠真机 APK 构建验证，
-// 默认打开会让「下一次构建」成为唯一验证手段、失败还连带阻塞其它功能。这里断言的就是
-// 「默认关闭 + 启用方式有文档 + 纯变换正确」。
+// 已启用（2026-10-08）：app.json 挂了 withChaquopy，第一步是最小原型。Gradle 级集成
+// 只能靠真机 APK 构建验证——所以这里除了纯逻辑，还加了「真跑本机 CPython 执行桥模块」
+// 的一组测试：桥的 Python 侧是纯 Python，本机能跑的就别只做文本断言。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 import {
@@ -346,16 +347,21 @@ test('Chaquopy Kotlin 桥：包名一致、大括号平衡、声明唯一、无�
   );
 });
 
-// 2026-10-08 真机构建失败换来的教训，必须钉住，否则会再挂一次构建：
-//   Chaquopy 的 PyObject.asMap() 返回 Map<PyObject, PyObject>，Kotlin 的 Map.get
-//   要求键类型精确匹配，写 result["stdout"] 或 asMap()["stdout"] 都会编译失败
-//   （error: Type inference failed. The value of the type parameter 'K' must be
-//   mentioned in input types）。正确入口是 PyObject 自身重写的 get(Object)。
+// 2026-10-08 三次真机往返换来的教训（这一条的前身是**错的**，先说清楚为什么）：
 //
-// 这类错误**本仓库的静态检查抓不到**（大括号平衡、包名一致都是好的），只有真机
-// Gradle 编译才暴露——而每次构建都要用户手点、失败还是整体失败。所以用文本断言
-// 把它挡在提交前：禁止对 PyObject 结果用下标访问。
-test('Chaquopy 桥：不得对 PyObject 用下标访问或 asMap()（Kotlin 编译期会挂）', () => {
+// 第一次：release 构建挂在 `:app:compileReleaseKotlin`——原先写的是 `asMap()["stdout"]`，
+//   编译不过（asMap() 返回 Map<PyObject, PyObject>，Kotlin 的 Map.get 要求键类型精确
+//   匹配：error: Type inference failed: 'K' must be mentioned in input types）。
+// 第二次（我当时给的修法是错的）：改成 `result.get("stdout")` 后编译过了，但真机上
+//   「退出码 0、没有任何输出」。这回下载 chaquopy_java 16.1.0 的 sources jar 读
+//   PyObject.java 才看明白：**PyObject.get 的语义是 getattr()**（javadoc 原文
+//   "Equivalent to Python getattr()"，键不存在返回 null 而不抛错）；PyObject 直接当
+//   Map 用是**属性访问**，`asMap()` 才是**容器访问**。于是「编译错误」被我换成了
+//   「静默错误」——比编译错误更糟，而我当时还把错误形式写成了断言钉死它。
+//
+// 结论：桥的返回契约**不再依赖 PyObject 的 Map 语义**（属性访问 vs 容器访问是一对陷阱），
+// 改成整条 JSON 字符串，跨边界只剩 str() 一种解释。下面的断言钉这件事。
+test('Chaquopy 桥：结果走 JSON 字符串契约，不得用 PyObject 的 Map 语义取值', () => {
   const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
   // 去掉注释再判，避免把解释这条规则的注释本身当成违规
   const code = source
@@ -364,12 +370,29 @@ test('Chaquopy 桥：不得对 PyObject 用下标访问或 asMap()（Kotlin 编�
     .join('\n');
 
   assert.equal(/\.asMap\(\)/.test(code), false,
-    'asMap() 返回 Map<PyObject, PyObject>，Kotlin 里传 String 键取不到值（且类型推不出），应改用 PyObject.get("key")');
+    'asMap() 是容器访问但键是 PyObject：字符串键取不到值，Kotlin 还会类型推断失败');
   assert.equal(/\w+\["/.test(code), false,
     '不得对 PyObject 用字符串下标（result["stdout"]）：Kotlin 的 Map.get 键类型必须精确匹配');
-  assert.ok(/result\.get\("stdout"\)/.test(code), '应使用 PyObject.get("stdout") 取值');
-  assert.ok(/result\.get\("stderr"\)/.test(code), '应使用 PyObject.get("stderr") 取值');
-  assert.ok(/result\.get\("exitCode"\)/.test(code), '应使用 PyObject.get("exitCode") 取值');
+  assert.equal(/\.get\("stdout"\)/.test(code), false,
+    'PyObject.get 是 getattr()（不是取字典项）：对 dict 取 "stdout" 只会得到 null 且不报错，真机表现为「退出码 0、无输出」');
+  assert.ok(/callAttr\("run_code"[^)]*\)\.toString\(\)/.test(code),
+    'run_code 的返回值要 .toString()（等价 Python str()）之后再解析');
+  assert.ok(/JSONObject\(/.test(code), '用 JSONObject 解析这条 JSON');
+  assert.ok(/optString\("stdout"/.test(code) && /optString\("stderr"/.test(code) && /optInt\("exitCode"/.test(code),
+    '三个字段都要从 JSON 里取（optString / optInt）');
+});
+
+// 字段清单：Kotlin 与 Python 两侧必须一致。跨语言契约最容易「各写各的」——一边改名，
+// 另一边静默取空（optString 的默认值会把错误吃掉）。下面的真执行测试会核对这三个键。
+const BRIDGE_FIELDS = ['stdout', 'stderr', 'exitCode'];
+
+test('桥的返回契约：Python 侧输出的字段与 Kotlin 侧读取的字段一一对应', () => {
+  const py = fs.readFileSync(path.join(KOTLIN_DIR, 'python', 'easychat2_bridge.py'), 'utf8');
+  const kt = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
+  BRIDGE_FIELDS.forEach(field => {
+    assert.ok(py.includes(`"${field}"`), `Python 侧应输出字段 ${field}`);
+    assert.ok(kt.includes(`"${field}"`), `Kotlin 侧应读取字段 ${field}`);
+  });
 });
 
 // 第二个真机 bug（2026-10-08）：APK 装上了、面板显示「可用」，一点运行就报
@@ -408,6 +431,113 @@ test('Python 辅助模块：捕获输出、切回原目录、无运行时装包'
   assert.ok(source.includes('redirect_stdout') && source.includes('redirect_stderr'), '捕获 stdout/stderr');
   assert.ok(source.includes('traceback.format_exc()'), '异常写进 stderr');
   assert.ok(source.includes('os.chdir(previous)'), '执行后切回原目录');
-  assert.ok(!/^s*imports+pip/m.test(source) && !/pips+install/.test(source), '不做运行时装包（只允许注释里提到 pip 块）');
-  assert.ok(!/^s*imports+subprocess/m.test(source), '不起子进程');
+  // 这两条正则此前是坏的（反斜杠被吞成了 /^\s*import\s+pip/m 的字面残留 /^s*imports+pip/），
+  // 匹配不到真实代码，等于永远通过——顺手修掉：断言「没有 import pip / import subprocess
+  // 形式的语句」，但允许注释里提到「pip 块」。
+  assert.equal(/^\s*import\s+pip\b/m.test(source), false, '不做运行时装包（只允许注释里提到 pip 块）');
+  assert.equal(/^\s*import\s+subprocess\b/m.test(source), false, '不起子进程');
+  assert.equal(/\bpip\s+install\b/.test(source), false, '不调用 pip install');
+});
+
+// ---- 真跑一遍本机 CPython：桥的契约必须真的成立（不只是「文本长得对」） ----
+//
+// Chaquopy 本体在本环境跑不了（Gradle 级集成），但 easychat2_bridge.py 是纯 Python：
+// 只要本机有解释器就能真执行，把「捕获输出 / 异常进 stderr / 输出封顶 / cwd 与还原 /
+// JSON 契约」这几件事实测掉。这比文本断言硬得多——真机上「stdout 恒为空」那个问题，
+// 若当时有这组测试，会在提交前就红。
+//
+// 没有解释器时跳过（Node 测试仍要能在无 Python 的机器上跑）。
+function findPython() {
+  for (const bin of ['python3', 'python', 'py']) {
+    try {
+      execFileSync(bin, ['-c', 'import sys'], { stdio: 'ignore' });
+      return bin;
+    } catch (error) {
+      // 换下一个候选（Windows 上 python3 常是应用商店的假壳，会直接失败）
+    }
+  }
+  return null;
+}
+
+const PYTHON_BIN = findPython();
+const BRIDGE_PY_DIR = path.join(KOTLIN_DIR, 'python');
+const PYTHON_SKIP = PYTHON_BIN ? false : '本机没有可用的 python 解释器';
+const RESULT_MARK = '__ECH2_RESULT__';
+
+// 用子进程驱动桥：代码与路径都从 argv 传（不经 shell、不拼字符串，免掉一层转义风险）。
+function runDriver(script, args) {
+  const out = execFileSync(PYTHON_BIN, ['-c', script, ...args], {
+    encoding: 'utf8',
+    // PYTHONDONTWRITEBYTECODE：import 桥模块会在源码目录留 __pycache__，
+    // 那是构建产物，不该出现在仓库里（.gitignore 里也有兜底）。
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONDONTWRITEBYTECODE: '1' },
+  });
+  const index = out.indexOf(RESULT_MARK);
+  assert.ok(index >= 0, `桥没有返回结果（驱动进程输出：${out.slice(0, 300)}）`);
+  return JSON.parse(out.slice(index + RESULT_MARK.length));
+}
+
+const RUN_CODE_DRIVER = [
+  'import sys',
+  `sys.path.insert(0, ${JSON.stringify(BRIDGE_PY_DIR)})`,
+  'import easychat2_bridge as bridge',
+  'payload = bridge.run_code(sys.argv[1], sys.argv[2])',
+  `sys.stdout.write(${JSON.stringify(RESULT_MARK)} + payload)`,
+].join('\n');
+
+function runBridge(code, cwd = '') {
+  return runDriver(RUN_CODE_DRIVER, [code, cwd]);
+}
+
+test('Python 桥真执行：print 的输出被确实捕获（真机「有退出码、没输出」那条）', { skip: PYTHON_SKIP }, () => {
+  const result = runBridge('print("hello from Python")');
+  assert.deepEqual(Object.keys(result).sort(), [...BRIDGE_FIELDS].sort(), 'JSON 的字段就是契约里那三个');
+  assert.equal(result.stdout, 'hello from Python\n', 'stdout 必须有内容（这是真机缺的那一块）');
+  assert.equal(result.stderr, '');
+  assert.equal(result.exitCode, 0);
+});
+
+test('Python 桥真执行：异常进 stderr、退出码非 0、崩溃前的输出不丢', { skip: PYTHON_SKIP }, () => {
+  const result = runBridge('print("before")\nraise ValueError("boom")');
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stdout, 'before\n');
+  assert.ok(result.stderr.includes('ValueError: boom'), 'traceback 要进 stderr');
+});
+
+test('Python 桥真执行：stderr 单独捕获，不混进 stdout', { skip: PYTHON_SKIP }, () => {
+  const result = runBridge('import sys\nprint("e", file=sys.stderr)');
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, 'e\n');
+});
+
+test('Python 桥真执行：巨量输出被封顶（杀不掉的脚本别把内存吃光）', { skip: PYTHON_SKIP }, () => {
+  const result = runBridge('print("x" * 400000)');
+  assert.ok(result.stdout.length < 300000, `缓冲必须封顶，实际 ${result.stdout.length} 字符`);
+  assert.ok(result.stdout.includes('已在解释器侧截断'), '截断要留标记，不能假装这就是全部');
+  assert.equal(result.exitCode, 0);
+});
+
+test('Python 桥真执行：代码在给定 cwd 里跑，跑完切回原目录', { skip: PYTHON_SKIP }, () => {
+  // 用同一进程内 before/after 对比来验 finally 那一支（分两次进程跑是验不出来的）。
+  // 路径比较用 os.path.samefile：Windows 上大小写与 8.3 短名会让字符串比较误判。
+  const driver = [
+    'import json, os, sys',
+    `sys.path.insert(0, ${JSON.stringify(BRIDGE_PY_DIR)})`,
+    'import easychat2_bridge as bridge',
+    'target = sys.argv[1]',
+    'before = os.getcwd()',
+    'inside = json.loads(bridge.run_code("import os\\nprint(os.getcwd())", target))["stdout"].strip()',
+    'after = os.getcwd()',
+    'def same(a, b):',
+    '    try:',
+    '        return os.path.samefile(a, b)',
+    '    except OSError:',
+    '        return False',
+    'probe = {"inside": inside, "same": same(inside, target), "restored": after == before,',
+    '         "after": after, "before": before}',
+    `sys.stdout.write(${JSON.stringify(RESULT_MARK)} + json.dumps(probe))`,
+  ].join('\n');
+  const probe = runDriver(driver, [BRIDGE_PY_DIR]);
+  assert.ok(probe.same, `脚本应在给定的 cwd 里执行（Python 报的 cwd：${probe.inside}）`);
+  assert.ok(probe.restored, `执行完必须切回原目录（前 ${probe.before} / 后 ${probe.after}）`);
 });

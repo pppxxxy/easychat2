@@ -33,3 +33,8 @@ default.jpg
 
 # 临时探针目录（核对第三方库签名时下载的 jar/sources，用完即删）
 .p/
+
+# Python 字节码缓存：真执行测试 import 桥模块时会生成，属构建产物不入库
+# （测试里已用 PYTHONDONTWRITEBYTECODE 从源头禁止，这里是兜底）
+__pycache__/
+*.pyc
