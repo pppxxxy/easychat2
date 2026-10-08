@@ -50,6 +50,7 @@ export const chat = {
   'chat.tool.approval.title': '允许执行命令？',
   'chat.tool.approval.body': '模型请求执行以下命令：\n\n{command}\n\n命令会在应用的工作区目录内执行，每次都需要你单独确认。',
   'chat.tool.approval.bodyEmpty': '模型请求执行一条命令，但没有给出命令内容。',
+  'chat.tool.approval.bodyCode': '模型请求运行以下 Python 代码：\n\n{code}\n\n它会在应用的工作区目录里执行：可以读写沙盒内的文件，也可以联网；每次都需要你单独确认。',
   'chat.tool.approval.deny': '拒绝',
   'chat.tool.approval.allow': '允许',
   'chat.tool.approval.bodyArgs': '即将执行（参数如下，请确认后再允许）：\n{args}',

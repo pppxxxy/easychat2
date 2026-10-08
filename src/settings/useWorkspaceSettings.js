@@ -14,6 +14,7 @@ export default function useWorkspaceSettings() {
   const workspaceModeRef = useRef('ask');
   const [workspaceFolder, setWorkspaceFolder] = useState({ kind: 'app', uri: '', name: '' });
   const [commandExecution, setCommandExecution] = useState(false);
+  const [pythonExecution, setPythonExecution] = useState(false);
   const [workspaceFolderBusy, setWorkspaceFolderBusy] = useState(false);
   // 异步保存（选文件夹 / 命令开关）回来时组件可能已卸载，setState 前先查这个 ref。
   const settingsMountedRef = useRef(true);
@@ -30,6 +31,7 @@ export default function useWorkspaceSettings() {
         setWorkspaceMode(settings.mode);
         setWorkspaceFolder(settings.location);
         setCommandExecution(settings.allowCommandExecution);
+        setPythonExecution(settings.allowPythonExecution);
       })
       .catch(() => {});
   }, []);
@@ -38,10 +40,11 @@ export default function useWorkspaceSettings() {
     workspaceModeRef.current = mode;
     setWorkspaceMode(mode);
     try {
-      // 局部更新：整体 save 会把 location / allowCommandExecution 归一化回默认值，
-      // 表现为「切一下模式，刚选好的文件夹和命令开关就没了」。
+      // 局部更新：整体 save 会把 location / 两个执行开关归一化回默认值，
+      // 表现为「切一下模式，刚选好的文件夹和开关就没了」。
       const saved = await patchWorkspaceSettings({ mode });
       setCommandExecution(saved.allowCommandExecution);
+      setPythonExecution(saved.allowPythonExecution);
     } catch (error) {
       Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
@@ -58,6 +61,7 @@ export default function useWorkspaceSettings() {
       const saved = await patchWorkspaceSettings({ location: { kind: 'saf', uri: picked.uri, name: picked.name } });
       setWorkspaceFolder(saved.location);
       setCommandExecution(saved.allowCommandExecution);
+      setPythonExecution(saved.allowPythonExecution);
     } catch (error) {
       Alert.alert(t('settings.workspace.folder.err.title'), (error && error.message) || t('settings.workspace.folder.err.body'));
     } finally {
@@ -70,6 +74,7 @@ export default function useWorkspaceSettings() {
       const saved = await patchWorkspaceSettings({ location: { kind: 'app', uri: '', name: '' } });
       setWorkspaceFolder(saved.location);
       setCommandExecution(saved.allowCommandExecution);
+      setPythonExecution(saved.allowPythonExecution);
     } catch (error) {
       Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
@@ -106,14 +111,38 @@ export default function useWorkspaceSettings() {
     );
   }, [t]);
 
+  // 「允许模型运行 Python」的开关：同样放在确认弹框之后。两个执行开关**各自独立**——
+  // 开一个不会顺手把另一个也打开，关一个也不影响另一个。
+  const togglePythonExecution = useCallback((value) => {
+    const save = next => patchWorkspaceSettings({ allowPythonExecution: next })
+      .then(saved => {
+        if (settingsMountedRef.current) setPythonExecution(saved.allowPythonExecution);
+      })
+      .catch(() => Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission')));
+    if (!value) {
+      save(false);
+      return;
+    }
+    Alert.alert(
+      t('settings.workspace.pythonExec.confirm.title'),
+      t('settings.workspace.pythonExec.confirm.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('settings.workspace.pythonExec.confirm.ok'), style: 'destructive', onPress: () => save(true) },
+      ]
+    );
+  }, [t]);
+
   return {
     workspaceMode,
     workspaceFolder,
     commandExecution,
+    pythonExecution,
     workspaceFolderBusy,
     updateWorkspaceMode,
     chooseWorkspaceFolder,
     resetWorkspaceFolder,
     toggleCommandExecution,
+    togglePythonExecution,
   };
 }

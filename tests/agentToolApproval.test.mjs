@@ -12,6 +12,7 @@ import {
 const t = (key, params) => {
   if (key === 'chat.tool.approval.title') return `允许执行命令？(${params.name})`;
   if (key === 'chat.tool.approval.body') return `命令：${params.command}`;
+  if (key === 'chat.tool.approval.bodyCode') return `代码：${params.code}`;
   if (key === 'chat.tool.approval.bodyEmpty') return '没有命令内容';
   if (key === 'chat.tool.approval.deny') return '拒绝';
   if (key === 'chat.tool.approval.allow') return '允许';
@@ -47,6 +48,25 @@ test('describeToolApproval：展示完整命令原文，缺命令时有专门文
   assert.equal(describeToolApproval({ name: 'run_shell', args: null, t }).body, '没有命令内容');
   // 不给 t 也不崩（测试/异常路径）
   assert.ok(describeToolApproval({ name: 'x' }).title.length > 0);
+});
+
+// run_python 的参数是 code，弹框要显示**原样代码**（不 JSON 转义、不摘要成 {code: "..."}）。
+// 用户要审的就是这段代码——转义后满屏 \n 反而看不清。这是「看不到原文就不算知情同意」
+// 的同一原则，只是换了一种参数。
+test('describeToolApproval：run_python 显示代码原文，不是 JSON 转义', () => {
+  const code = 'import os\nprint(os.getcwd())\n';
+  const copy = describeToolApproval({ name: 'run_python', args: { code }, t });
+  assert.ok(copy.body.includes(code), '正文必须含原始代码（含真实换行）');
+  assert.equal(copy.body.includes('\\n'), false, '不得出现 JSON 转义后的 \\n');
+  // 超长代码同样不截断（与命令同一口径：宁可长，也不能让用户盲签）
+  const longCode = `print(${'"x", '.repeat(1200)}0)`;
+  assert.ok(describeToolApproval({ name: 'run_python', args: { code: longCode }, t }).body.includes(longCode));
+  // 空参数仍走「没有内容」那条，而不是显示一个空代码块
+  assert.equal(describeToolApproval({ name: 'run_python', args: {}, t }).body, '没有命令内容');
+  // code 优先于 code 以外的参数摘要（真收到了别的字段也不该盖掉代码）
+  const withExtra = describeToolApproval({ name: 'run_python', args: { code: 'print(1)', extra: 'x' }, t });
+  assert.ok(withExtra.body.includes('print(1)'));
+  assert.equal(withExtra.body.includes('extra'), false, '有代码时不再显示参数摘要');
 });
 
 test('点「允许」返回 true，点「拒绝」返回 false', async () => {

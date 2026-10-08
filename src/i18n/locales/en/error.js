@@ -111,6 +111,8 @@ export const error = {
   'error.workspace.moveUnsupported': 'This file-system backend does not support moving directories.',
   'error.workspace.pythonCodeEmpty': 'The Python code to run must not be empty.',
   'error.workspace.pythonUnsupported': 'This build has no Python runtime (enable plugins/withChaquopy.js and rebuild).',
+  'error.workspace.pythonEmptyPayload': 'The Python runtime returned an empty result — this usually means the native bridge is out of date; rebuild the app.',
+  'error.workspace.pythonBadPayload': 'The Python runtime returned something unreadable (raw text: {text})',
   'error.workspace.shellPrivateOnly': 'Command execution only works on the app\'s private workspace (no local path available).',
   'error.workspace.shellPathNotAbsolute': 'The workspace path is not absolute and cannot be used as the command working directory.',
   'error.workspace.shellCommandEmpty': 'The command must not be empty.',

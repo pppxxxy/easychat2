@@ -50,6 +50,7 @@ export const chat = {
   'chat.tool.approval.title': 'Allow this command?',
   'chat.tool.approval.body': 'The model wants to run this command:\n\n{command}\n\nIt will run inside the app’s workspace folder, and every command needs your confirmation.',
   'chat.tool.approval.bodyEmpty': 'The model wants to run a command but did not provide the command text.',
+  'chat.tool.approval.bodyCode': 'The model wants to run this Python code:\n\n{code}\n\nIt runs inside the app’s workspace folder: it can read and write files in the sandbox and access the network, and every snippet needs your confirmation.',
   'chat.tool.approval.deny': 'Deny',
   'chat.tool.approval.allow': 'Allow',
   'chat.tool.approval.bodyArgs': 'About to run with these arguments — confirm before allowing:\n{args}',

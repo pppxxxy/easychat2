@@ -11,15 +11,21 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 import {
+  cancelPythonScript,
+  createPythonRunner,
   formatPythonResult,
+  formatPythonToolResult,
   isPythonAvailable,
   isPythonBridgePresent,
+  parsePythonPayload,
+  probePython,
   buildPackageProbeScript,
   packageNamesOf,
   parsePackageProbe,
   probeInstalledPackages,
   PYTHON_BUNDLED_PACKAGES,
   PYTHON_OUTPUT_LIMIT,
+  PYTHON_WATCHDOG_MS,
   pythonCwdPath,
   pythonGateReason,
   runPythonScript,
@@ -117,42 +123,37 @@ test('pythonCwdPath：根 + 角色子目录；缺根报错', () => {
   assert.throws(() => pythonCwdPath('', 'c1'));
 });
 
-test('runPythonScript：空代码/无原生模块拒绝；正常路径走注入的原生模块', async () => {
-  await assert.rejects(runPythonScript({ code: '   ', cwdPath: '/x', native: { runScript: async () => ({}) } }), /不能为空/);
-  await assert.rejects(runPythonScript({ code: 'print(1)', cwdPath: '/x', native: null }), /不含 Python 运行时/);
-
-  const calls = [];
-  const native = { runScript: async (code, cwd) => { calls.push({ code, cwd }); return { stdout: '1\n', stderr: '', exitCode: 0 }; } };
-  const result = await runPythonScript({ code: 'print(1)', cwdPath: '/data/ws/c1', native });
-  assert.deepEqual(calls, [{ code: 'print(1)', cwd: '/data/ws/c1' }]);
-  assert.equal(result.stdout, '1\n');
+test('runPythonScript：Node 环境没有原生模块时如实判不可用', async () => {
   assert.equal(await isPythonAvailable(), false, 'Node 环境没有原生模块');
 });
 
 // 2026-10-08 真机 bug 换来的断言：界面曾把「桥已注册」当「Python 能跑」显示，
 // 用户点运行才看到 Chaquopy 的 "Cannot use GenericPlatform on Android" 报错。
 // 两者是不同的事——模块注册只说明 APK 带了桥，解释器能不能启动只有原生知道。
-test('可用性：必须问原生（isAvailable），不能只看桥是否注册', async () => {
-  // 桥注册了但原生说启动失败 → 仍算不可用（这正是真机上发生的情况）
+test('可用性：必须问原生（probe），不能只看桥是否注册', async () => {
+  // 桥注册了但原生探测失败 → 不可用（这正是真机上发生的情况）
   const registeredButBroken = {
-    runScript: async () => ({}),
-    isAvailable: async () => false,
+    runScript: async () => '',
+    probe: async () => JSON.stringify({ ok: false, pid: 4321, sameProcess: false, error: 'boom' }),
   };
   assert.equal(await isPythonAvailable({ native: registeredButBroken }), false,
-    '原生报不可用时必须返回 false（旧实现会误报 true）');
+    '原生报启动失败时必须返回 false（旧实现会误报 true）');
 
-  const healthy = { runScript: async () => ({}), isAvailable: async () => true };
+  const healthy = {
+    runScript: async () => '',
+    probe: async () => JSON.stringify({ ok: true, pid: 4321, sameProcess: false, error: '' }),
+  };
   assert.equal(await isPythonAvailable({ native: healthy }), true);
 
-  // 老版本原生没有 isAvailable：不能乐观假定可用，按不可用处理（失败要看得见）
-  const legacyNative = { runScript: async () => ({}) };
+  // 老版本原生没有 probe：不能乐观假定可用，按不可用处理（失败要看得见）
+  const legacyNative = { runScript: async () => '' };
   assert.equal(await isPythonAvailable({ native: legacyNative }), false,
-    '原生缺 isAvailable 时应保守判为不可用');
+    '原生缺 probe 时应保守判为不可用');
 
   // 原生抛错（启动异常）→ 不可用，且不得把异常抛给界面
   const throwing = {
-    runScript: async () => ({}),
-    isAvailable: async () => { throw new Error('boom'); },
+    runScript: async () => '',
+    probe: async () => { throw new Error('boom'); },
   };
   assert.equal(await isPythonAvailable({ native: throwing }), false);
 
@@ -161,10 +162,151 @@ test('可用性：必须问原生（isAvailable），不能只看桥是否注册
   assert.equal(await isPythonAvailable({ native: {} }), false);
 });
 
+// 隔离是「模型可以运行 Python」的前提：Chaquopy 没有中断能力，脚本必须跑在
+// :python 独立进程里，点「停止」才等于杀掉那个进程。如果 android:process 没生效，
+// 服务会落在主进程里——那时「停止」会连 UI 一起杀。所以这种情况**必须判为不可用**，
+// 而不是给一个停不下来的执行入口（失败朝安全方向倒）。
+test('可用性：隔离没生效（服务在主进程）时必须判为不可用', async () => {
+  const sameProcess = {
+    runScript: async () => '',
+    probe: async () => JSON.stringify({ ok: true, pid: 1, sameProcess: true, error: '' }),
+  };
+  const probe = await probePython({ native: sameProcess });
+  assert.equal(probe.available, false, '同一进程 = 没有隔离，不能算可用');
+  assert.equal(probe.reason, 'NOT_ISOLATED', '原因要具体到「隔离没生效」，否则用户不知道该改什么');
+
+  // 隔离生效时把 pid 带回来（排查用）
+  const isolated = {
+    runScript: async () => '',
+    probe: async () => JSON.stringify({ ok: true, pid: 4321, sameProcess: false, error: '' }),
+  };
+  const ok = await probePython({ native: isolated });
+  assert.equal(ok.available, true);
+  assert.equal(ok.pid, 4321, 'pid 要带出来，便于排查「服务到底跑在哪」');
+});
+
+// 桥的返回契约解析：Python 侧 json.dumps 的一整条 JSON 字符串。
+// 为什么不让 dict 跨语言边界：Kotlin 的 PyObject.get 是 getattr() 语义，对 dict 取
+// "stdout" 只会得到 null 且不报错——真机表现就是「退出码 0、没有任何输出」。
+test('返回契约解析：合法 JSON 通过；空/坏内容要给出可定位的错误', async () => {
+  assert.deepEqual(parsePythonPayload('{"stdout":"hi","stderr":"","exitCode":0}'),
+    { stdout: 'hi', stderr: '', exitCode: 0 });
+  // 带 BOM/前后空白的也能解
+  assert.deepEqual(parsePythonPayload('  \n{"a":1}\n '), { a: 1 });
+
+  // 空返回值：说明原生桥与 JS 不匹配（正是「静默出错」那一类），错误也要说清
+  assert.throws(() => parsePythonPayload(''), /空结果/);
+  assert.throws(() => parsePythonPayload(null), /空结果/);
+  // 坏内容：把原文（片段）带进错误里，便于下一轮定位
+  assert.throws(() => parsePythonPayload('Cannot use GenericPlatform'), /无法解析/);
+  assert.throws(() => parsePythonPayload('[1,2]'), /无法解析/, '数组不是我们要的形状');
+});
+
+test('runPythonScript：JSON 契约 → 结构化结果；空代码/无原生模块拒绝', async () => {
+  const calls = [];
+  const native = {
+    runScript: async (code, cwd, timeoutMs) => {
+      calls.push({ code, cwd, timeoutMs });
+      return JSON.stringify({ stdout: 'ok\n', stderr: '', exitCode: 0 });
+    },
+  };
+  const result = await runPythonScript({ code: 'print(1)', cwdPath: '/ws/c1', timeoutMs: 30000, native });
+  assert.deepEqual(calls, [{ code: 'print(1)', cwd: '/ws/c1', timeoutMs: 30000 }]);
+  assert.equal(result.stdout, 'ok\n');
+  assert.equal(result.isError, false);
+
+  // 退出码非 0 → isError，但仍带回完整输出（模型需要看 traceback）
+  const failing = {
+    runScript: async () => JSON.stringify({ stdout: 'before\n', stderr: 'ValueError', exitCode: 1 }),
+  };
+  const bad = await runPythonScript({ code: 'x', cwdPath: '/ws', native: failing });
+  assert.equal(bad.isError, true);
+  assert.equal(bad.stderr, 'ValueError');
+  assert.equal(bad.stdout, 'before\n');
+
+  await assert.rejects(() => runPythonScript({ code: '   ', cwdPath: '/ws', native }), /不能为空/);
+  await assert.rejects(() => runPythonScript({ code: 'x', cwdPath: '/ws', native: null }), /不含 Python 运行时/);
+});
+
+// 中止语义：用户点「停止」时，必须先请求杀掉 :python 进程再抛中止错误。
+// 顺序不能反——反了就是「界面说已停止、脚本还在后台跑」。
+test('runPythonScript：signal 中止时先杀进程再抛中止错误', async () => {
+  const canceled = [];
+  const native = {
+    runScript: () => new Promise(() => {}), // 永不返回，模拟卡住的脚本
+    cancel: async () => { canceled.push(Date.now()); },
+  };
+  const controller = new AbortController();
+  const pending = runPythonScript({ code: 'while True: pass', cwdPath: '/ws', signal: controller.signal, native });
+  controller.abort();
+  await assert.rejects(pending, error => error.name === 'AbortError' && error.canceled === true);
+  assert.equal(canceled.length, 1, '中止时必须请求原生杀掉 :python 进程');
+
+  // 已经中止的 signal 直接拒绝，连原生都不进
+  const abortController = new AbortController();
+  abortController.abort();
+  await assert.rejects(
+    () => runPythonScript({ code: 'x', cwdPath: '/ws', signal: abortController.signal, native }),
+    error => error.name === 'AbortError'
+  );
+});
+
 test('isPythonBridgePresent：只描述「桥是否注册」，与可用性区分开', () => {
-  assert.equal(isPythonBridgePresent({ native: { runScript: async () => ({}) } }), true);
+  assert.equal(isPythonBridgePresent({ native: { runScript: async () => '' } }), true);
   assert.equal(isPythonBridgePresent({ native: {} }), false);
   assert.equal(isPythonBridgePresent({ native: null }), false);
+});
+
+test('cancelPythonScript：原生缺失/抛错时返回 false，不把异常抛给界面', async () => {
+  assert.equal(await cancelPythonScript({ native: null }), false);
+  assert.equal(await cancelPythonScript({ native: {} }), false);
+  assert.equal(await cancelPythonScript({ native: { cancel: async () => { throw new Error('x'); } } }), false);
+  assert.equal(await cancelPythonScript({ native: { cancel: async () => {} } }), true);
+});
+
+// 工具用的运行器（模型走的就是这条）：固定看门狗、输出转成给模型读的文本。
+// 看门狗必须是**工具自己设**的：模型调用不能等用户来点停止。
+test('createPythonRunner：固定看门狗、结果转成模型可读文本、走角色沙盒目录', async () => {
+  const calls = [];
+  const native = {
+    runScript: async (code, cwd, timeoutMs) => {
+      calls.push({ code, cwd, timeoutMs });
+      return JSON.stringify({ stdout: '42\n', stderr: '', exitCode: 0 });
+    },
+  };
+  const runner = createPythonRunner({ sandboxRoot: '/data/ws', native });
+  const result = await runner({ code: 'print(6*7)', characterId: 'c1' });
+  assert.deepEqual(calls, [{ code: 'print(6*7)', cwd: '/data/ws/c1', timeoutMs: PYTHON_WATCHDOG_MS }],
+    '工作目录是角色沙盒，且看门狗由工具固定设置');
+  assert.equal(result.isError, false);
+  assert.ok(result.content.includes('退出码：0'));
+  assert.ok(result.content.includes('42'));
+
+  // 出错时：isError 为真，且 traceback 要原样交给模型（它得据此改代码）
+  const failing = createPythonRunner({
+    sandboxRoot: '/data/ws',
+    native: { runScript: async () => JSON.stringify({ stdout: '', stderr: 'ZeroDivisionError', exitCode: 1 }) },
+  });
+  const bad = await failing({ code: '1/0', characterId: 'c1' });
+  assert.equal(bad.isError, true);
+  assert.ok(bad.content.includes('ZeroDivisionError'));
+
+  // 无输出时也要给一句明确的话，不要交回空字符串（模型会以为工具坏了）
+  const quiet = createPythonRunner({
+    sandboxRoot: '/data/ws',
+    native: { runScript: async () => JSON.stringify({ stdout: '', stderr: '', exitCode: 0 }) },
+  });
+  assert.ok((await quiet({ code: 'pass', characterId: 'c1' })).content.includes('（无输出）'));
+});
+
+test('formatPythonToolResult：截断后仍如实标注，退出码非 0 即错误', () => {
+  const huge = 'x'.repeat(PYTHON_OUTPUT_LIMIT + 100);
+  const formatted = formatPythonResult({ stdout: huge, stderr: '', exitCode: 0 });
+  assert.equal(formatted.truncated, true);
+  assert.ok(formatted.stdout.includes('输出已截断'));
+  const tool = formatPythonToolResult(formatted);
+  assert.ok(tool.content.includes('输出已截断'), '给模型的文本也要带上截断说明');
+  assert.equal(formatPythonToolResult({ stdout: '', stderr: 'e', exitCode: 2 }).isError, true);
 });
 
 // 第三个真机显示问题：面板照「构建时声明」的清单显示「已打进 APK 的依赖」，
@@ -203,9 +345,9 @@ test('probeInstalledPackages：探测失败返回 null（界面回落成「声�
   // 原生不可用
   assert.equal(await probeInstalledPackages({ cwdPath: '/x', packages: declared, native: null }), null);
   // 没有工作目录
-  assert.equal(await probeInstalledPackages({ cwdPath: '', packages: declared, native: { runScript: async () => ({}) } }), null);
+  assert.equal(await probeInstalledPackages({ cwdPath: '', packages: declared, native: { runScript: async () => '{}' } }), null);
   // 执行报错
-  const failing = { runScript: async () => ({ stdout: '', stderr: 'boom', exitCode: 1 }) };
+  const failing = { runScript: async () => JSON.stringify({ stdout: '', stderr: 'boom', exitCode: 1 }) };
   assert.equal(await probeInstalledPackages({ cwdPath: '/x', packages: declared, native: failing }), null);
   // 抛异常
   const throwing = { runScript: async () => { throw new Error('x'); } };
@@ -216,7 +358,7 @@ test('probeInstalledPackages：探测失败返回 null（界面回落成「声�
   const ok = {
     runScript: async (code, cwd) => {
       calls.push({ code, cwd });
-      return { stdout: '__ech2_pkg__\trequests\t2.34.2', stderr: '', exitCode: 0 };
+      return JSON.stringify({ stdout: '__ech2_pkg__\trequests\t2.34.2', stderr: '', exitCode: 0 });
     },
   };
   const result = await probeInstalledPackages({ cwdPath: '/data/ws/c1', packages: declared, native: ok });
@@ -281,10 +423,6 @@ test('插件纯变换：apply plugin / python 块 / classpath / MainApplication 
   assert.throws(() => T.applyMainApplicationPatch('class X {}'), /补丁未生效/);
 });
 
-// 状态变更（2026-10-08）：原先断言「默认不启用」。用户决定推进启用后，
-// 这条的前提失效了——但**不能简单删掉**，因为它守的是「构建失败会不会连累
-// 其它功能」这件事。改为断言新的启用姿态：接入 app.json，且第一步是最小原型
-// （不装第三方包），这样即使 Gradle 接线有问题，暴露面也只有 Chaquopy 本身。
 // 状态变更（2026-10-08，真机第一步通过后）：原先断言「第一步是最小原型
 // （minimalPackages:true）」。真机已确认「解释器能启动、print 的输出被捕获、退出码 0」
 // （见审查待办「第三次真机往返」），所以第一步的目的（验 Gradle 接线）已达成，
@@ -313,23 +451,37 @@ test('构建姿态：已进入第二步（装第三方包），且保留退回�
   assert.ok(fs.existsSync(path.resolve('plugins/chaquopy/android/python/easychat2_bridge.py')));
 });
 
-test('设置面板接线：Python 小节在，且模型侧不注册 run_python', () => {
+// 状态变更（2026-10-08，隔离做完后）：这条原先断言「agent 工具表里没有 run_python」。
+// 当时不给模型开的原因只有一个——脚本杀不掉。隔离做完（:python 进程 + 看门狗 + 停止按钮）
+// 之后这个前提不再成立，所以改为断言**新的门控姿态**：工具存在，但必须有独立开关、
+// 必须逐条确认、必须绑定超时；而且界面里的旧说法（「模型不能跑」）必须已经改口，
+// 否则用户会照旧文案理解现在的行为。
+test('设置面板接线：Python 小节在；run_python 存在但被三层门控关住', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/WorkspaceSettingsPanel.js'), 'utf8');
   const screen = fs.readFileSync(path.resolve('src/workspace/screen/WorkspaceScreen.js'), 'utf8');
   const tools = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
   assert.ok(panel.includes('<PythonSection'), '设置面板挂上 Python 小节');
   assert.ok(screen.includes('characterId={characterId}'), '角色 id 传进设置面板');
-  // Chaquopy 无法中断脚本 → 不给模型开 run_python（界面里写明了原因）。
-  assert.ok(!tools.includes('run_python'), 'agent 工具表里没有 run_python');
+
+  // 工具定义本身：独立开关 + 逐条确认 + 更长超时（模型调用会自我了断）
+  assert.ok(tools.includes("name: 'run_python'"), 'agent 工具表里有 run_python');
+  const pythonTool = tools.slice(tools.indexOf("name: 'run_python'"));
+  assert.ok(pythonTool.includes('requiresConfirmation: true'), 'run_python 必须逐条确认');
+  assert.ok(/PYTHON_TOOL_TIMEOUT_MS/.test(tools), 'run_python 要用自己的（更长）工具超时');
+
+  // 界面：不能还写着「模型不能运行 Python」（那是隔离之前的说法）
   const section = fs.readFileSync(path.resolve('src/workspace/screen/PythonSection.js'), 'utf8');
-  assert.ok(section.includes('workspace.python.noKill'), '界面写明「脚本杀不掉、模型不能跑」');
+  assert.ok(!section.includes('noKill'), '旧文案 noKill 必须移除（它说的是隔离之前的行为）');
+  assert.ok(section.includes('workspace.python.isolation'), '界面改口为「跑在独立进程、可停止」');
   assert.ok(section.includes('workspace.python.bundled'), '如实展示构建期依赖清单');
+  assert.ok(section.includes('workspace.python.stop'), '界面要有「停止」（既然是独立进程，就能停）');
 });
 
 // ---- Kotlin/Python 源码静态校验（沙箱没有 Kotlin 编译器，先挡纯文本可判定的错误） ----
 import { fileURLToPath } from 'node:url';
 import {
   checkBraceBalance,
+  stripComments,
   checkPackageConsistency,
   checkUniqueDeclarations,
   findUnusedImports,
@@ -342,7 +494,7 @@ const KOTLIN_PACKAGE = 'com.pppxxxy.easychat2.pythonbridge';
 
 test('Chaquopy Kotlin 桥：包名一致、大括号平衡、声明唯一、无未使用导入', () => {
   const files = readKotlinFiles(KOTLIN_DIR).map(item => item.file);
-  assert.deepEqual(files, ['PythonBridgeModule.kt', 'PythonBridgePackage.kt']);
+  assert.deepEqual(files, ['PythonBridgeModule.kt', 'PythonBridgePackage.kt', 'PythonService.kt']);
   assert.deepEqual(checkPackageConsistency(KOTLIN_DIR, KOTLIN_PACKAGE), []);
   for (const { file, source } of readKotlinFiles(KOTLIN_DIR)) {
     const { balance, errors } = checkBraceBalance(source);
@@ -351,10 +503,91 @@ test('Chaquopy Kotlin 桥：包名一致、大括号平衡、声明唯一、无�
     assert.deepEqual(findUnusedImports(source), [], `${file} 有未使用导入`);
   }
   assert.deepEqual(
-    checkUniqueDeclarations(readAllKotlin(KOTLIN_DIR), ['class PythonBridgePackage', 'class PythonBridgeModule']),
+    checkUniqueDeclarations(readAllKotlin(KOTLIN_DIR), [
+      'class PythonBridgePackage',
+      'class PythonBridgeModule',
+      'class PythonService',
+    ]),
     [],
-    '包类与模块类各自只应定义一次',
+    '包类、模块类与服务类各自只应定义一次',
   );
+});
+
+// 隔离（本来想用 AIDL，改成了 Messenger）。这套方案的**唯一**理由：Chaquopy 没有
+// 中断/强杀解释器的 API（16.1.0 的 chaquopy_java 源码里 grep 不到 interrupt/kill/
+// abort/cancel），同进程里唯一能停掉跑飞脚本的办法是杀掉整个应用进程。所以脚本必须
+// 在 :python 里跑，而且**解释器的启动只能在服务里**——两处启动会各自解压标准库、
+// 各自持有解释器状态，且主进程那份仍然杀不掉。
+test('隔离：解释器只在 :python 服务里启动，桥模块只做绑定调用', () => {
+  const service = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonService.kt'), 'utf8');
+  const module = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
+  const code = source => stripComments(source);
+
+  // 服务里必须有启动逻辑，且必须是 AndroidPlatform（GenericPlatform 在 Android 上必炸）
+  assert.ok(/Python\.start\(AndroidPlatform\(/.test(code(service)),
+    '服务里要 Python.start(AndroidPlatform(...))');
+  assert.ok(/Python\.isStarted\(\)/.test(code(service)), '启动前要判 isStarted（start 只成功一次）');
+  assert.ok(/ensureStarted\(\)/.test(code(module) + code(service)), '要有幂等的 ensureStarted');
+
+  // 桥模块**不得**再启动解释器：一旦它自己 start，隔离就形同虚设
+  assert.equal(/Python\.start\(/.test(code(module)), false,
+    '桥模块不得自己启动解释器——启动只能发生在 :python 服务里，否则脚本又回到主进程');
+  assert.equal(/Python\.getInstance\(\)/.test(code(module)), false,
+    '桥模块不得取解释器实例（那正是「同进程」的老路）');
+
+  // 服务必须靠 Process.killProcess 自杀来实现「停止」——这是唯一的停止手段
+  assert.ok(/Process\.killProcess\(Process\.myPid\(\)\)/.test(code(service)),
+    '服务必须用 Process.killProcess 结束自己（这是唯一能停掉脚本的办法）');
+  // 「先回消息再杀进程」：Messenger 的 send 是同步 Binder 调用，消息在 send 返回前已
+  // 落到对端队列，所以紧接着自杀不会把「为什么被杀」弄丢。顺序反了用户就只看到断开。
+  const killIndex = code(service).indexOf('Process.killProcess');
+  const sendBeforeKill = code(service).lastIndexOf('send(reply', killIndex);
+  assert.ok(sendBeforeKill > 0, '杀进程前要先 send 一条说明（否则客户端只看到绑定断开、不知道原因）');
+  // 空闲时点停止不能误杀：那时 running 为 false，服务应如实回「本来就没在跑」
+  assert.ok(/if \(!running\)/.test(code(service)), '空闲时收到取消不能自杀（否则下次运行要重新起进程）');
+});
+
+// 客户端侧：跨进程通信 + pid 校验。pid 相同 = 隔离没生效，必须**拒绝执行**而不是
+// 假装能跑（那时「停止」会杀掉 UI 进程）。
+test('隔离：客户端用 Messenger 跨进程通信，并在 pid 相同（未隔离）时拒绝执行', () => {
+  const module = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
+  const code = stripComments(module);
+
+  assert.ok(/Messenger\(/.test(code), '用 Messenger 通信（不需要 AIDL 与 Gradle buildFeatures 改动）');
+  assert.ok(/bindService\(/.test(code) && /unbindService\(/.test(code), '绑定与解绑成对');
+  assert.ok(/BIND_AUTO_CREATE/.test(code), '无 root 的 shell...');
+  assert.ok(/Process\.myPid\(\)/.test(code), '要拿自己的 pid 与服务 pid 比对');
+  assert.ok(/python_not_isolated/.test(code), 'pid 相同（未隔离）时要明确拒绝，而不是照跑');
+  // 超时上限：JS 传天文数字等于没有上限
+  assert.ok(/MAX_TIMEOUT_MS/.test(code), '原生侧要有超时硬上限');
+});
+
+// 服务声明必须真的写进清单——**验的是函数输出，不是源码里有没有这行字**。
+// 这条一开始写成「源码里出现 android:process 就算过」，注入验证时发现它抓不住
+// 「把声明行删掉」：注释里还留着这几个字，断言照样通过（装饰性断言的典型症状）。
+// 改成对 applyServiceDeclaration 的返回值断言，删掉声明行就必红。
+test('服务声明：清单里必须带上 android:process=":python" 且不导出', () => {
+  const manifest = { application: [{ $: { 'android:name': '.MainApplication' } }] };
+  const declared = T.applyServiceDeclaration(manifest);
+  const services = declared.application[0].service;
+  assert.equal(services.length, 1, '应当声明一个服务');
+  const service = services[0].$;
+  assert.equal(service['android:name'], `${T.BRIDGE_PACKAGE}.${T.SERVICE_CLASS}`);
+  assert.equal(service['android:process'], ':python',
+    '必须写 android:process：漏了它服务就跑在主进程里，「停止」会杀掉 UI 进程');
+  assert.equal(service['android:exported'], 'false',
+    '服务必须不导出（导出等于把「执行 Python 代码」变成外部可调用的入口）');
+
+  // 幂等：重复执行不得追加第二个服务声明
+  const again = T.applyServiceDeclaration(declared);
+  assert.equal(again.application[0].service.length, 1, '幂等：不重复声明');
+  assert.equal(again.application[0].service[0].$['android:process'], ':python');
+  // 已有声明但缺 process 时（旧版本留下的）要补上，而不是当成「已存在」跳过
+  const legacy = { application: [{ service: [{ $: { 'android:name': `${T.BRIDGE_PACKAGE}.${T.SERVICE_CLASS}` } }] }] };
+  assert.equal(T.applyServiceDeclaration(legacy).application[0].service[0].$['android:process'], ':python',
+    '已存在的声明缺 process 也要补上（否则隔离静默失效）');
+  // 没有 application 节点要明确报错，而不是静默跳过
+  assert.throws(() => T.applyServiceDeclaration({}), /找不到 application/);
 });
 
 // 2026-10-08 三次真机往返换来的教训（这一条的前身是**错的**，先说清楚为什么）：
@@ -371,37 +604,47 @@ test('Chaquopy Kotlin 桥：包名一致、大括号平衡、声明唯一、无�
 //
 // 结论：桥的返回契约**不再依赖 PyObject 的 Map 语义**（属性访问 vs 容器访问是一对陷阱），
 // 改成整条 JSON 字符串，跨边界只剩 str() 一种解释。下面的断言钉这件事。
+//
+// 注意这条要同时扫两个文件：取值已经挪到服务里（module 只搬字符串），只扫 module
+// 会让「谁把 PyObject 取值写回去」漏网。
 test('Chaquopy 桥：结果走 JSON 字符串契约，不得用 PyObject 的 Map 语义取值', () => {
-  const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
-  // 去掉注释再判，避免把解释这条规则的注释本身当成违规
-  const code = source
-    .split('\n')
-    .filter(line => !line.trim().startsWith('//'))
-    .join('\n');
+  const sources = ['PythonBridgeModule.kt', 'PythonService.kt'].map(file => {
+    const source = fs.readFileSync(path.join(KOTLIN_DIR, file), 'utf8');
+    // 去掉注释再判，避免把解释这条规则的注释本身当成违规
+    return { file, code: stripComments(source) };
+  });
 
-  assert.equal(/\.asMap\(\)/.test(code), false,
-    'asMap() 是容器访问但键是 PyObject：字符串键取不到值，Kotlin 还会类型推断失败');
-  assert.equal(/\w+\["/.test(code), false,
-    '不得对 PyObject 用字符串下标（result["stdout"]）：Kotlin 的 Map.get 键类型必须精确匹配');
-  assert.equal(/\.get\("stdout"\)/.test(code), false,
-    'PyObject.get 是 getattr()（不是取字典项）：对 dict 取 "stdout" 只会得到 null 且不报错，真机表现为「退出码 0、无输出」');
-  assert.ok(/callAttr\("run_code"[^)]*\)\.toString\(\)/.test(code),
-    'run_code 的返回值要 .toString()（等价 Python str()）之后再解析');
-  assert.ok(/JSONObject\(/.test(code), '用 JSONObject 解析这条 JSON');
-  assert.ok(/optString\("stdout"/.test(code) && /optString\("stderr"/.test(code) && /optInt\("exitCode"/.test(code),
-    '三个字段都要从 JSON 里取（optString / optInt）');
+  for (const { file, code } of sources) {
+    assert.equal(/\.asMap\(\)/.test(code), false,
+      `${file}：asMap() 是容器访问但键是 PyObject：字符串键取不到值，Kotlin 还会类型推断失败`);
+    assert.equal(/\w+\["/.test(code), false,
+      `${file}：不得对 PyObject 用字符串下标（result["stdout"]）`);
+    assert.equal(/\.get\("stdout"\)/.test(code), false,
+      `${file}：PyObject.get 是 getattr()，对 dict 取 "stdout" 只会得到 null 且不报错`);
+  }
+
+  const service = sources.find(item => item.file === 'PythonService.kt').code;
+  assert.ok(/callAttr\("run_code"[^)]*\)\.toString\(\)/.test(service),
+    'run_code 的返回值要 .toString()（等价 Python str()）后再交给客户端');
+  // 服务内部用不带前缀的 KEY_PAYLOAD（companion 常量），客户端才写 PythonService.KEY_PAYLOAD
+  assert.ok(/putString\((?:PythonService\.)?KEY_PAYLOAD/.test(service), '结果整条作为 payload 传回');
+
+  // 解析在 JS 侧做（能单测，也能把「返回了什么」写进错误里）——所以 Kotlin 侧不应
+  // 出现 JSONObject 解析字段：一旦两边都解析，契约就有了两个真相。
+  assert.equal(/JSONObject\(/.test(service), false, 'Kotlin 侧不解析 Python 的结果 JSON（在 JS 侧做）');
 });
 
-// 字段清单：Kotlin 与 Python 两侧必须一致。跨语言契约最容易「各写各的」——一边改名，
-// 另一边静默取空（optString 的默认值会把错误吃掉）。下面的真执行测试会核对这三个键。
+// 字段清单：Python 侧产出、JS 侧解析——两侧必须一致。跨语言契约最容易「各写各的」：
+// 一边改名，另一边取到 undefined 却不报错（真机踩过「退出码 0、无输出」那一类），
+// 所以要逐个字段核对。Kotlin 侧只是把整条字符串搬过去，不参与解析（见上一条）。
 const BRIDGE_FIELDS = ['stdout', 'stderr', 'exitCode'];
 
-test('桥的返回契约：Python 侧输出的字段与 Kotlin 侧读取的字段一一对应', () => {
+test('桥的返回契约：Python 侧输出的字段与 JS 侧读取的字段一一对应', () => {
   const py = fs.readFileSync(path.join(KOTLIN_DIR, 'python', 'easychat2_bridge.py'), 'utf8');
-  const kt = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
+  const js = fs.readFileSync(path.resolve('src/workspace/python.js'), 'utf8');
   BRIDGE_FIELDS.forEach(field => {
     assert.ok(py.includes(`"${field}"`), `Python 侧应输出字段 ${field}`);
-    assert.ok(kt.includes(`"${field}"`), `Kotlin 侧应读取字段 ${field}`);
+    assert.ok(js.includes(`source.${field}`), `JS 侧应读取字段 ${field}`);
   });
 });
 
@@ -411,17 +654,15 @@ test('桥的返回契约：Python 侧输出的字段与 Kotlin 侧读取的字�
 // 在未启动时会自动用 GenericPlatform，而它在 Android 上必然抛异常。
 // 这条**编译得过、单测也能过**，只有真机能暴露，所以钉在文本断言上：
 // 必须先 ensureStarted()（内部 Python.start(AndroidPlatform(...))）再取实例。
-test('Chaquopy 桥：必须先 Python.start(AndroidPlatform) 再使用解释器', () => {
-  const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
-  const code = source
-    .split('\n')
-    .filter(line => !line.trim().startsWith('//'))
-    .join('\n');
+// 现在启动发生在 :python 服务里（见上面的隔离断言）。
+test('Chaquopy 服务：必须先 Python.start(AndroidPlatform) 再使用解释器', () => {
+  const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonService.kt'), 'utf8');
+  const code = stripComments(source);
 
   assert.ok(/import com\.chaquo\.python\.android\.AndroidPlatform/.test(code),
     '必须导入 AndroidPlatform（用 GenericPlatform 在 Android 上必炸）');
-  assert.ok(/Python\.start\(AndroidPlatform\(reactContext\)\)/.test(code),
-    '必须调用 Python.start(AndroidPlatform(reactContext))');
+  assert.ok(/Python\.start\(AndroidPlatform\(/.test(code),
+    '必须调用 Python.start(AndroidPlatform(...))');
   assert.ok(/Python\.isStarted\(\)/.test(code), '启动前要判 isStarted（start 只能成功一次）');
   // 启动必须幂等且容忍并发：两个线程同时启动时，后到者会收到
   // IllegalStateException("Python already started")——那不是失败。
@@ -433,6 +674,19 @@ test('Chaquopy 桥：必须先 Python.start(AndroidPlatform) 再使用解释器'
   assert.ok(getInstanceCount > 0, '确实在用 getInstance');
   assert.ok(ensureCount >= getInstanceCount,
     `每处 getInstance 之前都要先 ensureStarted（getInstance ${getInstanceCount} 处，ensureStarted ${ensureCount} 处）`);
+});
+
+// 串行执行：解释器是单例，`os.chdir` 与 `sys.stdout` 重定向都是**进程级全局状态**，
+// 并发跑会互相踩（一个脚本的重定向截走另一个的输出）。所以服务必须拒绝第二个并发请求，
+// 而且要明说「上一个还在跑」，不能静默排队或静默丢弃。
+test('Chaquopy 服务：脚本串行执行，并发请求要明确回绝', () => {
+  const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonService.kt'), 'utf8');
+  const code = stripComments(source);
+  assert.ok(/if \(running\)/.test(code), '要检查是否已有脚本在跑');
+  assert.ok(/ERROR_BUSY/.test(code), '并发请求要回一条明确的「忙」错误');
+  // 看门狗：kill 之前要先清掉自己，避免刚好卡在超时边界上把已完成的运行杀掉。
+  assert.ok(/clearWatchdog\(\)/.test(code), '要有看门狗清理（否则会误杀刚跑完的脚本）');
+  assert.ok(/postDelayed/.test(code) && /removeCallbacks/.test(code), '看门狗要能设也要能撤');
 });
 
 test('Python 辅助模块：捕获输出、切回原目录、无运行时装包', () => {

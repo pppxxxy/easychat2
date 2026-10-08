@@ -25,6 +25,7 @@
 // 依赖版本：Chaquopy 16.1（支持 AGP 7.0–8.13；Expo SDK 54 用 AGP 8.x）。MIT 许可。
 
 const {
+  withAndroidManifest,
   withAppBuildGradle,
   withProjectBuildGradle,
   withDangerousMod,
@@ -36,6 +37,12 @@ const PACKAGE_ID = 'com.pppxxxy.easychat2';
 const BRIDGE_PACKAGE = `${PACKAGE_ID}.pythonbridge`;
 const PACKAGE_CLASS = 'PythonBridgePackage';
 const CHAQUOPY_GRADLE_VERSION = '16.1.0';
+
+// 跑 Python 的服务在**独立进程**里（冒号前缀 = 应用私有进程）。
+// 这不是优化，是这套方案能成立的前提：Chaquopy 没有中断能力，只有把脚本放在
+// 另一个进程里，「停止脚本」才等于「杀掉那个进程」而不牵连 UI。见 PythonService.kt。
+const SERVICE_CLASS = 'PythonService';
+const SERVICE_PROCESS = ':python';
 
 // 最小原型开关（由 app.json 的插件 prop `minimalPackages` 控制，默认 false）。
 //
@@ -154,6 +161,32 @@ function applyMainApplicationPatch(contents) {
   return out;
 }
 
+// AndroidManifest：声明 :python 服务（幂等）。
+//
+// 必须显式 android:process：漏了它服务就跑在主进程里，于是「停止脚本」会变成杀掉 UI 进程。
+// 客户端会比对服务回报的 pid 与自己的 pid，一旦相同就**拒绝运行**（失败朝安全方向倒，
+// 而不是留一个杀不掉的执行入口）——但那是运行期的兜底，这里写对才是正解。
+function applyServiceDeclaration(manifest) {
+  const application = (manifest.application || [])[0];
+  if (!application) throw new Error('withChaquopy: AndroidManifest 里找不到 application 节点');
+  application.service = application.service || [];
+  const name = `${BRIDGE_PACKAGE}.${SERVICE_CLASS}`;
+  const existing = application.service.find(item => item && item.$ && item.$['android:name'] === name);
+  if (existing) {
+    existing.$['android:process'] = SERVICE_PROCESS;
+    return manifest;
+  }
+  application.service.push({
+    $: {
+      'android:name': name,
+      'android:process': SERVICE_PROCESS,
+      // 只给本应用绑定用。导出等于把「执行 Python 代码」变成一个外部可调用入口。
+      'android:exported': 'false',
+    },
+  });
+  return manifest;
+}
+
 // ---------- 预构建 mod ----------
 
 // minimalPackages: true 时 pip 块整块省略（见 REAL_PACKAGES 上方说明）。
@@ -175,6 +208,13 @@ function withGradleProject(config) {
     if (cfg.modResults.language === 'groovy') {
       cfg.modResults.contents = applyProjectClasspath(cfg.modResults.contents);
     }
+    return cfg;
+  });
+}
+
+function withManifest(config) {
+  return withAndroidManifest(config, cfg => {
+    applyServiceDeclaration(cfg.modResults.manifest);
     return cfg;
   });
 }
@@ -226,6 +266,7 @@ module.exports = function withChaquopy(config, props = {}) {
   };
   config = withGradleProject(config, options);
   config = withGradleApp(config, options);
+  config = withManifest(config, options);
   config = withSources(config, options);
   return config;
 };
@@ -239,8 +280,11 @@ module.exports.__testables = {
   BUILD_PYTHON,
   BRIDGE_PACKAGE,
   PACKAGE_CLASS,
+  SERVICE_CLASS,
+  SERVICE_PROCESS,
   applyChaquopyPlugin,
   applyChaquopyConfig,
   applyProjectClasspath,
   applyMainApplicationPatch,
+  applyServiceDeclaration,
 };

@@ -10,6 +10,7 @@ import { normalizeWorkspaceLocation, resolveWorkspaceRoot, WORKSPACE_ROOT_KINDS 
 import { getFileSystemNext } from './picker.js';
 import { createExpoSafAdapter, createSafWorkspaceStore } from './safStore.js';
 import { createShellRunner, getShellNative, isShellAvailable, sandboxPathFromUri } from './shell.js';
+import { createPythonRunner, getPythonNative, isPythonBridgePresent } from './python.js';
 import { createHistoryRecordingStore } from './history.js';
 import { createLegacyWorkspaceStore } from './store.js';
 import { registerWorkspaceTools } from './tools.js';
@@ -73,6 +74,7 @@ export function registerDefaultWorkspaceTools(settings) {
   return registerWorkspaceTools({
     store: createWorkspaceStore(settings),
     shell: resolveShellRunner(settings),
+    python: resolvePythonRunner(settings),
   });
 }
 
@@ -129,4 +131,31 @@ export function resolveShellRunner(settings) {
     return null;
   }
   return createShellRunner({ native, sandboxRoot });
+}
+
+// Python 执行的门控（纯判定，可单测）。与 shell 同形，但看的是另一个开关。
+//
+// 注意这里用的是**同步**的 isPythonBridgePresent()（「这个 APK 带了桥」），而不是
+// probePython() 那个异步的真实探测——注册发生在启动路径上，没法 await。代价是
+// 「桥在但解释器起不来」时工具仍会注册，每次调用返回一条诚实的错误；界面侧仍用
+// 异步探测显示真实状态（两边分工写清楚，别把同步判断当可用性）。
+export function pythonAgentGateReason(settings, { pythonAvailable = false } = {}) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  if (source.allowPythonExecution !== true) return 'SWITCH_OFF';
+  if (normalizeWorkspaceMode(source.mode) !== AGENT_MODES.WRITE) return 'NOT_WRITE_MODE';
+  if (normalizeWorkspaceLocation(source.location).kind === WORKSPACE_ROOT_KINDS.SAF) return 'EXTERNAL_ROOT';
+  if (!pythonAvailable) return 'PYTHON_NOT_AVAILABLE';
+  return '';
+}
+
+export function resolvePythonRunner(settings) {
+  if (pythonAgentGateReason(settings, { pythonAvailable: isPythonBridgePresent() }) !== '') return null;
+  const native = getPythonNative();
+  let sandboxRoot;
+  try {
+    sandboxRoot = sandboxPathFromUri(defaultWorkspaceRoot()).replace(/\/+$/, '');
+  } catch (error) {
+    return null;
+  }
+  return createPythonRunner({ native, sandboxRoot });
 }

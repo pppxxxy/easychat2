@@ -17,6 +17,7 @@ import { useTranslation } from '../../i18n/I18nContext.js';
 import useWorkspaceSettings from '../../settings/useWorkspaceSettings.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { isShellAvailable } from '../shell.js';
+import { isPythonBridgePresent } from '../python.js';
 
 export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
   const { theme, fonts } = useTheme();
@@ -26,14 +27,19 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
     workspaceMode,
     workspaceFolder,
     commandExecution,
+    pythonExecution,
     workspaceFolderBusy,
     updateWorkspaceMode,
     chooseWorkspaceFolder,
     resetWorkspaceFolder,
     toggleCommandExecution,
+    togglePythonExecution,
   } = useWorkspaceSettings();
 
   const isExternal = workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF;
+  // 执行类开关都需要「可改」模式 + 应用内根：外部根下 shell 碰不到 content://，
+  // Python 也拿不到真实路径。
+  const executionDisabled = workspaceMode !== 'write' || isExternal;
 
   return (
     <ScrollView contentContainerStyle={styles.body}>
@@ -82,7 +88,7 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
         </View>
         <Switch
           value={commandExecution}
-          disabled={workspaceMode !== 'write' || isExternal}
+          disabled={executionDisabled}
           onValueChange={toggleCommandExecution}
           trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
           thumbColor={theme.colors.primaryContrast}
@@ -96,11 +102,40 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
             : t('settings.workspace.shell.hintReadonly'))}
       </FieldHint>
 
+      {/* 与命令执行**各自独立**的第二个执行开关：Python 能联网、能读整个应用沙盒，
+          风险面与 shell 不同，共用一个开关会让「开一个顺带开了另一个」。 */}
+      <View style={[styles.row, styles.rowSpaced]}>
+        <View style={styles.rowLeft}>
+          <Ionicons name="logo-python" size={17} color={theme.colors.primaryMuted} />
+          <Text style={styles.rowText}>{t('settings.workspace.pythonExec')}</Text>
+        </View>
+        <Switch
+          value={pythonExecution}
+          disabled={executionDisabled}
+          onValueChange={togglePythonExecution}
+          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+          thumbColor={theme.colors.primaryContrast}
+        />
+      </View>
+      <FieldHint style={styles.hint}>
+        {isExternal
+          ? t('settings.workspace.pythonExec.hintExternal')
+          : (workspaceMode === 'write'
+            ? t('settings.workspace.pythonExec.hint')
+            : t('settings.workspace.pythonExec.hintReadonly'))}
+      </FieldHint>
+
       <PythonSection characterId={characterId} />
 
       <WorkspaceCapabilitiesCard
-        settings={{ mode: workspaceMode, location: workspaceFolder, allowCommandExecution: commandExecution }}
+        settings={{
+          mode: workspaceMode,
+          location: workspaceFolder,
+          allowCommandExecution: commandExecution,
+          allowPythonExecution: pythonExecution,
+        }}
         shellAvailable={isShellAvailable()}
+        pythonAvailable={isPythonBridgePresent()}
       />
     </ScrollView>
   );
