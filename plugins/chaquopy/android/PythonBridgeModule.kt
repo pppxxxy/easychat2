@@ -58,11 +58,17 @@ class PythonBridgeModule(private val reactContext: ReactApplicationContext) :
         Thread {
             try {
                 val module = Python.getInstance().getModule("easychat2_bridge")
-                val result = module.callAttr("run_code", code, cwdPath).asMap()
+                val result = module.callAttr("run_code", code, cwdPath)
                 val map: WritableMap = Arguments.createMap()
-                map.putString("stdout", result["stdout"]?.toString() ?: "")
-                map.putString("stderr", result["stderr"]?.toString() ?: "")
-                map.putInt("exitCode", result["exitCode"]?.toString()?.toIntOrNull() ?: 0)
+                // 用 PyObject.get(name) 取字典项，**不要** asMap()：
+                // asMap() 返回 Map<PyObject, PyObject>，Kotlin 的 Map.get 要求键类型
+                // 精确匹配，传 String 会编译不过（Type inference failed: 'K' must be
+                // mentioned in input types）——上一版就是这样把 release 构建打挂的。
+                // PyObject 自身重写了 get(Object)（语义等于 getattr，缺失返回 null），
+                // 它才是这里该用的入口。
+                map.putString("stdout", result.get("stdout")?.toString() ?: "")
+                map.putString("stderr", result.get("stderr")?.toString() ?: "")
+                map.putInt("exitCode", result.get("exitCode")?.toString()?.toIntOrNull() ?: 0)
                 promise.resolve(map)
             } catch (error: Throwable) {
                 promise.reject("python_failed", error.message ?: "Python 执行失败。")

@@ -239,6 +239,32 @@ test('Chaquopy Kotlin 桥：包名一致、大括号平衡、声明唯一、无�
   );
 });
 
+// 2026-10-08 真机构建失败换来的教训，必须钉住，否则会再挂一次构建：
+//   Chaquopy 的 PyObject.asMap() 返回 Map<PyObject, PyObject>，Kotlin 的 Map.get
+//   要求键类型精确匹配，写 result["stdout"] 或 asMap()["stdout"] 都会编译失败
+//   （error: Type inference failed. The value of the type parameter 'K' must be
+//   mentioned in input types）。正确入口是 PyObject 自身重写的 get(Object)。
+//
+// 这类错误**本仓库的静态检查抓不到**（大括号平衡、包名一致都是好的），只有真机
+// Gradle 编译才暴露——而每次构建都要用户手点、失败还是整体失败。所以用文本断言
+// 把它挡在提交前：禁止对 PyObject 结果用下标访问。
+test('Chaquopy 桥：不得对 PyObject 用下标访问或 asMap()（Kotlin 编译期会挂）', () => {
+  const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
+  // 去掉注释再判，避免把解释这条规则的注释本身当成违规
+  const code = source
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  assert.equal(/\.asMap\(\)/.test(code), false,
+    'asMap() 返回 Map<PyObject, PyObject>，Kotlin 里传 String 键取不到值（且类型推不出），应改用 PyObject.get("key")');
+  assert.equal(/\w+\["/.test(code), false,
+    '不得对 PyObject 用字符串下标（result["stdout"]）：Kotlin 的 Map.get 键类型必须精确匹配');
+  assert.ok(/result\.get\("stdout"\)/.test(code), '应使用 PyObject.get("stdout") 取值');
+  assert.ok(/result\.get\("stderr"\)/.test(code), '应使用 PyObject.get("stderr") 取值');
+  assert.ok(/result\.get\("exitCode"\)/.test(code), '应使用 PyObject.get("exitCode") 取值');
+});
+
 test('Python 辅助模块：捕获输出、切回原目录、无运行时装包', () => {
   const source = fs.readFileSync(path.join(KOTLIN_DIR, 'python', 'easychat2_bridge.py'), 'utf8');
   assert.ok(source.includes('def run_code('), '导出 run_code');
