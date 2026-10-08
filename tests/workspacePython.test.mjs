@@ -24,6 +24,65 @@ const require = createRequire(import.meta.url);
 const plugin = require('../plugins/withChaquopy.js');
 const T = plugin.__testables;
 
+// 两处清单必须逐条一致：插件是预构建期 CJS（跑在 Gradle 之前），JS 层是运行期
+// 模块（跑在设备上），运行时无法互相 import，所以只能在测试里比对。
+// 不一致的后果是「界面显示的依赖 ≠ 真正打进包的依赖」——用户看着界面以为装的是这个版本。
+test('依赖清单同步：JS 层展示的清单与插件真正装进包的清单完全一致', () => {
+  assert.deepEqual(
+    [...PYTHON_BUNDLED_PACKAGES].sort(),
+    [...T.BUNDLED_PACKAGES].sort(),
+    'src/workspace/python.js 与 plugins/withChaquopy.js 的依赖清单已漂移'
+  );
+});
+
+// 版本选择有安全依据，不能随手改回去。这里把「为什么是这个版本」钉在测试里：
+// 若有人把 requests 降级到含 CVE 的版本，这条会红并说明原因。
+test('依赖安全：requests 不含已知 CVE（CVE-2024-47081 修于 2.32.4；CVE-2026-25645 修于 2.33.0）', () => {
+  const entry = PYTHON_BUNDLED_PACKAGES.find(name => /^requests==/.test(name));
+  assert.ok(entry, '清单里应有 requests');
+  const version = entry.split('==')[1];
+  const parts = version.split('.').map(Number);
+  const atLeast = (major, minor, patch) => {
+    if (parts[0] !== major) return parts[0] > major;
+    if (parts[1] !== minor) return parts[1] > minor;
+    return (parts[2] || 0) >= patch;
+  };
+  assert.ok(atLeast(2, 33, 0),
+    `requests ${version} 仍含已修复的 CVE：CVE-2024-47081 需 >=2.32.4，CVE-2026-25645 需 >=2.33.0`);
+});
+
+test('app 内 Python 版本：显式钉住，且在 Chaquopy 16.1 支持范围内', () => {
+  // 16.1 支持 3.9–3.13（默认 3.8）；requests 2.34.x 要求 >=3.10。
+  assert.ok(['3.9', '3.10', '3.11', '3.12', '3.13'].includes(T.PYTHON_VERSION),
+    `PYTHON_VERSION=${T.PYTHON_VERSION} 不在 Chaquopy 16.1 支持范围（3.9–3.13）`);
+  const [maj, min] = T.PYTHON_VERSION.split('.').map(Number);
+  assert.ok(maj === 3 && min >= 10, 'requests 2.34.x 的 requires_python 是 >=3.10');
+});
+
+// 最小原型：只验 Chaquopy 能否打进包并初始化，不装任何第三方包。
+// 空清单时必须整块省略 pip（而不是留一个空的 pip { }，那既无意义也可能不被 Gradle 接受）。
+test('最小原型模式：空清单不产出 pip 块，且 Gradle 结构仍然平衡', () => {
+  const gradle = [
+    'apply plugin: "com.android.application"',
+    'android {',
+    '    defaultConfig {',
+    '        applicationId "com.pppxxxy.easychat2"',
+    '    }',
+    '}',
+  ].join('\n');
+  const empty = T.applyChaquopyConfig(gradle, { packages: [] });
+  assert.equal(/pip\s*\{/.test(empty), false, '空清单不应产出 pip 块');
+  assert.ok(empty.includes('python {'), 'python 块本身仍要在');
+  assert.ok(empty.includes(`version "${T.PYTHON_VERSION}"`), '版本仍要钉住');
+  assert.equal((empty.match(/\{/g) || []).length, (empty.match(/\}/g) || []).length, '大括号平衡');
+
+  // 非空时 pip 块必须在，且每条都带 install
+  const full = T.applyChaquopyConfig(gradle);
+  assert.ok(/pip\s*\{/.test(full), '非空清单要有 pip 块');
+  assert.equal((full.match(/install "/g) || []).length, T.BUNDLED_PACKAGES.length);
+  assert.equal((full.match(/\{/g) || []).length, (full.match(/\}/g) || []).length, '大括号平衡');
+});
+
 test('truncatePythonOutput / formatPythonResult：截断标明、错误码即失败', () => {
   const small = truncatePythonOutput('ok');
   assert.deepEqual(small, { text: 'ok', truncated: false });
@@ -81,6 +140,14 @@ test('插件纯变换：apply plugin / python 块 / classpath / MainApplication 
   assert.ok(withConfig.includes('buildPython "python3"'));
   assert.ok(withConfig.includes(`install "${PYTHON_BUNDLED_PACKAGES[0]}"`), '构建期依赖来自同一份清单');
   assert.ok(withConfig.includes('abiFilters "arm64-v8a", "x86_64"'));
+  // app 内 Python 版本必须显式钉住：不写 version 就吃 Chaquopy 默认值，
+  // 换 Chaquopy 版本时 app 内 Python 会悄悄换版，而已装的包未必有对应 wheel。
+  assert.ok(withConfig.includes(`version "${T.PYTHON_VERSION}"`), '显式声明 app 内 Python 版本');
+  // 依赖必须全部锁版本：不锁则同一份源码在不同时间构建会装到不同版本。
+  PYTHON_BUNDLED_PACKAGES.forEach(name => {
+    assert.ok(/==[0-9]/.test(name), `依赖必须锁版本号：${name}`);
+    assert.ok(withConfig.includes(`install "${name}"`), `pip 块应含 ${name}`);
+  });
   assert.equal(T.applyChaquopyConfig(withConfig), withConfig, '幂等');
   // 已有 abiFilters 时不再插一份，避免两处冲突。
   const preFiltered = T.applyChaquopyConfig(`${appGradle}\n    ndk { abiFilters "arm64-v8a" }`);

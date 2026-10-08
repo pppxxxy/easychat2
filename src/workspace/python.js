@@ -14,8 +14,21 @@ import { sanitizeSandboxId } from './paths.js';
 import { tActive } from '../i18n/index.js';
 
 export const PYTHON_OUTPUT_LIMIT = 64 * 1024;
+
 // 与 plugins/withChaquopy.js 的 BUNDLED_PACKAGES 保持一致（构建期依赖清单）。
-export const PYTHON_BUNDLED_PACKAGES = Object.freeze(['requests==2.31.0']);
+//
+// **两处必须同步**，这是刻意保留的重复：插件是预构建期脚本（Node CJS，跑在
+// Gradle 之前），JS 层是应用运行期模块（跑在设备上），运行时无法互相 import。
+// 不一致的后果是「界面显示的依赖 ≠ 真正打进包的依赖」——用户在界面上看到
+// requests 2.31 就以为装的是它。所以这里加了测试逐条比对两边清单。
+// 版本依据见 withChaquopy.js 的注释（requests 升到 2.34.2 修两个 CVE）。
+export const PYTHON_BUNDLED_PACKAGES = Object.freeze([
+  'requests==2.34.2',
+  'charset-normalizer==3.5.2',
+  'idna==3.20',
+  'urllib3==2.8.0',
+  'certifi==2026.7.22',
+]);
 
 let rnState;
 function getReactNative() {

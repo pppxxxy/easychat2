@@ -30,9 +30,38 @@ const PACKAGE_CLASS = 'PythonBridgePackage';
 const CHAQUOPY_GRADLE_VERSION = '16.1.0';
 
 // 构建时装进 APK 的包（pip 块）。改这里就要重新构建 APK 才生效。
-const BUNDLED_PACKAGES = [
-  'requests==2.31.0',
+//
+// 依赖全部钉死且含传递依赖：Chaquopy 的 pip 走它自己的索引，不锁版本时
+// 同一份源码在不同时间构建会装到不同版本（结果不可复现，也无法审计）。
+//
+// requests 版本选择依据（2026-10-08 在 OSV 核实）：
+//   · CVE-2024-47081（.netrc 凭据泄露）修于 2.32.4；
+//   · CVE-2026-25645（临时文件复用）修于 2.33.0。
+// 原先钉的 2.31.0 两条都中，故升到 2.34.2（当前 PyPI 最新稳定版）。
+// 传递依赖按 requests 2.34.2 的 requires_dist 取当前稳定版：
+//   charset_normalizer<4,>=2 / idna<4,>=2.5 / urllib3<3,>=1.26 / certifi>=2023.5.7
+const REAL_PACKAGES = [
+  'requests==2.34.2',
+  'charset-normalizer==3.5.2',
+  'idna==3.20',
+  'urllib3==2.8.0',
+  'certifi==2026.7.22',
 ];
+
+// 最小原型开关：`EASYCHAT2_PYTHON_MINIMAL=1` 时 pip 块留空，只验 Chaquopy 本身
+// 能否把解释器打进去、能否初始化。
+//
+// 为什么需要它：Gradle 接线出错与 pip 装包出错，在日志里都是「构建失败」，
+// 一次装全了再失败就分不清是哪一类。先空手跑通一次，把变量收敛到一个。
+// 确认通过后去掉这个环境变量重新构建即可（清单会自动恢复）。
+const MINIMAL_BUILD = String(process.env.EASYCHAT2_PYTHON_MINIMAL || '') === '1';
+const BUNDLED_PACKAGES = MINIMAL_BUILD ? [] : REAL_PACKAGES;
+
+// app 内 Python 版本：显式钉住，不吃 Chaquopy 的默认值（16.1 默认 3.8）。
+// 选 3.13 的理由：16.1 支持 3.9–3.13，3.13 与 requests 2.34.x 要求的
+// >=3.10 兼容；且本机 Python 3.13 满足 16.1 的 buildPython 要求（>=3.8）。
+const PYTHON_VERSION = '3.13';
+const BUILD_PYTHON = 'python3';
 
 // 双 ABI 与 app.json 的 expo-build-properties buildArchs 对齐。
 const ABI_FILTERS = ['arm64-v8a', 'x86_64'];
@@ -54,13 +83,37 @@ function applyChaquopyPlugin(contents) {
 // app/build.gradle：往 defaultConfig 里塞 ndk.abiFilters 与 python 块（幂等）。
 // Chaquopy 要求显式 abiFilters；若文件里已有 abiFilters（例如 expo-build-properties
 // 生成过），就不再插入我们这份，避免两处冲突。
-function applyChaquopyConfig(contents, { packages = BUNDLED_PACKAGES, abiFilters = ABI_FILTERS } = {}) {
+//
+// 语法：用**旧的嵌套 DSL**（android.defaultConfig.python{...}）。这不是将就——
+// Chaquopy 15.0.1 引入顶层 chaquopy 块后明确写着「Kotlin 必须用新 DSL，
+// Groovy 两种都能用」，且旧 DSL 在 16.1 未被弃用（changelog 的 Deprecations
+// 段落只列了 minSdk 与 buildPython 门槛）。选旧 DSL 是因为它与
+// withBuildProperties 注入的 android.defaultConfig 同处一块，插入点稳定。
+function applyChaquopyConfig(contents, {
+  packages = BUNDLED_PACKAGES,
+  abiFilters = ABI_FILTERS,
+  pythonVersion = PYTHON_VERSION,
+  buildPython = BUILD_PYTHON,
+} = {}) {
   if (/python\s*\{/.test(contents) && /com\.chaquo\.python/.test(contents)) return contents;
-  const pipLines = packages.map(name => `                install "${name}"`).join('\n');
+  const pipLines = packages.map(name => `                    install "${name}"`).join('\n');
   const ndkBlock = /abiFilters/.test(contents)
     ? ''
     : `            ndk {\n                abiFilters ${abiFilters.map(name => `"${name}"`).join(', ')}\n            }\n`;
-  const pythonBlock = `            python {\n                buildPython "python3"\n                pip {\n${pipLines}\n                }\n            }\n`;
+  // 空清单时整块省略 pip：留一个空的 pip { } 块没有意义，也可能不被 Gradle 接受。
+  const pipBlock = packages.length > 0
+    ? ['                pip {', pipLines, '                }']
+    : [];
+  const pythonBlock = [
+    '            python {',
+    // 显式钉版本：不吃 Chaquopy 默认值，避免「换 Chaquopy 版本 → app 内 Python
+    // 悄悄换版 → 已装的包没有对应 wheel」这种构建期才暴露的问题。
+    `                version "${pythonVersion}"`,
+    `                buildPython "${buildPython}"`,
+    ...pipBlock,
+    '            }',
+    '',
+  ].join('\n');
   const injected = `${ndkBlock}${pythonBlock}`;
   const match = contents.match(/^(\s*)defaultConfig\s*\{$/m);
   if (!match) throw new Error('withChaquopy: 找不到 defaultConfig 块，无法注入 python 配置');
@@ -174,6 +227,8 @@ module.exports.__testables = {
   BUNDLED_PACKAGES,
   ABI_FILTERS,
   CHAQUOPY_GRADLE_VERSION,
+  PYTHON_VERSION,
+  BUILD_PYTHON,
   BRIDGE_PACKAGE,
   PACKAGE_CLASS,
   applyChaquopyPlugin,
