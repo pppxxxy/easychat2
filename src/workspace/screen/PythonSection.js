@@ -18,6 +18,7 @@ import { defaultWorkspaceRoot } from '../native.js';
 import { sandboxPathFromUri } from '../shell.js';
 import {
   isPythonAvailable,
+  probeInstalledPackages,
   PYTHON_BUNDLED_PACKAGES,
   pythonCwdPath,
   pythonGateReason,
@@ -32,6 +33,11 @@ export default function PythonSection({ characterId }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [gate, setGate] = useState('NOT_BUNDLED');
+  // 解释器能否启动要问原生（异步）：Chaquopy 的「模块已注册」不等于「Python 能跑」，
+  // 上一版把前者当后者显示，用户点运行才看到报错。首次启动要解压标准库，故有加载态。
+  const [checking, setChecking] = useState(true);
+  // 实装依赖（向解释器查）：null = 没查到（回落成「构建时声明」的说法）。
+  const [installed, setInstalled] = useState(null);
   const [code, setCode] = useState(DEFAULT_CODE);
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -48,22 +54,32 @@ export default function PythonSection({ characterId }) {
     (async () => {
       try {
         const settings = await getWorkspaceSettings();
+        const available = await isPythonAvailable();
         if (!alive) return;
-        setGate(pythonGateReason(settings, { pythonAvailable: isPythonAvailable() }));
+        setGate(pythonGateReason(settings, { pythonAvailable: available }));
         try {
           cwdRef.current = pythonCwdPath(sandboxPathFromUri(defaultWorkspaceRoot()).replace(/\/+$/, ''), characterId);
         } catch (error) {
           cwdRef.current = '';
         }
+        // 声明 ≠ 实装：最小原型构建会跳过 pip 块，照清单显示「已打进 APK」就是假话。
+        // 只有解释器真能用时才去查（否则探测必然失败、白跑一次）。
+        if (available && cwdRef.current) {
+          const probed = await probeInstalledPackages({ cwdPath: cwdRef.current });
+          if (!alive) return;
+          setInstalled(probed);
+        }
       } catch (error) {
         if (alive) setGate('NOT_BUNDLED');
+      } finally {
+        if (alive) setChecking(false);
       }
     })();
     return () => { alive = false; };
   }, [characterId]);
 
   const run = useCallback(async () => {
-    if (busy || gate !== '' || !cwdRef.current) return;
+    if (busy || checking || gate !== '' || !cwdRef.current) return;
     setBusy(true);
     setResult(null);
     try {
@@ -76,12 +92,17 @@ export default function PythonSection({ characterId }) {
     } finally {
       if (mountedRef.current) setBusy(false);
     }
-  }, [busy, code, gate]);
+  }, [busy, checking, code, gate]);
 
   return (
     <View style={styles.section}>
       <FieldLabel>{t('workspace.python.title')}</FieldLabel>
-      {gate === '' ? (
+      {checking ? (
+        <View style={styles.statusRow}>
+          <ActivityIndicator size="small" color={theme.colors.primaryMuted} />
+          <Text style={styles.statusText}>{t('workspace.python.checking')}</Text>
+        </View>
+      ) : gate === '' ? (
         <View style={styles.statusRow}>
           <Ionicons name="checkmark-circle-outline" size={15} color={theme.colors.primary} />
           <Text style={styles.statusText}>{t('workspace.python.available')}</Text>
@@ -90,10 +111,29 @@ export default function PythonSection({ characterId }) {
         <FieldHint>{t(`workspace.python.gate.${gate === 'EXTERNAL_ROOT' ? 'externalRoot' : 'notBundled'}`)}</FieldHint>
       )}
 
-      <FieldHint>{t('workspace.python.bundled', { list: PYTHON_BUNDLED_PACKAGES.join(', ') || '—' })}</FieldHint>
+      {/* 依赖清单要区分「实装」与「声明」：最小原型构建跳过 pip 块，
+          此时照声明清单显示「已打进 APK」就是假话（真机截图踩过）。 */}
+      {installed ? (
+        installed.installed.length > 0 ? (
+          <FieldHint>
+            {t('workspace.python.bundled.installed', {
+              list: installed.installed.map(item => `${item.name}==${item.version}`).join(', '),
+            })}
+          </FieldHint>
+        ) : (
+          <FieldHint>{t('workspace.python.bundled.none')}</FieldHint>
+        )
+      ) : (
+        <FieldHint>{t('workspace.python.bundled', { list: PYTHON_BUNDLED_PACKAGES.join(', ') || '—' })}</FieldHint>
+      )}
+      {installed && installed.missing.length > 0 ? (
+        <FieldHint>
+          {t('workspace.python.bundled.missing', { list: installed.missing.join(', ') })}
+        </FieldHint>
+      ) : null}
       <FieldHint>{t('workspace.python.noKill')}</FieldHint>
 
-      {gate === '' ? (
+      {!checking && gate === '' ? (
         <>
           <TextInput
             style={[styles.input, styles.code]}

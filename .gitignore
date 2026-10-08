@@ -30,3 +30,6 @@ ios/
 npm-debug.log*
 # 本地手工大卡解析测试素材：不进版本库，仅保留在工作区
 default.jpg
+
+# 临时探针目录（核对第三方库签名时下载的 jar/sources，用完即删）
+.p/

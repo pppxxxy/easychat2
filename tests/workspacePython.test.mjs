@@ -12,6 +12,11 @@ import { createRequire } from 'node:module';
 import {
   formatPythonResult,
   isPythonAvailable,
+  isPythonBridgePresent,
+  buildPackageProbeScript,
+  packageNamesOf,
+  parsePackageProbe,
+  probeInstalledPackages,
   PYTHON_BUNDLED_PACKAGES,
   PYTHON_OUTPUT_LIMIT,
   pythonCwdPath,
@@ -120,7 +125,109 @@ test('runPythonScript：空代码/无原生模块拒绝；正常路径走注入�
   const result = await runPythonScript({ code: 'print(1)', cwdPath: '/data/ws/c1', native });
   assert.deepEqual(calls, [{ code: 'print(1)', cwd: '/data/ws/c1' }]);
   assert.equal(result.stdout, '1\n');
-  assert.equal(isPythonAvailable(), false, 'Node 环境没有原生模块');
+  assert.equal(await isPythonAvailable(), false, 'Node 环境没有原生模块');
+});
+
+// 2026-10-08 真机 bug 换来的断言：界面曾把「桥已注册」当「Python 能跑」显示，
+// 用户点运行才看到 Chaquopy 的 "Cannot use GenericPlatform on Android" 报错。
+// 两者是不同的事——模块注册只说明 APK 带了桥，解释器能不能启动只有原生知道。
+test('可用性：必须问原生（isAvailable），不能只看桥是否注册', async () => {
+  // 桥注册了但原生说启动失败 → 仍算不可用（这正是真机上发生的情况）
+  const registeredButBroken = {
+    runScript: async () => ({}),
+    isAvailable: async () => false,
+  };
+  assert.equal(await isPythonAvailable({ native: registeredButBroken }), false,
+    '原生报不可用时必须返回 false（旧实现会误报 true）');
+
+  const healthy = { runScript: async () => ({}), isAvailable: async () => true };
+  assert.equal(await isPythonAvailable({ native: healthy }), true);
+
+  // 老版本原生没有 isAvailable：不能乐观假定可用，按不可用处理（失败要看得见）
+  const legacyNative = { runScript: async () => ({}) };
+  assert.equal(await isPythonAvailable({ native: legacyNative }), false,
+    '原生缺 isAvailable 时应保守判为不可用');
+
+  // 原生抛错（启动异常）→ 不可用，且不得把异常抛给界面
+  const throwing = {
+    runScript: async () => ({}),
+    isAvailable: async () => { throw new Error('boom'); },
+  };
+  assert.equal(await isPythonAvailable({ native: throwing }), false);
+
+  // 桥都没注册 → 直接 false，不去调原生
+  assert.equal(await isPythonAvailable({ native: null }), false);
+  assert.equal(await isPythonAvailable({ native: {} }), false);
+});
+
+test('isPythonBridgePresent：只描述「桥是否注册」，与可用性区分开', () => {
+  assert.equal(isPythonBridgePresent({ native: { runScript: async () => ({}) } }), true);
+  assert.equal(isPythonBridgePresent({ native: {} }), false);
+  assert.equal(isPythonBridgePresent({ native: null }), false);
+});
+
+// 第三个真机显示问题：面板照「构建时声明」的清单显示「已打进 APK 的依赖」，
+// 但最小原型构建跳过了 pip 块，那些包根本不在包里。声明 ≠ 实装，必须向解释器查。
+test('实装探测：解析解释器输出，区分已装与缺失', () => {
+  const declared = ['requests==2.34.2', 'urllib3==2.8.0', 'idna==3.20'];
+  const script = buildPackageProbeScript(declared);
+  // 脚本按发行名查（去掉 ==版本），并且不把版本约束带进 importlib.metadata
+  assert.ok(script.includes("'requests'") && !script.includes('requests=='), '探测脚本按发行名查');
+  assert.ok(script.includes('importlib.metadata'), '用标准库查实装版本');
+
+  const stdout = [
+    '__ech2_pkg__\trequests\t2.34.2',
+    '__ech2_pkg__\turllib3\t2.8.0',
+    '__ech2_pkg__\tidna\t',            // 解释器里没有（版本为空）
+    '一些无关的杂项输出',                 // 忽略
+  ].join('\n');
+  const probed = parsePackageProbe(stdout, declared);
+  assert.deepEqual(probed.installed, [
+    { name: 'requests', version: '2.34.2' },
+    { name: 'urllib3', version: '2.8.0' },
+  ]);
+  assert.deepEqual(probed.missing, ['idna']);
+});
+
+test('实装探测：最小原型构建（一个都没装）如实报告全部缺失', () => {
+  const declared = PYTHON_BUNDLED_PACKAGES;
+  const stdout = packageNamesOf(declared).map(name => `__ech2_pkg__\t${name}\t`).join('\n');
+  const probed = parsePackageProbe(stdout, declared);
+  assert.equal(probed.installed.length, 0);
+  assert.equal(probed.missing.length, declared.length, '全缺时不能谎报已装');
+});
+
+test('probeInstalledPackages：探测失败返回 null（界面回落成「声明」说法）', async () => {
+  const declared = ['requests==2.34.2'];
+  // 原生不可用
+  assert.equal(await probeInstalledPackages({ cwdPath: '/x', packages: declared, native: null }), null);
+  // 没有工作目录
+  assert.equal(await probeInstalledPackages({ cwdPath: '', packages: declared, native: { runScript: async () => ({}) } }), null);
+  // 执行报错
+  const failing = { runScript: async () => ({ stdout: '', stderr: 'boom', exitCode: 1 }) };
+  assert.equal(await probeInstalledPackages({ cwdPath: '/x', packages: declared, native: failing }), null);
+  // 抛异常
+  const throwing = { runScript: async () => { throw new Error('x'); } };
+  assert.equal(await probeInstalledPackages({ cwdPath: '/x', packages: declared, native: throwing }), null);
+
+  // 正常路径：探测脚本确实被送进原生执行
+  const calls = [];
+  const ok = {
+    runScript: async (code, cwd) => {
+      calls.push({ code, cwd });
+      return { stdout: '__ech2_pkg__\trequests\t2.34.2', stderr: '', exitCode: 0 };
+    },
+  };
+  const result = await probeInstalledPackages({ cwdPath: '/data/ws/c1', packages: declared, native: ok });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cwd, '/data/ws/c1');
+  assert.deepEqual(result.installed, [{ name: 'requests', version: '2.34.2' }]);
+});
+
+test('实装探测：包名为空时不生成脚本（不白跑一次解释器）', () => {
+  assert.equal(buildPackageProbeScript([]), '');
+  assert.equal(buildPackageProbeScript(null), '');
+  assert.deepEqual(parsePackageProbe('', []), { installed: [], missing: [] });
 });
 
 test('插件纯变换：apply plugin / python 块 / classpath / MainApplication 注册（幂等）', () => {
@@ -263,6 +370,36 @@ test('Chaquopy 桥：不得对 PyObject 用下标访问或 asMap()（Kotlin 编�
   assert.ok(/result\.get\("stdout"\)/.test(code), '应使用 PyObject.get("stdout") 取值');
   assert.ok(/result\.get\("stderr"\)/.test(code), '应使用 PyObject.get("stderr") 取值');
   assert.ok(/result\.get\("exitCode"\)/.test(code), '应使用 PyObject.get("exitCode") 取值');
+});
+
+// 第二个真机 bug（2026-10-08）：APK 装上了、面板显示「可用」，一点运行就报
+// "Cannot use GenericPlatform on Android. Call Python.start(new AndroidPlatform(context))
+// before using Python"。根因是桥从没启动过解释器——Chaquopy 的 Python.getInstance()
+// 在未启动时会自动用 GenericPlatform，而它在 Android 上必然抛异常。
+// 这条**编译得过、单测也能过**，只有真机能暴露，所以钉在文本断言上：
+// 必须先 ensureStarted()（内部 Python.start(AndroidPlatform(...))）再取实例。
+test('Chaquopy 桥：必须先 Python.start(AndroidPlatform) 再使用解释器', () => {
+  const source = fs.readFileSync(path.join(KOTLIN_DIR, 'PythonBridgeModule.kt'), 'utf8');
+  const code = source
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  assert.ok(/import com\.chaquo\.python\.android\.AndroidPlatform/.test(code),
+    '必须导入 AndroidPlatform（用 GenericPlatform 在 Android 上必炸）');
+  assert.ok(/Python\.start\(AndroidPlatform\(reactContext\)\)/.test(code),
+    '必须调用 Python.start(AndroidPlatform(reactContext))');
+  assert.ok(/Python\.isStarted\(\)/.test(code), '启动前要判 isStarted（start 只能成功一次）');
+  // 启动必须幂等且容忍并发：两个线程同时启动时，后到者会收到
+  // IllegalStateException("Python already started")——那不是失败。
+  assert.ok(/catch \(error: IllegalStateException\)/.test(code),
+    '要显式捕获重复启动的 IllegalStateException');
+  // 每一处取实例之前都要先确保已启动
+  const getInstanceCount = (code.match(/Python\.getInstance\(\)/g) || []).length;
+  const ensureCount = (code.match(/ensureStarted\(\)/g) || []).length;
+  assert.ok(getInstanceCount > 0, '确实在用 getInstance');
+  assert.ok(ensureCount >= getInstanceCount,
+    `每处 getInstance 之前都要先 ensureStarted（getInstance ${getInstanceCount} 处，ensureStarted ${ensureCount} 处）`);
 });
 
 test('Python 辅助模块：捕获输出、切回原目录、无运行时装包', () => {

@@ -1,6 +1,7 @@
 package com.pppxxxy.easychat2.pythonbridge
 
 import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -27,15 +28,26 @@ class PythonBridgeModule(private val reactContext: ReactApplicationContext) :
 
     override fun getName() = "PythonBridge"
 
-    /** 解释器是否可用（模块已随 APK 打包）。界面据此决定是否显示 Python 入口。 */
+    /**
+     * 解释器是否**真的能用**（不是「模块是否注册」）。
+     *
+     * 这里必须实际尝试启动一次：Chaquopy 的 Python.getInstance() 在未启动时会自动用
+     * GenericPlatform，而 GenericPlatform 在 Android 上直接抛异常
+     * （Cannot use GenericPlatform on Android...）。也就是说「模块已注册」与
+     * 「Python 能跑」是两件事——上一版界面把前者显示成后者，用户点运行才看到报错。
+     *
+     * 启动是重操作（首次要解压标准库到应用目录），放后台线程，避免阻塞 RN 线程。
+     */
     @ReactMethod
     fun isAvailable(promise: Promise) {
-        try {
-            Python.getInstance()
-            promise.resolve(true)
-        } catch (error: Throwable) {
-            promise.resolve(false)
-        }
+        Thread {
+            try {
+                ensureStarted()
+                promise.resolve(true)
+            } catch (error: Throwable) {
+                promise.resolve(false)
+            }
+        }.start()
     }
 
     @ReactMethod
@@ -54,9 +66,10 @@ class PythonBridgeModule(private val reactContext: ReactApplicationContext) :
             return
         }
 
-        // 不能在 RN 线程上跑：exec 是同步阻塞的。
+        // 不能在 RN 线程上跑：exec 是同步阻塞的，启动本身（解压标准库）也慢。
         Thread {
             try {
+                ensureStarted()
                 val module = Python.getInstance().getModule("easychat2_bridge")
                 val result = module.callAttr("run_code", code, cwdPath)
                 val map: WritableMap = Arguments.createMap()
@@ -74,5 +87,25 @@ class PythonBridgeModule(private val reactContext: ReactApplicationContext) :
                 promise.reject("python_failed", error.message ?: "Python 执行失败。")
             }
         }.start()
+    }
+
+    /**
+     * 确保解释器已启动（幂等）。
+     *
+     * Android 上必须用 AndroidPlatform：它负责按 ABI 定位解释器与标准库资源
+     * （chaquopy/build.json、stdlib-<abi>.zip）。Python.start() 只能成功调用一次，
+     * 且必须在任何 getInstance() 之前。
+     *
+     * 竞态处理：两个线程同时判断「未启动」时，后到的 start() 会抛
+     * IllegalStateException("Python already started")——那不是失败，只要最终确实
+     * 启动了就当成功，否则才把异常抛出去。
+     */
+    private fun ensureStarted() {
+        if (Python.isStarted()) return
+        try {
+            Python.start(AndroidPlatform(reactContext))
+        } catch (error: IllegalStateException) {
+            if (!Python.isStarted()) throw error
+        }
     }
 }

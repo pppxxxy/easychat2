@@ -48,9 +48,99 @@ export function getPythonNative() {
   return modules.PythonBridge || null;
 }
 
-export function isPythonAvailable() {
-  const native = getPythonNative();
+// 「原生模块注册了没」——只说明这个 APK 带了桥，**不代表 Python 真能跑**。
+// 界面不要用这个判断可用性（曾因此把「已打包」显示成「运行时可用」）。
+export function isPythonBridgePresent({ native = getPythonNative() } = {}) {
   return Boolean(native && typeof native.runScript === 'function');
+}
+
+// 「Python 真的能用」——问原生（它会实际尝试启动解释器）。
+// 为什么必须问原生：Chaquopy 的 Python.getInstance() 在未启动时会自动用
+// GenericPlatform，而 GenericPlatform 在 Android 上必然抛异常，所以「模块已注册」
+// 与「解释器能启动」是两件事。异步是因为启动要把标准库解压到应用目录，首次较慢。
+export async function isPythonAvailable({ native = getPythonNative() } = {}) {
+  if (!native || typeof native.runScript !== 'function') return false;
+  if (typeof native.isAvailable !== 'function') return false;
+  try {
+    return (await native.isAvailable()) === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// ---- 实装探测：声明 ≠ 实装 ----
+//
+// PYTHON_BUNDLED_PACKAGES 只是**构建时声明的清单**。最小原型构建（minimalPackages）
+// 会跳过 pip 块，此时清单里那些包根本不在 APK 里；界面若照清单显示「已打进 APK」，
+// 就成了假话（用户真机截图里就是这个情况）。所以这里向解释器本身查实装。
+//
+// 纯逻辑（脚本生成 + 输出解析）可 Node 直测；执行走同一个 runScript 通道。
+
+const PACKAGE_PROBE_MARK = '__ech2_pkg__';
+
+// 发行名去掉版本约束：importlib.metadata 按发行名查，不吃 "==版本"。
+export function packageNamesOf(packages) {
+  return (Array.isArray(packages) ? packages : [])
+    .map(item => String(item || '').split('==')[0].trim())
+    .filter(Boolean);
+}
+
+// 生成探测脚本：逐个查发行名，输出带固定标记的行，便于稳健解析。
+export function buildPackageProbeScript(packages) {
+  const names = packageNamesOf(packages);
+  if (names.length === 0) return '';
+  const literal = names.map(name => `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`).join(', ');
+  return [
+    'import importlib.metadata as _ech2_md',
+    `for _ech2_name in [${literal}]:`,
+    '    try:',
+    `        _ech2_ver = _ech2_md.version(_ech2_name)`,
+    '    except Exception:',
+    `        _ech2_ver = ''`,
+    `    print('${PACKAGE_PROBE_MARK}' + '\\t' + _ech2_name + '\\t' + _ech2_ver)`,
+  ].join('\n');
+}
+
+// 解析探测输出 → { installed: [{name, version}], missing: [name] }
+// 认不出的行直接忽略（stdout 可能混入 import 期间的杂项输出）。
+export function parsePackageProbe(stdout, packages) {
+  const names = packageNamesOf(packages);
+  const found = new Map();
+  String(stdout || '').split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(PACKAGE_PROBE_MARK)) return;
+    const [, name, version] = trimmed.split('\t');
+    if (!name) return;
+    found.set(String(name).trim(), String(version || '').trim());
+  });
+  const installed = [];
+  const missing = [];
+  names.forEach(name => {
+    if (found.has(name) && found.get(name)) {
+      installed.push({ name, version: found.get(name) });
+    } else {
+      missing.push(name);
+    }
+  });
+  return { installed, missing };
+}
+
+// 向解释器查实装清单。原生不可用 / 探测失败时返回 null，
+// 让界面退回「构建时声明」的说法，而不是假装知道实装。
+export async function probeInstalledPackages({
+  cwdPath,
+  packages = PYTHON_BUNDLED_PACKAGES,
+  native = getPythonNative(),
+} = {}) {
+  const script = buildPackageProbeScript(packages);
+  if (!script || !cwdPath) return null;
+  try {
+    const result = await runPythonScript({ code: script, cwdPath, native });
+    if (!result || result.isError) return null;
+    return parsePackageProbe(result.stdout, packages);
+  } catch (error) {
+    return null;
+  }
 }
 
 // 输出截断：与 shell 同一口径，标明截断而不是假装这就是全部。
