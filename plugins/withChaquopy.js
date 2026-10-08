@@ -4,14 +4,19 @@
 // gitignored 目录，Kotlin 与 Python 源码保存在 plugins/chaquopy/android/，prebuild 时
 // 拷进 android/ 并完成注册与 Gradle 接线。
 //
-// **已启用（2026-10-08）**，但分两步走：
-//   第一步 = 最小原型（app.json 里 minimalPackages:true，只打解释器不装第三方包），
-//   第二步 = 装第三方包（把那个 prop 改成 false 或整项简写成字符串，重新构建）。
+// **已启用（2026-10-08）**，分两步走，现在在**第二步**：
+//   第一步 = 最小原型（app.json 里 minimalPackages:true，只打解释器不装第三方包）
+//     ——**真机已通过**：面板「运行时可用」，`print("hello from Python")` 输出被捕获、
+//     退出码 0（第三轮才修好取值语义，见审查待办「第三次真机往返」）。
+//   第二步 = 装第三方包（app.json 里 minimalPackages 改 false，即当前状态）：
+//     pip 块带上 REAL_PACKAGES 的 5 个包。**待真机验证**。
 // 分步的原因：Chaquopy 是 Gradle 级集成，expo export 不编译 Kotlin、本仓库的
 // Node 测试也碰不到 Gradle，这条链路只能靠真机 APK 构建验证；而「Gradle 接线错」
 // 与「pip 装包错」在日志里都是「构建失败」，一次装全了会分不清是哪一类。
+// 第一步过了之后，第二步的失败基本只可能出在装包本身。
 //
-// 回退：从 app.json 的 expo.plugins 里删掉本插件即可，不影响任何其它功能。
+// 回退：把 minimalPackages 改回 true（回到已知可用的最小原型），或从 app.json 的
+// expo.plugins 里删掉本插件（完全移除 Python），都不影响任何其它功能。
 // 构建前后的走查清单见 SMOKE_TEST.md §16。
 //
 // 已按核实报告 §2.4 修正：Chaquopy 只能在构建时用 pip 块装包，**没有运行时 pip**，

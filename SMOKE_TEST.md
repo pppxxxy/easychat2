@@ -420,36 +420,37 @@ UI 层与 hooks 被 `.c8rc.json` 排除（`react-native` 无法在纯 Node 测�
 Python 是 **Gradle 级集成**：`expo export` 不编译 Kotlin、Node 测试碰不到 Gradle，
 所以这一节只能靠**真机 APK 构建**验证。
 
-**当前状态（2026-10-08 起）**：已接入 `app.json`，且**第一步是最小原型**——
-`["./plugins/withChaquopy", { "minimalPackages": true }]`，只打解释器、pip 块留空。
+**当前状态（2026-10-08）**：已接入 `app.json`，**第一步已真机通过**，现在是
+**第二步**——`["./plugins/withChaquopy", { "minimalPackages": false }]`，pip 块带上 5 个包。
 
 ### 16.1 两步验证（重要：不要一次装全）
 
 失败时「Gradle 接线错」与「pip 装包错」在日志里都是「构建失败」，一次装全会分不清，
 所以刻意分两步：
 
-**第一步（当前状态，最小原型）** —— 验 Chaquopy 本身能否打进包并初始化：
+**第一步（✅ 2026-10-08 真机通过）** —— 验 Chaquopy 本身能否打进包并初始化：
 
-- [ ] 构建成功（不报 `com.chaquo.python` 相关错误）；
-- [ ] 记录 APK 体积增量（双 ABI 下预计 +15~25MB）；
-- [ ] 装到真机能启动，**不闪退**；
-- [ ] 设置 → 工作区 → Python 小节显示「可用」（先显示「正在检查…」，首次启动要解压标准库）；
-- [ ] 手输 `print(1+1)` 运行：输出区出现 `2`，退出码 0。
-      **只看到「退出码 0」不算通过**——2026-10-08 正是这样漏过一次：桥的取值语义错了，
-      stdout 恒为空，而退出码恰好落在兜底值 0 上（详见审查待办的「第三次真机往返」）。
-- [ ] 依赖行如实反映实装：最小原型构建下应显示「解释器里没有任何第三方包」
-      并列出「声明但实际缺失」的 5 个包，而不是照声明谎报已打进包；
-- [ ] 首启不卡顿（首次要解压标准库到应用目录）。
+- [x] 构建成功（`com.chaquo.python` 接线无误）；
+- [x] 装到真机能启动，**不闪退**；
+- [x] 设置 → 工作区 → Python 小节显示「运行时可用（已随 APK 打包）」；
+- [x] 手输 `print("hello from Python")` 运行：**输出区出现 `hello from Python`**，退出码 0。
+      注：这一步真机上往返了**三次**才过——先是 Kotlin 编译失败（`PyObject.asMap()` 类型推断），
+      再是解释器没启动（`Cannot use GenericPlatform on Android`），最后是「有退出码、没输出」
+      （`PyObject.get` 其实是 `getattr`，取不到字典项）。三次都是「Node 测试全绿、只有真机暴露」，
+      经过见审查待办的「第三次真机往返」。
+- [x] 依赖行如实反映实装：最小原型构建下显示「解释器里没有任何第三方包」并列出
+      「声明但实际缺失」的 5 个包（不再照声明谎报已打进包）。
 
-**第二步（把 `app.json` 里 `minimalPackages` 改成 `false` 或整项简写为
-`"./plugins/withChaquopy"`，重新构建）** —— 验 pip：
+**第二步（当前状态）** —— 验 pip 装包：
 
-- [ ] 构建日志里 5 个包安装成功（requests / charset-normalizer / idna / urllib3 / certifi）；
-- [ ] 面板「已打进 APK 的依赖」与构建日志一致；
-- [ ] 运行 `import requests; print(requests.__version__)` 输出 `2.34.2`。
+- [ ] 构建成功（日志里 5 个包安装成功：requests / charset-normalizer / idna / urllib3 / certifi）；
+- [ ] 面板依赖行改为实测结果：5 个包**全部列出并带版本号**（不再出现「声明但实际缺失」）；
+- [ ] 运行 `import requests; print(requests.__version__)` 输出 `2.34.2`；
+- [ ] 断网跑一次 `import requests`（只验证导入，不发请求）：应正常导入，不因缺包报错。
 
-**回退**：任何一步失败，从 `app.json` 的 `expo.plugins` 里删掉 withChaquopy 这一项即可，
-**不影响任何其它功能**。把失败日志记到审查待办。
+**回退**：装包失败时把 `minimalPackages` 改回 `true`（回到已知可用的最小原型），
+或从 `app.json` 的 `expo.plugins` 里删掉 withChaquopy 这一项（完全移除 Python），
+**都不影响任何其它功能**。把失败日志记到审查待办。
 
 ### 16.2 功能走查（两步都通过后）
 

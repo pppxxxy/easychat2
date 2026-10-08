@@ -285,18 +285,28 @@ test('插件纯变换：apply plugin / python 块 / classpath / MainApplication 
 // 这条的前提失效了——但**不能简单删掉**，因为它守的是「构建失败会不会连累
 // 其它功能」这件事。改为断言新的启用姿态：接入 app.json，且第一步是最小原型
 // （不装第三方包），这样即使 Gradle 接线有问题，暴露面也只有 Chaquopy 本身。
-test('启用姿态：已在 app.json 挂上，且第一步是最小原型（不装第三方包）', () => {
+// 状态变更（2026-10-08，真机第一步通过后）：原先断言「第一步是最小原型
+// （minimalPackages:true）」。真机已确认「解释器能启动、print 的输出被捕获、退出码 0」
+// （见审查待办「第三次真机往返」），所以第一步的目的（验 Gradle 接线）已达成，
+// 现在进入**第二步：装第三方包**（minimalPackages:false ⇒ pip 块带上 5 个包）。
+//
+// 这条不能只改成 false 了事——它真正守的是「随时能退回最小原型」这个回退能力：
+// 第二步若因装包失败，改一个 token 就能回到已知可用的构建。所以下面同时钉住
+// 「prop 机制还在」与「pip 块确实按清单生成」。
+test('构建姿态：已进入第二步（装第三方包），且保留退回最小原型的能力', () => {
   const appJson = JSON.parse(fs.readFileSync(path.resolve('app.json'), 'utf8'));
   const entry = (appJson.expo.plugins || [])
     .find(item => Array.isArray(item) && String(item[0]).includes('withChaquopy'));
   assert.ok(entry, 'app.json 应挂上 ./plugins/withChaquopy（用户已决定启用）');
-  assert.equal(entry[1] && entry[1].minimalPackages, true,
-    '第一步必须是最小原型（minimalPackages:true）：先只打解释器，把 Gradle 接线问题与 pip 装包问题分开暴露');
+  assert.equal(entry[1] && entry[1].minimalPackages, false,
+    '第二步：minimalPackages 必须为 false，pip 块才会带上第三方包（第一步已真机通过）');
 
   const source = fs.readFileSync(path.resolve('plugins/withChaquopy.js'), 'utf8');
   assert.ok(source.includes('没有运行时 pip'), '如实标注无运行时 pip（§2.4 修正）');
-  // 回退路径必须写清楚：失败时删掉 app.json 那一项即可，不影响其它功能。
-  assert.ok(/minimalPackages/.test(source), '插件支持最小原型 prop');
+  // 回退路径必须还在：装包失败时改回 true（或删掉 app.json 那一项）即可回到可用构建。
+  assert.ok(/minimalPackages/.test(source), '插件支持最小原型 prop（回退开关）');
+  assert.ok(/minimalPackages \? \{ packages: \[\] \} : \{\}/.test(source),
+    'prop 为 true 时必须仍然跳过 pip 块（否则「退回最小原型」是假的）');
   // Kotlin 桥与 Python 辅助模块都在 plugins/chaquopy/ 下（prebuild 时拷进 android/）。
   assert.ok(fs.existsSync(path.resolve('plugins/chaquopy/android/PythonBridgeModule.kt')));
   assert.ok(fs.existsSync(path.resolve('plugins/chaquopy/android/PythonBridgePackage.kt')));

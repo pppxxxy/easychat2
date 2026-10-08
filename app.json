@@ -30,7 +30,7 @@
     [
       "./plugins/withChaquopy",
       {
-        "minimalPackages": true
+        "minimalPackages": false
       }
     ],
       [
