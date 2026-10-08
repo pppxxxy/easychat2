@@ -760,6 +760,8 @@ data: [DONE]
 
 面板底部有「向助手下达指令」入口，打开**工作区指令对话框**（`src/workspace/WorkspaceChat.js`，纯消息构造在 `src/workspace/chat.js`）：内嵌迷你对话，直连 agent 工具循环（`runAgentTurn`，按当前工作模式暴露工具），流式回显；可附加文本文件（内容并入指令）/图片（多模态），可录音转文字（复用 `transcription.js` + 当前转写配置）。对话不持久化，关闭即清空；`run_shell` 的逐条确认复用 `src/chat/toolApproval.js`。工具跑完回调 `onFilesChanged` 刷新面板文件列表。该 UI 文件登记在 `.c8rc.json` 排除清单。
 
+系统提示按**注册表里真实存在的工具**补执行类说明（`workspace/chat.js` 的 `EXECUTION_TOOL_HINTS` / `workspaceExecutionToolHints`）：只有 `run_shell` / `run_python` 真注册了才写进去，且只写「可改」模式。`buildWorkspaceAgentSystemPrompt({ mode, characterName, tools })` 的 `tools` 必须是 `listToolsForMode()` 的结果——**注册表是唯一判据**，不能用设置里的开关代替（开关开着但原生模块缺失或根是外部文件夹时工具并不存在，提示词会承诺一个调不动的能力）。`run_python` 那条明确写着「写出代码片段不等于真的跑过」：这是 2026-10-08 真机现象换来的——模型没调工具，而是写了个 `>>> 1234 * 567` 的代码块把答案贴上去，看着像跑过了。**主聊天页（`useChatSend.js`）不做同类注入**：那里的 system 是用户自己写的角色卡，往角色扮演提示里塞工具说明会污染人设；工具定义本身已随请求下发，模型据此决定是否调用。
+
 设置页工作区卡片新增：**工作区文件夹**（选择/恢复默认，`src/workspace/picker.js`）、**允许执行命令**开关（需二次确认，只读模式/外部根下置灰）、**允许模型运行 Python**开关（同样二次确认；与命令执行相互独立）、**Python 环境**小节（`src/workspace/screen/PythonSection.js`：可用性 + 实装依赖 + 手动运行/停止）、**能力说明卡片**（1→5 循环 + 当前边界，数据在 `src/workspace/capabilities.js`）。
 
 ### 文件夹选择器
