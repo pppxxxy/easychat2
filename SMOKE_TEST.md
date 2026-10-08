@@ -418,31 +418,38 @@ UI 层与 hooks 被 `.c8rc.json` 排除（`react-native` 无法在纯 Node 测�
 ## 16. Python 运行时（Chaquopy，改动涉及时）
 
 Python 是 **Gradle 级集成**：`expo export` 不编译 Kotlin、Node 测试碰不到 Gradle，
-所以这一节只能靠**真机 APK 构建**验证。默认关闭（`app.json` 的 plugins 里没有它）。
+所以这一节只能靠**真机 APK 构建**验证。
 
-### 16.1 启用与两步验证（重要：不要一次装全）
+**当前状态（2026-10-08 起）**：已接入 `app.json`，且**第一步是最小原型**——
+`["./plugins/withChaquopy", { "minimalPackages": true }]`，只打解释器、pip 块留空。
 
-失败时「Gradle 接线错」与「pip 装包错」在日志里都是「构建失败」，一次装全会分不清。
-所以**先空手跑通一次**：
+### 16.1 两步验证（重要：不要一次装全）
 
-1. 在 `app.json` 的 `expo.plugins` 里加一行 `"./plugins/withChaquopy"`；
-2. **第一步（最小原型）**：设置环境变量 `EASYCHAT2_PYTHON_MINIMAL=1` 后构建
-   ——pip 块会整块省略，只把解释器打进包。这一步要验的是：
-   - [ ] Gradle 配置成功（构建不报 `com.chaquo.python` 相关错误）；
-   - [ ] APK 体积增量（记录数值，双 ABI 下预计 +15~25MB）；
-   - [ ] 装到真机能启动，**不闪退**；
-   - [ ] 进入 Python 面板时观察首启是否卡顿（首次要解压标准库）。
-3. **第二步（装依赖）**：去掉该环境变量、重新构建。这一步才验 pip：
-   - [ ] 构建日志里 5 个包安装成功；
-   - [ ] 面板「已打进 APK 的依赖」与构建日志一致；
-   - [ ] 跑 `import requests; print(requests.__version__)` 输出 `2.34.2`。
-4. 任一步失败：从 `app.json` 删掉那一行即可回退（**不影响任何其它功能**），
-   把失败日志记到审查待办。
+失败时「Gradle 接线错」与「pip 装包错」在日志里都是「构建失败」，一次装全会分不清，
+所以刻意分两步：
+
+**第一步（当前状态，最小原型）** —— 验 Chaquopy 本身能否打进包并初始化：
+
+- [ ] 构建成功（不报 `com.chaquo.python` 相关错误）；
+- [ ] 记录 APK 体积增量（双 ABI 下预计 +15~25MB）；
+- [ ] 装到真机能启动，**不闪退**；
+- [ ] 设置 → 工作区 → Python 小节显示「可用」；
+- [ ] 手输 `print(1+1)` 运行：输出 `2`，退出码 0；
+- [ ] 首启不卡顿（首次要解压标准库到应用目录）。
+
+**第二步（把 `app.json` 里 `minimalPackages` 改成 `false` 或整项简写为
+`"./plugins/withChaquopy"`，重新构建）** —— 验 pip：
+
+- [ ] 构建日志里 5 个包安装成功（requests / charset-normalizer / idna / urllib3 / certifi）；
+- [ ] 面板「已打进 APK 的依赖」与构建日志一致；
+- [ ] 运行 `import requests; print(requests.__version__)` 输出 `2.34.2`。
+
+**回退**：任何一步失败，从 `app.json` 的 `expo.plugins` 里删掉 withChaquopy 这一项即可，
+**不影响任何其它功能**。把失败日志记到审查待办。
 
 ### 16.2 功能走查（两步都通过后）
 
 - [ ] 设置 → 工作区 → Python 小节：可用状态、bundled 依赖清单、无运行时 pip 的说明都在。
-- [ ] 面板里手输一段脚本（如 `print(1+1)`）点运行：stdout 正常回显，退出码 0。
 - [ ] 故意写错（如 `1/0`）：stderr 有 traceback，退出码非 0，界面标为错误而不是崩溃。
 - [ ] 输出超 64KB：提示「已截断」，不卡界面。
 - [ ] **跑飞的脚本**（如 `while True: pass`）：如实记录当前行为——Chaquopy 无中断机制，

@@ -4,12 +4,15 @@
 // gitignored 目录，Kotlin 与 Python 源码保存在 plugins/chaquopy/android/，prebuild 时
 // 拷进 android/ 并完成注册与 Gradle 接线。
 //
-// **默认不启用**（app.json 的 plugins 里没有它）。原因：Chaquopy 是 Gradle 级集成，
-// expo export 不编译 Kotlin、本仓库的 Node 测试也碰不到 Gradle——也就是说这条链路
-// 只能靠真机 APK 构建验证。把它默认打开会让「下一次 APK 构建」成为唯一验证手段，
-// 一旦 Gradle 配置有出入，整个 Android 构建失败、连带阻塞其余功能。因此：
-//   想启用时，在 app.json 的 expo.plugins 里加一行 "./plugins/withChaquopy"，
-//   然后**盯住那一次构建**；失败就删掉这一行回退（不影响任何其他功能）。
+// **已启用（2026-10-08）**，但分两步走：
+//   第一步 = 最小原型（app.json 里 minimalPackages:true，只打解释器不装第三方包），
+//   第二步 = 装第三方包（把那个 prop 改成 false 或整项简写成字符串，重新构建）。
+// 分步的原因：Chaquopy 是 Gradle 级集成，expo export 不编译 Kotlin、本仓库的
+// Node 测试也碰不到 Gradle，这条链路只能靠真机 APK 构建验证；而「Gradle 接线错」
+// 与「pip 装包错」在日志里都是「构建失败」，一次装全了会分不清是哪一类。
+//
+// 回退：从 app.json 的 expo.plugins 里删掉本插件即可，不影响任何其它功能。
+// 构建前后的走查清单见 SMOKE_TEST.md §16。
 //
 // 已按核实报告 §2.4 修正：Chaquopy 只能在构建时用 pip 块装包，**没有运行时 pip**，
 // 所以这里只声明构建期依赖，界面侧不提供「装包/切镜像源」。
@@ -29,17 +32,12 @@ const BRIDGE_PACKAGE = `${PACKAGE_ID}.pythonbridge`;
 const PACKAGE_CLASS = 'PythonBridgePackage';
 const CHAQUOPY_GRADLE_VERSION = '16.1.0';
 
-// 构建时装进 APK 的包（pip 块）。改这里就要重新构建 APK 才生效。
+// 最小原型开关（由 app.json 的插件 prop `minimalPackages` 控制，默认 false）。
 //
-// 依赖全部钉死且含传递依赖：Chaquopy 的 pip 走它自己的索引，不锁版本时
-// 同一份源码在不同时间构建会装到不同版本（结果不可复现，也无法审计）。
-//
-// requests 版本选择依据（2026-10-08 在 OSV 核实）：
-//   · CVE-2024-47081（.netrc 凭据泄露）修于 2.32.4；
-//   · CVE-2026-25645（临时文件复用）修于 2.33.0。
-// 原先钉的 2.31.0 两条都中，故升到 2.34.2（当前 PyPI 最新稳定版）。
-// 传递依赖按 requests 2.34.2 的 requires_dist 取当前稳定版：
-//   charset_normalizer<4,>=2 / idna<4,>=2.5 / urllib3<3,>=1.26 / certifi>=2023.5.7
+// 为什么需要它：Gradle 接线出错与 pip 装包出错，在日志里都是「构建失败」，
+// 一次装全了再失败就分不清是哪一类。先只打解释器、pip 块留空，把变量收敛到一个。
+// 用 prop 而不是环境变量：prop 写在 app.json 里看得见、改一处即可，也不依赖
+// EAS 的环境变量配置（那是本环境无法验证的东西）。
 const REAL_PACKAGES = [
   'requests==2.34.2',
   'charset-normalizer==3.5.2',
@@ -48,14 +46,9 @@ const REAL_PACKAGES = [
   'certifi==2026.7.22',
 ];
 
-// 最小原型开关：`EASYCHAT2_PYTHON_MINIMAL=1` 时 pip 块留空，只验 Chaquopy 本身
-// 能否把解释器打进去、能否初始化。
-//
-// 为什么需要它：Gradle 接线出错与 pip 装包出错，在日志里都是「构建失败」，
-// 一次装全了再失败就分不清是哪一类。先空手跑通一次，把变量收敛到一个。
-// 确认通过后去掉这个环境变量重新构建即可（清单会自动恢复）。
-const MINIMAL_BUILD = String(process.env.EASYCHAT2_PYTHON_MINIMAL || '') === '1';
-const BUNDLED_PACKAGES = MINIMAL_BUILD ? [] : REAL_PACKAGES;
+// 对外（测试与文档）始终是「真正要装进包的清单」，不随最小原型开关变化——
+// 否则最小构建期间测试会以为依赖清单是空的。
+const BUNDLED_PACKAGES = REAL_PACKAGES;
 
 // app 内 Python 版本：显式钉住，不吃 Chaquopy 的默认值（16.1 默认 3.8）。
 // 选 3.13 的理由：16.1 支持 3.9–3.13，3.13 与 requests 2.34.x 要求的
@@ -158,12 +151,15 @@ function applyMainApplicationPatch(contents) {
 
 // ---------- 预构建 mod ----------
 
-function withGradleApp(config) {
+// minimalPackages: true 时 pip 块整块省略（见 REAL_PACKAGES 上方说明）。
+function withGradleApp(config, { minimalPackages = false } = {}) {
   return withAppBuildGradle(config, cfg => {
     if (cfg.modResults.language === 'groovy') {
-      let contents = applyChaquopyPlugin(cfg.modResults.contents);
-      contents = applyChaquopyConfig(contents);
-      cfg.modResults.contents = contents;
+      const withPlugin = applyChaquopyPlugin(cfg.modResults.contents);
+      cfg.modResults.contents = applyChaquopyConfig(
+        withPlugin,
+        minimalPackages ? { packages: [] } : {}
+      );
     }
     return cfg;
   });
@@ -215,10 +211,17 @@ function withSources(config) {
   ]);
 }
 
-module.exports = function withChaquopy(config) {
-  config = withGradleProject(config);
-  config = withGradleApp(config);
-  config = withSources(config);
+// 插件入口。app.json 里可传 props：
+//   ["./plugins/withChaquopy", { "minimalPackages": true }]
+// minimalPackages 用于「两步构建」的第一步：只打解释器、不装第三方包，
+// 把 Gradle 接线问题与 pip 装包问题分开暴露（见 REAL_PACKAGES 上方说明）。
+module.exports = function withChaquopy(config, props = {}) {
+  const options = {
+    minimalPackages: props && props.minimalPackages === true,
+  };
+  config = withGradleProject(config, options);
+  config = withGradleApp(config, options);
+  config = withSources(config, options);
   return config;
 };
 
