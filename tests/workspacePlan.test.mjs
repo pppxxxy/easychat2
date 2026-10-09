@@ -11,6 +11,7 @@ import {
   PLAN_TOOL_DEFINITION,
   formatPlanEcho,
   normalizePlanSteps,
+  shouldOfferPlanApproval,
 } from '../src/workspace/toolDefs/planTool.js';
 import {
   PLAN_TOOL_HINT,
@@ -117,4 +118,23 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   const loop = fs.readFileSync(path.resolve('src/agent/loop.js'), 'utf8');
   assert.ok(loop.includes('args: parseToolArgs(call)'), 'start 事件带 args');
   assert.ok(loop.includes('export function parseToolArgs'), 'parseToolArgs 纯函数可测');
+});
+
+test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 mode 闭包 / 草稿保护）', () => {
+  // 判据：read ∧ 计划未完成才提议（write 自己能执行；全 done 无可执行）
+  assert.equal(shouldOfferPlanApproval({ mode: 'read', plan: [{ step: 'a', status: 'done' }] }), false);
+  assert.equal(shouldOfferPlanApproval({ mode: 'read', plan: [{ step: 'a', status: 'in_progress' }] }), true);
+  assert.equal(shouldOfferPlanApproval({ mode: 'read', plan: [{ step: 'a' }] }), true, '缺省 pending 算未完成');
+  assert.equal(shouldOfferPlanApproval({ mode: 'write', plan: [{ step: 'a' }] }), false);
+  assert.equal(shouldOfferPlanApproval({ mode: 'read', plan: [] }), false);
+  assert.equal(shouldOfferPlanApproval({}), false);
+
+  // 接线契约：ChatPanel 走 state→effect 触发（防 handleSend 闭包里的旧 mode）
+  const screen = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  assert.ok(screen.includes('pendingPlanRun'), '批准走 state→effect 触发');
+  assert.ok(screen.includes("handleSelectMode('write')"), '先切模式（持久化到存储）');
+  assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
+  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
+  assert.ok(screen.includes('if (overrideText === undefined)'), 'overrideText 路径有草稿保护');
+  assert.ok(screen.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
 });

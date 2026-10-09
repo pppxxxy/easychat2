@@ -37,6 +37,7 @@ import {
   createWorkspaceChat,
   deleteWorkspaceChat,
   getWorkspaceChats,
+  setWorkspaceChatArchived,
   getWorkspaceSettings,
   patchWorkspaceSettings,
   saveWorkspaceChatDraft,
@@ -75,13 +76,14 @@ import {
 import useChatRecorder from '../../chat/useChatRecorder.js';
 import { readWorkspaceAgents } from '../agents.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
+import { createSteeringQueue } from '../../agent/steering.js';
 import {
   appendSessionEvent,
   buildSessionEventsExport,
   readSessionEvents,
   sessionEventsPath,
 } from '../sessionEvents.js';
-import { normalizePlanSteps } from '../toolDefs/planTool.js';
+import { normalizePlanSteps, shouldOfferPlanApproval } from '../toolDefs/planTool.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
@@ -106,6 +108,7 @@ import {
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
+import { hexToRgba } from '../../theme/themes.js';
 import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
@@ -160,6 +163,30 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 会话边界（新对话/切对话）清空，与已读登记同款。
   const [agentPlan, setAgentPlan] = useState([]);
   const [planCollapsed, setPlanCollapsed] = useState(false);
+  // I1：Steering——agent 运行中输入框保持可用，发送即入队（下一轮请求前注入）；
+  // 队列每次发送时新建、turn 结束丢弃（跨轮次的补充没有意义）。
+  const steeringRef = useRef(null);
+  const [steeringNote, setSteeringNote] = useState('');
+  // I2：read 模式下计划未完成时提议「批准并执行」。**时序关键**：handleSend 的
+  // 闭包带着定义时的 mode——不能「切模式后立即调用」（那还是 read 的工具集）。
+  // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
+  // 用**新的 handleSend** 发起。
+  const canApprovePlan = useMemo(
+    () => shouldOfferPlanApproval({ mode, plan: agentPlan }),
+    [mode, agentPlan]
+  );
+  const [pendingPlanRun, setPendingPlanRun] = useState(null);
+  const approvePlan = useCallback(async () => {
+    if (sending || mode !== 'read') return;
+    const steps = normalizePlanSteps(agentPlan);
+    if (steps.length === 0) return;
+    const summary = steps
+      .map((item, index) => `${index + 1}. ${item.step}`)
+      .join('\n');
+    await handleSelectMode('write');
+    // 确认消息用用户口吻直述（进对话历史，与 steering 注入语同纪律：不进 i18n）。
+    setPendingPlanRun(['我已批准上面的计划，请按计划开始执行：', summary].join('\n'));
+  }, [agentPlan, handleSelectMode, mode, sending]);
 
   // C2 按需物化（给 agent 的 read 工具）：清单内未物化文件被读到、但本地没有时，
   // 单文件拉取回沙盒。三道前置（缺一不发起网络）：是 repos 路径 → 该仓库做过
@@ -496,6 +523,23 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     await setActiveWorkspaceChat(characterId, id).catch(() => {});
   }, [activeChatId, characterId, chatList, input, persistDraft, readDraft]);
 
+  // I5：归档/恢复会话——切 storage 标记后刷新本地列表；归档的是当前会话时
+  // 顺带切到下一个未归档会话（不留在一个「看不见」的会话里）。
+  const handleArchiveChat = useCallback(async (chatId, archived) => {
+    try {
+      await setWorkspaceChatArchived(characterId, chatId, archived);
+    } catch (error) {}
+    try {
+      const bucket = await getWorkspaceChats(characterId);
+      const chats = (bucket && bucket.chats) || [];
+      if (mountedRef.current) setChatList(chats);
+      if (archived === true && String(activeChatId) === String(chatId)) {
+        const next = chats.find(item => item.id !== chatId && item.archived !== true);
+        if (next) await handleSelectChat(next.id);
+      }
+    } catch (error) {}
+  }, [activeChatId, characterId, handleSelectChat]);
+
   const handleDeleteChat = useCallback(async id => {
     setHistoryBusy(true);
     try {
@@ -807,9 +851,24 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     if (controllerRef.current) controllerRef.current.abort();
   }, []);
 
-  const handleSend = useCallback(async () => {
-    if (sending) return;
-    const text = input.trim();
+  // I2：overrideText——计划批准链路在模式切换后的新渲染里带确认文本发起。
+  const handleSend = useCallback(async overrideText => {
+    const text = String(overrideText === undefined ? input : overrideText).trim();
+    // I1：Steering——agent 运行中发送 = 中途补充指令（不新开 turn、不中断工具链）。
+    // 附件不支持（补充指令是纯文本语义）；空文本忽略。
+    if (sending) {
+      if (!text) return;
+      if (attachments.length > 0) {
+        Alert.alert(t('workspace.chat.steering.title'), t('workspace.chat.steering.attachments'));
+        return;
+      }
+      if (steeringRef.current && steeringRef.current.push(text)) {
+        setInput('');
+        persistDraft(characterId, activeChatId, '');
+        setSteeringNote(t('workspace.chat.steering.note'));
+      }
+      return;
+    }
     const textAttachments = attachments.filter(item => item.kind === 'text');
     const imageAttachments = attachments.filter(item => item.kind === 'image');
     const userText = mergeTextAttachments(text, textAttachments);
@@ -842,9 +901,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages(list => [...list, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
-    persistDraft(ownerId, chatId, '');
-    setInput('');
-    setAttachments([]);
+    // I2：批准链路（overrideText）不碰输入框、草稿与附件——用户可能正打着别的话。
+    if (overrideText === undefined) {
+      persistDraft(ownerId, chatId, '');
+      setInput('');
+      setAttachments([]);
+    }
     setSending(true);
     setToolStatus('');
     persistMessages(ownerId, chatId, [userMessage]);
@@ -855,6 +917,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
 
     const controller = new AbortController();
     controllerRef.current = controller;
+    // I1：本轮的 Steering 队列（handleSend 的 sending 分支往里 push，loop 每轮前 drain）。
+    steeringRef.current = createSteeringQueue();
+    setSteeringNote('');
 
     // 先注册工具、再拼提示词：提示词里要不要写「可以跑 Python / 可以执行命令」，判据是
     // **注册表里真的有**（开关开着但原生模块缺失、或根是外部文件夹时并不存在），
@@ -914,6 +979,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         tools,
         // 轮次预算（A1）：可改 16 / 只读 10——写任务要跑「改-验」循环，天然更长。
         maxRounds: workspaceRoundBudget(mode),
+        // I1：Steering 队列（用户中途补充指令，每轮请求前注入）。
+        steering: steeringRef.current,
         signal: controller.signal,
         requestOptions: { stream: true },
         onToken: fullText => {
@@ -1006,12 +1073,25 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       if (mountedRef.current) {
         setSending(false);
         setToolStatus('');
+        setSteeringNote(''); // I1：本轮结束，补充指令的提示与队列一并清掉
       }
       controllerRef.current = null;
+      steeringRef.current = null;
     }
   }, [activeChatId, attachments, characterId, characterName, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 
-  const canSend = !sending && (input.trim().length > 0 || attachments.length > 0);
+  // I1：运行中不再禁用发送——有文字就可用（发送按钮 → steering 入队）；附件在
+  // 运行时由 handleSend 明确拒绝（补充指令是纯文本语义）。
+  const canSend = input.trim().length > 0 || attachments.length > 0;
+
+  // I2：模式切到 write 后的新渲染里发起批准链路（此刻 handleSend 闭包已带 write，
+  // 工具集/预算/提示词全按 write 走）。setPendingPlanRun(null) 防重入。
+  useEffect(() => {
+    if (!pendingPlanRun) return;
+    if (mode !== 'write' || sending) return;
+    setPendingPlanRun(null);
+    handleSend(pendingPlanRun);
+  }, [handleSend, mode, pendingPlanRun, sending]);
   const lastAssistantId = messages.length && messages[messages.length - 1].role === 'assistant'
     ? messages[messages.length - 1].id
     : '';
@@ -1158,6 +1238,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                     </Text>
                   </View>
                 ))}
+                {/* I2：read 模式 + 计划未完成 → 提议「批准并执行」（切模式 + 注入确认消息）。 */}
+                {canApprovePlan ? (
+                  <TouchableOpacity
+                    style={styles.planApprovalButton}
+                    onPress={() => { if (!sending) approvePlan(); }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="checkmark-done-outline" size={14} color={theme.colors.primary} />
+                    <Text style={styles.planApprovalText}>
+                      {t('workspace.chat.planApproval.action')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : null}
 
@@ -1165,6 +1258,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               <View style={styles.statusBar}>
                 <ActivityIndicator size="small" color={theme.colors.primaryMuted} />
                 <Text style={styles.statusText} numberOfLines={1}>{toolStatus}</Text>
+              </View>
+            ) : null}
+
+            {/* I1：Steering 提示——「补充指令已入队」，本轮结束自动消失。 */}
+            {steeringNote ? (
+              <View style={styles.statusBar}>
+                <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.colors.primary} />
+                <Text style={styles.statusText} numberOfLines={1}>{steeringNote}</Text>
               </View>
             ) : null}
 
@@ -1293,6 +1394,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
+        onArchiveChat={handleArchiveChat}
         onClearAll={handleClearChats}
         busy={historyBusy}
       />
@@ -1407,6 +1509,23 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   planRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
   planStep: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
   planStepDone: { color: theme.colors.textFaint, textDecorationLine: 'line-through' },
+  // I2：计划批准按钮（计划卡片内的轻量行按钮，不引入大按钮组件）。
+  planApprovalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: hexToRgba(theme.colors.primary, 0.14),
+  },
+  planApprovalText: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
+    fontWeight: '600',
+    marginLeft: 6,
+    flex: 1,
+  },
   attachmentBar: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingBottom: 4 },
   attachmentChip: {
     flexDirection: 'row',

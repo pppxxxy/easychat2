@@ -98,6 +98,11 @@ export async function runAgentTurn(messages, options = {}) {
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
+  // I1：Steering 队列（宿主注入；不注入 = 无中途指令，行为与旧版一致）。
+  // 约定对象：{ drain(): string[] }——宿主用 createSteeringQueue() 创建。
+  const steering = options.steering && typeof options.steering.drain === 'function'
+    ? options.steering
+    : null;
   const context = options.context || {};
   // 聊天内受控工具（联网搜索）的放行开关：必须一路传到 runTool 的执行门控，
   // 否则暴露层放行了、执行层仍会按工作区模式拒绝，表现为「模型调了但总失败」。
@@ -144,9 +149,23 @@ export async function runAgentTurn(messages, options = {}) {
     onReasoning: text => safeCallback(onReasoning, streamedReasoning + text),
   });
 
+  // I1：收束预警的"已提醒"标记（从轮号判断改为标记式——Steering 注入后允许再提醒
+  // 一次：模型看到新目标后，旧的收束判断会误导，值得重新收束）。
+  let budgetWarned = false;
   while (round < maxRounds) {
     round += 1;
     if (signal && signal.aborted) throw createAbortError();
+    // I1：Steering——每轮模型请求前取出用户中途补充的指令，以 system 小段注入。
+    // 不中断当前工具链（工具调用的配对结构完整），只是让模型下一轮决策纳入新目标。
+    if (steering) {
+      const additions = steering.drain();
+      if (Array.isArray(additions) && additions.length > 0) {
+        for (const text of additions) {
+          history.push({ role: 'system', content: `用户中途补充：${text}，请在后续决策中纳入。` });
+        }
+        budgetWarned = false; // 新目标 → 允许收束预警再提一次
+      }
+    }
     const result = await streamRound(tools);
     streamedText += typeof result.text === 'string' ? result.text : '';
     streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
@@ -205,10 +224,12 @@ export async function runAgentTurn(messages, options = {}) {
       history.push({ role: 'tool', tool_call_id: call.id, content: serialized });
     }
 
-    // 预算预警（两段式第一段）：执行完这一轮还剩 2 轮 → 提示收束。放在轮末：
+    // 预算预警（两段式第一段）：进入「还剩 2 轮」窗口起提示收束（标记式——
+    // I1 起 Steering 注入会重置标记，允许新目标下再提醒一次）。放在轮末：
     // 只有「还会继续循环」才会走到这里（提前给出结论的那轮在上面就 return 了）。
-    if (round === maxRounds - 2) {
+    if (!budgetWarned && round >= maxRounds - 2) {
       history.push({ role: 'system', content: ROUND_BUDGET_WARNING });
+      budgetWarned = true;
     }
     // E2：重复调用 nudge（轮末注入，与预算预警同款位置——不打断 tool_calls 与
     // tool 结果的配对结构，模型在下一轮开头看到）。

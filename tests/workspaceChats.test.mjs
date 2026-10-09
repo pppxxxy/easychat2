@@ -252,3 +252,30 @@ test('saveWorkspaceChatDraft：草稿落盘、不存在的会话拒绝、且不�
   assert.equal(await saveWorkspaceChatDraft('', older.id, 'x'), false);
   assert.equal((await getWorkspaceChats('draft-a')).chats.length, 2);
 });
+
+test('I5 会话归档：normalize 老数据兜底 false + 存取往返 + 幂等', async () => {
+  // 纯函数层：老数据无 archived 字段 → false（零迁移）
+  assert.equal(normalizeWorkspaceChat({ id: 'x' }).archived, false);
+  assert.equal(normalizeWorkspaceChat({ id: 'x', archived: true }).archived, true);
+
+  const { createWorkspaceChat, getWorkspaceChats, setWorkspaceChatArchived } = loadWorkspaceStorage();
+  const chat = await createWorkspaceChat('archive-a');
+  assert.equal(chat.archived, false, '新会话未归档');
+
+  // 归档 → 标记落盘；再取仍是 archived
+  assert.equal(await setWorkspaceChatArchived('archive-a', chat.id, true), true);
+  let bucket = await getWorkspaceChats('archive-a');
+  assert.equal(bucket.chats.find(item => item.id === chat.id).archived, true);
+
+  // 幂等：重复设置同一状态直接成功
+  assert.equal(await setWorkspaceChatArchived('archive-a', chat.id, true), true);
+
+  // 恢复
+  assert.equal(await setWorkspaceChatArchived('archive-a', chat.id, false), true);
+  bucket = await getWorkspaceChats('archive-a');
+  assert.equal(bucket.chats.find(item => item.id === chat.id).archived, false);
+
+  // 边界：不存在的会话 / 缺参数 → false
+  assert.equal(await setWorkspaceChatArchived('archive-a', 'nope', true), false);
+  assert.equal(await setWorkspaceChatArchived('', chat.id, true), false);
+});

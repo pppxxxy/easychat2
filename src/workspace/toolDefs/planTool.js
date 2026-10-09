@@ -38,6 +38,15 @@ export function formatPlanEcho(plan) {
   return lines.join('\n');
 }
 
+// I2：轮次结束时应否提议「批准计划并执行」——只读模式下规划完了却没有写权限，
+// 这是 read 模式闭环缺的最后一步。判据（全部满足才提议）：
+//   mode === 'read' ∧ 计划非空 ∧ 存在未完成项（全 done 的计划没有可执行的）。
+export function shouldOfferPlanApproval({ mode, plan } = {}) {
+  if (mode !== 'read') return false;
+  const steps = normalizePlanSteps(plan);
+  return steps.length > 0 && steps.some(item => item.status !== 'done');
+}
+
 export const PLAN_TOOL_DEFINITION = {
   name: 'update_plan',
   description: '记录或更新当前任务的步骤清单（纯展示，无副作用、不落盘）：'

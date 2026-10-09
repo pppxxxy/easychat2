@@ -61,6 +61,8 @@ export function normalizeWorkspaceChat(raw) {
     updatedAt,
     // 老数据无此字段 → 空串兜底，无迁移风险。
     draft: truncate(source.draft, WORKSPACE_CHAT_DRAFT_MAX),
+    // I5：归档标记——老数据无此字段 → false（未归档），零迁移。
+    archived: source.archived === true,
     messages,
   };
 }
