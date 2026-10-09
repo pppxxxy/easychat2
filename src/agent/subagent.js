@@ -109,7 +109,11 @@ export async function runSubagent({
     } catch (error) {}
   };
 
-  let streamed = '';
+  // 结论只取**结论轮**（无工具调用的那一轮）的文本：前面各轮的文字是「我先看看
+  // 目录…」这类过渡语，拼进来会漏给主对话——提示词压不住不老实的模型，这里
+  // 结构上直接不采。lastText 只服务异常兜底（达轮次上限时没有结论轮）。
+  let conclusionText = '';
+  let lastText = '';
   let round = 0;
   let capped = false;
   let lastError = '';
@@ -122,10 +126,12 @@ export async function runSubagent({
       tools: schemas,
       toolChoice: 'auto',
     });
-    streamed += typeof (result && result.text) === 'string' ? result.text : '';
+    const roundText = typeof (result && result.text) === 'string' ? result.text : '';
+    if (roundText.trim()) lastText = roundText;
     history.push(toAssistantMessage(result));
     const calls = Array.isArray(result && result.toolCalls) ? result.toolCalls : [];
     if (calls.length === 0) {
+      conclusionText = roundText;
       capped = false;
       break;
     }
@@ -165,7 +171,9 @@ export async function runSubagent({
     }
   }
 
-  const conclusion = String(streamed || '').trim();
+  // 结论轮优先；达上限（异常路径）退回「最后一次有文本的轮」并附提示——
+  // 部分信息也比空手好，但要说明它可能不是完整结论。
+  const conclusion = String((conclusionText || lastText) || '').trim();
   let content;
   if (conclusion) {
     content = capped ? `${conclusion}\n\n（子代理达到轮次上限，结论可能不完整）` : conclusion;

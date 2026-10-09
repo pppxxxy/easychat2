@@ -162,6 +162,30 @@ test('riskGate 分域：github 白名单不变；第三方默认 CONFIRM 且 ove
   );
 });
 
+test('内置 GitHub 刻意不支持 tierOverrides 调级（有意差异，钉死防误改；质量建议 ④）', () => {
+  // 传了也不读：只读白名单保持只读、白名单外保持 DENIED——三档语义不随配置漂移。
+  assert.equal(
+    classifyMcpTool('get_file_contents', { serverId: 'github', tierOverrides: { get_file_contents: 'denied' } }),
+    MCP_TOOL_TIERS.READONLY,
+    '内置 GitHub 不接受下调'
+  );
+  assert.equal(
+    classifyMcpTool('some_brand_new_tool', { serverId: 'github', tierOverrides: { some_brand_new_tool: 'readonly' } }),
+    MCP_TOOL_TIERS.DENIED,
+    '内置 GitHub 不接受上调'
+  );
+  assert.equal(
+    classifyMcpTool('delete_branch', { serverId: 'github', tierOverrides: { delete_branch: 'readonly' } }),
+    MCP_TOOL_TIERS.DENIED,
+    '硬禁仍是全局最高优先'
+  );
+  // 对照：第三方 overrides 照常生效（差异是刻意的，不是解析坏了）
+  assert.equal(
+    classifyMcpTool('get_file_contents', { serverId: 'thirdparty', tierOverrides: { get_file_contents: 'readonly' } }),
+    MCP_TOOL_TIERS.READONLY
+  );
+});
+
 test('FORBIDDEN 跨服务器全局硬禁：override 也解不开', () => {
   for (const name of ['delete_file', 'remove_item', 'force_push', 'admin_reset']) {
     assert.equal(classifyMcpTool(name, { serverId: 'filesystem' }), MCP_TOOL_TIERS.DENIED, name);

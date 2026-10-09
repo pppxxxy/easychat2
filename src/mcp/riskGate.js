@@ -62,6 +62,10 @@ export function classifyMcpTool(name, { serverId = 'github', tierOverrides = nul
   // 直接判废），所以这是**潜在**风险而非活 bug；但白名单是这套系统的信任根基，
   // 宁可让空值落到第三方默认（CONFIRM 逐条确认）——失败方向是「多问一次」而不是「少问一次」。
   if (serverId === 'github') {
+    // 内置 GitHub **刻意不支持 tierOverrides 调级**（传了也不读）：三档白名单是
+    // 精心划定的安全语义，允许用户调级会让「确定性」依赖配置正确性。第三方服务器
+    // 才需要调级——它们的工具集未知，本来就没有白名单可言。这条差异是**有意决定**，
+    // 不是漏实现（测试钉死；报告质量建议 ④）。
     if (READONLY_TOOLS.has(normalized)) return MCP_TOOL_TIERS.READONLY;
     if (CONFIRM_TOOLS.has(normalized)) return MCP_TOOL_TIERS.CONFIRM;
     return MCP_TOOL_TIERS.DENIED;

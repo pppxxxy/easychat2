@@ -150,6 +150,25 @@ test('工具往返：读文件 → 结果回填 → 二轮出结论；工具事�
   assert.deepEqual(events, ['start', 'end']);
 });
 
+test('结论只取结论轮：中间轮的过渡语不并入（提示词压不住不老实的模型，结构上不采）', async () => {
+  const { runSubagent } = loadSubagent();
+  const calls = [];
+  let round = 0;
+  const stream = async () => {
+    round += 1;
+    if (round === 1) {
+      return {
+        text: '我先看看目录里有什么…',
+        toolCalls: [{ id: 'c1', name: 'list_workspace_files', arguments: '{}' }],
+      };
+    }
+    return { text: '结论：工作区里有两个文件。', toolCalls: [] };
+  };
+  const result = await runSubagent({ task: '看看有什么', tools: makeTools(calls), store: {}, stream });
+  assert.ok(result.content.includes('结论：工作区里有两个文件。'));
+  assert.equal(result.content.includes('我先看看目录'), false, '过渡语不得漏进结论（质量建议 ③）');
+});
+
 test('硬红线：只读**名字白名单**——run_subagent（同为 readOnly）被结构性挡下，不可能递归', async () => {
   const { runSubagent, SUBAGENT_TOOL_NAMES } = loadSubagent();
   assert.equal(SUBAGENT_TOOL_NAMES.includes('run_subagent'), false, '白名单永远不含递归入口');
