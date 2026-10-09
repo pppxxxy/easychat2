@@ -22,13 +22,35 @@ export function toAssistantMessage(result) {
   return message;
 }
 
-export function serializeToolResult(result, limit = TOOL_RESULT_LIMIT) {
+// UTF-16 代理对安全切点（D2）：index 落在高/低代理之间时回退一格——
+// 半个 emoji 在界面/模型侧都是乱码，宁可少一个字符。只回退 1，不贪多。
+function safeBoundary(text, index) {
+  if (!Number.isFinite(index) || index <= 0) return 0;
+  if (index >= text.length) return text.length;
+  const prev = text.charCodeAt(index - 1);
+  if (prev >= 0xd800 && prev <= 0xdbff) return index - 1;
+  return index;
+}
+
+export function serializeToolResult(result, limit = TOOL_RESULT_LIMIT, toolName = '') {
   const content = typeof result === 'string'
     ? result
     : String((result && result.content) || '');
   if (content.length <= limit) return content;
-  // 截断句要能指导下一步（A2）：告诉模型原长与「怎么拿到更多」——文件读取有
-  // offset 续读（工具侧实现），命令/MCP 输出可以收窄后重跑。通用层不感知
-  // 具体工具语义，只给这两条通路。
-  return `${content.slice(0, limit)}…（已截断：原长 ${content.length} 字符；文件读取可用 offset 续读，命令输出可收窄后重跑）`;
+  // D2 头尾保留：工具结果的两端信息密度最高——声明在头部、报错在尾部，中段
+  // 省略（前 1/2 + 后 1/2，切点做代理对安全回退）。
+  const headSize = Math.floor(limit / 2);
+  const tailSize = limit - headSize;
+  const headEnd = safeBoundary(content, headSize);
+  const tailStart = safeBoundary(content, content.length - tailSize);
+  const omitted = tailStart - headEnd;
+  // 指引按工具名分派（D2）：有确切语义就不说通用话术（对计算类结果，「offset
+  // 续读」是误导）。不认识的工具只做头尾保留，不写指引。
+  let guidance = '';
+  if (toolName === 'read_workspace_file') {
+    guidance = '完整内容可用 read_workspace_file 的 offset/maxChars 分段精读。';
+  } else if (toolName === 'run_shell' || toolName === 'run_python') {
+    guidance = '需要看中段可收窄命令/代码后重跑。';
+  }
+  return `${content.slice(0, headEnd)}\n…（中间省略 ${omitted} 字符，原始 ${content.length} 字符）…\n${content.slice(tailStart)}${guidance ? `\n（${guidance}）` : ''}`;
 }

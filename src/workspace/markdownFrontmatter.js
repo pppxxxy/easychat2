@@ -16,7 +16,11 @@ function parseLines(block) {
     // 去包裹引号（单/双），其余原样。
     const value = match[2].trim().replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
     if (!value) continue;
+    // allowed-tools：社区 Agent Skills 标准字段（D1）——技能声明建议使用的工具；
+    // 只做「让模型可见」的软约束，执行门仍走 registry/riskGate。
+    // 下划线写法（部分生成器产出）归一成标准键，消费方只认一种形态。
     if (key === 'name' || key === 'description') out[key] = value;
+    else if (key === 'allowed-tools' || key === 'allowed_tools') out['allowed-tools'] = value;
   }
   return out;
 }

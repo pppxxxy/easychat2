@@ -21,6 +21,8 @@ export const SKILL_NAME_MAX = 48;
 export const SKILL_DESCRIPTION_MAX = 160;
 // 清单注入上限：超出只列前 N 个（技能面板里能看到全部）——提示词不能被技能清单撑爆。
 export const SKILL_LIST_MAX = 20;
+// allowed-tools 单技能上限：社区技能偶尔列一大串，注入行要收着点。
+export const SKILL_ALLOWED_TOOLS_MAX = 8;
 // 解析 frontmatter 只需头部；技能正文再长也走 read 工具按需读。
 export const SKILL_HEAD_CHARS = 1200;
 
@@ -40,6 +42,15 @@ export function parseSkillMarkdown(text, fallbackName = '') {
     name: truncateText(meta.name || fallbackName, SKILL_NAME_MAX),
     description: truncateText(meta.description, SKILL_DESCRIPTION_MAX),
   };
+  // D1：allowed-tools（社区 Agent Skills 标准字段）——逗号分隔的工具名清单。
+  // 只做「让模型可见」的软约束（注入清单一行）；不强制执行——执行门仍走 registry。
+  // （下划线写法由 markdownFrontmatter 归一成标准键。）
+  const allowedTools = String(meta['allowed-tools'] || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, SKILL_ALLOWED_TOOLS_MAX);
+  if (allowedTools.length > 0) skill.allowedTools = allowedTools;
   if (!skill.description) {
     for (const line of body.split('\n')) {
       const candidate = line.trim();
@@ -57,12 +68,21 @@ export function parseSkillMarkdown(text, fallbackName = '') {
 export function workspaceSkillsSection(skills) {
   const list = (Array.isArray(skills) ? skills : []).filter(item => item && String(item.name || '').trim());
   if (list.length === 0) return '';
-  const shown = list.slice(0, SKILL_LIST_MAX);
+  // D1：按名字排序后截断——清单稳定可比（否则顺序依赖文件枚举）；超出如实报数。
+  const sorted = [...list].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const shown = sorted.slice(0, SKILL_LIST_MAX);
   const lines = [
     `【工作区技能】这个工作区里有 ${list.length} 个技能，完整说明在 ${SKILLS_DIR}/<技能名>/${SKILL_FILE_NAME}：`,
-    ...shown.map(item => `- ${String(item.name).trim()}：${truncateText(item.description, SKILL_DESCRIPTION_MAX) || '（无描述）'}`),
+    ...shown.map(item => {
+      const tools = Array.isArray(item.allowedTools) && item.allowedTools.length > 0
+        ? `（建议工具：${item.allowedTools.join(', ')}）`
+        : '';
+      return `- ${String(item.name).trim()}：${truncateText(item.description, SKILL_DESCRIPTION_MAX) || '（无描述）'}${tools}`;
+    }),
   ];
-  if (list.length > shown.length) lines.push(`（仅列出前 ${shown.length} 个，其余在技能目录里）`);
+  if (sorted.length > shown.length) {
+    lines.push(`（按名字排序仅列出前 ${shown.length} 个，还有 ${sorted.length - shown.length} 个——可用 list_workspace_files 查看 ${SKILLS_DIR}/ 下的全部技能目录）`);
+  }
   lines.push(`需要用到某个技能时，先用 read_workspace_file 读它的 ${SKILL_FILE_NAME} 全文，再按其中的步骤做；不要凭清单里的名字猜测内容。`);
   return lines.join('\n');
 }

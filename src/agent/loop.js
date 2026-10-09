@@ -116,7 +116,9 @@ export async function runAgentTurn(messages, options = {}) {
         outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
       }
       const ok = !(outcome && outcome.isError === true);
-      const serialized = serializeToolResult(outcome);
+      // D2：把工具名传下去——截断指引按工具语义分派（文件→offset 续读，
+      // 命令→收窄重跑），不认识的工具只说「中间省略了」不写误导性指引。
+      const serialized = serializeToolResult(outcome, TOOL_RESULT_LIMIT, call && call.name);
       safeCallback(onToolEvent, {
         phase: 'end',
         name: call.name,

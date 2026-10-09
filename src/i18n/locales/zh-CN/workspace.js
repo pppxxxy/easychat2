@@ -289,6 +289,8 @@ export const workspace = {
   'workspace.panel.err.externalUnavailable': '无法读取所选文件夹：当前安装的版本缺少访问外部文件夹所需的能力，请恢复为应用内默认。',
   'workspace.panel.newText': '新建文本',
   'workspace.panel.newFolder': '新建文件夹',
+  'workspace.panel.importFile': '导入文件',
+  'workspace.panel.importingFile': '导入中…',
   'workspace.panel.exportWord': '导出 Word',
   'workspace.panel.form.newText': '新建文本文件',
   'workspace.panel.form.newFolder': '新建文件夹',

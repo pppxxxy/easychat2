@@ -203,6 +203,18 @@ test('F1/F2/F3 文件面板：子目录空状态 + 空目录可删（非空拦�
   assert.ok(source.includes("t('workspace.panel.group.empty')"), '空组不再伪装成有内容的仓库');
 });
 
+test('D1 文件面板：导入文件到当前目录（技能生态通路，落点跟随 subdir）', () => {
+  const source = readSource('src/workspace/screen/FilesPanel.js');
+  assert.ok(source.includes('handleImportToCurrentDir'), '导入入口存在');
+  assert.ok(
+    source.includes('subdir ? `${subdir}${name}` : `imports/${name}`'),
+    '落点跟随当前目录（根层沿用 imports/ 旧落点，不破坏老用户习惯）'
+  );
+  assert.ok(source.includes("t('workspace.panel.importFile')"), '按钮词条');
+  assert.ok(source.includes('isTextLike'), '文本过滤（技能资源都是文本）');
+  assert.ok(source.includes('await refresh()'), '导入后刷新列表');
+});
+
 test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清（成功才清）', () => {
   const github = readSource('src/workspace/screen/GithubPanel.js');
   assert.ok(github.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');

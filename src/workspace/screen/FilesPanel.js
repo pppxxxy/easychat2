@@ -47,6 +47,7 @@ import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
+import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -103,6 +104,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 文件区当前所在目录（'' = 根层，按项目分组）。进入项目/目录后逐层下钻，
   // 路径只在面包屑里出现，不再把「repos/x/main/src/…」整条挤在文件行里被截断（诉求④）。
   const [subdir, setSubdir] = useState('');
+  // D1：把文本文件导入**当前浏览的目录**（根层沿用 imports/ 旧落点）——技能生态
+  // 的关键通路：在 .easychat/skills/<名字>/ 里点「导入文件」即建技能资源文件。
+  const [fileImportBusy, setFileImportBusy] = useState(false);
   const [changes, setChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState('');
@@ -367,6 +371,43 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       ]
     );
   }, [characterId, files, t]);
+
+  // D1：导入文本文件到**当前浏览的目录**（根层沿用 imports/ 旧落点）——技能生态的
+  // 关键通路：在 .easychat/skills/<名字>/ 里导入即建资源文件（scripts、templates）。
+  const handleImportToCurrentDir = useCallback(async () => {
+    if (!canWrite) {
+      Alert.alert(t('workspace.panel.locked.title'), t('workspace.panel.locked.body'));
+      return;
+    }
+    if (fileImportBusy) return;
+    const store = storeRef.current;
+    if (!store) return;
+    setFileImportBusy(true);
+    try {
+      const asset = await pickAttachment();
+      if (!asset) return;
+      if (!isTextLike(asset.name, asset.mime)) {
+        Alert.alert(t('workspace.settings.import.errTitle'), t('workspace.settings.import.errBody'));
+        return;
+      }
+      const text = await readTextAttachment(asset.uri);
+      const name = String(asset.name || '').split('/').pop() || 'imported.txt';
+      const target = subdir ? `${subdir}${name}` : `imports/${name}`;
+      await store.writeWorkspaceFile({ characterId, path: target, content: text });
+      await refresh();
+      Alert.alert(
+        t('workspace.settings.import.doneTitle'),
+        t('workspace.settings.import.done', { name: target })
+      );
+    } catch (caught) {
+      Alert.alert(
+        t('workspace.settings.import.errTitle'),
+        (caught && caught.message) || t('workspace.settings.import.errBody')
+      );
+    } finally {
+      if (mountedRef.current) setFileImportBusy(false);
+    }
+  }, [canWrite, characterId, fileImportBusy, refresh, subdir, t]);
 
   const startTextForm = useCallback(() => {
     if (!canWrite) {
@@ -945,6 +986,16 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             >
               <Ionicons name="folder-outline" size={14} color={theme.colors.primaryContrast} />
               <Text style={styles.fileToolText}>{t('workspace.panel.newFolder')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fileToolButton, !canWrite && styles.actionButtonDisabled]}
+              onPress={handleImportToCurrentDir}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="cloud-upload-outline" size={14} color={theme.colors.primaryContrast} />
+              <Text style={styles.fileToolText}>
+                {fileImportBusy ? t('workspace.panel.importingFile') : t('workspace.panel.importFile')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.fileToolButton, !canWrite && styles.actionButtonDisabled]}

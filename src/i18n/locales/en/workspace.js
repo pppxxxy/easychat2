@@ -289,6 +289,8 @@ export const workspace = {
   'workspace.panel.err.externalUnavailable': 'Cannot read the selected folder: this build lacks the capability needed to access external folders. Please switch back to the app default.',
   'workspace.panel.newText': 'New text',
   'workspace.panel.newFolder': 'New folder',
+  'workspace.panel.importFile': 'Import file',
+  'workspace.panel.importingFile': 'Importing…',
   'workspace.panel.exportWord': 'Export Word',
   'workspace.panel.form.newText': 'New text file',
   'workspace.panel.form.newFolder': 'New folder',
