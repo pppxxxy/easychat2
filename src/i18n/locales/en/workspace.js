@@ -11,6 +11,7 @@ export const workspace = {
   'workspace.capability.step.answer': 'The model keeps going on that result — possibly several rounds — and finally answers.',
   'workspace.capability.limitsTitle': 'Current limits (read these)',
   'workspace.capability.limit.tools': 'File tools only work in Read-only and Editable modes; in Ask mode it is pure chat and no file is ever read.',
+  'workspace.capability.limit.memory': 'AGENTS.md in the workspace root (workspace memory) is injected into every turn automatically, truncated when too long. In "Editable" mode the assistant can edit it itself — its content shapes behavior long-term; delete the file to reset.',
   'workspace.capability.limit.shellSwitch': 'Command execution is off by default and needs a separate switch; even then every command asks for its own confirmation, and denying it means it never runs.',
   'workspace.capability.limit.pythonSwitch': 'Running Python is a separate switch (not shared with command execution) and is off by default; each snippet asks for its own confirmation too. Python can reach the network and read the whole app sandbox, so it does not share a switch with the shell.',
   'workspace.capability.limit.pythonIsolation': 'Python scripts run in a separate process (:python): a 30-second timeout or the Stop button force-terminates them without affecting the app. Chaquopy itself has no interrupt mechanism, so killing the process is the only way to stop one.',

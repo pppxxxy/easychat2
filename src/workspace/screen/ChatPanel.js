@@ -75,6 +75,7 @@ import {
 import useChatRecorder from '../../chat/useChatRecorder.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
+import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
@@ -320,6 +321,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         const ownerId = resolved.id || settings.assistantCharacterId || 'default';
         loadUsage(ownerId);
         loadChats(ownerId);
+
+        // 首次打开工作区（可改模式）：生成一份 AGENTS.md 模板当起点。
+        // 幂等且绝不覆盖已有文件——用户或 agent 改过的内容就是它存在的意义；
+        // 无写权限（外部文件夹根）时失败静默，不打扰任何流程。
+        if (storeRef.current && settings.mode === 'write') {
+          ensureWorkspaceMemory(storeRef.current, ownerId, settings.mode).catch(() => {});
+        }
 
         const { configs, activeId } = await getApiConfigs().catch(() => ({ configs: [], activeId: '' }));
         if (alive) {
@@ -623,10 +631,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         tools = listToolsForMode(mode);
       } catch (error) {}
     }
+    // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
+    //（自我演进通路），缓存一旦判断失误模型就会按旧指令工作；读失败当没有，不打扰聊天。
+    const memory = await readWorkspaceMemory(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
       tools: tools.map(item => item.function.name),
+      memory,
     });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,

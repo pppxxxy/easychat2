@@ -18,8 +18,11 @@
       searchIndex/深链接线；应用 connectResult/parseHeadersText 两个纯函数
 
 ### T2 工作区记忆文件（AGENTS.md 等价）
-- [ ] 根目录 AGENTS.md 注入系统提示（mtime 缓存 + 8KB 截断）；agent 可自行修改（自我演进通路）
-- [ ] 新建工作区生成模板；capabilities 文案同步；三态测试（存在/缺失/超长）
+- [x] 根目录 AGENTS.md 注入系统提示（**每轮直读** + 8KB 截断）；agent 可自行修改（自我演进通路）
+      —— 偏离设计书的「mtime 缓存」：agent 可能在上一轮里刚改过它，缓存一旦判断失误
+      模型就按旧指令工作；直读一次沙盒 IO，成本可忽略（登记理由已进审查待办）。
+- [x] 新建工作区生成模板（幂等、绝不覆盖已有文件）；capabilities 能力说明同步；
+      三态测试（存在/缺失/超长）
 
 ### T3 权限规则引擎
 - [ ] `@easychat2_workspace_permissions`：rules[{effect, tool, match, scope}]

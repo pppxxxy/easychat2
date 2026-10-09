@@ -33,6 +33,9 @@ export const CAPABILITY_STEPS = Object.freeze([
 
 export const CAPABILITY_LIMITS = Object.freeze([
   { id: 'tools', labelKey: 'workspace.capability.limit.tools' },
+  // AGENTS.md（工作区记忆）：它不是「限制」而是「机制」，但因为会长期影响行为且
+  // 可被 agent 自行改写，用户必须在能力说明里看到它、知道怎么删（自我演进 ≠ 失控）。
+  { id: 'memory', labelKey: 'workspace.capability.limit.memory' },
   { id: 'shellSwitch', labelKey: 'workspace.capability.limit.shellSwitch' },
   { id: 'pythonSwitch', labelKey: 'workspace.capability.limit.pythonSwitch' },
   { id: 'pythonIsolation', labelKey: 'workspace.capability.limit.pythonIsolation' },

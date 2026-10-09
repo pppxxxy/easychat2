@@ -11,6 +11,7 @@ export const workspace = {
   'workspace.capability.step.answer': '模型根据结果继续判断，可能连着调用多轮，最后给出回答。',
   'workspace.capability.limitsTitle': '当前边界（请逐条看清）',
   'workspace.capability.limit.tools': '文件工具只在「只读」与「可改」模式生效；「询问」模式纯聊天，一个文件都不会读。',
+  'workspace.capability.limit.memory': '根目录的 AGENTS.md（工作区记忆）会随每轮对话自动注入，超长自动截断；「可改」模式下助手能自己修改它——内容会长期影响行为，删掉即恢复默认。',
   'workspace.capability.limit.shellSwitch': '执行命令默认关闭，需要你单独开启；开启后每条命令执行前仍会单独弹框确认，你点「拒绝」就绝不执行。',
   'workspace.capability.limit.pythonSwitch': '运行 Python 是另一个开关（与执行命令分开），默认关闭；开启后每段代码执行前也会单独弹框确认。Python 能联网、能读整个应用沙盒，风险面与 shell 不同，所以没和它共用一个开关。',
   'workspace.capability.limit.pythonIsolation': 'Python 脚本在独立进程（:python）里运行：超时（30 秒）或点「停止」都会强制终止它，主界面不受影响。Chaquopy 自身没有中断能力，杀进程是唯一的停法。',
