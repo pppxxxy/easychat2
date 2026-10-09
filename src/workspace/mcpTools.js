@@ -56,7 +56,15 @@ function serverSessionKey(server) {
 
 function acquireServerSession(server, { fetchImpl, sessionFactory } = {}) {
   if (typeof sessionFactory === 'function') return sessionFactory(server, { fetchImpl });
-  if (!server || !server.endpoint || !server.mcpToken) return null;
+  // **token 不是会话的前置条件**（2026-10-09 修，审查报告 BUG-1）：
+  // client 层是「有 token 才加 Authorization 头」（client.js `if (token)`），空 token 合法
+  // ——本地自建 / 无鉴权的 MCP 服务器正是靠这条通路。此前这里要求 mcpToken 非空，后果是
+  // 「添加成功 → 连接测试通过 → 目录落盘 → 工具注册成功 → 每次调用都报未连接」，
+  // 而且文案把用户指去「重新连接」——重连也修不好。只要求 endpoint。
+  //
+  // 内置 GitHub 不受影响：它的记录由 githubServerFromSettings 合成，无凭据时整个记录
+  // 都不存在（返回 null），轮不到这里判断。
+  if (!server || !server.endpoint) return null;
   const id = String(server.id || '');
   const key = serverSessionKey(server);
   const cached = mcpSessions.get(id);
@@ -267,6 +275,10 @@ const MCP_TOOL_ERROR_TEXT = {
   MCP_AUTH_FAILED: '认证失败：令牌无效、过期或权限不足，请在设置里重新连接。',
   MCP_HTTP_ERROR: 'MCP 请求失败，请稍后重试或缩小查询范围。',
   MCP_INVALID_RESPONSE: 'MCP 应答异常，请稍后重试。',
+  // client.js 实际会抛的 code 必须全部有中文口径：漏一个，error.message（英文原文）
+  // 就会进模型上下文，破坏「工具结果统一中文」的既有约定（审查报告 BUG-3）。
+  MCP_TIMEOUT: 'MCP 请求超时（服务端 30 秒无响应）：冷启动的服务端较慢，请重试一次。',
+  MCP_NO_FETCH: '当前环境没有可用的网络请求能力，无法访问 MCP 服务端。',
   GITHUB_NOT_CONNECTED: 'MCP 未连接，请在设置里重新连接。',
 };
 

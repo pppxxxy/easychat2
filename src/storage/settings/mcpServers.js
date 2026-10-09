@@ -19,12 +19,24 @@ import { createMutationQueue, readJsonWithSecrets, setJsonWithSecrets } from '..
 
 export const MCP_SERVERS_KEY = '@easychat2_mcp_servers';
 export const GITHUB_SERVER_ID = 'github';
+// 保留 id：内置服务器占用的命名空间。第三方服务器的 id 绝不能落在这里——
+// 分级是**按 serverId 分域**的（riskGate：内置 GitHub 走只读白名单、第三方默认逐条确认），
+// 所以 id 撞车等于把第三方工具偷换成 GitHub 白名单语义：恰好叫 search_code /
+// get_file_contents 的第三方工具会被判只读、免确认自动放行（审查报告 BUG-2，P2）。
+// 内置 GitHub 记录本身是 githubServerFromSettings **合成**的、不入存储，所以改写只可能
+// 命中第三方记录，不会伤到内置那条。
+export const RESERVED_MCP_SERVER_IDS = Object.freeze([GITHUB_SERVER_ID]);
 export const MCP_AUTH_METHODS = Object.freeze(['token', 'oauth']);
 export const MCP_OVERRIDE_TIERS = Object.freeze(['readonly', 'confirm', 'denied']);
 
 const mcpServersMutation = createMutationQueue();
 
+function isReservedServerId(id) {
+  return RESERVED_MCP_SERVER_IDS.includes(String(id || '').trim());
+}
+
 // slug：工具命名空间用（`<slug>__<tool>`）。小写字母/数字/连字符，空则生成随机尾缀。
+// 命中保留字时加**随机**尾缀（建库时只调一次，随机正好用来区分同名服务器）。
 export function makeMcpServerId(name) {
   const slug = String(name || '')
     .trim()
@@ -32,7 +44,9 @@ export function makeMcpServerId(name) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 32);
-  return slug || `server-${Math.random().toString(36).slice(2, 8)}`;
+  if (!slug) return `server-${Math.random().toString(36).slice(2, 8)}`;
+  if (isReservedServerId(slug)) return `${slug}-${Math.random().toString(36).slice(2, 8)}`;
+  return slug;
 }
 
 function normalizeHeaders(raw) {
@@ -81,6 +95,11 @@ export function normalizeMcpServer(raw) {
   // id 是命名空间与前缀的依据，缺了就没法注册——直接判废（不做随机补救，
   // 免得每次读盘都换一个前缀，把已注册工具变成幽灵）。
   if (!id) return null;
+  // 注意：**单条归一化不做保留字改写**。内置 GitHub 记录的构造器
+  // （serverFromGithubSettings）也走这个函数，在这里一刀切会把它的 id 改成
+  // github-x —— 白名单语义、github_ 前缀、ALREADY_MIGRATED 判定全废，
+  // 那是把内置能力打坏，不是修 bug。改写只放在「第三方列表」那两条路径上
+  // （见 toThirdPartyId），列表里本来就不该出现内置记录。
   const authMethod = MCP_AUTH_METHODS.includes(source.authMethod) ? source.authMethod : 'token';
   return {
     id,
@@ -91,6 +110,9 @@ export function normalizeMcpServer(raw) {
     headers: normalizeHeaders(source.headers),
     enabled: source.enabled === true,
     connectedAt: Number(source.connectedAt) > 0 ? Number(source.connectedAt) : 0,
+    // 内置标记：只有内置 GitHub 记录带它。它授权该记录**保留保留字 id**
+    //（见 toThirdPartyId）；第三方服务器的记录永远不带，所以拿不到内置命名空间与分级语义。
+    builtin: source.builtin === true,
     toolCatalog: normalizeCatalog(source.toolCatalog),
     deniedNames: (Array.isArray(source.deniedNames) ? source.deniedNames : [])
       .map(name => String(name || '').trim())
@@ -99,13 +121,25 @@ export function normalizeMcpServer(raw) {
   };
 }
 
+// 第三方列表专用：保留字 id 一律改写（**固定**尾缀，不随机）。
+// 为什么固定：本函数在每次读盘都会跑（getMcpServers → normalizeMcpServers），
+// 随机 id 会让命名空间前缀每次都变、已注册工具全成幽灵——与上面「空 id 判废」
+// 同一条理由；唯一性交给下面的同 id 去重。
+// 为什么只改没有 builtin 标记的：内置 GitHub 记录**确实会合法地进这个列表**
+// （migrateGithubServer 迁移旧设置时写入），它必须保住保留字 id，否则白名单语义、
+// github_ 前缀、ALREADY_MIGRATED 判定全废。所以判据不是「在列表里」而是「有没有标记」。
+function toThirdPartyId(server) {
+  if (!server || server.builtin === true || !isReservedServerId(server.id)) return server;
+  return { ...server, id: `${server.id}-x` };
+}
+
 // 同 id 去重（保留先出现的），保证命名空间唯一。
 export function normalizeMcpServers(raw) {
   const list = Array.isArray(raw) ? raw : [];
   const seen = new Set();
   const out = [];
   for (const item of list) {
-    const server = normalizeMcpServer(item);
+    const server = toThirdPartyId(normalizeMcpServer(item));
     if (!server || seen.has(server.id)) continue;
     seen.add(server.id);
     out.push(server);
@@ -128,7 +162,9 @@ export function saveMcpServers(list) {
 
 // 纯函数（供 UI/reducer 直用）：按 id 覆盖或追加。
 export function upsertMcpServer(list, server) {
-  const next = normalizeMcpServer(server);
+  // 写入路径同样过保留字改写：这是「外部传入」的入口（UI 建服务器 / 改服务器），
+  // 手改存储或老数据里的 id='github' 会在这里被拉回第三方命名空间。
+  const next = toThirdPartyId(normalizeMcpServer(server));
   const current = normalizeMcpServers(list);
   if (!next) return current;
   const index = current.findIndex(item => item.id === next.id);
@@ -155,6 +191,8 @@ export function serverFromGithubSettings(settings) {
   return normalizeMcpServer({
     id: GITHUB_SERVER_ID,
     name: 'GitHub',
+    // 内置标记：授权这条记录保留保留字 id（第三方记录没有它，见 toThirdPartyId）。
+    builtin: true,
     endpoint: String(source.endpoint || '').trim() || DEFAULT_GITHUB_MCP_ENDPOINT,
     authMethod: source.authMethod === 'oauth' ? 'oauth' : 'token',
     mcpToken: String(token),

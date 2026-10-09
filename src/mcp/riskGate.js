@@ -55,8 +55,13 @@ export function classifyMcpTool(name, { serverId = 'github', tierOverrides = nul
   if (!normalized) return MCP_TOOL_TIERS.DENIED;
   // ① 硬禁全局：跨服务器都无解锁途径（即使用户同意）。
   if (FORBIDDEN_NAME_PATTERN.test(normalized)) return MCP_TOOL_TIERS.DENIED;
-  // ② 内置 GitHub：现有白名单语义原样（不传第二参 = 回到本分支，向后兼容）。
-  if (!serverId || serverId === 'github') {
+  // ② 内置 GitHub：现有白名单语义原样（**不传第二参**时靠上面的默认值回到本分支）。
+  // 2026-10-09（审查报告 BUG-2 的同类硬化）：这里原先还接受空 serverId（`!serverId`），
+  // 于是「id 丢失/为空的服务器」会静默拿到内置白名单语义——恰好叫 search_code 的第三方
+  // 工具会被判只读、免确认放行。空 id 的第三方记录到不了这里（normalizeMcpServer 对空 id
+  // 直接判废），所以这是**潜在**风险而非活 bug；但白名单是这套系统的信任根基，
+  // 宁可让空值落到第三方默认（CONFIRM 逐条确认）——失败方向是「多问一次」而不是「少问一次」。
+  if (serverId === 'github') {
     if (READONLY_TOOLS.has(normalized)) return MCP_TOOL_TIERS.READONLY;
     if (CONFIRM_TOOLS.has(normalized)) return MCP_TOOL_TIERS.CONFIRM;
     return MCP_TOOL_TIERS.DENIED;
