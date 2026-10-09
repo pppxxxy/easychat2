@@ -11,6 +11,7 @@ import {
   createRepo,
   deleteRepo,
   fetchTokenScopes,
+  listBranches,
   listRepos,
   mapGithubError,
   normalizeRepo,
@@ -53,6 +54,22 @@ test('normalizeRepo / buildReposUrl / buildHeaders', () => {
   assert.ok(buildHeaders('t').Authorization === 'Bearer t');
   assert.equal(buildHeaders('').Authorization, undefined);
   assert.equal(repoWebUrl('a', 'b'), 'https://github.com/a/b');
+});
+
+test('B1 listBranches：默认一页；page>=2 才带分页参数（缺省 URL 逐字节不变）', async () => {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    return makeResponse(200, [{ name: 'main' }, { name: 'develop' }, { name: '' }]);
+  };
+  const names = await listBranches({ fetchImpl, token: 't', owner: 'a', repo: 'b' });
+  assert.deepEqual(names, ['main', 'develop'], '空名字条目被过滤');
+  assert.equal(calls[0], 'https://api.github.com/repos/a/b/branches?per_page=100');
+
+  await listBranches({ fetchImpl, token: 't', owner: 'a', repo: 'b', page: 2 });
+  assert.equal(calls[1], 'https://api.github.com/repos/a/b/branches?per_page=100&page=2');
+  await listBranches({ fetchImpl, token: 't', owner: 'a', repo: 'b', page: 1 });
+  assert.equal(calls[2], 'https://api.github.com/repos/a/b/branches?per_page=100', 'page=1 等同缺省');
 });
 
 test('mapGithubError：401/403(限额 vs 权限)/404/409/422/429', () => {

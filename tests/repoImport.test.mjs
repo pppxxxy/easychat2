@@ -236,3 +236,22 @@ test('F4 拉取残留清单：解析容错 + 写入/读取/清理往返（全不
   const failing = { async writeWorkspaceFile() { throw new Error('no space'); } };
   assert.equal(await writePullManifest(failing, 'c1', { owner: 'a', repo: 'b', branch: 'm' }), false, '写失败返回 false 不抛');
 });
+
+test('B1/B2/B3 拉取体验接线：分支 chip + 默认分支对齐 + 覆盖守卫（下载之前）', () => {
+  const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
+  // B1：数据层 listBranches 早已存在，UI 必须真的调用它（之前是裸输入框、手打分支名）
+  assert.ok(github.includes('listBranches({ token, owner, repo })'), '分支列表接线（第一页）');
+  assert.ok(github.includes('listBranches({ token, owner, repo, page: 2 })'), '超过一页时翻第 2 页');
+  assert.ok(github.includes("t('workspace.github.branch.defaultTag')"), '默认分支徽标');
+  assert.ok(github.includes("t('workspace.github.branch.loadError')"), '失败态：一行提示、不阻塞手动输入');
+  assert.ok(github.includes("t('workspace.github.branch.overLimit')"), '超量提示（其余手动输入）');
+  assert.ok(github.includes('branchSeqRef'), '竞态防护：快速切仓库旧响应不覆盖新列表');
+  // B2：初值与该仓库真实默认分支同源（normalizeRepo.defaultBranch），不再硬编码 main
+  assert.ok(github.includes('current.branch || current.defaultBranch'), '初值对齐默认分支');
+  // B3：覆盖守卫——守卫调用必须在下载 fetch 之前（取消 = 连 zip 都不下载）
+  assert.ok(github.includes('confirmPullOverwrite'), '覆盖确认存在');
+  const guardAt = github.indexOf('confirmPullOverwrite(guardDiff.pending)');
+  const fetchAt = github.indexOf('await fetch(url');
+  assert.ok(guardAt > 0 && fetchAt > 0 && guardAt < fetchAt, '守卫在下载之前');
+  assert.ok(github.includes('guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
+});

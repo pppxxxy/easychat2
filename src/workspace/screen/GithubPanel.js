@@ -49,6 +49,7 @@ import {
   createRepo,
   deleteRepo,
   fetchTokenScopes,
+  listBranches,
   listRepos,
   mapGithubError,
   renameRepo,
@@ -103,6 +104,13 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [pullEta, setPullEta] = useState(0);
   const pullStartRef = useRef(0);
   const pullCancelRef = useRef(false);
+  // B1 分支选择器：三态（loading / error / chips）；seq 防「快速切仓库时旧响应
+  // 后到」把新仓库的分支列表盖回去（网络乱序是常态，不能靠响应先后）。
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [branchBusy, setBranchBusy] = useState(false);
+  const [branchError, setBranchError] = useState(false);
+  const [branchOverLimit, setBranchOverLimit] = useState(false);
+  const branchSeqRef = useRef(0);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
   const [snapshotPaths, setSnapshotPaths] = useState([]);
   const mountedRef = useRef(true);
@@ -229,6 +237,57 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     [allFiles, current, repoPrefix, snapshotPaths]
   );
 
+  // B1：选中仓库后拉分支列表（最多 2 页 = 200 个；超过只提示手动输入）。
+  // 失败不阻塞——输入框始终可用（清单三态里的「失败」就是一行提示）。
+  useEffect(() => {
+    const owner = current ? current.owner : '';
+    const repo = current ? current.repo : '';
+    branchSeqRef.current += 1;
+    const seq = branchSeqRef.current;
+    if (!owner || !repo) {
+      setBranchOptions([]);
+      setBranchBusy(false);
+      setBranchError(false);
+      setBranchOverLimit(false);
+      return undefined;
+    }
+    let alive = true;
+    setBranchBusy(true);
+    setBranchError(false);
+    setBranchOverLimit(false);
+    setBranchOptions([]);
+    (async () => {
+      try {
+        const first = await listBranches({ token, owner, repo });
+        let names = first;
+        let over = false;
+        if (first.length >= 100) {
+          const second = await listBranches({ token, owner, repo, page: 2 });
+          names = [...first, ...second];
+          over = second.length >= 100;
+        }
+        if (!alive || branchSeqRef.current !== seq) return;
+        setBranchOptions(names.map(name => ({ name })));
+        setBranchOverLimit(over);
+      } catch (error) {
+        if (!alive || branchSeqRef.current !== seq) return;
+        setBranchError(true);
+      } finally {
+        if (alive && branchSeqRef.current === seq) setBranchBusy(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [current, token]);
+
+  // B2：分支输入框与该仓库的真实默认分支对齐（normalizeRepo.defaultBranch——
+  // 硬编码 'main' 会让默认分支叫 develop 的仓库直接 404）。已拉取过的仓库
+  // （current.branch 有值 = 当前本地副本的分支）优先它，别把用户切过的分支
+  // 重置回默认；换仓库时同步重置，不带旧分支名。
+  useEffect(() => {
+    const initial = String((current && (current.branch || current.defaultBranch)) || '').trim();
+    setPullBranch(initial || 'main');
+  }, [current]);
+
   // 搜索：过滤当前仓库树的全部文件（本地副本全量路径匹配，不区分大小写）。
   const searchResults = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -258,6 +317,20 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   // 拉取当前仓库的分支快照到本地副本（codeload zipball → 文本文件落盘）。
   // 与 Stage 0 的修复同一条链路：目录条目已跳过、父路径被文件占用有明确报错、
   // 一次导入只记一条汇总历史（批内挂起逐文件记录）。带进度与取消（取消即回滚）。
+  // B3：重拉覆盖确认——Promise 化 Alert（**问不到用户 = 不继续**，与工具审批同款
+  // 原则）；点外部/返回键按取消结算，绝不默认放行。
+  const confirmPullOverwrite = useCallback(count => new Promise(resolve => {
+    Alert.alert(
+      t('workspace.github.pull.overwriteTitle'),
+      t('workspace.github.pull.overwriteBody', { count }),
+      [
+        { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+        { text: t('workspace.github.pull.overwriteConfirm'), style: 'destructive', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  }), [t]);
+
   const pullSnapshot = useCallback(async () => {
     if (!current || pullBusy) return;
     const store = storeRef && storeRef.current;
@@ -271,6 +344,24 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     pullCancelRef.current = false;
     let batchOpen = false;
     try {
+      // B3 覆盖守卫：本地副本相对该分支上次拉取的基线有增删（未推送改动）时，
+      // 重拉会静默覆盖同名文件——先问一次。本地为空（首次拉取）或与基线一致
+      // 直接放行；守卫本身绝不抛错（读基线/列目录失败按「无风险」处理）。
+      const base = `repos/${current.owner}/${current.repo}/${branch}/`;
+      try {
+        const baseline = await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`);
+        const guardFiles = await store.listWorkspaceFiles({ characterId });
+        const guardLocal = localRepoPaths({ files: guardFiles, prefix: base });
+        const guardDiff = diffRepoSnapshot({
+          files: guardFiles,
+          prefix: base,
+          snapshotPaths: baseline && Array.isArray(baseline.paths) ? baseline.paths : [],
+        });
+        if (guardLocal.length > 0 && guardDiff.pending > 0) {
+          const proceed = await confirmPullOverwrite(guardDiff.pending);
+          if (!proceed) return;
+        }
+      } catch (error) {}
       const url = buildRepoZipUrl({ owner: current.owner, repo: current.repo, branch });
       const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       if (!response.ok) throw mapGithubError(response.status, { headers: response.headers });
@@ -287,7 +378,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
         return;
       }
-      const base = `repos/${current.owner}/${current.repo}/${branch}/`;
       // F4：残留检测——上次没跑完会留下清单（成功结束才删）；只提示不拦截，
       // 用户看到「上次未完成，本次覆盖重写」即可（重跑全量是幂等的）。
       try {
@@ -363,7 +453,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         setPullProgress({ done: 0, total: 0 });
       }
     }
-  }, [characterId, current, describeError, pullBranch, pullBusy, refreshLocal, storeRef, t, token]);
+  }, [characterId, confirmPullOverwrite, current, describeError, pullBranch, pullBusy, refreshLocal, storeRef, t, token]);
 
   // ② 导入本地文件：手机多选 → 文本文件写进当前仓库的本地副本。
   const importLocalFiles = useCallback(async () => {
@@ -730,6 +820,41 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     />
                   ) : null}
                 </View>
+                {/* B1：分支 chip（点选即填输入框）。加载中 / 失败都有对应状态——
+                    失败不阻塞：手动输入始终可用（特殊分支名与 >200 个分支的兜底）。 */}
+                {branchBusy ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} style={styles.branchChipsBusy} />
+                ) : branchError ? (
+                  <FieldHint>{t('workspace.github.branch.loadError')}</FieldHint>
+                ) : branchOptions.length > 0 ? (
+                  <>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.branchChips}
+                      contentContainerStyle={styles.branchChipsContent}
+                    >
+                      {branchOptions.map(item => (
+                        <TouchableOpacity
+                          key={item.name}
+                          style={[styles.branchChip, item.name === pullBranch && styles.branchChipActive]}
+                          onPress={() => setPullBranch(item.name)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.branchChipText, item.name === pullBranch && styles.branchChipTextActive]}>
+                            {item.name}
+                          </Text>
+                          {current && item.name === current.defaultBranch ? (
+                            <View style={styles.branchChipBadge}>
+                              <Text style={styles.branchChipBadgeText}>{t('workspace.github.branch.defaultTag')}</Text>
+                            </View>
+                          ) : null}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                    {branchOverLimit ? <FieldHint>{t('workspace.github.branch.overLimit')}</FieldHint> : null}
+                  </>
+                ) : null}
                 {pullBusy ? (
                   <FieldHint>
                     {pullProgress.total > 0
@@ -1041,6 +1166,34 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   pushText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginBottom: 2 },
   pullRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   branchInput: { flex: 1, marginTop: 0, marginRight: 8 },
+  // B1 分支 chip：横向滚动、点选填入；选中态用主题色描边 + 淡底。
+  branchChips: { flexGrow: 0, marginTop: 8 },
+  branchChipsContent: { alignItems: 'center', paddingRight: 8 },
+  branchChipsBusy: { alignSelf: 'flex-start', marginTop: 8 },
+  branchChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: tokens.radius.pill,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.35),
+  },
+  branchChipActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primaryAlpha(0.14),
+  },
+  branchChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12) },
+  branchChipTextActive: { color: theme.colors.primary, fontWeight: '600' },
+  branchChipBadge: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.primaryAlpha(0.18),
+  },
+  branchChipBadgeText: { color: theme.colors.primary, fontSize: fonts.scaled(10) },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
   layerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   layerTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6, flex: 1 },

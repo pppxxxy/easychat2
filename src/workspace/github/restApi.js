@@ -111,8 +111,11 @@ export async function getRepo({ fetchImpl = fetch, token, owner, repo } = {}) {
   return normalizeRepo(data);
 }
 
-export async function listBranches({ fetchImpl = fetch, token, owner, repo } = {}) {
-  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100`;
+export async function listBranches({ fetchImpl = fetch, token, owner, repo, page } = {}) {
+  // page（B1）：分支超过一页（100 个）时 UI 会翻到第 2 页。只认 >=2 的整数——
+  // 默认请求不带 page 参数（URL 与旧版逐字节一致，已有测试钉着它）。
+  const pageQuery = Number.isInteger(page) && page > 1 ? `&page=${page}` : '';
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100${pageQuery}`;
   const { data } = await request(fetchImpl, url, { token });
   return Array.isArray(data) ? data.map(item => String(item && item.name || '')).filter(Boolean) : [];
 }
