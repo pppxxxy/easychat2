@@ -251,3 +251,41 @@ test('弹窗点外可取消（2026-10-07）：panelFeedback 全部弹窗走 aler
   assert.ok(feedback.includes('alertCancelable(t(\'localModel.alert.deleteModel.title\')'),
     '删除确认弹窗同样可点外取消（点外=取消，不误删）');
 });
+
+test('v5 §6：参数弹窗「高级」折叠——预设 + contextSize 单列，其余字段默认收起', () => {
+  const MODAL = readPanel('ModelParamsModal.js');
+  // 折叠分组：全字段里排除 contextSize（它单列在外、带回显内存代价）
+  assert.ok(MODAL.includes("filter(field => field !== 'contextSize')"),
+    '「高级」组应排除 contextSize');
+  assert.ok(MODAL.includes('advancedOpen'), '折叠开关状态存在');
+  assert.ok(MODAL.includes('{advancedOpen ? advancedFields.map(field => renderField(field)) : null}'),
+    '高级字段只在展开时渲染（默认收起，避免一上来 7 个裸数字）');
+  assert.ok(MODAL.includes("renderField('contextSize')"), 'contextSize 单列渲染');
+  assert.ok(MODAL.includes("t('localModel.paramsModal.advanced')"), '折叠标题文案');
+  assert.ok(MODAL.includes('contextMemoryHint()'), 'contextSize 的内存影响提示保留');
+
+  const zhSrc = readFileSync(path.join(HERE, '..', 'src', 'i18n', 'locales', 'zh-CN', 'localModel.js'), 'utf8');
+  const enSrc = readFileSync(path.join(HERE, '..', 'src', 'i18n', 'locales', 'en', 'localModel.js'), 'utf8');
+  assert.ok(zhSrc.includes("'localModel.paramsModal.advanced'"), '中文文案在');
+  assert.ok(enSrc.includes("'localModel.paramsModal.advanced'"), '英文文案在');
+});
+
+test('v5 §6：模型卡兼容分级视觉只留颜色标记，完整文案进无障碍标签', () => {
+  assert.ok(MODEL_CARD.includes('accessibilityLabel={summary.compatibility'),
+    '分级完整文案进 a11y（视觉只颜色，读屏仍完整）');
+  assert.ok(/tierColor\(theme, summary\.compatibility\.tier\)/.test(MODEL_CARD), '颜色标记保留');
+  assert.ok(MODEL_CARD.includes('> ●</Text>'), '用色点标记分级');
+  assert.ok(!MODEL_CARD.includes('${summary.compatibility.label}`}</Text>'),
+    '不得再把分级文字直接渲染进单行摘要（会被截断挤掉别的信息）');
+});
+
+test('v5 §3：模型中心为全屏 Modal（非透明弹层）；弹层样式仍留给子弹窗', () => {
+  assert.ok(SHELL.includes('<Modal visible={visible} animationType="slide" onRequestClose={onClose}>'),
+    '全屏 Modal（不带 transparent）');
+  assert.ok(SHELL.includes('styles.centerScreen'), '面板用全屏容器');
+  assert.ok(!SHELL.includes('styles.sheet}'), '面板不再套 90% 高 sheet');
+  const styles = readPanel('panelStyles.js');
+  assert.ok(styles.includes('centerScreen:'), '全屏容器样式存在');
+  // backdrop/sheet 是参数弹窗等子层在用的，不能跟着全屏化被删
+  assert.ok(styles.includes('backdrop:') && styles.includes('sheet:'), '子弹窗弹层样式必须保留');
+});

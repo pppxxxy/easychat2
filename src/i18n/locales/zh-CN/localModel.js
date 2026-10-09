@@ -232,6 +232,7 @@ export const localModel = {
   'localModel.params.preset.writing': '写作',
   'localModel.params.preset.code': '代码',
   'localModel.paramsModal.contextMemory': '上下文调整后 KV 占用变化：{size}',
+  'localModel.paramsModal.advanced': '高级参数（采样与设备）',
   'localModel.engine.cardReady': '运行中：{name} · 约 {size}',
   'localModel.engine.cardLoading': '正在加载本地模型 {progress}%',
   'localModel.engine.cardError': '本地模型加载失败',

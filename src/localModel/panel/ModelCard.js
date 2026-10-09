@@ -71,10 +71,19 @@ export default function ModelCard({
         <Text style={styles.itemName} numberOfLines={1}>{name}</Text>
         <Text style={[styles.cardBadge, badgeStyle]} numberOfLines={1}>{t(badgeKey)}</Text>
       </View>
-      <Text style={styles.cardSummary} numberOfLines={1}>
+      {/* 兼容分级（设计书 §6）：行尾只留一个颜色标记、不上文字——这一行已含量化·
+          规模·体积·识图/听声，再缀「较难/难跑」必然被单行截断把信息挤掉；
+          完整分级进无障碍标签，读屏用户仍能听到。 */}
+      <Text
+        style={styles.cardSummary}
+        numberOfLines={1}
+        accessibilityLabel={summary.compatibility && summary.compatibility.label
+          ? `${summaryParts.join(' · ')} · ${summary.compatibility.label}`
+          : undefined}
+      >
         {summaryParts.join(' · ')}
         {summary.compatibility && summary.compatibility.label ? (
-          <Text style={{ color: tierColor(theme, summary.compatibility.tier) }}>{`  ${summary.compatibility.label}`}</Text>
+          <Text style={{ color: tierColor(theme, summary.compatibility.tier) }}> ●</Text>
         ) : null}
       </Text>
 

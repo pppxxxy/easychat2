@@ -7,6 +7,14 @@ export function createPanelStyles(theme, fonts, tokens) {
   return StyleSheet.create({
     backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.colors.overlay },
     sheet: { maxHeight: '90%', backgroundColor: theme.colors.surfaceAlt, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18 },
+    // 模型中心容器 = 全屏（设计书 §3）：运行卡 + 下载卡 + 模型卡列表需要整屏；
+    // 顶部长按区留 44（与工作区单屏同口径）。backdrop/sheet 仍归参数/搜索等弹层用。
+    centerScreen: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+      paddingTop: 44,
+      paddingHorizontal: 18,
+    },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
     content: { paddingBottom: 18 },
@@ -118,6 +126,17 @@ export function createPanelStyles(theme, fonts, tokens) {
     downloadCancelButton: { marginLeft: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.dangerSoft },
     downloadCancelText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(13), fontWeight: '700' },
     paramField: { marginBottom: 4 },
+  // 「高级」折叠开关（v5 Stage C §6）：预设 + contextSize 之外的技术字段默认收起。
+  advancedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.divider,
+  },
+  advancedToggleText: { color: theme.colors.primary, fontSize: fonts.scaled(13), fontWeight: '700' },
     // U7 完整版：字段标签行（左侧名称 + 右侧「恢复默认」）+ 越界红框与行内错误
     paramLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     resetText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600' },

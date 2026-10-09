@@ -60,41 +60,42 @@ export default function LocalModelPanel({ visible, onClose }) {
 
   return (
     <>
-      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.sheet}>
-            <View style={styles.header}>
-              <Text style={styles.title}>{t('localModel.center.title')}</Text>
-              <View style={styles.headerActions}>
-                <TopicButton
-                  onPress={() => setTopicOpen(true)}
-                  accessibilityLabel={t('localModel.tutorial.a11y')}
-                />
-                <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
-                  <Ionicons name="close" size={22} color={theme.colors.textMuted} />
-                </TouchableOpacity>
-              </View>
+      {/* 全屏 Modal（设计书 §3）：模型中心的信息量（运行卡 + 下载卡 + 模型卡列表）
+          需要整屏；backdrop/sheet 仍留给参数/搜索等弹层复用，不共用本容器。 */}
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+        <KeyboardAvoidingView style={styles.centerScreen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.header}>
+            <Text style={styles.title}>{t('localModel.center.title')}</Text>
+            <View style={styles.headerActions}>
+              <TopicButton
+                onPress={() => setTopicOpen(true)}
+                accessibilityLabel={t('localModel.tutorial.a11y')}
+              />
+              <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
+                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              </TouchableOpacity>
             </View>
-            <View style={styles.tabRow}>
-              {[
-                { id: 'models', label: t('localModel.tabs.models') },
-                { id: 'acquire', label: t('localModel.tabs.acquire') },
-                { id: 'serve', label: t('localModel.tabs.serve') },
-              ].map(tab => (
-                <TouchableOpacity
-                  key={tab.id}
-                  style={[styles.tabItem, section === tab.id && styles.tabItemActive]}
-                  onPress={() => setSection(tab.id)}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: section === tab.id }}
-                  accessibilityLabel={tab.label}
-                >
-                  <Text style={[styles.tabText, section === tab.id && styles.tabTextActive]}>{tab.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          </View>
+          <View style={styles.tabRow}>
+            {[
+              { id: 'models', label: t('localModel.tabs.models') },
+              { id: 'acquire', label: t('localModel.tabs.acquire') },
+              { id: 'serve', label: t('localModel.tabs.serve') },
+            ].map(tab => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.tabItem, section === tab.id && styles.tabItemActive]}
+                onPress={() => setSection(tab.id)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityState={{ selected: section === tab.id }}
+                accessibilityLabel={tab.label}
+              >
+                <Text style={[styles.tabText, section === tab.id && styles.tabTextActive]}>{tab.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
               {section === 'models' ? (
                 <ModelsSection
                   styles={styles}
@@ -160,8 +161,7 @@ export default function LocalModelPanel({ visible, onClose }) {
                   onOpenLogs={() => setLogsOpen(true)}
                 />
               ) : null}
-            </ScrollView>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
 
