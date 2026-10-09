@@ -38,7 +38,10 @@
       授权必须可撤销，否则「永远允许」点错一次就是没法回头的坑。
 
 ## 阶段 2：技能与命令层
-- [ ] T4 SKILL.md 渐进披露（清单注入 + 现有 read 工具读全文，零新工具）+ 技能面板 + 3 示例
+- [x] T4 SKILL.md 渐进披露（清单注入 + 现有 read 工具读全文，零新工具）+ 技能面板 + 3 示例
+      —— 存放 `.easychat/skills/<name>/SKILL.md`；每轮直读（目录不存在 = 1 次 list IO）；
+      清单只在 read/write 注入（ask 无读工具，注入等于教模型说谎）；设置面板技能行
+      （列表 + 安装示例，幂等不覆盖）；3 个示例覆盖「流程型 / 清单型 / 产物型」。
 - [ ] T5 斜杠命令 `/name $ARGUMENTS`（输入框匹配列表 + 模板渲染纯函数）
 - [ ] T6 钩子 hooks.json（声明式，before_shell/after_write/after_edit；不做任意 JS 插件）
 

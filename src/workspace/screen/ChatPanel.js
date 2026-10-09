@@ -76,6 +76,7 @@ import useChatRecorder from '../../chat/useChatRecorder.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
+import { installSampleSkills, readWorkspaceSkills } from '../skills.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
   clearPermissionRules,
@@ -122,6 +123,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 已记住的授权（本次会话 + 永久）：打开设置面板时刷新一次即可——
   // 规则只会在「用户点弹框」时变化，而点弹框时用户不在设置面板里。
   const [permissionRules, setPermissionRules] = useState([]);
+  // 技能清单（设置面板展示用；发消息时另行直读，两处互不影响）。
+  const [workspaceSkills, setWorkspaceSkills] = useState([]);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
   const [characterId, setCharacterId] = useState('default');
   const [characterName, setCharacterName] = useState('');
@@ -299,8 +302,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } catch (error) {}
   }, []);
 
-  // 打开设置面板时刷新「已记住的授权」（列表与清除按钮共用这一份数据）。
-  // 时机够用：规则只在用户点确认弹框时变化，而那时设置面板是关着的。
+  // 打开设置面板时刷新「已记住的授权」与技能清单（列表与按钮共用这两份数据）。
+  // 时机够用：规则只在用户点确认弹框时变化，技能只在用户编辑文件时变化。
   useEffect(() => {
     if (!settingsOpen) return undefined;
     let alive = true;
@@ -309,10 +312,15 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         if (alive) setPermissionRules(Array.isArray(rules) ? rules : []);
       })
       .catch(() => {});
+    readWorkspaceSkills(storeRef.current, characterId)
+      .then(list => {
+        if (alive) setWorkspaceSkills(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [settingsOpen]);
+  }, [settingsOpen, characterId]);
 
   // 打开时自解析：设置快照 → 沙盒 store → 工作区角色 → 模型 / 思考 / 角色清单 / 项目。
   useEffect(() => {
@@ -519,6 +527,30 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   }, [characters, loadChats, loadUsage]);
 
   // 导入文件：选一个文本文件复制进沙盒（角色随后就能读它）。
+  // 安装示例技能（3 个，幂等：已有的绝不覆盖）——技能是文件，用户在文件面板里
+  // 自由编辑，这里只负责给一个能跑的起点。
+  const handleInstallSampleSkills = useCallback(async () => {
+    let installed = 0;
+    try {
+      installed = await installSampleSkills(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const list = await readWorkspaceSkills(storeRef.current, characterId);
+      setWorkspaceSkills(Array.isArray(list) ? list : []);
+    } catch (error) {}
+    if (installed > 0) {
+      Alert.alert(
+        t('workspace.settings.skills.installDoneTitle'),
+        t('workspace.settings.skills.installDone', { count: installed })
+      );
+    } else {
+      Alert.alert(
+        t('workspace.settings.skills.installNoneTitle'),
+        t('workspace.settings.skills.installNone')
+      );
+    }
+  }, [characterId, t]);
+
   // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
   // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
   const handleClearPermissionRules = useCallback(async () => {
@@ -670,11 +702,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
     //（自我演进通路），缓存一旦判断失误模型就会按旧指令工作；读失败当没有，不打扰聊天。
     const memory = await readWorkspaceMemory(storeRef.current, ownerId);
+    // 技能清单（渐进披露第一层）：同样每轮直读——技能目录不存在时只有一次 list IO。
+    const skills = mode === 'ask' ? [] : await readWorkspaceSkills(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
       tools: tools.map(item => item.function.name),
       memory,
+      skills,
     });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,
@@ -817,6 +852,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
                   permissionRules={permissionRules}
                   onClearPermissionRules={handleClearPermissionRules}
+                  skills={workspaceSkills}
+                  onInstallSampleSkills={handleInstallSampleSkills}
                 />
               </ScrollView>
             ) : (

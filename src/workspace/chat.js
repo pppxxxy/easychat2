@@ -4,6 +4,7 @@
 // 沙盒文件操作，给一段精简、贴近工具的系统提示即可。所有函数无副作用，可 Node 直测。
 
 import { workspaceMemorySection } from './memory.js';
+import { workspaceSkillsSection } from './skills.js';
 
 export const WORKSPACE_AGENT_BASE_PROMPT = [
   '你是「工作区文件助手」，帮用户在本地沙盒里管理文本文件。',
@@ -44,13 +45,20 @@ export function workspaceAgentModeHint(mode) {
 // 这里自己再拦一道，不靠「调用方一定传对」来保证不说假话。
 // memory：工作区记忆文件（AGENTS.md）的原文，由 ChatPanel 每轮直读传入；
 // 不传/为空 = 这个工作区没有记忆文件，提示词与旧行为完全一致。
-export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory } = {}) {
+// skills：工作区技能清单 [{ name, description }]（渐进披露的第一层）。
+// **只在有文件工具的形态下注入**（read/write）：清单里写着「用 read 工具读全文」，
+// 而 ask 模式一个工具都没有——说了模型也读不到，只会反复尝试然后乱解释。
+export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
   // 记忆段放在模式说明之前：先讲「这个工作区的长期约定」，再讲「这一轮能做什么」。
   const memorySection = workspaceMemorySection(memory);
   if (memorySection) lines.push(memorySection);
+  if (mode === 'read' || mode === 'write') {
+    const skillsSection = workspaceSkillsSection(skills);
+    if (skillsSection) lines.push(skillsSection);
+  }
   lines.push(workspaceAgentModeHint(mode));
   if (mode === 'write') lines.push(...workspaceExecutionToolHints(tools));
   return lines.join('\n');

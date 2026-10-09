@@ -21,6 +21,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { describePermissionRule } from '../agent/permissions.js';
+import { SKILLS_DIR } from './skills.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
@@ -70,6 +71,9 @@ export default function WorkspaceSettingsSheet({
   // （本面板只展示 + 转发回调，见文件头「纯展示」约定）。
   permissionRules = [],
   onClearPermissionRules,
+  // 技能清单（SKILL.md 渐进披露）；安装示例同样是转发给 ChatPanel 的动作。
+  skills = [],
+  onInstallSampleSkills,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -110,6 +114,14 @@ export default function WorkspaceSettingsSheet({
       icon: 'analytics-outline',
       label: t('workspace.settings.usage'),
       value: usage ? `${Math.round((usage.ratio || 0) * 100)}%` : t('workspace.settings.usage.empty'),
+    },
+    {
+      id: 'skills',
+      icon: 'sparkles-outline',
+      label: t('workspace.settings.skills'),
+      value: skills.length > 0
+        ? t('workspace.settings.skills.count', { count: skills.length })
+        : t('workspace.settings.skills.emptyShort'),
     },
     {
       id: 'permissions',
@@ -225,6 +237,30 @@ export default function WorkspaceSettingsSheet({
             })}
           </Text>
           <Text style={styles.bodyHint}>{t('workspace.panel.context.hint')}</Text>
+        </View>
+      );
+    }
+    if (id === 'skills') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.skills.hint', { dir: SKILLS_DIR })}</Text>
+          {skills.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.skills.empty')}</Text>
+          ) : skills.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {String(item && item.name || '')}
+              {'：'}
+              {String(item && item.description || '') || t('workspace.settings.skills.noDescription')}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleSkills && onInstallSampleSkills()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -451,6 +487,23 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   permissionClearText: {
     marginLeft: 6,
     color: theme.colors.danger,
+    fontSize: fonts.scaled(12),
+  },
+  // 「安装示例技能」：中性动作（主题色描边），与上面那个危险色的清除按钮区分开。
+  skillsInstall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+  },
+  skillsInstallText: {
+    marginLeft: 6,
+    color: theme.colors.primary,
     fontSize: fonts.scaled(12),
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
