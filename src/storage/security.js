@@ -1,11 +1,15 @@
-// 隐私安全存储：应用锁（生物识别）与单角色锁（数字密码）的设置。
+// 隐私安全存储：应用锁（生物识别）与角色锁（数字密码）的设置。
 //
 // 设计：
 // - 单一元数据键 `@easychat2_security`：`{ appLock: { enabled, relockOnBackground },
 //   characterLocks: { [characterId]: true } }`。只存「哪些角色上锁」，不存密码。
-// - 密码本身落系统安全存储（expo-secure-store，经 secretStore.js 封装），
+// - 密码与密码提示都落系统安全存储（expo-secure-store，经 secretStore.js 封装），
 //   AsyncStorage 里永远没有明文；`characterLocks` 只是上锁名单。
-// - 角色删除时清理其锁与密码（模块内注册钩子，见 storage/characterLifecycle.js）。
+//   提示按角色各存一条（character_lock_hint_<id>）：提示可能暗含密码线索
+//   （「我最常用的那串数字」这类），与密码同级保护、与锁同生命周期。
+// - 批量上锁（多选/全选）在存储层就是「对每个选中角色写同一个密码」：
+//   校验路径不必区分单角色/批量，SecurityGate 一行都不用改。
+// - 角色删除时清理其锁、密码与提示（模块内注册钩子，见 storage/characterLifecycle.js）。
 // - 设置页写入后通过本模块的订阅通知 SecurityGate 立即重读（避免跨页面状态不同步）。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,8 +21,12 @@ import { readSecureValue, removeSecureValue, writeSecureValue } from './secretSt
 export const SECURITY_KEY = '@easychat2_security';
 export const PIN_MIN_LENGTH = 4;
 export const PIN_MAX_LENGTH = 8;
+// 密码提示的长度上限：提示是「帮自己回忆」的一句话，不需要更长；
+// 限长也顺便挡住把完整密码写进提示这类自掘坑（写不进去总比写进去好）。
+export const LOCK_HINT_MAX_LENGTH = 120;
 
 const LOCK_SECURE_PREFIX = 'character_lock_';
+const LOCK_HINT_SECURE_PREFIX = 'character_lock_hint_';
 const securityMutation = createMutationQueue();
 
 // 进程内订阅：设置页保存后通知 SecurityGate 重新读取设置并与存储保持一致。
@@ -46,6 +54,11 @@ export function normalizePin(value) {
 export function isValidPin(value) {
   const pin = normalizePin(value);
   return pin.length >= PIN_MIN_LENGTH && pin.length <= PIN_MAX_LENGTH;
+}
+
+// 纯函数：密码提示去掉首尾空白并限长；空串表示「没有提示」。
+export function normalizeLockHint(value) {
+  return String(value == null ? '' : value).trim().slice(0, LOCK_HINT_MAX_LENGTH);
 }
 
 export function normalizeAppLock(raw) {
@@ -136,6 +149,58 @@ export function setCharacterLock(characterId, passcode) {
   });
 }
 
+// 批量上锁（设置页「多选 / 全选」）：对每个选中角色写同一个密码，
+// 与单个上锁共用同一份存储布局——校验路径不区分「批量密码」与「单个密码」。
+// hint 语义：undefined = 不改动原有提示（用户没填就别动他的备忘）；
+// 字符串 = 统一覆盖（空串即清除这批角色的提示）。
+export function setCharacterLocks(characterIds, passcode, hint) {
+  const ids = (Array.isArray(characterIds) ? characterIds : [])
+    .map(id => String(id || ''))
+    .filter(Boolean);
+  if (ids.length === 0) return Promise.resolve(0);
+  const pin = normalizePin(passcode);
+  if (!isValidPin(pin)) return Promise.resolve(0);
+  const nextHint = hint === undefined || hint === null ? undefined : normalizeLockHint(hint);
+  return securityMutation.enqueue(async () => {
+    const current = await readSecurity();
+    const characterLocks = { ...current.characterLocks };
+    for (const id of ids) {
+      // 先密码后提示、最后名单：中途崩溃也不会出现「名单里有锁但读不到密码」。
+      await writeSecureValue(LOCK_SECURE_PREFIX + id, pin);
+      if (nextHint !== undefined) {
+        if (nextHint) await writeSecureValue(LOCK_HINT_SECURE_PREFIX + id, nextHint);
+        else await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
+      }
+      characterLocks[id] = true;
+    }
+    await writeSecurity({ ...current, characterLocks });
+    return ids.length;
+  });
+}
+
+// 密码提示（「写给自己的备忘」）：不需要密码即可查看——它的用途就是忘了密码时帮回忆。
+// 所以它必须能在设置页直接点开；但内容可能暗含密码线索，所以与密码同为安全存储。
+export function setCharacterLockHint(characterId, hint) {
+  const id = String(characterId || '');
+  if (!id) return Promise.resolve('');
+  const value = normalizeLockHint(hint);
+  return securityMutation.enqueue(async () => {
+    if (value) await writeSecureValue(LOCK_HINT_SECURE_PREFIX + id, value);
+    else await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
+    return value;
+  });
+}
+
+export async function getCharacterLockHint(characterId) {
+  const id = String(characterId || '');
+  if (!id) return '';
+  try {
+    return normalizeLockHint(await readSecureValue(LOCK_HINT_SECURE_PREFIX + id));
+  } catch (error) {
+    return '';
+  }
+}
+
 export function removeCharacterLock(characterId) {
   const id = String(characterId || '');
   if (!id) return Promise.resolve(false);
@@ -145,6 +210,8 @@ export function removeCharacterLock(characterId) {
     const characterLocks = { ...current.characterLocks };
     delete characterLocks[id];
     await removeSecureValue(LOCK_SECURE_PREFIX + id);
+    // 提示随锁一起走：留一条「提示」却没有锁，只会让用户误以为有锁。
+    await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
     if (wasLocked) await writeSecurity({ ...current, characterLocks });
     return wasLocked;
   });
@@ -179,6 +246,7 @@ async function deleteCharacterLocksInternal(characterIds) {
       changed = true;
     }
     await removeSecureValue(LOCK_SECURE_PREFIX + id);
+    await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
   }
   if (changed) await writeSecurity({ ...current, characterLocks });
 }
@@ -191,4 +259,4 @@ export function __resetSecurityListenersForTests() {
   securityListeners.clear();
 }
 
-export { LOCK_SECURE_PREFIX };
+export { LOCK_HINT_SECURE_PREFIX, LOCK_SECURE_PREFIX };

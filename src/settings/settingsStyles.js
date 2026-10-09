@@ -202,6 +202,11 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.divider,
   },
+  // 已锁角色行内的「密码提示」入口：与右侧的勾选图标留出间距，
+  // 点击热区靠 hitSlop 撑开（图标本体保持 17px 视觉尺寸）。
+  hintButton: {
+    marginRight: 12,
+  },
   personaActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: tokens.spacing.sm },
   personaAddChip: {
     flexDirection: 'row',

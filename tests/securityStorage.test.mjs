@@ -184,3 +184,67 @@ test('损坏存储：备份原始值后按默认处理，不静默覆盖', async
   assert.ok(store.has(`${KEY}__corrupt_backup`), '损坏值已备份');
   assert.equal(store.get(KEY), '{not json', '原值未被默认值覆盖');
 });
+
+test('setCharacterLocks：多选批量共用同一个密码，非法输入整体拒绝', async () => {
+  const mod = loadSecurity();
+  const count = await mod.setCharacterLocks(['a', 'b', 'c'], '2468');
+  assert.equal(count, 3);
+  assert.deepEqual(await mod.getCharacterLocks(), { a: true, b: true, c: true });
+  // 三个角色都能用同一个密码通过校验（批量密码就是「写多份同一个」）
+  for (const id of ['a', 'b', 'c']) {
+    assert.equal(await mod.verifyCharacterPasscode(id, '2468'), true, `${id} 应可用同一密码解锁`);
+  }
+  assert.equal(JSON.stringify(JSON.parse(store.get(KEY))).includes('2468'), false, '名单里不出现明文密码');
+  // 非法密码 / 空名单：一个都不写
+  assert.equal(await mod.setCharacterLocks(['d'], '12'), 0, '过短密码整体拒绝');
+  assert.equal(await mod.setCharacterLocks([], '2468'), 0, '空名单不做任何事');
+  assert.equal(await mod.isCharacterLocked('d'), false);
+});
+
+test('密码提示：normalizeLockHint 去空白限长，写读清除闭环', async () => {
+  const mod = loadSecurity();
+  assert.equal(mod.normalizeLockHint('  我的生日  '), '我的生日');
+  assert.equal(mod.normalizeLockHint(null), '');
+  assert.equal(mod.normalizeLockHint('x'.repeat(200)).length, mod.LOCK_HINT_MAX_LENGTH);
+  await mod.setCharacterLock('char-1', '2468');
+  assert.equal(await mod.setCharacterLockHint('char-1', '  我常用的那串数字  '), '我常用的那串数字');
+  assert.equal(await mod.getCharacterLockHint('char-1'), '我常用的那串数字');
+  // 提示落安全存储，不进 AsyncStorage 名单
+  assert.equal(JSON.stringify(JSON.parse(store.get(KEY))).includes('数字'), false);
+  // 空串 = 清除
+  await mod.setCharacterLockHint('char-1', '   ');
+  assert.equal(await mod.getCharacterLockHint('char-1'), '');
+});
+
+test('批量上锁的提示语义：填了统一覆盖，留空（undefined）不动原有提示', async () => {
+  const mod = loadSecurity();
+  await mod.setCharacterLock('a', '1111');
+  await mod.setCharacterLockHint('a', '旧的提示');
+  // 留空：未传 hint 时不该动已有提示（用户没写就别删他的备忘）
+  await mod.setCharacterLocks(['a', 'b'], '2468', undefined);
+  assert.equal(await mod.getCharacterLockHint('a'), '旧的提示');
+  assert.equal(await mod.getCharacterLockHint('b'), '');
+  // 填了：这批角色统一覆盖
+  await mod.setCharacterLocks(['a', 'b'], '2468', '新提示');
+  assert.equal(await mod.getCharacterLockHint('a'), '新提示');
+  assert.equal(await mod.getCharacterLockHint('b'), '新提示');
+  // 提交空串（用户清空输入框）：统一清除这批提示
+  await mod.setCharacterLocks(['a', 'b'], '2468', '');
+  assert.equal(await mod.getCharacterLockHint('a'), '');
+  assert.equal(await mod.getCharacterLockHint('b'), '');
+});
+
+test('清理链路：移除锁与角色删除都会带走密码提示', async () => {
+  const mod = loadSecurity();
+  const lifecycle = loadModule(path.resolve('src/storage/characterLifecycle.js'));
+  await mod.setCharacterLock('gone', '2468');
+  await mod.setCharacterLockHint('gone', '写给自己的备忘');
+  await lifecycle.runCharacterCleanup(['gone']);
+  assert.equal(await mod.isCharacterLocked('gone'), false);
+  assert.equal(await mod.getCharacterLockHint('gone'), '', '角色删除后提示一并清除');
+
+  await mod.setCharacterLock('unlock-me', '2468');
+  await mod.setCharacterLockHint('unlock-me', '备忘');
+  assert.equal(await mod.removeCharacterLock('unlock-me'), true);
+  assert.equal(await mod.getCharacterLockHint('unlock-me'), '', '解锁后不留孤儿提示');
+});

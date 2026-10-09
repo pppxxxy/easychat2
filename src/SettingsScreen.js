@@ -82,17 +82,23 @@ import VectorSection from './settings/sections/VectorSection.js';
 import WorkspaceSection from './settings/sections/WorkspaceSection.js';
 import GithubSection from './settings/sections/GithubSection.js';
 import SecuritySection from './settings/sections/SecuritySection.js';
+import BulkLockPickerModal from './settings/sections/BulkLockPickerModal.js';
 import AboutSection from './settings/sections/AboutSection.js';
 import { authenticateBiometric, getBiometricAvailability } from './security/biometrics.js';
 import PinModal from './security/PinModal.js';
 import {
   getAppLockSettings,
+  getCharacterLockHint,
   getCharacterLocks,
   PIN_MAX_LENGTH,
   PIN_MIN_LENGTH,
   removeCharacterLock,
   saveAppLockSettings,
   setCharacterLock,
+  setCharacterLockHint,
+  // 别名：本页 useState 的 setter 也叫 setCharacterLocks，直接同名导入会被遮蔽，
+  // 批量上锁就会误调到 state setter（lint 的 no-unused-vars 抓到了这个遮蔽）。
+  setCharacterLocks as setCharacterLocksBulk,
   subscribeSecuritySettings,
 } from './storage/security.js';
 
@@ -464,6 +470,9 @@ export default function SettingsScreen() {
   const [pinTarget, setPinTarget] = useState(null);
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState('');
+  // 批量上锁（多选/全选）：选择弹窗与「统一设密码」两步，选中的 id 存在这里。
+  const [bulkLockOpen, setBulkLockOpen] = useState(false);
+  const [bulkPickIds, setBulkPickIds] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -561,13 +570,20 @@ export default function SettingsScreen() {
     setPinTarget({ id, name: characterItem.name || '' });
   }, [characterLocks, t]);
 
-  const handlePinSubmit = useCallback(async pin => {
+  const handlePinSubmit = useCallback(async (pin, hint) => {
     if (!pinTarget) return;
     setPinBusy(true);
     setPinError('');
     try {
       const ok = await setCharacterLock(pinTarget.id, pin);
       if (ok) {
+        // 提示写失败不该回滚已经生效的锁：锁是主功能，提示是备忘。
+        // 填了才写（空串 = 清除该角色提示，与「新锁新提示」语义一致）。
+        if (typeof hint === 'string') {
+          try {
+            await setCharacterLockHint(pinTarget.id, hint);
+          } catch (error) {}
+        }
         setCharacterLocks(current => ({ ...current, [pinTarget.id]: true }));
         setPinTarget(null);
       } else {
@@ -579,6 +595,75 @@ export default function SettingsScreen() {
       setPinBusy(false);
     }
   }, [pinTarget, t]);
+
+  // 批量上锁第一步 → 第二步：选人确认后接着复用同一个 PinModal 统一设密码。
+  const handleBulkConfirm = useCallback(ids => {
+    setBulkLockOpen(false);
+    setPinError('');
+    setBulkPickIds(Array.isArray(ids) ? ids : []);
+  }, []);
+
+  const handleBulkPinSubmit = useCallback(async (pin, hint) => {
+    if (bulkPickIds.length === 0) return;
+    setPinBusy(true);
+    setPinError('');
+    try {
+      // 提示留空（undefined）时不动这批角色的原有提示——用户没写就别删他的备忘；
+      // 填了则统一覆盖，保证「点开提示」看到的一定是这次设的那条。
+      const count = await setCharacterLocksBulk(
+        bulkPickIds,
+        pin,
+        typeof hint === 'string' && hint ? hint : undefined
+      );
+      if (count > 0) {
+        setCharacterLocks(current => {
+          const next = { ...current };
+          bulkPickIds.forEach(id => { next[id] = true; });
+          return next;
+        });
+        setBulkPickIds([]);
+        Alert.alert(t('settings.security.bulk.doneTitle'), t('settings.security.bulk.done', { count }));
+      } else {
+        setPinError(t('settings.security.pin.tooShort', { min: PIN_MIN_LENGTH }));
+      }
+    } catch (error) {
+      setPinError(t('common.error.saveFailed'));
+    } finally {
+      setPinBusy(false);
+    }
+  }, [bulkPickIds, t]);
+
+  // 「忘了密码」入口：点已锁角色行上的灯泡 → 弹出自己写的提示。
+  // 提示读不到不报错（视为没写过），避免为一条备忘再教用户排错。
+  const showLockHint = useCallback(async characterItem => {
+    const id = characterItem && characterItem.id ? String(characterItem.id) : '';
+    if (!id) return;
+    const name = (characterItem && characterItem.name) || '';
+    let hint = '';
+    try {
+      hint = await getCharacterLockHint(id);
+    } catch (error) {
+      hint = '';
+    }
+    const buttons = [];
+    if (hint) {
+      buttons.push({
+        text: t('settings.security.hint.remove'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await setCharacterLockHint(id, '');
+          } catch (error) {}
+        },
+      });
+    }
+    buttons.push({ text: t('common.confirm') });
+    Alert.alert(
+      t('settings.security.hint.title', { name }),
+      hint || t('settings.security.hint.empty'),
+      buttons
+    );
+  }, [t]);
 
   useEffect(() => {
     getChatOptions()
@@ -1415,6 +1500,8 @@ export default function SettingsScreen() {
     toggleAppLock,
     toggleRelockOnBackground,
     toggleCharacterLock,
+    onBulkLock: () => setBulkLockOpen(true),
+    onShowHint: showLockHint,
     // 关于
     appVersion: APP_VERSION,
     openTutorial,
@@ -1781,20 +1868,33 @@ export default function SettingsScreen() {
 
       </ScrollView>
 
+      <BulkLockPickerModal
+        visible={bulkLockOpen}
+        characters={characters}
+        locks={characterLocks}
+        onConfirm={handleBulkConfirm}
+        onClose={() => setBulkLockOpen(false)}
+      />
+
       <PinModal
-        visible={!!pinTarget}
+        visible={!!pinTarget || bulkPickIds.length > 0}
         mode="set"
-        title={t('settings.security.pin.setTitle')}
+        title={pinTarget ? t('settings.security.pin.setTitle') : t('settings.security.bulk.pinTitle')}
         subtitle={pinTarget
           ? t('settings.security.pin.setSubtitle', { name: pinTarget.name, min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })
-          : ''}
+          : t('settings.security.bulk.pinSubtitle', {
+            count: bulkPickIds.length,
+            min: PIN_MIN_LENGTH,
+            max: PIN_MAX_LENGTH,
+          })}
         confirmLabel={t('settings.security.pin.setConfirm')}
         error={pinError}
         busy={pinBusy}
-        onSubmit={handlePinSubmit}
+        onSubmit={pinTarget ? handlePinSubmit : handleBulkPinSubmit}
         onCancel={() => {
           if (pinBusy) return;
           setPinTarget(null);
+          setBulkPickIds([]);
           setPinError('');
         }}
       />

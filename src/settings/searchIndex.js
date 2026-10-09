@@ -73,6 +73,8 @@ export const SETTINGS_SEARCH_INDEX = [
 
   { sectionId: 'security', label: '应用锁', keywords: ['应用锁', '生物识别', '指纹', '面容', 'face id', 'touch id', 'app lock', '锁定'] },
   { sectionId: 'security', label: '单角色锁', keywords: ['角色锁', '密码', 'pin', 'passcode', '隐私', '安全', '锁'] },
+  { sectionId: 'security', label: '批量上锁', keywords: ['批量', '多选', '全选', '批量上锁', '统一密码', 'bulk', 'select all', 'multi'] },
+  { sectionId: 'security', label: '密码提示', keywords: ['密码提示', '提示', '备忘', '忘记密码', 'hint', 'forgot'] },
   { sectionId: 'security', label: '离开后重新上锁', keywords: ['重新上锁', '后台', 'relock', 'background'] },
 
   { sectionId: 'about', label: '当前版本', keywords: ['版本', 'version'] },

@@ -1,5 +1,6 @@
-// 密码输入弹窗：单角色锁的「设置」与「验证」共用。
-// set 模式：两次输入并本地校验一致性；verify 模式：单次输入，错误由调用方回传。
+// 密码输入弹窗：角色锁的「设置」与「验证」共用。
+// set 模式：两次输入并本地校验一致性，另带一个可选的「密码提示」（写给自己的备忘）；
+// verify 模式：单次输入，错误由调用方回传。
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -16,7 +17,14 @@ import {
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
-import { isValidPin, normalizePin, PIN_MAX_LENGTH, PIN_MIN_LENGTH } from '../storage/security.js';
+import {
+  isValidPin,
+  LOCK_HINT_MAX_LENGTH,
+  normalizeLockHint,
+  normalizePin,
+  PIN_MAX_LENGTH,
+  PIN_MIN_LENGTH,
+} from '../storage/security.js';
 
 export default function PinModal({
   visible,
@@ -27,6 +35,9 @@ export default function PinModal({
   cancelLabel,
   error,
   busy,
+  // 是否显示「密码提示」输入（仅 set 有意义）。默认跟随 mode，
+  // 显式传 false 可关掉（验证弹窗不该出现它）。
+  showHint,
   onSubmit,
   onCancel,
 }) {
@@ -35,13 +46,16 @@ export default function PinModal({
   const styles = createStyles(theme, fonts, tokens);
   const [value, setValue] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [hint, setHint] = useState('');
   const [localError, setLocalError] = useState('');
   const inputRef = useRef(null);
+  const hintVisible = showHint === undefined ? mode === 'set' : showHint === true;
 
   useEffect(() => {
     if (!visible) return undefined;
     setValue('');
     setConfirm('');
+    setHint('');
     setLocalError('');
     const timer = setTimeout(() => {
       if (inputRef.current && typeof inputRef.current.focus === 'function') inputRef.current.focus();
@@ -60,7 +74,8 @@ export default function PinModal({
       return;
     }
     setLocalError('');
-    if (typeof onSubmit === 'function') onSubmit(pin);
+    // hint 以字符串传给调用方（空串 = 用户没写）；要不要落库由调用方决定。
+    if (typeof onSubmit === 'function') onSubmit(pin, hintVisible ? normalizeLockHint(hint) : undefined);
   };
 
   const shownError = error || localError;
@@ -104,6 +119,22 @@ export default function PinModal({
               maxLength={PIN_MAX_LENGTH}
               editable={!busy}
             />
+          ) : null}
+          {hintVisible ? (
+            <>
+              {/* 密码提示：写给自己的备忘，忘记密码时可点角色行上的灯泡查看。
+                  不参与校验、不进密码存储（另有 character_lock_hint_* 一条）。 */}
+              <TextInput
+                style={styles.hintInput}
+                value={hint}
+                onChangeText={text => setHint(text.slice(0, LOCK_HINT_MAX_LENGTH))}
+                placeholder={t('settings.security.pin.hintPlaceholder')}
+                placeholderTextColor={theme.colors.textFaint}
+                maxLength={LOCK_HINT_MAX_LENGTH}
+                editable={!busy}
+              />
+              <Text style={styles.hintNote}>{t('settings.security.pin.hintNote')}</Text>
+            </>
           ) : null}
           {shownError ? <Text style={styles.error}>{shownError}</Text> : null}
           <View style={styles.actions}>
@@ -176,6 +207,23 @@ function createStyles(theme, fonts, tokens) {
       fontSize: fonts.scaled(20),
       letterSpacing: 6,
       textAlign: 'center',
+    },
+    hintInput: {
+      marginTop: 10,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.colors.surfaceBorder,
+      color: theme.colors.text,
+      fontSize: fonts.scaled(13),
+    },
+    hintNote: {
+      marginTop: 6,
+      color: theme.colors.textFaint,
+      fontSize: fonts.scaled(11),
+      lineHeight: fonts.scaled(15),
     },
     error: {
       marginTop: 10,
