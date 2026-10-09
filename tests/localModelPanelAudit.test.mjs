@@ -270,13 +270,45 @@ test('v5 §6：参数弹窗「高级」折叠——预设 + contextSize 单列�
   assert.ok(enSrc.includes("'localModel.paramsModal.advanced'"), '英文文案在');
 });
 
-test('v5 §6：模型卡兼容分级视觉只留颜色标记，完整文案进无障碍标签', () => {
+test('模型卡：分级为 tier 彩色文字（成品小样口径）+「设为当前」主操作实底', () => {
+  // 成品小样里分级是文字（如「轻松跑」）带 tier 颜色——设计书 §6 曾写
+  // 「只保留颜色不上文字」，两者冲突时以成品图为准（2026-10-09 用户指示看小样）。
+  assert.ok(/tierColor\(theme, summary\.compatibility\.tier\)/.test(MODEL_CARD), '分级用 tier 颜色');
+  assert.ok(MODEL_CARD.includes('${summary.compatibility.label}`}</Text>'),
+    '分级文字直接显示（小样：Q4_K_M · 3B · 2.0GB · 识图 ✗ / … · 轻松跑）');
   assert.ok(MODEL_CARD.includes('accessibilityLabel={summary.compatibility'),
-    '分级完整文案进 a11y（视觉只颜色，读屏仍完整）');
-  assert.ok(/tierColor\(theme, summary\.compatibility\.tier\)/.test(MODEL_CARD), '颜色标记保留');
-  assert.ok(MODEL_CARD.includes('> ●</Text>'), '用色点标记分级');
-  assert.ok(!MODEL_CARD.includes('${summary.compatibility.label}`}</Text>'),
-    '不得再把分级文字直接渲染进单行摘要（会被截断挤掉别的信息）');
+    '整行进 a11y（读屏完整拼出）');
+  // 主操作层级：设为当前 = 实底；下载/参数 = 描边（小样里两者明显不同）
+  assert.ok(MODEL_CARD.includes('styles.selectButtonPrimary'), '「设为当前」应为实底主操作');
+  const styles = readPanel('panelStyles.js');
+  assert.ok(/selectButtonPrimary:\s*\{[^}]*backgroundColor:\s*theme\.colors\.primary/.test(styles),
+    '主操作实底用 primary');
+});
+
+test('v5 设计稿对齐：分段胶囊 / 运行卡三态（就绪绿）/ 状态条关闭钮', () => {
+  const styles = readPanel('panelStyles.js');
+  // ① 分段 = 独立胶囊（设计稿里没有外框）：激活反色实底、其余描边胶囊
+  assert.ok(!/tabRow:\s*\{[^}]*backgroundColor/.test(styles), 'tabRow 不应再有外框底色');
+  assert.ok(/tabItemActive:\s*\{[^}]*backgroundColor:\s*theme\.colors\.text/.test(styles),
+    '激活胶囊应为反色实底（底=正文色）');
+  assert.ok(/tabTextActive:\s*\{[^}]*theme\.colors\.background/.test(styles),
+    '激活胶囊文字用背景色（深浅主题下都高对比）');
+  assert.ok(/tabItem:\s*\{[\s\S]*?borderRadius:\s*tokens\.radius\.pill/.test(styles), '胶囊圆角');
+  // ② 运行卡三态：就绪=success 绿、加载=品牌、失败=红
+  for (const key of ['runCardReady', 'runCardLoading', 'runCardError', 'runDotReady', 'runDotLoading', 'runDotError', 'runBadgeReady']) {
+    assert.ok(styles.includes(`${key}:`), `缺运行卡态样式：${key}`);
+  }
+  assert.ok(/runCardReady:\s*\{[^}]*theme\.colors\.success/.test(styles), '就绪运行卡 = success');
+  const ENGINE_CARD = readPanel('EngineCard.js');
+  assert.ok(ENGINE_CARD.includes('styles.runCardReady') && ENGINE_CARD.includes('styles.runDotReady'),
+    'EngineCard 必须按 runtime.status 组合样式（不能写死一种配色）');
+  // ③ 引擎状态条：✕ 关闭 + 就绪绿点 + 回退/出错警示配色
+  const BAR = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'EngineStatusBar.js'), 'utf8');
+  assert.ok(BAR.includes('setDismissed(true)'), '✕ 应能隐藏状态条');
+  assert.ok(BAR.includes('setDismissed(false)'), '状态变化后应重新出现（不是永久关掉）');
+  assert.ok(BAR.includes('styles.engineClose'), '关闭按钮样式接线');
+  assert.ok(BAR.includes('theme.colors.success'), '就绪点用 success 绿（对齐设计稿）');
+  assert.ok(BAR.includes('engineBarWarn'), '回退/出错切警示配色');
 });
 
 test('v5 §3：模型中心为全屏 Modal（非透明弹层）；弹层样式仍留给子弹窗', () => {

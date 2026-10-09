@@ -17,6 +17,8 @@ export const THEMES = [
       textFaint: '#8a8aa3',
       danger: '#ff5a5f',
       dangerSoft: '#ff9b9b',
+      // 成功/就绪语义色（与 danger 同级）：本地引擎「已加载」等正面状态用。
+      success: '#34d399',
       overlay: 'rgba(0,0,0,0.55)',
       star: '#f2c14e',
       bubbleAssistant: '#f0f0f0',
@@ -41,6 +43,8 @@ export const THEMES = [
       textFaint: '#7d7d99',
       danger: '#d64550',
       dangerSoft: '#c25a62',
+      // 浅色底上用深绿（对比度足够），色值取自 v5 设计稿的「已加载」绿。
+      success: '#1a7a4b',
       overlay: 'rgba(0,0,0,0.35)',
       star: '#f2c14e',
       bubbleAssistant: '#ffffff',
@@ -65,6 +69,7 @@ export const THEMES = [
       textFaint: '#7f9ab8',
       danger: '#f87171',
       dangerSoft: '#fca5a5',
+      success: '#34d399',
       overlay: 'rgba(0,0,0,0.55)',
       star: '#f2c14e',
       bubbleAssistant: '#e8f1fe',
@@ -89,6 +94,7 @@ export const THEMES = [
       textFaint: '#bd9a88',
       danger: '#ff7b7b',
       dangerSoft: '#ffb3b3',
+      success: '#4ade80',
       overlay: 'rgba(0,0,0,0.55)',
       star: '#f2c14e',
       bubbleAssistant: '#fdeee7',
@@ -113,6 +119,7 @@ export const THEMES = [
       textFaint: '#9a93b8',
       danger: '#f07b8a',
       dangerSoft: '#ffb3bc',
+      success: '#34d399',
       overlay: 'rgba(0,0,0,0.55)',
       star: '#f2c14e',
       bubbleAssistant: '#efeafe',
@@ -137,6 +144,7 @@ export const THEMES = [
       textFaint: '#947eb8',
       danger: '#f87171',
       dangerSoft: '#fca5a5',
+      success: '#4ade80',
       overlay: 'rgba(0,0,0,0.55)',
       star: '#fbbf24',
       bubbleAssistant: '#f5f0ff',
@@ -161,6 +169,8 @@ export const THEMES = [
       textFaint: '#6aaa8e',
       danger: '#f87171',
       dangerSoft: '#fca5a5',
+      // 本主题 primary 已是绿：success 取更亮一档，避免「运行中」与「品牌色」分不开。
+      success: '#6ee7b7',
       overlay: 'rgba(0,0,0,0.55)',
       star: '#fbbf24',
       bubbleAssistant: '#ecfdf5',
@@ -185,6 +195,7 @@ export const THEMES = [
       textFaint: '#5a8caf',
       danger: '#f87171',
       dangerSoft: '#fca5a5',
+      success: '#34d399',
       overlay: 'rgba(0,0,0,0.6)',
       star: '#fbbf24',
       bubbleAssistant: '#e0f2fe',
@@ -221,12 +232,15 @@ export function getTheme(id) {
   const primary = found.colors.primary;
   const primaryMuted = found.colors.primaryMuted;
   const danger = found.colors.danger;
+  const success = found.colors.success;
   const primaryContrast = found.colors.primaryContrast;
   const colors = {
     ...found.colors,
     primaryAlpha: (alpha = 0.1) => hexToRgba(primary, alpha),
     primaryMutedAlpha: (alpha = 0.35) => hexToRgba(primaryMuted, alpha),
     dangerAlpha: (alpha = 0.1) => hexToRgba(danger, alpha),
+    // 成功/就绪（本地引擎"已加载"等）的浅底：与 dangerSurface 同款派生口径。
+    successSurface: hexToRgba(success, 0.12),
     // 表面色的半透明版本：用于「浮在滚动内容之上」的浮层/操作条底色。
     surfaceAlpha: (alpha = 0.3) => hexToRgba(found.colors.surface, alpha),
     // 语义派生 token：把散落在样式里的硬编码色收敛回主题体系。

@@ -24,6 +24,9 @@ export default function EngineStatusBar({
   const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [runtime, setRuntime] = useState(() => getRuntimeState());
+  // 「✕」本次隐藏（v5 设计稿画的关闭钮）：状态实质变化（换模型/换态）时重新出现，
+  // 免得用户关掉后永远看不到引擎状态。
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => subscribeRuntime(setRuntime), []);
 
@@ -35,10 +38,18 @@ export default function EngineStatusBar({
     fallbackAt,
   }), [enabled, activeModelId, activeModelName, runtime, fallbackAt]);
 
-  if (!status.visible) return null;
+  const tone = status.tone;
+  const modelName = status.modelName;
+  useEffect(() => {
+    setDismissed(false);
+  }, [tone, modelName]);
 
+  if (!status.visible || dismissed) return null;
+
+  // 就绪 = 绿（success 语义色，对齐设计稿）；回退/出错整条切警示配色。
+  const warn = status.tone === ENGINE_TONE.FALLBACK || status.tone === ENGINE_TONE.ERROR;
   const dotColor = status.tone === ENGINE_TONE.READY
-    ? theme.colors.primary
+    ? theme.colors.success
     : status.tone === ENGINE_TONE.LOADING
       ? theme.colors.primaryMuted
       : theme.colors.danger;
@@ -57,7 +68,7 @@ export default function EngineStatusBar({
 
   return (
     <TouchableOpacity
-      style={styles.engineBar}
+      style={[styles.engineBar, warn && styles.engineBarWarn]}
       onPress={onOpenHub}
       activeOpacity={0.8}
       accessibilityRole="button"
@@ -66,7 +77,15 @@ export default function EngineStatusBar({
       <View style={[styles.engineDot, { backgroundColor: dotColor }]} />
       <Text style={styles.engineText} numberOfLines={1}>{label}</Text>
       <Text style={styles.engineManage}>{t('localModel.engine.manage')}</Text>
-      <Ionicons name="chevron-forward" size={14} color={theme.colors.textFaint} />
+      <TouchableOpacity
+        style={styles.engineClose}
+        onPress={() => setDismissed(true)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t('localModel.engine.hide')}
+      >
+        <Ionicons name="close" size={14} color={theme.colors.textFaint} />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 }

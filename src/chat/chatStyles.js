@@ -1066,12 +1066,26 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderRadius: tokens.radius.xs,
     backgroundColor: theme.colors.primary,
   },
+  // 引擎状态条（v5 设计稿）：输入栏上方的圆角提示卡（浅品牌底 + 描边），
+  // 不再是贴边横幅；失败回退/出错时切警示配色。
   engineBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: tokens.spacing.lg,
-    paddingVertical: 5,
-    backgroundColor: theme.colors.surfaceAlt,
+    marginHorizontal: tokens.spacing.lg,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryMutedAlpha(0.45),
+    backgroundColor: theme.colors.primaryAlpha(0.08),
+  },
+  engineBarWarn: {
+    borderColor: theme.colors.dangerAlpha(0.45),
+    backgroundColor: theme.colors.dangerSurface,
+  },
+  engineClose: {
+    marginLeft: 8,
   },
   engineDot: {
     width: 7,

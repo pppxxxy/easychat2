@@ -37,16 +37,20 @@ export default function EngineCard({ styles, theme, t, runtime, entries, onUnloa
       source: sourceLabel(activeItem, t),
     })
     : '';
+  // 三态配色（v5 设计稿）：就绪=绿（success）、加载中=品牌色、失败=红。
+  const loading = runtime.status === 'loading';
+  const cardStyle = ready ? styles.runCardReady : loading ? styles.runCardLoading : styles.runCardError;
+  const dotStyle = ready ? styles.runDotReady : loading ? styles.runDotLoading : styles.runDotError;
 
   return (
-    <View style={styles.runCard}>
+    <View style={[styles.runCard, cardStyle]}>
       <View style={styles.runHead}>
         <View style={styles.runNameWrap}>
-          <View style={styles.runDot} />
+          <View style={[styles.runDot, dotStyle]} />
           <Text style={styles.runName} numberOfLines={1}>{headText}</Text>
         </View>
         {ready ? (
-          <Text style={styles.runBadge} numberOfLines={1}>{t('localModel.badge.installed')}</Text>
+          <Text style={[styles.runBadge, styles.runBadgeReady]} numberOfLines={1}>{t('localModel.badge.installed')}</Text>
         ) : null}
       </View>
       {metaText ? <Text style={styles.runMeta} numberOfLines={1}>{metaText}</Text> : null}
