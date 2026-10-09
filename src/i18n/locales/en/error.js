@@ -98,6 +98,8 @@ export const error = {
   'error.workspace.pathEscape': 'The path must not escape the workspace.',
   'error.workspace.textOnly': 'The workspace only reads and writes text files (binaries such as images, audio/video, archives and executables are not supported).',
   'error.workspace.writeTextOnly': 'Workspace writes only support text files and generated .docx files.',
+  'error.workspace.docxPathSuffix': 'The Word export path must end with .docx.',
+  'error.workspace.docxUnsupported': 'The Word export component is unavailable (bundling dependency missing).',
   'error.workspace.adapterMissing': 'The external workspace is missing its adapter injection.',
   'error.workspace.adapterNoCreate': 'The external workspace adapter lacks create capability.',
   'error.workspace.adapterNoReadWrite': 'The external workspace adapter lacks read/write capability.',

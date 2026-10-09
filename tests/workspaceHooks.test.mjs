@@ -118,7 +118,8 @@ test('接线契约：两页审批注入 extraRules；工具层追加通知；设
   const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
   assert.ok(chat.includes('readWorkspaceHooks(hookStore, character.id)'), '聊天页审批同样注入钩子禁令');
 
-  const tools = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
+  // 写工具定义已按域拆到 toolDefs/writeTools.js（质量建议 ①），断言跟着去新文件。
+  const tools = fs.readFileSync(path.resolve('src/workspace/toolDefs/writeTools.js'), 'utf8');
   assert.ok(tools.includes("'after_write'"), '写文件工具接 after_write');
   assert.ok(tools.includes("'after_edit'"), '编辑工具接 after_edit');
   assert.ok(tools.includes('[工作区钩子]'), '通知追加进工具结果（模型可见）');

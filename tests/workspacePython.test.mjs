@@ -460,15 +460,17 @@ test('构建姿态：已进入第二步（装第三方包），且保留退回�
 test('设置面板接线：Python 小节在；run_python 存在但被三层门控关住', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/WorkspaceSettingsPanel.js'), 'utf8');
   const screen = fs.readFileSync(path.resolve('src/workspace/screen/WorkspaceScreen.js'), 'utf8');
+  // 定义在 execTools.js（质量建议 ① 后按域拆分）；超时表仍在索引层 tools.js。
+  const execDefs = fs.readFileSync(path.resolve('src/workspace/toolDefs/execTools.js'), 'utf8');
   const tools = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
   assert.ok(panel.includes('<PythonSection'), '设置面板挂上 Python 小节');
   assert.ok(screen.includes('characterId={characterId}'), '角色 id 传进设置面板');
 
   // 工具定义本身：独立开关 + 逐条确认 + 更长超时（模型调用会自我了断）
-  assert.ok(tools.includes("name: 'run_python'"), 'agent 工具表里有 run_python');
-  const pythonTool = tools.slice(tools.indexOf("name: 'run_python'"));
+  assert.ok(execDefs.includes("name: 'run_python'"), 'agent 工具表里有 run_python');
+  const pythonTool = execDefs.slice(execDefs.indexOf("name: 'run_python'"));
   assert.ok(pythonTool.includes('requiresConfirmation: true'), 'run_python 必须逐条确认');
-  assert.ok(/PYTHON_TOOL_TIMEOUT_MS/.test(tools), 'run_python 要用自己的（更长）工具超时');
+  assert.ok(/PYTHON_TOOL_TIMEOUT_MS/.test(tools), 'run_python 要用自己的（更长）工具超时（超时表在索引层）');
 
   // 界面：不能还写着「模型不能运行 Python」（那是隔离之前的说法）
   const section = fs.readFileSync(path.resolve('src/workspace/screen/PythonSection.js'), 'utf8');

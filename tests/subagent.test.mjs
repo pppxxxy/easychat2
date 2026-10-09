@@ -231,10 +231,14 @@ test('输入校验与截断：空任务 / 无可用工具 → isError；超长�
 });
 
 test('接线契约：run_subagent 工具只读但不递归；能力清单含它；注册表按 readOnly 进 read 模式', () => {
-  const tools = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
-  assert.ok(tools.includes("name: 'run_subagent'"), '工具已注册进工作区定义');
-  assert.ok(tools.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '子代理工具按名字白名单过滤（不看 readOnly 标志）');
-  assert.ok(tools.includes('timeoutMs: 180000'), '子代理需要更长的工具超时（多轮模型请求）');
+  // 定义已按域拆到 toolDefs/（质量建议 ①）：断言跟着去新文件，并保留一条聚合断言。
+  const toolFile = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentTool.js'), 'utf8');
+  assert.ok(toolFile.includes("name: 'run_subagent'"), '工具已注册进工作区定义');
+  assert.ok(toolFile.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '子代理工具按名字白名单过滤（不看 readOnly 标志）');
+  assert.ok(toolFile.includes('READ_ONLY_TOOL_DEFINITIONS'), '只读对象直接引 readTools（不经注册表过滤）');
+  assert.ok(toolFile.includes('timeoutMs: 180000'), '子代理需要更长的工具超时（多轮模型请求）');
+  const indexFile = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
+  assert.ok(indexFile.includes('SUBAGENT_TOOL_DEFINITION'), '索引层聚合了子代理定义');
 
   const subagent = fs.readFileSync(path.resolve('src/agent/subagent.js'), 'utf8');
   assert.ok(subagent.includes("SUBAGENT_TOOL_NAMES = Object.freeze(['list_workspace_files', 'read_workspace_file'])"),

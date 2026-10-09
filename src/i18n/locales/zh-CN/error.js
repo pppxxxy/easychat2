@@ -98,6 +98,8 @@ export const error = {
   'error.workspace.pathEscape': '路径不能越出工作区。',
   'error.workspace.textOnly': '工作区只能读写文本文件（图片/音视频/压缩包/可执行文件等二进制不支持）。',
   'error.workspace.writeTextOnly': '工作区写入只支持文本文件与生成的 .docx。',
+  'error.workspace.docxPathSuffix': 'Word 导出路径必须以 .docx 结尾。',
+  'error.workspace.docxUnsupported': 'Word 导出组件不可用（缺少打包依赖）。',
   'error.workspace.adapterMissing': '外部工作区缺少 adapter 注入。',
   'error.workspace.adapterNoCreate': '外部工作区缺少 adapter 的创建能力。',
   'error.workspace.adapterNoReadWrite': '外部工作区缺少 adapter 的读写能力。',

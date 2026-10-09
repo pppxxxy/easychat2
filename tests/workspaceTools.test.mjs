@@ -14,6 +14,8 @@ import {
   registerWorkspaceTools,
   unregisterWorkspaceTools,
 } from '../src/workspace/tools.js';
+import * as docxModule from '../src/workspace/docx.js';
+import { setDocxModule } from '../src/workspace/toolDefs/docxTool.js';
 
 function createMemoryFs() {
   const entries = new Map();
@@ -143,6 +145,9 @@ test('unregisterWorkspaceTools 清理注册', () => {
 });
 
 test('export_workspace_docx 仅在可改模式生成 .docx 并可被 list 看到', async () => {
+  // docx.js 在工具层是惰性 require（不把 fflate 拖进加载链）；纯 ESM 测试环境
+  // 没有 require，用注入点把真实模块接进来——生产走 Metro 的 require，无需注入。
+  setDocxModule(docxModule);
   registerWorkspaceTools({ root, fileSystem });
   const exported = await runTool(
     { name: 'export_workspace_docx', arguments: '{"path":"report.docx","content":"第一段\\n第二段","title":"报告"}' },
