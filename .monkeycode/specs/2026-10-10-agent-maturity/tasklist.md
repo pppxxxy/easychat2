@@ -30,46 +30,47 @@
 
 ## E1 缓存前缀稳定 + 命中观测（P0，最高 ROI）
 
-- [ ] 1. `workspace/chat.js`：readLog 行从 systemPrompt 中部挪到最尾（静态段前置、
+- [x] 1. `workspace/chat.js`：readLog 行从 systemPrompt 中部挪到最尾（静态段前置、
       高频动态段后置）；行序契约进测试。
-- [ ] 2. tools 顺序冻结：`toolOrderSignature` 纯函数 + ChatPanel 会话内运行期兜底
+- [x] 2. tools 顺序冻结：`toolOrderSignature` 纯函数 + ChatPanel 会话内运行期兜底
       （同一 mode 下顺序漂移 → 开发期 warn）。
-- [ ] 3. `network/api.js`：`extractUsage` 纯函数（OpenAI prompt_tokens_details.cached_tokens /
+- [x] 3. `network/api.js`：`extractUsage` 纯函数（OpenAI prompt_tokens_details.cached_tokens /
       DeepSeek prompt_cache_hit_tokens / Anthropic cache_read_input_tokens 三方言，
       Anthropic 形态把 cache 部分并进 prompt 以统一口径）；流式每事件与
       非流式 body 都提取；makeResult 带 usage。
-- [ ] 4. `agent/loop.js`：每轮结果透传 options.onUsage({ round, ...usage })。
-- [ ] 5. `chat/sessionStats.js`：recordRequest/normalizeStats/summarizeStats 支持
+- [x] 4. `agent/loop.js`：每轮结果透传 options.onUsage({ round, ...usage })。
+- [x] 5. `chat/sessionStats.js`：recordRequest/normalizeStats/summarizeStats 支持
       cachedTokens + 命中率；`chat/SessionStatsModal.js` 显示。
-- [ ] 6. 宿主接线：useChatSend / ChatPanel 把 onUsage 累进 recordRequest。
+- [x] 6. 宿主接线：useChatSend / ChatPanel 把 onUsage 累进 recordRequest。
       注：**不做价格换算**（BYO 端点无统一价格表，显示绝对 token 数与命中率更诚实）。
 
 ## E2 重复调用护栏 + 压缩自动化（P0，小时级）
 
-- [ ] 1. `agent/loop.js`：上一轮 toolCall 签名（name+args）跟踪，连续相同签名在
-      执行前注入 nudge（非阻断）。
-- [ ] 2. 压缩自动化：token 估算超活动模型窗口 70% → 非阻塞提示；85% → 自动压缩
+- [x] 1. `agent/loop.js`：上一轮 toolCall 签名（name+args）跟踪，连续相同签名
+     **轮末**注入 nudge（非阻断）。实施修正：任务书说的「执行前」改为「轮末」——
+     插在 tool_calls 与 tool 结果之间会破坏 OpenAI 协议的配对结构。
+- [x] 2. 压缩自动化：token 估算超活动模型窗口 70% → 非阻塞提示；85% → 自动压缩
       （设置可关）。复用 compaction 管道；接 shouldAutoCompact（现在是死代码）。
 
 ## E3 自定义子代理 + 并行（P1）
 
-- [ ] 1. `.easychat/agents/<name>.md` frontmatter（name/description/tools/max-rounds）；
+- [x] 1. `.easychat/agents/<name>.md` frontmatter（name/description/tools/max-rounds）；
       tools ∩ 只读白名单，run_subagent 永不可入。
-- [ ] 2. run_subagent 参数加可选 agent 名；描述里列可用分身（渐进披露一行）。
-- [ ] 3. task 支持数组（≤3）并发（上限 2），按序合并；timeoutMs 180→300。
+- [x] 2. run_subagent 参数加可选 agent 名；描述里列可用分身（渐进披露一行）。
+- [x] 3. task 支持数组（≤3）并发（上限 2），按序合并；timeoutMs 180→300。
 
 ## E4 会话事件流（P1，一期可独立发布）
 
-- [ ] 一期：`.easychat/sessions/<id>.jsonl` append-only（type/ts/parentEventId）；
+- [x] 一期：`.easychat/sessions/<id>.jsonl` append-only（type/ts/parentEventId）；
       SAF 落盘；设置页导出（分享）。
-- [ ] 二期裁决（已核实）：消息级分叉/切换已存在（branchTree+sessionBranches），
+- [x] 二期裁决（已核实）：消息级分叉/切换已存在（branchTree+sessionBranches），
       **不另起一套**；事件流只做审计线索，不接分支树。
 
 ## E5 Git 历史浏览 + PR（P2，纯 API）
 
-- [ ] 1. restApi：listCommits / getCommitDiff / createPullRequest。
-- [ ] 2. GithubPanel「历史」区块：commit 列表 → diff（大 diff 复用头尾截断）。
-- [ ] 3. push 成功后「去创建 PR」入口（确认门 + riskGate 分级）。
+- [x] 1. restApi：listCommits / getCommitDiff / createPullRequest。
+- [x] 2. GithubPanel「历史」区块：commit 列表 → diff（大 diff 复用头尾截断）。
+- [x] 3. push 成功后「去创建 PR」入口（确认门 + riskGate 分级）。
 
 ## 明确不做（防跑偏登记）
 

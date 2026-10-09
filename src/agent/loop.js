@@ -58,6 +58,21 @@ export function workspaceRoundBudget(mode) {
   return DEFAULT_MAX_TOOL_ROUNDS;
 }
 
+// A3 二期：工具调用参数 → 对象（解析失败给 null）。onToolEvent 的 start 事件
+// 带上它——订阅方（计划进度条）需要 update_plan 的 plan 内容。
+// 注意：参数**可能很大**（write 类工具带全文），是引用传递零额外成本，但订阅方
+// 只应按需读取（如只看 update_plan），不要整体存储。
+export function parseToolArgs(call) {
+  const raw = call && call.arguments;
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+}
+
 function safeCallback(callback, payload) {
   if (typeof callback !== 'function') return;
   try {
@@ -152,7 +167,13 @@ export async function runAgentTurn(messages, options = {}) {
       }
       signaturesThisRound.add(signature);
       const toolRound = round;
-      safeCallback(onToolEvent, { phase: 'start', name: call.name, round: toolRound });
+      // A3 二期：start 事件带解析后的参数（订阅方按需读——计划进度条读 update_plan）。
+      safeCallback(onToolEvent, {
+        phase: 'start',
+        name: call.name,
+        round: toolRound,
+        args: parseToolArgs(call),
+      });
       let outcome;
       try {
         outcome = await runTool(call, {

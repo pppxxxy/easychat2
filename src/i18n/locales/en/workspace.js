@@ -358,6 +358,7 @@ export const workspace = {
   'workspace.chat.intro': 'Describe what you need; the assistant will use workspace tools to do it. You can attach text files or images, or dictate by voice. The conversation is not saved.',
   'workspace.chat.placeholder': 'e.g. create src/app.js with a hello function',
   'workspace.chat.tool.reading': 'Calling tool: {name}',
+  'workspace.chat.plan.title': 'Plan ({done}/{total})',
   'workspace.chat.err': 'Request failed, please try again.',
   'workspace.chat.stopped': '(stopped)',
   'workspace.chat.imageTag': '[image]',

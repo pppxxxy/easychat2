@@ -134,8 +134,10 @@ test('工具轮：执行工具、回喂结果、下一轮累积返回', async ()
   const toolMsg = round2.find(item => item.role === 'tool');
   assert.equal(toolMsg.tool_call_id, 'c1');
   assert.equal(toolMsg.content, 'file body');
+  // A3 二期：start 事件带解析后的参数（订阅方——计划进度条——据此读 update_plan）；
+  // end 事件不带（结果已由工具返回值表达）。
   assert.deepEqual(toolEvents, [
-    { phase: 'start', name: 'read_file', round: 1 },
+    { phase: 'start', name: 'read_file', round: 1, args: { path: 'a' } },
     { phase: 'end', name: 'read_file', round: 1, ok: true },
   ]);
 });
@@ -345,4 +347,18 @@ test('requestOptions 夹带的 tools/toolChoice 被剥离，其余透传', async
   assert.equal(streamCalls[0].options.expectedConfigId, 'cfg-1');
   assert.deepEqual(streamCalls[0].options.tools, fakeTools);
   assert.equal(streamCalls[0].options.toolChoice, 'auto');
+});
+
+test('A3 二期 parseToolArgs：对象 / JSON 字符串 / 坏输入三态', () => {
+  const { parseToolArgs } = loadLoop();
+  assert.deepEqual(parseToolArgs({ arguments: { a: 1 } }), { a: 1 }, '对象原样返回');
+  assert.deepEqual(
+    parseToolArgs({ arguments: '{"plan":[{"step":"x"}]}' }),
+    { plan: [{ step: 'x' }] },
+    'JSON 字符串解析'
+  );
+  assert.equal(parseToolArgs({ arguments: '半截{' }), null, '坏 JSON → null（订阅方按无参数处理）');
+  assert.equal(parseToolArgs({ arguments: '' }), null);
+  assert.equal(parseToolArgs({}), null);
+  assert.equal(parseToolArgs(null), null);
 });

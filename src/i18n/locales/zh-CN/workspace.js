@@ -358,6 +358,7 @@ export const workspace = {
   'workspace.chat.intro': '直接说出你的要求，助手会调用工作区工具完成（可附加文本文件或图片，也可录音转文字）。对话不会保存。',
   'workspace.chat.placeholder': '例如：新建 src/app.js，写一个 hello 函数',
   'workspace.chat.tool.reading': '正在调用工具：{name}',
+  'workspace.chat.plan.title': '计划（{done}/{total}）',
   'workspace.chat.err': '执行失败，请稍后重试。',
   'workspace.chat.stopped': '（已停止）',
   'workspace.chat.imageTag': '[图片]',

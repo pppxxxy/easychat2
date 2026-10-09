@@ -2,12 +2,15 @@
 // 纯回显：无副作用、不落盘——价值在「让计划与进度出现在工具结果里」。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   PLAN_MAX_STEPS,
   PLAN_STATUSES,
   PLAN_TOOL_DEFINITION,
   formatPlanEcho,
+  normalizePlanSteps,
 } from '../src/workspace/toolDefs/planTool.js';
 import {
   PLAN_TOOL_HINT,
@@ -75,4 +78,43 @@ test('提示词引导：工具真注册了才提 update_plan（与执行类同�
   // ask 模式即便传了工具名也绝不提（同一条纪律：两道门各管各的）
   const ask = buildWorkspaceAgentSystemPrompt({ mode: 'ask', tools: ['update_plan'] });
   assert.equal(/update_plan/.test(ask), false);
+});
+
+test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进度条接线契约', () => {
+  // 归一纯函数：非法项丢弃、status 收敛、超量截断
+  assert.deepEqual(
+    normalizePlanSteps([
+      { step: '读文件', status: 'done' },
+      { step: '写测试', status: 'weird' },
+      { step: '' },
+      null,
+      { step: '跑验证', status: 'in_progress' },
+    ]),
+    [
+      { step: '读文件', status: 'done' },
+      { step: '写测试', status: 'pending' },
+      { step: '跑验证', status: 'in_progress' },
+    ]
+  );
+  assert.deepEqual(normalizePlanSteps(null), []);
+  assert.deepEqual(normalizePlanSteps('oops'), []);
+  assert.equal(normalizePlanSteps(Array.from({ length: 30 }, (_, i) => ({ step: `s${i}` }))).length, PLAN_MAX_STEPS);
+
+  // 回显与归一一致（同一份数据源，两处显示永不漂移）
+  const echo = formatPlanEcho([{ step: 'a', status: 'done' }, { step: 'b' }]);
+  assert.ok(echo.includes('计划（1/2 完成）'));
+
+  // 接线契约：ChatPanel 从工具事件读 update_plan 的 args，会话边界清空
+  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  assert.ok(panel.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
+  assert.ok(panel.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
+  assert.ok(panel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  assert.ok(panel.includes('setPlanCollapsed'), '可收起');
+  const clearCount = (panel.match(/setAgentPlan\(\[\]\)/g) || []).length;
+  assert.ok(clearCount >= 2, '新对话与切对话两处都清空');
+
+  // loop.js：start 事件带解析后的参数（订阅方的数据来源）
+  const loop = fs.readFileSync(path.resolve('src/agent/loop.js'), 'utf8');
+  assert.ok(loop.includes('args: parseToolArgs(call)'), 'start 事件带 args');
+  assert.ok(loop.includes('export function parseToolArgs'), 'parseToolArgs 纯函数可测');
 });

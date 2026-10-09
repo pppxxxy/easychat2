@@ -81,6 +81,7 @@ import {
   readSessionEvents,
   sessionEventsPath,
 } from '../sessionEvents.js';
+import { normalizePlanSteps } from '../toolDefs/planTool.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
@@ -155,6 +156,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 缓存全 miss（tools 定义计入缓存键）。顺序契约由 listToolsForMode + 测试保证，
   // 这里只做开发期告警（生产静默），防止未来有人把动态排序混进组装链。
   const toolOrderRef = useRef({});
+  // A3 二期：计划进度条——从 update_plan 的工具事件读清单（纯展示，不落盘）；
+  // 会话边界（新对话/切对话）清空，与已读登记同款。
+  const [agentPlan, setAgentPlan] = useState([]);
+  const [planCollapsed, setPlanCollapsed] = useState(false);
 
   // C2 按需物化（给 agent 的 read 工具）：清单内未物化文件被读到、但本地没有时，
   // 单文件拉取回沙盒。三道前置（缺一不发起网络）：是 repos 路径 → 该仓库做过
@@ -460,6 +465,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setSettingsSection('');
     // A5：新对话 = 新会话 → 已读登记清零（它记的是「这次对话读过了什么」）。
     if (readLogRef.current) readLogRef.current.clear();
+    // A3 二期：计划进度条同属会话边界——新对话清空。
+    setAgentPlan([]);
     try {
       const created = await createWorkspaceChat(characterId);
       if (!created || !mountedRef.current) return;
@@ -484,6 +491,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setHistoryOpen(false);
     // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
     if (readLogRef.current) readLogRef.current.clear();
+    // A3 二期：计划进度条同属会话边界——切对话清空（不带旧计划过去）。
+    setAgentPlan([]);
     await setActiveWorkspaceChat(characterId, id).catch(() => {});
   }, [activeChatId, characterId, chatList, input, persistDraft, readDraft]);
 
@@ -920,6 +929,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               name: event.name,
               round: event.round,
             });
+            // A3 二期：update_plan 的清单推进度条（状态展示；传空清单 = 清空）。
+            if (event.name === 'update_plan') {
+              const steps = normalizePlanSteps(event.args && event.args.plan);
+              setAgentPlan(steps);
+              if (steps.length > 0) setPlanCollapsed(false);
+            }
           }
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
         },
@@ -1103,6 +1118,48 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 </View>
               ))}
             </ScrollView>
+
+            {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——多步任务执行中
+                对用户可见「做到哪一步了」；会话边界清空，纯展示不落盘。 */}
+            {agentPlan.length > 0 ? (
+              <View style={styles.planPanel}>
+                <TouchableOpacity
+                  style={styles.planHeader}
+                  onPress={() => setPlanCollapsed(value => !value)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="list-outline" size={14} color={theme.colors.primary} />
+                  <Text style={styles.planTitle} numberOfLines={1}>
+                    {t('workspace.chat.plan.title', {
+                      done: agentPlan.filter(item => item.status === 'done').length,
+                      total: agentPlan.length,
+                    })}
+                  </Text>
+                  <Ionicons
+                    name={planCollapsed ? 'chevron-down' : 'chevron-up'}
+                    size={14}
+                    color={theme.colors.textFaint}
+                  />
+                </TouchableOpacity>
+                {planCollapsed ? null : agentPlan.map((item, index) => (
+                  <View key={`${index}-${item.step}`} style={styles.planRow}>
+                    <Ionicons
+                      name={item.status === 'done'
+                        ? 'checkmark-circle'
+                        : (item.status === 'in_progress' ? 'play-circle' : 'ellipse-outline')}
+                      size={14}
+                      color={item.status === 'done' ? theme.colors.primary : theme.colors.textMuted}
+                    />
+                    <Text
+                      style={[styles.planStep, item.status === 'done' && styles.planStepDone]}
+                      numberOfLines={1}
+                    >
+                      {item.step}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
             {toolStatus ? (
               <View style={styles.statusBar}>
@@ -1336,6 +1393,20 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
   statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
   statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
+  // A3 二期：计划进度条（贴着输入区的只读卡片；完成项划线弱化）。
+  planPanel: {
+    marginHorizontal: 12,
+    marginBottom: 4,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  planHeader: { flexDirection: 'row', alignItems: 'center' },
+  planTitle: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
+  planRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  planStep: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
+  planStepDone: { color: theme.colors.textFaint, textDecorationLine: 'line-through' },
   attachmentBar: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingBottom: 4 },
   attachmentChip: {
     flexDirection: 'row',
