@@ -71,7 +71,16 @@ export default function ModelCard({
         <Text style={styles.itemName} numberOfLines={1}>{name}</Text>
         <Text style={[styles.cardBadge, badgeStyle]} numberOfLines={1}>{t(badgeKey)}</Text>
       </View>
-      <Text style={styles.cardSummary} numberOfLines={1}>
+      {/* 兼容分级：带 tier 颜色的文字（如「轻松跑」）——成品小样里就是文字
+          （设计书 §6 曾写「只保留颜色不上文字」，与成品图冲突时以成品图为准；
+          a11y 标签仍完整拼出整行，读屏不丢信息）。 */}
+      <Text
+        style={styles.cardSummary}
+        numberOfLines={1}
+        accessibilityLabel={summary.compatibility && summary.compatibility.label
+          ? `${summaryParts.join(' · ')} · ${summary.compatibility.label}`
+          : undefined}
+      >
         {summaryParts.join(' · ')}
         {summary.compatibility && summary.compatibility.label ? (
           <Text style={{ color: tierColor(theme, summary.compatibility.tier) }}>{`  ${summary.compatibility.label}`}</Text>
@@ -91,13 +100,15 @@ export default function ModelCard({
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.selectButton, active && styles.selectButtonActive]}
+            style={[styles.selectButton, active ? styles.selectButtonActive : styles.selectButtonPrimary]}
             onPress={() => onSelectActive(entry)}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel={active ? t('localModel.a11y.activeModel') : t('localModel.a11y.selectModel', { name })}
           >
-            <Text style={styles.selectButtonText}>{active ? t('localModel.selected') : t('localModel.card.setCurrent')}</Text>
+            <Text style={[styles.selectButtonText, !active && styles.selectButtonPrimaryText]}>
+              {active ? t('localModel.selected') : t('localModel.card.setCurrent')}
+            </Text>
           </TouchableOpacity>
         )}
         {!uninstalled ? (

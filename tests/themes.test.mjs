@@ -12,6 +12,17 @@ import {
   resolveFontScale,
 } from '../src/theme/themes.js';
 
+test('success 语义色：各主题齐备 + successSurface 派生与 dangerSurface 同款口径', () => {
+  for (const theme of THEMES) {
+    assert.ok(/^#[0-9a-fA-F]{6}$/.test(String(theme.colors.success || '')),
+      `${theme.id} 缺 success 语义色（本地引擎「已加载」等正面状态用，2026-10-09 v5 设计稿对齐）`);
+  }
+  const dark = getTheme('dark');
+  assert.ok(String(dark.colors.successSurface).startsWith('rgba('), 'successSurface 应是半透明浅底');
+  assert.equal(dark.colors.successSurface, hexToRgba(dark.colors.success, 0.12),
+    '派生口径与 dangerSurface 一致（0.12）');
+});
+
 test('主题表完整：id 唯一、默认主题存在、必备色齐全', () => {
   const ids = THEMES.map(theme => theme.id);
   assert.equal(new Set(ids).size, ids.length);

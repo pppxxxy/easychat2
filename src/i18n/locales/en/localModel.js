@@ -231,6 +231,8 @@ export const localModel = {
   'localModel.params.preset.writing': 'Writing',
   'localModel.params.preset.code': 'Code',
   'localModel.paramsModal.contextMemory': 'KV memory change with this context size: {size}',
+  'localModel.paramsModal.advanced': 'Advanced (sampling & device)',
+  'localModel.engine.hide': 'Hide status bar (reappears on state change)',
   'localModel.engine.cardReady': 'Running: {name} · ~{size}',
   'localModel.engine.cardLoading': 'Loading local model {progress}%',
   'localModel.engine.cardError': 'Local model failed to load',

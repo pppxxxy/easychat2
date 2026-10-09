@@ -7,31 +7,33 @@ export function createPanelStyles(theme, fonts, tokens) {
   return StyleSheet.create({
     backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.colors.overlay },
     sheet: { maxHeight: '90%', backgroundColor: theme.colors.surfaceAlt, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18 },
+    // 模型中心容器 = 全屏（设计书 §3）：运行卡 + 下载卡 + 模型卡列表需要整屏；
+    // 顶部长按区留 44（与工作区单屏同口径）。backdrop/sheet 仍归参数/搜索等弹层用。
+    centerScreen: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+      paddingTop: 44,
+      paddingHorizontal: 18,
+    },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
     content: { paddingBottom: 18 },
-    tabRow: {
-      flexDirection: 'row',
-      backgroundColor: theme.colors.surface,
-      borderRadius: tokens.radius.md,
+    // 分段 = 独立胶囊组（v5 设计稿）：激活胶囊反色实底、其余描边胶囊；
+    // 不再是「外框 + 内高亮」的 segmented 控件（设计稿里就没有外框）。
+    tabRow: { flexDirection: 'row', columnGap: 6, marginBottom: 10 },
+    subTabRow: { flexDirection: 'row', columnGap: 6, marginBottom: 12 },
+    tabItem: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 6,
+      borderRadius: tokens.radius.pill,
       borderWidth: 1,
       borderColor: theme.colors.surfaceBorder,
-      padding: 3,
-      marginBottom: 10,
     },
-    subTabRow: {
-      flexDirection: 'row',
-      backgroundColor: theme.colors.surface,
-      borderRadius: tokens.radius.md,
-      borderWidth: 1,
-      borderColor: theme.colors.surfaceBorder,
-      padding: 3,
-      marginBottom: 12,
-    },
-    tabItem: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: tokens.radius.sm },
-    tabItemActive: { backgroundColor: theme.colors.primaryAlpha(0.2) },
-    tabText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '700' },
-    tabTextActive: { color: theme.colors.primary },
+    // 反色实底：底用正文色、字用背景色——深浅主题下都保持高对比。
+    tabItemActive: { backgroundColor: theme.colors.text, borderColor: theme.colors.text },
+    tabText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), fontWeight: '600' },
+    tabTextActive: { color: theme.colors.background, fontWeight: '700' },
     hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 10 },
     // 面板标题行右侧：教学入口 + 关闭
     headerActions: { flexDirection: 'row', alignItems: 'center', columnGap: 10 },
@@ -73,6 +75,9 @@ export function createPanelStyles(theme, fonts, tokens) {
     tierChip: { fontSize: fonts.scaled(11), fontWeight: '800', marginBottom: 4 },
     itemActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
     selectButton: { borderRadius: tokens.radius.pill, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.5), paddingHorizontal: 14, paddingVertical: 6, marginRight: 10 },
+    // 「设为当前」是主操作 = 实底反衬（成品小样）；「下载」保持描边，层级拉开。
+    selectButtonPrimary: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+    selectButtonPrimaryText: { color: theme.colors.primaryContrast },
     loadButtonBusy: { opacity: 0.75 },
     loadProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
     loadProgressBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.surfaceBorder, overflow: 'hidden' },
@@ -118,6 +123,17 @@ export function createPanelStyles(theme, fonts, tokens) {
     downloadCancelButton: { marginLeft: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.dangerSoft },
     downloadCancelText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(13), fontWeight: '700' },
     paramField: { marginBottom: 4 },
+  // 「高级」折叠开关（v5 Stage C §6）：预设 + contextSize 之外的技术字段默认收起。
+  advancedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.divider,
+  },
+  advancedToggleText: { color: theme.colors.primary, fontSize: fonts.scaled(13), fontWeight: '700' },
     // U7 完整版：字段标签行（左侧名称 + 右侧「恢复默认」）+ 越界红框与行内错误
     paramLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     resetText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600' },
@@ -131,12 +147,20 @@ export function createPanelStyles(theme, fonts, tokens) {
     resetAllText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 5 },
     engineCard: { borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), borderRadius: tokens.radius.md, padding: 12, marginBottom: 8, backgroundColor: theme.colors.primaryAlpha(0.08) },
     // 运行状态卡（v5 Stage C，预览对齐）
-    runCard: { borderWidth: 1, borderColor: theme.colors.primary, borderRadius: tokens.radius.md, padding: 12, marginBottom: 8, backgroundColor: theme.colors.primaryAlpha(0.1) },
+    // 运行状态卡（v5 设计稿）：就绪 = 绿（success 语义色）、加载中 = 品牌色、失败 = 红。
+    runCard: { borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, padding: 12, marginBottom: 8, backgroundColor: theme.colors.surface },
+    runCardReady: { borderColor: theme.colors.success, backgroundColor: theme.colors.successSurface },
+    runCardLoading: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.1) },
+    runCardError: { borderColor: theme.colors.danger, backgroundColor: theme.colors.dangerSurface },
     runHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     runNameWrap: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
-    runDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.primary, marginRight: 7 },
+    runDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.textFaint, marginRight: 7 },
+    runDotReady: { backgroundColor: theme.colors.success },
+    runDotLoading: { backgroundColor: theme.colors.primary },
+    runDotError: { backgroundColor: theme.colors.danger },
     runName: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
-    runBadge: { color: theme.colors.primary, fontSize: fonts.scaled(10), fontWeight: '700', borderWidth: 1, borderColor: theme.colors.primary, borderRadius: tokens.radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
+    runBadge: { color: theme.colors.textMuted, fontSize: fonts.scaled(10), fontWeight: '700', borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
+    runBadgeReady: { color: theme.colors.success, borderColor: theme.colors.success },
     runMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 5 },
     runActions: { flexDirection: 'row', alignItems: 'center', marginTop: 9, columnGap: 8 },
     runButton: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.sm, paddingHorizontal: 10, paddingVertical: 4 },

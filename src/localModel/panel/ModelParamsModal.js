@@ -1,8 +1,11 @@
 // 推理参数弹窗（纯渲染）：7 个字段由 LOCAL_MODEL_PARAM_FIELDS 驱动。
+// 结构（v5 Stage C §6）：三个预设（常用起点）→ contextSize 单列（带内存影响，
+// 教用户「上下文越大 KV 越大」的代价）→「高级」折叠展开其余 6 个字段——
+// 避免用户一上来面对 7 个裸数字（modelParams.js 的注释里也是这个设计意图）。
 // U7 完整版：范围提示 + 越界红框（即时校验）+ 每字段「恢复默认」按钮。
 // 打开/校验/保存逻辑在 useModelParams + panelFeedback.createParamsSaver，本组件不弹 Alert。
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -24,6 +27,10 @@ export default function ModelParamsModal({
   onClose,
   onSave,
 }) {
+  // 「高级」折叠：默认收起，展开后是其余 6 个字段（contextSize 单列在外）。
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const advancedFields = Object.keys(LOCAL_MODEL_PARAM_FIELDS).filter(field => field !== 'contextSize');
+
   const rangeHint = field => {
     const def = LOCAL_MODEL_PARAM_FIELDS[field];
     if (!def) return '';
@@ -67,6 +74,36 @@ export default function ModelParamsModal({
     });
   };
 
+  // 单字段渲染（contextSize 单列与「高级」里共用同一份，校验/恢复默认行为一致）。
+  const renderField = field => {
+    const errorText = fieldError(field);
+    return (
+      <View key={field} style={styles.paramField}>
+        <View style={styles.paramLabelRow}>
+          <Text style={styles.label}>
+            {t(PARAM_LABEL_KEYS[field] || '') || field}
+            {rangeHint(field) ? `（${rangeHint(field)}）` : ''}
+          </Text>
+          <TouchableOpacity
+            onPress={() => onFieldChange(field, String(LOCAL_MODEL_PARAM_FIELDS[field].default))}
+            hitSlop={8}
+            accessibilityLabel={`${t('localModel.paramsModal.reset')}（${t(PARAM_LABEL_KEYS[field] || '') || field}）`}
+          >
+            <Text style={styles.resetText}>{t('localModel.paramsModal.reset')}</Text>
+          </TouchableOpacity>
+        </View>
+        <TextInput
+          style={[styles.input, errorText ? styles.inputError : null]}
+          value={form[field] ?? ''}
+          onChangeText={text => onFieldChange(field, text)}
+          placeholderTextColor={theme.colors.textFaint}
+          accessibilityLabel={t(PARAM_LABEL_KEYS[field] || '') || field}
+        />
+        {errorText ? <Text style={styles.fieldError}>{errorText}</Text> : null}
+      </View>
+    );
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -93,35 +130,26 @@ export default function ModelParamsModal({
                 </TouchableOpacity>
               ))}
             </View>
+            {/* contextSize 单列在外：设备相关、且改它直接改变 KV 内存占用（下方即时显示代价）。 */}
+            {renderField('contextSize')}
             {contextMemoryHint() ? <Text style={styles.fieldError} accessibilityLabel={contextMemoryHint()}>{contextMemoryHint()}</Text> : null}
-            {Object.keys(LOCAL_MODEL_PARAM_FIELDS).map(field => {
-              const errorText = fieldError(field);
-              return (
-                <View key={field} style={styles.paramField}>
-                  <View style={styles.paramLabelRow}>
-                    <Text style={styles.label}>
-                      {t(PARAM_LABEL_KEYS[field] || '') || field}
-                      {rangeHint(field) ? `（${rangeHint(field)}）` : ''}
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => onFieldChange(field, String(LOCAL_MODEL_PARAM_FIELDS[field].default))}
-                      hitSlop={8}
-                      accessibilityLabel={`${t('localModel.paramsModal.reset')}（${t(PARAM_LABEL_KEYS[field] || '') || field}）`}
-                    >
-                      <Text style={styles.resetText}>{t('localModel.paramsModal.reset')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TextInput
-                    style={[styles.input, errorText ? styles.inputError : null]}
-                    value={form[field] ?? ''}
-                    onChangeText={text => onFieldChange(field, text)}
-                    placeholderTextColor={theme.colors.textFaint}
-                    accessibilityLabel={t(PARAM_LABEL_KEYS[field] || '') || field}
-                  />
-                  {errorText ? <Text style={styles.fieldError}>{errorText}</Text> : null}
-                </View>
-              );
-            })}
+            {/* 其余 6 个字段收进「高级」：默认收起，避免一上来面对 7 个裸数字。 */}
+            <TouchableOpacity
+              style={styles.advancedToggle}
+              onPress={() => setAdvancedOpen(value => !value)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: advancedOpen }}
+              accessibilityLabel={t('localModel.paramsModal.advanced')}
+            >
+              <Ionicons
+                name={advancedOpen ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={theme.colors.primary}
+              />
+              <Text style={styles.advancedToggleText}>{t('localModel.paramsModal.advanced')}</Text>
+            </TouchableOpacity>
+            {advancedOpen ? advancedFields.map(field => renderField(field)) : null}
             <TouchableOpacity style={styles.resetAll} onPress={resetAll} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="refresh-outline" size={14} color={theme.colors.primary} />
               <Text style={styles.resetAllText}>{t('localModel.paramsModal.resetAll')}</Text>
