@@ -294,7 +294,7 @@ export const settings = {
   'settings.security.title': '隐私与安全',
   'settings.security.appLock': '应用锁（生物识别）',
   'settings.security.appLockHint': '开启后，冷启动或从后台返回时需通过指纹 / 面容 / 系统密码验证才能进入。',
-  'settings.security.appLockUnavailable': '当前设备未设置指纹 / 面容或锁屏密码，无法开启应用锁。',
+  'settings.security.appLockUnavailable': '当前设备没有任何锁屏保护（指纹、面容、锁屏密码都没设置），无法开启应用锁。设置任意一种即可开启——只有锁屏密码也行：指纹 / 面容识别失败时，验证弹窗里可以改用锁屏密码。',
   'settings.security.appLockUnavailableTitle': '无法开启',
   'settings.security.appLockPrompt': '验证以开启应用锁',
   'settings.security.relock': '离开后重新上锁',

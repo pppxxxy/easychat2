@@ -294,7 +294,7 @@ export const settings = {
   'settings.security.title': 'Privacy & Security',
   'settings.security.appLock': 'App lock (biometric)',
   'settings.security.appLockHint': 'When enabled, entering the app on cold start or on returning from background requires fingerprint / face / device passcode.',
-  'settings.security.appLockUnavailable': 'This device has no fingerprint / face or screen lock set up, so the app lock cannot be enabled.',
+  'settings.security.appLockUnavailable': 'This device has no screen protection at all (no fingerprint, face or screen lock), so the app lock cannot be enabled. Setting any one of them is enough — a screen lock alone works: if fingerprint / face fails, the prompt offers your device passcode instead.',
   'settings.security.appLockUnavailableTitle': 'Cannot enable',
   'settings.security.appLockPrompt': 'Verify to enable app lock',
   'settings.security.relock': 'Re-lock after leaving',
