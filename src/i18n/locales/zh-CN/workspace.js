@@ -178,6 +178,8 @@ export const workspace = {
   'workspace.history.clear.body': '清空当前角色的全部工作区对话？工作区的文件不受影响。',
   'workspace.history.clear.ok': '清空',
   'workspace.settings.files': '文件与改动',
+  'workspace.settings.hooks': '工作区钩子',
+  'workspace.settings.hooks.hint': '在 {file} 里声明式配置：before_shell 是预置禁令（命令前缀匹配，命中直接拒绝、连确认框都不弹——命令发不出去）；after_write / after_edit 在写/改文件后给助手留一句提醒（如「改了 src 记得跑测试」）。只支持声明式规则，不执行任何脚本；文件损坏时按没有钩子处理。',
   'workspace.settings.commands': '斜杠命令',
   'workspace.settings.commands.count': '{count} 个',
   'workspace.settings.commands.emptyShort': '无',

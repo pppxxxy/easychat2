@@ -48,7 +48,13 @@
       原样发送，绝不猜测）；无 `$ARGUMENTS` 占位符时参数追加末尾（不丢输入）；
       frontmatter 解析抽为 markdownFrontmatter.js 与技能共用；设置面板命令行 +
       3 示例（weekly/polish/explain，幂等不覆盖）。
-- [ ] T6 钩子 hooks.json（声明式，before_shell/after_write/after_edit；不做任意 JS 插件）
+- [x] T6 钩子 hooks.json（声明式，before_shell/after_write/after_edit；**不做任意 JS 插件**）
+      —— `.easychat/hooks.json`；before_shell = 预置禁令（前缀词边界匹配，翻译成
+      T3 的 deny 规则经 extraRules 注入——命中直接拒绝、连弹框都不弹，复用既有
+      「deny 最高优先」链路零新增裁决路径）；after_write/after_edit = 事后提醒
+      （路径 glob 命中，追加进工具结果给模型看）；非 JSON / 畸形条目安全降级为空；
+      每事件上限 20 条；agent 可读写（只能收紧不能放宽：block 更严、notify 只是信息）。
+      不做 JS 插件的理由：RN 无安全沙盒（进程内 eval 触达全部原生桥）→ 已在审查待办留痕。
 
 ## 阶段 3：体验对齐
 - [ ] T7 持久 shell 会话（先方案 B：会话记 cwd + .easychat/env.json；PTY 登记待办）

@@ -28,13 +28,19 @@ export async function approveToolCall({
   t,
   signal = null,
   showAlert = null,
+  // 本次调用的附加规则（工作区 hooks.json 的 before_shell 预置禁令翻译而来）。
+  // 与存储规则合并求值：deny 优先由 evaluate 保证，与来源和顺序无关。
+  extraRules = [],
 } = {}) {
+  const injected = Array.isArray(extraRules) ? extraRules : [];
   let verdict = null;
   try {
     const rules = await getEffectivePermissionRules();
-    verdict = evaluatePermissionRules(rules, { tool: name, args });
+    verdict = evaluatePermissionRules([...injected, ...rules], { tool: name, args });
   } catch (error) {
-    verdict = null; // 读失败 = 没有规则：照常问人
+    // 存储读失败 → 按「没有存储规则」处理，但**注入的钩子规则仍要参与求值**：
+    // 预置禁令是用户写在工作区文件里的，不该因为存储异常而失效。
+    verdict = evaluatePermissionRules(injected, { tool: name, args });
   }
   if (verdict === 'deny') return false;
   if (verdict === 'allow') return true;

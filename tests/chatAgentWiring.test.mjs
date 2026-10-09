@@ -45,7 +45,8 @@ test('聊天内工具开启后 ask 模式也走 runAgentTurn（独立于工作�
 test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
   const idx = source.indexOf('runAgentTurn(onlineMessages');
   assert.ok(idx >= 0, '存在 runAgentTurn 调用');
-  const block = source.slice(idx, idx + 2600);
+  // 窗口要盖住整个调用（T6 起 onToolApproval 是带钩子注入的 async 块，比原先长）。
+  const block = source.slice(idx, idx + 3600);
   assert.ok(/mode:\s*workspaceMode/.test(block), '传 mode');
   assert.ok(/tools:\s*agentTools/.test(block), '传 tools');
   assert.ok(/signal:\s*controller\.signal/.test(block), '传取消信号');
@@ -62,11 +63,16 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
 // 漏接时的表现是「模型一直说命令被拒绝」，界面不报错，很难查——所以把接线钉死。
 test('runAgentTurn 接了 onToolApproval，并把中止信号一并传下去', () => {
   const idx = source.indexOf('runAgentTurn(onlineMessages');
-  const block = source.slice(idx, idx + 2600);
+  const block = source.slice(idx, idx + 3600);
+  const hookAt = block.indexOf('onToolApproval:');
+  const hookBlock = block.slice(hookAt, hookAt + 1400);
   // T3 起审批走 approveToolCall：先查已记住的规则（本次会话 / 永远允许），
   // 未命中才弹三选项框——直接调 requestToolApproval 会绕过规则，等于授权不生效。
-  assert.ok(/onToolApproval:\s*call => approveToolCall\(/.test(block), '必须接上审批钩子（规则 → 弹框的完整流转）');
-  assert.ok(/signal:\s*controller\.signal/.test(block.slice(block.indexOf('onToolApproval'))),
+  // T6 起外面包了一层 async：注入工作区钩子的 before_shell 禁用规则（extraRules）。
+  assert.ok(/onToolApproval:\s*async call =>/.test(hookBlock), '审批钩子是能先读钩子的 async 块');
+  assert.ok(/return approveToolCall\(/.test(hookBlock), '必须接上完整流转（规则 → 弹框）');
+  assert.ok(/extraRules/.test(hookBlock), '工作区钩子禁令要注入审批');
+  assert.ok(/signal:\s*controller\.signal/.test(hookBlock),
     '审批要拿到中止信号：用户点停止时不留悬挂弹框');
   assert.ok(/t:\s*tRef\.current/.test(block), '审批文案走 tRef（跟当前语言，不用闭包旧 t）');
 });

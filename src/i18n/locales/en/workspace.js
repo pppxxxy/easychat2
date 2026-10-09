@@ -178,6 +178,8 @@ export const workspace = {
   'workspace.history.clear.body': 'Clear all workspace chats for the current assistant? Workspace files are untouched.',
   'workspace.history.clear.ok': 'Clear',
   'workspace.settings.files': 'Files & changes',
+  'workspace.settings.hooks': 'Workspace hooks',
+  'workspace.settings.hooks.hint': 'Declared in {file}: before_shell is a pre-set ban (prefix match — the command is refused outright, not even a confirm dialog); after_write / after_edit leave the assistant a reminder after writing/editing a file (e.g. “you touched src, run the tests”). Declarative rules only — no scripts are ever executed; a broken file is treated as no hooks.',
   'workspace.settings.commands': 'Slash commands',
   'workspace.settings.commands.count': '{count}',
   'workspace.settings.commands.emptyShort': 'None',

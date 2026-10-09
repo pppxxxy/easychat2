@@ -313,3 +313,33 @@ test('approveToolCall：弹框被关掉（dismiss）一律拒绝', async () => {
     false
   );
 });
+
+test('approveToolCall：extraRules（工作区钩子禁令）deny 命中不弹框；没命中照常问', async () => {
+  const { flow } = loadStack();
+  const t = key => key;
+  const extraRules = [{ effect: 'deny', tool: 'run_shell', match: 'git push', scope: 'session' }];
+  const never = { alert() { throw new Error('钩子禁令命中不该弹框：用户早已表态'); } };
+  assert.equal(
+    await flow.approveToolCall({
+      name: 'run_shell',
+      args: { command: 'git push origin main' },
+      t,
+      showAlert: never,
+      extraRules,
+    }),
+    false
+  );
+  let asked = 0;
+  const denyAlert = { alert(title, body, buttons) { asked += 1; buttons[0].onPress(); } };
+  assert.equal(
+    await flow.approveToolCall({
+      name: 'run_shell',
+      args: { command: 'ls' },
+      t,
+      showAlert: denyAlert,
+      extraRules,
+    }),
+    false
+  );
+  assert.equal(asked, 1, '没命中钩子的命令照常弹框');
+});

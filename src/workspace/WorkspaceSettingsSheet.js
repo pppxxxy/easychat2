@@ -22,6 +22,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { describePermissionRule } from '../agent/permissions.js';
 import { COMMANDS_DIR } from './commands.js';
+import { HOOKS_FILE } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -142,6 +143,12 @@ export default function WorkspaceSettingsSheet({
       value: permissionRules.length > 0
         ? t('workspace.settings.permissions.count', { count: permissionRules.length })
         : t('workspace.settings.permissions.emptyShort'),
+    },
+    {
+      id: 'hooks',
+      icon: 'git-branch-outline',
+      label: t('workspace.settings.hooks'),
+      value: 'hooks.json',
     },
   ];
 
@@ -273,6 +280,13 @@ export default function WorkspaceSettingsSheet({
             <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
           </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'hooks') {
+      return (
+        <View>
+          <Text style={styles.bodyHint} selectable>{t('workspace.settings.hooks.hint', { file: HOOKS_FILE })}</Text>
         </View>
       );
     }

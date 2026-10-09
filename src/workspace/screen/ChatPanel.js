@@ -84,6 +84,7 @@ import {
   readWorkspaceCommands,
   slashQuery,
 } from '../commands.js';
+import { readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
   clearPermissionRules,
@@ -797,12 +798,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
-        onToolApproval: call => approveToolCall({
-          name: call && call.name,
-          args: call && call.args,
-          t,
-          signal: controller.signal,
-        }),
+        // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
+        // 本轮内 agent 改了钩子文件也立即生效）；钩子只收紧、不放松。
+        onToolApproval: async call => {
+          let extraRules = [];
+          try {
+            const hooks = await readWorkspaceHooks(storeRef.current, characterId);
+            extraRules = shellHookDenyRules(hooks);
+          } catch (error) {}
+          return approveToolCall({
+            name: call && call.name,
+            args: call && call.args,
+            t,
+            signal: controller.signal,
+            extraRules,
+          });
+        },
         context: { characterId },
       });
       if (mode !== 'ask' && mountedRef.current && !controller.signal.aborted) {

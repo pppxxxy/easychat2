@@ -7,6 +7,7 @@
 
 import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
+import { postWriteNotices } from './hooks.js';
 import { fileExtension } from './paths.js';
 import { createLegacyWorkspaceStore, WORKSPACE_LIMITS } from './store.js';
 import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
@@ -104,11 +105,18 @@ const WORKSPACE_TOOL_DEFINITIONS = [
       },
       required: ['path', 'content'],
     },
-    execute: (options, args, ctx) => options.store.writeWorkspaceFile({
-      characterId: ctx && ctx.characterId,
-      path: args.path,
-      content: args.content,
-    }).then(result => `已写入 ${result.path}（${result.length} 字符）`),
+    // after_write 钩子：写成功后的提醒追加进工具结果（模型看得到、可能照做）。
+    // 读钩子失败当没有钩子——提醒链路的任何问题都不该影响写入本身。
+    execute: async (options, args, ctx) => {
+      const result = await options.store.writeWorkspaceFile({
+        characterId: ctx && ctx.characterId,
+        path: args.path,
+        content: args.content,
+      });
+      const base = `已写入 ${result.path}（${result.length} 字符）`;
+      const notices = await postWriteNotices(options.store, ctx && ctx.characterId, 'after_write', result.path);
+      return notices.length > 0 ? `${base}\n\n[工作区钩子] ${notices.join('；')}` : base;
+    },
   },
   {
     name: 'edit_workspace_file',
@@ -124,13 +132,19 @@ const WORKSPACE_TOOL_DEFINITIONS = [
       },
       required: ['path', 'find', 'replace'],
     },
-    execute: (options, args, ctx) => options.store.editWorkspaceFile({
-      characterId: ctx && ctx.characterId,
-      path: args.path,
-      find: args.find,
-      replace: args.replace,
-      all: args.all === true,
-    }).then(result => `已修改 ${result.path}（替换 ${result.count} 处）`),
+    // after_edit 钩子：同 after_write（提醒追加进结果，失败不影响编辑本身）。
+    execute: async (options, args, ctx) => {
+      const result = await options.store.editWorkspaceFile({
+        characterId: ctx && ctx.characterId,
+        path: args.path,
+        find: args.find,
+        replace: args.replace,
+        all: args.all === true,
+      });
+      const base = `已修改 ${result.path}（替换 ${result.count} 处）`;
+      const notices = await postWriteNotices(options.store, ctx && ctx.characterId, 'after_edit', result.path);
+      return notices.length > 0 ? `${base}\n\n[工作区钩子] ${notices.join('；')}` : base;
+    },
   },
   {
     name: 'export_workspace_docx',
