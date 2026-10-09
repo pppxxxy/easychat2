@@ -373,6 +373,12 @@ export const settings = {
   'settings.sampling.title': '生成参数',
   'settings.sampling.enabledCount': '{count} 项已启用',
   'settings.sampling.serverDefault': '使用服务端默认',
+  // 四个字段标签：e67347e 把硬编码中文换成 labelKey 引用时漏补了这四条，
+  // 界面一直显示键名原文（settings.sampling...）。名字沿用翻译前的原叫法。
+  'settings.sampling.maxTokens': '最大回复令牌',
+  'settings.sampling.temperature': '温度',
+  'settings.sampling.topP': 'top-p',
+  'settings.sampling.topK': 'top-k',
   'settings.profile.alert.saveFailed.title': '保存失败',
   'settings.profile.alert.saveFailed.body': '用户资料未保存，当前内容仍保留在界面，请稍后重试。',
   'settings.profile.alert.switchFailed.title': '切换失败',

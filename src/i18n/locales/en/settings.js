@@ -373,6 +373,12 @@ export const settings = {
   'settings.sampling.title': 'Generation Params',
   'settings.sampling.enabledCount': '{count} enabled',
   'settings.sampling.serverDefault': 'Server Default',
+  // Field labels: e67347e switched to labelKey references without adding these
+  // four entries, so the UI showed raw key names (settings.sampling...).
+  'settings.sampling.maxTokens': 'Max Reply Tokens',
+  'settings.sampling.temperature': 'Temperature',
+  'settings.sampling.topP': 'Top-P',
+  'settings.sampling.topK': 'Top-K',
   'settings.profile.alert.saveFailed.title': 'Save failed',
   'settings.profile.alert.saveFailed.body': 'Your profile was not saved; the current content is kept in the UI. Try again later.',
   'settings.profile.alert.switchFailed.title': 'Switch failed',
