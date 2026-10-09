@@ -14,6 +14,10 @@ export default function ChatSettingsModal({
   onOpenSystemSettings,
   editLabel,
   onOpenEditor,
+  // D3：会话压缩（体积概览 + 进行中 + 触发回调）——数据仍由 ChatScreen 持有。
+  compactInfo = null,
+  compactBusy = false,
+  onCompactSession,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
@@ -60,6 +64,27 @@ export default function ChatSettingsModal({
               <Text style={styles.chatSettingsText}>{editLabel}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => {
+              if (!compactBusy && typeof onCompactSession === 'function') onCompactSession();
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="archive-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.chatSettingsText}>
+                {compactBusy
+                  ? t('chat.settings.compactBusy')
+                  : t('chat.settings.compact', {
+                    size: (compactInfo && compactInfo.sizeText) || '—',
+                  })}
+              </Text>
+            </View>
+            {(compactInfo && compactInfo.due) ? (
+              <Ionicons name="alert-circle-outline" size={16} color={theme.colors.primary} />
+            ) : null}
           </TouchableOpacity>
         </View>
       </TouchableOpacity>

@@ -114,6 +114,14 @@ import { generateImage } from './imageGen/index.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
 import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import {
+  COMPACTION_KEEP_RECENT,
+  COMPACTION_MIN_MESSAGES,
+  applyCompaction,
+  buildCompactionSummaryRequest,
+  compactionStatus,
+  parseCompactionSummary,
+} from './chat/compaction.js';
 import { getImageProvider } from './imageGen/providers.js';
 import useChatTts from './chat/useChatTts.js';
 import useSessionGuard from './chat/useSessionGuard.js';
@@ -302,6 +310,8 @@ export default function ChatScreen() {
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const [transcriptionPanelOpen, setTranscriptionPanelOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  // D3：会话压缩（手动，设置弹窗触发）——进行中状态；体积概览跟随消息变化。
+  const [compactBusy, setCompactBusy] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
   const [groupEditOpen, setGroupEditOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
@@ -1467,6 +1477,46 @@ export default function ChatScreen() {
       return segment;
     }
   }, []);
+
+  // D3：压缩当前会话——一次模型调用压成三段摘要 + 保留最近 K 条原文；
+  // 失败保持原会话不动（压缩是锦上添花，绝不能成为会话损坏的来源）。
+  // 与分支系统：压缩会让引用旧消息的 fork 点失效，branchTree 按 `stale` 降级。
+  const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
+  const handleCompactSession = useCallback(async () => {
+    if (compactBusy) return;
+    const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
+    const meaningful = (Array.isArray(list) ? list : [])
+      .filter(item => item && (item.role === 'user' || item.role === 'assistant')
+        && String((item && (item.text || item.content)) || '').trim());
+    if (meaningful.length < COMPACTION_MIN_MESSAGES) {
+      Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
+      return;
+    }
+    setCompactBusy(true);
+    try {
+      const { configs, activeId } = await getApiConfigs();
+      const config = configs.find(item => item.id === activeId) || configs[0];
+      if (!config) throw new Error('no config');
+      const reply = await sendChatMessage(buildCompactionSummaryRequest(list), {
+        stream: false,
+        expectedConfigId: String(config.id || ''),
+        expectedConfigFingerprint: getConfigFingerprint(config),
+      });
+      const summary = parseCompactionSummary(reply);
+      if (!summary || summary === EMPTY_REPLY_TEXT) throw new Error('empty summary');
+      const next = applyCompaction(list, summary);
+      setMessages(next); // useSessionMessages 自动串行持久化
+      Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactDone', {
+        before: meaningful.length,
+        after: next.length,
+        kept: COMPACTION_KEEP_RECENT,
+      }));
+    } catch (error) {
+      Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactFail'));
+    } finally {
+      setCompactBusy(false);
+    }
+  }, [compactBusy, messages, messagesRef, setMessages, t]);
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
@@ -2793,6 +2843,9 @@ export default function ChatScreen() {
           if (isGroup) setGroupEditOpen(true);
           else setCharacterEditOpen(true);
         }}
+        compactInfo={compactInfo}
+        compactBusy={compactBusy}
+        onCompactSession={handleCompactSession}
       />
 
       <VoiceSettingsModal
