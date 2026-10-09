@@ -14,12 +14,12 @@
 
 import { registerTool, unregisterTool, listRegisteredTools } from '../agent/tools/registry.js';
 import { createMcpSession } from '../mcp/client.js';
+import { GITHUB_SERVER_ID, GITHUB_TOOL_PREFIX } from '../mcp/constants.js';
 import { classifyMcpTool, MCP_TOOL_TIERS } from '../mcp/riskGate.js';
 
-export const GITHUB_TOOL_PREFIX = 'github_';
-// 与 storage/settings/mcpServers.js 的 GITHUB_SERVER_ID 同步（两处各定义一份，
-// 避免 storage 静态依赖被拖进本模块的 Node 测试路径）。
-const BUILTIN_GITHUB_ID = 'github';
+// 常量抽到 mcp/constants.js（零依赖，与 mcpServers / client 共用一份——
+// 原先「两处各定义一份、靠注释同步」的隐患就此消除）；re-export 兼容既有引用点。
+export { GITHUB_TOOL_PREFIX };
 // 网络工具比文件工具慢得多（GitHub API 偶发数秒），给独立的长超时。
 const MCP_TOOL_TIMEOUT_MS = 45000;
 // 工具结果直接进模型上下文：超大输出（整个文件/长列表）截断，防止撑爆上下文。
@@ -33,7 +33,7 @@ const MCP_NAMESPACE_PATTERN = /^[a-z0-9][a-z0-9-]*__/;
 export function mcpToolPrefix(server) {
   const id = String((server && server.id) || '').trim();
   if (!id) return '';
-  return id === BUILTIN_GITHUB_ID ? GITHUB_TOOL_PREFIX : `${id}__`;
+  return id === GITHUB_SERVER_ID ? GITHUB_TOOL_PREFIX : `${id}__`;
 }
 
 // 注册前置判定（纯函数，与 shellGateReason 同风格）。返回 '' 表示可注册。
@@ -106,7 +106,7 @@ export async function callMcpTool(server, mcpName, args, hooks = {}) {
   const label = (source && (source.name || source.id)) || 'MCP';
   // 硬禁 + 分级双保险：注册时查过一次，执行前按同一套规则再查一次（不信任注册表状态）。
   const tier = classifyMcpTool(mcpName, {
-    serverId: source ? source.id : BUILTIN_GITHUB_ID,
+    serverId: source ? source.id : GITHUB_SERVER_ID,
     tierOverrides: source ? source.tierOverrides : null,
   });
   if (tier === MCP_TOOL_TIERS.DENIED) {
@@ -228,7 +228,7 @@ export function githubServerFromSettings(settings) {
   const token = source.authMethod === 'oauth' ? source.githubAccessToken : source.githubToken;
   if (!String(token || '').trim()) return null;
   return {
-    id: BUILTIN_GITHUB_ID,
+    id: GITHUB_SERVER_ID,
     name: 'GitHub',
     endpoint: String(source.endpoint || ''),
     authMethod: source.authMethod === 'oauth' ? 'oauth' : 'token',
@@ -251,11 +251,11 @@ export function registerGithubMcpTools(settings, hooks = {}) {
 }
 
 export function unregisterGithubMcpTools() {
-  return unregisterMcpServerTools({ id: BUILTIN_GITHUB_ID });
+  return unregisterMcpServerTools({ id: GITHUB_SERVER_ID });
 }
 
 export function callGithubMcpTool(settings, mcpName, args, hooks = {}) {
-  const server = githubServerFromSettings(settings) || { id: BUILTIN_GITHUB_ID, name: 'GitHub' };
+  const server = githubServerFromSettings(settings) || { id: GITHUB_SERVER_ID, name: 'GitHub' };
   return callMcpTool(server, mcpName, args, hooks);
 }
 

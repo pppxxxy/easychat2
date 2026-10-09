@@ -14,8 +14,11 @@
 // 会话过期（404）自动重初始化并重试一次；请求级超时用 AbortController。
 
 import { tActive } from '../i18n/index.js';
+import { DEFAULT_GITHUB_MCP_ENDPOINT } from './constants.js';
 
-export const DEFAULT_GITHUB_MCP_ENDPOINT = 'https://api.githubcopilot.com/mcp/';
+// 常量抽到 mcp/constants.js（与 mcpServers / mcpTools 共用一份，不再靠注释同步）；
+// re-export 兼容既有引用点（含测试）。
+export { DEFAULT_GITHUB_MCP_ENDPOINT };
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 // 单请求超时：GitHub MCP 冷启动（initialize）偶尔要十几秒，20s 会误杀成
 // 「Aborted」——用户看到的就是一个无意义的英文单词。放宽到 30s，

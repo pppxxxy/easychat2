@@ -13,12 +13,14 @@
 // 内置记录（id='github'），migrateGithubServer 幂等执行；**旧键不动**
 // （回滚安全，旧版本仍可跑），新键是唯一事实源。
 
-import { DEFAULT_GITHUB_MCP_ENDPOINT } from '../../mcp/client.js';
+import { DEFAULT_GITHUB_MCP_ENDPOINT, GITHUB_SERVER_ID } from '../../mcp/constants.js';
 import { filterMcpToolsForRegistration } from '../../mcp/riskGate.js';
 import { createMutationQueue, readJsonWithSecrets, setJsonWithSecrets } from '../io.js';
 
 export const MCP_SERVERS_KEY = '@easychat2_mcp_servers';
-export const GITHUB_SERVER_ID = 'github';
+// 常量已抽到 mcp/constants.js（与 mcpTools / client 共用一份，不再靠注释同步）；
+// 这里保留 re-export 兼容既有引用点。
+export { GITHUB_SERVER_ID };
 // 保留 id：内置服务器占用的命名空间。第三方服务器的 id 绝不能落在这里——
 // 分级是**按 serverId 分域**的（riskGate：内置 GitHub 走只读白名单、第三方默认逐条确认），
 // 所以 id 撞车等于把第三方工具偷换成 GitHub 白名单语义：恰好叫 search_code /
