@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { describePermissionRule } from '../agent/permissions.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
@@ -65,6 +66,10 @@ export default function WorkspaceSettingsSheet({
   onImportFile,
   importBusy = false,
   onOpenPanel,
+  // 已记住的授权（本次会话 + 永久）与清除入口：数据仍由 ChatPanel 持有
+  // （本面板只展示 + 转发回调，见文件头「纯展示」约定）。
+  permissionRules = [],
+  onClearPermissionRules,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -105,6 +110,14 @@ export default function WorkspaceSettingsSheet({
       icon: 'analytics-outline',
       label: t('workspace.settings.usage'),
       value: usage ? `${Math.round((usage.ratio || 0) * 100)}%` : t('workspace.settings.usage.empty'),
+    },
+    {
+      id: 'permissions',
+      icon: 'shield-checkmark-outline',
+      label: t('workspace.settings.permissions'),
+      value: permissionRules.length > 0
+        ? t('workspace.settings.permissions.count', { count: permissionRules.length })
+        : t('workspace.settings.permissions.emptyShort'),
     },
   ];
 
@@ -212,6 +225,34 @@ export default function WorkspaceSettingsSheet({
             })}
           </Text>
           <Text style={styles.bodyHint}>{t('workspace.panel.context.hint')}</Text>
+        </View>
+      );
+    }
+    if (id === 'permissions') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.permissions.hint')}</Text>
+          {permissionRules.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.permissions.empty')}</Text>
+          ) : permissionRules.map((rule, index) => (
+            <Text key={`${String(rule && rule.tool)}-${index}`} style={styles.bodyHint} selectable>
+              {rule && rule.scope === 'session'
+                ? t('workspace.settings.permissions.scope.session')
+                : t('workspace.settings.permissions.scope.always')}
+              {' · '}
+              {describePermissionRule(rule, t)}
+            </Text>
+          ))}
+          {permissionRules.length > 0 ? (
+            <TouchableOpacity
+              style={styles.permissionClear}
+              onPress={() => onClearPermissionRules && onClearPermissionRules()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+              <Text style={styles.permissionClearText}>{t('workspace.settings.permissions.clear')}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       );
     }
@@ -394,6 +435,23 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(11),
     lineHeight: fonts.scaled(16),
     marginTop: 8,
+  },
+  // 「清除全部授权」：危险动作给危险色 + 描边，但不填满（防误点视觉权重过大）。
+  permissionClear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.danger,
+  },
+  permissionClearText: {
+    marginLeft: 6,
+    color: theme.colors.danger,
+    fontSize: fonts.scaled(12),
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
   chip: {

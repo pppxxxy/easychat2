@@ -63,7 +63,9 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
 test('runAgentTurn 接了 onToolApproval，并把中止信号一并传下去', () => {
   const idx = source.indexOf('runAgentTurn(onlineMessages');
   const block = source.slice(idx, idx + 2600);
-  assert.ok(/onToolApproval:\s*call => requestToolApproval\(/.test(block), '必须接上审批钩子');
+  // T3 起审批走 approveToolCall：先查已记住的规则（本次会话 / 永远允许），
+  // 未命中才弹三选项框——直接调 requestToolApproval 会绕过规则，等于授权不生效。
+  assert.ok(/onToolApproval:\s*call => approveToolCall\(/.test(block), '必须接上审批钩子（规则 → 弹框的完整流转）');
   assert.ok(/signal:\s*controller\.signal/.test(block.slice(block.indexOf('onToolApproval'))),
     '审批要拿到中止信号：用户点停止时不留悬挂弹框');
   assert.ok(/t:\s*tRef\.current/.test(block), '审批文案走 tRef（跟当前语言，不用闭包旧 t）');

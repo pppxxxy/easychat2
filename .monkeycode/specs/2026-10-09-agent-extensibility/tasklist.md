@@ -25,9 +25,17 @@
       三态测试（存在/缺失/超长）
 
 ### T3 权限规则引擎
-- [ ] `@easychat2_workspace_permissions`：rules[{effect, tool, match, scope}]
-- [ ] 确认弹框三选项（本次会话允许 / 永远允许 / 仍每次确认）；deny 最高优先
-- [ ] `pathMatchesGlob` 纯函数（** 与 * 语义）；run_shell 的 commandPrefix 规则
+- [x] `@easychat2_workspace_permissions`：rules[{effect, tool, match, scope}]（落盘 CRUD +
+      会话内存 scope；损坏备份；两处调用点共用同一份规则，跨页共享授权）
+- [x] 确认弹框三选项（拒绝 / **本次会话允许** / **永远允许**）——「仍每次确认」的原意
+      （允许这次但不记规则）被「本次会话允许」覆盖：规则 match 是**该命令原文**（词边界），
+      只放行同一条命令，不是放行整个工具，授权放大极其有限；Android Alert 上限 3 按钮，
+      没有空间单列第四项（取舍已登记）。deny 最高优先（与顺序无关，测试钉死）。
+- [x] `pathMatchesGlob` 纯函数（`*` 不跨层 / `**` 跨任意层含零层 / 大小写敏感）；
+      commandPrefix 词边界匹配（`npm install` 不放行 `npm installx`——纯 startsWith 会
+      静默放行一条没审过的命令）；字段驱动取原文（command/code → 前缀，path → glob）。
+- [x] 撤销入口：工作区设置「已记住的授权」行（列表 + scope 区分 + 清除全部）——
+      授权必须可撤销，否则「永远允许」点错一次就是没法回头的坑。
 
 ## 阶段 2：技能与命令层
 - [ ] T4 SKILL.md 渐进披露（清单注入 + 现有 read 工具读全文，零新工具）+ 技能面板 + 3 示例

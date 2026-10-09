@@ -29,7 +29,7 @@ import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn } from '../agent/loop.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
-import { requestToolApproval } from './toolApproval.js';
+import { approveToolCall } from './toolApprovalFlow.js';
 import { registerDefaultWorkspaceTools } from '../workspace/native.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
@@ -559,10 +559,11 @@ export default function useChatSend({
                   setToolBubble(event.name, event.ok === false ? 'error' : 'done', event.error || '');
                 }
               },
-              // 逐条确认（目前只有 run_shell）：这里是唯一能问到用户的出口，
-              // 所以必须接上——不接的话 registry 会把需要确认的工具一律拒绝。
+              // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，所以必须接上——
+              // 不接的话 registry 会把需要确认的工具一律拒绝。先查已记住的规则
+              //（本次会话 / 永远允许），没命中才弹三选项框。
               // 用户在弹框上犹豫多久都不算超时：runTool 把审批放在超时竞速之外。
-              onToolApproval: call => requestToolApproval({
+              onToolApproval: call => approveToolCall({
                 name: call && call.name,
                 args: call && call.args,
                 t: tRef.current,

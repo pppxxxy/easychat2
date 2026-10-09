@@ -63,7 +63,7 @@ import { resolveTranscription, transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn } from '../../agent/loop.js';
 import { listToolsForMode } from '../../agent/tools/registry.js';
-import { requestToolApproval } from '../../chat/toolApproval.js';
+import { approveToolCall } from '../../chat/toolApprovalFlow.js';
 import {
   isImage,
   isTextLike,
@@ -77,6 +77,10 @@ import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { upsertWorkspaceChat } from '../chats.js';
+import {
+  clearPermissionRules,
+  getEffectivePermissionRules,
+} from '../../storage/settings/workspacePermissions.js';
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
 import {
@@ -115,6 +119,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('');
+  // 已记住的授权（本次会话 + 永久）：打开设置面板时刷新一次即可——
+  // 规则只会在「用户点弹框」时变化，而点弹框时用户不在设置面板里。
+  const [permissionRules, setPermissionRules] = useState([]);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
   const [characterId, setCharacterId] = useState('default');
   const [characterName, setCharacterName] = useState('');
@@ -291,6 +298,21 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setChatList(prev => upsertWorkspaceChat(prev, updated));
     } catch (error) {}
   }, []);
+
+  // 打开设置面板时刷新「已记住的授权」（列表与清除按钮共用这一份数据）。
+  // 时机够用：规则只在用户点确认弹框时变化，而那时设置面板是关着的。
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    let alive = true;
+    getEffectivePermissionRules()
+      .then(rules => {
+        if (alive) setPermissionRules(Array.isArray(rules) ? rules : []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [settingsOpen]);
 
   // 打开时自解析：设置快照 → 沙盒 store → 工作区角色 → 模型 / 思考 / 角色清单 / 项目。
   useEffect(() => {
@@ -497,6 +519,20 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   }, [characters, loadChats, loadUsage]);
 
   // 导入文件：选一个文本文件复制进沙盒（角色随后就能读它）。
+  // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
+  // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
+  const handleClearPermissionRules = useCallback(async () => {
+    try {
+      await clearPermissionRules();
+    } catch (error) {}
+    try {
+      const rules = await getEffectivePermissionRules();
+      setPermissionRules(Array.isArray(rules) ? rules : []);
+    } catch (error) {
+      setPermissionRules([]);
+    }
+  }, []);
+
   const handleImportFile = useCallback(async () => {
     if (importBusy) return;
     const store = storeRef.current;
@@ -667,7 +703,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           if (!mountedRef.current || !event) return;
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
         },
-        onToolApproval: call => requestToolApproval({
+        // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
+        onToolApproval: call => approveToolCall({
           name: call && call.name,
           args: call && call.args,
           t,
@@ -778,6 +815,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onImportFile={handleImportFile}
                   importBusy={importBusy}
                   onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
+                  permissionRules={permissionRules}
+                  onClearPermissionRules={handleClearPermissionRules}
                 />
               </ScrollView>
             ) : (
