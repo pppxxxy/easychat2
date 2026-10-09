@@ -109,3 +109,33 @@ test('D3 接线契约：ChatScreen 手动压缩 + 设置弹窗入口 + 失败不
   assert.ok(modal.includes("t('chat.settings.compact'"), '设置入口（带体积）');
   assert.ok(modal.includes('onCompactSession'), '触发回调');
 });
+
+test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% 提示条 + 设置开关', () => {
+  const screen = fs.readFileSync(path.resolve('src/ChatScreen.js'), 'utf8');
+  // silent 模式：自动路径不弹窗、返回结果对象供调用方决策；防重入走 ref
+  assert.ok(screen.includes('options && options.silent === true'), 'handleCompactSession 支持 silent');
+  assert.ok(screen.includes('compactBusyRef.current = true'), '防重入走 ref（异步闭包里 state 不可靠）');
+  assert.ok(!screen.includes('if (compactBusy) return;\n    const list ='), '旧的 state 防重入已换成 ref 版');
+  // 85% 自动触发：空闲时静默压缩——不放发送路径（避免「压缩替换消息」与「发送读消息」竞态）
+  assert.ok(
+    screen.includes('shouldAutoCompact({ ratio: contextUsageRatio }, { ratio: 0.85 })'),
+    '85% 阈值接线（shouldAutoCompact 此前是死代码）'
+  );
+  assert.ok(screen.includes('chatOptions.autoCompact === false'), '系统设置可关（缺省开）');
+  assert.ok(screen.includes('if (isSending || compactBusyRef.current) return;'), '发送中/压缩中不触发');
+  assert.ok(screen.includes('handleCompactSession({ silent: true })'), '自动路径走 silent');
+  assert.ok(
+    screen.includes('autoCompactAttemptRef.current === messages.length'),
+    '同一消息条数只尝试一次（失败不重试、防死循环）'
+  );
+  // 70% 非阻塞提示条（手动入口 + 可忽略）
+  assert.ok(screen.includes("t('chat.compact.hint'"), '提示条文案（带占用百分比）');
+  assert.ok(screen.includes("t('chat.compact.action')"), '一键压缩按钮');
+  assert.ok(screen.includes('setCompactHintDismissed(true)'), '可忽略提示');
+
+  // 设置开关：体验区 Switch + 存储归一（默认开）
+  const section = fs.readFileSync(path.resolve('src/settings/sections/ExperienceSection.js'), 'utf8');
+  assert.ok(section.includes("updateChatOption('autoCompact', value)"), '体验区开关接线');
+  const options = fs.readFileSync(path.resolve('src/storage/settings/chatOptions.js'), 'utf8');
+  assert.ok(options.includes('autoCompact: source.autoCompact !== false'), '缺省开启（只有显式 false 才关）');
+});

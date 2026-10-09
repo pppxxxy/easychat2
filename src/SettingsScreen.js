@@ -277,8 +277,8 @@ export default function SettingsScreen() {
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
-  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded', autoCompact: true });
+  const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded', autoCompact: true });
   // 工作区设置的编排（模式 / 文件夹 / 命令开关）已抽到 settings/useWorkspaceSettings.js。
   const {
     workspaceMode,

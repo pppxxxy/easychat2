@@ -54,6 +54,8 @@ const apiStub = {
       reasoning: plan.reasoning || '',
       toolCalls: plan.toolCalls || [],
       finishReason: plan.finishReason || null,
+      // E1：usage 透传测试用（不配置 = null，与真实端点不返回 usage 同形）。
+      usage: plan.usage || null,
     };
   },
 };
@@ -207,6 +209,86 @@ test('A1 预警不打扰提前收尾：模型按时给出结论就只调一次',
   assert.equal(text, '直接回答');
   assert.equal(streamCalls.length, 1);
   assert.equal(streamCalls[0].messages.some(item => item.content === ROUND_BUDGET_WARNING), false);
+});
+
+test('E1 usage 透传：每轮 usage 经 onUsage 上抛（端点不返回时回调零次）', async () => {
+  const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
+  streamPlan = [
+    { text: 'r1', toolCalls: [toolCall('c1')], usage: { promptTokens: 100, completionTokens: 5, cachedTokens: 80 } },
+    { text: '完成', usage: { promptTokens: 200, completionTokens: 6, cachedTokens: 150 } },
+  ];
+  const { runAgentTurn } = loadLoop();
+  const seen = [];
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onUsage: entry => seen.push(entry),
+  });
+  assert.equal(text, 'r1完成');
+  assert.equal(seen.length, 2, '两轮各上抛一次');
+  assert.equal(seen[0].round, 1);
+  assert.deepEqual(
+    { p: seen[0].promptTokens, c: seen[0].completionTokens, k: seen[0].cachedTokens },
+    { p: 100, c: 5, k: 80 }
+  );
+  assert.equal(seen[1].round, 2);
+  assert.equal(seen[1].promptTokens, 200);
+
+  // 端点不返回 usage（plan 不带 usage）→ 回调零次，主流程逐字不变
+  streamCalls = []; // 计数从头开始（streamPlan 按 streamCalls.length 取下标）
+  streamPlan = [{ text: 'ok' }];
+  const seen2 = [];
+  const text2 = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onUsage: entry => seen2.push(entry),
+  });
+  assert.equal(text2, 'ok');
+  assert.equal(seen2.length, 0, '没有 usage 就没有回调');
+});
+
+test('E2 toolCallSignature：参数稳定化（键序无关）+ 字符串/对象兼容', () => {
+  const { toolCallSignature } = loadLoop();
+  const a = toolCallSignature({ name: 'read', arguments: '{"b":2,"a":1}' });
+  const b = toolCallSignature({ name: 'read', arguments: { a: 1, b: 2 } });
+  assert.equal(a, b, '键序不同、载体不同（JSON 字符串 vs 对象）→ 同一签名');
+  assert.notEqual(a, toolCallSignature({ name: 'read', arguments: { a: 1, b: 3 } }), '参数不同 → 不同签名');
+  assert.notEqual(a, toolCallSignature({ name: 'write', arguments: { a: 1, b: 2 } }), '工具名不同 → 不同签名');
+  assert.equal(typeof toolCallSignature(null), 'string', '坏输入不抛错');
+  // 嵌套结构同样稳定化
+  assert.equal(
+    toolCallSignature({ name: 'x', arguments: { o: { b: 1, a: 2 } } }),
+    toolCallSignature({ name: 'x', arguments: { o: { a: 2, b: 1 } } })
+  );
+});
+
+test('E2 重复调用 nudge：上一轮同签名才注入（轮末一条、不刷屏）', async () => {
+  const call = args => ({ id: 'c', name: 'read_file', arguments: args });
+  streamPlan = [
+    { text: 'r1', toolCalls: [call('{"path":"a.js"}')] },
+    { text: 'r2', toolCalls: [call('{"path":"a.js"}')] }, // 与上一轮同签名 → 命中
+    { text: 'r3', toolCalls: [call('{"path":"b.js"}')] }, // 换了参数 → 不再命中
+    { text: '完成' },
+  ];
+  const { runAgentTurn, REPEAT_CALL_NUDGE } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  assert.equal(text, 'r1r2r3完成');
+  const has = index => streamCalls[index].messages
+    .some(item => item.role === 'system' && item.content === REPEAT_CALL_NUDGE);
+  assert.equal(has(0), false, '首轮无历史可重复');
+  assert.equal(has(1), false, '第 2 轮检测发生在轮末，发起时还看不到');
+  assert.equal(has(2), true, '第 3 轮请求已带 nudge（上一轮命中重复）');
+  const count = streamCalls[3].messages
+    .filter(item => item.role === 'system' && item.content === REPEAT_CALL_NUDGE).length;
+  assert.equal(count, 1, 'nudge 只注入一条（换参数后不追加）');
+});
+
+test('E1 usage 回调抛错不拖垮主循环（与 onToken 同款隔离）', async () => {
+  streamPlan = [{ text: 'ok', usage: { promptTokens: 10, completionTokens: 1, cachedTokens: 0 } }];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onUsage: () => { throw new Error('宿主回调炸了'); },
+  });
+  assert.equal(text, 'ok', '回调异常必须被吞掉');
 });
 
 test('工具失败以 ok:false + error 上报并回喂错误内容', async () => {

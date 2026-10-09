@@ -73,7 +73,14 @@ import {
   readTextAttachment,
 } from '../../chat/attachments.js';
 import useChatRecorder from '../../chat/useChatRecorder.js';
+import { readWorkspaceAgents } from '../agents.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
+import {
+  appendSessionEvent,
+  buildSessionEventsExport,
+  readSessionEvents,
+  sessionEventsPath,
+} from '../sessionEvents.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
@@ -96,11 +103,13 @@ import {
   getEffectivePermissionRules,
 } from '../../storage/settings/workspacePermissions.js';
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
+import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
 import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
+  toolOrderSignature,
 } from '../chat.js';
 
 const MAX_ATTACHMENTS = 3;
@@ -142,6 +151,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
   if (readLogRef.current === null) readLogRef.current = createReadLog();
+  // E1：工具顺序冻结的运行期兜底——同一 mode 下 tools 定义序列漂移会让提供商前缀
+  // 缓存全 miss（tools 定义计入缓存键）。顺序契约由 listToolsForMode + 测试保证，
+  // 这里只做开发期告警（生产静默），防止未来有人把动态排序混进组装链。
+  const toolOrderRef = useRef({});
 
   // C2 按需物化（给 agent 的 read 工具）：清单内未物化文件被读到、但本地没有时，
   // 单文件拉取回沙盒。三道前置（缺一不发起网络）：是 repos 路径 → 该仓库做过
@@ -653,6 +666,35 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     Alert.alert(t('workspace.settings.templates.doneTitle'), `${base}${failed}`);
   }, [characterId, t]);
 
+  // E4：导出会话事件流（读 jsonl → 导出文本落盘 → 系统分享；无事件如实提示）。
+  // 落盘到 `.easychat/sessions/<id>.export.txt`——分享失败也能在文件面板找到。
+  const exportSessionEvents = useCallback(async () => {
+    const id = String(activeChatId || '').trim();
+    if (!id || !storeRef.current) return;
+    try {
+      const events = await readSessionEvents(storeRef.current, characterId, id);
+      if (events.length === 0) {
+        Alert.alert(t('workspace.settings.events.title'), t('workspace.settings.events.empty'));
+        return;
+      }
+      const text = buildSessionEventsExport(events, { title: id });
+      const path = sessionEventsPath(id).replace(/\.jsonl$/, '.export.txt');
+      await storeRef.current.writeWorkspaceFile({ characterId, path, content: text });
+      let uri = null;
+      try {
+        uri = await storeRef.current.fileUri({ characterId, path });
+      } catch (error) {}
+      const available = await Sharing.isAvailableAsync().catch(() => false);
+      if (available && uri) {
+        await Sharing.shareAsync(uri, { dialogTitle: t('workspace.settings.events.title') });
+      } else {
+        Alert.alert(t('workspace.settings.events.title'), t('workspace.settings.events.saved', { path }));
+      }
+    } catch (error) {
+      Alert.alert(t('workspace.settings.events.title'), t('workspace.settings.events.fail'));
+    }
+  }, [activeChatId, characterId, t]);
+
   // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
   // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
   const handleClearPermissionRules = useCallback(async () => {
@@ -797,6 +839,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setSending(true);
     setToolStatus('');
     persistMessages(ownerId, chatId, [userMessage]);
+    // E4：会话事件流（旁路审计）——user 事件。不 await、写失败静默（事件流绝不挡消息链路）。
+    appendSessionEvent(storeRef.current, ownerId, chatId, 'user', {
+      text: String(userMessage.content || '').slice(0, 1000),
+    });
 
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -812,6 +858,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           materializer: materializeForAgent,
         });
         tools = listToolsForMode(mode);
+        // E1：工具顺序冻结兜底——同一 mode 下 tools 序列漂移 = 前缀缓存全 miss
+        //（tools 定义计入缓存键）。开发期告警、生产静默；mode 切换不算漂移。
+        const orderSignature = toolOrderSignature(tools);
+        const prevOrder = toolOrderRef.current[mode];
+        if (prevOrder && prevOrder !== orderSignature && typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.warn('[cache] 工具顺序在会话内发生变化（会打碎前缀缓存）：', prevOrder, '→', orderSignature);
+        }
+        toolOrderRef.current[mode] = orderSignature;
       } catch (error) {}
     }
     // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
@@ -819,12 +873,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const memory = await readWorkspaceMemory(storeRef.current, ownerId);
     // 技能清单（渐进披露第一层）：同样每轮直读——技能目录不存在时只有一次 list IO。
     const skills = mode === 'ask' ? [] : await readWorkspaceSkills(storeRef.current, ownerId);
+    // E3：分身档案清单（渐进披露第一层）——同样每轮直读；run_subagent 没注册时
+    // 提示词自动不注入（buildWorkspaceAgentSystemPrompt 内部判据）。
+    const agents = mode === 'ask' ? [] : await readWorkspaceAgents(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
       tools: tools.map(item => item.function.name),
       memory,
       skills,
+      agents,
       // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
       readLog: readLogRef.current ? readLogRef.current.list() : [],
     });
@@ -856,6 +914,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         },
         onToolEvent: event => {
           if (!mountedRef.current || !event) return;
+          if (event.phase === 'start') {
+            // E4：事件流（旁路）——工具调用事实（含轮次，审计「第几步做了什么」）。
+            appendSessionEvent(storeRef.current, ownerId, chatId, 'tool_call', {
+              name: event.name,
+              round: event.round,
+            });
+          }
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
@@ -918,6 +983,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } finally {
       // 助手终稿一次性落盘（含被中止 / 报错的情况），流式期间不写。
       persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }]);
+      // E4：事件流（旁路）——助手终稿（中止/报错形态如实带 isError）。
+      appendSessionEvent(storeRef.current, ownerId, chatId, 'assistant', {
+        text: String(assistantFinal.content || '').slice(0, 1000),
+        ...(assistantFinal.isError ? { isError: true } : {}),
+      });
       if (mountedRef.current) {
         setSending(false);
         setToolStatus('');
@@ -1003,6 +1073,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
                   onInstallTemplate={handleInstallTemplate}
+                  onExportSessionEvents={exportSessionEvents}
                 />
               </ScrollView>
             ) : (

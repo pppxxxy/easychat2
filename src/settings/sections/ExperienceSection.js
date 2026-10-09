@@ -127,6 +127,20 @@ export default function ExperienceSection(props) {
             />
           </View>
           <CollapsibleHint>{t('settings.global.chatToolsHint')}</CollapsibleHint>
+          {/* E2：85% 自动压缩（默认开）——关闭后 70% 的「建议压缩」提示条仍在。 */}
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="archive-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('settings.global.autoCompact')}</Text>
+            </View>
+            <Switch
+              value={chatOptions.autoCompact !== false}
+              onValueChange={value => updateChatOption('autoCompact', value)}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <CollapsibleHint>{t('settings.global.autoCompactHint')}</CollapsibleHint>
           {locationSettings && locationSettings.enabled === true ? (
             <>
               <View style={styles.capabilityRow}>

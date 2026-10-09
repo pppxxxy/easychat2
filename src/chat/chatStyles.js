@@ -32,6 +32,37 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     opacity: 0.7,
     textAlign: 'center',
   },
+  // E2：上下文占用提示条（≥70% 时出现，点击「压缩」一键执行）——贴着输入区，
+  // 不遮挡消息流。
+  compactHintBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: tokens.spacing.md,
+    marginBottom: 4,
+    paddingHorizontal: tokens.spacing.sm,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: hexToRgba(theme.colors.primary, 0.12),
+  },
+  compactHintIcon: {
+    marginRight: 6,
+  },
+  compactHintText: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 12,
+  },
+  compactHintAction: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  compactHintClose: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

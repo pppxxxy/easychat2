@@ -3,6 +3,7 @@
 // 与聊天页不同，这里不做角色扮演/世界书/记忆那套 Prompt 流水线——工作区助手只关心
 // 沙盒文件操作，给一段精简、贴近工具的系统提示即可。所有函数无副作用，可 Node 直测。
 
+import { workspaceAgentsSection } from './agents.js';
 import { workspaceMemorySection } from './memory.js';
 import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
@@ -72,7 +73,8 @@ export function workspaceAgentModeHint(mode) {
 // **只在有文件工具的形态下注入**（read/write）：清单里写着「用 read 工具读全文」，
 // 而 ask 模式一个工具都没有——说了模型也读不到，只会反复尝试然后乱解释。
 // readLog：本会话已读登记条目（A5），同样只在有读工具的形态下注入；空则不注入。
-export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog } = {}) {
+// agents：工作区定义的分身子弟清单（E3），只在 run_subagent 真注册时注入（同款纪律）。
+export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
@@ -80,11 +82,13 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
   const memorySection = workspaceMemorySection(memory);
   if (memorySection) lines.push(memorySection);
   if (mode === 'read' || mode === 'write') {
-    // A5：已读清单（防重复读 + 截断自觉）；没有读过任何文件就不出现这一行。
-    const readLogLine = formatReadLogLine(readLog);
-    if (readLogLine) lines.push(readLogLine);
     const skillsSection = workspaceSkillsSection(skills);
     if (skillsSection) lines.push(skillsSection);
+    // E3：分身清单——只在 run_subagent 真注册时注入（说了调不动不如不说）。
+    if (Array.isArray(tools) && tools.includes('run_subagent')) {
+      const agentsSection = workspaceAgentsSection(agents);
+      if (agentsSection) lines.push(agentsSection);
+    }
     // A3：计划工具引导——工具没注册就不提（说了调不动，模型会反复试然后乱解释）。
     if (Array.isArray(tools) && tools.includes('update_plan')) lines.push(PLAN_TOOL_HINT);
   }
@@ -94,7 +98,34 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     // C2：物化引导（只在工具真注册时注入——同款纪律）。
     if (Array.isArray(tools) && tools.includes('materialize_repo')) lines.push(MATERIALIZE_TOOL_HINT);
   }
+  // E1 前缀缓存：readLog 行是**每轮都变**的最高频动态项（每读一个文件就多一行），
+  // 必须放在 systemPrompt 的**最末尾**——提供商的前缀缓存按 token 序列工作，它变化
+  // 时只让「自己之后」的内容 miss（这里后面没有别的行），系统提示前半段与既有的
+  // 静态约定全部保住。**行序是缓存契约**：静态段（身份/技能/引导）在前、高频动态
+  // 段在后，别再往 readLog 后面塞任何内容（测试钉死）。
+  if (mode === 'read' || mode === 'write') {
+    const readLogLine = formatReadLogLine(readLog);
+    if (readLogLine) lines.push(readLogLine);
+  }
   return lines.join('\n');
+}
+
+// E1：工具顺序签名——提供商的前缀缓存把 tools 定义序列计入缓存键，**顺序一变全 miss**。
+// 「顺序是契约」由 listToolsForMode 的纯函数顺序 + 测试钉死；这里是运行期兜底的
+// 比较工具：宿主对同一 mode 的前后两次签名比对，漂移时开发期告警（生产静默）。
+// 兼容两种形态：工具定义数组（{ function: { name } }）或纯名字数组。
+export function toolOrderSignature(tools) {
+  return (Array.isArray(tools) ? tools : [])
+    .map(item => {
+      if (typeof item === 'string') return item;
+      return String(
+        (item && item.function && item.function.name)
+        || (item && item.name)
+        || ''
+      );
+    })
+    .filter(Boolean)
+    .join(',');
 }
 
 // 把本地会话（含错误气泡）投影成模型可读的 history：只保留有文字的 user/assistant。

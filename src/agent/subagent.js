@@ -187,3 +187,23 @@ export async function runSubagent({
   }
   return { content, isError: false };
 }
+
+// E3：并发映射（有界并发、结果保持输入顺序）——并行子代理的执行器。
+// 手机端同时开两条独立模型流是上限（网络与限流考虑）；worker 抛错原样上抛
+//（调用方决定降级），这里不吞错。
+export async function mapWithConcurrency(items, limit, worker) {
+  const list = Array.isArray(items) ? items : [];
+  const size = Math.max(1, Math.floor(Number(limit)) || 1);
+  const results = new Array(list.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(size, list.length) }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= list.length) return;
+      results[index] = await worker(list[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}

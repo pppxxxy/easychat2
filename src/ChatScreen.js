@@ -8,8 +8,10 @@ import {
   Platform,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Sharing from 'expo-sharing';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isConfigChangedError, sendChatMessage } from './network/api.js';
@@ -113,7 +115,7 @@ import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
-import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import { computeContextUsage, resolveContextWindow, shouldAutoCompact } from './chat/contextUsage.js';
 import {
   COMPACTION_KEEP_RECENT,
   COMPACTION_MIN_MESSAGES,
@@ -311,7 +313,13 @@ export default function ChatScreen() {
   const [transcriptionPanelOpen, setTranscriptionPanelOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   // D3：会话压缩（手动，设置弹窗触发）——进行中状态；体积概览跟随消息变化。
+  // E2：ref 版用于静默自动压缩的防重入（state 在异步闭包里会读到旧值）。
   const [compactBusy, setCompactBusy] = useState(false);
+  const compactBusyRef = useRef(false);
+  // E2：上下文占用比（0~1）——70% 显示「建议压缩」提示条、85% 发送前自动压缩。
+  const [contextUsageRatio, setContextUsageRatio] = useState(0);
+  // 「建议压缩」提示条被用户手动关掉后本次进入会话不再出现（换会话/重载恢复）。
+  const [compactHintDismissed, setCompactHintDismissed] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
   const [groupEditOpen, setGroupEditOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
@@ -385,7 +393,7 @@ export default function ChatScreen() {
    const stickerSaveLockRef = useRef(false);
    const stickerPickerLockRef = useRef(false);
    const pendingStickerResultRef = useRef(null);
-  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded' });
+  const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded', autoCompact: true });
   const chatOptionsRef = useRef(chatOptions);
   chatOptionsRef.current = chatOptions;
 
@@ -1481,17 +1489,21 @@ export default function ChatScreen() {
   // D3：压缩当前会话——一次模型调用压成三段摘要 + 保留最近 K 条原文；
   // 失败保持原会话不动（压缩是锦上添花，绝不能成为会话损坏的来源）。
   // 与分支系统：压缩会让引用旧消息的 fork 点失效，branchTree 按 `stale` 降级。
+  // E2：支持 { silent: true } 静默模式（85% 自动触发用）——不弹任何 Alert，
+  // 返回 { ok, before?, after? } 供调用方决策；手动路径行为与旧版逐字一致。
   const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
-  const handleCompactSession = useCallback(async () => {
-    if (compactBusy) return;
+  const handleCompactSession = useCallback(async (options = {}) => {
+    const silent = options && options.silent === true;
+    if (compactBusyRef.current) return { ok: false, reason: 'busy' };
     const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
     const meaningful = (Array.isArray(list) ? list : [])
       .filter(item => item && (item.role === 'user' || item.role === 'assistant')
         && String((item && (item.text || item.content)) || '').trim());
     if (meaningful.length < COMPACTION_MIN_MESSAGES) {
-      Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
-      return;
+      if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
+      return { ok: false, reason: 'too-short' };
     }
+    compactBusyRef.current = true;
     setCompactBusy(true);
     try {
       const { configs, activeId } = await getApiConfigs();
@@ -1506,17 +1518,65 @@ export default function ChatScreen() {
       if (!summary || summary === EMPTY_REPLY_TEXT) throw new Error('empty summary');
       const next = applyCompaction(list, summary);
       setMessages(next); // useSessionMessages 自动串行持久化
-      Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactDone', {
-        before: meaningful.length,
-        after: next.length,
-        kept: COMPACTION_KEEP_RECENT,
-      }));
+      if (!silent) {
+        Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactDone', {
+          before: meaningful.length,
+          after: next.length,
+          kept: COMPACTION_KEEP_RECENT,
+        }));
+      }
+      return { ok: true, before: meaningful.length, after: next.length };
     } catch (error) {
-      Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactFail'));
+      if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactFail'));
+      return { ok: false, reason: 'failed' };
     } finally {
+      compactBusyRef.current = false;
       setCompactBusy(false);
     }
-  }, [compactBusy, messages, messagesRef, setMessages, t]);
+  }, [messages, messagesRef, setMessages, t]);
+
+  // E2：上下文占用观测（独立于记忆总结）——70% 提示条与 85% 自动压缩的数据源。
+  // 依赖 messages.length 而非整个数组：流式期间 content 变但条数不变，不做逐 token 重算。
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const list = Array.isArray(messagesRef.current) ? messagesRef.current : [];
+      if (!list.length) {
+        if (alive) setContextUsageRatio(0);
+        return;
+      }
+      try {
+        const [{ configs, activeId }, localItem] = await Promise.all([
+          getApiConfigs(),
+          getActiveLocalModel().catch(() => null),
+        ]);
+        const current = configs.find(item => item.id === activeId) || configs[0];
+        const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+        const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
+        const usage = computeContextUsage(list, resolveContextWindow({
+          declared: caps.contextWindow,
+          localContextSize,
+        }));
+        if (alive) setContextUsageRatio(usage && Number.isFinite(usage.ratio) ? usage.ratio : 0);
+      } catch (error) {
+        if (alive) setContextUsageRatio(0);
+      }
+    })();
+    return () => { alive = false; };
+  }, [messages.length]);
+
+  // E2：85% 自动压缩（系统设置可关，默认开）——**空闲时**静默触发：不在发送路径上做，
+  // 避免「压缩替换消息」与「发送读消息」的时序竞态；失败不弹窗、等下次消息增长再试
+  //（同一消息条数只尝试一次，防死循环）。
+  const autoCompactAttemptRef = useRef(-1);
+  useEffect(() => {
+    if (chatOptions.autoCompact === false) return;
+    if (!shouldAutoCompact({ ratio: contextUsageRatio }, { ratio: 0.85 })) return;
+    if (isSending || compactBusyRef.current) return;
+    if (autoCompactAttemptRef.current === messages.length) return;
+    autoCompactAttemptRef.current = messages.length;
+    handleCompactSession({ silent: true });
+  }, [chatOptions.autoCompact, contextUsageRatio, isSending, messages.length, handleCompactSession]);
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
@@ -2556,6 +2616,37 @@ export default function ChatScreen() {
         fallbackAt={localEngine.fallbackAt}
         onOpenHub={() => setModelPanelOpen(true)}
       />
+
+      {/* E2：上下文占用 ≥70% 的「建议压缩」提示条——一键压缩或关掉（本次进入会话
+          内不再出现）；85% 时后台会静默自动压缩（可在系统设置关闭）。 */}
+      {contextUsageRatio >= 0.7 && !compactHintDismissed ? (
+        <View style={styles.compactHintBar}>
+          <Ionicons
+            name="information-circle-outline"
+            size={15}
+            color={theme.colors.primary}
+            style={styles.compactHintIcon}
+          />
+          <Text style={styles.compactHintText} numberOfLines={1}>
+            {t('chat.compact.hint', { percent: Math.round(contextUsageRatio * 100) })}
+          </Text>
+          <TouchableOpacity
+            onPress={() => { if (!compactBusy) handleCompactSession(); }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.compactHintAction}>
+              {compactBusy ? t('chat.settings.compactBusy') : t('chat.compact.action')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.compactHintClose}
+            onPress={() => setCompactHintDismissed(true)}
+            accessibilityLabel={t('chat.compact.dismiss')}
+          >
+            <Ionicons name="close" size={14} color={theme.colors.textFaint} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <ChatComposer
         quoteTarget={quoteTarget}

@@ -229,3 +229,18 @@ test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清�
   assert.ok(writeAt < clearAt, '先写清单后清理');
   assert.ok(endBatchAt < clearAt, '清单在真正成功后才清（批结算之后）');
 });
+
+test('E5 历史浏览与 PR 接线：面板走 restApi、大 diff 截断、PR 先确认后创建', () => {
+  const github = readSource('src/workspace/screen/GithubPanel.js');
+  assert.ok(github.includes('await listCommits('), '提交历史走 restApi.listCommits');
+  assert.ok(github.includes('await getCommitDiff('), 'diff 按 sha 拉取');
+  assert.ok(github.includes('truncateDiffText(raw)'), '大 diff 复用头尾截断形状');
+  assert.ok(github.includes("t('workspace.github.history.more')"), '分页可翻（加载更多）');
+  assert.ok(github.includes('await createPullRequest('), 'PR 创建走 restApi.createPullRequest');
+  // 写操作纪律：PR 必须先弹确认（head → base 说清），确认回调里才发请求。
+  const confirmAt = github.indexOf("t('workspace.github.pr.confirmTitle')");
+  const createAt = github.indexOf('await createPullRequest(');
+  assert.ok(confirmAt > 0 && createAt > confirmAt, '先确认后创建（确认门在 UI 层）');
+  // head = base 的无效场景要有拦截（在 main 上直接推时别发出必失败的请求）。
+  assert.ok(github.includes("t('workspace.github.pr.badBranches'"), 'head === base 时明确提示');
+});

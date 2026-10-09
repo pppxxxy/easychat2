@@ -5,15 +5,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  buildCommitsUrl,
   buildHeaders,
   buildReposUrl,
   canDeleteRepo,
+  createPullRequest,
   createRepo,
   deleteRepo,
   downloadZip,
   fetchTokenScopes,
+  getCommitDiff,
   GITHUB_RETRY_DELAYS,
   listBranches,
+  listCommits,
   listRepos,
   listTree,
   mapGithubError,
@@ -24,6 +28,7 @@ import {
   request,
   RETRY_AFTER_CAP_MS,
   retryDelayFor,
+  truncateDiffText,
 } from '../src/workspace/github/restApi.js';
 
 function makeResponse(status, data, headers = {}) {
@@ -372,4 +377,83 @@ test('GithubPanel：快照 diff + 一键交接给助手推送', () => {
   assert.ok(PANEL_SRC.includes('workspace.github.push.markSynced'), '推送成功后手动确认新基线');
   // 本面板不直连推送：写远端一律经助手 + 逐条确认（面板里不得出现 MCP 推送调用）。
   assert.ok(!PANEL_SRC.includes('push_files'), '面板不直接调 GitHub 推送');
+});
+
+test('E5 listCommits / getCommitDiff / createPullRequest：URL、归一、文本响应、Accept', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, method: options.method, headers: options.headers, body: options.body });
+    if (url.includes('/commits?')) {
+      return makeResponse(200, [
+        {
+          sha: 'abc123',
+          commit: {
+            message: 'feat: 首页改版\n\n详细说明只取首行',
+            author: { name: 'ppp', date: '2026-10-10T08:00:00Z' },
+          },
+        },
+        { sha: 'def456', commit: { message: 'fix: 崩溃', author: { name: 'ppp', date: '2026-10-09T08:00:00Z' } } },
+        { sha: '' },
+      ]);
+    }
+    if (url.includes('/commits/abc123')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => 'diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b',
+      };
+    }
+    if (url.endsWith('/pulls')) {
+      return makeResponse(201, { number: 42, html_url: 'https://github.com/o/r/pull/42', title: 'D 系上主' });
+    }
+    return makeResponse(404, {});
+  };
+
+  // 提交列表：URL 形态（分支/翻页）+ 归一（message 只取首行、空 sha 剔除）
+  assert.match(
+    buildCommitsUrl({ owner: 'o', repo: 'r', branch: 'main', page: 2 }),
+    /\/repos\/o\/r\/commits\?per_page=30&page=2&sha=main$/
+  );
+  const commits = await listCommits({ fetchImpl, token: 't', owner: 'o', repo: 'r', branch: 'main', page: 2 });
+  assert.match(calls[0].url, /per_page=30&page=2&sha=main$/);
+  assert.equal(commits.length, 2, '空 sha 条目被剔除');
+  assert.deepEqual(commits[0], {
+    sha: 'abc123',
+    message: 'feat: 首页改版',
+    author: 'ppp',
+    date: '2026-10-10T08:00:00Z',
+  });
+
+  // diff：Accept 换 diff 媒体类型 + 走 text()（不是 json()）
+  const diff = await getCommitDiff({ fetchImpl, token: 't', owner: 'o', repo: 'r', sha: 'abc123' });
+  assert.match(diff, /^diff --git/);
+  assert.equal(calls[1].headers.Accept, 'application/vnd.github.diff', '媒体类型精确');
+
+  // PR：POST + body 字段（写操作——确认门在 UI 层，restApi 只发请求）
+  const pr = await createPullRequest({
+    fetchImpl,
+    token: 't',
+    owner: 'o',
+    repo: 'r',
+    title: 'D 系上主',
+    head: 'c1009c23',
+    base: 'main',
+  });
+  assert.equal(calls[2].method, 'POST');
+  assert.deepEqual(JSON.parse(calls[2].body), { title: 'D 系上主', head: 'c1009c23', base: 'main' });
+  assert.deepEqual(pr, { number: 42, url: 'https://github.com/o/r/pull/42', title: 'D 系上主' });
+});
+
+test('E5 truncateDiffText：头 3/4 + 尾 1/4 长度守恒、小 diff 原样、坏输入安全', () => {
+  assert.deepEqual(truncateDiffText('short'), { text: 'short', truncated: false });
+  const source = `${'h'.repeat(15)}${'t'.repeat(5)}`;
+  const big = truncateDiffText(source, 10);
+  assert.equal(big.truncated, true);
+  assert.ok(big.text.startsWith('h'.repeat(8)), '头 8 = limit 的 3/4');
+  assert.ok(big.text.endsWith('t'.repeat(2)), '尾 2 = limit 的 1/4');
+  assert.match(big.text, /中间省略 10 字符/, '省略量标明');
+  assert.match(big.text, /GitHub 网页端/, '给出看完整差异的通路');
+  assert.equal(truncateDiffText(null).text, '');
+  assert.equal(truncateDiffText(undefined).truncated, false);
 });

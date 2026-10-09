@@ -190,6 +190,37 @@ export function isCanceledError(error) {
   return !!error && (error.canceled === true || error.name === 'AbortError');
 }
 
+// E1：usage 宽容解析——三种方言一次归一（缓存经济学的地基：没有它就没有命中观测）。
+//   · OpenAI 系：usage.prompt_tokens_details.cached_tokens
+//   · DeepSeek：usage.prompt_cache_hit_tokens
+//   · Anthropic：usage.cache_read_input_tokens（**input_tokens 不含缓存部分**，
+//     这里把 cache_read + cache_creation 并进 prompt，统一成「prompt ⊇ cached」口径，
+//     与 OpenAI/DeepSeek 可比）
+// 流式与非流式共用；payload 里任何位置带 usage 都认（Anthropic 在 message.usage、
+// 部分网关在 delta.usage）。解析不出返回 null——绝不影响主流程。
+export function extractUsage(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const source = payload.usage
+    || (payload.message && payload.message.usage)
+    || (payload.delta && payload.delta.usage)
+    || null;
+  if (!source || typeof source !== 'object') return null;
+  const num = value => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const cacheRead = num(source.cache_read_input_tokens);
+  const cacheCreation = num(source.cache_creation_input_tokens);
+  const rawPrompt = num(source.prompt_tokens) || num(source.input_tokens);
+  const promptTokens = rawPrompt + cacheRead + cacheCreation;
+  const completionTokens = num(source.completion_tokens) || num(source.output_tokens);
+  const cachedTokens = num(source.prompt_cache_hit_tokens)
+    || num(source.prompt_tokens_details && source.prompt_tokens_details.cached_tokens)
+    || cacheRead;
+  if (!promptTokens && !completionTokens && !cachedTokens) return null;
+  return { promptTokens, completionTokens, cachedTokens };
+}
+
 // 默认用激活配置；调用方（如角色日记）可显式指定 configId 与 model 覆盖，
 // 这样不必改动全局激活项就能用另一套模型发请求。
 async function resolveChatConfig(options = {}) {
@@ -312,6 +343,9 @@ export async function streamChatCompletion(messages, options = {}) {
     let settled = false;
     let idleTimer = null;
     let removeAbortListener = null;
+    // E1：usage 是缓存命中的观测来源。流式下通常在最后一个 chunk 才出现（OpenAI 的
+    // stream_options / DeepSeek 尾部 / Anthropic 的 message_delta），取**最新一次**即可。
+    let latestUsage = null;
 
     // parseStreamPayload 已把三种协议的增量归一成 { index, id, name, arguments }，
     // 这里只负责按 index 归并 arguments 分片。
@@ -334,6 +368,8 @@ export async function streamChatCompletion(messages, options = {}) {
       reasoning: fullReasoning,
       toolCalls: collectToolCalls(),
       finishReason,
+      // E1：可能为 null（端点不返回 usage）——调用方必须容忍缺失。
+      usage: latestUsage,
     });
 
     const settle = (fn, value) => {
@@ -463,6 +499,10 @@ export async function streamChatCompletion(messages, options = {}) {
       }
       sawPayloadData = true;
 
+      // E1：流式 usage（若有）——通常只在最后一个 chunk 出现，取最新一次。
+      const streamUsage = extractUsage(payload);
+      if (streamUsage) latestUsage = streamUsage;
+
       // 各协议的错误体位置不同；先看协议通用错误，再看 OpenAI 兼容的顶层 error。
       const parsed = parseStreamPayload(protocol, payload);
       const errorMessage = (parsed && parsed.error)
@@ -587,6 +627,9 @@ export async function streamChatCompletion(messages, options = {}) {
           fail(new Error(errorMessage));
           return;
         }
+        // E1：非流式路径同样提取 usage（同一纯函数，口径一致）。
+        const bodyUsage = extractUsage(data);
+        if (bodyUsage) latestUsage = bodyUsage;
         const parsed = parseFinalPayload(protocol, data);
         if (parsed.reasoning) {
           fullReasoning = parsed.reasoning;

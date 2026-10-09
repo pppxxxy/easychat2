@@ -255,7 +255,7 @@ test('接线契约：run_subagent 工具只读但不递归；能力清单含它�
   assert.ok(toolFile.includes("name: 'run_subagent'"), '工具已注册进工作区定义');
   assert.ok(toolFile.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '子代理工具按名字白名单过滤（不看 readOnly 标志）');
   assert.ok(toolFile.includes('READ_ONLY_TOOL_DEFINITIONS'), '只读对象直接引 readTools（不经注册表过滤）');
-  assert.ok(toolFile.includes('timeoutMs: 180000'), '子代理需要更长的工具超时（多轮模型请求）');
+  assert.ok(toolFile.includes('timeoutMs: 300000'), '子代理需要更长的工具超时（多轮模型请求；E3 起 180s → 300s）');
   const indexFile = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
   assert.ok(indexFile.includes('SUBAGENT_TOOL_DEFINITION'), '索引层聚合了子代理定义');
 
@@ -267,4 +267,39 @@ test('接线契约：run_subagent 工具只读但不递归；能力清单含它�
 
   const caps = fs.readFileSync(path.resolve('src/workspace/capabilities.js'), 'utf8');
   assert.ok(caps.includes("'run_subagent'"), '能力清单如实列出子代理');
+});
+
+test('E3 mapWithConcurrency：有界并发、结果保序、空输入与抛错行为', async () => {
+  const { mapWithConcurrency } = loadSubagent();
+  let active = 0;
+  let peak = 0;
+  const results = await mapWithConcurrency([1, 2, 3, 4, 5], 2, async item => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active -= 1;
+    return item * 10;
+  });
+  assert.deepEqual(results, [10, 20, 30, 40, 50], '结果保持输入顺序');
+  assert.ok(peak <= 2, `并发不超过 2（实际峰值 ${peak}）`);
+  assert.deepEqual(await mapWithConcurrency(null, 2, () => 1), [], '坏输入安全');
+  assert.deepEqual(await mapWithConcurrency([], 2, () => 1), []);
+  // worker 抛错原样上抛（调用方决定降级，执行器不吞错）
+  await assert.rejects(
+    mapWithConcurrency([1], 2, async () => { throw new Error('boom'); }),
+    /boom/
+  );
+});
+
+test('E3 工具契约：task 支持数组、agent 可选、并发上限与防递归仍成立', () => {
+  const source = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentTool.js'), 'utf8');
+  assert.ok(source.includes("type: ['string', 'array']"), 'task 支持数组形态');
+  assert.ok(source.includes("agent: {"), 'agent 参数存在');
+  assert.ok(source.includes('SUBAGENT_BATCH_LIMIT'), '批量上限常量（≤3）');
+  assert.ok(source.includes('mapWithConcurrency(tasks, SUBAGENT_CONCURRENCY'), '并发按上限执行');
+  assert.ok(source.includes('timeoutMs: 300000'), '超时 180s → 300s（并行批次按最慢一路算）');
+  assert.ok(source.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '名字白名单过滤保留（防递归未破坏）');
+  // 档案 tools 只能收窄，不能扩大：执行前按 profile.tools 再过滤一次。
+  assert.ok(source.includes('readOnlyTools.filter(item => profile.tools.includes(item.name))'), '档案只收窄工具表');
+  assert.ok(source.includes("readWorkspaceAgents(options.store"), '档案每轮直读（改完下一轮生效）');
 });

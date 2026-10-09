@@ -115,16 +115,21 @@ export function rateLimitFrom(headers) {
 
 // JSON API 的统一传输层（C4）：超时 + 可重试错误退避。导出让测试与
 // 未来的流式调用复用；公开 API 全部经它。sleepImpl 可注入（测试零等待）。
+// E5：accept（自定义 Accept 头）/ parse='text'（diff 等纯文本响应）——默认行为
+// 与旧版逐字节一致（无 accept 无 text 时不发额外头、仍走 JSON）。
 export async function request(fetchImpl, url, {
   method = 'GET',
   token,
   body,
+  accept = '',
+  parse = 'json',
   timeoutMs = API_TIMEOUT_MS,
   retryDelays = GITHUB_RETRY_DELAYS,
   sleepImpl = defaultSleep,
 } = {}) {
   const jsonBody = body ? JSON.stringify(body) : undefined;
-  const headers = body ? { 'Content-Type': 'application/json' } : undefined;
+  const baseHeaders = body ? { 'Content-Type': 'application/json' } : {};
+  const headers = accept ? { ...baseHeaders, Accept: accept } : (body ? baseHeaders : undefined);
   for (let retryCount = 0; ; retryCount += 1) {
     let response;
     try {
@@ -138,6 +143,10 @@ export async function request(fetchImpl, url, {
     if (response.ok) {
       const rateLimit = rateLimitFrom(response.headers);
       if (response.status === 204) return { data: null, rateLimit };
+      if (parse === 'text') {
+        const text = await response.text().catch(() => '');
+        return { data: typeof text === 'string' ? text : '', rateLimit };
+      }
       const data = await response.json().catch(() => null);
       return { data, rateLimit };
     }
@@ -250,6 +259,70 @@ export async function listTree({ fetchImpl = fetch, token, owner, repo, ref } = 
         size: Number(item && item.size) || 0,
       }))
       .filter(item => item.path && (item.type === 'blob' || item.type === 'tree')),
+  };
+}
+
+// —— E5：Git 历史浏览（纯 API 补全）——
+
+// 提交列表 URL：branch 可选（不传 = 仓库默认分支）。per_page 收敛到 50。
+export function buildCommitsUrl({ owner, repo, branch = '', page = 1, perPage = 30 } = {}) {
+  const size = Math.min(Math.max(1, Math.floor(Number(perPage)) || 30), 50);
+  const pageNo = Math.max(1, Math.floor(Number(page)) || 1);
+  const sha = branch ? `&sha=${encodeURIComponent(branch)}` : '';
+  return `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits?per_page=${size}&page=${pageNo}${sha}`;
+}
+
+// 提交列表：只留 UI 需要的字段（sha/首行 message/作者/日期），GitHub 原始对象不散到各处。
+export async function listCommits({ fetchImpl = fetch, token, owner, repo, branch, page = 1, perPage = 30 } = {}) {
+  const url = buildCommitsUrl({ owner, repo, branch, page, perPage });
+  const { data } = await request(fetchImpl, url, { token });
+  return (Array.isArray(data) ? data : [])
+    .map(item => {
+      const commit = (item && item.commit) || {};
+      const author = commit.author || {};
+      return {
+        sha: String((item && item.sha) || ''),
+        message: String(commit.message || '').split('\n')[0],
+        author: String(author.name || ''),
+        date: String(author.date || ''),
+      };
+    })
+    .filter(item => item.sha);
+}
+
+// 单个提交的 diff（纯文本，Accept: vnd.github.diff——GitHub 会直接返回 unified diff）。
+export async function getCommitDiff({ fetchImpl = fetch, token, owner, repo, sha } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}`;
+  const { data } = await request(fetchImpl, url, { token, accept: 'application/vnd.github.diff', parse: 'text' });
+  return typeof data === 'string' ? data : '';
+}
+
+// 创建 PR（写操作——调用方负责确认门与 riskGate 分级；这里只发请求并归一返回值）。
+export async function createPullRequest({ fetchImpl = fetch, token, owner, repo, title, head, base, body = '' } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
+  const { data } = await request(fetchImpl, url, {
+    method: 'POST',
+    token,
+    body: { title, head, base, ...(body ? { body } : {}) },
+  });
+  return {
+    number: Number(data && data.number) || 0,
+    url: String((data && data.html_url) || ''),
+    title: String((data && data.title) || ''),
+  };
+}
+
+// diff 大文本截断（E5）：复用 D2 的「头 3/4 + 尾 1/4」形状——diff 的要点（改了哪些
+// 文件的摘要）常在中段后的 hunk 头与尾部，只保头会丢诊断信息。默认 64KB。
+export function truncateDiffText(text, limit = 64 * 1024) {
+  const value = String(text === undefined || text === null ? '' : text);
+  if (value.length <= limit) return { text: value, truncated: false };
+  const tailSize = Math.floor(limit / 4);
+  const headSize = limit - tailSize;
+  const omitted = value.length - limit;
+  return {
+    text: `${value.slice(0, headSize)}\n…（diff 过长，中间省略 ${omitted} 字符；可在 GitHub 网页端看完整差异）…\n${value.slice(-tailSize)}`,
+    truncated: true,
   };
 }
 

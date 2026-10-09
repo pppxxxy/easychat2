@@ -31,6 +31,8 @@ export function createEmptyStats() {
     failedRequests: 0,
     promptTokens: 0,
     completionTokens: 0,
+    // E1：缓存命中的 prompt token 数（端点返回 usage 时才有）——命中率 = 它 / promptTokens。
+    cachedTokens: 0,
     firstTokenMsSum: 0,
     firstTokenSamples: 0,
     generationMsSum: 0,
@@ -54,6 +56,7 @@ function normalizeGroup(raw) {
     failedRequests: toCount(source.failedRequests),
     promptTokens: toCount(source.promptTokens),
     completionTokens: toCount(source.completionTokens),
+    cachedTokens: toCount(source.cachedTokens),
     firstTokenMsSum: toCount(source.firstTokenMsSum),
     firstTokenSamples: toCount(source.firstTokenSamples),
     generationMsSum: toCount(source.generationMsSum),
@@ -78,6 +81,7 @@ export function normalizeStats(raw) {
     failedRequests: toCount(source.failedRequests),
     promptTokens: toCount(source.promptTokens),
     completionTokens: toCount(source.completionTokens),
+    cachedTokens: toCount(source.cachedTokens),
     firstTokenMsSum: toCount(source.firstTokenMsSum),
     firstTokenSamples: toCount(source.firstTokenSamples),
     generationMsSum: toCount(source.generationMsSum),
@@ -120,6 +124,7 @@ export function recordRequest(stats, entry = {}) {
   const at = toCount(source.at) || Date.now();
   const promptTokens = toCount(source.promptTokens);
   const completionTokens = toCount(source.completionTokens);
+  const cachedTokens = toCount(source.cachedTokens);
   const firstTokenMs = toCount(source.firstTokenMs);
   const generationMs = toCount(source.generationMs);
   const failed = source.failed === true;
@@ -131,6 +136,7 @@ export function recordRequest(stats, entry = {}) {
     failedRequests: base.failedRequests + (failed ? 1 : 0),
     promptTokens: base.promptTokens + promptTokens,
     completionTokens: base.completionTokens + completionTokens,
+    cachedTokens: base.cachedTokens + cachedTokens,
     firstTokenMsSum: base.firstTokenMsSum + (firstTokenMs > 0 ? firstTokenMs : 0),
     firstTokenSamples: base.firstTokenSamples + (firstTokenMs > 0 ? 1 : 0),
     generationMsSum: base.generationMsSum + generationMs,
@@ -148,6 +154,7 @@ export function recordRequest(stats, entry = {}) {
     failedRequests: group.failedRequests + (failed ? 1 : 0),
     promptTokens: group.promptTokens + promptTokens,
     completionTokens: group.completionTokens + completionTokens,
+    cachedTokens: group.cachedTokens + cachedTokens,
     firstTokenMsSum: group.firstTokenMsSum + (firstTokenMs > 0 ? firstTokenMs : 0),
     firstTokenSamples: group.firstTokenSamples + (firstTokenMs > 0 ? 1 : 0),
     generationMsSum: group.generationMsSum + generationMs,
@@ -167,6 +174,7 @@ export function recordRequest(stats, entry = {}) {
       other.failedRequests += group.failedRequests;
       other.promptTokens += group.promptTokens;
       other.completionTokens += group.completionTokens;
+      other.cachedTokens += group.cachedTokens;
       other.firstTokenMsSum += group.firstTokenMsSum;
       other.firstTokenSamples += group.firstTokenSamples;
       other.generationMsSum += group.generationMsSum;
@@ -195,6 +203,8 @@ export function summarizeStats(stats) {
       requests: group.requests,
       failedRequests: group.failedRequests,
       totalTokens: group.promptTokens + group.completionTokens,
+      cachedTokens: group.cachedTokens,
+      cacheHitRate: group.promptTokens > 0 ? group.cachedTokens / group.promptTokens : 0,
       avgFirstTokenMs: group.firstTokenSamples
         ? Math.round(group.firstTokenMsSum / group.firstTokenSamples)
         : 0,
@@ -209,6 +219,10 @@ export function summarizeStats(stats) {
     failedRequests: base.failedRequests,
     promptTokens: base.promptTokens,
     completionTokens: base.completionTokens,
+    cachedTokens: base.cachedTokens,
+    // E1 缓存命中率：口径已统一为 prompt ⊇ cached（见 api.extractUsage）。
+    // 端点不返回 usage 的会话恒为 0——显示层据此决定是否展示这一行。
+    cacheHitRate: base.promptTokens > 0 ? base.cachedTokens / base.promptTokens : 0,
     totalTokens,
     avgFirstTokenMs: base.firstTokenSamples
       ? Math.round(base.firstTokenMsSum / base.firstTokenSamples)
