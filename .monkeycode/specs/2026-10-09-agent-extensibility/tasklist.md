@@ -71,7 +71,13 @@
       按**名字白名单**过滤（run_subagent 自己也是 readOnly 工具，只看标志会放进来），
       且本模块不 import 注册表；网络层**惰性 require**（工具定义测试在纯 Node 里跑，
       静态拉网络层会把 expo-file-system 拖炸——实测踩过）；工具超时 180s。
-- [ ] T9 工作区模板（空白 / Python / 静态网页）
+- [x] T9 工作区模板（空白 / Python / 静态网页）
+      —— `src/workspace/templates.js`：三套脚手架（blank=README 起点 / python=main.py+
+      requirements+gitignore / web=html+css+js）；设置面板「工作区模板」行（每套一行 +
+      创建按钮）；**幂等且绝不覆盖**（已有文件一律跳过，返回值区分 created/skipped/failed
+      如实汇报）；Python 模板里如实写明「手机端 Chaquopy 无运行时 pip」。
+      与「环境配置」（catalog 的 .gitignore/.gitconfig）概念互补：那边是配置文件，
+      这边是项目脚手架。
 
 ## 登记
 - 阶段排序刻意：T1 是最大乘数（GitHub 变成第一个「插件」），T2/T3 是支柱（自演进指令 + 权限记忆）。

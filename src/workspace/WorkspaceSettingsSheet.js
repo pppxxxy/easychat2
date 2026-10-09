@@ -24,6 +24,7 @@ import { describePermissionRule } from '../agent/permissions.js';
 import { COMMANDS_DIR } from './commands.js';
 import { HOOKS_FILE } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
+import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
@@ -79,6 +80,8 @@ export default function WorkspaceSettingsSheet({
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
   onInstallSampleCommands,
+  // 工作区模板（T9）：一键铺起始文件（幂等不覆盖），创建动作转发给 ChatPanel。
+  onInstallTemplate,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -149,6 +152,12 @@ export default function WorkspaceSettingsSheet({
       icon: 'git-branch-outline',
       label: t('workspace.settings.hooks'),
       value: 'hooks.json',
+    },
+    {
+      id: 'templates',
+      icon: 'layers-outline',
+      label: t('workspace.settings.templates'),
+      value: t('workspace.settings.templates.count', { count: WORKSPACE_TEMPLATES.length }),
     },
   ];
 
@@ -280,6 +289,28 @@ export default function WorkspaceSettingsSheet({
             <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
           </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'templates') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.templates.hint')}</Text>
+          {WORKSPACE_TEMPLATES.map(template => (
+            <View key={template.id} style={styles.templateRow}>
+              <View style={styles.templateInfo}>
+                <Text style={styles.templateName}>{t(template.nameKey)}</Text>
+                <Text style={styles.templateDescription}>{t(template.descriptionKey)}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.templateCreate}
+                onPress={() => onInstallTemplate && onInstallTemplate(template.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.templateCreateText}>{t('workspace.settings.templates.create')}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
         </View>
       );
     }
@@ -553,6 +584,37 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   skillsInstallText: {
     marginLeft: 6,
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
+  },
+  // 工作区模板行：左信息右按钮（每行一个模板，各带「创建」）。
+  templateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  templateInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  templateName: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+  },
+  templateDescription: {
+    marginTop: 2,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(15),
+  },
+  templateCreate: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+  },
+  templateCreateText: {
     color: theme.colors.primary,
     fontSize: fonts.scaled(12),
   },

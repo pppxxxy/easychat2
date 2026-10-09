@@ -85,6 +85,7 @@ import {
   slashQuery,
 } from '../commands.js';
 import { readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
+import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
   clearPermissionRules,
@@ -599,6 +600,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     }
   }, [characterId, t]);
 
+  // 工作区模板（T9）：一键铺起始文件；幂等不覆盖，结果如实汇报（创建/跳过/失败）。
+  const handleInstallTemplate = useCallback(async templateId => {
+    let result = { created: [], skipped: [], failed: [] };
+    try {
+      result = await installWorkspaceTemplate(storeRef.current, characterId, templateId);
+    } catch (error) {}
+    const base = t('workspace.settings.templates.done', {
+      created: result.created.length,
+      skipped: result.skipped.length,
+    });
+    const failed = result.failed.length > 0
+      ? `\n${t('workspace.settings.templates.doneFailed', { count: result.failed.length })}`
+      : '';
+    Alert.alert(t('workspace.settings.templates.doneTitle'), `${base}${failed}`);
+  }, [characterId, t]);
+
   // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
   // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
   const handleClearPermissionRules = useCallback(async () => {
@@ -925,6 +942,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
+                  onInstallTemplate={handleInstallTemplate}
                 />
               </ScrollView>
             ) : (
