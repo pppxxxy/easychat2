@@ -37,6 +37,7 @@ import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
 import { breadcrumbsOf, directoryChildren, mergeManifestEntries } from '../screen/buildTree.js';
 import { diffRepoSnapshot, localRepoPaths } from './repoDiff.js';
 import { materializeRepoFile } from '../repoMaterialize.js';
+import { pushRepoSnapshot } from '../repoPush.js';
 import {
   buildRepoZipUrl,
   clearPullManifest,
@@ -119,6 +120,8 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [manifestEntries, setManifestEntries] = useState([]);
   const [manifestTruncated, setManifestTruncated] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  // C3 批量推送（Trees API 单提交）进行中状态。
+  const [pushBusy, setPushBusy] = useState(false);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
   const [snapshotPaths, setSnapshotPaths] = useState([]);
   const mountedRef = useRef(true);
@@ -776,6 +779,82 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
 
   // 一键交接：把「哪个仓库/分支、增删了哪些文件」写成一条指令，填进对话面板的输入框，
   // 由助手用 GitHub 工具逐条确认后提交（本面板不做直连推送，写远端一律经确认）。
+  // C3：一次确认框（三态计数 + 前几条清单）。Promise 化——**问不到用户 = 不推送**，
+  // 与覆盖守卫/工具审批同款原则；点外部/返回键按取消。
+  const confirmPushDiff = useCallback(({ added, modified, removed }) => new Promise(resolve => {
+    const preview = [
+      ...added.map(item => `+ ${item}`),
+      ...modified.map(item => `~ ${item}`),
+      ...removed.map(item => `- ${item}`),
+    ];
+    const listing = preview.slice(0, 12).join('\n') + (preview.length > 12 ? '\n…' : '');
+    Alert.alert(
+      t('workspace.github.push.confirmTitle'),
+      t('workspace.github.push.confirmBody', {
+        added: added.length,
+        modified: modified.length,
+        removed: removed.length,
+        list: listing,
+      }),
+      [
+        { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+        { text: t('workspace.github.push.confirmAction'), style: 'destructive', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  }), [t]);
+
+  // C3 批量推送：本地副本 vs 远程树（git blob sha 判内容）→ 一次确认 → 单次原子
+  // 提交（Trees API 四步）。与 handoffPush（逐文件、agent 走 MCP）并存——这里是
+  // 面板直连 restApi 的快路径。ref 冲突（期间远程被推进）由 GitHub 非快进拒绝，安全失败。
+  const pushBatch = useCallback(async () => {
+    if (!current || pushBusy) return;
+    const store = storeRef && storeRef.current;
+    if (!store) return;
+    const branch = String(pullBranch || current.branch || current.defaultBranch || '').trim();
+    if (!branch) return;
+    setPushBusy(true);
+    try {
+      const result = await pushRepoSnapshot({
+        store,
+        characterId,
+        owner: current.owner,
+        repo: current.repo,
+        branch,
+        token,
+        confirm: ({ diff: guardDiff }) => confirmPushDiff(guardDiff),
+      });
+      if (result.empty) {
+        Alert.alert(t('workspace.github.title'), t('workspace.github.push.nothing'));
+        return;
+      }
+      if (result.cancelled) return;
+      if (result.ok === false && result.reason === 'truncated') {
+        Alert.alert(t('workspace.github.title'), t('workspace.github.push.truncated'));
+        return;
+      }
+      // 推送成功：远程 = 本地 → 基线刷新为本地当前清单（与拉取成功后同语义）。
+      try {
+        const list = await store.listWorkspaceFiles({ characterId });
+        const prefix = `repos/${current.owner}/${current.repo}/${branch}/`;
+        const paths = localRepoPaths({ files: list, prefix });
+        await setRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`, { paths });
+        if (mountedRef.current) setSnapshotPaths(paths);
+      } catch (error) {}
+      await refreshLocal();
+      Alert.alert(t('workspace.github.title'), t('workspace.github.push.doneBody', {
+        sha: String(result.commit || '').slice(0, 7),
+        added: result.diff.added.length,
+        modified: result.diff.modified.length,
+        removed: result.diff.removed.length,
+      }));
+    } catch (caught) {
+      Alert.alert(t('workspace.github.title'), describeError(caught));
+    } finally {
+      if (mountedRef.current) setPushBusy(false);
+    }
+  }, [characterId, confirmPushDiff, current, describeError, pullBranch, pushBusy, refreshLocal, storeRef, t, token]);
+
   const handoffPush = useCallback(() => {
     if (!current || typeof onHandoff !== 'function') return;
     const parts = [t('workspace.github.push.instructionHead', {
@@ -1145,8 +1224,15 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                 </Text>
                 <FieldHint>{t('workspace.github.push.contentNote')}</FieldHint>
                 <View style={styles.actions}>
+                  {/* C3：批量单提交是主路径（内容改动只有 blob sha 算得出，不看
+                      diff.pending）；逐文件 handoff 降为精细模式的备选。 */}
+                  <PrimaryButton
+                    title={pushBusy ? t('workspace.github.push.batchBusy') : t('workspace.github.push.batch')}
+                    small
+                    onPress={pushBatch}
+                  />
                   {diff.pending > 0 && typeof onHandoff === 'function' ? (
-                    <PrimaryButton title={t('workspace.github.push.handoff')} small onPress={handoffPush} />
+                    <GhostButton title={t('workspace.github.push.handoff')} small onPress={handoffPush} />
                   ) : null}
                   <GhostButton title={t('workspace.github.push.markSynced')} small onPress={markSynced} />
                 </View>

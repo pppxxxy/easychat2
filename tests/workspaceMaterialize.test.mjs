@@ -11,6 +11,11 @@ import {
   materializeRepoFile,
   parseRepoFilePath,
 } from '../src/workspace/repoMaterialize.js';
+import { repoManifestPath } from '../src/workspace/repoPaths.js';
+import {
+  MATERIALIZE_MAX_PER_CALL,
+  MATERIALIZE_TOOL_DEFINITION,
+} from '../src/workspace/toolDefs/materializeTool.js';
 
 test('parseRepoFilePath：repos/<owner>/<repo>/<branch>/<rel>；不满足形态返回 null', () => {
   assert.deepEqual(
@@ -105,4 +110,105 @@ test('C2 接线契约：read 工具透明物化 + 面板点开即拉 + 宿主注
 
   const native = fs.readFileSync(path.resolve('src/workspace/native.js'), 'utf8');
   assert.ok(native.includes('extras.materializer'), '注册入口透传');
+});
+
+test('materialize_repo：只拉清单内未物化文件；失败与剩余量如实报告；三条引导路径', async () => {
+  const dir = { owner: 'o', repo: 'r', branch: 'main' };
+  const store = {
+    async readWorkspaceFile({ path }) {
+      if (path === repoManifestPath(dir)) {
+        return {
+          content: JSON.stringify({
+            entries: [
+              { path: 'a.js', type: 'blob' },
+              { path: 'b.js', type: 'blob' },
+              { path: 'c.js', type: 'blob' },
+              { path: 'src', type: 'tree' },
+            ],
+          }),
+        };
+      }
+      throw new Error('missing');
+    },
+    async listWorkspaceFiles() {
+      return ['repos/o/r/main/', 'repos/o/r/main/a.js']; // a.js 已物化
+    },
+  };
+  const executed = [];
+  const options = {
+    store,
+    materializer: async item => {
+      executed.push(item);
+      return item !== 'repos/o/r/main/c.js'; // c.js 模拟失败
+    },
+  };
+  const text = await MATERIALIZE_TOOL_DEFINITION.execute(options, { path: 'repos/o/r/main/' }, { characterId: 'c1' });
+  assert.deepEqual(executed, ['repos/o/r/main/b.js', 'repos/o/r/main/c.js'], '只拉未物化的（a.js 跳过、目录不入列）');
+  assert.match(text, /成功 1 个/);
+  assert.match(text, /失败 1 个/);
+
+  // 已全部物化 → 明确报告
+  const doneText = await MATERIALIZE_TOOL_DEFINITION.execute(
+    { store: { ...store, async listWorkspaceFiles() { return ['repos/o/r/main/a.js', 'repos/o/r/main/b.js', 'repos/o/r/main/c.js']; } }, materializer: async () => true },
+    { path: 'repos/o/r/main/' },
+    { characterId: 'c1' }
+  );
+  assert.match(doneText, /已全部物化/);
+
+  // 无清单 → 引导快速检出（不猜、不静默）
+  const noManifest = await MATERIALIZE_TOOL_DEFINITION.execute(
+    { store: { async readWorkspaceFile() { throw new Error('missing'); } }, materializer: async () => true },
+    { path: 'repos/o/r/main/' },
+    { characterId: 'c1' }
+  );
+  assert.match(noManifest, /没有云端清单/);
+
+  // 非法 path / 宿主不支持 → 明确提示
+  assert.match(
+    await MATERIALIZE_TOOL_DEFINITION.execute(options, { path: 'src/' }, { characterId: 'c1' }),
+    /形如 repos/
+  );
+  assert.match(
+    await MATERIALIZE_TOOL_DEFINITION.execute({ store }, { path: 'repos/o/r/main/' }, { characterId: 'c1' }),
+    /不支持按需物化/
+  );
+});
+
+test('materialize_repo：单次上限 25（默认与 limit 收敛）+ 剩余量提示', async () => {
+  const entries = Array.from({ length: 30 }, (unused, index) => ({ path: `f${index}.js`, type: 'blob' }));
+  const store = {
+    async readWorkspaceFile() { return { content: JSON.stringify({ entries }) }; },
+    async listWorkspaceFiles() { return []; },
+  };
+  const executed = [];
+  const options = { store, materializer: async item => { executed.push(item); return true; } };
+  const text = await MATERIALIZE_TOOL_DEFINITION.execute(
+    options,
+    { path: 'repos/o/r/main/' },
+    { characterId: 'c1' }
+  );
+  assert.equal(executed.length, MATERIALIZE_MAX_PER_CALL, '默认单次上限 25');
+  assert.match(text, /还有 5 个未物化/, '剩余量如实报告');
+
+  const limited = await MATERIALIZE_TOOL_DEFINITION.execute(
+    options,
+    { path: 'repos/o/r/main/', limit: 3 },
+    { characterId: 'c1' }
+  );
+  assert.equal(executed.length, MATERIALIZE_MAX_PER_CALL + 3, 'limit 收敛');
+  assert.match(limited, /还有 27 个未物化/);
+});
+
+test('C3 批量推送接线：面板按钮 + 一次确认 + truncated 安全失败 + 绝不 force', () => {
+  const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
+  assert.ok(github.includes('pushRepoSnapshot({'), '面板直连 Trees API 单提交链路');
+  assert.ok(github.includes("t('workspace.github.push.batch')"), '批量推送按钮');
+  assert.ok(github.includes('confirmPushDiff'), '一次确认框（问不到用户 = 不推送）');
+  assert.ok(github.includes("t('workspace.github.push.doneBody'"), '成功报告 commit sha');
+  assert.ok(github.includes("t('workspace.github.push.truncated')"), 'truncated 拒绝 + 引导 handoff');
+
+  const push = fs.readFileSync(path.resolve('src/workspace/repoPush.js'), 'utf8');
+  assert.ok(push.includes("reason: 'truncated'"), '清单不完整时拒绝推送（完整树会误删看不见的文件）');
+  const rest = fs.readFileSync(path.resolve('src/workspace/github/restApi.js'), 'utf8');
+  assert.ok(rest.includes('force: false'), 'updateRef 绝不 force（非快进被 GitHub 拒绝）');
 });

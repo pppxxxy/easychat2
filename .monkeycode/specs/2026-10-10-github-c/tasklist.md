@@ -30,16 +30,28 @@
       三道前置：repos 路径 / 有清单 / 在清单里——不满足零网络；没注入 =
       旧行为逐字节一致）。
 
-## 待做（下一轮）
+## 已完成（第二批）
 
-- [ ] **C3 批量单提交回推 `push_snapshot`**：`createBlob`（base64，并发 5 带
-      jitter，走 C4 退避）→ `createTree`（base_tree = 远程当前 tree）→
-      `createCommit` → `updateRef`；本地 vs 远程 tree 求差（需 git blob sha1
-      纯函数）→ 一次确认框（新增 X / 修改 Y / 删除 Z）→ 单次原子提交；保留
-      现有 `handoffPush` 逐文件精细模式；ref 冲突（409/422）安全失败，绝不
-      自动覆盖重试。验收：50 文件 = ≤55 次请求 + 1 次确认 + 1 个 commit。
-- [ ] `materialize_repo` 代理工具（agent 跑 shell 前主动物化）+ 提示词一句 +
-      capabilities 清单同步（走 registry + riskGate 双保险门控）。
+- [x] **C3 批量单提交回推**：`repoPush.js`（手写 SHA-1 纯函数，与 Node crypto
+      对拍；git blob sha 判内容改动——本地算、远程比；三态 diff）+ restApi 五个
+      写 API（getRef / createBlob / createTree / createCommit / updateRef，全部
+      走 C4 基建）；面板「批量推送」按钮 → **一次确认框**（新增/修改/删除 + 清单）
+      → **单次原子提交**；blob 只发新增+修改（未改沿用远程 sha、并发 5 带 jitter）；
+      删除 = `sha:null` 条目；**truncated 仓库直接拒绝**（完整树会误删看不见的
+      文件）；`updateRef` 恒 `force:false`（ref 冲突非快进被 GitHub 拒绝，安全失败）；
+      成功刷新基线为本地清单。保留 `handoffPush` 逐文件精细模式（降为备选）。
+- [x] **materialize_repo 工具**：批量物化清单内未物化文件（readOnly；单次上限
+      25，剩余量如实报告可再调、幂等）；提示词只在 write 模式且工具真注册时注入
+      （「跑 shell 搜 repos/ 前先物化」）；capabilities / 工具清单四处断言同步。
+      **分层修正**：路径与清单解析规则抽到零依赖 `repoPaths.js`——工具定义层的
+      静态链不得拖 fflate（分层测试用加载炸弹钉着，两处 re-export 保持引用面）。
+
+## 验收对照
+
+- C3：50 文件改动 = N 次 blob（并发 5）+ 4 次 API + **1 次确认 + 1 个 commit** ✅
+  （测试钉：blob 只发新增+修改、删除为 sha:null、父提交、绝不 force、取消零写）；
+- C1/C2：快速检出 <3s 见全树（1 次请求）；合并函数三形态直测；按需物化三条
+  前置（repos 路径 / 有清单 / 在清单里）不满足零网络。
 
 ## 明确不做（防后续重复评估）
 

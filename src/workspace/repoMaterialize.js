@@ -6,19 +6,10 @@
 import { strFromU8 } from 'fflate';
 
 import { request } from './github/restApi.js';
+import { parseRepoFilePath } from './repoPaths.js';
 
-// 沙盒路径 → 仓库坐标：repos/<owner>/<repo>/<branch>/<rel>。
-// 不满足形态（不在 repos/ 下、段数不足）返回 null——调用方按「普通文件」处理。
-export function parseRepoFilePath(path) {
-  const parts = String(path || '').split('/');
-  if (parts[0] !== 'repos' || parts.length < 5) return null;
-  const owner = parts[1];
-  const repo = parts[2];
-  const branch = parts[3];
-  const rel = parts.slice(4).join('/');
-  if (!owner || !repo || !branch || !rel) return null;
-  return { owner, repo, branch, rel };
-}
+// 路径规则在 repoPaths.js（零依赖）——这里 re-export 保持既有引用面不变。
+export { parseRepoFilePath };
 
 // contents API 单文件 URL（rel 逐段编码——目录名里的空格/中文也要能拉）。
 export function buildContentsUrl({ owner, repo, ref, rel } = {}) {

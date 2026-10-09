@@ -58,11 +58,12 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   const source = settings && typeof settings === 'object' ? settings : {};
   const mode = source.mode;
   if (mode !== 'write' && mode !== 'read') return [];
-  // update_plan（A3）与 run_subagent（T8）都是只读工具：read 与 write 模式都提供——
-  // 规划与「翻很多文件找答案」都与能否改文件无关。顺序与工具定义聚合一致。
+  // update_plan（A3）/ materialize_repo（C2）/ run_subagent（T8）都是只读工具：
+  // read 与 write 模式都提供——规划、下载缓存与「翻很多文件找答案」都与能否改文件无关。
+  // 顺序与工具定义聚合一致。
   const tools = mode === 'write'
-    ? ['list_workspace_files', 'read_workspace_file', 'update_plan', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
-    : ['list_workspace_files', 'read_workspace_file', 'update_plan', 'run_subagent'];
+    ? ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
+    : ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'run_subagent'];
   const appRoot = !source.location || source.location.kind !== 'saf';
   if (mode === 'write' && appRoot && source.allowCommandExecution === true && shellAvailable) {
     tools.push('run_shell');

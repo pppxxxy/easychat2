@@ -17,6 +17,7 @@ import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
 import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 import { READ_ONLY_TOOL_DEFINITIONS, formatWorkspaceReadResult } from './toolDefs/readTools.js';
 import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
+import { MATERIALIZE_TOOL_DEFINITION } from './toolDefs/materializeTool.js';
 import { WRITE_TOOL_DEFINITIONS } from './toolDefs/writeTools.js';
 import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
@@ -31,10 +32,11 @@ function resolveStore({ store, root, fileSystem } = {}) {
 }
 
 // 基础工具（read / write 模式都进注册表）。**顺序是契约**：清单断言与模型看到的
-// 工具次序都依赖它——只读 → 计划 → 子代理 → 写 → 导出。
+// 工具次序都依赖它——只读 → 计划 → 物化 → 子代理 → 写 → 导出。
 const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
   PLAN_TOOL_DEFINITION,
+  MATERIALIZE_TOOL_DEFINITION,
   SUBAGENT_TOOL_DEFINITION,
   ...WRITE_TOOL_DEFINITIONS,
   DOCX_TOOL_DEFINITION,

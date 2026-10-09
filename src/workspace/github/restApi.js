@@ -253,6 +253,62 @@ export async function listTree({ fetchImpl = fetch, token, owner, repo, ref } = 
   };
 }
 
+// —— C3 批量单提交（git data API 五步）——
+// getRef → createBlob × N → createTree → createCommit → updateRef。
+// 全部走 C4 的统一 request（超时 + 退避）；DELETE/JSON 语义由 GitHub 定，
+// 这里只做形状归一与必填校验。
+
+// 分支 ref → 当前 commit sha（空串 = 分支不存在/响应异常）。
+export async function getRef({ fetchImpl = fetch, token, owner, repo, branch } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(branch)}`;
+  const { data } = await request(fetchImpl, url, { token });
+  return String((data && data.object && data.object.sha) || '');
+}
+
+// 创建 blob（base64），返回 sha。
+export async function createBlob({ fetchImpl = fetch, token, owner, repo, content, encoding = 'base64' } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs`;
+  const { data } = await request(fetchImpl, url, {
+    method: 'POST',
+    token,
+    body: { content, encoding },
+  });
+  return String((data && data.sha) || '');
+}
+
+// 创建 tree（tree: [{ path, mode, type, sha|null }]），返回 sha。
+export async function createTree({ fetchImpl = fetch, token, owner, repo, tree, baseTree } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees`;
+  const { data } = await request(fetchImpl, url, {
+    method: 'POST',
+    token,
+    body: { tree, ...(baseTree ? { base_tree: baseTree } : {}) },
+  });
+  return String((data && data.sha) || '');
+}
+
+// 创建 commit（单父提交），返回 sha。
+export async function createCommit({ fetchImpl = fetch, token, owner, repo, message, tree, parents } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits`;
+  const { data } = await request(fetchImpl, url, {
+    method: 'POST',
+    token,
+    body: { message, tree, parents: Array.isArray(parents) ? parents : [] },
+  });
+  return String((data && data.sha) || '');
+}
+
+// 更新分支指向（force 恒为 false：非快进被 GitHub 拒绝——绝不覆盖别人的提交）。
+export async function updateRef({ fetchImpl = fetch, token, owner, repo, branch, sha } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs/heads/${encodeURIComponent(branch)}`;
+  const { data } = await request(fetchImpl, url, {
+    method: 'PATCH',
+    token,
+    body: { sha, force: false },
+  });
+  return String((data && data.object && data.object.sha) || '') || String(sha || '');
+}
+
 // 建仓库：成功后即成为「当前仓库」（由调用方落状态）。
 export async function createRepo({ fetchImpl = fetch, token, name, description = '', isPrivate = true, autoInit = false } = {}) {
   const repoName = String(name || '').trim();

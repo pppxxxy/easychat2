@@ -44,6 +44,11 @@ export const EXECUTION_VERIFY_HINT = '改完代码或配置文件后，在给出
 // 与 BASE_PROMPT 的「三步以上先列清单」配合：那条讲原则，这条讲用什么记。
 export const PLAN_TOOL_HINT = '多步任务先用 update_plan 记录步骤清单，每完成一步更新一次状态，让进度对用户可见。';
 
+// 物化工具的引导（C2）：只对「能跑 shell 的形态」说——read 模式的 read 工具会
+// 自动按需物化，提了反而多余；write 模式要在终端/run_shell 里搜 repos/ 下的代码，
+// 没物化的部分搜不到，这条提示防「搜了个空就下结论」。
+export const MATERIALIZE_TOOL_HINT = 'repos/ 下带云朵标记（未物化）的文件不在本地：要在终端或 run_shell 里搜索、处理它们之前，先用 materialize_repo 把目标范围批量下载。';
+
 export function workspaceExecutionToolHints(tools) {
   const names = Array.isArray(tools) ? tools : [];
   const hints = Object.keys(EXECUTION_TOOL_HINTS)
@@ -84,7 +89,11 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     if (Array.isArray(tools) && tools.includes('update_plan')) lines.push(PLAN_TOOL_HINT);
   }
   lines.push(workspaceAgentModeHint(mode));
-  if (mode === 'write') lines.push(...workspaceExecutionToolHints(tools));
+  if (mode === 'write') {
+    lines.push(...workspaceExecutionToolHints(tools));
+    // C2：物化引导（只在工具真注册时注入——同款纪律）。
+    if (Array.isArray(tools) && tools.includes('materialize_repo')) lines.push(MATERIALIZE_TOOL_HINT);
+  }
   return lines.join('\n');
 }
 
