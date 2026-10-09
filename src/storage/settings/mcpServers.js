@@ -14,6 +14,7 @@
 // （回滚安全，旧版本仍可跑），新键是唯一事实源。
 
 import { DEFAULT_GITHUB_MCP_ENDPOINT } from '../../mcp/client.js';
+import { filterMcpToolsForRegistration } from '../../mcp/riskGate.js';
 import { createMutationQueue, readJsonWithSecrets, setJsonWithSecrets } from '../io.js';
 
 export const MCP_SERVERS_KEY = '@easychat2_mcp_servers';
@@ -184,6 +185,39 @@ export async function migrateGithubServer({ getGithubSettings } = {}) {
   }
   await saveMcpServers([...list, legacy]);
   return { migrated: true, server: legacy };
+}
+
+// 连接成功后的服务器记录更新（纯函数，供 hook 直用、Node 直测）：
+// 写目录（按服务器分域过滤）+ 连接时间 + 置为启用。tools 为空时也保留记录
+// （用户看到「已连接但无可用工具」比静默失败清楚）。
+export function applyConnectResult(server, tools) {
+  const normalized = normalizeMcpServer(server);
+  if (!normalized) return null;
+  const { allowed, deniedNames } = filterMcpToolsForRegistration(tools, {
+    serverId: normalized.id,
+    tierOverrides: normalized.tierOverrides,
+  });
+  return normalizeMcpServer({
+    ...normalized,
+    enabled: true,
+    connectedAt: Date.now(),
+    toolCatalog: allowed,
+    deniedNames,
+  });
+}
+
+// 自定义请求头的 UI 输入格式：每行 `名称: 值`。比 JSON 友好、且能容错
+// （空行、无冒号的行、空值一律忽略）。
+export function parseHeadersText(text) {
+  const out = {};
+  String(text == null ? '' : text).split('\n').forEach(line => {
+    const index = line.indexOf(':');
+    if (index <= 0) return;
+    const name = line.slice(0, index).trim();
+    const value = line.slice(index + 1).trim();
+    if (name && value) out[name] = value;
+  });
+  return out;
 }
 
 // 测试用：直接清键。

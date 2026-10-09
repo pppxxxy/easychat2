@@ -13,8 +13,9 @@
       `workspace/mcpTools.js` 多服务器注册（github_ 兼容前缀 / slug__ 命名空间）
 - [x] T1-c Node 直测：会话工厂泛化（headers）/ 命名空间注册 / 第三方默认 CONFIRM /
       危险名跨服务器拒绝 / 迁移幂等；`useChatSend` 调用点更名
-- [ ] T1-d 设置 UI：工作区「MCP 服务器」管理页（列表 / 添加 / 启停 / 连接测试 /
-      分级浏览 / 删除）——数据层已就绪，下一批做
+- [x] T1-d 设置 UI：设置页「MCP 服务器」卡（列表 / 添加并测试连接 / 启停 /
+      目录摘要 / 删除）；`useMcpServers` hook + `McpServersSection` +
+      searchIndex/深链接线；应用 connectResult/parseHeadersText 两个纯函数
 
 ### T2 工作区记忆文件（AGENTS.md 等价）
 - [ ] 根目录 AGENTS.md 注入系统提示（mtime 缓存 + 8KB 截断）；agent 可自行修改（自我演进通路）

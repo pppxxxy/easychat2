@@ -14,7 +14,11 @@ import { createRequire } from 'node:module';
 
 import { clearTools, getTool, listRegisteredTools } from '../src/agent/tools/registry.js';
 import { createMcpSession, DEFAULT_GITHUB_MCP_ENDPOINT } from '../src/mcp/client.js';
-import { MCP_TOOL_TIERS, classifyMcpTool } from '../src/mcp/riskGate.js';
+import {
+  MCP_TOOL_TIERS,
+  classifyMcpTool,
+  filterMcpToolsForRegistration,
+} from '../src/mcp/riskGate.js';
 import {
   callMcpTool,
   mcpToolPrefix,
@@ -62,6 +66,11 @@ Module._load = function patchedLoad(request, parent, isMain) {
   }
   if (request.endsWith('/mcp/client.js') || request === '../../mcp/client.js') {
     return { __esModule: true, DEFAULT_GITHUB_MCP_ENDPOINT };
+  }
+  // mcpServers.js 还静态引 riskGate（纯 JS）：babel 转 CJS 后 require 会把 ESM 当 CJS 解析，
+  // 这里按真实模块转交（测试文件顶部已 import 真身）。
+  if (request.endsWith('/riskGate.js') || request === '../../mcp/riskGate.js') {
+    return { __esModule: true, MCP_TOOL_TIERS, classifyMcpTool, filterMcpToolsForRegistration };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -218,6 +227,56 @@ test('执行层双保险：第三方被禁工具绕过注册表也进不去（�
   assert.equal(result.isError, true);
   assert.match(result.content, /安全策略禁止/);
   assert.equal(called, 0, '被禁调用绝不触达会话');
+});
+
+test('parseHeadersText：每行「名称: 值」，容错空行与坏行', () => {
+  const mod = loadMcpServersModule();
+  assert.deepEqual(mod.parseHeadersText('X-Api-Key: k1\n\nBadLine\nX-Env:  prod  \n: noName'), {
+    'X-Api-Key': 'k1',
+    'X-Env': 'prod',
+  });
+  assert.deepEqual(mod.parseHeadersText(''), {});
+  assert.deepEqual(mod.parseHeadersText(null), {});
+});
+
+test('applyConnectResult：目录按服务器分域过滤（第三方默认确认，禁类进 denied）', () => {
+  const mod = loadMcpServersModule();
+  const updated = mod.applyConnectResult(
+    { id: 'notes', name: 'Notes', endpoint: 'https://n/mcp', mcpToken: 't' },
+    [
+      { name: 'search_notes', description: 's' },
+      { name: 'delete_note', description: 'x' },
+      { name: 'force_sync', description: 'x' },
+    ]
+  );
+  assert.equal(updated.enabled, true, '连接成功即启用');
+  assert.ok(updated.connectedAt > 0);
+  assert.deepEqual(updated.toolCatalog.map(item => item.name), ['search_notes']);
+  assert.equal(updated.toolCatalog[0].tier, 'confirm', '第三方工具默认确认');
+  assert.deepEqual(updated.deniedNames, ['delete_note', 'force_sync'], '禁类进 denied 供 UI 展示');
+  assert.equal(mod.applyConnectResult(null, []), null);
+});
+
+test('设置页接线：卡片 / sectionProps / 搜索索引 / i18n 中英齐', () => {
+  const screen = fs.readFileSync(path.resolve('src/SettingsScreen.js'), 'utf8');
+  assert.ok(screen.includes('McpServersSection'), '卡片组件已引入');
+  assert.ok(screen.includes("flashSection === 'mcpservers'"), '卡片 id 与搜索/深链一致');
+  assert.ok(screen.includes("'github', 'mcpservers'"), 'SECTION_RENDER_ORDER 已含 mcpservers');
+  for (const field of ['mcpServers', 'onAddMcpServer', 'onTestMcpServer', 'onToggleMcpServer', 'onRemoveMcpServer']) {
+    assert.ok(screen.includes(field), `sectionProps 缺 ${field}`);
+  }
+  const section = fs.readFileSync(path.resolve('src/settings/sections/McpServersSection.js'), 'utf8');
+  assert.ok(section.includes("t('settings.mcp.add.action')"), '添加入口');
+  assert.ok(section.includes("t('settings.mcp.riskHint')"), '安全边界明示');
+  const search = fs.readFileSync(path.resolve('src/settings/searchIndex.js'), 'utf8');
+  assert.ok(search.includes("mcpservers: 'MCP 服务器'"), 'section 标签');
+  assert.ok(search.includes("sectionId: 'mcpservers'"), '搜索项');
+  const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/settings.js'), 'utf8');
+  const en = fs.readFileSync(path.resolve('src/i18n/locales/en/settings.js'), 'utf8');
+  for (const key of ['settings.mcp.title', 'settings.mcp.riskHint', 'settings.mcp.add.action', 'settings.mcp.err.endpoint']) {
+    assert.ok(zh.includes(`'${key}'`), `中文缺键 ${key}`);
+    assert.ok(en.includes(`'${key}'`), `英文缺键 ${key}`);
+  }
 });
 
 test('会话工厂泛化：自定义 headers 与 token 一起送出（第三方 X-Api-Key 场景）', async () => {
