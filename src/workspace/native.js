@@ -130,7 +130,15 @@ export function resolveShellRunner(settings) {
   } catch (error) {
     return null;
   }
-  return createShellRunner({ native, sandboxRoot });
+  // store：持久会话（T7）读写 .easychat/env.json；建失败不影响命令执行本身
+  //（runner 对无 store 走原样执行，行为与改动前一致）。
+  let store = null;
+  try {
+    store = createWorkspaceStore(settings);
+  } catch (error) {
+    store = null;
+  }
+  return createShellRunner({ native, sandboxRoot, store });
 }
 
 // Python 执行的门控（纯判定，可单测）。与 shell 同形，但看的是另一个开关。

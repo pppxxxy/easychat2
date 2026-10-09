@@ -128,6 +128,7 @@ export const error = {
   'error.agent.toolNameInvalid': 'Invalid tool name: {name}',
   'error.agent.toolMissingExecute': 'Tool {name} is missing an execute function.',
   'error.mcp.githubError': 'GitHub MCP error ({code}): {message}',
+  'error.mcp.serverError': 'MCP error ({code}): {message}',
   'error.mcp.unknown': 'Unknown error',
   'error.regex.emptyPattern': 'The match expression must not be empty.',
   'error.location.unsupportedBuild': 'This build does not include location capability (expo-location).',

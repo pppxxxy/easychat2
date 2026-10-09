@@ -13,6 +13,7 @@ export const SETTINGS_SECTION_LABELS = {
   vector: '向量记忆',
   workspace: '工作区',
   github: 'GitHub',
+  mcpservers: 'MCP 服务器',
   localmodel: '本地模型',
   security: '隐私与安全',
   about: '关于',
@@ -67,6 +68,9 @@ export const SETTINGS_SEARCH_INDEX = [
 
   { sectionId: 'github', label: 'GitHub 连接', keywords: ['github', 'mcp', '连接'] },
   { sectionId: 'github', label: 'GitHub 令牌', keywords: ['github', 'pat', '令牌', 'token'] },
+
+  { sectionId: 'mcpservers', label: 'MCP 服务器', keywords: ['mcp', '服务器', '第三方', '工具', 'model context protocol', 'server'] },
+  { sectionId: 'mcpservers', label: '添加 MCP 服务器', keywords: ['mcp', '添加', '端点', '令牌', 'token', 'endpoint'] },
 
   // 本地模型：2026-10-07 从关于卡的一行升级为独立卡（sectionId 随之迁移）。
   { sectionId: 'localmodel', label: '本地模型', keywords: ['本地模型', 'local model', 'llama', 'gguf', '端侧'] },

@@ -29,9 +29,10 @@ import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn } from '../agent/loop.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
-import { requestToolApproval } from './toolApproval.js';
-import { registerDefaultWorkspaceTools } from '../workspace/native.js';
-import { ensureGithubMcpToolsRegistered } from '../workspace/mcpTools.js';
+import { approveToolCall } from './toolApprovalFlow.js';
+import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
+import { readWorkspaceHooks, shellHookDenyRules } from '../workspace/hooks.js';
+import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
   ATTACH_ERROR,
@@ -488,14 +489,22 @@ export default function useChatSend({
         // read/write 走 runAgentTurn（agent 工具循环）。工具集由注册表按模式派生。
         // 聊天内工具在上述任一模式下都可用（由 allowChatTools 单独放行）。
         let agentTools = [];
+        // 钩子（hooks.json）读取用的 store：与注册工具那份等价（同一份设置快照派生），
+        // 审批回调里读 before_shell 预置禁令用；创建失败当没有钩子（审批照常）。
+        let hookStore = null;
         if (workspaceMode !== 'ask') {
           try {
             registerDefaultWorkspaceTools(workspaceSettings);
           } catch (error) {}
-          // GitHub MCP：已连接时把风险分级过滤过的 github_* 工具挂进注册表
-          //（未连接时等价于全摘除）；只读工具 read 模式即暴露，写入类走逐条确认。
           try {
-            await ensureGithubMcpToolsRegistered();
+            hookStore = createWorkspaceStore(workspaceSettings);
+          } catch (error) {
+            hookStore = null;
+          }
+          // MCP（通用多服务器，含内置 GitHub）：把风险分级过滤过的工具挂进注册表
+          //（未启用/未连接等价于全摘除）；只读工具 read 模式即暴露，写入类走逐条确认。
+          try {
+            await ensureMcpToolsRegistered();
           } catch (error) {}
         }
         agentTools = listToolsForMode(
@@ -559,16 +568,28 @@ export default function useChatSend({
                   setToolBubble(event.name, event.ok === false ? 'error' : 'done', event.error || '');
                 }
               },
-              // 逐条确认（目前只有 run_shell）：这里是唯一能问到用户的出口，
-              // 所以必须接上——不接的话 registry 会把需要确认的工具一律拒绝。
+              // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，所以必须接上——
+              // 不接的话 registry 会把需要确认的工具一律拒绝。先查已记住的规则
+              //（本次会话 / 永远允许），没命中才弹三选项框。
+              // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次直读）。
               // 用户在弹框上犹豫多久都不算超时：runTool 把审批放在超时竞速之外。
-              onToolApproval: call => requestToolApproval({
-                name: call && call.name,
-                args: call && call.args,
-                t: tRef.current,
-                // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
-                signal: controller.signal,
-              }),
+              onToolApproval: async call => {
+                let extraRules = [];
+                if (hookStore) {
+                  try {
+                    const hooks = await readWorkspaceHooks(hookStore, character.id);
+                    extraRules = shellHookDenyRules(hooks);
+                  } catch (error) {}
+                }
+                return approveToolCall({
+                  name: call && call.name,
+                  args: call && call.args,
+                  t: tRef.current,
+                  // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
+                  signal: controller.signal,
+                  extraRules,
+                });
+              },
               context: { characterId: character.id, sessionId: sendSessionId },
               allowChatTools: chatToolsEnabled,
             })

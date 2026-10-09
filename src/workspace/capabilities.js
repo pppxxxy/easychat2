@@ -33,11 +33,17 @@ export const CAPABILITY_STEPS = Object.freeze([
 
 export const CAPABILITY_LIMITS = Object.freeze([
   { id: 'tools', labelKey: 'workspace.capability.limit.tools' },
+  // AGENTS.md（工作区记忆）：它不是「限制」而是「机制」，但因为会长期影响行为且
+  // 可被 agent 自行改写，用户必须在能力说明里看到它、知道怎么删（自我演进 ≠ 失控）。
+  { id: 'memory', labelKey: 'workspace.capability.limit.memory' },
   { id: 'shellSwitch', labelKey: 'workspace.capability.limit.shellSwitch' },
   { id: 'pythonSwitch', labelKey: 'workspace.capability.limit.pythonSwitch' },
   { id: 'pythonIsolation', labelKey: 'workspace.capability.limit.pythonIsolation' },
   { id: 'externalRoot', labelKey: 'workspace.capability.limit.externalRoot' },
   { id: 'shellScope', labelKey: 'workspace.capability.limit.shellScope' },
+  // 持久会话（T7）：目录与环境变量跨命令保留（存在 .easychat/env.json），
+  // 但**不是**真终端——需要 PTY 的交互式程序不支持，这条边界必须如实说。
+  { id: 'shellSession', labelKey: 'workspace.capability.limit.shellSession' },
   { id: 'localModel', labelKey: 'workspace.capability.limit.localModel' },
   { id: 'githubImport', labelKey: 'workspace.capability.limit.githubImport' },
 ]);
@@ -52,9 +58,11 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   const source = settings && typeof settings === 'object' ? settings : {};
   const mode = source.mode;
   if (mode !== 'write' && mode !== 'read') return [];
+  // run_subagent（子代理，T8）是只读工具：read 与 write 模式都提供——
+  // 它的价值是把「翻很多文件找答案」的过程隔离在子循环里，与能否改文件无关。
   const tools = mode === 'write'
-    ? ['list_workspace_files', 'read_workspace_file', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
-    : ['list_workspace_files', 'read_workspace_file'];
+    ? ['list_workspace_files', 'read_workspace_file', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
+    : ['list_workspace_files', 'read_workspace_file', 'run_subagent'];
   const appRoot = !source.location || source.location.kind !== 'saf';
   if (mode === 'write' && appRoot && source.allowCommandExecution === true && shellAvailable) {
     tools.push('run_shell');

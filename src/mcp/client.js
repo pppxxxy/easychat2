@@ -70,20 +70,25 @@ export function parseSseFrames(text) {
 
 function authError(status) {
   if (status === 401 || status === 403) {
-    return fail('MCP_AUTH_FAILED', `GitHub authentication failed: token invalid/expired or insufficient permissions (HTTP ${status}).`);
+    return fail('MCP_AUTH_FAILED', `MCP authentication failed: token invalid/expired or insufficient permissions (HTTP ${status}).`);
   }
-  return fail('MCP_HTTP_ERROR', `GitHub MCP request failed (HTTP ${status}).`);
+  return fail('MCP_HTTP_ERROR', `MCP request failed (HTTP ${status}).`);
 }
 
 export function createMcpSession({
   endpoint = DEFAULT_GITHUB_MCP_ENDPOINT,
   token = '',
+  // 自定义请求头（第三方 MCP 常要 X-Api-Key 之类；GitHub 用不到，留空即可）。
+  headers: extraHeaders = null,
   fetchImpl,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   clientInfo = { name: 'easychat2', version: '1.0.0' },
 } = {}) {
   const doFetch = typeof fetchImpl === 'function' ? fetchImpl : globalThis.fetch;
   if (typeof doFetch !== 'function') throw fail('MCP_NO_FETCH', 'fetch is unavailable in this environment');
+  const customHeaders = extraHeaders && typeof extraHeaders === 'object' && !Array.isArray(extraHeaders)
+    ? extraHeaders
+    : {};
   const state = {
     sessionId: '',
     protocolVersion: '',
@@ -106,6 +111,9 @@ export function createMcpSession({
         if (id !== undefined) body.id = id;
         if (params !== undefined) body.params = params;
         const headers = {
+          // 自定义头先铺：第三方服务器常用 X-Api-Key 之类；标准头与 token 随后写入，
+          // 保证它们不会被自定义头意外覆盖（协议头最终由会话状态决定）。
+          ...customHeaders,
           'Content-Type': 'application/json',
           Accept: 'application/json, text/event-stream',
         };
@@ -153,10 +161,10 @@ export function createMcpSession({
         if (!payload) {
           // 通知类（无 id）允许空应答；请求类必须拿到 JSON-RPC 应答。
           if (notification) return null;
-          throw fail('MCP_INVALID_RESPONSE', 'GitHub MCP returned an invalid JSON-RPC response.');
+          throw fail('MCP_INVALID_RESPONSE', 'MCP server returned an invalid JSON-RPC response.');
         }
         if (payload.error) {
-          throw new Error(tActive('error.mcp.githubError', {
+          throw new Error(tActive('error.mcp.serverError', {
             code: payload.error.code,
             message: payload.error.message || tActive('error.mcp.unknown'),
           }));
@@ -167,7 +175,7 @@ export function createMcpSession({
         // 超时（我们自己的 AbortController）必须转成可诊断的错误码：
         // 否则原始 "Aborted" 会一路漏到界面，用户完全不知道发生了什么。
         if (isAbortError(error)) {
-          throw fail('MCP_TIMEOUT', `GitHub MCP request timed out after ${Math.round(timeoutMs / 1000)}s.`);
+          throw fail('MCP_TIMEOUT', `MCP request timed out after ${Math.round(timeoutMs / 1000)}s.`);
         }
         throw error;
       } finally {

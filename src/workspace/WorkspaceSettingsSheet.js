@@ -20,6 +20,11 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { describePermissionRule } from '../agent/permissions.js';
+import { COMMANDS_DIR } from './commands.js';
+import { HOOKS_FILE } from './hooks.js';
+import { SKILLS_DIR } from './skills.js';
+import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
@@ -65,6 +70,18 @@ export default function WorkspaceSettingsSheet({
   onImportFile,
   importBusy = false,
   onOpenPanel,
+  // 已记住的授权（本次会话 + 永久）与清除入口：数据仍由 ChatPanel 持有
+  // （本面板只展示 + 转发回调，见文件头「纯展示」约定）。
+  permissionRules = [],
+  onClearPermissionRules,
+  // 技能清单（SKILL.md 渐进披露）；安装示例同样是转发给 ChatPanel 的动作。
+  skills = [],
+  onInstallSampleSkills,
+  // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
+  commands = [],
+  onInstallSampleCommands,
+  // 工作区模板（T9）：一键铺起始文件（幂等不覆盖），创建动作转发给 ChatPanel。
+  onInstallTemplate,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -105,6 +122,42 @@ export default function WorkspaceSettingsSheet({
       icon: 'analytics-outline',
       label: t('workspace.settings.usage'),
       value: usage ? `${Math.round((usage.ratio || 0) * 100)}%` : t('workspace.settings.usage.empty'),
+    },
+    {
+      id: 'skills',
+      icon: 'sparkles-outline',
+      label: t('workspace.settings.skills'),
+      value: skills.length > 0
+        ? t('workspace.settings.skills.count', { count: skills.length })
+        : t('workspace.settings.skills.emptyShort'),
+    },
+    {
+      id: 'commands',
+      icon: 'terminal-outline',
+      label: t('workspace.settings.commands'),
+      value: commands.length > 0
+        ? t('workspace.settings.commands.count', { count: commands.length })
+        : t('workspace.settings.commands.emptyShort'),
+    },
+    {
+      id: 'permissions',
+      icon: 'shield-checkmark-outline',
+      label: t('workspace.settings.permissions'),
+      value: permissionRules.length > 0
+        ? t('workspace.settings.permissions.count', { count: permissionRules.length })
+        : t('workspace.settings.permissions.emptyShort'),
+    },
+    {
+      id: 'hooks',
+      icon: 'git-branch-outline',
+      label: t('workspace.settings.hooks'),
+      value: 'hooks.json',
+    },
+    {
+      id: 'templates',
+      icon: 'layers-outline',
+      label: t('workspace.settings.templates'),
+      value: t('workspace.settings.templates.count', { count: WORKSPACE_TEMPLATES.length }),
     },
   ];
 
@@ -212,6 +265,111 @@ export default function WorkspaceSettingsSheet({
             })}
           </Text>
           <Text style={styles.bodyHint}>{t('workspace.panel.context.hint')}</Text>
+        </View>
+      );
+    }
+    if (id === 'skills') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.skills.hint', { dir: SKILLS_DIR })}</Text>
+          {skills.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.skills.empty')}</Text>
+          ) : skills.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {String(item && item.name || '')}
+              {'：'}
+              {String(item && item.description || '') || t('workspace.settings.skills.noDescription')}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleSkills && onInstallSampleSkills()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'templates') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.templates.hint')}</Text>
+          {WORKSPACE_TEMPLATES.map(template => (
+            <View key={template.id} style={styles.templateRow}>
+              <View style={styles.templateInfo}>
+                <Text style={styles.templateName}>{t(template.nameKey)}</Text>
+                <Text style={styles.templateDescription}>{t(template.descriptionKey)}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.templateCreate}
+                onPress={() => onInstallTemplate && onInstallTemplate(template.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.templateCreateText}>{t('workspace.settings.templates.create')}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      );
+    }
+    if (id === 'hooks') {
+      return (
+        <View>
+          <Text style={styles.bodyHint} selectable>{t('workspace.settings.hooks.hint', { file: HOOKS_FILE })}</Text>
+        </View>
+      );
+    }
+    if (id === 'commands') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.commands.hint', { dir: COMMANDS_DIR })}</Text>
+          {commands.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.commands.empty')}</Text>
+          ) : commands.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {'/'}
+              {String(item && item.name || '')}
+              {String(item && item.description || '') ? `：${item.description}` : ''}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleCommands && onInstallSampleCommands()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.commands.install')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'permissions') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.permissions.hint')}</Text>
+          {permissionRules.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.permissions.empty')}</Text>
+          ) : permissionRules.map((rule, index) => (
+            <Text key={`${String(rule && rule.tool)}-${index}`} style={styles.bodyHint} selectable>
+              {rule && rule.scope === 'session'
+                ? t('workspace.settings.permissions.scope.session')
+                : t('workspace.settings.permissions.scope.always')}
+              {' · '}
+              {describePermissionRule(rule, t)}
+            </Text>
+          ))}
+          {permissionRules.length > 0 ? (
+            <TouchableOpacity
+              style={styles.permissionClear}
+              onPress={() => onClearPermissionRules && onClearPermissionRules()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+              <Text style={styles.permissionClearText}>{t('workspace.settings.permissions.clear')}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       );
     }
@@ -394,6 +552,71 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(11),
     lineHeight: fonts.scaled(16),
     marginTop: 8,
+  },
+  // 「清除全部授权」：危险动作给危险色 + 描边，但不填满（防误点视觉权重过大）。
+  permissionClear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.danger,
+  },
+  permissionClearText: {
+    marginLeft: 6,
+    color: theme.colors.danger,
+    fontSize: fonts.scaled(12),
+  },
+  // 「安装示例技能」：中性动作（主题色描边），与上面那个危险色的清除按钮区分开。
+  skillsInstall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+  },
+  skillsInstallText: {
+    marginLeft: 6,
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
+  },
+  // 工作区模板行：左信息右按钮（每行一个模板，各带「创建」）。
+  templateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  templateInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  templateName: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(13),
+  },
+  templateDescription: {
+    marginTop: 2,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(15),
+  },
+  templateCreate: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+  },
+  templateCreateText: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
   chip: {

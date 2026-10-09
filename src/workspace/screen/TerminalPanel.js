@@ -26,8 +26,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { getWorkspaceSettings } from '../../storage/workspace.js';
-import { terminalGateReason, resolveTerminalSandboxRoot } from '../native.js';
+import { createWorkspaceStore, terminalGateReason, resolveTerminalSandboxRoot } from '../native.js';
 import { execShellCommand, isShellAvailable, sandboxDirectoryPath, SHELL_TOOL_TIMEOUT_MS, truncateShellOutput } from '../shell.js';
+import { readShellSession, shellEnvExports, writeShellSession } from '../shellSession.js';
 import { historyWithCommand, resolveTerminalCwd, sandboxCwdPath } from '../terminal.js';
 
 const FONT_STEPS = [11, 13, 15];
@@ -56,6 +57,10 @@ export default function TerminalPanel({ characterId }) {
   const abortRef = useRef(null);
   const mountedRef = useRef(true);
   const scrollRef = useRef(null);
+  // 持久会话（T7）：store 读写 .easychat/env.json；envRef 保存要注入的环境变量
+  //（执行时拼 export 前缀，用户看不到包装）。
+  const storeRef = useRef(null);
+  const shellEnvRef = useRef({});
 
   useEffect(() => {
     mountedRef.current = true;
@@ -74,12 +79,26 @@ export default function TerminalPanel({ characterId }) {
         const shellAvailable = isShellAvailable();
         setGate(terminalGateReason(settings, { shellAvailable }));
         sandboxRef.current = resolveTerminalSandboxRoot(settings, { shellAvailable }) || '';
+        // 持久会话（T7）：从 .easychat/env.json 恢复目录与环境变量——与 agent 的
+        // run_shell 共享同一份状态（任一侧 cd 过，另一侧从那里继续）。
+        try {
+          storeRef.current = createWorkspaceStore(settings);
+        } catch (error) {
+          storeRef.current = null;
+        }
+        if (storeRef.current) {
+          const session = await readShellSession(storeRef.current, characterId);
+          if (!alive) return;
+          shellEnvRef.current = session.env || {};
+          // 面板的 cwd 用 '.' 表示根，会话文件用 '' —— 在这里做一次映射。
+          if (session.cwd) setCwd(session.cwd);
+        }
       } catch (error) {
         if (alive) setGate('SHELL_NOT_AVAILABLE');
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [characterId]);
 
   const appendLine = useCallback(entry => {
     if (mountedRef.current) setLines(prev => [...prev, { id: nextLineId(), ...entry }].slice(-200));
@@ -97,6 +116,13 @@ export default function TerminalPanel({ characterId }) {
     if (nextCwd.changed) {
       setCwd(nextCwd.cwd);
       appendLine({ command, stdout: '', stderr: '', exitCode: 0, note: 'cwd', cwd: nextCwd.cwd });
+      // 写回会话文件（T7）：模型下一条 run_shell 从这里继续（'.' ↔ '' 映射）。
+      if (storeRef.current) {
+        writeShellSession(storeRef.current, characterId, {
+          cwd: nextCwd.cwd === '.' ? '' : nextCwd.cwd,
+          env: shellEnvRef.current,
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -109,8 +135,11 @@ export default function TerminalPanel({ characterId }) {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      // 环境变量注入（T7）：env.json 里配置的变量每次执行都带上（用户命令原文不变，
+      // 只在执行脚本里加 export 前缀——回显与历史仍是用户输入的原样）。
+      const envPrefix = shellEnvExports(shellEnvRef.current);
       const result = await execShellCommand({
-        command,
+        command: envPrefix ? `${envPrefix}\n${command}` : command,
         // 与文件工具同一沙盒：根 + 角色子目录，终端看到的就是该角色的工作区。
         cwdPath: sandboxCwdPath(sandboxDirectoryPath(sandbox, characterId), cwd),
         signal: controller.signal,
