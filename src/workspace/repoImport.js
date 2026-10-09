@@ -25,10 +25,17 @@ export const REPO_IMPORT_LIMITS = Object.freeze({
   MAX_DOWNLOAD_BYTES: 50 * 1024 * 1024,
   MAX_ENTRIES: 5000,
   MAX_TOTAL_UNCOMPRESSED_BYTES: 200 * 1024 * 1024,
-  // 任务书给的 50MB 是磁盘口径；沙盒的 agent 读取预览上限是 1MB（store MAX_READ_CHARS），
-  // 超过它连工作区 AI 自己都读不了，落进来没有意义——文本单文件上限对齐 1MB，超限跳过。
+  // 二进制（扩展名黑名单）单文件上限：不落盘（agent 用不了，白占 SAF 空间）。
   MAX_FILE_BYTES: 1024 * 1024,
+  // G3：**文本**单文件上限放宽到 5MB——落盘后可用分页读（store 支持 offset），
+  // 「超过 1MB 连读都读不了」的旧口径只对**读取预览**成立，落盘比分页更基础；
+  // 编辑器（MAX_EDIT_CHARS 4MB）与推送读取（PUSH_READ_MAX_CHARS 8MB）已各自对齐。
+  // 仍受 200MB 总量与 5000 条目约束。
+  MAX_TEXT_FILE_BYTES: 5 * 1024 * 1024,
 });
+
+// G2：跳过明细的条数上限（防超大 assets 仓库把内存与清单文件撑爆；超出只计数）。
+export const SKIPPED_LIST_MAX = 1000;
 
 function fail(code, message) {
   const error = new Error(message);
@@ -119,6 +126,12 @@ export function scanRepoZipball(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) 
   let skippedOversize = 0;
   let skippedDirs = 0;
   const files = [];
+  // G2：跳过明细（给「查看清单」与 pull-skipped.json 用）——只有计数时用户与
+  // agent 都不知道「少了哪些文件」。明细截断到 SKIPPED_LIST_MAX 条防爆内存。
+  const skipped = [];
+  const pushSkipped = item => {
+    if (skipped.length < SKIPPED_LIST_MAX) skipped.push(item);
+  };
   for (const entry of declared) {
     if (isZipDirectoryEntry(entry.name)) {
       skippedDirs += 1; // 目录条目：不是文件，跳过（顶层目录也在此）
@@ -128,14 +141,21 @@ export function scanRepoZipball(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) 
     if (!relative) {
       if (String(entry.name || '').replace(/\/$/, '') !== String(rootPrefix || '').replace(/\/$/, '')) {
         skippedSlip += 1; // 顶层目录本身不算越界；其余剥不掉前缀的都是可疑条目
+        pushSkipped({ path: String(entry.name || ''), reason: 'suspicious' });
       }
       continue;
     }
     const size = Number(entry.originalSize) || 0;
     totalBytes += size;
-    if (size > limits.MAX_FILE_BYTES) {
-      // 单文件超限跳过而非中止：超大的多是数据/日志文件，放弃它们不影响开工
+    // G3：单文件大小线按「文本 / 二进制」分档——超大**文本**落盘后可用分页读，
+    // 放宽到 MAX_TEXT_FILE_BYTES；二进制（扩展名黑名单）维持小线不落盘。
+    const sizeLimit = isTextWorkspaceFile(relative)
+      ? limits.MAX_TEXT_FILE_BYTES
+      : limits.MAX_FILE_BYTES;
+    if (size > sizeLimit) {
+      // 单文件超限跳过而非中止：超大的多是数据/日志/媒体文件，放弃它们不影响开工
       skippedOversize += 1;
+      pushSkipped({ path: relative, reason: 'oversize', size });
       continue;
     }
     files.push({ path: relative, size });
@@ -143,9 +163,18 @@ export function scanRepoZipball(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) 
   if (totalBytes > limits.MAX_TOTAL_UNCOMPRESSED_BYTES) {
     throw fail('REPO_LIMIT_TOTAL', `解压总量超过 ${Math.floor(limits.MAX_TOTAL_UNCOMPRESSED_BYTES / 1024 / 1024)}MB 上限`);
   }
-  return { files, skippedSlip, skippedOversize, skippedDirs, totalBytes, entryCount: declared.length };
+  return {
+    files,
+    skippedSlip,
+    skippedOversize,
+    skippedDirs,
+    skipped,
+    totalBytes,
+    entryCount: declared.length,
+  };
 }// 解压并筛出可落盘的**文本**文件（工作区不收二进制；图片等跳过并计数）。
-// 返回 { files: [{ path, content }], skippedBinary, skippedSlip, skippedOversize, skippedDirs }。
+// 返回 { files: [{ path, content }], skippedBinary, skippedSlip, skippedOversize,
+// skippedDirs, skipped: [{ path, reason, size? }] }。
 export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS) {
   const scan = scanRepoZipball(bytes, rootPrefix, limits);
   const wanted = new Set(scan.files.map(item => item.path));
@@ -158,16 +187,25 @@ export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS)
   });
   const files = [];
   let skippedBinary = 0;
+  const skipped = [...scan.skipped];
+  const pushSkipped = item => {
+    if (skipped.length < SKIPPED_LIST_MAX) skipped.push(item);
+  };
   for (const [entryName, data] of Object.entries(extracted)) {
     if (isZipDirectoryEntry(entryName)) continue;
     const relative = stripZipballEntry(entryName, rootPrefix);
     if (!relative || !wanted.has(relative)) continue;
-    if (data.length > limits.MAX_FILE_BYTES) {
+    const sizeLimit = isTextWorkspaceFile(relative)
+      ? limits.MAX_TEXT_FILE_BYTES
+      : limits.MAX_FILE_BYTES;
+    if (data.length > sizeLimit) {
       skippedBinary += 1; // 声明值伪造的兜底：实际解出超限同样跳过
+      pushSkipped({ path: relative, reason: 'oversize', size: data.length });
       continue;
     }
     if (!isTextWorkspaceFile(relative)) {
       skippedBinary += 1;
+      pushSkipped({ path: relative, reason: 'binary', size: data.length });
       continue;
     }
     files.push({ path: relative, content: strFromU8(data) });
@@ -178,6 +216,7 @@ export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS)
     skippedSlip: scan.skippedSlip,
     skippedOversize: scan.skippedOversize,
     skippedDirs: scan.skippedDirs,
+    skipped,
   };
 }
 
@@ -188,6 +227,78 @@ export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS)
 // **刻意不做断点续传**：逐文件存在性探测在 SAF 上同样慢，收益不抵复杂度；
 // 重跑全量覆盖是幂等且可靠的（重跑成本 = 主要成本，省不掉大头就不加这个复杂度）。
 export const PULL_MANIFEST_PATH = '.easychat/pull-manifest.json';
+
+// —— 拉取跳过清单（G2）——
+// 被跳过的文件（二进制/超大/可疑）落一份清单：用户点「查看清单」能看到具体少了
+// 哪些；agent 也能用 read_workspace_file 查（不再盲猜「仓库里有没有这个文件」）。
+// 覆盖式单文件（每次拉取重写），与 pull-manifest 同域。
+export const PULL_SKIPPED_PATH = '.easychat/pull-skipped.json';
+
+// 纯函数：构造清单 payload（items 截断到 SKIPPED_LIST_MAX 条，total 如实记全量）。
+export function buildPullSkippedPayload({ owner, repo, branch, skipped, at = 0 } = {}) {
+  const list = (Array.isArray(skipped) ? skipped : [])
+    .filter(item => item && item.path)
+    .map(item => ({
+      path: String(item.path),
+      reason: ['binary', 'oversize', 'suspicious'].includes(item.reason) ? item.reason : 'binary',
+      ...(Number.isFinite(Number(item.size)) && Number(item.size) > 0
+        ? { size: Math.floor(Number(item.size)) }
+        : {}),
+    }));
+  return {
+    owner: String(owner || ''),
+    repo: String(repo || ''),
+    branch: String(branch || ''),
+    at: Number.isFinite(Number(at)) && Number(at) > 0 ? Math.floor(Number(at)) : Date.now(),
+    total: list.length,
+    items: list.slice(0, SKIPPED_LIST_MAX),
+  };
+}
+
+// 纯函数：清单 → 人读文本（「查看清单」与导出用；超长截断如实报数）。
+export function formatSkippedList(payload, { max = 200 } = {}) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const items = Array.isArray(source.items) ? source.items : [];
+  if (items.length === 0) return '';
+  const reasonText = { binary: '二进制', oversize: '超大', suspicious: '可疑路径' };
+  const shown = items.slice(0, Math.max(1, Math.floor(Number(max)) || 200));
+  const lines = shown.map(item => {
+    const reason = reasonText[item.reason] || item.reason;
+    const size = Number.isFinite(Number(item.size)) && Number(item.size) > 0
+      ? `（${Math.max(1, Math.round(Number(item.size) / 1024))}KB）`
+      : '';
+    return `${reason}　${item.path}${size}`;
+  });
+  if (items.length > shown.length) lines.push(`…还有 ${items.length - shown.length} 条`);
+  return lines.join('\n');
+}
+
+// IO 薄壳：读/写都绝不抛错（清单是旁路机制，不能挡拉取主流程）。
+export async function readPullSkipped(store, characterId) {
+  if (!store || typeof store.readWorkspaceFile !== 'function') return null;
+  try {
+    const result = await store.readWorkspaceFile({ characterId, path: PULL_SKIPPED_PATH });
+    const parsed = JSON.parse(String((result && result.content) || ''));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function writePullSkipped(store, characterId, payload) {
+  if (!store || typeof store.writeWorkspaceFile !== 'function') return false;
+  try {
+    await store.writeWorkspaceFile({
+      characterId,
+      path: PULL_SKIPPED_PATH,
+      content: JSON.stringify(payload),
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
 
 // 纯函数：清单文本 → { owner, repo, branch, files, at }；坏输入 → null（当作没有）。
 export function parsePullManifest(text) {

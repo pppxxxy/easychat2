@@ -244,3 +244,21 @@ test('E5 历史浏览与 PR 接线：面板走 restApi、大 diff 截断、PR �
   // head = base 的无效场景要有拦截（在 main 上直接推时别发出必失败的请求）。
   assert.ok(github.includes("t('workspace.github.pr.badBranches'"), 'head === base 时明确提示');
 });
+
+test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清单落盘 / 查看入口', () => {
+  const github = readSource('src/workspace/screen/GithubPanel.js');
+  // G1：推送前读基线并注入（「曾经物化过」的证据）——缺失时传空数组（removed 恒空）
+  assert.ok(github.includes('await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`)'), '推送前读基线');
+  assert.ok(github.includes('baselinePaths,'), '基线传入 pushRepoSnapshot');
+  // G2：拉取完成后写清单（成功路径）；面板挂载读取（跨会话保留）
+  assert.ok(github.includes('await writePullSkipped(store, characterId, skippedPayloadNext)'), '拉取成功后写跳过清单');
+  assert.ok(github.includes('await readPullSkipped(storeRef && storeRef.current, characterId)'), '挂载时读清单');
+  assert.ok(github.includes("t('workspace.github.skipped.view', { count: skippedPayload.total })"), '查看清单入口（带计数）');
+  assert.ok(github.includes('formatSkippedList(skippedPayload)'), '清单文本用纯函数格式化');
+  // 顺序契约：写清单在「清残留 manifest」之后（= 真正成功路径），失败/取消不写
+  const clearManifestAt = github.indexOf('await clearPullManifest(store, characterId)');
+  const writeSkippedAt = github.indexOf('await writePullSkipped(');
+  assert.ok(clearManifestAt > 0 && writeSkippedAt > clearManifestAt, '清单只在成功路径写');
+  // G 系超限记账：完成提示带「过大未参与同步」（不静默）
+  assert.ok(github.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');
+});

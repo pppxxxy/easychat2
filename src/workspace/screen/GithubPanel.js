@@ -40,13 +40,17 @@ import { diffRepoSnapshot, localRepoPaths } from './repoDiff.js';
 import { materializeRepoFile } from '../repoMaterialize.js';
 import { pushRepoSnapshot } from '../repoPush.js';
 import {
+  buildPullSkippedPayload,
   buildRepoZipUrl,
   clearPullManifest,
   extractRepoFiles,
+  formatSkippedList,
   readPullManifest,
+  readPullSkipped,
   readRepoManifest,
   REPO_IMPORT_LIMITS,
   writePullManifest,
+  writePullSkipped,
   writeRepoManifest,
 } from '../repoImport.js';
 import {
@@ -114,6 +118,9 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [pullEta, setPullEta] = useState(0);
   const pullStartRef = useRef(0);
   const pullCancelRef = useRef(false);
+  // G2：跳过清单（拉取时被跳过的二进制/超大/可疑文件）——「少了哪些文件」可见。
+  const [skippedPayload, setSkippedPayload] = useState(null);
+  const [skippedOpen, setSkippedOpen] = useState(false);
   // B1 分支选择器：三态（loading / error / chips）；seq 防「快速切仓库时旧响应
   // 后到」把新仓库的分支列表盖回去（网络乱序是常态，不能靠响应先后）。
   const [branchOptions, setBranchOptions] = useState([]);
@@ -143,6 +150,21 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // G2：面板（重）挂载时读上次拉取的跳过清单——「跳过 N 个文件（可查看清单）」
+  // 在会话之间也保留（agent 同样能用 read_workspace_file 读 .easychat/pull-skipped.json）。
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const payload = await readPullSkipped(storeRef && storeRef.current, characterId);
+        if (alive && payload && payload.total > 0) {
+          setSkippedPayload(payload);
+        }
+      } catch (error) {}
+    })();
+    return () => { alive = false; };
+  }, [characterId]);
 
   const describeError = useCallback(caught => {
     const code = caught && caught.code;
@@ -498,10 +520,18 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         throw Object.assign(new Error('zip too large'), { code: 'REPO_LIMIT_DOWNLOAD' });
       }
       const buffer = await response.arrayBuffer();
-      const { files, skippedBinary, skippedSlip, skippedOversize, skippedDirs } = extractRepoFiles(
+      const { files, skippedBinary, skippedSlip, skippedOversize, skippedDirs, skipped } = extractRepoFiles(
         new Uint8Array(buffer),
         `${current.repo}-${branch}/`
       );
+      // G2：跳过清单落盘（覆盖式——本次没跳过就覆盖为空，如实反映最近一次拉取）。
+      // 写失败不挡拉取主流程（旁路机制）。
+      const skippedPayloadNext = buildPullSkippedPayload({
+        owner: current.owner,
+        repo: current.repo,
+        branch,
+        skipped,
+      });
       if (files.length === 0) {
         Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
         return;
@@ -548,6 +578,9 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
       if (batchOpen) { store.endBatch?.(); batchOpen = false; }
       // F4：跑到这里才算真的完成——删除残留清单（失败/取消路径会保留它）。
       await clearPullManifest(store, characterId);
+      // G2：成功后才写跳过清单（失败/取消不写——避免误导成「这次拉取的结论」）。
+      await writePullSkipped(store, characterId, skippedPayloadNext);
+      if (mountedRef.current) setSkippedPayload(skippedPayloadNext);
       if (mountedRef.current) {
         setCurrent(prev => (prev ? { ...prev, branch } : prev));
         setSubdir(base);
@@ -828,6 +861,13 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     if (!branch) return;
     setPushBusy(true);
     try {
+      // G1：读基线快照（拉取/推送成功后的清单）——「曾经物化过」的证据。
+      // 基线缺失（旧会话/手工拷入）→ 传空数组：removed 恒空，宁可少删不可误删。
+      let baselinePaths = [];
+      try {
+        const baseline = await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`);
+        baselinePaths = baseline && Array.isArray(baseline.paths) ? baseline.paths : [];
+      } catch (error) {}
       const result = await pushRepoSnapshot({
         store,
         characterId,
@@ -835,6 +875,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         repo: current.repo,
         branch,
         token,
+        baselinePaths,
         confirm: ({ diff: guardDiff }) => confirmPushDiff(guardDiff),
       });
       if (result.empty) {
@@ -855,12 +896,16 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         if (mountedRef.current) setSnapshotPaths(paths);
       } catch (error) {}
       await refreshLocal();
+      // G 系：读不全的超大文件**不参与本次同步**（保持原样，不会被误删）——如实提示。
+      const skippedNote = Array.isArray(result.skippedTooLarge) && result.skippedTooLarge.length > 0
+        ? `\n\n${t('workspace.github.push.skippedTooLarge', { count: result.skippedTooLarge.length })}`
+        : '';
       Alert.alert(t('workspace.github.title'), t('workspace.github.push.doneBody', {
         sha: String(result.commit || '').slice(0, 7),
         added: result.diff.added.length,
         modified: result.diff.modified.length,
         removed: result.diff.removed.length,
-      }));
+      }) + skippedNote);
     } catch (caught) {
       Alert.alert(t('workspace.github.title'), describeError(caught));
     } finally {
@@ -1179,6 +1224,25 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                   </FieldHint>
                 ) : null}
                 {pullNotice ? <FieldHint>{pullNotice}</FieldHint> : null}
+                {/* G2：跳过清单入口——「少了哪些文件」可见（以前只有计数）。 */}
+                {skippedPayload && skippedPayload.total > 0 ? (
+                  <>
+                    <View style={styles.actions}>
+                      <GhostButton
+                        title={skippedOpen
+                          ? t('workspace.github.skipped.hide')
+                          : t('workspace.github.skipped.view', { count: skippedPayload.total })}
+                        small
+                        onPress={() => setSkippedOpen(value => !value)}
+                      />
+                    </View>
+                    {skippedOpen ? (
+                      <Text style={styles.skippedList} selectable numberOfLines={80}>
+                        {formatSkippedList(skippedPayload)}
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
                 <FieldHint>{t('workspace.github.pull.hint')}</FieldHint>
 
                 {layer === 'newEntry' ? (
@@ -1546,6 +1610,16 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   historyDiffText: {
     color: theme.colors.text,
     fontSize: fonts.scaled(11.5),
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.sm,
+    padding: 10,
+    marginTop: 6,
+  },
+  // G2：跳过清单（等宽小字，只读展示路径 + 原因 + 大小）。
+  skippedList: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(11),
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     backgroundColor: theme.colors.surfaceAlt,
     borderRadius: tokens.radius.sm,

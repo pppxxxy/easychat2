@@ -6,22 +6,27 @@ import { strToU8, zipSync } from 'fflate';
 
 import {
   buildBranchesApiUrl,
+  buildPullSkippedPayload,
   buildRepoApiUrl,
   buildRepoZipUrl,
   buildReposApiUrl,
   clearPullManifest,
   extractRepoFiles,
+  formatSkippedList,
   parsePullManifest,
   parseRepoFullName,
   PULL_MANIFEST_PATH,
+  PULL_SKIPPED_PATH,
   parseRepoManifest,
   readPullManifest,
+  readPullSkipped,
   readRepoManifest,
   repoManifestPath,
   REPO_IMPORT_LIMITS,
   scanRepoZipball,
   stripZipballEntry,
   writePullManifest,
+  writePullSkipped,
   writeRepoManifest,
 } from '../src/workspace/repoImport.js';
 import { CATALOG_BUNDLES, findCatalogBundle, findCatalogItem, buildCatalogContent } from '../src/workspace/catalog.js';
@@ -139,19 +144,33 @@ test('extractRepoFiles：跳过 zip 目录条目——.github/ 不得变成 0 �
   assert.equal(files.find(item => item.path === '.github/workflows/ci.yml').content, 'name: ci');
 });
 
-test('extractRepoFiles：只落文本，二进制与超限跳过并计数', () => {
+test('extractRepoFiles：只落文本；G3 起文本放宽到 5MB，二进制保持 1MB 线', () => {
   const bytes = buildZipball('demo-main/', {
     'README.md': '文本内容',
     'src/index.js': 'export default 1;',
     'logo.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    // G3：1MB+ 的**文本**现在应落盘（分页读可用），不再是超限跳过
     'big.log': 'x'.repeat(REPO_IMPORT_LIMITS.MAX_FILE_BYTES + 1),
+    // 超过文本线（5MB）的仍跳过
+    'huge.log': 'y'.repeat(REPO_IMPORT_LIMITS.MAX_TEXT_FILE_BYTES + 1),
   });
-  const { files, skippedBinary, skippedOversize } = extractRepoFiles(bytes, 'demo-main/');
+  const { files, skippedBinary, skippedOversize, skipped } = extractRepoFiles(bytes, 'demo-main/');
   const paths = files.map(item => item.path).sort();
-  assert.deepEqual(paths, ['README.md', 'src/index.js']);
+  assert.deepEqual(paths, ['README.md', 'big.log', 'src/index.js'], '1MB+ 文本落盘（G3）');
   assert.equal(files.find(item => item.path === 'src/index.js').content, 'export default 1;');
+  assert.equal(files.find(item => item.path === 'big.log').content.length, REPO_IMPORT_LIMITS.MAX_FILE_BYTES + 1, '内容完整（不截断）');
   assert.equal(skippedBinary, 1, 'png 计入二进制跳过');
-  assert.equal(skippedOversize, 1, '超过单文件上限的 big.log 计入超限跳过');
+  assert.equal(skippedOversize, 1, '超过文本线的 huge.log 计入超限跳过');
+  // G2：跳过明细（哪些文件、什么原因、多大）——扫描阶段的先，解压阶段的补在后
+  assert.deepEqual(
+    skipped.map(item => [item.path, item.reason]).sort((a, b) => a[0].localeCompare(b[0])),
+    [
+      ['huge.log', 'oversize'],
+      ['logo.png', 'binary'],
+    ],
+    '跳过明细带原因（huge 在扫描阶段记录、png 在解压阶段补记）'
+  );
+  assert.ok(skipped.every(item => item.size > 0), '明细带大小');
 });
 
 test('套餐：id 引用的条目都存在，full 含 gitconfig 且需提交身份', () => {
@@ -239,6 +258,54 @@ test('F4 拉取残留清单：解析容错 + 写入/读取/清理往返（全不
   assert.equal(await clearPullManifest(null, 'c1'), false);
   const failing = { async writeWorkspaceFile() { throw new Error('no space'); } };
   assert.equal(await writePullManifest(failing, 'c1', { owner: 'a', repo: 'b', branch: 'm' }), false, '写失败返回 false 不抛');
+});
+
+test('G2 跳过清单：payload 构造容错 + 文本格式化 + IO round-trip（不抛错）', async () => {
+  const payload = buildPullSkippedPayload({
+    owner: 'o',
+    repo: 'r',
+    branch: 'main',
+    at: 5,
+    skipped: [
+      { path: 'a.png', reason: 'binary', size: 2048 },
+      { path: 'b.log', reason: 'oversize', size: 6 * 1024 * 1024 },
+      { path: '../evil', reason: 'suspicious' },
+      { path: '', reason: 'binary' },
+      { path: 'c.txt', reason: 'weird' },
+    ],
+  });
+  assert.equal(payload.total, 4, '空 path 丢弃');
+  assert.equal(payload.items[2].reason, 'suspicious');
+  assert.equal(payload.items[3].reason, 'binary', '未知 reason 收敛为 binary');
+  assert.equal('size' in payload.items[3], false, '无 size 就不写该字段');
+
+  const text = formatSkippedList(payload);
+  assert.match(text, /二进制　a\.png（2KB）/);
+  assert.match(text, /超大　b\.log/);
+  assert.match(text, /可疑路径　\.\.\/evil/);
+  assert.equal(formatSkippedList({ items: [] }), '');
+  assert.equal(formatSkippedList(null), '');
+
+  // IO round-trip（fake store）
+  const files = {};
+  const store = {
+    async writeWorkspaceFile({ path, content }) { files[path] = content; },
+    async readWorkspaceFile({ path }) {
+      if (!(path in files)) throw new Error('missing');
+      return { content: files[path] };
+    },
+  };
+  assert.equal(await writePullSkipped(store, 'c1', payload), true);
+  assert.ok(PULL_SKIPPED_PATH in files, '清单落在 .easychat/ 下（与 manifest 同域）');
+  const back = await readPullSkipped(store, 'c1');
+  assert.equal(back.total, 4);
+  assert.equal(back.items[1].size, 6 * 1024 * 1024);
+
+  // 旁路：缺 store / 坏 json / 写失败都不抛错
+  assert.equal(await readPullSkipped(null, 'c1'), null);
+  assert.equal(await writePullSkipped(null, 'c1', payload), false);
+  files[PULL_SKIPPED_PATH] = '{坏 json';
+  assert.equal(await readPullSkipped(store, 'c1'), null, '坏清单当没有');
 });
 
 test('C1 仓库清单：路径编码（branch 含斜杠不造假目录）+ 解析容错 + IO 往返', async () => {
