@@ -181,15 +181,18 @@ test('形态安全网：模式必须真实存在，且两张白名单里不得�
   }
 });
 
-test('接线源码断言：useChatSend 挂载 ensureGithubMcpToolsRegistered；硬禁文案钉死', () => {
+test('接线源码断言：useChatSend 挂载 ensureMcpToolsRegistered；硬禁文案钉死', () => {
   const send = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
   // 锚在行首：注释掉的同名调用（// await ...）不算挂载（注入验证抓过这个盲区）。
   assert.match(
     send,
-    /^\s*await ensureGithubMcpToolsRegistered\(\);/m,
+    /^\s*await ensureMcpToolsRegistered\(\);/m,
     'agent 回合必须先挂载/摘除 MCP 工具再列工具表'
   );
   const tools = fs.readFileSync(path.resolve('src/workspace/mcpTools.js'), 'utf8');
-  assert.ok(tools.includes('classifyMcpTool(mcpName) === MCP_TOOL_TIERS.DENIED'), '执行层双保险必须存在');
+  // 通用 MCP 后执行层改为「按服务器分级重查」（带 serverId/tierOverrides）；
+  // 双保险语义不变：注册时查过一次，执行前再按同一套规则查一次。
+  assert.ok(tools.includes('if (tier === MCP_TOOL_TIERS.DENIED)'), '执行层双保险必须存在');
+  assert.ok(tools.includes('classifyMcpTool(mcpName, {'), '执行层分级必须按服务器参数重查');
   assert.ok(tools.includes('安全策略禁止此操作'), '硬禁提示必须明确不可解锁');
 });

@@ -4,6 +4,7 @@
 // 循环本身不做持久化，也不直接接触 RN UI。
 
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
+import { serializeToolResult, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 5;
@@ -17,28 +18,6 @@ function safeCallback(callback, payload) {
   } catch (error) {
     // 信息性 UI 回调抛错不得打断循环。
   }
-}
-
-function serializeToolResult(result) {
-  const content = typeof result === 'string'
-    ? result
-    : String((result && result.content) || '');
-  if (content.length <= TOOL_RESULT_LIMIT) return content;
-  return `${content.slice(0, TOOL_RESULT_LIMIT)}…（已截断）`;
-}
-
-// text 为空且有 tool_calls 时 content 置 null：部分兼容端点拒绝空串 content。
-function toAssistantMessage(result) {
-  const text = typeof result.text === 'string' ? result.text : '';
-  const message = { role: 'assistant', content: text.length ? text : null };
-  if (Array.isArray(result.toolCalls) && result.toolCalls.length) {
-    message.tool_calls = result.toolCalls.map(call => ({
-      id: call.id,
-      type: 'function',
-      function: { name: call.name, arguments: call.arguments },
-    }));
-  }
-  return message;
 }
 
 export async function runAgentTurn(messages, options = {}) {

@@ -15,6 +15,13 @@
 // 顶层不 import react-native（惰性 require），纯 Node 测试可直接加载纯函数。
 
 import { sanitizeSandboxId } from './paths.js';
+import {
+  readShellSession,
+  resolveCapturedCwd,
+  SHELL_CWD_FILE,
+  wrapShellCommand,
+  writeShellSession,
+} from './shellSession.js';
 import { tActive } from '../i18n/index.js';
 
 export const SHELL_OUTPUT_LIMIT = 64 * 1024;
@@ -156,13 +163,46 @@ function makeAbortError() {
 //
 // sandboxRoot 是应用私有工作区的真实路径（file:// 已转成绝对路径）；
 // 每个角色在自己的子目录里跑，与文件工具同一沙盒——模型 ls 看到的就是它的工作区。
-export function createShellRunner({ sandboxRoot, native } = {}) {
+//
+// store（可选，T7 持久会话）：给了就启用「目录记忆 + 环境变量注入」——
+// 命令被 wrapShellCommand 包装：重放上次 cwd、跑完捕获结束目录写回 .easychat/env.json；
+// env.json 里的环境变量注入每次执行。**没给 store 走原样执行**（与改动前一致）。
+export function createShellRunner({ sandboxRoot, native, store } = {}) {
   return async ({ command, signal, characterId } = {}) => {
     const cwdPath = sandboxDirectoryPath(sandboxRoot, characterId);
-    const result = await execShellCommand({ command, cwdPath, signal, native });
+    // 空命令交给 execShellCommand 抛统一错误（不包装，保住错误语义）。
+    if (!store || !String(command == null ? '' : command).trim()) {
+      const result = await execShellCommand({ command, cwdPath, signal, native });
+      const out = truncateShellOutput(result.stdout);
+      const err = truncateShellOutput(result.stderr);
+      return formatShellResult({ ...result, stdout: out.text, stderr: err.text });
+    }
+
+    const session = await readShellSession(store, characterId);
+    const wrapped = wrapShellCommand({ command, rootPath: cwdPath, cwd: session.cwd, env: session.env });
+    const result = await execShellCommand({ command: wrapped, cwdPath, signal, native });
+
+    // 捕获结束目录 → 变了才回写（没变省一次写；读写失败绝不影响命令结果本身）。
+    let currentCwd = session.cwd;
+    try {
+      const captured = await store.readWorkspaceFile({ characterId, path: SHELL_CWD_FILE });
+      const cwd = resolveCapturedCwd(captured && captured.content, cwdPath);
+      if (cwd !== null) {
+        currentCwd = cwd;
+        if (cwd !== session.cwd) {
+          await writeShellSession(store, characterId, { cwd, env: session.env });
+        }
+      }
+    } catch (error) {}
+
     const out = truncateShellOutput(result.stdout);
     const err = truncateShellOutput(result.stderr);
-    return formatShellResult({ ...result, stdout: out.text, stderr: err.text });
+    const formatted = formatShellResult({ ...result, stdout: out.text, stderr: err.text });
+    // 附一行当前目录：目录现在会被记住（不再每条回到根），模型必须知道自己在哪。
+    return {
+      ...formatted,
+      content: `当前目录：${currentCwd || '（工作区根）'}\n${formatted.content}`,
+    };
   };
 }
 

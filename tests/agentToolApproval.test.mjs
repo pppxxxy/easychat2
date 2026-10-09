@@ -4,7 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  APPROVAL_ALWAYS,
   APPROVAL_DENIED,
+  APPROVAL_SESSION,
   describeToolApproval,
   requestToolApproval,
 } from '../src/chat/toolApproval.js';
@@ -16,6 +18,8 @@ const t = (key, params) => {
   if (key === 'chat.tool.approval.bodyEmpty') return '没有命令内容';
   if (key === 'chat.tool.approval.deny') return '拒绝';
   if (key === 'chat.tool.approval.allow') return '允许';
+  if (key === 'chat.tool.approval.session') return '本次会话允许';
+  if (key === 'chat.tool.approval.always') return '永远允许';
   return key;
 };
 
@@ -69,26 +73,51 @@ test('describeToolApproval：run_python 显示代码原文，不是 JSON 转义'
   assert.equal(withExtra.body.includes('extra'), false, '有代码时不再显示参数摘要');
 });
 
-test('点「允许」返回 true，点「拒绝」返回 false', async () => {
-  const allow = fakeAlert('press', 1);
-  assert.equal(await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: allow }), true);
-  assert.equal(allow.calls.length, 1);
-  assert.equal(allow.calls[0].buttons[0].style, 'cancel');
-  assert.equal(allow.calls[0].buttons[1].style, 'destructive');
-
+test('三选项：拒绝 / 本次会话允许 / 永远允许，各自返回对应常量', async () => {
   const deny = fakeAlert('press', 0);
-  assert.equal(await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: deny }), false);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: deny }),
+    APPROVAL_DENIED
+  );
+  const session = fakeAlert('press', 1);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: session }),
+    APPROVAL_SESSION
+  );
+  const always = fakeAlert('press', 2);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: always }),
+    APPROVAL_ALWAYS
+  );
+  // 按钮顺序与样式：拒绝占 cancel 位（系统把它放在返回键/最外层，误触代价最低），
+  // 永远允许是 destructive（红字，视觉警示）。
+  const call = always.calls[0];
+  assert.equal(call.buttons.length, 3, 'Android 原生 Alert 上限 3 个按钮（超出会被系统丢掉）');
+  assert.equal(call.buttons[0].style, 'cancel');
+  assert.equal(call.buttons[0].text, '拒绝');
+  assert.equal(call.buttons[1].text, '本次会话允许');
+  assert.equal(call.buttons[2].style, 'destructive');
+  assert.equal(call.buttons[2].text, '永远允许');
 });
 
 test('弹框被点外部关掉 / 按返回键一律按拒绝', async () => {
   const dismissed = fakeAlert('dismiss');
-  assert.equal(await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: dismissed }), false);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: dismissed }),
+    APPROVAL_DENIED
+  );
   assert.equal(dismissed.calls[0].options.cancelable, true);
 });
 
 test('没有弹框能力时直接拒绝（问不到人 = 不许执行）', async () => {
-  assert.equal(await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: null }), false);
-  assert.equal(await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: {} }), false);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: null }),
+    APPROVAL_DENIED
+  );
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: {} }),
+    APPROVAL_DENIED
+  );
 });
 
 test('用户点停止生成时立即按拒绝结算，不留悬挂 Promise', async () => {
@@ -103,7 +132,7 @@ test('用户点停止生成时立即按拒绝结算，不留悬挂 Promise', asy
   const pending = requestToolApproval({ name: 'run_shell', args: { command: 'sleep 999' }, t, signal, showAlert: stuck });
   assert.equal(listeners.size, 1, '必须挂上中止监听');
   for (const handler of [...listeners]) handler();
-  assert.equal(await pending, false);
+  assert.equal(await pending, APPROVAL_DENIED);
   assert.equal(listeners.size, 0, '结算后必须摘掉监听，避免泄漏');
 });
 
@@ -116,10 +145,12 @@ test('已经中止的信号：连弹框都不弹', async () => {
     showAlert: alert,
     signal: { aborted: true, addEventListener() {}, removeEventListener() {} },
   });
-  assert.equal(result, false);
+  assert.equal(result, APPROVAL_DENIED);
   assert.equal(alert.calls.length, 0, '已中止就不该再打扰用户');
 });
 
 test('拒绝常量可用于上层区分「拒绝」与「失败」', () => {
   assert.equal(APPROVAL_DENIED, 'approval-denied');
+  assert.equal(APPROVAL_SESSION, 'session');
+  assert.equal(APPROVAL_ALWAYS, 'always');
 });

@@ -63,7 +63,7 @@ import { resolveTranscription, transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn } from '../../agent/loop.js';
 import { listToolsForMode } from '../../agent/tools/registry.js';
-import { requestToolApproval } from '../../chat/toolApproval.js';
+import { approveToolCall } from '../../chat/toolApprovalFlow.js';
 import {
   isImage,
   isTextLike,
@@ -75,7 +75,22 @@ import {
 import useChatRecorder from '../../chat/useChatRecorder.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
+import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
+import { installSampleSkills, readWorkspaceSkills } from '../skills.js';
+import {
+  expandSlashCommand,
+  installSampleCommands,
+  matchSlashCommands,
+  readWorkspaceCommands,
+  slashQuery,
+} from '../commands.js';
+import { readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
+import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
+import {
+  clearPermissionRules,
+  getEffectivePermissionRules,
+} from '../../storage/settings/workspacePermissions.js';
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
 import {
@@ -114,6 +129,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('');
+  // 已记住的授权（本次会话 + 永久）：打开设置面板时刷新一次即可——
+  // 规则只会在「用户点弹框」时变化，而点弹框时用户不在设置面板里。
+  const [permissionRules, setPermissionRules] = useState([]);
+  // 技能清单（设置面板展示用；发消息时另行直读，两处互不影响）。
+  const [workspaceSkills, setWorkspaceSkills] = useState([]);
+  // 斜杠命令（输入框建议列表用；发送时会重读一次拿最新——agent 可能刚建了命令文件）。
+  const [workspaceCommands, setWorkspaceCommands] = useState([]);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
   const [characterId, setCharacterId] = useState('default');
   const [characterName, setCharacterName] = useState('');
@@ -291,6 +313,26 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } catch (error) {}
   }, []);
 
+  // 打开设置面板时刷新「已记住的授权」与技能清单（列表与按钮共用这两份数据）。
+  // 时机够用：规则只在用户点确认弹框时变化，技能只在用户编辑文件时变化。
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    let alive = true;
+    getEffectivePermissionRules()
+      .then(rules => {
+        if (alive) setPermissionRules(Array.isArray(rules) ? rules : []);
+      })
+      .catch(() => {});
+    readWorkspaceSkills(storeRef.current, characterId)
+      .then(list => {
+        if (alive) setWorkspaceSkills(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [settingsOpen, characterId]);
+
   // 打开时自解析：设置快照 → 沙盒 store → 工作区角色 → 模型 / 思考 / 角色清单 / 项目。
   useEffect(() => {
     if (!visible) return undefined;
@@ -320,6 +362,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         const ownerId = resolved.id || settings.assistantCharacterId || 'default';
         loadUsage(ownerId);
         loadChats(ownerId);
+        // 斜杠命令：打开面板时读一次供建议列表用（发送时还会重读，见 handleSend）。
+        readWorkspaceCommands(storeRef.current, ownerId)
+          .then(list => {
+            if (alive) setWorkspaceCommands(Array.isArray(list) ? list : []);
+          })
+          .catch(() => {});
+
+        // 首次打开工作区（可改模式）：生成一份 AGENTS.md 模板当起点。
+        // 幂等且绝不覆盖已有文件——用户或 agent 改过的内容就是它存在的意义；
+        // 无写权限（外部文件夹根）时失败静默，不打扰任何流程。
+        if (storeRef.current && settings.mode === 'write') {
+          ensureWorkspaceMemory(storeRef.current, ownerId, settings.mode).catch(() => {});
+        }
 
         const { configs, activeId } = await getApiConfigs().catch(() => ({ configs: [], activeId: '' }));
         if (alive) {
@@ -489,6 +544,92 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   }, [characters, loadChats, loadUsage]);
 
   // 导入文件：选一个文本文件复制进沙盒（角色随后就能读它）。
+  // 安装示例技能（3 个，幂等：已有的绝不覆盖）——技能是文件，用户在文件面板里
+  // 自由编辑，这里只负责给一个能跑的起点。
+  const handleInstallSampleSkills = useCallback(async () => {
+    let installed = 0;
+    try {
+      installed = await installSampleSkills(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const list = await readWorkspaceSkills(storeRef.current, characterId);
+      setWorkspaceSkills(Array.isArray(list) ? list : []);
+    } catch (error) {}
+    if (installed > 0) {
+      Alert.alert(
+        t('workspace.settings.skills.installDoneTitle'),
+        t('workspace.settings.skills.installDone', { count: installed })
+      );
+    } else {
+      Alert.alert(
+        t('workspace.settings.skills.installNoneTitle'),
+        t('workspace.settings.skills.installNone')
+      );
+    }
+  }, [characterId, t]);
+
+  // 斜杠命令建议：输入以 / 开头、且还在打命令名（没出炉空格）时才出现，
+  // 选中即把 `/名字 ` 填回输入框（走 handleInputChange，草稿缓存同步）。
+  const slashSuggestions = useMemo(() => {
+    if (sending) return [];
+    const query = slashQuery(input);
+    if (query === null) return [];
+    return matchSlashCommands(workspaceCommands, query);
+  }, [input, sending, workspaceCommands]);
+
+  // 安装示例命令（3 个，幂等：同名的绝不覆盖），与示例技能同一套惯例。
+  const handleInstallSampleCommands = useCallback(async () => {
+    let installed = 0;
+    try {
+      installed = await installSampleCommands(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const list = await readWorkspaceCommands(storeRef.current, characterId);
+      setWorkspaceCommands(Array.isArray(list) ? list : []);
+    } catch (error) {}
+    if (installed > 0) {
+      Alert.alert(
+        t('workspace.settings.commands.installDoneTitle'),
+        t('workspace.settings.commands.installDone', { count: installed })
+      );
+    } else {
+      Alert.alert(
+        t('workspace.settings.commands.installNoneTitle'),
+        t('workspace.settings.commands.installNone')
+      );
+    }
+  }, [characterId, t]);
+
+  // 工作区模板（T9）：一键铺起始文件；幂等不覆盖，结果如实汇报（创建/跳过/失败）。
+  const handleInstallTemplate = useCallback(async templateId => {
+    let result = { created: [], skipped: [], failed: [] };
+    try {
+      result = await installWorkspaceTemplate(storeRef.current, characterId, templateId);
+    } catch (error) {}
+    const base = t('workspace.settings.templates.done', {
+      created: result.created.length,
+      skipped: result.skipped.length,
+    });
+    const failed = result.failed.length > 0
+      ? `\n${t('workspace.settings.templates.doneFailed', { count: result.failed.length })}`
+      : '';
+    Alert.alert(t('workspace.settings.templates.doneTitle'), `${base}${failed}`);
+  }, [characterId, t]);
+
+  // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
+  // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
+  const handleClearPermissionRules = useCallback(async () => {
+    try {
+      await clearPermissionRules();
+    } catch (error) {}
+    try {
+      const rules = await getEffectivePermissionRules();
+      setPermissionRules(Array.isArray(rules) ? rules : []);
+    } catch (error) {
+      setPermissionRules([]);
+    }
+  }, []);
+
   const handleImportFile = useCallback(async () => {
     if (importBusy) return;
     const store = storeRef.current;
@@ -587,6 +728,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const images = imageAttachments.map(item => item.dataUri);
     if (!userText && images.length === 0) return;
 
+    // 斜杠命令展开：发送时按**最新**命令表展开（agent 可能刚在工作区里建了命令文件，
+    // 打开面板时读的那份会过期）；气泡与落盘照旧保存用户输入原文，展开文本只进这一轮请求。
+    let outgoingText = userText;
+    try {
+      const freshCommands = await readWorkspaceCommands(storeRef.current, characterId);
+      setWorkspaceCommands(Array.isArray(freshCommands) ? freshCommands : []);
+      const expanded = expandSlashCommand(userText, freshCommands);
+      if (expanded) outgoingText = expanded.text;
+    } catch (error) {}
+
     const userMessage = {
       id: nextId(),
       role: 'user',
@@ -623,15 +774,23 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         tools = listToolsForMode(mode);
       } catch (error) {}
     }
+    // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
+    //（自我演进通路），缓存一旦判断失误模型就会按旧指令工作；读失败当没有，不打扰聊天。
+    const memory = await readWorkspaceMemory(storeRef.current, ownerId);
+    // 技能清单（渐进披露第一层）：同样每轮直读——技能目录不存在时只有一次 list IO。
+    const skills = mode === 'ask' ? [] : await readWorkspaceSkills(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
       tools: tools.map(item => item.function.name),
+      memory,
+      skills,
     });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,
       history: projectWorkspaceChatHistory(history),
-      userText,
+      // 斜杠命令在这里生效：outgoingText = 用户输入原文，或命令展开后的文本。
+      userText: outgoingText,
       images,
     });
     try {
@@ -655,12 +814,23 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           if (!mountedRef.current || !event) return;
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
         },
-        onToolApproval: call => requestToolApproval({
-          name: call && call.name,
-          args: call && call.args,
-          t,
-          signal: controller.signal,
-        }),
+        // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
+        // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
+        // 本轮内 agent 改了钩子文件也立即生效）；钩子只收紧、不放松。
+        onToolApproval: async call => {
+          let extraRules = [];
+          try {
+            const hooks = await readWorkspaceHooks(storeRef.current, characterId);
+            extraRules = shellHookDenyRules(hooks);
+          } catch (error) {}
+          return approveToolCall({
+            name: call && call.name,
+            args: call && call.args,
+            t,
+            signal: controller.signal,
+            extraRules,
+          });
+        },
         context: { characterId },
       });
       if (mode !== 'ask' && mountedRef.current && !controller.signal.aborted) {
@@ -766,6 +936,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onImportFile={handleImportFile}
                   importBusy={importBusy}
                   onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
+                  permissionRules={permissionRules}
+                  onClearPermissionRules={handleClearPermissionRules}
+                  skills={workspaceSkills}
+                  onInstallSampleSkills={handleInstallSampleSkills}
+                  commands={workspaceCommands}
+                  onInstallSampleCommands={handleInstallSampleCommands}
+                  onInstallTemplate={handleInstallTemplate}
                 />
               </ScrollView>
             ) : (
@@ -833,6 +1010,29 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   </TouchableOpacity>
                 ) : null}
               </View>
+            ) : null}
+
+            {slashSuggestions.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.slashBar}
+                keyboardShouldPersistTaps="handled"
+              >
+                {slashSuggestions.map(item => (
+                  <TouchableOpacity
+                    key={item.name}
+                    style={styles.slashChip}
+                    onPress={() => handleInputChange(`/${item.name} `)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.slashChipText}>/{item.name}</Text>
+                    {item.description ? (
+                      <Text style={styles.slashChipDescription} numberOfLines={1}>{item.description}</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             ) : null}
 
             <View style={styles.inputBar}>
@@ -1027,6 +1227,34 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   recordingText: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
   recordingAction: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '600' },
+  // 斜杠命令建议条：输入 / 时出现在输入行上方（横向滚动，点击填入命令名）。
+  slashBar: {
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  slashChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surfaceAlt,
+    maxWidth: 240,
+  },
+  slashChipText: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
+    fontWeight: '600',
+  },
+  slashChipDescription: {
+    marginLeft: 6,
+    flexShrink: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

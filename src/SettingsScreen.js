@@ -69,6 +69,7 @@ import WorkspaceScreen from './workspace/screen/WorkspaceScreen.js';
 import useVectorSettings from './settings/useVectorSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import useGithubMcp from './settings/useGithubMcp.js';
+import useMcpServers from './settings/useMcpServers.js';
 import useWorkspaceSettings from './settings/useWorkspaceSettings.js';
 import SamplingCard from './settings/SamplingCard.js';
 import { searchSettings, settingsSectionLabel } from './settings/searchIndex.js';
@@ -81,6 +82,7 @@ import ExtensionsSection from './settings/sections/ExtensionsSection.js';
 import VectorSection from './settings/sections/VectorSection.js';
 import WorkspaceSection from './settings/sections/WorkspaceSection.js';
 import GithubSection from './settings/sections/GithubSection.js';
+import McpServersSection from './settings/sections/McpServersSection.js';
 import SecuritySection from './settings/sections/SecuritySection.js';
 import BulkLockPickerModal from './settings/sections/BulkLockPickerModal.js';
 import AboutSection from './settings/sections/AboutSection.js';
@@ -119,7 +121,7 @@ const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version |
 // 即搜索跳错或吸顶错位。2026-10-07 调序：本地模型从「关于」卡里的一行升级为
 // 独立卡（GitHub 之后），「关于」按用户预期殿底；语言移到关于之前，可发现性
 // 由搜索 + 默认展开保障（不再依赖垫底）。
-const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'localmodel', 'security', 'language', 'about'];
+const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'language', 'about'];
 
 
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
@@ -339,6 +341,24 @@ export default function SettingsScreen() {
     openGithubTokenPage,
     disconnectGithub,
   } = useGithubMcp();
+  // MCP 服务器（第三方）管理：通用 MCP 的入口；内置 GitHub 走上面的专用卡。
+  const {
+    servers: mcpServers,
+    name: mcpName,
+    setName: setMcpName,
+    endpoint: mcpEndpoint,
+    setEndpoint: setMcpEndpoint,
+    token: mcpToken,
+    setToken: setMcpToken,
+    headersText: mcpHeaders,
+    setHeadersText: setMcpHeaders,
+    busy: mcpBusy,
+    testingId: mcpTestingId,
+    addServer: onAddMcpServer,
+    testServer: onTestMcpServer,
+    toggleServer: onToggleMcpServer,
+    removeServer: onRemoveMcpServer,
+  } = useMcpServers();
   const { theme, fonts, tokens, themes, themeId, setThemeId, fontScales, fontScaleId, setFontScaleId, reloadAppearance } = useTheme();
   const { t, localeId, setLocaleId, locales } = useTranslation();
   const { refreshAppData, character, characters } = useApp();
@@ -1366,6 +1386,7 @@ export default function SettingsScreen() {
   const githubSummary = githubMcp && githubMcp.enabled && githubMcp.connectedAt > 0
     ? t('settings.summary.connected')
     : t('settings.summary.disconnected');
+  const mcpSummary = mcpServers.length > 0 ? t('settings.mcp.count', { count: mcpServers.length }) : '';
   const workspaceSummary = workspaceMode === 'write'
     ? t('settings.workspace.summary.write')
     : (workspaceMode === 'read' ? t('settings.workspace.summary.read') : t('settings.workspace.summary.ask'));
@@ -1491,6 +1512,22 @@ export default function SettingsScreen() {
     connectGithubPat,
     openGithubTokenPage,
     disconnectGithub,
+    // MCP 服务器（第三方）
+    mcpServers,
+    mcpName,
+    setMcpName,
+    mcpEndpoint,
+    setMcpEndpoint,
+    mcpToken,
+    setMcpToken,
+    mcpHeaders,
+    setMcpHeaders,
+    mcpBusy,
+    mcpTestingId,
+    onAddMcpServer,
+    onTestMcpServer,
+    onToggleMcpServer,
+    onRemoveMcpServer,
     // 隐私与安全
     securityLoaded,
     appLockSettings,
@@ -1742,6 +1779,23 @@ export default function SettingsScreen() {
             right={<Text style={styles.collapseSummary} numberOfLines={1}>{githubSummary}</Text>}
           >
           <GithubSection {...sectionProps} />
+          </CollapsibleSection>
+        </Card>
+
+        {/* MCP 服务器（第三方）：通用 MCP 的管理入口；内置 GitHub 保留上面的专用卡
+            （令牌页指引等 GitHub 特有流程）。 */}
+        <Card
+          style={[styles.sectionCard, flashSection === 'mcpservers' && styles.sectionCardFlash]}
+          onLayout={event => { sectionOffsetsRef.current.mcpservers = event.nativeEvent.layout.y; }}
+        >
+          <CollapsibleSection
+            title={t('settings.mcp.title')}
+            icon="git-network-outline"
+            open={isSectionOpen('mcpservers')}
+            onToggle={next => toggleSection('mcpservers', next)}
+            right={<Text style={styles.collapseSummary} numberOfLines={1}>{mcpSummary}</Text>}
+          >
+          <McpServersSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
 

@@ -5,8 +5,10 @@
 // 用户自选的外部文件夹走 SAF（safStore.js 的 createSafWorkspaceStore）。
 // 工具定义只认接口，不知道根在哪——换根不需要换工具。
 
+import { runSubagent, SUBAGENT_TOOL_NAMES } from '../agent/subagent.js';
 import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
+import { postWriteNotices } from './hooks.js';
 import { fileExtension } from './paths.js';
 import { createLegacyWorkspaceStore, WORKSPACE_LIMITS } from './store.js';
 import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
@@ -77,6 +79,36 @@ const WORKSPACE_TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'run_subagent',
+    description: '把一个「研究型子任务」委托给助手的一个独立分身：它只能读工作区文件'
+      + '（不能改任何东西），完成后把整理好的结论交回来。适合「翻很多文件找答案」'
+      + '这类会刷屏的任务——中间过程不会占用当前对话的上下文。task 里要写清'
+      + '「要找什么、要回答什么」，结论回来后再由你转述或继续加工。',
+    readOnly: true,
+    // 子代理要跑多轮模型请求，默认工具超时（十几秒）不够；180s 是防跑飞的上限。
+    timeoutMs: 180000,
+    parameters: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: '子任务描述（要找什么、要回答什么）。' },
+      },
+      required: ['task'],
+    },
+    execute: async (options, args, ctx) => {
+      // 只读工具按**名字白名单**过滤（不含 run_subagent——它自己也是 readOnly，
+      // 只看标志会递归）：防递归是结构性的，不靠"记得别给"。
+      const readOnlyTools = WORKSPACE_TOOL_DEFINITIONS.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
+      const result = await runSubagent({
+        task: args.task,
+        tools: readOnlyTools,
+        store: options.store,
+        characterId: ctx && ctx.characterId,
+        signal: (ctx && ctx.signal) || null,
+      });
+      return result.isError ? { content: result.content, isError: true } : result.content;
+    },
+  },
+  {
     name: 'create_workspace_dir',
     description: '在工作区内新建（或确认已存在）一个文件夹，用于组织项目文件。仅「可改」模式可用。',
     readOnly: false,
@@ -104,11 +136,18 @@ const WORKSPACE_TOOL_DEFINITIONS = [
       },
       required: ['path', 'content'],
     },
-    execute: (options, args, ctx) => options.store.writeWorkspaceFile({
-      characterId: ctx && ctx.characterId,
-      path: args.path,
-      content: args.content,
-    }).then(result => `已写入 ${result.path}（${result.length} 字符）`),
+    // after_write 钩子：写成功后的提醒追加进工具结果（模型看得到、可能照做）。
+    // 读钩子失败当没有钩子——提醒链路的任何问题都不该影响写入本身。
+    execute: async (options, args, ctx) => {
+      const result = await options.store.writeWorkspaceFile({
+        characterId: ctx && ctx.characterId,
+        path: args.path,
+        content: args.content,
+      });
+      const base = `已写入 ${result.path}（${result.length} 字符）`;
+      const notices = await postWriteNotices(options.store, ctx && ctx.characterId, 'after_write', result.path);
+      return notices.length > 0 ? `${base}\n\n[工作区钩子] ${notices.join('；')}` : base;
+    },
   },
   {
     name: 'edit_workspace_file',
@@ -124,13 +163,19 @@ const WORKSPACE_TOOL_DEFINITIONS = [
       },
       required: ['path', 'find', 'replace'],
     },
-    execute: (options, args, ctx) => options.store.editWorkspaceFile({
-      characterId: ctx && ctx.characterId,
-      path: args.path,
-      find: args.find,
-      replace: args.replace,
-      all: args.all === true,
-    }).then(result => `已修改 ${result.path}（替换 ${result.count} 处）`),
+    // after_edit 钩子：同 after_write（提醒追加进结果，失败不影响编辑本身）。
+    execute: async (options, args, ctx) => {
+      const result = await options.store.editWorkspaceFile({
+        characterId: ctx && ctx.characterId,
+        path: args.path,
+        find: args.find,
+        replace: args.replace,
+        all: args.all === true,
+      });
+      const base = `已修改 ${result.path}（替换 ${result.count} 处）`;
+      const notices = await postWriteNotices(options.store, ctx && ctx.characterId, 'after_edit', result.path);
+      return notices.length > 0 ? `${base}\n\n[工作区钩子] ${notices.join('；')}` : base;
+    },
   },
   {
     name: 'export_workspace_docx',
