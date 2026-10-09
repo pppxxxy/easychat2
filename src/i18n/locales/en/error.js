@@ -104,6 +104,7 @@ export const error = {
   'error.workspace.adapterNoCreate': 'The external workspace adapter lacks create capability.',
   'error.workspace.adapterNoReadWrite': 'The external workspace adapter lacks read/write capability.',
   'error.workspace.adapterNoDelete': 'The external workspace adapter lacks delete capability.',
+  'error.workspace.dirNotEmpty': 'Folder is not empty — deletion refused (only empty folders can be removed).',
   'error.workspace.rootMissing': 'The external workspace is missing its root directory.',
   'error.workspace.fileNotFound': 'File not found: {path}',
   'error.workspace.newFileSystemApiMissing': 'This environment\'s expo-file-system does not include the new Directory/File API.',

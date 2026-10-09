@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createWorkspaceDirectory,
+  deleteWorkspaceDirectory,
   moveWorkspaceDirectory,
   editWorkspaceFile,
   listWorkspaceFiles,
@@ -69,6 +70,14 @@ function createMemoryFs() {
       if (moves.length === 0) throw new Error('ENOENT');
       for (const [key] of moves) entries.delete(key);
       for (const [, target, value] of moves) entries.set(target, value);
+    },
+    async deleteAsync(uri, options) {
+      // 目录的 key 带尾斜杠；幂等语义（idempotent）下不存在不抛错——与 expo 一致。
+      const full = uri.endsWith('/') ? uri : `${uri}/`;
+      const found = entries.has(uri) || entries.has(full);
+      if (!found && !(options && options.idempotent)) throw new Error('ENOENT');
+      entries.delete(uri);
+      entries.delete(full);
     },
   };
   return api;
@@ -281,4 +290,27 @@ test('moveWorkspaceDirectory：目录改名（重命名仓库同步本地副本�
     moveWorkspaceDirectory({ root, characterId: 'c1', from: 'repos/o/taken/main/c.js', to: 'repos/o/moved.js', fileSystem }),
     /不是目录/,
   );
+});
+
+test('F2 空目录可删（应用私有根后端）：非空拒绝 → 清空后可删；根拒绝', async () => {
+  const fileSystem = createMemoryFs();
+  // 先造一个非空目录：拒绝，且内容原样
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'repos/easychat2/main/keep.txt', content: 'k', fileSystem });
+  await assert.rejects(
+    deleteWorkspaceDirectory({ root, characterId: 'c1', path: 'repos/easychat2/main/', fileSystem }),
+    /dirNotEmpty|不为空|not empty/i,
+  );
+  const kept = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(kept.includes('repos/easychat2/main/keep.txt'), '拒绝后内容原样');
+
+  // 清空 → 变空目录 → 可删
+  await fileSystem.deleteAsync(`${root}c1/repos/easychat2/main/keep.txt`, { idempotent: true });
+  const removed = await deleteWorkspaceDirectory({ root, characterId: 'c1', path: 'repos/easychat2/main/', fileSystem });
+  assert.equal(removed.deleted, true);
+  const after = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.equal(after.includes('repos/easychat2/main/'), false, '目标空目录真的没了（父目录保留）');
+
+  // 根路径不可删、不存在的目录安全返回
+  assert.equal((await deleteWorkspaceDirectory({ root, characterId: 'c1', path: '', fileSystem })).deleted, false);
+  assert.equal((await deleteWorkspaceDirectory({ root, characterId: 'c1', path: 'nope/', fileSystem })).deleted, false);
 });

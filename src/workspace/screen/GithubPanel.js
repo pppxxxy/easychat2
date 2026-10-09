@@ -38,8 +38,11 @@ import { breadcrumbsOf, directoryChildren } from '../screen/buildTree.js';
 import { diffRepoSnapshot, localRepoPaths } from './repoDiff.js';
 import {
   buildRepoZipUrl,
+  clearPullManifest,
   extractRepoFiles,
+  readPullManifest,
   REPO_IMPORT_LIMITS,
+  writePullManifest,
 } from '../repoImport.js';
 import {
   canDeleteRepo,
@@ -95,6 +98,10 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [pullBranch, setPullBranch] = useState('main');
   const [pullBusy, setPullBusy] = useState(false);
   const [pullProgress, setPullProgress] = useState({ done: 0, total: 0 });
+  // F4：拉取体验——残留提示（上次没跑完）+ 剩余时间估算（按已写速率）+ 起始时刻。
+  const [pullNotice, setPullNotice] = useState('');
+  const [pullEta, setPullEta] = useState(0);
+  const pullStartRef = useRef(0);
   const pullCancelRef = useRef(false);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
   const [snapshotPaths, setSnapshotPaths] = useState([]);
@@ -258,6 +265,9 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     const branch = String(pullBranch || current.branch || '').trim() || current.branch;
     setPullBusy(true);
     setPullProgress({ done: 0, total: 0 });
+    setPullNotice('');
+    setPullEta(0);
+    pullStartRef.current = Date.now();
     pullCancelRef.current = false;
     let batchOpen = false;
     try {
@@ -278,10 +288,25 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         return;
       }
       const base = `repos/${current.owner}/${current.repo}/${branch}/`;
+      // F4：残留检测——上次没跑完会留下清单（成功结束才删）；只提示不拦截，
+      // 用户看到「上次未完成，本次覆盖重写」即可（重跑全量是幂等的）。
+      try {
+        const stale = await readPullManifest(store, characterId);
+        if (stale && mountedRef.current) {
+          setPullNotice(t('workspace.github.pull.resumeNote', { count: stale.files }));
+        }
+      } catch (error) {}
       if (typeof store.beginBatch === 'function') {
         store.beginBatch(characterId, { path: base });
         batchOpen = true;
       }
+      // F4：清单写进 batch 内（不产生额外的历史噪音）；写失败不挡拉取主流程。
+      await writePullManifest(store, characterId, {
+        owner: current.owner,
+        repo: current.repo,
+        branch,
+        files: files.length,
+      });
       let written = 0;
       for (let index = 0; index < files.length; index += 1) {
         if (pullCancelRef.current) {
@@ -295,9 +320,16 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         written += 1;
         if (index % 5 === 4 || index === files.length - 1) {
           setPullProgress({ done: written, total: files.length });
+          // F4：按已写速率估算剩余——用户要的是「还要等多久」的量级，不追求精确。
+          const elapsed = (Date.now() - pullStartRef.current) / 1000;
+          if (written > 0 && elapsed > 0) {
+            setPullEta(Math.max(1, Math.round((elapsed / written) * (files.length - written))));
+          }
         }
       }
       if (batchOpen) { store.endBatch?.(); batchOpen = false; }
+      // F4：跑到这里才算真的完成——删除残留清单（失败/取消路径会保留它）。
+      await clearPullManifest(store, characterId);
       if (mountedRef.current) {
         setCurrent(prev => (prev ? { ...prev, branch } : prev));
         setSubdir(base);
@@ -698,6 +730,14 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     />
                   ) : null}
                 </View>
+                {pullBusy ? (
+                  <FieldHint>
+                    {pullProgress.total > 0
+                      ? t('workspace.github.pull.foreground', { eta: pullEta })
+                      : t('workspace.github.pull.foregroundPreparing')}
+                  </FieldHint>
+                ) : null}
+                {pullNotice ? <FieldHint>{pullNotice}</FieldHint> : null}
                 <FieldHint>{t('workspace.github.pull.hint')}</FieldHint>
 
                 {layer === 'newEntry' ? (

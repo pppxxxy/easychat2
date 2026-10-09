@@ -92,9 +92,19 @@ test('WorkspacePanel：接入 i18n，零硬编码中文（注释除外）', asyn
   assert.ok(/const \{ t \} = useTranslation\(\)/.test(source), '取 t');
   const CJK = /[\u4e00-\u9fff]/;
   const offenders = [];
+  // 注释要排除，**包括 JSX 的多行块注释**（{/* … */} 的中间行不以注释符开头，
+  // 逐行判断时必须在块内状态里跳过——否则合法注释会被误报成硬编码中文）。
+  let inBlockComment = false;
   source.split('\n').forEach((line, index) => {
     const trimmed = line.trim();
-    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+    if (inBlockComment) {
+      if (trimmed.includes('*/')) inBlockComment = false;
+      return;
+    }
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*') || trimmed.startsWith('{/*')) {
+      if (!trimmed.includes('*/')) inBlockComment = true;
+      return;
+    }
     const code = line.replace(/\/\/.*$/, '').replace(/\/\*[^*]*\*\//g, '');
     if (CJK.test(code)) offenders.push(`${index + 1}  ${trimmed.slice(0, 80)}`);
   });
@@ -172,4 +182,38 @@ test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () 
     source.includes("t('workspace.panel.context.empty')"),
     '无会话有空态文案'
   );
+});
+
+test('F1/F2/F3 文件面板：子目录空状态 + 空目录可删（非空拦截）+ 项目卡路径前缀', () => {
+  const source = readSource('src/workspace/screen/FilesPanel.js');
+  // F1：子目录为空时渲染空状态（含返回上级）——以前是整屏空白，用户以为文件丢了
+  assert.ok(source.includes("t('workspace.panel.empty.dir.title')"), '空目录空状态标题');
+  assert.ok(source.includes("t('workspace.panel.empty.dir.back')"), '返回上级按钮');
+  assert.ok(source.includes('parentDirectoryOf(subdir)'), '返回按钮走上一级纯函数');
+  // F2：目录行有删除入口；非空目录拦截（UI 层门控，store 层还有第二道）
+  assert.ok(source.includes('handleDeleteDirectory'), '目录删除入口存在');
+  assert.ok(source.includes("t('workspace.panel.delete.dirNonEmpty.title')"), '非空目录有明确提示');
+  assert.ok(source.includes('store.deleteWorkspaceDirectory'), '删除走 store 的空目录专用方法');
+  assert.ok(
+    source.includes("t('workspace.panel.delete.dirBody', { name: label })"),
+    '删除前有确认（说清影响与不可恢复）'
+  );
+  // F3：项目卡副标题带路径前缀（旧格式残留与真项目一眼分辨）+ 空组明确标注
+  assert.ok(source.includes('{group.prefix}'), '副标题展示路径前缀');
+  assert.ok(source.includes("t('workspace.panel.group.empty')"), '空组不再伪装成有内容的仓库');
+});
+
+test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清（成功才清）', () => {
+  const github = readSource('src/workspace/screen/GithubPanel.js');
+  assert.ok(github.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');
+  assert.ok(github.includes("t('workspace.github.pull.foreground', { eta: pullEta })"), '写入阶段带剩余秒数估算');
+  assert.ok(github.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
+  // 顺序契约：先写清单、批结算之后才清——失败/取消路径（在清之前就跳出）保留清单，
+  // 下次拉取才能检出「上次没跑完」。
+  const writeAt = github.indexOf('await writePullManifest(');
+  const clearAt = github.indexOf('await clearPullManifest(');
+  const endBatchAt = github.indexOf('store.endBatch?.()');
+  assert.ok(writeAt > 0 && clearAt > 0 && endBatchAt > 0, '写/清/批结算都在');
+  assert.ok(writeAt < clearAt, '先写清单后清理');
+  assert.ok(endBatchAt < clearAt, '清单在真正成功后才清（批结算之后）');
 });

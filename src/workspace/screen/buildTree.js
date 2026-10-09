@@ -1,7 +1,7 @@
 // 工作区文件的「项目分组」与「目录树」纯函数（零依赖，Node 直测）。
 //
 // 背景（v2 §1.2 诉求④）：listWorkspaceFiles 返回的是**平铺**的相对路径数组，
-// 旧面板一维渲染，于是 css/、js/、repos/easychat2/main/src/... 混居成一长条，
+// 旧面板一维渲染，于是 css/、js/、repos/pppxxxy/easychat2/main/src/... 混居成一长条，
 // 路径被截断成「repos/leiting-zhanji-h5/main/RE...」。分组 + 逐层下钻后，
 // 文件按项目成卡、点进去只看当前层，长路径问题自然消失。
 //
@@ -39,7 +39,9 @@ export function projectGroupOf(path) {
 }
 
 // 把平铺条目分组成：根级条目（工作区自己的散文件/目录）+ 每个项目一张卡。
-// 条目形如 'a.txt'、'css/'、'repos/easychat2/main/App.js'（目录带尾斜杠，沿用 store 的约定）。
+// 条目形如 'a.txt'、'css/'、'repos/pppxxxy/easychat2/main/App.js'（目录带尾斜杠，沿用 store 的约定）。
+// 注意 repos/ 下的路径一律带 owner 段（repos/<owner>/<repo>/<branch>/）——注释里的旧格式
+// 示例已全部清除：无 owner 的写法曾是历史遗留，留着只会让排查时把它当成现行格式。
 export function groupWorkspaceFiles(files) {
   const list = Array.isArray(files) ? files : [];
   const rootEntries = [];
@@ -91,7 +93,7 @@ export function directoryChildren(files, prefix = '') {
   return [...dirEntries, ...fileEntries];
 }
 
-// 面包屑：'repos/easychat2/main/src/' → [{ name: '工作区', path: '' }, …, { name: 'src', path: 'repos/easychat2/main/src/' }]
+// 面包屑：'repos/pppxxxy/easychat2/main/src/' → [{ name: '工作区', path: '' }, …, { name: 'src', path: '…/src/' }]
 // rootLabel 由调用方给（走 i18n），函数本身不引 i18n。
 export function breadcrumbsOf(prefix = '', rootLabel = '') {
   const base = String(prefix || '');
@@ -104,4 +106,14 @@ export function breadcrumbsOf(prefix = '', rootLabel = '') {
     crumbs.push({ name: seg, path: acc });
   }
   return crumbs;
+}
+
+// 上一级目录：'repos/a/b/' → 'repos/a/'；'a/' → ''（回到根层）。
+// F1 的空目录空状态里「返回上级」用它——比在组件里内联正则更可测。
+export function parentDirectoryOf(path) {
+  const value = String(path || '');
+  if (!value) return '';
+  const trimmed = value.endsWith('/') ? value.slice(0, -1) : value;
+  const index = trimmed.lastIndexOf('/');
+  return index < 0 ? '' : `${trimmed.slice(0, index)}/`;
 }

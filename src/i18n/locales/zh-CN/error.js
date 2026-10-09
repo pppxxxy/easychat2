@@ -104,6 +104,7 @@ export const error = {
   'error.workspace.adapterNoCreate': '外部工作区缺少 adapter 的创建能力。',
   'error.workspace.adapterNoReadWrite': '外部工作区缺少 adapter 的读写能力。',
   'error.workspace.adapterNoDelete': '外部工作区缺少 adapter 的删除能力。',
+  'error.workspace.dirNotEmpty': '目录不为空，已拒绝删除（只允许删除空目录）。',
   'error.workspace.rootMissing': '外部工作区缺少根目录。',
   'error.workspace.fileNotFound': '文件不存在：{path}',
   'error.workspace.newFileSystemApiMissing': '当前环境的 expo-file-system 不含 Directory/File 新 API。',

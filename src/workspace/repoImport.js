@@ -179,3 +179,65 @@ export function extractRepoFiles(bytes, rootPrefix, limits = REPO_IMPORT_LIMITS)
     skippedDirs: scan.skippedDirs,
   };
 }
+
+// —— 拉取残留清单（F4）——
+// 上千个文件逐个 SAF 写入要几分钟，中途锁屏/切后台可能被系统杀掉。拉取开始时
+// 写一份清单，**成功结束才删除**——它的存在本身就是「上次没跑完」的信号，
+// 下次拉取同一分支时据此提示「覆盖继续」。
+// **刻意不做断点续传**：逐文件存在性探测在 SAF 上同样慢，收益不抵复杂度；
+// 重跑全量覆盖是幂等且可靠的（重跑成本 = 主要成本，省不掉大头就不加这个复杂度）。
+export const PULL_MANIFEST_PATH = '.easychat/pull-manifest.json';
+
+// 纯函数：清单文本 → { owner, repo, branch, files, at }；坏输入 → null（当作没有）。
+export function parsePullManifest(text) {
+  try {
+    const source = typeof text === 'string' ? JSON.parse(text) : text;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+    const owner = String(source.owner || '').trim();
+    const repo = String(source.repo || '').trim();
+    const branch = String(source.branch || '').trim();
+    if (!owner || !repo || !branch) return null;
+    // files 兼容两种写法：数字（现行）或数组（防御旧数据/手写）。
+    const files = Array.isArray(source.files)
+      ? source.files.length
+      : Math.max(0, Math.floor(Number(source.files) || 0));
+    return { owner, repo, branch, files, at: Number(source.at) || 0 };
+  } catch (error) {
+    return null;
+  }
+}
+
+// IO 薄壳：读/写/清都绝不抛错——清单是旁路机制，不能挡住拉取主流程。
+export async function readPullManifest(store, characterId) {
+  if (!store || typeof store.readWorkspaceFile !== 'function') return null;
+  try {
+    const result = await store.readWorkspaceFile({ characterId, path: PULL_MANIFEST_PATH });
+    return parsePullManifest(result && result.content);
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function writePullManifest(store, characterId, { owner, repo, branch, files } = {}) {
+  if (!store || typeof store.writeWorkspaceFile !== 'function') return false;
+  try {
+    await store.writeWorkspaceFile({
+      characterId,
+      path: PULL_MANIFEST_PATH,
+      content: JSON.stringify({ owner, repo, branch, files, at: Date.now() }),
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function clearPullManifest(store, characterId) {
+  if (!store || typeof store.deleteFile !== 'function') return false;
+  try {
+    await store.deleteFile({ characterId, path: PULL_MANIFEST_PATH });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}

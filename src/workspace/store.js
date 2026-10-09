@@ -194,6 +194,33 @@ export async function editWorkspaceFile({ root, characterId, path, find, replace
   return { path: written.path, count: edited.count, length: written.length };
 }
 
+// 空目录删除（F2）：与 SAF 后端同款语义——只删**直接子项为空**的目录。
+// 非空拒绝（删除不可逆，校验必须在 deleteAsync 之前）；根路径不可删。
+export async function deleteWorkspaceDirectory({ root, characterId, path, fileSystem } = {}) {
+  assertFileSystem(fileSystem);
+  // 空/非法路径（'', '/', null…）= 沙盒根，不允许删（防手滑清空整个工作区）。
+  // normalize 对空路径会抛错，这里先安全接住——删除入口宁可静默不删也不能炸。
+  let relative = '';
+  try {
+    relative = normalizeWorkspacePath(path);
+  } catch (error) {
+    return { path: '', deleted: false };
+  }
+  if (!relative.split('/').filter(Boolean).length) return { path: relative, deleted: false };
+  const uri = `${sandboxDirectory(root, characterId)}${relative}`;
+  const info = await getInfo(fileSystem, uri);
+  if (!info || !info.exists || info.isDirectory === false) return { path: relative, deleted: false };
+  let children = [];
+  try {
+    children = await fileSystem.readDirectoryAsync(uri);
+  } catch (error) {
+    children = [];
+  }
+  if (children.length > 0) throw new Error(tActive('error.workspace.dirNotEmpty'));
+  await fileSystem.deleteAsync(uri, { idempotent: true });
+  return { path: relative, deleted: true };
+}
+
 // 应用私有根的后端。与 safStore.js 的 createSafWorkspaceStore 暴露**同一组方法名**：
 // 上层（tools.js / WorkspacePanel.js）只认这套接口，根是应用私有目录还是
 // 用户自选的外部文件夹，对它都是同一件事——换的只是后端。
@@ -246,5 +273,9 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
       await fileSystem.deleteAsync(uri, { idempotent: true });
       return { path: relative, deleted: true };
     },
+
+    deleteWorkspaceDirectory: ({ characterId, path } = {}) => deleteWorkspaceDirectory({
+      root, characterId, path, fileSystem,
+    }),
   };
 }

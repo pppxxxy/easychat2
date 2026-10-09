@@ -87,6 +87,15 @@ function createFakeSaf() {
       nodes.get(destination).name = name;
       return destination;
     },
+    // F2：递归删目录（与真实 Directory.delete 一致）——store 层负责保证只对空目录调用。
+    async deleteDirectory(uri) {
+      const node = nodes.get(uri);
+      if (!node || !node.isDirectory) throw new Error('not a directory');
+      const prefix = `${uri}/`;
+      for (const key of [...nodes.keys()]) {
+        if (key === uri || key.startsWith(prefix)) nodes.delete(key);
+      }
+    },
   };
   return api;
 }
@@ -287,4 +296,33 @@ test('moveWorkspaceDirectory：SAF 后端目录改名（重命名仓库同步本
     store.moveWorkspaceDirectory({ characterId: 'c1', from: 'repos/o/renamed', to: 'repos/o/taken' }),
     /已存在/,
   );
+});
+
+test('F2 空目录可删：只删空目录（非空拒绝且内容原样 / 根与不存在安全返回）', async () => {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: ROOT, adapter });
+
+  // 空目录（旧格式残留的典型形态）：删除成功，且真的从树里消失
+  await store.createWorkspaceDirectory({ characterId: 'c1', path: 'repos/easychat2/main' });
+  const removed = await store.deleteWorkspaceDirectory({ characterId: 'c1', path: 'repos/easychat2/main/' });
+  assert.equal(removed.deleted, true);
+  const after = await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.equal(after.includes('repos/easychat2/main/'), false, '目标空目录真的没了（父目录保留）');
+
+  // 非空目录：拒绝（错误里说明原因），且目录与文件都原样保留（校验在删除之前）
+  await store.writeWorkspaceFile({
+    characterId: 'c1',
+    path: 'repos/pppxxxy/easychat2/main/a.js',
+    content: 'x',
+  });
+  await assert.rejects(
+    store.deleteWorkspaceDirectory({ characterId: 'c1', path: 'repos/pppxxxy/easychat2/main/' }),
+    error => /dirNotEmpty|不为空|not empty/i.test(String(error && error.message)),
+  );
+  const kept = await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.ok(kept.includes('repos/pppxxxy/easychat2/main/a.js'), '拒绝后内容原样');
+
+  // 根路径 / 不存在的目录：安全返回 deleted:false（绝不抛错）
+  assert.equal((await store.deleteWorkspaceDirectory({ characterId: 'c1', path: '' })).deleted, false);
+  assert.equal((await store.deleteWorkspaceDirectory({ characterId: 'c1', path: 'nope/' })).deleted, false);
 });

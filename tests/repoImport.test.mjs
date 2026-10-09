@@ -9,11 +9,16 @@ import {
   buildRepoApiUrl,
   buildRepoZipUrl,
   buildReposApiUrl,
+  clearPullManifest,
   extractRepoFiles,
+  parsePullManifest,
   parseRepoFullName,
+  PULL_MANIFEST_PATH,
+  readPullManifest,
   REPO_IMPORT_LIMITS,
   scanRepoZipball,
   stripZipballEntry,
+  writePullManifest,
 } from '../src/workspace/repoImport.js';
 import { CATALOG_BUNDLES, findCatalogBundle, findCatalogItem, buildCatalogContent } from '../src/workspace/catalog.js';
 import fs from 'node:fs';
@@ -186,4 +191,48 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
   // 快照边界如实声明；拉取链路必须复用 repoImport 的限额与解压（含目录条目修复）。
   assert.ok(github.includes('workspace.github.pull.hint'), '快照边界文案必须在位');
   assert.ok(github.includes('extractRepoFiles(') && github.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
+});
+
+test('F4 拉取残留清单：解析容错 + 写入/读取/清理往返（全不抛错）', async () => {
+  // 解析：坏输入一律 null（当作没有），不抛错
+  assert.equal(parsePullManifest('{bad'), null);
+  assert.equal(parsePullManifest('[]'), null);
+  assert.equal(parsePullManifest(null), null);
+  assert.equal(parsePullManifest({ owner: 'a' }), null, '缺 repo/branch 视为无效');
+  assert.deepEqual(
+    parsePullManifest(JSON.stringify({ owner: 'a', repo: 'b', branch: 'main', files: 3 })),
+    { owner: 'a', repo: 'b', branch: 'main', files: 3, at: 0 }
+  );
+  assert.deepEqual(
+    parsePullManifest({ owner: 'a', repo: 'b', branch: 'm', files: ['x', 'y'], at: 5 }),
+    { owner: 'a', repo: 'b', branch: 'm', files: 2, at: 5 },
+    '数组形态兼容（取长度）'
+  );
+
+  // IO 往返：fake store（内存）
+  const files = {};
+  const store = {
+    async writeWorkspaceFile({ path: file, content }) { files[file] = content; },
+    async readWorkspaceFile({ path: file }) {
+      if (!(file in files)) throw new Error('missing');
+      return { content: files[file] };
+    },
+    async deleteFile({ path: file }) { delete files[file]; },
+  };
+  assert.equal(
+    await writePullManifest(store, 'c1', { owner: 'a', repo: 'b', branch: 'main', files: 3 }),
+    true
+  );
+  assert.ok(PULL_MANIFEST_PATH in files, '清单落在 .easychat/ 下（与 skills 同域）');
+  const manifest = await readPullManifest(store, 'c1');
+  assert.equal(manifest.files, 3);
+  assert.equal(await clearPullManifest(store, 'c1'), true);
+  assert.equal(await readPullManifest(store, 'c1'), null, '清理后视为没有（= 上次跑完了）');
+
+  // 旁路机制：缺 store / 读写失败都不得抛错、不得挡住拉取主流程
+  assert.equal(await readPullManifest(null, 'c1'), null);
+  assert.equal(await writePullManifest(null, 'c1', {}), false);
+  assert.equal(await clearPullManifest(null, 'c1'), false);
+  const failing = { async writeWorkspaceFile() { throw new Error('no space'); } };
+  assert.equal(await writePullManifest(failing, 'c1', { owner: 'a', repo: 'b', branch: 'm' }), false, '写失败返回 false 不抛');
 });

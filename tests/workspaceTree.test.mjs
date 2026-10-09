@@ -6,6 +6,7 @@ import {
   breadcrumbsOf,
   directoryChildren,
   groupWorkspaceFiles,
+  parentDirectoryOf,
   projectGroupOf,
 } from '../src/workspace/screen/buildTree.js';
 
@@ -73,4 +74,14 @@ test('breadcrumbsOf：根 + 逐段路径', () => {
   assert.deepEqual(crumbs.map(c => c.name), ['工作区', 'repos', 'pppxxxy', 'easychat2', 'main', 'src']);
   assert.equal(crumbs[crumbs.length - 1].path, 'repos/pppxxxy/easychat2/main/src/');
   assert.equal(crumbs[1].path, 'repos/');
+});
+
+test('F1 parentDirectoryOf：目录路径的上一级（空目录空状态的返回按钮用）', () => {
+  assert.equal(parentDirectoryOf('repos/pppxxxy/easychat2/main/'), 'repos/pppxxxy/easychat2/');
+  assert.equal(parentDirectoryOf('repos/'), '');
+  assert.equal(parentDirectoryOf('a/'), '', '一级目录的上一级 = 根层');
+  assert.equal(parentDirectoryOf(''), '');
+  assert.equal(parentDirectoryOf(null), '');
+  // 无尾斜杠也按「目录」处理（条目约定带尾斜杠，但函数不依赖它）
+  assert.equal(parentDirectoryOf('a/b'), 'a/');
 });

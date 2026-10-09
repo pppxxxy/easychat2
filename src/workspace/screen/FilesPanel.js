@@ -46,7 +46,7 @@ import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.j
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
-import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles } from './buildTree.js';
+import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
 
@@ -329,6 +329,44 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       },
     ]);
   }, [characterId, preview, t]);
+
+  // F2：目录删除——只允许删**空目录**（删前用当前文件清单再确认一次；
+  // store 层还有第二道校验）。空目录多为导入残留（旧格式 / 上次没跑完），
+  // 能删掉它，用户才不会走进「黑房间」。
+  const handleDeleteDirectory = useCallback(path => {
+    if (directoryChildren(files, path).length > 0) {
+      Alert.alert(
+        t('workspace.panel.delete.dirNonEmpty.title'),
+        t('workspace.panel.delete.dirNonEmpty.body')
+      );
+      return;
+    }
+    const store = storeRef.current;
+    if (!store || typeof store.deleteWorkspaceDirectory !== 'function') {
+      Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete'));
+      return;
+    }
+    const label = String(path).split('/').filter(Boolean).slice(-1)[0] || String(path);
+    Alert.alert(
+      t('workspace.panel.delete.dirTitle'),
+      t('workspace.panel.delete.dirBody', { name: label }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            store.deleteWorkspaceDirectory({ characterId, path })
+              .then(() => {
+                if (!mountedRef.current) return;
+                setFiles(list => list.filter(entry => entry !== path));
+              })
+              .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
+          },
+        },
+      ]
+    );
+  }, [characterId, files, t]);
 
   const startTextForm = useCallback(() => {
     if (!canWrite) {
@@ -629,7 +667,24 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         />
         <Text style={styles.fileName} numberOfLines={1}>{entry.name}</Text>
       </TouchableOpacity>
-      {entry.isDirectory ? null : (
+      {entry.isDirectory ? (
+        // F2：空目录可删（非空点击给提示，图标略淡提示不可用）——空目录正是
+        // 「导入残留 / 旧格式」的典型形态；能删掉它，误导就不会留下来
+        //（以前目录行没有删除入口，空目录永远删不掉，只能干看）。
+        <TouchableOpacity
+          style={styles.fileAction}
+          onPress={() => handleDeleteDirectory(entry.path)}
+          accessibilityLabel={t('workspace.panel.a11y.delete', { name: entry.name })}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={16}
+            color={directoryChildren(files, entry.path).length === 0
+              ? theme.colors.textMuted
+              : theme.colors.textFaint}
+          />
+        </TouchableOpacity>
+      ) : (
         <>
           <TouchableOpacity
             style={styles.fileAction}
@@ -665,7 +720,14 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       <View style={styles.projectMain}>
         <Text style={styles.projectName} numberOfLines={1}>{group.label}</Text>
         <Text style={styles.projectMeta} numberOfLines={1}>
-          {t('workspace.panel.group.files', { count: group.fileCount + group.dirCount })}
+          {group.prefix}
+          {' · '}
+          {/* F3：路径前缀展示 + 空组明确标注——旧格式残留（repos/x/y/ 被解析成
+              「owner=x、repo=y」）与真项目卡长得一样，前缀能让用户一眼分辨；
+              空组直接说穿，不让它伪装成「有内容的仓库」。 */}
+          {group.fileCount + group.dirCount === 0
+            ? t('workspace.panel.group.empty')
+            : t('workspace.panel.group.files', { count: group.fileCount + group.dirCount })}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />
@@ -702,7 +764,22 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               </View>
             ))}
           </View>
-          {children.map(renderEntryRow)}
+          {children.length > 0 ? children.map(renderEntryRow) : (
+            // F1：子目录为空时给出空状态与返回入口——以前点进空目录（导入残留 /
+            // 旧格式目录）是一片无语义的空白，用户会以为文件丢了。
+            <EmptyState
+              icon="folder-open-outline"
+              title={t('workspace.panel.empty.dir.title')}
+              description={t('workspace.panel.empty.dir.body')}
+              action={(
+                <GhostButton
+                  title={t('workspace.panel.empty.dir.back')}
+                  small
+                  onPress={() => setSubdir(parentDirectoryOf(subdir))}
+                />
+              )}
+            />
+          )}
         </>
       );
     }

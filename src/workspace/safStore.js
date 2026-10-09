@@ -238,6 +238,29 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       return { path: relative, deleted: true };
     },
 
+    // 空目录删除（F2）：只删**直接子项为空**的目录——非空拒绝（防误删整棵导入树）。
+    // SAF 的 Directory.delete 是递归语义，一旦调用不可逆，所以「空」的校验必须在
+    // 删除之前；UI 层同样门控（双重保险，不靠调用方自觉）。
+    async deleteWorkspaceDirectory({ characterId, path } = {}) {
+      // 空/非法路径（'', '/', null…）= 沙盒根，不允许删（防手滑清空整个工作区）。
+      // normalize 对空路径会抛错，这里先安全接住——删除入口宁可静默不删也不能炸。
+      let relative = '';
+      try {
+        relative = normalizeWorkspacePath(path);
+      } catch (error) {
+        return { path: '', deleted: false };
+      }
+      const segments = relative.split('/').filter(Boolean);
+      if (segments.length === 0) return { path: relative, deleted: false };
+      const dirUri = await locateDirectory(characterId, segments, false);
+      if (!dirUri) return { path: relative, deleted: false };
+      const children = await adapter.listChildren(dirUri);
+      if (children.length > 0) throw new Error(tActive('error.workspace.dirNotEmpty'));
+      if (typeof adapter.deleteDirectory !== 'function') throw new Error(tActive('error.workspace.adapterNoDelete'));
+      await adapter.deleteDirectory(dirUri);
+      return { path: relative, deleted: true };
+    },
+
     // 目录改名/移动（重命名 GitHub 仓库时同步本地副本）。SAF 后端要求 adapter 提供 moveDirectory
     // （expo v19 的 Directory.move）；源不存在返回 moved:false，目标已存在拒绝覆盖。
     async moveWorkspaceDirectory({ characterId, from, to } = {}) {
@@ -292,6 +315,11 @@ export function createExpoSafAdapter(fileSystemModule) {
     },
     async delete(uri) {
       new File(uri).delete();
+    },
+    // expo v19：Directory.delete() 递归删目录——**调用方（store）负责保证目录为空**
+    //（F2 的空目录校验在 store 层，这里只是能力暴露）。
+    async deleteDirectory(uri) {
+      new Directory(uri).delete();
     },
     // expo v19：Directory.move(destination) 把目录改名/搬到目标路径（目标不应已存在）。
     async moveDirectory(uri, parentUri, name) {
