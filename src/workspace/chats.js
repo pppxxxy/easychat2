@@ -3,12 +3,17 @@
 // 与聊天页的会话分开存：工作区对话直连 agent 工具循环、不参与角色扮演那条流水线，
 // 也不进聊天页的会话列表——混在一起会让「角色聊天」被一堆工作区指令淹没。
 // 结构：按角色分区的 { [characterId]: { activeId, chats: [...] } }。
+// 每条会话带一个 draft 字段（未发送的输入草稿，按会话各存各的）：
+// 面板切换会卸载聊天组件，草稿跟着组件 state 一起没是「连带误伤」——
+// 消息「关闭即清空」是有意设计，草稿不是。
 //
 // 裁剪是必须的：工作区对话包含工具调用前后的长回复，不设上限会把 AsyncStorage 撑爆。
 
 export const WORKSPACE_CHAT_LIMIT = 40;
 export const WORKSPACE_CHAT_MESSAGE_LIMIT = 200;
 export const WORKSPACE_CHAT_TITLE_MAX = 60;
+// 草稿上限：粘一段长文进来也不该把存储撑爆；超出部分截断（同消息内容的处理口径）。
+export const WORKSPACE_CHAT_DRAFT_MAX = 4000;
 const MESSAGE_CONTENT_MAX = 20000;
 
 function truncate(value, max) {
@@ -54,6 +59,8 @@ export function normalizeWorkspaceChat(raw) {
     title: truncate(source.title, WORKSPACE_CHAT_TITLE_MAX) || deriveWorkspaceChatTitle(messages),
     createdAt,
     updatedAt,
+    // 老数据无此字段 → 空串兜底，无迁移风险。
+    draft: truncate(source.draft, WORKSPACE_CHAT_DRAFT_MAX),
     messages,
   };
 }

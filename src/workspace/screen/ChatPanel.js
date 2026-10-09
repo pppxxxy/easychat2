@@ -39,6 +39,7 @@ import {
   getWorkspaceChats,
   getWorkspaceSettings,
   patchWorkspaceSettings,
+  saveWorkspaceChatDraft,
   setActiveWorkspaceChat,
 } from '../../storage/workspace.js';
 import {
@@ -91,6 +92,15 @@ function nextId() {
   return `wsc-${Date.now().toString(36)}-${messageSeq}`;
 }
 
+// 输入草稿的内存缓存（模块级，键 `${characterId}:${chatId}`）。
+// 为什么要有它：切面板会卸载整个聊天组件（WorkspaceScreen 条件渲染），
+// 卸载时落盘是异步的——重新挂载若直接读盘，可能读到落盘前的旧值；
+// 内存缓存同步生效，负责「切回来立刻有」，盘上的 chat.draft 负责跨重启。
+const draftCache = new Map();
+function draftCacheKey(ownerId, chatId) {
+  return `${String(ownerId || '')}:${String(chatId || '')}`;
+}
+
 export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
@@ -132,6 +142,49 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const recorderRef = useRef(recorder);
   recorderRef.current = recorder;
 
+  // ---- 输入草稿（未发送的输入框内容，按会话各存各的）----
+  // 三个 ref 供「卸载时」取值：卸载发生在组件已离开渲染树之后，
+  // 清理 effect 的闭包拿不到最新 state，只能提前同步进 ref。
+  const inputRef = useRef(input);
+  inputRef.current = input;
+  const activeChatIdRef = useRef(activeChatId);
+  activeChatIdRef.current = activeChatId;
+  const characterIdRef = useRef(characterId);
+  characterIdRef.current = characterId;
+
+  // 打字时只写内存（零 IO、不卡输入）；落盘发生在「离开这个输入框」的时点——
+  // 卸载（切面板 / 关屏）、切对话、新建对话、发送（清空）。
+  const rememberDraft = useCallback((ownerId, chatId, text) => {
+    const id = String(chatId || '');
+    if (!id) return;
+    draftCache.set(draftCacheKey(ownerId, id), String(text === undefined || text === null ? '' : text));
+  }, []);
+
+  const persistDraft = useCallback((ownerId, chatId, text) => {
+    const id = String(chatId || '');
+    if (!id) return;
+    const value = String(text === undefined || text === null ? '' : text);
+    draftCache.set(draftCacheKey(ownerId, id), value);
+    // 落盘失败静默：草稿不值得打断用户（内存缓存还在，切回来照常有）。
+    saveWorkspaceChatDraft(ownerId, id, value).catch(() => {});
+  }, []);
+
+  // 读草稿：内存优先（同进程内即时、无 IO 竞态），其次盘上的 chat.draft（跨重启）。
+  const readDraft = useCallback((ownerId, chatId, fallback) => {
+    const id = String(chatId || '');
+    if (!id) return '';
+    const cached = draftCache.get(draftCacheKey(ownerId, id));
+    if (cached !== undefined) return cached;
+    return String(fallback === undefined || fallback === null ? '' : fallback);
+  }, []);
+
+  // 输入变化：更新界面 + 写内存草稿。落盘刻意不在这里——
+  // 每次按键写 AsyncStorage 会拖慢输入，落盘统一放到「离开」的时点。
+  const handleInputChange = useCallback(text => {
+    setInput(text);
+    rememberDraft(characterId, activeChatId, text);
+  }, [activeChatId, characterId, rememberDraft]);
+
   // 跨面板交接：GitHub 工作台的「让助手推送」把一条指令填进输入框。
   // 用 token 判定是否已消费——同一段文本也能重复交接（用户可能连点两次）。
   const consumedDraftRef = useRef(0);
@@ -148,13 +201,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     return () => {
       mountedRef.current = false;
       if (controllerRef.current) controllerRef.current.abort();
+      // 切面板 / 关屏会卸载本组件（WorkspaceScreen 条件渲染）：把最后一次输入落盘。
+      // 打字期间不写盘，这里是「防丢」的主兜底（内存缓存负责即时恢复的体验）。
+      persistDraft(characterIdRef.current, activeChatIdRef.current, inputRef.current);
     };
-  }, []);
+  }, [persistDraft]);
 
   // 关闭时清空这一轮的临时对话与正在生成的请求（下次进来是干净的对话）。
+  // 草稿是例外：先落盘保存再清界面输入框——消息「关闭即清空」是有意设计，
+  // 输入草稿跟着陪葬是连带误伤（用户切个面板回来就得重打）。
   useEffect(() => {
     if (visible) return;
     if (controllerRef.current) controllerRef.current.abort();
+    persistDraft(characterIdRef.current, activeChatIdRef.current, inputRef.current);
     setMessages([]);
     setInput('');
     setAttachments([]);
@@ -164,7 +223,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setSettingsSection('');
     setHistoryOpen(false);
     if (recorderRef.current.recording) recorderRef.current.cancel();
-  }, [visible]);
+  }, [visible, persistDraft]);
 
   // 上下文占用：取该工作区角色最近的一个单聊会话，按当前模型声明的窗口估算
   //（与 ChatScreen.maybeAutoSummarize 同一口径，到 80% 自动压缩）。
@@ -197,7 +256,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     }
   }, []);
 
-  // 载入某个角色的工作区会话：有就接着上次那条（连同消息），没有就新建一条空会话。
+  // 载入某个角色的工作区会话：有就接着上次那条（连同消息与输入草稿），
+  // 没有就新建一条空会话。草稿优先取内存缓存，其次盘上该会话的 draft 字段。
   const loadChats = useCallback(async ownerId => {
     try {
       const bucket = await getWorkspaceChats(ownerId);
@@ -207,6 +267,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         setChatList(bucket.chats);
         setActiveChatId(active.id);
         setMessages(active.messages);
+        setInput(readDraft(ownerId, active.id, active.draft));
         return;
       }
       const created = await createWorkspaceChat(ownerId);
@@ -214,8 +275,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setChatList(created ? [created] : []);
       setActiveChatId(created ? created.id : '');
       setMessages([]);
+      setInput('');
     } catch (error) {}
-  }, []);
+  }, [readDraft]);
 
   // 把 user 消息与 assistant 终稿追加进所在会话。流式期间不落盘（每帧写一次会拖垮存储），
   // 只在发送时与结束/失败时各写一次；按消息 id 去重，重复落盘不会产生重复条目。
@@ -287,6 +349,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 新建对话：另开一条会话（旧的留在历史里，随时切回来），而不是把上一条清掉。
   const handleNewChat = useCallback(async () => {
     if (controllerRef.current) controllerRef.current.abort();
+    // 先把当前输入存回原会话，再开新的（新会话的输入框是干净的）。
+    persistDraft(characterId, activeChatId, input);
     setMessages([]);
     setInput('');
     setAttachments([]);
@@ -299,22 +363,24 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setActiveChatId(created.id);
       setChatList(prev => upsertWorkspaceChat(prev, created));
     } catch (error) {}
-  }, [characterId]);
+  }, [activeChatId, characterId, input, persistDraft]);
 
-  // 切到历史里的某条会话：先中止在途生成，再把那条的消息读进界面。
+  // 切到历史里的某条会话：先中止在途生成，把当前输入存回原会话，
+  // 再把目标那条的消息与草稿读进界面（A→B→A 回来，A 的草稿还在）。
   const handleSelectChat = useCallback(async id => {
     const target = chatList.find(item => item.id === id);
     if (!target) return;
     if (controllerRef.current) controllerRef.current.abort();
+    persistDraft(characterId, activeChatId, input);
     setActiveChatId(id);
     setMessages(target.messages);
-    setInput('');
+    setInput(readDraft(characterId, id, target.draft));
     setAttachments([]);
     setToolStatus('');
     setSending(false);
     setHistoryOpen(false);
     await setActiveWorkspaceChat(characterId, id).catch(() => {});
-  }, [characterId, chatList]);
+  }, [activeChatId, characterId, chatList, input, persistDraft, readDraft]);
 
   const handleDeleteChat = useCallback(async id => {
     setHistoryBusy(true);
@@ -327,6 +393,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         const target = bucket.chats.find(item => item.id === bucket.activeId);
         setActiveChatId(bucket.activeId || '');
         setMessages(target ? target.messages : []);
+        setInput(target ? readDraft(characterId, target.id, target.draft) : '');
       }
       if (!bucket.chats.length) {
         const created = await createWorkspaceChat(characterId);
@@ -334,6 +401,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         setChatList([created]);
         setActiveChatId(created.id);
         setMessages([]);
+        setInput('');
       }
     } catch (error) {
     } finally {
@@ -350,6 +418,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setChatList(created ? [created] : []);
       setActiveChatId(created ? created.id : '');
       setMessages([]);
+      setInput('');
       setHistoryOpen(false);
     } catch (error) {
     } finally {
@@ -532,6 +601,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const ownerId = characterId;
     let assistantFinal = { id: assistantId, role: 'assistant', content: '', isError: false, at: Date.now() };
     setMessages(list => [...list, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
+    // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
+    // 否则下次切回来会把已经发过的话又填回输入框。
+    persistDraft(ownerId, chatId, '');
     setInput('');
     setAttachments([]);
     setSending(true);
@@ -712,10 +784,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                     item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
                     item.isError ? styles.bubbleError : null,
                   ]}>
+                    {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
+                        选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
                     {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
                       <ActivityIndicator size="small" color={theme.colors.primary} />
                     ) : (
-                      <Text style={styles.bubbleText}>{item.content}</Text>
+                      <Text style={styles.bubbleText} selectable>{item.content}</Text>
                     )}
                   </View>
                 </View>
@@ -790,7 +864,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               <TextInput
                 style={styles.input}
                 value={input}
-                onChangeText={setInput}
+                onChangeText={handleInputChange}
                 placeholder={t('workspace.chat.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 multiline

@@ -278,6 +278,30 @@ export function appendWorkspaceChatMessages(characterId, chatId, messages) {
   });
 }
 
+// 保存某条会话的输入草稿（未发送的输入框内容）。
+// 只动 draft 字段、**不碰 updatedAt**：草稿不是「会话活动」，否则打字会把
+// 历史列表的排序带乱（刚打的草稿把一条旧会话顶到最前，用户会以为消息写错了）。
+// 用 map 原位替换而不是 upsert：这里没有任何「置顶/裁剪」语义要办。
+export function saveWorkspaceChatDraft(characterId, chatId, draft) {
+  const key = String(characterId || '').trim();
+  const id = String(chatId || '').trim();
+  if (!key || !id) return Promise.resolve(false);
+  const text = String(draft === undefined || draft === null ? '' : draft);
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    const target = bucket.chats.find(item => item.id === id);
+    if (!target) return false;
+    const nextChat = normalizeWorkspaceChat({ ...target, draft: text, updatedAt: target.updatedAt });
+    store[key] = {
+      activeId: bucket.activeId || id,
+      chats: bucket.chats.map(item => (item.id === id ? nextChat : item)),
+    };
+    await writeChatsStore(store);
+    return true;
+  });
+}
+
 export function setActiveWorkspaceChat(characterId, chatId) {
   const key = String(characterId || '').trim();
   const id = String(chatId || '').trim();

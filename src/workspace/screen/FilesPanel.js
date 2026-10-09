@@ -793,14 +793,14 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                 {expanded && entry.op === 'edit' ? (
                   <View style={styles.changeDetail}>
                     <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.find')}</Text>
-                    <Text style={styles.changeDetailText}>{entry.find}</Text>
+                    <Text style={styles.changeDetailText} selectable>{entry.find}</Text>
                     <Text style={styles.changeDetailLabel}>{t('workspace.panel.history.replace')}</Text>
-                    <Text style={styles.changeDetailText}>{entry.replace}</Text>
+                    <Text style={styles.changeDetailText} selectable>{entry.replace}</Text>
                   </View>
                 ) : null}
                 {expanded && entry.op !== 'edit' ? (
                   <View style={styles.changeDetail}>
-                    <Text style={styles.changeDetailText}>
+                    <Text style={styles.changeDetailText} selectable>
                       {entry.op === 'delete'
                         ? t('workspace.panel.history.deleted')
                         : entry.op === 'import'
@@ -1130,7 +1130,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
-              <Text style={styles.previewText}>{preview ? preview.content : ''}</Text>
+              {/* selectable：文件正文要能长按选中局部文字（整段复制另有按钮，选段靠它）。 */}
+              <Text style={styles.previewText} selectable>{preview ? preview.content : ''}</Text>
               <View style={styles.formActions}>
                 <GhostButton
                   title={t('common.copy')}
