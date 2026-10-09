@@ -63,7 +63,7 @@ function toRunner(runner) {
   return runner && typeof runner === 'object' ? runner : null;
 }
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog } = {}) {
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer } = {}) {
   const resolvedShell = toRunner(shell);
   const resolvedPython = toRunner(python);
   const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
@@ -77,6 +77,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     // A5 会话级已读登记：宿主注入（工作区面板传会话内存；不传 = read 不登记，
     // 行为与旧版一致——聊天页等宿主无需感知这份状态）。
     ...(readLog ? { readLog } : {}),
+    // C2 按需物化器：read 读不到时试一次（函数）；不传 = 不物化（旧行为）。
+    ...(typeof materializer === 'function' ? { materializer } : {}),
   };
   const definitions = [
     ...WORKSPACE_TOOL_DEFINITIONS,
@@ -95,8 +97,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
   }));
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }

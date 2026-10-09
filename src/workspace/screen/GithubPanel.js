@@ -34,24 +34,28 @@ import { getGithubMcpSettings } from '../../storage/githubMcp.js';
 import { getRepoSnapshot, setRepoSnapshot } from '../../storage/workspace.js';
 import { isTextLike, readTextAttachment } from '../../chat/attachments.js';
 import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
-import { breadcrumbsOf, directoryChildren } from '../screen/buildTree.js';
+import { breadcrumbsOf, directoryChildren, mergeManifestEntries } from '../screen/buildTree.js';
 import { diffRepoSnapshot, localRepoPaths } from './repoDiff.js';
+import { materializeRepoFile } from '../repoMaterialize.js';
 import {
   buildRepoZipUrl,
   clearPullManifest,
   extractRepoFiles,
   readPullManifest,
+  readRepoManifest,
   REPO_IMPORT_LIMITS,
   writePullManifest,
+  writeRepoManifest,
 } from '../repoImport.js';
 import {
   canDeleteRepo,
   createRepo,
   deleteRepo,
+  downloadZip,
   fetchTokenScopes,
   listBranches,
   listRepos,
-  mapGithubError,
+  listTree,
   renameRepo,
   repoWebUrl,
 } from '../github/restApi.js';
@@ -111,6 +115,10 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [branchError, setBranchError] = useState(false);
   const [branchOverLimit, setBranchOverLimit] = useState(false);
   const branchSeqRef = useRef(0);
+  // C1 清单先行：快速检出的清单（1 次 API 出全树）+ 截断标记 + 检出中状态。
+  const [manifestEntries, setManifestEntries] = useState([]);
+  const [manifestTruncated, setManifestTruncated] = useState(false);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
   const [snapshotPaths, setSnapshotPaths] = useState([]);
   const mountedRef = useRef(true);
@@ -202,12 +210,12 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     }
   }, [loadRepos, refreshLocal, token]);
 
-  // 树：当前仓库前缀下的条目（本地副本）。
-  const repoEntries = useMemo(() => {
-    if (!current) return [];
-    const prefix = repoPrefix(current);
-    return allFiles.filter(entry => String(entry).startsWith(prefix));
-  }, [allFiles, current, repoPrefix]);
+  // 树：当前仓库前缀下的条目 = 本地副本 ∪ 清单（C1：快速检出后未物化的文件也
+  // 在树上，带云朵角标；点开时按需下载）。本地存在的一律以本地为准。
+  const { entries: repoEntries, virtual: virtualPaths } = useMemo(() => {
+    if (!current) return { entries: [], virtual: new Set() };
+    return mergeManifestEntries({ files: allFiles, manifestEntries, prefix: repoPrefix(current) });
+  }, [allFiles, current, manifestEntries, repoPrefix]);
 
   const children = useMemo(() => directoryChildren(repoEntries, subdir), [repoEntries, subdir]);
   const crumbs = useMemo(() => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')), [subdir, t]);
@@ -236,6 +244,35 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     () => diffRepoSnapshot({ files: allFiles, prefix: current ? repoPrefix(current) : '', snapshotPaths }),
     [allFiles, current, repoPrefix, snapshotPaths]
   );
+
+  // C1：载入该仓库的清单缓存（快速检出写入；缺失 = 没做过快速检出，行为与旧版一致）。
+  useEffect(() => {
+    let alive = true;
+    if (!current) {
+      setManifestEntries([]);
+      setManifestTruncated(false);
+      return () => { alive = false; };
+    }
+    const store = storeRef && storeRef.current;
+    (async () => {
+      try {
+        const manifest = await readRepoManifest(store, characterId, {
+          owner: current.owner,
+          repo: current.repo,
+          branch: current.branch || current.defaultBranch,
+        });
+        if (!alive) return;
+        setManifestEntries(manifest && Array.isArray(manifest.entries) ? manifest.entries : []);
+        setManifestTruncated(Boolean(manifest && manifest.truncated));
+      } catch (error) {
+        if (alive) {
+          setManifestEntries([]);
+          setManifestTruncated(false);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, [characterId, current, storeRef]);
 
   // B1：选中仓库后拉分支列表（最多 2 页 = 200 个；超过只提示手动输入）。
   // 失败不阻塞——输入框始终可用（清单三态里的「失败」就是一行提示）。
@@ -310,13 +347,87 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         setLayer('preview');
       }
     } catch (caught) {
+      // C2：清单里存在但本地没物化 → 点开即拉（单文件 contents API），拉完重读。
+      // 明确失败（网络/超过单文件上限）时如实报——绝不静默停在打不开的状态。
+      if (virtualPaths.has(path)) {
+        try {
+          const materialized = await materializeRepoFile({ store, characterId, path, token });
+          if (materialized.ok) {
+            const result = await store.readWorkspaceFile({ characterId, path });
+            if (mountedRef.current) {
+              setPreview(result);
+              setLayer('preview');
+            }
+            await refreshLocal();
+            return;
+          }
+          Alert.alert(
+            t('workspace.github.title'),
+            materialized.reason === 'none'
+              ? t('workspace.github.materialize.tooLarge')
+              : t('workspace.github.materialize.fail')
+          );
+          return;
+        } catch (error) {
+          Alert.alert(t('workspace.github.title'), t('workspace.github.materialize.fail'));
+          return;
+        }
+      }
       Alert.alert(t('workspace.github.title'), t('workspace.github.err.open'));
     }
-  }, [characterId, storeRef, t]);
+  }, [characterId, refreshLocal, storeRef, t, token, virtualPaths]);
 
   // 拉取当前仓库的分支快照到本地副本（codeload zipball → 文本文件落盘）。
   // 与 Stage 0 的修复同一条链路：目录条目已跳过、父路径被文件占用有明确报错、
   // 一次导入只记一条汇总历史（批内挂起逐文件记录）。带进度与取消（取消即回滚）。
+  // C1 快速检出：1 次 Trees API 秒开全树——清单落盘缓存、树立即可见（未物化
+  // 文件带云朵角标），并把清单设为「已同步」基线（与完整拉取同语义：远程已有）。
+  // 之后要么按需物化（点开即拉），要么随时「拉取快照」批量落盘。
+  const quickCheckout = useCallback(async () => {
+    if (!current || checkoutBusy) return;
+    const store = storeRef && storeRef.current;
+    if (!store) return;
+    const branch = String(pullBranch || current.branch || current.defaultBranch || '').trim();
+    if (!branch) return;
+    setCheckoutBusy(true);
+    try {
+      const { entries, truncated } = await listTree({
+        token,
+        owner: current.owner,
+        repo: current.repo,
+        ref: branch,
+      });
+      if (entries.length === 0) {
+        Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
+        return;
+      }
+      await writeRepoManifest(store, characterId, {
+        owner: current.owner,
+        repo: current.repo,
+        branch,
+      }, { entries, truncated });
+      if (mountedRef.current) {
+        setManifestEntries(entries);
+        setManifestTruncated(truncated);
+        setCurrent(prev => (prev ? { ...prev, branch } : prev));
+        setSubdir(`repos/${current.owner}/${current.repo}/${branch}/`);
+      }
+      // 基线 = 清单里的文件（「已同步」语义与完整拉取一致：远程已存在这些文件）。
+      try {
+        const paths = entries.filter(item => item.type !== 'tree').map(item => item.path);
+        await setRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`, { paths });
+        if (mountedRef.current) setSnapshotPaths(paths);
+      } catch (error) {}
+      if (truncated && mountedRef.current) {
+        Alert.alert(t('workspace.github.title'), t('workspace.github.checkout.truncated'));
+      }
+    } catch (caught) {
+      Alert.alert(t('workspace.github.title'), describeError(caught));
+    } finally {
+      if (mountedRef.current) setCheckoutBusy(false);
+    }
+  }, [characterId, checkoutBusy, current, describeError, pullBranch, storeRef, t, token]);
+
   // B3：重拉覆盖确认——Promise 化 Alert（**问不到用户 = 不继续**，与工具审批同款
   // 原则）；点外部/返回键按取消结算，绝不默认放行。
   const confirmPullOverwrite = useCallback(count => new Promise(resolve => {
@@ -363,8 +474,9 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         }
       } catch (error) {}
       const url = buildRepoZipUrl({ owner: current.owner, repo: current.repo, branch });
-      const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      if (!response.ok) throw mapGithubError(response.status, { headers: response.headers });
+      // C4：zip 下载走统一传输层（90s 超时 + 断流整包重试 1 次；HTTP 错误已在
+      // 传输层按 mapGithubError 抛出，走到这里必是 2xx）。
+      const response = await downloadZip({ url, token });
       const declared = Number(response.headers.get('content-length') || 0);
       if (declared > REPO_IMPORT_LIMITS.MAX_DOWNLOAD_BYTES) {
         throw Object.assign(new Error('zip too large'), { code: 'REPO_LIMIT_DOWNLOAD' });
@@ -787,11 +899,39 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                             color={theme.colors.primaryMuted}
                           />
                           <Text style={styles.fileName} numberOfLines={1}>{child.name}</Text>
+                          {/* C1：只在清单里（未物化）的条目带云朵角标——点开时按需下载。 */}
+                          {virtualPaths.has(child.path) ? (
+                            <Ionicons
+                              name="cloud-outline"
+                              size={13}
+                              color={theme.colors.textFaint}
+                              style={styles.virtualBadge}
+                            />
+                          ) : null}
                         </TouchableOpacity>
                       </View>
                     ))}
                   </>
                 )}
+
+                {current ? (
+                  <TouchableOpacity
+                    style={styles.checkoutRow}
+                    onPress={quickCheckout}
+                    activeOpacity={0.85}
+                    disabled={checkoutBusy}
+                  >
+                    <Ionicons name="flash-outline" size={15} color={theme.colors.primary} />
+                    <Text style={styles.checkoutText}>
+                      {checkoutBusy
+                        ? t('workspace.github.checkout.busy')
+                        : t('workspace.github.checkout.action')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {manifestTruncated ? (
+                  <FieldHint>{t('workspace.github.checkout.truncatedHint')}</FieldHint>
+                ) : null}
 
                 <View style={styles.pullRow}>
                   <TextInput
@@ -1166,6 +1306,20 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   pushText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginBottom: 2 },
   pullRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   branchInput: { flex: 1, marginTop: 0, marginRight: 8 },
+  // C1 快速检出入口：主题色描边的次要动作样式（不抢「拉取快照」的主按钮）。
+  checkoutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.35),
+  },
+  checkoutText: { marginLeft: 6, color: theme.colors.primary, fontSize: fonts.scaled(12) },
+  virtualBadge: { marginLeft: 6 },
   // B1 分支 chip：横向滚动、点选填入；选中态用主题色描边 + 淡底。
   branchChips: { flexGrow: 0, marginTop: 8 },
   branchChipsContent: { alignItems: 'center', paddingRight: 8 },

@@ -77,7 +77,10 @@ import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
+import { materializeRepoFile, parseRepoFilePath } from '../repoMaterialize.js';
+import { readRepoManifest } from '../repoImport.js';
 import { installSampleSkills, readWorkspaceSkills } from '../skills.js';
+import { getGithubMcpSettings } from '../../storage/githubMcp.js';
 import {
   expandSlashCommand,
   installSampleCommands,
@@ -139,6 +142,31 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
   if (readLogRef.current === null) readLogRef.current = createReadLog();
+
+  // C2 按需物化（给 agent 的 read 工具）：清单内未物化文件被读到、但本地没有时，
+  // 单文件拉取回沙盒。三道前置（缺一不发起网络）：是 repos 路径 → 该仓库做过
+  // 快速检出（有清单）→ 文件在清单里。token 复用 GitHub 面板的同一份设置。
+  const materializeForAgent = useCallback(async path => {
+    const store = storeRef.current;
+    if (!store || !characterId) return false;
+    const target = parseRepoFilePath(path);
+    if (!target) return false;
+    try {
+      const manifest = await readRepoManifest(store, characterId, target);
+      if (!manifest) return false;
+      if (!manifest.entries.some(item => item.type === 'blob' && item.path === target.rel)) return false;
+      const settings = await getGithubMcpSettings();
+      const token = settings && settings.enabled
+        ? (settings.authMethod === 'oauth' ? settings.githubAccessToken : settings.githubToken)
+        : '';
+      if (!token) return false;
+      const result = await materializeRepoFile({ store, characterId, path, token });
+      if (result.ok && readLogRef.current) readLogRef.current.record(path, result.chars);
+      return result.ok === true;
+    } catch (error) {
+      return false;
+    }
+  }, [characterId]);
   // 斜杠命令（输入框建议列表用；发送时会重读一次拿最新——agent 可能刚建了命令文件）。
   const [workspaceCommands, setWorkspaceCommands] = useState([]);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
@@ -779,7 +807,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     let tools = [];
     if (mode !== 'ask') {
       try {
-        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings, { readLog: readLogRef.current });
+        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings, {
+          readLog: readLogRef.current,
+          materializer: materializeForAgent,
+        });
         tools = listToolsForMode(mode);
       } catch (error) {}
     }
@@ -877,7 +908,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       }
       controllerRef.current = null;
     }
-  }, [activeChatId, attachments, characterId, characterName, input, loadUsage, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
+  }, [activeChatId, attachments, characterId, characterName, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 
   const canSend = !sending && (input.trim().length > 0 || attachments.length > 0);
   const lastAssistantId = messages.length && messages[messages.length - 1].role === 'assistant'

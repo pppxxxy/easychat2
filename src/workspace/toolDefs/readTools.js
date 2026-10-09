@@ -78,6 +78,23 @@ export const READ_ONLY_TOOL_DEFINITIONS = [
           } catch (error) {}
         }
         return formatWorkspaceReadResult(result);
+      }, error => {
+        // C2：清单内未物化文件——读失败时试一次按需物化再读。物化器由宿主注入
+        //（工作区 ChatPanel）；没注入（如聊天页）= 与旧版行为逐字节一致。
+        // 物化器内部三查（repos 路径 / 有清单 / 文件在清单里），不满足即 false
+        // 不发起网络——所以这里无脑试一次是安全的。
+        if (typeof options.materializer !== 'function') throw error;
+        return Promise.resolve(options.materializer(args.path))
+          .then(done => {
+            if (!done) throw error;
+            return options.store.readWorkspaceFile({
+              characterId: ctx && ctx.characterId,
+              path: args.path,
+              offset,
+              ...(maxChars !== undefined ? { maxChars } : {}),
+            });
+          })
+          .then(formatWorkspaceReadResult);
       });
     },
   },

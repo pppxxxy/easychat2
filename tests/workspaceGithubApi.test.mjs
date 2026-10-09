@@ -10,14 +10,20 @@ import {
   canDeleteRepo,
   createRepo,
   deleteRepo,
+  downloadZip,
   fetchTokenScopes,
+  GITHUB_RETRY_DELAYS,
   listBranches,
   listRepos,
+  listTree,
   mapGithubError,
   normalizeRepo,
   rateLimitFrom,
   renameRepo,
   repoWebUrl,
+  request,
+  RETRY_AFTER_CAP_MS,
+  retryDelayFor,
 } from '../src/workspace/github/restApi.js';
 
 function makeResponse(status, data, headers = {}) {
@@ -70,6 +76,151 @@ test('B1 listBranches：默认一页；page>=2 才带分页参数（缺省 URL �
   assert.equal(calls[1], 'https://api.github.com/repos/a/b/branches?per_page=100&page=2');
   await listBranches({ fetchImpl, token: 't', owner: 'a', repo: 'b', page: 1 });
   assert.equal(calls[2], 'https://api.github.com/repos/a/b/branches?per_page=100', 'page=1 等同缺省');
+});
+
+test('C1 listTree：recursive 一次拿全树；truncated 如实标记；非 blob/tree 过滤', async () => {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    return makeResponse(200, {
+      truncated: false,
+      tree: [
+        { path: 'src', type: 'tree', sha: 't1' },
+        { path: 'src/a.js', type: 'blob', sha: 'b1', size: 10 },
+        { path: 'README.md', type: 'blob', sha: 'b2', size: 5 },
+        { path: 'sub', type: 'commit', sha: 'c1' },
+        { path: '', type: 'blob', sha: 'x' },
+      ],
+    });
+  };
+  const result = await listTree({ fetchImpl, token: 't', owner: 'a', repo: 'b', ref: 'main' });
+  assert.equal(calls[0], 'https://api.github.com/repos/a/b/git/trees/main?recursive=1');
+  assert.deepEqual(result.entries, [
+    { path: 'src', type: 'tree', sha: 't1', size: 0 },
+    { path: 'src/a.js', type: 'blob', sha: 'b1', size: 10 },
+    { path: 'README.md', type: 'blob', sha: 'b2', size: 5 },
+  ], '非 blob/tree 与空路径被过滤');
+  assert.equal(result.truncated, false);
+
+  const big = await listTree({
+    fetchImpl: async () => makeResponse(200, { truncated: true, tree: [] }),
+    ref: 'main',
+  });
+  assert.equal(big.truncated, true, '超大树如实标记，不假装拿全');
+  assert.deepEqual(big.entries, []);
+});
+
+test('C4 retryDelayFor：只有 retryable 才退避；Retry-After 优先且封顶；最多 3 次', () => {
+  assert.equal(retryDelayFor({ code: 'AUTH' }, 0), null, '不可重试 = 直接抛');
+  assert.equal(retryDelayFor({ retryable: true }, -1), null);
+  const rate = { retryable: true, retryAfterMs: 0 };
+  assert.equal(retryDelayFor(rate, 0), GITHUB_RETRY_DELAYS[0]);
+  assert.equal(retryDelayFor(rate, 1), GITHUB_RETRY_DELAYS[1]);
+  assert.equal(retryDelayFor(rate, 2), GITHUB_RETRY_DELAYS[2]);
+  assert.equal(retryDelayFor(rate, 3), null, '最多 3 次重试（1s/2s/4s）');
+  // Retry-After 优先于退避表，但封顶（服务端说等 1 小时也不吊死）
+  assert.equal(retryDelayFor({ retryable: true, retryAfterMs: 5000 }, 0), 5000);
+  assert.equal(retryDelayFor({ retryable: true, retryAfterMs: 9e9 }, 0), RETRY_AFTER_CAP_MS);
+  assert.equal(retryDelayFor({ retryable: true, retryAfterMs: 1 }, 0), GITHUB_RETRY_DELAYS[0], '比退避表还短时取退避表');
+});
+
+test('C4 request：429 带 Retry-After 退避后成功；不可重试错误一次即抛', async () => {
+  const calls = [];
+  const sleeps = [];
+  const fetchImpl = async () => {
+    calls.push(Date.now());
+    if (calls.length === 1) return makeResponse(429, { message: 'rate' }, { 'retry-after': '2' });
+    return makeResponse(200, { ok: true });
+  };
+  const result = await request(fetchImpl, 'https://api.github.com/x', {
+    token: 't',
+    sleepImpl: async ms => { sleeps.push(ms); },
+  });
+  assert.equal(calls.length, 2, '退避后重发一次');
+  assert.deepEqual(sleeps, [2000], '按 Retry-After 等待（2s）');
+  assert.deepEqual(result.data, { ok: true });
+
+  // 401 不可重试：只请求一次
+  let authCalls = 0;
+  await assert.rejects(
+    request(async () => { authCalls += 1; return makeResponse(401, { message: 'bad' }); }, 'https://api.github.com/x', {
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'AUTH'
+  );
+  assert.equal(authCalls, 1, '不可重试错误不重发');
+
+  // 5xx 重试到上限后抛最后一个错误（退避表耗尽）
+  let httpCalls = 0;
+  await assert.rejects(
+    request(async () => { httpCalls += 1; return makeResponse(500, { message: 'boom' }); }, 'https://api.github.com/x', {
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'HTTP' && error.retryable === true
+  );
+  assert.equal(httpCalls, 1 + GITHUB_RETRY_DELAYS.length, '1 次首请求 + 3 次重试');
+});
+
+test('C4 超时：挂起的 fetch 被 AbortController 中止（不挂死、归一为 NETWORK）', async () => {
+  const fetchImpl = (url, init) => new Promise((resolve, reject) => {
+    if (init && init.signal) {
+      init.signal.addEventListener('abort', () => {
+        const error = new Error('Aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }
+  });
+  const startedAt = Date.now();
+  await assert.rejects(
+    request(fetchImpl, 'https://api.github.com/x', {
+      timeoutMs: 30,
+      retryDelays: [],
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'NETWORK' && error.retryable === true
+  );
+  assert.ok(Date.now() - startedAt < 2000, '超时被中止而不是挂死');
+});
+
+test('C4 downloadZip：断流整包重试 1 次；HTTP 错误按 mapGithubError 抛', async () => {
+  let attempts = 0;
+  const flaky = async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('socket reset');
+    return makeResponse(200, null, { 'content-length': '10' });
+  };
+  const response = await downloadZip({
+    fetchImpl: flaky,
+    url: 'https://codeload.example/z',
+    sleepImpl: async () => {},
+  });
+  assert.equal(attempts, 2, '断流后整包重下 1 次');
+  assert.equal(response.status, 200);
+
+  // 404 不可重试：一次即抛 NOT_FOUND
+  let notFoundCalls = 0;
+  await assert.rejects(
+    downloadZip({
+      fetchImpl: async () => { notFoundCalls += 1; return makeResponse(404, { message: 'no' }); },
+      url: 'https://codeload.example/z',
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'NOT_FOUND'
+  );
+  assert.equal(notFoundCalls, 1);
+
+  // 断流两次（超过 retries=1）：第二次仍抛出
+  let flaky2 = 0;
+  await assert.rejects(
+    downloadZip({
+      fetchImpl: async () => { flaky2 += 1; throw new Error('reset again'); },
+      url: 'https://codeload.example/z',
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'NETWORK'
+  );
+  assert.equal(flaky2, 2, '重试 1 次后仍失败即抛');
 });
 
 test('mapGithubError：401/403(限额 vs 权限)/404/409/422/429', () => {

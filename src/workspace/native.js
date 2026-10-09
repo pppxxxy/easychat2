@@ -71,12 +71,15 @@ export function describeWorkspaceRoot(settings) {
 }
 
 // extras.readLog（A5）：宿主（工作区面板）注入的会话级已读登记；不传 = read 不登记。
+// extras.materializer（C2）：宿主注入的按需物化函数（读不到清单内文件时试一次）；
+// 不传 = 不物化（与旧版行为一致）。
 export function registerDefaultWorkspaceTools(settings, extras = {}) {
   return registerWorkspaceTools({
     store: createWorkspaceStore(settings),
     shell: resolveShellRunner(settings),
     python: resolvePythonRunner(settings),
     readLog: extras.readLog || null,
+    materializer: typeof extras.materializer === 'function' ? extras.materializer : null,
   });
 }
 

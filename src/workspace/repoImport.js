@@ -241,3 +241,60 @@ export async function clearPullManifest(store, characterId) {
     return false;
   }
 }
+
+// —— C1 清单缓存（快速检出的落盘位置）——
+// 与 F4 的 pull-manifest **同域但分文件**：F4 是「成功即删」的临时信号
+//（存在 = 上次没跑完），本清单是长期缓存（不删）——语义不同，合并成一份
+// 会让「拉取成功删清单」把快速检出的树也删掉。共享的是同一套 IO 薄壳模式。
+// 文件名把三段都 encodeURIComponent（branch 可能含 `/`，直接拼会造出假目录）。
+export function repoManifestPath({ owner, repo, branch } = {}) {
+  const key = [owner, repo, branch].map(part => encodeURIComponent(String(part || ''))).join('__');
+  return `.easychat/repos-manifest/${key}.json`;
+}
+
+// 纯函数：清单文本 → { entries, truncated, at }；坏输入 → null（当作没有清单）。
+export function parseRepoManifest(text) {
+  try {
+    const source = typeof text === 'string' ? JSON.parse(text) : text;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+    const entries = (Array.isArray(source.entries) ? source.entries : [])
+      .map(item => ({
+        path: String((item && item.path) || ''),
+        type: String((item && item.type) || (String((item && item.path) || '').endsWith('/') ? 'tree' : 'blob')),
+        sha: String((item && item.sha) || ''),
+        size: Number(item && item.size) || 0,
+      }))
+      .filter(item => item.path);
+    return { entries, truncated: source.truncated === true, at: Number(source.at) || 0 };
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function readRepoManifest(store, characterId, key) {
+  if (!store || typeof store.readWorkspaceFile !== 'function') return null;
+  try {
+    const result = await store.readWorkspaceFile({ characterId, path: repoManifestPath(key) });
+    return parseRepoManifest(result && result.content);
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function writeRepoManifest(store, characterId, key, { entries, truncated } = {}) {
+  if (!store || typeof store.writeWorkspaceFile !== 'function') return false;
+  try {
+    await store.writeWorkspaceFile({
+      characterId,
+      path: repoManifestPath(key),
+      content: JSON.stringify({
+        entries: Array.isArray(entries) ? entries : [],
+        truncated: truncated === true,
+        at: Date.now(),
+      }),
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}

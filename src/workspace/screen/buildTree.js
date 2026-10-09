@@ -108,6 +108,40 @@ export function breadcrumbsOf(prefix = '', rootLabel = '') {
   return crumbs;
 }
 
+// C1：本地物化文件 ∪ 清单条目（快速检出后「未物化的文件」也出现在树里）。
+// 清单里 path 是**仓库内相对路径**（'src/a.js'，listTree 直出），拼上 prefix
+// 变成沙盒全路径再与本地对齐。返回 { entries, virtual }：entries 是合并后的
+// 条目数组（目录带尾斜杠，沿用 store 约定，可直接喂 directoryChildren）；
+// virtual 是「只在清单里」的沙盒全路径集合（渲染层画云朵角标 = 点开时按需下载）。
+// 本地存在的一律以本地为准（含「清单说目录、本地是文件」这类形态冲突）。
+export function mergeManifestEntries({ files, manifestEntries, prefix } = {}) {
+  const base = String(prefix || '');
+  const local = new Set((Array.isArray(files) ? files : []).map(item => String(item || '')));
+  const entries = new Set();
+  for (const entry of local) {
+    if (entry.startsWith(base)) entries.add(entry);
+  }
+  const virtual = new Set();
+  for (const item of (Array.isArray(manifestEntries) ? manifestEntries : [])) {
+    // 显式分支：字符串条目直接用；对象只认 path 字段——绝不让「path 为空串」
+    // 把对象本身 String 成 '[object Object]'（曾这么错过一次，被测试钉回来）。
+    const raw = typeof item === 'string'
+      ? item.trim()
+      : String((item && item.path) || '').trim();
+    if (!raw) continue;
+    const normalized = raw.endsWith('/') ? raw.slice(0, -1) : raw;
+    const isTree = (item && item.type === 'tree') || raw.endsWith('/');
+    const full = `${base}${normalized}${isTree ? '/' : ''}`;
+    if (!normalized || !full.startsWith(base)) continue;
+    entries.add(full);
+    if (virtual.has(full)) continue;
+    // 本地已有（文件或目录两种形态）就不算 virtual——本地为准。
+    if (local.has(full) || local.has(`${base}${normalized}`) || local.has(`${base}${normalized}/`)) continue;
+    virtual.add(full);
+  }
+  return { entries: [...entries].sort(), virtual };
+}
+
 // 上一级目录：'repos/a/b/' → 'repos/a/'；'a/' → ''（回到根层）。
 // F1 的空目录空状态里「返回上级」用它——比在组件里内联正则更可测。
 export function parentDirectoryOf(path) {
