@@ -5,6 +5,7 @@
 // 用户自选的外部文件夹走 SAF（safStore.js 的 createSafWorkspaceStore）。
 // 工具定义只认接口，不知道根在哪——换根不需要换工具。
 
+import { runSubagent, SUBAGENT_TOOL_NAMES } from '../agent/subagent.js';
 import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from './docx.js';
 import { postWriteNotices } from './hooks.js';
@@ -75,6 +76,36 @@ const WORKSPACE_TOOL_DEFINITIONS = [
         offset,
         ...(maxChars !== undefined ? { maxChars } : {}),
       }).then(formatWorkspaceReadResult);
+    },
+  },
+  {
+    name: 'run_subagent',
+    description: '把一个「研究型子任务」委托给助手的一个独立分身：它只能读工作区文件'
+      + '（不能改任何东西），完成后把整理好的结论交回来。适合「翻很多文件找答案」'
+      + '这类会刷屏的任务——中间过程不会占用当前对话的上下文。task 里要写清'
+      + '「要找什么、要回答什么」，结论回来后再由你转述或继续加工。',
+    readOnly: true,
+    // 子代理要跑多轮模型请求，默认工具超时（十几秒）不够；180s 是防跑飞的上限。
+    timeoutMs: 180000,
+    parameters: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: '子任务描述（要找什么、要回答什么）。' },
+      },
+      required: ['task'],
+    },
+    execute: async (options, args, ctx) => {
+      // 只读工具按**名字白名单**过滤（不含 run_subagent——它自己也是 readOnly，
+      // 只看标志会递归）：防递归是结构性的，不靠"记得别给"。
+      const readOnlyTools = WORKSPACE_TOOL_DEFINITIONS.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
+      const result = await runSubagent({
+        task: args.task,
+        tools: readOnlyTools,
+        store: options.store,
+        characterId: ctx && ctx.characterId,
+        signal: (ctx && ctx.signal) || null,
+      });
+      return result.isError ? { content: result.content, isError: true } : result.content;
     },
   },
   {

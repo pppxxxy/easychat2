@@ -58,9 +58,11 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   const source = settings && typeof settings === 'object' ? settings : {};
   const mode = source.mode;
   if (mode !== 'write' && mode !== 'read') return [];
+  // run_subagent（子代理，T8）是只读工具：read 与 write 模式都提供——
+  // 它的价值是把「翻很多文件找答案」的过程隔离在子循环里，与能否改文件无关。
   const tools = mode === 'write'
-    ? ['list_workspace_files', 'read_workspace_file', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
-    : ['list_workspace_files', 'read_workspace_file'];
+    ? ['list_workspace_files', 'read_workspace_file', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'export_workspace_docx']
+    : ['list_workspace_files', 'read_workspace_file', 'run_subagent'];
   const appRoot = !source.location || source.location.kind !== 'saf';
   if (mode === 'write' && appRoot && source.allowCommandExecution === true && shellAvailable) {
     tools.push('run_shell');
