@@ -128,6 +128,7 @@ export const error = {
   'error.agent.toolNameInvalid': '工具名非法：{name}',
   'error.agent.toolMissingExecute': '工具 {name} 缺少 execute 函数',
   'error.mcp.githubError': 'GitHub MCP 错误（{code}）：{message}',
+  'error.mcp.serverError': 'MCP 错误（{code}）：{message}',
   'error.mcp.unknown': '未知错误',
   'error.regex.emptyPattern': '匹配表达式不能为空。',
   'error.location.unsupportedBuild': '当前构建未包含定位能力（expo-location）',
