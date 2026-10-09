@@ -11,6 +11,7 @@ import Module from 'node:module';
 import { createRequire } from 'node:module';
 
 import {
+  WORKSPACE_CHAT_DRAFT_MAX,
   WORKSPACE_CHAT_LIMIT,
   WORKSPACE_CHAT_MESSAGE_LIMIT,
   WORKSPACE_CHAT_TITLE_MAX,
@@ -207,4 +208,47 @@ test('存储往返：新建 / 追加去重 / 切换 / 删除 / 清空，且按�
   assert.deepEqual((await getWorkspaceChats('role-a')).chats, []);
   // 追加到已不存在的会话：静默返回 null，不抛（生成结束落盘时可能已被删）
   assert.equal(await appendWorkspaceChatMessages('role-a', second.id, [{ id: 'x', role: 'user', content: 'x' }]), null);
+});
+
+test('输入草稿归一化：老数据空串兜底，超长截断', () => {
+  assert.equal(normalizeWorkspaceChat({ id: 'c' }).draft, '', '老数据无 draft → 空串兜底');
+  assert.equal(normalizeWorkspaceChat({ id: 'c', draft: 123 }).draft, '123', '非字符串收敛为字符串');
+  const long = 'x'.repeat(WORKSPACE_CHAT_DRAFT_MAX + 50);
+  const chat = normalizeWorkspaceChat({ id: 'c', draft: long });
+  assert.ok(chat.draft.length <= WORKSPACE_CHAT_DRAFT_MAX + 1,
+    `草稿应截断到 ${WORKSPACE_CHAT_DRAFT_MAX} 以内`);
+});
+
+test('saveWorkspaceChatDraft：草稿落盘、不存在的会话拒绝、且不把旧会话顶到最前', async () => {
+  const {
+    createWorkspaceChat,
+    getWorkspaceChats,
+    saveWorkspaceChatDraft,
+  } = loadWorkspaceStorage();
+
+  const older = await createWorkspaceChat('draft-a');
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const newer = await createWorkspaceChat('draft-a');
+  let bucket = await getWorkspaceChats('draft-a');
+  assert.equal(bucket.chats[0].id, newer.id, '新会话在最前');
+  const olderUpdatedAt = bucket.chats.find(item => item.id === older.id).updatedAt;
+
+  // 写草稿：落盘，且 updatedAt 原样不动
+  assert.equal(await saveWorkspaceChatDraft('draft-a', older.id, '写到一半的指令'), true);
+  bucket = await getWorkspaceChats('draft-a');
+  const olderChat = bucket.chats.find(item => item.id === older.id);
+  assert.equal(olderChat.draft, '写到一半的指令');
+  assert.equal(olderChat.updatedAt, olderUpdatedAt,
+    '草稿不是会话活动：updatedAt 不该被改写（否则界面会显示「刚更新」的误导时间）');
+  assert.equal(bucket.chats[0].id, newer.id, '打字不该把旧会话顶到历史列表最前');
+
+  // 发送后清草稿
+  await saveWorkspaceChatDraft('draft-a', older.id, '');
+  bucket = await getWorkspaceChats('draft-a');
+  assert.equal(bucket.chats.find(item => item.id === older.id).draft, '');
+
+  // 不存在的会话 / 缺参数：如实返回 false，且不新建会话
+  assert.equal(await saveWorkspaceChatDraft('draft-a', 'nope', 'x'), false);
+  assert.equal(await saveWorkspaceChatDraft('', older.id, 'x'), false);
+  assert.equal((await getWorkspaceChats('draft-a')).chats.length, 2);
 });
