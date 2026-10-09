@@ -111,6 +111,23 @@ export function listToolsForMode(mode, options = {}) {
     }));
 }
 
+// D4-1：结果出口钩子——宿主注入（工作区宿主读 hooks.json 的 on_tool_result 条目，
+// 按工具名匹配后往结果尾部追加提醒）。三条纪律：
+// 1. 只对**成功**结果生效——错误结果不该被「增强」成看起来成功的样子；
+// 2. 钩子自身抛错按原结果返回——增强是增值步骤，不能把工具执行本身毁掉；
+// 3. 不注入 = 不调用，行为与旧版逐字节一致。
+async function applyResultHook(ctx, name, args, result) {
+  if (!result || result.isError === true) return result;
+  if (typeof ctx.onToolResult !== 'function') return result;
+  try {
+    const patched = await ctx.onToolResult({ name, args }, result);
+    if (patched && typeof patched.content === 'string') {
+      return { content: patched.content, isError: patched.isError === true };
+    }
+  } catch (error) {}
+  return result;
+}
+
 export async function runTool(call, ctx = {}) {
   const name = String((call && call.name) || '').trim();
   const tool = registry.get(name);
@@ -207,12 +224,12 @@ export async function runTool(call, ctx = {}) {
     ]);
     if (isAbortError(result)) throw result;
     if (result && typeof result === 'object' && typeof result.content === 'string') {
-      return { content: result.content, isError: result.isError === true };
+      return applyResultHook(ctx, name, args, { content: result.content, isError: result.isError === true });
     }
-    return {
+    return applyResultHook(ctx, name, args, {
       content: typeof result === 'string' ? result : String(result === undefined || result === null ? '' : result),
       isError: false,
-    };
+    });
   } catch (error) {
     if (isAbortError(error)) throw error;
     if (error && error.message === timeoutReason) return toErrorResult(timeoutReason);

@@ -25,7 +25,7 @@
 import { commandPrefixMatches, pathMatchesGlob } from '../agent/permissions.js';
 
 export const HOOKS_FILE = '.easychat/hooks.json';
-export const HOOK_EVENTS = Object.freeze(['before_shell', 'after_write', 'after_edit']);
+export const HOOK_EVENTS = Object.freeze(['before_shell', 'after_write', 'after_edit', 'on_tool_result']);
 export const HOOK_MATCH_MAX = 200;
 export const HOOK_MESSAGE_MAX = 300;
 // 每个事件的条目上限：一个钩子文件不该能把提示词/结果撑爆。
@@ -114,6 +114,15 @@ export function shellHookDenyRules(hooks) {
     match: item.pattern,
     scope: 'session',
   }));
+}
+
+// D4-1：结果钩子——match 对**工具名精确匹配**（结果增强没有「前缀」或路径语义，
+// 写错就是没命中，不做模糊——模糊匹配会让一条钩子意外作用到别的工具上）。
+export function collectToolResultNotices(hooks, toolName) {
+  const list = hooks && Array.isArray(hooks.on_tool_result) ? hooks.on_tool_result : [];
+  const name = String(toolName || '');
+  if (!name) return [];
+  return list.filter(item => item && item.pattern === name).map(item => item.message);
 }
 
 // after_* 通知：路径 glob 命中项的 message 列表（按声明顺序）。

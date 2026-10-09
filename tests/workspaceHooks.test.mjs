@@ -14,6 +14,7 @@ import {
   HOOKS_FILE,
   HOOKS_MAX_PER_EVENT,
   collectPostEventNotices,
+  collectToolResultNotices,
   matchBeforeShellHooks,
   parseWorkspaceHooks,
   readWorkspaceHooks,
@@ -116,6 +117,26 @@ test('readWorkspaceHooks：文件不存在 / 读失败 / 坏格式一律空结�
   assert.equal(broken.after_write.length, 1, '坏格式 → 默认仍在（文件坏了不该关掉默认）');
   const none = await readWorkspaceHooks(null, 'c1');
   assert.equal(none.after_edit.length, 1);
+});
+
+test('D4-1 on_tool_result：工具名精确匹配（前缀不算命中）；坏输入安全；可经 hooks.json 解析', () => {
+  const hooks = {
+    on_tool_result: [
+      { pattern: 'run_shell', message: '记得核对退出码' },
+      { pattern: 'read_workspace_file', message: '大文件注意分页' },
+      { pattern: 'run_shell', message: '第二条' },
+    ],
+  };
+  assert.deepEqual(collectToolResultNotices(hooks, 'run_shell'), ['记得核对退出码', '第二条'], '多条按声明顺序');
+  assert.deepEqual(collectToolResultNotices(hooks, 'read_workspace_file'), ['大文件注意分页']);
+  assert.deepEqual(collectToolResultNotices(hooks, 'run_shell_extra'), [], '精确匹配——前缀不算命中');
+  assert.deepEqual(collectToolResultNotices(hooks, 'unknown'), []);
+  assert.deepEqual(collectToolResultNotices(null, 'run_shell'), []);
+  assert.deepEqual(collectToolResultNotices(hooks, ''), [], '空工具名不命中');
+
+  // 经 hooks.json 解析（事件白名单已含 on_tool_result；条目用 match 字段）
+  const parsed = parseWorkspaceHooks({ on_tool_result: [{ match: 'run_shell', message: 'm' }] });
+  assert.deepEqual(collectToolResultNotices(parsed, 'run_shell'), ['m']);
 });
 
 test('A4 内置验证提醒：默认生效；同键（含空数组）可覆盖；只覆盖声明的键', async () => {

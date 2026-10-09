@@ -88,7 +88,7 @@ import {
   readWorkspaceCommands,
   slashQuery,
 } from '../commands.js';
-import { readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
+import { collectToolResultNotices, readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
@@ -874,6 +874,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             signal: controller.signal,
             extraRules,
           });
+        },
+        // D4-1：结果增强钩子——hooks.json 的 on_tool_result（按工具名精确匹配，
+        // 往成功结果尾部追加提醒）。每次调用直读（本轮内 agent 改了钩子立即生效）；
+        // registry 侧兜底：错误结果不增强、钩子抛错按原结果返回。
+        onToolResult: async (call, result) => {
+          try {
+            const hooks = await readWorkspaceHooks(storeRef.current, characterId);
+            const notices = collectToolResultNotices(hooks, call && call.name);
+            if (notices.length === 0) return result;
+            return {
+              content: `${result.content}\n\n[工作区钩子] ${notices.join('；')}`,
+              isError: result.isError === true,
+            };
+          } catch (error) {
+            return result;
+          }
         },
         context: { characterId },
       });

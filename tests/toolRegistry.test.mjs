@@ -34,6 +34,50 @@ test('registerTool 校验工具名与 execute', () => {
   assert.equal(getTool('read_file'), null);
 });
 
+test('D4-1 结果钩子：成功可增强；错误结果不增强；钩子抛错按原结果；不注入无变化', async () => {
+  registerTool({ name: 'echo', readOnly: true, parameters: {}, execute: async () => '原始内容' });
+
+  // 成功增强：钩子拿到 { name, args } 与归一后的结果，返回值替换结果
+  const seen = [];
+  const patched = await runTool(
+    { name: 'echo', arguments: '{}' },
+    {
+      mode: 'read',
+      onToolResult: async (call, result) => {
+        seen.push({ name: call.name, content: result.content });
+        return { content: `${result.content}\n[钩子] 提醒` };
+      },
+    }
+  );
+  assert.equal(patched.content, '原始内容\n[钩子] 提醒');
+  assert.deepEqual(seen, [{ name: 'echo', content: '原始内容' }]);
+
+  // 错误结果不增强（不该被「增强」成看起来成功的样子）
+  registerTool({
+    name: 'boom',
+    readOnly: true,
+    parameters: {},
+    execute: async () => { throw new Error('炸了'); },
+  });
+  let called = 0;
+  const errored = await runTool(
+    { name: 'boom', arguments: '{}' },
+    { mode: 'read', onToolResult: async () => { called += 1; return { content: 'x' }; } }
+  );
+  assert.equal(errored.isError, true);
+  assert.equal(called, 0, '错误路径不调用结果钩子');
+
+  // 钩子自身抛错：按原结果返回（增强是增值步骤，不能毁掉工具执行）
+  const safe = await runTool(
+    { name: 'echo', arguments: '{}' },
+    { mode: 'read', onToolResult: async () => { throw new Error('hook down'); } }
+  );
+  assert.equal(safe.content, '原始内容');
+
+  // 不注入 = 行为与旧版一致
+  assert.equal((await runTool({ name: 'echo', arguments: '{}' }, { mode: 'read' })).content, '原始内容');
+});
+
 test('listToolsForMode 按 ask/read/write 门控', () => {
   registerTool({ name: 'read_a', readOnly: true, parameters: {}, execute: async () => 'a' });
   registerTool({ name: 'write_b', readOnly: false, parameters: {}, execute: async () => 'b' });

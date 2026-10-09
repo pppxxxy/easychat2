@@ -42,6 +42,8 @@ export async function runAgentTurn(messages, options = {}) {
   // 循环要停在这里等用户点头，所以不能塞进那个同步、不 await 的信息性回调。
   // 没接钩子时，requiresConfirmation 的工具在 runTool 里按「未确认」被拒绝。
   const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
+  // D4-1：结果增强钩子（宿主注入；不注入 = 不增强，行为与旧版一致）。
+  const onToolResult = typeof options.onToolResult === 'function' ? options.onToolResult : null;
   const context = options.context || {};
   // 聊天内受控工具（联网搜索）的放行开关：必须一路传到 runTool 的执行门控，
   // 否则暴露层放行了、执行层仍会按工作区模式拒绝，表现为「模型调了但总失败」。
@@ -110,6 +112,7 @@ export async function runAgentTurn(messages, options = {}) {
           // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
           // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
           ...(onToolApproval ? { confirm: onToolApproval } : {}),
+          ...(onToolResult ? { onToolResult } : {}),
         });
       } catch (error) {
         if (isCanceledError(error) || (signal && signal.aborted)) throw createAbortError();

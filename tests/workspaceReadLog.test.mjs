@@ -112,4 +112,9 @@ test('接线契约：ChatPanel 建登记器 / 切对话清空 / 两处传参', (
   assert.ok(panel.includes('readLog: readLogRef.current ? readLogRef.current.list() : []'), '每轮注入已读行');
   const native = fs.readFileSync(path.resolve('src/workspace/native.js'), 'utf8');
   assert.ok(native.includes('extras.readLog'), '注册入口透传 extras');
+  // D4-1：结果增强钩子（on_tool_result）注入在工作区宿主
+  assert.ok(panel.includes('onToolResult:'), '结果钩子注入');
+  assert.ok(panel.includes('collectToolResultNotices'), '按工具名匹配钩子条目');
+  const loop = fs.readFileSync(path.resolve('src/agent/loop.js'), 'utf8');
+  assert.ok(loop.includes('onToolResult'), 'loop 透传到 registry ctx');
 });
