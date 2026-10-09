@@ -14,6 +14,7 @@ import {
   createBlob,
   createCommit,
   createTree,
+  getBlobRaw,
   getRef,
   listTree,
   updateRef,
@@ -168,6 +169,55 @@ async function mapLimit(items, concurrency, worker, sleepImpl) {
 // 大文件会被读成截断内容（sha 不符 → 误判 modified → 推半截）。8MB 留出余量。
 export const PUSH_READ_MAX_CHARS = 8 * 1024 * 1024;
 
+// —— H3：回滚基线（推送前把 modified/removed 的**远程旧内容**取回来）——
+// 语义：快照记录的是「这次推送之前，这些文件在远端是什么样」——回滚 = 把本地
+// 写回旧内容（modified）或恢复被删文件（removed），再走一次推送即反向同步。
+// **必须在提交前拉**：推送成功后远程就变了，旧内容再也拿不到。
+// 三重限额（文件数 / 单文件 / 总量）——超限的只记 sha（content: null），
+// 回滚入口如实提示「该文件旧内容未存、无法自动恢复」，绝不假装能回滚。
+export const ROLLBACK_MAX_FILES = 50;
+export const ROLLBACK_MAX_FILE_CHARS = 1024 * 1024;
+export const ROLLBACK_MAX_TOTAL_CHARS = 5 * 1024 * 1024;
+
+export async function collectRollbackEntries({ fetchImpl = fetch, token, owner, repo, entries, paths } = {}) {
+  const bySha = new Map(
+    (Array.isArray(entries) ? entries : [])
+      .filter(item => item && item.type === 'blob' && item.path)
+      .map(item => [item.path, item.sha])
+  );
+  const list = Array.isArray(paths) ? paths : [];
+  const wanted = list.slice(0, ROLLBACK_MAX_FILES);
+  const result = [];
+  let total = 0;
+  for (const path of wanted) {
+    const sha = bySha.get(path) || '';
+    if (!sha) {
+      result.push({ path, sha: '', content: null, reason: 'no-sha' });
+      continue;
+    }
+    let content = null;
+    let reason = '';
+    try {
+      // 旁路拉取：**不重试**（retryDelays: []）——一个文件拉不到就如实记账，
+      // 重试 3 次（1+2+4s）会让推送无谓等待，而且旧内容本来就不是推送的必需物。
+      const text = await getBlobRaw({ fetchImpl, token, owner, repo, sha, retryDelays: [] });
+      if (text.length > ROLLBACK_MAX_FILE_CHARS) reason = 'too-large';
+      else if (total + text.length > ROLLBACK_MAX_TOTAL_CHARS) reason = 'total-limit';
+      else {
+        content = text;
+        total += text.length;
+      }
+    } catch (error) {
+      reason = 'fetch-failed';
+    }
+    result.push({ path, sha, content, ...(reason ? { reason } : {}) });
+  }
+  return {
+    entries: result,
+    ...(list.length > wanted.length ? { skippedCount: list.length - wanted.length } : {}),
+  };
+}
+
 export async function pushRepoSnapshot({
   store,
   characterId,
@@ -228,6 +278,16 @@ export async function pushRepoSnapshot({
     const proceed = await confirm({ diff });
     if (!proceed) return { ...result, cancelled: true };
   }
+  // H3：拉回滚基线（modified/removed 的远程旧内容）——必须在提交前拉
+  //（推送成功后远程就变了，旧内容再也拿不到）。拉取失败不挡推送（如实记 reason）。
+  const rollback = await collectRollbackEntries({
+    fetchImpl,
+    token,
+    owner,
+    repo,
+    entries: remote.entries,
+    paths: [...diff.modified, ...diff.removed],
+  });
   // 父提交（ref 指向的 commit）：期间远程被推进 → updateRef 非快进被拒（安全失败）。
   const parentSha = await getRef({ fetchImpl, token, owner, repo, branch });
   // 新树条目：未改沿用远程 sha；新增/修改创建 blob；删除给 sha:null。
@@ -270,5 +330,11 @@ export async function pushRepoSnapshot({
     parents: parentSha ? [parentSha] : [],
   });
   await updateRef({ fetchImpl, token, owner, repo, branch, sha: commitSha });
-  return { ok: true, diff, commit: commitSha, ...(skippedTooLarge.length ? { skippedTooLarge } : {}) };
+  return {
+    ok: true,
+    diff,
+    commit: commitSha,
+    ...(rollback.entries.length ? { rollback } : {}),
+    ...(skippedTooLarge.length ? { skippedTooLarge } : {}),
+  };
 }

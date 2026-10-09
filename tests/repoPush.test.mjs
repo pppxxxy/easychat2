@@ -6,9 +6,12 @@ import { createHash } from 'node:crypto';
 
 import {
   bytesToBase64,
+  collectRollbackEntries,
   computeGitBlobSha,
   diffRemoteLocal,
   pushRepoSnapshot,
+  ROLLBACK_MAX_FILES,
+  ROLLBACK_MAX_FILE_CHARS,
   sha1Hex,
 } from '../src/workspace/repoPush.js';
 
@@ -355,4 +358,46 @@ test('G1 端到端复现：被跳过的远程二进制（本地没有、无基�
     confirm: async () => true,
   });
   assert.deepEqual(noBaseline.diff.removed, [], '无基线 → 宁可少删');
+});
+
+test('H3 collectRollbackEntries：取回旧内容 / 超限与失败如实记账 / 文件数上限', async () => {
+  const textResponse = text => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => text });
+  const fetchImpl = fetchMock(url => {
+    if (url.endsWith('/git/blobs/sha-a')) return textResponse('old-a');
+    if (url.endsWith('/git/blobs/sha-big')) return textResponse('x'.repeat(ROLLBACK_MAX_FILE_CHARS + 1));
+    throw new Error('boom'); // sha-fail：拉取失败
+  });
+  const entries = [
+    { path: 'a.txt', type: 'blob', sha: 'sha-a' },
+    { path: 'big.txt', type: 'blob', sha: 'sha-big' },
+    { path: 'fail.txt', type: 'blob', sha: 'sha-fail' },
+  ];
+  const result = await collectRollbackEntries({
+    fetchImpl,
+    token: 't',
+    owner: 'o',
+    repo: 'r',
+    entries,
+    paths: ['a.txt', 'big.txt', 'fail.txt', 'ghost.txt'],
+  });
+  assert.equal(result.entries[0].content, 'old-a', '正常取回旧内容');
+  assert.equal(result.entries[0].sha, 'sha-a');
+  assert.equal(result.entries[1].content, null);
+  assert.equal(result.entries[1].reason, 'too-large', '超单文件限额 → 只记 sha');
+  assert.equal(result.entries[2].reason, 'fetch-failed', '拉取失败 → 如实记账（不挡推送）');
+  assert.equal(result.entries[3].reason, 'no-sha', '远程无 sha 的路径防御');
+  assert.equal(result.skippedCount, undefined, '4 条不超文件数上限');
+
+  // 文件数上限：超出的计入 skippedCount（不静默丢）
+  const many = Array.from({ length: ROLLBACK_MAX_FILES + 2 }, (_, i) => ({ path: `f${i}.txt`, sha: `sha-${i}` }));
+  const capped = await collectRollbackEntries({
+    fetchImpl: fetchMock(() => textResponse('x')),
+    token: 't',
+    owner: 'o',
+    repo: 'r',
+    entries: many.map(item => ({ path: item.path, type: 'blob', sha: item.sha })),
+    paths: many.map(item => item.path),
+  });
+  assert.equal(capped.entries.length, ROLLBACK_MAX_FILES);
+  assert.equal(capped.skippedCount, 2);
 });

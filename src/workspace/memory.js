@@ -31,6 +31,8 @@ export const WORKSPACE_MEMORY_TEMPLATE = [
   '- 回复一律用中文；代码块之外少写客套话',
   '- 改文件之前先读一遍现状',
   '- 超过三步的任务先列步骤清单；改完代码或配置后先跑一次验证，再把结果写进结论',
+  // H1：云构建闭环（手机跑不动构建/测试时，重活交给 GitHub Actions）。
+  '- 仓库副本（repos/ 下）改完后，可用 run_remote_build 触发 GitHub Actions 构建/测试，再用 get_build_log 读日志修错——重活不用在手机上跑',
   '- （继续补充你自己的约定…）',
   '',
 ].join('\n');

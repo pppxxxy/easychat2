@@ -10,6 +10,8 @@
 //
 // 错误统一成带 code 的 Error，界面按 code 取 i18n 文案（本模块不引 i18n）。
 
+import { strFromU8, unzipSync } from 'fflate';
+
 export const GITHUB_API_BASE = 'https://api.github.com';
 
 // —— C4 传输健壮性 ——
@@ -297,6 +299,20 @@ export async function getCommitDiff({ fetchImpl = fetch, token, owner, repo, sha
   return typeof data === 'string' ? data : '';
 }
 
+// 按 blob sha 拉原始文本（H3 回滚基线用：推送前把远程旧内容取回来存本地）。
+// Accept: vnd.github.raw → 直接返回文本（不用 base64 解码那一跳）。
+// retryDelays 可传空数组 = 不重试（旁路拉取——失败了如实记账即可，不值得拖慢主流程）。
+export async function getBlobRaw({ fetchImpl = fetch, token, owner, repo, sha, retryDelays = GITHUB_RETRY_DELAYS } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(sha)}`;
+  const { data } = await request(fetchImpl, url, {
+    token,
+    accept: 'application/vnd.github.raw',
+    parse: 'text',
+    retryDelays,
+  });
+  return typeof data === 'string' ? data : '';
+}
+
 // 创建 PR（写操作——调用方负责确认门与 riskGate 分级；这里只发请求并归一返回值）。
 export async function createPullRequest({ fetchImpl = fetch, token, owner, repo, title, head, base, body = '' } = {}) {
   const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
@@ -323,6 +339,133 @@ export function truncateDiffText(text, limit = 64 * 1024) {
   return {
     text: `${value.slice(0, headSize)}\n…（diff 过长，中间省略 ${omitted} 字符；可在 GitHub 网页端看完整差异）…\n${value.slice(-tailSize)}`,
     truncated: true,
+  };
+}
+
+// —— H1：GitHub Actions 云构建（外部调研 L2 的落地，零原生代码）——
+//
+// 定位：手机端做「触发 → 看状态 → 读日志 → 修」的轻交互；重活（tsc/eslint/
+// 构建/测试）交给 GitHub 的 runner。这是「本地跑不了 LSP/构建」的正确补偿：
+// CI 日志就是「写 → 检查 → 修」闭环的诊断源。
+
+// 触发 workflow_dispatch（远端副作用——宿主负责确认门）。
+// workflow 可为文件名（build.yml）或数字 id；inputs 是 workflow_dispatch 定义的入参。
+export async function dispatchWorkflow({ fetchImpl = fetch, token, owner, repo, workflow, ref = '', inputs } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+    + `/actions/workflows/${encodeURIComponent(workflow)}/dispatches`;
+  await request(fetchImpl, url, {
+    method: 'POST',
+    token,
+    body: {
+      ...(ref ? { ref } : {}),
+      ...(inputs && typeof inputs === 'object' && !Array.isArray(inputs) ? { inputs } : {}),
+    },
+  });
+  // 成功是 204 No Content（request 已按 204 处理）——没有 run id 可拿，调用方轮询列表。
+  return { ok: true };
+}
+
+// run 条目归一：UI 只认这几个字段。
+export function normalizeWorkflowRun(item) {
+  const source = item && typeof item === 'object' ? item : {};
+  return {
+    id: Number(source.id) || 0,
+    name: String(source.name || ''),
+    displayTitle: String(source.display_title || ''),
+    status: String(source.status || ''), // queued / in_progress / completed
+    conclusion: String(source.conclusion || ''), // success / failure / cancelled / ''
+    branch: String(source.head_branch || ''),
+    sha: String(source.head_sha || '').slice(0, 7),
+    createdAt: String(source.created_at || ''),
+    event: String(source.event || ''),
+    url: String(source.html_url || ''),
+  };
+}
+
+// 构建历史（分页）：不带 workflow 时列全仓库的 run，带了则只看该 workflow。
+export async function listWorkflowRuns({
+  fetchImpl = fetch,
+  token,
+  owner,
+  repo,
+  workflow = '',
+  branch = '',
+  perPage = 20,
+  page = 1,
+} = {}) {
+  const base = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions`;
+  const scope = workflow
+    ? `${base}/workflows/${encodeURIComponent(workflow)}/runs`
+    : `${base}/runs`;
+  const size = Math.min(Math.max(1, Math.floor(Number(perPage)) || 20), 50);
+  const pageNo = Math.max(1, Math.floor(Number(page)) || 1);
+  const branchQuery = branch ? `&branch=${encodeURIComponent(branch)}` : '';
+  const { data } = await request(fetchImpl, `${scope}?per_page=${size}&page=${pageNo}${branchQuery}`, { token });
+  const runs = Array.isArray(data && data.workflow_runs) ? data.workflow_runs : [];
+  return runs.map(normalizeWorkflowRun).filter(item => item.id > 0);
+}
+
+// 单个 run 的最新状态（轮询用）。
+export async function getWorkflowRun({ fetchImpl = fetch, token, owner, repo, runId } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+    + `/actions/runs/${encodeURIComponent(runId)}`;
+  const { data } = await request(fetchImpl, url, { token });
+  return normalizeWorkflowRun(data);
+}
+
+// 下载 run 的全部日志：GitHub 的 logs 端点是 **302 → 签名 URL → zip**；
+// fetch 默认跟随重定向（RN 与 undici 都如此），所以这里只管解包。
+// zip 里每个 job 一个目录（<job-name>/1_xxx.txt、2_xxx.txt…）——按目录合并。
+// 解包失败（端点行为变化）时按纯文本兜底，不丢诊断信息。
+export function mergeRunLogZip(bytes) {
+  const list = [];
+  let extracted = null;
+  try {
+    extracted = unzipSync(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []));
+  } catch (error) {
+    extracted = null;
+  }
+  if (!extracted) {
+    const text = strFromU8(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []));
+    return { jobs: [], text: text.trim() };
+  }
+  const byJob = new Map();
+  for (const [name, data] of Object.entries(extracted)) {
+    if (String(name).endsWith('/')) continue;
+    const job = String(name).split('/')[0] || 'job';
+    if (!byJob.has(job)) byJob.set(job, []);
+    byJob.get(job).push(strFromU8(data));
+  }
+  for (const [job, parts] of byJob.entries()) {
+    list.push({ name: job, text: parts.join('\n').trim() });
+  }
+  list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return { jobs: list, text: list.map(item => `### ${item.name}\n${item.text}`).join('\n\n') };
+}
+
+export async function downloadRunLogs({ fetchImpl = fetch, token, owner, repo, runId, limit = 64 * 1024 } = {}) {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+    + `/actions/runs/${encodeURIComponent(runId)}/logs`;
+  const response = await fetchOnce(fetchImpl, url, {
+    token,
+    timeoutMs: ZIP_TIMEOUT_MS,
+    headers: { Accept: 'application/vnd.github+json' },
+  });
+  if (!response.ok) {
+    let bodyText = '';
+    try {
+      const parsed = await response.json();
+      bodyText = parsed && parsed.message ? String(parsed.message) : '';
+    } catch (error) {}
+    throw mapGithubError(response.status, { headers: response.headers, bodyText });
+  }
+  const buffer = await response.arrayBuffer();
+  const merged = mergeRunLogZip(new Uint8Array(buffer));
+  const truncated = truncateDiffText(merged.text, limit);
+  return {
+    jobs: merged.jobs.map(item => item.name),
+    text: truncated.text,
+    truncated: truncated.truncated,
   };
 }
 

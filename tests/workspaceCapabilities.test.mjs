@@ -34,16 +34,18 @@ test('边界条目覆盖五条硬约束（工具集 / 两个开关 / 隔离 / �
 test('activeWorkspaceTools：按模式给出真实工具集', () => {
   assert.deepEqual(activeWorkspaceTools({ mode: 'ask' }), [], '询问模式一个工具都没有');
   assert.deepEqual(activeWorkspaceTools(null), []);
-  assert.deepEqual(activeWorkspaceTools({ mode: 'read' }), ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'run_subagent']);
+  assert.deepEqual(activeWorkspaceTools({ mode: 'read' }), ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent']);
   assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [
     'list_workspace_files',
     'read_workspace_file',
     'update_plan',
     'materialize_repo',
+    'get_build_log',
     'run_subagent',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'run_remote_build',
     'export_workspace_docx',
   ]);
 });

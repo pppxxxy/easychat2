@@ -262,3 +262,34 @@ test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清�
   // G 系超限记账：完成提示带「过大未参与同步」（不静默）
   assert.ok(github.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');
 });
+
+test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照顺序', () => {
+  const github = readSource('src/workspace/screen/GithubPanel.js');
+  // H1：工具栏入口 + dispatch + 手动刷新列表 + 日志
+  assert.ok(github.includes("t('workspace.github.toolbar.build')"), '工具栏有云构建入口');
+  assert.ok(github.includes('await dispatchWorkflow('), '触发走 restApi');
+  assert.ok(github.includes('await listWorkflowRuns('), '构建列表刷新');
+  assert.ok(github.includes('await downloadRunLogs('), '日志下载');
+  assert.ok(github.includes("t('workspace.github.build.needWorkflow')"), '空 workflow 有明确提示');
+  // H2：diff 用 DiffView（unified 文本输入——E5 commit 详情升级）
+  assert.ok(github.includes('<DiffView'), 'diff 走 DiffView 组件');
+  assert.ok(github.includes('unified={historyDiff.text}'), 'unified 文本作为输入');
+  // H3：推送成功写基线 + 回滚入口 + 应用恢复
+  assert.ok(github.includes('writeRollbackSnapshot(store, characterId, payload)'), '推送成功写回滚基线');
+  assert.ok(github.includes('applyRollbackSnapshot('), '回滚应用到本地');
+  assert.ok(github.includes("t('workspace.github.rollback.action')"), '回滚入口（快照存在才显示）');
+  assert.ok(github.includes('readLatestRollbackSnapshot(store, characterId)'), '回滚读最新快照');
+  // 顺序契约（repoPush）：基线拉取在确认之后——用户取消就不拉（不白费网络）
+  const push = readSource('src/workspace/repoPush.js');
+  const confirmAt = push.indexOf('const proceed = await confirm({ diff })');
+  const rollbackAt = push.indexOf('const rollback = await collectRollbackEntries({');
+  assert.ok(confirmAt > 0 && rollbackAt > confirmAt, '基线拉取在确认之后');
+  // H2 分层：tools.js 的模块图不得被 diff/diffView 污染（分层炸弹测试另有守卫，
+  // 这里钉住 DiffView 不进工具定义层）。
+  const ciTools = readSource('src/workspace/toolDefs/ciTools.js');
+  assert.ok(!ciTools.includes('react-native'), '工具定义层零 React 依赖');
+  assert.ok(
+    !/\bfrom\s+'[^']*restApi[^']*'/.test(ciTools),
+    '工具定义层不静态 import 网络层（走 options.ci 注入；注释里提名字不算）'
+  );
+});
