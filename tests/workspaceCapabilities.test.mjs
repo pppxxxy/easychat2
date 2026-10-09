@@ -23,9 +23,9 @@ test('1→5 循环恰好五步，顺序与语义对应需求原文', () => {
   assert.ok(keys.every(key => key.startsWith('workspace.capability.step.')));
 });
 
-test('边界条目覆盖五条硬约束（工具集 / 两个开关 / 隔离 / 外部根 / shell 范围）+ 本地模型 + 工作区记忆', () => {
+test('边界条目覆盖五条硬约束（工具集 / 两个开关 / 隔离 / 外部根 / shell 范围）+ 本地模型 + 工作区记忆 + 持久会话', () => {
   assert.deepEqual(CAPABILITY_LIMITS.map(limit => limit.id), [
-    'tools', 'memory', 'shellSwitch', 'pythonSwitch', 'pythonIsolation', 'externalRoot', 'shellScope', 'localModel', 'githubImport',
+    'tools', 'memory', 'shellSwitch', 'pythonSwitch', 'pythonIsolation', 'externalRoot', 'shellScope', 'shellSession', 'localModel', 'githubImport',
   ]);
   // memory（AGENTS.md）虽不是「限制」，但会被自动注入且可被 agent 自行改写——
   // 用户必须能在能力说明里看到它、知道删掉即恢复默认（自我演进 ≠ 失控）。

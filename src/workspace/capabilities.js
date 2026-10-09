@@ -41,6 +41,9 @@ export const CAPABILITY_LIMITS = Object.freeze([
   { id: 'pythonIsolation', labelKey: 'workspace.capability.limit.pythonIsolation' },
   { id: 'externalRoot', labelKey: 'workspace.capability.limit.externalRoot' },
   { id: 'shellScope', labelKey: 'workspace.capability.limit.shellScope' },
+  // 持久会话（T7）：目录与环境变量跨命令保留（存在 .easychat/env.json），
+  // 但**不是**真终端——需要 PTY 的交互式程序不支持，这条边界必须如实说。
+  { id: 'shellSession', labelKey: 'workspace.capability.limit.shellSession' },
   { id: 'localModel', labelKey: 'workspace.capability.limit.localModel' },
   { id: 'githubImport', labelKey: 'workspace.capability.limit.githubImport' },
 ]);
