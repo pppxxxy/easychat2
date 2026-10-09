@@ -13,6 +13,8 @@
 // 与 T2 记忆文件同款原则：**每轮直读，不缓存**——agent 刚创建的技能下一轮就要能用。
 // 成本可忽略：先 list 一次技能目录（不存在 = 1 次 IO 直接空），有技能才逐个读头部。
 
+import { splitMarkdownFrontmatter } from './markdownFrontmatter.js';
+
 export const SKILLS_DIR = '.easychat/skills';
 export const SKILL_FILE_NAME = 'SKILL.md';
 export const SKILL_NAME_MAX = 48;
@@ -27,39 +29,17 @@ function truncateText(value, max) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-// 解析 frontmatter 的键值（只认单行 `key: value`，不做完整 YAML——
-// 依赖越少越可测；技能头需要的就这两个字段）。
-function parseFrontmatter(block) {
-  const out = {};
-  for (const line of String(block || '').split('\n')) {
-    const match = line.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
-    if (!match) continue;
-    const key = match[1].toLowerCase();
-    // 去包裹引号（单/双），其余原样。
-    const value = match[2].trim().replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
-    if (!value) continue;
-    if (key === 'name' || key === 'description') out[key] = value;
-  }
-  return out;
-}
-
 // 纯函数：SKILL.md 全文 → { name, description }。
 // 没有 frontmatter 时退化：name 用目录名（fallbackName），description 取正文里
 // 第一个「非空、非标题、非引用」行——技能文件可以完全不带元数据也能用。
 export function parseSkillMarkdown(text, fallbackName = '') {
-  const raw = String(text == null ? '' : text).replace(/^\uFEFF/, '');
+  const parsed = splitMarkdownFrontmatter(text);
+  const meta = parsed.meta;
+  const body = parsed.body;
   const skill = {
-    name: truncateText(fallbackName, SKILL_NAME_MAX),
-    description: '',
+    name: truncateText(meta.name || fallbackName, SKILL_NAME_MAX),
+    description: truncateText(meta.description, SKILL_DESCRIPTION_MAX),
   };
-  let body = raw;
-  const head = raw.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
-  if (head) {
-    const meta = parseFrontmatter(head[1]);
-    if (meta.name) skill.name = truncateText(meta.name, SKILL_NAME_MAX);
-    if (meta.description) skill.description = truncateText(meta.description, SKILL_DESCRIPTION_MAX);
-    body = raw.slice(head[0].length);
-  }
   if (!skill.description) {
     for (const line of body.split('\n')) {
       const candidate = line.trim();

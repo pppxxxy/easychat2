@@ -42,7 +42,12 @@
       —— 存放 `.easychat/skills/<name>/SKILL.md`；每轮直读（目录不存在 = 1 次 list IO）；
       清单只在 read/write 注入（ask 无读工具，注入等于教模型说谎）；设置面板技能行
       （列表 + 安装示例，幂等不覆盖）；3 个示例覆盖「流程型 / 清单型 / 产物型」。
-- [ ] T5 斜杠命令 `/name $ARGUMENTS`（输入框匹配列表 + 模板渲染纯函数）
+- [x] T5 斜杠命令 `/name $ARGUMENTS`（输入框匹配列表 + 模板渲染纯函数）
+      —— `.easychat/commands/<name>.md`；发送时展开、气泡保存原文；命令**不进系统提示**
+      （用户侧功能，展开文本才进请求）；未命中命令名一律不展开（`/a/b` 这类路径文本
+      原样发送，绝不猜测）；无 `$ARGUMENTS` 占位符时参数追加末尾（不丢输入）；
+      frontmatter 解析抽为 markdownFrontmatter.js 与技能共用；设置面板命令行 +
+      3 示例（weekly/polish/explain，幂等不覆盖）。
 - [ ] T6 钩子 hooks.json（声明式，before_shell/after_write/after_edit；不做任意 JS 插件）
 
 ## 阶段 3：体验对齐

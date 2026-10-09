@@ -77,6 +77,13 @@ import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { installSampleSkills, readWorkspaceSkills } from '../skills.js';
+import {
+  expandSlashCommand,
+  installSampleCommands,
+  matchSlashCommands,
+  readWorkspaceCommands,
+  slashQuery,
+} from '../commands.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
   clearPermissionRules,
@@ -125,6 +132,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [permissionRules, setPermissionRules] = useState([]);
   // 技能清单（设置面板展示用；发消息时另行直读，两处互不影响）。
   const [workspaceSkills, setWorkspaceSkills] = useState([]);
+  // 斜杠命令（输入框建议列表用；发送时会重读一次拿最新——agent 可能刚建了命令文件）。
+  const [workspaceCommands, setWorkspaceCommands] = useState([]);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
   const [characterId, setCharacterId] = useState('default');
   const [characterName, setCharacterName] = useState('');
@@ -351,6 +360,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         const ownerId = resolved.id || settings.assistantCharacterId || 'default';
         loadUsage(ownerId);
         loadChats(ownerId);
+        // 斜杠命令：打开面板时读一次供建议列表用（发送时还会重读，见 handleSend）。
+        readWorkspaceCommands(storeRef.current, ownerId)
+          .then(list => {
+            if (alive) setWorkspaceCommands(Array.isArray(list) ? list : []);
+          })
+          .catch(() => {});
 
         // 首次打开工作区（可改模式）：生成一份 AGENTS.md 模板当起点。
         // 幂等且绝不覆盖已有文件——用户或 agent 改过的内容就是它存在的意义；
@@ -551,6 +566,38 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     }
   }, [characterId, t]);
 
+  // 斜杠命令建议：输入以 / 开头、且还在打命令名（没出炉空格）时才出现，
+  // 选中即把 `/名字 ` 填回输入框（走 handleInputChange，草稿缓存同步）。
+  const slashSuggestions = useMemo(() => {
+    if (sending) return [];
+    const query = slashQuery(input);
+    if (query === null) return [];
+    return matchSlashCommands(workspaceCommands, query);
+  }, [input, sending, workspaceCommands]);
+
+  // 安装示例命令（3 个，幂等：同名的绝不覆盖），与示例技能同一套惯例。
+  const handleInstallSampleCommands = useCallback(async () => {
+    let installed = 0;
+    try {
+      installed = await installSampleCommands(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const list = await readWorkspaceCommands(storeRef.current, characterId);
+      setWorkspaceCommands(Array.isArray(list) ? list : []);
+    } catch (error) {}
+    if (installed > 0) {
+      Alert.alert(
+        t('workspace.settings.commands.installDoneTitle'),
+        t('workspace.settings.commands.installDone', { count: installed })
+      );
+    } else {
+      Alert.alert(
+        t('workspace.settings.commands.installNoneTitle'),
+        t('workspace.settings.commands.installNone')
+      );
+    }
+  }, [characterId, t]);
+
   // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
   // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
   const handleClearPermissionRules = useCallback(async () => {
@@ -663,6 +710,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const images = imageAttachments.map(item => item.dataUri);
     if (!userText && images.length === 0) return;
 
+    // 斜杠命令展开：发送时按**最新**命令表展开（agent 可能刚在工作区里建了命令文件，
+    // 打开面板时读的那份会过期）；气泡与落盘照旧保存用户输入原文，展开文本只进这一轮请求。
+    let outgoingText = userText;
+    try {
+      const freshCommands = await readWorkspaceCommands(storeRef.current, characterId);
+      setWorkspaceCommands(Array.isArray(freshCommands) ? freshCommands : []);
+      const expanded = expandSlashCommand(userText, freshCommands);
+      if (expanded) outgoingText = expanded.text;
+    } catch (error) {}
+
     const userMessage = {
       id: nextId(),
       role: 'user',
@@ -714,7 +771,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     let request = buildWorkspaceAgentMessages({
       systemPrompt,
       history: projectWorkspaceChatHistory(history),
-      userText,
+      // 斜杠命令在这里生效：outgoingText = 用户输入原文，或命令展开后的文本。
+      userText: outgoingText,
       images,
     });
     try {
@@ -854,6 +912,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onClearPermissionRules={handleClearPermissionRules}
                   skills={workspaceSkills}
                   onInstallSampleSkills={handleInstallSampleSkills}
+                  commands={workspaceCommands}
+                  onInstallSampleCommands={handleInstallSampleCommands}
                 />
               </ScrollView>
             ) : (
@@ -921,6 +981,29 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   </TouchableOpacity>
                 ) : null}
               </View>
+            ) : null}
+
+            {slashSuggestions.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.slashBar}
+                keyboardShouldPersistTaps="handled"
+              >
+                {slashSuggestions.map(item => (
+                  <TouchableOpacity
+                    key={item.name}
+                    style={styles.slashChip}
+                    onPress={() => handleInputChange(`/${item.name} `)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.slashChipText}>/{item.name}</Text>
+                    {item.description ? (
+                      <Text style={styles.slashChipDescription} numberOfLines={1}>{item.description}</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             ) : null}
 
             <View style={styles.inputBar}>
@@ -1115,6 +1198,34 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   recordingText: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
   recordingAction: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '600' },
+  // 斜杠命令建议条：输入 / 时出现在输入行上方（横向滚动，点击填入命令名）。
+  slashBar: {
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  slashChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    backgroundColor: theme.colors.surfaceAlt,
+    maxWidth: 240,
+  },
+  slashChipText: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
+    fontWeight: '600',
+  },
+  slashChipDescription: {
+    marginLeft: 6,
+    flexShrink: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

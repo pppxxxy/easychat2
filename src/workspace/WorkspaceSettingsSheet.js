@@ -21,6 +21,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { describePermissionRule } from '../agent/permissions.js';
+import { COMMANDS_DIR } from './commands.js';
 import { SKILLS_DIR } from './skills.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -74,6 +75,9 @@ export default function WorkspaceSettingsSheet({
   // 技能清单（SKILL.md 渐进披露）；安装示例同样是转发给 ChatPanel 的动作。
   skills = [],
   onInstallSampleSkills,
+  // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
+  commands = [],
+  onInstallSampleCommands,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -122,6 +126,14 @@ export default function WorkspaceSettingsSheet({
       value: skills.length > 0
         ? t('workspace.settings.skills.count', { count: skills.length })
         : t('workspace.settings.skills.emptyShort'),
+    },
+    {
+      id: 'commands',
+      icon: 'terminal-outline',
+      label: t('workspace.settings.commands'),
+      value: commands.length > 0
+        ? t('workspace.settings.commands.count', { count: commands.length })
+        : t('workspace.settings.commands.emptyShort'),
     },
     {
       id: 'permissions',
@@ -260,6 +272,30 @@ export default function WorkspaceSettingsSheet({
           >
             <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'commands') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.commands.hint', { dir: COMMANDS_DIR })}</Text>
+          {commands.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.commands.empty')}</Text>
+          ) : commands.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {'/'}
+              {String(item && item.name || '')}
+              {String(item && item.description || '') ? `：${item.description}` : ''}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleCommands && onInstallSampleCommands()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.commands.install')}</Text>
           </TouchableOpacity>
         </View>
       );
