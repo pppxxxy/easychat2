@@ -26,7 +26,7 @@ export const common = {
   'common.error.storageOrPermission': '请检查存储空间或权限。',
   'common.error.retryLater': '请稍后重试。',
   'common.detecting': '检测中...',
-  'common.on': '关',
-  'common.off': '清理下载残留',
+  'common.on': '开',
+  'common.off': '关',
   'common.unnamedCharacter': '未命名角色',
 };
