@@ -217,12 +217,35 @@ const SLOW_TOOL_TIMEOUTS = Object.freeze({
   [PYTHON_TOOL_NAME]: PYTHON_TOOL_TIMEOUT_MS,
 });
 
+// 执行工具的 runner 有两套形态在流通：
+//  · native 侧 createShellRunner / createPythonRunner 返回**裸 async 函数**
+//    （终端面板与设置里的手动运行直接调它）；
+//  · 工具执行路径要求 { run } 对象（SHELL_TOOL_DEFINITION.execute 调 options.shell.run）。
+// 2026-10-09 事故：本函数此前只认后者，裸函数被形状检查无声丢弃——run_shell /
+// run_python 在任何配置下都进不了注册表（现象：手动跑 Python 成功、agent 侧工具表
+// 里没有它）。在入口归一、一处收口，不让 native.js 去包装——那会让「终端/手动」
+// 与「工具」两条路分叉出两种契约，下一次改动还会踩。
+function toRunner(runner) {
+  if (typeof runner === 'function') return { run: runner };
+  return runner && typeof runner === 'object' ? runner : null;
+}
+
 export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python } = {}) {
-  const options = { store: resolveStore({ store, root, fileSystem }) };
+  const resolvedShell = toRunner(shell);
+  const resolvedPython = toRunner(python);
+  const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
+  const pythonUsable = !!(resolvedPython && typeof resolvedPython.run === 'function');
+  // options 必须带上 runner 本身：execute 走的是 options.shell.run(...)——
+  // 只放 store 的话，门控放行后执行时也会 TypeError（同一函数里的第二处断裂）。
+  const options = {
+    store: resolveStore({ store, root, fileSystem }),
+    ...(shellUsable ? { shell: resolvedShell } : {}),
+    ...(pythonUsable ? { python: resolvedPython } : {}),
+  };
   const definitions = [
     ...WORKSPACE_TOOL_DEFINITIONS,
-    ...(shell && typeof shell.run === 'function' ? [SHELL_TOOL_DEFINITION] : []),
-    ...(python && typeof python.run === 'function' ? [PYTHON_TOOL_DEFINITION] : []),
+    ...(shellUsable ? [SHELL_TOOL_DEFINITION] : []),
+    ...(pythonUsable ? [PYTHON_TOOL_DEFINITION] : []),
   ];
   return definitions.map(definition => ({
     name: definition.name,
