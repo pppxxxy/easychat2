@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 import {
+  buildPythonEnvPrelude,
   cancelPythonScript,
   createPythonRunner,
   formatPythonResult,
@@ -821,4 +822,83 @@ test('Python 桥真执行：代码在给定 cwd 里跑，跑完切回原目录',
   const probe = runDriver(driver, [BRIDGE_PY_DIR]);
   assert.ok(probe.same, `脚本应在给定的 cwd 里执行（Python 报的 cwd：${probe.inside}）`);
   assert.ok(probe.restored, `执行完必须切回原目录（前 ${probe.before} / 后 ${probe.after}）`);
+});
+
+// ---- BUG-4（审查报告）：env.json 的环境变量必须对 run_python 也生效 ----
+//
+// shell 侧早已注入（shell.js 的 wrapShellCommand），run_python 此前完全不读这份会话：
+// 用户在 env.json 配的变量，shell 里 echo 有值、Python 里直接 KeyError。
+// 同一个「工作区会话」状态，两种执行器读法必须一致。
+test('buildPythonEnvPrelude：空 env 不产出任何前缀（脚本逐字节不变）', () => {
+  assert.equal(buildPythonEnvPrelude({}), '');
+  assert.equal(buildPythonEnvPrelude(null), '');
+  assert.equal(buildPythonEnvPrelude([]), '');
+  assert.equal(buildPythonEnvPrelude({ '  ': 'x' }), '', '空键不算');
+
+  const prelude = buildPythonEnvPrelude({ FOO: 'bar', N: 42 });
+  assert.match(prelude, /^import os\nos\.environ\.update\(/);
+  assert.match(prelude, /"FOO":"bar"/);
+  assert.match(prelude, /"N":"42"/, '非字符串值统一成字符串（环境变量只能是字符串）');
+});
+
+// 真跑一遍：把 prelude 写成临时 .py 交给本机 CPython 执行，验证**转义真的对**——
+// 引号 / 反斜杠 / 换行 / 制表符 / 中文这些最容易写错的地方，靠文本断言看不出来。
+test('buildPythonEnvPrelude：注入的值在真解释器里逐字节还原（含引号/反斜杠/换行/中文）', { skip: PYTHON_SKIP }, () => {
+  const env = {
+    QUOTE: 'he said "hi" and \'bye\'',
+    SLASH: 'C:\path\to\file',
+    NEWLINE: 'line1\nline2',
+    TAB: 'a\tb',
+    CN: '中文·值',
+    EMPTY: '',
+  };
+  const dir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'ech2-env-'));
+  try {
+    const script = `${buildPythonEnvPrelude(env)}
+import json, os, sys
+sys.stdout.write(json.dumps({key: os.environ.get(key, '<missing>') for key in ${JSON.stringify(Object.keys(env))}}, ensure_ascii=False))
+`;
+    const file = path.join(dir, 'probe.py');
+    fs.writeFileSync(file, script, 'utf8');
+    const out = execFileSync(PYTHON_BIN, [file], {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    });
+    assert.deepEqual(JSON.parse(out), env, '注入的每个值都必须原样出现在 os.environ');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createPythonRunner：有 store 时注入会话 env，无 store 时脚本原样', async () => {
+  const sent = [];
+  const native = {
+    runScript: async (code, cwd, timeoutMs) => {
+      sent.push({ code, cwd, timeoutMs });
+      return JSON.stringify({ stdout: '', stderr: '', exitCode: 0 });
+    },
+  };
+  // 假 store：只有 .easychat/env.json 这一个文件
+  const store = {
+    readWorkspaceFile: async ({ path: filePath }) => {
+      if (filePath !== '.easychat/env.json') throw new Error('ENOENT');
+      return { content: JSON.stringify({ cwd: '', env: { WORKSPACE_MODE: 'dev' } }) };
+    },
+    writeWorkspaceFile: async () => true,
+  };
+
+  const withStore = createPythonRunner({ sandboxRoot: '/data/ws', native, store });
+  await withStore({ code: 'print("hi")', characterId: 'c1' });
+  assert.match(sent[0].code, /os\.environ\.update\(\{"WORKSPACE_MODE":"dev"\}\)/, '会话变量必须注入');
+  assert.ok(sent[0].code.endsWith('print("hi")'), '原脚本必须原样跟在后面（不被改写）');
+
+  const withoutStore = createPythonRunner({ sandboxRoot: '/data/ws', native });
+  await withoutStore({ code: 'print("hi")', characterId: 'c1' });
+  assert.equal(sent[1].code, 'print("hi")', '无 store 时脚本逐字节不变（行为不回退）');
+
+  // 会话文件缺失/坏掉：静默不注入，绝不能因此让脚本跑不了
+  const brokenStore = { readWorkspaceFile: async () => { throw new Error('boom'); } };
+  const broken = createPythonRunner({ sandboxRoot: '/data/ws', native, store: brokenStore });
+  await broken({ code: 'print("hi")', characterId: 'c1' });
+  assert.equal(sent[2].code, 'print("hi")');
 });

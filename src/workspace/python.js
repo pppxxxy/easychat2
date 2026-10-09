@@ -12,6 +12,7 @@
 // 顶层不 import react-native（惰性 require），纯 Node 测试可直接加载纯函数。
 
 import { sanitizeSandboxId } from './paths.js';
+import { readShellSession } from './shellSession.js';
 import { tActive } from '../i18n/index.js';
 
 export const PYTHON_OUTPUT_LIMIT = 64 * 1024;
@@ -296,13 +297,42 @@ export function pythonCwdPath(sandboxRoot, characterId) {
   return `${base}/${sanitizeSandboxId(characterId)}`;
 }
 
+// ---- 会话环境变量注入（让 Python 与 shell 读同一份 .easychat/env.json）----
+//
+// 为什么需要：shell 侧已经在注入（shell.js 的 wrapShellCommand），而 run_python 此前
+// 完全没读这份会话——用户在 env.json 里配的变量，shell 里 `echo $FOO` 有值、
+// Python 里 `os.environ['FOO']` 直接 KeyError。同一个「工作区会话」状态，
+// 两种执行器必须读法一致（审查报告 BUG-4；注：报告称此为「任务书要求」，
+// 但任务书 T7 只写了 shell —— 所以这是**一致性问题**，不是违规项）。
+//
+// 注入方式：把 os.environ.update({...}) 前置进脚本。字面量交给 JSON.stringify 生成——
+// JSON 对象字面量（字符串键、字符串值）是合法 Python 字面量，引号 / 反斜杠 / 换行 /
+// 中文都被正确转义，不用自己写转义。
+export function buildPythonEnvPrelude(env) {
+  const source = env && typeof env === 'object' && !Array.isArray(env) ? env : {};
+  const pairs = Object.keys(source)
+    .filter(key => String(key || '').trim())
+    .map(key => [key, String(source[key] === undefined || source[key] === null ? '' : source[key])]);
+  if (pairs.length === 0) return '';
+  return `import os\nos.environ.update(${JSON.stringify(Object.fromEntries(pairs))})\n`;
+}
+
 // 工具用的运行器：把脚本结果翻译成给模型读的文本，输出按上限截断。
 // 看门狗固定为 PYTHON_WATCHDOG_MS——模型调用必须自我了断，不能等用户来点停止。
-export function createPythonRunner({ sandboxRoot, native } = {}) {
+//
+// store（可选，T7 会话）：给了就注入 .easychat/env.json 里的环境变量（与 run_shell
+// 同一份文件、同一套接口）；**没给或 env 为空时脚本逐字节不变**（行为与改动前一致）。
+export function createPythonRunner({ sandboxRoot, native, store } = {}) {
   return async ({ code, signal, characterId } = {}) => {
     const cwdPath = pythonCwdPath(sandboxRoot, characterId);
+    let script = String(code === undefined || code === null ? '' : code);
+    if (store) {
+      const session = await readShellSession(store, characterId);
+      const prelude = buildPythonEnvPrelude(session.env);
+      if (prelude) script = `${prelude}${script}`;
+    }
     const result = await runPythonScript({
-      code,
+      code: script,
       cwdPath,
       timeoutMs: PYTHON_WATCHDOG_MS,
       signal,
