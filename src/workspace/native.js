@@ -70,11 +70,13 @@ export function describeWorkspaceRoot(settings) {
   };
 }
 
-export function registerDefaultWorkspaceTools(settings) {
+// extras.readLog（A5）：宿主（工作区面板）注入的会话级已读登记；不传 = read 不登记。
+export function registerDefaultWorkspaceTools(settings, extras = {}) {
   return registerWorkspaceTools({
     store: createWorkspaceStore(settings),
     shell: resolveShellRunner(settings),
     python: resolvePythonRunner(settings),
+    readLog: extras.readLog || null,
   });
 }
 

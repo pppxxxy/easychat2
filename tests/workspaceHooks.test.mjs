@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import { evaluatePermissionRules } from '../src/agent/permissions.js';
 import {
+  DEFAULT_HOOKS,
   HOOKS_FILE,
   HOOKS_MAX_PER_EVENT,
   collectPostEventNotices,
@@ -17,6 +18,7 @@ import {
   parseWorkspaceHooks,
   readWorkspaceHooks,
   shellHookDenyRules,
+  withDefaultHooks,
 } from '../src/workspace/hooks.js';
 
 const SAMPLE = {
@@ -39,9 +41,14 @@ test('parseWorkspaceHooks：正常解析；非 JSON / 非对象 / 畸形条目�
   assert.equal(parsed.before_shell.length, 1);
   assert.equal(parsed.after_write[0].message, '检查目录与链接是否同步');
 
-  assert.deepEqual(parseWorkspaceHooks('{不是 json'), { before_shell: [], after_write: [], after_edit: [] });
-  assert.deepEqual(parseWorkspaceHooks('[]'), { before_shell: [], after_write: [], after_edit: [] });
-  assert.deepEqual(parseWorkspaceHooks(null), { before_shell: [], after_write: [], after_edit: [] });
+  // 键缺失 = 没提过（不是「显式为空」）：结果里不出现该键，交给合并层决定是否补默认（A4）
+  assert.deepEqual(parseWorkspaceHooks('{不是 json'), {});
+  assert.deepEqual(parseWorkspaceHooks('[]'), {});
+  assert.deepEqual(parseWorkspaceHooks(null), {});
+  // 显式空数组要保留——它是「同键关闭默认提醒」的语义载体
+  assert.deepEqual(parseWorkspaceHooks({ after_edit: [] }), { after_edit: [] });
+  // 值写坏了（不是数组）当缺失处理：不因手误关掉默认
+  assert.equal('after_edit' in parseWorkspaceHooks({ after_edit: 'oops' }), false);
 
   // 缺 match 或 message 的条目被剔除；两个键名（match/glob）都认
   const tolerant = parseWorkspaceHooks({
@@ -101,9 +108,42 @@ test('readWorkspaceHooks：文件不存在 / 读失败 / 坏格式一律空结�
   const hooks = await readWorkspaceHooks(makeStore({ [HOOKS_FILE]: JSON.stringify(SAMPLE) }), 'c1');
   assert.equal(hooks.before_shell.length, 1);
 
-  assert.deepEqual(await readWorkspaceHooks(makeStore({}), 'c1'), { before_shell: [], after_write: [], after_edit: [] });
-  assert.deepEqual(await readWorkspaceHooks(makeStore({ [HOOKS_FILE]: '}}' }), 'c1'), { before_shell: [], after_write: [], after_edit: [] });
-  assert.deepEqual(await readWorkspaceHooks(null, 'c1'), { before_shell: [], after_write: [], after_edit: [] });
+  // 读失败 / 文件不存在 / 坏格式 → 只剩内置默认（A4）：before_shell 无默认，after_* 有默认提醒
+  const bare = await readWorkspaceHooks(makeStore({}), 'c1');
+  assert.equal(bare.before_shell, undefined, 'before_shell 没有默认（键缺失语义）');
+  assert.equal(bare.after_edit.length, 1, '缺文件 → 默认验证提醒生效');
+  const broken = await readWorkspaceHooks(makeStore({ [HOOKS_FILE]: '}}' }), 'c1');
+  assert.equal(broken.after_write.length, 1, '坏格式 → 默认仍在（文件坏了不该关掉默认）');
+  const none = await readWorkspaceHooks(null, 'c1');
+  assert.equal(none.after_edit.length, 1);
+});
+
+test('A4 内置验证提醒：默认生效；同键（含空数组）可覆盖；只覆盖声明的键', async () => {
+  // 用户只配了别的键 → after_* 默认仍在
+  const withShell = await readWorkspaceHooks(
+    makeStore({ [HOOKS_FILE]: JSON.stringify({ before_shell: [{ match: 'x', message: 'y' }] }) }),
+    'c1'
+  );
+  assert.equal(collectPostEventNotices(withShell, 'after_write', 'a.md').length, 1, '未声明的键 → 默认生效');
+  assert.equal(collectPostEventNotices(withShell, 'after_edit', 'src/a.js').length, 1);
+
+  // 显式空数组 → 关闭该键的默认
+  const off = await readWorkspaceHooks(makeStore({ [HOOKS_FILE]: JSON.stringify({ after_edit: [] }) }), 'c1');
+  assert.deepEqual(collectPostEventNotices(off, 'after_edit', 'src/a.js'), [], '空数组关闭 after_edit 默认');
+  assert.equal(collectPostEventNotices(off, 'after_write', 'a.md').length, 1, '只关闭声明的那个键');
+
+  // 用户自定义同键 → 用用户的（默认不叠加）
+  const custom = await readWorkspaceHooks(
+    makeStore({ [HOOKS_FILE]: JSON.stringify({ after_edit: [{ glob: 'src/**', message: '跑测试' }] }) }),
+    'c1'
+  );
+  assert.deepEqual(collectPostEventNotices(custom, 'after_edit', 'src/a.js'), ['跑测试'], '同键用用户的');
+  assert.deepEqual(collectPostEventNotices(custom, 'after_edit', 'docs/a.md'), [], '用户声明后默认不再兜底');
+
+  // 纯函数直接钉：合并只补缺失键
+  assert.deepEqual(withDefaultHooks({}), DEFAULT_HOOKS);
+  assert.deepEqual(withDefaultHooks({ after_edit: [] }).after_edit, [], '空数组不被默认覆盖');
+  assert.deepEqual(withDefaultHooks(null).before_shell, undefined, '默认里没有 before_shell');
 });
 
 test('接线契约：两页审批注入 extraRules；工具层追加通知；设置面板说明行；i18n 中英齐', () => {

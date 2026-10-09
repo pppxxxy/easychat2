@@ -7,9 +7,20 @@ import { createAbortError, isCanceledError, streamChatCompletion } from '../netw
 import { serializeToolResult, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 
-export const DEFAULT_MAX_TOOL_ROUNDS = 5;
+export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 export const TOOL_RESULT_LIMIT = 16 * 1024;
+// 两段式预算提醒的第一段（能力升级任务书 A1）：剩 2 轮时注入——模型还有机会把已有
+// 信息整理成结论，而不是被下面那句 CAP_NOTICE 硬截断在工具调用中间。
+export const ROUND_BUDGET_WARNING = '轮次预算还剩 2 轮，请开始收束：先把已确认的信息整理成结论，需要补的工具调用只做最关键的。';
 export const CAP_NOTICE = '工具调用轮次已达上限，请直接用文字回答。';
+
+// 按场景的轮次预算：写任务天然更长（改-验循环要反复迭代），只读研究次之，其余用默认。
+// 管道（options.maxRounds）早已存在，这里只提供统一取值，避免各调用点各写各的数字。
+export function workspaceRoundBudget(mode) {
+  if (mode === 'write') return 16;
+  if (mode === 'read') return 10;
+  return DEFAULT_MAX_TOOL_ROUNDS;
+}
 
 function safeCallback(callback, payload) {
   if (typeof callback !== 'function') return;
@@ -114,6 +125,12 @@ export async function runAgentTurn(messages, options = {}) {
         ...(ok ? {} : { error: serialized }),
       });
       history.push({ role: 'tool', tool_call_id: call.id, content: serialized });
+    }
+
+    // 预算预警（两段式第一段）：执行完这一轮还剩 2 轮 → 提示收束。放在轮末：
+    // 只有「还会继续循环」才会走到这里（提前给出结论的那轮在上面就 return 了）。
+    if (round === maxRounds - 2) {
+      history.push({ role: 'system', content: ROUND_BUDGET_WARNING });
     }
   }
 

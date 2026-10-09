@@ -95,7 +95,10 @@ function textFromMcpResult(result) {
     .join('\n')
     || '（工具无文本输出）';
   if (text.length > MCP_RESULT_CHAR_LIMIT) {
-    return `${text.slice(0, MCP_RESULT_CHAR_LIMIT)}\n…（输出过长已截断，原长 ${text.length} 字符；需要更多请缩小查询范围）`;
+    // 头 12K + 尾 4K（A2）：MCP 输出尾部常带状态/错误字段，只保头会切掉它们。
+    const tailSize = Math.floor(MCP_RESULT_CHAR_LIMIT / 4);
+    const headSize = MCP_RESULT_CHAR_LIMIT - tailSize;
+    return `${text.slice(0, headSize)}\n…（中间省略 ${text.length - MCP_RESULT_CHAR_LIMIT} 字符；原长 ${text.length} 字符，需要更多请缩小查询范围）…\n${text.slice(-tailSize)}`;
   }
   return text;
 }

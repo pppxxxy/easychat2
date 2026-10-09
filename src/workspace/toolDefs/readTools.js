@@ -65,7 +65,20 @@ export const READ_ONLY_TOOL_DEFINITIONS = [
         path: args.path,
         offset,
         ...(maxChars !== undefined ? { maxChars } : {}),
-      }).then(formatWorkspaceReadResult);
+      }).then(result => {
+        // A5 已读登记：成功后记 { path, chars }（用文件总长——「这个文件多大」比
+        // 「这次读了多少」更接近清单的语义）。没注入 readLog 的宿主（如聊天页）安全跳过。
+        if (options.readLog && typeof options.readLog.record === 'function') {
+          try {
+            const chars = Number(result && result.total);
+            options.readLog.record(
+              args.path,
+              Number.isFinite(chars) ? chars : String((result && result.content) || '').length
+            );
+          } catch (error) {}
+        }
+        return formatWorkspaceReadResult(result);
+      });
     },
   },
 ];

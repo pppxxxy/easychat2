@@ -31,13 +31,19 @@ test('sandboxPathFromUri：file:// 转绝对路径并解码，非 file:// 明确
   assert.throws(() => sandboxPathFromUri('file://relative/path'), /不是绝对路径/);
 });
 
-test('truncateShellOutput：超限截断并明确标注', () => {
+test('truncateShellOutput：超限截断**头尾都保**并标注（A2：报错几乎总在尾部）', () => {
   const small = truncateShellOutput('abc', 10);
   assert.deepEqual(small, { text: 'abc', truncated: false });
-  const big = truncateShellOutput('x'.repeat(20), 10);
+
+  // 头 3/4（8）+ 尾 1/4（2）：尾部必须保得住——只保头会把诊断信息切掉
+  const source = `${'h'.repeat(15)}${'t'.repeat(5)}`; // 20 字符
+  const big = truncateShellOutput(source, 10);
   assert.equal(big.truncated, true);
-  assert.ok(big.text.startsWith('x'.repeat(10)));
-  assert.match(big.text, /输出已截断/);
+  assert.ok(big.text.startsWith('h'.repeat(8)), '头 8 = limit 的 3/4');
+  assert.ok(big.text.endsWith('t'.repeat(2)), '尾 2 = limit 的 1/4（报错常在这里）');
+  assert.match(big.text, /中间省略 10 字符/, '省略量要标明');
+  assert.match(big.text, /grep\/sed/, '给出看中段的方法');
+
   assert.deepEqual(truncateShellOutput(null).text, '');
   assert.equal(SHELL_OUTPUT_LIMIT, 64 * 1024);
 });
@@ -131,7 +137,7 @@ test('createShellRunner：按角色拼子目录，输出经截断后回给模型
   // 角色 id 走 sanitizeSandboxId：非法字符换成下划线 —— 与文件工具同一沙盒
   assert.deepEqual(calls, ['/data/files/workspace/char_1_']);
   assert.equal(result.isError, false);
-  assert.match(result.content, /输出已截断/);
+  assert.match(result.content, /中间省略/, '超限输出被截断（头尾都保的标注）');
   assert.match(result.content, /标准错误：\nwarn/);
 });
 

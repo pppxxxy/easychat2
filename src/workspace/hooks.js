@@ -31,8 +31,27 @@ export const HOOK_MESSAGE_MAX = 300;
 // 每个事件的条目上限：一个钩子文件不该能把提示词/结果撑爆。
 export const HOOKS_MAX_PER_EVENT = 20;
 
-function emptyHooks() {
-  return { before_shell: [], after_write: [], after_edit: [] };
+// 内置默认钩子（A4，能力升级任务书）：「改完记得跑验证」是 write 模式受益面最大的
+// 一条既有约定，做成默认 after_* 提醒——不用用户自己写 hooks.json 就能得到。
+// **同键可覆盖关闭**：用户在 hooks.json 里写了 `"after_edit": []` 就关掉默认
+//（键缺失 = 没提过 → 用默认；键为空数组 = 明确要求为空）。
+export const DEFAULT_HOOKS = Object.freeze({
+  after_write: Object.freeze([
+    Object.freeze({ pattern: '**/*', message: '改完记得跑一次验证（测试 / 语法检查 / 直接运行），把结果写进结论。' }),
+  ]),
+  after_edit: Object.freeze([
+    Object.freeze({ pattern: '**/*', message: '改完记得跑一次验证（测试 / 语法检查 / 直接运行），把结果写进结论。' }),
+  ]),
+});
+
+// 纯函数：把用户钩子与内置默认合并（只补用户**没有声明**的键）。
+export function withDefaultHooks(hooks) {
+  const source = hooks && typeof hooks === 'object' && !Array.isArray(hooks) ? hooks : {};
+  const out = { ...source };
+  for (const event of Object.keys(DEFAULT_HOOKS)) {
+    if (out[event] === undefined) out[event] = DEFAULT_HOOKS[event];
+  }
+  return out;
 }
 
 function normalizeItem(raw) {
@@ -45,9 +64,11 @@ function normalizeItem(raw) {
 }
 
 // 纯函数：hooks.json 文本（或已解析对象）→ 归一化结构。
-// 非 JSON / 结构不对 → 全空（钩子文件坏了就当没有，绝不因此让工具链报错）。
+// 非 JSON / 结构不对 → 空对象（钩子文件坏了就当没有，绝不因此让工具链报错）。
+// **只保留显式声明的键**：键缺失与空数组是两种意图（见 DEFAULT_HOOKS 的说明），
+// 缺失的键不进结果——合并层才知道该不该补默认。
 export function parseWorkspaceHooks(text) {
-  const out = emptyHooks();
+  const out = {};
   let source = text;
   if (typeof text === 'string') {
     try {
@@ -58,20 +79,22 @@ export function parseWorkspaceHooks(text) {
   }
   if (!source || typeof source !== 'object' || Array.isArray(source)) return out;
   for (const event of HOOK_EVENTS) {
-    const list = Array.isArray(source[event]) ? source[event] : [];
-    out[event] = list.map(normalizeItem).filter(Boolean).slice(0, HOOKS_MAX_PER_EVENT);
+    // 值不是数组（写坏了）当缺失处理——保守：不因手误关掉默认提醒。
+    if (!Array.isArray(source[event])) continue;
+    out[event] = source[event].map(normalizeItem).filter(Boolean).slice(0, HOOKS_MAX_PER_EVENT);
   }
   return out;
 }
 
-// IO：读工作区钩子（不存在/读失败/格式坏一律空结构）。
+// IO：读工作区钩子（不存在/读失败/格式坏 → 只剩内置默认，绝不抛错）。
+// 返回的是**合并默认后**的完整结构：调用方（工具层）不关心哪些是默认哪些是用户配的。
 export async function readWorkspaceHooks(store, characterId) {
-  if (!store || typeof store.readWorkspaceFile !== 'function') return emptyHooks();
+  if (!store || typeof store.readWorkspaceFile !== 'function') return withDefaultHooks(null);
   try {
     const result = await store.readWorkspaceFile({ characterId, path: HOOKS_FILE });
-    return parseWorkspaceHooks(result && result.content);
+    return withDefaultHooks(parseWorkspaceHooks(result && result.content));
   } catch (error) {
-    return emptyHooks();
+    return withDefaultHooks(null);
   }
 }
 

@@ -16,6 +16,7 @@ import { createLegacyWorkspaceStore } from './store.js';
 import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
 import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 import { READ_ONLY_TOOL_DEFINITIONS, formatWorkspaceReadResult } from './toolDefs/readTools.js';
+import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
 import { WRITE_TOOL_DEFINITIONS } from './toolDefs/writeTools.js';
 import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
@@ -30,9 +31,10 @@ function resolveStore({ store, root, fileSystem } = {}) {
 }
 
 // 基础工具（read / write 模式都进注册表）。**顺序是契约**：清单断言与模型看到的
-// 工具次序都依赖它——只读 → 子代理 → 写 → 导出。
+// 工具次序都依赖它——只读 → 计划 → 子代理 → 写 → 导出。
 const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
+  PLAN_TOOL_DEFINITION,
   SUBAGENT_TOOL_DEFINITION,
   ...WRITE_TOOL_DEFINITIONS,
   DOCX_TOOL_DEFINITION,
@@ -61,7 +63,7 @@ function toRunner(runner) {
   return runner && typeof runner === 'object' ? runner : null;
 }
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python } = {}) {
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog } = {}) {
   const resolvedShell = toRunner(shell);
   const resolvedPython = toRunner(python);
   const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
@@ -72,6 +74,9 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     store: resolveStore({ store, root, fileSystem }),
     ...(shellUsable ? { shell: resolvedShell } : {}),
     ...(pythonUsable ? { python: resolvedPython } : {}),
+    // A5 会话级已读登记：宿主注入（工作区面板传会话内存；不传 = read 不登记，
+    // 行为与旧版一致——聊天页等宿主无需感知这份状态）。
+    ...(readLog ? { readLog } : {}),
   };
   const definitions = [
     ...WORKSPACE_TOOL_DEFINITIONS,
@@ -90,8 +95,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
   }));
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell, python } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }

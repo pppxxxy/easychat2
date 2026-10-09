@@ -27,5 +27,8 @@ export function serializeToolResult(result, limit = TOOL_RESULT_LIMIT) {
     ? result
     : String((result && result.content) || '');
   if (content.length <= limit) return content;
-  return `${content.slice(0, limit)}…（已截断）`;
+  // 截断句要能指导下一步（A2）：告诉模型原长与「怎么拿到更多」——文件读取有
+  // offset 续读（工具侧实现），命令/MCP 输出可以收窄后重跑。通用层不感知
+  // 具体工具语义，只给这两条通路。
+  return `${content.slice(0, limit)}…（已截断：原长 ${content.length} 字符；文件读取可用 offset 续读，命令输出可收窄后重跑）`;
 }

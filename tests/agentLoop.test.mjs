@@ -163,6 +163,52 @@ test('上限轮整体省略 tools 字段并注入系统提示', async () => {
   assert.ok(streamCalls[1].messages.some(item => item.role === 'system' && item.content === CAP_NOTICE));
 });
 
+test('A1 轮次预算：默认 12 / 分档 16-10-12；剩 2 轮注入预警、到顶保留强插', async () => {
+  const {
+    DEFAULT_MAX_TOOL_ROUNDS,
+    ROUND_BUDGET_WARNING,
+    workspaceRoundBudget,
+    CAP_NOTICE,
+  } = loadLoop();
+  assert.equal(DEFAULT_MAX_TOOL_ROUNDS, 12, '默认预算 5 → 12（管道早已存在，只改默认值）');
+  assert.equal(workspaceRoundBudget('write'), 16, '写任务跑改-验循环，预算最长');
+  assert.equal(workspaceRoundBudget('read'), 10);
+  assert.equal(workspaceRoundBudget('ask'), 12);
+  assert.equal(workspaceRoundBudget(undefined), 12);
+
+  // maxRounds=4：每轮都调工具，逼到上限 → 第 5 次调用（无 tools）是强制收尾轮
+  const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
+  streamPlan = [
+    { text: 'r1', toolCalls: [toolCall('c1')] },
+    { text: 'r2', toolCalls: [toolCall('c2')] },
+    { text: 'r3', toolCalls: [toolCall('c3')] },
+    { text: 'r4', toolCalls: [toolCall('c4')] },
+    { text: 'final' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', maxRounds: 4 });
+  assert.equal(text, 'r1r2r3r4final');
+
+  const systemHas = (index, content) => streamCalls[index].messages
+    .some(item => item.role === 'system' && item.content === content);
+  // 预警出现在第 maxRounds-2（=2）轮之后：第 3 次调用就能看到
+  assert.equal(systemHas(1, ROUND_BUDGET_WARNING), false, '第 2 次调用还不到时候');
+  assert.equal(systemHas(2, ROUND_BUDGET_WARNING), true, '第 3 次调用应看到「剩 2 轮」预警');
+  assert.equal(systemHas(2, CAP_NOTICE), false, '预警阶段还不是强制收尾');
+  // 到顶：强制收尾轮省略 tools + 注入 CAP_NOTICE
+  assert.equal(systemHas(4, CAP_NOTICE), true);
+  assert.equal('tools' in streamCalls[4].options, false);
+});
+
+test('A1 预警不打扰提前收尾：模型按时给出结论就只调一次', async () => {
+  streamPlan = [{ text: '直接回答' }];
+  const { runAgentTurn, ROUND_BUDGET_WARNING } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', maxRounds: 4 });
+  assert.equal(text, '直接回答');
+  assert.equal(streamCalls.length, 1);
+  assert.equal(streamCalls[0].messages.some(item => item.content === ROUND_BUDGET_WARNING), false);
+});
+
 test('工具失败以 ok:false + error 上报并回喂错误内容', async () => {
   runHandler = () => ({ content: '权限不足', isError: true });
   streamPlan = [

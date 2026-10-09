@@ -26,7 +26,7 @@ import { isStaleReply } from './chatRace.js';
 import { getEditResendPlan } from './messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
-import { runAgentTurn } from '../agent/loop.js';
+import { runAgentTurn, workspaceRoundBudget } from '../agent/loop.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
@@ -537,6 +537,8 @@ export default function useChatSend({
           ? runAgentTurn(onlineMessages, {
               mode: workspaceMode,
               tools: agentTools,
+              // 轮次预算（A1）：与工作区同款分档（write 16 / read 10；其余默认 12）。
+              maxRounds: workspaceRoundBudget(workspaceMode),
               signal: controller.signal,
               requestOptions: {
                 expectedConfigId,

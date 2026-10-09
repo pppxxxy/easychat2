@@ -4,12 +4,15 @@
 // 沙盒文件操作，给一段精简、贴近工具的系统提示即可。所有函数无副作用，可 Node 直测。
 
 import { workspaceMemorySection } from './memory.js';
+import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
 
 export const WORKSPACE_AGENT_BASE_PROMPT = [
   '你是「工作区文件助手」，帮用户在本地沙盒里管理文本文件。',
   '所有路径都是相对沙盒根目录的相对路径，目录以 / 结尾。',
   '优先调用工作区工具完成实际操作，不要凭空编造文件内容；完成后用简洁中文说明做了什么。',
+  // 规划引导（能力升级任务书 A0）：让多步任务先见清单再动手，减少「边想边做」的漂移。
+  '预计需要三步以上的任务：动手前先在回复里列出步骤清单，逐步执行、完成一步勾掉一步。',
 ].join('');
 
 const MODE_HINTS = Object.freeze({
@@ -28,11 +31,26 @@ export const EXECUTION_TOOL_HINTS = Object.freeze({
     + '用户要的是真实执行结果。',
 });
 
+// 验证闭环（能力升级任务书 A0）：不绑定具体工具——只要**任一执行工具可用**就注入
+//（它说的是「改完要验证」这个流程约定，谁可用都成立）。**刻意不点名 run_shell /
+// run_python**：这段文本在「只注册了其中一个」的会话里同样会出现，点名另一个等于
+// 承诺一个调不动的能力（与「宁可少说，不能说假话」同款纪律——测试钉死）。
+// 原则：不带病收尾。验证不过就继续修，不许把没验证的改动当完成汇报。
+export const EXECUTION_VERIFY_HINT = '改完代码或配置文件后，在给出结论前必须跑一次验证'
+  + '（跑测试、语法检查或直接运行都可以），把验证结果写进结论；'
+  + '验证不过就继续修，不要带病收尾。';
+
+// 计划工具的引导（A3）：与执行类同款纪律——**只在工具真的注册了时注入**。
+// 与 BASE_PROMPT 的「三步以上先列清单」配合：那条讲原则，这条讲用什么记。
+export const PLAN_TOOL_HINT = '多步任务先用 update_plan 记录步骤清单，每完成一步更新一次状态，让进度对用户可见。';
+
 export function workspaceExecutionToolHints(tools) {
   const names = Array.isArray(tools) ? tools : [];
-  return Object.keys(EXECUTION_TOOL_HINTS)
+  const hints = Object.keys(EXECUTION_TOOL_HINTS)
     .filter(name => names.includes(name))
     .map(name => EXECUTION_TOOL_HINTS[name]);
+  if (hints.length > 0) hints.push(EXECUTION_VERIFY_HINT);
+  return hints;
 }
 
 export function workspaceAgentModeHint(mode) {
@@ -48,7 +66,8 @@ export function workspaceAgentModeHint(mode) {
 // skills：工作区技能清单 [{ name, description }]（渐进披露的第一层）。
 // **只在有文件工具的形态下注入**（read/write）：清单里写着「用 read 工具读全文」，
 // 而 ask 模式一个工具都没有——说了模型也读不到，只会反复尝试然后乱解释。
-export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills } = {}) {
+// readLog：本会话已读登记条目（A5），同样只在有读工具的形态下注入；空则不注入。
+export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
@@ -56,8 +75,13 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
   const memorySection = workspaceMemorySection(memory);
   if (memorySection) lines.push(memorySection);
   if (mode === 'read' || mode === 'write') {
+    // A5：已读清单（防重复读 + 截断自觉）；没有读过任何文件就不出现这一行。
+    const readLogLine = formatReadLogLine(readLog);
+    if (readLogLine) lines.push(readLogLine);
     const skillsSection = workspaceSkillsSection(skills);
     if (skillsSection) lines.push(skillsSection);
+    // A3：计划工具引导——工具没注册就不提（说了调不动，模型会反复试然后乱解释）。
+    if (Array.isArray(tools) && tools.includes('update_plan')) lines.push(PLAN_TOOL_HINT);
   }
   lines.push(workspaceAgentModeHint(mode));
   if (mode === 'write') lines.push(...workspaceExecutionToolHints(tools));

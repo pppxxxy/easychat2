@@ -75,10 +75,18 @@ export function sandboxPathFromUri(uri) {
 
 // 输出截断：命令可能刷出无穷输出（yes、大文件 cat）。截断要**标明**，别让模型
 // 以为这就是全部内容而去改错文件。
+// **头尾都保**（能力升级任务书 A2）：报错、失败原因几乎总在尾部——只保头等于把
+// 诊断信息切掉，输出越长的命令越是如此。默认按 3:1 分配（头 48K / 尾 16K）。
 export function truncateShellOutput(text, limit = SHELL_OUTPUT_LIMIT) {
   const value = String(text === undefined || text === null ? '' : text);
   if (value.length <= limit) return { text: value, truncated: false };
-  return { text: `${value.slice(0, limit)}\n…（输出已截断，仅保留前 ${limit} 字符）`, truncated: true };
+  const tailSize = Math.floor(limit / 4);
+  const headSize = limit - tailSize;
+  const omitted = value.length - limit;
+  return {
+    text: `${value.slice(0, headSize)}\n…（中间省略 ${omitted} 字符；需要看中段请用 grep/sed 收窄后重跑）…\n${value.slice(-tailSize)}`,
+    truncated: true,
+  };
 }
 
 // 把原生结果整理成给模型读的文本。exitCode 非 0 也算「执行成功但命令失败」，

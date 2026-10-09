@@ -143,9 +143,17 @@ test('installSampleCommands：写入 3 个示例、幂等、绝不覆盖已有�
   assert.equal(files[path0], '我改过的模板', '用户改过的命令文件不得被覆盖');
 });
 
-test('SAMPLE_COMMANDS：3 个、名字唯一且是 slug、每个都能展开出非空文本', () => {
-  assert.equal(SAMPLE_COMMANDS.length, 3);
-  assert.equal(new Set(SAMPLE_COMMANDS.map(item => item.name)).size, 3);
+test('SAMPLE_COMMANDS：4 个（含 A6 的 /remember）、名字唯一且是 slug、每个都能展开出非空文本', () => {
+  assert.equal(SAMPLE_COMMANDS.length, 4);
+  assert.equal(new Set(SAMPLE_COMMANDS.map(item => item.name)).size, 4);
+  // A6：/remember 是「跨会话经验沉淀」的零新代码通路（组合 T5 命令 + T2 记忆文件）
+  const remember = SAMPLE_COMMANDS.find(item => item.name === 'remember');
+  assert.ok(remember, '/remember 必须在示例里');
+  assert.match(
+    parseCommandMarkdown(remember.markdown, 'remember').template,
+    /AGENTS\.md/,
+    '它要把约定写进 AGENTS.md'
+  );
   for (const sample of SAMPLE_COMMANDS) {
     assert.ok(/^[a-z0-9-]+$/.test(sample.name), `${sample.name} 应是 slug（文件名）`);
     const parsed = parseCommandMarkdown(sample.markdown, sample.name);

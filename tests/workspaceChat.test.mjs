@@ -49,10 +49,25 @@ test('系统提示：只在工具真的注册了时才写执行类说明，且�
   assert.equal(/run_python/.test(buildWorkspaceAgentSystemPrompt({ mode: 'read', tools: ['run_python'] })), false);
   assert.equal(/run_python/.test(buildWorkspaceAgentSystemPrompt({ mode: 'ask', tools: ['run_python'] })), false);
 
-  // 纯函数出口：命中哪些工具就返回哪几条说明，顺序稳定
-  assert.deepEqual(workspaceExecutionToolHints(['run_python', 'x']).length, 1);
-  assert.deepEqual(workspaceExecutionToolHints(['run_shell', 'run_python']).length, 2);
-  assert.deepEqual(workspaceExecutionToolHints(null), []);
+  // 纯函数出口：命中哪些工具就返回哪几条说明 + 一条通用验证约定（A0），顺序稳定
+  assert.deepEqual(workspaceExecutionToolHints(['run_python', 'x']).length, 2, '工具说明 + 验证约定');
+  assert.deepEqual(workspaceExecutionToolHints(['run_shell', 'run_python']).length, 3);
+  assert.deepEqual(workspaceExecutionToolHints(null), [], '没有任何执行工具 → 空（连验证约定也不注入）');
+});
+
+test('A0 规划与验证引导：三步清单约定常驻；验证闭环只在有执行工具时注入', () => {
+  // 规划引导是流程约定，所有模式都成立（ask 里讨论多步任务同样适用）
+  const ask = buildWorkspaceAgentSystemPrompt({ mode: 'ask' });
+  assert.match(ask, /三步以上/, '规划引导对所有模式生效');
+  assert.match(ask, /勾掉/, '逐步执行、完成一步勾掉一步');
+  assert.equal(/验证/.test(ask), false, 'ask 模式没有执行工具，不提验证（说了也做不到）');
+
+  // 验证闭环只在任一执行工具可用时注入（不绑定具体工具）
+  const withShell = buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: ['run_shell'] });
+  assert.match(withShell, /验证/, '有执行工具 → 验证闭环约定在');
+  assert.match(withShell, /带病收尾/, '验证不过继续修，不带病收尾');
+  const noTools = buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: [] });
+  assert.equal(/带病收尾/.test(noTools), false, '没有执行工具就不提验证');
 });
 
 test('projectWorkspaceChatHistory：只保留有文字的 user/assistant', () => {

@@ -61,7 +61,7 @@ import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { isCanceledError } from '../../network/api.js';
 import { resolveTranscription, transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
-import { runAgentTurn } from '../../agent/loop.js';
+import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
 import { listToolsForMode } from '../../agent/tools/registry.js';
 import { approveToolCall } from '../../chat/toolApprovalFlow.js';
 import {
@@ -76,6 +76,7 @@ import useChatRecorder from '../../chat/useChatRecorder.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
+import { createReadLog } from '../readLog.js';
 import { installSampleSkills, readWorkspaceSkills } from '../skills.js';
 import {
   expandSlashCommand,
@@ -134,6 +135,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [permissionRules, setPermissionRules] = useState([]);
   // 技能清单（设置面板展示用；发消息时另行直读，两处互不影响）。
   const [workspaceSkills, setWorkspaceSkills] = useState([]);
+  // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
+  //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
+  const readLogRef = useRef(null);
+  if (readLogRef.current === null) readLogRef.current = createReadLog();
   // 斜杠命令（输入框建议列表用；发送时会重读一次拿最新——agent 可能刚建了命令文件）。
   const [workspaceCommands, setWorkspaceCommands] = useState([]);
   // 工作区上下文：角色 / 模式 / 设置快照 / 模型 / 思考强度 / 角色清单 / 上下文占用 / 项目
@@ -412,6 +417,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setToolStatus('');
     setSending(false);
     setSettingsSection('');
+    // A5：新对话 = 新会话 → 已读登记清零（它记的是「这次对话读过了什么」）。
+    if (readLogRef.current) readLogRef.current.clear();
     try {
       const created = await createWorkspaceChat(characterId);
       if (!created || !mountedRef.current) return;
@@ -434,6 +441,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setToolStatus('');
     setSending(false);
     setHistoryOpen(false);
+    // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
+    if (readLogRef.current) readLogRef.current.clear();
     await setActiveWorkspaceChat(characterId, id).catch(() => {});
   }, [activeChatId, characterId, chatList, input, persistDraft, readDraft]);
 
@@ -770,7 +779,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     let tools = [];
     if (mode !== 'ask') {
       try {
-        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings);
+        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings, { readLog: readLogRef.current });
         tools = listToolsForMode(mode);
       } catch (error) {}
     }
@@ -785,6 +794,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       tools: tools.map(item => item.function.name),
       memory,
       skills,
+      // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
+      readLog: readLogRef.current ? readLogRef.current.list() : [],
     });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,
@@ -803,6 +814,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       await runAgentTurn(request, {
         mode,
         tools,
+        // 轮次预算（A1）：可改 16 / 只读 10——写任务要跑「改-验」循环，天然更长。
+        maxRounds: workspaceRoundBudget(mode),
         signal: controller.signal,
         requestOptions: { stream: true },
         onToken: fullText => {
