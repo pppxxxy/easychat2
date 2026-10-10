@@ -169,6 +169,15 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes("handleSelectMode('write')"), '先切模式（持久化到存储）');
   assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
   // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
-  assert.ok(screen.includes('if (overrideText === undefined)'), 'overrideText 路径有草稿保护');
+  assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
   assert.ok(screen.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  // 2026-10-10 回归：发送按钮是 onPress={handleSend}，RN 把点击事件对象当第一实参传进来。
+  // 旧判据「overrideText === undefined」认不出事件对象，String(事件) = "[object Object]"，
+  // 于是「工作区发啥都变成 [object Object]」。判据必须是「是不是字符串」。
+  assert.ok(screen.includes("typeof overrideText === 'string' ? overrideText : input"), '文本取用按类型判定');
+  assert.equal(
+    screen.includes('overrideText === undefined ? input : overrideText'),
+    false,
+    '不得退回「只判 undefined」的旧判据（会把点击事件对象当文本）'
+  );
 });
