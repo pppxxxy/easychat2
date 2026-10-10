@@ -102,6 +102,7 @@ import { materializeRepoFile, parseRepoFilePath } from '../repoMaterialize.js';
 import { readRepoManifest } from '../repoImport.js';
 import { installSampleSkills, readWorkspaceSkills } from '../skills.js';
 import { getGithubMcpSettings } from '../../storage/githubMcp.js';
+import { getMcpServers } from '../../storage/settings/mcpServers.js';
 import {
   expandSlashCommand,
   installSampleCommands,
@@ -178,6 +179,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // P3-4：当前会话的事件流（只读回看）。此前界面只有「导出」——想知道「这一轮发生了什么」
   // 得先导出成文件再看。原始事件存着，展示交给纯函数（workspace/sessionEventView.js）。
   const [sessionEvents, setSessionEvents] = useState([]);
+  // P3-3：MCP 服务器（配置在「设置 → 扩展」）。工作区此前对它**零信号**——用户不知道
+  // 自己的 MCP 工具在不在、有几个。这里只读展示，配置入口仍归主设置页。
+  const [mcpServers, setMcpServers] = useState([]);
   // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
@@ -502,6 +506,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     readSessionEvents(storeRef.current, characterId, activeChatId)
       .then(list => {
         if (alive) setSessionEvents(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    getMcpServers()
+      .then(list => {
+        if (alive) setMcpServers(Array.isArray(list) ? list : []);
       })
       .catch(() => {});
     return () => {
@@ -1415,6 +1424,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   skills={workspaceSkills}
             agents={workspaceAgents}
             sessionEvents={sessionEvents}
+            mcpServers={mcpServers}
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}

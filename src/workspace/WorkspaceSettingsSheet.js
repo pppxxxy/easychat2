@@ -112,6 +112,9 @@ export default function WorkspaceSettingsSheet({
   onExportSessionEvents,
   // P3-4：会话事件流原文（宿主读好传进来），本面板用纯函数归一成可读行再画。
   sessionEvents = [],
+  // P3-3：MCP 服务器清单（宿主读好传进来）。配置入口在主设置页，本面板只读展示——
+  // 不在这里做配置，避免同一份设置两处各存一份后不同步（沿用文件头的「纯展示」约定）。
+  mcpServers = [],
   // P0-8：hooks.json 原文（宿主读好传进来，本面板用纯函数校验与统计）与安装示例回调。
   hooksText = '',
   onInstallSampleHooks,
@@ -127,6 +130,14 @@ export default function WorkspaceSettingsSheet({
   const retentionEffective = normalizeRetention(retention);
   // P3-4：事件流只归一一次——行摘要与展开体都要用（各算一遍会白跑，且两处可能不一致）。
   const sessionEventView = useMemo(() => summarizeSessionEvents(sessionEvents), [sessionEvents]);
+  // P3-3：MCP 只读统计——行摘要与展开体共用一份，避免两处各算一遍。
+  const mcpView = useMemo(() => {
+    const list = Array.isArray(mcpServers) ? mcpServers : [];
+    return {
+      total: list.length,
+      enabled: list.filter(item => item && item.enabled === true).length,
+    };
+  }, [mcpServers]);
 
   // P0-6：手写规则的草稿。只是输入态（不落盘、不进设置）——落盘由宿主的
   // onAddPermissionRule 走 addPermissionRule，与弹框「永远允许」同一条链路。
@@ -237,6 +248,14 @@ export default function WorkspaceSettingsSheet({
       value: sessionEventView.total > 0
         ? t('workspace.settings.events.count', { count: sessionEventView.total })
         : t('workspace.settings.events.emptyShort'),
+    },
+    {
+      id: 'mcp',
+      icon: 'apps-outline',
+      label: t('workspace.settings.mcp'),
+      value: mcpView.enabled > 0
+        ? t('workspace.settings.mcp.count', { enabled: mcpView.enabled, total: mcpView.total })
+        : (mcpView.total > 0 ? t('workspace.settings.mcp.allOff') : t('workspace.settings.mcp.emptyShort')),
     },
     {
       id: 'commands',
@@ -491,6 +510,38 @@ export default function WorkspaceSettingsSheet({
           >
             <Ionicons name="share-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.events.export')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'mcp') {
+      // P3-3：MCP 只读状态。工作区此前对 MCP **零信号**——用户不知道自己的 MCP 工具在不在、
+      // 有几个。配置入口归主设置页（工作区本来就是设置页打开的 Modal，关掉即回到设置），
+      // 所以这里只展示 + 指路，**不在这里做配置**（同一份设置两处各存一份必然漂移）。
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.mcp.hint')}</Text>
+          {mcpView.total === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.mcp.empty')}</Text>
+          ) : (
+            mcpServers.map(item => (
+              <Text key={String(item && item.id)} style={styles.bodyHint} selectable>
+                {item && item.enabled === true
+                  ? t('workspace.settings.mcp.serverOn', {
+                    name: String(item.name || ''),
+                    tools: Array.isArray(item.toolCatalog) ? item.toolCatalog.length : 0,
+                  })
+                  : t('workspace.settings.mcp.serverOff', { name: String(item && item.name || '') })}
+              </Text>
+            ))
+          )}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onClose && onClose()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="settings-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.mcp.openSettings')}</Text>
           </TouchableOpacity>
         </View>
       );
