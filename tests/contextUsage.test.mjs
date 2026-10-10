@@ -113,6 +113,18 @@ test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / �
   assert.equal(shouldAutoCompact({ ratio: 0.84 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
 });
 
+test('阈值只定义一次：contextUsage 的三个比例全部转发自 compactionPolicy', async () => {
+  // 三线整合前，0.8/0.85/0.7 在 contextUsage 与 compactionPolicy 各写一份——改一处忘另一处
+  // 会让提示条/自动压缩/记忆总结的触发点悄悄分叉。现在 compactionPolicy 是唯一来源。
+  const policy = await import('../src/chat/compactionPolicy.js');
+  assert.equal(AUTO_COMPACT_RATIO, policy.MEMORY_SUMMARY_RATIO, '同一常量对象，不是同值两份');
+  assert.equal(SESSION_AUTO_COMPACT_RATIO, policy.SESSION_AUTO_COMPACT_RATIO);
+  assert.equal(SESSION_COMPACT_HINT_RATIO, policy.SESSION_COMPACT_HINT_RATIO);
+  const source = readSource('src/chat/contextUsage.js');
+  // 断言「赋值形式」的字面量，而不是文件里出现的数字（注释里会提到这三个值）。
+  assert.equal(/=\s*0\.(?:7|85|8)\s*;/.test(source), false, '不得再出现第二份字面量');
+});
+
 test('ChatScreen：compact 指令拦截（可带关注点）与记忆总结的 80% 占用接线钉死在源码', () => {
   const source = readSource('src/ChatScreen.js');
   // 指令：compact / /compact（大小写不敏感），可选跟一个关注点；仅当无附件时拦截。

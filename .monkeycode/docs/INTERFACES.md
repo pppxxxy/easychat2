@@ -681,6 +681,24 @@ data: [DONE]
 
 工具执行上下文 `ctx = { signal, mode, characterId, sessionId, workspaceMode }`；文件类工具的沙盒边界由第 6 项（工作区）实现。`useChatSend.js` 的 `onlineSend → runAgentTurn` 接线归 `src/chat/`（第 8 项接入时做）。
 
+## 上下文压缩与 steering（Z/M/D 三线整合，2026-10-10）
+
+三条线（Z 系架构采纳 / M 系运行时强化 / D 系正交补全）各自实现了同一批能力，整合后**每个关注点只有一处实现**，改行为只改那一处：
+
+| 关注点 | 唯一实现 | 说明 |
+| --- | --- | --- |
+| 压缩阈值 | `src/chat/compactionPolicy.js` | `resolveAutoCompactPolicy`：`min(窗口×比例, 窗口−输出预留−余量)`。`contextUsage.js` 的三个比例（0.8 / 0.85 / 0.7）与 `resolveCompactionThreshold` 都**转发**自这里，不再各写一份数字 |
+| 触发判定 | `src/chat/useAutoCompact.js` | 字节规则与 token 规则取更严者（`shouldCompactAnyRule`）+ 连续失败上限（`shouldStopAutoCompact`，3 次）；发送中/压缩中不触发 |
+| 工具结果退役（K1） | `src/agent/resultClearing.js` | 落盘后才占位、unseen 保护、工作台窗口、配对自检。loop 每轮与压缩管线 L1 都用它（Z 系曾另有一份 `microcompact.js`，已删） |
+| 四档管线（N2） | `src/chat/compactionPipeline.js` | L0 修剪 → L1 K1 清除 → L2 摘要 → L3 归档；权威分离（当前请求=权威 / 历史摘要=参考）；`focus` 只影响 L2 的 system |
+| 超限重试 | `src/chat/reactiveCompact.js` | 命中上下文超限 → 归档 + 摘要旧史 + 尾 5 保留（配对回退）→ 重试一次 |
+| 宿主接线 | `src/chat/sessionCompaction.js` | `buildSessionCompactionDeps`（无工作区后端就不注入 persist/clear/writeTranscript）、`runSessionCompaction`（一次执行，收成 `{ok, messages, applied}`）、`buildReactiveCompactDeps`、`resolveCompactionFocus`（before_compact 钩子）、`countCompactionMessages` |
+| steering 判定 | `src/chat/steeringSend.js` | `resolveSteeringSend`：`send` / `queued` / `blocked`（空文本、带附件、本轮不是工具循环一律 blocked，绝不静默丢弃用户输入） |
+| steering 容器 | `src/agent/runtime/commandQueue.js` | 类型化命令队列（`prompt`/`steering`/`notification`/`control`，优先级 now>next>later）。`src/agent/steering.js` 的 `{ push, drain, size }` 就是「一条 priority=next 的 steering 命令」，不再自建 FIFO |
+| 运行时会话登记 | `src/agent/runtime/sessionRuns.js` | 应用级「谁在跑」（`RunningRunsBar` 数据源）；每会话带一条命令队列，取消时自动注销 |
+
+主聊天页（`ChatScreen.handleCompactSession`）与工作区（`ChatPanel.compactWorkspaceNow`）都走四档管线；两边都传 `autoRatio=0`（宿主已判定「该压了」，不在管线内二次短路）。prompt caching 见「网络接口」：Z 系稳定前缀断点 + D 系 TTL/off 开关与 tools/历史断点。
+
 ## 工作区接口
 
 ### 工作区文件工具
