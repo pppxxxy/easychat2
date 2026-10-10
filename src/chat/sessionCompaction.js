@@ -101,6 +101,16 @@ export function buildSessionCompactionDeps({
   return deps;
 }
 
+// 反应式压缩（上下文超限 → 摘要旧史 + 重试一次）的 deps。与四档管线同一条纪律：
+// 没有工作区后端就不注入 writeTranscript——破坏性替换前先归档，归档不了就只留摘要，
+// 绝不写假指针。summarize 由宿主给（要带 config 指纹）。
+export function buildReactiveCompactDeps({ store = null, characterId = '', summarize = null } = {}) {
+  const deps = {};
+  if (typeof summarize === 'function') deps.summarize = summarize;
+  if (store) deps.writeTranscript = jsonl => writeTranscript({ store, characterId, content: jsonl });
+  return deps;
+}
+
 // 计入压缩判据的「有内容」消息数（user/assistant 且正文非空）——与 COMPACTION_MIN_MESSAGES
 // 同口径，宿主用它决定「太短不压」。
 export function countCompactionMessages(list) {

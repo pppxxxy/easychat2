@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildReactiveCompactDeps,
   buildSessionCompactionDeps,
   countCompactionMessages,
   resolveCompactionFocus,
   runSessionCompaction,
 } from '../src/chat/sessionCompaction.js';
 import { COMPACTION_MARKER } from '../src/chat/compaction.js';
+import { runReactiveCompact } from '../src/chat/reactiveCompact.js';
 
 // N2 整合（阶段 3）：主聊天页的会话压缩接到 M 的四档管线上。这里钉住接线层的两条纪律：
 //   1) 没有工作区后端 → 不注入 persist/clear/writeTranscript（对应档空转，绝不写假指针）；
@@ -129,6 +131,22 @@ test('runSessionCompaction：端点的「空回复占位文案」不算摘要（
     summarize: async () => '没有收到回复。',
   });
   assert.deepEqual(result, { ok: false, reason: 'noop' });
+});
+
+test('buildReactiveCompactDeps：超限重试路径也先归档（有 store 才注入 writeTranscript）', async () => {
+  const bare = buildReactiveCompactDeps({ summarize: async () => 'x' });
+  assert.equal(bare.writeTranscript, undefined, '没有后端就不归档');
+  assert.equal(typeof bare.summarize, 'function');
+  const store = makeStore();
+  const deps = buildReactiveCompactDeps({ store, characterId: 'ch', summarize: async () => '三段式摘要' });
+  const result = await runReactiveCompact({
+    messages: [{ role: 'user', content: 'hi' }],
+    error: { code: 'context_length_exceeded' },
+    deps,
+  });
+  assert.equal(result.compacted, true);
+  assert.match(result.transcriptPath, /^\.transcripts\//, 'L3：破坏性替换前归档');
+  assert.equal(store.writes.some(item => item.path === result.transcriptPath), true);
 });
 
 test('resolveCompactionFocus：钩子读不到一律当没有钩子，focus 原样带回（不因扩展失败而中断）', async () => {

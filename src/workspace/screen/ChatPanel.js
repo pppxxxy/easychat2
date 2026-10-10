@@ -62,6 +62,7 @@ import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
 import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
+import { buildReactiveCompactDeps } from '../../chat/sessionCompaction.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
@@ -1235,12 +1236,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               const compacted = await runReactiveCompact({
                 messages: request,
                 error,
-                deps: {
-                  summarize: req => sendChatMessage(req, {
-                    stream: false,
-                    ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}),
-                  }),
-                },
+                deps: buildReactiveCompactDeps({
+                  store: storeRef.current, characterId: characterIdRef.current,
+                  summarize: req => sendChatMessage(req, { stream: false, ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}) }),
+                }),
               });
               if (compacted.compacted) {
                 request = compacted.messages;

@@ -75,6 +75,8 @@ import { recordDiagnostic } from '../storage/diagnostics.js';
 // N1：reactive 回退——API 报上下文超限时压缩历史（本批接线为「压缩 + 提示重发」；
 // 自动重试需发送流程重构，见 reactiveCompact 注释）。
 import { REACTIVE_FAILED_MESSAGE, isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
+// N2 整合：反应式压缩的 deps（含 L3 归档）与主聊天页四档管线同一套装配纪律。
+import { buildReactiveCompactDeps } from './sessionCompaction.js';
 // P5：工具轨迹持久化（把本轮 tool 消息挂在助手终稿上，供跨轮 K1/N2 使用）。
 import { attachToolTrace, extractToolTrace } from './toolTrace.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
@@ -833,13 +835,10 @@ export default function useChatSend({
                 const result = await runReactiveCompact({
                   messages: requestMessages,
                   error,
-                  deps: {
-                    summarize: request => sendChatMessage(request, {
-                      stream: false,
-                      expectedConfigId,
-                      expectedConfigFingerprint,
-                    }),
-                  },
+                  deps: buildReactiveCompactDeps({
+                    store: hookStore, characterId: character.id,
+                    summarize: request => sendChatMessage(request, { stream: false, expectedConfigId, expectedConfigFingerprint }),
+                  }),
                 });
                 if (result.compacted) {
                   localMessages = localReady
