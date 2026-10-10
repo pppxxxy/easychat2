@@ -12,7 +12,15 @@ import { estimateMessagesTokens } from '../localModel/localContext.js';
 // 的新一代）上下文都在 128k~200k 这一档，32k 会让「上下文占用」显示虚高、80% 自动压缩
 // 过早触发（对话还没多长就被压缩，摘要反而丢信息）。
 export const DEFAULT_CONTEXT_WINDOW = 200000;
+// 「上下文偏高」的通用口径：**记忆总结**在占用达到它时绕过条数阈值（memorySummary.js），
+// 工作区占用条也用它决定是否转警示色（FilesPanel）。它不是会话压缩阈值——见下面两个。
 export const AUTO_COMPACT_RATIO = 0.8;
+// 会话压缩（E2）的两条线：≥85% 空闲时静默自动压缩；≥70% 出「建议压缩」提示条。
+// 与 AUTO_COMPACT_RATIO 是**两件事**，历史上 ChatScreen 把 0.85/0.7 硬编码在渲染里、
+// 常量却是 0.8，看着像笔误（2026-10-10 核实：确为不同语义，不是笔误）。
+// 命名清楚以免下次有人「顺手统一」——统一会让记忆总结的触发点或会话压缩的触发点跑偏。
+export const SESSION_AUTO_COMPACT_RATIO = 0.85;
+export const SESSION_COMPACT_HINT_RATIO = 0.7;
 
 // 会话消息（{ role, text }）→ 估算 token。
 export function estimateHistoryTokens(messages) {

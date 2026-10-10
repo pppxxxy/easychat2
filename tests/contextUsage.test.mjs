@@ -11,6 +11,8 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 import {
   AUTO_COMPACT_RATIO,
   DEFAULT_CONTEXT_WINDOW,
+  SESSION_AUTO_COMPACT_RATIO,
+  SESSION_COMPACT_HINT_RATIO,
   computeContextUsage,
   estimateHistoryTokens,
   resolveContextWindow,
@@ -74,19 +76,39 @@ test('shouldAutoCompact：0.8 触发、0.79 不触发、非法占用不触发', 
   assert.equal(shouldAutoCompact({ ratio: 0.5 }, { ratio: 0.5 }), true);
 });
 
-test('ChatScreen：compact 指令拦截与 80% 自动压缩接线钉死在源码', () => {
+test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / 提示条 0.7', () => {
+  // 2026-10-10 核实：ChatScreen 曾把 0.85 与 0.7 硬编码在渲染里，而常量是 0.8——
+  // 看着像笔误，实为三种不同语义（记忆总结的「上下文偏高」判定 / 会话空闲自动压缩 /
+  // 提示条出现线）。这条断言钉住「它们不相等」，防止后人「顺手统一」把触发点改跑偏。
+  assert.equal(AUTO_COMPACT_RATIO, 0.8, '记忆总结的「上下文偏高」口径');
+  assert.equal(SESSION_AUTO_COMPACT_RATIO, 0.85, '会话空闲自动压缩线');
+  assert.equal(SESSION_COMPACT_HINT_RATIO, 0.7, '提示条出现线');
+  assert.ok(SESSION_COMPACT_HINT_RATIO < AUTO_COMPACT_RATIO, '提示条早于记忆总结线');
+  assert.ok(AUTO_COMPACT_RATIO < SESSION_AUTO_COMPACT_RATIO, '记忆总结线早于会话压缩线');
+  // 会话压缩线仍用同一判定函数，只是阈值不同。
+  assert.equal(shouldAutoCompact({ ratio: 0.85 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), true);
+  assert.equal(shouldAutoCompact({ ratio: 0.84 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
+});
+
+test('ChatScreen：compact 指令拦截（可带关注点）与记忆总结的 80% 占用接线钉死在源码', () => {
   const source = readSource('src/ChatScreen.js');
-  // 指令：compact / /compact（大小写不敏感），仅当无附件时拦截。
-  assert.ok(source.includes("const COMPACT_COMMAND_PATTERN = /^\\/?compact$/i;"), 'compact 指令正则必须存在');
+  // 指令：compact / /compact（大小写不敏感），可选跟一个关注点；仅当无附件时拦截。
   assert.ok(
-    source.includes('COMPACT_COMMAND_PATTERN.test(text) && attachments.length === 0'),
+    source.includes("const COMPACT_COMMAND_PATTERN = /^\\/?compact(?:\\s+([\\s\\S]*))?$/i;"),
+    'compact 指令正则必须存在且能捕获关注点参数'
+  );
+  assert.ok(
+    source.includes('if (compactMatch && attachments.length === 0)'),
     '拦截必须同时要求无附件'
   );
-  assert.ok(source.includes('runCompactCommand().catch(() => {})'), '拦截后立即清输入并执行压缩');
-  // 压缩走既有记忆总结管线（manual=true 自带完成/失败提示与并发保护）。
   assert.ok(
-    source.includes('await runSummarize(session, messagesRef.current, true)'),
-    'compact 必须复用 runSummarize 手动路径'
+    source.includes("runCompactCommand(compactMatch[1] || '').catch(() => {})"),
+    '拦截后立即清输入并把关注点传下去'
+  );
+  // 压缩走既有记忆总结管线（manual=true 自带完成/失败提示与并发保护），关注点经归一化。
+  assert.ok(
+    source.includes('await runSummarize(session, messagesRef.current, true, normalizeCompactionFocus(focus))'),
+    'compact 必须复用 runSummarize 手动路径并归一化关注点'
   );
   assert.ok(
     source.includes("Alert.alert(t('chat.compact.busy.title'), t('chat.compact.busy.body'))"),

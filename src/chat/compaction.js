@@ -21,6 +21,17 @@ export const COMPACTION_MARKER = '[历史压缩]';
 // 压缩请求本身也不能爆：逐条截断 + 总量上限（超限丢最旧的——信息密度最低）。
 export const COMPACTION_PER_MESSAGE_MAX = 800;
 export const COMPACTION_TRANSCRIPT_MAX = 60000;
+// 用户指定的「本次压缩要特别保留什么」上限。够写一句到两句话（如「重点保留 API 变更
+// 与未决问题」），又不至于把提示词撑爆或让模型跑偏去写别的。
+export const COMPACTION_FOCUS_MAX = 200;
+
+// 归一化关注点：去空白折叠、截断到上限；空/非字符串 → ''（= 不加额外要求，
+// 与旧行为逐字节一致）。发给模型的内容（B 类），不进 i18n 词条表。
+export function normalizeCompactionFocus(raw) {
+  const text = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > COMPACTION_FOCUS_MAX ? text.slice(0, COMPACTION_FOCUS_MAX) : text;
+}
 
 const COMPACTION_SYSTEM_PROMPT = [
   '你是对话压缩器。把下面的对话历史压成三段中文摘要：',
@@ -66,7 +77,17 @@ function messageLine(item) {
 // 构造压缩请求：system 指示三段式 + user 塞转写后的对话。
 // **总长超限时丢最旧的**（从最新往前装，装不下的旧消息不塞）——最近的细节
 // 对摘要质量更重要，且旧消息本来就信息密度低。
-export function buildCompactionSummaryRequest(messages) {
+//
+// focus（可选）：用户显式指定的「这次压缩要特别保留什么」。无关注点时系统提示
+// **逐字节不变**（既有行为不受影响）；有关注点时在末尾追加一段额外要求——放最后
+// 是为了不打断前面三段式的结构说明，也让模型明白这是本次侧重、不是新的输出格式。
+export function buildCompactionSystemPrompt(focus = '') {
+  const extra = normalizeCompactionFocus(focus);
+  if (!extra) return COMPACTION_SYSTEM_PROMPT;
+  return `${COMPACTION_SYSTEM_PROMPT}\n\n额外要求：这次摘要请特别保留与下面这条关注点相关的内容（输出格式不变，仍是三段摘要）：${extra}`;
+}
+
+export function buildCompactionSummaryRequest(messages, options = {}) {
   const lines = (Array.isArray(messages) ? messages : [])
     .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
     .map(messageLine)
@@ -80,7 +101,7 @@ export function buildCompactionSummaryRequest(messages) {
     total += line.length + 1;
   }
   return [
-    { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+    { role: 'system', content: buildCompactionSystemPrompt(options && options.focus) },
     { role: 'user', content: kept.join('\n') },
   ];
 }
