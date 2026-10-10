@@ -34,7 +34,9 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
     resetWorkspaceFolder,
     toggleCommandExecution,
     togglePythonExecution,
-  } = useWorkspaceSettings();
+    localGit,
+    toggleLocalGit,
+  } = useWorkspaceSettings({ characterId });
 
   const isExternal = workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF;
   // 执行类开关都需要「可改」模式 + 应用内根：外部根下 shell 碰不到 content://，
@@ -125,6 +127,27 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
             : t('settings.workspace.pythonExec.hintReadonly'))}
       </FieldHint>
 
+      {/* W7：本地版本控制。与前两个执行开关的差别：不与工作模式耦合（只读 git 工具在任何
+          模式下都无害），但同样只在应用内根成立——外部根下没有 .git 的落脚点。 */}
+      <View style={[styles.row, styles.rowSpaced]}>
+        <View style={styles.rowLeft}>
+          <Ionicons name="git-branch-outline" size={17} color={theme.colors.primaryMuted} />
+          <Text style={styles.rowText}>{t('settings.workspace.localGit')}</Text>
+        </View>
+        <Switch
+          value={localGit}
+          disabled={isExternal}
+          onValueChange={toggleLocalGit}
+          trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+          thumbColor={theme.colors.primaryContrast}
+        />
+      </View>
+      <FieldHint style={styles.hint}>
+        {isExternal
+          ? t('settings.workspace.localGit.hintExternal')
+          : t('settings.workspace.localGit.hint')}
+      </FieldHint>
+
       <PythonSection characterId={characterId} />
 
       <WorkspaceCapabilitiesCard
@@ -133,6 +156,7 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
           location: workspaceFolder,
           allowCommandExecution: commandExecution,
           allowPythonExecution: pythonExecution,
+          allowLocalGit: localGit,
         }}
         shellAvailable={isShellAvailable()}
         pythonAvailable={isPythonBridgePresent()}

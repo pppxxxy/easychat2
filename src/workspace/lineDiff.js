@@ -180,3 +180,25 @@ export function buildDiffHtml(model, { dark = false, title = '' } = {}) {
 ${truncatedNote}
 </body></html>`;
 }
+
+// 行模型 → 文本（工具结果 / 导出用）。与 DiffView 的 HTML 渲染**同源同模型**，
+// 所以「模型看到的 diff」与「用户看到的 diff」不会分叉成两套口径。
+// W7：git 工具用它把「相对上次提交改了什么」回给模型（isomorphic-git 1.43.3 没有 git.diff）。
+export function formatDiffText(model, { maxLines = LINE_DIFF_MAX_LINES } = {}) {
+  const source = model && typeof model === 'object' ? model : {};
+  const lines = Array.isArray(source.lines) ? source.lines : [];
+  const stats = source.stats && typeof source.stats === 'object' ? source.stats : { added: 0, removed: 0 };
+  const head = `+${Number(stats.added) || 0} -${Number(stats.removed) || 0}`
+    + (source.truncated ? '（文件过大：粗粒度对比，未做精细行级匹配）' : '');
+  if (lines.length === 0) return `${head}\n（无差异）`;
+  const out = [head];
+  for (const line of lines) {
+    if (out.length > maxLines) {
+      out.push(`…（差异超过 ${maxLines} 行，已截断）`);
+      break;
+    }
+    const mark = line.type === 'add' ? '+' : (line.type === 'del' ? '-' : ' ');
+    out.push(`${mark}${line.text}`);
+  }
+  return out.join('\n');
+}

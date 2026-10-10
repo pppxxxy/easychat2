@@ -35,6 +35,13 @@ export function normalizeAllowPythonExecution(value, mode) {
   return value === true;
 }
 
+// 本地版本控制开关（W7，默认关）。与两个执行开关的差别：**不与工作模式耦合**——
+// git 只读工具（status/diff/log）在任何模式下都无害，read 模式下正好用来回看改过什么。
+// 仍只在应用私有根成立：SAF 的 content:// 撑不起 .git（门控见 native.js 的 gitGateReason）。
+export function normalizeAllowLocalGit(value) {
+  return value === true;
+}
+
 export function normalizeWorkspaceSettings(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
@@ -42,6 +49,7 @@ export function normalizeWorkspaceSettings(raw) {
     location: normalizeWorkspaceLocation(source.location),
     allowCommandExecution: normalizeAllowCommandExecution(source.allowCommandExecution, source.mode),
     allowPythonExecution: normalizeAllowPythonExecution(source.allowPythonExecution, source.mode),
+    allowLocalGit: normalizeAllowLocalGit(source.allowLocalGit),
     // 工作区角色（面板顶部选择；空 = 未设置，面板打开时落到默认工作助手，该卡不存在则回落内置助手）。
     assistantCharacterId: String(source.assistantCharacterId || '').trim(),
     // P1-11：保留口径（写前快照条数 / 回滚基线份数 / 会话事件流上限）。默认值即历史口径，

@@ -15,6 +15,7 @@ import { createPythonRunner, getPythonNative, isPythonBridgePresent } from './py
 import { createHistoryRecordingStore } from './history.js';
 import { createLegacyWorkspaceStore } from './store.js';
 import { registerWorkspaceTools } from './tools.js';
+import { createWorkspaceGit } from './git.js';
 import { normalizeWorkspaceMode } from './settings.js';
 import { normalizeRetention } from './retention.js';
 import { AGENT_MODES } from '../agent/tools/registry.js';
@@ -86,12 +87,45 @@ export function registerDefaultWorkspaceTools(settings, extras = {}) {
     store: createWorkspaceStore(settings),
     shell: resolveShellRunner(settings),
     python: resolvePythonRunner(settings),
+    git: resolveGitRunner(settings),
     readLog: extras.readLog || null,
     materializer: typeof extras.materializer === 'function' ? extras.materializer : null,
     ci: extras.ci || ciBridge,
     // O0.3 计划落盘：宿主注入（不传 = update_plan 不落盘）。
     onPlan: typeof extras.onPlan === 'function' ? extras.onPlan : null,
   });
+}
+
+// 本地 git 门控（纯判定，可单测）。返回 '' 表示「可以注册」，否则是不注册的原因。
+// 与 shell / python 的差别：isomorphic-git 是**纯 JS**（随包打进 bundle），没有「原生模块
+// 不可用」这一层，所以只有两道门：
+// 1) 设置开关（默认关——git 会在工作区里建 .git/ 并写入提交历史，属用户显式选择）；
+// 2) 根必须是应用私有目录——SAF 的 content:// 撑不起 .git 的原子重命名与锁语义。
+// 不要求工作模式：三个只读工具在任何模式下都无害（read 模式下正好用来回看自己改过什么）。
+export function gitGateReason(settings) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  if (source.allowLocalGit !== true) return 'SWITCH_OFF';
+  if (normalizeWorkspaceLocation(source.location).kind === WORKSPACE_ROOT_KINDS.SAF) return 'EXTERNAL_ROOT';
+  return '';
+}
+
+// git runner：**按调用开仓库句柄**——沙盒路径是 root/<characterId>/，而角色要到工具执行时
+// （ctx.characterId）才知道，所以不能在注册期定死一个句柄。门控不过返回 null → 三个 git 工具
+// 都不进注册表（第一层门控）。
+// ensureRepo 给「用户在设置里打开开关」时用：建仓库但不提交（首次提交留给回合检查点）。
+export function resolveGitRunner(settings) {
+  if (gitGateReason(settings) !== '') return null;
+  const root = defaultWorkspaceRoot();
+  const fileSystem = getWorkspaceFileSystem();
+  const open = ({ characterId = 'default' } = {}) => createWorkspaceGit({ root, characterId, fileSystem });
+  return {
+    open,
+    ensureRepo: async ({ characterId = 'default' } = {}) => {
+      const handle = open({ characterId });
+      if (!(await handle.isRepo())) await handle.init();
+      return handle;
+    },
+  };
 }
 
 // 命令执行门控（纯判定，可单测）。返回 '' 表示「可以注册」，否则是不注册的原因。

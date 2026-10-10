@@ -83,6 +83,7 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     allowPythonExecution: false,
+    allowLocalGit: false,
     assistantCharacterId: '',
     retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
   };
@@ -165,6 +166,7 @@ test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     allowPythonExecution: false,
+    allowLocalGit: false,
     assistantCharacterId: '',
     retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
   };
@@ -182,6 +184,7 @@ test('损坏或非法值回落默认模式', async () => {
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     allowPythonExecution: false,
+    allowLocalGit: false,
     assistantCharacterId: '',
     retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
   };

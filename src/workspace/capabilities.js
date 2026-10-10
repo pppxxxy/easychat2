@@ -72,6 +72,12 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   if (mode === 'write' && appRoot && source.allowPythonExecution === true && pythonAvailable) {
     tools.push('run_python');
   }
+  // W7：本地版本控制（只读三件套）。条件必须与 native.js 的 gitGateReason **逐条一致**
+  //（开关 + 应用内根），否则卡片会说「开着」而注册表里没有它——这张卡片最该避免的误导。
+  // 不与模式耦合：read 模式下正好用来回看自己改过什么。
+  if (appRoot && source.allowLocalGit === true) {
+    tools.push('git_status', 'git_diff', 'git_log');
+  }
   return tools;
 }
 

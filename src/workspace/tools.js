@@ -24,6 +24,7 @@ import { WRITE_TOOL_DEFINITIONS } from './toolDefs/writeTools.js';
 import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
 import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from './toolDefs/execTools.js';
+import { GIT_TOOL_DEFINITIONS } from './toolDefs/gitTools.js';
 
 // 兼容导出：read 工具的格式化实现随定义搬去了 readTools.js，既有引用点（含测试）从这里取。
 export { formatWorkspaceReadResult };
@@ -50,6 +51,9 @@ const WORKSPACE_TOOL_DEFINITIONS = [
 export const WORKSPACE_TOOL_NAMES = Object.freeze(WORKSPACE_TOOL_DEFINITIONS.map(item => item.name));
 export const SHELL_TOOL_NAME = SHELL_TOOL_DEFINITION.name;
 export const PYTHON_TOOL_NAME = PYTHON_TOOL_DEFINITION.name;
+// 按开关单独加的工具名（git 三件套）——unregister 时必须一并摘掉，否则关掉开关后
+// 它们仍留在注册表里，门控就漏了第一层。
+export const GIT_TOOL_NAMES = Object.freeze(GIT_TOOL_DEFINITIONS.map(item => item.name));
 
 // 需要长超时的执行类工具（用户确认 + 执行本身都慢）。其余工具用注册表的默认超时。
 // **这是兜底表**：只用于「定义里没写 timeoutMs」的工具（当前是 run_shell / run_python——
@@ -89,17 +93,21 @@ function toRunner(runner) {
   return runner && typeof runner === 'object' ? runner : null;
 }
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan } = {}) {
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, git, readLog, materializer, ci, onPlan } = {}) {
   const resolvedShell = toRunner(shell);
   const resolvedPython = toRunner(python);
   const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
   const pythonUsable = !!(resolvedPython && typeof resolvedPython.run === 'function');
+  // W7：git runner 是「按调用开仓库句柄」的对象（沙盒是 root/<characterId>/，角色每次
+  // 调用才知道）——所以只要求 open 存在，不要求它是裸函数。
+  const gitUsable = !!(git && typeof git.open === 'function');
   // options 必须带上 runner 本身：execute 走的是 options.shell.run(...)——
   // 只放 store 的话，门控放行后执行时也会 TypeError（同一函数里的第二处断裂）。
   const options = {
     store: resolveStore({ store, root, fileSystem }),
     ...(shellUsable ? { shell: resolvedShell } : {}),
     ...(pythonUsable ? { python: resolvedPython } : {}),
+    ...(gitUsable ? { git } : {}),
     // A5 会话级已读登记：宿主注入（工作区面板传会话内存；不传 = read 不登记，
     // 行为与旧版一致——聊天页等宿主无需感知这份状态）。
     ...(readLog ? { readLog } : {}),
@@ -114,6 +122,7 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     ...WORKSPACE_TOOL_DEFINITIONS,
     ...(shellUsable ? [SHELL_TOOL_DEFINITION] : []),
     ...(pythonUsable ? [PYTHON_TOOL_DEFINITION] : []),
+    ...(gitUsable ? GIT_TOOL_DEFINITIONS : []),
   ];
   return definitions.map(definition => {
     const timeoutMs = resolveToolTimeout(definition);
@@ -131,14 +140,14 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
   });
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python, git, readLog, materializer, ci, onPlan } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, git, readLog, materializer, ci, onPlan });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }
 
 export function unregisterWorkspaceTools() {
-  // run_shell / run_python 不在基础清单里（它们按开关单独加），但注册过就必须能摘掉，
-  // 否则关掉开关后它们仍留在注册表里——门控就漏了第一层。
-  for (const name of [...WORKSPACE_TOOL_NAMES, SHELL_TOOL_NAME, PYTHON_TOOL_NAME]) unregisterTool(name);
+  // run_shell / run_python / git_* 不在基础清单里（它们按开关单独加），但注册过就必须能
+  // 摘掉，否则关掉开关后它们仍留在注册表里——门控就漏了第一层。
+  for (const name of [...WORKSPACE_TOOL_NAMES, SHELL_TOOL_NAME, PYTHON_TOOL_NAME, ...GIT_TOOL_NAMES]) unregisterTool(name);
 }

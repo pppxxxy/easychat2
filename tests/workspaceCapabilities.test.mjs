@@ -143,3 +143,13 @@ test('能力说明的每个键都在两种语言里有词条', async () => {
   assert.equal(zh, eng);
   assert.equal(zh, '{tools}');
 });
+
+test('W7：开了本地版本控制且应用内根时，卡片如实列出三个 git 只读工具', () => {
+  const read = activeWorkspaceTools({ mode: 'read', allowLocalGit: true });
+  for (const name of ['git_status', 'git_diff', 'git_log']) {
+    assert.ok(read.includes(name), `${name} 应出现在卡片清单里（与门控条件一致）`);
+  }
+  const saf = activeWorkspaceTools({ mode: 'read', allowLocalGit: true, location: { kind: 'saf', uri: 'content://x', name: 'x' } });
+  assert.equal(saf.includes('git_status'), false, '外部根下没有 git（与 gitGateReason 一致）');
+  assert.equal(activeWorkspaceTools({ mode: 'read' }).includes('git_status'), false, '开关关着不列');
+});
