@@ -43,8 +43,14 @@
 
 ## P1 宽屏两栏（已批准破例）
 
-- [ ] P1-1 宽度判定纯函数（`宽 >= N` 才允许两栏）+ 持久化偏好。
-- [ ] P1-2 `WorkspaceScreen` 宽屏布局：对话常驻 + 右侧一个可停靠面板（文件/终端/GitHub 三选一）+ 拖动分隔条。
+- [x] **P1-1 布局解算内核**：新增纯函数 `src/workspace/splitLayout.js` —— `isWideLayout`（阈值 900）、
+      `resolveWorkspaceLayout`（**宽屏 + 不在对话领域**才两栏；宽屏下的对话仍全宽）、
+      `splitColumns`（两栏之和恒等于总宽；放不下返回 null 而**不硬分**）、`ratioFromDrag`（位移按
+      总宽折算，手感一致）、`clampSplitRatio` / `normalizeStoredLayout`（读回时任一项不合法就
+      整份丢弃）。测试 7 条。抓到自己一个真实缺陷：`Number(null)` 是 0（有限），
+      于是「没有值」被当成「拖到最左」夹到下限——已把空值与 0 区分开。
+- [ ] P1-2 `WorkspaceScreen` 两栏渲染 + 拖拽手势（`PanResponder`）+ 比例持久化。
+      落点主要是 `WorkspaceScreen`（229 行，**不在基线**，余量 571）——棘轮这次不是障碍。
 - [ ] P1-3 窄屏行为**逐字不变**（回归测试钉死）。
 
 ## P2 检索与导航
