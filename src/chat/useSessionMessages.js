@@ -36,6 +36,10 @@ import { getVectorMemoryConfig, updateVectorIndex } from '../storage/vector.js';
 import { indexMessages } from '../vectorMemory/index.js';
 import { getVectorOwnerId, shouldIndexSession } from '../vectorMemory/scope.js';
 import { useTranslation } from '../i18n/I18nContext.js';
+import { createAppLogger } from '../logging/index.js';
+
+// Z 系采纳 #10：统一分级日志（生产落本地诊断、dev 同时打 console、文本脱敏）。
+const vectorLog = createAppLogger('vector');
 
 export default function useSessionMessages({
   activeSessionId,
@@ -455,7 +459,7 @@ export default function useSessionMessages({
             });
           })
           .catch(error => {
-            if (__DEV__) console.warn('[vector] indexing failed', error);
+            vectorLog.warn('indexing failed', error);
           });
       }).catch(() => {
         if (saveInFlightSnapshotRef.current === snapshotBeingSaved) {
