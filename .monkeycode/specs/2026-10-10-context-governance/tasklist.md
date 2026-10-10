@@ -64,12 +64,47 @@
 - [x] 摘要请求防爆：复用 `COMPACTION_PER_MESSAGE_MAX` / `COMPACTION_TRANSCRIPT_MAX`。
 - [x] 测试：`reactiveCompact.test.mjs`（矩阵命中/否定、非超限不动、摘要空失败、归档 jsonl、
       配对边界无孤儿）。
-- [x] **聊天页挂载（本批，风险分支）**：`useChatSend` 失败分支识别 `isContextOverflowError` → 本轮一次
-      （`contextRetriedRef`，每轮重置）→ `runReactiveCompact` 摘要并替换会话 → 记失败一笔 + 诊断日志
-      + 提示「已自动压缩历史，请重新发送」。**安全降级**：自动重试需重构发送流程（闭包/消息形状），未做。
+- [x] **两处挂载 + 自动重试（本批，风险分支）**：`useChatSend` / `ChatPanel` 在发送循环里捕获
+      `isContextOverflowError` → `runReactiveCompact` 压缩历史 → **重试一次**（对齐 dsh
+      condense-and-retry）；仍失败 → `REACTIVE_FAILED_MESSAGE` + 记失败一笔 + 诊断日志。
       **未真机验证。**
-- [ ] 工作区 loop 轮次的 N1 挂载：待做（工作区会话持久化的是展示文本、无工具消息，reactive 触发面有限）。
-- [ ] 单次触发语义 / 仍败路径的端到端断言随挂载一起补。
+
+## 对齐优质 harness（2026-10-10 续批，风险分支 `m1010m5-risk-hotpath`）
+
+> 目标：对齐 Claude Code 三层（microcompact / auto-compact / /compact）、DeepSeek Harness
+> `dsh-compaction-basic` + tool-result-pruner、Codex auto-compact。研究结论见对话汇报。
+
+- [x] **P1 挂载 K1 到 agent loop**：`runAgentTurn` 每轮请求前按 `contextBudgetBytes`（默认 2MB）
+      修剪旧工具结果（落盘 + 占位，配对不变），对齐 Claude microcompact「每次 API 调用前」与
+      dsh pruner。无 persist 钩子则跳过。测试：agentLoop（超预算清除 / 无钩子不清）。
+- [x] **P2 reactive 自动重试**：见上（N1 两处挂载）。替换原「压缩 + 提示重发」安全降级。
+- [x] **P3 dsh 阈值公式**：`resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))`
+      （headroom 65536）；ChatPanel 自动压缩按其换算 ratio。测试：contextUsage。
+- [x] **P4 token 预算保留**：`sliceRecentByBudget`（retainRatio=0.16 of W，带最少条数下限 + 配对
+      回退）；`applyCompactionWithAuthority` 支持 retainTokens。测试：compactionPipeline。
+- [ ] **P5（结构性，待决策）持久化 agent transcript（含 tool 消息）**——设计见下。
+
+### P5 设计草案：持久化 agent transcript
+
+**问题**：easychat2 会话持久化的是**展示文本**；agent loop 的 `history`（system + user +
+assistant(tool_calls) + tool 结果）只在单轮内存在。故 K1（跨轮清除）/N2（跨轮压缩）在持久历史上
+几乎空转——参考 harness 都持久化完整 transcript，这是最后一个硬伤。
+
+**方案 A（推荐，改动集中）**：会话消息数组内联 tool 消息（`role:'tool'` + `role:'assistant'` 带
+`tool_calls`），展示层按 `role`/`kind` 过滤，仅渲染 user/assistant 文本。
+- 存储：`sessionMessages/messages.js` 允许写入 tool 消息（新增 `kind:'agent'` 或按 role 区分）；
+  展示读取时过滤。需迁移：老数据无 tool 消息，天然兼容（零迁移）。
+- 发送：`useChatSend` 组装 request 时直接带上历史 tool 消息（不再每轮从展示文本重建）。
+- 压缩：N2/K1 直接作用于该 transcript。
+- 风险：改会话 schema + 展示过滤 + 分支/搜索/导出等消费方；需逐一回归。
+
+**方案 B（改动小，但会话翻倍）**：单开 `@easychat2_agent_transcript::<sessionId>` 存 transcript，
+展示消息另存。缺点：两份数据同步、易漂移。
+
+**方案 C（最小）**：维持现状，接受「K1/N2 只在单轮内生效」。仅在长轮次里获益。
+
+**建议**：先出方案 A 的详细设计（存储/迁移/展示过滤/消费方清单），评审后再动手——它是唯一能让
+K1/N2 跨轮真正生效的路径。
 
 ## 顺序与门禁
 
