@@ -157,3 +157,25 @@ test('E1 toolOrderSignature：两种形态归一、顺序敏感（漂移检出�
   assert.equal(toolOrderSignature([]), '');
   assert.equal(toolOrderSignature(['a', null, 'b']), 'a,b', '杂项被过滤不产生空段');
 });
+
+test('P5：projectWorkspaceChatHistory 展开 toolTrace，tool 消息透传', () => {
+  const projected = projectWorkspaceChatHistory([
+    { role: 'user', content: '读 a.js' },
+    {
+      role: 'assistant',
+      content: '读完了',
+      toolTrace: [
+        { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_workspace_file', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'c1', content: 'body' },
+      ],
+    },
+  ]);
+  assert.equal(projected.length, 4);
+  assert.ok(Array.isArray(projected[1].tool_calls) && projected[1].tool_calls[0].id === 'c1');
+  assert.equal(projected[2].role, 'tool');
+  assert.equal(projected[2].content, 'body');
+  assert.equal(projected[3].role, 'assistant');
+  assert.equal(projected[3].content, '读完了');
+  // 无轨迹的普通消息行为不变
+  assert.deepEqual(projectWorkspaceChatHistory([{ role: 'user', content: 'x' }]), [{ role: 'user', content: 'x' }]);
+});

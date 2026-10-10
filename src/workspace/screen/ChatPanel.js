@@ -62,6 +62,7 @@ import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
 import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
+import { extractToolTrace } from '../../chat/toolTrace.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
@@ -974,6 +975,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const chatId = activeChatId;
     const ownerId = characterId;
     let assistantFinal = { id: assistantId, role: 'assistant', content: '', isError: false, at: Date.now() };
+    // P5：本轮工具轨迹（onTranscript 回抛；挂到助手终稿上持久化，供下轮 agent 历史展开）。
+    let turnTrace = null;
     setMessages(list => [...list, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
@@ -1118,6 +1121,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           }
         },
         context: { characterId },
+        // P5：本轮 agent 追加消息（含 tool）回抛，提取工具轨迹持久化。
+        onTranscript: msgs => { turnTrace = extractToolTrace(msgs); },
           });
           break;
         } catch (error) {
@@ -1173,6 +1178,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         updateAssistant(assistantId, { content: assistantFinal.content, isError: true });
       }
     } finally {
+      // P5：把本轮工具轨迹挂到终稿上（展示无感；下轮投影成 agent 历史）。
+      if (turnTrace) assistantFinal = { ...assistantFinal, toolTrace: turnTrace };
       // 助手终稿一次性落盘（含被中止 / 报错的情况），流式期间不写。
       persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }]);
       // E4：事件流（旁路）——助手终稿（中止/报错形态如实带 isError）。
