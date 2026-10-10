@@ -135,7 +135,7 @@ export async function runAgentTurn(messages, options = {}) {
       onReasoning: text => safeCallback(onReasoning, text),
       ...(onModelFallback ? { onModelFallback } : {}),
     });
-    if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, ...result.usage });
+    if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, model: result.model, ...result.usage });
     return typeof result.text === 'string' ? result.text : '';
   }
 
@@ -176,7 +176,7 @@ export async function runAgentTurn(messages, options = {}) {
     streamedText += typeof result.text === 'string' ? result.text : '';
     streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
     // E1：usage 上抛（端点在每轮 SSE 尾部返回时才有）——回调抛错不影响主流程。
-    if (result && result.usage && onUsage) safeCallback(onUsage, { round, ...result.usage });
+    if (result && result.usage && onUsage) safeCallback(onUsage, { round, model: result.model, ...result.usage });
     history.push(toAssistantMessage(result));
     const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
     if (!toolCalls.length) return streamedText;

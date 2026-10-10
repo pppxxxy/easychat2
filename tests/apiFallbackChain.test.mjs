@@ -165,6 +165,7 @@ test('429 后换用降级模型重试，并把「已切换到 X」告知宿主',
         onModelFallback: info => notices.push(info),
       });
       assert.equal(result.text, '你好', '回复来自降级模型');
+      assert.equal(result.model, 'model-b', '结果带回真正产出内容的模型（P2-10 记账依据）');
       assert.deepEqual(
         ScriptedXHR.bodies.map(item => item.model),
         ['model-a', 'model-b'],

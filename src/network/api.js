@@ -474,6 +474,9 @@ async function requestOnce(messages, options, attempt) {
       finishReason,
       // E1：可能为 null（端点不返回 usage）——调用方必须容忍缺失。
       usage: latestUsage,
+      // P0-7/P2-10：**这一次真正产出内容的是哪个模型**（降级链可能换过模型）。
+      // 记账若仍按主模型记，用户看到的「这条回复是谁产的/花了谁的钱」就是假的。
+      model: String(model || ''),
     });
 
     const settle = (fn, value) => {

@@ -583,7 +583,9 @@ export default function useChatSend({
         // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
         // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
         // 本地模型/不返回 usage 的端点：count 恒为 0，走估算回退（零行为变化）。
-        const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
+        // P0-7/P2-10：`lastModel` 记**真正产出内容**的模型（降级链可能换过模型）——
+        // 记账按主模型记会让「这条回复是谁产的」变成假话。
+        const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, lastModel: '' };
         recordStats = (completionText, extra = {}) => {
           try {
             const timing = meter.finish();
@@ -593,7 +595,9 @@ export default function useChatSend({
               configLabel: isLocal
                 ? tRef.current('chat.stats.localProvider')
                 : (onlineConfigLabel || expectedConfigId || ''),
-              model: isLocal ? String(resolvedProvider.modelName || '') : onlineModelName,
+              model: isLocal
+                ? String(resolvedProvider.modelName || '')
+                : (usageAcc.lastModel || onlineModelName),
               promptTokens: estimatePromptTokens(requestMessages),
               completionTokens: estimateReplyTokens(completionText || ''),
               // 有真实 usage 就覆盖估算；extra 在其后仍可最终覆盖（失败记账等场景）。
@@ -624,6 +628,8 @@ export default function useChatSend({
                 usageAcc.promptTokens += Number(entry && entry.promptTokens) || 0;
                 usageAcc.completionTokens += Number(entry && entry.completionTokens) || 0;
                 usageAcc.cachedTokens += Number(entry && entry.cachedTokens) || 0;
+                // 记「最后一轮真正产出内容」的模型（降级后就是降级模型）。
+                if (entry && entry.model) usageAcc.lastModel = String(entry.model);
               },
               requestOptions: {
                 expectedConfigId,
