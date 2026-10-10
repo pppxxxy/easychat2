@@ -999,11 +999,13 @@ export default function ChatScreen() {
         getActiveLocalModel().catch(() => null),
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const model = current ? getActiveModel(current) : '';
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
       contextUsage = computeContextUsage(list, resolveContextWindow({
         declared: caps.contextWindow,
         localContextSize,
+        model,
       }));
     } catch (error) {}
     if (!shouldSummarize({ session, messages: list, settings, contextUsage })) return;
@@ -1622,11 +1624,13 @@ export default function ChatScreen() {
           getActiveLocalModel().catch(() => null),
         ]);
         const current = configs.find(item => item.id === activeId) || configs[0];
-        const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+        const model = current ? getActiveModel(current) : '';
+        const caps = capabilitiesForModel(current, model);
         const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
         const usage = computeContextUsage(list, resolveContextWindow({
           declared: caps.contextWindow,
           localContextSize,
+          model,
         }));
         if (alive) setContextUsage(usage && Number.isFinite(usage.ratio) ? usage : { tokens: 0, window: 0, ratio: 0 });
       } catch (error) {

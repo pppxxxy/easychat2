@@ -5,13 +5,13 @@
     "src/games/html/"
   ],
   "fileLineBaseline": {
-    "src/ChatScreen.js": 3170,
-    "src/SettingsScreen.js": 2322,
+    "src/ChatScreen.js": 3174,
+    "src/SettingsScreen.js": 2329,
     "src/workspace/screen/GithubPanel.js": 1984,
     "src/chat/useChatSend.js": 1999,
-    "src/workspace/screen/ChatPanel.js": 1898,
+    "src/workspace/screen/ChatPanel.js": 1901,
     "src/character/CharacterDetailScreen.js": 1714,
-    "src/workspace/screen/FilesPanel.js": 1599,
+    "src/workspace/screen/FilesPanel.js": 1601,
     "src/chat/chatStyles.js": 1558,
     "src/CardForgeEditor.js": 1338,
     "src/music/MusicScreen.js": 1182,

@@ -182,11 +182,13 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       }
       const messages = await getMessagesBySession(session.id).catch(() => []);
       const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const model = current ? getActiveModel(current) : '';
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
       const computed = computeContextUsage(messages, resolveContextWindow({
         declared: caps.contextWindow,
         localContextSize,
+        model,
       }));
       if (mountedRef.current) setUsage(computed);
     } catch (error) {

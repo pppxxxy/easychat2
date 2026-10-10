@@ -29,7 +29,7 @@
 6. **上下文规模**：ZCode 主打 **1M token 长程**；我们默认 200k + 压缩。
 7. **检查点 / 回滚**：参考 `/rewind` 同时回滚**代码 + 对话**；我们是文件快照 + rollback baseline + rewind 联动，非「一键回到任意点」。
 8. **形态**：参考是 CLI / IDE / 桌面 / web；我们是移动 App（移动优先是优势，桌面 / IDE 工作流是差距）。
-9. **模型专门调优**：参考按自家模型深调（Claude 的 prompt cache/thinking、ZCode 的 GLM）；我们模型无关但缺 per-model 深度调优。
+9. **模型专门调优**：参考按自家模型深调（Claude 的 prompt cache/thinking、ZCode 的 GLM）；我们模型无关，**已补模型档案**（`src/network/modelProfiles.js`：按模型名识别家族、给出建议上下文窗口，未声明时兜底，设置页能力弹层显示识别结果），但**不做 per-model 系统提示/采样深调**。
 
 ## 一句话
 

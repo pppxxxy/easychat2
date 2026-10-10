@@ -53,6 +53,7 @@ import { clearVectorIndex } from './storage/vector.js';
 import { IMAGE_PROVIDERS } from './imageGen/providers.js';
 import { detectImageProvider } from './imageGen/index.js';
 import { API_PROTOCOL_PRESETS, CHAT_API_VENDORS, getChatApiVendor } from './network/apiVendors.js';
+import { resolveModelProfile } from './network/modelProfiles.js';
 import {
   Card,
   FieldHint,
@@ -2054,6 +2055,12 @@ export default function SettingsScreen() {
             <FieldHint style={styles.hint}>
               {capabilityEditorModel ? t('settings.capability.modelLine', { model: capabilityEditorModel }) : ''}
               {t('settings.capability.hint')}
+              {(() => {
+                const profile = resolveModelProfile(capabilityEditorModel);
+                return profile
+                  ? `\n${t('settings.capability.profileHint', { family: profile.label, window: String(profile.contextWindow) })}`
+                  : '';
+              })()}
             </FieldHint>
             <ScrollView style={styles.capabilityScroll} contentContainerStyle={styles.capabilityScrollContent}>
             <View style={styles.capabilityRow}>

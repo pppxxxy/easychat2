@@ -370,11 +370,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         && (bucket.chats.find(item => item.id === bucket.activeId) || bucket.chats[0]);
       const list = (active && active.messages) || [];
       const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const model = current ? getActiveModel(current) : '';
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = Number(localItem && localItem.contextSize) || 0;
       const computed = computeContextUsage(list, resolveContextWindow({
         declared: caps.contextWindow,
         localContextSize,
+        model,
       }));
       if (mountedRef.current) setUsage(computed);
     } catch (error) {
@@ -434,9 +436,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
       if (!current) return { ok: false, reason: 'failed' };
-      const caps = capabilitiesForModel(current, getActiveModel(current));
+      const model = getActiveModel(current);
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = Number(localItem && localItem.contextSize) || 0;
-      const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize });
+      const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize, model });
       // 阈值统一走 compactionPolicy（Z 系采纳 #5：模型感知 + 输出预留 + 缓冲）。
       const policy = resolveAutoCompactPolicy({ contextWindow: windowSize });
       const autoRatio = windowSize > 0 ? policy.thresholdTokens / windowSize : AUTO_COMPACT_RATIO;
