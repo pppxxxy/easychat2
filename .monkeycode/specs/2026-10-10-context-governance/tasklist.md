@@ -82,29 +82,26 @@
       （headroom 65536）；ChatPanel 自动压缩按其换算 ratio。测试：contextUsage。
 - [x] **P4 token 预算保留**：`sliceRecentByBudget`（retainRatio=0.16 of W，带最少条数下限 + 配对
       回退）；`applyCompactionWithAuthority` 支持 retainTokens。测试：compactionPipeline。
-- [ ] **P5（结构性，待决策）持久化 agent transcript（含 tool 消息）**——设计见下。
+- [x] **P5 持久化 agent transcript（本批，风险分支）**：采用**嵌套**方案（比「内联 tool 消息」更小的
+      改动面）——把一轮的 `assistant(tool_calls)+tool 结果` 作为 `toolTrace` 挂在该轮助手终稿消息上
+      （消息形状不变、零迁移），下轮 `buildHistory` 展开回 agent 历史，让 K1/N2 跨轮看得到工具结果。
+      展示/搜索/导出/分支只读 `text`，对 `toolTrace` 无感。`runAgentTurn` 新增 `onTranscript` 回抛；
+      纯核心 `src/chat/toolTrace.js`（提取/截断/展开/挂载，带 256KB 预算 + 16KB 逐条截断）。
+      **未真机验证。**
 
-### P5 设计草案：持久化 agent transcript
+### P5 设计（已按「嵌套 toolTrace」落地，保留决策记录）
 
 **问题**：easychat2 会话持久化的是**展示文本**；agent loop 的 `history`（system + user +
 assistant(tool_calls) + tool 结果）只在单轮内存在。故 K1（跨轮清除）/N2（跨轮压缩）在持久历史上
 几乎空转——参考 harness 都持久化完整 transcript，这是最后一个硬伤。
 
-**方案 A（推荐，改动集中）**：会话消息数组内联 tool 消息（`role:'tool'` + `role:'assistant'` 带
-`tool_calls`），展示层按 `role`/`kind` 过滤，仅渲染 user/assistant 文本。
-- 存储：`sessionMessages/messages.js` 允许写入 tool 消息（新增 `kind:'agent'` 或按 role 区分）；
-  展示读取时过滤。需迁移：老数据无 tool 消息，天然兼容（零迁移）。
-- 发送：`useChatSend` 组装 request 时直接带上历史 tool 消息（不再每轮从展示文本重建）。
-- 压缩：N2/K1 直接作用于该 transcript。
-- 风险：改会话 schema + 展示过滤 + 分支/搜索/导出等消费方；需逐一回归。
+**落地选择**：**嵌套 toolTrace**（原「方案 A」的务实变体）——不改会话消息形状，把轨迹挂在助手
+消息的 `toolTrace` 字段，展示层天然无感。原方案 A（内联 `role:'tool'` 消息 + 展示层过滤）需改
+搜索/导出/分支/向量等全部消费方，风险大；B（独立键）易漂移。嵌套方案兼得二者：零迁移 + 低爆炸半径。
 
-**方案 B（改动小，但会话翻倍）**：单开 `@easychat2_agent_transcript::<sessionId>` 存 transcript，
-展示消息另存。缺点：两份数据同步、易漂移。
-
-**方案 C（最小）**：维持现状，接受「K1/N2 只在单轮内生效」。仅在长轮次里获益。
-
-**建议**：先出方案 A 的详细设计（存储/迁移/展示过滤/消费方清单），评审后再动手——它是唯一能让
-K1/N2 跨轮真正生效的路径。
+**方案 A（未采用，记录）**：会话消息内联 tool 消息（`role:'tool'` + assistant 带 `tool_calls`），
+展示层按 role/kind 过滤。改动面：存储 + 展示 + 搜索 + 导出 + 分支 + 向量。
+**方案 B（未采用，记录）**：单开 `@easychat2_agent_transcript::<sessionId>`。缺点：两份数据同步、易漂移。
 
 ## 顺序与门禁
 

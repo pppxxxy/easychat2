@@ -537,3 +537,24 @@ test('P1：无 persist 钩子时不清除（绝不写假指针）', async () => 
   const c1 = round5.find(item => item.role === 'tool' && item.tool_call_id === 'c1');
   assert.equal(c1.content, 'X'.repeat(500), '无 persist 钩子 → 原文保留');
 });
+
+test('P5：onTranscript 回抛本轮追加的 agent 消息（含 tool）', async () => {
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  let transcript = null;
+  await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onTranscript: msgs => { transcript = msgs; },
+  });
+  assert.ok(Array.isArray(transcript), 'onTranscript 被调用');
+  assert.equal(transcript.length, 3);
+  assert.equal(transcript[0].role, 'assistant');
+  assert.ok(Array.isArray(transcript[0].tool_calls) && transcript[0].tool_calls[0].id === 'c1');
+  assert.equal(transcript[1].role, 'tool');
+  assert.equal(transcript[1].tool_call_id, 'c1');
+  assert.equal(transcript[2].role, 'assistant');
+  assert.equal(transcript[2].content, 'done');
+});

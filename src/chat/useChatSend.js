@@ -65,6 +65,8 @@ import { recordDiagnostic } from '../storage/diagnostics.js';
 // N1：reactive 回退——API 报上下文超限时压缩历史（本批接线为「压缩 + 提示重发」；
 // 自动重试需发送流程重构，见 reactiveCompact 注释）。
 import { REACTIVE_FAILED_MESSAGE, isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
+// P5：工具轨迹持久化（把本轮 tool 消息挂在助手终稿上，供跨轮 K1/N2 使用）。
+import { attachToolTrace, extractToolTrace } from './toolTrace.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -525,6 +527,8 @@ export default function useChatSend({
         // token 口径（E1 起）：端点返回 usage 时用**真实值**（含缓存命中数），
         // 不返回时回退估算器（口径与上下文占用一致，服务商之间可比）。
         let resolvedProvider = null;
+        // P5：本轮工具轨迹（onTranscript 回抛；挂到助手终稿上持久化）。
+        let turnTrace = null;
         const meter = createRequestMeter();
         // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
         // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
@@ -633,6 +637,8 @@ export default function useChatSend({
                   content,
                 })
                 : undefined,
+              // P5：本轮 agent 追加消息（含 tool）回抛，提取工具轨迹持久化。
+              onTranscript: msgs => { turnTrace = extractToolTrace(msgs); },
             })
           : sendChatMessage(onlineMessages, {
               expectedConfigId,
@@ -749,9 +755,11 @@ export default function useChatSend({
        recordStats(replyText);
        clearToolBubble();
        setMessages(current => {
-        if (!isCurrentSession()) return current;
-        return replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
-      });
+         if (!isCurrentSession()) return current;
+         const next = replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
+         // P5：把本轮工具轨迹挂到助手终稿上（展示无感；下轮组装请求时展开回 agent 历史）。
+         return turnTrace ? attachToolTrace(next, replyParts, turnTrace) : next;
+       });
       if (isCurrentSession()) {
         // 会话模型标识落盘（记忆页「本地」badge 的数据源）。只在回复真正落入
         // 当前会话后标记；落盘失败不影响聊天主链路，静默吞掉。

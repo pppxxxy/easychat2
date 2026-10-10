@@ -92,6 +92,11 @@ function safeCallback(callback, payload) {
 
 export async function runAgentTurn(messages, options = {}) {
   const history = Array.isArray(messages) ? [...messages] : [];
+  const requestLength = history.length;
+  // 把本轮追加的 agent 消息（assistant(tool_calls) + tool 结果）回抛宿主持久化。
+  const emitTranscript = () => {
+    if (onTranscript) safeCallback(onTranscript, history.slice(requestLength));
+  };
   const mode = options.mode;
   const signal = options.signal || null;
   const onToken = options.onToken;
@@ -109,6 +114,8 @@ export async function runAgentTurn(messages, options = {}) {
   const contextBudgetBytes = Number.isFinite(Number(options.contextBudgetBytes)) && Number(options.contextBudgetBytes) > 0
     ? Number(options.contextBudgetBytes)
     : RESULT_CLEARING_BUDGET_BYTES;
+  // P5：本轮追加的 agent 消息（含 tool 消息）回抛给宿主持久化（transcript 轨迹）。
+  const onTranscript = typeof options.onTranscript === 'function' ? options.onTranscript : null;
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
@@ -201,7 +208,7 @@ export async function runAgentTurn(messages, options = {}) {
     if (result && result.usage && onUsage) safeCallback(onUsage, { round, ...result.usage });
     history.push(toAssistantMessage(result));
     const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
-    if (!toolCalls.length) return streamedText;
+    if (!toolCalls.length) { emitTranscript(); return streamedText; }
 
     // E2：本轮签名收集——与上一轮相同（或本轮内重复）的调用会被 nudge（不阻断）。
     let hasRepeatedCall = false;
@@ -290,5 +297,6 @@ export async function runAgentTurn(messages, options = {}) {
   history.push({ role: 'system', content: CAP_NOTICE });
   const finalResult = await streamRound(null);
   streamedText += typeof finalResult.text === 'string' ? finalResult.text : '';
+  emitTranscript();
   return streamedText;
 }
