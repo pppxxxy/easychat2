@@ -4,9 +4,13 @@
 // （进程内 eval 能触达全部原生桥），让 hooks.json 执行脚本等于把整个应用的安全边界
 // 交出去。声明式 JSON 覆盖真正有价值的两类场景：
 //
-// 1. before_shell —— **预置禁令**：用户提前写下「这些命令永远不许跑」，执行前直接
-//    拒绝（连确认弹框都不弹：用户早已表态，不必再问）。实现上翻译成权限规则的 deny，
-//    复用 T3「deny 最高优先」的既有链路，零新增裁决路径。
+// 1. before_shell —— **预置禁令 / 预置必问**：用户提前写下「这些命令永远不许跑」或
+//    「这些命令必须先问」，执行前直接拒绝 / 弹「只允许这一次」（连「记住规则」都不给：
+//    用户早已表态，不必再问第二次）。实现上翻译成权限规则的 deny / ask，复用 T3
+//    「deny > ask > allow」的既有链路，零新增裁决路径。
+//    **只能收紧不能放宽**：effect 只认 deny / ask，写 allow 一律按 deny 处理——
+//    hooks.json 是 agent 可写的文件，放宽授权必须由用户在设置页显式做（见
+//    `src/agent/permissions.js` 的 ask 档说明）。
 // 2. after_write / after_edit —— **事后提醒**：写完/改完某类文件后，把一句提醒追加到
 //    工具结果里（模型看得到、可能照做，如「改了 src 记得跑测试」）。它是提醒不是强制：
 //    声明式能做到的只有信息通道这一层。
@@ -16,16 +20,23 @@
 //
 // 格式：
 // {
-//   "before_shell": [{ "match": "git push", "message": "推送由用户手动执行" }],
+//   "before_shell": [
+//     { "match": "git push", "message": "推送由用户手动执行" },
+//     { "match": "rm -rf", "message": "删除操作先问过我", "effect": "ask" }
+//   ],
 //   "after_write":  [{ "glob": "**/*.md", "message": "检查目录与链接是否同步" }],
 //   "after_edit":   [{ "glob": "src/**/*.js", "message": "记得跑测试" }]
 // }
-// （before_shell 用 match 前缀语义；after_* 用 glob 路径语义；两个键名都认，宽容解析。）
+// （before_shell 用 match 前缀语义、effect 缺省 deny；after_* 用 glob 路径语义；
+//   两个键名 match/glob 都认，宽容解析。）
 
 import { commandPrefixMatches, pathMatchesGlob } from '../agent/permissions.js';
 
 export const HOOKS_FILE = '.easychat/hooks.json';
 export const HOOK_EVENTS = Object.freeze(['before_shell', 'after_write', 'after_edit', 'on_tool_result']);
+// before_shell 的 effect 白名单：deny（直接拒绝，缺省）/ ask（必须先问，只给「允许这一次」）。
+// **没有 allow**：声明式钩子只能收紧，放宽授权是设置页的显式动作。
+export const HOOK_SHELL_EFFECTS = Object.freeze(['deny', 'ask']);
 export const HOOK_MATCH_MAX = 200;
 export const HOOK_MESSAGE_MAX = 300;
 // 每个事件的条目上限：一个钩子文件不该能把提示词/结果撑爆。
@@ -54,13 +65,16 @@ export function withDefaultHooks(hooks) {
   return out;
 }
 
-function normalizeItem(raw) {
+function normalizeItem(raw, withEffect = false) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   // match / glob 两个键名都认（before_shell 习惯写 match、after_* 习惯写 glob）。
   const pattern = String(source.match || source.glob || '').trim().slice(0, HOOK_MATCH_MAX);
   const message = String(source.message == null ? '' : source.message).trim().slice(0, HOOK_MESSAGE_MAX);
   if (!pattern || !message) return null; // 缺匹配或缺说明的条目直接剔除（静默，不碍事）
-  return { pattern, message };
+  const item = { pattern, message };
+  // effect 只对 before_shell 有意义；写错/写 allow 一律落到 deny（收紧方向，绝不静默放宽）。
+  if (withEffect) item.effect = HOOK_SHELL_EFFECTS.includes(source.effect) ? source.effect : 'deny';
+  return item;
 }
 
 // 纯函数：hooks.json 文本（或已解析对象）→ 归一化结构。
@@ -81,7 +95,10 @@ export function parseWorkspaceHooks(text) {
   for (const event of HOOK_EVENTS) {
     // 值不是数组（写坏了）当缺失处理——保守：不因手误关掉默认提醒。
     if (!Array.isArray(source[event])) continue;
-    out[event] = source[event].map(normalizeItem).filter(Boolean).slice(0, HOOKS_MAX_PER_EVENT);
+    out[event] = source[event]
+      .map(item => normalizeItem(item, event === 'before_shell'))
+      .filter(Boolean)
+      .slice(0, HOOKS_MAX_PER_EVENT);
   }
   return out;
 }
@@ -104,14 +121,15 @@ export function matchBeforeShellHooks(hooks, command) {
   return list.filter(item => commandPrefixMatches(item.pattern, command));
 }
 
-// 翻译成 T3 权限规则的 deny 项：交给 approveToolCall 的 extraRules，
-// 走「deny 最高优先」既有链路（命中即拒绝、不弹框）。
-export function shellHookDenyRules(hooks) {
+// 翻译成 T3 权限规则：缺省 deny（预置禁令，命中即拒绝、不弹框），声明
+// `effect: "ask"` 的条目翻成 ask（命中弹「只允许这一次」，且**不记规则**）。
+// 交给 approveToolCall 的 extraRules，与存储规则合并求值（优先级由 evaluate 保证）。
+export function shellHookRules(hooks) {
   const list = hooks && Array.isArray(hooks.before_shell) ? hooks.before_shell : [];
   return list.map(item => ({
-    effect: 'deny',
+    effect: item && item.effect === 'ask' ? 'ask' : 'deny',
     tool: 'run_shell',
-    match: item.pattern,
+    match: item && item.pattern,
     scope: 'session',
   }));
 }

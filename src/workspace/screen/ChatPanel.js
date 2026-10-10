@@ -98,10 +98,11 @@ import {
   readWorkspaceCommands,
   slashQuery,
 } from '../commands.js';
-import { collectToolResultNotices, readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
+import { collectToolResultNotices, readWorkspaceHooks, shellHookRules } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
+  addPermissionRule,
   clearPermissionRules,
   getEffectivePermissionRules,
 } from '../../storage/settings/workspacePermissions.js';
@@ -762,6 +763,18 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     }
   }, []);
 
+  // P0-6：手写一条规则（设置面板的表单）。落盘走 addPermissionRule——与弹框
+  // 「永远允许」同一条链路（同 effect+tool+match 去重），写完重读回填界面。
+  const handleAddPermissionRule = useCallback(async rule => {
+    try {
+      await addPermissionRule(rule);
+    } catch (error) {}
+    try {
+      const rules = await getEffectivePermissionRules();
+      setPermissionRules(Array.isArray(rules) ? rules : []);
+    } catch (error) {}
+  }, []);
+
   const handleImportFile = useCallback(async () => {
     if (importBusy) return;
     const store = storeRef.current;
@@ -1012,7 +1025,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           let extraRules = [];
           try {
             const hooks = await readWorkspaceHooks(storeRef.current, characterId);
-            extraRules = shellHookDenyRules(hooks);
+            extraRules = shellHookRules(hooks);
           } catch (error) {}
           return approveToolCall({
             name: call && call.name,
@@ -1163,6 +1176,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
                   permissionRules={permissionRules}
                   onClearPermissionRules={handleClearPermissionRules}
+                  onAddPermissionRule={handleAddPermissionRule}
                   skills={workspaceSkills}
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}

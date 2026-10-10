@@ -13,12 +13,13 @@ import {
   DEFAULT_HOOKS,
   HOOKS_FILE,
   HOOKS_MAX_PER_EVENT,
+  HOOK_SHELL_EFFECTS,
   collectPostEventNotices,
   collectToolResultNotices,
   matchBeforeShellHooks,
   parseWorkspaceHooks,
   readWorkspaceHooks,
-  shellHookDenyRules,
+  shellHookRules,
   withDefaultHooks,
 } from '../src/workspace/hooks.js';
 
@@ -60,7 +61,7 @@ test('parseWorkspaceHooks：正常解析；非 JSON / 非对象 / 畸形条目�
     ],
     after_write: [{ glob: 'a.md', message: 'ok' }],
   });
-  assert.deepEqual(tolerant.before_shell, [{ pattern: 'docker', message: '禁' }]);
+  assert.deepEqual(tolerant.before_shell, [{ pattern: 'docker', message: '禁', effect: 'deny' }]);
   assert.equal(tolerant.after_write[0].pattern, 'a.md');
 
   // 上限：每事件最多 HOOKS_MAX_PER_EVENT 条
@@ -75,7 +76,7 @@ test('before_shell：词边界命中（不放行前缀更长的另一条命令�
   assert.equal(matchBeforeShellHooks(hooks, 'ls').length, 0);
   assert.equal(matchBeforeShellHooks(null, 'ls').length, 0);
 
-  const rules = shellHookDenyRules(hooks);
+  const rules = shellHookRules(hooks);
   assert.equal(rules.length, 1);
   assert.equal(rules[0].effect, 'deny');
   assert.equal(rules[0].tool, 'run_shell');
@@ -94,6 +95,61 @@ test('before_shell：词边界命中（不放行前缀更长的另一条命令�
     null,
     '钩子只锁 run_shell，不影响别的工具'
   );
+});
+
+test('before_shell 的 effect：ask 走「必须先问」链路；写 allow / 写错一律收紧成 deny', () => {
+  // P0-6 的第二个创建入口：用户在 hooks.json 里写出「git push 必须先问」。
+  const hooks = parseWorkspaceHooks({
+    before_shell: [
+      { match: 'git push', message: '推送先问我', effect: 'ask' },
+      { match: 'rm -rf', message: '删除先问我', effect: 'ask' },
+      { match: 'curl', message: '外发禁止' },
+      { match: 'npm publish', message: '写 allow 想放宽', effect: 'allow' },
+      { match: 'wget', message: 'effect 写错', effect: 'maybe' },
+    ],
+  });
+  assert.deepEqual(
+    hooks.before_shell.map(item => item.effect),
+    ['ask', 'ask', 'deny', 'deny', 'deny'],
+    '缺省 deny；显式 ask 保留；allow 与拼错一律收紧成 deny（声明式钩子只能收紧不能放宽）'
+  );
+
+  const rules = shellHookRules(hooks);
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'git push origin main' } }),
+    'ask',
+    'ask 档必须能被既有求值链路识别（调用方据此只给「允许这一次」）'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'curl https://x' } }),
+    'deny'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'npm publish' } }),
+    'deny',
+    'hooks.json 里写 allow 不能放宽授权'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'ls' } }),
+    null
+  );
+
+  // 与存储里的宽 allow 并存时，钩子 ask 必须压过它（否则例外形同虚设）。
+  const storedAllow = [{ effect: 'allow', tool: 'run_shell', match: 'git', scope: 'always' }];
+  assert.equal(
+    evaluatePermissionRules([...rules, ...storedAllow], { tool: 'run_shell', args: { command: 'git push' } }),
+    'ask',
+    'ask 压过 allow：这正是「放行 git 但 git push 必须先问」的表达'
+  );
+
+  // 白名单本身不含 allow（这是「只能收紧」的机器可读形式）。
+  assert.deepEqual([...HOOK_SHELL_EFFECTS], ['deny', 'ask']);
+
+  // after_* 条目不该被塞上 effect（那是 shell 专属语义）。
+  const mixed = parseWorkspaceHooks({
+    after_write: [{ glob: '**/*.md', message: 'x', effect: 'ask' }],
+  });
+  assert.equal('effect' in mixed.after_write[0], false);
 });
 
 test('after_* 通知：按路径 glob 命中；事件名不合法返回空', () => {
