@@ -50,7 +50,14 @@
 ## P2 检索与导航
 
 - [ ] P2-1 聊天消息搜索（面板内搜索条 + 命中跳转）。
-- [ ] P2-2 会话历史搜索 + 排序。
+- [x] **P2-2 会话历史搜索 + 排序**：新增纯函数 `src/workspace/chatHistoryView.js`
+      （`chatPreview` / `filterChats` / `sortChats` / `buildChatHistoryView`）。关键词**同时匹配
+      标题与预览**（用户记得的常是「那句话」）；预览收进纯函数是为了让**过滤与渲染用同一份**
+      （原来预览在渲染里现算，两处各算迟早漂移）。排序只给两种**基于时间**的顺序——
+      不提供「按标题排」，因为那要 `localeCompare` 的 ICU 数据，Hermes 上中文按码位排会像乱序。
+      界面：检索框（带清除）+ 两个排序 chip + 区分「没有会话 / 没有匹配」的空态。
+      顺手把行内 `chat.messages.length` 换成 `chatMessageCount`（原写法缺 `messages` 会抛）。
+      测试 8 条。
 - [ ] P2-3 本地文件搜索（照抄 `GithubPanel.js:1262-1281` 的形状）。
 
 ## P3 扩展点 GUI 补齐
