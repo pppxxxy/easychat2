@@ -62,7 +62,7 @@
 | 文件侧栏 | FilesPanel 整体（1520 行），目录下钻 + 面包屑 | `client-ui-sidebar-files`：目录树 + **子项监听自动刷新** + 右栏预览 |
 | 终端 | TerminalPanel（360 行），↑/↓ 历史、CTRL+C 真杀、`env.json` 持久会话 | `client-ui-sidebar-terminal` 作为右栏 tab；断线保留屏幕 + 「重新连接」；退出显示退出码 |
 | 状态可见性 | 上下文占用**两处重复**（`WorkspaceSettingsSheet.js:327-353` 与 `FilesPanel.js:1100-1123`） | 连接药丸、token 用量行、上下文占用环、job 进度、审批橙点、子代理 token、定时任务时钟标、插件行四态、终端重连——**9 类，且带无障碍名称** |
-| 插件可见性 | 技能/命令/hooks 只有数量与安装示例 | `client-ui-plugin-manager` + `client-ui-cordis` + `settings-plugin-inventory`：**GUI 里看得到、管得了插件** |
+| 插件可见性 | 技能/命令**已是逐条列表**、hooks 有逐事件计数；分身档案此前零入口（P3-1 已补） | `client-ui-plugin-manager` + `client-ui-cordis` + `settings-plugin-inventory`：**GUI 里看得到、管得了插件** |
 
 ### 2.3 DSH 有、但我们**不该照搬**（已裁决或物理不可行）
 
@@ -137,8 +137,14 @@
 - 会话历史加排序（现在只有「全部 / 已归档」两个过滤，`WorkspaceHistorySheet.js:44-47`）。
 
 ### P3 扩展点 GUI 补齐（成本低，消除「文件即配置但看不见」）
-- **子代理档案**：与技能行对齐（至少计数 + 列表），现在零入口。
-- **技能**：从「只有数量 + 装示例」升级为逐条列表（命令已是逐条，`ChatPanel.js:1533-1554`）。
+- **子代理档案**：与技能行对齐（至少计数 + 列表）——**已完成（P3-1）**。此前零入口：`ChatPanel`
+  每轮都 `readWorkspaceAgents` 读进系统提示词，但界面一个字都不显示。
+- ~~**技能**：从「只有数量 + 装示例」升级为逐条列表~~ —— **本条是错的，已作废**：技能行
+  **本来就有逐条列表**（`WorkspaceSettingsSheet.js:404-416` 的 `skills.map` 输出「名字：描述」）。
+  初版文档照抄了子代理报告里的一处失准描述，核对代码时发现，特此更正。
+- **MCP 入口**：入口只在主设置页（`SettingsScreen.js:1785-1796`），工作区里没有指过去的路。
+- **会话事件流**：已落盘（`sessionEvents.js`）却**没有界面**——现有的是「导出」动作行，
+  不是「看这一轮发生了什么」的只读视图。
 - **MCP**：入口现在只在主设置页（`SettingsScreen.js:1785-1796`），工作区里给一条链过去的路。
 - **会话事件流**：已落盘（`sessionEvents.js`）却无界面——做一个只读的「本轮发生了什么」列表（DSH `trajectory` 的轻量对位，不是事件溯源级日志）。
 
