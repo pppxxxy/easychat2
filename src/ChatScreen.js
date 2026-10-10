@@ -294,6 +294,7 @@ export default function ChatScreen() {
     beginSendOperation,
     endSendOperation,
     invalidateSessionOperations,
+    syncActiveRun,
   } = useSessionGuard({ activeSessionIdRef, activeCharacterIdRef });
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const inputSelectionRef = useRef({ start: 0, end: 0 });
@@ -491,7 +492,7 @@ export default function ChatScreen() {
     sessionVersionRef,
     openingRequestRef,
     openingAbortControllerRef,
-    setIsSending,
+    syncActiveRun,
     chatOptions,
     chatOptionsRef,
     resetSessionUi,
@@ -674,12 +675,10 @@ export default function ChatScreen() {
     ensureCharacterSession(characterId).catch(() => {});
   }, [activeSession, activeSessionId, characterId, characters, ensureCharacterSession, isGroup, loaded]);
 
-  // 卸载时中断进行中的发送（保存重试计时器的清理已随 useSessionMessages 外提）。
-  useEffect(() => () => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-  }, []);
+  // L0c（spec 2026-10-10-runtime-split）：**不再**在卸载时中断进行中的发送。
+  // 目标 ①「退出聊天页不中断生成」：离开页面/会话后运行继续跑完，结果由 useChatSend
+  // 的后台落库分支写回它自己的会话。真正的中止只有两条：用户点停止、运行中面板取消。
+  // （保存重试计时器的清理仍随 useSessionMessages 外提。）
 
   const onStop = useCallback(() => {
     if (abortRef.current) {

@@ -21,12 +21,14 @@ function fakeController() {
 test('start：登记成功返回 run，空 sessionId 返回 null', () => {
   const reg = createSessionRunRegistry();
   assert.equal(reg.start('', { controller: fakeController() }), null);
-  const run = reg.start('s1', { characterId: 'c1', controller: fakeController(), label: '小明' });
+  const token = { id: 7 };
+  const run = reg.start('s1', { characterId: 'c1', controller: fakeController(), label: '小明', token });
   assert.ok(run);
   assert.equal(run.sessionId, 's1');
   assert.equal(run.characterId, 'c1');
   assert.equal(run.status, 'running');
   assert.equal(run.label, '小明');
+  assert.equal(run.token, token);
   assert.equal(reg.has('s1'), true);
   assert.equal(reg.isRunning('s1'), true);
   assert.equal(reg.size(), 1);

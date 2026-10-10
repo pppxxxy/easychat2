@@ -18,6 +18,8 @@ function makeRun(sessionId, info) {
     sessionId,
     characterId: String(source.characterId || ''),
     controller: source.controller || null,
+    // 发送方（useSessionGuard）持有的令牌：切回该会话时据此恢复界面上的发送锁。
+    token: source.token || null,
     status: 'running',
     startedAt: Date.now(),
     // 展示用标签（角色名 / 会话名），由调用方给；缺省空串。

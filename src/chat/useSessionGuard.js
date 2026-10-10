@@ -33,36 +33,54 @@ export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdR
   ), []);
   const [isSending, setIsSending] = useState(false);
 
+  // 界面上的发送锁/控制器只反映「当前活动会话」的运行。切会话后（活动会话变了）调用
+  // 本函数重新对齐：切到一个没有运行的会话就解锁，切回一个仍在后台跑的会话就重新上锁。
+  const syncActiveRun = useCallback(() => {
+    const run = sessionRuns.get(String(activeSessionIdRef.current || ''));
+    sendLockRef.current = run ? run.token : null;
+    abortRef.current = run ? run.controller : null;
+    setIsSending(Boolean(run));
+  }, []);
+
   const beginSendOperation = useCallback(() => {
-    if (sendLockRef.current) return null;
+    const sessionId = String(activeSessionIdRef.current || '');
+    // 准入按**会话**判定：同一会话同一时刻只允许一个运行（登记表是唯一准入源）。
+    // 别的会话在后台跑不影响这里发起新会话的发送。
+    if (sessionRuns.has(sessionId)) return null;
     const controller = new AbortController();
     const token = {
       id: ++sendOperationRef.current,
       controller,
       // 记下发起时的会话：收尾时即便已经切走，也能注销对的那一条。
-      sessionId: String(activeSessionIdRef.current || ''),
+      sessionId,
     };
+    // 登记到应用级登记表：面板据此显示/取消运行；令牌挂在 run 上，切回该会话时用它恢复锁。
+    // 控制器仍由本 hook 持有并驱动（中止时登记表自动注销）。
+    const run = sessionRuns.start(sessionId, {
+      controller,
+      characterId: activeCharacterIdRef.current,
+      token,
+    });
+    if (!run) return null;
     sourceChangedRef.current = false;
     sendLockRef.current = token;
     abortRef.current = controller;
-    // L 系骨架：把「这个会话正在跑」登记到应用级登记表，供运行中角色面板读取/取消。
-    // 控制器仍由本 hook 持有并驱动；登记表只存引用（控制器一被中止就自动注销）。
-    sessionRuns.start(token.sessionId, {
-      controller,
-      characterId: activeCharacterIdRef.current,
-    });
     setIsSending(true);
     return token;
   }, []);
 
   const endSendOperation = useCallback(token => {
-    if (!token || sendLockRef.current !== token) return;
-    if (abortRef.current === token.controller) abortRef.current = null;
-    sendLockRef.current = null;
+    if (!token) return;
     sessionRuns.finish(token.sessionId);
-    setIsSending(false);
-  }, []);
+    // 只重算「当前活动会话」的界面状态：结束的是后台会话时，不能误清当前会话的锁。
+    syncActiveRun();
+  }, [syncActiveRun]);
 
+  // 会话切换时的失效：推进版本号，让飞行中回复的界面写入失效（isSessionGuardCurrent 转 false），
+  // 但**不中止**正在跑的运行——它继续在后台跑完，结果落回它自己的会话（见 useChatSend 的
+  // 后台落库分支）。这里只把界面上的锁/控制器摘掉，避免新会话被旧运行的锁挡住；
+  // 切回时由 syncActiveRun 重新对齐。真正的中止只有两条路：用户点停止（abort 控制器）
+  // 与运行中面板取消（sessionRuns.cancel）。
   const invalidateSessionOperations = useCallback(() => {
     sessionVersionRef.current += 1;
     openingRequestRef.current += 1;
@@ -70,15 +88,9 @@ export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdR
       openingAbortControllerRef.current.abort();
       openingAbortControllerRef.current = null;
     }
-    sendLockRef.current = null;
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
     inlineImageControllerRef.current?.abort();
-    // 会话失效：登记表里该会话的运行一并注销。上面的 abort 已触发自动注销，这里是
-    // 显式兜底，覆盖「abortRef 已为 null 但登记仍在」的边界情况。
-    sessionRuns.cancel(String(activeSessionIdRef.current || ''));
-
+    sendLockRef.current = null;
+    abortRef.current = null;
     setIsSending(false);
   }, []);
 
@@ -98,5 +110,6 @@ export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdR
     beginSendOperation,
     endSendOperation,
     invalidateSessionOperations,
+    syncActiveRun,
   };
 }
