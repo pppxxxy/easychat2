@@ -28,12 +28,14 @@ test('isWideLayout：阈值边界；坏输入当 0（单栏）', () => {
   assert.equal(isWideLayout('abc'), false);
 });
 
-test('resolveWorkspaceLayout：宽屏**且不在对话领域**才两栏', () => {
+test('resolveWorkspaceLayout：宽屏**且领域可停靠**才两栏（对话与设置都保持单栏）', () => {
   // 窄屏：无论选哪个领域都是单栏（手机竖屏放不下两栏，原「面板单开」原则继续有效）
   assert.deepEqual(resolveWorkspaceLayout({ width: 400, panel: 'files' }), { wide: false, twoPane: false, single: true });
   // 宽屏 + 对话：单栏——「对话常驻」不等于「永远两栏」，用户点了对话就是要全宽的对话
   assert.deepEqual(resolveWorkspaceLayout({ width: 1200, panel: 'chat' }), { wide: true, twoPane: false, single: true });
-  // 宽屏 + 非对话：两栏
+  // 宽屏 + 设置：也单栏——设置是「改配置」不是「边看边改」，塞进侧栏只会把对话挤窄
+  assert.equal(resolveWorkspaceLayout({ width: 1200, panel: 'settings' }).twoPane, false);
+  // 宽屏 + 可停靠的三选一：两栏
   assert.deepEqual(resolveWorkspaceLayout({ width: 1200, panel: 'files' }), { wide: true, twoPane: true, single: false });
   assert.equal(resolveWorkspaceLayout({ width: 1200, panel: 'terminal' }).twoPane, true);
   assert.equal(resolveWorkspaceLayout({ width: 1200, panel: 'github' }).twoPane, true);

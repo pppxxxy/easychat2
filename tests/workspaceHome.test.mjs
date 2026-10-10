@@ -131,7 +131,11 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   assert.ok(SCREEN.includes('GithubPanel'), 'GitHub 面板');
   assert.ok(SCREEN.includes('TerminalPanel'), '终端面板');
   assert.ok(SCREEN.includes('WorkspaceSettingsPanel'), '设置面板');
-  assert.ok(SCREEN.includes("panel === 'chat'") && SCREEN.includes("panel === 'files'"), '面板互斥渲染');
+  // 面板分发：单屏按 panel 分发。P1 起抽成 renderChatPanel / renderDomainPanel 两个函数
+  //（宽屏两栏复用同一对函数，避免两套分发各写一遍）——契约没变，只是从内联条件变成具名分发。
+  assert.ok(SCREEN.includes("panel === 'chat'"), '对话与其他领域互斥');
+  assert.ok(SCREEN.includes("id === 'files'") && SCREEN.includes("id === 'github'"), '领域面板由单屏分发');
+  assert.ok(SCREEN.includes('renderDomainPanel') && SCREEN.includes('renderChatPanel'), '分发函数存在');
 
   assert.ok(PANEL.includes('initialSection = '), '文件面板接受 initialSection');
   assert.ok(PANEL.includes("if (section === 'viewer')"), 'viewer 定位');

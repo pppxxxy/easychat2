@@ -43,10 +43,12 @@ export function clampSplitRatio(ratio) {
 // 这块屏幕要不要两栏：**宽屏** + **当前不在对话领域**。
 // 在对话领域时即使宽屏也是单栏——「对话常驻」的含义是对话那一栏一直在，
 // 而不是「永远有两栏」；用户点了对话就是想要全宽的对话。
+// 设置领域同理保持单栏：它是「改配置」不是「边看边改」，塞进侧栏只会把对话挤窄。
 export function resolveWorkspaceLayout({ width, panel } = {}) {
   const wide = isWideLayout(width);
-  const onChat = String(panel || 'chat') === 'chat';
-  return { wide, twoPane: wide && !onChat, single: !(wide && !onChat) };
+  const dockable = SIDE_PANELS.includes(String(panel || 'chat'));
+  const twoPane = wide && dockable;
+  return { wide, twoPane, single: !twoPane };
 }
 
 // 两栏的实际像素宽度。夹紧后仍放不下（屏幕太窄）时如实返回 null——**不硬分**，
