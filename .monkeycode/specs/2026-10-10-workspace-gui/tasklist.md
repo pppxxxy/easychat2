@@ -75,8 +75,14 @@
 - [x] ~~P3-2 技能：从「只有数量」升级为逐条列表~~ —— **本条作废**：技能行**本来就有逐条列表**
       （`WorkspaceSettingsSheet.js:404-416`）。初版 parity 文档照抄了子代理报告的失准描述，
       已在文档里更正并留痕。
+- [x] **P3-4 会话事件流只读视图**：新增纯函数 `src/workspace/sessionEventView.js`
+      （`eventPreview` / `eventTimeLabel` / `summarizeSessionEvent` / `summarizeSessionEvents`）。
+      那一行从**动作行**改成**可展开行**（先看，再决定导不导出——顺带消除「点一下不小心导出」）；
+      列表**倒序**（回看的第一诉求是「刚刚发生了什么」）。`ChatPanel` 按当前会话读事件，
+      `activeChatId` 进 effect 依赖。测试 7 条。
+      **如实记录**：`SESSION_EVENT_TYPES` 声明 8 种，但只有 ChatPanel 三个写入点，实际只会出现
+      `user`/`assistant`/`tool_call`；其余 5 种备了文案但**不假装它们存在**，未登记类型走兜底。
 - [ ] P3-3 MCP：工作区里给一条指向主设置页的入口。
-- [ ] P3-4 会话事件流只读视图（现有的是「导出」动作行，不是「本轮发生了什么」）。
 
 ## P4 收尾与一致性
 
