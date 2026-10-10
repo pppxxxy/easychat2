@@ -49,13 +49,25 @@ export const SUBAGENT_MAX_ROUNDS = 6;
 export const SUBAGENT_RESULT_LIMIT = 8 * 1024;
 export const SUBAGENT_TOOL_RESULT_LIMIT = 8 * 1024;
 // 名字白名单：**永远不含 run_subagent**（防递归的第一道结构保证）。
-export const SUBAGENT_TOOL_NAMES = Object.freeze(['list_workspace_files', 'read_workspace_file']);
+export const SUBAGENT_TOOL_NAMES = Object.freeze(['list_workspace_files', 'read_workspace_file', 'search_workspace']);
+// 写子代理（opt-in，mode:'write'）额外允许的写工具：**永远不含 run_subagent / 执行类
+// （run_shell/run_python）/ 远端类**——防递归 + 防越权。每次写都需宿主逐条审批。
+export const SUBAGENT_WRITE_TOOL_NAMES = Object.freeze(['write_workspace_file', 'edit_workspace_file', 'create_workspace_dir']);
 export const SUBAGENT_SYSTEM_PROMPT = [
   '你是「研究工作区」的子代理：只能读取工作区文件（不能修改任何东西），',
   '任务是把研究工作做完后交回**结论**。',
-  '用 list_workspace_files 了解结构、用 read_workspace_file 读内容（大文件可分段读）。',
+  '用 list_workspace_files 了解结构、用 search_workspace 定位、用 read_workspace_file 读内容（大文件可分段读）。',
   '完成后用简洁中文给出结论：先直接回答，再列关键依据（含文件路径）。',
   '不要复述检索过程，不要说「我读了哪些文件」——只交回结论本身。',
+].join('');
+
+// write 模式（opt-in）的系统提示：可改文件，但每次写都要用户确认；未批准不要重试。
+export const SUBAGENT_WRITE_SYSTEM_PROMPT = [
+  '你是「工作区执行」的子代理：可以读取并**修改**工作区文件（不能调用 shell/python）。',
+  '每一次写操作（write/edit/create_dir）都会先请用户确认——被拒绝时不要重试同一改动，',
+  '改走别的思路或如实说明无法完成。',
+  '任务是把子任务做完后交回**结论**：先用 list/search/read 了解现状，再用写工具落地改动。',
+  '完成后用简洁中文给出结论：先直接回答，再列关键改动（含文件路径）。不要复述过程。',
 ].join('');
 
 function toFunctionSchema(tool) {
@@ -80,6 +92,8 @@ export async function runSubagent({
   stream = null,
   maxRounds = SUBAGENT_MAX_ROUNDS,
   onEvent = null,
+  mode = 'read',
+  confirm = null,
 } = {}) {
   const text = String(task == null ? '' : task).trim();
   if (!text) return { content: '子任务描述为空。', isError: true };
@@ -88,9 +102,13 @@ export async function runSubagent({
     return { content: '子代理不可用（网络层不可达）。', isError: true };
   }
   // 名字白名单 + 可执行性：名单外的工具（含 run_subagent 自己）在这里被物理挡下。
+  // write 模式在只读名单上叠加写名单（仍不含 run_subagent / 执行类）。
+  const allowedNames = mode === 'write'
+    ? [...SUBAGENT_TOOL_NAMES, ...SUBAGENT_WRITE_TOOL_NAMES]
+    : SUBAGENT_TOOL_NAMES;
   const usable = (Array.isArray(tools) ? tools : []).filter(item => (
     item
-    && SUBAGENT_TOOL_NAMES.includes(String(item.name || ''))
+    && allowedNames.includes(String(item.name || ''))
     && typeof item.execute === 'function'
   ));
   if (!store || usable.length === 0) {
@@ -99,7 +117,7 @@ export async function runSubagent({
 
   const schemas = usable.map(toFunctionSchema);
   const history = [
-    { role: 'system', content: SUBAGENT_SYSTEM_PROMPT },
+    { role: 'system', content: mode === 'write' ? SUBAGENT_WRITE_SYSTEM_PROMPT : SUBAGENT_SYSTEM_PROMPT },
     { role: 'user', content: text },
   ];
   const emit = payload => {
@@ -155,7 +173,14 @@ export async function runSubagent({
         } catch (error) {
           args = {};
         }
-        outcome = await tool.execute({ store }, args, { characterId });
+        // 写子代理：需要确认的工具**逐条**先问用户，未批准则不执行（与主循环同款纪律）。
+        if (tool.requiresConfirmation && typeof confirm !== 'function') {
+          outcome = { content: '该工具需要用户确认，但当前环境无法询问用户（未执行）。', isError: true };
+        } else if (tool.requiresConfirmation) {
+          const approved = await confirm({ name: call.name, args });
+          outcome = approved ? undefined : { content: '用户拒绝了此操作（未执行）。', isError: true };
+        }
+        if (outcome === undefined) outcome = await tool.execute({ store }, args, { characterId });
       } catch (error) {
         if (isAbortError(error) || (signal && signal.aborted)) throw makeAbortError();
         lastError = (error && error.message) || '工具执行失败。';
