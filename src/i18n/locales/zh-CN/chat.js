@@ -480,4 +480,14 @@ export const chat = {
   'chat.cardFromChat.error.empty': '模型没有产出有效的角色卡内容。',
   'chat.cardFromChat.error.failed': '生成失败，请检查对话模型配置后重试。',
   'chat.cardFromChat.error.saveFailed': '保存失败，请稍后重试。',
+  // ---- 运行中角色条（chat/RunningRunsBar.js，L 系 ③）----
+  'chat.running.title': '后台生成中',
+  'chat.running.stop': '停止生成',
+  'chat.running.a11y.open': '切换到 {name}',
+  'chat.running.unknown': '未知角色',
+  // ---- 分支回退联动工作区（chat/useWorkspaceRewind.js，Z 系采纳 #7）----
+  'chat.branch.rewindWorkspace.title': '一并回退工作区文件？',
+  'chat.branch.rewindWorkspace.body': '这条分支之后有 {count} 个工作区文件被改过。是否把文件也回退到该分支的时刻？',
+  'chat.branch.rewindWorkspace.skip': '只回退对话',
+  'chat.branch.rewindWorkspace.confirm': '一并回退文件',
 };

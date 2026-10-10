@@ -2,6 +2,7 @@ import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
 import { getMessagePromptText } from '../chat/chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 import { expandHistoryWithTraces } from '../chat/toolTrace.js';
+import { buildSystemSections, composeSystemText, planSystemCache, splitSystemForCache } from './systemSections.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
 
@@ -105,30 +106,14 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     || String(character?.systemPrompt || '').trim()
     || DEFAULT_SYSTEM_PROMPT;
   const name = String(character?.name || '').trim();
-  let systemContent = name ? `你的名字是${name}。${base}` : base;
-  systemContent = replaceUser(systemContent);
+  const baseText = replaceUser(name ? `你的名字是${name}。${base}` : base);
   // 时间感知：开启后附上当前日期时间，让角色能感知「现在」。
   const timeText = String(currentTimeText || '').trim();
-  if (timeText) {
-    systemContent = `${replaceUser(timeText)}\n\n${systemContent}`;
-  }
   // 角色作息：启用时附上作息与「按当前时间判断状态」的规则，紧跟在时间行之后。
   const scheduleLine = String(scheduleText || '').trim();
-  if (scheduleLine) {
-    systemContent = `${replaceUser(scheduleLine)}\n\n${systemContent}`;
-  }
   // 位置感知：开启且存在最近一次成功位置时附上「[当前位置] …」，置于提示最前。
   const locationLine = String(locationText || '').trim();
-  if (locationLine) {
-    systemContent = `${replaceUser(locationLine)}\n\n${systemContent}`;
-  }
-  if (userPersona) {
-    systemContent = `${systemContent}\n\n[用户设定]\n${replaceUser(userPersona)}`;
-  }
   const exampleDialogue = String(character?.mesExample || '').trim();
-  if (exampleDialogue) {
-    systemContent = `${systemContent}\n\n[对话示例]\n${replaceUser(exampleDialogue)}`;
-  }
 
   const beforeText = applyForPrompt(
     buildWorldInfoText(before),
@@ -142,17 +127,12 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     REGEX_PLACEMENT.WORLD_INFO,
     0
   );
-  if (beforeText) systemContent = `${replaceUser(beforeText)}\n\n${systemContent}`;
-  if (afterText) systemContent = `${systemContent}\n\n${replaceUser(afterText)}`;
 
   const characterPresetText = (Array.isArray(character?.presets) ? character.presets : [])
     .filter(item => item && item.enabled !== false)
     .map(item => String(item.prompt || '').trim())
     .filter(Boolean)
     .join('\n');
-  if (characterPresetText) {
-    systemContent = `${systemContent}\n\n[角色预设]\n${replaceUser(characterPresetText)}`;
-  }
 
   // 表情包名称清单：空清单时 {{stickers}} 占位符会让「表情包使用」预设退化为
   // 无意义的空指令，故该预设整条丢弃（其它预设不受影响）。
@@ -166,30 +146,42 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     .map(item => (item.includes('{{stickers}}') && stickerList.length === 0 ? '' : item))
     .filter(Boolean);
   const presetText = presetList.join('\n');
-  if (presetText) {
-    const presetUserName = userName || '用户';
-    // 用替换函数而非替换字符串：表情包名可含 `$&`/`$'`/`$1` 等特殊模式，
-    // 作为替换字符串会被 String.replace 解释成注入（占位符泄漏或文本错乱）。
-    systemContent = `${systemContent}\n\n[全局预设]\n${presetText
-      .replace(/\{\{user\}\}/g, () => presetUserName)
-      .replace(/\{\{stickers\}\}/g, () => stickerList.join('、'))}`;
-  }
+  // 用替换函数而非替换字符串：表情包名可含 `$&`/`$'`/`$1` 等特殊模式，
+  // 作为替换字符串会被 String.replace 解释成注入（占位符泄漏或文本错乱）。
+  const globalPresetText = presetText
+    ? presetText
+      .replace(/\{\{user\}\}/g, () => userName || '用户')
+      .replace(/\{\{stickers\}\}/g, () => stickerList.join('、'))
+    : '';
 
   // 先状态摘要（一般）再向量召回（贴合当前输入的具体细节），由一般到具体。
   const summaryContent = String(summaryText || '').trim();
-  if (summaryContent) {
-    systemContent = `${systemContent}\n\n[记忆摘要]\n${replaceUser(summaryContent)}`;
-  }
-
   const memoryText = String(memorySnippets || '').trim();
-  if (memoryText) {
-    systemContent = `${systemContent}\n\n${replaceUser(memoryText)}`;
-  }
-
   const groupContent = String(groupContext || '').trim();
-  if (groupContent) {
-    systemContent = `${systemContent}\n\n${replaceUser(groupContent)}`;
-  }
+  // 主动消息等特殊场景的补充指令：贴近输出，放在格式约束之前。
+  const extraPrompt = String(extraSystemPrompt || '').trim();
+
+  // 分节组装：顺序与原实现一致（worldBefore 最前、格式约束最后），组装文本逐字节不变；
+  // 每节标注 cacheHint，供供应商 prompt 缓存计算可缓存前缀（见 systemSections.js）。
+  const systemSections = buildSystemSections({
+    worldBeforeText: beforeText ? replaceUser(beforeText) : '',
+    locationText: locationLine ? replaceUser(locationLine) : '',
+    scheduleText: scheduleLine ? replaceUser(scheduleLine) : '',
+    timeText: timeText ? replaceUser(timeText) : '',
+    baseText,
+    personaText: userPersona ? replaceUser(userPersona) : '',
+    exampleText: exampleDialogue ? replaceUser(exampleDialogue) : '',
+    worldAfterText: afterText ? replaceUser(afterText) : '',
+    characterPresetText: characterPresetText ? replaceUser(characterPresetText) : '',
+    globalPresetText,
+    summaryText: summaryContent ? replaceUser(summaryContent) : '',
+    memoryText: memoryText ? replaceUser(memoryText) : '',
+    groupText: groupContent ? replaceUser(groupContent) : '',
+    extraText: extraPrompt ? replaceUser(extraPrompt) : '',
+    formatText: DEFAULT_OUTPUT_FORMAT_PROMPT,
+  });
+  const systemContent = composeSystemText(systemSections);
+  const cachePlan = planSystemCache(systemSections);
 
   const pluginContent = String(pluginContext || '').trim();
   const pluginMessages = pluginContent
@@ -202,15 +194,6 @@ export function buildRequestMessages({ character, historyMessages, userText, use
       ].join('\n'),
     }]
     : [];
-
-  // 主动消息等特殊场景的补充指令：贴近输出，放在格式约束之前。
-  const extraPrompt = String(extraSystemPrompt || '').trim();
-  if (extraPrompt) {
-    systemContent = `${systemContent}\n\n[本轮任务]\n${replaceUser(extraPrompt)}`;
-  }
-
-  // 放在最后，作为贴近输出的格式约束
-  systemContent = `${systemContent}\n\n[输出格式]\n${DEFAULT_OUTPUT_FORMAT_PROMPT}`;
 
   const promptUserText = applyForPrompt(userText, scripts, REGEX_PLACEMENT.USER_INPUT, 0);
   const quoteText = quote && String(quote.text || '').trim()
@@ -262,8 +245,14 @@ export function buildRequestMessages({ character, historyMessages, userText, use
       return { role: 'user', content };
     });
 
+  const systemMessage = { role: 'system', content: systemContent };
+  if (cachePlan.cacheable) {
+    const split = splitSystemForCache(systemSections, cachePlan.breakIndex);
+    // 断点为 0（首段即动态）时无可缓存前缀，不打标记——对不支持缓存的协议零副作用。
+    if (split.prefixText) systemMessage.systemCache = split;
+  }
   const assembled = [
-    { role: 'system', content: systemContent },
+    systemMessage,
     ...history,
     ...pluginMessages,
     ...mediaMessages,

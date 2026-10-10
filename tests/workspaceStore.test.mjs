@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  listTruncationNotice,
   createWorkspaceDirectory,
   deleteWorkspaceDirectory,
   moveWorkspaceDirectory,
@@ -313,4 +314,25 @@ test('F2 空目录可删（应用私有根后端）：非空拒绝 → 清空后
   // 根路径不可删、不存在的目录安全返回
   assert.equal((await deleteWorkspaceDirectory({ root, characterId: 'c1', path: '', fileSystem })).deleted, false);
   assert.equal((await deleteWorkspaceDirectory({ root, characterId: 'c1', path: 'nope/', fileSystem })).deleted, false);
+});
+
+// G1.7 列表截断告警（2026-10-10）：静默截断的清单会被当成完整事实推理
+// （推送误删那类事故的放大器）。命中护栏时必须如实说「可能不完整」。
+test('listTruncationNotice：命中文件数/深度护栏才提示，否则静默', () => {
+  assert.equal(listTruncationNotice([]), '');
+  assert.equal(listTruncationNotice(['a.txt', 'src/']), '');
+  // 文件数到顶
+  const atCap = Array.from({ length: WORKSPACE_LIMITS.MAX_FILES }, (_, i) => `f${i}.txt`);
+  const capNotice = listTruncationNotice(atCap);
+  assert.match(capNotice, /可能不完整/);
+  assert.match(capNotice, new RegExp(String(WORKSPACE_LIMITS.MAX_FILES)));
+  assert.match(capNotice, /subdir/);
+  // 深度到顶的目录（它本身会被列出，但内容不再展开）
+  const deepDir = `${Array.from({ length: WORKSPACE_LIMITS.MAX_DEPTH }, (_, i) => `d${i}`).join('/')}/`;
+  const deepNotice = listTruncationNotice(['a.txt', deepDir]);
+  assert.match(deepNotice, /深度上限/);
+  assert.match(deepNotice, /1 个目录/);
+  // 坏输入不炸
+  assert.equal(listTruncationNotice(null), '');
+  assert.equal(listTruncationNotice([null, undefined]), '');
 });

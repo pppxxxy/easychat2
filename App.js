@@ -33,6 +33,9 @@ import { getUserProfile } from './src/storage/personas.js';
 import { AppProvider, useApp } from './src/context/AppContext.js';
 import { runDiaryForNewDay } from './src/diary/runDiary.js';
 import { runDiaryIfNewDay } from './src/diary/diaryStartup.js';
+// 定时 Agent 任务：import 即注册无界面（Headless JS）任务，供 App 被杀时原生唤起执行。
+import './src/agent/task/headless.js';
+import { startAgentTaskScheduler } from './src/agent/task/agentTaskScheduler.js';
 import {
   ackPendingMessages,
   addOpenRoleListener,
@@ -342,6 +345,21 @@ function DownloadQueueStartup() {
     startedRef.current = true;
     hydrateDownloadQueue().catch(() => {});
   }, [loaded]);
+  return null;
+}
+
+// 定时 Agent 任务：App 在前台时按轮询补跑当天到期（含漏跑）的任务。与 UI 无关，
+// 挂载即启动；退到后台由原生 Headless 服务接管。
+function AgentTaskStartup() {
+  const { loaded, refreshAppData } = useApp();
+  useEffect(() => {
+    if (!loaded) return undefined;
+    // 任务产出消息后刷新会话列表与消息刷新刻度，让正在浏览的会话立即看到新消息。
+    const stop = startAgentTaskScheduler({
+      onResults: () => { refreshAppData().catch(() => {}); },
+    });
+    return () => { stop(); };
+  }, [loaded, refreshAppData]);
   return null;
 }
 
@@ -676,6 +694,7 @@ export default function App() {
                 {startupReady ? <StartupSession /> : null}
                 {startupReady ? <DiaryStartup /> : null}
                 {startupReady ? <DownloadQueueStartup /> : null}
+                {startupReady ? <AgentTaskStartup /> : null}
                 <StartupFlow onReady={handleStartupReady} />
               </AppProvider>
             </I18nProvider>

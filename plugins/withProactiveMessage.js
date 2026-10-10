@@ -78,6 +78,17 @@ function applyComponents(manifest) {
       },
     });
   }
+  // 定时 Agent 任务：HeadlessJsTaskService 承载无界面 JS（多轮工具循环），
+  // 同样以前台服务运行（dataSync），避免被后台回收。
+  if (!serviceNames.has('.proactive.AgentTaskForegroundService')) {
+    app.service.push({
+      $: {
+        'android:name': '.proactive.AgentTaskForegroundService',
+        'android:exported': 'false',
+        'android:foregroundServiceType': 'dataSync',
+      },
+    });
+  }
   return manifest;
 }
 

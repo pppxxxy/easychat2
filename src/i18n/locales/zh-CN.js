@@ -13,6 +13,7 @@
 // （zhCN 命名导出 + default）不变，消费方与测试零改动。
 import { apiPreset } from './zh-CN/apiPreset.js';
 import { app } from './zh-CN/app.js';
+import { agentTask } from './zh-CN/agentTask.js';
 import { backup } from './zh-CN/backup.js';
 import { books } from './zh-CN/books.js';
 import { character } from './zh-CN/character.js';
@@ -54,6 +55,7 @@ import { world } from './zh-CN/world.js';
 export const zhCN = {
   ...apiPreset,
   ...app,
+  ...agentTask,
   ...backup,
   ...books,
   ...character,

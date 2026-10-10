@@ -281,7 +281,7 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
   assert.ok(github.includes('readLatestRollbackSnapshot(store, characterId)'), '回滚读最新快照');
   // 顺序契约（repoPush）：基线拉取在确认之后——用户取消就不拉（不白费网络）
   const push = readSource('src/workspace/repoPush.js');
-  const confirmAt = push.indexOf('const proceed = await confirm({ diff })');
+  const confirmAt = push.indexOf('const proceed = await confirm({ diff, baselineMissing })');
   const rollbackAt = push.indexOf('const rollback = await collectRollbackEntries({');
   assert.ok(confirmAt > 0 && rollbackAt > confirmAt, '基线拉取在确认之后');
   // H2 分层：tools.js 的模块图不得被 diff/diffView 污染（分层炸弹测试另有守卫，
@@ -292,4 +292,31 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
     !/\bfrom\s+'[^']*restApi[^']*'/.test(ciTools),
     '工具定义层不静态 import 网络层（走 options.ci 注入；注释里提名字不算）'
   );
+});
+
+// G1 可见性（2026-10-10）：确认弹窗是「推送删除安全」的用户可见面——弹窗里少一句
+// 警示，用户就不知道删除不可逆；少一句「无基线不删」，用户会把安全当常态。
+// 这里是**结构守卫**：安全网的三个要素（永久删除警示 / 无基线说明 / 异常量二次确认）
+// 被静默删掉时立刻红，而不是等真机上误删才发现。
+test('G1 确认弹窗安全网：警示 + 无基线说明 + 异常删除量二次确认，三者缺一不可', () => {
+  const panel = readSource('src/workspace/screen/GithubPanel.js');
+  const push = readSource('src/workspace/repoPush.js');
+  // ① 弹窗按「永久删除」警示与「保留原样」数量组织文案
+  assert.ok(panel.includes('workspace.github.push.confirmDeleteWarn'), '必须警示删除不可逆');
+  assert.ok(panel.includes('workspace.github.push.confirmRemoteOnly'), '必须说明未物化文件保持原样');
+  // ② 无基线必须明说「本次不执行删除」（否则用户分不清「没要删的」与「没有基线所以不删」）
+  assert.ok(panel.includes('workspace.github.push.confirmNoBaseline'), '无基线要有明确说明');
+  assert.ok(push.includes('const baselineMissing ='), 'push 侧要把无基线事实算出来交给 UI');
+  // ③ 异常放大（删除量 > 可删总数一半）→ 二次确认
+  assert.ok(panel.includes('workspace.github.push.confirmAlarmBody'), '异常删除量要二次确认');
+  assert.ok(/removed\.length \* 2 > knownRemoteCount/.test(panel), '二次确认的判据要写死在代码里');
+  // ④ 清单本身要给全貌（条数 + 前若干条），不能只报数字
+  assert.ok(/preview\.slice\(0, 12\)/.test(panel), '删除/新增清单要展示前若干条');
+  // ⑤ 两个中英文词条必须都在（缺一个就是假承诺）
+  for (const key of ['confirmDeleteWarn', 'confirmRemoteOnly', 'confirmNoBaseline', 'confirmAlarmTitle', 'confirmAlarmBody']) {
+    const zh = readSource('src/i18n/locales/zh-CN/workspace.js');
+    const en = readSource('src/i18n/locales/en/workspace.js');
+    assert.ok(zh.includes(`workspace.github.push.${key}`), `中文缺 ${key}`);
+    assert.ok(en.includes(`workspace.github.push.${key}`), `英文缺 ${key}`);
+  }
 });

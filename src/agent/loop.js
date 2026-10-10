@@ -14,6 +14,7 @@ import {
   applyResultClearing,
   planResultClearing,
 } from './resultClearing.js';
+import { createTurnMachine, createTurnState } from './turn/turnState.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 export const TOOL_RESULT_LIMIT = 16 * 1024;
@@ -142,17 +143,29 @@ export async function runAgentTurn(messages, options = {}) {
     ...requestOptions
   } = options.requestOptions || {};
 
+  // 阶段记账（Z 系采纳 #4）：显式状态机，非法转移直接抛错——不再靠局部变量隐式表达。
+  const machine = createTurnMachine(createTurnState({
+    sessionId: context.sessionId,
+    turnNumber: 1,
+    input: '',
+  }));
+  machine.start();
+
   if (signal && signal.aborted) throw createAbortError();
 
   if (!tools.length) {
+    machine.startModelRequest();
     const result = await streamChatCompletion(history, {
       ...requestOptions,
       signal,
       onChunk: text => safeCallback(onToken, text),
       onReasoning: text => safeCallback(onReasoning, text),
     });
+    const text = typeof result.text === 'string' ? result.text : '';
+    machine.receiveModelResponse(text);
+    machine.complete(text);
     if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, ...result.usage });
-    return typeof result.text === 'string' ? result.text : '';
+    return text;
   }
 
   let streamedText = '';
@@ -201,14 +214,23 @@ export async function runAgentTurn(messages, options = {}) {
         }
       }
     }
+    machine.startModelRequest();
     const result = await streamRound(tools);
-    streamedText += typeof result.text === 'string' ? result.text : '';
+    const roundText = typeof result.text === 'string' ? result.text : '';
+    machine.receiveModelResponse(roundText);
+    streamedText += roundText;
     streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
     // E1：usage 上抛（端点在每轮 SSE 尾部返回时才有）——回调抛错不影响主流程。
     if (result && result.usage && onUsage) safeCallback(onUsage, { round, ...result.usage });
     history.push(toAssistantMessage(result));
     const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
-    if (!toolCalls.length) { emitTranscript(); return streamedText; }
+    if (!toolCalls.length) {
+      machine.complete(streamedText);
+      emitTranscript();
+      return streamedText;
+    }
+    machine.scheduleTools(toolCalls);
+    machine.startToolExecution();
 
     // E2：本轮签名收集——与上一轮相同（或本轮内重复）的调用会被 nudge（不阻断）。
     let hasRepeatedCall = false;
@@ -269,6 +291,7 @@ export async function runAgentTurn(messages, options = {}) {
         ...(ok ? {} : { error: serialized }),
       });
       history.push({ role: 'tool', tool_call_id: call.id, content: serialized });
+      machine.completeTool(call.id, { success: ok, content: serialized });
     }
 
     // 预算预警（两段式第一段）：进入「还剩 2 轮」窗口起提示收束（标记式——
@@ -291,12 +314,17 @@ export async function runAgentTurn(messages, options = {}) {
       roundsSincePlanUpdate = 0;
     }
     lastRoundSignatures = signaturesThisRound;
+    machine.aggregateResults();
   }
 
   // 上限兜底：整体省略 tools 字段（不发 tool_choice），强制文字收尾。
+  machine.startModelRequest();
   history.push({ role: 'system', content: CAP_NOTICE });
   const finalResult = await streamRound(null);
-  streamedText += typeof finalResult.text === 'string' ? finalResult.text : '';
+  const finalText = typeof finalResult.text === 'string' ? finalResult.text : '';
+  machine.receiveModelResponse(finalText);
+  streamedText += finalText;
+  machine.complete(streamedText);
   emitTranscript();
   return streamedText;
 }

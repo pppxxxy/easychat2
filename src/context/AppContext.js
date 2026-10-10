@@ -48,6 +48,7 @@ import {
 } from './characterLibrary.js';
 import { resolveActiveSessionId, sortSessions } from './sessionLibrary.js';
 import { materializeDefaultArtwork } from '../character/defaultCharacterAssets.js';
+import { ingestProactiveMessagesInto } from './proactiveIngest.js';
 
 const AppContext = createContext(null);
 
@@ -477,70 +478,22 @@ export function AppProvider({ children }) {
   //   skipped        结构残缺、永远无法处理，可 ack 删除；
   //   deferred       暂时处理不了（角色不在库/写入失败），**不 ack**，保留重试；
   //   targetSessions roleId → 本次消息实际写入的 sessionId，供通知跳转精确切到那段会话。
+  // Z 系采纳 #9：领域逻辑外提到 context/proactiveIngest.js（可单测），这里只做装配。
   const ingestProactiveMessages = useCallback(async messages => {
-    const list = Array.isArray(messages) ? messages : [];
-    if (list.length === 0 || !loadedRef.current) {
+    if (!loadedRef.current) {
       return { written: [], skipped: [], deferred: [], targetSessions: {} };
     }
-    const written = [];
-    const skipped = [];
-    const deferred = [];
-    // 每个角色本次消息落到的会话；同一角色多条时取最后一条（最新）。
-    const targetSessions = {};
-    // 槽绑定表只读一次；新建后同步更新，保证同一轮多条消息指向同一段新建会话。
-    const settings = await getProactiveSettings().catch(() => ({ slots: [] }));
-    const slotTargets = new Map(
-      (Array.isArray(settings.slots) ? settings.slots : [])
-        .map(slot => [String(slot.slotId || ''), String(slot.sessionTargetId || '')])
-    );
-    for (const message of list) {
-      const roleId = String(message && message.roleId || '');
-      const id = String(message && message.id || '');
-      const slotId = String(message && message.slotId || '');
-      if (!id) {
-        // 没有 id 就无法定位、无法 ack，忽略即可
-        continue;
-      }
-      if (!roleId) {
-        // 连角色都没有，永远无法落库：保留重试也无意义，按可删除处理
-        skipped.push(id);
-        continue;
-      }
-      if (!charactersRef.current.some(item => item.id === roleId)) {
-        // 角色当前不在库（可能被删、也可能是 id 一时对不上）：保留重试，不删消息。
-        deferred.push(id);
-        continue;
-      }
-      try {
-        const result = await appendProactiveMessage(roleId, {
-          id,
-          text: message.text,
-          createdAt: message.createdAt,
-          sessionTargetId: slotTargets.get(slotId) || '',
-        });
-        if (result && result.sessionId) {
-          written.push(id);
-          targetSessions[roleId] = result.sessionId;
-          // 首次新建对话：把槽绑定到这段新会话，之后固定复用。
-          if (result.created && slotId) {
-            slotTargets.set(slotId, result.sessionId);
-            await bindProactiveSlotSession(slotId, result.sessionId).catch(() => {});
-          }
-        } else {
-          // appendProactiveMessage 拒写（正文为空等）：永远写不进去，按可删除处理，
-          // 否则会无限重试并占用队列配额（此前误标 written 直接丢失消息）。
-          skipped.push(id);
-        }
-      } catch (error) {
-        // 写入失败：保留重试，下次启动消费者会再取一次
-        deferred.push(id);
-      }
-    }
-    if (written.length > 0) {
-      await refreshSessionsDirect().catch(() => {});
-      setMessageRefreshTick(tick => tick + 1);
-    }
-    return { written, skipped, deferred, targetSessions };
+    return ingestProactiveMessagesInto({
+      messages,
+      characters: charactersRef.current,
+      getProactiveSettings,
+      appendProactiveMessage,
+      bindProactiveSlotSession,
+      onWritten: async () => {
+        await refreshSessionsDirect().catch(() => {});
+        setMessageRefreshTick(tick => tick + 1);
+      },
+    });
   }, [refreshSessionsDirect]);
 
   const switchSession = useCallback(async id => {

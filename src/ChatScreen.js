@@ -115,7 +115,8 @@ import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
-import { computeContextUsage, resolveContextWindow, shouldAutoCompact } from './chat/contextUsage.js';
+import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import useAutoCompact from './chat/useAutoCompact.js';
 import {
   COMPACTION_KEEP_RECENT,
   COMPACTION_MIN_MESSAGES,
@@ -178,6 +179,9 @@ import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
+import RunningRunsBar from './chat/RunningRunsBar.js';
+import useWorkspaceRewind from './chat/useWorkspaceRewind.js';
+import { sessionRuns } from './agent/runtime/sessionRuns.js';
 import ChatComposer from './chat/ChatComposer.js';
 import EngineStatusBar from './localModel/EngineStatusBar.js';
 import { useLocalEngineStatus } from './localModel/useLocalEngineStatus.js';
@@ -294,6 +298,7 @@ export default function ChatScreen() {
     beginSendOperation,
     endSendOperation,
     invalidateSessionOperations,
+    syncActiveRun,
   } = useSessionGuard({ activeSessionIdRef, activeCharacterIdRef });
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const inputSelectionRef = useRef({ start: 0, end: 0 });
@@ -316,8 +321,10 @@ export default function ChatScreen() {
   // E2：ref 版用于静默自动压缩的防重入（state 在异步闭包里会读到旧值）。
   const [compactBusy, setCompactBusy] = useState(false);
   const compactBusyRef = useRef(false);
-  // E2：上下文占用比（0~1）——70% 显示「建议压缩」提示条、85% 发送前自动压缩。
-  const [contextUsageRatio, setContextUsageRatio] = useState(0);
+  // E2：上下文占用（tokens/window/ratio）——70% 显示「建议压缩」提示条；
+  // 自动压缩按 token 预算（窗口 − 输出预留 − 缓冲，见 chat/compactionPolicy.js）触发。
+  const [contextUsage, setContextUsage] = useState({ tokens: 0, window: 0, ratio: 0 });
+  const contextUsageRatio = contextUsage.ratio;
   // 「建议压缩」提示条被用户手动关掉后本次进入会话不再出现（换会话/重载恢复）。
   const [compactHintDismissed, setCompactHintDismissed] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
@@ -491,7 +498,7 @@ export default function ChatScreen() {
     sessionVersionRef,
     openingRequestRef,
     openingAbortControllerRef,
-    setIsSending,
+    syncActiveRun,
     chatOptions,
     chatOptionsRef,
     resetSessionUi,
@@ -674,18 +681,32 @@ export default function ChatScreen() {
     ensureCharacterSession(characterId).catch(() => {});
   }, [activeSession, activeSessionId, characterId, characters, ensureCharacterSession, isGroup, loaded]);
 
-  // 卸载时中断进行中的发送（保存重试计时器的清理已随 useSessionMessages 外提）。
-  useEffect(() => () => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-  }, []);
+  // L0c（spec 2026-10-10-runtime-split）：**不再**在卸载时中断进行中的发送。
+  // 目标 ①「退出聊天页不中断生成」：离开页面/会话后运行继续跑完，结果由 useChatSend
+  // 的后台落库分支写回它自己的会话。真正的中止只有两条：用户点停止、运行中面板取消。
+  // （保存重试计时器的清理仍随 useSessionMessages 外提。）
 
   const onStop = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
     }
   }, []);
+
+  // 运行中角色条（L 系 ③）：停止某个后台会话的运行 / 切到它。
+  const onStopRunning = useCallback(sessionId => {
+    sessionRuns.cancel(String(sessionId || ''));
+  }, []);
+  const onOpenRunning = useCallback(async sessionId => {
+    const id = String(sessionId || '');
+    if (!id) return;
+    const target = sessionsRef.current.find(item => item && item.id === id);
+    const ownerId = target ? String(target.characterId || '') : '';
+    try {
+      // 与会话同角色：先切角色再切会话（切会话的配对守卫会要求角色一致）。
+      if (ownerId) await switchCharacter(ownerId);
+      await switchSession(id);
+    } catch (error) {}
+  }, [switchCharacter, switchSession]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     // 用 messagesRef 读取当前消息：回调不该因为流式回复更新 messages 而换引用，
@@ -1180,6 +1201,8 @@ export default function ChatScreen() {
     refreshToken: branchesRefreshToken,
   });
 
+  const rewindWorkspace = useWorkspaceRewind({ messagesRef, sessionsRef }); // Z 系 #7：分支回退联动工作区
+
   // 切换到某条分支：把活动时间线替换为「分叉点及其之前 + 分支尾段」。
   // 被替换掉的当前尾段也归档成新分支，使来回切换不丢消息。
   const onCheckoutBranch = useCallback(async branch => {
@@ -1237,12 +1260,13 @@ export default function ChatScreen() {
         await removeVectorIndexForSession(vectorOwnerId, sessionId).catch(() => {});
       }
       setMessages(nextMessages);
+      rewindWorkspace({ sessionId, forkMessageId: plan.forkMessageId }).catch(() => {});
       reloadBranches();
       autoScrollToBottom();
     } catch (error) {
       Alert.alert(t('chat.branch.checkoutFailed.title'), t('chat.branch.checkoutFailed.body'));
     }
-  }, [autoScrollToBottom, character, characterId, isSending, isSwitching, ready, reloadBranches, sessionTransitionPending, t, updateCharacter]);
+  }, [autoScrollToBottom, character, characterId, isSending, isSwitching, ready, reloadBranches, rewindWorkspace, sessionTransitionPending, t, updateCharacter]);
 
   const onDeleteBranch = useCallback(async branch => {
     if (!branch || !branch.id) return;
@@ -1542,7 +1566,7 @@ export default function ChatScreen() {
     (async () => {
       const list = Array.isArray(messagesRef.current) ? messagesRef.current : [];
       if (!list.length) {
-        if (alive) setContextUsageRatio(0);
+        if (alive) setContextUsage({ tokens: 0, window: 0, ratio: 0 });
         return;
       }
       try {
@@ -1557,26 +1581,19 @@ export default function ChatScreen() {
           declared: caps.contextWindow,
           localContextSize,
         }));
-        if (alive) setContextUsageRatio(usage && Number.isFinite(usage.ratio) ? usage.ratio : 0);
+        if (alive) setContextUsage(usage && Number.isFinite(usage.ratio) ? usage : { tokens: 0, window: 0, ratio: 0 });
       } catch (error) {
-        if (alive) setContextUsageRatio(0);
+        if (alive) setContextUsage({ tokens: 0, window: 0, ratio: 0 });
       }
     })();
     return () => { alive = false; };
   }, [messages.length]);
 
-  // E2：85% 自动压缩（系统设置可关，默认开）——**空闲时**静默触发：不在发送路径上做，
-  // 避免「压缩替换消息」与「发送读消息」的时序竞态；失败不弹窗、等下次消息增长再试
-  //（同一消息条数只尝试一次，防死循环）。
-  const autoCompactAttemptRef = useRef(-1);
-  useEffect(() => {
-    if (chatOptions.autoCompact === false) return;
-    if (!shouldAutoCompact({ ratio: contextUsageRatio }, { ratio: 0.85 })) return;
-    if (isSending || compactBusyRef.current) return;
-    if (autoCompactAttemptRef.current === messages.length) return;
-    autoCompactAttemptRef.current = messages.length;
-    handleCompactSession({ silent: true });
-  }, [chatOptions.autoCompact, contextUsageRatio, isSending, messages.length, handleCompactSession]);
+  // E2：自动压缩——空闲时静默触发，token 预算口径 + 先本地微压缩（Z 系采纳 #5）。
+  useAutoCompact({
+    enabled: chatOptions.autoCompact, contextUsage, isSending, messages,
+    messagesRef, setMessages, compactBusyRef, onCompact: handleCompactSession,
+  });
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
     if (inlineImageBusyRef.current) {
@@ -2647,6 +2664,13 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      <RunningRunsBar
+        activeSessionId={activeSessionId}
+        characters={characters}
+        onOpen={onOpenRunning}
+        onStop={onStopRunning}
+      />
 
       <ChatComposer
         quoteTarget={quoteTarget}
