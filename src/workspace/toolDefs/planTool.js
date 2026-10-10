@@ -1,7 +1,8 @@
 // 计划工具（update_plan，能力升级任务书 A3）：把多步任务的步骤清单显式记录并回显。
 //
-// 它是**纯回显**：没有副作用、不落盘（readOnly: true）——作用是让每一步计划都
+// 它是**只读工具**（readOnly: true，不产生工作区写副作用）：作用是让每一步计划都
 // 出现在工具结果里，模型后续轮次与用户都能看到进度，减少「做着做着漂了」。
+// O0.3：计划经宿主注入的 onPlan 随会话落盘一份最新版本（键与消息分开），历史压缩后仍可恢复。
 // A3 二期（已落地）：计划状态经 onToolEvent 的 args 接进 ChatPanel 进度条展示。
 
 export const PLAN_MAX_STEPS = 20;
@@ -69,10 +70,9 @@ export function shouldOfferPlanApproval({ mode, plan } = {}) {
 
 export const PLAN_TOOL_DEFINITION = {
   name: 'update_plan',
-  description: '记录或更新当前任务的步骤清单（纯展示，无副作用、不落盘）：'
-    + '多步任务建议先列清单再动手，每完成一步就更新状态——你自己与用户都能看到进度。'
+  description: '记录或更新当前任务的步骤清单：多步任务建议先列清单再动手，每完成一步就更新状态——你自己与用户都能看到进度。'
     + 'plan 传整个清单的最新版本（不是增量）。同一时刻只允许 1 个 in_progress（多于 1 个会被拒绝）。'
-    + '单步的小任务不需要它。',
+    + '计划会随会话保留一份最新版本（历史压缩后仍可恢复）。单步的小任务不需要它。',
   readOnly: true,
   parameters: {
     type: 'object',

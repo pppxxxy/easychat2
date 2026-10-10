@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import {
   TASK_OUTPUT_MAX,
+  TASK_OUTPUT_MAX_BYTES,
   TOOL_RESULTS_DIR,
   buildToolOutputFileName,
   isTrustedTaskOutput,
@@ -98,4 +99,21 @@ test('isTrustedTaskOutput：前缀 + 可读才可信', async () => {
   assert.equal(await isTrustedTaskOutput({ store, characterId: 'c1', path: stored.path }), true);
   assert.equal(await isTrustedTaskOutput({ store, characterId: 'c1', path: `${TOOL_RESULTS_DIR}/missing.txt` }), false);
   assert.equal(await isTrustedTaskOutput({ store, characterId: 'c1', path: '/tmp/evil.txt' }), false);
+});
+
+test('O2 rider：LRU 字节预算——总字节超限时删最旧直到回预算内', async () => {
+  const store = createMemoryStore();
+  const big = '中'.repeat(100); // UTF-8 = 300 字节
+  for (let i = 0; i < 3; i += 1) {
+    await persistToolResult({
+      store, characterId: 'c1', toolUseId: `b${i}`, content: big, now: 1000 + i, max: 100, maxBytes: 500,
+    });
+  }
+  const remaining = await store.listWorkspaceFiles({ subdir: TOOL_RESULTS_DIR });
+  assert.equal(remaining.length, 1, '份数上限 100 未触发，字节 900>500 触发驱逐至 1 份');
+  assert.ok(remaining[0].includes('-b2'), '保留最新一份');
+  // 清单同步清理：只留现存文件
+  const index = JSON.parse(store.files.get('.task_outputs/index.json'));
+  assert.deepEqual(Object.keys(index), [remaining[0].split('/').pop()]);
+  assert.equal(TASK_OUTPUT_MAX_BYTES, 16 * 1024 * 1024);
 });
