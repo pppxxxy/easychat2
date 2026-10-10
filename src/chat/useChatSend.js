@@ -76,6 +76,8 @@ import { recordDiagnostic } from '../storage/diagnostics.js';
 import { REACTIVE_FAILED_MESSAGE, isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
 // P5：工具轨迹持久化（把本轮 tool 消息挂在助手终稿上，供跨轮 K1/N2 使用）。
 import { attachToolTrace, extractToolTrace } from './toolTrace.js';
+// ask_user：任务中途向用户提选择题。
+import { promptUserChoice } from './askUserPrompt.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -743,6 +745,12 @@ export default function useChatSend({
                   extraRules,
                 });
               },
+              // ask_user：任务中途向用户提选择题（跨平台 Alert）。
+              onAskUser: payload => promptUserChoice({
+                ...payload,
+                cancelLabel: tRef.current('common.cancel'),
+                alert: (...a) => Alert.alert(...a),
+              }),
               context: { characterId: character.id, sessionId: sendSessionId },
               allowChatTools: chatToolsEnabled,
               // O1：超限工具结果整份落盘到工作区 .task_outputs/，消息里只留预览 + 指针

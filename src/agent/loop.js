@@ -108,6 +108,8 @@ export async function runAgentTurn(messages, options = {}) {
   // 循环要停在这里等用户点头，所以不能塞进那个同步、不 await 的信息性回调。
   // 没接钩子时，requiresConfirmation 的工具在 runTool 里按「未确认」被拒绝。
   const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
+  // ask_user：宿主注入「问用户」钩子（提选择题、等回答）；不注入 = 工具不可用。
+  const onAskUser = typeof options.onAskUser === 'function' ? options.onAskUser : null;
   // D4-1：结果增强钩子（宿主注入；不注入 = 不增强，行为与旧版一致）。
   const onToolResult = typeof options.onToolResult === 'function' ? options.onToolResult : null;
   // O1：超限结果落盘钩子（宿主注入：写工作区 + 返回 { path }；不注入 = 退回头尾保留）。
@@ -268,6 +270,7 @@ export async function runAgentTurn(messages, options = {}) {
           // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
           // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
           ...(onToolApproval ? { confirm: onToolApproval } : {}),
+          ...(onAskUser ? { ask: onAskUser } : {}),
           ...(onToolResult ? { onToolResult } : {}),
         });
       } catch (error) {

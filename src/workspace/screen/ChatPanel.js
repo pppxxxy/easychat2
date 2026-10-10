@@ -64,6 +64,7 @@ import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
+import { promptUserChoice } from '../../chat/askUserPrompt.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
@@ -1207,6 +1208,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             extraRules,
           });
         },
+        // ask_user：任务中途向用户提选择题（跨平台 Alert）。
+        onAskUser: payload => promptUserChoice({
+          ...payload,
+          cancelLabel: t('common.cancel'),
+          alert: (...a) => Alert.alert(...a),
+        }),
         // D4-1：结果增强钩子——hooks.json 的 on_tool_result（按工具名精确匹配，
         // 往成功结果尾部追加提醒）。每次调用直读（本轮内 agent 改了钩子立即生效）；
         // registry 侧兜底：错误结果不增强、钩子抛错按原结果返回。
