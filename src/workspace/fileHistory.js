@@ -51,10 +51,62 @@ export function normalizeHistoryEntry(raw) {
 }
 
 // 纯函数：轮换——index 超出上限时返回应删除的条目 id 列表（最旧优先）。
+//
+// **基线保护（2026-10-10）**：每个路径**最旧的那一条**是该文件的「基线快照」，
+// 默认不参与轮换——否则长跑工作区里某个文件被改了几十次之后，最早的版本会被挤出，
+// 用户就永远回不到「它最初长什么样」（Claude Code 的 checkpoint 也是这么做的：
+// 丢弃旧检查点时保留每个文件的第一个快照）。
+// 兜底：若「不同路径数」本身超过上限（基线集合就装不下），仍从最旧的基线开始删，
+// 保证 index 不会无界增长。
 export function historyRotationDeletes(index, keep = HISTORY_MAX) {
-  return (Array.isArray(index) ? index : [])
-    .slice(Math.max(1, Math.floor(Number(keep)) || HISTORY_MAX))
-    .map(item => item.id);
+  const list = (Array.isArray(index) ? index : []).filter(item => item && item.id);
+  const target = Math.max(1, Math.floor(Number(keep)) || HISTORY_MAX);
+  if (list.length <= target) return [];
+  // 列表是新→旧；从尾部（最旧）往前，每个路径第一次遇到的就是它的基线。
+  const baselineIds = new Set();
+  const seenPaths = new Set();
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const path = String(list[i].path || '');
+    if (!path || seenPaths.has(path)) continue;
+    seenPaths.add(path);
+    baselineIds.add(list[i].id);
+  }
+  const remove = new Set();
+  let remaining = list.length;
+  // ① 先删非基线（从最旧开始）——正常情况到这一步就够了。
+  for (let i = list.length - 1; i >= 0 && remaining > target; i -= 1) {
+    const item = list[i];
+    if (baselineIds.has(item.id)) continue;
+    remove.add(item.id);
+    remaining -= 1;
+  }
+  // ② 还超（路径数 > 上限）：连基线一起删，仍从最旧开始。
+  for (let i = list.length - 1; i >= 0 && remaining > target; i -= 1) {
+    const item = list[i];
+    if (!baselineIds.has(item.id)) continue;
+    remove.add(item.id);
+    remaining -= 1;
+  }
+  // 按 index 顺序返回（与旧实现的输出顺序一致，调用方按 id 删条目文件）。
+  return list.filter(item => remove.has(item.id)).map(item => item.id);
+}
+
+// 纯函数：按路径汇总（「文件历史」总览用）——每条 = 快照数 + 可恢复数 + 最新/最早时间。
+// 按最新时间倒序（最近改过的文件排前面）。无 path 的坏条目丢弃。
+export function summarizeFileHistory(index) {
+  const map = new Map();
+  for (const item of (Array.isArray(index) ? index : [])) {
+    if (!item || !item.path) continue;
+    const path = String(item.path);
+    const current = map.get(path) || { path, count: 0, restorableCount: 0, latestAt: 0, oldestAt: 0 };
+    current.count += 1;
+    if (item.restorable !== false) current.restorableCount += 1;
+    const at = Math.max(0, Math.floor(Number(item.at)) || 0);
+    if (at > current.latestAt) current.latestAt = at;
+    if (at > 0 && (current.oldestAt === 0 || at < current.oldestAt)) current.oldestAt = at;
+    map.set(path, current);
+  }
+  return [...map.values()].sort((left, right) => right.latestAt - left.latestAt);
 }
 
 // 内部：读 index（不存在/坏 → 空数组）。
@@ -132,6 +184,11 @@ export async function listFileHistory(store, characterId, path, { limit = 20 } =
   return index
     .filter(item => item && item.path === target)
     .slice(0, Math.max(1, Math.floor(Number(limit)) || 20));
+}
+
+// IO：全部有历史的文件（总览列表，按最新时间倒序）。
+export async function listFileHistoryPaths(store, characterId) {
+  return summarizeFileHistory(await readIndex(store, characterId));
 }
 
 // IO：读单条旧内容（元数据 + 内容文件；超限条目如实返回 content: null）。
