@@ -115,3 +115,22 @@ assistant(tool_calls) + tool 结果）只在单轮内存在。故 K1（跨轮清
 
 P0 独立立项（E2 已覆盖）/ 时间阈值触发 / 压缩后自动重读文件 / 事件溯源级会话日志 /
 `shouldAutoCompact` 死代码复活 / 任务 DAG / 抄 dsh/lcc 桌面常量数字（只抄结构，换算自家 16KB 体系）。
+
+## 与 Z 系合并 + 口径统一（2026-10-10，分支 `m1010m6`）
+
+把 M 系并入含 Z 系（`z1010z3`）的新 main，并做去重：
+
+- **冲突 3 文件**：`agent/loop.js`（保留 Z 系 turn 状态机 + 我方 P1 修剪/emitTranscript）、
+  `chat/useChatSend.js`（采用 Z 系外层守卫结构 + P5 两步挂载）、`prompt/chatPipeline.js`
+  （Z 系 systemSections 导入 + P5 expandHistoryWithTraces）。
+- **阈值统一（唯一来源）**：删除我方 `contextUsage.resolveCompactionThreshold` /
+  `shouldAutoCompactTokens` / `COMPACTION_HEADROOM_TOKENS`；ChatPanel 改用 Z 系
+  `compactionPolicy.resolveAutoCompactPolicy`（模型感知输出预留 + 双规则 + 连续失败上限）。
+- **两套微压缩并存（互补，非重复）**：Z 系 `microcompact.js` 压**展示散文**（旧长消息就地截断），
+  我方 K1 `resultClearing.js` 清**工具结果**（落盘+占位，可取回）。目标数据不同，无双重处理。
+- **保留 M 系独有**：N1 reactive + P2 自动重试、N2 四档管线 + `.transcripts/` 归档、P5 toolTrace 跨轮。
+- **棘轮**：`useChatSend` 1765→1852、`ChatPanel` 1608→1733（接线增量；按 Z 系惯例本应提取，
+  因热路径 + 本机无法真机验证，暂以基线提升放行，**提取留待后续**）。
+- **未并入**：D 系（dsh，`d1010d1`）的 `/compact 关注点`、阈值具名、retention 配置——正交能力，
+  按需另开分支吸收。
+- 门禁：lint 无输出、guard（含棘轮/循环）通过、2373/2373、行覆盖 80.86%。
