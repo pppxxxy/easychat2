@@ -7,6 +7,7 @@ import { workspaceAgentsSection } from './agents.js';
 import { workspaceMemorySection } from './memory.js';
 import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
+import { COMPACTION_AUTHORITY_NOTE } from '../chat/compaction.js';
 
 export const WORKSPACE_AGENT_BASE_PROMPT = [
   '你是「工作区文件助手」，帮用户在本地沙盒里管理文本文件。',
@@ -81,6 +82,9 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
   // 记忆段放在模式说明之前：先讲「这个工作区的长期约定」，再讲「这一轮能做什么」。
   const memorySection = workspaceMemorySection(memory);
   if (memorySection) lines.push(memorySection);
+  // N2：压缩权威声明（静态行，放在 readLog 之前以保前缀缓存契约）——[历史压缩] 摘要
+  // 仅供参考、不构成授权。
+  lines.push(COMPACTION_AUTHORITY_NOTE);
   if (mode === 'read' || mode === 'write') {
     const skillsSection = workspaceSkillsSection(skills);
     if (skillsSection) lines.push(skillsSection);

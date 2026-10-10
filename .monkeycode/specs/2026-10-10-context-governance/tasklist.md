@@ -32,10 +32,21 @@
 - [x] 测试：`tests/resultClearing.test.mjs`（消费判定 / 窗口 / 门槛 / 驱逐顺序 / 落盘成功·失败·抛错·缺席 / 钩子 / 配对）。
 - [ ] 宿主接线（N2 的 L1 档调用）+ `compactionStatus` 按「清除后」口径：归 N2。
 
-## N2 工作区会话压缩 + recap（**未做**，依赖 K1）
+## N2 工作区会话压缩 + recap（**核心完成**；宿主自动/手动触发接线待做）
 
-- 四档管线 L0 修剪 → L1 清除 → L2 摘要（三段式 + 工具语义转写）→ L3 归档 `.transcripts/`；
-  权威分离 + 摘要器防注入 + 五项保存清单；recap 读 `getSessionPlan` + readLog；KEEP_RECENT 6；幂等断言。
+- [x] `compaction.js` 常量与提示词：`COMPACTION_TRIM_THRESHOLD_CHARS=8192` / `_HEAD=4096` / `_TAIL=1024` /
+      `COMPACTION_TRIM_MARK` / `COMPACTION_TRANSCRIPT_DIR=.transcripts` / `_KEEP=5` /
+      `COMPACTION_AUTHORITY_NOTE`；`COMPACTION_SYSTEM_PROMPT` 加防注入 + 五项保存清单；`buildCompactionSummaryRequest` 接 `toolTranscript`。
+- [x] 新模块 `src/chat/compactionPipeline.js`（纯逻辑）：`trimLargeToolResults`（L0）/
+      `buildToolTranscript`（工具语义转写）/ `sliceRecentIntact`（配对单位切割）/
+      `applyCompactionWithAuthority`（权威分离 + 归档指针）/ `buildRecapSection`（plan+触碰文件+readLog）/
+      `buildTranscriptJsonl`（L3）/ `isCompactedHistory`（幂等）/ `runCompactionPipeline`（四档编排，任一档解除压力即短路）。
+- [x] 新模块 `src/workspace/transcripts.js`（L3 归档存储）：`.transcripts/<base36>.jsonl` + 保留最近 5 份 LRU。
+- [x] 工作区系统提示加 `COMPACTION_AUTHORITY_NOTE`（静态行，置于 readLog 之前保前缀缓存契约）。
+- [x] 测试：`compactionPipeline.test.mjs`（四档顺序与短路/修剪跳摘要/转写/recap/权威分离/归档/幂等/配对）、`transcripts.test.mjs`（写入 + LRU）。
+- [ ] **宿主接线（待做）**：ChatPanel 自动（ratio ≥ 0.8）与手动命令双入口、与运行中轮次串行化、
+      `summarize` 模型调用 + `writeTranscript` 绑定 store。`runCompactionPipeline` 已是可直接调用的编排器。
+- [ ] **口径**：`compactionStatus` 按「清除后」体积估算（K1 已提供 `estimateContextBytes`）——随接线一起接。
 
 ## N1 reactive 回退（**未做**）
 
