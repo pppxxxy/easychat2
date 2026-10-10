@@ -47,8 +47,9 @@ test('聊天内工具开启后 ask 模式也走 runAgentTurn（独立于工作�
 test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
   const idx = source.indexOf('runAgentTurn(onlineMessages');
   assert.ok(idx >= 0, '存在 runAgentTurn 调用');
-  // 窗口要盖住整个调用（T6 起 onToolApproval 是带钩子注入的 async 块，比原先长）。
-  const block = source.slice(idx, idx + 3600);
+  // 窗口要盖住整个调用（T6 起 onToolApproval 是带钩子注入的 async 块，比原先长；
+  // P1/K1 又加了 contextBudgetBytes，故再放宽一档）。
+  const block = source.slice(idx, idx + 4200);
   assert.ok(/mode:\s*workspaceMode/.test(block), '传 mode');
   assert.ok(/tools:\s*agentTools/.test(block), '传 tools');
   assert.ok(/signal:\s*controller\.signal/.test(block), '传取消信号');
@@ -59,13 +60,18 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
   assert.ok(/context:\s*\{[\s\S]*characterId[\s\S]*sessionId/.test(block), '工具沙盒上下文');
   assert.ok(/allowChatTools:\s*chatToolsEnabled/.test(block),
     '开关要传到 loop：只放行暴露层、执行层仍按工作区拒绝，会表现为「模型调了但总失败」');
+  // P1/K1：不接通预算 = K1 永不触发（默认 2MB 是请求上下文到不了的量）。
+  assert.ok(/contextBudgetBytes:\s*k1ContextBudgetBytes/.test(block),
+    'K1 的字符预算必须按模型窗口接通（实测不接通时清除 0 条）');
+  assert.ok(/resolveAgentContextBudget\(onlineMessages,\s*online\.contextWindow\)/.test(source),
+    '预算来自模型声明的窗口（未声明时为 0 → 不传 → 保持旧行为）');
 });
 
 // 审批钩子漏接 = 需要确认的工具全部跑不了（registry 的无 confirm 即拒绝）。
 // 漏接时的表现是「模型一直说命令被拒绝」，界面不报错，很难查——所以把接线钉死。
 test('runAgentTurn 接了 onToolApproval，并把中止信号一并传下去', () => {
   const idx = source.indexOf('runAgentTurn(onlineMessages');
-  const block = source.slice(idx, idx + 3600);
+  const block = source.slice(idx, idx + 4200);
   const hookAt = block.indexOf('onToolApproval:');
   const hookBlock = block.slice(hookAt, hookAt + 1400);
   // T3 起审批走 approveToolCall：先查已记住的规则（本次会话 / 永远允许），

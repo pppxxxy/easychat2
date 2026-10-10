@@ -27,6 +27,9 @@ import { getEditResendPlan } from './messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn, workspaceRoundBudget } from '../agent/loop.js';
+// K1 预算（纯换算，可直测）与在线配置侧上下文（碰存储）。
+import { resolveAgentContextBudget } from './agentContextBudget.js';
+import { EMPTY_ONLINE_REQUEST_CONTEXT, resolveOnlineRequestContext } from './onlineRequestContext.js';
 // I1：Steering 队列（运行中补充指令）——纯函数工厂，队列本身只在「本轮会跑工具循环」时建。
 import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
@@ -542,23 +545,16 @@ export default function useChatSend({
         let localMessages = localReady
           ? filterRequestMedia(requestMessages, localMedia)
           : requestMessages;
-        // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置
-        // 单独裁剪媒体，避免把图片/音频发给不支持多模态的在线端点。
-        let onlineMedia = { allowVision: false, allowAudio: false };
-        let onlineModelName = '';
-        let onlineConfigLabel = '';
+        // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置单独裁剪媒体。
+        let online = EMPTY_ONLINE_REQUEST_CONTEXT;
         try {
           const { configs, activeId } = await getApiConfigs();
-          const onlineConfig = configs.find(item => item.id === expectedConfigId)
-            || configs.find(item => item.id === activeId)
-            || configs[0];
-          onlineMedia = {
-            allowVision: Boolean(onlineConfig && onlineConfig.supportsVision),
-            allowAudio: Boolean(onlineConfig && onlineConfig.supportsAudio),
-          };
-          onlineModelName = onlineConfig ? String(getActiveModel(onlineConfig) || '').trim() : '';
-          onlineConfigLabel = onlineConfig ? String(onlineConfig.name || onlineConfig.id || '') : '';
+          online = resolveOnlineRequestContext(configs, activeId, expectedConfigId, {
+            getModel: getActiveModel,
+            getCapabilities: capabilitiesForModel,
+          });
         } catch (error) {}
+        const { media: onlineMedia, modelName: onlineModelName, configLabel: onlineConfigLabel } = online;
         let onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
         // 聊天内受控工具（联网搜索）：独立开关，与工作区模式无关——聊天页默认 ask，
         // 若沿用工作区门控则永远不可用。关闭时必须**摘掉注册**（不只是不勾选），
@@ -671,10 +667,13 @@ export default function useChatSend({
             }).catch(() => {});
           } catch (error) {}
         };
+        const k1ContextBudgetBytes = resolveAgentContextBudget(onlineMessages, online.contextWindow);
         const onlineSend = () => (agentTools.length > 0
           ? runAgentTurn(onlineMessages, {
               mode: workspaceMode,
               tools: agentTools,
+              // P1/K1：旧工具结果退役的字符预算；未声明窗口时为 0 → 不传 → 保持 2MB 默认。
+              ...(k1ContextBudgetBytes > 0 ? { contextBudgetBytes: k1ContextBudgetBytes } : {}),
               // I1：Steering 队列（运行中补充指令，每轮请求前注入）。
               ...(steeringQueue ? { steering: steeringQueue } : {}),
               // 轮次预算（A1）：与工作区同款分档（write 16 / read 10；其余默认 12）。
