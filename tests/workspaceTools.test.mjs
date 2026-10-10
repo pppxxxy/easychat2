@@ -75,6 +75,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   assert.deepEqual(WORKSPACE_TOOL_NAMES, [
     'list_workspace_files',
     'read_workspace_file',
+    'search_workspace',
     'update_plan',
     'materialize_repo',
     'get_build_log',
@@ -88,11 +89,11 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   assert.deepEqual(listToolsForMode(AGENT_MODES.ASK), []);
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'],
   );
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.WRITE).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx'],
   );
 });
 
@@ -283,7 +284,7 @@ test('工具定义只认 store 接口：注入自定义后端即可整体换根'
     { mode: AGENT_MODES.READ, characterId: 'c9' },
   );
   assert.equal(listed.content, 'x.md');
-  assert.deepEqual(calls[0], ['list', { characterId: 'c9', subdir: 'notes' }]);
+  assert.deepEqual(calls[0], ['list', { characterId: 'c9', subdir: 'notes', match: '' }]);
   const edited = await runTool(
     { name: 'edit_workspace_file', arguments: '{"path":"x.md","find":"h","replace":"H"}' },
     { mode: AGENT_MODES.WRITE, characterId: 'c9' },

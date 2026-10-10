@@ -87,19 +87,32 @@ async function resolveDirectory(adapter, rootUri, segments, create) {
   return current;
 }
 
-async function walk(adapter, directoryUri, prefix, results, depth) {
-  if (results.length >= MAX_FILES || depth > MAX_DEPTH) return;
+async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, state) {
+  if (results.length >= MAX_FILES) {
+    state.truncated = true;
+    return;
+  }
+  if (depth > MAX_DEPTH) return;
   const children = await listChildren(adapter, directoryUri);
   for (const child of children) {
-    if (results.length >= MAX_FILES) return;
+    if (results.length >= MAX_FILES) {
+      state.truncated = true;
+      return;
+    }
     const relative = prefix ? `${prefix}/${child.name}` : child.name;
     if (child.isDirectory) {
-      results.push(`${relative}/`);
-      await walk(adapter, child.uri, relative, results, depth + 1);
-    } else if (isListableWorkspaceFile(relative)) {
+      // match 模式下只列匹配的文件（目录不进结果，但仍继续下钻）。
+      if (!fileFilter) results.push(`${relative}/`);
+      await walk(adapter, child.uri, relative, results, depth + 1, fileFilter, state);
+    } else if (isListableWorkspaceFile(relative) && (!fileFilter || fileFilter(relative))) {
       results.push(relative);
     }
   }
+}
+
+function baseName(relative) {
+  const segments = String(relative || '').split('/');
+  return segments[segments.length - 1] || '';
 }
 
 function splitRelative(relative) {
@@ -134,15 +147,27 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
   return {
     rootKind: 'saf',
 
-    async listWorkspaceFiles({ characterId, subdir = '' } = {}) {
+    async listWorkspaceFiles({ characterId, subdir = '', match = '' } = {}) {
+      const { files } = await this.listWorkspaceFilesWithMeta({ characterId, subdir, match });
+      return files;
+    },
+
+    // 带截断标记的列表（与 legacy 后端同口径）：list_workspace_files 工具据此附告警行。
+    async listWorkspaceFilesWithMeta({ characterId, subdir = '', match = '' } = {}) {
       const relBase = String(subdir || '').trim() ? normalizeWorkspacePath(subdir) : '';
       const start = await locateDirectory(characterId, relBase ? relBase.split('/') : [], false);
-      if (!start) return [];
+      if (!start) return { files: [], truncated: false };
+      const needle = String(match || '').trim().toLowerCase();
+      const fileFilter = needle
+        ? relative => baseName(relative).toLowerCase().includes(needle)
+        : null;
       const results = [];
-      await walk(adapter, start, relBase, results, 0);
+      const state = { truncated: false };
+      await walk(adapter, start, relBase, results, 0, fileFilter, state);
       // J1：file-history 隐形（同 store.js 的口径）——不进任何列表枚举。
       const hiddenPrefix = `${FILE_HISTORY_DIR}/`;
-      return results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
+      const files = results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
+      return { files, truncated: state.truncated };
     },
 
     async readWorkspaceFile({ characterId, path, maxChars = MAX_READ_CHARS, offset = 0 } = {}) {

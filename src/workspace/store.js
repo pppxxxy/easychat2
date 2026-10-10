@@ -48,8 +48,12 @@ async function ensureDirectory(fileSystem, uri) {
   await fileSystem.makeDirectoryAsync(uri, { intermediates: true });
 }
 
-async function walk(fileSystem, directoryUri, prefix, results, depth) {
-  if (results.length >= MAX_FILES || depth > MAX_DEPTH) return;
+async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter, state) {
+  if (results.length >= MAX_FILES) {
+    state.truncated = true;
+    return;
+  }
+  if (depth > MAX_DEPTH) return;
   let entries = [];
   try {
     entries = await fileSystem.readDirectoryAsync(directoryUri);
@@ -57,31 +61,54 @@ async function walk(fileSystem, directoryUri, prefix, results, depth) {
     return;
   }
   for (const entry of entries) {
-    if (results.length >= MAX_FILES) return;
+    if (results.length >= MAX_FILES) {
+      state.truncated = true;
+      return;
+    }
     const relative = prefix ? `${prefix}/${entry}` : entry;
     const uri = `${directoryUri}${entry}`;
     const info = await getInfo(fileSystem, uri);
     if (info && info.isDirectory) {
-      results.push(`${relative}/`);
-      await walk(fileSystem, `${uri}/`, relative, results, depth + 1);
-    } else if (isListableWorkspaceFile(relative)) {
+      // match 模式下只列匹配的文件（目录不进结果，但仍继续下钻）——即「按名找文件」。
+      if (!fileFilter) results.push(`${relative}/`);
+      await walk(fileSystem, `${uri}/`, relative, results, depth + 1, fileFilter, state);
+    } else if (isListableWorkspaceFile(relative) && (!fileFilter || fileFilter(relative))) {
       results.push(relative);
     }
   }
 }
 
-export async function listWorkspaceFiles({ root, characterId, fileSystem, subdir = '' } = {}) {
+// 文件名（末段）。match 过滤按文件名子串，不看目录。
+function baseName(relative) {
+  const segments = String(relative || '').split('/');
+  return segments[segments.length - 1] || '';
+}
+
+// 列表实现（带截断标记）：match 过滤在遍历时生效（先过滤再套 MAX_FILES/MAX_DEPTH 上限），
+// 使匹配文件不会被海量无关文件挤出上限。返回 { files, truncated }。
+export async function listWorkspaceFilesDetailed({ root, characterId, fileSystem, subdir = '', match = '' } = {}) {
   assertFileSystem(fileSystem);
   const base = sandboxDirectory(root, characterId);
   const relBase = String(subdir || '').trim() ? normalizeWorkspacePath(subdir) : '';
   const start = relBase ? `${base}${relBase}/` : base;
+  const needle = String(match || '').trim().toLowerCase();
+  const fileFilter = needle
+    ? relative => baseName(relative).toLowerCase().includes(needle)
+    : null;
   const results = [];
-  await walk(fileSystem, start, relBase, results, 0);
+  const state = { truncated: false };
+  await walk(fileSystem, start, relBase, results, 0, fileFilter, state);
   // J1：file-history 是隐形历史——不进列表枚举（恢复走专用入口），也不刷文件面板。
   // 注意 listWorkspaceFiles 的调用方（agent 的 list 工具 / 文件面板 / 压缩扫描）都
   // 不应该看到这批内部文件；fileHistory 模块自己用直读（readIndex），不依赖列表。
   const hiddenPrefix = `${FILE_HISTORY_DIR}/`;
-  return results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
+  const files = results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
+  return { files, truncated: state.truncated };
+}
+
+export async function listWorkspaceFiles({ root, characterId, fileSystem, subdir = '', match = '' } = {}) {
+  const { files } = await listWorkspaceFilesDetailed({ root, characterId, fileSystem, subdir, match });
+  return files;
 }
 
 export async function readWorkspaceFile({ root, characterId, path, fileSystem, maxChars = MAX_READ_CHARS, offset = 0 } = {}) {
@@ -233,8 +260,13 @@ export function createLegacyWorkspaceStore({ root, fileSystem } = {}) {
   return {
     rootKind: 'app',
 
-    listWorkspaceFiles: ({ characterId, subdir = '' } = {}) => listWorkspaceFiles({
-      root, characterId, fileSystem, subdir,
+    listWorkspaceFiles: ({ characterId, subdir = '', match = '' } = {}) => listWorkspaceFiles({
+      root, characterId, fileSystem, subdir, match,
+    }),
+
+    // 带截断标记的列表：list_workspace_files 工具据此在结果末尾附「已达上限」告警行。
+    listWorkspaceFilesWithMeta: ({ characterId, subdir = '', match = '' } = {}) => listWorkspaceFilesDetailed({
+      root, characterId, fileSystem, subdir, match,
     }),
 
     readWorkspaceFile: ({ characterId, path, maxChars, offset } = {}) => readWorkspaceFile({

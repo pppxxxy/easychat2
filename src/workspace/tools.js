@@ -16,6 +16,7 @@ import { createLegacyWorkspaceStore } from './store.js';
 import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
 import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 import { READ_ONLY_TOOL_DEFINITIONS, formatWorkspaceReadResult } from './toolDefs/readTools.js';
+import { SEARCH_TOOL_DEFINITION } from './toolDefs/searchTool.js';
 import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
 import { MATERIALIZE_TOOL_DEFINITION } from './toolDefs/materializeTool.js';
 import { GET_BUILD_LOG_DEFINITION, RUN_REMOTE_BUILD_DEFINITION } from './toolDefs/ciTools.js';
@@ -33,9 +34,10 @@ function resolveStore({ store, root, fileSystem } = {}) {
 }
 
 // 基础工具（read / write 模式都进注册表）。**顺序是契约**：清单断言与模型看到的
-// 工具次序都依赖它——只读 → 计划 → 物化 → 构建日志 → 子代理 → 写 → 云构建 → 导出。
+// 工具次序都依赖它——只读 → 搜索 → 计划 → 物化 → 构建日志 → 子代理 → 写 → 云构建 → 导出。
 const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
+  SEARCH_TOOL_DEFINITION,
   PLAN_TOOL_DEFINITION,
   MATERIALIZE_TOOL_DEFINITION,
   GET_BUILD_LOG_DEFINITION,
