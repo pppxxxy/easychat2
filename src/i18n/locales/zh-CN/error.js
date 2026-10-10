@@ -96,6 +96,7 @@ export const error = {
   'error.workspace.pathTooLong': '路径过长。',
   'error.workspace.pathMustBeRelative': '路径必须是工作区内的相对路径。',
   'error.workspace.pathEscape': '路径不能越出工作区。',
+  'error.workspace.pathProtected': '这是审计与快照文件（事件流 / 写前快照 / 推送基线），不允许改写：覆盖它会抹掉审计线索与可回退的依据。',
   'error.workspace.textOnly': '工作区只能读写文本文件（图片/音视频/压缩包/可执行文件等二进制不支持）。',
   'error.workspace.writeTextOnly': '工作区写入只支持文本文件与生成的 .docx。',
   'error.workspace.docxPathSuffix': 'Word 导出路径必须以 .docx 结尾。',

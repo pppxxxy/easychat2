@@ -96,6 +96,7 @@ export const error = {
   'error.workspace.pathTooLong': 'The path is too long.',
   'error.workspace.pathMustBeRelative': 'The path must be a relative path inside the workspace.',
   'error.workspace.pathEscape': 'The path must not escape the workspace.',
+  'error.workspace.pathProtected': 'This is an audit or snapshot file (session event stream / pre-write snapshots / push baseline) and cannot be rewritten: overwriting it would erase the audit trail and the data you would roll back to.',
   'error.workspace.textOnly': 'The workspace only reads and writes text files (binaries such as images, audio/video, archives and executables are not supported).',
   'error.workspace.writeTextOnly': 'Workspace writes only support text files and generated .docx files.',
   'error.workspace.docxPathSuffix': 'The Word export path must end with .docx.',

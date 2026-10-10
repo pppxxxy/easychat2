@@ -14,6 +14,10 @@ import {
   HISTORY_ENTRY_MAX_CHARS,
   HISTORY_MAX,
 } from '../src/workspace/fileHistory.js';
+import { ROLLBACK_KEEP } from '../src/workspace/rollbackBaseline.js';
+import { SESSION_EVENTS_MAX_BYTES } from '../src/workspace/sessionEvents.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { en } from '../src/i18n/locales/en.js';
 
 // fake SAF store：内存文件表 + delete 记录。
 function makeStore() {
@@ -146,4 +150,19 @@ test('J1 旁路纪律：坏 store / 空 path 绝不抛错', async () => {
   assert.deepEqual(await listFileHistory(null, 'c1', 'a'), []);
   assert.equal(await readFileHistoryEntry(null, 'c1', 'x'), null);
   assert.equal((await restoreFileHistory(null, 'c1', 'x', {})).ok, false);
+});
+
+test('保留口径的对外文案与代码常量一致（改了常量必须同步改文案）', () => {
+  // 设置层把「最近 200 条 / 单条 256KB / 保留 3 份 / 事件流 512KB」写给了用户看。
+  // 这些数字是承诺：常量改了而文案没改，界面就在说谎（仓库纪律：如实告知）。
+  const zhHistory = zhCN['workspace.settings.history.hint'];
+  const enHistory = en['workspace.settings.history.hint'];
+  assert.ok(zhHistory.includes(String(HISTORY_MAX)), `快照条数 ${HISTORY_MAX} 应出现在中文文案里`);
+  assert.ok(zhHistory.includes(String(HISTORY_ENTRY_MAX_CHARS / 1024)) + 'KB', '单条上限应出现');
+  assert.ok(zhHistory.includes(String(ROLLBACK_KEEP)), `回滚基线份数 ${ROLLBACK_KEEP} 应出现`);
+  assert.ok(enHistory.includes(String(HISTORY_MAX)) && enHistory.includes(String(ROLLBACK_KEEP)), '英文文案同步');
+
+  const eventsKb = SESSION_EVENTS_MAX_BYTES / 1024;
+  assert.ok(zhCN['workspace.settings.events.hint'].includes(`${eventsKb}KB`), `事件流上限 ${eventsKb}KB 应出现`);
+  assert.ok(en['workspace.settings.events.hint'].includes(`${eventsKb} KB`), '英文文案同步');
 });

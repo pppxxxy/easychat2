@@ -5,6 +5,7 @@
 
 import { postWriteNotices } from '../hooks.js';
 import { recordFileHistory } from '../fileHistory.js';
+import { assertWritableWorkspacePath } from '../paths.js';
 
 // J1：写前快照（尽力而为）——读旧内容入 file-history；失败不阻塞写入。
 // 读上限与推送同口径（宽于导入文本线 5MB），截断的内容不配当"旧版本"。
@@ -62,6 +63,8 @@ export const WRITE_TOOL_DEFINITIONS = [
     },
     // after_write 钩子：写成功后的提醒追加进工具结果（模型看得到、可能照做）。
     execute: async (options, args, ctx) => {
+      // 审计/快照文件不可改写（在快照之前拦：被拒的写入不该留下快照记录）。
+      assertWritableWorkspacePath(args.path);
       // J1：落笔前快照旧内容（删除也可逆——新建记空内容）。
       await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path);
       const result = await options.store.writeWorkspaceFile({
@@ -90,6 +93,8 @@ export const WRITE_TOOL_DEFINITIONS = [
     },
     // after_edit 钩子：同 after_write（提醒追加进结果，失败不影响编辑本身）。
     execute: async (options, args, ctx) => {
+      // 审计/快照文件不可改写（同 write：拦在快照之前）。
+      assertWritableWorkspacePath(args.path);
       // J1：编辑同样是覆盖——先快照（find/replace 是全量读改写，旧内容只有这一次机会）。
       await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path);
       const result = await options.store.editWorkspaceFile({

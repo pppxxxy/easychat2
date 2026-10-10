@@ -466,3 +466,47 @@ test('工具超时：所有声明 timeoutMs 的定义都被透传（新增工具
     );
   }
 });
+
+// ---- 受保护写入路径（审计与快照，2026-10-10）----
+
+test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受影响', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  const protectedPaths = [
+    '.easychat/sessions/s1.jsonl',
+    '.easychat/file-history/index.json',
+    '.easychat/file-history/entries/abc.json',
+    '.easychat/rollback/1700000000000.json',
+  ];
+  for (const path of protectedPaths) {
+    const denied = await runTool(
+      { name: 'write_workspace_file', arguments: JSON.stringify({ path, content: 'tampered' }) },
+      { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+    );
+    assert.equal(denied.isError, true, `${path} 的写入应被拒绝`);
+    assert.match(denied.content, /不允许改写/);
+  }
+
+  const editDenied = await runTool(
+    {
+      name: 'edit_workspace_file',
+      arguments: JSON.stringify({ path: '.easychat/sessions/s1.jsonl', find: 'a', replace: 'b' }),
+    },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(editDenied.isError, true, 'edit 同样被拦（不只是 write）');
+  assert.match(editDenied.content, /不允许改写/);
+
+  // agent 仍要能写自己的技能 / 命令 / 分身 / 钩子（T4/T5/T6/E3 的自我演进通路）
+  for (const path of [
+    '.easychat/skills/demo/SKILL.md',
+    '.easychat/commands/demo.md',
+    '.easychat/agents/demo.md',
+    '.easychat/hooks.json',
+  ]) {
+    const allowed = await runTool(
+      { name: 'write_workspace_file', arguments: JSON.stringify({ path, content: 'x' }) },
+      { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+    );
+    assert.equal(allowed.isError, false, `${path} 应仍可写`);
+  }
+});
