@@ -44,9 +44,14 @@
 - [x] 新模块 `src/workspace/transcripts.js`（L3 归档存储）：`.transcripts/<base36>.jsonl` + 保留最近 5 份 LRU。
 - [x] 工作区系统提示加 `COMPACTION_AUTHORITY_NOTE`（静态行，置于 readLog 之前保前缀缓存契约）。
 - [x] 测试：`compactionPipeline.test.mjs`（四档顺序与短路/修剪跳摘要/转写/recap/权威分离/归档/幂等/配对）、`transcripts.test.mjs`（写入 + LRU）。
-- [ ] **宿主接线（待做）**：ChatPanel 自动（ratio ≥ 0.8）与手动命令双入口、与运行中轮次串行化、
-      `summarize` 模型调用 + `writeTranscript` 绑定 store。`runCompactionPipeline` 已是可直接调用的编排器。
-- [ ] **口径**：`compactionStatus` 按「清除后」体积估算（K1 已提供 `estimateContextBytes`）——随接线一起接。
+- [x] **宿主接线（本批，风险分支 `m1010m5-risk-hotpath`）**：ChatPanel 自动（ratio ≥ 0.8，每轮
+      `finally` 用本轮终稿拼出准确历史后静默调用）与手动命令 `/compact` 双入口；重入锁
+      `compactingRef` 串行化；`summarize` 经 `sendChatMessage`、`writeTranscript` 绑 `storeRef`。
+      压缩对象＝`workspaceChats` 展示历史（无 tool 消息，L0/L1 空转，实际走 L2 摘要 + L3 归档）；
+      `loadUsage` 改为按工作区会话自身历史估算占用（原读角色单聊 session，与历史不是同一份数据）。
+      落库用新增 `replaceWorkspaceChatMessages`（覆盖式写入，非追加）。**未真机验证。**
+- [ ] **口径**：`compactionStatus` 按「清除后」体积估算（K1 已提供 `estimateContextBytes`）——工作区面板
+      未渲染该口径，暂未接。
 
 ## N1 reactive 回退（**核心完成**；两处挂载的「重试一次」接线待做）
 
@@ -59,8 +64,11 @@
 - [x] 摘要请求防爆：复用 `COMPACTION_PER_MESSAGE_MAX` / `COMPACTION_TRANSCRIPT_MAX`。
 - [x] 测试：`reactiveCompact.test.mjs`（矩阵命中/否定、非超限不动、摘要空失败、归档 jsonl、
       配对边界无孤儿）。
-- [ ] **两处挂载（待做）**：工作区 loop 轮次 + 聊天页发送路径各接「命中 → 跑 runReactiveCompact
-      → 重试一次；仍失败 → `REACTIVE_FAILED_MESSAGE`」；每 turn 一次机会防循环。诊断写 tmp 日志。
+- [x] **聊天页挂载（本批，风险分支）**：`useChatSend` 失败分支识别 `isContextOverflowError` → 本轮一次
+      （`contextRetriedRef`，每轮重置）→ `runReactiveCompact` 摘要并替换会话 → 记失败一笔 + 诊断日志
+      + 提示「已自动压缩历史，请重新发送」。**安全降级**：自动重试需重构发送流程（闭包/消息形状），未做。
+      **未真机验证。**
+- [ ] 工作区 loop 轮次的 N1 挂载：待做（工作区会话持久化的是展示文本、无工具消息，reactive 触发面有限）。
 - [ ] 单次触发语义 / 仍败路径的端到端断言随挂载一起补。
 
 ## 顺序与门禁
