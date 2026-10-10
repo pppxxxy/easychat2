@@ -25,7 +25,7 @@
 2. **多智能体编排**：已有**并行只读子代理**（`run_subagent` task 数组，并发 2）+ **可写子代理**（opt-in `mode:'write'`，逐写审批、默认只读）+ **依赖式工作流 `run_workflow`**（DAG：无依赖并行、有依赖带前置结论）；仍缺 **agent 团队 / 跨会话协作 / 子代理间自由通信**。
 3. **程序化接口 / SDK**：参考有 headless + ACP/JSON-RPC + Python/TS SDK；我们只有本地 OpenAI 兼容 API server + 定时任务，**无通用 agent SDK / 外部驱动协议**。
 4. **持久化 transcript**：参考持久化**完整 agent transcript（system + tool 消息）**；我们是**展示文本 + 嵌套 toolTrace** 的混合体，压缩靶子不是完整 transcript。
-5. **MCP 深度**：我们只有 `tools/call`（无 `resources` / `prompts` / 订阅）。
+5. **MCP 深度**：~~只有 `tools/call`~~ **已补齐**（m1010m8）：`tools/call` + `resources` + `prompts`（连接时拉目录、注册只读工具）。仍无订阅（`resources/subscribe`）。
 6. **上下文规模**：ZCode 主打 **1M token 长程**；我们默认 200k + 压缩。
 7. **检查点 / 回滚**：参考 `/rewind` 同时回滚**代码 + 对话**；我们是文件快照 + rollback baseline + rewind 联动，非「一键回到任意点」。
 8. **形态**：参考是 CLI / IDE / 桌面 / web；我们是移动 App（移动优先是优势，桌面 / IDE 工作流是差距）。
