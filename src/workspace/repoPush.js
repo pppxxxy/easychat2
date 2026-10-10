@@ -135,7 +135,20 @@ export function diffRemoteLocal({ localFiles, remoteEntries, knownPaths, prefix 
   const removed = [...remoteMap.keys()]
     .filter(path => !localMap.has(path) && known.has(path))
     .sort();
-  return { added, modified, removed, pending: added.length + modified.length + removed.length };
+  // 第四态（只报数、不改树）：远程有但本地从未物化 → 保持远程原样、不动它。
+  // 这是 G1 修复的可视化面：用户要知道「有多少远程文件本次不会被碰」，
+  // 否则「删除 0 个」和「我不知道有这些文件」在界面上长得一样。
+  const remoteOnly = [...remoteMap.keys()].filter(path => !known.has(path)).sort();
+  // 有资格进 removed 的路径总数（远程 ∧ 曾经物化）——UI 用它做「删除量异常偏大」的分母。
+  const knownRemoteCount = [...remoteMap.keys()].filter(path => known.has(path)).length;
+  return {
+    added,
+    modified,
+    removed,
+    remoteOnly,
+    knownRemoteCount,
+    pending: added.length + modified.length + removed.length,
+  };
 }
 
 const defaultSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -275,7 +288,10 @@ export async function pushRepoSnapshot({
   const result = { diff, ...(skippedTooLarge.length ? { skippedTooLarge } : {}) };
   if (diff.pending === 0) return { ...result, empty: true };
   if (typeof confirm === 'function') {
-    const proceed = await confirm({ diff });
+    // baselineMissing 一起交给 UI：无基线时 removed 恒空，但用户分不清「没有要删的」
+    // 与「因为没有基线所以不删」——确认弹窗必须把这句说明白（否则用户以为安全是常态）。
+    const baselineMissing = !(Array.isArray(baselinePaths) && baselinePaths.length > 0);
+    const proceed = await confirm({ diff, baselineMissing });
     if (!proceed) return { ...result, cancelled: true };
   }
   // H3：拉回滚基线（modified/removed 的远程旧内容）——必须在提交前拉

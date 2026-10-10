@@ -7,7 +7,7 @@
 // 文件内容按「内容型」写死，不进 i18n 词条表（工具描述是发给模型的提示词，
 // 仓库既有口径；界面文案才走词条）。
 
-import { WORKSPACE_LIMITS } from '../store.js';
+import { listTruncationNotice, WORKSPACE_LIMITS } from '../store.js';
 
 // 读取结果 → 工具输出文本。默认（从头读完整）原样返回（兼容既有行为）；
 // 截断/分段时附续读提示，让模型知道总长与下一段 offset——大文件因此可分段读完。
@@ -27,7 +27,7 @@ export function formatWorkspaceReadResult(result) {
 export const READ_ONLY_TOOL_DEFINITIONS = [
   {
     name: 'list_workspace_files',
-    description: '列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构；也可用 match 按文件名子串查找文件（如 match: "test"）。',
+    description: `列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构；也可用 match 按文件名子串查找文件（如 match: "test"）。仓库很大时列表会被截断（上限 ${WORKSPACE_LIMITS.MAX_FILES} 条 / ${WORKSPACE_LIMITS.MAX_DEPTH} 层深），截断时会附一行说明——「列表里没有」不等于「工作区里没有」，需要确认某路径是否存在请用读取工具直接试。`,
     readOnly: true,
     parameters: {
       type: 'object',
@@ -52,11 +52,14 @@ export const READ_ONLY_TOOL_DEFINITIONS = [
       return listing.then(({ files, truncated }) => {
         const list = Array.isArray(files) ? files : [];
         const body = list.length ? list.join('\n') : '（工作区为空）';
-        // 触达 MAX_FILES 上限时如实报数：结果可能不完整，提示收窄范围（G 系「跳过/截断
-        // 如实可见」的同一原则）。
-        return truncated
-          ? `${body}\n…（已达上限 ${WORKSPACE_LIMITS.MAX_FILES} 条，结果可能不完整；可用 subdir 或 match 收窄范围）`
-          : body;
+        // G1.7：截断必须**可见**——静默截断的清单会被当成完整事实推理（误删类事故的放大器）。
+        // listTruncationNotice 按结果规模推断（文件数到顶 + 目录达深度上限两种护栏）；
+        // store 的 truncated 标记是权威值。两者取并集，避免桩后端只有旧方法时漏报。
+        const notice = listTruncationNotice(list)
+          || (truncated
+            ? `（注意：本列表可能不完整——文件数达到上限 ${WORKSPACE_LIMITS.MAX_FILES} 条。用 subdir 指定子目录可看到其余部分）`
+            : '');
+        return notice ? `${body}\n\n${notice}` : body;
       });
     },
   },

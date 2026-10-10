@@ -21,6 +21,22 @@ export const AGENT_MODES = Object.freeze({
 const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const DEFAULT_TOOL_TIMEOUT_MS = 15000;
 
+// 超时分级表（G2 审计口径，2026-10-10）：这是**策略**，不是实现细节——工具超时给多少，
+// 取决于「超时之后模型该怎么办」，所以与超时文案是一体两面，放一起便于对照审计。
+//  · 纯读类（列表/读取）：维持默认 15s。读不到重读一次，代价低。
+//  · 写副作用类（写文件 / 命令执行 / 跑代码 / 触发构建 / 推送）：60–120s。
+//  · 长任务（子代理多轮迭代）：300s。
+// 通则：**工具层超时必须大于执行器自身的兜底**——shell/python 有原生看门狗（各 30s，
+// 到点强杀进程）。让执行器先动手，模型收到的才是「执行器已强制终止」这条真话；
+// 反过来工具层先放弃，会把「其实已经停了」说成「结果未知」。
+export const TOOL_TIMEOUT_TIERS = Object.freeze({
+  READ: DEFAULT_TOOL_TIMEOUT_MS,
+  WRITE_MIN: 60000,
+  WRITE_MAX: 120000,
+  LONG: 300000,
+});
+export const DEFAULT_TOOL_TIMEOUT = DEFAULT_TOOL_TIMEOUT_MS;
+
 const registry = new Map();
 
 function makeAbortError() {
@@ -194,7 +210,13 @@ export async function runTool(call, ctx = {}) {
 
   let timer = null;
   let onAbort = null;
-  const timeoutReason = `工具执行超时（${tool.timeoutMs}ms）：${name}`;
+  // G2（2026-10-10）：超时**不是「失败」**——JS 侧停不掉已经发出去的 promise，
+  // 工具可能已经生效（写了文件、发了请求、改了远端）。文案必须说「结果未知」并给
+  // 下一步指引；**禁止**暗示「没执行 / 已失败」——模型看到「失败」会直接重试，
+  // 对写操作就是重复副作用（同一笔操作做两次）。
+  const timeoutSeconds = Math.max(1, Math.round(tool.timeoutMs / 1000));
+  const timeoutReason = `工具 ${name} 执行超过 ${timeoutSeconds} 秒，已放弃等待——结果未知：操作可能已经生效。`
+    + '先用只读工具确认实际状态，再决定是否重试；不要盲目重跑写操作。';
   const timeoutPromise = new Promise((resolve, reject) => {
     timer = setTimeout(() => reject(new Error(timeoutReason)), tool.timeoutMs);
   });
