@@ -312,6 +312,7 @@ export const workspace = {
   'workspace.settings.permissions.scope.always': '永久',
   'workspace.settings.permissions.clear': '清除全部授权',
   'workspace.settings.permissions.effect.allow': '允许 {tool}',
+  'workspace.settings.permissions.effect.ask': '必须先问 {tool}',
   'workspace.settings.permissions.effect.deny': '拒绝 {tool}',
   'workspace.settings.permissions.anyCall': '全部调用',
   'workspace.panel.sandbox': '沙盒：{name}',

@@ -3,7 +3,7 @@
 // 用户在确认弹框上选「本次会话允许 / 永远允许」，之后同类调用不再打扰；
 // deny 规则永远最高优先（安全不回退：放过一次的危险操作不进「自动放行」的语义）。
 //
-// 规则形状 [{ effect: 'allow' | 'deny', tool, match, scope: 'always' | 'session' }]：
+// 规则形状 [{ effect: 'allow' | 'ask' | 'deny', tool, match, scope: 'always' | 'session' }]：
 // - tool：工具名（'*' = 全部工具；弹框只生成精确工具名，'*' 留给未来的设置页手写）；
 // - match：按**参数形态**取语义（字段驱动，不硬编码工具名表——工具表增删也不会漂）：
 //     · args.command / args.code 存在 → **命令前缀**（词边界，见 commandPrefixMatches）；
@@ -17,8 +17,16 @@
 // ② 无命中返回 null——调用方只有此时才弹框问人；
 // ③ match 是「用户当时看到的那条原文」，永远不自动放宽（不截短、不取首词）。
 //    想放宽（如放行整个 npm）是用户手写规则的活，不是系统的猜测。
+//
+// **ask 档（2026-10-10 加）**：显式「必须先问」——它的存在意义是从宽规则里**挖出例外**：
+// 「放行 git 但 git push 必须先问」这类意图，只有 allow/deny 两态时表达不了（写 deny
+// 是彻底禁止，不写则被宽 allow 吞掉）。优先级 deny > ask > allow：
+// · ask 压过 allow（否则例外形同虚设）；
+// · deny 仍压过一切（安全不回退）；
+// · 命中 ask 时的批准只对**这一次**生效（调用方不得记下 allow 规则），
+//   否则「必须先问」会被一次点击永久解除——那正是这个档要防的事。
 
-export const PERMISSION_EFFECTS = Object.freeze(['allow', 'deny']);
+export const PERMISSION_EFFECTS = Object.freeze(['allow', 'ask', 'deny']);
 export const PERMISSION_SCOPES = Object.freeze(['always', 'session']);
 // 单条 match 上限：同消息内容的上限量级，防一条规则把存储撑爆（命令/代码全文一般远小于它）。
 export const PERMISSION_RULE_MAX_MATCH = 4000;
@@ -131,13 +139,14 @@ export function ruleMatches(rule, { tool, args } = {}) {
   return false;
 }
 
-// 求值：'deny' | 'allow' | null。deny 先扫，与规则存放顺序无关。
+// 求值：'deny' | 'ask' | 'allow' | null。deny 先扫，其次 ask，最后 allow；
+// 与规则存放顺序无关（优先级是语义，不是数组顺序）。
 export function evaluatePermissionRules(rules, { tool, args } = {}) {
   const list = normalizePermissionRules(rules);
-  const denied = list.some(rule => rule.effect === 'deny' && ruleMatches(rule, { tool, args }));
-  if (denied) return 'deny';
-  const allowed = list.some(rule => rule.effect === 'allow' && ruleMatches(rule, { tool, args }));
-  if (allowed) return 'allow';
+  const has = effect => list.some(rule => rule.effect === effect && ruleMatches(rule, { tool, args }));
+  if (has('deny')) return 'deny';
+  if (has('ask')) return 'ask';
+  if (has('allow')) return 'allow';
   return null;
 }
 
@@ -156,10 +165,12 @@ export function describePermissionRule(rule, t) {
   const normalized = normalizePermissionRule(rule);
   if (!normalized) return '';
   const translate = typeof t === 'function' ? t : key => key;
-  const head = translate(
-    normalized.effect === 'deny' ? 'workspace.settings.permissions.effect.deny' : 'workspace.settings.permissions.effect.allow',
-    { tool: normalized.tool }
-  );
+  const effectKey = normalized.effect === 'deny'
+    ? 'workspace.settings.permissions.effect.deny'
+    : (normalized.effect === 'ask'
+      ? 'workspace.settings.permissions.effect.ask'
+      : 'workspace.settings.permissions.effect.allow');
+  const head = translate(effectKey, { tool: normalized.tool });
   if (!normalized.match) return `${head} · ${translate('workspace.settings.permissions.anyCall')}`;
   const preview = normalized.match.length > 60 ? `${normalized.match.slice(0, 60)}…` : normalized.match;
   return `${head}：${preview}`;

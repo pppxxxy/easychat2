@@ -75,6 +75,8 @@ export const chat = {
   'chat.tool.approval.deny': 'Deny',
   'chat.tool.approval.session': 'Allow for this session',
   'chat.tool.approval.always': 'Always allow',
+  'chat.tool.approval.once': 'Allow once',
+  'chat.tool.approval.askRuleNote': 'An "always ask first" rule covers this call, so it can only be allowed once (nothing is remembered). To change that, remove the rule in Workspace settings → Remembered approvals.',
   'chat.tool.approval.allow': 'Allow',
   'chat.tool.approval.bodyArgs': 'About to run with these arguments — confirm before allowing:\n{args}',
   'chat.summary.unavailable.title': 'Cannot Summarize',

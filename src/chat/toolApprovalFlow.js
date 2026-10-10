@@ -15,6 +15,7 @@ import {
 } from '../storage/settings/workspacePermissions.js';
 import {
   APPROVAL_ALWAYS,
+  APPROVAL_ONCE,
   APPROVAL_SESSION,
   requestToolApproval,
 } from './toolApproval.js';
@@ -45,7 +46,12 @@ export async function approveToolCall({
   if (verdict === 'deny') return false;
   if (verdict === 'allow') return true;
 
-  const decision = await requestToolApproval({ name, args, t, signal, showAlert });
+  // ask 档：显式「必须先问」。只给「拒绝 / 允许这一次」——**批准不记规则**，
+  // 否则一次点击就把「必须先问」永久解除，这个档就白加了。
+  const askOnly = verdict === 'ask';
+  const decision = await requestToolApproval({ name, args, t, signal, showAlert, askOnly });
+  if (decision === APPROVAL_ONCE) return true;
+  if (askOnly) return false; // ask 档下其余返回值（含异常/未知选项）一律按拒绝
   if (decision === APPROVAL_SESSION) {
     try {
       addSessionPermissionRule(makePermissionRule({ tool: name, args, scope: 'session' }));

@@ -76,6 +76,8 @@ export const chat = {
   'chat.tool.approval.deny': '拒绝',
   'chat.tool.approval.session': '本次会话允许',
   'chat.tool.approval.always': '永远允许',
+  'chat.tool.approval.once': '允许这一次',
+  'chat.tool.approval.askRuleNote': '有一条「必须先问」的规则覆盖了这次调用，所以这里只能允许这一次（不会记住）。要改的话，去工作区设置 →「已记住的授权」里删掉那条规则。',
   'chat.tool.approval.allow': '允许',
   'chat.tool.approval.bodyArgs': '即将执行（参数如下，请确认后再允许）：\n{args}',
   'chat.summary.unavailable.title': '无法总结',

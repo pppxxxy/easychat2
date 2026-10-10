@@ -312,6 +312,7 @@ export const workspace = {
   'workspace.settings.permissions.scope.always': 'Permanent',
   'workspace.settings.permissions.clear': 'Clear all approvals',
   'workspace.settings.permissions.effect.allow': 'Allow {tool}',
+  'workspace.settings.permissions.effect.ask': 'Always ask first for {tool}',
   'workspace.settings.permissions.effect.deny': 'Deny {tool}',
   'workspace.settings.permissions.anyCall': 'any call',
   'workspace.panel.sandbox': 'Sandbox: {name}',

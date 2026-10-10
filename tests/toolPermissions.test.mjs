@@ -156,6 +156,33 @@ test('evaluatePermissionRules：deny 最高优先（与顺序无关）；无命�
     'deny',
     'deny 优先与规则顺序无关'
   );
+  // ask 档（2026-10-10）：从宽规则里挖例外——ask 压过 allow，但压不过 deny。
+  const askNpm = { effect: 'ask', tool: 'run_shell', match: 'npm install', scope: 'always' };
+  assert.equal(
+    evaluatePermissionRules([allowNpm, askNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'ask',
+    'ask 必须压过 allow（否则「放行 git 但 push 要先问」这类例外形同虚设）'
+  );
+  assert.equal(
+    evaluatePermissionRules([askNpm, allowNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'ask',
+    'ask 优先与规则顺序无关'
+  );
+  assert.equal(
+    evaluatePermissionRules([allowNpm, askNpm, denyNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'deny',
+    'deny 仍压过 ask（安全不回退）'
+  );
+  assert.equal(
+    evaluatePermissionRules([askNpm], { tool: 'run_shell', args: { command: 'npm run build' } }),
+    null,
+    'ask 规则不命中时仍返回 null'
+  );
+  assert.equal(
+    normalizePermissionRules([{ effect: 'ask', tool: 'run_shell' }])[0].effect,
+    'ask',
+    'ask 是合法 effect（归一化不把它降级成 allow）'
+  );
   // 工具级规则：空 match = 该工具全部调用
   const toolWide = { effect: 'allow', tool: 'list_workspace_files', match: '', scope: 'always' };
   assert.equal(evaluatePermissionRules([toolWide], { tool: 'list_workspace_files', args: {} }), 'allow');
