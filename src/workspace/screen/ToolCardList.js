@@ -16,6 +16,8 @@ import { TOOL_CARD_STATUS, toolCardLabelKey } from '../../chat/toolCardView.js';
 const STATUS_ICON = {
   [TOOL_CARD_STATUS.DONE]: 'checkmark-circle-outline',
   [TOOL_CARD_STATUS.ERROR]: 'alert-circle-outline',
+  // 历史轨迹卡片：中性图标——**不知道成败**（轨迹里没这个信息），不标勾也不标叹号。
+  [TOOL_CARD_STATUS.RECORDED]: 'document-text-outline',
 };
 
 export default function ToolCardList({ cards, theme, fonts, tokens, t }) {
@@ -54,6 +56,7 @@ export default function ToolCardList({ cards, theme, fonts, tokens, t }) {
         const label = labelKey ? t(labelKey) : card.name;
         const running = card.status === TOOL_CARD_STATUS.RUNNING;
         const isError = card.status === TOOL_CARD_STATUS.ERROR;
+        const recorded = card.status === TOOL_CARD_STATUS.RECORDED;
         return (
           <View key={card.id} style={styles.row}>
             <View style={styles.rowIcon}>
@@ -63,14 +66,25 @@ export default function ToolCardList({ cards, theme, fonts, tokens, t }) {
                 <Ionicons
                   name={STATUS_ICON[card.status] || 'ellipse-outline'}
                   size={13}
-                  color={isError ? theme.colors.danger : theme.colors.primary}
+                  color={isError ? theme.colors.danger : (recorded ? theme.colors.textFaint : theme.colors.primary)}
                 />
               )}
             </View>
-            <Text style={[styles.label, isError && styles.labelError]} numberOfLines={1}>{label}</Text>
-            {card.summary ? (
-              <Text style={styles.summary} numberOfLines={1}>{card.summary}</Text>
-            ) : null}
+            <View style={styles.rowBody}>
+              <View style={styles.rowTop}>
+                <Text style={[styles.label, isError && styles.labelError]} numberOfLines={1}>{label}</Text>
+                {card.summary ? (
+                  <Text style={styles.summary} numberOfLines={1}>{card.summary}</Text>
+                ) : null}
+              </View>
+              {/* 历史轨迹只回看「结果开头」；没有配对结果时如实说「未返回结果」——
+                  被拒绝、报错、中止都会留下这种卡，所以不能写成「失败」。 */}
+              {recorded ? (
+                <Text style={styles.preview} numberOfLines={1}>
+                  {card.preview || t('workspace.toolCard.noResult')}
+                </Text>
+              ) : null}
+            </View>
           </View>
         );
       })}
@@ -94,10 +108,13 @@ function createStyles(theme, fonts, tokens) {
     title: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), fontWeight: '600' },
     meta: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 4 },
     fail: { color: theme.colors.danger, fontSize: fonts.scaled(11), marginLeft: 4 },
-    row: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-    rowIcon: { width: 18, alignItems: 'center', justifyContent: 'center' },
+    row: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 5 },
+    rowIcon: { width: 18, alignItems: 'center', justifyContent: 'center', paddingTop: 1 },
+    rowBody: { flex: 1 },
+    rowTop: { flexDirection: 'row', alignItems: 'center' },
     label: { color: theme.colors.text, fontSize: fonts.scaled(12), flexShrink: 0 },
     labelError: { color: theme.colors.danger },
     summary: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
+    preview: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
   });
 }

@@ -65,7 +65,7 @@ import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
-import { applyToolEvent } from '../../chat/toolCardView.js';
+import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
 import ToolCardList from './ToolCardList.js';
 import PlanProgressBar from './PlanProgressBar.js';
 import { writeTranscript } from '../transcripts.js';
@@ -1411,26 +1411,37 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               {messages.length === 0 ? (
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
               ) : null}
-              {messages.map(item => (
-                <View
-                  key={item.id}
-                  style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
-                >
-                  <View style={[
-                    styles.bubble,
-                    item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
-                    item.isError ? styles.bubbleError : null,
-                  ]}>
-                    {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
-                        选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
-                    {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
-                    ) : (
-                      <Text style={styles.bubbleText} selectable>{item.content}</Text>
-                    )}
-                  </View>
-                </View>
-              ))}
+              {messages.map(item => {
+                // P0-3：助手消息带已落盘的工具轨迹时，气泡下方给一个可折叠的只读回看
+                //（「上一轮读了什么、改了什么」）。纯展示，不进模型请求。
+                const traceCards = item.role === 'assistant' ? traceCardsForMessage(item) : null;
+                return (
+                  <React.Fragment key={item.id}>
+                    <View
+                      style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
+                    >
+                      <View style={[
+                        styles.bubble,
+                        item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
+                        item.isError ? styles.bubbleError : null,
+                      ]}>
+                        {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
+                            选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
+                        {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
+                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                        ) : (
+                          <Text style={styles.bubbleText} selectable>{item.content}</Text>
+                        )}
+                      </View>
+                    </View>
+                    {traceCards ? (
+                      <View style={styles.traceRow}>
+                        <ToolCardList cards={traceCards} theme={theme} fonts={fonts} tokens={tokens} t={t} />
+                      </View>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
             </ScrollView>
 
             {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——已抽成组件，
@@ -1684,6 +1695,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   body: { paddingHorizontal: 14, paddingBottom: 16, paddingTop: 6 },
   intro: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 8 },
   bubbleRow: { flexDirection: 'row', marginTop: 10 },
+  // P0-3：助手气泡下方的工具轨迹回看（不占满整行，视觉上仍属于这条助手消息）。
+  traceRow: { marginTop: 2, marginRight: 40 },
   bubbleRowUser: { justifyContent: 'flex-end' },
   bubbleRowAssistant: { justifyContent: 'flex-start' },
   bubble: {

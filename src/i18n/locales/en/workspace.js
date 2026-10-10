@@ -445,6 +445,9 @@ export const workspace = {
   'workspace.toolCard.title': 'Tool activity',
   'workspace.toolCard.count': '{total} calls',
   'workspace.toolCard.failed': '{failed} failed',
+  // This trace entry has no paired result — it may have been denied, errored or aborted,
+  // so we deliberately do NOT say "failed".
+  'workspace.toolCard.noResult': 'No result returned',
   'workspace.toolCard.status.running': 'Running',
   'workspace.toolCard.status.done': 'Done',
   'workspace.toolCard.status.error': 'Failed',

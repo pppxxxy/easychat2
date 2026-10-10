@@ -18,6 +18,10 @@ export const TOOL_CARD_STATUS = Object.freeze({
   RUNNING: 'running',
   DONE: 'done',
   ERROR: 'error',
+  // 已落盘的历史轨迹：**不知道成败**，只表示「这一步调用过、这是它的结果开头」。
+  // 轨迹里只有 assistant(tool_calls) 与 tool(content)，`runTool` 的 isError 没有进
+  // tool 消息——所以历史卡片**不许标成功/失败**，那是编的。
+  RECORDED: 'recorded',
 });
 
 // 工具名 → 标签 i18n key 后缀。**没登记的一律返回空串**，由界面回退到原始工具名
@@ -149,4 +153,90 @@ export function summarizeToolCards(cards) {
     else if (item.status === TOOL_CARD_STATUS.ERROR) failed += 1;
   }
   return { total: list.length, running, failed, done: list.length - running - failed };
+}
+
+// ---- P0-3：已落盘的 toolTrace → 同一套卡片 --------------------------------------
+//
+// 轨迹形状见 `chat/toolTrace.js`：
+//   { role:'assistant', content, tool_calls:[{ id, function:{ name, arguments } }] }
+//   { role:'tool', tool_call_id, content }
+// 注意 `arguments` 是 **JSON 字符串**（OpenAI 工具调用形状），要解析后才知道参数。
+//
+// 这里**只做只读回看**：不标成败（轨迹里没有这个信息），只给「调了什么 + 参数摘要 +
+// 结果开头」。宁可少说，也不要把「有结果返回」说成「成功」——被拒绝、报错、中止
+// 都会留下一条 tool 消息。
+
+function parseToolArguments(raw) {
+  if (raw && typeof raw === 'object') return raw;
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function firstLine(text, max) {
+  const lines = String(text == null ? '' : text).split('\n');
+  for (const line of lines) {
+    const value = line.replace(/\s+/g, ' ').trim();
+    if (value) return clip(value, max);
+  }
+  return '';
+}
+
+export function traceToToolCards(trace, { maxSummary = 80, maxPreview = 60 } = {}) {
+  const list = Array.isArray(trace) ? trace : [];
+  // 先收结果，再按调用顺序出卡：轨迹里 tool 消息紧跟在对应的 assistant 之后，
+  // 但按 id 建表更稳（不依赖顺序假设）。
+  const results = new Map();
+  for (const item of list) {
+    if (item && item.role === 'tool' && item.tool_call_id != null) {
+      results.set(String(item.tool_call_id), String(item.content == null ? '' : item.content));
+    }
+  }
+
+  const cards = [];
+  let index = 0;
+  for (const item of list) {
+    if (!item || item.role !== 'assistant' || !Array.isArray(item.tool_calls)) continue;
+    for (const call of item.tool_calls) {
+      if (!call) continue;
+      const fn = (call && call.function) || {};
+      const name = String(fn.name || '').trim();
+      if (!name) continue;
+      const callId = String(call.id == null ? '' : call.id);
+      const hasResult = results.has(callId);
+      const content = hasResult ? results.get(callId) : '';
+      cards.push({
+        id: `trace-${index}`,
+        name,
+        round: 0,
+        status: TOOL_CARD_STATUS.RECORDED,
+        summary: summarizeToolArgs(name, parseToolArguments(fn.arguments), { max: maxSummary }),
+        preview: hasResult ? firstLine(content, maxPreview) : '',
+        hasResult,
+        error: '',
+      });
+      index += 1;
+    }
+  }
+  return cards;
+}
+
+// 按**消息对象身份**记忆化。为什么必须缓存：单条轨迹最大 256KB，而 `messages` 在流式
+// 输出期间每个 token 都换一次引用——不缓存就是每个 token 把所有历史轨迹重算一遍。
+// 消息对象是不可变的（更新走 spread），所以 WeakMap 的键是安全的；流式中的那条消息
+// 本来也没有 toolTrace。
+const traceCardCache = new WeakMap();
+
+export function traceCardsForMessage(message) {
+  if (!message || !Array.isArray(message.toolTrace) || message.toolTrace.length === 0) return null;
+  const cached = traceCardCache.get(message);
+  if (cached) return cached;
+  const cards = traceToToolCards(message.toolTrace);
+  traceCardCache.set(message, cards);
+  return cards;
 }

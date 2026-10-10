@@ -445,6 +445,8 @@ export const workspace = {
   'workspace.toolCard.title': '工具过程',
   'workspace.toolCard.count': '{total} 次调用',
   'workspace.toolCard.failed': '{failed} 失败',
+  // 历史轨迹里这一条没有配对的结果——可能被拒绝、报错或中止，所以**不写「失败」**。
+  'workspace.toolCard.noResult': '未返回结果',
   'workspace.toolCard.status.running': '运行中',
   'workspace.toolCard.status.done': '完成',
   'workspace.toolCard.status.error': '失败',

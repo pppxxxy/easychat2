@@ -9,6 +9,8 @@ import {
   summarizeToolArgs,
   summarizeToolCards,
   toolCardLabelKey,
+  traceCardsForMessage,
+  traceToToolCards,
 } from '../src/chat/toolCardView.js';
 
 test('toolCardLabelKey：登记的给 key，未登记/空值返回空串（界面回退显示原始工具名）', () => {
@@ -117,4 +119,101 @@ test('summarizeToolCards：统计运行中/失败/完成（界面据此决定折
   assert.deepEqual(summarizeToolCards(cards), { total: 4, running: 2, failed: 1, done: 1 });
   assert.deepEqual(summarizeToolCards(null), { total: 0, running: 0, failed: 0, done: 0 });
   assert.deepEqual(summarizeToolCards([null, undefined]), { total: 0, running: 0, failed: 0, done: 0 });
+});
+
+// P0-3：已落盘的 toolTrace 回看。轨迹里**没有成败信息**（runTool 的 isError 没进 tool 消息），
+// 所以历史卡片一律是 RECORDED——不许把「有结果」说成「成功」。
+test('traceToToolCards：按 tool_call_id 配对，只回看「调了什么 + 参数 + 结果开头」', () => {
+  const trace = [
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        { id: 'c1', type: 'function', function: { name: 'read_workspace_file', arguments: '{"path":"src/a.js"}' } },
+        { id: 'c2', type: 'function', function: { name: 'run_shell', arguments: '{"command":"npm test"}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: '// 文件内容\n第二行' },
+    { role: 'tool', tool_call_id: 'c2', content: 'Tests: 2458 passed' },
+    { role: 'assistant', content: '读完了' },
+  ];
+  const cards = traceToToolCards(trace);
+  assert.equal(cards.length, 2);
+  assert.deepEqual(cards.map(c => c.name), ['read_workspace_file', 'run_shell']);
+  assert.deepEqual(cards.map(c => c.summary), ['src/a.js', 'npm test']);
+  // 结果只取第一行（卡片一行放不下整段输出）
+  assert.equal(cards[0].preview, '// 文件内容');
+  assert.equal(cards[1].preview, 'Tests: 2458 passed');
+  assert.deepEqual(cards.map(c => c.hasResult), [true, true]);
+  // **不标成败**
+  assert.deepEqual(cards.map(c => c.status), [TOOL_CARD_STATUS.RECORDED, TOOL_CARD_STATUS.RECORDED]);
+  assert.notEqual(cards[0].status, TOOL_CARD_STATUS.DONE);
+  assert.notEqual(cards[0].status, TOOL_CARD_STATUS.ERROR);
+  // id 唯一（React key）
+  assert.equal(new Set(cards.map(c => c.id)).size, 2);
+});
+
+test('traceToToolCards：没有配对结果的调用如实标记（可能被拒绝/报错/中止，不写「失败」）', () => {
+  const trace = [
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"rm -rf /"}' } }],
+    },
+    // 没有对应的 tool 消息
+  ];
+  const cards = traceToToolCards(trace);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].hasResult, false);
+  assert.equal(cards[0].preview, '', '没有结果就没有 preview——界面回退到「未返回结果」');
+  assert.equal(cards[0].status, TOOL_CARD_STATUS.RECORDED);
+});
+
+test('traceToToolCards：arguments 是 JSON 字符串要解析；坏 JSON / 缺字段不抛', () => {
+  const trace = [{
+    role: 'assistant',
+    content: null,
+    tool_calls: [
+      { id: 'c1', function: { name: 'run_shell', arguments: '{坏 JSON' } },
+      { id: 'c2', function: { name: 'run_shell' } },
+      { id: 'c3', function: { arguments: '{"path":"x"}' } },
+      { id: 'c4' },
+      { id: 'c5', function: { name: 'run_shell', arguments: { command: '已经是对象' } } },
+    ],
+  }];
+  const cards = traceToToolCards(trace);
+  // 没有工具名的调用直接跳过（c3/c4），其余三张
+  assert.deepEqual(cards.map(c => c.name), ['run_shell', 'run_shell', 'run_shell']);
+  assert.equal(cards[0].summary, '', '坏 JSON → 没有参数摘要，不抛');
+  assert.equal(cards[1].summary, '', '缺 arguments → 空摘要');
+  assert.equal(cards[2].summary, '已经是对象', '对象形式的 arguments 直接用');
+  assert.deepEqual(traceToToolCards(null), []);
+  assert.deepEqual(traceToToolCards('not-an-array'), []);
+});
+
+test('traceCardsForMessage：无轨迹返回 null；有轨迹按消息对象身份记忆化（流式期间不重算）', () => {
+  assert.equal(traceCardsForMessage(null), null);
+  assert.equal(traceCardsForMessage({ id: 'm1', role: 'assistant', content: 'hi' }), null);
+  assert.equal(traceCardsForMessage({ id: 'm2', role: 'assistant', toolTrace: [] }), null);
+
+  const message = {
+    id: 'm3',
+    role: 'assistant',
+    content: 'done',
+    toolTrace: [{
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'read_workspace_file', arguments: '{"path":"a.js"}' } }],
+    }],
+  };
+  const first = traceCardsForMessage(message);
+  assert.equal(first.length, 1);
+  // 同一个消息对象 → 同一个数组引用（WeakMap 缓存；messages 在流式期间每个 token 换引用，
+  // 不缓存就会把历史轨迹反复重算，单条轨迹最大 256KB）
+  assert.equal(traceCardsForMessage(message), first);
+  // 换了对象（不可变更新）→ 重新算，但内容一致
+  const updated = { ...message };
+  const second = traceCardsForMessage(updated);
+  assert.notEqual(second, first);
+  assert.deepEqual(second, first);
 });
