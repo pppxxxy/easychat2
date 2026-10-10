@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   AGENT_MODES,
   clearTools,
+  getTool,
   listToolsForMode,
   runTool,
 } from '../src/agent/tools/registry.js';
@@ -16,6 +17,16 @@ import {
 } from '../src/workspace/tools.js';
 import * as docxModule from '../src/workspace/docx.js';
 import { setDocxModule } from '../src/workspace/toolDefs/docxTool.js';
+import { READ_ONLY_TOOL_DEFINITIONS } from '../src/workspace/toolDefs/readTools.js';
+import { SEARCH_TOOL_DEFINITION } from '../src/workspace/toolDefs/searchTool.js';
+import { PLAN_TOOL_DEFINITION } from '../src/workspace/toolDefs/planTool.js';
+import { MATERIALIZE_TOOL_DEFINITION } from '../src/workspace/toolDefs/materializeTool.js';
+import { GET_BUILD_LOG_DEFINITION, RUN_REMOTE_BUILD_DEFINITION } from '../src/workspace/toolDefs/ciTools.js';
+import { WRITE_TOOL_DEFINITIONS } from '../src/workspace/toolDefs/writeTools.js';
+import { SUBAGENT_TOOL_DEFINITION } from '../src/workspace/toolDefs/subagentTool.js';
+import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from '../src/workspace/toolDefs/execTools.js';
+import { SHELL_TOOL_TIMEOUT_MS } from '../src/workspace/shell.js';
+import { PYTHON_TOOL_TIMEOUT_MS } from '../src/workspace/python.js';
 
 function createMemoryFs() {
   const entries = new Map();
@@ -385,4 +396,73 @@ test('formatWorkspaceReadResult：默认完整读不加后缀，截断/分段才
     formatWorkspaceReadResult({ path: 'a.txt', content: 'ij', truncated: false, offset: 8, total: 10 }),
     /已到文件末尾：共 10 字符/
   );
+});
+
+// ---- 工具超时（2026-10-10 修 P0-4：定义声明的 timeoutMs 曾被静默丢弃）----
+
+test('工具超时：定义声明的 timeoutMs 原样生效，未声明的走兜底表/默认', () => {
+  const definitions = createWorkspaceToolDefinitions({
+    store: {},
+    shell: async () => {},
+    python: async () => {},
+    ci: {},
+  });
+  const byName = new Map(definitions.map(item => [item.name, item]));
+
+  // 这三个此前只吃到注册表默认 15s，长任务必然被误判「超时」（结果未知）——
+  // 模型看到不确定可能重跑写操作，所以这条断言钉的是行为正确性，不只是数值。
+  assert.equal(byName.get('run_subagent').timeoutMs, 300000, '子代理多轮模型请求：声明 300s 必须生效');
+  assert.equal(byName.get('run_remote_build').timeoutMs, 60000, '触发云构建：声明 60s 必须生效');
+  assert.equal(byName.get('get_build_log').timeoutMs, 90000, '下载解包构建日志：声明 90s 必须生效');
+
+  // 定义里没写 timeoutMs 的两个执行工具仍由兜底表给长超时。
+  assert.equal(byName.get('run_shell').timeoutMs, SHELL_TOOL_TIMEOUT_MS);
+  assert.equal(byName.get('run_python').timeoutMs, PYTHON_TOOL_TIMEOUT_MS);
+
+  // 其余工具不写 timeoutMs，交给注册表默认——不能顺手塞值（否则默认值改动失效）。
+  assert.equal(byName.get('list_workspace_files').timeoutMs, undefined);
+  assert.equal(byName.get('write_workspace_file').timeoutMs, undefined);
+});
+
+test('工具超时：注册表实例也拿到长超时（端到端，不只纯函数层）', () => {
+  registerWorkspaceTools({ root, fileSystem, shell: async () => {}, python: async () => {}, ci: {} });
+  assert.equal(getTool('run_subagent').timeoutMs, 300000);
+  assert.equal(getTool('get_build_log').timeoutMs, 90000);
+  assert.equal(getTool('run_remote_build').timeoutMs, 60000);
+  assert.equal(getTool('run_shell').timeoutMs, SHELL_TOOL_TIMEOUT_MS);
+  // 未声明的工具由注册表归一成默认 15000ms。
+  assert.equal(getTool('read_workspace_file').timeoutMs, 15000);
+});
+
+test('工具超时：所有声明 timeoutMs 的定义都被透传（新增工具不会静默丢失）', () => {
+  const raw = [
+    ...READ_ONLY_TOOL_DEFINITIONS,
+    SEARCH_TOOL_DEFINITION,
+    PLAN_TOOL_DEFINITION,
+    MATERIALIZE_TOOL_DEFINITION,
+    GET_BUILD_LOG_DEFINITION,
+    SUBAGENT_TOOL_DEFINITION,
+    ...WRITE_TOOL_DEFINITIONS,
+    RUN_REMOTE_BUILD_DEFINITION,
+    SHELL_TOOL_DEFINITION,
+    PYTHON_TOOL_DEFINITION,
+  ];
+  const registered = new Map(
+    createWorkspaceToolDefinitions({
+      store: {},
+      shell: async () => {},
+      python: async () => {},
+      ci: {},
+    }).map(item => [item.name, item])
+  );
+  const declared = raw.filter(item => Number.isFinite(Number(item.timeoutMs)) && Number(item.timeoutMs) > 0);
+  // 这条守卫靠「声明集合非空」才有意义：至少覆盖当前三个长任务工具。
+  assert.ok(declared.length >= 3, `声明了 timeoutMs 的定义应至少 3 个，实际 ${declared.length}`);
+  for (const item of declared) {
+    assert.equal(
+      registered.get(item.name).timeoutMs,
+      item.timeoutMs,
+      `${item.name} 声明的 timeoutMs 必须原样生效（不要退回只读兜底表的写法）`
+    );
+  }
 });
