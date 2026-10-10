@@ -63,8 +63,8 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   // 「翻很多文件找答案」都与能否改文件无关。run_remote_build 有远端副作用：仅 write。
   // 顺序与工具定义聚合一致。
   const tools = mode === 'write'
-    ? ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx']
-    : ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'];
+    ? ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx']
+    : ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'];
   const appRoot = !source.location || source.location.kind !== 'saf';
   if (mode === 'write' && appRoot && source.allowCommandExecution === true && shellAvailable) {
     tools.push('run_shell');

@@ -27,18 +27,38 @@ export function formatWorkspaceReadResult(result) {
 export const READ_ONLY_TOOL_DEFINITIONS = [
   {
     name: 'list_workspace_files',
-    description: '列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构。',
+    description: '列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构；也可用 match 按文件名子串查找文件（如 match: "test"）。',
     readOnly: true,
     parameters: {
       type: 'object',
       properties: {
         subdir: { type: 'string', description: '可选：只列出该子目录下的内容。' },
+        match: { type: 'string', description: '可选：只列出文件名（不含目录路径）包含该子串的文件，不区分大小写。给出 match 时结果里不再包含目录项。' },
       },
     },
-    execute: (options, args, ctx) => options.store.listWorkspaceFiles({
-      characterId: ctx && ctx.characterId,
-      subdir: typeof args.subdir === 'string' ? args.subdir : '',
-    }).then(files => (files.length ? files.join('\n') : '（工作区为空）')),
+    execute: (options, args, ctx) => {
+      const params = {
+        characterId: ctx && ctx.characterId,
+        subdir: typeof args.subdir === 'string' ? args.subdir : '',
+        match: typeof args.match === 'string' ? args.match : '',
+      };
+      const store = options.store;
+      // 优先用带截断标记的变体（legacy / SAF 后端都提供）；注入的桩后端可能只有旧方法，
+      // 此时退化为「无截断标记」，行为与旧版一致。
+      const listing = typeof store.listWorkspaceFilesWithMeta === 'function'
+        ? store.listWorkspaceFilesWithMeta(params)
+        : Promise.resolve(store.listWorkspaceFiles(params))
+          .then(files => ({ files: Array.isArray(files) ? files : [], truncated: false }));
+      return listing.then(({ files, truncated }) => {
+        const list = Array.isArray(files) ? files : [];
+        const body = list.length ? list.join('\n') : '（工作区为空）';
+        // 触达 MAX_FILES 上限时如实报数：结果可能不完整，提示收窄范围（G 系「跳过/截断
+        // 如实可见」的同一原则）。
+        return truncated
+          ? `${body}\n…（已达上限 ${WORKSPACE_LIMITS.MAX_FILES} 条，结果可能不完整；可用 subdir 或 match 收窄范围）`
+          : body;
+      });
+    },
   },
   {
     name: 'read_workspace_file',

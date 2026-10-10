@@ -42,8 +42,8 @@ test('D2 指引按工具名分派：文件→offset 续读；命令→收窄；�
   const content = 'x'.repeat(TOOL_RESULT_LIMIT + 10);
   assert.match(
     serializeToolResult(content, TOOL_RESULT_LIMIT, 'read_workspace_file'),
-    /offset\/maxChars 分段精读/,
-    '文件类给续读指引'
+    /offset\/limit 分段精读/,
+    '文件类给续读指引（参数名以工具定义为准：limit，不是 maxChars）'
   );
   assert.match(
     serializeToolResult(content, TOOL_RESULT_LIMIT, 'run_python'),
