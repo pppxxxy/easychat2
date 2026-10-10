@@ -61,6 +61,10 @@ import { buildTimeAwareText } from './currentTime.js';
 import { buildSchedulePrompt, isScheduleActive } from './schedule.js';
 import { getCharacterSchedule } from '../storage/schedule.js';
 import { saveSessionPlan } from '../storage/sessionPlan.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
+// N1：reactive 回退——API 报上下文超限时压缩历史（本批接线为「压缩 + 提示重发」；
+// 自动重试需发送流程重构，见 reactiveCompact 注释）。
+import { isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -213,9 +217,12 @@ export default function useChatSend({
       if (__DEV__) console.warn('[branch] archive failed', error);
     }
   }, [bumpBranchesRefresh]);
+  // N1：本轮「上下文超限已压缩」标记（每轮一次机会，防循环）。
+  const contextRetriedRef = useRef(false);
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false, voiceAudio = null }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
+    contextRetriedRef.current = false; // 每轮重置
     const sendCharacterId = activeCharacterIdRef.current;
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
@@ -753,6 +760,45 @@ export default function useChatSend({
              : current
          ));
          return false;
+       }
+       // N1：上下文超限 → 压缩历史（本轮一次机会）。压缩成功则替换会话并提示重发；
+       // 自动重试需发送流程重构（见 reactiveCompact 注释），本批先做安全降级。
+       if (isContextOverflowError(error) && !contextRetriedRef.current) {
+         contextRetriedRef.current = true;
+         try {
+           const { configs, activeId } = await getApiConfigs();
+           const cfg = configs.find(item => item.id === activeId) || configs[0];
+           const compacted = await runReactiveCompact({
+             messages: baseMessages,
+             error,
+             deps: {
+               summarize: request => sendChatMessage(request, {
+                 stream: false,
+                 ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}),
+               }),
+             },
+           });
+           if (compacted.compacted) {
+             recordStats('', { failed: true });
+             recordDiagnostic('storage', '上下文超限：已自动压缩历史，提示重发', 'reactive-compact');
+             if (isCurrentSession()) {
+               setMessages(compacted.messages);
+               const { message: errorMessage, rawText } = buildReplyErrorMessage(
+                 pendingAssistantMessage.id,
+                 new Error('上下文超限：已自动压缩历史，请重新发送。')
+               );
+               errorRawRef.current[errorMessage.id] = rawText;
+               setMessages(current => (
+                 isCurrentSession()
+                   ? mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage)
+                   : current
+               ));
+             }
+             return false;
+           }
+         } catch (compactError) {
+           // 压缩失败 → 落到下面的通用失败路径（如实报超限）。
+         }
        }
        if (classifyReplyError(error, isConfigChangedError, isCanceledError) === 'failure') {
         // 失败也记一笔（只计请求数与失败数，token 记 0）——服务商的失败率同样是性价比信号。
