@@ -7,12 +7,18 @@
 // 文件是内部态（.easychat/board/board.json）：store 的列表枚举把它隐藏（同 file-history），
 // 模型走 board_read 读，不看原始 JSON。空黑板不落盘、也不覆盖已有文件。
 
-import { createBlackboard } from '../agent/blackboard.js';
+import {
+  BLACKBOARD_MAX_ENTRIES,
+  BLACKBOARD_MAX_TOPICS,
+  BLACKBOARD_TEXT_MAX,
+  createBlackboard,
+} from '../agent/blackboard.js';
 
 export const BOARD_DIR = '.easychat/board';
 export const BOARD_FILE = `${BOARD_DIR}/board.json`;
-// 读上限：黑板文件有界（主题 16 × 每主题 32 条 × 单条 2000 字），留足余量。
-export const BOARD_FILE_MAX_CHARS = 200000;
+// 读上限：按黑板**最大体量**推导（主题 × 每条 × (正文 + JSON 字段开销)），再留一倍余量。
+// 定小了会截断文件 → JSON 解析失败 → 静默清空（丢全部沉淀），故与 blackboard.js 的边界同源。
+export const BOARD_FILE_MAX_CHARS = BLACKBOARD_MAX_TOPICS * BLACKBOARD_MAX_ENTRIES * (BLACKBOARD_TEXT_MAX + 64) * 2;
 
 // IO：读黑板文件并播种成一块黑板；不存在/坏文件 → 空黑板（不打扰）。
 export async function loadPersistentBlackboard(store, characterId) {

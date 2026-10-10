@@ -2,9 +2,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createBlackboard } from '../src/agent/blackboard.js';
+import { createBlackboard, BLACKBOARD_MAX_ENTRIES, BLACKBOARD_MAX_TOPICS, BLACKBOARD_TEXT_MAX } from '../src/agent/blackboard.js';
 import {
   BOARD_FILE,
+  BOARD_FILE_MAX_CHARS,
   loadPersistentBlackboard,
   savePersistentBlackboard,
   clearPersistentBlackboard,
@@ -56,6 +57,11 @@ test('load：文件不存在 / 坏 JSON → 空黑板；clear 删除文件', asy
   assert.equal(await clearPersistentBlackboard(store, 'c'), true);
   assert.equal(BOARD_FILE in store.files, false);
   assert.equal(await clearPersistentBlackboard(makeStore({}), 'c'), false, '文件不存在删除返回 false');
+});
+
+test('BOARD_FILE_MAX_CHARS 覆盖黑板最大体量（定小会截断 → JSON 解析失败 → 静默清空）', () => {
+  const maxBoard = BLACKBOARD_MAX_TOPICS * BLACKBOARD_MAX_ENTRIES * (BLACKBOARD_TEXT_MAX + 64);
+  assert.ok(BOARD_FILE_MAX_CHARS >= maxBoard, `读上限 ${BOARD_FILE_MAX_CHARS} 必须 ≥ 黑板最大体量 ${maxBoard}`);
 });
 
 test('缺 store / 缺方法时安全降级（不抛错）', async () => {

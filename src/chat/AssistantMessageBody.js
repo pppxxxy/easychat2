@@ -27,12 +27,15 @@ export default function AssistantMessageBody({
   fullWidth = true,
   contentWidth: providedContentWidth = 0,
   onCommand,
+  // 正文取色：缺省走聊天气泡的助手文字色（浅底深字）；在深底容器（工作区文件预览、
+  // 制卡预览的气泡底色不同）里必须显式传，否则深底深字不可见。
+  textColor,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { width } = useWindowDimensions();
-  const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts), [theme, fonts]);
-  const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts), [theme, fonts]);
+  const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens, textColor), [theme, fonts, tokens, textColor]);
+  const htmlBaseStyle = useMemo(() => createHtmlBaseStyle(theme, fonts, textColor), [theme, fonts, textColor]);
+  const htmlTagsStyles = useMemo(() => createHtmlTagsStyles(theme, fonts, textColor), [theme, fonts, textColor]);
   const contentWidth = providedContentWidth > 0
     ? providedContentWidth
     : (fullWidth ? Math.max(200, width - 48) : Math.max(200, Math.floor((width - 48) * 0.9)));

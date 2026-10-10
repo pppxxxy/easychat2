@@ -19,6 +19,8 @@ export const ASK_USER_TOOL_DEFINITION = {
     + '（选哪个方案、确认范围、选哪个文件）——只在确实卡住时用，不要拿它当进度汇报。'
     + `options 给 2–${ASK_USER_MAX_OPTIONS} 个候选。`,
   readOnly: true,
+  // 阻塞等用户选择：默认 15s 会被误判超时（用户还在读题）。给足 5 分钟。
+  timeoutMs: 300000,
   parameters: {
     type: 'object',
     properties: {
@@ -31,16 +33,18 @@ export const ASK_USER_TOOL_DEFINITION = {
     },
     required: ['question', 'options'],
   },
-  execute: async (args, ctx = {}) => {
+  // 签名遵循工具包装层约定 (options, args, ctx)——options 是宿主绑定的 store 包，
+  // args 是模型给的参数，ctx 携带 ask 钩子。
+  execute: async (options, args, ctx) => {
     const question = String((args && args.question) || '').trim();
-    const options = normalizeAskOptions(args && args.options);
-    if (!question || options.length < 2) {
+    const choices = normalizeAskOptions(args && args.options);
+    if (!question || choices.length < 2) {
       return { content: 'ask_user 需要 question 与至少 2 个 options。', isError: true };
     }
-    if (typeof ctx.ask !== 'function') {
+    if (!ctx || typeof ctx.ask !== 'function') {
       return { content: '当前环境无法向用户提问（未执行）。', isError: true };
     }
-    const answer = await ctx.ask({ question, options });
+    const answer = await ctx.ask({ question, options: choices });
     if (answer == null || answer === '') {
       return { content: '用户没有回答（已取消）。', isError: true };
     }

@@ -13,10 +13,15 @@ import { runWorkflow } from '../../agent/workflow.js';
 import { createBlackboard } from '../../agent/blackboard.js';
 import { readWorkspaceAgents } from '../agents.js';
 import { READ_ONLY_TOOL_DEFINITIONS } from './readTools.js';
+import { SEARCH_TOOL_DEFINITION } from './searchTool.js';
 import { WRITE_TOOL_DEFINITIONS } from './writeTools.js';
 import { BOARD_TOOL_DEFINITIONS } from './boardTools.js';
 
-const READ_TOOLS = READ_ONLY_TOOL_DEFINITIONS.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
+// 只读来源 = readTools 两项 + searchTool（search_workspace）——与 run_subagent 同款；
+// 否则工作流 / 团队的子代理搜不了工作区（SUBAGENT_TOOL_NAMES 明确含 search_workspace）。
+const READ_TOOLS = READ_ONLY_TOOL_DEFINITIONS
+  .concat([SEARCH_TOOL_DEFINITION])
+  .filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
 const WRITE_TOOLS = WRITE_TOOL_DEFINITIONS.filter(item => SUBAGENT_WRITE_TOOL_NAMES.includes(item.name));
 
 // 跑一组步骤：共享黑板 + 逐步骤按 agent 档案收窄工具/轮次。返回 runWorkflow 的结果。

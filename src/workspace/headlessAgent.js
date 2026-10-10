@@ -14,7 +14,7 @@ import { readWorkspaceMemory } from './memory.js';
 import { readWorkspaceSkills } from './skills.js';
 import { readWorkspaceAgents } from './agents.js';
 import { readWorkspaceTeams } from './teams.js';
-import { registerWorkspaceTools, unregisterWorkspaceTools } from './tools.js';
+import { registerWorkspaceTools } from './tools.js';
 
 // 跑一轮 agent。返回 { text, steps, characterId, mode }。缺 prompt 且无历史 → 空结果。
 export async function runHeadlessAgent({
@@ -63,6 +63,8 @@ export async function runHeadlessAgent({
     const output = typeof result === 'string' ? result : String((result && result.text) || '');
     return { text: output, steps, mode, characterId: ownerId };
   } finally {
-    unregisterWorkspaceTools();
+    // 全局注册表是共享单例（工作区聊天也用它）：**不注销**——注销会把 UI 已注册的同名工具
+    // 一并清空，留下「注册表为空」的窗口。保留注册即可；UI 每次发送前都会重新注册（useChatSend）。
+    // （端点与 UI 的 store 都指向工作区助手沙盒，正常情况下一致。）
   }
 }

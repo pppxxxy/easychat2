@@ -18,6 +18,16 @@ function makeStore(files = {}) {
   };
 }
 
+test('工作流步骤子代理含 search_workspace（与 run_subagent 一致）', async () => {
+  const captured = [];
+  const stream = async (history, options) => {
+    captured.push((options.tools || []).map(item => item.function.name).sort());
+    return { text: '结论', toolCalls: [] };
+  };
+  await runWorkflowSteps({ store: makeStore({}), characterId: 'c', steps: [{ id: 'a', task: 'x' }], stream });
+  assert.ok(captured[0].includes('search_workspace'), '默认子代理应能搜索工作区');
+});
+
 test('agent 档案收窄工具集（步骤写 agent 时不再被忽略）', async () => {
   const store = makeStore({
     '.easychat/agents/narrow.md': '---\nname: narrow\ntools: read_workspace_file\n---\n',

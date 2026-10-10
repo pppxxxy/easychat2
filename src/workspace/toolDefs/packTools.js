@@ -11,6 +11,8 @@ export const EXPORT_PACK_TOOL_DEFINITION = {
     + '打包成一个可分享的扩展包 JSON，返回其内容（可用 write_workspace_file 存成文件）。'
     + '需要分享/备份/迁移扩展时用。',
   readOnly: true,
+  // 批量读全部扩展文件：可能超过默认 15s 兜底，显式声明更长超时。
+  timeoutMs: 60000,
   parameters: {
     type: 'object',
     properties: {
@@ -36,6 +38,8 @@ export const INSTALL_PACK_TOOL_DEFINITION = {
     + 'agents / teams / hooks 文件写入工作区。默认**不覆盖**已存在的同名文件（幂等）；'
     + '要覆盖传 overwrite=true。pack 可以是 JSON 字符串或对象。',
   readOnly: false,
+  // 批量写扩展文件：可能超过默认 15s 兜底，显式声明更长超时。
+  timeoutMs: 60000,
   parameters: {
     type: 'object',
     properties: {

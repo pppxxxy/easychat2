@@ -28,6 +28,7 @@ import {
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Markdown from 'react-native-markdown-display';
 
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
@@ -64,7 +65,6 @@ import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
-import Markdown from 'react-native-markdown-display';
 import { createMarkdownStyles } from '../../chat/assistantRender.js';
 import { clampMarkdownText } from '../../chat/markdownGuard.js';
 import AgentTrace from '../AgentTrace.js';
@@ -159,12 +159,22 @@ function draftCacheKey(ownerId, chatId) {
   return `${String(ownerId || '')}:${String(chatId || '')}`;
 }
 
+// 助手正文：memo 化——流式期间只有「内容变化的那条」重新解析 Markdown，其余消息复用
+// 上次渲染（长会话 + 逐 token 更新下显著省算力）。markdownStyles 是稳定引用（useMemo）。
+const AssistantBody = React.memo(function AssistantBody({ content, markdownStyles }) {
+  return <Markdown style={markdownStyles}>{clampMarkdownText(content || '').text}</Markdown>;
+});
+
 export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   // 助手正文按 Markdown 渲染（与主聊天页同款样式工厂）——agent 输出的代码块/列表不再显示原始标记。
-  const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // 取色传 theme.colors.text：气泡底色是 surface（深底），不能用聊天默认的 bubbleAssistantText（深字）。
+  const markdownStyles = useMemo(
+    () => createMarkdownStyles(theme, fonts, tokens, theme.colors.text),
+    [theme, fonts, tokens]
+  );
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -1506,7 +1516,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                         <ActivityIndicator size="small" color={theme.colors.primary} />
                       ) : item.role === 'assistant' ? (
                         // 助手正文走 Markdown（用户消息保持纯文本，与全应用约定一致）。
-                        <Markdown style={markdownStyles}>{clampMarkdownText(item.content || '').text}</Markdown>
+                        <AssistantBody content={item.content} markdownStyles={markdownStyles} />
                       ) : (
                         <Text style={styles.bubbleText} selectable>{item.content}</Text>
                       )}

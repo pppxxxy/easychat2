@@ -1282,7 +1282,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
               {/* Markdown/HTML 默认按聊天同款渲染；「查看原文」切回纯文本。 */}
               {preview && isRichPreview(preview.path) && !previewRaw ? (
-                <AssistantMessageBody text={preview.content} fullWidth />
+                <AssistantMessageBody text={preview.content} fullWidth textColor={theme.colors.text} />
               ) : (
                 /* selectable：文件正文要能长按选中局部文字（整段复制另有按钮，选段靠它）。 */
                 <Text style={styles.previewText} selectable>{preview ? preview.content : ''}</Text>
