@@ -671,12 +671,22 @@ data: [DONE]
 | 工具 | readOnly | 说明 |
 |------|----------|------|
 | `list_workspace_files({ subdir? })` | 是 | 递归列出文件（相对沙盒根；目录以 `/` 结尾），过滤二进制/媒体等不可列项 |
-| `read_workspace_file({ path })` | 是 | 读取文本文件内容；超过 1MB 截断 |
+| `read_workspace_file({ path, offset?, limit? })` | 是 | 读取文本文件；默认上限 1MB，超限返回 `truncated`/`nextOffset` 供续读 |
+| `search_workspace({ pattern, path?, glob?, maxResults?, contextLines? })` | 是 | 字面量或正则搜索（`toolDefs/searchTool.js`），返回「文件:行号 + 上下文」片段，带输出/时间双预算 |
+| `update_plan({ plan })` | 是 | 计划回显（≤20 步；纯回显不落盘），UI 据此渲染进度条 |
+| `materialize_repo({ path, limit? })` | 是 | 按需把远程仓库的单个文件物化到本地（单次 ≤25） |
+| `get_build_log({ workflow?, branch?, repo? })` | 是 | 读取云构建日志（头尾截断）；声明超时 90s |
+| `run_subagent({ task, agent? })` | 是 | 只读子代理（名字白名单防递归；`task` 数组 ≤3、并发 2；结论 8KB） |
 | `create_workspace_dir({ path })` | 否 | 新建（或确认已存在）文件夹，含中间层级；仅「可改」模式可用 |
-| `write_workspace_file({ path, content })` | 否 | 新建/覆盖文本文件（自动建上级目录）；仅「可改」模式可用 |
-| `edit_workspace_file({ path, find, replace, all? })` | 否 | 精确文本替换（规则见 `src/workspace/edit.js`）：默认要求 `find` 唯一匹配，多处匹配报错；`all:true` 全替换；`replace` 为空拒绝；仅「可改」模式可用 |
+| `write_workspace_file({ path, content })` | 否 | 新建/覆盖文本文件（自动建上级目录）；仅「可改」模式；**审计/快照路径拒写** |
+| `edit_workspace_file({ path, find, replace, all? })` | 否 | 精确文本替换（规则见 `src/workspace/edit.js`）：默认要求 `find` 唯一匹配，多处匹配报错；`all:true` 全替换；`replace` 为空拒绝；**审计/快照路径拒写** |
+| `run_remote_build({ workflow, ref?, repo? })` | 否 | 触发 GitHub Actions 构建；`requiresConfirmation:true`；声明超时 60s |
 | `export_workspace_docx({ path, content, title? })` | 否 | 用 `fflate` 自拼最小 OOXML 生成 `.docx`；仅「可改」模式可用 |
 | `run_shell({ command })` | 否 | **仅在开关开启 + 可改模式 + 应用私有根 + 原生模块可用时注册**；`requiresConfirmation:true`，每条命令先弹框（见下） |
+| `run_python({ code })` | 否 | 同上四项门控，另有**独立开关**；跑在 `:python` 独立进程，看门狗 30s |
+
+- **超时口径（2026-10-10 修）**：工具层超时以**工具定义声明的 `timeoutMs` 为准**；`tools.js` 的 `SLOW_TOOL_TIMEOUTS` 只作兜底（`run_shell` / `run_python` 的定义不写超时，由各自域的看门狗常数派生）；都没声明的走注册表默认 15s。实现见 `resolveToolTimeout`——此前只读兜底表，导致 `run_subagent`(300s)/`run_remote_build`(60s)/`get_build_log`(90s) 声明被静默丢弃、实际只剩 15s。
+- **审计/快照路径拒写（2026-10-10）**：`.easychat/sessions/`（事件流）、`.easychat/file-history/`（写前快照）、`.easychat/rollback/`（推送基线）**不可被写工具改写**——守卫是 `paths.js` 的 `assertWritableWorkspacePath`，由 `toolDefs/writeTools.js` 在**工具边界**调用（不在 store 层：内部写入者必须照常能写）。`run_shell` 仍能改（需用户逐条确认），属平台边界。
 
 - **后端接口**：`store` / `fileSystem` 由调用方注入。`native.js` 的 `createWorkspaceStore(settings)` 按设置返回两种实现之一，二者暴露同一组方法（`listWorkspaceFiles` / `readWorkspaceFile` / `writeWorkspaceFile` / `writeWorkspaceBinaryFile` / `createWorkspaceDirectory` / `editWorkspaceFile` / `fileUri` / `deleteFile`），故**换根不换工具**。
   - 应用私有根 = `store.js` 的 `createLegacyWorkspaceStore`（`expo-file-system/legacy`，`fileSystem` 注入，可 Node 直测）；
@@ -755,11 +765,11 @@ data: [DONE]
 | `normalizeAllowPythonExecution(value, mode)` | 模型运行 Python 的开关，规则同上。与命令执行**各自独立**（开一个不带开另一个） |
 
 ### 工作区面板
-**位置**: `src/WorkspacePanel.js`（设置页「工作区」卡片打开）、`src/WorkspaceCapabilitiesCard.js`（能力说明）
+**位置**: `src/workspace/screen/WorkspaceScreen.js`（单屏五领域：对话 / 文件 / GitHub / 终端 / 设置；设置页「工作区」卡片打开）、`src/WorkspaceCapabilitiesCard.js`（能力说明）
 
 浏览当前角色沙盒（`characterId` 维度）：文本文件预览/复制/分享/删除；「可改」模式下可**新建文件夹**、新建文本（任意文本/源码扩展名）、把文本导出为 Word（`.docx`）并分享。只读顶栏显示当前模式（在设置页修改）。**面板不再自己拼 uri、不直连 `expo-file-system/legacy`**：打开时按当前设置解析后端（`createWorkspaceStore` / `describeWorkspaceRoot`），中途改根不影响已打开的面板（操作仍按打开时的根）。依赖 `expo-sharing` / `expo-clipboard`；文件名净化见 `src/workspace/naming.js`（`ensureDirectoryName` / `ensureTextFileName` 保留项目扩展名）。
 
-面板底部有「向助手下达指令」入口，打开**工作区指令对话框**（`src/workspace/WorkspaceChat.js`，纯消息构造在 `src/workspace/chat.js`）：内嵌迷你对话，直连 agent 工具循环（`runAgentTurn`，按当前工作模式暴露工具），流式回显；可附加文本文件（内容并入指令）/图片（多模态），可录音转文字（复用 `transcription.js` + 当前转写配置）。对话不持久化，关闭即清空；`run_shell` 的逐条确认复用 `src/chat/toolApproval.js`。工具跑完回调 `onFilesChanged` 刷新面板文件列表。该 UI 文件登记在 `.c8rc.json` 排除清单。
+工作区**对话面板**（`src/workspace/screen/ChatPanel.js`，纯消息构造在 `src/workspace/chat.js`）直连 agent 工具循环（`runAgentTurn`，按当前工作模式暴露工具），流式回显；可附加文本文件（内容并入指令）/图片（多模态），可录音转文字（复用 `transcription.js` + 当前转写配置）。**对话已持久化**（`@easychat2_workspace_chats`，每角色 40 会话 / 每会话 200 消息；发送落 user、结束/失败/中止落 assistant 终稿），另有输入草稿缓存、运行中「Steering 中途补充指令」、计划进度条与 read 模式「批准并执行」。`run_shell` 的逐条确认复用 `src/chat/toolApproval.js`。工具跑完回调刷新文件列表。这些 UI 文件登记在 `.c8rc.json` 排除清单。
 
 系统提示按**注册表里真实存在的工具**补执行类说明（`workspace/chat.js` 的 `EXECUTION_TOOL_HINTS` / `workspaceExecutionToolHints`）：只有 `run_shell` / `run_python` 真注册了才写进去，且只写「可改」模式。`buildWorkspaceAgentSystemPrompt({ mode, characterName, tools })` 的 `tools` 必须是 `listToolsForMode()` 的结果——**注册表是唯一判据**，不能用设置里的开关代替（开关开着但原生模块缺失或根是外部文件夹时工具并不存在，提示词会承诺一个调不动的能力）。`run_python` 那条明确写着「写出代码片段不等于真的跑过」：这是 2026-10-08 真机现象换来的——模型没调工具，而是写了个 `>>> 1234 * 567` 的代码块把答案贴上去，看着像跑过了。**主聊天页（`useChatSend.js`）不做同类注入**：那里的 system 是用户自己写的角色卡，往角色扮演提示里塞工具说明会污染人设；工具定义本身已随请求下发，模型据此决定是否调用。
 
