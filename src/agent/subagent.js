@@ -21,6 +21,7 @@
 // 拿不到网络层时子代理如实报「不可用」，而不是让整个模块加载失败（与 shell.js 同款）。
 
 import { serializeToolResult, toAssistantMessage } from './messages.js';
+import { boardPromptSuffix } from './blackboard.js';
 
 let cachedStream;
 function resolveDefaultStream() {
@@ -94,6 +95,11 @@ export async function runSubagent({
   onEvent = null,
   mode = 'read',
   confirm = null,
+  // 团队通信：同一批次的多个分身共享一块黑板（blackboard.js）。extraTools 是随黑板
+  // 一起注入的额外工具（board_post/board_read），agentName 是发布者署名。
+  board = null,
+  extraTools = [],
+  agentName = '',
 } = {}) {
   const text = String(task == null ? '' : task).trim();
   if (!text) return { content: '子任务描述为空。', isError: true };
@@ -102,10 +108,14 @@ export async function runSubagent({
     return { content: '子代理不可用（网络层不可达）。', isError: true };
   }
   // 名字白名单 + 可执行性：名单外的工具（含 run_subagent 自己）在这里被物理挡下。
-  // write 模式在只读名单上叠加写名单（仍不含 run_subagent / 执行类）。
+  // write 模式在只读名单上叠加写名单（仍不含 run_subagent / 执行类）。extraToolNames
+  // 是随黑板注入的额外工具名（board_post/board_read）——只加名字，工具实体仍由调用方传。
+  const extraToolNames = (Array.isArray(extraTools) ? extraTools : [])
+    .map(item => String((item && item.name) || ''))
+    .filter(Boolean);
   const allowedNames = mode === 'write'
-    ? [...SUBAGENT_TOOL_NAMES, ...SUBAGENT_WRITE_TOOL_NAMES]
-    : SUBAGENT_TOOL_NAMES;
+    ? [...SUBAGENT_TOOL_NAMES, ...SUBAGENT_WRITE_TOOL_NAMES, ...extraToolNames]
+    : [...SUBAGENT_TOOL_NAMES, ...extraToolNames];
   const usable = (Array.isArray(tools) ? tools : []).filter(item => (
     item
     && allowedNames.includes(String(item.name || ''))
@@ -116,8 +126,9 @@ export async function runSubagent({
   }
 
   const schemas = usable.map(toFunctionSchema);
+  const basePrompt = mode === 'write' ? SUBAGENT_WRITE_SYSTEM_PROMPT : SUBAGENT_SYSTEM_PROMPT;
   const history = [
-    { role: 'system', content: mode === 'write' ? SUBAGENT_WRITE_SYSTEM_PROMPT : SUBAGENT_SYSTEM_PROMPT },
+    { role: 'system', content: board ? `${basePrompt}${boardPromptSuffix()}` : basePrompt },
     { role: 'user', content: text },
   ];
   const emit = payload => {
@@ -180,7 +191,7 @@ export async function runSubagent({
           const approved = await confirm({ name: call.name, args });
           outcome = approved ? undefined : { content: '用户拒绝了此操作（未执行）。', isError: true };
         }
-        if (outcome === undefined) outcome = await tool.execute({ store }, args, { characterId });
+        if (outcome === undefined) outcome = await tool.execute({ store }, args, { characterId, board, agentName });
       } catch (error) {
         if (isAbortError(error) || (signal && signal.aborted)) throw makeAbortError();
         lastError = (error && error.message) || '工具执行失败。';

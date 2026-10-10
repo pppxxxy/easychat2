@@ -9,10 +9,12 @@
 // 轮次）+ task 支持数组（≤3 个，并发上限 2，按序合并结论）。
 
 import { mapWithConcurrency, runSubagent, SUBAGENT_TOOL_NAMES, SUBAGENT_WRITE_TOOL_NAMES } from '../../agent/subagent.js';
+import { createBlackboard } from '../../agent/blackboard.js';
 import { readWorkspaceAgents } from '../agents.js';
 import { READ_ONLY_TOOL_DEFINITIONS } from './readTools.js';
 import { SEARCH_TOOL_DEFINITION } from './searchTool.js';
 import { WRITE_TOOL_DEFINITIONS } from './writeTools.js';
+import { BOARD_TOOL_DEFINITIONS } from './boardTools.js';
 
 // 并行任务数上限：手机端同时两条模型流是上限（网络与速率限制考虑）。
 export const SUBAGENT_BATCH_LIMIT = 3;
@@ -24,7 +26,8 @@ export const SUBAGENT_TOOL_DEFINITION = {
     + '（不能改任何东西），完成后把整理好的结论交回来。适合「翻很多文件找答案」'
     + '这类会刷屏的任务——中间过程不会占用当前对话的上下文。task 里要写清'
     + '「要找什么、要回答什么」，结论回来后再由你转述或继续加工。'
-    + 'task 也可以传数组（最多 3 个）并行执行，结论按顺序合并。'
+    + 'task 也可以传数组（最多 3 个）并行执行，结论按顺序合并；并行时多个分身共享'
+    + '一块黑板（board_post / board_read 互相传递中间结论）。'
     + 'agent 可选：用工作区 .easychat/agents/ 里定义的分身档案（清单见系统提示的'
     + '「子代理分身」段），未定义档案时按默认分身执行。'
     + 'mode 可选：默认 read（只读）；write 时额外允许改文件（write/edit/create_dir），'
@@ -88,26 +91,32 @@ export const SUBAGENT_TOOL_DEFINITION = {
       .slice(0, SUBAGENT_BATCH_LIMIT);
     if (tasks.length === 0) return { content: '子任务描述为空。', isError: true };
 
-    const runOne = task => runSubagent({
+    // 并行批次才开黑板（单任务没有同伴，黑板无意义）：批次内分身共享，署名 task-N。
+    const batch = tasks.length > 1;
+    const board = batch ? createBlackboard() : null;
+    const extraTools = batch ? BOARD_TOOL_DEFINITIONS : [];
+
+    const runOne = (task, agentName) => runSubagent({
       task,
-      tools: subagentTools,
+      tools: batch ? subagentTools.concat(extraTools) : subagentTools,
       store: options.store,
       characterId: ctx && ctx.characterId,
       signal: (ctx && ctx.signal) || null,
       mode: writeMode ? 'write' : 'read',
       confirm: (ctx && typeof ctx.confirm === 'function') ? ctx.confirm : null,
+      ...(board ? { board, extraTools, agentName } : {}),
       ...(maxRounds ? { maxRounds } : {}),
     });
 
     if (tasks.length === 1) {
-      const result = await runOne(tasks[0]);
+      const result = await runOne(tasks[0], 'task-1');
       return result.isError ? { content: result.content, isError: true } : result.content;
     }
 
     // 并行批次（≤3、并发 2）：结论按序合并；单路失败不拖垮整批（该路段如实标注失败）。
-    const results = await mapWithConcurrency(tasks, SUBAGENT_CONCURRENCY, async task => {
+    const results = await mapWithConcurrency(tasks, SUBAGENT_CONCURRENCY, async (task, index) => {
       try {
-        return await runOne(task);
+        return await runOne(task, `task-${index + 1}`);
       } catch (error) {
         if (error && (error.canceled === true || error.name === 'AbortError')) throw error;
         return { content: `（子任务失败：${(error && error.message) || '未知错误'}）`, isError: true };
