@@ -20,6 +20,7 @@ export {
   setProtectedVoiceUris,
   getSessionSummaryRevision,
   isSessionSummaryRevisionCurrent,
+  setSessionAgentMode,
 } from './sessionCore.js';
 
 export {

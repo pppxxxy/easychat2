@@ -115,7 +115,9 @@ test('工作区工具经 runTool 读写（以 ctx.characterId 分沙盒）', asy
     { name: 'list_workspace_files', arguments: '{}' },
     { mode: AGENT_MODES.READ, characterId: 'c1' },
   );
-  assert.equal(list.content, 'notes/\nnotes/a.md');
+  // J1：写前快照在 .easychat/file-history/ 下（隐形历史——列表里只见 .easychat/
+  // 目录条目，entries/ 与 index.json 被过滤），用户文件照常。
+  assert.equal(list.content, '.easychat/\nnotes/\nnotes/a.md');
 
   // 另一个角色是独立沙盒
   const other = await runTool(
@@ -287,7 +289,15 @@ test('工具定义只认 store 接口：注入自定义后端即可整体换根'
     { mode: AGENT_MODES.WRITE, characterId: 'c9' },
   );
   assert.equal(edited.isError, false);
-  assert.deepEqual(calls[1], ['edit', { characterId: 'c9', path: 'x.md', find: 'h', replace: 'H', all: false }]);
+  // J1：edit 前有快照读取（宽上限读旧内容），快照记录的条目/index 写入也走同一
+  // fakeStore——断言钉语义（edit 恰好一次、参数正确），不钉调用顺序细节。
+  const kinds = calls.slice(1).map(item => item[0]);
+  assert.equal(kinds[0], 'read', 'edit 前先快照读旧内容');
+  assert.equal(kinds.filter(kind => kind === 'edit').length, 1, 'edit 恰好一次');
+  const editCall = calls.find(item => item[0] === 'edit');
+  assert.deepEqual(editCall[1], { characterId: 'c9', path: 'x.md', find: 'h', replace: 'H', all: false });
+  const snapshotRead = calls.slice(1).find(item => item[0] === 'read');
+  assert.equal(snapshotRead[1].maxChars, 8388608, '快照读取用宽上限（截断内容不配当旧版本）');
 });
 
 test('create_workspace_dir：可改模式建目录，只读模式被门控', async () => {

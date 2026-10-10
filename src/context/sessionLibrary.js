@@ -44,6 +44,9 @@ export function normalizeSession(raw, index = 0) {
     preview: String(source.preview || ''),
     pinned: source.pinned === true,
     greetingSelected: source.greetingSelected === true,
+    // J3：会话级 agent 模式记忆——'' = 没设过（跟随全局设置）；只收 read/write
+    //（ask 是默认态，不必存）。老数据无此字段 → ''，零迁移。
+    agentMode: source.agentMode === 'read' || source.agentMode === 'write' ? source.agentMode : '',
     createdAt: Number.isFinite(createdAt) ? createdAt : 0,
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
     clonedFrom: String(source.clonedFrom || ''),
