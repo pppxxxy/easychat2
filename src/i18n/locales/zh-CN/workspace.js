@@ -335,6 +335,13 @@ export const workspace = {
   'workspace.settings.skills.installDone': '已安装 {count} 个示例技能，在 .easychat/skills/ 里可以随意修改。',
   'workspace.settings.skills.installNoneTitle': '没有需要安装的',
   'workspace.settings.skills.installNone': '示例技能都已经在（同名目录不会被覆盖）。',
+// P3-1：分身档案（.easychat/agents/）——此前界面零入口，写了档案看不到有没有生效。
+'workspace.settings.agents': '分身档案',
+'workspace.settings.agents.count': '{count} 个',
+'workspace.settings.agents.emptyShort': '未配置',
+'workspace.settings.agents.hint': '分身档案是放在 {dir}/<档案名>.md 的说明（name + description + 正文）：派子代理时助手最多看到前 {max} 个的「名字 + 一句话」，需要时自己读全文。可直接在文件面板里新建或编辑。',
+'workspace.settings.agents.empty': '还没有分身档案。在文件面板里于 {dir}/ 下新建 .md 即可。',
+'workspace.settings.agents.noDescription': '（无描述）',
   'workspace.settings.permissions': '已记住的授权',
   'workspace.settings.permissions.count': '{count} 条',
   'workspace.settings.permissions.emptyShort': '无',

@@ -335,6 +335,13 @@ export const workspace = {
   'workspace.settings.skills.installDone': 'Installed {count} sample skills — feel free to edit them under .easychat/skills/.',
   'workspace.settings.skills.installNoneTitle': 'Nothing to install',
   'workspace.settings.skills.installNone': 'The sample skills are already there (existing folders are never overwritten).',
+// P3-1: subagent profiles (.easychat/agents/) — previously had no UI entry at all.
+'workspace.settings.agents': 'Subagent profiles',
+'workspace.settings.agents.count': '{count}',
+'workspace.settings.agents.emptyShort': 'Not set up',
+'workspace.settings.agents.hint': 'A subagent profile is a file at {dir}/<name>.md (name + description + body): when delegating, the assistant sees at most the first {max} as "name + one line" and reads the full file itself when needed. Create or edit them right in the Files panel.',
+'workspace.settings.agents.empty': 'No subagent profiles yet. Create a .md under {dir}/ in the Files panel.',
+'workspace.settings.agents.noDescription': '(no description)',
   'workspace.settings.permissions': 'Remembered approvals',
   'workspace.settings.permissions.count': '{count}',
   'workspace.settings.permissions.emptyShort': 'None',

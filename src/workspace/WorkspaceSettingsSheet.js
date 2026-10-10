@@ -25,6 +25,7 @@ import { DEFAULT_RETENTION, RETENTION_BOUNDS, normalizeRetention } from './reten
 import { COMMANDS_DIR } from './commands.js';
 import { HOOKS_FILE, HOOK_EVENTS, parseWorkspaceHooks, validateWorkspaceHooks } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
+import { AGENTS_DIR, AGENT_LIST_MAX } from './agents.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -97,6 +98,10 @@ export default function WorkspaceSettingsSheet({
   // 技能清单（SKILL.md 渐进披露）；安装示例同样是转发给 ChatPanel 的动作。
   skills = [],
   onInstallSampleSkills,
+  // P3-1：分身档案（`.easychat/agents/`）。与技能同为「文件即配置」，但此前**界面零入口**——
+  // 用户写了档案，既看不到有没有被读到、也没有计数（技能至少还能装示例并计数）。
+  // 只读展示，没有「安装示例」：仓库里没有样例档案可装。
+  agents = [],
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
   onInstallSampleCommands,
@@ -211,6 +216,14 @@ export default function WorkspaceSettingsSheet({
       value: skills.length > 0
         ? t('workspace.settings.skills.count', { count: skills.length })
         : t('workspace.settings.skills.emptyShort'),
+    },
+    {
+      id: 'agents',
+      icon: 'people-outline',
+      label: t('workspace.settings.agents'),
+      value: agents.length > 0
+        ? t('workspace.settings.agents.count', { count: agents.length })
+        : t('workspace.settings.agents.emptyShort'),
     },
     {
       id: 'commands',
@@ -409,6 +422,27 @@ export default function WorkspaceSettingsSheet({
             <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
           </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'agents') {
+      // P3-1：分身档案清单。`run_subagent` 会把这里**按名字排序的前 N 个**注入系统提示词
+      //（`workspaceAgentsSection`），所以「有几个、叫什么、有没有描述」直接决定模型能派谁——
+      // 这些信息此前只存在于文件系统里，界面上一个字都看不到。
+      return (
+        <View>
+          <Text style={styles.bodyHint}>
+            {t('workspace.settings.agents.hint', { dir: AGENTS_DIR, max: AGENT_LIST_MAX })}
+          </Text>
+          {agents.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.agents.empty', { dir: AGENTS_DIR })}</Text>
+          ) : agents.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {String(item && item.name || '')}
+              {'：'}
+              {String(item && item.description || '') || t('workspace.settings.agents.noDescription')}
+            </Text>
+          ))}
         </View>
       );
     }

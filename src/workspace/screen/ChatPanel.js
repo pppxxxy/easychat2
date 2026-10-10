@@ -172,6 +172,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [permissionRules, setPermissionRules] = useState([]);
   // 技能清单（设置面板展示用；发消息时另行直读，两处互不影响）。
   const [workspaceSkills, setWorkspaceSkills] = useState([]);
+  // P3-1：分身档案清单（`.easychat/agents/`）。此前只在发请求时读进系统提示词，
+  // **界面零入口**——用户写了档案却看不到有没有生效。这里补一份给设置面板展示。
+  const [workspaceAgents, setWorkspaceAgents] = useState([]);
   // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
@@ -485,6 +488,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     readWorkspaceSkills(storeRef.current, characterId)
       .then(list => {
         if (alive) setWorkspaceSkills(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    readWorkspaceAgents(storeRef.current, characterId)
+      .then(list => {
+        if (alive) setWorkspaceAgents(Array.isArray(list) ? list : []);
       })
       .catch(() => {});
     return () => {
@@ -1396,6 +1404,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   retention={wsSettings ? wsSettings.retention : undefined}
                   onChangeRetention={handleChangeRetention}
                   skills={workspaceSkills}
+            agents={workspaceAgents}
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
