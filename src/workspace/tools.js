@@ -131,7 +131,7 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
       description: definition.description,
       parameters: definition.parameters,
       readOnly: definition.readOnly,
-      // 只有 run_shell / run_python 会带 true；其余工具保持 undefined，注册表归一化成 false。
+      // 只有 run_shell / run_python / git_discard 会带 true；其余工具保持 undefined，注册表归一化成 false。
       ...(definition.requiresConfirmation ? { requiresConfirmation: true } : {}),
       // 不带 timeoutMs 时保持 undefined，让注册表用自己的默认值（15s）。
       ...(timeoutMs ? { timeoutMs } : {}),

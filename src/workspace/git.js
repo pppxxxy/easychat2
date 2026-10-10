@@ -143,12 +143,28 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
       }
       return git.commit({ fs, dir, message: String(message || ''), author: commitAuthor });
     },
-    // 回合回滚：丢弃工作区改动回到 HEAD（只动沙盒里的文件，不碰外部）。
-    async checkoutAll({ filepaths = null } = {}) {
-      const options = { fs, dir, force: true };
-      if (Array.isArray(filepaths) && filepaths.length > 0) options.filepaths = filepaths;
-      await git.checkout(options);
-      return true;
+    // 丢弃未提交的改动，回到上一次提交（只动沙盒里的文件，不碰外部）。
+    //
+    // 为什么不是直接 git.checkout：checkout 只还原**已跟踪**文件，未跟踪/新加的文件它会
+    // 原样留在工作区——那样「丢弃全部改动」就是假的（新文件还在，下次提交又进去了）。
+    // 所以这里分两路：已跟踪的 checkout 还原，未跟踪/新加的删掉。
+    // filepaths 传了就只处理这些路径（单个文件级撤销）。
+    async discard({ filepaths = null } = {}) {
+      const changed = await this.changedFiles();
+      const scoped = Array.isArray(filepaths) && filepaths.length > 0
+        ? changed.filter(row => filepaths.includes(row.path))
+        : changed;
+      const tracked = scoped.filter(row => row.status === 'modified' || row.status === 'deleted').map(row => row.path);
+      const untracked = scoped.filter(row => row.status === 'untracked' || row.status === 'added').map(row => row.path);
+      if (tracked.length > 0) await git.checkout({ fs, dir, force: true, filepaths: tracked });
+      for (const path of untracked) {
+        try {
+          await fs.unlink(path);
+        } catch (error) {
+          // 单条删除失败不影响其余（下一次 status 仍会如实报出来）。
+        }
+      }
+      return { restored: tracked.length, removed: untracked.length };
     },
   };
 }

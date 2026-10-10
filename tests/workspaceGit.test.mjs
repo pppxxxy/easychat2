@@ -87,15 +87,36 @@ test('内核：空变更不产生空提交（返回 null）', async () => {
   assert.equal((await workspaceGit.log()).length, 0);
 });
 
-test('内核：checkoutAll 丢弃工作区改动回到 HEAD（回合回滚）', async () => {
+test('内核：discard 丢弃未提交改动回到 HEAD（改的回滚、新加的删掉、删的恢复）', async () => {
   const { fileSystem, workspaceGit } = setup();
   await workspaceGit.init();
-  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/x.txt`, 'keep\n');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/x.txt`, 'keep\\n');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/gone.txt`, 'bye\\n');
   await workspaceGit.commitAll('c1');
-  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/x.txt`, 'wrecked\n');
 
-  await workspaceGit.checkoutAll();
-  const restored = await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/x.txt`);
-  assert.equal(restored, 'keep\n');
-  assert.deepEqual(await workspaceGit.changedFiles(), []);
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/x.txt`, 'wrecked\\n');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/new.txt`, 'brand new\\n');
+  await fileSystem.deleteAsync(`${ROOT}${CHARACTER}/gone.txt`);
+
+  const result = await workspaceGit.discard();
+  assert.equal(result.restored, 2, '改的与删的都算「已跟踪，需还原」');
+  assert.equal(result.removed, 1, '未跟踪的新文件被删掉');
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/x.txt`), 'keep\\n', '改的回滚');
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/gone.txt`), 'bye\\n', '删的恢复');
+  await assert.rejects(() => fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/new.txt`), '新建的被删');
+  assert.deepEqual(await workspaceGit.changedFiles(), [], '工作区回到干净');
+});
+
+test('内核：discard 可只作用于指定路径（单文件级撤销）', async () => {
+  const { fileSystem, workspaceGit } = setup();
+  await workspaceGit.init();
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'a1\\n');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/b.txt`, 'b1\\n');
+  await workspaceGit.commitAll('c1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'a2\\n');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/b.txt`, 'b2\\n');
+
+  await workspaceGit.discard({ filepaths: ['a.txt'] });
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/a.txt`), 'a1\\n', 'a 回滚');
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/b.txt`), 'b2\\n', 'b 不动');
 });

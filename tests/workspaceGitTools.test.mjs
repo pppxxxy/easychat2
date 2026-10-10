@@ -62,7 +62,7 @@ test('门控：开关关 / 外部根 不放行（纯判定，可直测）', asyn
   assert.equal(gitGateReason({ allowLocalGit: true, mode: 'read' }), '');
 });
 
-test('注册表：给了 git runner 才多出三个只读工具；不给则完全不出现', () => {
+test('注册表：给了 git runner 才多出 git 工具（读三 + 写二）；不给则完全不出现', () => {
   const store = { listWorkspaceFiles: async () => [] };
   const without = createWorkspaceToolDefinitions({ store });
   assert.equal(without.some(item => GIT_TOOL_NAMES.includes(item.name)), false, '没 runner → 一个都不注册');
@@ -70,10 +70,18 @@ test('注册表：给了 git runner 才多出三个只读工具；不给则完�
 
   const withGit = byName(createWorkspaceToolDefinitions({ store, git: makeGitRunner(createMemoryFileSystem()) }));
   for (const name of GIT_TOOL_NAMES) {
-    const definition = withGit.get(name);
-    assert.ok(definition, `${name} 已注册`);
-    assert.equal(definition.readOnly, true, `${name} 是只读工具`);
+    assert.ok(withGit.get(name), `${name} 已注册`);
   }
+  // 读三件套：readOnly → read 模式也放行（回看改过什么）
+  for (const name of ['git_status', 'git_diff', 'git_log']) {
+    assert.equal(withGit.get(name).readOnly, true, `${name} 是只读工具`);
+  }
+  // 写两件：readOnly: false → 注册表的模式门控只在可改模式放行
+  assert.equal(withGit.get('git_commit').readOnly, false);
+  assert.equal(withGit.get('git_discard').readOnly, false);
+  // 丢弃是破坏性操作 → 必须逐条确认（没有审批钩子的环境一律拒绝执行）
+  assert.equal(withGit.get('git_discard').requiresConfirmation, true);
+  assert.equal(withGit.get('git_commit').requiresConfirmation, undefined, '提交是增量操作，不需要逐条点头');
   assert.equal(withGit.get('git_status').timeoutMs, 30000, 'status 显式 30s（真机 Hermes 比 Node 慢）');
   assert.equal(withGit.get('git_diff').timeoutMs, 30000, 'diff 同样显式');
   assert.equal(withGit.get('git_log').timeoutMs, undefined, 'log 不带声明 → 用注册表默认超时');
@@ -131,4 +139,85 @@ test('git 工具在没注入 runner 时如实报「未启用」（不抛错）',
   const result = await definition.execute({}, { characterId: CHARACTER });
   assert.equal(result.isError, true);
   assert.match(result.content, /未启用/);
+});
+
+test('git_commit：缺 message 报错；有改动才提交；没改动如实说', async () => {
+  const fileSystem = createMemoryFileSystem();
+  const runner = makeGitRunner(fileSystem);
+  const definitions = byName(createWorkspaceToolDefinitions({ store: { listWorkspaceFiles: async () => [] }, git: runner }));
+  const ctx = { characterId: CHARACTER };
+  const commit = definitions.get('git_commit');
+
+  const missing = await commit.execute({}, ctx);
+  assert.equal(missing.isError, true);
+  assert.match(missing.content, /请提供 message/);
+
+  await runner.ensureRepo({ characterId: CHARACTER });
+  const empty = await commit.execute({ message: '空提交' }, ctx);
+  assert.equal(empty.isError, undefined);
+  assert.match(empty.content, /没有未提交的改动/);
+
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
+  const done = await commit.execute({ message: '加了 a.txt' }, ctx);
+  assert.match(done.content, /已提交 1 个文件的改动/);
+  assert.match(done.content, /加了 a\.txt/);
+  const log = await runner.open({ characterId: CHARACTER }).log();
+  assert.equal(log[0].message, '加了 a.txt');
+});
+
+test('git_discard：不传参数**不默认丢弃任何东西**；path 与 all 互斥', async () => {
+  const fileSystem = createMemoryFileSystem();
+  const runner = makeGitRunner(fileSystem);
+  const definitions = byName(createWorkspaceToolDefinitions({ store: { listWorkspaceFiles: async () => [] }, git: runner }));
+  const ctx = { characterId: CHARACTER };
+  const discard = definitions.get('git_discard');
+
+  const noArgs = await discard.execute({}, ctx);
+  assert.equal(noArgs.isError, true);
+  assert.match(noArgs.content, /不传参数不会默认丢弃任何东西/);
+
+  const both = await discard.execute({ path: 'a.txt', all: true }, ctx);
+  assert.equal(both.isError, true);
+  assert.match(both.content, /二选一/);
+});
+
+test('git_discard：all 丢弃全部未提交改动（改的回滚、新建的删除）', async () => {
+  const fileSystem = createMemoryFileSystem();
+  const runner = makeGitRunner(fileSystem);
+  const definitions = byName(createWorkspaceToolDefinitions({ store: { listWorkspaceFiles: async () => [] }, git: runner }));
+  const ctx = { characterId: CHARACTER };
+  const handle = await runner.ensureRepo({ characterId: CHARACTER });
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/keep.txt`, 'keep');
+  await handle.commitAll('c1');
+
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/keep.txt`, 'wrecked');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/new.txt`, 'new');
+  const result = await definitions.get('git_discard').execute({ all: true }, ctx);
+  assert.equal(result.isError, undefined);
+  assert.match(result.content, /回滚 1 个文件/);
+  assert.match(result.content, /删除 1 个新文件/);
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/keep.txt`), 'keep');
+  await assert.rejects(() => fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/new.txt`));
+  assert.deepEqual(await handle.changedFiles(), []);
+});
+
+test('git_discard：path 只作用于那一个文件；文件本来就干净时如实说', async () => {
+  const fileSystem = createMemoryFileSystem();
+  const runner = makeGitRunner(fileSystem);
+  const definitions = byName(createWorkspaceToolDefinitions({ store: { listWorkspaceFiles: async () => [] }, git: runner }));
+  const ctx = { characterId: CHARACTER };
+  const handle = await runner.ensureRepo({ characterId: CHARACTER });
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'a1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/b.txt`, 'b1');
+  await handle.commitAll('c1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'a2');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/b.txt`, 'b2');
+
+  const clean = await definitions.get('git_discard').execute({ path: 'c.txt' }, ctx);
+  assert.match(clean.content, /没有未提交的改动：c\.txt/);
+
+  const scoped = await definitions.get('git_discard').execute({ path: 'a.txt' }, ctx);
+  assert.match(scoped.content, /a\.txt：已丢弃未提交改动/);
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/a.txt`), 'a1');
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/b.txt`), 'b2', 'b 不受影响');
 });
