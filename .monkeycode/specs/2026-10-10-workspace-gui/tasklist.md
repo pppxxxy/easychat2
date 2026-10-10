@@ -58,7 +58,13 @@
       界面：检索框（带清除）+ 两个排序 chip + 区分「没有会话 / 没有匹配」的空态。
       顺手把行内 `chat.messages.length` 换成 `chatMessageCount`（原写法缺 `messages` 会抛）。
       测试 8 条。
-- [ ] P2-3 本地文件搜索（照抄 `GithubPanel.js:1262-1281` 的形状）。
+- [x] **P2-3 本地文件搜索**：新增纯函数 `src/workspace/fileSearch.js`
+      （`searchWorkspaceFiles(files, query, {limit})` → `{matches, total, truncated}`）。
+      排序：**文件名命中 > 仅路径命中**，同档路径越浅越靠前。两个有意取舍：**只搜文件不搜目录**
+      （目录能逐层点，混进结果只是噪声）、**空查询不返回结果**（那时该显示原来的树）。
+      界面：工具行下方搜索框（带清除），有词时平铺结果替代目录树，截断时说清「还有 N 条」。
+      测试 7 条（其中一条抓的是我自己写的 `Number(limit) || 50` 让 `limit:0` 变 50 的缺陷）。
+      FilesPanel 1493 行（基线 1580，余量 87）。
 
 ## P3 扩展点 GUI 补齐
 
