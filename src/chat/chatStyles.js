@@ -323,6 +323,11 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   },
   linkLeft: { flexDirection: 'row', alignItems: 'center' },
   chatSettingsText: { color: theme.colors.textMuted, fontSize: 15, marginLeft: tokens.spacing.sm + 2 },
+  // P2-7：上下文占用明细（聊天设置弹层里的分段列表）。
+  contextBlock: { marginTop: tokens.spacing.md, marginLeft: tokens.spacing.sm + 2 },
+  contextTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '700', marginBottom: 6 },
+  contextLine: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2 },
+  bodyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 6 },
   chatSettingsHint: { color: theme.colors.textFaint, fontSize: 13 },
   modalList: { maxHeight: 360 },
   modalRow: {

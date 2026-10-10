@@ -54,3 +54,34 @@ export function shouldAutoCompact(contextUsage, { ratio = AUTO_COMPACT_RATIO } =
     && Number.isFinite(contextUsage.ratio)
     && contextUsage.ratio >= ratio);
 }
+
+// 单段文本的 token 估算（与消息同口径：同一估算器，避免两套数字互相打架）。
+export function estimateTextTokens(text) {
+  const value = String(text === undefined || text === null ? '' : text).trim();
+  if (!value) return 0;
+  return estimateMessagesTokens([{ role: 'system', content: value }]);
+}
+
+// P2-7：上下文占用明细——把「谁在吃窗口」拆开给用户看。
+//
+// 输入是调用方**如实测量**得到的段（key + text 或 tokens），这里只做归一、排序与占比；
+// 不猜、不补：没测量的部分就不出现在列表里（宁缺勿假）。
+// 段顺序按 token 降序——用户一眼看到的是「最大那块是谁」。
+export function buildContextBreakdown(segments, windowSize) {
+  const window = Number.isFinite(Number(windowSize)) && Number(windowSize) > 0
+    ? Math.floor(Number(windowSize))
+    : DEFAULT_CONTEXT_WINDOW;
+  const list = [];
+  for (const raw of Array.isArray(segments) ? segments : []) {
+    const key = String((raw && raw.key) || '').trim();
+    if (!key) continue;
+    const tokens = Number.isFinite(Number(raw && raw.tokens))
+      ? Math.max(0, Math.floor(Number(raw.tokens)))
+      : estimateTextTokens(raw && raw.text);
+    if (tokens <= 0) continue;
+    list.push({ key, tokens, ratio: window > 0 ? tokens / window : 0 });
+  }
+  list.sort((a, b) => b.tokens - a.tokens);
+  const total = list.reduce((sum, item) => sum + item.tokens, 0);
+  return { window, total, ratio: window > 0 ? total / window : 0, segments: list };
+}

@@ -13,14 +13,15 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   SESSION_AUTO_COMPACT_RATIO,
   SESSION_COMPACT_HINT_RATIO,
+  buildContextBreakdown,
   computeContextUsage,
   estimateHistoryTokens,
+  estimateTextTokens,
   resolveContextWindow,
   shouldAutoCompact,
 } from '../src/chat/contextUsage.js';
 
-function readSource(relativePath) {
-  return fs.readFileSync(path.resolve(relativePath), 'utf8');
+function readSource(relativePath) {  return fs.readFileSync(path.resolve(relativePath), 'utf8');
 }
 
 test('estimateHistoryTokens：按消息文本粗估，非数组输入为 0', () => {
@@ -150,4 +151,39 @@ test('SettingsScreen：能力弹层暴露每模型 contextWindow 输入', () => 
     '输入框标签应引用 i18n 键'
   );
   assert.equal(zhCN['settings.capability.contextWindow'], '上下文窗口（tokens）', '语言包中文值正确');
+});
+
+// P2-7：上下文占用明细（谁在吃窗口）。
+test('P2-7 estimateTextTokens：空文本 0、非空与消息同口径（同一估算器）', () => {
+  assert.equal(estimateTextTokens(''), 0);
+  assert.equal(estimateTextTokens('   '), 0);
+  assert.equal(estimateTextTokens(null), 0);
+  assert.ok(estimateTextTokens('x'.repeat(400)) > 0);
+  assert.equal(
+    estimateTextTokens('一段文本'),
+    estimateHistoryTokens([{ role: 'system', text: '一段文本' }]),
+    '与消息口径一致——两套数字互相打架比没有数字更糟'
+  );
+});
+
+test('P2-7 buildContextBreakdown：归一、按 token 降序、占比、空段与坏输入安全', () => {
+  const result = buildContextBreakdown([
+    { key: 'system', text: 'x'.repeat(400) },
+    { key: 'history', tokens: 100 },
+    { key: 'input', tokens: 0 },
+    { key: '', tokens: 999 },
+    { key: 'tools', tokens: -5 },
+    null,
+  ], 10000);
+  assert.deepEqual(result.segments.map(item => item.key), ['system', 'history'], '空段/坏段被剔除');
+  assert.equal(result.total, result.segments.reduce((sum, item) => sum + item.tokens, 0));
+  assert.ok(result.segments[0].tokens >= result.segments[1].tokens, '降序：最大那块排最前');
+  assert.ok(Math.abs(result.segments[1].ratio - 0.01) < 1e-9, 'ratio = tokens / window');
+  assert.equal(result.window, 10000);
+
+  // 没给 window（明细只看份额时）→ 用保守默认，不抛错。
+  const noWindow = buildContextBreakdown([{ key: 'a', tokens: 10 }]);
+  assert.equal(noWindow.window, DEFAULT_CONTEXT_WINDOW);
+  assert.equal(buildContextBreakdown(null).segments.length, 0);
+  assert.equal(buildContextBreakdown([]).total, 0);
 });

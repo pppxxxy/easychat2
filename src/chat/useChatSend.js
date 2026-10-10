@@ -71,6 +71,11 @@ import { getCharacterSchedule } from '../storage/schedule.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
+  buildContextBreakdown,
+  estimateHistoryTokens,
+  estimateTextTokens,
+} from './contextUsage.js';
+import {
   buildAutoSummaryInput,
   buildReplyErrorMessage,
   classifyReplyError,
@@ -218,6 +223,8 @@ export default function useChatSend({
   // after_turn 的提醒排队给下一轮。两者都只在本次运行内有效（重启即丢，不写盘）。
   const hookSessionInjectedRef = useRef(new Set());
   const pendingHookNoticesRef = useRef([]);
+  // P2-7：上下文占用明细（按本次真实发出的请求分段测量；null = 还没发过请求）。
+  const [contextBreakdown, setContextBreakdown] = useState(null);
   // 分支变更计数：撤回归档 / 切换 / 删除分支后自增，驱动 UI 重新读取分支索引。
   const [branchesRefreshToken, setBranchesRefreshToken] = useState(0);
   const bumpBranchesRefresh = useCallback(() => {
@@ -569,6 +576,26 @@ export default function useChatSend({
           workspaceMode,
           { allowChatTools: chatToolsEnabled }
         );
+        // P2-7：上下文占用明细——按**本次真实发出的请求**分段测量（系统提示 / 历史 /
+        // 本轮输入 / 工具定义），让用户看到「谁在吃窗口」。系统提示里折了角色设定、
+        // 预设、世界书、记忆与钩子注入，这里不假装能拆开（要拆得改请求构造层）。
+        try {
+          const systemText = requestMessages
+            .filter(item => item && item.role === 'system')
+            .map(item => (typeof item.content === 'string' ? item.content : ''))
+            .join('\n');
+          const nonSystem = requestMessages.filter(item => item && item.role !== 'system');
+          const inputMessages = nonSystem.slice(-1);
+          const historyMessages = nonSystem.slice(0, -1);
+          setContextBreakdown(buildContextBreakdown([
+            { key: 'system', tokens: estimateTextTokens(systemText) },
+            { key: 'history', tokens: estimateHistoryTokens(historyMessages) },
+            { key: 'input', tokens: estimateHistoryTokens(inputMessages) },
+            ...(agentTools.length > 0
+              ? [{ key: 'tools', tokens: estimateTextTokens(JSON.stringify(agentTools)) }]
+              : []),
+          ], 0));
+        } catch (error) {}
         // I1：Steering 队列只在本轮真的会跑工具循环时建（runAgentTurn 才会在轮与轮之间
         // drain）；单次请求没有「下一轮」，收了就是吞掉用户的字。宿主据此决定运行中
         // 发送是「入队」还是「保留输入并说明」。
@@ -1836,6 +1863,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
     onEditUserMessage,
     modelLoadProgress,
     modelFallbackNotice,
+    // P2-7：上下文占用明细（null = 还没发过请求）。
+    contextBreakdown,
     // I1：运行中补充指令（队列可用性 + 入队 + 提示文案）。
     steeringAvailable,
     pushSteering,

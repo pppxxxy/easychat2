@@ -1141,6 +1141,7 @@ export default function ChatScreen() {
     pushSteering,
     steeringNote,
     setSteeringNote,
+    contextBreakdown,
     branchesRefreshToken,
   } = useChatSend({
     beginSendOperation,
@@ -3040,6 +3041,7 @@ export default function ChatScreen() {
         compactInfo={compactInfo}
         compactBusy={compactBusy}
         onCompactSession={openCompactFocus}
+        contextBreakdown={contextBreakdown}
       />
 
       <CompactFocusModal
