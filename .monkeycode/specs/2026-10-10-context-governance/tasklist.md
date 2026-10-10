@@ -194,3 +194,44 @@ P0 独立立项（E2 已覆盖）/ 时间阈值触发 / 压缩后自动重读文
 `git cherry-pick 76ebe0e` 可取回。
 
 门禁：lint 0、`node --test` 2442/2442、guard:structure ok（棘轮/循环）、i18n 缺失键 0。
+
+## ⚠️ 待修：K1 的触发预算在生产里永不达标（2026-10-10 实测，D 线复核）
+
+**现象**：K1（`agent/resultClearing.js`）是「已在上下文里的旧工具结果逐步退役」的唯一机制，
+但它在生产里**从不触发**。
+
+**证据**：
+- `contextBudgetBytes` 全仓只有三处引用：`src/agent/loop.js:116`（读该 option）、
+  `tests/agentLoop.test.mjs:509` 与 `:541`（测试传 200）。**没有任何生产调用方注入它**，
+  所以实际用的永远是 `RESULT_CLEARING_BUDGET_BYTES = 2 * 1024 * 1024`。
+- `planResultClearing` 拿 `estimateContextBytes(history)`（= `JSON.stringify(history).length`，
+  **字符数**）与预算比。用本项目自己的 `estimateMessagesTokens` 同口径实测：
+
+  | 场景 | tokens≈ | 上下文 | 占 2MB 预算 | K1 清除 |
+  |---|---|---|---|---|
+  | 小会话 + 12 轮工具（各 16KB） | 216,788 | 214 KB | 10.5% | **0 条** |
+  | 满 200k 窗口（纯中文）+ 12 轮工具 | 396,788 | 390 KB | 19.1% | **0 条** |
+  | 满 200k 窗口 + 40 轮工具 | 855,764 | 843 KB | 41.2% | **0 条** |
+
+  要碰到 2MB 需要约 200 万中文字符 ≈ 200 万 token——是任何真实窗口的 10 倍。
+
+**根因**：2MB 是照「D3 会话压缩阈值 4MB 的一半」定的（见 `resultClearing.js:16` 注释），
+但那个 4MB 量的是**落库会话**（`chat/compaction.js:17` 的 `COMPACTION_THRESHOLD_BYTES`），
+而 K1 量的是**本次请求**的 history——两个不同的量。请求上下文的上限是模型窗口
+（200k token ≈ 0.4MB 中文）。
+
+**影响**：本分支**没有任何在生效的轮内工具结果退役**。O1（单条超 16KB 落盘 + 指针）照常生效，
+但 K1 的「旧结果按预算逐步退役」完全没跑。
+
+**修法（两条，需裁决，未做）**：
+- **A. 接通预算（推荐）**：宿主按模型声明的窗口算 `contextBudgetBytes` 传入，口径复用
+  `compactionPolicy`（唯一阈值来源）；未声明窗口时保持 2MB 默认 = 行为不变。
+  需定 tokens→字符换算：`localContext.estimateTextTokens` 的口径是「CJK 1 token/字、
+  其它 1/4 token/字」，最稳妥是在本次 history 上**实测该比值**再换算，不写死常数。
+- **B. 把 D 线 `d1010d1` 的 P2-8 cherry-pick 回来当兜底**（`git cherry-pick 76ebe0e`）。
+  缺点：与 K1 同一块地、且**不落盘**（与 O1/K1 的「信息只移不丢」相抵触）；
+  K1 一旦接通它就成了重复机制。
+
+**为什么本轮没直接改**：K1 何时开始丢弃内容属于「压得多早」的调参决策
+（`compactionPolicy.js:17` 已注明「需真机实测后再调」），而这正是本次测试包要验的东西——
+在用户发话前不擅自改生产行为。
