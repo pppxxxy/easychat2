@@ -59,6 +59,8 @@ import {
 } from '../../storage/settings.js';
 import { AUTO_COMPACT_RATIO, computeContextUsage, resolveCompactionThreshold, resolveContextWindow } from '../../chat/contextUsage.js';
 import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
+import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
+import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
@@ -428,6 +430,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             expectedConfigFingerprint: getConfigFingerprint(current),
           }),
           writeTranscript: jsonl => writeTranscript({ store: storeRef.current, characterId: ownerId, content: jsonl }),
+          // P4：保留量按 token 预算（窗口的 16%，对齐 dsh retainRatio），下限仍是 6 条。
+          retainTokens: Math.max(0, Math.floor(windowSize * COMPACTION_RETAIN_RATIO)),
+          estimateTokens: msg => estimateMessagesTokens([{
+            role: msg && msg.role,
+            content: String((msg && (msg.content != null ? msg.content : msg.text)) || ''),
+          }]),
         },
       });
       if (result.applied.length > 0 && result.messages !== list) {

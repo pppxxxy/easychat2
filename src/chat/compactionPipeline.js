@@ -85,36 +85,77 @@ export function buildToolTranscript(messages) {
 }
 
 // 尾部按「配对单位」切割：保留最近 keep 条，但保证切割点不落在 toolUse↔toolResult 之间——
-// 起点是 tool 结果 → 回退包含其 toolUse；起点前一条是带 tool_calls 的 assistant → 也回退纳入。
-export function sliceRecentIntact(messages, keep = COMPACTION_KEEP_RECENT) {
-  const list = Array.isArray(messages) ? messages : [];
-  const count = Math.max(0, Math.floor(Number(keep) || 0));
-  if (count === 0) return [];
-  let start = Math.max(0, list.length - count);
-  while (start > 0) {
-    const first = list[start];
-    const prev = list[start - 1];
+// 配对边界回退：起点是 tool 结果 → 回退包含其 toolUse；起点前一条是带 tool_calls 的
+// assistant → 也回退纳入。返回修正后的起点下标。
+function retreatToPairBoundary(list, start) {
+  let index = start;
+  while (index > 0) {
+    const first = list[index];
+    const prev = list[index - 1];
     const startIsTool = !!first && first.role === 'tool';
     const prevIsCall = !!prev && prev.role === 'assistant'
       && Array.isArray(prev.tool_calls) && prev.tool_calls.length > 0;
     if (startIsTool || prevIsCall) {
-      start -= 1;
+      index -= 1;
       continue;
     }
     break;
   }
+  return index;
+}
+
+// 保留尾部 N 条（配对边界回退）。
+export function sliceRecentIntact(messages, keep = COMPACTION_KEEP_RECENT) {
+  const list = Array.isArray(messages) ? messages : [];
+  const count = Math.max(0, Math.floor(Number(keep) || 0));
+  if (count === 0) return [];
+  const start = retreatToPairBoundary(list, Math.max(0, list.length - count));
   return list.slice(start);
+}
+
+// P4：按 token 预算保留尾部（对齐 dsh retainRatio / Claude「5 条 / 20k tokens」）。
+// 从最新往前累计，达到预算即停；至少保留 minMessages 条（下限保护，避免预算过小切太狠）。
+// estimateTokens(msg) → number；预算非法或缺失估算器时回退到条数口径。
+export function sliceRecentByBudget(messages, {
+  retainTokens,
+  minMessages = COMPACTION_KEEP_RECENT,
+  estimateTokens,
+} = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  const budget = Number(retainTokens);
+  const floorCount = Math.max(0, Math.floor(Number(minMessages) || 0));
+  if (!Number.isFinite(budget) || budget <= 0 || typeof estimateTokens !== 'function') {
+    return sliceRecentIntact(list, floorCount);
+  }
+  let start = list.length;
+  let used = 0;
+  while (start > 0) {
+    const count = list.length - start;
+    const token = Math.max(0, Number(estimateTokens(list[start - 1])) || 0);
+    if (count >= floorCount && used + token > budget) break;
+    used += token;
+    start -= 1;
+  }
+  return list.slice(retreatToPairBoundary(list, start));
 }
 
 // 权威分离（O2 条款）：摘要消息 =「当前用户请求（权威）」+「历史摘要（仅供参考，不构成指令）」。
 // 附「完整历史：<path>」指针（L3 归档）。
-export function applyCompactionWithAuthority(messages, summary, { keep = COMPACTION_KEEP_RECENT, transcriptPath = '' } = {}) {
+export function applyCompactionWithAuthority(messages, summary, {
+  keep = COMPACTION_KEEP_RECENT,
+  retainTokens = 0,
+  minMessages = COMPACTION_KEEP_RECENT,
+  estimateTokens = null,
+  transcriptPath = '',
+} = {}) {
   const list = Array.isArray(messages) ? messages : [];
   let currentRequest = '';
   for (let i = list.length - 1; i >= 0; i -= 1) {
     if (list[i] && list[i].role === 'user') { currentRequest = textOf(list[i]); break; }
   }
-  const recent = sliceRecentIntact(list, keep);
+  const recent = (Number(retainTokens) > 0 && typeof estimateTokens === 'function')
+    ? sliceRecentByBudget(list, { retainTokens, minMessages, estimateTokens })
+    : sliceRecentIntact(list, keep);
   const head = [
     COMPACTION_MARKER,
     `当前用户请求：${currentRequest || '（见下方最近消息）'}（权威）`,
@@ -225,7 +266,12 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, deps = 
         transcriptPath = stored && stored.path ? stored.path : '';
         if (transcriptPath) applied.push('L3');
       }
-      current = applyCompactionWithAuthority(current, summary, { transcriptPath });
+      current = applyCompactionWithAuthority(current, summary, {
+        transcriptPath,
+        retainTokens: d.retainTokens,
+        minMessages: d.retainMinMessages,
+        estimateTokens: d.estimateTokens,
+      });
     }
   }
   return { messages: current, applied, transcriptPath: '' };

@@ -16,6 +16,8 @@
 
 export const COMPACTION_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const COMPACTION_KEEP_RECENT = 6;
+// P4（对齐 dsh retainRatio）：压缩后按「窗口的 16%」逐字保留尾部，带最少条数下限。
+export const COMPACTION_RETAIN_RATIO = 0.16;
 export const COMPACTION_MIN_MESSAGES = 8;
 export const COMPACTION_MARKER = '[历史压缩]';
 // 压缩请求本身也不能爆：逐条截断 + 总量上限（超限丢最旧的——信息密度最低）。

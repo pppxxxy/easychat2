@@ -11,6 +11,7 @@ import {
   buildTranscriptJsonl,
   isCompactedHistory,
   runCompactionPipeline,
+  sliceRecentByBudget,
   sliceRecentIntact,
   trimLargeToolResults,
 } from '../src/chat/compactionPipeline.js';
@@ -172,4 +173,52 @@ test('runCompactionPipeline：L0 落盘失败保原文（不修剪）', async ()
   });
   assert.equal(result.messages[1].content, big, '落盘失败不清除也不修剪');
   assert.equal(COMPACTION_KEEP_RECENT, 6);
+});
+
+test('P4：sliceRecentByBudget 按 token 预算保留尾部，带最少条数下限', () => {
+  const msgs = [
+    { role: 'user', content: 'a'.repeat(100) },
+    { role: 'assistant', content: 'b'.repeat(100) },
+    { role: 'user', content: 'c'.repeat(100) },
+    { role: 'assistant', content: 'd'.repeat(100) },
+  ];
+  const est = m => String(m.content || '').length; // 每条 100
+  // 预算 250：从尾 d(100)+c(100)+b(100)=300 超 → 停在 b 之前 → 保留 [c, d]
+  const out = sliceRecentByBudget(msgs, { retainTokens: 250, minMessages: 0, estimateTokens: est });
+  assert.deepEqual(out.map(m => m.content[0]), ['c', 'd']);
+  // 下限保护：预算很小但 minMessages=3 → 至少 3 条
+  const floored = sliceRecentByBudget(msgs, { retainTokens: 10, minMessages: 3, estimateTokens: est });
+  assert.deepEqual(floored.map(m => m.content[0]), ['b', 'c', 'd']);
+  // 无预算 / 无估算器 → 回退条数口径
+  assert.equal(sliceRecentByBudget(msgs, { retainTokens: 0, minMessages: 2, estimateTokens: est }).length, 2);
+  assert.equal(sliceRecentByBudget(msgs, { retainTokens: 250, minMessages: 0 }).length, 0, '无估算器 → sliceRecentIntact(0)=[]');
+});
+
+test('P4：sliceRecentByBudget 起点落在 tool 结果时回退（配对不破）', () => {
+  const call = toolCall('x1', 'read_workspace_file', { path: 'a' });
+  call.content = 'think'; // 让本条有非零 token
+  const msgs = [
+    { role: 'user', content: 'u'.repeat(50) },
+    call,
+    toolResult('x1', 'R'.repeat(200)),
+    { role: 'assistant', content: 'done' },
+  ];
+  const est = m => String(m.content || '').length;
+  // 预算 205：保留 done(4)+R(200)=204，再加 call(4)=208 超 → 起点落在 tool 结果 → 回退纳入 call
+  const out = sliceRecentByBudget(msgs, { retainTokens: 205, minMessages: 0, estimateTokens: est });
+  assert.ok(out[0] && Array.isArray(out[0].tool_calls), '首个是被回退纳入的 assistant(tool_calls)');
+  assert.equal(findOrphanToolMessages(out).length, 0, '无孤儿');
+});
+
+test('P4：applyCompactionWithAuthority 传 retainTokens 时按 token 保留尾部', () => {
+  const msgs = [
+    { role: 'user', content: 'a'.repeat(100) },
+    { role: 'assistant', content: 'b'.repeat(100) },
+    { role: 'user', content: 'c'.repeat(100) },
+    { role: 'assistant', content: 'd'.repeat(100) },
+  ];
+  const est = m => String(m.content || '').length;
+  const out = applyCompactionWithAuthority(msgs, '摘要', { retainTokens: 250, minMessages: 0, estimateTokens: est });
+  assert.match(String(out[0].content), /历史摘要/);
+  assert.deepEqual(out.slice(1).map(m => String(m.content)[0]), ['c', 'd']);
 });
