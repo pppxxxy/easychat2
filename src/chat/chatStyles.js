@@ -1399,6 +1399,13 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     justifyContent: 'flex-end',
     marginTop: 14,
   },
+  // 会话压缩的「关注点」说明（P0-5 尾巴）：解释留空 = 与一键压缩相同。
+  compactFocusHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginBottom: 10,
+  },
   attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },
   voiceHoldButtonActive: { backgroundColor: theme.colors.primaryAlpha(0.16), borderRadius: tokens.radius.md },

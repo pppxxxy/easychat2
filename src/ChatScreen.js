@@ -180,6 +180,8 @@ import ConversationExportModal from './chat/ConversationExportModal.js';
 import ConversationCardModal from './chat/ConversationCardModal.js';
 import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
+// P0-5 尾巴：压缩的「关注点」输入入口（留空 = 与一键压缩相同）。
+import CompactFocusModal from './chat/CompactFocusModal.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
@@ -1556,6 +1558,18 @@ export default function ChatScreen() {
     }
   }, [messages, messagesRef, setMessages, t]);
 
+  // P0-5 尾巴：压缩关注点弹窗。两处入口（提示条 / 聊天设置）都先开它，留空即普通压缩。
+  const [compactFocusOpen, setCompactFocusOpen] = useState(false);
+  const [compactFocusDraft, setCompactFocusDraft] = useState('');
+  const openCompactFocus = useCallback(() => {
+    setCompactFocusDraft('');
+    setCompactFocusOpen(true);
+  }, []);
+  const confirmCompactFocus = useCallback(() => {
+    setCompactFocusOpen(false);
+    handleCompactSession({ focus: compactFocusDraft });
+  }, [compactFocusDraft, handleCompactSession]);
+
   // E2：上下文占用观测（独立于记忆总结）——70% 提示条与 85% 自动压缩的数据源。
   // 依赖 messages.length 而非整个数组：流式期间 content 变但条数不变，不做逐 token 重算。
   useEffect(() => {
@@ -2702,7 +2716,7 @@ export default function ChatScreen() {
             {t('chat.compact.hint', { percent: Math.round(contextUsageRatio * 100) })}
           </Text>
           <TouchableOpacity
-            onPress={() => { if (!compactBusy) handleCompactSession(); }}
+            onPress={() => { if (!compactBusy) openCompactFocus(); }}
             accessibilityRole="button"
           >
             <Text style={styles.compactHintAction}>
@@ -3008,7 +3022,16 @@ export default function ChatScreen() {
         }}
         compactInfo={compactInfo}
         compactBusy={compactBusy}
-        onCompactSession={handleCompactSession}
+        onCompactSession={openCompactFocus}
+      />
+
+      <CompactFocusModal
+        visible={compactFocusOpen}
+        onClose={() => setCompactFocusOpen(false)}
+        focus={compactFocusDraft}
+        onChangeFocus={setCompactFocusDraft}
+        onConfirm={confirmCompactFocus}
+        busy={compactBusy}
       />
 
       <VoiceSettingsModal
