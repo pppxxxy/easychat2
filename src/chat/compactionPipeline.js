@@ -204,13 +204,15 @@ export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
 }
 
 // 四档编排（异步，依赖注入）。任一档解除压力（ratioOf < autoRatio）即短路。
+// focus：本次压缩要特别保留什么（D 系 /compact <关注点>）；只影响 L2 的 system 提示词，
+// 不传时逐字同旧版。宿主若已自行判定「该压了」，传 autoRatio=0 让四档全跑（档间不再自判）。
 // deps:
 //   estimateRatio(messages) -> number
 //   persist(content, meta) -> Promise<{ path } | null>   （L0 修剪前的 O1 落盘）
 //   clear(messages) -> Promise<{ messages, changed }>    （L1，宿主包 K1）
 //   summarize(requestMessages) -> Promise<string>        （L2）
 //   writeTranscript(jsonl) -> Promise<{ path } | null>   （L3）
-export async function runCompactionPipeline(messages, { autoRatio = 0.8, deps = {} } = {}) {
+export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus = '', deps = {} } = {}) {
   const d = deps || {};
   const ratioOf = typeof d.estimateRatio === 'function' ? d.estimateRatio : () => 0;
   let current = Array.isArray(messages) ? messages : [];
@@ -256,7 +258,10 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, deps = 
 
   // L2 摘要（+ L3 归档在破坏性替换前）。
   if (typeof d.summarize === 'function') {
-    const request = buildCompactionSummaryRequest(current, { toolTranscript: buildToolTranscript(current) });
+    const request = buildCompactionSummaryRequest(current, {
+      toolTranscript: buildToolTranscript(current),
+      focus,
+    });
     const summary = String((await d.summarize(request)) || '').trim();
     if (summary) {
       applied.push('L2');

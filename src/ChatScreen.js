@@ -119,14 +119,11 @@ import { normalizeLocalModelParams } from './localModel/modelParams.js';
 import { SESSION_COMPACT_HINT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
 import useAutoCompact from './chat/useAutoCompact.js';
 import {
-  COMPACTION_KEEP_RECENT,
   COMPACTION_MIN_MESSAGES,
-  applyCompaction,
-  buildCompactionSummaryRequest,
   compactionStatus,
   normalizeCompactionFocus,
-  parseCompactionSummary,
 } from './chat/compaction.js';
+import { runSessionCompaction, countCompactionMessages, resolveCompactionFocus } from './chat/sessionCompaction.js';
 import { getImageProvider } from './imageGen/providers.js';
 import useChatTts from './chat/useChatTts.js';
 import useSessionGuard from './chat/useSessionGuard.js';
@@ -178,10 +175,7 @@ import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
 // P0-5 尾巴：压缩的「关注点」输入入口（留空 = 与一键压缩相同）。
 import CompactFocusModal from './chat/CompactFocusModal.js';
-// P0-8：压缩前钩子（before_compact：注入额外要求 / 拦下这次压缩）。
-import { getWorkspaceSettings } from './storage/workspace.js';
-import { createWorkspaceStore } from './workspace/native.js';
-import { collectCompactionHooks, readWorkspaceHooks } from './workspace/hooks.js';
+// P0-8 压缩前钩子已并入 chat/sessionCompaction.js 的 resolveCompactionFocus。
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
@@ -1535,30 +1529,26 @@ export default function ChatScreen() {
   // 与分支系统：压缩会让引用旧消息的 fork 点失效，branchTree 按 `stale` 降级。
   // E2：支持 { silent: true } 静默模式（85% 自动触发用）——不弹任何 Alert，
   // 返回 { ok, before?, after? } 供调用方决策；手动路径行为与旧版逐字一致。
+  // N2 整合：走 M 的四档管线（L0 修剪/L1 K1 清除/L2 摘要/L3 归档 + 权威分离），与工作区
+  // ChatPanel 同一套；「该不该压」仍由本页判（useAutoCompact / 手动），故管线 autoRatio=0。
   const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
   const handleCompactSession = useCallback(async (options = {}) => {
     const silent = options && options.silent === true;
     // focus（可选）：本次会话压缩要特别保留什么。无关注点时提示词逐字节不变。
-    let focus = normalizeCompactionFocus(options && options.focus);
-    // P0-8：压缩前钩子——`deny` 拦下这次压缩，`inject` 并进「额外要求」（与关注点同一条通道）。
-    // 钩子读失败一律当没有钩子（声明式扩展不该成为压缩链路的故障源）。
-    try {
-      const workspaceSettings = await getWorkspaceSettings();
-      const hookStore = createWorkspaceStore(workspaceSettings);
-      const hooks = await readWorkspaceHooks(hookStore, character.id);
-      const compactHooks = collectCompactionHooks(hooks, focus);
-      if (compactHooks.blocks.length > 0) {
-        if (!silent) Alert.alert(t('chat.hooks.blocked.title'), compactHooks.blocks.join('\n'));
-        return { ok: false, reason: 'hook-blocked' };
-      }
-      focus = normalizeCompactionFocus([focus, ...compactHooks.notices].filter(Boolean).join('；'));
-    } catch (error) {}
+    const hookFocus = await resolveCompactionFocus({
+      characterId: character.id,
+      focus: normalizeCompactionFocus(options && options.focus),
+    });
+    if (hookFocus.blocked.length > 0) {
+      if (!silent) Alert.alert(t('chat.hooks.blocked.title'), hookFocus.blocked.join('\n'));
+      return { ok: false, reason: 'hook-blocked' };
+    }
+    const focus = hookFocus.focus;
+    const workspaceStore = hookFocus.store;
     if (compactBusyRef.current) return { ok: false, reason: 'busy' };
     const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
-    const meaningful = (Array.isArray(list) ? list : [])
-      .filter(item => item && (item.role === 'user' || item.role === 'assistant')
-        && String((item && (item.text || item.content)) || '').trim());
-    if (meaningful.length < COMPACTION_MIN_MESSAGES) {
+    const meaningful = countCompactionMessages(list);
+    if (meaningful < COMPACTION_MIN_MESSAGES) {
       if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
       return { ok: false, reason: 'too-short' };
     }
@@ -1568,23 +1558,32 @@ export default function ChatScreen() {
       const { configs, activeId } = await getApiConfigs();
       const config = configs.find(item => item.id === activeId) || configs[0];
       if (!config) throw new Error('no config');
-      const reply = await sendChatMessage(buildCompactionSummaryRequest(list, { focus }), {
-        stream: false,
-        expectedConfigId: String(config.id || ''),
-        expectedConfigFingerprint: getConfigFingerprint(config),
+      const compacted = await runSessionCompaction({
+        list,
+        focus,
+        windowSize: Number(contextUsage.window) || 0,
+        store: workspaceStore,
+        characterId: character.id,
+        emptyReplyText: EMPTY_REPLY_TEXT,
+        summarize: request => sendChatMessage(request, {
+          stream: false,
+          expectedConfigId: String(config.id || ''),
+          expectedConfigFingerprint: getConfigFingerprint(config),
+        }),
       });
-      const summary = parseCompactionSummary(reply);
-      if (!summary || summary === EMPTY_REPLY_TEXT) throw new Error('empty summary');
-      const next = applyCompaction(list, summary);
-      setMessages(next); // useSessionMessages 自动串行持久化
+      if (!compacted.ok) {
+        if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactFail'));
+        return { ok: false, reason: compacted.reason };
+      }
+      setMessages(compacted.messages); // useSessionMessages 自动串行持久化
       if (!silent) {
         Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactDone', {
-          before: meaningful.length,
-          after: next.length,
-          kept: COMPACTION_KEEP_RECENT,
+          before: meaningful,
+          after: compacted.messages.length,
+          kept: Math.max(0, compacted.messages.length - 1),
         }));
       }
-      return { ok: true, before: meaningful.length, after: next.length };
+      return { ok: true, before: meaningful, after: compacted.messages.length, applied: compacted.applied };
     } catch (error) {
       if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactFail'));
       return { ok: false, reason: 'failed' };
@@ -1592,7 +1591,7 @@ export default function ChatScreen() {
       compactBusyRef.current = false;
       setCompactBusy(false);
     }
-  }, [character, messages, messagesRef, setMessages, t]);
+  }, [character, contextUsage.window, messages, messagesRef, setMessages, t]);
 
   // P0-5 尾巴：压缩关注点弹窗。两处入口（提示条 / 聊天设置）都先开它，留空即普通压缩。
   const [compactFocusOpen, setCompactFocusOpen] = useState(false);
