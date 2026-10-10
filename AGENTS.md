@@ -101,3 +101,5 @@ Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easyc
 ## Docs
 
 Generated project wiki lives in `.monkeycode/docs/` (`INDEX.md`, `ARCHITECTURE.md`, `INTERFACES.md`, `DEVELOPER_GUIDE.md`, plus concept and module pages). Keep it in sync when behavior changes.
+
+Agent capability gap analysis vs Claude Code / DeepSeek Harness / ZCode: `.monkeycode/docs/agent-harness-parity.md`（改 agent 能力前先读，明确「已对齐 / 反超 / 还差什么」）。
