@@ -83,8 +83,9 @@ test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))�
   assert.equal(resolveCompactionThreshold(200000), 134464);
   // 有输出预留：W=200000, O=8192 → min(160000, 200000−8192−65536=126272) = 126272
   assert.equal(resolveCompactionThreshold(200000, { outputCap: 8192 }), 126272);
-  // headroom 超过窗口 → 0（调用方回退到 ratio 判据，不误压）
-  assert.equal(resolveCompactionThreshold(32000), 0);
+  // headroom 超过窗口 → 预算非正，退回比例上限（委托 compactionPolicy 后不再返回 0，
+  // 阈值恒 > 0；W=32000 → floor(32000×0.85) = 27200）。
+  assert.equal(resolveCompactionThreshold(32000), 27200);
   // 非法窗口 → 0
   assert.equal(resolveCompactionThreshold(0), 0);
   assert.equal(resolveCompactionThreshold(-1), 0);
@@ -92,7 +93,7 @@ test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))�
   // token 口径判据
   assert.equal(shouldAutoCompactTokens(134464, 200000), true);
   assert.equal(shouldAutoCompactTokens(134463, 200000), false);
-  assert.equal(shouldAutoCompactTokens(999, 32000), false, '阈值 0 → 不触发');
+  assert.equal(shouldAutoCompactTokens(999, 32000), false, '远低于阈值 → 不触发');
 });
 
 test('ChatScreen：compact 指令拦截与 80% 自动压缩接线钉死在源码', () => {

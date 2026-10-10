@@ -321,9 +321,8 @@ export default function ChatScreen() {
   // E2：ref 版用于静默自动压缩的防重入（state 在异步闭包里会读到旧值）。
   const [compactBusy, setCompactBusy] = useState(false);
   const compactBusyRef = useRef(false);
-  // E2：上下文占用（tokens/window/ratio）——70% 显示「建议压缩」提示条；
-  // 自动压缩按 token 预算（窗口 − 输出预留 − 缓冲，见 chat/compactionPolicy.js）触发。
-  const [contextUsage, setContextUsage] = useState({ tokens: 0, window: 0, ratio: 0 });
+  // E2：上下文占用——70% 提示条；自动压缩按 token 预算（见 chat/compactionPolicy.js）触发。
+  const [contextUsage, setContextUsage] = useState({ tokens: 0, window: 0, ratio: 0, maxOutput: 0 });
   const contextUsageRatio = contextUsage.ratio;
   // 「建议压缩」提示条被用户手动关掉后本次进入会话不再出现（换会话/重载恢复）。
   const [compactHintDismissed, setCompactHintDismissed] = useState(false);
@@ -1566,7 +1565,7 @@ export default function ChatScreen() {
     (async () => {
       const list = Array.isArray(messagesRef.current) ? messagesRef.current : [];
       if (!list.length) {
-        if (alive) setContextUsage({ tokens: 0, window: 0, ratio: 0 });
+        if (alive) setContextUsage({ tokens: 0, window: 0, ratio: 0, maxOutput: 0 });
         return;
       }
       try {
@@ -1581,18 +1580,19 @@ export default function ChatScreen() {
           declared: caps.contextWindow,
           localContextSize,
         }));
-        if (alive) setContextUsage(usage && Number.isFinite(usage.ratio) ? usage : { tokens: 0, window: 0, ratio: 0 });
+        // maxOutput 一并带上：阈值按模型声明的输出上限预留（此前没接上）。
+        if (alive) setContextUsage(usage && Number.isFinite(usage.ratio) ? { ...usage, maxOutput: Number(caps.maxOutput) || 0 } : { tokens: 0, window: 0, ratio: 0, maxOutput: 0 });
       } catch (error) {
-        if (alive) setContextUsage({ tokens: 0, window: 0, ratio: 0 });
+        if (alive) setContextUsage({ tokens: 0, window: 0, ratio: 0, maxOutput: 0 });
       }
     })();
     return () => { alive = false; };
   }, [messages.length]);
 
-  // E2：自动压缩——空闲时静默触发，token 预算口径 + 先本地微压缩（Z 系采纳 #5）。
+  // E2：自动压缩——阈值走唯一来源 compactionPolicy（Z/M/D 整合）；微压缩由 loop 的 K1 承担。
   useAutoCompact({
-    enabled: chatOptions.autoCompact, contextUsage, isSending, messages,
-    messagesRef, setMessages, compactBusyRef, onCompact: handleCompactSession,
+    enabled: chatOptions.autoCompact, contextUsage, isSending, messages, compactBusyRef, onCompact: handleCompactSession,
+    modelOutputCap: contextUsage.maxOutput, byteSize: compactInfo.bytes, byteThreshold: compactInfo.threshold,
   });
 
   const generateInlineImage = useCallback(async (messageId, sourceText) => {
