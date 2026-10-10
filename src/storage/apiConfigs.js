@@ -7,7 +7,7 @@ import {
   readJsonStatusWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
-import { normalizeProtocol } from '../apiProtocols.js';
+import { normalizeProtocol, normalizePromptCacheTtl } from '../apiProtocols.js';
 // P0-7：降级模型的归一化是纯函数，放判定层同处（存储层只做「落盘即归一」）。
 import { normalizeFallbackModels } from '../network/fallbackModels.js';
 import { tActive } from '../i18n/index.js';
@@ -164,6 +164,9 @@ function normalizeApiConfig(raw, index = 0) {
     apiKey: String(source.apiKey || ''),
     vendorId: String(source.vendorId || ''),
     protocol: normalizeProtocol(source.protocol),
+    // P1-1：Anthropic 显式缓存断点的 TTL（'off' / '5m' / '1h'）。只对 anthropic 协议生效，
+    // 但**所有协议都存这个字段**——切协议来回切时不该丢用户的选择。
+    promptCacheTtl: normalizePromptCacheTtl(source.promptCacheTtl),
     authHeader: String(source.authHeader || 'Authorization'),
     authScheme: source.authScheme === undefined || source.authScheme === null
       ? 'Bearer '
