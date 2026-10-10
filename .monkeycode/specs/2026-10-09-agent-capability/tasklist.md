@@ -41,7 +41,11 @@
 - [x] **A3 update_plan 工具**
       `toolDefs/planTool.js`（readOnly 纯回显无副作用）；参数
       `{ plan: [{ step, status }] }`；execute 格式化回显清单；capabilities 清单同步。
-      二期（不在本任务）：计划状态接 ChatPanel 进度条。
+- [x] **A3 二期 计划进度条**（2026-10-10 补做，随 E 系收尾）
+      `normalizePlanSteps` 纯函数（回显与 UI 共用同一归一）；loop.js 的
+      onToolEvent start 事件带 `args`（parseToolArgs）；ChatPanel 读 update_plan
+      的清单渲染进度条（完成计数 / 完成项划线 / 可收起）；新对话/切对话清空；
+      会话边界与 readLog 同款。
 - [x] **A4 内置验证提醒（复用 T6 hooks 机制）**
       hooks.js 加 `DEFAULT_HOOKS`（after_write / after_edit 默认提醒「改完记得跑验证」）；
       用户在 hooks.json 里**同键**（含空数组）可覆盖/关闭默认。

@@ -46,6 +46,8 @@ const apiStub = {
     const index = streamCalls.length;
     streamCalls.push({ messages: messages.map(item => ({ ...item })), options });
     const plan = streamPlan[index] || { text: '' };
+    // I1：轮次钩子——测试用来模拟「用户在本轮进行中发送补充指令」。
+    if (typeof plan.onRound === 'function') plan.onRound(index);
     for (const chunk of plan.chunks || []) {
       if (typeof options.onChunk === 'function') options.onChunk(chunk);
     }
@@ -54,6 +56,8 @@ const apiStub = {
       reasoning: plan.reasoning || '',
       toolCalls: plan.toolCalls || [],
       finishReason: plan.finishReason || null,
+      // E1：usage 透传测试用（不配置 = null，与真实端点不返回 usage 同形）。
+      usage: plan.usage || null,
     };
   },
 };
@@ -132,8 +136,10 @@ test('工具轮：执行工具、回喂结果、下一轮累积返回', async ()
   const toolMsg = round2.find(item => item.role === 'tool');
   assert.equal(toolMsg.tool_call_id, 'c1');
   assert.equal(toolMsg.content, 'file body');
+  // A3 二期：start 事件带解析后的参数（订阅方——计划进度条——据此读 update_plan）；
+  // end 事件不带（结果已由工具返回值表达）。
   assert.deepEqual(toolEvents, [
-    { phase: 'start', name: 'read_file', round: 1 },
+    { phase: 'start', name: 'read_file', round: 1, args: { path: 'a' } },
     { phase: 'end', name: 'read_file', round: 1, ok: true },
   ]);
 });
@@ -209,6 +215,86 @@ test('A1 预警不打扰提前收尾：模型按时给出结论就只调一次',
   assert.equal(streamCalls[0].messages.some(item => item.content === ROUND_BUDGET_WARNING), false);
 });
 
+test('E1 usage 透传：每轮 usage 经 onUsage 上抛（端点不返回时回调零次）', async () => {
+  const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
+  streamPlan = [
+    { text: 'r1', toolCalls: [toolCall('c1')], usage: { promptTokens: 100, completionTokens: 5, cachedTokens: 80 } },
+    { text: '完成', usage: { promptTokens: 200, completionTokens: 6, cachedTokens: 150 } },
+  ];
+  const { runAgentTurn } = loadLoop();
+  const seen = [];
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onUsage: entry => seen.push(entry),
+  });
+  assert.equal(text, 'r1完成');
+  assert.equal(seen.length, 2, '两轮各上抛一次');
+  assert.equal(seen[0].round, 1);
+  assert.deepEqual(
+    { p: seen[0].promptTokens, c: seen[0].completionTokens, k: seen[0].cachedTokens },
+    { p: 100, c: 5, k: 80 }
+  );
+  assert.equal(seen[1].round, 2);
+  assert.equal(seen[1].promptTokens, 200);
+
+  // 端点不返回 usage（plan 不带 usage）→ 回调零次，主流程逐字不变
+  streamCalls = []; // 计数从头开始（streamPlan 按 streamCalls.length 取下标）
+  streamPlan = [{ text: 'ok' }];
+  const seen2 = [];
+  const text2 = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onUsage: entry => seen2.push(entry),
+  });
+  assert.equal(text2, 'ok');
+  assert.equal(seen2.length, 0, '没有 usage 就没有回调');
+});
+
+test('E2 toolCallSignature：参数稳定化（键序无关）+ 字符串/对象兼容', () => {
+  const { toolCallSignature } = loadLoop();
+  const a = toolCallSignature({ name: 'read', arguments: '{"b":2,"a":1}' });
+  const b = toolCallSignature({ name: 'read', arguments: { a: 1, b: 2 } });
+  assert.equal(a, b, '键序不同、载体不同（JSON 字符串 vs 对象）→ 同一签名');
+  assert.notEqual(a, toolCallSignature({ name: 'read', arguments: { a: 1, b: 3 } }), '参数不同 → 不同签名');
+  assert.notEqual(a, toolCallSignature({ name: 'write', arguments: { a: 1, b: 2 } }), '工具名不同 → 不同签名');
+  assert.equal(typeof toolCallSignature(null), 'string', '坏输入不抛错');
+  // 嵌套结构同样稳定化
+  assert.equal(
+    toolCallSignature({ name: 'x', arguments: { o: { b: 1, a: 2 } } }),
+    toolCallSignature({ name: 'x', arguments: { o: { a: 2, b: 1 } } })
+  );
+});
+
+test('E2 重复调用 nudge：上一轮同签名才注入（轮末一条、不刷屏）', async () => {
+  const call = args => ({ id: 'c', name: 'read_file', arguments: args });
+  streamPlan = [
+    { text: 'r1', toolCalls: [call('{"path":"a.js"}')] },
+    { text: 'r2', toolCalls: [call('{"path":"a.js"}')] }, // 与上一轮同签名 → 命中
+    { text: 'r3', toolCalls: [call('{"path":"b.js"}')] }, // 换了参数 → 不再命中
+    { text: '完成' },
+  ];
+  const { runAgentTurn, REPEAT_CALL_NUDGE } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  assert.equal(text, 'r1r2r3完成');
+  const has = index => streamCalls[index].messages
+    .some(item => item.role === 'system' && item.content === REPEAT_CALL_NUDGE);
+  assert.equal(has(0), false, '首轮无历史可重复');
+  assert.equal(has(1), false, '第 2 轮检测发生在轮末，发起时还看不到');
+  assert.equal(has(2), true, '第 3 轮请求已带 nudge（上一轮命中重复）');
+  const count = streamCalls[3].messages
+    .filter(item => item.role === 'system' && item.content === REPEAT_CALL_NUDGE).length;
+  assert.equal(count, 1, 'nudge 只注入一条（换参数后不追加）');
+});
+
+test('E1 usage 回调抛错不拖垮主循环（与 onToken 同款隔离）', async () => {
+  streamPlan = [{ text: 'ok', usage: { promptTokens: 10, completionTokens: 1, cachedTokens: 0 } }];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onUsage: () => { throw new Error('宿主回调炸了'); },
+  });
+  assert.equal(text, 'ok', '回调异常必须被吞掉');
+});
+
 test('工具失败以 ok:false + error 上报并回喂错误内容', async () => {
   runHandler = () => ({ content: '权限不足', isError: true });
   streamPlan = [
@@ -263,4 +349,71 @@ test('requestOptions 夹带的 tools/toolChoice 被剥离，其余透传', async
   assert.equal(streamCalls[0].options.expectedConfigId, 'cfg-1');
   assert.deepEqual(streamCalls[0].options.tools, fakeTools);
   assert.equal(streamCalls[0].options.toolChoice, 'auto');
+});
+
+test('A3 二期 parseToolArgs：对象 / JSON 字符串 / 坏输入三态', () => {
+  const { parseToolArgs } = loadLoop();
+  assert.deepEqual(parseToolArgs({ arguments: { a: 1 } }), { a: 1 }, '对象原样返回');
+  assert.deepEqual(
+    parseToolArgs({ arguments: '{"plan":[{"step":"x"}]}' }),
+    { plan: [{ step: 'x' }] },
+    'JSON 字符串解析'
+  );
+  assert.equal(parseToolArgs({ arguments: '半截{' }), null, '坏 JSON → null（订阅方按无参数处理）');
+  assert.equal(parseToolArgs({ arguments: '' }), null);
+  assert.equal(parseToolArgs({}), null);
+  assert.equal(parseToolArgs(null), null);
+});
+
+test('I1 Steering：补充指令在下一轮请求前注入（不打断当前工具链）+ 队列取空', async () => {
+  const { createSteeringQueue } = await import('../src/agent/steering.js');
+  const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
+  streamPlan = [
+    // 第 1 轮进行中：用户发送补充指令（模拟）
+    { text: 'r1', toolCalls: [toolCall('c1')], onRound: () => { steering.push('先别改 UI，优先修数据层'); } },
+    { text: 'r2', toolCalls: [toolCall('c2')] },
+    { text: '完成' },
+  ];
+  const steering = createSteeringQueue();
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', steering });
+  assert.equal(text, 'r1r2完成');
+  const injected = (index) => streamCalls[index].messages
+    .filter(item => item.role === 'system' && String(item.content).includes('用户中途补充'));
+  assert.equal(injected(0).length, 0, '第 1 轮请求前队列为空（指令还没发）');
+  assert.equal(injected(1).length, 1, '第 2 轮请求前已注入（下一轮生效——不打断第 1 轮的工具链）');
+  assert.match(injected(1)[0].content, /先别改 UI/);
+  assert.equal(injected(2).length, 1, '注入即取空：第 3 轮只是继承历史里的那一条，不重复注入');
+  assert.equal(steering.size, 0);
+
+  // 不注入 steering（旧行为）逐字不变
+  streamCalls = [];
+  streamPlan = [{ text: 'ok' }];
+  const plain = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  assert.equal(plain, 'ok');
+  assert.equal(streamCalls[0].messages.some(item => String(item.content || '').includes('用户中途补充')), false);
+});
+
+test('I1 Steering 与轮次预算：新目标重置收束预警（允许再提醒一次）', async () => {
+  const { createSteeringQueue } = await import('../src/agent/steering.js');
+  const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
+  const steering = createSteeringQueue();
+  streamPlan = [
+    { text: 'r1', toolCalls: [toolCall('c1')] },
+    // 第 2 轮末（maxRounds=4 → 窗口起点）已有 warning；第 3 轮前注入新目标
+    { text: 'r2', toolCalls: [toolCall('c2')], onRound: () => { steering.push('换个思路'); } },
+    { text: 'r3', toolCalls: [toolCall('c3')] },
+    { text: 'final' },
+  ];
+  const { runAgentTurn, ROUND_BUDGET_WARNING } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', maxRounds: 4, steering });
+  const warningCount = (index) => streamCalls[index].messages
+    .filter(item => item.role === 'system' && item.content === ROUND_BUDGET_WARNING).length;
+  assert.equal(warningCount(2), 1, '第 3 轮请求时已有一条预警');
+  assert.equal(warningCount(3), 2, 'steering 注入重置标记 → 第 4 轮再提醒一次（新目标需重新收束）');
+  const steerAt = streamCalls[3].messages.findIndex(item => String(item.content).includes('用户中途补充'));
+  const warnIndexes = streamCalls[3].messages
+    .map((item, i) => (item.role === 'system' && item.content === ROUND_BUDGET_WARNING ? i : -1))
+    .filter(i => i >= 0);
+  assert.ok(steerAt >= 0 && warnIndexes.some(i => i > steerAt), '顺序：先看到补充指令，再看到收束提醒');
 });

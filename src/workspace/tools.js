@@ -18,6 +18,7 @@ import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 import { READ_ONLY_TOOL_DEFINITIONS, formatWorkspaceReadResult } from './toolDefs/readTools.js';
 import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
 import { MATERIALIZE_TOOL_DEFINITION } from './toolDefs/materializeTool.js';
+import { GET_BUILD_LOG_DEFINITION, RUN_REMOTE_BUILD_DEFINITION } from './toolDefs/ciTools.js';
 import { WRITE_TOOL_DEFINITIONS } from './toolDefs/writeTools.js';
 import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
@@ -32,13 +33,15 @@ function resolveStore({ store, root, fileSystem } = {}) {
 }
 
 // 基础工具（read / write 模式都进注册表）。**顺序是契约**：清单断言与模型看到的
-// 工具次序都依赖它——只读 → 计划 → 物化 → 子代理 → 写 → 导出。
+// 工具次序都依赖它——只读 → 计划 → 物化 → 构建日志 → 子代理 → 写 → 云构建 → 导出。
 const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
   PLAN_TOOL_DEFINITION,
   MATERIALIZE_TOOL_DEFINITION,
+  GET_BUILD_LOG_DEFINITION,
   SUBAGENT_TOOL_DEFINITION,
   ...WRITE_TOOL_DEFINITIONS,
+  RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,
 ];
 
@@ -65,7 +68,7 @@ function toRunner(runner) {
   return runner && typeof runner === 'object' ? runner : null;
 }
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer } = {}) {
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci } = {}) {
   const resolvedShell = toRunner(shell);
   const resolvedPython = toRunner(python);
   const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
@@ -81,6 +84,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     ...(readLog ? { readLog } : {}),
     // C2 按需物化器：read 读不到时试一次（函数）；不传 = 不物化（旧行为）。
     ...(typeof materializer === 'function' ? { materializer } : {}),
+    // H1 云构建桥：宿主注入（不传 = run_remote_build / get_build_log 如实报不可用）。
+    ...(ci ? { ci } : {}),
   };
   const definitions = [
     ...WORKSPACE_TOOL_DEFINITIONS,
@@ -99,8 +104,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
   }));
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer, ci } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }

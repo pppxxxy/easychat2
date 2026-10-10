@@ -2,15 +2,16 @@
 //
 // 它是**纯回显**：没有副作用、不落盘（readOnly: true）——作用是让每一步计划都
 // 出现在工具结果里，模型后续轮次与用户都能看到进度，减少「做着做着漂了」。
-// 二期（不在本任务）：计划状态接 ChatPanel 展示进度条。
+// A3 二期（已落地）：计划状态经 onToolEvent 的 args 接进 ChatPanel 进度条展示。
 
 export const PLAN_MAX_STEPS = 20;
 export const PLAN_STATUSES = Object.freeze(['pending', 'in_progress', 'done']);
 
-// 纯函数：清单 → 回显文本。非法输入安全降级（永不抛错——规划本身不该成为失败点）。
-export function formatPlanEcho(plan) {
+// 纯函数：清单 → 归一后的步骤数组（非法项丢弃、status 收敛、超量截断）。
+// 回显文本与 UI 进度条共用同一套归一——两处显示永远一致。
+export function normalizePlanSteps(plan) {
   const list = Array.isArray(plan) ? plan : [];
-  const steps = list
+  return list
     .map(item => {
       const source = item && typeof item === 'object' ? item : {};
       const step = String(source.step == null ? '' : source.step).trim();
@@ -20,6 +21,11 @@ export function formatPlanEcho(plan) {
     })
     .filter(Boolean)
     .slice(0, PLAN_MAX_STEPS);
+}
+
+// 纯函数：清单 → 回显文本。非法输入安全降级（永不抛错——规划本身不该成为失败点）。
+export function formatPlanEcho(plan) {
+  const steps = normalizePlanSteps(plan);
   if (steps.length === 0) {
     return '（计划为空或格式不对：plan 应为 [{ step, status }] 数组，status 取 pending / in_progress / done。）';
   }
@@ -30,6 +36,15 @@ export function formatPlanEcho(plan) {
     lines.push(`${marks[item.status]} ${index + 1}. ${item.step}`);
   });
   return lines.join('\n');
+}
+
+// I2：轮次结束时应否提议「批准计划并执行」——只读模式下规划完了却没有写权限，
+// 这是 read 模式闭环缺的最后一步。判据（全部满足才提议）：
+//   mode === 'read' ∧ 计划非空 ∧ 存在未完成项（全 done 的计划没有可执行的）。
+export function shouldOfferPlanApproval({ mode, plan } = {}) {
+  if (mode !== 'read') return false;
+  const steps = normalizePlanSteps(plan);
+  return steps.length > 0 && steps.some(item => item.status !== 'done');
 }
 
 export const PLAN_TOOL_DEFINITION = {

@@ -14,6 +14,7 @@ import {
   createBlob,
   createCommit,
   createTree,
+  getBlobRaw,
   getRef,
   listTree,
   updateRef,
@@ -97,7 +98,16 @@ export function bytesToBase64(input) {
 }
 
 // 纯函数：本地（含 blob sha）vs 远程 tree → 三态差。
-export function diffRemoteLocal({ localFiles, remoteEntries } = {}) {
+// 三态 diff（G 系修复）：added / modified / removed。
+//
+// **G1 关键修复**：「远程有、本地没有」不一定是删除——拉取时被跳过（二进制/超大）
+// 的文件从未落地，也从未被用户删除；若直接判删除，点一次推送就会把远端真删掉
+//（数据损失级）。第三态 knownPaths = 「曾经物化过」的证据（宿主传基线快照：
+// 含 repos/<owner>/<repo>/<branch>/ 前缀的完整本地路径），只有
+// **远程有 ∧ 曾经有过 ∧ 现在本地没有** 才算真删除。
+// knownPaths 缺失/为空（旧会话、手工拷入、基线丢失）→ 删除恒为空：
+// 宁可少删不可误删；推送成功后宿主会刷新基线，下次推送即恢复完整语义。
+export function diffRemoteLocal({ localFiles, remoteEntries, knownPaths, prefix = '' } = {}) {
   const remoteMap = new Map(
     (Array.isArray(remoteEntries) ? remoteEntries : [])
       .filter(item => item && item.type === 'blob' && item.path)
@@ -108,11 +118,23 @@ export function diffRemoteLocal({ localFiles, remoteEntries } = {}) {
       .filter(item => item && item.path)
       .map(item => [item.path, item.sha])
   );
+  // 基线路径剥前缀成相对路径（与 localFiles 同口径）；本次本地文件天然并在 known 里
+  //（防御「基线滞后于新拉取」的窗口：新落地还没进基线的文件也不会被判删除）。
+  const base = prefix ? String(prefix) : '';
+  const known = new Set([
+    ...(knownPaths instanceof Set ? [...knownPaths] : (Array.isArray(knownPaths) ? knownPaths : [])),
+    ...localMap.keys(),
+  ]
+    .map(item => String(item || ''))
+    .filter(Boolean)
+    .map(item => (base && item.startsWith(base) ? item.slice(base.length) : item)));
   const added = [...localMap.keys()].filter(path => !remoteMap.has(path)).sort();
   const modified = [...localMap.keys()]
     .filter(path => remoteMap.has(path) && remoteMap.get(path) !== localMap.get(path))
     .sort();
-  const removed = [...remoteMap.keys()].filter(path => !localMap.has(path)).sort();
+  const removed = [...remoteMap.keys()]
+    .filter(path => !localMap.has(path) && known.has(path))
+    .sort();
   return { added, modified, removed, pending: added.length + modified.length + removed.length };
 }
 
@@ -143,6 +165,59 @@ async function mapLimit(items, concurrency, worker, sleepImpl) {
 //   宁可诚实失败（引导用户用逐文件 handoff 模式）。
 // - ref 冲突（期间远程被推进）：提交的 parent 是旧 sha → updateRef 非快进被 GitHub
 //   拒绝（409/422），我们绝不 force 重试。
+// G 系：推送时单文件读取上限——必须宽于导入侧的最大落盘文本（5MB），否则
+// 大文件会被读成截断内容（sha 不符 → 误判 modified → 推半截）。8MB 留出余量。
+export const PUSH_READ_MAX_CHARS = 8 * 1024 * 1024;
+
+// —— H3：回滚基线（推送前把 modified/removed 的**远程旧内容**取回来）——
+// 语义：快照记录的是「这次推送之前，这些文件在远端是什么样」——回滚 = 把本地
+// 写回旧内容（modified）或恢复被删文件（removed），再走一次推送即反向同步。
+// **必须在提交前拉**：推送成功后远程就变了，旧内容再也拿不到。
+// 三重限额（文件数 / 单文件 / 总量）——超限的只记 sha（content: null），
+// 回滚入口如实提示「该文件旧内容未存、无法自动恢复」，绝不假装能回滚。
+export const ROLLBACK_MAX_FILES = 50;
+export const ROLLBACK_MAX_FILE_CHARS = 1024 * 1024;
+export const ROLLBACK_MAX_TOTAL_CHARS = 5 * 1024 * 1024;
+
+export async function collectRollbackEntries({ fetchImpl = fetch, token, owner, repo, entries, paths } = {}) {
+  const bySha = new Map(
+    (Array.isArray(entries) ? entries : [])
+      .filter(item => item && item.type === 'blob' && item.path)
+      .map(item => [item.path, item.sha])
+  );
+  const list = Array.isArray(paths) ? paths : [];
+  const wanted = list.slice(0, ROLLBACK_MAX_FILES);
+  const result = [];
+  let total = 0;
+  for (const path of wanted) {
+    const sha = bySha.get(path) || '';
+    if (!sha) {
+      result.push({ path, sha: '', content: null, reason: 'no-sha' });
+      continue;
+    }
+    let content = null;
+    let reason = '';
+    try {
+      // 旁路拉取：**不重试**（retryDelays: []）——一个文件拉不到就如实记账，
+      // 重试 3 次（1+2+4s）会让推送无谓等待，而且旧内容本来就不是推送的必需物。
+      const text = await getBlobRaw({ fetchImpl, token, owner, repo, sha, retryDelays: [] });
+      if (text.length > ROLLBACK_MAX_FILE_CHARS) reason = 'too-large';
+      else if (total + text.length > ROLLBACK_MAX_TOTAL_CHARS) reason = 'total-limit';
+      else {
+        content = text;
+        total += text.length;
+      }
+    } catch (error) {
+      reason = 'fetch-failed';
+    }
+    result.push({ path, sha, content, ...(reason ? { reason } : {}) });
+  }
+  return {
+    entries: result,
+    ...(list.length > wanted.length ? { skippedCount: list.length - wanted.length } : {}),
+  };
+}
+
 export async function pushRepoSnapshot({
   store,
   characterId,
@@ -151,6 +226,9 @@ export async function pushRepoSnapshot({
   branch,
   token,
   message,
+  // G1：宿主（GithubPanel）读基线快照后注入（含 repos/<owner>/<repo>/<branch>/ 前缀
+  // 的完整路径数组）。不传 = 无基线 → removed 恒空（宁可少删不可误删）。
+  baselinePaths,
   fetchImpl = fetch,
   sleepImpl = defaultSleep,
   concurrency = 5,
@@ -160,10 +238,23 @@ export async function pushRepoSnapshot({
   const files = await store.listWorkspaceFiles({ characterId });
   const localPaths = (Array.isArray(files) ? files : [])
     .filter(entry => String(entry).startsWith(prefix) && !String(entry).endsWith('/'));
-  // 读全部本地文件并算 blob sha（本地副本只有文本，6MB 级内存可接受）。
+  // 读全部本地文件并算 blob sha（本地副本只有文本；串行读，内存峰值 = 单文件）。
+  // G 系：读取上限显式放到 PUSH_READ_MAX_CHARS——**读到的必须是完整内容**：
+  // 截断内容会算出不同的 sha（被误判 modified）并把半截文件推上去（数据损失）。
+  // 读不全的文件**不参与本次推送**（不 added/modified、也不进 removed——不动它，
+  // 如实记进 skippedTooLarge 由宿主展示）。
   const localFiles = [];
+  const skippedTooLarge = [];
   for (const filePath of localPaths) {
-    const result = await store.readWorkspaceFile({ characterId, path: filePath });
+    const result = await store.readWorkspaceFile({
+      characterId,
+      path: filePath,
+      maxChars: PUSH_READ_MAX_CHARS,
+    });
+    if (result && result.truncated === true) {
+      skippedTooLarge.push(String(filePath).slice(prefix.length));
+      continue;
+    }
     const text = String((result && result.content) || '');
     localFiles.push({
       path: String(filePath).slice(prefix.length),
@@ -173,12 +264,30 @@ export async function pushRepoSnapshot({
   }
   const remote = await listTree({ fetchImpl, token, owner, repo, ref: branch });
   if (remote.truncated === true) return { ok: false, reason: 'truncated' };
-  const diff = diffRemoteLocal({ localFiles, remoteEntries: remote.entries });
-  if (diff.pending === 0) return { empty: true, diff };
+  // G1：knownPaths = 宿主注入的基线（曾经物化过的路径，含前缀）——剥离后交给
+  // diff 做三态判定；未传（旧会话/基线丢失）→ removed 恒空（宁可少删）。
+  const diff = diffRemoteLocal({
+    localFiles,
+    remoteEntries: remote.entries,
+    knownPaths: baselinePaths,
+    prefix,
+  });
+  const result = { diff, ...(skippedTooLarge.length ? { skippedTooLarge } : {}) };
+  if (diff.pending === 0) return { ...result, empty: true };
   if (typeof confirm === 'function') {
     const proceed = await confirm({ diff });
-    if (!proceed) return { cancelled: true, diff };
+    if (!proceed) return { ...result, cancelled: true };
   }
+  // H3：拉回滚基线（modified/removed 的远程旧内容）——必须在提交前拉
+  //（推送成功后远程就变了，旧内容再也拿不到）。拉取失败不挡推送（如实记 reason）。
+  const rollback = await collectRollbackEntries({
+    fetchImpl,
+    token,
+    owner,
+    repo,
+    entries: remote.entries,
+    paths: [...diff.modified, ...diff.removed],
+  });
   // 父提交（ref 指向的 commit）：期间远程被推进 → updateRef 非快进被拒（安全失败）。
   const parentSha = await getRef({ fetchImpl, token, owner, repo, branch });
   // 新树条目：未改沿用远程 sha；新增/修改创建 blob；删除给 sha:null。
@@ -221,5 +330,11 @@ export async function pushRepoSnapshot({
     parents: parentSha ? [parentSha] : [],
   });
   await updateRef({ fetchImpl, token, owner, repo, branch, sha: commitSha });
-  return { ok: true, diff, commit: commitSha };
+  return {
+    ok: true,
+    diff,
+    commit: commitSha,
+    ...(rollback.entries.length ? { rollback } : {}),
+    ...(skippedTooLarge.length ? { skippedTooLarge } : {}),
+  };
 }

@@ -6,6 +6,7 @@ import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
+  toolOrderSignature,
   workspaceAgentModeHint,
   workspaceExecutionToolHints,
 } from '../src/workspace/chat.js';
@@ -116,4 +117,43 @@ test('buildWorkspaceAgentMessages：有图片时用多模态 content 数组', ()
 test('buildWorkspaceAgentMessages：只有图片没有文字时用占位文本', () => {
   const messages = buildWorkspaceAgentMessages({ systemPrompt: 'SYS', images: ['data:image/png;base64,AAA'] });
   assert.equal(messages[1].content[0].text, '[用户发来图片]');
+});
+
+test('E1 缓存契约：readLog 行（每轮最高频动态项）必须在 systemPrompt 最末尾', () => {
+  const prompt = buildWorkspaceAgentSystemPrompt({
+    mode: 'write',
+    characterName: '小助手',
+    tools: ['run_shell', 'update_plan', 'materialize_repo'],
+    memory: '# 记忆\n- 约定一',
+    skills: [{ name: 'lint', description: '跑 lint' }],
+    readLog: [{ path: 'a.js', chars: 3200 }],
+  });
+  const idx = prompt.indexOf('本会话已读');
+  assert.ok(idx > 0, 'readLog 行在');
+  // 最硬的判据：它之后**不能有任何内容**（连换行都没有）——前缀缓存按 token 序列
+  // 工作，它在最尾 = 变化时「后面」为空，静态段与历史的命中全保住。
+  assert.equal(prompt.slice(idx).includes('\n'), false, 'readLog 行之后不允许再有任何行');
+
+  // 对照：memory/skills/工具引导都在它前面（静态段前置、动态段后置的次序契约）
+  assert.ok(prompt.indexOf('约定一') < idx, 'memory 在 readLog 前');
+  assert.ok(prompt.indexOf('lint') < idx, '技能清单在 readLog 前');
+  assert.ok(prompt.indexOf('update_plan') < idx, '计划引导在 readLog 前');
+
+  // 没有 readLog（没读过任何文件）→ 提示词与不带该参数逐字一致（零行为变化）
+  const noLog = buildWorkspaceAgentSystemPrompt({ mode: 'write', characterName: '小助手', tools: ['run_shell'] });
+  assert.equal(/本会话已读/.test(noLog), false);
+});
+
+test('E1 toolOrderSignature：两种形态归一、顺序敏感（漂移检出）、空输入空串', () => {
+  assert.equal(toolOrderSignature(['a', 'b']), 'a,b', '纯名字数组');
+  assert.equal(
+    toolOrderSignature([{ function: { name: 'a' } }, { function: { name: 'b' } }]),
+    'a,b',
+    '工具定义数组取 function.name'
+  );
+  // 顺序不同 → 签名不同：前缀缓存按**序列**工作，顺序一变 = 全 miss，这正是要检出的
+  assert.notEqual(toolOrderSignature(['b', 'a']), toolOrderSignature(['a', 'b']));
+  assert.equal(toolOrderSignature(null), '');
+  assert.equal(toolOrderSignature([]), '');
+  assert.equal(toolOrderSignature(['a', null, 'b']), 'a,b', '杂项被过滤不产生空段');
 });

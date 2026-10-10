@@ -33,18 +33,20 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'read_workspace_file',
     'update_plan',
     'materialize_repo',
+    'get_build_log',
     'run_subagent',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'run_remote_build',
     'export_workspace_docx',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 9);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 11);
   // 只读模式只放开只读工具（含子代理）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'run_subagent'],
+    ['list_workspace_files', 'read_workspace_file', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'],
   );
 });
 
@@ -112,10 +114,12 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'read_workspace_file',
     'update_plan',
     'materialize_repo',
+    'get_build_log',
     'run_subagent',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'run_remote_build',
     'export_workspace_docx',
     'run_shell',
   ]);
@@ -186,10 +190,12 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'read_workspace_file',
     'update_plan',
     'materialize_repo',
+    'get_build_log',
     'run_subagent',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'run_remote_build',
     'export_workspace_docx',
     'run_python',
   ]);

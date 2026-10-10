@@ -4,6 +4,32 @@
 // 提醒追加进工具结果——读钩子失败当没有钩子，绝不影响写入本身。
 
 import { postWriteNotices } from '../hooks.js';
+import { recordFileHistory } from '../fileHistory.js';
+
+// J1：写前快照（尽力而为）——读旧内容入 file-history；失败不阻塞写入。
+// 读上限与推送同口径（宽于导入文本线 5MB），截断的内容不配当"旧版本"。
+const SNAPSHOT_READ_MAX_CHARS = 8 * 1024 * 1024;
+
+async function snapshotBeforeWrite(store, characterId, path) {
+  let oldContent = '';
+  try {
+    const previous = await store.readWorkspaceFile({
+      characterId,
+      path,
+      maxChars: SNAPSHOT_READ_MAX_CHARS,
+    });
+    if (previous && previous.truncated === true) {
+      // 读不全的旧文件不做快照（截断内容不配当"旧版本"），如实跳过。
+      return;
+    }
+    oldContent = String((previous && previous.content) ?? '');
+  } catch (error) {
+    oldContent = ''; // 新建（文件不存在是常态）
+  }
+  try {
+    await recordFileHistory(store, characterId, { path, oldContent, source: 'tool' });
+  } catch (error) {}
+}
 
 export const WRITE_TOOL_DEFINITIONS = [
   {
@@ -36,6 +62,8 @@ export const WRITE_TOOL_DEFINITIONS = [
     },
     // after_write 钩子：写成功后的提醒追加进工具结果（模型看得到、可能照做）。
     execute: async (options, args, ctx) => {
+      // J1：落笔前快照旧内容（删除也可逆——新建记空内容）。
+      await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path);
       const result = await options.store.writeWorkspaceFile({
         characterId: ctx && ctx.characterId,
         path: args.path,
@@ -62,6 +90,8 @@ export const WRITE_TOOL_DEFINITIONS = [
     },
     // after_edit 钩子：同 after_write（提醒追加进结果，失败不影响编辑本身）。
     execute: async (options, args, ctx) => {
+      // J1：编辑同样是覆盖——先快照（find/replace 是全量读改写，旧内容只有这一次机会）。
+      await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path);
       const result = await options.store.editWorkspaceFile({
         characterId: ctx && ctx.characterId,
         path: args.path,

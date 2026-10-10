@@ -37,6 +37,7 @@ import {
   createWorkspaceChat,
   deleteWorkspaceChat,
   getWorkspaceChats,
+  setWorkspaceChatArchived,
   getWorkspaceSettings,
   patchWorkspaceSettings,
   saveWorkspaceChatDraft,
@@ -73,7 +74,16 @@ import {
   readTextAttachment,
 } from '../../chat/attachments.js';
 import useChatRecorder from '../../chat/useChatRecorder.js';
+import { readWorkspaceAgents } from '../agents.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
+import { createSteeringQueue } from '../../agent/steering.js';
+import {
+  appendSessionEvent,
+  buildSessionEventsExport,
+  readSessionEvents,
+  sessionEventsPath,
+} from '../sessionEvents.js';
+import { normalizePlanSteps, shouldOfferPlanApproval } from '../toolDefs/planTool.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
@@ -96,11 +106,14 @@ import {
   getEffectivePermissionRules,
 } from '../../storage/settings/workspacePermissions.js';
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
+import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
+import { hexToRgba } from '../../theme/themes.js';
 import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
+  toolOrderSignature,
 } from '../chat.js';
 
 const MAX_ATTACHMENTS = 3;
@@ -142,6 +155,38 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
   if (readLogRef.current === null) readLogRef.current = createReadLog();
+  // E1：工具顺序冻结的运行期兜底——同一 mode 下 tools 定义序列漂移会让提供商前缀
+  // 缓存全 miss（tools 定义计入缓存键）。顺序契约由 listToolsForMode + 测试保证，
+  // 这里只做开发期告警（生产静默），防止未来有人把动态排序混进组装链。
+  const toolOrderRef = useRef({});
+  // A3 二期：计划进度条——从 update_plan 的工具事件读清单（纯展示，不落盘）；
+  // 会话边界（新对话/切对话）清空，与已读登记同款。
+  const [agentPlan, setAgentPlan] = useState([]);
+  const [planCollapsed, setPlanCollapsed] = useState(false);
+  // I1：Steering——agent 运行中输入框保持可用，发送即入队（下一轮请求前注入）；
+  // 队列每次发送时新建、turn 结束丢弃（跨轮次的补充没有意义）。
+  const steeringRef = useRef(null);
+  const [steeringNote, setSteeringNote] = useState('');
+  // I2：read 模式下计划未完成时提议「批准并执行」。**时序关键**：handleSend 的
+  // 闭包带着定义时的 mode——不能「切模式后立即调用」（那还是 read 的工具集）。
+  // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
+  // 用**新的 handleSend** 发起。
+  const canApprovePlan = useMemo(
+    () => shouldOfferPlanApproval({ mode, plan: agentPlan }),
+    [mode, agentPlan]
+  );
+  const [pendingPlanRun, setPendingPlanRun] = useState(null);
+  const approvePlan = useCallback(async () => {
+    if (sending || mode !== 'read') return;
+    const steps = normalizePlanSteps(agentPlan);
+    if (steps.length === 0) return;
+    const summary = steps
+      .map((item, index) => `${index + 1}. ${item.step}`)
+      .join('\n');
+    await handleSelectMode('write');
+    // 确认消息用用户口吻直述（进对话历史，与 steering 注入语同纪律：不进 i18n）。
+    setPendingPlanRun(['我已批准上面的计划，请按计划开始执行：', summary].join('\n'));
+  }, [agentPlan, handleSelectMode, mode, sending]);
 
   // C2 按需物化（给 agent 的 read 工具）：清单内未物化文件被读到、但本地没有时，
   // 单文件拉取回沙盒。三道前置（缺一不发起网络）：是 repos 路径 → 该仓库做过
@@ -447,6 +492,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setSettingsSection('');
     // A5：新对话 = 新会话 → 已读登记清零（它记的是「这次对话读过了什么」）。
     if (readLogRef.current) readLogRef.current.clear();
+    // A3 二期：计划进度条同属会话边界——新对话清空。
+    setAgentPlan([]);
     try {
       const created = await createWorkspaceChat(characterId);
       if (!created || !mountedRef.current) return;
@@ -471,8 +518,27 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setHistoryOpen(false);
     // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
     if (readLogRef.current) readLogRef.current.clear();
+    // A3 二期：计划进度条同属会话边界——切对话清空（不带旧计划过去）。
+    setAgentPlan([]);
     await setActiveWorkspaceChat(characterId, id).catch(() => {});
   }, [activeChatId, characterId, chatList, input, persistDraft, readDraft]);
+
+  // I5：归档/恢复会话——切 storage 标记后刷新本地列表；归档的是当前会话时
+  // 顺带切到下一个未归档会话（不留在一个「看不见」的会话里）。
+  const handleArchiveChat = useCallback(async (chatId, archived) => {
+    try {
+      await setWorkspaceChatArchived(characterId, chatId, archived);
+    } catch (error) {}
+    try {
+      const bucket = await getWorkspaceChats(characterId);
+      const chats = (bucket && bucket.chats) || [];
+      if (mountedRef.current) setChatList(chats);
+      if (archived === true && String(activeChatId) === String(chatId)) {
+        const next = chats.find(item => item.id !== chatId && item.archived !== true);
+        if (next) await handleSelectChat(next.id);
+      }
+    } catch (error) {}
+  }, [activeChatId, characterId, handleSelectChat]);
 
   const handleDeleteChat = useCallback(async id => {
     setHistoryBusy(true);
@@ -653,6 +719,35 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     Alert.alert(t('workspace.settings.templates.doneTitle'), `${base}${failed}`);
   }, [characterId, t]);
 
+  // E4：导出会话事件流（读 jsonl → 导出文本落盘 → 系统分享；无事件如实提示）。
+  // 落盘到 `.easychat/sessions/<id>.export.txt`——分享失败也能在文件面板找到。
+  const exportSessionEvents = useCallback(async () => {
+    const id = String(activeChatId || '').trim();
+    if (!id || !storeRef.current) return;
+    try {
+      const events = await readSessionEvents(storeRef.current, characterId, id);
+      if (events.length === 0) {
+        Alert.alert(t('workspace.settings.events.title'), t('workspace.settings.events.empty'));
+        return;
+      }
+      const text = buildSessionEventsExport(events, { title: id });
+      const path = sessionEventsPath(id).replace(/\.jsonl$/, '.export.txt');
+      await storeRef.current.writeWorkspaceFile({ characterId, path, content: text });
+      let uri = null;
+      try {
+        uri = await storeRef.current.fileUri({ characterId, path });
+      } catch (error) {}
+      const available = await Sharing.isAvailableAsync().catch(() => false);
+      if (available && uri) {
+        await Sharing.shareAsync(uri, { dialogTitle: t('workspace.settings.events.title') });
+      } else {
+        Alert.alert(t('workspace.settings.events.title'), t('workspace.settings.events.saved', { path }));
+      }
+    } catch (error) {
+      Alert.alert(t('workspace.settings.events.title'), t('workspace.settings.events.fail'));
+    }
+  }, [activeChatId, characterId, t]);
+
   // 清除全部授权（永久 + 本次会话）：清完重读一次回填界面。
   // 存储失败也重读：以盘上的真实状态为准，界面不撒谎。
   const handleClearPermissionRules = useCallback(async () => {
@@ -756,9 +851,24 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     if (controllerRef.current) controllerRef.current.abort();
   }, []);
 
-  const handleSend = useCallback(async () => {
-    if (sending) return;
-    const text = input.trim();
+  // I2：overrideText——计划批准链路在模式切换后的新渲染里带确认文本发起。
+  const handleSend = useCallback(async overrideText => {
+    const text = String(overrideText === undefined ? input : overrideText).trim();
+    // I1：Steering——agent 运行中发送 = 中途补充指令（不新开 turn、不中断工具链）。
+    // 附件不支持（补充指令是纯文本语义）；空文本忽略。
+    if (sending) {
+      if (!text) return;
+      if (attachments.length > 0) {
+        Alert.alert(t('workspace.chat.steering.title'), t('workspace.chat.steering.attachments'));
+        return;
+      }
+      if (steeringRef.current && steeringRef.current.push(text)) {
+        setInput('');
+        persistDraft(characterId, activeChatId, '');
+        setSteeringNote(t('workspace.chat.steering.note'));
+      }
+      return;
+    }
     const textAttachments = attachments.filter(item => item.kind === 'text');
     const imageAttachments = attachments.filter(item => item.kind === 'image');
     const userText = mergeTextAttachments(text, textAttachments);
@@ -791,15 +901,25 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages(list => [...list, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
-    persistDraft(ownerId, chatId, '');
-    setInput('');
-    setAttachments([]);
+    // I2：批准链路（overrideText）不碰输入框、草稿与附件——用户可能正打着别的话。
+    if (overrideText === undefined) {
+      persistDraft(ownerId, chatId, '');
+      setInput('');
+      setAttachments([]);
+    }
     setSending(true);
     setToolStatus('');
     persistMessages(ownerId, chatId, [userMessage]);
+    // E4：会话事件流（旁路审计）——user 事件。不 await、写失败静默（事件流绝不挡消息链路）。
+    appendSessionEvent(storeRef.current, ownerId, chatId, 'user', {
+      text: String(userMessage.content || '').slice(0, 1000),
+    });
 
     const controller = new AbortController();
     controllerRef.current = controller;
+    // I1：本轮的 Steering 队列（handleSend 的 sending 分支往里 push，loop 每轮前 drain）。
+    steeringRef.current = createSteeringQueue();
+    setSteeringNote('');
 
     // 先注册工具、再拼提示词：提示词里要不要写「可以跑 Python / 可以执行命令」，判据是
     // **注册表里真的有**（开关开着但原生模块缺失、或根是外部文件夹时并不存在），
@@ -812,6 +932,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           materializer: materializeForAgent,
         });
         tools = listToolsForMode(mode);
+        // E1：工具顺序冻结兜底——同一 mode 下 tools 序列漂移 = 前缀缓存全 miss
+        //（tools 定义计入缓存键）。开发期告警、生产静默；mode 切换不算漂移。
+        const orderSignature = toolOrderSignature(tools);
+        const prevOrder = toolOrderRef.current[mode];
+        if (prevOrder && prevOrder !== orderSignature && typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.warn('[cache] 工具顺序在会话内发生变化（会打碎前缀缓存）：', prevOrder, '→', orderSignature);
+        }
+        toolOrderRef.current[mode] = orderSignature;
       } catch (error) {}
     }
     // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
@@ -819,12 +947,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const memory = await readWorkspaceMemory(storeRef.current, ownerId);
     // 技能清单（渐进披露第一层）：同样每轮直读——技能目录不存在时只有一次 list IO。
     const skills = mode === 'ask' ? [] : await readWorkspaceSkills(storeRef.current, ownerId);
+    // E3：分身档案清单（渐进披露第一层）——同样每轮直读；run_subagent 没注册时
+    // 提示词自动不注入（buildWorkspaceAgentSystemPrompt 内部判据）。
+    const agents = mode === 'ask' ? [] : await readWorkspaceAgents(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
       tools: tools.map(item => item.function.name),
       memory,
       skills,
+      agents,
       // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
       readLog: readLogRef.current ? readLogRef.current.list() : [],
     });
@@ -847,6 +979,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         tools,
         // 轮次预算（A1）：可改 16 / 只读 10——写任务要跑「改-验」循环，天然更长。
         maxRounds: workspaceRoundBudget(mode),
+        // I1：Steering 队列（用户中途补充指令，每轮请求前注入）。
+        steering: steeringRef.current,
         signal: controller.signal,
         requestOptions: { stream: true },
         onToken: fullText => {
@@ -856,6 +990,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         },
         onToolEvent: event => {
           if (!mountedRef.current || !event) return;
+          if (event.phase === 'start') {
+            // E4：事件流（旁路）——工具调用事实（含轮次，审计「第几步做了什么」）。
+            appendSessionEvent(storeRef.current, ownerId, chatId, 'tool_call', {
+              name: event.name,
+              round: event.round,
+            });
+            // A3 二期：update_plan 的清单推进度条（状态展示；传空清单 = 清空）。
+            if (event.name === 'update_plan') {
+              const steps = normalizePlanSteps(event.args && event.args.plan);
+              setAgentPlan(steps);
+              if (steps.length > 0) setPlanCollapsed(false);
+            }
+          }
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
@@ -918,15 +1065,33 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } finally {
       // 助手终稿一次性落盘（含被中止 / 报错的情况），流式期间不写。
       persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }]);
+      // E4：事件流（旁路）——助手终稿（中止/报错形态如实带 isError）。
+      appendSessionEvent(storeRef.current, ownerId, chatId, 'assistant', {
+        text: String(assistantFinal.content || '').slice(0, 1000),
+        ...(assistantFinal.isError ? { isError: true } : {}),
+      });
       if (mountedRef.current) {
         setSending(false);
         setToolStatus('');
+        setSteeringNote(''); // I1：本轮结束，补充指令的提示与队列一并清掉
       }
       controllerRef.current = null;
+      steeringRef.current = null;
     }
   }, [activeChatId, attachments, characterId, characterName, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 
-  const canSend = !sending && (input.trim().length > 0 || attachments.length > 0);
+  // I1：运行中不再禁用发送——有文字就可用（发送按钮 → steering 入队）；附件在
+  // 运行时由 handleSend 明确拒绝（补充指令是纯文本语义）。
+  const canSend = input.trim().length > 0 || attachments.length > 0;
+
+  // I2：模式切到 write 后的新渲染里发起批准链路（此刻 handleSend 闭包已带 write，
+  // 工具集/预算/提示词全按 write 走）。setPendingPlanRun(null) 防重入。
+  useEffect(() => {
+    if (!pendingPlanRun) return;
+    if (mode !== 'write' || sending) return;
+    setPendingPlanRun(null);
+    handleSend(pendingPlanRun);
+  }, [handleSend, mode, pendingPlanRun, sending]);
   const lastAssistantId = messages.length && messages[messages.length - 1].role === 'assistant'
     ? messages[messages.length - 1].id
     : '';
@@ -1003,6 +1168,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
                   onInstallTemplate={handleInstallTemplate}
+                  onExportSessionEvents={exportSessionEvents}
                 />
               </ScrollView>
             ) : (
@@ -1033,10 +1199,73 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               ))}
             </ScrollView>
 
+            {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——多步任务执行中
+                对用户可见「做到哪一步了」；会话边界清空，纯展示不落盘。 */}
+            {agentPlan.length > 0 ? (
+              <View style={styles.planPanel}>
+                <TouchableOpacity
+                  style={styles.planHeader}
+                  onPress={() => setPlanCollapsed(value => !value)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="list-outline" size={14} color={theme.colors.primary} />
+                  <Text style={styles.planTitle} numberOfLines={1}>
+                    {t('workspace.chat.plan.title', {
+                      done: agentPlan.filter(item => item.status === 'done').length,
+                      total: agentPlan.length,
+                    })}
+                  </Text>
+                  <Ionicons
+                    name={planCollapsed ? 'chevron-down' : 'chevron-up'}
+                    size={14}
+                    color={theme.colors.textFaint}
+                  />
+                </TouchableOpacity>
+                {planCollapsed ? null : agentPlan.map((item, index) => (
+                  <View key={`${index}-${item.step}`} style={styles.planRow}>
+                    <Ionicons
+                      name={item.status === 'done'
+                        ? 'checkmark-circle'
+                        : (item.status === 'in_progress' ? 'play-circle' : 'ellipse-outline')}
+                      size={14}
+                      color={item.status === 'done' ? theme.colors.primary : theme.colors.textMuted}
+                    />
+                    <Text
+                      style={[styles.planStep, item.status === 'done' && styles.planStepDone]}
+                      numberOfLines={1}
+                    >
+                      {item.step}
+                    </Text>
+                  </View>
+                ))}
+                {/* I2：read 模式 + 计划未完成 → 提议「批准并执行」（切模式 + 注入确认消息）。 */}
+                {canApprovePlan ? (
+                  <TouchableOpacity
+                    style={styles.planApprovalButton}
+                    onPress={() => { if (!sending) approvePlan(); }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="checkmark-done-outline" size={14} color={theme.colors.primary} />
+                    <Text style={styles.planApprovalText}>
+                      {t('workspace.chat.planApproval.action')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+
             {toolStatus ? (
               <View style={styles.statusBar}>
                 <ActivityIndicator size="small" color={theme.colors.primaryMuted} />
                 <Text style={styles.statusText} numberOfLines={1}>{toolStatus}</Text>
+              </View>
+            ) : null}
+
+            {/* I1：Steering 提示——「补充指令已入队」，本轮结束自动消失。 */}
+            {steeringNote ? (
+              <View style={styles.statusBar}>
+                <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.colors.primary} />
+                <Text style={styles.statusText} numberOfLines={1}>{steeringNote}</Text>
               </View>
             ) : null}
 
@@ -1165,6 +1394,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
+        onArchiveChat={handleArchiveChat}
         onClearAll={handleClearChats}
         busy={historyBusy}
       />
@@ -1265,6 +1495,37 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
   statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
   statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
+  // A3 二期：计划进度条（贴着输入区的只读卡片；完成项划线弱化）。
+  planPanel: {
+    marginHorizontal: 12,
+    marginBottom: 4,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  planHeader: { flexDirection: 'row', alignItems: 'center' },
+  planTitle: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
+  planRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  planStep: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
+  planStepDone: { color: theme.colors.textFaint, textDecorationLine: 'line-through' },
+  // I2：计划批准按钮（计划卡片内的轻量行按钮，不引入大按钮组件）。
+  planApprovalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: hexToRgba(theme.colors.primary, 0.14),
+  },
+  planApprovalText: {
+    color: theme.colors.primary,
+    fontSize: fonts.scaled(12),
+    fontWeight: '600',
+    marginLeft: 6,
+    flex: 1,
+  },
   attachmentBar: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingBottom: 4 },
   attachmentChip: {
     flexDirection: 'row',

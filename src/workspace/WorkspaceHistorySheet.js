@@ -3,7 +3,7 @@
 // 纯展示 + 回调：数据由 WorkspaceChat 从存储读出后传进来，动作也交给它执行
 //（那边才持有「当前会话」与「正在生成」的状态，能决定切换前是否需要中止请求）。
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,12 +34,17 @@ export default function WorkspaceHistorySheet({
   activeChatId = '',
   onSelectChat,
   onDeleteChat,
+  onArchiveChat,
   onClearAll,
   busy = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // I5：归档视图——主视图只看未归档；有归档会话时出现「已归档（N）」切换。
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedCount = chats.filter(chat => chat.archived === true).length;
+  const visibleChats = chats.filter(chat => (showArchived ? chat.archived === true : chat.archived !== true));
 
   const confirmDelete = chat => {
     Alert.alert(
@@ -70,6 +75,17 @@ export default function WorkspaceHistorySheet({
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{t('workspace.history.title')}</Text>
             <View style={styles.headerActions}>
+              {archivedCount > 0 ? (
+                <TouchableOpacity
+                  onPress={() => setShowArchived(value => !value)}
+                  hitSlop={8}
+                  style={[styles.clearButton, showArchived && styles.archiveTabActive]}
+                >
+                  <Text style={[styles.clearText, showArchived && styles.archiveTabTextActive]}>
+                    {t('workspace.history.archivedTab', { count: archivedCount })}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               {chats.length > 0 ? (
                 <TouchableOpacity onPress={confirmClear} hitSlop={8} style={styles.clearButton}>
                   <Text style={styles.clearText}>{t('workspace.history.clear.action')}</Text>
@@ -85,14 +101,16 @@ export default function WorkspaceHistorySheet({
             <View style={styles.center}>
               <ActivityIndicator color={theme.colors.primary} />
             </View>
-          ) : chats.length === 0 ? (
+          ) : visibleChats.length === 0 ? (
             <View style={styles.center}>
               <Ionicons name="chatbubbles-outline" size={30} color={theme.colors.textFaint} />
-              <Text style={styles.emptyText}>{t('workspace.history.empty')}</Text>
+              <Text style={styles.emptyText}>
+                {showArchived ? t('workspace.history.emptyArchived') : t('workspace.history.empty')}
+              </Text>
             </View>
           ) : (
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-              {chats.map(chat => {
+              {visibleChats.map(chat => {
                 const active = String(chat.id) === String(activeChatId);
                 const preview = chat.messages.length
                   ? String(chat.messages[chat.messages.length - 1].content || '').split('\n')[0]
@@ -101,12 +119,15 @@ export default function WorkspaceHistorySheet({
                   <TouchableOpacity
                     key={chat.id}
                     style={[styles.row, active && styles.rowActive]}
-                    onPress={() => onSelectChat && onSelectChat(chat.id)}
+                    onPress={() => {
+                      if (showArchived) return; // 归档视图里只管理，不切换（先恢复再选）
+                      onSelectChat && onSelectChat(chat.id);
+                    }}
                     onLongPress={() => confirmDelete(chat)}
                     activeOpacity={0.8}
                   >
                     <Ionicons
-                      name={active ? 'radio-button-on' : 'chatbubble-outline'}
+                      name={active ? 'radio-button-on' : (chat.archived ? 'archive-outline' : 'chatbubble-outline')}
                       size={16}
                       color={active ? theme.colors.primary : theme.colors.textFaint}
                     />
@@ -121,6 +142,20 @@ export default function WorkspaceHistorySheet({
                         <Text style={styles.rowPreview} numberOfLines={1}>{preview}</Text>
                       ) : null}
                     </View>
+                    {/* I5：归档/恢复（归档视图里显示恢复箭头）。 */}
+                    {onArchiveChat ? (
+                      <TouchableOpacity
+                        onPress={() => onArchiveChat(chat.id, chat.archived !== true)}
+                        hitSlop={8}
+                        style={styles.deleteButton}
+                      >
+                        <Ionicons
+                          name={chat.archived ? 'unarchive-outline' : 'archive-outline'}
+                          size={15}
+                          color={theme.colors.textFaint}
+                        />
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity onPress={() => confirmDelete(chat)} hitSlop={8} style={styles.deleteButton}>
                       <Ionicons name="trash-outline" size={15} color={theme.colors.textFaint} />
                     </TouchableOpacity>
@@ -165,6 +200,14 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   clearButton: { marginRight: 14 },
   clearText: { color: theme.colors.danger || theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
+  // I5：归档切换 tab（激活态用主题主色描边，不与「清空」的红字混淆）。
+  archiveTabActive: {
+    backgroundColor: theme.colors.primaryMuted || theme.colors.primary,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  archiveTabTextActive: { color: theme.colors.primaryContrast || '#fff' },
   center: { alignItems: 'center', paddingVertical: 38 },
   emptyText: {
     color: theme.colors.textFaint,

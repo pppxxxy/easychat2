@@ -82,6 +82,8 @@ export default function WorkspaceSettingsSheet({
   onInstallSampleCommands,
   // 工作区模板（T9）：一键铺起始文件（幂等不覆盖），创建动作转发给 ChatPanel。
   onInstallTemplate,
+  // E4：会话事件流导出（读/写/分享全在 ChatPanel——本面板只转发动作）。
+  onExportSessionEvents,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -393,6 +395,17 @@ export default function WorkspaceSettingsSheet({
       onPress: () => {
         if (onClose) onClose();
         if (onOpenPanel) onOpenPanel('docx');
+      },
+    },
+    {
+      // E4：会话事件流导出（旁路审计线索——消息/工具调用事实，事后排查用）。
+      id: 'events',
+      icon: 'pulse-outline',
+      label: t('workspace.settings.events'),
+      hint: t('workspace.settings.events.hint'),
+      onPress: () => {
+        if (onClose) onClose();
+        if (onExportSessionEvents) onExportSessionEvents();
       },
     },
     {

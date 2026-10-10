@@ -135,6 +135,25 @@ export async function getSessions() {
   return sessions;
 }
 
+// J3：设置会话级 agent 模式记忆（read/write；'' 清除 = 跟随全局）。
+// 返回是否成功（缺会话/缺参数 → false）。
+export async function setSessionAgentMode(sessionId, mode) {
+  const id = String(sessionId || '').trim();
+  const value = mode === 'read' || mode === 'write' ? mode : '';
+  if (!id) return false;
+  return enqueueSessionMutation(async () => {
+    const sessions = await requireSessions();
+    const target = sessions.find(item => item && item.id === id);
+    if (!target) return false;
+    if (target.agentMode === value) return true; // 幂等
+    const next = sessions.map(item => (
+      item && item.id === id ? normalizeSession({ ...item, agentMode: value }) : item
+    ));
+    await saveSessionsInternal(next);
+    return true;
+  });
+}
+
 // 读改写路径：列表损坏时必须中止，否则会把 SESSIONS_KEY 覆盖成空/单条。
 export async function requireSessions() {
   const { status, sessions } = await readSessionsStatus();

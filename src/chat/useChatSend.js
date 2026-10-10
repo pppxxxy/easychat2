@@ -511,9 +511,14 @@ export default function useChatSend({
           workspaceMode,
           { allowChatTools: chatToolsEnabled }
         );
-        // token 是估算（在线 API 不返回 usage），口径与上下文占用同一估算器，服务商之间可比。
+        // token 口径（E1 起）：端点返回 usage 时用**真实值**（含缓存命中数），
+        // 不返回时回退估算器（口径与上下文占用一致，服务商之间可比）。
         let resolvedProvider = null;
         const meter = createRequestMeter();
+        // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
+        // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
+        // 本地模型/不返回 usage 的端点：count 恒为 0，走估算回退（零行为变化）。
+        const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
         recordStats = (completionText, extra = {}) => {
           try {
             const timing = meter.finish();
@@ -526,6 +531,12 @@ export default function useChatSend({
               model: isLocal ? String(resolvedProvider.modelName || '') : onlineModelName,
               promptTokens: estimatePromptTokens(requestMessages),
               completionTokens: estimateReplyTokens(completionText || ''),
+              // 有真实 usage 就覆盖估算；extra 在其后仍可最终覆盖（失败记账等场景）。
+              ...(usageAcc.count > 0 ? {
+                promptTokens: usageAcc.promptTokens,
+                completionTokens: usageAcc.completionTokens,
+                cachedTokens: usageAcc.cachedTokens,
+              } : {}),
               firstTokenMs: timing.firstTokenMs,
               generationMs: timing.generationMs,
               at: timing.finishedAt,
@@ -540,6 +551,13 @@ export default function useChatSend({
               // 轮次预算（A1）：与工作区同款分档（write 16 / read 10；其余默认 12）。
               maxRounds: workspaceRoundBudget(workspaceMode),
               signal: controller.signal,
+              // E1：usage 累加（工具轮多轮逐轮累计——每轮都是真实计费）。
+              onUsage: entry => {
+                usageAcc.count += 1;
+                usageAcc.promptTokens += Number(entry && entry.promptTokens) || 0;
+                usageAcc.completionTokens += Number(entry && entry.completionTokens) || 0;
+                usageAcc.cachedTokens += Number(entry && entry.cachedTokens) || 0;
+              },
               requestOptions: {
                 expectedConfigId,
                 expectedConfigFingerprint,

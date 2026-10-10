@@ -6,6 +6,7 @@
 //
 // 两种后端在 tools.js 眼里是同一个接口，所以「换根」不需要换工具定义。
 
+import { ciBridge } from './ci.js';
 import { normalizeWorkspaceLocation, resolveWorkspaceRoot, WORKSPACE_ROOT_KINDS } from './location.js';
 import { getFileSystemNext } from './picker.js';
 import { createExpoSafAdapter, createSafWorkspaceStore } from './safStore.js';
@@ -73,6 +74,8 @@ export function describeWorkspaceRoot(settings) {
 // extras.readLog（A5）：宿主（工作区面板）注入的会话级已读登记；不传 = read 不登记。
 // extras.materializer（C2）：宿主注入的按需物化函数（读不到清单内文件时试一次）；
 // 不传 = 不物化（与旧版行为一致）。
+// ci（H1）：默认注入云构建桥（ci.js 的 token 读取是惰性的，模块加载零副作用）；
+// extras.ci 可覆盖（测试注入假桥）。
 export function registerDefaultWorkspaceTools(settings, extras = {}) {
   return registerWorkspaceTools({
     store: createWorkspaceStore(settings),
@@ -80,6 +83,7 @@ export function registerDefaultWorkspaceTools(settings, extras = {}) {
     python: resolvePythonRunner(settings),
     readLog: extras.readLog || null,
     materializer: typeof extras.materializer === 'function' ? extras.materializer : null,
+    ci: extras.ci || ciBridge,
   });
 }
 

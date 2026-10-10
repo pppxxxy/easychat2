@@ -579,3 +579,104 @@ test('trimOnlineMessages（F4）：未声明窗口不裁剪，声明后丢弃最
   assert.ok(trimmed.some(item => item.role === 'system' && item.content === '人设'), '系统提示恒保留');
   assert.equal(trimmed[trimmed.length - 1].content, history[history.length - 1].content, '保留最新消息');
 });
+
+// —— E1：usage 宽容解析（缓存经济学的地基——没有它就没有命中观测）——
+
+test('E1 extractUsage：三方言归一（OpenAI/DeepSeek/Anthropic）+ 坏输入 null', () => {
+  const { extractUsage } = loadApi();
+  // OpenAI 系：prompt_tokens_details.cached_tokens
+  assert.deepEqual(
+    extractUsage({
+      usage: { prompt_tokens: 1000, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 800 } },
+    }),
+    { promptTokens: 1000, completionTokens: 50, cachedTokens: 800 }
+  );
+  // DeepSeek：prompt_cache_hit_tokens（prompt_tokens 已含命中部分，直接同口径）
+  assert.deepEqual(
+    extractUsage({ usage: { prompt_tokens: 900, completion_tokens: 40, prompt_cache_hit_tokens: 700 } }),
+    { promptTokens: 900, completionTokens: 40, cachedTokens: 700 }
+  );
+  // Anthropic：input_tokens **不含**缓存部分 → 并入 prompt，统一成 prompt ⊇ cached
+  assert.deepEqual(
+    extractUsage({
+      usage: {
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_read_input_tokens: 600,
+        cache_creation_input_tokens: 300,
+      },
+    }),
+    { promptTokens: 1000, completionTokens: 20, cachedTokens: 600 }
+  );
+  // Anthropic 流式：usage 在 message.usage 位置（与 OpenAI 顶层 usage 不同）
+  assert.equal(
+    extractUsage({ message: { usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 5 } } }).cachedTokens,
+    5
+  );
+  // 坏输入 / 无 usage → null（解析不出绝不抛错、绝不影响主流程）
+  assert.equal(extractUsage(null), null);
+  assert.equal(extractUsage('nope'), null);
+  assert.equal(extractUsage({}), null);
+  assert.equal(extractUsage({ usage: {} }), null, '空 usage 视为没有');
+});
+
+test('E1 流式 usage 端到端：最后一个 chunk 的 usage 被带进返回值', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const originalText = FakeXHR.responseText;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = [
+    'data: {"choices":[{"delta":{"content":"你好"}}]}',
+    '',
+    'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":120,"completion_tokens":8,"prompt_cache_hit_tokens":100}}',
+    '',
+    'data: [DONE]',
+    '',
+  ].join('\n');
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }]);
+    assert.equal(result.text, '你好');
+    assert.deepEqual(result.usage, { promptTokens: 120, completionTokens: 8, cachedTokens: 100 });
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = originalText;
+  }
+});
+
+test('E1 非流式 usage：body 里的 usage 同样被带回（同一口径）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const originalText = FakeXHR.responseText;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = JSON.stringify({
+    choices: [{ message: { content: '你好' } }],
+    usage: { prompt_tokens: 60, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 50 } },
+  });
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }], { stream: false });
+    assert.equal(result.text, '你好');
+    assert.deepEqual(result.usage, { promptTokens: 60, completionTokens: 4, cachedTokens: 50 });
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = originalText;
+  }
+});
+
+test('E1 无 usage 的端点：usage 为 null，主流程零影响', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const originalText = FakeXHR.responseText;
+  FakeXHR.autoRespond = true;
+  FakeXHR.responseText = 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\ndata: [DONE]\n\n';
+  globalThis.XMLHttpRequest = FakeXHR;
+  try {
+    const { streamChatCompletion } = loadApi();
+    const result = await streamChatCompletion([{ role: 'user', content: 'hi' }]);
+    assert.equal(result.text, '你好');
+    assert.equal(result.usage, null, '端点不返回 usage → null（调用方必须容忍）');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    FakeXHR.responseText = originalText;
+  }
+});

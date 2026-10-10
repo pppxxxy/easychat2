@@ -231,6 +231,7 @@ export {
   saveSessions,
   searchMessages,
   setActiveSessionId,
+  setSessionAgentMode,
   setProtectedChatImageUris,
   setProtectedVoiceUris,
   setSessionGreetingSelected,

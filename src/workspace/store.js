@@ -9,6 +9,7 @@ import {
   sandboxDirectory,
 } from './paths.js';
 import { applyWorkspaceEdit } from './edit.js';
+import { FILE_HISTORY_DIR } from './fileHistory.js';
 import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
@@ -76,7 +77,11 @@ export async function listWorkspaceFiles({ root, characterId, fileSystem, subdir
   const start = relBase ? `${base}${relBase}/` : base;
   const results = [];
   await walk(fileSystem, start, relBase, results, 0);
-  return results.sort();
+  // J1：file-history 是隐形历史——不进列表枚举（恢复走专用入口），也不刷文件面板。
+  // 注意 listWorkspaceFiles 的调用方（agent 的 list 工具 / 文件面板 / 压缩扫描）都
+  // 不应该看到这批内部文件；fileHistory 模块自己用直读（readIndex），不依赖列表。
+  const hiddenPrefix = `${FILE_HISTORY_DIR}/`;
+  return results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
 }
 
 export async function readWorkspaceFile({ root, characterId, path, fileSystem, maxChars = MAX_READ_CHARS, offset = 0 } = {}) {

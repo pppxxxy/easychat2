@@ -18,9 +18,13 @@ function parseLines(block) {
     if (!value) continue;
     // allowed-tools：社区 Agent Skills 标准字段（D1）——技能声明建议使用的工具；
     // 只做「让模型可见」的软约束，执行门仍走 registry/riskGate。
+    // E3：tools / max-rounds——子代理档案（.easychat/agents/*.md）的字段；
+    // 硬边界不在这里（agents.js 会把 tools ∩ 只读白名单），这里只做解析。
     // 下划线写法（部分生成器产出）归一成标准键，消费方只认一种形态。
     if (key === 'name' || key === 'description') out[key] = value;
     else if (key === 'allowed-tools' || key === 'allowed_tools') out['allowed-tools'] = value;
+    else if (key === 'tools') out.tools = value;
+    else if (key === 'max-rounds' || key === 'max_rounds') out['max-rounds'] = value;
   }
   return out;
 }

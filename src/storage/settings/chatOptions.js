@@ -30,6 +30,9 @@ function normalizeChatOptions(raw) {
     // 聊天内工具（联网搜索）：开启后角色可在聊天中自主调用搜索工具，
     // 过程以「正在搜索…」气泡显示。缺省关闭——它会把提问发给第三方搜索服务。
     chatTools: source.chatTools === true,
+    // E2：上下文占用到 85% 自动压缩会话（省 token / 省费用）；缺省开启。
+    // 关掉后 70% 的「建议压缩」提示条仍在（只是不再自动执行）。
+    autoCompact: source.autoCompact !== false,
   };
 }
 

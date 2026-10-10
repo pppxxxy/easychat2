@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -28,6 +29,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 
 import { FieldHint, FieldLabel, GhostButton, PrimaryButton } from '../../ui/index.js';
+import DiffView from '../DiffView.js';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { getGithubMcpSettings } from '../../storage/githubMcp.js';
@@ -39,26 +41,44 @@ import { diffRepoSnapshot, localRepoPaths } from './repoDiff.js';
 import { materializeRepoFile } from '../repoMaterialize.js';
 import { pushRepoSnapshot } from '../repoPush.js';
 import {
+  applyRollbackSnapshot,
+  buildRollbackPayload,
+  listRollbackSnapshots,
+  readLatestRollbackSnapshot,
+  writeRollbackSnapshot,
+} from '../rollbackBaseline.js';
+import {
+  buildPullSkippedPayload,
   buildRepoZipUrl,
   clearPullManifest,
   extractRepoFiles,
+  formatSkippedList,
   readPullManifest,
+  readPullSkipped,
   readRepoManifest,
   REPO_IMPORT_LIMITS,
   writePullManifest,
+  writePullSkipped,
   writeRepoManifest,
 } from '../repoImport.js';
 import {
   canDeleteRepo,
+  createPullRequest,
   createRepo,
   deleteRepo,
+  dispatchWorkflow,
+  downloadRunLogs,
   downloadZip,
   fetchTokenScopes,
+  getCommitDiff,
   listBranches,
+  listCommits,
   listRepos,
   listTree,
+  listWorkflowRuns,
   renameRepo,
   repoWebUrl,
+  truncateDiffText,
 } from '../github/restApi.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
@@ -109,6 +129,18 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [pullEta, setPullEta] = useState(0);
   const pullStartRef = useRef(0);
   const pullCancelRef = useRef(false);
+  // G2：跳过清单（拉取时被跳过的二进制/超大/可疑文件）——「少了哪些文件」可见。
+  const [skippedPayload, setSkippedPayload] = useState(null);
+  const [skippedOpen, setSkippedOpen] = useState(false);
+  // H3：回滚基线——最近一次推送的旧内容快照存在时，展示「回滚」入口。
+  const [rollbackInfo, setRollbackInfo] = useState(null);
+  // H1：云构建（Actions）——触发 + 最近构建列表 + 日志查看（手动刷新，不自动轮询：
+  // 手机端不需要长连接，用户想看时点一下）。
+  const [buildWorkflow, setBuildWorkflow] = useState('');
+  const [buildBusy, setBuildBusy] = useState(false);
+  const [buildRuns, setBuildRuns] = useState([]);
+  const [buildLog, setBuildLog] = useState(null);
+  const [buildNotice, setBuildNotice] = useState('');
   // B1 分支选择器：三态（loading / error / chips）；seq 防「快速切仓库时旧响应
   // 后到」把新仓库的分支列表盖回去（网络乱序是常态，不能靠响应先后）。
   const [branchOptions, setBranchOptions] = useState([]);
@@ -122,6 +154,14 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   // C3 批量推送（Trees API 单提交）进行中状态。
   const [pushBusy, setPushBusy] = useState(false);
+  // E5：提交历史（内联展开 + 翻页）与单提交 diff；PR 创建进行中。
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyCommits, setHistoryCommits] = useState([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const [historyDiff, setHistoryDiff] = useState(null);
+  const [prBusy, setPrBusy] = useState(false);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
   const [snapshotPaths, setSnapshotPaths] = useState([]);
   const mountedRef = useRef(true);
@@ -130,6 +170,28 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // G2：面板（重）挂载时读上次拉取的跳过清单——「跳过 N 个文件（可查看清单）」
+  // 在会话之间也保留（agent 同样能用 read_workspace_file 读 .easychat/pull-skipped.json）。
+  // H3：同时列一次回滚基线（只读文件名，轻）——存在即显示「回滚最近一次推送」。
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const payload = await readPullSkipped(storeRef && storeRef.current, characterId);
+        if (alive && payload && payload.total > 0) {
+          setSkippedPayload(payload);
+        }
+      } catch (error) {}
+      try {
+        const snapshots = await listRollbackSnapshots(storeRef && storeRef.current, characterId);
+        if (alive && snapshots.length > 0) {
+          setRollbackInfo({ at: snapshots[0].ts });
+        }
+      } catch (error) {}
+    })();
+    return () => { alive = false; };
+  }, [characterId]);
 
   const describeError = useCallback(caught => {
     const code = caught && caught.code;
@@ -485,10 +547,18 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         throw Object.assign(new Error('zip too large'), { code: 'REPO_LIMIT_DOWNLOAD' });
       }
       const buffer = await response.arrayBuffer();
-      const { files, skippedBinary, skippedSlip, skippedOversize, skippedDirs } = extractRepoFiles(
+      const { files, skippedBinary, skippedSlip, skippedOversize, skippedDirs, skipped } = extractRepoFiles(
         new Uint8Array(buffer),
         `${current.repo}-${branch}/`
       );
+      // G2：跳过清单落盘（覆盖式——本次没跳过就覆盖为空，如实反映最近一次拉取）。
+      // 写失败不挡拉取主流程（旁路机制）。
+      const skippedPayloadNext = buildPullSkippedPayload({
+        owner: current.owner,
+        repo: current.repo,
+        branch,
+        skipped,
+      });
       if (files.length === 0) {
         Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
         return;
@@ -535,6 +605,9 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
       if (batchOpen) { store.endBatch?.(); batchOpen = false; }
       // F4：跑到这里才算真的完成——删除残留清单（失败/取消路径会保留它）。
       await clearPullManifest(store, characterId);
+      // G2：成功后才写跳过清单（失败/取消不写——避免误导成「这次拉取的结论」）。
+      await writePullSkipped(store, characterId, skippedPayloadNext);
+      if (mountedRef.current) setSkippedPayload(skippedPayloadNext);
       if (mountedRef.current) {
         setCurrent(prev => (prev ? { ...prev, branch } : prev));
         setSubdir(base);
@@ -815,6 +888,13 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     if (!branch) return;
     setPushBusy(true);
     try {
+      // G1：读基线快照（拉取/推送成功后的清单）——「曾经物化过」的证据。
+      // 基线缺失（旧会话/手工拷入）→ 传空数组：removed 恒空，宁可少删不可误删。
+      let baselinePaths = [];
+      try {
+        const baseline = await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`);
+        baselinePaths = baseline && Array.isArray(baseline.paths) ? baseline.paths : [];
+      } catch (error) {}
       const result = await pushRepoSnapshot({
         store,
         characterId,
@@ -822,6 +902,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         repo: current.repo,
         branch,
         token,
+        baselinePaths,
         confirm: ({ diff: guardDiff }) => confirmPushDiff(guardDiff),
       });
       if (result.empty) {
@@ -842,18 +923,158 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         if (mountedRef.current) setSnapshotPaths(paths);
       } catch (error) {}
       await refreshLocal();
+      // H3：写回滚基线（本次 modified/removed 的远程旧内容）——push 前已拉好，
+      // 这里落盘 + 轮换（保留 3 份）。写失败静默（旁路：没有快照只是不能回滚）。
+      if (result.rollback) {
+        const payload = buildRollbackPayload({
+          owner: current.owner,
+          repo: current.repo,
+          branch,
+          commit: result.commit,
+          rollback: result.rollback,
+        });
+        const snapshotPath = await writeRollbackSnapshot(store, characterId, payload);
+        if (snapshotPath && mountedRef.current) {
+          setRollbackInfo({ at: payload.at });
+        }
+      }
+      // G 系：读不全的超大文件**不参与本次同步**（保持原样，不会被误删）——如实提示。
+      const skippedNote = Array.isArray(result.skippedTooLarge) && result.skippedTooLarge.length > 0
+        ? `\n\n${t('workspace.github.push.skippedTooLarge', { count: result.skippedTooLarge.length })}`
+        : '';
       Alert.alert(t('workspace.github.title'), t('workspace.github.push.doneBody', {
         sha: String(result.commit || '').slice(0, 7),
         added: result.diff.added.length,
         modified: result.diff.modified.length,
         removed: result.diff.removed.length,
-      }));
+      }) + skippedNote);
     } catch (caught) {
       Alert.alert(t('workspace.github.title'), describeError(caught));
     } finally {
       if (mountedRef.current) setPushBusy(false);
     }
   }, [characterId, confirmPushDiff, current, describeError, pullBranch, pushBusy, refreshLocal, storeRef, t, token]);
+
+  // H1：刷新最近构建（手动——不自动轮询，省电也省限流额度）。定义在 submitBuild 前
+  //（后者依赖前者：useCallback 的 deps 在定义时求值，顺序反了会踩 TDZ）。
+  const refreshBuildRuns = useCallback(async () => {
+    if (!current) return;
+    try {
+      const workflow = String(buildWorkflow || '').trim();
+      const runs = await listWorkflowRuns({
+        token,
+        owner: current.owner,
+        repo: current.repo,
+        ...(workflow ? { workflow } : {}),
+        branch: String(pullBranch || current.branch || '').trim(),
+        perPage: 10,
+      });
+      if (mountedRef.current) setBuildRuns(runs);
+    } catch (caught) {
+      if (mountedRef.current) Alert.alert(t('workspace.github.title'), describeError(caught));
+    }
+  }, [buildWorkflow, current, describeError, pullBranch, t, token]);
+
+  // H1：触发云构建（workflow_dispatch——远端副作用，按钮文案即确认语义）。
+  const submitBuild = useCallback(async () => {
+    if (!current || buildBusy) return;
+    const workflow = String(buildWorkflow || '').trim();
+    if (!workflow) {
+      Alert.alert(t('workspace.github.title'), t('workspace.github.build.needWorkflow'));
+      return;
+    }
+    setBuildBusy(true);
+    setBuildNotice('');
+    try {
+      await dispatchWorkflow({
+        token,
+        owner: current.owner,
+        repo: current.repo,
+        workflow,
+        ref: String(pullBranch || current.branch || '').trim(),
+      });
+      if (mountedRef.current) setBuildNotice(t('workspace.github.build.dispatched'));
+      await refreshBuildRuns();
+    } catch (caught) {
+      Alert.alert(t('workspace.github.title'), describeError(caught));
+    } finally {
+      if (mountedRef.current) setBuildBusy(false);
+    }
+  }, [buildBusy, buildWorkflow, current, describeError, pullBranch, refreshBuildRuns, t, token]);
+
+  // H1：看某次构建的日志（zip 解包在 restApi 里做，这里只展示——头尾截断已在拉取层）。
+  const openBuildLog = useCallback(async runId => {
+    if (!current) return;
+    setBuildLog({ runId, text: t('workspace.github.build.logLoading'), loading: true });
+    try {
+      const result = await downloadRunLogs({
+        token,
+        owner: current.owner,
+        repo: current.repo,
+        runId,
+      });
+      if (mountedRef.current) {
+        setBuildLog({ runId, text: result.text || t('workspace.github.build.logEmpty'), loading: false });
+      }
+    } catch (caught) {
+      if (mountedRef.current) {
+        setBuildLog({ runId, text: describeError(caught), loading: false });
+      }
+    }
+  }, [current, describeError, t, token]);
+
+  // H3：一键回滚——把本地恢复到最近一次推送之前（modified 写回旧内容 /
+  // removed 恢复文件），再让用户走既有推送确认门同步到远端（不自动弹，避免连环弹窗）。
+  const rollbackLastPush = useCallback(async () => {
+    if (!current || pushBusy) return;
+    const store = storeRef && storeRef.current;
+    if (!store) return;
+    const payload = await readLatestRollbackSnapshot(store, characterId);
+    if (!payload) {
+      Alert.alert(t('workspace.github.title'), t('workspace.github.rollback.none'));
+      if (mountedRef.current) setRollbackInfo(null);
+      return;
+    }
+    const entries = Array.isArray(payload.entries) ? payload.entries : [];
+    const restorableCount = entries.filter(item => typeof item.content === 'string').length;
+    const lostCount = entries.length - restorableCount;
+    const lostNote = lostCount > 0
+      ? `\n\n${t('workspace.github.rollback.lostNote', { count: lostCount })}`
+      : '';
+    Alert.alert(
+      t('workspace.github.rollback.confirmTitle'),
+      t('workspace.github.rollback.confirmBody', {
+        count: restorableCount,
+        time: new Date(payload.at || Date.now()).toLocaleString(),
+      }) + lostNote,
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('workspace.github.rollback.confirmAction'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const localPrefix = `repos/${payload.owner}/${payload.repo}/${payload.branch}/`;
+              const outcome = await applyRollbackSnapshot({
+                store,
+                characterId,
+                payload,
+                localPrefix,
+              });
+              await refreshLocal();
+              if (!mountedRef.current) return;
+              Alert.alert(t('workspace.github.title'), t('workspace.github.rollback.done', {
+                restored: outcome.restored.length,
+                failed: outcome.failed.length + outcome.unrestorable.length,
+              }));
+            } catch (caught) {
+              Alert.alert(t('workspace.github.title'), describeError(caught));
+            }
+          },
+        },
+      ]
+    );
+  }, [characterId, current, describeError, pushBusy, refreshLocal, storeRef, t]);
 
   const handoffPush = useCallback(() => {
     if (!current || typeof onHandoff !== 'function') return;
@@ -875,6 +1096,90 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     parts.push(t('workspace.github.push.instructionTail'));
     onHandoff(parts.join('\n\n'));
   }, [current, diff, onHandoff, t]);
+
+  // E5：提交历史（内联展开）——首屏 30 条、可翻页；点条目看截断后的 diff。
+  // 失败不弹窗（非阻塞区块），行内给错误行重试即可。
+  const loadHistory = useCallback(async (page = 1, append = false) => {
+    if (!current || historyBusy) return;
+    setHistoryBusy(true);
+    setHistoryError(false);
+    try {
+      const branchName = String(current.branch || pullBranch || '').trim();
+      const commits = await listCommits({
+        token,
+        owner: current.owner,
+        repo: current.repo,
+        ...(branchName ? { branch: branchName } : {}),
+        page,
+      });
+      if (!mountedRef.current) return;
+      setHistoryCommits(list => (append ? [...list, ...commits] : commits));
+      setHistoryPage(page);
+    } catch (caught) {
+      if (mountedRef.current) setHistoryError(true);
+    } finally {
+      if (mountedRef.current) setHistoryBusy(false);
+    }
+  }, [current, historyBusy, pullBranch, token]);
+
+  const openCommitDiff = useCallback(async sha => {
+    if (!current || !sha) return;
+    setHistoryDiff({ sha, text: t('workspace.github.history.diffLoading'), loading: true });
+    try {
+      const raw = await getCommitDiff({ token, owner: current.owner, repo: current.repo, sha });
+      const { text } = truncateDiffText(raw);
+      if (mountedRef.current) {
+        setHistoryDiff({ sha, text: text || t('workspace.github.history.diffEmpty'), loading: false });
+      }
+    } catch (caught) {
+      if (mountedRef.current) {
+        setHistoryDiff({ sha, text: t('workspace.github.history.diffError'), loading: false });
+      }
+    }
+  }, [current, t, token]);
+
+  // E5：创建 PR（写操作）——本地确认门说清 head → base，再由 restApi 发请求；
+  // 失败按错误码映射给清晰文案（无权限 / 分支不存在 / 冲突）。
+  const submitCreatePr = useCallback(() => {
+    if (!current || prBusy) return;
+    const head = String(pullBranch || current.branch || '').trim();
+    const base = String(current.defaultBranch || 'main').trim();
+    if (!head || head === base) {
+      Alert.alert(t('workspace.github.title'), t('workspace.github.pr.badBranches', { base }));
+      return;
+    }
+    Alert.alert(
+      t('workspace.github.pr.confirmTitle'),
+      t('workspace.github.pr.confirmBody', { head, base, name: `${current.owner}/${current.repo}` }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('workspace.github.pr.confirmAction'),
+          onPress: async () => {
+            setPrBusy(true);
+            try {
+              const pr = await createPullRequest({
+                token,
+                owner: current.owner,
+                repo: current.repo,
+                title: t('workspace.github.pr.defaultTitle', { branch: head }),
+                head,
+                base,
+              });
+              Alert.alert(t('workspace.github.title'), t('workspace.github.pr.done', {
+                number: pr.number,
+                url: pr.url,
+              }));
+            } catch (caught) {
+              Alert.alert(t('workspace.github.title'), describeError(caught));
+            } finally {
+              if (mountedRef.current) setPrBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [current, describeError, prBusy, pullBranch, t, token]);
 
   const canAct = Boolean(current) && Boolean(storeRef && storeRef.current);
 
@@ -1082,6 +1387,25 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                   </FieldHint>
                 ) : null}
                 {pullNotice ? <FieldHint>{pullNotice}</FieldHint> : null}
+                {/* G2：跳过清单入口——「少了哪些文件」可见（以前只有计数）。 */}
+                {skippedPayload && skippedPayload.total > 0 ? (
+                  <>
+                    <View style={styles.actions}>
+                      <GhostButton
+                        title={skippedOpen
+                          ? t('workspace.github.skipped.hide')
+                          : t('workspace.github.skipped.view', { count: skippedPayload.total })}
+                        small
+                        onPress={() => setSkippedOpen(value => !value)}
+                      />
+                    </View>
+                    {skippedOpen ? (
+                      <Text style={styles.skippedList} selectable numberOfLines={80}>
+                        {formatSkippedList(skippedPayload)}
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
                 <FieldHint>{t('workspace.github.pull.hint')}</FieldHint>
 
                 {layer === 'newEntry' ? (
@@ -1211,6 +1535,140 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
               </View>
             ) : null}
 
+            {layer === 'build' && current ? (
+              <View style={styles.formCard}>
+                <FieldLabel>{t('workspace.github.build.title')}</FieldLabel>
+                <TextInput
+                  style={styles.input}
+                  value={buildWorkflow}
+                  onChangeText={setBuildWorkflow}
+                  placeholder={t('workspace.github.build.workflowPlaceholder')}
+                  placeholderTextColor={theme.colors.textFaint}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <FieldHint>{t('workspace.github.build.hint', {
+                  branch: String(pullBranch || current.branch || '').trim() || '-',
+                })}</FieldHint>
+                <View style={styles.actions}>
+                  <PrimaryButton
+                    title={buildBusy ? t('workspace.github.build.busy') : t('workspace.github.build.action')}
+                    small
+                    onPress={submitBuild}
+                  />
+                  <GhostButton
+                    title={t('workspace.github.build.refresh')}
+                    small
+                    onPress={refreshBuildRuns}
+                  />
+                </View>
+                {buildNotice ? <FieldHint>{buildNotice}</FieldHint> : null}
+                {buildRuns.map(run => (
+                  <TouchableOpacity
+                    key={run.id}
+                    style={styles.manageRow}
+                    onPress={() => openBuildLog(run.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={run.status === 'completed'
+                        ? (run.conclusion === 'success' ? 'checkmark-circle' : 'close-circle')
+                        : 'sync-circle'}
+                      size={16}
+                      color={run.status === 'completed' && run.conclusion === 'success'
+                        ? theme.colors.primary
+                        : theme.colors.textMuted}
+                    />
+                    <Text style={styles.historyText} numberOfLines={1}>
+                      {`#${run.id} ${run.displayTitle || run.name}`}
+                    </Text>
+                    <Text style={styles.historyMeta}>
+                      {run.status === 'completed' ? (run.conclusion || 'done') : run.status}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {buildRuns.length === 0 ? (
+                  <FieldHint>{t('workspace.github.build.noRuns')}</FieldHint>
+                ) : null}
+                {buildLog ? (
+                  <>
+                    <FieldLabel>{`#${buildLog.runId} ${t('workspace.github.build.logTitle')}`}</FieldLabel>
+                    <Text style={styles.skippedList} selectable numberOfLines={150}>
+                      {buildLog.text}
+                    </Text>
+                  </>
+                ) : null}
+              </View>
+            ) : null}
+
+            {current ? (
+              <View style={styles.formCard}>
+                {/* E5：提交历史（内联展开）——点条目看截断后的 diff（大 diff 头尾都保）。 */}
+                <View style={styles.actions}>
+                  <GhostButton
+                    title={historyOpen
+                      ? t('workspace.github.history.hide')
+                      : t('workspace.github.history.load')}
+                    small
+                    onPress={() => {
+                      const next = !historyOpen;
+                      setHistoryOpen(next);
+                      if (next && historyCommits.length === 0) loadHistory(1, false);
+                    }}
+                  />
+                </View>
+                {historyOpen ? (
+                  <>
+                    {historyBusy && historyCommits.length === 0 ? (
+                      <FieldHint>{t('workspace.github.history.loading')}</FieldHint>
+                    ) : null}
+                    {historyError ? <FieldHint>{t('workspace.github.history.err')}</FieldHint> : null}
+                    {!historyBusy && !historyError && historyCommits.length === 0 ? (
+                      <FieldHint>{t('workspace.github.history.empty')}</FieldHint>
+                    ) : null}
+                    {historyCommits.map(item => (
+                      <TouchableOpacity
+                        key={item.sha}
+                        style={styles.manageRow}
+                        onPress={() => openCommitDiff(item.sha)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="git-commit-outline" size={16} color={theme.colors.primaryMuted} />
+                        <Text style={styles.historyText} numberOfLines={1}>
+                          {item.sha.slice(0, 7)} · {item.message}
+                        </Text>
+                        <Text style={styles.historyMeta}>{item.date.slice(0, 10)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {historyDiff ? (
+                      <>
+                        <FieldLabel>{`${historyDiff.sha.slice(0, 7)} diff`}</FieldLabel>
+                        {/* H2：统一 diff 文本 → 行级着色（WebView；加载中/错误仍是纯文本行）。 */}
+                        {historyDiff.loading
+                          ? <Text style={styles.historyDiffText}>{historyDiff.text}</Text>
+                          : (
+                            <DiffView
+                              unified={historyDiff.text}
+                              title={historyDiff.sha.slice(0, 7)}
+                              height={360}
+                            />
+                          )}
+                      </>
+                    ) : null}
+                    {historyCommits.length >= 30 ? (
+                      <View style={styles.actions}>
+                        <GhostButton
+                          title={t('workspace.github.history.more')}
+                          small
+                          onPress={() => loadHistory(historyPage + 1, true)}
+                        />
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
+            ) : null}
+
             {current ? (
               <View style={styles.pushBar}>
                 <Text style={styles.pushText}>
@@ -1235,6 +1693,20 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     <GhostButton title={t('workspace.github.push.handoff')} small onPress={handoffPush} />
                   ) : null}
                   <GhostButton title={t('workspace.github.push.markSynced')} small onPress={markSynced} />
+                  {/* E5：创建 PR（写操作——确认门在 submitCreatePr 内）。 */}
+                  <GhostButton
+                    title={prBusy ? t('workspace.github.pr.busy') : t('workspace.github.pr.action')}
+                    small
+                    onPress={submitCreatePr}
+                  />
+                  {/* H3：回滚最近一次推送（快照存在时可见）——恢复本地后走推送门同步远端。 */}
+                  {rollbackInfo ? (
+                    <GhostButton
+                      title={t('workspace.github.rollback.action')}
+                      small
+                      onPress={rollbackLastPush}
+                    />
+                  ) : null}
                 </View>
               </View>
             ) : null}
@@ -1291,6 +1763,20 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           accessibilityLabel={t('workspace.github.toolbar.manage')}
         >
           <Ionicons name="options-outline" size={19} color={theme.colors.primarySoft} />
+        </TouchableOpacity>
+        {/* H1：云构建（触发 → 看状态 → 读日志——「写→检查→修」闭环的远端重活）。 */}
+        <TouchableOpacity
+          style={[styles.toolButton, !canAct && styles.toolDisabled]}
+          onPress={() => {
+            const next = layer === 'build' ? '' : 'build';
+            setLayer(next);
+            setBuildLog(null);
+            if (next) refreshBuildRuns();
+          }}
+          disabled={!canAct}
+          accessibilityLabel={t('workspace.github.toolbar.build')}
+        >
+          <Ionicons name="cafe-outline" size={19} color={theme.colors.primarySoft} />
         </TouchableOpacity>
       </View>
     </View>
@@ -1376,6 +1862,28 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 8,
   },
   manageText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), marginLeft: 8 },
+  // E5：历史行（文本占主位、日期靠右）与 diff 文本块（等宽、限高滚动由外层负责）。
+  historyText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), marginLeft: 8, flex: 1 },
+  historyMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginLeft: 8 },
+  historyDiffText: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(11.5),
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.sm,
+    padding: 10,
+    marginTop: 6,
+  },
+  // G2：跳过清单（等宽小字，只读展示路径 + 原因 + 大小）。
+  skippedList: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(11),
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: tokens.radius.sm,
+    padding: 10,
+    marginTop: 6,
+  },
   dangerBlock: {
     marginTop: 14,
     borderTopWidth: tokens.border.thin,

@@ -1980,3 +1980,28 @@ test('遗留键清理：持久化失败（写闸在尾部置位）→ 不删', a
   assert.equal(readDiagnostics().some(entry => entry.context === 'character-legacy-cleanup'), false,
     '不得出现清理诊断');
 });
+
+test('J3 会话级 agentMode：normalize 收敛 + setSessionAgentMode 往返与幂等', async () => {
+  const storage = loadStorage();
+  // 纯函数：白名单收敛（'' = 未设置，跟随全局；老数据零迁移）
+  assert.equal(sessionLibrary.normalizeSession({ id: 's1' }).agentMode, '');
+  assert.equal(sessionLibrary.normalizeSession({ id: 's1', agentMode: 'write' }).agentMode, 'write');
+  assert.equal(sessionLibrary.normalizeSession({ id: 's1', agentMode: 'hacker' }).agentMode, '');
+  assert.equal(sessionLibrary.normalizeSession({ id: 's1', agentMode: 'ask' }).agentMode, '', 'ask 不存（默认态）');
+
+  // 存取往返
+  await storage.saveSessions([
+    { id: 'j3-a', type: 'single', characterId: 'ch1', createdAt: 1, updatedAt: 1 },
+  ]);
+  assert.equal(await storage.setSessionAgentMode('j3-a', 'write'), true);
+  let sessions = await storage.getSessions();
+  assert.equal(sessions.find(item => item.id === 'j3-a').agentMode, 'write');
+  // 清除（'' = 跟随全局）
+  assert.equal(await storage.setSessionAgentMode('j3-a', ''), true);
+  sessions = await storage.getSessions();
+  assert.equal(sessions.find(item => item.id === 'j3-a').agentMode, '');
+  // 幂等 + 边界
+  assert.equal(await storage.setSessionAgentMode('j3-a', ''), true, '重复清除幂等');
+  assert.equal(await storage.setSessionAgentMode('nope', 'write'), false, '缺会话 false');
+  assert.equal(await storage.setSessionAgentMode('', 'write'), false, '缺参数 false');
+});

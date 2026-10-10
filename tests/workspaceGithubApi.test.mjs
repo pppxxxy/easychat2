@@ -5,26 +5,38 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  buildCommitsUrl,
   buildHeaders,
   buildReposUrl,
   canDeleteRepo,
+  createPullRequest,
   createRepo,
   deleteRepo,
+  dispatchWorkflow,
+  downloadRunLogs,
   downloadZip,
   fetchTokenScopes,
+  getCommitDiff,
+  getWorkflowRun,
   GITHUB_RETRY_DELAYS,
   listBranches,
+  listCommits,
   listRepos,
   listTree,
+  listWorkflowRuns,
   mapGithubError,
+  mergeRunLogZip,
   normalizeRepo,
+  normalizeWorkflowRun,
   rateLimitFrom,
   renameRepo,
   repoWebUrl,
   request,
   RETRY_AFTER_CAP_MS,
   retryDelayFor,
+  truncateDiffText,
 } from '../src/workspace/github/restApi.js';
+import { strToU8, zipSync } from 'fflate';
 
 function makeResponse(status, data, headers = {}) {
   const map = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v)]));
@@ -372,4 +384,184 @@ test('GithubPanel：快照 diff + 一键交接给助手推送', () => {
   assert.ok(PANEL_SRC.includes('workspace.github.push.markSynced'), '推送成功后手动确认新基线');
   // 本面板不直连推送：写远端一律经助手 + 逐条确认（面板里不得出现 MCP 推送调用）。
   assert.ok(!PANEL_SRC.includes('push_files'), '面板不直接调 GitHub 推送');
+});
+
+test('E5 listCommits / getCommitDiff / createPullRequest：URL、归一、文本响应、Accept', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, method: options.method, headers: options.headers, body: options.body });
+    if (url.includes('/commits?')) {
+      return makeResponse(200, [
+        {
+          sha: 'abc123',
+          commit: {
+            message: 'feat: 首页改版\n\n详细说明只取首行',
+            author: { name: 'ppp', date: '2026-10-10T08:00:00Z' },
+          },
+        },
+        { sha: 'def456', commit: { message: 'fix: 崩溃', author: { name: 'ppp', date: '2026-10-09T08:00:00Z' } } },
+        { sha: '' },
+      ]);
+    }
+    if (url.includes('/commits/abc123')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => 'diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b',
+      };
+    }
+    if (url.endsWith('/pulls')) {
+      return makeResponse(201, { number: 42, html_url: 'https://github.com/o/r/pull/42', title: 'D 系上主' });
+    }
+    return makeResponse(404, {});
+  };
+
+  // 提交列表：URL 形态（分支/翻页）+ 归一（message 只取首行、空 sha 剔除）
+  assert.match(
+    buildCommitsUrl({ owner: 'o', repo: 'r', branch: 'main', page: 2 }),
+    /\/repos\/o\/r\/commits\?per_page=30&page=2&sha=main$/
+  );
+  const commits = await listCommits({ fetchImpl, token: 't', owner: 'o', repo: 'r', branch: 'main', page: 2 });
+  assert.match(calls[0].url, /per_page=30&page=2&sha=main$/);
+  assert.equal(commits.length, 2, '空 sha 条目被剔除');
+  assert.deepEqual(commits[0], {
+    sha: 'abc123',
+    message: 'feat: 首页改版',
+    author: 'ppp',
+    date: '2026-10-10T08:00:00Z',
+  });
+
+  // diff：Accept 换 diff 媒体类型 + 走 text()（不是 json()）
+  const diff = await getCommitDiff({ fetchImpl, token: 't', owner: 'o', repo: 'r', sha: 'abc123' });
+  assert.match(diff, /^diff --git/);
+  assert.equal(calls[1].headers.Accept, 'application/vnd.github.diff', '媒体类型精确');
+
+  // PR：POST + body 字段（写操作——确认门在 UI 层，restApi 只发请求）
+  const pr = await createPullRequest({
+    fetchImpl,
+    token: 't',
+    owner: 'o',
+    repo: 'r',
+    title: 'D 系上主',
+    head: 'c1009c23',
+    base: 'main',
+  });
+  assert.equal(calls[2].method, 'POST');
+  assert.deepEqual(JSON.parse(calls[2].body), { title: 'D 系上主', head: 'c1009c23', base: 'main' });
+  assert.deepEqual(pr, { number: 42, url: 'https://github.com/o/r/pull/42', title: 'D 系上主' });
+});
+
+test('E5 truncateDiffText：头 3/4 + 尾 1/4 长度守恒、小 diff 原样、坏输入安全', () => {
+  assert.deepEqual(truncateDiffText('short'), { text: 'short', truncated: false });
+  const source = `${'h'.repeat(15)}${'t'.repeat(5)}`;
+  const big = truncateDiffText(source, 10);
+  assert.equal(big.truncated, true);
+  assert.ok(big.text.startsWith('h'.repeat(8)), '头 8 = limit 的 3/4');
+  assert.ok(big.text.endsWith('t'.repeat(2)), '尾 2 = limit 的 1/4');
+  assert.match(big.text, /中间省略 10 字符/, '省略量标明');
+  assert.match(big.text, /GitHub 网页端/, '给出看完整差异的通路');
+  assert.equal(truncateDiffText(null).text, '');
+  assert.equal(truncateDiffText(undefined).truncated, false);
+});
+
+test('H1 Actions 云构建：dispatch/list/get 的 URL 与归一', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, method: options.method, body: options.body });
+    if (url.endsWith('/dispatches')) return { ok: true, status: 204, headers: { get: () => null }, json: async () => null };
+    if (url.includes('/runs?')) {
+      return makeResponse(200, {
+        workflow_runs: [
+          {
+            id: 11,
+            name: 'CI',
+            display_title: 'feat: x',
+            status: 'completed',
+            conclusion: 'failure',
+            head_branch: 'main',
+            head_sha: 'abcdef1234567890',
+            created_at: '2026-10-10T08:00:00Z',
+            event: 'workflow_dispatch',
+            html_url: 'https://github.com/o/r/actions/runs/11',
+          },
+          { id: 0 },
+        ],
+      });
+    }
+    if (url.includes('/actions/runs/11')) {
+      return makeResponse(200, { id: 11, status: 'in_progress', head_branch: 'main' });
+    }
+    return makeResponse(404, {});
+  };
+
+  // dispatch：POST + ref/inputs（204 成功拿不到 run id）
+  assert.deepEqual(
+    await dispatchWorkflow({ fetchImpl, token: 't', owner: 'o', repo: 'r', workflow: 'ci.yml', ref: 'main', inputs: { target: 'app' } }),
+    { ok: true }
+  );
+  assert.equal(calls[0].method, 'POST');
+  assert.match(calls[0].url, /\/actions\/workflows\/ci\.yml\/dispatches$/);
+  assert.deepEqual(JSON.parse(calls[0].body), { ref: 'main', inputs: { target: 'app' } });
+
+  // list：不带 workflow 走全仓库 runs；归一（sha 截断、空条目剔除）
+  const runs = await listWorkflowRuns({ fetchImpl, token: 't', owner: 'o', repo: 'r', branch: 'main', page: 2 });
+  assert.match(calls[1].url, /\/actions\/runs\?per_page=20&page=2&branch=main$/);
+  assert.equal(runs.length, 1, 'id=0 的条目剔除');
+  assert.equal(runs[0].sha, 'abcdef1');
+  assert.equal(runs[0].conclusion, 'failure');
+
+  // list：带 workflow 走 workflow 范围
+  await listWorkflowRuns({ fetchImpl, token: 't', owner: 'o', repo: 'r', workflow: 'ci.yml' });
+  assert.match(calls[2].url, /\/actions\/workflows\/ci\.yml\/runs\?/);
+
+  // get：单 run 状态轮询
+  const run = await getWorkflowRun({ fetchImpl, token: 't', owner: 'o', repo: 'r', runId: 11 });
+  assert.equal(run.status, 'in_progress');
+  assert.equal(run.branch, 'main');
+});
+
+test('H1 日志 zip：按 job 合并 / 非 zip 兜底 / downloadRunLogs 端到端与截断', async () => {
+  // mergeRunLogZip：GitHub logs 是 zip（<job>/1_step.txt 形态）——按 job 分组合并
+  const zip = zipSync({
+    'test/1_setup.txt': strToU8('setup line'),
+    'test/2_run.txt': strToU8('test failed: expect 1 got 2'),
+    'build/1_build.txt': strToU8('build ok'),
+  });
+  const merged = mergeRunLogZip(zip);
+  assert.deepEqual(merged.jobs.map(item => item.name), ['build', 'test'], 'job 按名字排序');
+  assert.ok(merged.text.includes('### build'), '合并文本带 job 头');
+  assert.ok(merged.text.includes('test failed: expect 1 got 2'), '诊断内容在');
+  // 非 zip（端点行为变化）→ 纯文本兜底，不丢信息
+  const plain = mergeRunLogZip(strToU8('plain log text'));
+  assert.equal(plain.jobs.length, 0);
+  assert.equal(plain.text, 'plain log text');
+
+  // downloadRunLogs：fetch（含 302 跟随——fetch 默认行为，mock 直接返回最终响应）
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    arrayBuffer: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength),
+  });
+  const result = await downloadRunLogs({ fetchImpl, token: 't', owner: 'o', repo: 'r', runId: 11 });
+  assert.ok(result.text.includes('build ok'));
+  assert.equal(result.truncated, false);
+  // 大日志：头尾截断（复用 D2 形状）
+  const bigFetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    arrayBuffer: async () => {
+      const bigZip = zipSync({ 'job/1.txt': strToU8('x'.repeat(200)) });
+      return bigZip.buffer.slice(bigZip.byteOffset, bigZip.byteOffset + bigZip.byteLength);
+    },
+  });
+  const big = await downloadRunLogs({ fetchImpl: bigFetch, token: 't', owner: 'o', repo: 'r', runId: 11, limit: 50 });
+  assert.equal(big.truncated, true);
+  assert.match(big.text, /中间省略/, '截断标注');
+
+  // normalizeWorkflowRun：坏输入安全
+  assert.equal(normalizeWorkflowRun(null).id, 0);
+  assert.equal(normalizeWorkflowRun({ id: '5', status: 'queued' }).id, 5);
 });

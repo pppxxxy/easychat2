@@ -214,3 +214,27 @@ test('打点接线：请求链路记时、失败/取消也记、群聊同样计�
   assert.ok(send.includes("isLocal ? 'local' : (expectedConfigId || 'unknown')"), '本地/在线分组分开');
   assert.ok(send.includes("tRef.current('chat.stats.localProvider')"), '本地分组名走 i18n');
 });
+
+test('E1 cachedTokens：累计（顶层+分组）、命中率、无 usage 会话恒 0', () => {
+  let stats = createEmptyStats();
+  stats = recordRequest(stats, { configId: 'a', promptTokens: 100, completionTokens: 10, cachedTokens: 80 });
+  stats = recordRequest(stats, { configId: 'a', promptTokens: 200, completionTokens: 20, cachedTokens: 150 });
+  const summary = summarizeStats(stats);
+  assert.equal(summary.cachedTokens, 230, '顶层累计');
+  assert.equal(summary.promptTokens, 300);
+  assert.equal(summary.cacheHitRate, 230 / 300, '命中率 = cached / prompt');
+  assert.equal(summary.groups[0].cachedTokens, 230, '分组同步累计');
+  assert.equal(summary.groups[0].cacheHitRate, 230 / 300);
+
+  // 不返回 usage 的会话（不传 cachedTokens）：恒 0，不产生 NaN
+  const bare = summarizeStats(
+    recordRequest(createEmptyStats(), { configId: 'b', promptTokens: 50, completionTokens: 5 })
+  );
+  assert.equal(bare.cachedTokens, 0);
+  assert.equal(bare.cacheHitRate, 0, '0/50 = 0（不是 NaN）');
+  assert.equal(summarizeStats(createEmptyStats()).cacheHitRate, 0, '空统计不除零');
+
+  // 归一防御：坏数据不把面板算崩
+  assert.equal(normalizeStats({ cachedTokens: 'x' }).cachedTokens, 0);
+  assert.equal(normalizeStats({ cachedTokens: -5 }).cachedTokens, 0);
+});

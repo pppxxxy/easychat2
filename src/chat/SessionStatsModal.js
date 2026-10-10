@@ -1,10 +1,10 @@
 // 「本会话统计」弹窗（聊天页「⋯」菜单进入）。
 //
-// 展示本会话累计：token（估算）、消息条数、按 API 配置分组的请求数与生成速度
+// 展示本会话累计：token、消息条数、按 API 配置分组的请求数与生成速度
 // （首字延迟 / 每秒 token），用来判断哪个服务商/模型性价比更高。
 //
-// 口径如实标注（面板底部有说明）：token 是估算（在线 API 不返回 usage），
-// 同一估算器下不同服务商可比，但不是精确计费。
+// 口径如实标注（面板底部有说明）：E1 起端点返回 usage 时用**真实值**（含缓存命中），
+// 不返回时回退估算器——同一估算器下不同服务商可比，但不是精确计费。
 
 import React, { useMemo } from 'react';
 import { Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
@@ -59,6 +59,19 @@ export default function SessionStatsModal({ visible, onClose, summary, messageCo
             )}
             {row('latency', t('chat.stats.firstToken'), hasData ? formatLatency(summary.avgFirstTokenMs) : '—')}
             {row('speed', t('chat.stats.speed'), hasData ? formatSpeed(summary.tokensPerSec) : '—')}
+            {/* E1：缓存命中——端点返回 usage 且确实有命中时才出现这一行
+                （老会话/不返回 usage 的端点看不到它，不硬凑数字）。 */}
+            {hasData && summary.cachedTokens > 0
+              ? row(
+                'cache',
+                t('chat.stats.cache'),
+                t('chat.stats.cacheDetail', {
+                  cached: formatTokenCount(summary.cachedTokens),
+                  prompt: formatTokenCount(summary.promptTokens),
+                  percent: formatPercent(summary.cacheHitRate),
+                })
+              )
+              : null}
 
             <Text style={styles.statSection}>{t('chat.stats.byConfig')}</Text>
             {!hasData ? (
@@ -84,6 +97,7 @@ export default function SessionStatsModal({ visible, onClose, summary, messageCo
                     speed: formatSpeed(group.tokensPerSec),
                   })}
                   {group.failedRequests > 0 ? ` · ${t('chat.stats.groupFailed', { failed: group.failedRequests })}` : ''}
+                  {group.cachedTokens > 0 ? ` · ${t('chat.stats.groupCache', { percent: formatPercent(group.cacheHitRate) })}` : ''}
                 </Text>
               </View>
             ))}

@@ -278,6 +278,29 @@ export function appendWorkspaceChatMessages(characterId, chatId, messages) {
   });
 }
 
+// I5：归档/恢复某条会话。归档的会话不进主列表默认视图（可筛出），也不参与
+// D3 压缩扫描等后台任务——它是「收进抽屉」，不是删除。
+export function setWorkspaceChatArchived(characterId, chatId, archived) {
+  const key = String(characterId || '').trim();
+  const id = String(chatId || '').trim();
+  if (!key || !id) return Promise.resolve(false);
+  const flag = archived === true;
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    const target = bucket.chats.find(item => item.id === id);
+    if (!target) return false;
+    if ((target.archived === true) === flag) return true; // 幂等
+    const nextChat = normalizeWorkspaceChat({ ...target, archived: flag });
+    store[key] = {
+      activeId: bucket.activeId,
+      chats: upsertWorkspaceChat(bucket.chats.filter(item => item.id !== id), nextChat),
+    };
+    await writeChatsStore(store);
+    return true;
+  });
+}
+
 // 保存某条会话的输入草稿（未发送的输入框内容）。
 // 只动 draft 字段、**不碰 updatedAt**：草稿不是「会话活动」，否则打字会把
 // 历史列表的排序带乱（刚打的草稿把一条旧会话顶到最前，用户会以为消息写错了）。
