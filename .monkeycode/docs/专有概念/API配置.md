@@ -54,6 +54,7 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 | `models` | `string[]` | 模型列表 | 始终非空；为空时回退默认模型 |
 | `activeModel` | `string` | 当前模型 | 必须属于 `models`，否则回退列表首项 |
 | `fallbackModels` | `string[]` | 降级模型（P0-7）：主模型 429/5xx/超时/断网时按序换用 | 最多 3 个、去重保序；字符串形态在落盘时归一为数组；空数组 = 不降级 |
+| `promptCacheTtl` | `string` | Anthropic 提示缓存 TTL（P1-1） | `off` / `5m`（缺省）/ `1h`；只对 anthropic 生效（其它协议是自动前缀缓存），切协议来回切不丢该选择 |
 | `supportsThinking` | `boolean` | 是否支持思考 | 保存前确认，缺省 `false` |
 | `supportsVision` | `boolean` | 是否支持识图 | 保存前确认，缺省 `false` |
 | `thinking` | `{ field, format }` | 思考参数声明（**旧配置级字段，仅迁移来源**） | `format` 为 `effort` / `boolean` / `object`；缺省 `reasoning_effort` + `effort` |
