@@ -24,19 +24,28 @@ import {
   filterSessionsForMemory,
   groupSessionsByAge,
   hasLocalSessions,
+  isScreenWatchFilter,
   LOCAL_FILTER,
+  mapScreenThreadsToGroupItems,
   MEMORY_FILTERS,
+  SCREEN_WATCH_FILTER,
+  screenThreadPreview,
+  splitScreenThreads,
 } from './memory/memoryBuckets.js';
 import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
 import MemoryCheckupModal from './memory/MemoryCheckupModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
-import { Card, EmptyState } from './ui/index.js';
+import { EmptyState } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
-import { deleteScreenWatchThread, getScreenWatchThreads } from './screenWatch/threads.js';
+import {
+  clearScreenWatchThreads,
+  deleteScreenWatchThread,
+  getScreenWatchThreads,
+} from './screenWatch/threads.js';
 
 // 会话行的显示名：群聊用群名（缺省拼成员名），单聊用角色名。
 // 行渲染与长按操作单都要用，抽出来避免两处各写一遍后漂移。
@@ -85,10 +94,9 @@ export default function MemoryScreen({ navigation }) {
   const [userName, setUserName] = useState('');
   const switchLockRef = useRef(false);
 
-  // 看屏幕对话（screenWatch/threads.js）：与历史会话并列展示/删除
-  // —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
+  // 看屏幕对话（screenWatch/threads.js）：不进「全部」视图，只在「屏幕对话」chip
+  // 下以行形式展示/删除 —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
   const [threads, setThreads] = useState([]);
-  const [threadsOpen, setThreadsOpen] = useState(false);
 
   const reloadThreads = useCallback(async () => {
     try {
@@ -98,9 +106,10 @@ export default function MemoryScreen({ navigation }) {
     }
   }, []);
 
-  useEffect(() => {
-    reloadThreads();
-  }, [reloadThreads]);
+  const { active: activeThreads, empty: emptyThreads } = useMemo(
+    () => splitScreenThreads(threads),
+    [threads]
+  );
 
   const handleDeleteThread = useCallback(thread => {
     if (!thread) return;
@@ -122,6 +131,54 @@ export default function MemoryScreen({ navigation }) {
       ]
     );
   }, [reloadThreads, t]);
+
+  // 长按屏幕对话行：与主列表一致的「长按出操作单」交互（这里只有删除）。
+  const onThreadActions = useCallback(thread => {
+    const name = String(thread.characterName || '').trim() || t('common.characterFallback');
+    const buttons = [
+      { text: t('common.delete'), style: 'destructive', onPress: () => handleDeleteThread(thread) },
+    ];
+    if (Platform.OS === 'ios') buttons.push({ text: t('common.cancel'), style: 'cancel' });
+    Alert.alert(name, screenThreadPreview(thread) || undefined, buttons, { cancelable: true });
+  }, [handleDeleteThread, t]);
+
+  // 空会话（0 条 entry）不逐行展示，聚合成一行可一键清理的入口。
+  const handleClearEmptyThreads = useCallback(() => {
+    if (emptyThreads.length === 0) return;
+    Alert.alert(
+      t('memory.screenWatch.clearEmptyConfirm.title'),
+      t('memory.screenWatch.clearEmptyConfirm.body', { count: emptyThreads.length }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            Promise.all(emptyThreads.map(thread => deleteScreenWatchThread(thread.id).catch(() => {})))
+              .then(() => reloadThreads());
+          },
+        },
+      ]
+    );
+  }, [emptyThreads, reloadThreads, t]);
+
+  const handleClearAllThreads = useCallback(() => {
+    if (threads.length === 0) return;
+    Alert.alert(
+      t('memory.screenWatch.clearAllConfirm.title'),
+      t('memory.screenWatch.clearAllConfirm.body', { count: threads.length }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            clearScreenWatchThreads().then(() => reloadThreads()).catch(() => {});
+          },
+        },
+      ]
+    );
+  }, [reloadThreads, t, threads.length]);
 
   const scanOrphans = useCallback(async () => {
     try {
@@ -147,15 +204,17 @@ export default function MemoryScreen({ navigation }) {
 
   // 聊天页保存消息时只写存储、不会同步 Context 的会话列表；回到记忆页若
   // 不重读，就会看到过期的 preview/updatedAt（空会话、排到底部都是这个原因）。
+  // 看屏幕对话同理：在「看屏幕」里新建/接话后回到记忆页要刷新 threads。
   useEffect(() => {
     if (!navigation) return undefined;
     const refresh = () => {
       refreshSessions().catch(() => {});
+      reloadThreads();
     };
     refresh();
     const unsubscribe = navigation.addListener('focus', refresh);
     return unsubscribe;
-  }, [navigation, refreshSessions]);
+  }, [navigation, refreshSessions, reloadThreads]);
 
   const onRecover = useCallback(async (orphan, characterId) => {
     try {
@@ -216,11 +275,21 @@ export default function MemoryScreen({ navigation }) {
   // 编辑模式下强制全部展开：折叠里的会话无法被逐条点选。
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   // 先筛选再分组： chips（全部/置顶/群聊）只改喂给分组的数据，不动存储与排序。
+  // 选中「屏幕对话」chip 时不看会话，改为把看屏幕 threads 借同一套时间分档展示。
+  const isScreenWatch = isScreenWatchFilter(memoryFilter);
   const filteredSessions = useMemo(
     () => filterSessionsForMemory(visibleSessions, memoryFilter),
     [visibleSessions, memoryFilter]
   );
-  const groups = useMemo(() => groupSessionsByAge(filteredSessions), [filteredSessions]);
+  const sessionGroups = useMemo(() => groupSessionsByAge(filteredSessions), [filteredSessions]);
+  const threadGroups = useMemo(
+    () => groupSessionsByAge(mapScreenThreadsToGroupItems(activeThreads)),
+    [activeThreads]
+  );
+  const groups = useMemo(
+    () => (isScreenWatch ? threadGroups : sessionGroups),
+    [isScreenWatch, sessionGroups, threadGroups]
+  );
   // 首次拿到非空分组时自动展开第一组（首屏不留光秃秃的组头）；之后用户手动折叠/展开
   // 由用户决定。但当分组结构整体换掉、当初展开的组 id 已不存在时（典型：把全部会话
   // 都置顶后只剩「置顶」一组，而展开态还停在旧的「最近 7 天」），必须补展开，
@@ -290,11 +359,11 @@ export default function MemoryScreen({ navigation }) {
   );
 
   // 筛选 chips：存在本地模型会话时才追加「本地」项（旧数据全是 api 会话，
-  // 常驻一个永远筛不出东西的 chip 只会误导）。
-  const memoryChips = useMemo(
-    () => (hasLocalSessions(visibleSessions) ? [...MEMORY_FILTERS, LOCAL_FILTER] : MEMORY_FILTERS),
-    [visibleSessions]
-  );
+  // 常驻一个永远筛不出东西的 chip 只会误导）。「屏幕对话」恒在末位。
+  const memoryChips = useMemo(() => {
+    const base = hasLocalSessions(visibleSessions) ? [...MEMORY_FILTERS, LOCAL_FILTER] : MEMORY_FILTERS;
+    return [...base, SCREEN_WATCH_FILTER];
+  }, [visibleSessions]);
 
   // ⋯ 菜单：教学入口与「展开/折叠全部」从头部收纳进来；计数本就在各分组头里。
   const menuItems = useMemo(() => ([
@@ -554,7 +623,7 @@ export default function MemoryScreen({ navigation }) {
       <View style={styles.header}>
         <Text style={styles.title}>{t('memory.title')}</Text>
         <View style={styles.headerRight}>
-          {loaded && visibleSessions.length > 0 ? (
+          {loaded && !isScreenWatch && visibleSessions.length > 0 ? (
             <TouchableOpacity
               style={styles.editButton}
               onPress={editing ? exitEdit : () => setEditing(true)}
@@ -586,7 +655,7 @@ export default function MemoryScreen({ navigation }) {
           )}
         </View>
       </View>
-      {loaded && !editing && visibleSessions.length > 0 ? (
+      {loaded && !editing && (visibleSessions.length > 0 || threads.length > 0) ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -600,7 +669,10 @@ export default function MemoryScreen({ navigation }) {
               <TouchableOpacity
                 key={chip.id}
                 style={[styles.chip, active && styles.chipActive]}
-                onPress={() => setMemoryFilter(chip.id)}
+                onPress={() => {
+                  if (chip.id === SCREEN_WATCH_FILTER.id && editing) exitEdit();
+                  setMemoryFilter(chip.id);
+                }}
                 activeOpacity={0.75}
                 accessibilityLabel={t('memory.a11y.filter', { label: chip.label })}
                 accessibilityRole="button"
@@ -611,52 +683,20 @@ export default function MemoryScreen({ navigation }) {
           })}
         </ScrollView>
       ) : null}
-      {threads.length > 0 ? (
-        <Card style={styles.threadCard}>
+      {isScreenWatch && emptyThreads.length > 0 ? (
+        <View style={styles.emptyThreadsRow}>
+          <Text style={styles.emptyThreadsText}>
+            {t('memory.screenWatch.emptyCount', { count: emptyThreads.length })}
+          </Text>
           <TouchableOpacity
-            style={styles.threadHead}
-            onPress={() => setThreadsOpen(value => !value)}
-            activeOpacity={0.8}
+            onPress={handleClearEmptyThreads}
+            activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityState={{ expanded: threadsOpen }}
+            accessibilityLabel={t('memory.screenWatch.a11y.clearEmpty')}
           >
-            <Ionicons
-              name={threadsOpen ? 'chevron-down' : 'chevron-forward'}
-              size={16}
-              color={theme.colors.textFaint}
-            />
-            <Text style={styles.threadTitle}>{t('memory.screenWatch.title')}</Text>
-            <Text style={styles.threadCount}>
-              {t('memory.screenWatch.count', { count: threads.length })}
-            </Text>
+            <Text style={styles.emptyThreadsAction}>{t('memory.screenWatch.clear')}</Text>
           </TouchableOpacity>
-          {threadsOpen ? threads.map(entry => (
-            <View key={entry.id} style={styles.threadItem}>
-              <View style={styles.threadItemHead}>
-                <Text style={styles.threadItemName} numberOfLines={1}>
-                  {String(entry.characterName || '').trim() || t('common.characterFallback')}
-                </Text>
-                <Text style={styles.threadItemMeta}>
-                  {t('memory.screenWatch.entries', { count: entry.entries.length })}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => handleDeleteThread(entry)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel={t('memory.screenWatch.a11y.delete', {
-                    name: String(entry.characterName || '').trim() || t('common.characterFallback'),
-                  })}
-                >
-                  <Ionicons name="trash-outline" size={18} color={theme.colors.textFaint} />
-                </TouchableOpacity>
-              </View>
-              {entry.entries.slice(-2).map(item => (
-                <Text key={item.id} style={styles.threadItemText} numberOfLines={2}>
-                  {item.text}
-                </Text>
-              ))}
-            </View>
-          )) : null}
-        </Card>
+        </View>
       ) : null}
       {orphans.length > 0 ? (
         <TouchableOpacity
@@ -671,11 +711,11 @@ export default function MemoryScreen({ navigation }) {
           </Text>
         </TouchableOpacity>
       ) : null}
-      {loaded && visibleSessions.length === 0 ? (
+      {loaded && (isScreenWatch ? activeThreads.length === 0 : visibleSessions.length === 0) ? (
         <EmptyState
-          icon="albums-outline"
-          title={t('memory.empty.title')}
-          description={t('memory.empty.body')}
+          icon={isScreenWatch ? 'desktop-outline' : 'albums-outline'}
+          title={isScreenWatch ? t('memory.screenWatch.empty.title') : t('memory.empty.title')}
+          description={isScreenWatch ? t('memory.screenWatch.empty.body') : t('memory.empty.body')}
         />
       ) : (
         <FlatList
@@ -688,6 +728,7 @@ export default function MemoryScreen({ navigation }) {
           renderItem={({ item }) => {
             if (item.kind === 'header') {
               const expanded = effectiveExpanded.has(item.groupId);
+              const showClearAll = isScreenWatch && groups.length > 0 && item.groupId === groups[0].id;
               return (
                 <TouchableOpacity
                   style={styles.groupHeader}
@@ -704,7 +745,40 @@ export default function MemoryScreen({ navigation }) {
                   />
                   <Text style={styles.groupLabel}>{item.label}</Text>
                   <Text style={styles.groupCount}>{item.count}</Text>
+                  {showClearAll ? (
+                    <TouchableOpacity
+                      style={styles.clearAllButton}
+                      onPress={handleClearAllThreads}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('memory.screenWatch.a11y.clearAll')}
+                    >
+                      <Text style={styles.clearAllText}>{t('memory.screenWatch.clearAll')}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </TouchableOpacity>
+              );
+            }
+            if (isScreenWatch) {
+              const thread = item.session.thread;
+              const threadName = String(thread.characterName || '').trim() || t('common.characterFallback');
+              const threadCharacter = characterMap.get(thread.characterId);
+              return (
+                <SessionRow
+                  key={thread.id}
+                  mode="manage"
+                  avatar={threadCharacter && threadCharacter.avatarUri ? (
+                    <SessionAvatar uri={threadCharacter.avatarUri} name={threadName} />
+                  ) : (
+                    <View style={styles.screenThreadAvatar}>
+                      <Ionicons name="desktop-outline" size={20} color={theme.colors.primarySoft} />
+                    </View>
+                  )}
+                  name={threadName}
+                  preview={screenThreadPreview(thread) || t('memory.screenWatch.emptyPreview')}
+                  time={formatSessionTime(thread.updatedAt)}
+                  onLongPress={() => onThreadActions(thread)}
+                />
               );
             }
             const session = item.session;
@@ -822,40 +896,40 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingBottom: 10,
   },
   title: { color: theme.colors.text, fontSize: fonts.scaled(20), fontWeight: '800' },
-  threadCard: {
+  screenThreadAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surfaceBorder,
+  },
+  emptyThreadsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: 20,
     marginBottom: 10,
-    padding: tokens.metrics.cardPadding,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
   },
-  threadHead: { flexDirection: 'row', alignItems: 'center' },
-  threadTitle: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    fontWeight: '700',
-    marginLeft: 6,
+  emptyThreadsText: {
     flex: 1,
-  },
-  threadCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
-  threadItem: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: tokens.border.thin,
-    borderTopColor: theme.colors.surfaceBorder,
-  },
-  threadItemHead: { flexDirection: 'row', alignItems: 'center' },
-  threadItemName: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-    fontWeight: '600',
-    flex: 1,
-  },
-  threadItemMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginRight: 8 },
-  threadItemText: {
     color: theme.colors.textMuted,
     fontSize: fonts.scaled(12),
-    lineHeight: fonts.scaled(18),
-    marginTop: 4,
+    fontWeight: '700',
   },
+  emptyThreadsAction: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(12),
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  clearAllButton: { marginLeft: 'auto', paddingHorizontal: 8, paddingVertical: 2 },
+  clearAllText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
   recoverNotice: {
     flexDirection: 'row',
     alignItems: 'center',

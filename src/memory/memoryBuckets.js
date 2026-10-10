@@ -25,9 +25,43 @@ export const MEMORY_FILTERS = Object.freeze([
 
 export const LOCAL_FILTER = Object.freeze({ id: 'local', label: '本地' });
 
+// 「屏幕对话」chip：看屏幕 threads 与普通会话分属两套存储（screenWatch/threads.js），
+// 不进「全部」视图，只有选中该 chip 时才以行形式展示（见 MemoryScreen）。
+export const SCREEN_WATCH_FILTER = Object.freeze({ id: 'screenwatch', label: '屏幕对话' });
+
 export function hasLocalSessions(sessions) {
   return (Array.isArray(sessions) ? sessions : [])
     .some(item => item && item.modelKind === 'local');
+}
+
+export function isScreenWatchFilter(filterId) {
+  return filterId === SCREEN_WATCH_FILTER.id;
+}
+
+// 屏幕对话线程 → 分组条目：借用会话分档（最近 7 天 / 更早），只取有内容的线程；
+// 0 条 entry 的空线程由 splitScreenThreads 单独聚合，不逐行进列表。
+export function mapScreenThreadsToGroupItems(threads) {
+  return (Array.isArray(threads) ? threads : [])
+    .filter(thread => thread && thread.id && Array.isArray(thread.entries) && thread.entries.length > 0)
+    .map(thread => ({ id: thread.id, updatedAt: thread.updatedAt, pinned: false, thread }));
+}
+
+export function splitScreenThreads(threads) {
+  const active = [];
+  const empty = [];
+  (Array.isArray(threads) ? threads : []).forEach(thread => {
+    if (!thread || !thread.id) return;
+    if (Array.isArray(thread.entries) && thread.entries.length > 0) active.push(thread);
+    else empty.push(thread);
+  });
+  return { active, empty };
+}
+
+// 行内预览：最后一条 entry 的文本。
+export function screenThreadPreview(thread) {
+  const entries = thread && Array.isArray(thread.entries) ? thread.entries : [];
+  const last = entries[entries.length - 1];
+  return last ? String(last.text || '').trim() : '';
 }
 
 export function filterSessionsForMemory(sessions, filterId) {
