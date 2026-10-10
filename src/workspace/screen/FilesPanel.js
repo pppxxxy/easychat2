@@ -247,6 +247,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // P4-4：删除改成**面板内确认条**（此前是系统弹框——它盖住的是整个工作区，用户还得先读完
   // 两行字才知道删的是哪个文件）。这里只记下「在等哪一次确认」，真正的删除在 confirmDelete。
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [pendingClear, setPendingClear] = useState(false);
 
   const handleDelete = useCallback(name => {
     setPendingDelete({ name });
@@ -457,20 +458,17 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     if (tab === 'history') loadChanges();
   }, [loadChanges]);
 
+  // P4-4：清空改动也走面板内确认条（此前是系统弹框）。只记下「在等哪一次确认」。
   const clearHistory = useCallback(() => {
-    Alert.alert(t('workspace.panel.viewer.clear.title'), t('workspace.panel.viewer.clear.body'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: () => {
-          clearWorkspaceChanges(characterId)
-            .then(() => { if (mountedRef.current) setChanges([]); })
-            .catch(() => {});
-        },
-      },
-    ]);
-  }, [characterId, t]);
+    setPendingClear(true);
+  }, []);
+
+  const confirmClear = useCallback(() => {
+    setPendingClear(false);
+    clearWorkspaceChanges(characterId)
+      .then(() => { if (mountedRef.current) setChanges([]); })
+      .catch(() => {});
+  }, [characterId]);
 
   // —— 环境与配置下载 ——
   // 写入走 store.writeWorkspaceFile：与面板手写同一条路径，自动进历史改动。
@@ -1072,6 +1070,20 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               cancelLabel={t('common.cancel')}
               onConfirm={confirmDelete}
               onCancel={() => setPendingDelete(null)}
+              theme={theme}
+              fonts={fonts}
+              tokens={tokens}
+            />
+          ) : null}
+
+          {pendingClear ? (
+            <ConfirmBar
+              title={t('workspace.panel.viewer.clear.title')}
+              body={t('workspace.panel.viewer.clear.body')}
+              confirmLabel={t('common.delete')}
+              cancelLabel={t('common.cancel')}
+              onConfirm={confirmClear}
+              onCancel={() => setPendingClear(false)}
               theme={theme}
               fonts={fonts}
               tokens={tokens}
