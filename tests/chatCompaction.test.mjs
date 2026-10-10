@@ -116,16 +116,19 @@ test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% �
   assert.ok(screen.includes('options && options.silent === true'), 'handleCompactSession 支持 silent');
   assert.ok(screen.includes('compactBusyRef.current = true'), '防重入走 ref（异步闭包里 state 不可靠）');
   assert.ok(!screen.includes('if (compactBusy) return;\n    const list ='), '旧的 state 防重入已换成 ref 版');
-  // 85% 自动触发：空闲时静默压缩——不放发送路径（避免「压缩替换消息」与「发送读消息」竞态）
+  // 自动触发：空闲时静默压缩——不放发送路径（避免「压缩替换消息」与「发送读消息」竞态）。
+  // Z 系采纳 #5：触发口径从固定 85% 改为 token 预算，触发逻辑外提到 useAutoCompact。
+  assert.ok(screen.includes("import useAutoCompact from './chat/useAutoCompact.js';"), '自动触发已外提');
+  assert.ok(screen.includes('useAutoCompact({'), '聊天页接线');
+  assert.ok(screen.includes('enabled: chatOptions.autoCompact'), '系统设置可关（缺省开）');
+  const autoCompact = fs.readFileSync(path.resolve('src/chat/useAutoCompact.js'), 'utf8');
+  assert.ok(autoCompact.includes('enabled === false'), '开关关时不触发');
+  assert.ok(autoCompact.includes('shouldAutoCompactByBudget(contextUsage.tokens, policy)'), 'token 预算阈值（不再是固定比例）');
+  assert.ok(autoCompact.includes('if (isSending || compactBusyRef.current) return;'), '发送中/压缩中不触发');
+  assert.ok(autoCompact.includes('microcompactMessages(messagesRef.current)'), '先试本地微压缩（零 API 调用）');
+  assert.ok(autoCompact.includes('onCompact({ silent: true })'), '自动路径走 silent');
   assert.ok(
-    screen.includes('shouldAutoCompact({ ratio: contextUsageRatio }, { ratio: 0.85 })'),
-    '85% 阈值接线（shouldAutoCompact 此前是死代码）'
-  );
-  assert.ok(screen.includes('chatOptions.autoCompact === false'), '系统设置可关（缺省开）');
-  assert.ok(screen.includes('if (isSending || compactBusyRef.current) return;'), '发送中/压缩中不触发');
-  assert.ok(screen.includes('handleCompactSession({ silent: true })'), '自动路径走 silent');
-  assert.ok(
-    screen.includes('autoCompactAttemptRef.current === messages.length'),
+    autoCompact.includes('attemptRef.current === messages.length'),
     '同一消息条数只尝试一次（失败不重试、防死循环）'
   );
   // 70% 非阻塞提示条（手动入口 + 可忽略）
