@@ -143,45 +143,22 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
   assert.ok(/shellAvailable=\{isShellAvailable\(\)\}/.test(settings), '传入 shell 是否可用');
 });
 
-test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () => {
-  const source = readSource('src/workspace/screen/FilesPanel.js');
-  // 思考强度：四档 chips（off=关闭思考），点选立即保存，打开面板回读当前档位。
-  assert.ok(source.includes("const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];"), '四档可选');
-  assert.ok(source.includes('saveThinkingSettings(next)'), '点选立即保存');
-  assert.ok(source.includes("enabled: choice !== 'off'"), 'off 关闭思考');
-  assert.ok(source.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
-  assert.ok(source.includes('getThinkingSettings()'), '打开时回读当前强度');
-  // 上下文占用：与 ChatScreen.maybeAutoSummarize 同一口径；无会话显示空态。
-  assert.ok(
-    /import \{ AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow \} from '(?:\.\.\/)+chat\/contextUsage\.js';/.test(source),
-    '复用 contextUsage 纯口径'
-  );
-  // 钉住「过滤 + 排序」整体：两条相邻断言分别锁 type 过滤与 characterId 匹配，
-  // 任何一条被拆掉都会漏占用（曾经靠注入验证抓过这类半截匹配）。
-  assert.ok(
-    source.includes(".filter(item => item && item.type !== 'group'"),
-    '占用只统计单聊会话（排除群聊）'
-  );
-  assert.ok(
-    source.includes("String(item.characterId || '') === String(ownerId || '')"),
-    '占用取当前工作区角色的会话'
-  );
-  assert.ok(
-    source.includes('declared: caps.contextWindow,'),
-    '窗口按每模型声明的 contextWindow'
-  );
-  assert.ok(
-    source.includes('usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn'),
-    '到 80% 线进度条转警示色'
-  );
-  assert.ok(
-    source.includes("t('workspace.panel.context.usage', {"),
-    '占用文案走词条（token 数与百分比）'
-  );
-  assert.ok(
-    source.includes("t('workspace.panel.context.empty')"),
-    '无会话有空态文案'
-  );
+test('P4-2：思考强度与上下文占用收敛到单一来源（对话面板 ⚙），文件面板不再重复', () => {
+  const files = readSource('src/workspace/screen/FilesPanel.js');
+  const sheet = readSource('src/workspace/WorkspaceSettingsSheet.js');
+  // 单一来源：对话面板的设置面板里两行都在，且都是可交互的
+  assert.ok(sheet.includes("id: 'thinking'"), '思考强度行在设置面板');
+  assert.ok(sheet.includes('onSelectThinking'), '思考强度可改（不是只读回显）');
+  assert.ok(sheet.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
+  assert.ok(sheet.includes("id: 'usage'"), '上下文占用行在设置面板');
+  assert.ok(sheet.includes("t('workspace.panel.context.usage', {"), '占用文案走词条（token 数与百分比）');
+  assert.ok(sheet.includes("t('workspace.panel.context.empty')"), '无会话有空态文案');
+  // 文件面板不得再出现第二处：那里是「文件」领域，调 agent 参数属于范畴错误，
+  // 而且同一份数据两处显示必然会漂移（曾经的「调参」折叠卡）。
+  assert.ok(!files.includes('THINKING_CHOICES'), '文件面板不再有思考强度 chips');
+  assert.ok(!files.includes('computeContextUsage'), '文件面板不再自己算上下文占用');
+  assert.ok(!files.includes('workspace.panel.tuning.title'), '「调参」折叠卡已移除');
+  assert.ok(!files.includes('styles.contextFill'), '占用的进度条样式已随之下线');
 });
 
 test('F1/F2/F3 文件面板：子目录空状态 + 空目录可删（非空拦截）+ 项目卡路径前缀', () => {

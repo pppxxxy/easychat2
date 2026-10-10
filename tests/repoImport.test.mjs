@@ -194,10 +194,12 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
     panel.indexOf('styles.statusBar'),
     panel.indexOf('styles.importRow'),
     panel.indexOf('styles.fileToolsRow'),
-    panel.indexOf('styles.collapsedHeader'),
   ];
-  assert.ok(order.every(index => index > 0), '四个区块都存在');
-  assert.deepEqual([...order].sort((a, b) => a - b), order, '顺序必须为 状态条→导入行→文件工具→折叠卡');
+  assert.ok(order.every(index => index > 0), '三个区块都存在');
+  assert.deepEqual([...order].sort((a, b) => a - b), order, '顺序必须为 状态条→导入行→文件工具');
+  // 「调参」折叠卡（styles.collapsedHeader）已按 P4-2 移除：思考强度与上下文占用收敛到
+  // 对话面板 ⚙ 的单一来源，文件面板不再重复显示。
+  assert.ok(!panel.includes('styles.collapsedHeader'), '调参折叠卡不得复活');
   // 定义与按钮绑定都要在：只留定义不解绑按钮不算接线（注入验证抓过子串盲区）。
   assert.match(panel, /const handleBundleWrite = useCallback/, '套餐一键写入（定义）');
   assert.match(panel, /onPress=\{\(\) => handleBundleWrite\(bundle\.id\)\}/, '套餐一键写入（按钮绑定）');
