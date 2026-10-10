@@ -66,3 +66,27 @@ test('useChatSend：后台完成时把回复写回它自己的会话', () => {
 test('sessionRuns：登记表记录发送令牌，供切回时恢复界面锁', () => {
   assert.ok(RUNS.includes('token: source.token || null,'), 'run 上保存 token');
 });
+
+test('运行中角色条（③）：读登记表、排除当前会话、可停止/切过去', () => {
+  const BAR = read('src/chat/RunningRunsBar.js');
+  assert.ok(BAR.includes("import { sessionRuns } from '../agent/runtime/sessionRuns.js';"), '数据源是应用级登记表');
+  assert.ok(BAR.includes('sessionRuns.subscribe('), '订阅登记表变更');
+  assert.ok(BAR.includes('run.sessionId !== activeId'), '排除当前会话（它的运行由输入区停止按钮体现）');
+  assert.ok(BAR.includes('onStop && onStop(run.sessionId)'), '停止入口');
+  assert.ok(BAR.includes('onOpen && onOpen(run.sessionId)'), '切过去入口');
+  // ChatScreen 接线
+  assert.ok(CHAT.includes("import RunningRunsBar from './chat/RunningRunsBar.js';"));
+  assert.ok(CHAT.includes('<RunningRunsBar'), '已渲染');
+  assert.ok(CHAT.includes('sessionRuns.cancel(String(sessionId'), '停止走登记表取消');
+  assert.ok(CHAT.includes('await switchCharacter(ownerId);'), '切过去先切角色');
+  assert.ok(CHAT.includes('await switchSession(id);'), '再切会话');
+});
+
+test('运行中角色条：中英词条对齐', () => {
+  const zh = read('src/i18n/locales/zh-CN/chat.js');
+  const en = read('src/i18n/locales/en/chat.js');
+  for (const key of ['chat.running.title', 'chat.running.stop', 'chat.running.a11y.open', 'chat.running.unknown']) {
+    assert.ok(zh.includes(`'${key}'`), `zh 缺 ${key}`);
+    assert.ok(en.includes(`'${key}'`), `en 缺 ${key}`);
+  }
+});

@@ -178,6 +178,8 @@ import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
+import RunningRunsBar from './chat/RunningRunsBar.js';
+import { sessionRuns } from './agent/runtime/sessionRuns.js';
 import ChatComposer from './chat/ChatComposer.js';
 import EngineStatusBar from './localModel/EngineStatusBar.js';
 import { useLocalEngineStatus } from './localModel/useLocalEngineStatus.js';
@@ -685,6 +687,22 @@ export default function ChatScreen() {
       abortRef.current.abort();
     }
   }, []);
+
+  // 运行中角色条（L 系 ③）：停止某个后台会话的运行 / 切到它。
+  const onStopRunning = useCallback(sessionId => {
+    sessionRuns.cancel(String(sessionId || ''));
+  }, []);
+  const onOpenRunning = useCallback(async sessionId => {
+    const id = String(sessionId || '');
+    if (!id) return;
+    const target = sessionsRef.current.find(item => item && item.id === id);
+    const ownerId = target ? String(target.characterId || '') : '';
+    try {
+      // 与会话同角色：先切角色再切会话（切会话的配对守卫会要求角色一致）。
+      if (ownerId) await switchCharacter(ownerId);
+      await switchSession(id);
+    } catch (error) {}
+  }, [switchCharacter, switchSession]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     // 用 messagesRef 读取当前消息：回调不该因为流式回复更新 messages 而换引用，
@@ -2646,6 +2664,13 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      <RunningRunsBar
+        activeSessionId={activeSessionId}
+        characters={characters}
+        onOpen={onOpenRunning}
+        onStop={onStopRunning}
+      />
 
       <ChatComposer
         quoteTarget={quoteTarget}
