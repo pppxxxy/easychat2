@@ -854,28 +854,52 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   // 由助手用 GitHub 工具逐条确认后提交（本面板不做直连推送，写远端一律经确认）。
   // C3：一次确认框（三态计数 + 前几条清单）。Promise 化——**问不到用户 = 不推送**，
   // 与覆盖守卫/工具审批同款原则；点外部/返回键按取消。
-  const confirmPushDiff = useCallback(({ added, modified, removed }) => new Promise(resolve => {
+  //
+  // G1 可见性补全（2026-10-10）：删除是**不可逆**的，所以确认框必须把四件事说清：
+  // ① 删除条目的完整清单（前 N 条 + 总条数，不只给个数字）；
+  // ② 「永久删除、本地无备份」的警示（只说「删除 3 个」，用户不会意识到不可恢复）；
+  // ③ 远程有而本地未物化的文件**本次保持原样**（不给这行，用户会把「没看到」
+  //    误当成「它不在了」）；④ 无基线时明说「本次不执行删除」——否则用户分不清
+  //    「没有要删的」与「因为没基线所以不删」，会把安全当常态。
+  // 删除量超过「有资格删除的路径总数」一半时再问一次（异常放大信号：误判通常成片）。
+  const confirmPushDiff = useCallback(({ added, modified, removed, remoteOnly = [], knownRemoteCount = 0 }, baselineMissing = false) => {
     const preview = [
       ...added.map(item => `+ ${item}`),
       ...modified.map(item => `~ ${item}`),
       ...removed.map(item => `- ${item}`),
     ];
     const listing = preview.slice(0, 12).join('\n') + (preview.length > 12 ? '\n…' : '');
-    Alert.alert(
-      t('workspace.github.push.confirmTitle'),
-      t('workspace.github.push.confirmBody', {
-        added: added.length,
-        modified: modified.length,
-        removed: removed.length,
-        list: listing,
-      }),
-      [
+    const extraLines = [];
+    if (removed.length > 0) extraLines.push(t('workspace.github.push.confirmDeleteWarn', { count: removed.length }));
+    if (remoteOnly.length > 0) extraLines.push(t('workspace.github.push.confirmRemoteOnly', { count: remoteOnly.length }));
+    if (baselineMissing) extraLines.push(t('workspace.github.push.confirmNoBaseline'));
+    const message = `${t('workspace.github.push.confirmBody', {
+      added: added.length,
+      modified: modified.length,
+      removed: removed.length,
+      list: listing,
+    })}${extraLines.length ? `\n\n${extraLines.join('\n')}` : ''}`;
+    const askOnce = (title, body) => new Promise(resolve => {
+      Alert.alert(title, body, [
         { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
         { text: t('workspace.github.push.confirmAction'), style: 'destructive', onPress: () => resolve(true) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) }
-    );
-  }), [t]);
+      ], { cancelable: true, onDismiss: () => resolve(false) });
+    });
+    return askOnce(t('workspace.github.push.confirmTitle'), message).then(ok => {
+      if (!ok) return false;
+      // 异常放大：删除量 > 有资格删除总数的一半 → 再确认一次（误判通常成片出现，
+      // 例如「拉取时跳过的文件」这类系统性问题；单条手动删除不会触发）。
+      const alarming = removed.length > 0 && knownRemoteCount > 0 && removed.length * 2 > knownRemoteCount;
+      if (!alarming) return true;
+      return askOnce(
+        t('workspace.github.push.confirmAlarmTitle'),
+        t('workspace.github.push.confirmAlarmBody', {
+          removed: removed.length,
+          known: knownRemoteCount,
+        })
+      );
+    });
+  }, [t]);
 
   // C3 批量推送：本地副本 vs 远程树（git blob sha 判内容）→ 一次确认 → 单次原子
   // 提交（Trees API 四步）。与 handoffPush（逐文件、agent 走 MCP）并存——这里是
@@ -903,7 +927,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
         branch,
         token,
         baselinePaths,
-        confirm: ({ diff: guardDiff }) => confirmPushDiff(guardDiff),
+        confirm: ({ diff: guardDiff, baselineMissing }) => confirmPushDiff(guardDiff, baselineMissing),
       });
       if (result.empty) {
         Alert.alert(t('workspace.github.title'), t('workspace.github.push.nothing'));

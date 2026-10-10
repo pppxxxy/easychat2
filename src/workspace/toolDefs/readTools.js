@@ -7,7 +7,7 @@
 // 文件内容按「内容型」写死，不进 i18n 词条表（工具描述是发给模型的提示词，
 // 仓库既有口径；界面文案才走词条）。
 
-import { WORKSPACE_LIMITS } from '../store.js';
+import { listTruncationNotice, WORKSPACE_LIMITS } from '../store.js';
 
 // 读取结果 → 工具输出文本。默认（从头读完整）原样返回（兼容既有行为）；
 // 截断/分段时附续读提示，让模型知道总长与下一段 offset——大文件因此可分段读完。
@@ -27,7 +27,7 @@ export function formatWorkspaceReadResult(result) {
 export const READ_ONLY_TOOL_DEFINITIONS = [
   {
     name: 'list_workspace_files',
-    description: '列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构。',
+    description: `列出工作区内的文件（相对路径；目录以 / 结尾）。可用来了解项目结构。仓库很大时列表会被截断（上限 ${WORKSPACE_LIMITS.MAX_FILES} 条 / ${WORKSPACE_LIMITS.MAX_DEPTH} 层深），截断时会附一行说明——「列表里没有」不等于「工作区里没有」，需要确认某路径是否存在请用读取工具直接试。`,
     readOnly: true,
     parameters: {
       type: 'object',
@@ -38,7 +38,12 @@ export const READ_ONLY_TOOL_DEFINITIONS = [
     execute: (options, args, ctx) => options.store.listWorkspaceFiles({
       characterId: ctx && ctx.characterId,
       subdir: typeof args.subdir === 'string' ? args.subdir : '',
-    }).then(files => (files.length ? files.join('\n') : '（工作区为空）')),
+    }).then(files => {
+      // G1.7：截断必须**可见**——静默截断的清单会被当成完整事实推理（误删类事故的放大器）。
+      const lines = files.length ? files.join('\n') : '（工作区为空）';
+      const notice = listTruncationNotice(files);
+      return notice ? `${lines}\n\n${notice}` : lines;
+    }),
   },
   {
     name: 'read_workspace_file',

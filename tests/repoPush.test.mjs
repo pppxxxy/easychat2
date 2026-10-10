@@ -81,6 +81,10 @@ test('diffRemoteLocal：新增/修改/删除三态（blob 才比较，目录忽�
     added: ['a.js'],
     modified: ['b.js'],
     removed: ['d.js'],
+    // G1 可见性：未物化的远程文件（目录不算）单独报出；
+    // 分母 = 远程 ∧ known，而 known 按设计并入本次本地文件 → b.js/c.js/d.js 三个
+    remoteOnly: [],
+    knownRemoteCount: 3,
     pending: 3,
   });
   assert.equal(diffRemoteLocal({}).pending, 0);
@@ -187,6 +191,7 @@ test('pushRepoSnapshot：新增/修改/未改/删除 → 一次提交（blob 只
     throw new Error(`unexpected ${method} ${url}`);
   });
   const confirmCalls = [];
+  const confirmBaselineMissing = [];
   const result = await pushRepoSnapshot({
     store: SCENE_STORE,
     characterId: 'c1',
@@ -203,16 +208,25 @@ test('pushRepoSnapshot：新增/修改/未改/删除 → 一次提交（blob 只
     ],
     fetchImpl,
     sleepImpl: async () => {},
-    confirm: async ({ diff }) => {
+    confirm: async ({ diff, baselineMissing }) => {
       confirmCalls.push(diff);
+      confirmBaselineMissing.push(baselineMissing);
       return true;
     },
   });
   assert.equal(result.ok, true);
   assert.equal(result.commit, 'commit1');
   assert.deepEqual(confirmCalls, [
-    { added: ['add.txt'], modified: ['mod.txt'], removed: ['gone.txt'], pending: 3 },
-  ], '确认框拿到三态计数');
+    {
+      added: ['add.txt'],
+      modified: ['mod.txt'],
+      removed: ['gone.txt'],
+      remoteOnly: [],
+      knownRemoteCount: 3,
+      pending: 3,
+    },
+  ], '确认框拿到三态计数（含 G1 的 remoteOnly / knownRemoteCount 与无基线标记）');
+  assert.equal(confirmBaselineMissing[0], false, '有基线时 baselineMissing=false');
   assert.equal(blobCount, 2, '只对新增/修改创建 blob（未改文件零请求）');
 
   const treeCall = calls.find(item => item.url.endsWith('/git/trees') && item.method === 'POST');
@@ -251,7 +265,10 @@ test('pushRepoSnapshot：空 diff / 取消 / truncated —— 都不写远程', 
     }),
     sleepImpl: async () => {},
   });
-  assert.deepEqual(empty, { empty: true, diff: { added: [], modified: [], removed: [], pending: 0 } });
+  assert.deepEqual(empty, {
+    empty: true,
+    diff: { added: [], modified: [], removed: [], remoteOnly: [], knownRemoteCount: 1, pending: 0 },
+  });
   assert.equal(calls.length, 1, '空 diff 只拉远程树，零写操作');
 
   // 取消：confirm=false → 什么都不发
@@ -400,4 +417,35 @@ test('H3 collectRollbackEntries：取回旧内容 / 超限与失败如实记账 
   });
   assert.equal(capped.entries.length, ROLLBACK_MAX_FILES);
   assert.equal(capped.skippedCount, 2);
+});
+
+// G1 可见性（2026-10-10）：diff 要多报两件事，UI 才有依据把「安全」说清楚——
+// ① remoteOnly：远程有而本地未物化（本次保持原样）的文件；② knownRemoteCount：
+// 有资格进 removed 的路径总数（UI 用它判断「删除量是否异常放大」）。
+test('G1 可见性：diff 报出 remoteOnly 与 knownRemoteCount，且不进 pending', () => {
+  const localFiles = [
+    { path: 'a.txt', sha: 'sha-a' },
+  ];
+  const remoteEntries = [
+    { type: 'blob', path: 'a.txt', sha: 'sha-a' },
+    { type: 'blob', path: 'gone.txt', sha: 'sha-gone' },
+    { type: 'blob', path: 'pic.png', sha: 'sha-pic' },   // 拉取时被跳过 → 本地从未物化
+    { type: 'blob', path: 'big.zip', sha: 'sha-zip' },   // 同上
+  ];
+  // 基线只包含曾经物化过的两个路径（gone.txt 现在本地没了）
+  const diff = diffRemoteLocal({
+    localFiles,
+    remoteEntries,
+    knownPaths: ['a.txt', 'gone.txt'],
+  });
+  assert.deepEqual(diff.removed, ['gone.txt']);
+  assert.deepEqual(diff.remoteOnly, ['big.zip', 'pic.png'], '未物化的远程文件要点名（保持原样）');
+  assert.equal(diff.knownRemoteCount, 2, '分母 = 远程 ∧ 曾经物化');
+  assert.equal(diff.pending, 1, 'remoteOnly 不产生树改动，不进 pending');
+
+  // 全量未物化（快速检出：只有 manifest，没有本地副本）→ 删除恒空 + remoteOnly 点名
+  const quick = diffRemoteLocal({ localFiles: [], remoteEntries, knownPaths: [] });
+  assert.deepEqual(quick.removed, []);
+  assert.equal(quick.remoteOnly.length, 4);
+  assert.equal(quick.knownRemoteCount, 0);
 });

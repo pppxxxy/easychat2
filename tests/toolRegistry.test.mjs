@@ -141,7 +141,14 @@ test('runTool 超时按 timeoutMs 返回错误结果', async () => {
   });
   const result = await runTool({ name: 'slow', arguments: '{}' }, { mode: AGENT_MODES.READ });
   assert.equal(result.isError, true);
-  assert.match(result.content, /工具执行超时/);
+  // G2（2026-10-10）：超时语义是「结果未知」而不是「失败」——JS 停不掉在途 promise，
+  // 写操作可能已经生效；暗示失败会让模型直接重试，造成重复副作用。
+  assert.match(result.content, /已放弃等待/);
+  assert.match(result.content, /结果未知/);
+  assert.match(result.content, /操作可能已经生效/);
+  assert.match(result.content, /不要盲目重跑写操作/);
+  assert.equal(/失败|未执行/.test(result.content), false, '不得暗示「没执行/已失败」');
+  assert.equal(/工具执行超时/.test(result.content), false, '旧口径不得残留');
 });
 
 test('runTool 执行中中止时抛出 AbortError 供循环停止', async () => {
@@ -297,4 +304,27 @@ test('审批期间中止：抛 AbortError 供循环停止（不执行也不留�
   controller.abort();
   await assert.rejects(pending, error => error && error.name === 'AbortError');
   assert.equal(executed, 0);
+});
+
+// G2 分级表（2026-10-10）：工具超时是策略，不是随手填的数——通则「工具层超时 >
+// 执行器自身兜底」，否则工具层会先放弃等待，把「其实已经停了」说成「结果未知」。
+test('G2 超时分级表：常量自洽，且执行类工具落在分级区间内', async () => {
+  const { TOOL_TIMEOUT_TIERS, DEFAULT_TOOL_TIMEOUT } = await import('../src/agent/tools/registry.js');
+  assert.equal(TOOL_TIMEOUT_TIERS.READ, DEFAULT_TOOL_TIMEOUT, '纯读类 = 默认值（15s）');
+  assert.ok(TOOL_TIMEOUT_TIERS.WRITE_MIN > TOOL_TIMEOUT_TIERS.READ, '写副作用类下限必须高于纯读');
+  assert.ok(TOOL_TIMEOUT_TIERS.WRITE_MAX >= TOOL_TIMEOUT_TIERS.WRITE_MIN);
+  assert.ok(TOOL_TIMEOUT_TIERS.LONG > TOOL_TIMEOUT_TIERS.WRITE_MAX, '长任务（子代理）另算');
+
+  // 执行器兜底：shell / python 的原生看门狗各 30s——工具层必须留出余量。
+  const { SHELL_TIMEOUT_MS } = await import('../src/workspace/shell.js');
+  const { PYTHON_WATCHDOG_MS, PYTHON_TOOL_TIMEOUT_MS } = await import('../src/workspace/python.js');
+  const { SHELL_TOOL_TIMEOUT_MS } = await import('../src/workspace/shell.js');
+  for (const [label, toolTimeout, watchdog] of [
+    ['run_shell', SHELL_TOOL_TIMEOUT_MS, SHELL_TIMEOUT_MS],
+    ['run_python', PYTHON_TOOL_TIMEOUT_MS, PYTHON_WATCHDOG_MS],
+  ]) {
+    assert.ok(toolTimeout > watchdog, `${label}：工具超时(${toolTimeout}) 必须大于执行器兜底(${watchdog})`);
+    assert.ok(toolTimeout >= TOOL_TIMEOUT_TIERS.WRITE_MIN && toolTimeout <= TOOL_TIMEOUT_TIERS.WRITE_MAX,
+      `${label}：工具超时应落在写副作用区间 [${TOOL_TIMEOUT_TIERS.WRITE_MIN}, ${TOOL_TIMEOUT_TIERS.WRITE_MAX}]，实际 ${toolTimeout}`);
+  }
 });

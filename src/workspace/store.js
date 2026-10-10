@@ -172,6 +172,26 @@ export async function moveWorkspaceDirectory({ root, characterId, from, to, file
 
 export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
 
+// 列表截断提示（G1.7，纯函数）：命中护栏时如实告知，让模型知道「没看到 ≠ 不存在」。
+//
+// 为什么必须有：列表静默截断是「推送误删」那类事故的放大器——模型（和用户）看到
+// 一份不完整的清单，却当成完整的事实来推理。两处护栏分别可判定：
+//  · 文件数到顶（walk 写满即停，length 可等于 MAX_FILES）；
+//  · 有目录正好处在深度上限（它本身会被列出，但内容不会再展开）。
+export function listTruncationNotice(files) {
+  const list = Array.isArray(files) ? files : [];
+  const atFileCap = list.length >= MAX_FILES;
+  const deepDirs = list.filter(entry => {
+    const text = String(entry || '');
+    return text.endsWith('/') && text.split('/').filter(Boolean).length >= MAX_DEPTH;
+  });
+  if (!atFileCap && deepDirs.length === 0) return '';
+  const reasons = [];
+  if (atFileCap) reasons.push(`文件数达到上限 ${MAX_FILES} 条`);
+  if (deepDirs.length > 0) reasons.push(`${deepDirs.length} 个目录已达 ${MAX_DEPTH} 层深度上限，其内容未展开`);
+  return `（注意：本列表可能不完整——${reasons.join('；')}。用 subdir 指定子目录可看到其余部分）`;
+}
+
 // 新建目录（含中间层级）。已存在且是目录时 created=false，不报错。
 export async function createWorkspaceDirectory({ root, characterId, path, fileSystem } = {}) {
   assertFileSystem(fileSystem);
