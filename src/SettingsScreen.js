@@ -255,6 +255,8 @@ export default function SettingsScreen() {
   const [capabilityOpen, setCapabilityOpen] = useState(false);
   // 能力弹层当前编辑的模型名——能力按「模型」一份，不再按整个 API 配置。
   const [capabilityEditorModel, setCapabilityEditorModel] = useState('');
+  // 当前编辑模型的家族档案（按模型名识别；认不出为 null）——能力弹层提示用。
+  const capabilityProfile = useMemo(() => resolveModelProfile(capabilityEditorModel), [capabilityEditorModel]);
   const [capabilityDraft, setCapabilityDraft] = useState({
     supportsThinking: false,
     supportsVision: false,
@@ -2055,12 +2057,9 @@ export default function SettingsScreen() {
             <FieldHint style={styles.hint}>
               {capabilityEditorModel ? t('settings.capability.modelLine', { model: capabilityEditorModel }) : ''}
               {t('settings.capability.hint')}
-              {(() => {
-                const profile = resolveModelProfile(capabilityEditorModel);
-                return profile
-                  ? `\n${t('settings.capability.profileHint', { family: profile.label, window: String(profile.contextWindow) })}`
-                  : '';
-              })()}
+              {capabilityProfile
+                ? `\n${t('settings.capability.profileHint', { family: capabilityProfile.label, window: String(capabilityProfile.contextWindow) })}`
+                : ''}
             </FieldHint>
             <ScrollView style={styles.capabilityScroll} contentContainerStyle={styles.capabilityScrollContent}>
             <View style={styles.capabilityRow}>

@@ -37,6 +37,8 @@ export const MATERIALIZE_TOOL_DEFINITION = {
     + 'path 传仓库目录（如 repos/owner/repo/main/）；一次没拉完会报告剩余数量，'
     + '可再次调用（幂等）。',
   readOnly: true,
+  // 单次最多下载 25 个文件（走网络）——默认 15s 兜底必然误判超时（同类 bug 见 tools.js 注释）。
+  timeoutMs: 120000,
   parameters: {
     type: 'object',
     properties: {
