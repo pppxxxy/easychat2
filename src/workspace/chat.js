@@ -4,6 +4,7 @@
 // 沙盒文件操作，给一段精简、贴近工具的系统提示即可。所有函数无副作用，可 Node 直测。
 
 import { workspaceAgentsSection } from './agents.js';
+import { workspaceTeamsSection } from './teams.js';
 import { workspaceMemorySection } from './memory.js';
 import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
@@ -75,7 +76,7 @@ export function workspaceAgentModeHint(mode) {
 // 而 ask 模式一个工具都没有——说了模型也读不到，只会反复尝试然后乱解释。
 // readLog：本会话已读登记条目（A5），同样只在有读工具的形态下注入；空则不注入。
 // agents：工作区定义的分身子弟清单（E3），只在 run_subagent 真注册时注入（同款纪律）。
-export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents, hookText } = {}) {
+export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents, teams, hookText } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
@@ -92,6 +93,11 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     if (Array.isArray(tools) && tools.includes('run_subagent')) {
       const agentsSection = workspaceAgentsSection(agents);
       if (agentsSection) lines.push(agentsSection);
+    }
+    // 团队清单——只在 run_team 真注册时注入（同款纪律）。
+    if (Array.isArray(tools) && tools.includes('run_team')) {
+      const teamsSection = workspaceTeamsSection(teams);
+      if (teamsSection) lines.push(teamsSection);
     }
     // A3：计划工具引导——工具没注册就不提（说了调不动，模型会反复试然后乱解释）。
     if (Array.isArray(tools) && tools.includes('update_plan')) lines.push(PLAN_TOOL_HINT);

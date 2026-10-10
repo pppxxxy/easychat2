@@ -26,6 +26,7 @@ import { DEFAULT_RETENTION, RETENTION_BOUNDS, normalizeRetention } from './reten
 import { COMMANDS_DIR } from './commands.js';
 import { HOOKS_FILE, HOOK_EVENTS, parseWorkspaceHooks, validateWorkspaceHooks } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
+import { TEAMS_DIR } from './teams.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -96,6 +97,9 @@ export default function WorkspaceSettingsSheet({
   // 技能清单（SKILL.md 渐进披露）；安装示例同样是转发给 ChatPanel 的动作。
   skills = [],
   onInstallSampleSkills,
+  // 团队清单（.easychat/teams 的多步编排）；安装示例同样转发给 ChatPanel。
+  teams = [],
+  onInstallSampleTeams,
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
   onInstallSampleCommands,
@@ -210,6 +214,14 @@ export default function WorkspaceSettingsSheet({
       value: skills.length > 0
         ? t('workspace.settings.skills.count', { count: skills.length })
         : t('workspace.settings.skills.emptyShort'),
+    },
+    {
+      id: 'teams',
+      icon: 'people-outline',
+      label: t('workspace.settings.teams'),
+      value: teams.length > 0
+        ? t('workspace.settings.teams.count', { count: teams.length })
+        : t('workspace.settings.teams.emptyShort'),
     },
     {
       id: 'commands',
@@ -407,6 +419,30 @@ export default function WorkspaceSettingsSheet({
           >
             <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.skills.install')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'teams') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.teams.hint', { dir: TEAMS_DIR })}</Text>
+          {teams.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.teams.empty')}</Text>
+          ) : teams.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {String(item && item.name || '')}
+              {'：'}
+              {String(item && item.description || '') || t('workspace.settings.teams.noDescription')}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleTeams && onInstallSampleTeams()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.teams.install')}</Text>
           </TouchableOpacity>
         </View>
       );

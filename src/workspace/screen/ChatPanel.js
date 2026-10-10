@@ -83,6 +83,7 @@ import {
 } from '../../chat/attachments.js';
 import useChatRecorder from '../../chat/useChatRecorder.js';
 import { readWorkspaceAgents } from '../agents.js';
+import { installSampleTeams, readWorkspaceTeams } from '../teams.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createSteeringQueue } from '../../agent/steering.js';
 import {
@@ -170,6 +171,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [permissionRules, setPermissionRules] = useState([]);
   // 技能清单（设置面板展示用；发消息时另行直读，两处互不影响）。
   const [workspaceSkills, setWorkspaceSkills] = useState([]);
+  // 团队清单（设置面板展示用；发消息时另行直读，两处互不影响）。
+  const [workspaceTeams, setWorkspaceTeams] = useState([]);
   // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
@@ -485,6 +488,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         if (alive) setWorkspaceSkills(Array.isArray(list) ? list : []);
       })
       .catch(() => {});
+    readWorkspaceTeams(storeRef.current, characterId)
+      .then(list => {
+        if (alive) setWorkspaceTeams(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };
@@ -753,6 +761,28 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       Alert.alert(
         t('workspace.settings.skills.installNoneTitle'),
         t('workspace.settings.skills.installNone')
+      );
+    }
+  }, [characterId, t]);
+
+  const handleInstallSampleTeams = useCallback(async () => {
+    let installed = 0;
+    try {
+      installed = await installSampleTeams(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const list = await readWorkspaceTeams(storeRef.current, characterId);
+      setWorkspaceTeams(Array.isArray(list) ? list : []);
+    } catch (error) {}
+    if (installed > 0) {
+      Alert.alert(
+        t('workspace.settings.teams.installDoneTitle'),
+        t('workspace.settings.teams.installDone', { count: installed })
+      );
+    } else {
+      Alert.alert(
+        t('workspace.settings.teams.installNoneTitle'),
+        t('workspace.settings.teams.installNone')
       );
     }
   }, [characterId, t]);
@@ -1131,6 +1161,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     // E3：分身档案清单（渐进披露第一层）——同样每轮直读；run_subagent 没注册时
     // 提示词自动不注入（buildWorkspaceAgentSystemPrompt 内部判据）。
     const agents = mode === 'ask' ? [] : await readWorkspaceAgents(storeRef.current, ownerId);
+    // 团队清单（持久化团队）：同样每轮直读；run_team 没注册时提示词自动不注入。
+    const teams = mode === 'ask' ? [] : await readWorkspaceTeams(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
@@ -1138,6 +1170,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       memory,
       skills,
       agents,
+      teams,
       // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
       readLog: readLogRef.current ? readLogRef.current.list() : [],
       // P0-8：hooks.json 的注入类事件（放在 readLog 之前，见该函数的缓存契约）。
@@ -1402,6 +1435,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onChangeRetention={handleChangeRetention}
                   skills={workspaceSkills}
                   onInstallSampleSkills={handleInstallSampleSkills}
+                  teams={workspaceTeams}
+                  onInstallSampleTeams={handleInstallSampleTeams}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
                   hooksText={hooksText}
