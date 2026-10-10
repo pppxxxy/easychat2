@@ -3,9 +3,13 @@
 // 语义：**写系工具落笔前**把旧内容存一份（含"新建"——oldContent 为空也记录，
 // 使删除可逆）；「恢复」= 把旧内容写回去（恢复前同样先快照当前内容，天然可逆）。
 //
-// 与裁决的关系（防跑偏）：
-// - 不是 git：本地 git 已被 SAF 裁决掉（H 系裁决 1，content URI vs java.io.File）；
-//   这里是纯 store 读写的隐形历史（Claude Code checkpoint 的等价物）。
+// 与 git 的关系（2026-10-11 更正，W7）：
+// - **本模块已降级为回退路径**。原先写的是「本地 git 已被 SAF 裁决掉」——那条前提在
+//   W7 之后只对一半：git 现在用纯 JS（isomorphic-git）跑在**应用私有根**上，可用；
+//   只有 SAF 外部根（content URI 撑不起 .git）与「开关关着」这两种情况才落到这里。
+// - 所以它**不能删**：删了这两类用户就彻底没有回退手段（`shouldRecordFileHistory`
+//   是唯一判据，git 开着时不记快照、SAF/关着时照记）。
+// - 它仍是纯 store 读写的隐形历史（Claude Code checkpoint 的等价物）。
 // - 不是分支：每 turn 自动建分支已被裁决（会污染 BranchForkRow）；本历史**不进
 //   分支 UI**，恢复入口在文件层。
 // - 与 H3 的关系：并存不合并——H3 的 rollback/<ts>.json 是「推送级」快照（含
