@@ -1,0 +1,65 @@
+# 工作区界面线（P0–P5）执行清单
+
+> 规划与依据见 `.monkeycode/docs/agent-workspace-gui-parity.md`（vs DeepSeek Harness 桌面端）。
+> 分支 `d1010d3`（基于 `d1010d2`）。用户已裁决：**P1 宽屏破例允许两栏**。
+> 纪律：每项独立提交、四条门禁全绿 + 覆盖率、行为测试（守卫类做注入验证）、推送 origin。
+
+## 现状基线（`d1010d2` @ `973b5a2`）
+
+- 骨架：唯一全屏 Modal + 左栏 76px 图标轨五领域（`WorkspaceScreen.js:31-37,98`），内容区条件渲染（`:139-165`）→ 面板单开。
+- 工具过程：**只有一行会闪过的 `toolStatus`**（`ChatPanel.js:1188,1486-1491`）；`ToolBubble` 只在聊天页（`MessageList.js:193`）；`toolTrace` 已落盘未展示（`ChatPanel.js:1281-1282`）。
+- 检索：聊天/会话历史/本地文件**全无搜索**；唯一搜索框在 GitHub 面板（`GithubPanel.js:1262`）。
+- 扩展点 GUI：子代理档案**零入口**；技能只有数量；MCP 入口只在主设置页（`SettingsScreen.js:1785-1796`）。
+- 收尾：`WorkspaceScreen.js:163` 传 `onClose` 但 `WorkspaceSettingsPanel.js:22` 不接收；上下文占用两处重复（`WorkspaceSettingsSheet.js:327-353` 与 `FilesPanel.js:1100-1123`）；`专有概念/工作区.md:20-22` 文档过时。
+
+## P0 工作区工具过程可见
+
+- [x] **P0-1 纯函数模型**：`src/chat/toolCardView.js` —— `applyToolEvent`（事件流 → 逐次调用卡片）、
+      `summarizeToolArgs`（挑「最能说明动了什么」的字段，拿不到给空串而不是一坨 JSON）、
+      `toolCardLabelKey`（未登记的工具返回空串 → 界面回退显示原始工具名）、`summarizeToolCards`。
+      与 `chat/toolBubbleView.js` **分工不同**（那个是聊天页 search/fetch 两阶段气泡、按轮次+工具名折叠）。
+      测试：`tests/toolCardView.test.mjs` 8 条（含「同一轮同名工具调两次 = 两张卡」、
+      「没有配对 start 的 end 一律忽略，不凭空补卡」、不可变更新）。
+- [x] **P0-2 组件 + 接线**：`src/workspace/screen/ToolCardList.js`（三态图标 + 标签 + 参数摘要 + 折叠，
+      折叠状态由组件自持，宿主不多开 state）；`ChatPanel` 的单行 `toolStatus` 换成卡片列表，
+      `onToolEvent` 改为 `setToolCards(prev => applyToolEvent(prev, event))`。
+      i18n：`workspace.toolCard.*` 共 20 条（zh-CN + en）。
+      **棘轮**：ChatPanel 仍是 1853 行（余量 0）——靠把渲染压成一行 + 组件自持折叠换来。
+- [ ] P0-3 接上已落盘的 `toolTrace`：本轮结束后仍可回看「上一轮读了什么、改了什么」。
+- [x] P0-4 门禁：lint 0 ｜ 2458/2458 ｜ guard ok（含棘轮/无循环）｜ i18n 缺失 0 ｜ 打包验证通过。
+
+## P1 宽屏两栏（已批准破例）
+
+- [ ] P1-1 宽度判定纯函数（`宽 >= N` 才允许两栏）+ 持久化偏好。
+- [ ] P1-2 `WorkspaceScreen` 宽屏布局：对话常驻 + 右侧一个可停靠面板（文件/终端/GitHub 三选一）+ 拖动分隔条。
+- [ ] P1-3 窄屏行为**逐字不变**（回归测试钉死）。
+
+## P2 检索与导航
+
+- [ ] P2-1 聊天消息搜索（面板内搜索条 + 命中跳转）。
+- [ ] P2-2 会话历史搜索 + 排序。
+- [ ] P2-3 本地文件搜索（照抄 `GithubPanel.js:1262-1281` 的形状）。
+
+## P3 扩展点 GUI 补齐
+
+- [ ] P3-1 子代理档案：计数 + 逐条列表（与技能行对齐）。
+- [ ] P3-2 技能：从「只有数量」升级为逐条列表。
+- [ ] P3-3 MCP：工作区里给一条指向主设置页的入口。
+- [ ] P3-4 会话事件流只读视图（DSH `trajectory` 的轻量对位）。
+
+## P4 收尾与一致性
+
+- [ ] P4-1 `WorkspaceSettingsPanel` 接收 `onClose`（或去掉传参）。
+- [ ] P4-2 上下文占用两处重复 → 收敛单一来源。
+- [ ] P4-3 `专有概念/工作区.md` 左栏描述更新为五领域图标轨。
+- [ ] P4-4 确认类 `Alert.alert` 逐步换面板内确认条（分批，先做破坏性操作）。
+
+## P5 手势与极简键盘（低优先）
+
+- [ ] P5-1 移动端手势：面板间横滑切换 / 列表滑动操作 / 长按菜单。
+- [ ] P5-2 平板 + 外接键盘极小子集（发送 / 停止 / 切换面板）。
+
+## 明确不做（沿用既有裁决）
+
+LSP 集成（物理不可行）｜53 包插件化 UI｜完整键位录制系统｜Electron 内嵌浏览器｜Plan DAG｜
+工具结果向量检索｜上下文老化淘汰｜重做 MCP 泛化 / `run_subagent` / SKILL.md 基础格式。

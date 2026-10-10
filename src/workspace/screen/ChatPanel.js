@@ -64,6 +64,9 @@ import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
+// P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
+import { applyToolEvent } from '../../chat/toolCardView.js';
+import ToolCardList from './ToolCardList.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
@@ -160,7 +163,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
-  const [toolStatus, setToolStatus] = useState('');
+  const [toolCards, setToolCards] = useState([]);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('');
@@ -345,7 +348,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages([]);
     setInput('');
     setAttachments([]);
-    setToolStatus('');
+    setToolCards([]);
     setSending(false);
     setSettingsOpen(false);
     setSettingsSection('');
@@ -572,7 +575,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages([]);
     setInput('');
     setAttachments([]);
-    setToolStatus('');
+    setToolCards([]);
     setSending(false);
     setSettingsSection('');
     // A5：新对话 = 新会话 → 已读登记清零（它记的是「这次对话读过了什么」）。
@@ -598,7 +601,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages(target.messages);
     setInput(readDraft(characterId, id, target.draft));
     setAttachments([]);
-    setToolStatus('');
+    setToolCards([]);
     setSending(false);
     setHistoryOpen(false);
     // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
@@ -1085,7 +1088,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setAttachments([]);
     }
     setSending(true);
-    setToolStatus('');
+    setToolCards([]);
     persistMessages(ownerId, chatId, [userMessage]);
     // E4：会话事件流（旁路审计）——user 事件。不 await、写失败静默（事件流绝不挡消息链路）。
     appendSessionEvent(storeRef.current, ownerId, chatId, 'user', {
@@ -1185,7 +1188,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               if (steps.length > 0) setPlanCollapsed(false);
             }
           }
-          setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
+          // P0：逐次调用各一张卡（同一轮同名工具调两次就是两张）——用户能看到
+          // 「哪一步读了什么、改了什么、失败在哪」，而不是等终稿。
+          setToolCards(prev => applyToolEvent(prev, event));
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
         // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
@@ -1289,7 +1294,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       });
       if (mountedRef.current) {
         setSending(false);
-        setToolStatus('');
+        setToolCards([]);
         setSteeringNote(''); // I1：本轮结束，补充指令的提示与队列一并清掉
       }
       controllerRef.current = null;
@@ -1328,7 +1333,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       }
     }, 40);
     return () => clearTimeout(timer);
-  }, [messages, toolStatus]);
+  }, [messages, toolCards]);
 
   // 对话面板（工作区单屏内的「对话」领域）：不再自套 Modal、不再自带顶栏与左栏——
   // 那是单屏的职责。顶部一条紧凑动作行保留「新建对话 / 查找历史」。
@@ -1483,12 +1488,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               </View>
             ) : null}
 
-            {toolStatus ? (
-              <View style={styles.statusBar}>
-                <ActivityIndicator size="small" color={theme.colors.primaryMuted} />
-                <Text style={styles.statusText} numberOfLines={1}>{toolStatus}</Text>
-              </View>
-            ) : null}
+            <ToolCardList cards={toolCards} theme={theme} fonts={fonts} tokens={tokens} t={t} />
 
             {/* I1：Steering 提示——「补充指令已入队」，本轮结束自动消失。 */}
             {steeringNote ? (
