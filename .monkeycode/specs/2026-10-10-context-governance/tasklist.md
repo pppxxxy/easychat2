@@ -48,10 +48,20 @@
       `summarize` 模型调用 + `writeTranscript` 绑定 store。`runCompactionPipeline` 已是可直接调用的编排器。
 - [ ] **口径**：`compactionStatus` 按「清除后」体积估算（K1 已提供 `estimateContextBytes`）——随接线一起接。
 
-## N1 reactive 回退（**未做**）
+## N1 reactive 回退（**核心完成**；两处挂载的「重试一次」接线待做）
 
-- 错误矩阵（context_length_exceeded / prompt_too_long / vendor 变体，code+message 双匹配）；
-  触发后归档 → 尾 5 保留（配对边界回退）→ 摘要旧史 → 重试一次；仍败给明确提示。
+- [x] 新模块 `src/chat/reactiveCompact.js`（纯逻辑）：`isContextOverflowError`（错误矩阵——
+      `code`/`type` 与 `message` 双匹配子串，大小写不敏感；OpenAI `context_length_exceeded` /
+      Anthropic `prompt_too_long` / vendor 变体）、`REACTIVE_KEEP_RECENT=5`、
+      `REACTIVE_FAILED_MESSAGE`、`runReactiveCompact`（命中 → 写 transcript 归档 → 摘要旧史
+      （D3 提示词 + N2 防注入/保存清单 + 工具语义转写）→ 尾 5 保留（配对回退，复用
+      `sliceRecentIntact`）→ 权威分离）。
+- [x] 摘要请求防爆：复用 `COMPACTION_PER_MESSAGE_MAX` / `COMPACTION_TRANSCRIPT_MAX`。
+- [x] 测试：`reactiveCompact.test.mjs`（矩阵命中/否定、非超限不动、摘要空失败、归档 jsonl、
+      配对边界无孤儿）。
+- [ ] **两处挂载（待做）**：工作区 loop 轮次 + 聊天页发送路径各接「命中 → 跑 runReactiveCompact
+      → 重试一次；仍失败 → `REACTIVE_FAILED_MESSAGE`」；每 turn 一次机会防循环。诊断写 tmp 日志。
+- [ ] 单次触发语义 / 仍败路径的端到端断言随挂载一起补。
 
 ## 顺序与门禁
 

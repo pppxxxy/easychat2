@@ -84,13 +84,25 @@ export function buildToolTranscript(messages) {
   return lines.join('\n');
 }
 
-// 尾部按「配对单位」切割：保留最近 keep 条，但起点若落在 tool 结果上则前移到其 assistant。
+// 尾部按「配对单位」切割：保留最近 keep 条，但保证切割点不落在 toolUse↔toolResult 之间——
+// 起点是 tool 结果 → 回退包含其 toolUse；起点前一条是带 tool_calls 的 assistant → 也回退纳入。
 export function sliceRecentIntact(messages, keep = COMPACTION_KEEP_RECENT) {
   const list = Array.isArray(messages) ? messages : [];
   const count = Math.max(0, Math.floor(Number(keep) || 0));
   if (count === 0) return [];
   let start = Math.max(0, list.length - count);
-  while (start > 0 && list[start] && list[start].role === 'tool') start -= 1;
+  while (start > 0) {
+    const first = list[start];
+    const prev = list[start - 1];
+    const startIsTool = !!first && first.role === 'tool';
+    const prevIsCall = !!prev && prev.role === 'assistant'
+      && Array.isArray(prev.tool_calls) && prev.tool_calls.length > 0;
+    if (startIsTool || prevIsCall) {
+      start -= 1;
+      continue;
+    }
+    break;
+  }
   return list.slice(start);
 }
 
