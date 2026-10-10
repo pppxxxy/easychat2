@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { clearTools, listToolsForMode, runTool, AGENT_MODES } from '../src/agent/tools/registry.js';
 import { createWorkspaceToolDefinitions, registerWorkspaceTools } from '../src/workspace/tools.js';
-import { searchWorkspaceText } from '../src/workspace/toolDefs/searchTool.js';
+import { searchWorkspaceText, SEARCH_TOOL_OUTPUT_CHARS } from '../src/workspace/toolDefs/searchTool.js';
 import { serializeToolResult } from '../src/agent/messages.js';
 
 // ---- 内存文件系统（与 workspaceTools.test 同款最小实现） ----
@@ -120,6 +120,12 @@ test('searchWorkspaceText：时间预算到点返回已完成部分并标注截�
 test('searchWorkspaceText：坏正则与空 pattern', () => {
   assert.equal(searchWorkspaceText([{ path: 'a', content: 'x' }], { pattern: '(' , regex: true }).error, 'bad-regex');
   assert.equal(searchWorkspaceText([{ path: 'a', content: 'x' }], { pattern: '' }).error, 'empty-pattern');
+});
+
+test('O2/M1：工具路径输出上限远高于序列化上限（超大结果走 O1 落盘而非就地截断）', () => {
+  // 循环的 O1 序列化上限是 16KB；工具路径硬上限必须高于它，超大搜索结果才会交给
+  // O1 落盘管道（预览 + 指针），而不是在工具内 8KB 处截断丢中段。
+  assert.ok(SEARCH_TOOL_OUTPUT_CHARS > 16 * 1024);
 });
 
 // ---- search_workspace 工具（经 runTool 端到端） ----
