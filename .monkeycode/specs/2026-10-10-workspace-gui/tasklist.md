@@ -66,7 +66,7 @@
       `{matches,total,truncated}`，与 `fileSearch.js` **同构**，但命中带 `index`——要能定位回
       那条消息）。结果倒序、空查询不返回结果。测试 7 条。
 - [ ] P2-1（第二步）界面接线：`ChatPanel` 消息区加搜索条 + 命中跳转。
-      **ChatPanel 余量只剩 30 行**，需先把消息列表渲染拆出去（`renderBody` 式的具名分发）。
+      **前置拆件已完成**：样式表抽到 `screen/chatPanelStyles.js`，ChatPanel 1823 → 1648（余量 205）。
 - [x] **P1-4 窄屏行为**：由 `tests/splitLayout.test.mjs` 覆盖——`resolveWorkspaceLayout` 的
       窄屏分支（`width < 900` → `single: true`，无论选哪个领域）就是窄屏行为的判据本身；
       界面侧「窄屏走原条件渲染」由 `workspaceHome.test.mjs` 的分发函数断言间接钉住。
