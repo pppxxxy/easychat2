@@ -31,6 +31,7 @@ import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
+import { persistToolResult } from '../workspace/taskOutputs.js';
 import { readWorkspaceHooks, shellHookDenyRules } from '../workspace/hooks.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
@@ -616,6 +617,16 @@ export default function useChatSend({
               },
               context: { characterId: character.id, sessionId: sendSessionId },
               allowChatTools: chatToolsEnabled,
+              // O1：超限工具结果整份落盘到工作区 .task_outputs/，消息里只留预览 + 指针
+              //（模型可按 offset 读回）；无工作区后端（ask / 建 store 失败）则不注入。
+              persistToolResult: hookStore
+                ? (content, meta) => persistToolResult({
+                  store: hookStore,
+                  characterId: character.id,
+                  toolUseId: meta && meta.toolCallId,
+                  content,
+                })
+                : undefined,
             })
           : sendChatMessage(onlineMessages, {
               expectedConfigId,

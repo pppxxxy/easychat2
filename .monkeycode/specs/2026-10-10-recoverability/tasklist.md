@@ -30,11 +30,19 @@
       （触发/抑制边界）、`agentLoop.test.mjs`（nag 注入 / 全 done 不注入）、
       `sessionPlan.test.mjs`（落盘 round-trip）。
 
-## O1 超限结果落盘+预览+指针（**未做**，依赖 K1）
+## O1 超限结果落盘+预览+指针（**已完成**，2026-10-10 分支 m1010m3）
 
-- `serializeToolResult` 升级：超限结果写工作区 `.task_outputs/tool-results/`，替换为
-  头尾保留 + 中段省略 + `Full output: <path>` + 2000 字符预览；伪造路径防御；LRU 清理。
-- **裁决**：O1 与 K1 共用「落盘占位管道」，任务书排在 K1 后紧邻执行；本分支不提前做。
+- [x] 新模块 `src/workspace/taskOutputs.js`：`.task_outputs/tool-results/<base36时间>-<白名单toolUseId>.txt`
+      落盘（`persistToolResult`）、按文件名时间前缀 LRU 清理（`pruneToolResults`，上限 50）、
+      `isTrustedTaskOutputPath`（纯前缀）/ `isTrustedTaskOutput`（前缀 + 可读）防伪造指针。
+- [x] `messages.js`：`formatPersistedToolResult`（头尾各 2000 字符预览 + 中段省略标注 +
+      `完整内容已存至 <path>…` 指针）、`serializeToolResultAsync`（超限先 persist，失败退回 D2 头尾）。
+- [x] `loop.js`：`serializeToolResultAsync` + 宿主注入的 `options.persistToolResult`。
+- [x] 宿主接线：`useChatSend` 在 read/write 模式注入 persist（绑 workspace store + characterId）。
+- [x] 预算：落盘阈值 = 序列化上限 16KB（不新造 30K 常量）；预览 2000 字符/端。
+- [x] 测试：`taskOutputs.test.mjs`（命名净化/伪造指针/落盘/LRU）、`agentMessages.test.mjs`
+      （预览拼装 / persist 成功·失败·缺席）、`agentLoop.test.mjs`（超限结果落盘 → 历史留指针）。
+- **备注**：O1 与 K1 共用「落盘占位管道」；本分支先建管道，K1 后续复用。
 
 ## O2 spec 修订包（**未做**，纯条款，随宿主任务合入）
 

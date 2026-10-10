@@ -4,7 +4,7 @@
 // 循环本身不做持久化，也不直接接触 RN UI。
 
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
-import { serializeToolResult, toAssistantMessage } from './messages.js';
+import { serializeToolResultAsync, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';
 
@@ -96,6 +96,8 @@ export async function runAgentTurn(messages, options = {}) {
   const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
   // D4-1：结果增强钩子（宿主注入；不注入 = 不增强，行为与旧版一致）。
   const onToolResult = typeof options.onToolResult === 'function' ? options.onToolResult : null;
+  // O1：超限结果落盘钩子（宿主注入：写工作区 + 返回 { path }；不注入 = 退回头尾保留）。
+  const persistToolResult = typeof options.persistToolResult === 'function' ? options.persistToolResult : null;
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
@@ -222,9 +224,14 @@ export async function runAgentTurn(messages, options = {}) {
         roundsSincePlanUpdate = 0;
         planUpdatedThisRound = true;
       }
-      // D2：把工具名传下去——截断指引按工具语义分派（文件→offset 续读，
-      // 命令→收窄重跑），不认识的工具只说「中间省略了」不写误导性指引。
-      const serialized = serializeToolResult(outcome, TOOL_RESULT_LIMIT, call && call.name);
+      // D2/O1：序列化工具结果。超限时若宿主提供 persistToolResult，先把整份落盘再
+      // 用「头尾预览 + 指针」替换（信息只移不丢）；否则退回 D2 头尾保留。
+      const serialized = await serializeToolResultAsync(outcome, {
+        limit: TOOL_RESULT_LIMIT,
+        toolName: call && call.name,
+        toolCallId: call && call.id,
+        persist: persistToolResult,
+      });
       safeCallback(onToolEvent, {
         phase: 'end',
         name: call.name,

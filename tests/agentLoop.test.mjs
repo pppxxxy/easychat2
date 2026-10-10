@@ -188,6 +188,29 @@ test('O0.2：计划全 done 时不注入 nag', async () => {
   assert.equal(last.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))), false);
 });
 
+test('O1：超限工具结果经 persistToolResult 落盘，消息里只留指针', async () => {
+  const { runAgentTurn, TOOL_RESULT_LIMIT } = loadLoop();
+  streamPlan = [
+    { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const big = 'y'.repeat(TOOL_RESULT_LIMIT + 50);
+  runHandler = () => ({ content: big, isError: false });
+  const persisted = [];
+  await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    persistToolResult: async (content, meta) => {
+      persisted.push({ len: content.length, meta });
+      return { path: '.task_outputs/tool-results/c1.txt' };
+    },
+  });
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].len, big.length);
+  assert.equal(persisted[0].meta.toolCallId, 'c1');
+  const toolMsg = streamCalls[1].messages.find(item => item.role === 'tool');
+  assert.match(String(toolMsg.content), /\.task_outputs\/tool-results\/c1\.txt/);
+});
+
 test('assistant 空文本带 tool_calls 时 content 置 null', async () => {
   streamPlan = [
     { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
