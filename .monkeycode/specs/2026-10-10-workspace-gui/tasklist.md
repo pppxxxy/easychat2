@@ -49,9 +49,15 @@
       总宽折算，手感一致）、`clampSplitRatio` / `normalizeStoredLayout`（读回时任一项不合法就
       整份丢弃）。测试 7 条。抓到自己一个真实缺陷：`Number(null)` 是 0（有限），
       于是「没有值」被当成「拖到最左」夹到下限——已把空值与 0 区分开。
-- [ ] P1-2 `WorkspaceScreen` 两栏渲染 + 拖拽手势（`PanResponder`）+ 比例持久化。
-      落点主要是 `WorkspaceScreen`（229 行，**不在基线**，余量 571）——棘轮这次不是障碍。
-- [ ] P1-3 窄屏行为**逐字不变**（回归测试钉死）。
+- [x] **P1-2 `WorkspaceScreen` 两栏接线**（229 → 292 行，不在基线）。窄屏**逐字不变**（走原来的
+      条件渲染，只是抽成 `renderChatPanel`/`renderDomainPanel` 两个具名函数）；宽屏时**树形稳定**
+      （对话永远挂同一位置，切侧栏不卸载重建 `ChatPanel`，否则草稿会丢）；「宽屏+设置」用
+      `display:'none'` 让对话保持挂载但不参与布局；分隔条 `PanResponder` 拖动，比例/宽度存 ref
+      让 responder 只建一次；`RAIL_WIDTH` 提成常量供样式与解算共用。
+      规则收紧：侧栏只认**文件/GitHub/终端**（对话与**设置**都保持单栏）。
+      **比例暂不持久化**（`normalizeStoredLayout` 已写好测过，落盘要动 settings 白名单，留下一步）。
+- [ ] P1-3 比例持久化（`workspace/settings.js` 白名单 + 测试）。
+- [ ] P1-4 窄屏行为回归测试钉死。
 
 ## P2 检索与导航
 
