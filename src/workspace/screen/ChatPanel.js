@@ -175,6 +175,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // P3-1：分身档案清单（`.easychat/agents/`）。此前只在发请求时读进系统提示词，
   // **界面零入口**——用户写了档案却看不到有没有生效。这里补一份给设置面板展示。
   const [workspaceAgents, setWorkspaceAgents] = useState([]);
+  // P3-4：当前会话的事件流（只读回看）。此前界面只有「导出」——想知道「这一轮发生了什么」
+  // 得先导出成文件再看。原始事件存着，展示交给纯函数（workspace/sessionEventView.js）。
+  const [sessionEvents, setSessionEvents] = useState([]);
   // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
@@ -495,10 +498,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         if (alive) setWorkspaceAgents(Array.isArray(list) ? list : []);
       })
       .catch(() => {});
+    // P3-4：事件流按当前会话读（换会话要重新读，所以 activeChatId 进依赖）。
+    readSessionEvents(storeRef.current, characterId, activeChatId)
+      .then(list => {
+        if (alive) setSessionEvents(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [settingsOpen, characterId]);
+  }, [settingsOpen, characterId, activeChatId]);
 
   // 打开时自解析：设置快照 → 沙盒 store → 工作区角色 → 模型 / 思考 / 角色清单 / 项目。
   useEffect(() => {
@@ -1405,6 +1414,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onChangeRetention={handleChangeRetention}
                   skills={workspaceSkills}
             agents={workspaceAgents}
+            sessionEvents={sessionEvents}
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}

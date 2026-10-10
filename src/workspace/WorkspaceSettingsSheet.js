@@ -26,6 +26,7 @@ import { COMMANDS_DIR } from './commands.js';
 import { HOOKS_FILE, HOOK_EVENTS, parseWorkspaceHooks, validateWorkspaceHooks } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
 import { AGENTS_DIR, AGENT_LIST_MAX } from './agents.js';
+import { summarizeSessionEvents } from './sessionEventView.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -109,6 +110,8 @@ export default function WorkspaceSettingsSheet({
   onInstallTemplate,
   // E4：会话事件流导出（读/写/分享全在 ChatPanel——本面板只转发动作）。
   onExportSessionEvents,
+  // P3-4：会话事件流原文（宿主读好传进来），本面板用纯函数归一成可读行再画。
+  sessionEvents = [],
   // P0-8：hooks.json 原文（宿主读好传进来，本面板用纯函数校验与统计）与安装示例回调。
   hooksText = '',
   onInstallSampleHooks,
@@ -122,6 +125,8 @@ export default function WorkspaceSettingsSheet({
   const activeCharacter = (Array.isArray(characters) ? characters : [])
     .find(item => item && item.id === characterId) || null;
   const retentionEffective = normalizeRetention(retention);
+  // P3-4：事件流只归一一次——行摘要与展开体都要用（各算一遍会白跑，且两处可能不一致）。
+  const sessionEventView = useMemo(() => summarizeSessionEvents(sessionEvents), [sessionEvents]);
 
   // P0-6：手写规则的草稿。只是输入态（不落盘、不进设置）——落盘由宿主的
   // onAddPermissionRule 走 addPermissionRule，与弹框「永远允许」同一条链路。
@@ -224,6 +229,14 @@ export default function WorkspaceSettingsSheet({
       value: agents.length > 0
         ? t('workspace.settings.agents.count', { count: agents.length })
         : t('workspace.settings.agents.emptyShort'),
+    },
+    {
+      id: 'sessionLog',
+      icon: 'pulse-outline',
+      label: t('workspace.settings.events'),
+      value: sessionEventView.total > 0
+        ? t('workspace.settings.events.count', { count: sessionEventView.total })
+        : t('workspace.settings.events.emptyShort'),
     },
     {
       id: 'commands',
@@ -446,6 +459,42 @@ export default function WorkspaceSettingsSheet({
         </View>
       );
     }
+    if (id === 'sessionLog') {
+      // P3-4：会话事件流**只读回看**。这一行此前是**动作行**——点一下就导出成文件并关闭面板，
+      // 用户想知道「这一轮发生了什么」必须先落一个文件。现在改成可展开：先看，再决定要不要导出。
+      // 事件类型目前实际只有 user / assistant / tool_call（见 sessionEventView.js 文件头），
+      // 其余声明类型走兜底文案，不假装它们存在。
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.events.hint')}</Text>
+          {sessionEventView.total === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.events.empty')}</Text>
+          ) : (
+            <>
+              {sessionEventView.rows.map(row => (
+                <Text key={row.id} style={styles.bodyHint} selectable>
+                  {row.timeLabel ? `${row.timeLabel}  ` : ''}
+                  {t(row.key, row.params)}
+                </Text>
+              ))}
+              {sessionEventView.truncated ? (
+                <Text style={styles.bodyHint}>
+                  {t('workspace.settings.events.more', { count: sessionEventView.total - sessionEventView.rows.length })}
+                </Text>
+              ) : null}
+            </>
+          )}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onExportSessionEvents && onExportSessionEvents()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="share-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.events.export')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     if (id === 'templates') {
       return (
         <View>
@@ -621,17 +670,6 @@ export default function WorkspaceSettingsSheet({
       onPress: () => {
         if (onClose) onClose();
         if (onOpenPanel) onOpenPanel('docx');
-      },
-    },
-    {
-      // E4：会话事件流导出（旁路审计线索——消息/工具调用事实，事后排查用）。
-      id: 'events',
-      icon: 'pulse-outline',
-      label: t('workspace.settings.events'),
-      hint: t('workspace.settings.events.hint'),
-      onPress: () => {
-        if (onClose) onClose();
-        if (onExportSessionEvents) onExportSessionEvents();
       },
     },
     {
