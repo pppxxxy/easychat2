@@ -5,6 +5,8 @@
 
 import { useCallback, useRef, useState } from 'react';
 
+import { sessionRuns } from '../agent/runtime/sessionRuns.js';
+
 export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdRef }) {
   const abortRef = useRef(null);
   const sendLockRef = useRef(null);
@@ -34,10 +36,21 @@ export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdR
   const beginSendOperation = useCallback(() => {
     if (sendLockRef.current) return null;
     const controller = new AbortController();
-    const token = { id: ++sendOperationRef.current, controller };
+    const token = {
+      id: ++sendOperationRef.current,
+      controller,
+      // 记下发起时的会话：收尾时即便已经切走，也能注销对的那一条。
+      sessionId: String(activeSessionIdRef.current || ''),
+    };
     sourceChangedRef.current = false;
     sendLockRef.current = token;
     abortRef.current = controller;
+    // L 系骨架：把「这个会话正在跑」登记到应用级登记表，供运行中角色面板读取/取消。
+    // 控制器仍由本 hook 持有并驱动；登记表只存引用（控制器一被中止就自动注销）。
+    sessionRuns.start(token.sessionId, {
+      controller,
+      characterId: activeCharacterIdRef.current,
+    });
     setIsSending(true);
     return token;
   }, []);
@@ -46,6 +59,7 @@ export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdR
     if (!token || sendLockRef.current !== token) return;
     if (abortRef.current === token.controller) abortRef.current = null;
     sendLockRef.current = null;
+    sessionRuns.finish(token.sessionId);
     setIsSending(false);
   }, []);
 
@@ -61,6 +75,9 @@ export default function useSessionGuard({ activeSessionIdRef, activeCharacterIdR
       abortRef.current.abort();
     }
     inlineImageControllerRef.current?.abort();
+    // 会话失效：登记表里该会话的运行一并注销。上面的 abort 已触发自动注销，这里是
+    // 显式兜底，覆盖「abortRef 已为 null 但登记仍在」的边界情况。
+    sessionRuns.cancel(String(activeSessionIdRef.current || ''));
 
     setIsSending(false);
   }, []);
