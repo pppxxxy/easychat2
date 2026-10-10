@@ -10,8 +10,15 @@ function safeParseJson(text) {
 }
 
 // OpenAI 兼容：内部形态即目标形态，原样返回。
+// systemCache 是内部缓存计划字段（见 prompt/systemSections.js），绝不能泄漏给端点。
 export function toOpenAiMessages(messages) {
-  return (Array.isArray(messages) ? messages : []).map(message => ({ ...message }));
+  return (Array.isArray(messages) ? messages : []).map(message => {
+    if (!message || typeof message !== 'object') return message;
+    if (!message.systemCache) return { ...message };
+    const copy = { ...message };
+    delete copy.systemCache;
+    return copy;
+  });
 }
 
 // 把内部消息切成 (role, blocks) 序列，供 Anthropic / Responses 复用。
@@ -24,6 +31,9 @@ export function eachMessage(messages) {
 // 并入 system，避免请求被拒）。
 export function toAnthropicRequest(messages) {
   const systemParts = [];
+  // 带缓存断点的分块（仅当系统消息携带 systemCache，见 prompt/systemSections.js）。
+  // Anthropic 的 system 接受 content block 数组，末块可带 cache_control。
+  const systemBlocks = [];
   const turns = [];
   const pushTurn = (role, blocks) => {
     if (blocks.length === 0) return;
@@ -39,7 +49,20 @@ export function toAnthropicRequest(messages) {
     const role = String(message.role || 'user');
     if (role === 'system') {
       const text = toTextParts(message.content).map(part => part.text).join('\n');
-      if (text) systemParts.push(text);
+      if (!text) return;
+      // 供应商 prompt 缓存：稳定前缀打 ephemeral 断点（缓存到此处为止），其余不缓存。
+      if (message.systemCache && message.systemCache.prefixText) {
+        systemBlocks.push({
+          type: 'text',
+          text: message.systemCache.prefixText,
+          cache_control: { type: 'ephemeral' },
+        });
+        if (message.systemCache.restText) {
+          systemBlocks.push({ type: 'text', text: message.systemCache.restText });
+        }
+        return;
+      }
+      systemParts.push(text);
       return;
     }
     if (role === 'tool') {
@@ -105,8 +128,17 @@ export function toAnthropicRequest(messages) {
     }
   }
 
+  // 有缓存分块时 system 用 block 数组（顺序：缓存前缀 → 其余 → 追加的系统文本）；
+  // 否则维持原来的字符串形态（零行为变化）。
+  const system = systemBlocks.length > 0
+    ? [
+      ...systemBlocks,
+      ...(systemParts.length > 0 ? [{ type: 'text', text: systemParts.join('\n\n') }] : []),
+    ]
+    : systemParts.join('\n\n');
+
   return {
-    system: systemParts.join('\n\n'),
+    system,
     messages: turns,
   };
 }

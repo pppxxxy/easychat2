@@ -68,6 +68,11 @@ async function readIndex(store, characterId) {
   }
 }
 
+// IO：读整个索引（工作区回退规划用，见 workspace/rewind.js）。不存在/坏 → 空数组。
+export async function readFileHistoryIndex(store, characterId) {
+  return readIndex(store, characterId);
+}
+
 // 内部：写 index（失败静默——旁路机制）。
 async function writeIndex(store, characterId, index) {
   try {

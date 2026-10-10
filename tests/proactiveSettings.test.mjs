@@ -267,9 +267,10 @@ test('主动消息落库：存储导出 appendProactiveMessage，桥接消费并
 
 test('找不到角色的待写消息不 ack 删除，改为保留重试', () => {
   const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
-  const ctx = fs.readFileSync(path.resolve('src/context/AppContext.js'), 'utf8');
+  // Z 系采纳 #9：落库领域外提到 context/proactiveIngest.js（AppContext 只做装配）。
+  const ctx = fs.readFileSync(path.resolve('src/context/proactiveIngest.js'), 'utf8');
   // ingest 返回 deferred 名单
-  assert.ok(ctx.includes('deferred'), 'AppContext 应返回 deferred');
+  assert.ok(ctx.includes('deferred'), '落库应返回 deferred');
   // 角色不在库时进 deferred（而非 skipped）
   const roleMissing = ctx.match(/角色当前不在库[\s\S]{0,120}/);
   assert.ok(roleMissing, '未找到角色缺失分支');
@@ -281,9 +282,9 @@ test('找不到角色的待写消息不 ack 删除，改为保留重试', () => 
 });
 
 test('通知跳转精确切到消息实际落到的会话', () => {
-  const ctx = fs.readFileSync(path.resolve('src/context/AppContext.js'), 'utf8');
+  const ctx = fs.readFileSync(path.resolve('src/context/proactiveIngest.js'), 'utf8');
   const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
-  // 落库结果带 roleId → sessionId 映射
+  // 落库结果带 roleId → sessionId 映射（Z 系采纳 #9：领域逻辑已外提）
   assert.ok(ctx.includes('targetSessions'), '落库应返回 targetSessions');
   assert.match(ctx, /targetSessions\[roleId\] = result\.sessionId/);
   // 桥接用该 sessionId 切会话，而非只 switchCharacter

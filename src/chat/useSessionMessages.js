@@ -36,6 +36,16 @@ import { getVectorMemoryConfig, updateVectorIndex } from '../storage/vector.js';
 import { indexMessages } from '../vectorMemory/index.js';
 import { getVectorOwnerId, shouldIndexSession } from '../vectorMemory/scope.js';
 import { useTranslation } from '../i18n/I18nContext.js';
+import { createAppLogger } from '../logging/index.js';
+import {
+  clearStreamDraft,
+  readStreamDraft,
+  saveStreamDraft,
+  shouldWriteStreamDraft,
+} from './streamDraft.js';
+
+// Z 系采纳 #10：统一分级日志（生产落本地诊断、dev 同时打 console、文本脱敏）。
+const vectorLog = createAppLogger('vector');
 
 export default function useSessionMessages({
   activeSessionId,
@@ -227,7 +237,26 @@ export default function useSessionMessages({
           );
           return;
         }
-        const initial = Array.isArray(result && result.messages) ? result.messages : [];
+        let initial = Array.isArray(result && result.messages) ? result.messages : [];
+        // Z 系采纳 #8：上次非正常中断（进程被杀/断线）留下的流式草稿 → 作为「已恢复」
+        // 消息并入时间线，用户看到半截回复而不是空白。读一次即清（之后由常规落盘接管）。
+        try {
+          const draft = await readStreamDraft(activeSessionId);
+          if (cancelled) return;
+          if (draft) {
+            if (!initial.some(item => String((item && item.id) || '') === draft.messageId)) {
+              initial = [...initial, {
+                id: draft.messageId,
+                role: ASSISTANT_ID,
+                text: draft.text,
+                reasoning: draft.reasoning || '',
+                timestamp: draft.at || Date.now(),
+                recovered: true,
+              }];
+            }
+            await clearStreamDraft(activeSessionId);
+          }
+        } catch (error) {}
         if (initial.length === 0 && isGroupRef.current) {
           const members = groupCharactersRef.current;
           lastSavedSnapshotRef.current = '[]';
@@ -455,7 +484,7 @@ export default function useSessionMessages({
             });
           })
           .catch(error => {
-            if (__DEV__) console.warn('[vector] indexing failed', error);
+            vectorLog.warn('indexing failed', error);
           });
       }).catch(() => {
         if (saveInFlightSnapshotRef.current === snapshotBeingSaved) {
@@ -472,6 +501,39 @@ export default function useSessionMessages({
       if (indexController) indexController.abort();
     };
   }, [activeSessionId, persistableSnapshot, ready, character.id, saveRetryTick]);
+
+  // Z 系采纳 #8：流式草稿——生成中按节流把**部分回复**落盘（供进程被杀后恢复），
+  // 没有 pending 消息时清掉（正常结束/取消/失败）。
+  const streamDraftRef = useRef({ sessionId: '', at: 0, len: 0, active: false });
+  useEffect(() => {
+    const sessionId = String(activeSessionIdRef.current || '');
+    const pending = (messages || []).find(item => (
+      item && item.pending && item.role === ASSISTANT_ID && !item.transient
+    ));
+    if (pending) {
+      const len = String(pending.text || '').length;
+      const now = Date.now();
+      if (!shouldWriteStreamDraft({
+        lastAt: streamDraftRef.current.at,
+        now,
+        lastLen: streamDraftRef.current.len,
+        nextLen: len,
+      })) return;
+      streamDraftRef.current = { sessionId, at: now, len, active: true };
+      saveStreamDraft(sessionId, {
+        messageId: pending.id,
+        text: pending.text,
+        reasoning: pending.reasoning,
+        at: now,
+      }).catch(() => {});
+      return;
+    }
+    if (streamDraftRef.current.active) {
+      const previous = streamDraftRef.current.sessionId;
+      streamDraftRef.current = { sessionId: '', at: 0, len: 0, active: false };
+      if (previous) clearStreamDraft(previous).catch(() => {});
+    }
+  }, [messages]);
 
   useEffect(() => () => {
     if (saveRetryTimerRef.current) {

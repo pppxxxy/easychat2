@@ -144,3 +144,33 @@ test('单例：sessionRuns 与 resetForTests 清干净', () => {
   resetSessionRunsForTests();
   assert.equal(sessionRuns.size(), 0);
 });
+
+test('命令队列（Z 系采纳 #6）：按会话入队/出队/查看/清空', () => {
+  const reg = createSessionRunRegistry();
+  // 会话空闲时也能排队（与 run 解耦）
+  assert.equal(reg.enqueueCommand('s1', { mode: 'prompt', text: '排队消息', priority: 'now' }), 'cmd-1');
+  reg.enqueueCommand('s1', { mode: 'steering', text: '补充指令' });
+  reg.enqueueCommand('s2', { mode: 'prompt', text: '别的会话' });
+  assert.equal(reg.pendingCommandCount('s1'), 2);
+  assert.equal(reg.pendingCommandCount('s2'), 1);
+  // 高优先级先出
+  assert.equal(reg.dequeueCommand('s1').text, '排队消息');
+  assert.equal(reg.peekCommand('s1').mode, 'steering');
+  assert.equal(reg.dequeueCommand('s1').mode, 'steering');
+  assert.equal(reg.dequeueCommand('s1'), undefined);
+  assert.equal(reg.clearCommands('s2'), true);
+  assert.equal(reg.pendingCommandCount('s2'), 0);
+});
+
+test('命令队列：空正文的 prompt 不入队（返回 null）', () => {
+  const reg = createSessionRunRegistry();
+  assert.equal(reg.enqueueCommand('s1', { mode: 'prompt', text: '  ' }), null);
+  assert.equal(reg.pendingCommandCount('s1'), 0);
+});
+
+test('resetForTests 也清空命令队列', () => {
+  const reg = createSessionRunRegistry();
+  reg.enqueueCommand('s1', { mode: 'prompt', text: 'x' });
+  reg.resetForTests();
+  assert.equal(reg.pendingCommandCount('s1'), 0);
+});

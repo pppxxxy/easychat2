@@ -8,7 +8,12 @@
 // 用什么控制器取消。**控制器仍由发送方持有并驱动**（useSessionGuard 的 abortRef 语义
 // 不变），这里只登记引用——不接管取消时机，避免两套取消逻辑打架。
 //
-// 纯模块：零 import、零原生依赖，Node 可直测。
+// 纯模块：只依赖同样纯的 commandQueue，Node 可直测。
+//
+// Z 系采纳 #6：每个会话还带一条**类型化命令队列**（prompt/steering/notification/control，
+// 带优先级）——运行中再发消息、补充指令、后台完成通知都进这里，语义统一。
+
+import { createCommandQueue } from './commandQueue.js';
 
 // 登记一条运行中的会话。同一会话同一时刻只允许一个 run（准入闸门），
 // 重复 start 返回 null——调用方据此判断「这个会话已经在跑」。
@@ -29,7 +34,16 @@ function makeRun(sessionId, info) {
 
 export function createSessionRunRegistry() {
   const runs = new Map();
+  // sessionId → 类型化命令队列（与 run 解耦：会话空闲时也能排队，等 run 起来再消费）。
+  const queues = new Map();
   const listeners = new Set();
+
+  const queueFor = sessionId => {
+    const id = String(sessionId || '');
+    if (!id) return null;
+    if (!queues.has(id)) queues.set(id, createCommandQueue());
+    return queues.get(id);
+  };
 
   const notify = () => {
     // 复制一份给监听者：回调里若再触发变更，不会边遍历边改集合。
@@ -113,8 +127,49 @@ export function createSessionRunRegistry() {
         listeners.delete(listener);
       };
     },
+    // ---- 类型化命令队列（Z 系采纳 #6）----
+    // 入队一条命令（prompt/steering/notification/control）；空正文的 prompt/steering 返回 null。
+    enqueueCommand(sessionId, command) {
+      const queue = queueFor(sessionId);
+      if (!queue) return null;
+      const id = queue.enqueue(command);
+      if (id) notify();
+      return id;
+    },
+    // 取一条最高优先级命令（同级 FIFO）；maxPriority 限定上限（如只取 now）。
+    dequeueCommand(sessionId, maxPriority) {
+      const queue = queues.get(String(sessionId || ''));
+      if (!queue) return undefined;
+      const command = queue.dequeue(maxPriority);
+      if (command) notify();
+      return command;
+    },
+    // 取同优先级同 mode 的一批（通知批量呈现）。
+    dequeueCommandBatch(sessionId, maxPriority, mode) {
+      const queue = queues.get(String(sessionId || ''));
+      if (!queue) return [];
+      const batch = queue.dequeueBatch(maxPriority, mode);
+      if (batch.length > 0) notify();
+      return batch;
+    },
+    peekCommand(sessionId, maxPriority) {
+      const queue = queues.get(String(sessionId || ''));
+      return queue ? queue.peek(maxPriority) : undefined;
+    },
+    pendingCommandCount(sessionId) {
+      const queue = queues.get(String(sessionId || ''));
+      return queue ? queue.size() : 0;
+    },
+    clearCommands(sessionId) {
+      const queue = queues.get(String(sessionId || ''));
+      if (!queue) return false;
+      queue.clear();
+      notify();
+      return true;
+    },
     resetForTests() {
       runs.clear();
+      queues.clear();
       listeners.clear();
     },
   };
