@@ -72,10 +72,17 @@ test('组件注册：接收器非导出、BootReceiver 监听重启事件、前�
   assert.equal(service.$['android:exported'], 'false');
   assert.equal(service.$['android:foregroundServiceType'], 'dataSync');
 
+  // 定时 Agent 任务：额外的 Headless 前台服务
+  const agentService = app.service.find(
+    s => s.$['android:name'] === '.proactive.AgentTaskForegroundService'
+  );
+  assert.equal(agentService.$['android:exported'], 'false');
+  assert.equal(agentService.$['android:foregroundServiceType'], 'dataSync');
+
   // 幂等
   const again = applyComponents({ application: [app] }).application[0];
   assert.equal(again.receiver.length, 2);
-  assert.equal(again.service.length, 1);
+  assert.equal(again.service.length, 2);
 });
 
 test('Gradle 依赖注入幂等且包含 work-runtime-ktx 与 security-crypto', () => {

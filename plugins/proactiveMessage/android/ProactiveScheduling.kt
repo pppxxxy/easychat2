@@ -169,8 +169,13 @@ class AlarmReceiver : BroadcastReceiver() {
         val slotId = intent.getStringExtra(EXTRA_SLOT_ID) ?: return
         val revision = intent.getStringExtra(EXTRA_REVISION) ?: ""
 
-        MessageStore(context).findScheduleBySlot(slotId)?.let { schedule ->
-            if (schedule.enabled) AlarmScheduler.schedule(context, schedule)
+        val schedule = MessageStore(context).findScheduleBySlot(slotId)
+        if (schedule != null && schedule.enabled) AlarmScheduler.schedule(context, schedule)
+
+        // 定时 Agent 任务走无界面 JS（由 AgentTaskTrigger 启动前台服务），不经过消息前台服务。
+        if (schedule != null && schedule.executor == ScheduleExecutor.AGENT) {
+            AgentTaskTrigger.start(context, slotId, revision)
+            return
         }
 
         val serviceIntent = Intent(context, MessageForegroundService::class.java).apply {

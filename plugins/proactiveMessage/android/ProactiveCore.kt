@@ -41,6 +41,14 @@ enum class ScheduleMode { WORK, EXACT }
 enum class MessageType { DEFAULT, CARE, GREETING, CUSTOM }
 
 /**
+ * 时间槽的执行者：
+ * - MESSAGE：原生直接调用模型生成一句问候（既有行为）；
+ * - AGENT：原生不调模型，改为启动前台无界面服务唤醒 JS，由 JS 跑 Agent 工具循环
+ *   （定时 Agent 任务），生成结果再由 JS 落库并回调通知。
+ */
+enum class ScheduleExecutor { MESSAGE, AGENT }
+
+/**
  * 一个"时间槽"：某角色在某个时刻的一条定时任务。
  * 同一角色可以配置多个槽（早 8:00、晚 21:00…），因此唯一标识用 slotId，
  * 而不是 roleId —— 否则多个槽会在 WorkManager/闹钟/去重记录上互相覆盖。
@@ -64,10 +72,11 @@ data class RoleSchedule(
     // 使主动消息与普通对话用同一套提示词（角色/用户设定、预设、世界书、摘要、历史）。
     val requestJson: String = "",
     // 角色头像本地文件 URI（file://…/avatars/xxx），用于通知头像。
-    val avatarUri: String = ""
+    val avatarUri: String = "",
+    // 执行者：MESSAGE（原生生成问候，默认）或 AGENT（唤醒 JS 跑定时 Agent 任务）。
+    val executor: ScheduleExecutor = ScheduleExecutor.MESSAGE
 ) {
-    init {
-        require(roleId.isNotBlank())
+    init {        require(roleId.isNotBlank())
         require(hour in 0..23)
         require(minute in 0..59)
     }
@@ -90,6 +99,7 @@ data class RoleSchedule(
         .put("customPrompt", customPrompt)
         .put("requestJson", requestJson)
         .put("avatarUri", avatarUri)
+        .put("executor", executor.name)
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -108,7 +118,10 @@ data class RoleSchedule(
             }.getOrDefault(MessageType.DEFAULT),
             customPrompt = json.optString("customPrompt", ""),
             requestJson = json.optString("requestJson", ""),
-            avatarUri = json.optString("avatarUri", "")
+            avatarUri = json.optString("avatarUri", ""),
+            executor = runCatching {
+                ScheduleExecutor.valueOf(json.optString("executor", "MESSAGE"))
+            }.getOrDefault(ScheduleExecutor.MESSAGE)
         )
     }
 }
@@ -803,6 +816,12 @@ object ProactiveMessageSender {
         }
         if (schedule.revision != revision) {
             Log.i(TAG, "revision 不匹配，放弃旧任务: slot=$slotId"); return
+        }
+        // 定时 Agent 任务：不在此生成（需要 JS 跑工具循环）。交给前台服务唤醒无界面 JS，
+        // 由 JS 完成生成、落库与通知；当日去重与迟到判定也由 JS 负责（见 taskRunner）。
+        if (schedule.executor == ScheduleExecutor.AGENT) {
+            AgentTaskTrigger.start(context, schedule.resolvedSlotId, revision)
+            return
         }
         if (store.isSlotSentToday(slotId)) {
             Log.i(TAG, "该时间槽今天已发送，跳过: slot=$slotId"); return
