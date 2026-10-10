@@ -98,6 +98,7 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'materialize_repo',
     'get_build_log',
     'run_subagent',
+    'run_workflow',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',

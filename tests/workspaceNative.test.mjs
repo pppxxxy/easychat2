@@ -36,6 +36,7 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'materialize_repo',
     'get_build_log',
     'run_subagent',
+    'run_workflow',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
@@ -43,11 +44,11 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'export_workspace_docx',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 12);
-  // 只读模式只放开只读工具（含子代理）：edit 是写操作，绝不能漏进只读模式
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 13);
+  // 只读模式只放开只读工具（含子代理/工作流）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow'],
   );
 });
 
@@ -118,6 +119,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'materialize_repo',
     'get_build_log',
     'run_subagent',
+    'run_workflow',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
@@ -195,6 +197,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'materialize_repo',
     'get_build_log',
     'run_subagent',
+    'run_workflow',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
