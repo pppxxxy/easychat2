@@ -64,6 +64,7 @@ import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
+import AgentTrace from '../AgentTrace.js';
 import { promptUserChoice } from '../../chat/askUserPrompt.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
@@ -1455,24 +1456,29 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
               ) : null}
               {messages.map(item => (
-                <View
-                  key={item.id}
-                  style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
-                >
-                  <View style={[
-                    styles.bubble,
-                    item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
-                    item.isError ? styles.bubbleError : null,
-                  ]}>
-                    {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
-                        选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
-                    {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
-                    ) : (
-                      <Text style={styles.bubbleText} selectable>{item.content}</Text>
-                    )}
+                <React.Fragment key={item.id}>
+                  <View
+                    style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
+                  >
+                    <View style={[
+                      styles.bubble,
+                      item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
+                      item.isError ? styles.bubbleError : null,
+                    ]}>
+                      {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
+                          选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
+                      {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                      ) : (
+                        <Text style={styles.bubbleText} selectable>{item.content}</Text>
+                      )}
+                    </View>
                   </View>
-                </View>
+                  {/* 本轮工具调用轨迹（折叠）：让用户看得到 agent 做了什么。 */}
+                  {item.role === 'assistant' && Array.isArray(item.toolTrace) && item.toolTrace.length ? (
+                    <AgentTrace trace={item.toolTrace} />
+                  ) : null}
+                </React.Fragment>
               ))}
             </ScrollView>
 

@@ -134,6 +134,7 @@
     "src/screenWatch/useScreenWatchComments.js",
     "src/screenWatch/capture.js",
     "src/WorkspaceCapabilitiesCard.js",
+    "src/workspace/AgentTrace.js",
     "src/screenWatch/overlay.js",
     "src/workspace/screen/**",
     "src/extension/ExtensionHome.js",

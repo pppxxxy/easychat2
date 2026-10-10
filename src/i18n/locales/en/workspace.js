@@ -455,6 +455,7 @@ export const workspace = {
   'workspace.chat.placeholder': 'e.g. create src/app.js with a hello function',
   'workspace.chat.tool.reading': 'Calling tool: {name}',
   'workspace.chat.plan.title': 'Plan ({done}/{total})',
+  'workspace.chat.trace.title': 'Tool calls ({count})',
   'workspace.chat.steering.title': 'Steering',
   'workspace.chat.steering.note': 'Extra instruction received — it will be taken into account next step',
   'workspace.chat.steering.attachments': 'This turn is still running: steering only supports text; send attachments after it finishes.',

@@ -455,6 +455,7 @@ export const workspace = {
   'workspace.chat.placeholder': '例如：新建 src/app.js，写一个 hello 函数',
   'workspace.chat.tool.reading': '正在调用工具：{name}',
   'workspace.chat.plan.title': '计划（{done}/{total}）',
+  'workspace.chat.trace.title': '工具调用（{count}）',
   'workspace.chat.steering.title': '补充指令',
   'workspace.chat.steering.note': '已收到补充指令，将在下一步纳入',
   'workspace.chat.steering.attachments': '本轮还在进行：补充指令只支持文字；带附件的发送请等本轮结束。',
