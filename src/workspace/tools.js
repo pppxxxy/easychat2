@@ -52,10 +52,29 @@ export const SHELL_TOOL_NAME = SHELL_TOOL_DEFINITION.name;
 export const PYTHON_TOOL_NAME = PYTHON_TOOL_DEFINITION.name;
 
 // 需要长超时的执行类工具（用户确认 + 执行本身都慢）。其余工具用注册表的默认超时。
+// **这是兜底表**：只用于「定义里没写 timeoutMs」的工具（当前是 run_shell / run_python——
+// 它们的超时由原生看门狗常数派生，写在各自域里）。定义里写了 timeoutMs 的以定义为准。
 const SLOW_TOOL_TIMEOUTS = Object.freeze({
   [SHELL_TOOL_NAME]: SHELL_TOOL_TIMEOUT_MS,
   [PYTHON_TOOL_NAME]: PYTHON_TOOL_TIMEOUT_MS,
 });
+
+// 工具超时解析：**定义自带 > 兜底表 > 注册表默认（15s）**。
+//
+// 2026-10-10 修（外部审查 P0-4，独立核实属实）：此前这里只读 SLOW_TOOL_TIMEOUTS，
+// 于是「在定义里声明 timeoutMs」的三个工具被静默降到默认 15s——
+//   run_subagent（声明 300s：多轮模型请求）、run_remote_build（60s：触发云构建）、
+//   get_build_log（90s：下载并解包构建日志）。
+// 它们必然超过 15s，会被 runTool 判为超时并把结果说成「结果未知」，模型可能因此重跑
+// 写操作（重复副作用）。既有测试只做源码字符串断言，所以门禁全绿而 bug 在。
+//
+// 不变量：**定义声明的超时必须原样生效**（toolsLayering 的行为测试逐个比对，漏了会红）。
+// 新工具在定义里写 timeoutMs 即自动生效，不需要记得回来改这张表。
+function resolveToolTimeout(definition) {
+  const declared = Number(definition && definition.timeoutMs);
+  if (Number.isFinite(declared) && declared > 0) return declared;
+  return SLOW_TOOL_TIMEOUTS[definition && definition.name] || 0;
+}
 
 // 执行工具的 runner 有两套形态在流通：
 //  · native 侧 createShellRunner / createPythonRunner 返回**裸 async 函数**
@@ -96,16 +115,20 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     ...(shellUsable ? [SHELL_TOOL_DEFINITION] : []),
     ...(pythonUsable ? [PYTHON_TOOL_DEFINITION] : []),
   ];
-  return definitions.map(definition => ({
-    name: definition.name,
-    description: definition.description,
-    parameters: definition.parameters,
-    readOnly: definition.readOnly,
-    // 只有 run_shell / run_python 会带 true；其余工具保持 undefined，注册表归一化成 false。
-    ...(definition.requiresConfirmation ? { requiresConfirmation: true } : {}),
-    ...(SLOW_TOOL_TIMEOUTS[definition.name] ? { timeoutMs: SLOW_TOOL_TIMEOUTS[definition.name] } : {}),
-    execute: async (args, ctx) => definition.execute(options, args || {}, ctx || {}),
-  }));
+  return definitions.map(definition => {
+    const timeoutMs = resolveToolTimeout(definition);
+    return {
+      name: definition.name,
+      description: definition.description,
+      parameters: definition.parameters,
+      readOnly: definition.readOnly,
+      // 只有 run_shell / run_python 会带 true；其余工具保持 undefined，注册表归一化成 false。
+      ...(definition.requiresConfirmation ? { requiresConfirmation: true } : {}),
+      // 不带 timeoutMs 时保持 undefined，让注册表用自己的默认值（15s）。
+      ...(timeoutMs ? { timeoutMs } : {}),
+      execute: async (args, ctx) => definition.execute(options, args || {}, ctx || {}),
+    };
+  });
 }
 
 export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan } = {}) {

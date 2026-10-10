@@ -115,7 +115,7 @@ import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
-import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import { SESSION_COMPACT_HINT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
 import useAutoCompact from './chat/useAutoCompact.js';
 import {
   COMPACTION_KEEP_RECENT,
@@ -123,6 +123,7 @@ import {
   applyCompaction,
   buildCompactionSummaryRequest,
   compactionStatus,
+  normalizeCompactionFocus,
   parseCompactionSummary,
 } from './chat/compaction.js';
 import { getImageProvider } from './imageGen/providers.js';
@@ -174,6 +175,12 @@ import ConversationExportModal from './chat/ConversationExportModal.js';
 import ConversationCardModal from './chat/ConversationCardModal.js';
 import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
+// P0-5 尾巴：压缩的「关注点」输入入口（留空 = 与一键压缩相同）。
+import CompactFocusModal from './chat/CompactFocusModal.js';
+// P0-8：压缩前钩子（before_compact：注入额外要求 / 拦下这次压缩）。
+import { getWorkspaceSettings } from './storage/workspace.js';
+import { createWorkspaceStore } from './workspace/native.js';
+import { collectCompactionHooks, readWorkspaceHooks } from './workspace/hooks.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
@@ -183,6 +190,8 @@ import RunningRunsBar from './chat/RunningRunsBar.js';
 import useWorkspaceRewind from './chat/useWorkspaceRewind.js';
 import { sessionRuns } from './agent/runtime/sessionRuns.js';
 import ChatComposer from './chat/ChatComposer.js';
+// I1：运行中发送的判定（纯函数，行为测试在 tests/steeringSend.test.mjs）。
+import { resolveSteeringSend } from './chat/steeringSend.js';
 import EngineStatusBar from './localModel/EngineStatusBar.js';
 import { useLocalEngineStatus } from './localModel/useLocalEngineStatus.js';
 import LocalModelPanel from './LocalModelPanel.js';
@@ -195,7 +204,9 @@ import {
 } from './transcription.js';
 // 「compact」/「/compact」= 压缩指令：把当前会话按手动路径总结入记忆
 //（原始消息仍保留在会话里，后续对话带着摘要继续），不把这条文本当消息发出去。
-const COMPACT_COMMAND_PATTERN = /^\/?compact$/i;
+// 压缩指令：`/compact` 或 `compact`（记忆总结，见 runCompactCommand）；
+// 可带关注点：`/compact 重点保留 API 变更与未决问题` → 总结时特别保留这些内容。
+const COMPACT_COMMAND_PATTERN = /^\/?compact(?:\s+([\s\S]*))?$/i;
 
 export default function ChatScreen() {
   const { theme, fonts, tokens } = useTheme();
@@ -877,7 +888,8 @@ export default function ChatScreen() {
     scrollToMessage,
   });
 
-  const runSummarize = useCallback(async (session, list, manual) => {
+  // focus：/compact 后跟的关注点（「这次总结要特别保留什么」）；自动路径不传。
+  const runSummarize = useCallback(async (session, list, manual, focus = '') => {
     if (summarizingRef.current) return;
     const picked = manual
       ? selectManualSummarizable(list, session.summarizedUpTo)
@@ -923,6 +935,7 @@ export default function ChatScreen() {
         updateCharacter,
          userName: userProfile.userName,
          scoped,
+         focus,
          expectedConfigId,
           expectedConfigFingerprint,
           getCurrentCharacter: () => charactersRef.current.find(
@@ -1060,7 +1073,8 @@ export default function ChatScreen() {
 
   // compact 指令：显式输入即代表意图，不再弹确认；runSummarize(manual) 自带
   // 「已完成/失败/无可总结」提示与并发保护。
-  const runCompactCommand = useCallback(async () => {
+  // focus：`/compact 关注点` 里的关注点（可选），透传到总结提示词。
+  const runCompactCommand = useCallback(async (focus = '') => {
     if (summarizingRef.current) {
       Alert.alert(t('chat.compact.busy.title'), t('chat.compact.busy.body'));
       return;
@@ -1076,7 +1090,7 @@ export default function ChatScreen() {
       Alert.alert(t('chat.compact.noSession.title'), t('chat.compact.noSession.body'));
       return;
     }
-    await runSummarize(session, messagesRef.current, true);
+    await runSummarize(session, messagesRef.current, true, normalizeCompactionFocus(focus));
   }, [runSummarize, t]);
 
   const buildAssistantReply = useCallback(replyText => {
@@ -1137,6 +1151,12 @@ export default function ChatScreen() {
     onRegenerateMessage,
     onEditUserMessage,
     modelLoadProgress,
+    modelFallbackNotice,
+    steeringAvailable,
+    pushSteering,
+    steeringNote,
+    setSteeringNote,
+    contextBreakdown,
     branchesRefreshToken,
   } = useChatSend({
     beginSendOperation,
@@ -1518,6 +1538,21 @@ export default function ChatScreen() {
   const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
   const handleCompactSession = useCallback(async (options = {}) => {
     const silent = options && options.silent === true;
+    // focus（可选）：本次会话压缩要特别保留什么。无关注点时提示词逐字节不变。
+    let focus = normalizeCompactionFocus(options && options.focus);
+    // P0-8：压缩前钩子——`deny` 拦下这次压缩，`inject` 并进「额外要求」（与关注点同一条通道）。
+    // 钩子读失败一律当没有钩子（声明式扩展不该成为压缩链路的故障源）。
+    try {
+      const workspaceSettings = await getWorkspaceSettings();
+      const hookStore = createWorkspaceStore(workspaceSettings);
+      const hooks = await readWorkspaceHooks(hookStore, character.id);
+      const compactHooks = collectCompactionHooks(hooks, focus);
+      if (compactHooks.blocks.length > 0) {
+        if (!silent) Alert.alert(t('chat.hooks.blocked.title'), compactHooks.blocks.join('\n'));
+        return { ok: false, reason: 'hook-blocked' };
+      }
+      focus = normalizeCompactionFocus([focus, ...compactHooks.notices].filter(Boolean).join('；'));
+    } catch (error) {}
     if (compactBusyRef.current) return { ok: false, reason: 'busy' };
     const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
     const meaningful = (Array.isArray(list) ? list : [])
@@ -1533,7 +1568,7 @@ export default function ChatScreen() {
       const { configs, activeId } = await getApiConfigs();
       const config = configs.find(item => item.id === activeId) || configs[0];
       if (!config) throw new Error('no config');
-      const reply = await sendChatMessage(buildCompactionSummaryRequest(list), {
+      const reply = await sendChatMessage(buildCompactionSummaryRequest(list, { focus }), {
         stream: false,
         expectedConfigId: String(config.id || ''),
         expectedConfigFingerprint: getConfigFingerprint(config),
@@ -1557,7 +1592,19 @@ export default function ChatScreen() {
       compactBusyRef.current = false;
       setCompactBusy(false);
     }
-  }, [messages, messagesRef, setMessages, t]);
+  }, [character, messages, messagesRef, setMessages, t]);
+
+  // P0-5 尾巴：压缩关注点弹窗。两处入口（提示条 / 聊天设置）都先开它，留空即普通压缩。
+  const [compactFocusOpen, setCompactFocusOpen] = useState(false);
+  const [compactFocusDraft, setCompactFocusDraft] = useState('');
+  const openCompactFocus = useCallback(() => {
+    setCompactFocusDraft('');
+    setCompactFocusOpen(true);
+  }, []);
+  const confirmCompactFocus = useCallback(() => {
+    setCompactFocusOpen(false);
+    handleCompactSession({ focus: compactFocusDraft });
+  }, [compactFocusDraft, handleCompactSession]);
 
   // E2：上下文占用观测（独立于记忆总结）——70% 提示条与 85% 自动压缩的数据源。
   // 依赖 messages.length 而非整个数组：流式期间 content 变但条数不变，不做逐 token 重算。
@@ -2276,11 +2323,38 @@ export default function ChatScreen() {
 
   const onSend = useCallback(async () => {
     const text = input.trim();
-     if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
-    // 压缩指令（compact / /compact）：不发送文本，直接总结当前会话入记忆。
-    if (COMPACT_COMMAND_PATTERN.test(text) && attachments.length === 0) {
+    if (messageSelectionOpen || isSwitching || sessionTransitionPending || !ready) return;
+    // I1：本轮还在跑时，有文字就走「补充指令」判定（不新开一轮、不打断工具链）。
+    // 判定是纯函数（chat/steeringSend.js）：能入队才清空输入，不能入队一律保留原文并
+    // 说明原因——绝不静默丢弃用户打的字。
+    const steeringDecision = resolveSteeringSend({
+      inFlight: isSending || !!sendLockRef.current || !!abortRef.current,
+      text,
+      hasAttachments: attachments.length > 0,
+      steeringAvailable,
+    });
+    if (steeringDecision.action === 'queued') {
+      if (pushSteering(steeringDecision.text)) {
+        setInput('');
+        persistDraftNow(activeSessionId, '');
+      }
+      return;
+    }
+    if (steeringDecision.action === 'blocked') {
+      if (steeringDecision.reason === 'attachments') {
+        Alert.alert(t('chat.send.steering.title'), t('chat.send.steering.attachments'));
+      } else if (steeringDecision.reason === 'noLoop') {
+        // 本轮不是工具循环：没有「下一轮」可注入，文字留在输入框里等本轮结束再发。
+        setSteeringNote(t('chat.send.steering.noLoop'));
+      }
+      return;
+    }
+    if (!text && attachments.length === 0) return;
+    // 压缩指令（compact / /compact，可带关注点）：不发送文本，直接总结当前会话入记忆。
+    const compactMatch = COMPACT_COMMAND_PATTERN.exec(text);
+    if (compactMatch && attachments.length === 0) {
       setInput('');
-      runCompactCommand().catch(() => {});
+      runCompactCommand(compactMatch[1] || '').catch(() => {});
       return;
     }
     if (!isGroupRef.current && !greetingReady) {
@@ -2288,7 +2362,7 @@ export default function ChatScreen() {
       return;
     }
      await sendText(input);
-   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, runCompactCommand, sendText, sessionTransitionPending]);
+   }, [abortRef, activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, persistDraftNow, pushSteering, ready, runCompactCommand, sendLockRef, sendText, sessionTransitionPending, setSteeringNote, steeringAvailable, t]);
 
   // 语音录制入口：仅在单聊、非群聊、就绪时可用。
   const voiceEnabled = !isGroup && !sessionOwnerMissing && ready;
@@ -2626,6 +2700,29 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
+      {/* P0-7：降级链中途换了模型——必须让用户看到，否则会把另一个模型的回复
+          当成主模型的产出。随本次发送结束自动消失。 */}
+      {modelFallbackNotice ? (
+        <View
+          style={styles.modelFallbackBanner}
+          accessibilityLabel={t('chat.send.fallbackSwitched', modelFallbackNotice)}
+        >
+          <Ionicons name="swap-horizontal" size={13} color={theme.colors.primary} />
+          <Text style={styles.modelFallbackText} numberOfLines={2}>
+            {t('chat.send.fallbackSwitched', modelFallbackNotice)}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* I1：补充指令提示——「已入队，将在下一步纳入」或「本轮不是工具循环，等结束再发」。
+          随本轮结束自动消失（队列与提示都只属于本轮）。 */}
+      {steeringNote ? (
+        <View style={styles.steeringNoteRow} accessibilityLabel={steeringNote}>
+          <Ionicons name="chatbubble-ellipses-outline" size={13} color={theme.colors.primary} />
+          <Text style={styles.steeringNoteText} numberOfLines={2}>{steeringNote}</Text>
+        </View>
+      ) : null}
+
       <EngineStatusBar
         enabled={localEngine.enabled}
         activeModelId={localEngine.activeModelId}
@@ -2636,7 +2733,7 @@ export default function ChatScreen() {
 
       {/* E2：上下文占用 ≥70% 的「建议压缩」提示条——一键压缩或关掉（本次进入会话
           内不再出现）；85% 时后台会静默自动压缩（可在系统设置关闭）。 */}
-      {contextUsageRatio >= 0.7 && !compactHintDismissed ? (
+      {contextUsageRatio >= SESSION_COMPACT_HINT_RATIO && !compactHintDismissed ? (
         <View style={styles.compactHintBar}>
           <Ionicons
             name="information-circle-outline"
@@ -2648,7 +2745,7 @@ export default function ChatScreen() {
             {t('chat.compact.hint', { percent: Math.round(contextUsageRatio * 100) })}
           </Text>
           <TouchableOpacity
-            onPress={() => { if (!compactBusy) handleCompactSession(); }}
+            onPress={() => { if (!compactBusy) openCompactFocus(); }}
             accessibilityRole="button"
           >
             <Text style={styles.compactHintAction}>
@@ -2685,6 +2782,7 @@ export default function ChatScreen() {
         isSending={isSending}
         isGroup={isGroup}
         inputDisabled={inputDisabled}
+        steeringEnabled={steeringAvailable}
         onPickAttachment={pickAttachmentMenu}
         onOpenMention={() => setMentionPickerOpen(true)}
         input={input}
@@ -2960,7 +3058,17 @@ export default function ChatScreen() {
         }}
         compactInfo={compactInfo}
         compactBusy={compactBusy}
-        onCompactSession={handleCompactSession}
+        onCompactSession={openCompactFocus}
+        contextBreakdown={contextBreakdown}
+      />
+
+      <CompactFocusModal
+        visible={compactFocusOpen}
+        onClose={() => setCompactFocusOpen(false)}
+        focus={compactFocusDraft}
+        onChangeFocus={setCompactFocusDraft}
+        onConfirm={confirmCompactFocus}
+        busy={compactBusy}
       />
 
       <VoiceSettingsModal

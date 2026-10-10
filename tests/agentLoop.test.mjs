@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
+import { TOOL_RESULT_LIMIT } from '../src/agent/messages.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -58,6 +59,8 @@ const apiStub = {
       finishReason: plan.finishReason || null,
       // E1：usage 透传测试用（不配置 = null，与真实端点不返回 usage 同形）。
       usage: plan.usage || null,
+      // P2-10：真实 streamChatCompletion 会带回「这次产出内容的模型」（降级后可能变）。
+      model: plan.model || '',
     };
   },
 };
@@ -189,7 +192,7 @@ test('O0.2：计划全 done 时不注入 nag', async () => {
 });
 
 test('O1：超限工具结果经 persistToolResult 落盘，消息里只留指针', async () => {
-  const { runAgentTurn, TOOL_RESULT_LIMIT } = loadLoop();
+  const { runAgentTurn } = loadLoop();
   streamPlan = [
     { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
     { text: 'done' },
@@ -285,8 +288,8 @@ test('A1 预警不打扰提前收尾：模型按时给出结论就只调一次',
 test('E1 usage 透传：每轮 usage 经 onUsage 上抛（端点不返回时回调零次）', async () => {
   const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
   streamPlan = [
-    { text: 'r1', toolCalls: [toolCall('c1')], usage: { promptTokens: 100, completionTokens: 5, cachedTokens: 80 } },
-    { text: '完成', usage: { promptTokens: 200, completionTokens: 6, cachedTokens: 150 } },
+    { text: 'r1', toolCalls: [toolCall('c1')], model: 'model-primary', usage: { promptTokens: 100, completionTokens: 5, cachedTokens: 80 } },
+    { text: '完成', model: 'model-fallback', usage: { promptTokens: 200, completionTokens: 6, cachedTokens: 150 } },
   ];
   const { runAgentTurn } = loadLoop();
   const seen = [];
@@ -303,6 +306,9 @@ test('E1 usage 透传：每轮 usage 经 onUsage 上抛（端点不返回时回�
   );
   assert.equal(seen[1].round, 2);
   assert.equal(seen[1].promptTokens, 200);
+  // P2-10：模型名随每轮结果上抛——降级后记账才能按**真正产出的模型**记，而不是主模型。
+  assert.equal(seen[0].model, 'model-primary');
+  assert.equal(seen[1].model, 'model-fallback');
 
   // 端点不返回 usage（plan 不带 usage）→ 回调零次，主流程逐字不变
   streamCalls = []; // 计数从头开始（streamPlan 按 streamCalls.length 取下标）

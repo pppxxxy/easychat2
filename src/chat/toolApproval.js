@@ -22,6 +22,8 @@
 export const APPROVAL_DENIED = 'approval-denied';
 export const APPROVAL_SESSION = 'session';
 export const APPROVAL_ALWAYS = 'always';
+// ask 档专用：只允许这一次，**不记规则**（「必须先问」不能被一次点击永久解除）。
+export const APPROVAL_ONCE = 'once';
 
 let rnAlert;
 let rnAlertLoaded = false;
@@ -39,7 +41,7 @@ function getAlert() {
 }
 
 // 文案构造（纯函数，便于单测）：模型给的参数可能缺字段，这里一律兜底成可读文本。
-export function describeToolApproval({ name, args, t } = {}) {
+export function describeToolApproval({ name, args, t, askOnly = false } = {}) {
   const translate = typeof t === 'function' ? t : key => key;
   const values = args && typeof args === 'object' ? args : {};
   const command = String(values.command === undefined || values.command === null ? '' : values.command);
@@ -69,26 +71,31 @@ export function describeToolApproval({ name, args, t } = {}) {
   }
   return {
     title: translate('chat.tool.approval.title', { name }),
-    body,
+    // ask 档：在正文前说明「为什么这里没有『永远允许』」，否则用户会以为界面坏了。
+    body: askOnly ? `${translate('chat.tool.approval.askRuleNote')}\n\n${body}` : body,
     deny: translate('chat.tool.approval.deny'),
     allow: translate('chat.tool.approval.allow'),
     session: translate('chat.tool.approval.session'),
     always: translate('chat.tool.approval.always'),
+    once: translate('chat.tool.approval.once'),
   };
 }
 
 // 请求确认。showAlert 可注入（默认 RN Alert.alert）；signal 中止时立即结算为拒绝。
-// 返回 APPROVAL_DENIED / APPROVAL_SESSION / APPROVAL_ALWAYS 之一（默认拒绝——
-// 问不到人就不执行）。
+// askOnly=true：这次调用被一条**显式 ask 规则**覆盖（见 agent/permissions.js），
+// 因此只给「拒绝 / 允许这一次」两个按钮——不提供「本次会话允许 / 永远允许」，
+// 因为那会把「必须先问」变成「问过一次就不用问了」。文案里说明原因与改法。
+// 返回 APPROVAL_DENIED / APPROVAL_ONCE（askOnly）或 APPROVAL_SESSION / APPROVAL_ALWAYS。
 export function requestToolApproval({
   name,
   args,
   t,
   signal = null,
   showAlert = null,
+  askOnly = false,
 } = {}) {
   const alert = showAlert || getAlert();
-  const copy = describeToolApproval({ name, args, t });
+  const copy = describeToolApproval({ name, args, t, askOnly });
 
   // 没有弹框能力 = 问不到用户 = 拒绝（与 registry 的「无 confirm 即拒绝」同一条原则）。
   if (!alert || typeof alert.alert !== 'function') return Promise.resolve(APPROVAL_DENIED);
@@ -111,16 +118,22 @@ export function requestToolApproval({
       signal.addEventListener('abort', onAbort);
     }
 
-    // 三按钮顺序即 Android 对话框的显示顺序；'cancel' 位置留给「拒绝」——
+    // 按钮顺序即 Android 对话框的显示顺序；'cancel' 位置留给「拒绝」——
     // 系统把 cancel 按钮放在最外/返回键位置，误触的代价最低。
-    alert.alert(
-      copy.title,
-      copy.body,
-      [
+    const buttons = askOnly
+      ? [
+        { text: copy.deny, style: 'cancel', onPress: () => settle(APPROVAL_DENIED) },
+        { text: copy.once, onPress: () => settle(APPROVAL_ONCE) },
+      ]
+      : [
         { text: copy.deny, style: 'cancel', onPress: () => settle(APPROVAL_DENIED) },
         { text: copy.session, onPress: () => settle(APPROVAL_SESSION) },
         { text: copy.always, style: 'destructive', onPress: () => settle(APPROVAL_ALWAYS) },
-      ],
+      ];
+    alert.alert(
+      copy.title,
+      copy.body,
+      buttons,
       // 点弹框外部关掉 / 返回键：一律按拒绝处理（cancelable 才需要 onDismiss）。
       { cancelable: true, onDismiss: () => settle(APPROVAL_DENIED) },
     );

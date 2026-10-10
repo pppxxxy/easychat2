@@ -5,22 +5,24 @@
     "src/games/html/"
   ],
   "fileLineBaseline": {
-    "src/ChatScreen.js": 3062,
+    "src/ChatScreen.js": 3170,
     "src/SettingsScreen.js": 2322,
     "src/workspace/screen/GithubPanel.js": 1984,
-    "src/chat/useChatSend.js": 1852,
+    "src/chat/useChatSend.js": 1991,
+    "src/workspace/screen/ChatPanel.js": 1853,
     "src/character/CharacterDetailScreen.js": 1714,
-    "src/workspace/screen/ChatPanel.js": 1733,
-    "src/workspace/screen/FilesPanel.js": 1548,
-    "src/chat/chatStyles.js": 1520,
+    "src/workspace/screen/FilesPanel.js": 1580,
+    "src/chat/chatStyles.js": 1558,
     "src/CardForgeEditor.js": 1338,
     "src/music/MusicScreen.js": 1182,
     "src/books/BookReaderView.js": 1114,
     "src/MemoryScreen.js": 1031,
     "src/ImageGenScreen.js": 997,
     "src/character/CharacterLibraryScreen.js": 949,
+    "src/workspace/WorkspaceSettingsSheet.js": 904,
     "src/CardForgeScreen.js": 902,
-    "src/ProactivePanel.js": 894
+    "src/ProactivePanel.js": 894,
+    "src/network/api.js": 801
   },
   "allowedCycles": []
 }

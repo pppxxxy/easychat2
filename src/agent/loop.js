@@ -4,7 +4,9 @@
 // 循环本身不做持久化，也不直接接触 RN UI。
 
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
-import { serializeToolResultAsync, toAssistantMessage } from './messages.js';
+// TOOL_RESULT_LIMIT 由 messages.js 定义（序列化就在那里），这里 import 而非再定义一份：
+// 2026-10-10 前两处各写 16*1024，改一处漏一处不会报错（审查报告 §0.4 第 2 条）。
+import { TOOL_RESULT_LIMIT, serializeToolResultAsync, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 import { createTurnMachine, createTurnState } from './turn/turnState.js';
 import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';
@@ -17,7 +19,6 @@ import {
 } from './resultClearing.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
-export const TOOL_RESULT_LIMIT = 16 * 1024;
 // 两段式预算提醒的第一段（能力升级任务书 A1）：剩 2 轮时注入——模型还有机会把已有
 // 信息整理成结论，而不是被下面那句 CAP_NOTICE 硬截断在工具调用中间。
 export const ROUND_BUDGET_WARNING = '轮次预算还剩 2 轮，请开始收束：先把已确认的信息整理成结论，需要补的工具调用只做最关键的。';
@@ -120,6 +121,9 @@ export async function runAgentTurn(messages, options = {}) {
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
+  // P0-7：降级链换模型的通知（宿主注入；不注入 = 静默重试，行为与旧版一致）。
+  // 只是信息性回调，重试本身由 streamChatCompletion 决定，这里不参与判定。
+  const onModelFallback = typeof options.onModelFallback === 'function' ? options.onModelFallback : null;
   // I1：Steering 队列（宿主注入；不注入 = 无中途指令，行为与旧版一致）。
   // 约定对象：{ drain(): string[] }——宿主用 createSteeringQueue() 创建。
   const steering = options.steering && typeof options.steering.drain === 'function'
@@ -160,11 +164,12 @@ export async function runAgentTurn(messages, options = {}) {
       signal,
       onChunk: text => safeCallback(onToken, text),
       onReasoning: text => safeCallback(onReasoning, text),
+      ...(onModelFallback ? { onModelFallback } : {}),
     });
     const text = typeof result.text === 'string' ? result.text : '';
     machine.receiveModelResponse(text);
     machine.complete(text);
-    if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, ...result.usage });
+    if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, model: result.model, ...result.usage });
     return text;
   }
 
@@ -184,6 +189,7 @@ export async function runAgentTurn(messages, options = {}) {
     ...(roundTools && roundTools.length ? { tools: roundTools, toolChoice: 'auto' } : {}),
     onChunk: text => safeCallback(onToken, streamedText + text),
     onReasoning: text => safeCallback(onReasoning, streamedReasoning + text),
+    ...(onModelFallback ? { onModelFallback } : {}),
   });
 
   // I1：收束预警的"已提醒"标记（从轮号判断改为标记式——Steering 注入后允许再提醒
@@ -221,7 +227,7 @@ export async function runAgentTurn(messages, options = {}) {
     streamedText += roundText;
     streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
     // E1：usage 上抛（端点在每轮 SSE 尾部返回时才有）——回调抛错不影响主流程。
-    if (result && result.usage && onUsage) safeCallback(onUsage, { round, ...result.usage });
+    if (result && result.usage && onUsage) safeCallback(onUsage, { round, model: result.model, ...result.usage });
     history.push(toAssistantMessage(result));
     const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
     if (!toolCalls.length) {

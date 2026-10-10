@@ -105,10 +105,21 @@ import {
   readWorkspaceCommands,
   slashQuery,
 } from '../commands.js';
-import { collectToolResultNotices, readWorkspaceHooks, shellHookDenyRules } from '../hooks.js';
+import {
+  HOOKS_FILE,
+  buildHookContextText,
+  collectPromptHooks,
+  collectSessionStartNotices,
+  collectToolResultNotices,
+  collectTurnEndNotices,
+  hookPermissionRules,
+  installSampleHooks,
+  readWorkspaceHooks,
+} from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
+  addPermissionRule,
   clearPermissionRules,
   getEffectivePermissionRules,
 } from '../../storage/settings/workspacePermissions.js';
@@ -174,6 +185,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 队列每次发送时新建、turn 结束丢弃（跨轮次的补充没有意义）。
   const steeringRef = useRef(null);
   const [steeringNote, setSteeringNote] = useState('');
+  // P0-8：hooks.json 注入类事件的内存记账（session_start 每会话一次；after_turn 排队给下一轮）。
+  const hookSessionInjectedRef = useRef(new Set());
+  const pendingHookNoticesRef = useRef([]);
+  // P0-8：hooks.json 原文（面板展示 + 纯函数校验用；宿主读、面板只展示）。
+  const [hooksText, setHooksText] = useState('');
   // I2：read 模式下计划未完成时提议「批准并执行」。**时序关键**：handleSend 的
   // 闭包带着定义时的 mode——不能「切模式后立即调用」（那还是 read 的工具集）。
   // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
@@ -508,6 +524,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             if (alive) setWorkspaceCommands(Array.isArray(list) ? list : []);
           })
           .catch(() => {});
+        // P0-8：hooks.json 原文——面板要展示「装了几条、哪条写坏了」，读失败当空（面板显示未配置）。
+        try {
+          const hookFile = await storeRef.current.readWorkspaceFile({ characterId: ownerId, path: HOOKS_FILE });
+          if (alive) setHooksText(String((hookFile && hookFile.content) || ''));
+        } catch (error) {
+          if (alive) setHooksText('');
+        }
 
         // 首次打开工作区（可改模式）：生成一份 AGENTS.md 模板当起点。
         // 幂等且绝不覆盖已有文件——用户或 agent 改过的内容就是它存在的意义；
@@ -765,6 +788,29 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     }
   }, [characterId, t]);
 
+  // P0-8：安装示例 hooks.json——**已存在就绝不覆盖**（用户可能已经写了自己的规则，
+  // 覆盖等于静默销毁他的配置）；结果如实汇报，装完重读原文刷新面板。
+  const handleInstallSampleHooks = useCallback(async () => {
+    let installed = false;
+    try {
+      installed = await installSampleHooks(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const file = await storeRef.current.readWorkspaceFile({ characterId, path: HOOKS_FILE });
+      setHooksText(String((file && file.content) || ''));
+    } catch (error) {
+      setHooksText('');
+    }
+    Alert.alert(
+      installed
+        ? t('workspace.settings.hooks.installDoneTitle')
+        : t('workspace.settings.hooks.installNoneTitle'),
+      installed
+        ? t('workspace.settings.hooks.installDone')
+        : t('workspace.settings.hooks.installNone')
+    );
+  }, [characterId, t]);
+
   // 工作区模板（T9）：一键铺起始文件；幂等不覆盖，结果如实汇报（创建/跳过/失败）。
   const handleInstallTemplate = useCallback(async templateId => {
     let result = { created: [], skipped: [], failed: [] };
@@ -822,6 +868,33 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } catch (error) {
       setPermissionRules([]);
     }
+  }, []);
+
+  // P0-6：手写一条规则（设置面板的表单）。落盘走 addPermissionRule——与弹框
+  // 「永远允许」同一条链路（同 effect+tool+match 去重），写完重读回填界面。
+  const handleAddPermissionRule = useCallback(async rule => {
+    try {
+      await addPermissionRule(rule);
+    } catch (error) {}
+    try {
+      const rules = await getEffectivePermissionRules();
+      setPermissionRules(Array.isArray(rules) ? rules : []);
+    } catch (error) {}
+  }, []);
+
+  // P1-11：保留口径（快照条数 / 回滚基线份数 / 事件流上限）。落盘后**重建 store**——
+  // 生效口径是随 store 带进三个旁路模块的，不重建就会出现「设置改了但本轮还是老上限」。
+  const handleChangeRetention = useCallback(async next => {
+    try {
+      const settings = await patchWorkspaceSettings({ retention: next });
+      if (mountedRef.current) {
+        setWsSettings(settings);
+        wsSettingsRef.current = settings;
+      }
+      try {
+        storeRef.current = createWorkspaceStore(settings);
+      } catch (error) {}
+    } catch (error) {}
   }, []);
 
   const handleImportFile = useCallback(async () => {
@@ -963,6 +1036,30 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       if (expanded) outgoingText = expanded.text;
     } catch (error) {}
 
+    // P0-8：提交前钩子（before_prompt）与注入（session_start / 上一轮的 after_turn）。
+    // 必须放在**落库与置 sending 之前**：拦下时不该留下已发出的消息或卡住的「正在生成」。
+    let hookText = '';
+    try {
+      const hooks = await readWorkspaceHooks(storeRef.current, characterId);
+      const promptHooks = collectPromptHooks(hooks, outgoingText);
+      if (promptHooks.blocks.length > 0) {
+        Alert.alert(t('chat.hooks.blocked.title'), promptHooks.blocks.join('\n'));
+        return;
+      }
+      const sessionKey = String(activeChatId || '');
+      const sessionNotices = sessionKey && !hookSessionInjectedRef.current.has(sessionKey)
+        ? collectSessionStartNotices(hooks)
+        : [];
+      if (sessionNotices.length > 0 && sessionKey) hookSessionInjectedRef.current.add(sessionKey);
+      hookText = buildHookContextText([
+        ...pendingHookNoticesRef.current,
+        ...sessionNotices,
+        ...promptHooks.notices,
+      ]);
+      // after_turn 的提醒排队给下一轮（内存队列，重启即丢）。
+      pendingHookNoticesRef.current = collectTurnEndNotices(hooks);
+    } catch (error) {}
+
     const userMessage = {
       id: nextId(),
       role: 'user',
@@ -1039,6 +1136,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       agents,
       // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
       readLog: readLogRef.current ? readLogRef.current.list() : [],
+      // P0-8：hooks.json 的注入类事件（放在 readLog 之前，见该函数的缓存契约）。
+      hookText,
     });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,
@@ -1095,7 +1194,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           let extraRules = [];
           try {
             const hooks = await readWorkspaceHooks(storeRef.current, characterId);
-            extraRules = shellHookDenyRules(hooks);
+            extraRules = hookPermissionRules(hooks);
           } catch (error) {}
           return approveToolCall({
             name: call && call.name,
@@ -1288,10 +1387,15 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onOpenPanel={section => { if (onOpenPanel) onOpenPanel(section); }}
                   permissionRules={permissionRules}
                   onClearPermissionRules={handleClearPermissionRules}
+                  onAddPermissionRule={handleAddPermissionRule}
+                  retention={wsSettings ? wsSettings.retention : undefined}
+                  onChangeRetention={handleChangeRetention}
                   skills={workspaceSkills}
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
+                  hooksText={hooksText}
+                  onInstallSampleHooks={handleInstallSampleHooks}
                   onInstallTemplate={handleInstallTemplate}
                   onExportSessionEvents={exportSessionEvents}
                 />
@@ -1482,7 +1586,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 placeholder={t('workspace.chat.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 multiline
-                editable={!sending}
+                // I1：运行中不再锁输入框——此时打的字会作为「补充指令」入队（handleSend
+                // 的 sending 分支）。原先这里写 `!sending`，等于把 Steering 入口锁死：
+                // 队列与提示都在，但用户根本没法输入（本轮修正）。
+                editable={!sending || !!steeringRef.current}
               />
               <TouchableOpacity
                 style={styles.iconButton}
@@ -1492,9 +1599,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 <Ionicons name="options-outline" size={22} color={theme.colors.primarySoft} />
               </TouchableOpacity>
               {sending ? (
-                <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} accessibilityLabel={t('workspace.chat.stop.a11y')}>
-                  <Ionicons name="stop" size={18} color={theme.colors.text} />
-                </TouchableOpacity>
+                <>
+                  {/* I1：运行中打的字不丢——非空时给「补充指令」键（与停止键并存，
+                      发送只入队、不打断本轮）。 */}
+                  {input.trim() ? (
+                    <TouchableOpacity
+                      style={styles.sendButton}
+                      onPress={handleSend}
+                      accessibilityLabel={t('workspace.chat.steer.a11y')}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text} />
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} accessibilityLabel={t('workspace.chat.stop.a11y')}>
+                    <Ionicons name="stop" size={18} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </>
               ) : (
                 <TouchableOpacity
                   style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}

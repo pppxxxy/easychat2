@@ -14,10 +14,14 @@ import {
   commandPrefixMatches,
   evaluatePermissionRules,
   makePermissionRule,
+  normalizePermissionRule,
   normalizePermissionRules,
   pathMatchesGlob,
   permissionMatchValue,
+  PERMISSION_RULE_MAX_TOOL,
 } from '../src/agent/permissions.js';
+// P0-6 第二个入口：hooks.json 的 before_shell 也能产出 ask 规则（纯 ESM，直连即可）。
+import { hookPermissionRules, parseWorkspaceHooks } from '../src/workspace/hooks.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -155,6 +159,33 @@ test('evaluatePermissionRules：deny 最高优先（与顺序无关）；无命�
     evaluatePermissionRules([denyNpm, allowNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
     'deny',
     'deny 优先与规则顺序无关'
+  );
+  // ask 档（2026-10-10）：从宽规则里挖例外——ask 压过 allow，但压不过 deny。
+  const askNpm = { effect: 'ask', tool: 'run_shell', match: 'npm install', scope: 'always' };
+  assert.equal(
+    evaluatePermissionRules([allowNpm, askNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'ask',
+    'ask 必须压过 allow（否则「放行 git 但 push 要先问」这类例外形同虚设）'
+  );
+  assert.equal(
+    evaluatePermissionRules([askNpm, allowNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'ask',
+    'ask 优先与规则顺序无关'
+  );
+  assert.equal(
+    evaluatePermissionRules([allowNpm, askNpm, denyNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'deny',
+    'deny 仍压过 ask（安全不回退）'
+  );
+  assert.equal(
+    evaluatePermissionRules([askNpm], { tool: 'run_shell', args: { command: 'npm run build' } }),
+    null,
+    'ask 规则不命中时仍返回 null'
+  );
+  assert.equal(
+    normalizePermissionRules([{ effect: 'ask', tool: 'run_shell' }])[0].effect,
+    'ask',
+    'ask 是合法 effect（归一化不把它降级成 allow）'
   );
   // 工具级规则：空 match = 该工具全部调用
   const toolWide = { effect: 'allow', tool: 'list_workspace_files', match: '', scope: 'always' };
@@ -342,4 +373,124 @@ test('approveToolCall：extraRules（工作区钩子禁令）deny 命中不弹�
     false
   );
   assert.equal(asked, 1, '没命中钩子的命令照常弹框');
+});
+
+// ---------- ④ 工具名匹配扩展（P0-8：`|` 列表与 `re:` 正则） ----------
+
+test('工具名匹配（P0-8）：`|` 列表与 `re:` 正则都能用；坏正则不命中而不是抛错', () => {
+  const rules = [
+    { effect: 'deny', tool: 'run_shell|run_python', match: 'rm -rf', scope: 'always' },
+    { effect: 'ask', tool: 're:^write_', match: '', scope: 'always' },
+  ];
+  assert.equal(evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'rm -rf /' } }), 'deny');
+  assert.equal(evaluatePermissionRules(rules, { tool: 'run_python', args: { code: 'rm -rf /' } }), 'deny');
+  assert.equal(evaluatePermissionRules(rules, { tool: 'write_workspace_file', args: {} }), 'ask', '正则命中');
+  assert.equal(evaluatePermissionRules(rules, { tool: 'read_workspace_file', args: {} }), null);
+  assert.equal(
+    evaluatePermissionRules([{ effect: 'deny', tool: 're:[', match: '' }], { tool: 'x', args: {} }),
+    null,
+    '坏正则：匹配不上而不是抛错（不静默放行）'
+  );
+  // 工具名也有上限（`re:` 正则同样算在内），防一条规则把存储撑爆。
+  assert.equal(normalizePermissionRule({ tool: 'x'.repeat(500) }).tool.length, PERMISSION_RULE_MAX_TOOL);
+});
+
+// ---------- ⑤ P0-6 的 ask 规则创建入口（两个） ----------
+
+test('设置面板入口：手写的 ask 规则落盘后命中，弹框只给「允许这一次」且不记规则', async () => {
+  const { permissions: mod, flow } = loadStack();
+  const t = key => key;
+  // 表单最终就是这一句：normalizePermissionRule（面板里做）→ addPermissionRule（宿主里做）。
+  await mod.addPermissionRule({ effect: 'ask', tool: 'run_shell', match: 'git push' });
+  const disk = await mod.getPermissionRules();
+  assert.equal(disk.length, 1);
+  assert.equal(disk[0].effect, 'ask', 'ask 档能落盘（存储层不对 effect 做白名单）');
+
+  let buttonsSeen = 0;
+  const onceAlert = {
+    alert(title, body, buttons) {
+      buttonsSeen = buttons.length;
+      buttons[1].onPress(); // [拒绝, 允许这一次]
+    },
+  };
+  assert.equal(
+    await flow.approveToolCall({
+      name: 'run_shell',
+      args: { command: 'git push origin main' },
+      t,
+      showAlert: onceAlert,
+    }),
+    true,
+    '命中 ask：用户点了「允许这一次」→ 这次执行'
+  );
+  assert.equal(buttonsSeen, 2, 'ask 档只给两个选项（没有「本次会话允许 / 永远允许」）');
+
+  // 关键：批准**不记规则**——否则一次点击就把「必须先问」永久解除。
+  let askedAgain = 0;
+  const againAlert = {
+    alert(title, body, buttons) {
+      askedAgain += 1;
+      buttons[1].onPress();
+    },
+  };
+  assert.equal(
+    await flow.approveToolCall({
+      name: 'run_shell',
+      args: { command: 'git push --force' },
+      t,
+      showAlert: againAlert,
+    }),
+    true
+  );
+  assert.equal(askedAgain, 1, '下一次同类调用仍然要问');
+  assert.equal((await mod.getPermissionRules()).length, 1, '盘上仍然只有那条 ask 规则，没有被批准追加 allow');
+  assert.equal(mod.getSessionPermissionRules().length, 0, '也没有悄悄记一条会话规则');
+});
+
+test('hooks.json 入口：before_shell 写 effect:ask，经 extraRules 走同一套「只允许这一次」', async () => {
+  const { flow } = loadStack();
+  const t = key => key;
+  const extraRules = hookPermissionRules(parseWorkspaceHooks({
+    before_shell: [{ match: 'git push', message: '推送先问我', effect: 'ask' }],
+  }));
+  assert.equal(extraRules[0].effect, 'ask');
+
+  let buttonsSeen = 0;
+  const onceAlert = {
+    alert(title, body, buttons) {
+      buttonsSeen = buttons.length;
+      buttons[1].onPress();
+    },
+  };
+  assert.equal(
+    await flow.approveToolCall({
+      name: 'run_shell',
+      args: { command: 'git push origin main' },
+      t,
+      showAlert: onceAlert,
+      extraRules,
+    }),
+    true
+  );
+  assert.equal(buttonsSeen, 2, '钩子 ask 与手写 ask 是同一条链路：同样只给两个选项');
+
+  // 没命中的命令照常走普通三选一弹框。
+  let plainButtons = 0;
+  const plainAlert = {
+    alert(title, body, buttons) {
+      plainButtons = buttons.length;
+      buttons[0].onPress();
+    },
+  };
+  assert.equal(
+    await flow.approveToolCall({
+      name: 'run_shell',
+      args: { command: 'ls' },
+      t,
+      showAlert: plainAlert,
+      extraRules,
+    }),
+    false
+  );
+  assert.equal(plainButtons, 3, '没命中 ask 的命令仍是普通三选项');
 });

@@ -323,6 +323,11 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   },
   linkLeft: { flexDirection: 'row', alignItems: 'center' },
   chatSettingsText: { color: theme.colors.textMuted, fontSize: 15, marginLeft: tokens.spacing.sm + 2 },
+  // P2-7：上下文占用明细（聊天设置弹层里的分段列表）。
+  contextBlock: { marginTop: tokens.spacing.md, marginLeft: tokens.spacing.sm + 2 },
+  contextTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '700', marginBottom: 6 },
+  contextLine: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2 },
+  bodyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 6 },
   chatSettingsHint: { color: theme.colors.textFaint, fontSize: 13 },
   modalList: { maxHeight: 360 },
   modalRow: {
@@ -1097,6 +1102,32 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderRadius: tokens.radius.xs,
     backgroundColor: theme.colors.primary,
   },
+  // P0-7 降级提示条：与引擎状态条同位置（输入栏上方），但更轻——只是说明这次换过模型。
+  modelFallbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: 4,
+  },
+  modelFallbackText: {
+    flex: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
+  // I1 补充指令提示条：与降级提示同位置同量级（只是说明「已入队 / 本轮注入不了」）。
+  steeringNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: 4,
+  },
+  steeringNoteText: {
+    flex: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
   // 引擎状态条（v5 设计稿）：输入栏上方的圆角提示卡（浅品牌底 + 描边），
   // 不再是贴边横幅；失败回退/出错时切警示配色。
   engineBar: {
@@ -1372,6 +1403,13 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     marginTop: 14,
+  },
+  // 会话压缩的「关注点」说明（P0-5 尾巴）：解释留空 = 与一键压缩相同。
+  compactFocusHint: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginBottom: 10,
   },
   attachmentName: { color: theme.colors.textMuted, fontSize: 12, flexShrink: 1, marginRight: 6, marginLeft: 4 },
   attachButton: { paddingHorizontal: 6, paddingVertical: 6 },

@@ -23,6 +23,17 @@ export const COMPACTION_MARKER = '[历史压缩]';
 // 压缩请求本身也不能爆：逐条截断 + 总量上限（超限丢最旧的——信息密度最低）。
 export const COMPACTION_PER_MESSAGE_MAX = 800;
 export const COMPACTION_TRANSCRIPT_MAX = 60000;
+// 用户指定的「本次压缩要特别保留什么」上限。够写一句到两句话（如「重点保留 API 变更
+// 与未决问题」），又不至于把提示词撑爆或让模型跑偏去写别的。
+export const COMPACTION_FOCUS_MAX = 200;
+
+// 归一化关注点：去空白折叠、截断到上限；空/非字符串 → ''（= 不加额外要求，
+// 与旧行为逐字节一致）。发给模型的内容（B 类），不进 i18n 词条表。
+export function normalizeCompactionFocus(raw) {
+  const text = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > COMPACTION_FOCUS_MAX ? text.slice(0, COMPACTION_FOCUS_MAX) : text;
+}
 
 // N2 四档管线常量（结构抄自 dsh/lcc，数值换算自家 16KB 体系，不照搬桌面端 30K/200K）。
 // L0 修剪：工具结果超此长度先「头 4096 + 标注 + 尾 1024」，重估达标就短路，省一次 LLM 摘要。
@@ -65,10 +76,6 @@ export function formatBytes(bytes) {
   return `${value}B`;
 }
 
-export function shouldCompact(messages, threshold = COMPACTION_THRESHOLD_BYTES) {
-  return estimateMessagesBytes(messages) > threshold;
-}
-
 // 消息 → 一行转写（聊天页消息用 text 字段；空内容跳过）。
 function messageLine(item) {
   const role = item && item.role === 'user' ? '用户' : '助手';
@@ -83,8 +90,18 @@ function messageLine(item) {
 // 构造压缩请求：system 指示三段式 + user 塞转写后的对话。
 // **总长超限时丢最旧的**（从最新往前装，装不下的旧消息不塞）——最近的细节
 // 对摘要质量更重要，且旧消息本来就信息密度低。
+// focus（可选）：用户显式指定的「这次压缩要特别保留什么」。无关注点时系统提示
+// **逐字节不变**（既有行为不受影响）；有关注点时在末尾追加一段额外要求——放最后
+// 是为了不打断前面三段式的结构说明，也让模型明白这是本次侧重、不是新的输出格式。
+export function buildCompactionSystemPrompt(focus = '') {
+  const extra = normalizeCompactionFocus(focus);
+  if (!extra) return COMPACTION_SYSTEM_PROMPT;
+  return `${COMPACTION_SYSTEM_PROMPT}\n\n额外要求：这次摘要请特别保留与下面这条关注点相关的内容（输出格式不变，仍是三段摘要）：${extra}`;
+}
+
 // N2：可选 toolTranscript（工具语义转写）追加到 user 段，保住「调用了哪些工具、动了哪些文件」。
-export function buildCompactionSummaryRequest(messages, { toolTranscript = '' } = {}) {
+// D 系：可选 focus（用户关注点）经 buildCompactionSystemPrompt 注入。
+export function buildCompactionSummaryRequest(messages, { toolTranscript = '', focus = '' } = {}) {
   const lines = (Array.isArray(messages) ? messages : [])
     .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
     .map(messageLine)
@@ -100,7 +117,7 @@ export function buildCompactionSummaryRequest(messages, { toolTranscript = '' } 
   const transcript = String(toolTranscript || '').trim();
   const userContent = [kept.join('\n'), transcript].filter(Boolean).join('\n\n');
   return [
-    { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+    { role: 'system', content: buildCompactionSystemPrompt(focus) },
     { role: 'user', content: userContent },
   ];
 }

@@ -11,6 +11,7 @@ import {
   TextField,
 } from '../../ui/index.js';
 import SecretTextField from '../SecretTextField.js';
+import { DEFAULT_PROMPT_CACHE_TTL, PROMPT_CACHE_TTLS } from '../../apiProtocols.js';
 
 export default function ApiSection(props) {
   const {
@@ -96,6 +97,31 @@ export default function ApiSection(props) {
                     ? t('settings.api.protocolResponses')
                     : t('settings.api.protocolOpenai'))}
               </FieldHint>
+              {/* P1-1：只在 anthropic 协议下显示——其它协议是自动前缀缓存，给一个
+                  「设了不生效」的开关比不给更糟。 */}
+              {(active.protocol || 'openai') === 'anthropic' ? (
+                <>
+                  <FieldLabel style={styles.label}>{t('settings.api.promptCache')}</FieldLabel>
+                  <View style={styles.thinkingFormatRow}>
+                    {PROMPT_CACHE_TTLS.map(ttl => {
+                      const isActive = (active.promptCacheTtl || DEFAULT_PROMPT_CACHE_TTL) === ttl;
+                      return (
+                        <TouchableOpacity
+                          key={ttl}
+                          style={[styles.formatChip, isActive && styles.formatChipActive]}
+                          onPress={() => updateField({ promptCacheTtl: ttl })}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.formatChipText, isActive && styles.formatChipTextActive]}>
+                            {t(`settings.api.promptCache.${ttl}`)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <FieldHint style={styles.hint}>{t('settings.api.promptCacheHint')}</FieldHint>
+                </>
+              ) : null}
               <FieldLabel style={styles.label}>{t('settings.api.modelList')}</FieldLabel>
               <View style={styles.modelRow}>
                 <TextField
@@ -180,6 +206,20 @@ export default function ApiSection(props) {
                   {detectingModels ? t('common.detecting') : t('settings.api.detectModels')}
                 </Text>
               </TouchableOpacity>
+              <FieldLabel style={styles.label}>{t('settings.api.fallbackModels')}</FieldLabel>
+              {/* 草稿里可能是用户正在输入的原始字符串（逗号分隔），落盘时由
+                  storage/apiConfigs.js 的 normalizeFallbackModels 归一成数组——
+                  边打边归一会在用户敲「,」的瞬间把分隔符吃掉。 */}
+              <TextField
+                value={Array.isArray(active.fallbackModels)
+                  ? active.fallbackModels.join(', ')
+                  : String(active.fallbackModels || '')}
+                onChangeText={fallbackModels => updateField({ fallbackModels })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={t('settings.api.fallbackModelsPlaceholder')}
+              />
+              <FieldHint style={styles.hint}>{t('settings.api.fallbackModelsHint')}</FieldHint>
               <FieldLabel style={styles.label}>API Key</FieldLabel>
               <SecretTextField
                 value={active.apiKey}

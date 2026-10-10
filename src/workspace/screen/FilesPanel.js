@@ -47,6 +47,7 @@ import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
+import FileHistorySheet from '../FileHistorySheet.js';
 import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 
 const MODE_LABEL_KEY = { ask: 'settings.workspace.mode.ask', read: 'settings.workspace.mode.read', write: 'settings.workspace.mode.write' };
@@ -90,6 +91,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
+  // J1 二期：文件历史面板的开关与目标路径（路径为空 = 看总览）。
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyPath, setHistoryPath] = useState('');
   // 编辑表单：{ kind:'text'|'docx', name, content } | null
   const [form, setForm] = useState(null);
   // 工作区角色：打开时按设置解析；未设置则落到默认工作助手（不存在时自动建卡）。
@@ -1013,6 +1017,15 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               <Ionicons name="folder-open-outline" size={14} color={theme.colors.primary} />
               <Text style={styles.fileToolGhostText}>{t('workspace.panel.viewFiles')}</Text>
             </TouchableOpacity>
+            {/* J1 二期：写前快照总览（哪些文件有历史版本）；只读操作，不受模式限制。 */}
+            <TouchableOpacity
+              style={styles.fileToolGhost}
+              onPress={() => { setHistoryPath(''); setHistoryOpen(true); }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="time-outline" size={14} color={theme.colors.primary} />
+              <Text style={styles.fileToolGhostText}>{t('workspace.fileHistory.title')}</Text>
+            </TouchableOpacity>
           </View>
 
           {form ? (
@@ -1269,10 +1282,29 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                   }}
                 />
                 <GhostButton title={t('workspace.panel.a11y.share', { name: preview ? preview.path : '' })} small onPress={() => { if (preview) shareFile(preview.path); }} />
+                {/* J1 二期：写前快照的查看与恢复入口（此前数据层有、UI 够不着）。 */}
+                <GhostButton
+                  title={t('workspace.fileHistory.title')}
+                  small
+                  onPress={() => { if (preview) { setHistoryPath(preview.path); setHistoryOpen(true); } }}
+                />
               </View>
             </ScrollView>
           </View>
         </Modal>
+
+        <FileHistorySheet
+          visible={historyOpen}
+          onClose={() => { setHistoryOpen(false); setHistoryPath(''); }}
+          store={storeRef.current}
+          characterId={characterId}
+          path={historyPath}
+          onRestored={() => {
+            // 恢复改的是文件内容：刷新列表并关掉可能已过期的预览。
+            setPreview(null);
+            refresh().catch(() => {});
+          }}
+        />
 
       </View>
   );
