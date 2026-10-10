@@ -166,3 +166,26 @@ test('内核：空仓库 / 坏 oid 上取历史不抛错（面板不能被打挂
   assert.equal(await workspaceGit.fileAt('', 'a.txt'), '');
   assert.deepEqual(await workspaceGit.changedInCommit('deadbeef'), []);
 });
+
+test('内核：parentOfHead / restorePathsFrom——撤销一轮的地基（改的还原、新建的删掉）', async () => {
+  const { fileSystem, workspaceGit } = setup();
+  await workspaceGit.init();
+  assert.equal(await workspaceGit.parentOfHead(), '', '还没提交 → 没有父提交');
+
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
+  await workspaceGit.commitAll('c1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v2');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/new.txt`, 'brand new');
+  await workspaceGit.commitAll('c2');
+
+  const parent = await workspaceGit.parentOfHead();
+  assert.match(parent, /^[0-9a-f]{40}$/, '父提交就是第一个提交');
+  const result = await workspaceGit.restorePathsFrom(parent, ['a.txt', 'new.txt']);
+  assert.deepEqual(result, { restored: 1, removed: 1 }, '改的从父提交还原，新建的删掉');
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/a.txt`), 'v1');
+  await assert.rejects(() => fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/new.txt`));
+
+  // 空 oid / 空路径：什么都不做（调用方拿不到父提交时的兜底）
+  assert.deepEqual(await workspaceGit.restorePathsFrom('', ['a.txt']), { restored: 0, removed: 0 });
+  assert.deepEqual(await workspaceGit.restorePathsFrom(parent, []), { restored: 0, removed: 0 });
+});

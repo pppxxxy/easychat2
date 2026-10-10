@@ -225,6 +225,42 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
       }
       return git.commit({ fs, dir, message: String(message || ''), author: commitAuthor });
     },
+    // HEAD 的父提交 oid（用于「撤销本轮」：回到本轮之前的样子）。没有提交 → ''。
+    async parentOfHead() {
+      if (!(await hasAnyCommit())) return '';
+      const entries = await git.log({ fs, dir, depth: 1 });
+      if (!entries.length) return '';
+      return parentOf(entries[0].oid);
+    },
+    // 把指定文件恢复成**某个提交**里的样子（撤销一轮的地基）。该提交里没有这个文件 →
+    // 说明它那时还不存在 → 删掉它（否则「撤销」会留下一堆本轮新建的文件）。
+    // 不碰历史、不重写提交：调用方随后照常提交一次「回滚」，于是回滚本身也是可追溯的。
+    async restorePathsFrom(oid, filepaths) {
+      const paths = (Array.isArray(filepaths) ? filepaths : []).filter(Boolean).map(String);
+      if (!oid || paths.length === 0) return { restored: 0, removed: 0 };
+      const present = [];
+      const missing = [];
+      for (const path of paths) {
+        let exists = false;
+        try {
+          await git.readBlob({ fs, dir, oid, filepath: path });
+          exists = true;
+        } catch (error) {
+          exists = false;
+        }
+        if (exists) present.push(path);
+        else missing.push(path);
+      }
+      if (present.length > 0) await git.checkout({ fs, dir, ref: oid, force: true, filepaths: present });
+      for (const path of missing) {
+        try {
+          await fs.unlink(path);
+        } catch (error) {
+          // 单条失败不影响其余；下一次 status 会如实报出来。
+        }
+      }
+      return { restored: present.length, removed: missing.length };
+    },
     // 丢弃未提交的改动，回到上一次提交（只动沙盒里的文件，不碰外部）。
     //
     // 为什么不是直接 git.checkout：checkout 只还原**已跟踪**文件，未跟踪/新加的文件它会

@@ -127,7 +127,7 @@ import {
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
-import AgentPlanPanel from './AgentPlanPanel.js';
+import SessionSidePanels from './SessionSidePanels.js';
 import ToolCallRow from './ToolCallRow.js';
 import { buildConversationRows } from '../conversation.js';
 import {
@@ -1433,12 +1433,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               })}
             </ScrollView>
 
-            {/* A3 二期：计划进度条（W1 外提到 AgentPlanPanel；折叠态归它自己管）。 */}
-            <AgentPlanPanel
-              plan={agentPlan}
-              canApprove={canApprovePlan}
-              sending={sending}
-              onApprove={approvePlan}
+            {/* W2：会话侧栏面板（回合小结 + 计划进度；装配见 SessionSidePanels）。 */}
+            <SessionSidePanels
+              characterId={characterId} messages={messages} plan={agentPlan}
+              canApprove={canApprovePlan} sending={sending} onApprove={approvePlan}
             />
 
             {/* I1：Steering 提示——「补充指令已入队」，本轮结束自动消失。 */}

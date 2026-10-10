@@ -120,9 +120,12 @@ test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () =
   assert.equal(panel.includes('{messages.map(item => ('), false, '旧的逐条气泡渲染已移除');
   assert.match(panel, /<ToolCallRow key=\{row\.key\} tool=\{row\.tool\} \/>/, '工具行走 ToolCallRow');
   assert.match(panel, /row\.kind === 'compaction' \? styles\.bubbleCompaction/, '压缩行有独立样式');
-  // 计划面板已外提，ChatPanel 只传数据
-  assert.match(panel, /<AgentPlanPanel/, '计划面板外提');
+  // 会话侧栏面板（回合小结 + 计划进度）已外提，ChatPanel 只传数据
+  assert.match(panel, /<SessionSidePanels/, '侧栏面板外提');
   assert.equal(panel.includes('setPlanCollapsed'), false, '折叠态已归面板自己');
+  const side = fs.readFileSync(path.resolve('src/workspace/screen/SessionSidePanels.js'), 'utf8');
+  assert.match(side, /<TurnSummaryPanel/, '回合小结在装配里');
+  assert.match(side, /<AgentPlanPanel/, '计划面板在装配里');
 });
 
 test('W2：toolCardKind 按工具族分派（认不出的走通用行）', async () => {
@@ -170,4 +173,32 @@ test('W2：live 行是临时行（key 固定 live、状态 running、排在最�
   assert.equal(live.tool.name, 'run_shell');
   assert.equal(buildConversationRows({ messages, live: null }).length, 1, '没有在跑的调用时不出 live 行');
   assert.equal(buildConversationRows({ messages, live: {} }).length, 1, '缺 name 不出行');
+});
+
+test('W2：turnChanges 只认改文件的工具，同文件多次只算一条（留最后操作 + 次数）', async () => {
+  const { turnChanges } = await import('../src/workspace/conversation.js');
+  assert.deepEqual(turnChanges([]), { files: [], count: 0 }, '空会话没有改动');
+  assert.deepEqual(turnChanges([{ role: 'assistant', content: '没调工具' }]), { files: [], count: 0 });
+
+  const messages = [
+    { id: 'a0', role: 'assistant', content: '上一轮', toolTrace: [
+      { role: 'assistant', content: '', tool_calls: [toolCall('z1', 'write_workspace_file', { path: 'old.txt', content: 'x' })] },
+    ] },
+    { id: 'u1', role: 'user', content: '再改一下' },
+    { id: 'a1', role: 'assistant', content: '好了', toolTrace: [
+      { role: 'assistant', content: '', tool_calls: [
+        toolCall('c1', 'write_workspace_file', { path: 'a.txt', content: 'v1' }),
+        toolCall('c2', 'read_workspace_file', { path: 'ignored.txt' }),
+        toolCall('c3', 'edit_workspace_file', { path: 'a.txt', find: 'v1', replace: 'v2' }),
+        toolCall('c4', 'create_workspace_dir', { path: 'src' }),
+      ] },
+      { role: 'tool', tool_call_id: 'c1', content: 'ok' },
+    ] },
+  ];
+  const summary = turnChanges(messages);
+  assert.deepEqual(summary.files.map(item => [item.path, item.op, item.count]), [
+    ['a.txt', 'edit', 2],
+    ['src', 'mkdir', 1],
+  ], '只取最后一个带轨迹的助手消息；同文件合并并保留最后操作；读工具不算');
+  assert.equal(summary.count, 2);
 });

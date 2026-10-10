@@ -202,3 +202,48 @@ export function buildConversationRows({ messages, live = null } = {}) {
   }
   return rows;
 }
+
+// 会改文件的工具（本轮小结只看这些）。删除类工具不存在——工作区的删除是 UI 独有的动作，
+// agent 没有删除工具，所以这里不需要处理「删了哪个文件」。
+const WRITE_TOOLS = Object.freeze({
+  write_workspace_file: 'write',
+  edit_workspace_file: 'edit',
+  create_workspace_dir: 'mkdir',
+});
+
+// 「本次改了什么」：从**最后一个**带工具轨迹的助手消息里取（那一轮就是「本次」）。
+// 同一文件被改多次只算一条（保留最后一次的操作），顺序按首次出现——列表是给人看的，
+// 不是审计流水（审计有会话事件流）。
+export function turnChanges(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  let trace = null;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const item = list[i];
+    if (item && item.role === 'assistant' && Array.isArray(item.toolTrace) && item.toolTrace.length > 0) {
+      trace = item.toolTrace;
+      break;
+    }
+  }
+  if (!trace) return { files: [], count: 0 };
+  const byPath = new Map();
+  for (const item of trace) {
+    if (!item || item.role !== 'assistant' || !Array.isArray(item.tool_calls)) continue;
+    for (const call of item.tool_calls) {
+      const name = toolCallName(call);
+      const op = WRITE_TOOLS[name];
+      if (!op) continue;
+      const args = parseToolArgs(toolCallArguments(call));
+      const path = String((args && args.path) || '').trim();
+      if (!path) continue;
+      const existing = byPath.get(path);
+      if (existing) {
+        existing.op = op;
+        existing.count += 1;
+      } else {
+        byPath.set(path, { path, op, count: 1 });
+      }
+    }
+  }
+  const files = [...byPath.values()];
+  return { files, count: files.length };
+}

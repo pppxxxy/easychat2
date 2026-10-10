@@ -147,7 +147,9 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   const planPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
   assert.ok(planPanel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
   assert.ok(planPanel.includes('setCollapsed'), '可收起（折叠态归面板自己）');
-  assert.ok(panel.includes('<AgentPlanPanel'), 'ChatPanel 把清单传给面板');
+  const sidePanels = fs.readFileSync(path.resolve('src/workspace/screen/SessionSidePanels.js'), 'utf8');
+  assert.ok(sidePanels.includes('<AgentPlanPanel'), '装配层把清单传给计划面板');
+  assert.ok(panel.includes('<SessionSidePanels'), 'ChatPanel 通过装配层渲染');
   const clearCount = (panel.match(/setAgentPlan\(\[\]\)/g) || []).length;
   assert.ok(clearCount >= 2, '新对话与切对话两处都清空');
 
@@ -175,7 +177,7 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
   const approvalPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
   assert.ok(approvalPanel.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
-  assert.ok(screen.includes('canApprove={canApprovePlan}'), 'ChatPanel 把批准判据传下去');
+  assert.ok(screen.includes('canApprove={canApprovePlan}'), 'ChatPanel 把批准判据传给装配层');
   // 2026-10-10 回归：发送按钮是 onPress={handleSend}，RN 把点击事件对象当第一实参传进来。
   // 旧判据「overrideText === undefined」认不出事件对象，String(事件) = "[object Object]"，
   // 于是「工作区发啥都变成 [object Object]」。判据必须是「是不是字符串」。
