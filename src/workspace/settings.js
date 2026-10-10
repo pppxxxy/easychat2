@@ -15,6 +15,7 @@
 import { AGENT_MODES } from '../agent/tools/registry.js';
 import { WORKSPACE_ROOT_KINDS, normalizeWorkspaceLocation } from './location.js';
 import { normalizeRetention } from './retention.js';
+import { normalizeStoredLayout } from './splitLayout.js';
 
 export const WORKSPACE_MODES = Object.freeze([AGENT_MODES.ASK, AGENT_MODES.READ, AGENT_MODES.WRITE]);
 export const DEFAULT_WORKSPACE_MODE = AGENT_MODES.ASK;
@@ -47,6 +48,9 @@ export function normalizeWorkspaceSettings(raw) {
     // P1-11：保留口径（写前快照条数 / 回滚基线份数 / 会话事件流上限）。默认值即历史口径，
     // 由 retention.js 归一（非法值夹区间，不静默接受 0），随 store 带进三个旁路模块。
     retention: normalizeRetention(source.retention),
+    // P1-3：宽屏两栏的分隔条比例（null = 没存过，用默认 0.5）。
+    // 只存比例不存「侧栏选了谁」——那属于「当前在干什么」而不是偏好，每次打开都该回到对话。
+    splitLayout: normalizeStoredLayout(source.splitLayout),
   };
 }
 

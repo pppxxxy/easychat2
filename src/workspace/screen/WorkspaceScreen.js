@@ -18,7 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
-import { getWorkspaceSettings } from '../../storage/workspace.js';
+import { getWorkspaceSettings, patchWorkspaceSettings } from '../../storage/workspace.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore } from '../native.js';
 import {
@@ -81,6 +81,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
       try {
         const settings = await getWorkspaceSettings();
         if (!alive) return;
+        // P1-3：读回分隔条比例（null = 没存过，保持默认 0.5）。设置已经过归一化白名单，
+        // 非法值到这里已经是 null——不会把用户没选过的布局画出来。
+        if (settings.splitLayout) setSplitRatio(settings.splitLayout.ratio);
         try {
           storeRef.current = createWorkspaceStore(settings);
         } catch (error) {
@@ -138,6 +141,11 @@ export default function WorkspaceScreen({ visible, onClose }) {
         dx: gesture.dx,
         width: contentWidthRef.current,
       }));
+    },
+    // 只在**松手时**落盘：拖动过程中每一帧都写一次存储是没必要的 IO，
+    // 而且松手前崩溃留下的半截比例也没有意义。
+    onPanResponderRelease: () => {
+      patchWorkspaceSettings({ splitLayout: { ratio: ratioRef.current } }).catch(() => {});
     },
   }), []);
 

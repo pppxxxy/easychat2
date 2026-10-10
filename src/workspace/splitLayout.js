@@ -85,11 +85,12 @@ export function ratioFromDrag({ startRatio, dx, width } = {}) {
 // 不做「半份可信」——半份可信会让布局在重启后处于一个用户没选过的状态。
 export const SIDE_PANELS = Object.freeze(['files', 'github', 'terminal']);
 
+// 持久化读回：**只存分隔条比例**。侧栏选哪一个是「当前在干什么」而不是偏好——每次打开
+// 都该回到对话（`WorkspaceScreen` 的既有行为），把它也持久化会让用户打开工作区时莫名
+// 停在文件面板上。任一项不合法就整份丢弃（不做「半份可信」——那会让重启后处于用户没选过的布局）。
 export function normalizeStoredLayout(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const side = String(raw.side || '');
-  if (!SIDE_PANELS.includes(side)) return null;
   const ratio = Number(raw.ratio);
   if (!Number.isFinite(ratio) || ratio < MIN_SPLIT_RATIO || ratio > MAX_SPLIT_RATIO) return null;
-  return { ratio, side };
+  return { ratio };
 }

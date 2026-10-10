@@ -86,17 +86,16 @@ test('ratioFromDrag：位移按总宽折算（同样的手指位移 = 同样的�
   assert.equal(ratioFromDrag({}), DEFAULT_SPLIT_RATIO);
 });
 
-test('normalizeStoredLayout：任一项不合法就整份丢弃（不做半份可信）', () => {
-  assert.deepEqual(normalizeStoredLayout({ ratio: 0.6, side: 'files' }), { ratio: 0.6, side: 'files' });
-  assert.deepEqual(SIDE_PANELS, ['files', 'github', 'terminal']);
-  // 侧栏只认这三种：'chat' 不是可停靠的侧栏，'settings' 同理
-  assert.equal(normalizeStoredLayout({ ratio: 0.6, side: 'chat' }), null);
-  assert.equal(normalizeStoredLayout({ ratio: 0.6, side: 'settings' }), null);
-  assert.equal(normalizeStoredLayout({ ratio: 0.6 }), null);
+test('normalizeStoredLayout：只认比例；任一项不合法就整份丢弃（不做半份可信）', () => {
+  assert.deepEqual(normalizeStoredLayout({ ratio: 0.6 }), { ratio: 0.6 });
+  // 多带的字段被丢掉（存的是偏好，不是「当前在干什么」）
+  assert.deepEqual(normalizeStoredLayout({ ratio: 0.6, side: 'files' }), { ratio: 0.6 });
+  assert.deepEqual(SIDE_PANELS, ['files', 'github', 'terminal'], '侧栏可选集合仍由布局解算使用');
   // 比例越界整份丢弃（而不是夹紧）——夹紧会让重启后处于用户没选过的布局
-  assert.equal(normalizeStoredLayout({ ratio: 0.1, side: 'files' }), null);
-  assert.equal(normalizeStoredLayout({ ratio: 0.99, side: 'files' }), null);
-  assert.equal(normalizeStoredLayout({ ratio: 'abc', side: 'files' }), null);
+  assert.equal(normalizeStoredLayout({ ratio: 0.1 }), null);
+  assert.equal(normalizeStoredLayout({ ratio: 0.99 }), null);
+  assert.equal(normalizeStoredLayout({ ratio: 'abc' }), null);
+  assert.equal(normalizeStoredLayout({}), null);
   assert.equal(normalizeStoredLayout(null), null);
   assert.equal(normalizeStoredLayout('nope'), null);
 });
