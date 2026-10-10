@@ -227,6 +227,7 @@ export const chat = {
   'chat.send.steering.note': 'Extra instruction received — it will be taken into account next step',
   'chat.send.steering.attachments': 'This turn is still running: steering only supports text; send attachments after it finishes.',
   'chat.send.steering.noLoop': 'No tool loop is running this turn, so a steering instruction has nowhere to go — your text stays in the box; send it after this turn ends.',
+  'chat.hooks.blocked.title': 'A workspace hook blocked this message',
   'chat.send.memberReplyFailed': '{name} failed to reply this turn',
   'chat.send.groupReplyFailed.title': 'Group reply failed',
   'chat.send.groupReplyFailed.body': 'Please try again later.',

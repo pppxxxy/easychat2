@@ -33,7 +33,14 @@ import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
-import { hookPermissionRules, readWorkspaceHooks } from '../workspace/hooks.js';
+import {
+  buildHookContextText,
+  collectPromptHooks,
+  collectSessionStartNotices,
+  collectTurnEndNotices,
+  hookPermissionRules,
+  readWorkspaceHooks,
+} from '../workspace/hooks.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
@@ -207,6 +214,10 @@ export default function useChatSend({
   const steeringRef = useRef(null);
   const [steeringAvailable, setSteeringAvailable] = useState(false);
   const [steeringNote, setSteeringNote] = useState('');
+  // P0-8：hooks.json 的注入类事件——session_start 每个会话只注入一次（内存记账），
+  // after_turn 的提醒排队给下一轮。两者都只在本次运行内有效（重启即丢，不写盘）。
+  const hookSessionInjectedRef = useRef(new Set());
+  const pendingHookNoticesRef = useRef([]);
   // 分支变更计数：撤回归档 / 切换 / 删除分支后自增，驱动 UI 重新读取分支索引。
   const [branchesRefreshToken, setBranchesRefreshToken] = useState(0);
   const bumpBranchesRefresh = useCallback(() => {
@@ -288,6 +299,32 @@ export default function useChatSend({
      } catch (error) {
        workspaceMode = 'ask';
      }
+     // P0-8：提交前钩子（before_prompt）与上下文注入（session_start / 上一轮的 after_turn）。
+     // 放在**建消息之前**：拦下时不留下任何 pending 气泡（一次脏状态都不产生）。
+     // 钩子读失败一律当没有钩子——声明式扩展绝不能成为发送链路的故障源。
+     let hookContextText = '';
+     try {
+       const hookStore = createWorkspaceStore(workspaceSettings);
+       const hooks = await readWorkspaceHooks(hookStore, character.id);
+       const promptHooks = collectPromptHooks(hooks, userText);
+       if (promptHooks.blocks.length > 0) {
+         Alert.alert(tRef.current('chat.hooks.blocked.title'), promptHooks.blocks.join('\n'));
+         return false;
+       }
+       const sessionId = String(sendSessionId || '');
+       const sessionNotices = sessionId && !hookSessionInjectedRef.current.has(sessionId)
+         ? collectSessionStartNotices(hooks)
+         : [];
+       if (sessionNotices.length > 0 && sessionId) hookSessionInjectedRef.current.add(sessionId);
+       hookContextText = buildHookContextText([
+         ...pendingHookNoticesRef.current,
+         ...sessionNotices,
+         ...promptHooks.notices,
+       ]);
+       // 本轮结束后要提醒的（after_turn）排队给下一次请求：本轮读到的快照即依据，
+       // 队列只在内存里（重启即丢——不写盘、不假装持久）。
+       pendingHookNoticesRef.current = collectTurnEndNotices(hooks);
+     } catch (error) {}
      const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
@@ -452,6 +489,8 @@ export default function useChatSend({
          scheduleText,
          // 真实位置开启且存在最近位置时附上位置行。
          locationText: locationLine,
+         // P0-8：hooks.json 的注入类事件（session_start / after_turn / before_prompt）。
+         extraSystemPrompt: hookContextText || undefined,
          // 语音兜底（需求 6.2）：转写失败且来源支持音频时按 input_audio 直发。
          voiceAudio,
        });

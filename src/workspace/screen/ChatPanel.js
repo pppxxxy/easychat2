@@ -98,7 +98,15 @@ import {
   readWorkspaceCommands,
   slashQuery,
 } from '../commands.js';
-import { collectToolResultNotices, hookPermissionRules, readWorkspaceHooks } from '../hooks.js';
+import {
+  buildHookContextText,
+  collectPromptHooks,
+  collectSessionStartNotices,
+  collectToolResultNotices,
+  collectTurnEndNotices,
+  hookPermissionRules,
+  readWorkspaceHooks,
+} from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
@@ -168,6 +176,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 队列每次发送时新建、turn 结束丢弃（跨轮次的补充没有意义）。
   const steeringRef = useRef(null);
   const [steeringNote, setSteeringNote] = useState('');
+  // P0-8：hooks.json 注入类事件的内存记账（session_start 每会话一次；after_turn 排队给下一轮）。
+  const hookSessionInjectedRef = useRef(new Set());
+  const pendingHookNoticesRef = useRef([]);
   // I2：read 模式下计划未完成时提议「批准并执行」。**时序关键**：handleSend 的
   // 闭包带着定义时的 mode——不能「切模式后立即调用」（那还是 read 的工具集）。
   // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
@@ -913,6 +924,30 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       if (expanded) outgoingText = expanded.text;
     } catch (error) {}
 
+    // P0-8：提交前钩子（before_prompt）与注入（session_start / 上一轮的 after_turn）。
+    // 必须放在**落库与置 sending 之前**：拦下时不该留下已发出的消息或卡住的「正在生成」。
+    let hookText = '';
+    try {
+      const hooks = await readWorkspaceHooks(storeRef.current, characterId);
+      const promptHooks = collectPromptHooks(hooks, outgoingText);
+      if (promptHooks.blocks.length > 0) {
+        Alert.alert(t('chat.hooks.blocked.title'), promptHooks.blocks.join('\n'));
+        return;
+      }
+      const sessionKey = String(activeChatId || '');
+      const sessionNotices = sessionKey && !hookSessionInjectedRef.current.has(sessionKey)
+        ? collectSessionStartNotices(hooks)
+        : [];
+      if (sessionNotices.length > 0 && sessionKey) hookSessionInjectedRef.current.add(sessionKey);
+      hookText = buildHookContextText([
+        ...pendingHookNoticesRef.current,
+        ...sessionNotices,
+        ...promptHooks.notices,
+      ]);
+      // after_turn 的提醒排队给下一轮（内存队列，重启即丢）。
+      pendingHookNoticesRef.current = collectTurnEndNotices(hooks);
+    } catch (error) {}
+
     const userMessage = {
       id: nextId(),
       role: 'user',
@@ -987,6 +1022,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       agents,
       // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
       readLog: readLogRef.current ? readLogRef.current.list() : [],
+      // P0-8：hooks.json 的注入类事件（放在 readLog 之前，见该函数的缓存契约）。
+      hookText,
     });
     let request = buildWorkspaceAgentMessages({
       systemPrompt,

@@ -74,7 +74,7 @@ export function workspaceAgentModeHint(mode) {
 // 而 ask 模式一个工具都没有——说了模型也读不到，只会反复尝试然后乱解释。
 // readLog：本会话已读登记条目（A5），同样只在有读工具的形态下注入；空则不注入。
 // agents：工作区定义的分身子弟清单（E3），只在 run_subagent 真注册时注入（同款纪律）。
-export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents } = {}) {
+export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents, hookText } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
@@ -98,6 +98,10 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     // C2：物化引导（只在工具真注册时注入——同款纪律）。
     if (Array.isArray(tools) && tools.includes('materialize_repo')) lines.push(MATERIALIZE_TOOL_HINT);
   }
+  // P0-8：hooks.json 的 before_prompt / session_start / after_turn 注入文字。放在 readLog
+  // **之前**——readLog 是每轮都变的高频动态项，必须留在最末尾（上面的缓存契约）。
+  const hookSection = String(hookText || '').trim();
+  if (hookSection) lines.push(`[工作区钩子]\n${hookSection}`);
   // E1 前缀缓存：readLog 行是**每轮都变**的最高频动态项（每读一个文件就多一行），
   // 必须放在 systemPrompt 的**最末尾**——提供商的前缀缓存按 token 序列工作，它变化
   // 时只让「自己之后」的内容 miss（这里后面没有别的行），系统提示前半段与既有的

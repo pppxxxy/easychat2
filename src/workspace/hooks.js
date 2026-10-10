@@ -313,6 +313,19 @@ export function collectSessionStartNotices(hooks) {
   return list.map(item => item.message).slice(0, HOOK_NOTICES_MAX);
 }
 
+// 把多来源的通知合成一段注入文本（去重、限量、空则空串）。
+// 顺序由调用方定：排队的上轮提醒 → 会话开始 → 本次提交命中——越靠后的越贴近当下。
+export function buildHookContextText(notices) {
+  const list = [];
+  for (const raw of Array.isArray(notices) ? notices : []) {
+    const text = String(raw === undefined || raw === null ? '' : raw).trim();
+    if (!text || list.includes(text)) continue;
+    list.push(text);
+    if (list.length >= HOOK_NOTICES_MAX) break;
+  }
+  return list.join('\n');
+}
+
 // D4-1：结果钩子——match 对**工具名精确匹配**（结果增强没有「前缀」或路径语义，
 // 写错就是没命中，不做模糊——模糊匹配会让一条钩子意外作用到别的工具上）。
 export function collectToolResultNotices(hooks, toolName) {

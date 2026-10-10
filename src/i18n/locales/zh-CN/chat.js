@@ -228,6 +228,7 @@ export const chat = {
   'chat.send.steering.note': '已收到补充指令，将在下一步纳入',
   'chat.send.steering.attachments': '本轮还在进行：补充指令只支持文字；带附件的发送请等本轮结束。',
   'chat.send.steering.noLoop': '本轮没有在跑工具循环，补充指令无从注入——文字留在输入框里，等本轮结束后再发。',
+  'chat.hooks.blocked.title': '工作区钩子拦下了这条消息',
   'chat.send.memberReplyFailed': '{name} 本次回复失败',
   'chat.send.groupReplyFailed.title': '群聊回复失败',
   'chat.send.groupReplyFailed.body': '请稍后重试。',

@@ -16,6 +16,7 @@ import {
   HOOK_EVENTS,
   HOOK_NOTICES_MAX,
   HOOK_SHELL_EFFECTS,
+  buildHookContextText,
   collectCompactionHooks,
   collectPostEventNotices,
   collectPromptHooks,
@@ -405,6 +406,19 @@ test('P0-8 before_compact / after_turn / session_start：注入文字收集（�
   assert.deepEqual(collectSessionStartNotices(hooks), ['本次会话请用中文回答']);
   assert.deepEqual(collectTurnEndNotices(null), []);
   assert.deepEqual(collectSessionStartNotices({}), []);
+});
+
+test('P0-8 buildHookContextText：多来源合并去重限量，空输入给空串（注入段落不产生空壳）', () => {
+  assert.equal(buildHookContextText([]), '');
+  assert.equal(buildHookContextText(null), '');
+  assert.equal(buildHookContextText(['  ', '', undefined]), '');
+  assert.equal(
+    buildHookContextText(['上一轮的提醒', '会话开始', '本次提交命中', '上一轮的提醒']),
+    '上一轮的提醒\n会话开始\n本次提交命中',
+    '按传入顺序保留、重复只留一次'
+  );
+  const many = Array.from({ length: HOOK_NOTICES_MAX + 3 }, (unused, i) => `n${i}`);
+  assert.equal(buildHookContextText(many).split('\n').length, HOOK_NOTICES_MAX, '上限内截断');
 });
 
 test('P0-8 validateWorkspaceHooks：坏 JSON / 未知事件 / 非数组 / 无效条目 / 坏正则 / 超量都报出来', () => {

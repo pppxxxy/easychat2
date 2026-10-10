@@ -182,6 +182,10 @@ import { shouldOpenMentionAtCursor } from './chat/groupMentions.js';
 import ChatSettingsModal from './chat/ChatSettingsModal.js';
 // P0-5 尾巴：压缩的「关注点」输入入口（留空 = 与一键压缩相同）。
 import CompactFocusModal from './chat/CompactFocusModal.js';
+// P0-8：压缩前钩子（before_compact：注入额外要求 / 拦下这次压缩）。
+import { getWorkspaceSettings } from './storage/workspace.js';
+import { createWorkspaceStore } from './workspace/native.js';
+import { collectCompactionHooks, readWorkspaceHooks } from './workspace/hooks.js';
 import VoiceSettingsModal from './chat/VoiceSettingsModal.js';
 import TranscriptionPanel from './TranscriptionPanel.js';
 import FullScreenInputModal from './chat/FullScreenInputModal.js';
@@ -1516,7 +1520,20 @@ export default function ChatScreen() {
   const handleCompactSession = useCallback(async (options = {}) => {
     const silent = options && options.silent === true;
     // focus（可选）：本次会话压缩要特别保留什么。无关注点时提示词逐字节不变。
-    const focus = normalizeCompactionFocus(options && options.focus);
+    let focus = normalizeCompactionFocus(options && options.focus);
+    // P0-8：压缩前钩子——`deny` 拦下这次压缩，`inject` 并进「额外要求」（与关注点同一条通道）。
+    // 钩子读失败一律当没有钩子（声明式扩展不该成为压缩链路的故障源）。
+    try {
+      const workspaceSettings = await getWorkspaceSettings();
+      const hookStore = createWorkspaceStore(workspaceSettings);
+      const hooks = await readWorkspaceHooks(hookStore, character.id);
+      const compactHooks = collectCompactionHooks(hooks, focus);
+      if (compactHooks.blocks.length > 0) {
+        if (!silent) Alert.alert(t('chat.hooks.blocked.title'), compactHooks.blocks.join('\n'));
+        return { ok: false, reason: 'hook-blocked' };
+      }
+      focus = normalizeCompactionFocus([focus, ...compactHooks.notices].filter(Boolean).join('；'));
+    } catch (error) {}
     if (compactBusyRef.current) return { ok: false, reason: 'busy' };
     const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
     const meaningful = (Array.isArray(list) ? list : [])
@@ -1556,7 +1573,7 @@ export default function ChatScreen() {
       compactBusyRef.current = false;
       setCompactBusy(false);
     }
-  }, [messages, messagesRef, setMessages, t]);
+  }, [character, messages, messagesRef, setMessages, t]);
 
   // P0-5 尾巴：压缩关注点弹窗。两处入口（提示条 / 聊天设置）都先开它，留空即普通压缩。
   const [compactFocusOpen, setCompactFocusOpen] = useState(false);
