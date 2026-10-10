@@ -64,6 +64,9 @@ import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
+import Markdown from 'react-native-markdown-display';
+import { createMarkdownStyles } from '../../chat/assistantRender.js';
+import { clampMarkdownText } from '../../chat/markdownGuard.js';
 import AgentTrace from '../AgentTrace.js';
 import { promptUserChoice } from '../../chat/askUserPrompt.js';
 import { writeTranscript } from '../transcripts.js';
@@ -158,6 +161,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // 助手正文按 Markdown 渲染（与主聊天页同款样式工厂）——agent 输出的代码块/列表不再显示原始标记。
+  const markdownStyles = useMemo(() => createMarkdownStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -1469,6 +1474,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                           选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
                       {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
                         <ActivityIndicator size="small" color={theme.colors.primary} />
+                      ) : item.role === 'assistant' ? (
+                        // 助手正文走 Markdown（用户消息保持纯文本，与全应用约定一致）。
+                        <Markdown style={markdownStyles}>{clampMarkdownText(item.content || '').text}</Markdown>
                       ) : (
                         <Text style={styles.bubbleText} selectable>{item.content}</Text>
                       )}
