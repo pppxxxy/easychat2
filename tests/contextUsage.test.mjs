@@ -181,9 +181,12 @@ test('P2-7 buildContextBreakdown：归一、按 token 降序、占比、空段�
   assert.ok(Math.abs(result.segments[1].ratio - 0.01) < 1e-9, 'ratio = tokens / window');
   assert.equal(result.window, 10000);
 
-  // 没给 window（明细只看份额时）→ 用保守默认，不抛错。
+  // 没给 window（明细只看份额时）→ **不编窗口**：window/ratio 为 0，只有 token 是真的。
   const noWindow = buildContextBreakdown([{ key: 'a', tokens: 10 }]);
-  assert.equal(noWindow.window, DEFAULT_CONTEXT_WINDOW);
+  assert.equal(noWindow.window, 0, '没给窗口就不假装知道窗口');
+  assert.equal(noWindow.ratio, 0, 'ratio 是 0 而不是拿默认窗口算出来的假占比');
+  assert.equal(noWindow.segments[0].ratio, 0);
+  assert.equal(noWindow.total, 10, 'token 仍然如实给出');
   assert.equal(buildContextBreakdown(null).segments.length, 0);
   assert.equal(buildContextBreakdown([]).total, 0);
 });

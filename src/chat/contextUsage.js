@@ -68,9 +68,10 @@ export function estimateTextTokens(text) {
 // 不猜、不补：没测量的部分就不出现在列表里（宁缺勿假）。
 // 段顺序按 token 降序——用户一眼看到的是「最大那块是谁」。
 export function buildContextBreakdown(segments, windowSize) {
-  const window = Number.isFinite(Number(windowSize)) && Number(windowSize) > 0
-    ? Math.floor(Number(windowSize))
-    : DEFAULT_CONTEXT_WINDOW;
+  // 没给窗口就**不编一个**：拿默认窗口算出来的 ratio 是假数字（真窗口可能是 128k 或 200k），
+  // 谁要是信了它，看到的就是错的占用率。给 0 表示「只有 token，没有占比」。
+  const declared = Number(windowSize);
+  const window = Number.isFinite(declared) && declared > 0 ? Math.floor(declared) : 0;
   const list = [];
   for (const raw of Array.isArray(segments) ? segments : []) {
     const key = String((raw && raw.key) || '').trim();
