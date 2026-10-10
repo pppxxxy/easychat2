@@ -187,6 +187,28 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
+    /**
+     * 定时 Agent 任务执行完成后展示通知（复用主动消息的渠道与角色头像）。
+     * 任务配置按 slotId 查一次拿 roleId/roleName/avatarUri；查不到则忽略（不弹空白通知）。
+     * JS 落库走自己的 AsyncStorage 路径，这里只负责「打扰用户」这一步。
+     */
+    @ReactMethod
+    fun notifyAgentTaskResult(slotId: String, text: String, promise: Promise) {
+        try {
+            val body = text.trim()
+            val schedule = MessageStore(reactContext).findScheduleBySlot(slotId)
+            if (schedule != null && body.isNotEmpty()) {
+                Notifier.sendRoleMessage(
+                    reactContext, slotId, schedule.roleId, schedule.roleName, body, schedule.avatarUri
+                )
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "notify agent task failed: ${e.javaClass.simpleName}: ${e.message}")
+            promise.resolve(false)
+        }
+    }
+
     @ReactMethod
     fun schedule(config: ReadableMap, promise: Promise) {
         try {
@@ -208,7 +230,13 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                 }.getOrDefault(MessageType.DEFAULT),
                 customPrompt = if (config.hasKey("customPrompt")) config.getString("customPrompt") ?: "" else "",
                 requestJson = if (config.hasKey("requestJson")) config.getString("requestJson") ?: "" else "",
-                avatarUri = if (config.hasKey("avatarUri")) config.getString("avatarUri") ?: "" else ""
+                avatarUri = if (config.hasKey("avatarUri")) config.getString("avatarUri") ?: "" else "",
+                executor = runCatching {
+                    ScheduleExecutor.valueOf(
+                        if (config.hasKey("executor")) config.getString("executor") ?: "MESSAGE"
+                        else "MESSAGE"
+                    )
+                }.getOrDefault(ScheduleExecutor.MESSAGE)
             )
             val store = MessageStore(reactContext)
             store.upsertSchedule(schedule)

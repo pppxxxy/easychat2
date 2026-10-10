@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { getMomentsSettings, getProactiveSettings } from '../storage/moments.js';
+import { getAgentTasks } from '../storage/agentTasks.js';
 import { getAllCharacterSchedules } from '../storage/schedule.js';
 import { getMusicItems } from '../music/library.js';
 import { getBooks } from '../books/library.js';
@@ -33,6 +34,7 @@ const GROUPS = [
     items: [
       { id: 'moments', route: 'ext-moments', icon: 'planet-outline', labelKey: 'ext.home.moments', descKey: 'ext.home.moments.desc' },
       { id: 'proactive', route: 'ext-proactive', icon: 'notifications-outline', labelKey: 'ext.home.proactive', descKey: 'ext.home.proactive.desc' },
+      { id: 'agentTask', route: 'ext-agent-task', icon: 'sparkles-outline', labelKey: 'ext.home.agentTask', descKey: 'ext.home.agentTask.desc' },
       { id: 'schedule', route: 'ext-schedule', icon: 'time-outline', labelKey: 'ext.home.schedule', descKey: 'ext.home.schedule.desc' },
       { id: 'diary', route: 'ext-diary', icon: 'book-outline', labelKey: 'ext.home.diary', descKey: 'ext.home.diary.desc' },
       { id: 'screen', route: 'ext-screen', icon: 'eye-outline', labelKey: 'ext.home.screen', descKey: 'ext.home.screen.desc' },
@@ -60,6 +62,7 @@ export default function ExtensionHome() {
   const { t } = useTranslation();
   const [momentsEnabled, setMomentsEnabled] = useState(false);
   const [proactiveCount, setProactiveCount] = useState(0);
+  const [agentTaskCount, setAgentTaskCount] = useState(0);
   const [scheduleCount, setScheduleCount] = useState(0);
   const [musicCount, setMusicCount] = useState(0);
   const [bookCount, setBookCount] = useState(0);
@@ -79,6 +82,10 @@ export default function ExtensionHome() {
         try {
           const ps = await getProactiveSettings();
           if (!cancelled) setProactiveCount((ps.slots || []).length);
+        } catch { /* ignore */ }
+        try {
+          const at = await getAgentTasks();
+          if (!cancelled) setAgentTaskCount(at.length);
         } catch { /* ignore */ }
         try {
           const schedules = await getAllCharacterSchedules();
@@ -106,6 +113,7 @@ export default function ExtensionHome() {
     switch (itemId) {
       case 'moments': return momentsEnabled ? t('ext.home.moments.on') : t('ext.home.moments.off');
       case 'proactive': return t('ext.home.proactive.summary', { count: proactiveCount });
+      case 'agentTask': return t('ext.home.agentTask.summary', { count: agentTaskCount });
       case 'schedule': return scheduleCount > 0 ? t('ext.home.schedule.summary', { count: scheduleCount }) : '';
       case 'music': return musicCount > 0 ? t('ext.home.music.summary', { count: musicCount }) : '';
       case 'books': return bookCount > 0 ? t('ext.home.books.summary', { count: bookCount }) : '';
@@ -113,7 +121,7 @@ export default function ExtensionHome() {
       case 'games': return t('ext.home.games.summary', { count: GAMES.length });
       default: return '';
     }
-  }, [momentsEnabled, proactiveCount, scheduleCount, musicCount, bookCount, houseCount, t]);
+  }, [momentsEnabled, proactiveCount, agentTaskCount, scheduleCount, musicCount, bookCount, houseCount, t]);
 
   const renderItem = useCallback(({ item }) => (
     <TouchableOpacity

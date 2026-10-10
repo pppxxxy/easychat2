@@ -9,6 +9,7 @@
 // （en 命名导出 + default）不变，消费方与测试零改动。
 import { apiPreset } from './en/apiPreset.js';
 import { app } from './en/app.js';
+import { agentTask } from './en/agentTask.js';
 import { backup } from './en/backup.js';
 import { books } from './en/books.js';
 import { character } from './en/character.js';
@@ -50,6 +51,7 @@ import { world } from './en/world.js';
 export const en = {
   ...apiPreset,
   ...app,
+  ...agentTask,
   ...backup,
   ...books,
   ...character,
