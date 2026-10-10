@@ -144,6 +144,50 @@ test('工具轮：执行工具、回喂结果、下一轮累积返回', async ()
   ]);
 });
 
+test('O0.2：计划有未完成步骤且连续 3 轮未更新 update_plan → 轮末注入 nag', async () => {
+  fakeTools = [
+    { type: 'function', function: { name: 'update_plan', description: '', parameters: {} } },
+    { type: 'function', function: { name: 'read_file', description: '', parameters: {} } },
+  ];
+  // 轮 1：列计划（未完成）；轮 2-4：只读文件、不更新计划；轮 5：收尾。
+  streamPlan = [
+    { text: '', toolCalls: [{ id: 'p1', name: 'update_plan', arguments: '{"plan":[{"step":"A","status":"in_progress"}]}' }] },
+    { text: '', toolCalls: [{ id: 'r1', name: 'read_file', arguments: '{"path":"1"}' }] },
+    { text: '', toolCalls: [{ id: 'r2', name: 'read_file', arguments: '{"path":"2"}' }] },
+    { text: '', toolCalls: [{ id: 'r3', name: 'read_file', arguments: '{"path":"3"}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  // 第 5 轮请求里应带上一轮末注入的 nag（round 4 结束时计数达到 3）。
+  const last = streamCalls[4].messages;
+  assert.ok(
+    last.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))),
+    '达到阈值应注入 nag'
+  );
+  // 更早一轮（第 3 轮请求）不应有 nag。
+  const earlier = streamCalls[2].messages;
+  assert.equal(earlier.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))), false);
+});
+
+test('O0.2：计划全 done 时不注入 nag', async () => {
+  fakeTools = [
+    { type: 'function', function: { name: 'update_plan', description: '', parameters: {} } },
+    { type: 'function', function: { name: 'read_file', description: '', parameters: {} } },
+  ];
+  streamPlan = [
+    { text: '', toolCalls: [{ id: 'p1', name: 'update_plan', arguments: '{"plan":[{"step":"A","status":"done"}]}' }] },
+    { text: '', toolCalls: [{ id: 'r1', name: 'read_file', arguments: '{"path":"1"}' }] },
+    { text: '', toolCalls: [{ id: 'r2', name: 'read_file', arguments: '{"path":"2"}' }] },
+    { text: '', toolCalls: [{ id: 'r3', name: 'read_file', arguments: '{"path":"3"}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  const last = streamCalls[4].messages;
+  assert.equal(last.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))), false);
+});
+
 test('assistant 空文本带 tool_calls 时 content 置 null', async () => {
   streamPlan = [
     { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },

@@ -14,6 +14,8 @@ const SESSION_ROLLBACK_BACKUP_KEY = '@easychat2_sessions__rollback_backup';
 const SESSION_SUMMARIES_PREFIX = '@easychat2_session_summaries';
 // 每个会话的输入框草稿：按会话分键，避免把可能很大的集合塞进单键。
 const SESSION_DRAFT_PREFIX = '@easychat2_session_draft';
+// O0.3：会话最近一份 update_plan 计划（键与消息分开）。
+const SESSION_PLAN_PREFIX = '@easychat2_session_plan';
 const ACTIVE_SESSION_KEY = '@easychat2_active_session';
 const MESSAGES_KEY_PREFIX = '@easychat2_messages';
 const LEGACY_MESSAGES_KEY = '@easychat2_messages';
@@ -55,6 +57,11 @@ export function sessionSummariesKey(sessionId) {
 
 export function sessionDraftKey(sessionId) {
   return `${SESSION_DRAFT_PREFIX}::${String(sessionId || '')}`;
+}
+
+// O0.3：会话计划键（与消息/摘要分开）。
+export function sessionPlanKey(sessionId) {
+  return `${SESSION_PLAN_PREFIX}::${String(sessionId || '')}`;
 }
 
 export function sessionBranchIndexKey(sessionId) {

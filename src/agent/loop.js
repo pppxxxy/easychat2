@@ -6,6 +6,7 @@
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
 import { serializeToolResult, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
+import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 export const TOOL_RESULT_LIMIT = 16 * 1024;
@@ -139,6 +140,9 @@ export async function runAgentTurn(messages, options = {}) {
   let round = 0;
   // E2：上一轮的工具调用签名集合（重复调用检测的比对基准）。
   let lastRoundSignatures = new Set();
+  // O0.2：计划纪律——最近一次 update_plan 的参数 + 距上次更新已过几轮。
+  let latestPlanArgs = null;
+  let roundsSincePlanUpdate = 0;
 
   // 跨轮累积：streamChatCompletion 每轮回传该轮全量，这里叠加后再上抛 UI。
   const streamRound = roundTools => streamChatCompletion(history, {
@@ -177,6 +181,7 @@ export async function runAgentTurn(messages, options = {}) {
 
     // E2：本轮签名收集——与上一轮相同（或本轮内重复）的调用会被 nudge（不阻断）。
     let hasRepeatedCall = false;
+    let planUpdatedThisRound = false;
     const signaturesThisRound = new Set();
     for (const call of toolCalls) {
       if (signal && signal.aborted) throw createAbortError();
@@ -211,6 +216,12 @@ export async function runAgentTurn(messages, options = {}) {
         outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
       }
       const ok = !(outcome && outcome.isError === true);
+      // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
+      if (call.name === PLAN_TOOL_NAME && ok) {
+        latestPlanArgs = parseToolArgs(call);
+        roundsSincePlanUpdate = 0;
+        planUpdatedThisRound = true;
+      }
       // D2：把工具名传下去——截断指引按工具语义分派（文件→offset 续读，
       // 命令→收窄重跑），不认识的工具只说「中间省略了」不写误导性指引。
       const serialized = serializeToolResult(outcome, TOOL_RESULT_LIMIT, call && call.name);
@@ -235,6 +246,13 @@ export async function runAgentTurn(messages, options = {}) {
     // tool 结果的配对结构，模型在下一轮开头看到）。
     if (hasRepeatedCall) {
       history.push({ role: 'system', content: REPEAT_CALL_NUDGE });
+    }
+    // O0.2：计划未更新 nag——有未完成步骤且连续多轮没更新时，轮末注入一行提醒。
+    // 注入后重置计数，避免此后每轮都提醒（每满阈值轮提醒一次）。
+    if (!planUpdatedThisRound) roundsSincePlanUpdate += 1;
+    if (shouldNudgePlan({ planArgs: latestPlanArgs, roundsSinceUpdate: roundsSincePlanUpdate })) {
+      history.push({ role: 'system', content: PLAN_NAG_TEXT });
+      roundsSincePlanUpdate = 0;
     }
     lastRoundSignatures = signaturesThisRound;
   }

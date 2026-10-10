@@ -59,6 +59,7 @@ import { resolveStickerNames } from './stickerDirectives.js';
 import { buildTimeAwareText } from './currentTime.js';
 import { buildSchedulePrompt, isScheduleActive } from './schedule.js';
 import { getCharacterSchedule } from '../storage/schedule.js';
+import { saveSessionPlan } from '../storage/sessionPlan.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -494,7 +495,10 @@ export default function useChatSend({
         let hookStore = null;
         if (workspaceMode !== 'ask') {
           try {
-            registerDefaultWorkspaceTools(workspaceSettings);
+            // O0.3：update_plan 的清单随本会话落盘（键与消息分开），供压缩 recap 恢复。
+            registerDefaultWorkspaceTools(workspaceSettings, {
+              onPlan: steps => saveSessionPlan(sendSessionId, steps),
+            });
           } catch (error) {}
           try {
             hookStore = createWorkspaceStore(workspaceSettings);

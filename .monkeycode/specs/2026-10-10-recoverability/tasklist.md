@@ -1,0 +1,48 @@
+# O 系：可恢复性与防注入精度（spec 2026-10-10-recoverability）
+
+> 依据 learn-claude-code（shareAI-lab）教材原文核验。上轮外部建议的 ②⑤⑦⑨ 引用系
+> 捏造/错位（详见任务书勘误记录）。本 spec 记录 O0/O1/O2 的落地状态与裁决。
+> **G1（P0 推送误删）仍在一切之前**（已在 main）。
+
+## 现状基线（核验，勿重做）
+
+- `messages.js` `serializeToolResult`：16KB 头尾保留，中段丢弃无落盘。
+- `chat/compaction.js` `applyCompaction`：直接替换，无 transcript 归档、无权威分离、无防注入。
+- `planTool`：纯回显不落盘，无单 in_progress 校验、无 nag reminder（本系 O0 修）。
+- `memory.js` `workspaceMemorySection`：措辞「请按它工作」（记忆=指令源）。
+- `subagent.js`：白名单防递归 + 6 轮上限已达标，勿动。
+- 工作区系统提示不注入时间——保持（缓存友好）。
+
+## O0 update_plan 纪律三件套（**已完成**，2026-10-10 分支 m1010m3）
+
+- [x] **O0.1 单 in_progress 强校验**：`planTool.js` 新增 `buildPlanToolResult`——
+      >1 个 in_progress 返回 `{ content: <回显>+[校验失败]…, isError: true }`，不静默接受。
+- [x] **O0.2 nag reminder**：新增 `src/agent/planNudge.js`（纯函数 `hasUnfinishedPlanSteps`
+      / `shouldNudgePlan`）；`loop.js` 跟踪最近一次 `update_plan` 参数与「距上次更新轮数」，
+      连续 `PLAN_NAG_ROUNDS=3` 轮未更新且计划有未完成步骤时，轮末以 `role:'system'` 注入
+      `PLAN_NAG_TEXT`（与 A1 预算提醒同款位置，不进用户消息流）。注入后重置计数。
+- [x] **O0.3 plan 落盘**：新增会话旁路键 `@easychat2_session_plan::<sessionId>`
+      （`storage/sessionCore.js` 的 `sessionPlanKey` + `storage/sessionPlan.js` 的
+      get/save/clear）；`planTool` 经宿主注入的 `options.onPlan` 落盘（校验失败不落盘）；
+      `tools.js`/`native.js` 透传 `onPlan`；`useChatSend` 在 read/write 模式接线
+      `onPlan: steps => saveSessionPlan(sendSessionId, steps)`。压缩时注入 recap 段属 N2。
+- [x] 测试：`workspacePlan.test.mjs`（校验拒绝 + onPlan 钩子）、`planNudge.test.mjs`
+      （触发/抑制边界）、`agentLoop.test.mjs`（nag 注入 / 全 done 不注入）、
+      `sessionPlan.test.mjs`（落盘 round-trip）。
+
+## O1 超限结果落盘+预览+指针（**未做**，依赖 K1）
+
+- `serializeToolResult` 升级：超限结果写工作区 `.task_outputs/tool-results/`，替换为
+  头尾保留 + 中段省略 + `Full output: <path>` + 2000 字符预览；伪造路径防御；LRU 清理。
+- **裁决**：O1 与 K1 共用「落盘占位管道」，任务书排在 K1 后紧邻执行；本分支不提前做。
+
+## O2 spec 修订包（**未做**，纯条款，随宿主任务合入）
+
+- K1/N1/N2/K5/K6/M1 各自的追加条款（权威分离、摘要器防注入、transcript 归档、
+  记忆段「非指令」措辞、search_workspace 超预算走 O1 落盘等）。
+- **裁决**：条款随宿主工作流合入，不占独立档期；本分支不改 memory.js / compaction.js。
+
+## 明确不做（防跑偏）
+
+三级降级课/熔断课的「教材出处」考据 / 60 分钟阈值 / 压缩后自动重读文件 /
+Stop hook 强制续跑 / 工具并行执行 / 抄教材桌面端常量 / 任务 DAG。
