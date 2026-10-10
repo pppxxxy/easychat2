@@ -1,6 +1,7 @@
 // Agent 消息适配（主循环与子代理共用，纯函数零依赖）。
 //
-// 从 loop.js 抽出来的两件套：
+// 最初从 loop.js 抽出来的两件套（P2-8 起本文件还多了「较早工具结果省略」，
+// 见下面的 elideOlderToolResults——它与这两件套同属「工具结果怎么变成历史文本」）：
 // - toAssistantMessage：把模型返回（text + toolCalls）整理成 history 里的 assistant 消息；
 // - serializeToolResult：把工具结果整理成 tool 消息文本（带上限截断）。
 // 单独成文件的原因：子代理循环与主循环必须对「同一种模型返回」做同一种翻译——
