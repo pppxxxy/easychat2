@@ -93,7 +93,7 @@ function toRunner(runner) {
   return runner && typeof runner === 'object' ? runner : null;
 }
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, git, readLog, materializer, ci, onPlan } = {}) {
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, git, recordFileHistory, readLog, materializer, ci, onPlan } = {}) {
   const resolvedShell = toRunner(shell);
   const resolvedPython = toRunner(python);
   const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
@@ -108,6 +108,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     ...(shellUsable ? { shell: resolvedShell } : {}),
     ...(pythonUsable ? { python: resolvedPython } : {}),
     ...(gitUsable ? { git } : {}),
+    // W7 退旧：false = 不记写前快照（本地 git 接管）。缺省 true，既有调用点行为不变。
+    recordFileHistory: recordFileHistory !== false,
     // A5 会话级已读登记：宿主注入（工作区面板传会话内存；不传 = read 不登记，
     // 行为与旧版一致——聊天页等宿主无需感知这份状态）。
     ...(readLog ? { readLog } : {}),
@@ -140,8 +142,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
   });
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell, python, git, readLog, materializer, ci, onPlan } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, git, readLog, materializer, ci, onPlan });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python, git, recordFileHistory, readLog, materializer, ci, onPlan } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, git, recordFileHistory, readLog, materializer, ci, onPlan });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }

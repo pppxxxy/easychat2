@@ -254,3 +254,33 @@ agent 至今**没有任何办法把「我改了什么」变成一份可回滚的
 2. **W1 的投影放哪**：`src/workspace/conversation.js`（工作区专属）还是 `src/chat/timeline.js`
    （工作区 + 角色聊天共用一套行投影）。共用更省，但角色聊天的消息形态更杂（媒体/群聊），
    风险更高——我倾向先工作区专属，跑通后再考虑上提。
+
+## 七、W7 落地进度（z1010z7，2026-10-10）
+
+已完成（每步都过五门 + 注入验证）：
+
+| 步 | 内容 | 提交 |
+| --- | --- | --- |
+| 1 | fs 适配器 + 内核（init/status/log/commit/checkout）+ spike 结论 | `f22c36b` |
+| 2 | 只读三件套（git_status/git_diff/git_log）+ 门控 + 设置开关 + 能力卡如实 | `7582159` |
+| 3 | 回合检查点（每轮落成本地提交）+ `agentToolSetup` 外提 | `1482385` |
+| 4 | 写工具（git_commit / git_discard，后者逐条确认）+ 内核 discard 语义补正 | `a6a6b52` |
+| 5 | 工作区「历史」面板（提交列表 → 文件列表 → 内联 DiffView）+ 退旧第一步 | 本步 |
+
+**内核实测坑（都写进了代码注释，别"顺手简化"）**：
+- isomorphic-git 1.43.3 **没有 `git.diff`** → 「改了什么」= HEAD 旧 blob + 当前文件喂已有 `lineDiff`；
+- `fs.writeFile` 必须自己兜父目录（expo-file-system 不建父目录，git 写对象会随机失败）；
+- 空仓库（还没有提交）时 `statusMatrix`/`log` 抛 `NotFoundError`，而这是新工作区第一次调用的路径；
+- `git.walk` 的 `WalkerEntry.type()/oid()` 是**异步方法**（按属性读全是 undefined → 改动列表永远为空），
+  且 `map` 返回 `null` 会**停止下钻**（只剩根节点）；
+- `git.checkout` 只还原**已跟踪**文件 → 「丢弃全部改动」必须自己删未跟踪文件，否则是假的。
+
+**退旧（第一步已做，逐步推进）**：
+- ✅ 本地 git 开着时**不再记写前快照**（`shouldRecordFileHistory`）：同一件事已由回合检查点 +
+  `git_discard` 覆盖，两份历史并存只会让「哪份才算数」变模糊。**SAF 根下继续记**——那里 git 不可用。
+- ⬜ 文件面板的「文件历史」入口：git 开着时应指向「历史」面板（需要在 `FilesPanel` 与
+  `WorkspaceScreen` 之间加一条交接，且 FilesPanel 顶格零余量，要先外提）；
+- ⬜ `fileHistory.js` 与 `FileHistorySheet.js` 的最终退场（等上面两步跑顺、真机验过再删）。
+
+**仍未验（不宣称）**：真机 Hermes 上的 git 性能与 `TextEncoder` 可用性；面板在真机上的观感
+（提交列表 / 展开 / 内联 diff 三段式在窄屏是否好用）。

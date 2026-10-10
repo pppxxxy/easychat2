@@ -13,7 +13,7 @@
 // 不再出现跨面板的 Modal 叠 Modal。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
@@ -26,13 +26,16 @@ import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
 import TerminalPanel from './TerminalPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
+import GitHistoryPanel from './GitHistoryPanel.js';
 
-// 左栏五个领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub / 终端再次，设置最后。
+// 左栏领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub / 终端再次，历史（W7 本地 git）
+// 排在设置之前——它不属于「工具」，而是回看这几轮改了什么。设置始终最后。
 const DOMAIN_KEYS = [
   { id: 'chat', icon: 'chatbubbles-outline', labelKey: 'workspace.screen.rail.chat' },
   { id: 'files', icon: 'folder-outline', labelKey: 'workspace.screen.rail.files' },
   { id: 'github', icon: 'logo-github', labelKey: 'workspace.screen.rail.github' },
   { id: 'terminal', icon: 'terminal-outline', labelKey: 'workspace.screen.rail.terminal' },
+  { id: 'history', icon: 'time-outline', labelKey: 'workspace.screen.rail.history' },
   { id: 'settings', icon: 'settings-outline', labelKey: 'workspace.screen.rail.settings' },
 ];
 
@@ -110,7 +113,12 @@ export default function WorkspaceScreen({ visible, onClose }) {
         </View>
 
         <View style={styles.mainRow}>
-          <View style={styles.rail}>
+          {/* 领域排到六个，窄屏或大字号下可能超高——rail 自己滚，不裁掉最后一项。 */}
+          <ScrollView
+            style={styles.rail}
+            contentContainerStyle={styles.railContent}
+            showsVerticalScrollIndicator={false}
+          >
             {DOMAIN_KEYS.map(item => {
               const active = panel === item.id;
               return (
@@ -132,9 +140,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
                 </TouchableOpacity>
               );
             })}
-            {/* 预留位：后续领域（如终端）接在这里，不挤右侧内容区。 */}
+            {/* 弹性留白：领域已排满（六个），窄屏上靠 rail 自身滚动，不再往内容区挤。 */}
             <View style={styles.railSpacer} />
-          </View>
+          </ScrollView>
 
           <View style={styles.content}>
             {panel === 'chat' ? (
@@ -158,6 +166,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
             ) : null}
             {panel === 'terminal' ? (
               <TerminalPanel characterId={characterId} />
+            ) : null}
+            {panel === 'history' ? (
+              <GitHistoryPanel characterId={characterId} />
             ) : null}
             {panel === 'settings' ? (
               <WorkspaceSettingsPanel characterId={characterId} onClose={backToChat} />
@@ -216,6 +227,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 4,
   },
   railLabelActive: { color: theme.colors.primary, fontWeight: '700' },
+  railContent: { paddingBottom: 12 },
   railSpacer: { flex: 1 },
   content: { flex: 1 },
 });

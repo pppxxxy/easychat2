@@ -88,6 +88,8 @@ export function registerDefaultWorkspaceTools(settings, extras = {}) {
     shell: resolveShellRunner(settings),
     python: resolvePythonRunner(settings),
     git: resolveGitRunner(settings),
+    // W7：git 开着就不再写快照（见 shouldRecordFileHistory 的注释）。
+    recordFileHistory: shouldRecordFileHistory(settings),
     readLog: extras.readLog || null,
     materializer: typeof extras.materializer === 'function' ? extras.materializer : null,
     ci: extras.ci || ciBridge,
@@ -107,6 +109,14 @@ export function gitGateReason(settings) {
   if (source.allowLocalGit !== true) return 'SWITCH_OFF';
   if (normalizeWorkspaceLocation(source.location).kind === WORKSPACE_ROOT_KINDS.SAF) return 'EXTERNAL_ROOT';
   return '';
+}
+
+// W7 退旧第一步：本地 git 开着（且根是应用内）时**不再记写前快照**——同一件事现在由回合
+// 检查点（每轮提交）与 git_discard（回滚）覆盖，两份历史并存只会让「哪份才算数」变模糊。
+// 注意 SAF 根下 git 不可用（gitGateReason 会给 EXTERNAL_ROOT），那里**必须继续记快照**，
+// 否则外部文件夹就彻底没有回退手段了。
+export function shouldRecordFileHistory(settings) {
+  return gitGateReason(settings) !== '';
 }
 
 // git runner：**按调用开仓库句柄**——沙盒路径是 root/<characterId>/，而角色要到工具执行时

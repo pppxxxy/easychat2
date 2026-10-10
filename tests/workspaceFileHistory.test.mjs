@@ -255,3 +255,25 @@ test('J1 二期接线：文件面板打开「文件历史」，sheet 走 list/re
   assert.ok(zhCN['workspace.fileHistory.title'] && en['workspace.fileHistory.title'], '标题词条双语齐备');
   assert.ok(zhCN['workspace.fileHistory.restoreBody'].includes('{path}'), '恢复确认文案带路径占位符');
 });
+
+test('退旧：recordFileHistory=false 时写工具不再落快照（本地 git 接管）', async () => {
+  const { createWorkspaceToolDefinitions } = await import('../src/workspace/tools.js');
+  const historyWrites = [];
+  const store = {
+    async readWorkspaceFile(args) { return { path: args.path, content: 'old', truncated: false }; },
+    async writeWorkspaceFile(args) {
+      if (String(args.path).includes('file-history')) historyWrites.push(args.path);
+      return { path: args.path, length: 3 };
+    },
+  };
+  const ctx = { mode: 'write', characterId: 'ch1' };
+  const withHistory = createWorkspaceToolDefinitions({ store }).find(item => item.name === 'write_workspace_file');
+  await withHistory.execute({ path: 'a.txt', content: 'new' }, ctx);
+  assert.equal(historyWrites.length > 0, true, '默认（git 关）仍然记快照');
+
+  historyWrites.length = 0;
+  const withoutHistory = createWorkspaceToolDefinitions({ store, recordFileHistory: false })
+    .find(item => item.name === 'write_workspace_file');
+  await withoutHistory.execute({ path: 'a.txt', content: 'new' }, ctx);
+  assert.deepEqual(historyWrites, [], 'git 开着时不再写快照文件');
+});

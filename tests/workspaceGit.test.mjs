@@ -120,3 +120,49 @@ test('内核：discard 可只作用于指定路径（单文件级撤销）', asy
   assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/a.txt`), 'a1\\n', 'a 回滚');
   assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/b.txt`), 'b2\\n', 'b 不动');
 });
+
+test('内核：changedInCommit 报某次提交相对父提交的改动（首个提交全算新增）', async () => {
+  const { fileSystem, workspaceGit } = setup();
+  await workspaceGit.init();
+  await fileSystem.makeDirectoryAsync(`${ROOT}${CHARACTER}/sub/`, { intermediates: true });
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/sub/c.txt`, 'c1');
+  await workspaceGit.commitAll('c1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v2');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/b.txt`, 'new');
+  await fileSystem.deleteAsync(`${ROOT}${CHARACTER}/sub/c.txt`);
+  await workspaceGit.commitAll('c2');
+  const log = await workspaceGit.log();
+  assert.deepEqual(await workspaceGit.changedInCommit(log[1].oid), [
+    { path: 'a.txt', status: 'added' },
+    { path: 'sub/c.txt', status: 'added' },
+  ], '第一个提交没有父 → 全部算新增（目录 sub 不算改动）');
+  assert.deepEqual(await workspaceGit.changedInCommit(log[0].oid), [
+    { path: 'a.txt', status: 'modified' },
+    { path: 'b.txt', status: 'added' },
+    { path: 'sub/c.txt', status: 'deleted' },
+  ], '三种状态都对，且按路径排序');
+});
+
+test('内核：fileAt / diffTextsInCommit 给出某次提交的文本对（喂 DiffView 用）', async () => {
+  const { fileSystem, workspaceGit } = setup();
+  await workspaceGit.init();
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
+  await workspaceGit.commitAll('c1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v2');
+  await workspaceGit.commitAll('c2');
+  const log = await workspaceGit.log();
+  assert.equal(await workspaceGit.fileAt(log[1].oid, 'a.txt'), 'v1');
+  assert.equal(await workspaceGit.fileAt(log[0].oid, 'a.txt'), 'v2');
+  assert.equal(await workspaceGit.fileAt(log[0].oid, 'nope.txt'), '', '不存在的文件给空串，不抛');
+  assert.deepEqual(await workspaceGit.diffTextsInCommit(log[0].oid, 'a.txt'), { before: 'v1', after: 'v2' });
+  assert.deepEqual(await workspaceGit.diffTextsInCommit(log[1].oid, 'a.txt'), { before: '', after: 'v1' }, '首个提交旧侧为空');
+});
+
+test('内核：空仓库 / 坏 oid 上取历史不抛错（面板不能被打挂）', async () => {
+  const { workspaceGit } = setup();
+  await workspaceGit.init();
+  assert.deepEqual(await workspaceGit.changedInCommit(''), []);
+  assert.equal(await workspaceGit.fileAt('', 'a.txt'), '');
+  assert.deepEqual(await workspaceGit.changedInCommit('deadbeef'), []);
+});

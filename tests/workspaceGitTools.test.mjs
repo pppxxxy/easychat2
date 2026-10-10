@@ -221,3 +221,28 @@ test('git_discard：path 只作用于那一个文件；文件本来就干净时�
   assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/a.txt`), 'a1');
   assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/b.txt`), 'b2', 'b 不受影响');
 });
+
+test('退旧：git 开着就不记写前快照；SAF 根下必须继续记（那里 git 不可用）', async () => {
+  const { shouldRecordFileHistory } = await import('../src/workspace/native.js');
+  assert.equal(shouldRecordFileHistory({}), true, 'git 关着 → 快照仍是唯一回退手段');
+  assert.equal(shouldRecordFileHistory({ allowLocalGit: true }), false, 'git 开着且应用内根 → 交给 git');
+  assert.equal(
+    shouldRecordFileHistory({ allowLocalGit: true, location: { kind: 'saf', uri: 'content://x', name: 'x' } }),
+    true,
+    '外部根下 git 不注册，快照必须继续记——否则那里彻底没有回退手段',
+  );
+});
+
+test('gitFormat：提交时间与文件记号（纯函数，Node 直测）', async () => {
+  const { commitFileMark, formatCommitTime } = await import('../src/workspace/gitFormat.js');
+  // 用本地时区构造，断言不受时区影响
+  const at = new Date(2026, 9, 10, 9, 5).getTime();
+  assert.equal(formatCommitTime(at), '2026-10-10 09:05');
+  assert.equal(formatCommitTime(0), '', '没有时间戳 → 空串（不显示 1970）');
+  assert.equal(formatCommitTime(undefined), '');
+  assert.equal(formatCommitTime('nope'), '');
+  assert.equal(commitFileMark('added'), 'A');
+  assert.equal(commitFileMark('modified'), 'M');
+  assert.equal(commitFileMark('deleted'), 'D');
+  assert.equal(commitFileMark('???'), '?');
+});

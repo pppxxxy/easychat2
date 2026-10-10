@@ -62,8 +62,15 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
     for (const name of entries) {
       if (prefix === '' && name === '.git') continue;
       const path = prefix === '' ? name : `${prefix}/${name}`;
-      const info = await fs.lstat(path);
-      if (info.isDirectory()) out.push(...await walkWorkdir(path));
+      // 单个条目查不到（readdir 与 lstat 之间被删、或后端只给了一半）不能让整个
+      // status 掀掉——跳过它，其余照常如实报告。
+      let info = null;
+      try {
+        info = await fs.lstat(path);
+      } catch (error) {
+        continue;
+      }
+      if (info && info.isDirectory()) out.push(...await walkWorkdir(path));
       else out.push(path);
     }
     return out;
@@ -76,6 +83,18 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
     }
     const rows = await git.statusMatrix({ fs, dir });
     return rows.map(classifyStatusRow);
+  };
+
+  // 某个提交的父提交 oid（第一个提交没有父 → ''）。
+  const parentOf = async oid => {
+    if (!oid) return '';
+    try {
+      const { commit } = await git.readCommit({ fs, dir, oid });
+      const parents = Array.isArray(commit && commit.parent) ? commit.parent : [];
+      return parents[0] || '';
+    } catch (error) {
+      return '';
+    }
   };
 
   const readFileOr = async (path, fallback = '') => {
@@ -129,6 +148,69 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
       const before = await this.readFileAtHead(path);
       const after = await readFileOr(path);
       return buildLineDiff(before, after);
+    },
+    // 某文件在**指定提交**里的内容（那个提交里没有这个文件 → ''）。
+    async fileAt(oid, path) {
+      if (!oid) return '';
+      try {
+        const { blob } = await git.readBlob({ fs, dir, oid, filepath: path });
+        return Buffer.from(blob).toString('utf8');
+      } catch (error) {
+        return '';
+      }
+    },
+    // 某个提交相对**其父提交**改了哪些文件。第一个提交（无父）→ 全部算新增。
+    // 用两棵树并走（git.walk）而不是逐文件读：目录节点两边 oid 不同不算改动，
+    // 只有 blob 侧的 oid 变化才是真改动。
+    async changedInCommit(oid) {
+      if (!oid) return [];
+      const parent = await parentOf(oid);
+      const changed = [];
+      // 两个实测坑（spike 探针踩出来的，别"顺手简化"）：
+      // 1. WalkerEntry 的 type()/oid() 是**异步方法**，不是属性——按属性读会全是 undefined，
+      //    于是「两边 oid 相同」恒成立，改动列表永远为空；
+      // 2. map 返回 null 会让 walker **停止下钻**（只剩根节点），必须返回非 null 值。
+      const typeOf = async entry => (entry ? entry.type() : null);
+      const oidOf = async entry => (entry ? entry.oid() : null);
+      try {
+        const trees = parent
+          ? [git.TREE({ ref: parent }), git.TREE({ ref: oid })]
+          : [git.TREE({ ref: oid })];
+        await git.walk({
+          fs,
+          dir,
+          trees,
+          map: async (filepath, entries) => {
+            if (filepath !== '.') {
+              const before = parent ? entries[0] : null;
+              const after = entries[parent ? 1 : 0];
+              const beforeType = await typeOf(before);
+              const afterType = await typeOf(after);
+              if (beforeType === 'blob' && afterType === 'blob') {
+                if (await oidOf(before) !== await oidOf(after)) changed.push({ path: filepath, status: 'modified' });
+              } else if (afterType === 'blob') {
+                changed.push({ path: filepath, status: 'added' });
+              } else if (beforeType === 'blob') {
+                changed.push({ path: filepath, status: 'deleted' });
+              }
+            }
+            // 必须返回非 null：返回 null 会停止下钻，目录里的文件就都看不见了。
+            return true;
+          },
+        });
+      } catch (error) {
+        // 树走不动（对象缺失等）→ 返回已经拿到的部分，不把整个面板打挂。
+      }
+      return changed.sort((a, b) => a.path.localeCompare(b.path));
+    },
+    // 某个提交里某文件相对父提交的**文本对**——UI 直接喂 DiffView（模型由它自己算，
+    // 不在这里拼第二套 diff 口径）。
+    async diffTextsInCommit(oid, path) {
+      const parent = await parentOf(oid);
+      return {
+        before: parent ? await this.fileAt(parent, path) : '',
+        after: await this.fileAt(oid, path),
+      };
     },
     // 暂存全部变更并提交一次。返回 oid；没有变更返回 null（不产生空提交）。
     async commitAll(message, { author: commitAuthor = author } = {}) {
