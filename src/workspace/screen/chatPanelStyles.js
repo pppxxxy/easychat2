@@ -20,6 +20,21 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   embeddedAction: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
   embeddedActionText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
+  // P2-1：消息检索条（就地过滤消息列表，不是另开结果页）。
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    marginBottom: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  searchInput: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, padding: 0 },
+  searchCount: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 8 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

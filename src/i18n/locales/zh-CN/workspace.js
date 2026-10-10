@@ -474,6 +474,11 @@ export const workspace = {
   'workspace.chat.intro': '直接说出你的要求，助手会调用工作区工具完成（可附加文本文件或图片，也可录音转文字）。对话不会保存。',
   'workspace.chat.placeholder': '例如：新建 src/app.js，写一个 hello 函数',
   'workspace.chat.tool.reading': '正在调用工具：{name}',
+  // P2-1：消息检索（就地过滤消息列表）
+  'workspace.chat.search.placeholder': '搜索消息',
+  'workspace.chat.search.clear': '清除搜索',
+  'workspace.chat.search.count': '{count} 条命中',
+  'workspace.chat.search.empty': '没有匹配的消息。',
   // P0：工作区工具过程卡片（逐次调用各一张；未登记的工具由界面回退显示原始工具名）。
   'workspace.toolCard.title': '工具过程',
   'workspace.toolCard.count': '{total} 次调用',

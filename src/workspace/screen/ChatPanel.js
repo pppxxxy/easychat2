@@ -65,6 +65,7 @@ import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveC
 import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
 import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
+import { searchChatMessages } from '../../chat/messageSearch.js';
 import ToolCardList from './ToolCardList.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
@@ -266,6 +267,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [chatList, setChatList] = useState([]);
   const [activeChatId, setActiveChatId] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  // P2-1：消息检索。有查询时**就地过滤**消息列表（而不是另开一页结果）——RN 的 ScrollView
+  // 没有 scrollToIndex，另开结果页就没法「跳到那条」，就地过滤反而诚实且够用。
+  // 「是否展开」用**独立布尔**，不要拿查询串当哨兵：搜索条一展开就 trim 成空，哨兵会立刻失效。
+  const [msgSearchOpen, setMsgSearchOpen] = useState(false);
+  const [msgQuery, setMsgQuery] = useState('');
   const [historyBusy, setHistoryBusy] = useState(false);
 
   const recorder = useChatRecorder();
@@ -1362,6 +1368,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     return () => clearTimeout(timer);
   }, [messages, toolCards]);
 
+  // P2-1：检索结果 → 命中下标集合 → 就地过滤。判定全在纯函数里（chat/messageSearch.js），
+  // 这里只把结果套到列表上。
+  // 展开 ≠ 过滤：展开但没打字时列表照常全显示（否则一按搜索消息就全没了）。
+  const searching = msgSearchOpen && msgQuery.trim().length > 0;
+  const msgSearch = useMemo(() => searchChatMessages(messages, msgQuery), [messages, msgQuery]);
+  const msgMatchIndexes = useMemo(
+    () => new Set(msgSearch.matches.map(item => item.index)),
+    [msgSearch]
+  );
+  const visibleMessages = searching
+    ? messages.filter((item, index) => msgMatchIndexes.has(index))
+    : messages;
+
   // 对话面板（工作区单屏内的「对话」领域）：不再自套 Modal、不再自带顶栏与左栏——
   // 那是单屏的职责。顶部一条紧凑动作行保留「新建对话 / 查找历史」。
   return (
@@ -1379,7 +1398,45 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               <Ionicons name="time-outline" size={16} color={theme.colors.primarySoft} />
               <Text style={styles.embeddedActionText}>{t('workspace.rail.history')}</Text>
             </TouchableOpacity>
+            {/* P2-1：消息检索开关。消息一多就只能一路滚，这里给一个入口。 */}
+            <TouchableOpacity
+              style={styles.embeddedAction}
+              onPress={() => {
+                setMsgSearchOpen(value => !value);
+                setMsgQuery('');
+              }}
+              activeOpacity={0.8}
+              accessibilityLabel={t('workspace.chat.search.placeholder')}
+            >
+              <Ionicons
+                name={msgSearchOpen ? 'close-outline' : 'search-outline'}
+                size={16}
+                color={theme.colors.primarySoft}
+              />
+              <Text style={styles.embeddedActionText}>
+                {msgSearchOpen ? t('workspace.chat.search.clear') : t('workspace.chat.search.placeholder')}
+              </Text>
+            </TouchableOpacity>
         </View>
+
+        {msgSearchOpen ? (
+          <View style={styles.searchRow}>
+            <Ionicons name="search" size={14} color={theme.colors.textFaint} />
+            <TextInput
+              style={styles.searchInput}
+              value={msgQuery}
+              onChangeText={setMsgQuery}
+              placeholder={t('workspace.chat.search.placeholder')}
+              placeholderTextColor={theme.colors.textFaint}
+              autoFocus
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {searching ? (
+              <Text style={styles.searchCount}>{t('workspace.chat.search.count', { count: msgSearch.total })}</Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.mainRow}>
           <View style={styles.chatColumn}>
@@ -1441,7 +1498,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               {messages.length === 0 ? (
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
               ) : null}
-              {messages.map(item => {
+              {searching && visibleMessages.length === 0 ? (
+                <Text style={styles.intro}>{t('workspace.chat.search.empty')}</Text>
+              ) : null}
+              {visibleMessages.map(item => {
                 // P0-3：助手消息带已落盘的工具轨迹时，气泡下方给一个可折叠的只读回看
                 //（「上一轮读了什么、改了什么」）。纯展示，不进模型请求。
                 const traceCards = item.role === 'assistant' ? traceCardsForMessage(item) : null;

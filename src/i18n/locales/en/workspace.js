@@ -474,6 +474,11 @@ export const workspace = {
   'workspace.chat.intro': 'Describe what you need; the assistant will use workspace tools to do it. You can attach text files or images, or dictate by voice. The conversation is not saved.',
   'workspace.chat.placeholder': 'e.g. create src/app.js with a hello function',
   'workspace.chat.tool.reading': 'Calling tool: {name}',
+  // P2-1: message search (filters the message list in place)
+  'workspace.chat.search.placeholder': 'Search messages',
+  'workspace.chat.search.clear': 'Clear search',
+  'workspace.chat.search.count': '{count} matches',
+  'workspace.chat.search.empty': 'No matching messages.',
   // P0: workspace tool-activity cards (one per call; unknown tools fall back to the raw name).
   'workspace.toolCard.title': 'Tool activity',
   'workspace.toolCard.count': '{total} calls',
