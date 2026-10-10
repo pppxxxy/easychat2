@@ -470,6 +470,11 @@ export const workspace = {
   'workspace.chat.steering.attachments': '本轮还在进行：补充指令只支持文字；带附件的发送请等本轮结束。',
   'workspace.chat.planApproval.action': '批准并切换到可改模式执行',
   'workspace.history.archivedTab': '已归档（{count}）',
+  // P2-2：会话历史检索与排序
+  'workspace.history.search.placeholder': '搜索标题或内容',
+  'workspace.history.search.empty': '没有匹配的会话',
+  'workspace.history.sort.updated': '最近更新',
+  'workspace.history.sort.created': '最近创建',
   'workspace.history.emptyArchived': '还没有归档的会话。',
   'workspace.chat.err': '执行失败，请稍后重试。',
   'workspace.chat.stopped': '（已停止）',

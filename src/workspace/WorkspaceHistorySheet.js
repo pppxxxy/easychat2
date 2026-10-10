@@ -12,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -19,6 +20,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
+import {
+  CHAT_SORT_MODES,
+  DEFAULT_CHAT_SORT,
+  buildChatHistoryView,
+  chatMessageCount,
+  chatPreview,
+} from './chatHistoryView.js';
 
 function formatTime(at) {
   const date = new Date(Number(at) || 0);
@@ -43,8 +51,14 @@ export default function WorkspaceHistorySheet({
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   // I5：归档视图——主视图只看未归档；有归档会话时出现「已归档（N）」切换。
   const [showArchived, setShowArchived] = useState(false);
+  // P2-2：检索与排序都走纯函数（workspace/chatHistoryView.js），面板只渲染结果。
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState(DEFAULT_CHAT_SORT);
   const archivedCount = chats.filter(chat => chat.archived === true).length;
-  const visibleChats = chats.filter(chat => (showArchived ? chat.archived === true : chat.archived !== true));
+  const visibleChats = useMemo(
+    () => buildChatHistoryView(chats, { query, archived: showArchived, sort }),
+    [chats, query, showArchived, sort]
+  );
 
   const confirmDelete = chat => {
     Alert.alert(
@@ -97,24 +111,67 @@ export default function WorkspaceHistorySheet({
             </View>
           </View>
 
+          {/* P2-2：检索 + 排序。会话一多就只能滚动翻找，这里给搜索框与两种时间序
+              （只提供基于时间的顺序：按标题排要 localeCompare 的 ICU 数据，
+              Hermes 上中文会按码位排、看着像乱序，宁可不给）。 */}
+          {chats.length > 0 ? (
+            <View style={styles.toolbar}>
+              <View style={styles.searchBox}>
+                <Ionicons name="search" size={14} color={theme.colors.textFaint} />
+                <TextInput
+                  style={styles.searchInput}
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={t('workspace.history.search.placeholder')}
+                  placeholderTextColor={theme.colors.textFaint}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+                {query ? (
+                  <TouchableOpacity onPress={() => setQuery('')} hitSlop={8} accessibilityLabel={t('common.cancel')}>
+                    <Ionicons name="close-circle" size={15} color={theme.colors.textFaint} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {CHAT_SORT_MODES.map(mode => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.sortChip, sort === mode && styles.sortChipActive]}
+                  onPress={() => setSort(mode)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.sortChipText, sort === mode && styles.sortChipTextActive]}>
+                    {t(`workspace.history.sort.${mode}`)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+
           {busy ? (
             <View style={styles.center}>
               <ActivityIndicator color={theme.colors.primary} />
             </View>
           ) : visibleChats.length === 0 ? (
             <View style={styles.center}>
-              <Ionicons name="chatbubbles-outline" size={30} color={theme.colors.textFaint} />
+              <Ionicons
+                name={query ? 'search-outline' : 'chatbubbles-outline'}
+                size={30}
+                color={theme.colors.textFaint}
+              />
               <Text style={styles.emptyText}>
-                {showArchived ? t('workspace.history.emptyArchived') : t('workspace.history.empty')}
+                {query
+                  ? t('workspace.history.search.empty')
+                  : (showArchived ? t('workspace.history.emptyArchived') : t('workspace.history.empty'))}
               </Text>
             </View>
           ) : (
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
               {visibleChats.map(chat => {
                 const active = String(chat.id) === String(activeChatId);
-                const preview = chat.messages.length
-                  ? String(chat.messages[chat.messages.length - 1].content || '').split('\n')[0]
-                  : '';
+                const preview = chatPreview(chat);
                 return (
                   <TouchableOpacity
                     key={chat.id}
@@ -136,7 +193,7 @@ export default function WorkspaceHistorySheet({
                         {chat.title || t('workspace.history.untitled')}
                       </Text>
                       <Text style={styles.rowMeta} numberOfLines={1}>
-                        {`${formatTime(chat.updatedAt)} · ${t('workspace.history.count', { count: chat.messages.length })}`}
+                        {`${formatTime(chat.updatedAt)} · ${t('workspace.history.count', { count: chatMessageCount(chat) })}`}
                       </Text>
                       {preview ? (
                         <Text style={styles.rowPreview} numberOfLines={1}>{preview}</Text>
@@ -198,6 +255,39 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   sheetTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800' },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
+  // P2-2：检索 + 排序工具条（贴着标题行下方，不占列表空间）。
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  searchBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  searchInput: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, padding: 0 },
+  sortChip: {
+    marginLeft: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+  },
+  sortChipActive: {
+    backgroundColor: theme.colors.primaryMuted || theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  sortChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), fontWeight: '600' },
+  sortChipTextActive: { color: theme.colors.primaryContrast || '#fff' },
   clearButton: { marginRight: 14 },
   clearText: { color: theme.colors.danger || theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
   // I5：归档切换 tab（激活态用主题主色描边，不与「清空」的红字混淆）。

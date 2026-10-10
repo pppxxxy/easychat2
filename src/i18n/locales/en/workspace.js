@@ -471,6 +471,11 @@ export const workspace = {
   'workspace.chat.steering.attachments': 'This turn is still running: steering only supports text; send attachments after it finishes.',
   'workspace.chat.planApproval.action': 'Approve & switch to write mode',
   'workspace.history.archivedTab': 'Archived ({count})',
+  // P2-2: chat history search and sorting
+  'workspace.history.search.placeholder': 'Search title or content',
+  'workspace.history.search.empty': 'No matching chats',
+  'workspace.history.sort.updated': 'Recent',
+  'workspace.history.sort.created': 'Created',
   'workspace.history.emptyArchived': 'No archived chats yet.',
   'workspace.chat.err': 'Request failed, please try again.',
   'workspace.chat.stopped': '(stopped)',
