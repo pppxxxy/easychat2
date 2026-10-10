@@ -197,6 +197,8 @@ export const error = {
   'error.presets.duplicateId': 'Duplicate preset ID.',
   'error.workspace.fileSystemMissing': 'The workspace is missing its fileSystem injection.',
   'error.workspace.targetIsDirectory': 'The target is a directory, not a file: {path}',
+  'error.workspace.gitPathEscape': 'Git path escapes the workspace (no ".." or absolute paths allowed): {path}',
+  'error.workspace.gitUnsupported': 'Workspace git does not support {name} (no symlink support).',
   'error.backup.restoreReadFailed': 'Failed to read the data to restore: {key}',
   'error.backup.tooLarge': 'The backup file is too large; the current limit is {mb}MB.',
   'error.backup.exportUnreadable': 'Backup export: the following data keys could not be read and were not included: {keys}',
