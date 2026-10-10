@@ -9,7 +9,7 @@
     "src/SettingsScreen.js": 2322,
     "src/chat/useChatSend.js": 1991,
     "src/workspace/screen/GithubPanel.js": 1984,
-    "src/workspace/screen/ChatPanel.js": 1850,
+    "src/workspace/screen/ChatPanel.js": 1781,
     "src/character/CharacterDetailScreen.js": 1714,
     "src/workspace/screen/FilesPanel.js": 1580,
     "src/chat/chatStyles.js": 1558,

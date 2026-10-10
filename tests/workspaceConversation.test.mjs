@@ -1,0 +1,123 @@
+// W1：工作区会话行投影（src/workspace/conversation.js）。
+//
+// 这一层是后面所有「看得见 agent 在干什么」的地基：工具卡片（W2）、压缩分隔行、
+// 回合小结都要从行模型上长出来，而不是各自回 messages 里现算。所以先把契约钉住。
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  CONVERSATION_ROW_KINDS,
+  buildConversationRows,
+  previewToolResult,
+  summarizeToolArgs,
+  toolRowsFromTrace,
+} from '../src/workspace/conversation.js';
+import { COMPACTION_MARKER } from '../src/chat/compaction.js';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const toolCall = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+
+test('summarizeToolArgs：按工具取最能认人的那个字段；认不出就空串（不甩 JSON）', () => {
+  assert.equal(summarizeToolArgs('read_workspace_file', { path: 'src/app.js' }), 'src/app.js');
+  assert.equal(summarizeToolArgs('search_workspace', { pattern: 'needle' }), 'needle');
+  assert.equal(summarizeToolArgs('run_shell', { command: 'npm  test\n  --run' }), 'npm test --run', '空白折叠');
+  assert.equal(summarizeToolArgs('update_plan', { plan: [{ status: 'done' }, { status: 'pending' }] }), '1/2 步');
+  assert.equal(summarizeToolArgs('unknown_tool', { weird: 1 }), '');
+  assert.equal(summarizeToolArgs('read_workspace_file', '{坏 JSON'), '', '参数不是 JSON 也不抛');
+  assert.equal(summarizeToolArgs('read_workspace_file', undefined), '');
+  const long = summarizeToolArgs('read_workspace_file', { path: 'x'.repeat(200) });
+  assert.equal(long.endsWith('…'), true, '过长截断');
+});
+
+test('previewToolResult：取首个非空行并截断；空内容空串', () => {
+  assert.equal(previewToolResult(''), '');
+  assert.equal(previewToolResult('\n\n第二行有内容\n第三行'), '第二行有内容');
+  assert.equal(previewToolResult('  a   b  '), 'a b');
+  assert.equal(previewToolResult('x'.repeat(300)).length, 121, '120 + 省略号');
+});
+
+test('toolRowsFromTrace：调用与结果按 tool_call_id 配对，状态如实', () => {
+  const rows = toolRowsFromTrace([
+    { role: 'assistant', content: '', tool_calls: [toolCall('c1', 'read_workspace_file', { path: 'a.js' }), toolCall('c2', 'write_workspace_file', { path: 'b.js' })] },
+    { role: 'tool', tool_call_id: 'c1', content: '文件内容第一行\n第二行' },
+    { role: 'tool', tool_call_id: 'c2', content: '错误：写入失败' },
+  ], { messageId: 'm1' });
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map(row => [row.kind, row.tool.name, row.tool.args, row.tool.status]), [
+    ['tool', 'read_workspace_file', 'a.js', 'ok'],
+    ['tool', 'write_workspace_file', 'b.js', 'error'],
+  ]);
+  assert.equal(rows[0].tool.resultPreview, '文件内容第一行');
+  assert.equal(rows[0].key, 'tool:m1:c1');
+  assert.equal(rows[0].tool.resultLength, '文件内容第一行\n第二行'.length);
+});
+
+test('toolRowsFromTrace：轨迹被截断（结果缺失）时记 unknown，不假装成功也不假装失败', () => {
+  const rows = toolRowsFromTrace([
+    { role: 'assistant', content: '', tool_calls: [toolCall('c9', 'run_shell', { command: 'ls' })] },
+  ], { messageId: 'm2' });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].tool.status, 'unknown');
+  assert.equal(rows[0].tool.resultPreview, '');
+});
+
+test('buildConversationRows：工具行排在终稿之前（发生顺序），用户/助手行按原序', () => {
+  const rows = buildConversationRows({
+    messages: [
+      { id: 'u1', role: 'user', content: '帮我改一下' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '改好了',
+        toolTrace: [
+          { role: 'assistant', content: '', tool_calls: [toolCall('c1', 'edit_workspace_file', { path: 'a.js' })] },
+          { role: 'tool', tool_call_id: 'c1', content: 'ok' },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(rows.map(row => row.kind), ['user', 'tool', 'assistant']);
+  assert.deepEqual(rows.map(row => row.key), ['msg:u1', 'tool:a1:c1', 'msg:a1']);
+});
+
+test('buildConversationRows：压缩产物单独成行（带 marker 的那条不是助手的回答）', () => {
+  const rows = buildConversationRows({
+    messages: [
+      { id: 'a0', role: 'assistant', content: `${COMPACTION_MARKER}\n当前用户请求：x（权威）` },
+      { id: 'u1', role: 'user', content: '继续' },
+    ],
+  });
+  assert.equal(rows[0].kind, CONVERSATION_ROW_KINDS.COMPACTION);
+  assert.equal(rows[1].kind, CONVERSATION_ROW_KINDS.USER);
+});
+
+test('buildConversationRows：报错/中止的助手消息如实带出 isError（不吞掉失败形态）', () => {
+  const rows = buildConversationRows({
+    messages: [{ id: 'a1', role: 'assistant', content: '已停止生成。', isError: true }],
+  });
+  assert.equal(rows[0].kind, CONVERSATION_ROW_KINDS.ASSISTANT);
+  assert.equal(rows[0].message.isError, true);
+});
+
+test('buildConversationRows：空输入 / 脏数据安全（永不抛错——渲染层不该被数据打挂）', () => {
+  assert.deepEqual(buildConversationRows({}), []);
+  assert.deepEqual(buildConversationRows({ messages: null }), []);
+  assert.deepEqual(buildConversationRows({ messages: [null, undefined, { role: 'system', content: 'x' }, {}] }), []);
+  const rows = buildConversationRows({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(rows.length, 1, '缺 id 也能出行（key 退化成 msg:）');
+  assert.equal(rows[0].key, 'msg:');
+});
+
+test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () => {
+  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  assert.match(panel, /buildConversationRows\(\{ messages \}\)/, '渲染前先投影成行');
+  assert.match(panel, /\{rows\.map\(row => \{/, '按行遍历');
+  assert.equal(panel.includes('{messages.map(item => ('), false, '旧的逐条气泡渲染已移除');
+  assert.match(panel, /<ToolCallRow key=\{row\.key\} tool=\{row\.tool\} \/>/, '工具行走 ToolCallRow');
+  assert.match(panel, /row\.kind === 'compaction' \? styles\.bubbleCompaction/, '压缩行有独立样式');
+  // 计划面板已外提，ChatPanel 只传数据
+  assert.match(panel, /<AgentPlanPanel/, '计划面板外提');
+  assert.equal(panel.includes('setPlanCollapsed'), false, '折叠态已归面板自己');
+});

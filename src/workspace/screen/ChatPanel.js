@@ -127,7 +127,9 @@ import {
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
-import { hexToRgba } from '../../theme/themes.js';
+import AgentPlanPanel from './AgentPlanPanel.js';
+import ToolCallRow from './ToolCallRow.js';
+import { buildConversationRows } from '../conversation.js';
 import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
@@ -180,7 +182,6 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // A3 二期：计划进度条——从 update_plan 的工具事件读清单（纯展示，不落盘）；
   // 会话边界（新对话/切对话）清空，与已读登记同款。
   const [agentPlan, setAgentPlan] = useState([]);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
   // I1：Steering——agent 运行中输入框保持可用，发送即入队（下一轮请求前注入）；
   // 队列每次发送时新建、turn 结束丢弃（跨轮次的补充没有意义）。
   const steeringRef = useRef(null);
@@ -194,6 +195,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 闭包带着定义时的 mode——不能「切模式后立即调用」（那还是 read 的工具集）。
   // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
   // 用**新的 handleSend** 发起。
+  // W1：会话事实 → 行（投影是纯函数；渲染层不再遍历 messages 猜结构）。
+  const rows = useMemo(() => buildConversationRows({ messages }), [messages]);
   const canApprovePlan = useMemo(
     () => shouldOfferPlanApproval({ mode, plan: agentPlan }),
     [mode, agentPlan]
@@ -1178,7 +1181,6 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             if (event.name === 'update_plan') {
               const steps = normalizePlanSteps(event.args && event.args.plan);
               setAgentPlan(steps);
-              if (steps.length > 0) setPlanCollapsed(false);
             }
           }
           setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
@@ -1403,15 +1405,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               {messages.length === 0 ? (
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
               ) : null}
-              {messages.map(item => (
+              {rows.map(row => {
+                if (row.kind === 'tool') return <ToolCallRow key={row.key} tool={row.tool} />;
+                const item = row.message;
+                return (
                 <View
-                  key={item.id}
+                  key={row.key}
                   style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
                 >
                   <View style={[
                     styles.bubble,
                     item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
                     item.isError ? styles.bubbleError : null,
+                    row.kind === 'compaction' ? styles.bubbleCompaction : null,
                   ]}>
                     {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
                         选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
@@ -1422,63 +1428,17 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                     )}
                   </View>
                 </View>
-              ))}
+                );
+              })}
             </ScrollView>
 
-            {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——多步任务执行中
-                对用户可见「做到哪一步了」；会话边界清空，纯展示不落盘。 */}
-            {agentPlan.length > 0 ? (
-              <View style={styles.planPanel}>
-                <TouchableOpacity
-                  style={styles.planHeader}
-                  onPress={() => setPlanCollapsed(value => !value)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="list-outline" size={14} color={theme.colors.primary} />
-                  <Text style={styles.planTitle} numberOfLines={1}>
-                    {t('workspace.chat.plan.title', {
-                      done: agentPlan.filter(item => item.status === 'done').length,
-                      total: agentPlan.length,
-                    })}
-                  </Text>
-                  <Ionicons
-                    name={planCollapsed ? 'chevron-down' : 'chevron-up'}
-                    size={14}
-                    color={theme.colors.textFaint}
-                  />
-                </TouchableOpacity>
-                {planCollapsed ? null : agentPlan.map((item, index) => (
-                  <View key={`${index}-${item.step}`} style={styles.planRow}>
-                    <Ionicons
-                      name={item.status === 'done'
-                        ? 'checkmark-circle'
-                        : (item.status === 'in_progress' ? 'play-circle' : 'ellipse-outline')}
-                      size={14}
-                      color={item.status === 'done' ? theme.colors.primary : theme.colors.textMuted}
-                    />
-                    <Text
-                      style={[styles.planStep, item.status === 'done' && styles.planStepDone]}
-                      numberOfLines={1}
-                    >
-                      {item.step}
-                    </Text>
-                  </View>
-                ))}
-                {/* I2：read 模式 + 计划未完成 → 提议「批准并执行」（切模式 + 注入确认消息）。 */}
-                {canApprovePlan ? (
-                  <TouchableOpacity
-                    style={styles.planApprovalButton}
-                    onPress={() => { if (!sending) approvePlan(); }}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="checkmark-done-outline" size={14} color={theme.colors.primary} />
-                    <Text style={styles.planApprovalText}>
-                      {t('workspace.chat.planApproval.action')}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
+            {/* A3 二期：计划进度条（W1 外提到 AgentPlanPanel；折叠态归它自己管）。 */}
+            <AgentPlanPanel
+              plan={agentPlan}
+              canApprove={canApprovePlan}
+              sending={sending}
+              onApprove={approvePlan}
+            />
 
             {toolStatus ? (
               <View style={styles.statusBar}>
@@ -1733,41 +1693,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   bubbleUser: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   bubbleAssistant: { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceBorder },
+  // W1：压缩产物是「系统的动作」，不是模型说的话——虚线边框区分。
+  bubbleCompaction: { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, borderStyle: 'dashed' },
   bubbleError: { borderColor: theme.colors.danger || theme.colors.surfaceBorder },
   bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
   statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
   statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
-  // A3 二期：计划进度条（贴着输入区的只读卡片；完成项划线弱化）。
-  planPanel: {
-    marginHorizontal: 12,
-    marginBottom: 4,
-    borderRadius: 10,
-    backgroundColor: theme.colors.surfaceAlt,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  planHeader: { flexDirection: 'row', alignItems: 'center' },
-  planTitle: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
-  planRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-  planStep: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
-  planStepDone: { color: theme.colors.textFaint, textDecorationLine: 'line-through' },
-  // I2：计划批准按钮（计划卡片内的轻量行按钮，不引入大按钮组件）。
-  planApprovalButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: hexToRgba(theme.colors.primary, 0.14),
-  },
-  planApprovalText: {
-    color: theme.colors.primary,
-    fontSize: fonts.scaled(12),
-    fontWeight: '600',
-    marginLeft: 6,
-    flex: 1,
-  },
   attachmentBar: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingBottom: 4 },
   attachmentChip: {
     flexDirection: 'row',

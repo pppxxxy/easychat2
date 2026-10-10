@@ -296,3 +296,31 @@ agent 至今**没有任何办法把「我改了什么」变成一份可回滚的
 
 **仍未验（不宣称）**：真机 Hermes 上的 git 性能与 `TextEncoder` 可用性；面板在真机上的观感
 （提交列表 / 展开 / 内联 diff 三段式在窄屏是否好用）。
+
+## 八、W1 落地（工作区会话投影，2026-10-11，z1010z7）
+
+**做完了什么**：工作区聊天从「遍历 messages 画气泡」改成「先把会话事实投影成行，再按行渲染」。
+
+- 新增 `src/workspace/conversation.js`（纯函数，Node 直测）：`buildConversationRows` 把
+  消息 + 消息上的 `toolTrace` 投影成 `user | assistant | tool | compaction` 四类行；
+  `toolRowsFromTrace` 按 `tool_call_id` 配对调用与结果，**轨迹被截断时记 `unknown`**
+  （不假装成功也不假装失败）；`summarizeToolArgs` 按工具取最能认人的字段（认不出就空串，
+  不甩 JSON）；`previewToolResult` 取首个非空行并截断。
+- 新增 `src/workspace/screen/ToolCallRow.js`：工具行（图标按工具族 + 名字 + 参数摘要 +
+  状态 + 结果首行）。**这是本轮最直接的观感变化**——此前一轮结束后工具调用什么都看不到。
+- 新增 `src/workspace/screen/AgentPlanPanel.js`：计划面板外提（折叠态与「新计划自动展开」
+  一并归它自己，ChatPanel 不再需要 `planCollapsed` 这行 state）。
+- ChatPanel 1850 → **1781 行**（基线同步收紧）：渲染改为按行分派，压缩产物用虚线边框区分
+  （它是系统的动作，不是模型说的话）。
+
+**两条刻意的取舍（不是漏做，写进了模块注释）**：
+1. **没有 plan 行**：计划的历史本身就是 `update_plan` 的工具行（参数里带清单），
+   当前进度是活状态、由底部面板展示（进滚动流会滚走）。两处合一才是重复。
+2. **没有 live 行**：本轮正在跑的那次调用仍由面板的瞬时状态行负责（它在滚动区外、位置固定）。
+   行投影只管「已经沉淀下来的事实」——实时行与富卡片是 W2。
+
+**W2 从这里接着长**：按工具族做富卡片（write/edit 内联 diff 复用 `DiffView`、shell/python
+输出折叠、subagent 子会话摘要）、实时行（把瞬时状态行并进流里）、回合小结抽屉。
+
+**验证**：测试 +9（投影 8 条 + 接线钉死 1 条）；注入验证「工具行不再走 ToolCallRow」变红。
+五门全过（2512 测试、覆盖 79.97%、export 9.33MB）。

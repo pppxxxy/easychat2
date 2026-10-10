@@ -143,8 +143,11 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
   assert.ok(panel.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
   assert.ok(panel.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
-  assert.ok(panel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
-  assert.ok(panel.includes('setPlanCollapsed'), '可收起');
+  // W1 外提：进度条的渲染（含文案与折叠）搬去 AgentPlanPanel，ChatPanel 只负责把清单传下去。
+  const planPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
+  assert.ok(planPanel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  assert.ok(planPanel.includes('setCollapsed'), '可收起（折叠态归面板自己）');
+  assert.ok(panel.includes('<AgentPlanPanel'), 'ChatPanel 把清单传给面板');
   const clearCount = (panel.match(/setAgentPlan\(\[\]\)/g) || []).length;
   assert.ok(clearCount >= 2, '新对话与切对话两处都清空');
 
@@ -170,7 +173,9 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
   // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
   assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
-  assert.ok(screen.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  const approvalPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
+  assert.ok(approvalPanel.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  assert.ok(screen.includes('canApprove={canApprovePlan}'), 'ChatPanel 把批准判据传下去');
   // 2026-10-10 回归：发送按钮是 onPress={handleSend}，RN 把点击事件对象当第一实参传进来。
   // 旧判据「overrideText === undefined」认不出事件对象，String(事件) = "[object Object]"，
   // 于是「工作区发啥都变成 [object Object]」。判据必须是「是不是字符串」。
