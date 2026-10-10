@@ -99,12 +99,14 @@ import {
   slashQuery,
 } from '../commands.js';
 import {
+  HOOKS_FILE,
   buildHookContextText,
   collectPromptHooks,
   collectSessionStartNotices,
   collectToolResultNotices,
   collectTurnEndNotices,
   hookPermissionRules,
+  installSampleHooks,
   readWorkspaceHooks,
 } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
@@ -179,6 +181,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // P0-8：hooks.json 注入类事件的内存记账（session_start 每会话一次；after_turn 排队给下一轮）。
   const hookSessionInjectedRef = useRef(new Set());
   const pendingHookNoticesRef = useRef([]);
+  // P0-8：hooks.json 原文（面板展示 + 纯函数校验用；宿主读、面板只展示）。
+  const [hooksText, setHooksText] = useState('');
   // I2：read 模式下计划未完成时提议「批准并执行」。**时序关键**：handleSend 的
   // 闭包带着定义时的 mode——不能「切模式后立即调用」（那还是 read 的工具集）。
   // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
@@ -458,6 +462,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             if (alive) setWorkspaceCommands(Array.isArray(list) ? list : []);
           })
           .catch(() => {});
+        // P0-8：hooks.json 原文——面板要展示「装了几条、哪条写坏了」，读失败当空（面板显示未配置）。
+        try {
+          const hookFile = await storeRef.current.readWorkspaceFile({ characterId: ownerId, path: HOOKS_FILE });
+          if (alive) setHooksText(String((hookFile && hookFile.content) || ''));
+        } catch (error) {
+          if (alive) setHooksText('');
+        }
 
         // 首次打开工作区（可改模式）：生成一份 AGENTS.md 模板当起点。
         // 幂等且绝不覆盖已有文件——用户或 agent 改过的内容就是它存在的意义；
@@ -713,6 +724,29 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         t('workspace.settings.commands.installNone')
       );
     }
+  }, [characterId, t]);
+
+  // P0-8：安装示例 hooks.json——**已存在就绝不覆盖**（用户可能已经写了自己的规则，
+  // 覆盖等于静默销毁他的配置）；结果如实汇报，装完重读原文刷新面板。
+  const handleInstallSampleHooks = useCallback(async () => {
+    let installed = false;
+    try {
+      installed = await installSampleHooks(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const file = await storeRef.current.readWorkspaceFile({ characterId, path: HOOKS_FILE });
+      setHooksText(String((file && file.content) || ''));
+    } catch (error) {
+      setHooksText('');
+    }
+    Alert.alert(
+      installed
+        ? t('workspace.settings.hooks.installDoneTitle')
+        : t('workspace.settings.hooks.installNoneTitle'),
+      installed
+        ? t('workspace.settings.hooks.installDone')
+        : t('workspace.settings.hooks.installNone')
+    );
   }, [characterId, t]);
 
   // 工作区模板（T9）：一键铺起始文件；幂等不覆盖，结果如实汇报（创建/跳过/失败）。
@@ -1235,6 +1269,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
+                  hooksText={hooksText}
+                  onInstallSampleHooks={handleInstallSampleHooks}
                   onInstallTemplate={handleInstallTemplate}
                   onExportSessionEvents={exportSessionEvents}
                 />

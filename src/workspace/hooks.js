@@ -349,3 +349,56 @@ export async function postWriteNotices(store, characterId, event, filePath) {
   const hooks = await readWorkspaceHooks(store, characterId);
   return collectPostEventNotices(hooks, event, filePath);
 }
+
+// 示例 hooks.json（面板「安装示例」用）：九个事件各一条，全部是**无害的提醒型**配置——
+// 示例文件不该一装上就把用户的操作拦下来（`effect` 一律用缺省或显式 inject）。
+// 每条 message 都写清「这是示例，可以改」，避免用户以为系统在自言自语。
+export const SAMPLE_HOOKS = Object.freeze({
+  before_shell: Object.freeze([
+    Object.freeze({ match: 'git push', message: '示例：推送前先确认改动范围（effect 可设 deny / ask）', effect: 'ask' }),
+  ]),
+  before_tool: Object.freeze([
+    Object.freeze({ tool: 'run_shell|run_python', match: 'rm -rf', message: '示例：删除类命令必须先问', effect: 'ask' }),
+  ]),
+  before_prompt: Object.freeze([
+    Object.freeze({ match: 're:^(部署|上线)', message: '示例：本项目禁止自动部署（effect: deny 会直接拦下发送）' }),
+  ]),
+  before_compact: Object.freeze([
+    Object.freeze({ message: '示例：压缩时保留所有未决问题与报错原文' }),
+  ]),
+  after_turn: Object.freeze([
+    Object.freeze({ message: '示例：把本轮的结论写进工作区 AGENTS.md' }),
+  ]),
+  session_start: Object.freeze([
+    Object.freeze({ message: '示例：本次会话请用中文回答' }),
+  ]),
+  after_write: Object.freeze([
+    Object.freeze({ glob: '**/*.md', message: '示例：改完文档检查目录与链接是否同步' }),
+  ]),
+  after_edit: Object.freeze([
+    Object.freeze({ glob: 'src/**/*.js', message: '示例：改完代码记得跑测试' }),
+  ]),
+  on_tool_result: Object.freeze([
+    Object.freeze({ match: 'run_shell', message: '示例：记得核对退出码' }),
+  ]),
+});
+
+export const SAMPLE_HOOKS_TEXT = JSON.stringify(SAMPLE_HOOKS, null, 2);
+
+// IO：安装示例 hooks.json——**已存在就绝不覆盖**（用户可能已经写了自己的规则，
+// 覆盖等于静默销毁他的配置）。返回是否写入。
+export async function installSampleHooks(store, characterId) {
+  if (!store || typeof store.writeWorkspaceFile !== 'function') return false;
+  try {
+    try {
+      const existing = await store.readWorkspaceFile({ characterId, path: HOOKS_FILE });
+      if (String((existing && existing.content) || '').trim()) return false;
+    } catch (error) {
+      // 读不到 = 文件不存在：继续写（这是常态，不是错误）。
+    }
+    await store.writeWorkspaceFile({ characterId, path: HOOKS_FILE, content: SAMPLE_HOOKS_TEXT });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}

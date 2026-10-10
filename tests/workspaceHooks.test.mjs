@@ -16,6 +16,7 @@ import {
   HOOK_EVENTS,
   HOOK_NOTICES_MAX,
   HOOK_SHELL_EFFECTS,
+  SAMPLE_HOOKS_TEXT,
   buildHookContextText,
   collectCompactionHooks,
   collectPostEventNotices,
@@ -24,6 +25,7 @@ import {
   collectToolResultNotices,
   collectTurnEndNotices,
   hookPermissionRules,
+  installSampleHooks,
   matchBeforeShellHooks,
   matchBeforeToolHooks,
   matchHookText,
@@ -419,6 +421,34 @@ test('P0-8 buildHookContextText：多来源合并去重限量，空输入给空�
   );
   const many = Array.from({ length: HOOK_NOTICES_MAX + 3 }, (unused, i) => `n${i}`);
   assert.equal(buildHookContextText(many).split('\n').length, HOOK_NOTICES_MAX, '上限内截断');
+});
+
+test('P0-8 示例 hooks.json：能通过校验、九个事件齐全，安装是「已存在绝不覆盖」', async () => {
+  assert.deepEqual(validateWorkspaceHooks(SAMPLE_HOOKS_TEXT), { ok: true, errors: [] });
+  const parsed = parseWorkspaceHooks(SAMPLE_HOOKS_TEXT);
+  assert.deepEqual(Object.keys(parsed).sort(), [...HOOK_EVENTS].sort(), '九个事件各一条示例');
+  // 示例一装上不该就把用户的操作拦下来：工具前门只有 ask，没有 deny。
+  assert.equal(
+    hookPermissionRules(parsed).every(rule => rule.effect === 'ask'),
+    true,
+    '示例全部是可商量的 ask'
+  );
+
+  const files = new Map();
+  const store = {
+    async readWorkspaceFile({ path }) {
+      if (!files.has(path)) throw new Error('missing');
+      return { content: files.get(path) };
+    },
+    async writeWorkspaceFile({ path, content }) { files.set(path, content); },
+  };
+  assert.equal(await installSampleHooks(store, 'c1'), true);
+  assert.equal(files.get(HOOKS_FILE), SAMPLE_HOOKS_TEXT, '文件不存在时写入示例');
+  const mine = '{"before_shell":[{"match":"rm","message":"我的规则"}]}';
+  files.set(HOOKS_FILE, mine);
+  assert.equal(await installSampleHooks(store, 'c1'), false, '已存在就不覆盖（不销毁用户配置）');
+  assert.equal(files.get(HOOKS_FILE), mine);
+  assert.equal(await installSampleHooks(null, 'c1'), false, '坏 store 安全返回 false');
 });
 
 test('P0-8 validateWorkspaceHooks：坏 JSON / 未知事件 / 非数组 / 无效条目 / 坏正则 / 超量都报出来', () => {

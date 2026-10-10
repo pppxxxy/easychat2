@@ -24,7 +24,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { describePermissionRule, normalizePermissionRule, PERMISSION_EFFECTS } from '../agent/permissions.js';
 import { DEFAULT_RETENTION, RETENTION_BOUNDS, normalizeRetention } from './retention.js';
 import { COMMANDS_DIR } from './commands.js';
-import { HOOKS_FILE } from './hooks.js';
+import { HOOKS_FILE, HOOK_EVENTS, parseWorkspaceHooks, validateWorkspaceHooks } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -32,6 +32,17 @@ import { useTranslation } from '../i18n/I18nContext.js';
 
 const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];
 const MODE_CHOICES = ['ask', 'read', 'write'];
+// P0-8：校验原因（机器 token 带连字符）→ i18n 词条名（只允许字母数字与点）。
+const HOOK_ERROR_KEYS = {
+  'invalid-json': 'invalidJson',
+  'not-object': 'notObject',
+  'unknown-event': 'unknownEvent',
+  'not-array': 'notArray',
+  'invalid-item': 'invalidItem',
+  'invalid-regex': 'invalidRegex',
+  'too-many': 'tooMany',
+  'too-long': 'tooLong',
+};
 
 // token 数的紧凑显示（估算值，K 足够）。
 function formatTokens(value) {
@@ -92,6 +103,9 @@ export default function WorkspaceSettingsSheet({
   onInstallTemplate,
   // E4：会话事件流导出（读/写/分享全在 ChatPanel——本面板只转发动作）。
   onExportSessionEvents,
+  // P0-8：hooks.json 原文（宿主读好传进来，本面板用纯函数校验与统计）与安装示例回调。
+  hooksText = '',
+  onInstallSampleHooks,
   embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -217,7 +231,11 @@ export default function WorkspaceSettingsSheet({
       id: 'hooks',
       icon: 'git-branch-outline',
       label: t('workspace.settings.hooks'),
-      value: 'hooks.json',
+      value: (() => {
+        const parsed = parseWorkspaceHooks(hooksText);
+        const count = HOOK_EVENTS.reduce((sum, event) => sum + (Array.isArray(parsed[event]) ? parsed[event].length : 0), 0);
+        return count > 0 ? t('workspace.settings.hooks.count', { count }) : 'hooks.json';
+      })(),
     },
     {
       id: 'templates',
@@ -416,9 +434,40 @@ export default function WorkspaceSettingsSheet({
       );
     }
     if (id === 'hooks') {
+      // P0-8：hooks 面板——路径 + 校验结果 + 事件清单 + 安装示例。
+      // 数据由宿主读好传进来（本面板只展示 + 转发回调，见文件头约定）。
+      const validation = validateWorkspaceHooks(hooksText);
+      const parsed = parseWorkspaceHooks(hooksText);
+      const hookRows = HOOK_EVENTS
+        .map(event => ({ event, count: Array.isArray(parsed[event]) ? parsed[event].length : 0 }))
+        .filter(item => item.count > 0);
       return (
         <View>
           <Text style={styles.bodyHint} selectable>{t('workspace.settings.hooks.hint', { file: HOOKS_FILE })}</Text>
+          {hookRows.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.hooks.empty')}</Text>
+          ) : hookRows.map(item => (
+            <Text key={item.event} style={styles.bodyHint} selectable>
+              {t('workspace.settings.hooks.entry', { event: item.event, count: item.count })}
+            </Text>
+          ))}
+          {validation.errors.map((error, index) => (
+            <Text key={`${error.event}-${error.index}-${index}`} style={styles.permissionClearText}>
+              {t('workspace.settings.hooks.error', {
+                event: error.event || t('workspace.settings.hooks.errorRoot'),
+                index: error.index + 1,
+                reason: t(`workspace.settings.hooks.reason.${HOOK_ERROR_KEYS[error.reason] || 'unknown'}`),
+              })}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleHooks && onInstallSampleHooks()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.hooks.install')}</Text>
+          </TouchableOpacity>
         </View>
       );
     }
