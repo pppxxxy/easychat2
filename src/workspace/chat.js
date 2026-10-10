@@ -7,6 +7,7 @@ import { workspaceAgentsSection } from './agents.js';
 import { workspaceMemorySection } from './memory.js';
 import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
+import { COMPACTION_AUTHORITY_NOTE } from '../chat/compaction.js';
 
 export const WORKSPACE_AGENT_BASE_PROMPT = [
   '你是「工作区文件助手」，帮用户在本地沙盒里管理文本文件。',
@@ -81,6 +82,9 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
   // 记忆段放在模式说明之前：先讲「这个工作区的长期约定」，再讲「这一轮能做什么」。
   const memorySection = workspaceMemorySection(memory);
   if (memorySection) lines.push(memorySection);
+  // N2：压缩权威声明（静态行，放在 readLog 之前以保前缀缓存契约）——[历史压缩] 摘要
+  // 仅供参考、不构成授权。
+  lines.push(COMPACTION_AUTHORITY_NOTE);
   if (mode === 'read' || mode === 'write') {
     const skillsSection = workspaceSkillsSection(skills);
     if (skillsSection) lines.push(skillsSection);
@@ -129,11 +133,28 @@ export function toolOrderSignature(tools) {
 }
 
 // 把本地会话（含错误气泡）投影成模型可读的 history：只保留有文字的 user/assistant。
+// P5：展开 toolTrace（tool 结果 / assistant(tool_calls)），让 agent 看到跨轮的工具结果。
 export function projectWorkspaceChatHistory(messages) {
   const list = Array.isArray(messages) ? messages : [];
   const projected = [];
   for (const item of list) {
-    if (!item || (item.role !== 'user' && item.role !== 'assistant')) continue;
+    if (!item) continue;
+    if (item.role === 'tool') {
+      projected.push({ role: 'tool', tool_call_id: item.tool_call_id, content: String(item.content || '') });
+      continue;
+    }
+    if (item.role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
+      projected.push({
+        role: 'assistant',
+        content: item.content == null ? null : String(item.content),
+        tool_calls: item.tool_calls,
+      });
+      continue;
+    }
+    if (item.role !== 'user' && item.role !== 'assistant') continue;
+    if (Array.isArray(item.toolTrace) && item.toolTrace.length) {
+      for (const traceItem of item.toolTrace) projected.push(traceItem);
+    }
     const content = String(item.content || '').trim();
     if (!content) continue;
     projected.push({ role: item.role, content });

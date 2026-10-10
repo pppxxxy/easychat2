@@ -33,6 +33,8 @@ export function normalizeWorkspaceChatMessage(raw) {
     content: truncate(source.content, MESSAGE_CONTENT_MAX),
     isError: source.isError === true,
     at: Math.max(0, Math.floor(Number(source.at)) || 0),
+    // P5：保留工具轨迹（展示层无感；下轮投影成 agent 历史）。已在上游做过体积截断。
+    ...(Array.isArray(source.toolTrace) && source.toolTrace.length ? { toolTrace: source.toolTrace } : {}),
   };
 }
 

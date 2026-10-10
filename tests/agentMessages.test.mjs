@@ -2,7 +2,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { serializeToolResult, TOOL_RESULT_LIMIT } from '../src/agent/messages.js';
+import {
+  formatPersistedToolResult,
+  serializeToolResult,
+  serializeToolResultAsync,
+  TOOL_RESULT_LIMIT,
+  TOOL_RESULT_PREVIEW_CHARS,
+} from '../src/agent/messages.js';
 
 // 扫描孤立代理（半个 emoji）——任何位置出现都算残缺（含标注中的 -- 不重要）。
 function hasLoneSurrogate(text) {
@@ -81,4 +87,43 @@ test('D2 多字节安全：切点不落在代理对中间（emoji 不残缺）',
   // 大文本混合：整体扫描
   const mixed = `${emoji.repeat(3000)}${'中'.repeat(3000)}${emoji.repeat(3000)}`;
   assert.equal(hasLoneSurrogate(serializeToolResult(mixed, TOOL_RESULT_LIMIT, 'run_python')), false);
+});
+
+test('O1 formatPersistedToolResult：头尾预览 + 省略标注 + 指针', () => {
+  const content = `${'H'.repeat(3000)}${'M'.repeat(5000)}${'T'.repeat(3000)}`;
+  const text = formatPersistedToolResult(content, '.task_outputs/tool-results/x.txt');
+  assert.match(text, /^H{2000}/);
+  assert.match(text, /T{2000}$|T{2000}/);
+  assert.match(text, /中间省略 \d+ 字符/);
+  assert.match(text, /\.task_outputs\/tool-results\/x\.txt/);
+  assert.ok(text.length < content.length, '替换后显著短于原文');
+  assert.equal(TOOL_RESULT_PREVIEW_CHARS, 2000);
+});
+
+test('O1 serializeToolResultAsync：未超限原样；超限落盘则带指针；persist 失败退回头尾', async () => {
+  // 未超限
+  assert.equal(await serializeToolResultAsync('short', { limit: 100 }), 'short');
+
+  // 超限 + persist 成功 → 预览 + 指针
+  const big = 'x'.repeat(500);
+  const persisted = await serializeToolResultAsync({ content: big }, {
+    limit: 100,
+    toolName: 'run_shell',
+    toolCallId: 'c1',
+    persist: async () => ({ path: '.task_outputs/tool-results/c1.txt' }),
+  });
+  assert.match(persisted, /\.task_outputs\/tool-results\/c1\.txt/);
+
+  // 超限 + 无 persist → D2 头尾保留（无指针）
+  const fallback = await serializeToolResultAsync(big, { limit: 100, toolName: 'run_shell' });
+  assert.equal(/\.task_outputs\//.test(fallback), false);
+  assert.match(fallback, /中间省略/);
+
+  // 超限 + persist 抛错 → 退回头尾保留
+  const errored = await serializeToolResultAsync(big, {
+    limit: 100,
+    toolName: 'run_shell',
+    persist: async () => { throw new Error('disk'); },
+  });
+  assert.match(errored, /中间省略/);
 });

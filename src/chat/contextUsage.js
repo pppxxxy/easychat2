@@ -46,3 +46,5 @@ export function shouldAutoCompact(contextUsage, { ratio = AUTO_COMPACT_RATIO } =
     && Number.isFinite(contextUsage.ratio)
     && contextUsage.ratio >= ratio);
 }
+// 注：token 预算口径的压缩阈值统一由 chat/compactionPolicy.js 提供（Z 系采纳 #5：
+// min(W×比例, W−输出预留−缓冲) + 双规则 + 失败上限）。本模块不再自带阈值函数，避免两套口径。

@@ -84,6 +84,8 @@ export function registerDefaultWorkspaceTools(settings, extras = {}) {
     readLog: extras.readLog || null,
     materializer: typeof extras.materializer === 'function' ? extras.materializer : null,
     ci: extras.ci || ciBridge,
+    // O0.3 计划落盘：宿主注入（不传 = update_plan 不落盘）。
+    onPlan: typeof extras.onPlan === 'function' ? extras.onPlan : null,
   });
 }
 

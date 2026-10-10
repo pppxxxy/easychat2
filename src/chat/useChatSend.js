@@ -31,6 +31,7 @@ import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
+import { persistToolResult } from '../workspace/taskOutputs.js';
 import { readWorkspaceHooks, shellHookDenyRules } from '../workspace/hooks.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
@@ -59,6 +60,13 @@ import { resolveStickerNames } from './stickerDirectives.js';
 import { buildTimeAwareText } from './currentTime.js';
 import { buildSchedulePrompt, isScheduleActive } from './schedule.js';
 import { getCharacterSchedule } from '../storage/schedule.js';
+import { saveSessionPlan } from '../storage/sessionPlan.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
+// N1：reactive 回退——API 报上下文超限时压缩历史（本批接线为「压缩 + 提示重发」；
+// 自动重试需发送流程重构，见 reactiveCompact 注释）。
+import { REACTIVE_FAILED_MESSAGE, isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
+// P5：工具轨迹持久化（把本轮 tool 消息挂在助手终稿上，供跨轮 K1/N2 使用）。
+import { attachToolTrace, extractToolTrace } from './toolTrace.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -461,11 +469,13 @@ export default function useChatSend({
           : null;
         // 本地多模态默认关：仅当用户开启且该模型有能力时，才把图片/音频发给本地推理。
         const localReady = canUseLocalModel(localSettings, localFileInfo, localItem);
-        const localMessages = localReady
-          ? filterRequestMedia(requestMessages, {
-              allowVision: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasVision),
-              allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
-            })
+        // P2：本地媒体裁剪能力抽出来——reactive 压缩后重试要按同一口径重算消息。
+        const localMedia = {
+          allowVision: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasVision),
+          allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
+        };
+        let localMessages = localReady
+          ? filterRequestMedia(requestMessages, localMedia)
           : requestMessages;
         // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置
         // 单独裁剪媒体，避免把图片/音频发给不支持多模态的在线端点。
@@ -484,7 +494,7 @@ export default function useChatSend({
           onlineModelName = onlineConfig ? String(getActiveModel(onlineConfig) || '').trim() : '';
           onlineConfigLabel = onlineConfig ? String(onlineConfig.name || onlineConfig.id || '') : '';
         } catch (error) {}
-        const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
+        let onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
         // 聊天内受控工具（联网搜索）：独立开关，与工作区模式无关——聊天页默认 ask，
         // 若沿用工作区门控则永远不可用。关闭时必须**摘掉注册**（不只是不勾选），
         // 否则执行路径仍能调到它。
@@ -510,7 +520,10 @@ export default function useChatSend({
         let hookStore = null;
         if (workspaceMode !== 'ask') {
           try {
-            registerDefaultWorkspaceTools(workspaceSettings);
+            // O0.3：update_plan 的清单随本会话落盘（键与消息分开），供压缩 recap 恢复。
+            registerDefaultWorkspaceTools(workspaceSettings, {
+              onPlan: steps => saveSessionPlan(sendSessionId, steps),
+            });
           } catch (error) {}
           try {
             hookStore = createWorkspaceStore(workspaceSettings);
@@ -530,6 +543,8 @@ export default function useChatSend({
         // token 口径（E1 起）：端点返回 usage 时用**真实值**（含缓存命中数），
         // 不返回时回退估算器（口径与上下文占用一致，服务商之间可比）。
         let resolvedProvider = null;
+        // P5：本轮工具轨迹（onTranscript 回抛；挂到助手终稿上持久化）。
+        let turnTrace = null;
         const meter = createRequestMeter();
         // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
         // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
@@ -628,6 +643,18 @@ export default function useChatSend({
               },
               context: { characterId: character.id, sessionId: sendSessionId },
               allowChatTools: chatToolsEnabled,
+              // O1：超限工具结果整份落盘到工作区 .task_outputs/，消息里只留预览 + 指针
+              //（模型可按 offset 读回）；无工作区后端（ask / 建 store 失败）则不注入。
+              persistToolResult: hookStore
+                ? (content, meta) => persistToolResult({
+                  store: hookStore,
+                  characterId: character.id,
+                  toolUseId: meta && meta.toolCallId,
+                  content,
+                })
+                : undefined,
+              // P5：本轮 agent 追加消息（含 tool）回抛，提取工具轨迹持久化。
+              onTranscript: msgs => { turnTrace = extractToolTrace(msgs); },
             })
           : sendChatMessage(onlineMessages, {
               expectedConfigId,
@@ -652,7 +679,12 @@ export default function useChatSend({
         }));
         // 路由结果由 provider 回调告知（本地成功=local，回退/未启用=api）：
         // 本地→在线是静默回退，「这次回复是谁产的」只能按真实产出链路标记。
-        const reply = await sendWithModelProvider({
+        // P2：上下文超限 → 压缩历史 → 重试一次（对齐 dsh「condense and retry on request-error」）。
+        let reply;
+        let overflowRetried = false;
+        while (true) {
+          try {
+            reply = await sendWithModelProvider({
           messages: localMessages,
           localSettings,
           localItem,
@@ -687,7 +719,39 @@ export default function useChatSend({
             });
           },
           onlineSend,
-        });
+            });
+            break;
+          } catch (error) {
+            if (!overflowRetried && isContextOverflowError(error)) {
+              overflowRetried = true;
+              let compactedOk = false;
+              try {
+                const result = await runReactiveCompact({
+                  messages: requestMessages,
+                  error,
+                  deps: {
+                    summarize: request => sendChatMessage(request, {
+                      stream: false,
+                      expectedConfigId,
+                      expectedConfigFingerprint,
+                    }),
+                  },
+                });
+                if (result.compacted) {
+                  localMessages = localReady
+                    ? filterRequestMedia(result.messages, localMedia)
+                    : result.messages;
+                  onlineMessages = filterRequestMedia(result.messages, onlineMedia);
+                  compactedOk = true;
+                }
+              } catch (compactError) {
+                compactedOk = false;
+              }
+              if (compactedOk) continue;
+            }
+            throw error;
+          }
+        }
 
        if (controller.signal.aborted) {
          recordStats('');
@@ -706,8 +770,12 @@ export default function useChatSend({
        // 记账放在拿到终稿之后：生成时长含解析开销，但只是毫秒级，换来「成功请求」口径准确。
        recordStats(replyText);
        clearToolBubble();
-       if (isCurrentSession()) {
-        setMessages(current => replacePendingWithReply(current, pendingAssistantMessage.id, replyParts));
+        if (isCurrentSession()) {
+         setMessages(current => replacePendingWithReply(current, pendingAssistantMessage.id, replyParts));
+         // P5：把本轮工具轨迹补挂到刚产出的助手终稿上（展示无感；下轮展开回 agent 历史）。
+         if (turnTrace) {
+           setMessages(current => attachToolTrace(current, replyParts, turnTrace));
+         }
         // 会话模型标识落盘（记忆页「本地」badge 的数据源）。只在回复真正落入
         // 当前会话后标记；落盘失败不影响聊天主链路，静默吞掉。
         if (resolvedProvider) {
@@ -766,6 +834,25 @@ export default function useChatSend({
              ? settlePendingMessage(current, pendingAssistantMessage.id)
              : current
          ));
+         return false;
+       }
+       // P2：上下文超限已在发送循环里「压缩 + 重试一次」（对齐 dsh condense-and-retry）；
+       // 走到这里说明重试仍失败 → 明确提示用户手动精简。
+       if (isContextOverflowError(error)) {
+         recordStats('', { failed: true });
+         recordDiagnostic('storage', '上下文超限：自动压缩后重试仍失败', 'reactive-compact');
+         if (isCurrentSession()) {
+           const { message: errorMessage, rawText } = buildReplyErrorMessage(
+             pendingAssistantMessage.id,
+             new Error(REACTIVE_FAILED_MESSAGE)
+           );
+           errorRawRef.current[errorMessage.id] = rawText;
+           setMessages(current => (
+             isCurrentSession()
+               ? mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage)
+               : current
+           ));
+         }
          return false;
        }
        if (classifyReplyError(error, isConfigChangedError, isCanceledError) === 'failure') {

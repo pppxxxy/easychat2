@@ -4,9 +4,17 @@
 // 循环本身不做持久化，也不直接接触 RN UI。
 
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
-import { serializeToolResult, toAssistantMessage } from './messages.js';
+import { serializeToolResultAsync, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 import { createTurnMachine, createTurnState } from './turn/turnState.js';
+import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';
+// P1：K1 工具结果清除（对齐 harness microcompact / dsh pruner）——每轮请求前按预算
+// 把「已消费、非工作台、超门槛」的旧工具结果落盘 + 占位，压低上下文体积。
+import {
+  RESULT_CLEARING_BUDGET_BYTES,
+  applyResultClearing,
+  planResultClearing,
+} from './resultClearing.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 export const TOOL_RESULT_LIMIT = 16 * 1024;
@@ -85,6 +93,11 @@ function safeCallback(callback, payload) {
 
 export async function runAgentTurn(messages, options = {}) {
   const history = Array.isArray(messages) ? [...messages] : [];
+  const requestLength = history.length;
+  // 把本轮追加的 agent 消息（assistant(tool_calls) + tool 结果）回抛宿主持久化。
+  const emitTranscript = () => {
+    if (onTranscript) safeCallback(onTranscript, history.slice(requestLength));
+  };
   const mode = options.mode;
   const signal = options.signal || null;
   const onToken = options.onToken;
@@ -96,6 +109,14 @@ export async function runAgentTurn(messages, options = {}) {
   const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
   // D4-1：结果增强钩子（宿主注入；不注入 = 不增强，行为与旧版一致）。
   const onToolResult = typeof options.onToolResult === 'function' ? options.onToolResult : null;
+  // O1：超限结果落盘钩子（宿主注入：写工作区 + 返回 { path }；不注入 = 退回头尾保留）。
+  const persistToolResult = typeof options.persistToolResult === 'function' ? options.persistToolResult : null;
+  // P1：上下文字节预算（宿主可传「窗口比例」换算后的值；默认 2MB）。
+  const contextBudgetBytes = Number.isFinite(Number(options.contextBudgetBytes)) && Number(options.contextBudgetBytes) > 0
+    ? Number(options.contextBudgetBytes)
+    : RESULT_CLEARING_BUDGET_BYTES;
+  // P5：本轮追加的 agent 消息（含 tool 消息）回抛给宿主持久化（transcript 轨迹）。
+  const onTranscript = typeof options.onTranscript === 'function' ? options.onTranscript : null;
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
@@ -152,6 +173,9 @@ export async function runAgentTurn(messages, options = {}) {
   let round = 0;
   // E2：上一轮的工具调用签名集合（重复调用检测的比对基准）。
   let lastRoundSignatures = new Set();
+  // O0.2：计划纪律——最近一次 update_plan 的参数 + 距上次更新已过几轮。
+  let latestPlanArgs = null;
+  let roundsSincePlanUpdate = 0;
 
   // 跨轮累积：streamChatCompletion 每轮回传该轮全量，这里叠加后再上抛 UI。
   const streamRound = roundTools => streamChatCompletion(history, {
@@ -180,6 +204,17 @@ export async function runAgentTurn(messages, options = {}) {
       }
     }
     machine.startModelRequest();
+    // P1：K1 挂载——本轮请求前，上下文超预算时把旧工具结果落盘 + 占位。
+    // 只改 content、绝不拆散 tool_use↔tool_result；落盘失败保原文。无 persist 钩子则跳过。
+    if (persistToolResult) {
+      const plan = planResultClearing(history, { budgetBytes: contextBudgetBytes });
+      if (plan.indices.length) {
+        const cleared = await applyResultClearing(history, plan.indices, { persist: persistToolResult });
+        for (const entry of cleared.cleared) {
+          history[entry.index] = cleared.messages[entry.index];
+        }
+      }
+    }
     const result = await streamRound(tools);
     const roundText = typeof result.text === 'string' ? result.text : '';
     machine.receiveModelResponse(roundText);
@@ -191,6 +226,7 @@ export async function runAgentTurn(messages, options = {}) {
     const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
     if (!toolCalls.length) {
       machine.complete(streamedText);
+      emitTranscript();
       return streamedText;
     }
     machine.scheduleTools(toolCalls);
@@ -198,6 +234,7 @@ export async function runAgentTurn(messages, options = {}) {
 
     // E2：本轮签名收集——与上一轮相同（或本轮内重复）的调用会被 nudge（不阻断）。
     let hasRepeatedCall = false;
+    let planUpdatedThisRound = false;
     const signaturesThisRound = new Set();
     for (const call of toolCalls) {
       if (signal && signal.aborted) throw createAbortError();
@@ -232,9 +269,20 @@ export async function runAgentTurn(messages, options = {}) {
         outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
       }
       const ok = !(outcome && outcome.isError === true);
-      // D2：把工具名传下去——截断指引按工具语义分派（文件→offset 续读，
-      // 命令→收窄重跑），不认识的工具只说「中间省略了」不写误导性指引。
-      const serialized = serializeToolResult(outcome, TOOL_RESULT_LIMIT, call && call.name);
+      // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
+      if (call.name === PLAN_TOOL_NAME && ok) {
+        latestPlanArgs = parseToolArgs(call);
+        roundsSincePlanUpdate = 0;
+        planUpdatedThisRound = true;
+      }
+      // D2/O1：序列化工具结果。超限时若宿主提供 persistToolResult，先把整份落盘再
+      // 用「头尾预览 + 指针」替换（信息只移不丢）；否则退回 D2 头尾保留。
+      const serialized = await serializeToolResultAsync(outcome, {
+        limit: TOOL_RESULT_LIMIT,
+        toolName: call && call.name,
+        toolCallId: call && call.id,
+        persist: persistToolResult,
+      });
       safeCallback(onToolEvent, {
         phase: 'end',
         name: call.name,
@@ -258,6 +306,13 @@ export async function runAgentTurn(messages, options = {}) {
     if (hasRepeatedCall) {
       history.push({ role: 'system', content: REPEAT_CALL_NUDGE });
     }
+    // O0.2：计划未更新 nag——有未完成步骤且连续多轮没更新时，轮末注入一行提醒。
+    // 注入后重置计数，避免此后每轮都提醒（每满阈值轮提醒一次）。
+    if (!planUpdatedThisRound) roundsSincePlanUpdate += 1;
+    if (shouldNudgePlan({ planArgs: latestPlanArgs, roundsSinceUpdate: roundsSincePlanUpdate })) {
+      history.push({ role: 'system', content: PLAN_NAG_TEXT });
+      roundsSincePlanUpdate = 0;
+    }
     lastRoundSignatures = signaturesThisRound;
     machine.aggregateResults();
   }
@@ -270,5 +325,6 @@ export async function runAgentTurn(messages, options = {}) {
   machine.receiveModelResponse(finalText);
   streamedText += finalText;
   machine.complete(streamedText);
+  emitTranscript();
   return streamedText;
 }

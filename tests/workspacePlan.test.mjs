@@ -67,6 +67,40 @@ test('PLAN_TOOL_DEFINITION：readOnly 纯回显 + schema 带状态枚举', () =>
   assert.match(String(PLAN_TOOL_DEFINITION.execute({}, {})), /计划为空/);
 });
 
+test('O0.1：同时多个 in_progress 被拒绝（回显 + 纠正提示，isError）', () => {
+  const rejected = PLAN_TOOL_DEFINITION.execute({}, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: 'B', status: 'in_progress' },
+  ] });
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content, /同时只能有 1 个 in_progress/);
+  assert.match(rejected.content, /\[>\] 1\. A/, '仍回显清单便于纠正');
+
+  // 恰好 1 个（或 0 个）in_progress → 正常回显（字符串，无 isError）
+  const ok = PLAN_TOOL_DEFINITION.execute({}, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: 'B', status: 'pending' },
+  ] });
+  assert.equal(typeof ok, 'string');
+});
+
+test('O0.3：onPlan 钩子收到归一后的清单；校验失败不落盘', () => {
+  const seen = [];
+  const options = { onPlan: steps => seen.push(steps) };
+  PLAN_TOOL_DEFINITION.execute(options, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: '  ', status: 'pending' },
+  ] });
+  assert.deepEqual(seen[0], [{ step: 'A', status: 'in_progress' }], '空白步骤被归一剔除');
+
+  // 校验失败（>1 in_progress）→ 不落盘
+  PLAN_TOOL_DEFINITION.execute(options, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: 'B', status: 'in_progress' },
+  ] });
+  assert.equal(seen.length, 1);
+});
+
 test('提示词引导：工具真注册了才提 update_plan（与执行类同款纪律）', () => {
   const base = ['list_workspace_files', 'read_workspace_file'];
   const withPlan = buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: [...base, 'update_plan'] });

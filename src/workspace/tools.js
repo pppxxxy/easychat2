@@ -70,7 +70,7 @@ function toRunner(runner) {
   return runner && typeof runner === 'object' ? runner : null;
 }
 
-export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci } = {}) {
+export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan } = {}) {
   const resolvedShell = toRunner(shell);
   const resolvedPython = toRunner(python);
   const shellUsable = !!(resolvedShell && typeof resolvedShell.run === 'function');
@@ -88,6 +88,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
     ...(typeof materializer === 'function' ? { materializer } : {}),
     // H1 云构建桥：宿主注入（不传 = run_remote_build / get_build_log 如实报不可用）。
     ...(ci ? { ci } : {}),
+    // O0.3 计划落盘：宿主注入（不传 = update_plan 不落盘，行为与旧版一致）。
+    ...(typeof onPlan === 'function' ? { onPlan } : {}),
   };
   const definitions = [
     ...WORKSPACE_TOOL_DEFINITIONS,
@@ -106,8 +108,8 @@ export function createWorkspaceToolDefinitions({ store, root, fileSystem, shell,
   }));
 }
 
-export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer, ci } = {}) {
-  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci });
+export function registerWorkspaceTools({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan } = {}) {
+  const definitions = createWorkspaceToolDefinitions({ store, root, fileSystem, shell, python, readLog, materializer, ci, onPlan });
   for (const definition of definitions) registerTool(definition);
   return definitions.map(item => item.name);
 }

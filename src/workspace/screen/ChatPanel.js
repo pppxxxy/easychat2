@@ -40,6 +40,7 @@ import {
   setWorkspaceChatArchived,
   getWorkspaceSettings,
   patchWorkspaceSettings,
+  replaceWorkspaceChatMessages,
   saveWorkspaceChatDraft,
   setActiveWorkspaceChat,
 } from '../../storage/workspace.js';
@@ -51,15 +52,21 @@ import {
 } from '../../storage/apiConfigs.js';
 import { getActiveLocalModel } from '../../storage/localModels.js';
 import { getCharacterLibrary } from '../../storage/characters.js';
-import { getMessagesBySession, getSessions } from '../../storage/sessions.js';
 import {
   getThinkingSettings,
   getTranscriptionSettings,
   saveThinkingSettings,
 } from '../../storage/settings.js';
-import { computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { resolveAutoCompactPolicy } from '../../chat/compactionPolicy.js';
+import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
+import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
+import { estimateMessagesTokens } from '../../localModel/localContext.js';
+import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
+import { extractToolTrace } from '../../chat/toolTrace.js';
+import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
-import { isCanceledError } from '../../network/api.js';
+import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
 import { resolveTranscription, transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
@@ -296,6 +303,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setInput(prev => (prev ? `${prev}\n${draft.text}` : draft.text));
   }, [draft]);
 
+  // N2：压缩用的最新消息引用（handleSend 闭包里的 messages 可能落后于本轮追加）+ 重入锁。
+  const messagesRef = useRef(messages);
+  const compactingRef = useRef(false);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -325,24 +337,18 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     if (recorderRef.current.recording) recorderRef.current.cancel();
   }, [visible, persistDraft]);
 
-  // 上下文占用：取该工作区角色最近的一个单聊会话，按当前模型声明的窗口估算
-  //（与 ChatScreen.maybeAutoSummarize 同一口径，到 80% 自动压缩）。
+  // 上下文占用：按工作区会话（workspaceChats）自身历史估算——压缩对象与占用口径一致。
+  // （此前读的是角色单聊 session，与工作区历史不是同一份数据。）
   const loadUsage = useCallback(async ownerId => {
     try {
-      const [sessions, { configs, activeId }, localItem] = await Promise.all([
-        getSessions(),
+      const [{ configs, activeId }, localItem, bucket] = await Promise.all([
         getApiConfigs(),
         getActiveLocalModel().catch(() => null),
+        getWorkspaceChats(ownerId).catch(() => null),
       ]);
-      const session = (Array.isArray(sessions) ? sessions : [])
-        .filter(item => item && item.type !== 'group'
-          && String(item.characterId || '') === String(ownerId || ''))
-        .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0];
-      if (!session) {
-        if (mountedRef.current) setUsage(null);
-        return;
-      }
-      const list = await getMessagesBySession(session.id).catch(() => []);
+      const active = bucket
+        && (bucket.chats.find(item => item.id === bucket.activeId) || bucket.chats[0]);
+      const list = (active && active.messages) || [];
       const current = configs.find(item => item.id === activeId) || configs[0];
       const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
       const localContextSize = Number(localItem && localItem.contextSize) || 0;
@@ -389,6 +395,62 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       if (!updated || !mountedRef.current) return;
       setChatList(prev => upsertWorkspaceChat(prev, updated));
     } catch (error) {}
+  }, []);
+
+  // N2：工作区会话压缩（四档管线）。展示历史里没有 tool 消息，L0/L1 自然空转，
+  // 实际走 L2 摘要 + L3 归档——即「摘要旧史 + 保留尾部」。silent=true 时按 0.8 线自判
+  //（每轮自动调用）；手动时 autoRatio=0 强制压缩。失败一律不改会话（压缩是增强）。
+  const compactWorkspaceNow = useCallback(async ({ silent = false, list: overrideList = null } = {}) => {
+    if (compactingRef.current) return { ok: false, reason: 'busy' };
+    const list = Array.isArray(overrideList)
+      ? overrideList
+      : (Array.isArray(messagesRef.current) ? messagesRef.current : []);
+    if (list.length < 2) return { ok: false, reason: 'too-short' };
+    compactingRef.current = true;
+    try {
+      const [{ configs, activeId }, localItem] = await Promise.all([
+        getApiConfigs(),
+        getActiveLocalModel().catch(() => null),
+      ]);
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      if (!current) return { ok: false, reason: 'failed' };
+      const caps = capabilitiesForModel(current, getActiveModel(current));
+      const localContextSize = Number(localItem && localItem.contextSize) || 0;
+      const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize });
+      // 阈值统一走 compactionPolicy（Z 系采纳 #5：模型感知 + 输出预留 + 缓冲）。
+      const policy = resolveAutoCompactPolicy({ contextWindow: windowSize });
+      const autoRatio = windowSize > 0 ? policy.thresholdTokens / windowSize : AUTO_COMPACT_RATIO;
+      const chatId = activeChatIdRef.current;
+      const ownerId = characterIdRef.current;
+      const result = await runCompactionPipeline(list, {
+        autoRatio: silent ? autoRatio : 0,
+        deps: {
+          estimateRatio: msgs => computeContextUsage(msgs, windowSize).ratio,
+          summarize: request => sendChatMessage(request, {
+            stream: false,
+            expectedConfigId: String(current.id || ''),
+            expectedConfigFingerprint: getConfigFingerprint(current),
+          }),
+          writeTranscript: jsonl => writeTranscript({ store: storeRef.current, characterId: ownerId, content: jsonl }),
+          // P4：保留量按 token 预算（窗口的 16%，对齐 dsh retainRatio），下限仍是 6 条。
+          retainTokens: Math.max(0, Math.floor(windowSize * COMPACTION_RETAIN_RATIO)),
+          estimateTokens: msg => estimateMessagesTokens([{
+            role: msg && msg.role,
+            content: String((msg && (msg.content != null ? msg.content : msg.text)) || ''),
+          }]),
+        },
+      });
+      if (result.applied.length > 0 && result.messages !== list) {
+        if (mountedRef.current) setMessages(result.messages);
+        await replaceWorkspaceChatMessages(ownerId, chatId, result.messages);
+        return { ok: true, applied: result.applied };
+      }
+      return { ok: false, reason: 'noop' };
+    } catch (error) {
+      return { ok: false, reason: 'failed' };
+    } finally {
+      compactingRef.current = false;
+    }
   }, []);
 
   // 打开设置面板时刷新「已记住的授权」与技能清单（列表与按钮共用这两份数据）。
@@ -854,6 +916,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // I2：overrideText——计划批准链路在模式切换后的新渲染里带确认文本发起。
   const handleSend = useCallback(async overrideText => {
     const text = String(overrideText === undefined ? input : overrideText).trim();
+    // N2：手动压缩命令 `/compact`（工作区会话）。
+    if (!sending && text === '/compact') {
+      if (overrideText === undefined) {
+        setInput('');
+        persistDraft(characterId, activeChatId, '');
+      }
+      const result = await compactWorkspaceNow({ silent: false });
+      if (result.ok) {
+        Alert.alert(t('workspace.chat.compact.title'), t('workspace.chat.compact.done', { applied: result.applied.join('+') }));
+      } else if (result.reason === 'noop' || result.reason === 'too-short') {
+        Alert.alert(t('workspace.chat.compact.title'), t('workspace.chat.compact.noop'));
+      } else if (result.reason !== 'busy') {
+        Alert.alert(t('workspace.chat.compact.title'), t('workspace.chat.compact.fail'));
+      }
+      return;
+    }
     // I1：Steering——agent 运行中发送 = 中途补充指令（不新开 turn、不中断工具链）。
     // 附件不支持（补充指令是纯文本语义）；空文本忽略。
     if (sending) {
@@ -898,6 +976,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     const chatId = activeChatId;
     const ownerId = characterId;
     let assistantFinal = { id: assistantId, role: 'assistant', content: '', isError: false, at: Date.now() };
+    // P5：本轮工具轨迹（onTranscript 回抛；挂到助手终稿上持久化，供下轮 agent 历史展开）。
+    let turnTrace = null;
     setMessages(list => [...list, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
@@ -974,7 +1054,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } catch (error) {}
 
     try {
-      await runAgentTurn(request, {
+      let overflowRetried = false;
+      while (true) {
+        try {
+          await runAgentTurn(request, {
         mode,
         tools,
         // 轮次预算（A1）：可改 16 / 只读 10——写任务要跑「改-验」循环，天然更长。
@@ -1039,7 +1122,40 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           }
         },
         context: { characterId },
-      });
+        // P5：本轮 agent 追加消息（含 tool）回抛，提取工具轨迹持久化。
+        onTranscript: msgs => { turnTrace = extractToolTrace(msgs); },
+          });
+          break;
+        } catch (error) {
+          // P2：上下文超限 → 压缩历史 → 重试一次（对齐 dsh condense-and-retry）。
+          if (!overflowRetried && isContextOverflowError(error)) {
+            overflowRetried = true;
+            let compactedOk = false;
+            try {
+              const { configs, activeId } = await getApiConfigs();
+              const cfg = configs.find(item => item.id === activeId) || configs[0];
+              const compacted = await runReactiveCompact({
+                messages: request,
+                error,
+                deps: {
+                  summarize: req => sendChatMessage(req, {
+                    stream: false,
+                    ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}),
+                  }),
+                },
+              });
+              if (compacted.compacted) {
+                request = compacted.messages;
+                compactedOk = true;
+              }
+            } catch (compactError) {
+              compactedOk = false;
+            }
+            if (compactedOk) continue;
+          }
+          throw error;
+        }
+      }
       if (mode !== 'ask' && mountedRef.current && !controller.signal.aborted) {
         loadUsage(characterId);
       }
@@ -1063,6 +1179,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         updateAssistant(assistantId, { content: assistantFinal.content, isError: true });
       }
     } finally {
+      // P5：把本轮工具轨迹挂到终稿上（展示无感；下轮投影成 agent 历史）。
+      if (turnTrace) assistantFinal = { ...assistantFinal, toolTrace: turnTrace };
       // 助手终稿一次性落盘（含被中止 / 报错的情况），流式期间不写。
       persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }]);
       // E4：事件流（旁路）——助手终稿（中止/报错形态如实带 isError）。
@@ -1077,8 +1195,15 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       }
       controllerRef.current = null;
       steeringRef.current = null;
+      // N2：本轮结束后按 0.8 线静默压缩（用本轮终稿拼出准确历史，避免闭包滞后）。
+      if (mode !== 'ask') {
+        compactWorkspaceNow({
+          silent: true,
+          list: [...history, userMessage, { ...assistantFinal, at: Date.now() }],
+        }).catch(() => {});
+      }
     }
-  }, [activeChatId, attachments, characterId, characterName, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
+  }, [activeChatId, attachments, characterId, characterName, compactWorkspaceNow, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 
   // I1：运行中不再禁用发送——有文字就可用（发送按钮 → steering 入队）；附件在
   // 运行时由 handleSend 明确拒绝（补充指令是纯文本语义）。
