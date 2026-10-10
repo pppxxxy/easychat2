@@ -632,17 +632,19 @@ data: [DONE]
 |------|------|------|
 | `options.mode` | `'ask' \| 'read' \| 'write'?` | 工作区模式，决定默认暴露与可执行的工具集合 |
 | `options.tools` | `ToolDefinition[]?` | 显式覆盖工具集；缺省由 `mode` 从注册表派生 |
-| `options.maxRounds` | `number?` | 工具轮上限，默认 `5`（`DEFAULT_MAX_TOOL_ROUNDS`） |
+| `options.maxRounds` | `number?` | 工具轮上限，默认 `12`（`DEFAULT_MAX_TOOL_ROUNDS`；宿主按模式取 `workspaceRoundBudget`：写 16 / 只读 10 / 其余 12） |
 | `options.signal` | `AbortSignal?` | 取消信号；中止时抛 `AbortError`，不回喂半成品 |
 | `options.onToken` | `(accumulatedText) => void?` | 跨轮累积助手文本，供 UI 覆盖渲染 |
 | `options.onReasoning` | `(accumulatedReasoning) => void?` | 跨轮累积思考文本 |
 | `options.onToolEvent` | `(event) => void?` | `{ phase:'start'\|'end', name, round, ok, error? }` |
 | `options.requestOptions` | `object?` | 透传给 `streamChatCompletion`（如配置守卫）；`tools`/`toolChoice` 会被剥离 |
 | `options.context` | `{ characterId, sessionId }?` | 透传给工具执行器的上下文 |
+| `options.toolResultKeepRounds` | `number?` | P2-8：原样保留最近几轮的工具结果，默认 `TOOL_RESULT_KEEP_ROUNDS`（2） |
+| `options.toolResultBudget` | `number?` | P2-8：工具结果合计不超过它（字符）时一条都不省略，默认 `TOOL_RESULT_ELISION_BUDGET`（24KB） |
 
 **返回**: `Promise<string>` 跨轮累积的助手文本。
 
-**行为**: 上限轮整体省略 `tools` 字段强制文字收尾（不发 `tool_choice:'none'`）；工具失败以 `role:'tool'` 回喂不中断循环；单条工具结果超 16KB 截断；UI 回调抛错被吞掉不打断循环；assistant 空文本 + tool_calls 时 `content` 置 `null`。
+**行为**: 上限轮整体省略 `tools` 字段强制文字收尾（不发 `tool_choice:'none'`）；工具失败以 `role:'tool'` 回喂不中断循环；单条工具结果超 16KB 截断；UI 回调抛错被吞掉不打断循环；assistant 空文本 + tool_calls 时 `content` 置 `null`。**P2-8**：每次请求前把「较早轮次」的 `role:'tool'` 结果**内容**换成 `TOOL_RESULT_ELIDED`（`messages.js` 的 `elideOlderToolResults`，纯函数）——**只换内容不删消息**（`tool_call_id` 必须与 assistant 的 `tool_calls` 配对，删一条请求直接非法），最近 2 轮与阈值内的结果一字不动。工具结果从不进持久化上下文（`chatPipeline.buildHistory` / `compaction.applyCompaction` 都只留 user/assistant），故此项只作用于同一 turn 的多轮循环。
 
 ### 工具注册表
 **位置**: `src/agent/tools/registry.js`

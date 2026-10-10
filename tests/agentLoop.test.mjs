@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
+// P2-8：省略用的占位标记（loop.js 只是转发，从定义处取真值）。
+import { TOOL_RESULT_ELIDED } from '../src/agent/messages.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -421,4 +423,87 @@ test('I1 Steering 与轮次预算：新目标重置收束预警（允许再提�
     .map((item, i) => (item.role === 'system' && item.content === ROUND_BUDGET_WARNING ? i : -1))
     .filter(i => i >= 0);
   assert.ok(steerAt >= 0 && warnIndexes.some(i => i > steerAt), '顺序：先看到补充指令，再看到收束提醒');
+});
+
+// ---- P2-8：较早轮次的工具结果在每次请求前被换成占位标记 ----
+
+test('P2-8 接线：较早轮次的工具结果变占位，最近 2 轮原样、配对结构不变', async () => {
+  const big = 'x'.repeat(2000);
+  runHandler = () => ({ content: big, isError: false });
+  const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
+  streamPlan = [
+    { text: 'r1', toolCalls: [toolCall('c1')] },
+    { text: 'r2', toolCalls: [toolCall('c2')] },
+    { text: 'r3', toolCalls: [toolCall('c3')] },
+    { text: '完成' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', toolResultBudget: 100 });
+  assert.equal(text, 'r1r2r3完成');
+
+  const toolsOf = index => streamCalls[index].messages.filter(item => item.role === 'tool');
+  assert.deepEqual(toolsOf(1).map(item => item.content), [big], '第 2 次请求只有一轮结果，全在保护窗口内');
+  // 第 3 次请求时有 2 轮结果 = keepRounds(2)，仍然全保护——这正是「最近 2 轮不动」的语义。
+  assert.deepEqual(toolsOf(2).map(item => item.content), [big, big]);
+  // 第 4 次请求有 3 轮结果：第 1 轮属于「较早轮次」→ 占位；第 2、3 轮原样。
+  assert.deepEqual(toolsOf(3).map(item => item.content), [TOOL_RESULT_ELIDED, big, big]);
+
+  // 硬边界：只换内容不删消息——tool_call_id 与 assistant.tool_calls 一一对应，
+  // 消息条数一条不少（删一条服务端会直接拒整个请求）。
+  const final = streamCalls[3].messages;
+  assert.deepEqual(toolsOf(3).map(item => item.tool_call_id), ['c1', 'c2', 'c3']);
+  assert.equal(final.filter(item => item.role === 'assistant' && item.tool_calls).length, 3);
+  assert.equal(final.filter(item => item.role === 'tool').length, 3);
+});
+
+test('P2-8 接线：默认预算下小结果逐字不变（没有收益就不丢信息）', async () => {
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: '完成' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  const toolMsgs = streamCalls[2].messages.filter(item => item.role === 'tool');
+  assert.deepEqual(toolMsgs.map(item => item.content), ['file body', 'file body']);
+});
+
+test('P2-8 接线：toolResultKeepRounds=0 时不保护任何轮（只换内容、不删消息）', async () => {
+  const big = 'y'.repeat(2000);
+  runHandler = () => ({ content: big, isError: false });
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: '完成' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    toolResultBudget: 100,
+    toolResultKeepRounds: 0,
+  });
+  const toolMsgs = streamCalls[2].messages.filter(item => item.role === 'tool');
+  assert.deepEqual(toolMsgs.map(item => item.content), [TOOL_RESULT_ELIDED, TOOL_RESULT_ELIDED]);
+  assert.deepEqual(toolMsgs.map(item => item.tool_call_id), ['c1', 'c2'], '省略只换内容，不删消息');
+});
+
+test('P2-8 接线：到轮次上限的强制收尾轮同样过省略（不留配置暗角）', async () => {
+  const big = 'z'.repeat(2000);
+  runHandler = () => ({ content: big, isError: false });
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: 'final' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    maxRounds: 2,
+    toolResultBudget: 100,
+    toolResultKeepRounds: 0,
+  });
+  assert.equal(text, 'r1r2final');
+  assert.equal('tools' in streamCalls[2].options, false, '收尾轮不带工具');
+  const toolMsgs = streamCalls[2].messages.filter(item => item.role === 'tool');
+  assert.deepEqual(toolMsgs.map(item => item.content), [TOOL_RESULT_ELIDED, TOOL_RESULT_ELIDED]);
 });

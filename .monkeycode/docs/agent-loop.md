@@ -55,9 +55,10 @@ TurnResult = { text: string, reasoning: string, toolCalls: ToolCall[], finishRea
 ## 5. 循环算法
 
 ```
-runAgentTurn(messages, { tools, mode, signal, maxRounds = 5, onToken, onReasoning, onToolEvent })
+runAgentTurn(messages, { tools, mode, signal, maxRounds = 12, onToken, onReasoning, onToolEvent })
   for round in 1..maxRounds:
     if signal.aborted -> throw AbortError
+    elideOlderToolResults(messages)   // P2-8：较早轮次的 tool 结果内容 → 占位标记（消息保留）
     res = streamChatCompletion(messages, { tools, toolChoice: 'auto', signal, onChunk: onToken, onReasoning })
     messages.push({ role:'assistant', content: res.text || null, tool_calls: res.toolCalls })   // 空文本置 null
     if res.toolCalls.length === 0: return res.text
@@ -74,6 +75,10 @@ runAgentTurn(messages, { tools, mode, signal, maxRounds = 5, onToken, onReasonin
 - `onToken` / `onReasoning`：**跨轮累积**后上抛（`streamChatCompletion` 每轮只给该轮全量，`runAgentTurn` 负责叠加），否则第 2 轮首个增量会冲掉第 1 轮 UI 文本。
 - `onToolEvent`：`{ phase:'start'|'end', name, round, ok, error? }`；`round` 从 1 起，`ok:false` 时带脱敏 `error`。
 - **UI 回调（`onToken`/`onReasoning`/`onToolEvent`）一律 try/catch 包裹**：信息性回调抛错不得打断循环。
+- **P2-8 较早工具结果省略**：`messages` 是**同一个 turn 内**的数组，每轮请求都要整体重发，所以从第 3 轮起会把「较早轮次」的 `role:'tool'` 结果**内容**换成 `TOOL_RESULT_ELIDED`（`agent/messages.js` 的 `elideOlderToolResults`，纯函数；接线只在 `loop.js` 的每次请求前）。
+  - **只换内容、绝不删消息**：`tool_call_id` 必须与前面 assistant 的 `tool_calls` 配对，删一条不是「信息少一点」而是请求非法。
+  - 最近 `TOOL_RESULT_KEEP_ROUNDS`（2）轮原样保留；全部工具结果合计不超过 `TOOL_RESULT_ELISION_BUDGET`（24KB）时**什么都不做**（没有收益就不丢信息）；比占位标记还短的结果不换（换过去反而更长）。
+  - 为什么不是「压缩时丢弃」：本项目的工具结果**从不进持久化上下文**——`prompt/chatPipeline.js` 的 `buildHistory` 与 `chat/compaction.js` 的 `applyCompaction` 都只留 user/assistant，聊天页工具气泡是 `transient` 的 UI 临时消息。所以这项只作用于同一 turn 的多轮循环，与压缩策略无关。
 
 ## 6. provider 路由
 

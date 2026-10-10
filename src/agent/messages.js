@@ -8,6 +8,82 @@
 
 export const TOOL_RESULT_LIMIT = 16 * 1024;
 
+// ---------------------------------------------------------------------------
+// P2-8：较早轮次的工具结果换成占位标记。
+//
+// 为什么在这里：本项目的工具结果**从不进持久化上下文**——`prompt/chatPipeline.js`
+// 的 `buildHistory` 与 `chat/compaction.js` 的 `applyCompaction` 都只留
+// user/assistant，聊天页的工具气泡是 `transient` 的 UI 临时消息。所以「压缩时丢弃
+// 旧工具结果」在聊天页没有可丢的东西；真正吃窗口的是**同一个 turn 内的多轮工具
+// 循环**：`loop.js` 把每轮的 `role:'tool'` 结果追加进本轮消息数组，之后每一轮请求
+// 都要把它们重发一遍。
+//
+// 做法：**保留消息本身**，只把较早轮次的 `content` 换成占位标记。
+// 为什么不能删消息：`role:'tool'` 必须与前面 assistant 的 `tool_calls` 一一配对，
+// 少一条不是「信息少一点」而是「请求非法」，服务端直接拒。
+// ---------------------------------------------------------------------------
+
+// 占位标记同时承担「告知模型信息去哪了」——只说「已省略」会让模型以为内容还在别处，
+// 它需要知道可以重新调用工具把信息取回来。
+export const TOOL_RESULT_ELIDED = '[较早的工具结果已省略：为节省上下文，该结果的内容已被替换为占位标记。'
+  + '如仍需其中的信息，请重新调用对应工具获取。]';
+// 最近 N 轮的工具结果原样保留：模型正在据此推理的那几轮不动。
+export const TOOL_RESULT_KEEP_ROUNDS = 2;
+// 触发阈值：全部工具结果加起来不超过它时**什么都不做**——没有收益就不丢信息。
+export const TOOL_RESULT_ELISION_BUDGET = 24 * 1024;
+
+// 纯函数：返回新数组，不改入参数组、也不改任何消息对象（`messages` 往往是调用方
+// 数组的浅拷贝，就地改对象会污染调用方的历史）。返回值带 `elided` / `savedChars`
+// 供调用方与测试观测。
+//
+// 轮次边界由 `assistant.tool_calls` 划定：它后面的 `role:'tool'` 消息都属于这一轮。
+export function elideOlderToolResults(messages, options = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  const keepRounds = Number.isInteger(options.keepRounds) && options.keepRounds >= 0
+    ? options.keepRounds
+    : TOOL_RESULT_KEEP_ROUNDS;
+  const budget = Number.isFinite(options.budget) && options.budget >= 0
+    ? options.budget
+    : TOOL_RESULT_ELISION_BUDGET;
+  const mark = typeof options.mark === 'string' && options.mark ? options.mark : TOOL_RESULT_ELIDED;
+
+  // 总量只算「还没被省略」的工具结果：已省略的若继续计入，它们会把总量一直顶在
+  // 阈值之上，每轮都白跑一次全量替换（结果一样，但白费）。
+  let totalChars = 0;
+  const roundStarts = [];
+  list.forEach((item, index) => {
+    if (!item) return;
+    if (item.role === 'tool' && typeof item.content === 'string' && item.content !== mark) {
+      totalChars += item.content.length;
+    }
+    if (item.role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
+      roundStarts.push(index);
+    }
+  });
+  if (totalChars <= budget) return { messages: list, elided: 0, savedChars: 0, totalChars };
+
+  // 只动「比最近 keepRounds 轮更早」的工具结果。轮数不够（roundStarts 不超过
+  // keepRounds）→ boundary 为 0 → 一条都不动。
+  const boundary = keepRounds <= 0
+    ? list.length
+    : (roundStarts.length > keepRounds ? roundStarts[roundStarts.length - keepRounds] : 0);
+
+  let elided = 0;
+  let savedChars = 0;
+  const next = list.slice();
+  for (let index = 0; index < boundary; index += 1) {
+    const item = list[index];
+    if (!item || item.role !== 'tool' || typeof item.content !== 'string') continue;
+    // 只换「真的更省」的：比占位标记还短的结果换过去反而更长，不如不动。
+    if (item.content.length <= mark.length) continue;
+    savedChars += item.content.length - mark.length;
+    next[index] = { ...item, content: mark };
+    elided += 1;
+  }
+  if (elided === 0) return { messages: list, elided: 0, savedChars: 0, totalChars };
+  return { messages: next, elided, savedChars, totalChars };
+}
+
 // text 为空且有 tool_calls 时 content 置 null：部分兼容端点拒绝空串 content。
 export function toAssistantMessage(result) {
   const text = typeof (result && result.text) === 'string' ? result.text : '';

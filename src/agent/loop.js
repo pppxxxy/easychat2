@@ -6,7 +6,12 @@
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
 // TOOL_RESULT_LIMIT 由 messages.js 定义（序列化就在那里），这里 import 而非再定义一份：
 // 2026-10-10 前两处各写 16*1024，改一处漏一处不会报错（审查报告 §0.4 第 2 条）。
-import { TOOL_RESULT_LIMIT, serializeToolResult, toAssistantMessage } from './messages.js';
+import {
+  TOOL_RESULT_LIMIT,
+  elideOlderToolResults,
+  serializeToolResult,
+  toAssistantMessage,
+} from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
@@ -84,7 +89,7 @@ function safeCallback(callback, payload) {
 }
 
 export async function runAgentTurn(messages, options = {}) {
-  const history = Array.isArray(messages) ? [...messages] : [];
+  let history = Array.isArray(messages) ? [...messages] : [];
   const mode = options.mode;
   const signal = options.signal || null;
   const onToken = options.onToken;
@@ -145,6 +150,17 @@ export async function runAgentTurn(messages, options = {}) {
   // E2：上一轮的工具调用签名集合（重复调用检测的比对基准）。
   let lastRoundSignatures = new Set();
 
+  // P2-8：每次请求前把「较早轮次」的工具结果**内容**换成占位标记——消息本身留着，
+  // 否则 `role:'tool'` 与前面 assistant 的 `tool_calls` 配对断裂，请求直接非法。
+  // 判定与替换都在 `messages.js` 的纯函数里；总量不超预算时它什么都不做。
+  // 两个选项只为测试/调参开口，不传 = 用模块默认值。
+  const elideHistory = () => {
+    history = elideOlderToolResults(history, {
+      ...(Number.isInteger(options.toolResultKeepRounds) ? { keepRounds: options.toolResultKeepRounds } : {}),
+      ...(Number.isFinite(options.toolResultBudget) ? { budget: options.toolResultBudget } : {}),
+    }).messages;
+  };
+
   // 跨轮累积：streamChatCompletion 每轮回传该轮全量，这里叠加后再上抛 UI。
   const streamRound = roundTools => streamChatCompletion(history, {
     ...requestOptions,
@@ -172,6 +188,7 @@ export async function runAgentTurn(messages, options = {}) {
         budgetWarned = false; // 新目标 → 允许收束预警再提一次
       }
     }
+    elideHistory();
     const result = await streamRound(tools);
     streamedText += typeof result.text === 'string' ? result.text : '';
     streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
@@ -247,6 +264,9 @@ export async function runAgentTurn(messages, options = {}) {
 
   // 上限兜底：整体省略 tools 字段（不发 tool_choice），强制文字收尾。
   history.push({ role: 'system', content: CAP_NOTICE });
+  // 收尾轮不再产生新的工具结果，但 `toolResultKeepRounds` 可以被调成 0——统一在
+  // 「每次请求前」过一遍，省得留下一个「某些配置下收尾轮没省略」的暗角。
+  elideHistory();
   const finalResult = await streamRound(null);
   streamedText += typeof finalResult.text === 'string' ? finalResult.text : '';
   return streamedText;
