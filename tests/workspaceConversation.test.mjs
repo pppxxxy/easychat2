@@ -112,7 +112,10 @@ test('buildConversationRows：空输入 / 脏数据安全（永不抛错——�
 
 test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.match(panel, /buildConversationRows\(\{ messages \}\)/, '渲染前先投影成行');
+  assert.match(panel, /buildConversationRows\(\{ messages, live: liveTool \}\)/, '渲染前先投影成行（W2 起带实时行）');
+  // W2：正在跑的那次调用并进流里，不再单独占一条状态行
+  assert.equal(panel.includes('setToolStatus'), false, '瞬时状态行已并进流（live 行）');
+  assert.match(panel, /setLiveTool\(event\.phase === 'start'/, '工具事件驱动 live 行');
   assert.match(panel, /\{rows\.map\(row => \{/, '按行遍历');
   assert.equal(panel.includes('{messages.map(item => ('), false, '旧的逐条气泡渲染已移除');
   assert.match(panel, /<ToolCallRow key=\{row\.key\} tool=\{row\.tool\} \/>/, '工具行走 ToolCallRow');
@@ -120,4 +123,51 @@ test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () =
   // 计划面板已外提，ChatPanel 只传数据
   assert.match(panel, /<AgentPlanPanel/, '计划面板外提');
   assert.equal(panel.includes('setPlanCollapsed'), false, '折叠态已归面板自己');
+});
+
+test('W2：toolCardKind 按工具族分派（认不出的走通用行）', async () => {
+  const { toolCardKind } = await import('../src/workspace/conversation.js');
+  assert.equal(toolCardKind('edit_workspace_file'), 'edit');
+  assert.equal(toolCardKind('write_workspace_file'), 'write');
+  assert.equal(toolCardKind('run_shell'), 'command');
+  assert.equal(toolCardKind('run_python'), 'command');
+  assert.equal(toolCardKind('update_plan'), 'plan');
+  assert.equal(toolCardKind('run_subagent'), 'subagent');
+  assert.equal(toolCardKind('read_workspace_file'), 'generic');
+  assert.equal(toolCardKind('git_status'), 'generic');
+  assert.equal(toolCardKind(''), 'generic');
+  assert.equal(toolCardKind(null), 'generic');
+});
+
+test('W2：行里带上富卡片要的原始参数与可展开输出（超长截断并标记）', () => {
+  const big = 'x'.repeat(5000);
+  const rows = buildConversationRows({
+    messages: [{
+      id: 'a1',
+      role: 'assistant',
+      content: '好了',
+      toolTrace: [
+        { role: 'assistant', content: '', tool_calls: [toolCall('c1', 'edit_workspace_file', { path: 'a.js', find: 'old', replace: 'new' })] },
+        { role: 'tool', tool_call_id: 'c1', content: big },
+      ],
+    }],
+  });
+  const row = rows.find(item => item.kind === 'tool');
+  assert.deepEqual(row.tool.argsRaw, { path: 'a.js', find: 'old', replace: 'new' }, '原始参数保留给卡片用');
+  assert.equal(row.tool.resultLength, 5000);
+  assert.equal(row.tool.resultTruncated, true);
+  assert.ok(row.tool.resultText.length < 5000 && row.tool.resultText.includes('已截断'), '超长输出截断并标注');
+});
+
+test('W2：live 行是临时行（key 固定 live、状态 running、排在最后）', () => {
+  const messages = [{ id: 'u1', role: 'user', content: 'hi' }];
+  const withLive = buildConversationRows({ messages, live: { name: 'run_shell', round: 2 } });
+  assert.equal(withLive.length, 2);
+  const live = withLive[1];
+  assert.equal(live.key, 'live');
+  assert.equal(live.live, true);
+  assert.equal(live.tool.status, 'running');
+  assert.equal(live.tool.name, 'run_shell');
+  assert.equal(buildConversationRows({ messages, live: null }).length, 1, '没有在跑的调用时不出 live 行');
+  assert.equal(buildConversationRows({ messages, live: {} }).length, 1, '缺 name 不出行');
 });

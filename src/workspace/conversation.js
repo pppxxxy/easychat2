@@ -31,22 +31,54 @@ export const CONVERSATION_ROW_KINDS = Object.freeze({
 });
 
 export const TOOL_RESULT_PREVIEW_CHARS = 120;
+// 卡片里可展开的输出上限：够看清一次命令的输出或一次子任务的结论，又不至于把行撑爆
+//（更大的结果早已由 O1 落盘 + 指针接管，这里只显示能显示的部分）。
+export const TOOL_RESULT_TEXT_MAX = 4000;
+// 行里保留的原始参数（富卡片按工具族取字段）。整份 content/code 可能很大，但 toolTrace
+// 本身已经存着它们，这里只是引用同一份字符串，不额外占内存。
+export const TOOL_ARGS_TEXT_MAX = 4000;
 export const TOOL_ARGS_SUMMARY_CHARS = 80;
+
+// 富卡片按「用户要认什么」分族（不是每个工具一个组件）。判定放在投影里，
+// 渲染层只按 row.tool.card 画——于是这条分派能被 Node 直测，组件保持薄。
+export const TOOL_CARD_KINDS = Object.freeze(['edit', 'write', 'command', 'plan', 'subagent', 'generic']);
+
+export function toolCardKind(name) {
+  const value = String(name || '');
+  if (value === 'edit_workspace_file') return 'edit';
+  if (value === 'write_workspace_file') return 'write';
+  if (value === 'run_shell' || value === 'run_python') return 'command';
+  if (value === 'update_plan') return 'plan';
+  if (value === 'run_subagent') return 'subagent';
+  return 'generic';
+}
 
 // 参数摘要：不同工具关心的字段不同，取「最能让用户认出这次调用干了什么」的那个。
 // 认不出来的工具退回空串——宁可什么都不显示，也不要显示一坨 JSON。
 const ARG_KEYS = ['path', 'filepath', 'subdir', 'pattern', 'command', 'code', 'name', 'repo', 'url'];
 
-export function summarizeToolArgs(name, rawArguments) {
-  let args = rawArguments;
-  if (typeof args === 'string') {
-    try {
-      args = JSON.parse(args);
-    } catch (error) {
-      args = null;
-    }
+// 工具调用参数 → 对象（解析不了给 null，永不抛）。
+export function parseToolArgs(rawArguments) {
+  if (rawArguments && typeof rawArguments === 'object') return rawArguments;
+  if (typeof rawArguments !== 'string' || !rawArguments.trim()) return null;
+  try {
+    const parsed = JSON.parse(rawArguments);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (error) {
+    return null;
   }
-  if (!args || typeof args !== 'object') return '';
+}
+
+// 单个字段取文本（富卡片用）：非字符串给空串，过长截断。
+export function argText(args, key, { max = TOOL_ARGS_TEXT_MAX } = {}) {
+  const value = args && args[key];
+  if (typeof value !== 'string') return '';
+  return value.length > max ? `${value.slice(0, max)}\n…（已截断）` : value;
+}
+
+export function summarizeToolArgs(name, rawArguments) {
+  const args = parseToolArgs(rawArguments);
+  if (!args) return '';
   if (name === 'update_plan') {
     const steps = Array.isArray(args.plan) ? args.plan : [];
     const done = steps.filter(item => item && item.status === 'done').length;
@@ -106,10 +138,18 @@ export function toolRowsFromTrace(trace, { messageId = '' } = {}) {
         tool: {
           id,
           name,
+          card: toolCardKind(name),
           args: summarizeToolArgs(name, toolCallArguments(call)),
+          // 富卡片按工具族取字段（edit 的 find/replace、shell 的 command、plan 的清单…）。
+          argsRaw: parseToolArgs(toolCallArguments(call)),
           status: !result ? 'unknown' : (/(^|\n)\s*(错误|失败)|isError|Error:/i.test(content) ? 'error' : 'ok'),
           resultLength: content.length,
           resultPreview: previewToolResult(content),
+          // 可展开的完整输出（截断到上限；更大的结果已由 O1 落盘 + 指针接管）。
+          resultText: content.length > TOOL_RESULT_TEXT_MAX
+            ? `${content.slice(0, TOOL_RESULT_TEXT_MAX)}\n…（输出过长，已截断）`
+            : content,
+          resultTruncated: content.length > TOOL_RESULT_TEXT_MAX,
         },
       });
     }
@@ -119,7 +159,7 @@ export function toolRowsFromTrace(trace, { messageId = '' } = {}) {
 
 // 会话事实 → 行。messages 里的助手消息若带 toolTrace，先出行工具行再出终稿行
 //（顺序即发生顺序：先调工具，最后给答复）。
-export function buildConversationRows({ messages } = {}) {
+export function buildConversationRows({ messages, live = null } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const rows = [];
   for (const item of list) {
@@ -140,6 +180,25 @@ export function buildConversationRows({ messages } = {}) {
       ? CONVERSATION_ROW_KINDS.COMPACTION
       : CONVERSATION_ROW_KINDS.ASSISTANT;
     rows.push({ kind, key: `msg:${id}`, message: item });
+  }
+  // 正在跑的那次调用：作为最后一行进流（用户不必盯着滚动区外那行状态文字）。它是**临时行**
+  //（key 固定 'live'，本轮结束即消失），与已沉淀的事实区分开。
+  if (live && live.name) {
+    rows.push({
+      kind: CONVERSATION_ROW_KINDS.TOOL,
+      key: 'live',
+      live: true,
+      tool: {
+        id: 'live',
+        name: String(live.name),
+        card: toolCardKind(live.name),
+        args: '',
+        argsRaw: null,
+        status: 'running',
+        resultPreview: '',
+        resultText: '',
+      },
+    });
   }
   return rows;
 }

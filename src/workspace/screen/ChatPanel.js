@@ -162,7 +162,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
-  const [toolStatus, setToolStatus] = useState('');
+  // W2：正在跑的那次工具调用（并进聊天流里显示，不再单独占一条状态行）。
+  const [liveTool, setLiveTool] = useState(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('');
@@ -196,7 +197,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // 做法：先切模式，把确认文本挂到 state；effect 在新渲染（mode==='write'）里
   // 用**新的 handleSend** 发起。
   // W1：会话事实 → 行（投影是纯函数；渲染层不再遍历 messages 猜结构）。
-  const rows = useMemo(() => buildConversationRows({ messages }), [messages]);
+  const rows = useMemo(() => buildConversationRows({ messages, live: liveTool }), [messages, liveTool]);
   const canApprovePlan = useMemo(
     () => shouldOfferPlanApproval({ mode, plan: agentPlan }),
     [mode, agentPlan]
@@ -348,7 +349,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages([]);
     setInput('');
     setAttachments([]);
-    setToolStatus('');
+    setLiveTool(null);
     setSending(false);
     setSettingsOpen(false);
     setSettingsSection('');
@@ -575,7 +576,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages([]);
     setInput('');
     setAttachments([]);
-    setToolStatus('');
+    setLiveTool(null);
     setSending(false);
     setSettingsSection('');
     // A5：新对话 = 新会话 → 已读登记清零（它记的是「这次对话读过了什么」）。
@@ -601,7 +602,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages(target.messages);
     setInput(readDraft(characterId, id, target.draft));
     setAttachments([]);
-    setToolStatus('');
+    setLiveTool(null);
     setSending(false);
     setHistoryOpen(false);
     // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
@@ -1088,7 +1089,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setAttachments([]);
     }
     setSending(true);
-    setToolStatus('');
+    setLiveTool(null);
     persistMessages(ownerId, chatId, [userMessage]);
     // E4：会话事件流（旁路审计）——user 事件。不 await、写失败静默（事件流绝不挡消息链路）。
     appendSessionEvent(storeRef.current, ownerId, chatId, 'user', {
@@ -1183,7 +1184,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               setAgentPlan(steps);
             }
           }
-          setToolStatus(event.phase === 'start' ? t('workspace.chat.tool.reading', { name: event.name }) : '');
+          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round } : null);
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
         // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
@@ -1285,7 +1286,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       });
       if (mountedRef.current) {
         setSending(false);
-        setToolStatus('');
+        setLiveTool(null);
         setSteeringNote(''); // I1：本轮结束，补充指令的提示与队列一并清掉
       }
       controllerRef.current = null;
@@ -1327,7 +1328,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       }
     }, 40);
     return () => clearTimeout(timer);
-  }, [messages, toolStatus]);
+  }, [messages, liveTool]);
 
   // 对话面板（工作区单屏内的「对话」领域）：不再自套 Modal、不再自带顶栏与左栏——
   // 那是单屏的职责。顶部一条紧凑动作行保留「新建对话 / 查找历史」。
@@ -1439,13 +1440,6 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               sending={sending}
               onApprove={approvePlan}
             />
-
-            {toolStatus ? (
-              <View style={styles.statusBar}>
-                <ActivityIndicator size="small" color={theme.colors.primaryMuted} />
-                <Text style={styles.statusText} numberOfLines={1}>{toolStatus}</Text>
-              </View>
-            ) : null}
 
             {/* I1：Steering 提示——「补充指令已入队」，本轮结束自动消失。 */}
             {steeringNote ? (
