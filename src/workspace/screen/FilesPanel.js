@@ -43,6 +43,7 @@ import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
 import { searchWorkspaceFiles } from '../fileSearch.js';
+import ConfirmBar from './ConfirmBar.js';
 import FileHistorySheet from '../FileHistorySheet.js';
 import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 
@@ -243,26 +244,27 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     }
   }, [characterId, shareFile, t]);
 
+  // P4-4：删除改成**面板内确认条**（此前是系统弹框——它盖住的是整个工作区，用户还得先读完
+  // 两行字才知道删的是哪个文件）。这里只记下「在等哪一次确认」，真正的删除在 confirmDelete。
+  const [pendingDelete, setPendingDelete] = useState(null);
+
   const handleDelete = useCallback(name => {
-    Alert.alert(t('workspace.panel.delete.title'), t('workspace.panel.delete.body', { name }), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: () => {
-          const store = storeRef.current;
-          if (!store) return;
-          store.deleteFile({ characterId, path: name })
-            .then(() => {
-              if (!mountedRef.current) return;
-              setFiles(list => list.filter(entry => entry !== name));
-              if (preview && preview.path === name) setPreview(null);
-            })
-            .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
-        },
-      },
-    ]);
-  }, [characterId, preview, t]);
+    setPendingDelete({ name });
+  }, []);
+
+  const confirmDelete = useCallback(() => {
+    const target = pendingDelete && pendingDelete.name;
+    setPendingDelete(null);
+    const store = storeRef.current;
+    if (!target || !store) return;
+    store.deleteFile({ characterId, path: target })
+      .then(() => {
+        if (!mountedRef.current) return;
+        setFiles(list => list.filter(entry => entry !== target));
+        if (preview && preview.path === target) setPreview(null);
+      })
+      .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
+  }, [characterId, pendingDelete, preview, t]);
 
   // F2：目录删除——只允许删**空目录**（删前用当前文件清单再确认一次；
   // store 层还有第二道校验）。空目录多为导入残留（旧格式 / 上次没跑完），
@@ -1059,6 +1061,21 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                 </TouchableOpacity>
               ) : null}
             </View>
+          ) : null}
+
+          {/* P4-4：破坏性操作的面板内确认条（第一个接入的流程是删除文件）。 */}
+          {pendingDelete ? (
+            <ConfirmBar
+              title={t('workspace.panel.delete.title')}
+              body={t('workspace.panel.delete.body', { name: pendingDelete.name })}
+              confirmLabel={t('common.delete')}
+              cancelLabel={t('common.cancel')}
+              onConfirm={confirmDelete}
+              onCancel={() => setPendingDelete(null)}
+              theme={theme}
+              fonts={fonts}
+              tokens={tokens}
+            />
           ) : null}
 
           {renderFileBrowser()}
