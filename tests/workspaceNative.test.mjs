@@ -41,18 +41,20 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'run_subagent',
     'run_workflow',
     'run_team',
+    'export_extension_pack',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
+    'install_extension_pack',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 17);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 19);
   // 只读模式只放开只读工具（含子代理/工作流）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'ask_user', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'ask_user', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack'],
   );
 });
 
@@ -128,11 +130,13 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'run_subagent',
     'run_workflow',
     'run_team',
+    'export_extension_pack',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
+    'install_extension_pack',
     'run_shell',
   ]);
   const shellTool = getTool('run_shell');
@@ -210,11 +214,13 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'run_subagent',
     'run_workflow',
     'run_team',
+    'export_extension_pack',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
+    'install_extension_pack',
     'run_python',
   ]);
   const pythonTool = getTool('run_python');

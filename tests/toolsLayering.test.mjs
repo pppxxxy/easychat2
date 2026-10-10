@@ -103,11 +103,13 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'run_subagent',
     'run_workflow',
     'run_team',
+    'export_extension_pack',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
+    'install_extension_pack',
   ], '索引层聚合顺序是契约（只读 → 搜索 → 计划 → 物化 → 子代理 → 写 → 导出）');
   assert.equal(loaded.includes('workspace/docx.js'), false, 'docx.js 必须惰性（不随定义加载）');
 });
