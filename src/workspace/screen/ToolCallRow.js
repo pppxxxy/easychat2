@@ -54,7 +54,7 @@ function iconForTool(name) {
   return 'construct-outline';
 }
 
-export default function ToolCallRow({ tool }) {
+export default function ToolCallRow({ tool, onOpenHistory = null }) {
   const { theme, fonts } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
@@ -80,6 +80,8 @@ export default function ToolCallRow({ tool }) {
   );
 
   const body = renderBody({ kind, tool, args, expanded, styles, t });
+  // W2②：写类卡片给一个「看这个文件的提交历史」入口（复用历史面板，不另做一套 diff）。
+  const showHistoryLink = typeof onOpenHistory === 'function' && (kind === 'write' || kind === 'edit') && tool.status === 'ok';
 
   return (
     <View style={styles.card}>
@@ -89,6 +91,12 @@ export default function ToolCallRow({ tool }) {
         </TouchableOpacity>
       ) : header}
       {body ? (expanded ? body : null) : null}
+      {showHistoryLink ? (
+        <TouchableOpacity style={styles.historyLink} onPress={onOpenHistory} activeOpacity={0.8}>
+          <Ionicons name="time-outline" size={12} color={theme.colors.primaryMuted} />
+          <Text style={styles.historyLinkText}>{t('workspace.chat.tool.history')}</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -205,6 +213,8 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   bodyLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(10.5), marginTop: 4, marginBottom: 2 },
   mono: { color: theme.colors.text, fontSize: fonts.scaled(11), fontFamily: 'monospace' },
   preview: { color: theme.colors.textFaint, fontSize: fonts.scaled(10.5) },
+  historyLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  historyLinkText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(10.5) },
   diffLine: { fontSize: fonts.scaled(11), fontFamily: 'monospace' },
   diffDel: { color: theme.colors.danger || theme.colors.text },
   diffAdd: { color: theme.colors.success || theme.colors.primary },

@@ -22,10 +22,14 @@ import { getWorkspaceSettings } from '../../storage/workspace.js';
 import { resolveGitRunner, shouldRecordFileHistory } from '../native.js';
 import { turnChanges } from '../conversation.js';
 
+// git 的改动状态 → 展示用操作名（与工具轨迹的 op 同一套）。
+const OP_BY_STATUS = Object.freeze({ added: 'write', modified: 'edit', deleted: 'delete' });
+
 const OP_KEYS = Object.freeze({
   write: 'workspace.chat.summary.op.write',
   edit: 'workspace.chat.summary.op.edit',
   mkdir: 'workspace.chat.summary.op.mkdir',
+  delete: 'workspace.chat.summary.op.delete',
 });
 
 export default function TurnSummaryPanel({ characterId = 'default', messages = null }) {
@@ -46,7 +50,37 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
 
   // 从会话事实推导「本次改了什么」——调用方只传 messages，不新增持久化。
   const changes = useMemo(() => turnChanges(messages), [messages]);
-  const files = (changes && Array.isArray(changes.files)) ? changes.files : [];
+  // W2①：git 开着时以**最近一次提交**为准（那就是本轮的检查点）——它能看见 run_shell
+  // 改的文件，而工具轨迹看不见（轨迹里只有写类工具）。git 关着/没仓库时退回工具轨迹推导。
+  const [gitFiles, setGitFiles] = useState(null);
+  useEffect(() => {
+    if (!gitOn) {
+      setGitFiles(null);
+      return undefined;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const settings = await getWorkspaceSettings();
+        const runner = resolveGitRunner(settings);
+        if (!runner) return;
+        const handle = runner.open({ characterId });
+        if (!(await handle.isRepo())) return;
+        const commits = await handle.log({ depth: 1 });
+        if (!commits.length) return;
+        const changed = await handle.changedInCommit(commits[0].oid);
+        if (alive) {
+          setGitFiles(changed.map(row => ({ path: row.path, op: OP_BY_STATUS[row.status] || 'edit', count: 1 })));
+        }
+      } catch (error) {
+        // 取不到就退回工具轨迹推导，不打扰用户。
+      }
+    })();
+    return () => { alive = false; };
+  }, [characterId, gitOn, messages]);
+
+  const traced = (changes && Array.isArray(changes.files)) ? changes.files : [];
+  const files = (gitFiles && gitFiles.length > 0) ? gitFiles : traced;
 
   const undo = useCallback(async () => {
     if (busy) return;

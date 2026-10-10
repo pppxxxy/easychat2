@@ -18,6 +18,7 @@ export function registerWorkspaceAgentTools({
   mode,
   readLog = null,
   materializer = null,
+  onPlan = null,
   previous = {},
   register = registerDefaultWorkspaceTools,
 } = {}) {
@@ -26,6 +27,8 @@ export function registerWorkspaceAgentTools({
   register(settings, {
     readLog,
     materializer: typeof materializer === 'function' ? materializer : null,
+    // W3②：计划随会话落盘（宿主注入；不注入 = 不落盘，与旧行为一致）。
+    onPlan: typeof onPlan === 'function' ? onPlan : null,
   });
   const tools = listToolsForMode(mode);
   const signature = toolOrderSignature(tools);

@@ -3,7 +3,9 @@
 // 为什么不是 git clone：run_shell 走 /system/bin/sh，Android 没有 git 二进制，
 // clone 这条路是死的。可行路线 = codeload zip 快照 + fflate 解压（fflate 已在
 // 依赖里，books 解 docx 用它）。产物是**分支快照**：没有 .git 历史；提交回
-// GitHub 由工作区 agent 走 MCP GitHub 工具完成（安全分级见 mcpTools/riskGate）。
+// GitHub 由**用户**在 GitHub 面板里完成——工作区 agent 没有 GitHub 写工具（MCP GitHub 工具
+// 只注册在角色聊天，见 chat/useChatSend.js 的 ensureMcpToolsRegistered）。此前这里的注释
+// 写的是「由工作区 agent 走 MCP GitHub 工具完成」，与实现不符（2026-10-11 更正）。
 //
 // 防御思路照抄 books/extractText 的成熟做法：
 //   1) 先用「只读目录元数据」的 unzipSync 扫描（filter 全假 → 不 inflate 任何条目），

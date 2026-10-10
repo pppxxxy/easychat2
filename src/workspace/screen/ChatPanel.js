@@ -119,6 +119,8 @@ import {
 } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
+import { loadWorkspaceContextUsage } from '../usage.js';
+import { getSessionPlan, saveSessionPlan } from '../../storage/sessionPlan.js';
 import {
   addPermissionRule,
   clearPermissionRules,
@@ -128,6 +130,7 @@ import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
 import SessionSidePanels from './SessionSidePanels.js';
+import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import ToolCallRow from './ToolCallRow.js';
 import { buildConversationRows } from '../conversation.js';
 import {
@@ -153,7 +156,7 @@ function draftCacheKey(ownerId, chatId) {
   return `${String(ownerId || '')}:${String(chatId || '')}`;
 }
 
-export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
+export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHistory = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -357,29 +360,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     if (recorderRef.current.recording) recorderRef.current.cancel();
   }, [visible, persistDraft]);
 
-  // 上下文占用：按工作区会话（workspaceChats）自身历史估算——压缩对象与占用口径一致。
-  // （此前读的是角色单聊 session，与工作区历史不是同一份数据。）
+  // W3：上下文占用走唯一口径（workspace/usage.js）——与文件面板同一份数据源。
   const loadUsage = useCallback(async ownerId => {
-    try {
-      const [{ configs, activeId }, localItem, bucket] = await Promise.all([
-        getApiConfigs(),
-        getActiveLocalModel().catch(() => null),
-        getWorkspaceChats(ownerId).catch(() => null),
-      ]);
-      const active = bucket
-        && (bucket.chats.find(item => item.id === bucket.activeId) || bucket.chats[0]);
-      const list = (active && active.messages) || [];
-      const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
-      const localContextSize = Number(localItem && localItem.contextSize) || 0;
-      const computed = computeContextUsage(list, resolveContextWindow({
-        declared: caps.contextWindow,
-        localContextSize,
-      }));
-      if (mountedRef.current) setUsage(computed);
-    } catch (error) {
-      if (mountedRef.current) setUsage(null);
-    }
+    const usage = await loadWorkspaceContextUsage(ownerId);
+    if (mountedRef.current) setUsage(usage);
   }, []);
 
   // 载入某个角色的工作区会话：有就接着上次那条（连同消息与输入草稿），
@@ -607,8 +591,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setHistoryOpen(false);
     // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
     if (readLogRef.current) readLogRef.current.clear();
-    // A3 二期：计划进度条同属会话边界——切对话清空（不带旧计划过去）。
+    // A3 二期 + W3②：计划同属会话边界——先清空（不带旧计划过去），再读回那条会话自己的
+    // 计划（落盘见 registerWorkspaceAgentTools 的 onPlan）。
     setAgentPlan([]);
+    getSessionPlan(id)
+      .then(steps => { if (mountedRef.current) setAgentPlan(normalizePlanSteps(steps)); })
+      .catch(() => {});
     await setActiveWorkspaceChat(characterId, id).catch(() => {});
   }, [activeChatId, characterId, chatList, input, persistDraft, readDraft]);
 
@@ -1109,6 +1097,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         const setup = registerWorkspaceAgentTools({
           settings: wsSettingsRef.current || wsSettings, mode,
           readLog: readLogRef.current, materializer: materializeForAgent,
+          // W3②：计划随会话落盘（此前只存在内存里，切面板/切会话就丢）。
+          onPlan: steps => saveSessionPlan(chatId, steps),
           previous: toolOrderRef.current,
         });
         tools = setup.tools;
@@ -1407,7 +1397,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 <Text style={styles.intro}>{t('workspace.chat.intro')}</Text>
               ) : null}
               {rows.map(row => {
-                if (row.kind === 'tool') return <ToolCallRow key={row.key} tool={row.tool} />;
+                if (row.kind === 'tool') return <ToolCallRow key={row.key} tool={row.tool} onOpenHistory={onOpenHistory} />;
                 const item = row.message;
                 return (
                 <View
@@ -1424,9 +1414,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                         选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
                     {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
                       <ActivityIndicator size="small" color={theme.colors.primary} />
+                    ) : (item.role === 'assistant' && row.kind === 'assistant' ? (
+                      /* W3①：助手正文走与角色聊天同一个渲染器（Markdown/代码块/富 HTML），
+                         不再把 Markdown 当纯文本显示。用户消息与压缩行仍是纯文本。 */
+                      <AssistantMessageBody text={item.content} />
                     ) : (
                       <Text style={styles.bubbleText} selectable>{item.content}</Text>
-                    )}
+                    ))}
                   </View>
                 </View>
                 );

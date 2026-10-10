@@ -118,7 +118,15 @@ test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () =
   assert.match(panel, /setLiveTool\(event\.phase === 'start'/, '工具事件驱动 live 行');
   assert.match(panel, /\{rows\.map\(row => \{/, '按行遍历');
   assert.equal(panel.includes('{messages.map(item => ('), false, '旧的逐条气泡渲染已移除');
-  assert.match(panel, /<ToolCallRow key=\{row\.key\} tool=\{row\.tool\} \/>/, '工具行走 ToolCallRow');
+  assert.match(panel, /<ToolCallRow key=\{row\.key\} tool=\{row\.tool\}/, '工具行走 ToolCallRow');
+  // W2②：写类卡片能一键跳到「历史」面板看提交历史（交接链钉死，防静默断开）
+  assert.match(panel, /onOpenHistory=\{onOpenHistory\}/, 'ChatPanel 透传历史入口');
+  const screen = fs.readFileSync(path.resolve('src/workspace/screen/WorkspaceScreen.js'), 'utf8');
+  assert.match(screen, /onOpenHistory=\{\(\) => setPanel\('history'\)\}/, 'WorkspaceScreen 接到历史面板');
+  const card = fs.readFileSync(path.resolve('src/workspace/screen/ToolCallRow.js'), 'utf8');
+  assert.match(card, /workspace\.chat\.tool\.history/, '卡片里的入口文案走 i18n');
+  // W3①：助手正文走与角色聊天同一个渲染器（不再把 Markdown 当纯文本）
+  assert.match(panel, /<AssistantMessageBody text=\{item\.content\} \/>/, '助手正文用 Markdown 渲染器');
   assert.match(panel, /row\.kind === 'compaction' \? styles\.bubbleCompaction/, '压缩行有独立样式');
   // 会话侧栏面板（回合小结 + 计划进度）已外提，ChatPanel 只传数据
   assert.match(panel, /<SessionSidePanels/, '侧栏面板外提');

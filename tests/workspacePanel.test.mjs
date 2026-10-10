@@ -151,25 +151,22 @@ test('WorkspacePanel：思考强度与上下文占用接线钉死在源码', () 
   assert.ok(source.includes("enabled: choice !== 'off'"), 'off 关闭思考');
   assert.ok(source.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
   assert.ok(source.includes('getThinkingSettings()'), '打开时回读当前强度');
-  // 上下文占用：与 ChatScreen.maybeAutoSummarize 同一口径；无会话显示空态。
+  // 上下文占用（W3③ 统一口径）：面板不再自己算，调 workspace/usage.js 的唯一实现。
+  // 此前这里是「取该角色最近一个单聊会话」——而工作区 agent 发出去的是 workspaceChats，
+  // 同一个标签两种数字。口径的断言随实现搬去了 usage.js（见下）。
+  assert.ok(source.includes('loadWorkspaceContextUsage(ownerId)'), '占用走唯一口径');
   assert.ok(
-    /import \{ AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow \} from '(?:\.\.\/)+chat\/contextUsage\.js';/.test(source),
-    '复用 contextUsage 纯口径'
+    /import \{ AUTO_COMPACT_RATIO \} from '(?:\.\.\/)+chat\/contextUsage\.js';/.test(source),
+    '警示线常量仍来自 contextUsage'
   );
-  // 钉住「过滤 + 排序」整体：两条相邻断言分别锁 type 过滤与 characterId 匹配，
-  // 任何一条被拆掉都会漏占用（曾经靠注入验证抓过这类半截匹配）。
-  assert.ok(
-    source.includes(".filter(item => item && item.type !== 'group'"),
-    '占用只统计单聊会话（排除群聊）'
-  );
-  assert.ok(
-    source.includes("String(item.characterId || '') === String(ownerId || '')"),
-    '占用取当前工作区角色的会话'
-  );
-  assert.ok(
-    source.includes('declared: caps.contextWindow,'),
-    '窗口按每模型声明的 contextWindow'
-  );
+  const usageSource = readSource('src/workspace/usage.js');
+  assert.ok(usageSource.includes('computeContextUsage('), '唯一口径用 contextUsage 的纯估算');
+  assert.ok(usageSource.includes('resolveContextWindow('), '窗口解析同源');
+  assert.ok(usageSource.includes('declared: caps.contextWindow,'), '窗口按每模型声明的 contextWindow');
+  assert.ok(usageSource.includes('getWorkspaceChats(ownerId)'), '按工作区会话历史算（压缩对象与占用口径一致）');
+  // 两处必须同源：聊天面板也调同一个函数
+  const chatSource = readSource('src/workspace/screen/ChatPanel.js');
+  assert.ok(chatSource.includes('loadWorkspaceContextUsage(ownerId)'), '聊天面板同一口径');
   assert.ok(
     source.includes('usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn'),
     '到 80% 线进度条转警示色'

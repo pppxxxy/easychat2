@@ -26,20 +26,17 @@ import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHea
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { useApp } from '../../context/AppContext.js';
-import { capabilitiesForModel, getActiveModel, getApiConfigs } from '../../storage/apiConfigs.js';
 import {
   clearWorkspaceChanges,
   getWorkspaceChanges,
   getWorkspaceSettings,
   patchWorkspaceSettings,
 } from '../../storage/workspace.js';
-import { getActiveLocalModel } from '../../storage/localModels.js';
+import { loadWorkspaceContextUsage } from '../usage.js';
 import { getCharacterLibrary } from '../../storage/characters.js';
-import { getMessagesBySession, getSessions } from '../../storage/sessions.js';
 import { getThinkingSettings, saveThinkingSettings } from '../../storage/settings.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
-import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
-import { normalizeLocalModelParams } from '../../localModel/modelParams.js';
+import { AUTO_COMPACT_RATIO } from '../../chat/contextUsage.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from '../docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from '../native.js';
 import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.js';
@@ -159,35 +156,12 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     }
   }, [characterId, t]);
 
-  // 上下文占用：取该工作区角色最近的一个单聊会话，按当前后端声明的窗口估算。
-  // 与 ChatScreen.maybeAutoSummarize 同一口径（chat/contextUsage.js），到 80% 自动压缩。
+  // W3：上下文占用走唯一口径（workspace/usage.js）——与聊天面板同一份数据源。
+  // 此前这里按该角色的「最近一个单聊会话」算，而工作区 agent 发出去的是 workspaceChats，
+  // 同一个标签两种数字；现在统一。
   const loadContextUsage = useCallback(async ownerId => {
-    try {
-      const [sessions, { configs, activeId }, localItem] = await Promise.all([
-        getSessions(),
-        getApiConfigs(),
-        getActiveLocalModel().catch(() => null),
-      ]);
-      const session = (Array.isArray(sessions) ? sessions : [])
-        .filter(item => item && item.type !== 'group'
-          && String(item.characterId || '') === String(ownerId || ''))
-        .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0];
-      if (!session) {
-        if (mountedRef.current) setUsage(null);
-        return;
-      }
-      const messages = await getMessagesBySession(session.id).catch(() => []);
-      const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
-      const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
-      const computed = computeContextUsage(messages, resolveContextWindow({
-        declared: caps.contextWindow,
-        localContextSize,
-      }));
-      if (mountedRef.current) setUsage(computed);
-    } catch (error) {
-      if (mountedRef.current) setUsage(null);
-    }
+    const usage = await loadWorkspaceContextUsage(ownerId);
+    if (mountedRef.current) setUsage(usage);
   }, []);
 
   // 思考强度：off = 关闭思考；其余档位对应 low/medium/high（全局设置，保存即生效）。

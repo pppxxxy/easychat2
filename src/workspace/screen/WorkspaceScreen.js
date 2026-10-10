@@ -151,6 +151,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
                 onClose={onClose}
                 draft={draft}
                 onOpenPanel={openFiles}
+                onOpenHistory={() => setPanel('history')}
               />
             ) : null}
             {panel === 'files' ? (
