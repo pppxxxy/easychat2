@@ -143,7 +143,11 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
   assert.ok(panel.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
   assert.ok(panel.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
-  assert.ok(panel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  // 进度条已抽成 PlanProgressBar（ChatPanel 卡在架构棘轮基线上，自成一体的部件先出去
+  // 才腾得出余量）：文案在组件里，宿主只负责接线与折叠状态。
+  const bar = fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8');
+  assert.ok(bar.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  assert.ok(panel.includes('<PlanProgressBar'), 'ChatPanel 接线到进度条组件');
   assert.ok(panel.includes('setPlanCollapsed'), '可收起');
   const clearCount = (panel.match(/setAgentPlan\(\[\]\)/g) || []).length;
   assert.ok(clearCount >= 2, '新对话与切对话两处都清空');
@@ -173,5 +177,5 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   // 当第一个实参传进来，按「非 undefined」判断会让工作区发什么都变成 "[object Object]"
   //（见 resolveSendText 的注释与回归测试）。
   assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
-  assert.ok(screen.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  assert.ok(fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8').includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
 });

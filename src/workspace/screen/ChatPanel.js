@@ -67,6 +67,7 @@ import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
 import { applyToolEvent } from '../../chat/toolCardView.js';
 import ToolCardList from './ToolCardList.js';
+import PlanProgressBar from './PlanProgressBar.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
@@ -129,7 +130,6 @@ import {
 import WorkspaceHistorySheet from '../WorkspaceHistorySheet.js';
 import * as Sharing from 'expo-sharing';
 import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
-import { hexToRgba } from '../../theme/themes.js';
 import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt, resolveSendText,
@@ -1433,60 +1433,19 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               ))}
             </ScrollView>
 
-            {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——多步任务执行中
-                对用户可见「做到哪一步了」；会话边界清空，纯展示不落盘。 */}
-            {agentPlan.length > 0 ? (
-              <View style={styles.planPanel}>
-                <TouchableOpacity
-                  style={styles.planHeader}
-                  onPress={() => setPlanCollapsed(value => !value)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="list-outline" size={14} color={theme.colors.primary} />
-                  <Text style={styles.planTitle} numberOfLines={1}>
-                    {t('workspace.chat.plan.title', {
-                      done: agentPlan.filter(item => item.status === 'done').length,
-                      total: agentPlan.length,
-                    })}
-                  </Text>
-                  <Ionicons
-                    name={planCollapsed ? 'chevron-down' : 'chevron-up'}
-                    size={14}
-                    color={theme.colors.textFaint}
-                  />
-                </TouchableOpacity>
-                {planCollapsed ? null : agentPlan.map((item, index) => (
-                  <View key={`${index}-${item.step}`} style={styles.planRow}>
-                    <Ionicons
-                      name={item.status === 'done'
-                        ? 'checkmark-circle'
-                        : (item.status === 'in_progress' ? 'play-circle' : 'ellipse-outline')}
-                      size={14}
-                      color={item.status === 'done' ? theme.colors.primary : theme.colors.textMuted}
-                    />
-                    <Text
-                      style={[styles.planStep, item.status === 'done' && styles.planStepDone]}
-                      numberOfLines={1}
-                    >
-                      {item.step}
-                    </Text>
-                  </View>
-                ))}
-                {/* I2：read 模式 + 计划未完成 → 提议「批准并执行」（切模式 + 注入确认消息）。 */}
-                {canApprovePlan ? (
-                  <TouchableOpacity
-                    style={styles.planApprovalButton}
-                    onPress={() => { if (!sending) approvePlan(); }}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="checkmark-done-outline" size={14} color={theme.colors.primary} />
-                    <Text style={styles.planApprovalText}>
-                      {t('workspace.chat.planApproval.action')}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
+            {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——已抽成组件，
+                ChatPanel 卡在架构棘轮基线上，部件先出去、主文件才腾得出余量。 */}
+            <PlanProgressBar
+              plan={agentPlan}
+              collapsed={planCollapsed}
+              onToggle={() => setPlanCollapsed(value => !value)}
+              canApprove={canApprovePlan}
+              sending={sending}
+              onApprove={approvePlan}
+              theme={theme}
+              fonts={fonts}
+              t={t}
+            />
 
             <ToolCardList cards={toolCards} theme={theme} fonts={fonts} tokens={tokens} t={t} />
 
@@ -1740,37 +1699,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
   statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
   statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
-  // A3 二期：计划进度条（贴着输入区的只读卡片；完成项划线弱化）。
-  planPanel: {
-    marginHorizontal: 12,
-    marginBottom: 4,
-    borderRadius: 10,
-    backgroundColor: theme.colors.surfaceAlt,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  planHeader: { flexDirection: 'row', alignItems: 'center' },
-  planTitle: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
-  planRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-  planStep: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
-  planStepDone: { color: theme.colors.textFaint, textDecorationLine: 'line-through' },
-  // I2：计划批准按钮（计划卡片内的轻量行按钮，不引入大按钮组件）。
-  planApprovalButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: hexToRgba(theme.colors.primary, 0.14),
-  },
-  planApprovalText: {
-    color: theme.colors.primary,
-    fontSize: fonts.scaled(12),
-    fontWeight: '600',
-    marginLeft: 6,
-    flex: 1,
-  },
   attachmentBar: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingBottom: 4 },
   attachmentChip: {
     flexDirection: 'row',
