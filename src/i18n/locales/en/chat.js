@@ -221,6 +221,7 @@ export const chat = {
   'chat.send.noMembers.title': 'Cannot send',
   'chat.send.noMembers.body': 'This group has no available characters (members may have been deleted).',
   'chat.send.noReply': 'No reply received.',
+  'chat.send.fallbackSwitched': '“{from}” failed; retrying with “{to}”',
   'chat.send.memberReplyFailed': '{name} failed to reply this turn',
   'chat.send.groupReplyFailed.title': 'Group reply failed',
   'chat.send.groupReplyFailed.body': 'Please try again later.',

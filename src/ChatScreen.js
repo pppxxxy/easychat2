@@ -1128,6 +1128,7 @@ export default function ChatScreen() {
     onRegenerateMessage,
     onEditUserMessage,
     modelLoadProgress,
+    modelFallbackNotice,
     branchesRefreshToken,
   } = useChatSend({
     beginSendOperation,
@@ -2621,6 +2622,20 @@ export default function ChatScreen() {
           <View style={styles.modelLoadTrack}>
             <View style={[styles.modelLoadFill, { width: `${modelLoadProgress}%` }]} />
           </View>
+        </View>
+      ) : null}
+
+      {/* P0-7：降级链中途换了模型——必须让用户看到，否则会把另一个模型的回复
+          当成主模型的产出。随本次发送结束自动消失。 */}
+      {modelFallbackNotice ? (
+        <View
+          style={styles.modelFallbackBanner}
+          accessibilityLabel={t('chat.send.fallbackSwitched', modelFallbackNotice)}
+        >
+          <Ionicons name="swap-horizontal" size={13} color={theme.colors.primary} />
+          <Text style={styles.modelFallbackText} numberOfLines={2}>
+            {t('chat.send.fallbackSwitched', modelFallbackNotice)}
+          </Text>
         </View>
       ) : null}
 

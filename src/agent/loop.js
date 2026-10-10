@@ -99,6 +99,9 @@ export async function runAgentTurn(messages, options = {}) {
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
+  // P0-7：降级链换模型的通知（宿主注入；不注入 = 静默重试，行为与旧版一致）。
+  // 只是信息性回调，重试本身由 streamChatCompletion 决定，这里不参与判定。
+  const onModelFallback = typeof options.onModelFallback === 'function' ? options.onModelFallback : null;
   // I1：Steering 队列（宿主注入；不注入 = 无中途指令，行为与旧版一致）。
   // 约定对象：{ drain(): string[] }——宿主用 createSteeringQueue() 创建。
   const steering = options.steering && typeof options.steering.drain === 'function'
@@ -130,6 +133,7 @@ export async function runAgentTurn(messages, options = {}) {
       signal,
       onChunk: text => safeCallback(onToken, text),
       onReasoning: text => safeCallback(onReasoning, text),
+      ...(onModelFallback ? { onModelFallback } : {}),
     });
     if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, ...result.usage });
     return typeof result.text === 'string' ? result.text : '';
@@ -148,6 +152,7 @@ export async function runAgentTurn(messages, options = {}) {
     ...(roundTools && roundTools.length ? { tools: roundTools, toolChoice: 'auto' } : {}),
     onChunk: text => safeCallback(onToken, streamedText + text),
     onReasoning: text => safeCallback(onReasoning, streamedReasoning + text),
+    ...(onModelFallback ? { onModelFallback } : {}),
   });
 
   // I1：收束预警的"已提醒"标记（从轮号判断改为标记式——Steering 注入后允许再提醒

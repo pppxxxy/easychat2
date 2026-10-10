@@ -53,6 +53,7 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 | `apiKey` | `string` | 密钥 | 保存时去除首尾空白；仅存本机，不得提交到仓库 |
 | `models` | `string[]` | 模型列表 | 始终非空；为空时回退默认模型 |
 | `activeModel` | `string` | 当前模型 | 必须属于 `models`，否则回退列表首项 |
+| `fallbackModels` | `string[]` | 降级模型（P0-7）：主模型 429/5xx/超时/断网时按序换用 | 最多 3 个、去重保序；字符串形态在落盘时归一为数组；空数组 = 不降级 |
 | `supportsThinking` | `boolean` | 是否支持思考 | 保存前确认，缺省 `false` |
 | `supportsVision` | `boolean` | 是否支持识图 | 保存前确认，缺省 `false` |
 | `thinking` | `{ field, format }` | 思考参数声明（**旧配置级字段，仅迁移来源**） | `format` 为 `effort` / `boolean` / `object`；缺省 `reasoning_effort` + `effort` |
@@ -71,6 +72,7 @@ API 配置（API Config）是连接外部大模型服务的凭据与目标信息
 5. **地址会被归一化**: 无论用户填写哪种形式，最终都会得到以 `/chat/completions` 结尾的地址。
 6. **明文地址需用户确认**: 匹配 `/^http:\/\//i` 时，保存前必须经过确认弹窗；保存前还会确认思考与识图能力。
 7. **自定义参数开关决定高级项是否生效**: `customParams !== true` 时，`thinkingField` / `thinkingFormat` / `contextWindow` / `maxOutput` 一律回落默认 —— `capabilitiesForModel` 返回**生效值**（消费点无需各自判断开关），`rawCapabilityForModel` 返回**原始值**（能力面板回填用，关掉开关也记得上次填的）。旧数据里已填过这些高级项的条目在归一化时迁移为 `true`，不会被静默忽略。
+8. **降级链只换「这次用哪个模型」**: `fallbackModels` 不参与配置指纹（改降级链不会丢弃在途回复），也不写会话/记忆；流式已产出内容后一律不降级，且换模型必须经 `onModelFallback` 告知宿主（不得静默换模型）。
 8. **输出长度只在自定义开启时介入请求**: 关闭时不发 `max_tokens`（保持全局采样/服务端默认），避免给不支持大输出的模型悄悄带上 32000 而报错；开启时留空按 `DEFAULT_MAX_OUTPUT_TOKENS`（32000）发送。
 
 ## 生命周期

@@ -196,6 +196,9 @@ export default function useChatSend({
   // 本地模型首次加载进度（0-100）：本地路径首条消息会在推理前 mmap 数 GB 权重，
   // 期间「正在思考」看不出是在加载。null = 未在加载（在线路径或无本地模型）。
   const [modelLoadProgress, setModelLoadProgress] = useState(null);
+  // P0-7 降级链提示：本次发送中途换过模型时，如实告诉用户「已切换到 X」。
+  // 静默换模型会让用户把另一个模型的回复当成主模型的产出。null = 本次没换过。
+  const [modelFallbackNotice, setModelFallbackNotice] = useState(null);
   // 分支变更计数：撤回归档 / 切换 / 删除分支后自增，驱动 UI 重新读取分支索引。
   const [branchesRefreshToken, setBranchesRefreshToken] = useState(0);
   const bumpBranchesRefresh = useCallback(() => {
@@ -258,6 +261,14 @@ export default function useChatSend({
            timestamp: Date.now(),
          }];
        });
+     };
+     // P0-7：降级链中途换了模型 → 记下「从谁换到谁」，由 ChatScreen 在输入栏上方
+     // 如实提示（不弹框、不打断生成）。只记当前会话：切走后旧会话的提示不该跟过来。
+     const noteModelFallback = info => {
+       if (!isCurrentSession()) return;
+       const to = String((info && info.to) || '');
+       if (!to) return;
+       setModelFallbackNotice({ from: String((info && info.from) || ''), to });
      };
      // 工作区模式（ask/read/write）：决定在线路径是否走 agent 工具循环。
      // 读取失败按默认 ask 处理（零行为变化，绝不因设置读失败而改变发送行为）。
@@ -562,6 +573,8 @@ export default function useChatSend({
                 expectedConfigId,
                 expectedConfigFingerprint,
                 stream: chatOptions.stream,
+                // P0-7：换模型重试要能提示到用户（经 runAgentTurn 透传给 api.js）。
+                onModelFallback: noteModelFallback,
               },
               onToken: fullText => {
                 meter.markFirstToken();
@@ -618,6 +631,7 @@ export default function useChatSend({
               expectedConfigFingerprint,
               signal: controller.signal,
            stream: chatOptions.stream,
+           onModelFallback: noteModelFallback,
            onChunk: fullText => {
              meter.markFirstToken();
              if (!isCurrentSession() || controller.signal.aborted) return;
@@ -761,6 +775,8 @@ export default function useChatSend({
         }
       }
       setModelLoadProgress(null);
+      // 降级提示随本次发送一起收场：它描述的是「这次请求中途换过模型」。
+      setModelFallbackNotice(null);
     }
   }, [autoScrollToBottom, character, characters, chatOptions.stream, isSessionGuardCurrent, maybeAutoSummarize, ready, scrollToBottom]);
 
@@ -784,6 +800,13 @@ export default function useChatSend({
      const controller = sendLockRef.current?.controller || new AbortController();
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
+     // P0-7：群聊（含群像/发言调度）换模型同样要如实提示——与单聊同一口径。
+     const noteGroupModelFallback = info => {
+       if (!isCurrent()) return;
+       const to = String((info && info.to) || '');
+       if (!to) return;
+       setModelFallbackNotice({ from: String((info && info.from) || ''), to });
+     };
      // 群聊同样计入本会话统计：配置名/模型名在这里读一次，供每组请求记账。
      let groupConfigLabel = '';
      let groupModelName = '';
@@ -935,6 +958,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              expectedConfigFingerprint,
              signal: controller.signal,
               stream: chatOptions.stream,
+              onModelFallback: noteGroupModelFallback,
             });
             recordGroupStats(speakerMeter, reply);
              if (!isCurrent()) return false;
@@ -1017,6 +1041,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              expectedConfigFingerprint,
              signal: controller.signal,
             stream: chatOptions.stream,
+            onModelFallback: noteGroupModelFallback,
             onChunk: fullText => {
               ensembleMeter.markFirstToken();
               if (!isCurrent() || controller.signal.aborted) return;
@@ -1101,6 +1126,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
           autoScrollToBottom();
         }
       }
+      // 降级提示随本次发送一起收场（与单聊同款）。
+      setModelFallbackNotice(null);
     }
   }, [autoScrollToBottom, chatOptions.stream, isSessionGuardCurrent, ready, scrollToBottom]);
 
@@ -1731,6 +1758,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     onRegenerateMessage,
     onEditUserMessage,
     modelLoadProgress,
+    modelFallbackNotice,
     branchesRefreshToken,
   };
 }

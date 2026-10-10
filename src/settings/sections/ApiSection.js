@@ -180,6 +180,20 @@ export default function ApiSection(props) {
                   {detectingModels ? t('common.detecting') : t('settings.api.detectModels')}
                 </Text>
               </TouchableOpacity>
+              <FieldLabel style={styles.label}>{t('settings.api.fallbackModels')}</FieldLabel>
+              {/* 草稿里可能是用户正在输入的原始字符串（逗号分隔），落盘时由
+                  storage/apiConfigs.js 的 normalizeFallbackModels 归一成数组——
+                  边打边归一会在用户敲「,」的瞬间把分隔符吃掉。 */}
+              <TextField
+                value={Array.isArray(active.fallbackModels)
+                  ? active.fallbackModels.join(', ')
+                  : String(active.fallbackModels || '')}
+                onChangeText={fallbackModels => updateField({ fallbackModels })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={t('settings.api.fallbackModelsPlaceholder')}
+              />
+              <FieldHint style={styles.hint}>{t('settings.api.fallbackModelsHint')}</FieldHint>
               <FieldLabel style={styles.label}>API Key</FieldLabel>
               <SecretTextField
                 value={active.apiKey}

@@ -1097,6 +1097,19 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderRadius: tokens.radius.xs,
     backgroundColor: theme.colors.primary,
   },
+  // P0-7 降级提示条：与引擎状态条同位置（输入栏上方），但更轻——只是说明这次换过模型。
+  modelFallbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: 4,
+  },
+  modelFallbackText: {
+    flex: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
   // 引擎状态条（v5 设计稿）：输入栏上方的圆角提示卡（浅品牌底 + 描边），
   // 不再是贴边横幅；失败回退/出错时切警示配色。
   engineBar: {

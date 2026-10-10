@@ -222,6 +222,7 @@ export const chat = {
   'chat.send.noMembers.title': '无法发送',
   'chat.send.noMembers.body': '这个群聊没有可用的角色（成员可能已被删除）。',
   'chat.send.noReply': '没有收到回复。',
+  'chat.send.fallbackSwitched': '「{from}」请求失败，已切换到「{to}」重试',
   'chat.send.memberReplyFailed': '{name} 本次回复失败',
   'chat.send.groupReplyFailed.title': '群聊回复失败',
   'chat.send.groupReplyFailed.body': '请稍后重试。',
