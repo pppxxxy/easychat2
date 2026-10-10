@@ -73,6 +73,25 @@ test('boardPromptSuffix：提到两个工具名', () => {
   assert.ok(suffix.includes('board_post') && suffix.includes('board_read'));
 });
 
+test('黑板播种与序列化：serialize → createBlackboard({ initial }) 往返、序号续接、坏数据不崩', () => {
+  const first = createBlackboard();
+  first.post({ topic: '结论', from: 'task-1', text: 'A' });
+  first.post({ topic: '结论', from: 'task-2', text: 'B' });
+  first.post({ topic: '风险', text: 'C' });
+  const data = first.serialize();
+  assert.equal(data.version, 1);
+  const second = createBlackboard({ initial: data });
+  assert.deepEqual(second.topics(), ['结论', '风险']);
+  assert.equal(second.read({ topic: '结论' }).messages.length, 2);
+  assert.equal(second.read({ topic: '风险' }).messages[0].text, 'C');
+  // 序号续接：播种后新发布从更大的 seq 继续（不覆盖历史）
+  assert.equal(second.post({ topic: '结论', text: 'D' }).seq, 4);
+  // 坏 initial 不崩、空文本条目被丢弃
+  assert.equal(createBlackboard({ initial: 'nonsense' }).size(), 0);
+  assert.equal(createBlackboard({ initial: { topics: { t: [{ text: '   ' }] } } }).size(), 0);
+  assert.equal(createBlackboard({ initial: { topics: null } }).size(), 0);
+});
+
 test('board 工具：无黑板时报错；有黑板时发布/读取（署名 agentName）', () => {
   const noBoard = BOARD_POST_TOOL_DEFINITION.execute({}, { topic: 't', text: 'x' }, {});
   assert.equal(noBoard.isError, true);

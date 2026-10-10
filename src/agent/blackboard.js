@@ -12,6 +12,8 @@ export const BLACKBOARD_MAX_TOPICS = 16;
 export const BLACKBOARD_MAX_ENTRIES = 32;
 export const BLACKBOARD_TEXT_MAX = 2000;
 export const BLACKBOARD_READ_MAX = 8000;
+// 持久化格式版本：跨会话黑板文件（.easychat/board/board.json）的 schema 标记。
+export const BLACKBOARD_VERSION = 1;
 
 // 主题归一：小写、空白折叠成连字符、截断——让「用户列表」「用户 列表」指向同一主题。
 export function normalizeTopic(topic) {
@@ -22,10 +24,39 @@ export function normalizeTopic(topic) {
     .slice(0, 64);
 }
 
-// 创建一块黑板。返回 { post, read, topics, size }（全同步）。
-export function createBlackboard() {
+function normalizeEntry(entry, seq) {
+  const text = String((entry && entry.text) || '').trim().slice(0, BLACKBOARD_TEXT_MAX);
+  if (!text) return null;
+  return {
+    seq,
+    from: String((entry && entry.from) || '匿名').slice(0, 48),
+    text,
+    at: Number(entry && entry.at) || Date.now(),
+  };
+}
+
+// 创建一块黑板。initial 是此前 serialize() 的结果（跨会话沉淀）——按其播种，序号续接。
+// 返回 { post, read, topics, size, serialize, hasContent }（全同步）。
+export function createBlackboard({ initial } = {}) {
   const board = new Map();
   let seq = 0;
+  const seed = initial && typeof initial === 'object' && initial.topics && typeof initial.topics === 'object'
+    ? initial.topics
+    : null;
+  if (seed) {
+    for (const [topic, list] of Object.entries(seed)) {
+      if (board.size >= BLACKBOARD_MAX_TOPICS) break;
+      const key = normalizeTopic(topic);
+      if (!key || board.has(key)) continue;
+      const bucket = [];
+      for (const entry of (Array.isArray(list) ? list : [])) {
+        seq += 1;
+        const normalized = normalizeEntry(entry, seq);
+        if (normalized) bucket.push(normalized);
+      }
+      if (bucket.length) board.set(key, bucket.slice(-BLACKBOARD_MAX_ENTRIES));
+    }
+  }
   return {
     post({ topic, from, text } = {}) {
       const key = normalizeTopic(topic);
@@ -59,6 +90,18 @@ export function createBlackboard() {
     size() {
       return board.size;
     },
+    hasContent() {
+      for (const bucket of board.values()) if (bucket.length) return true;
+      return false;
+    },
+    // 序列化成可落盘/可播种的纯对象（跨会话黑板文件用）。
+    serialize() {
+      const topics = {};
+      for (const [topic, bucket] of board) {
+        topics[topic] = bucket.map(item => ({ seq: item.seq, from: item.from, text: item.text, at: item.at }));
+      }
+      return { version: BLACKBOARD_VERSION, updatedAt: Date.now(), topics };
+    },
   };
 }
 
@@ -77,5 +120,6 @@ export function formatBoardMessages(topic, messages) {
 export function boardPromptSuffix() {
   return '\n【团队通信】你和其它分身共享一块黑板：用 board_post({topic, text}) 把进展/发现/'
     + '中间结论发布到某个主题下，用 board_read({topic}) 读取同伴写的内容。'
+    + '黑板可能已有此前会话沉淀的内容——开始前先 board_read 你关心的主题，避免重复劳动。'
     + '需要互相传递结果时就用它，不要假设同伴能看到你的中间过程。';
 }

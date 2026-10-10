@@ -123,6 +123,9 @@ test('接线契约：ChatPanel 每轮直读团队并传入；设置面板可安�
   assert.ok(sheet.includes("id: 'teams'"), '设置面板有团队行');
   assert.ok(sheet.includes('onInstallSampleTeams'), '安装示例按钮接线');
 
+  const tool = fs.readFileSync(path.resolve('src/workspace/toolDefs/teamTool.js'), 'utf8');
+  assert.ok(tool.includes('loadPersistentBlackboard') && tool.includes('savePersistentBlackboard'), 'run_team 跨会话黑板接线');
+
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/workspace.js'), 'utf8');
   const en = fs.readFileSync(path.resolve('src/i18n/locales/en/workspace.js'), 'utf8');
   for (const key of ["'workspace.settings.teams'", "'workspace.settings.teams.hint'", "'workspace.settings.teams.install'"]) {

@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runWorkflowSteps, formatWorkflowResult } from '../src/workspace/toolDefs/workflowRunner.js';
+import { createBlackboard } from '../src/agent/blackboard.js';
 
 function makeStore(files = {}) {
   return {
@@ -61,6 +62,23 @@ test('黑板跨步骤共享：前一步 board_post 的内容，后一步 board_r
   });
   assert.equal(result.ok, true);
   assert.ok(result.results.c.includes('看到 A 的发现'));
+});
+
+test('注入已播种的黑板：步骤读得到跨会话沉淀（remember 通路）', async () => {
+  const seeded = createBlackboard({ initial: { topics: { '历史结论': [{ from: 'task-9', text: '上次的发现' }] } } });
+  const stream = async history => {
+    const toolMsg = history.find(m => m.role === 'tool');
+    if (!toolMsg) {
+      return { text: '', toolCalls: [{ id: 'r', name: 'board_read', arguments: JSON.stringify({ topic: '历史结论' }) }] };
+    }
+    assert.ok(toolMsg.content.includes('上次的发现'), '必须读到播种内容');
+    return { text: '看到上次的发现', toolCalls: [] };
+  };
+  const result = await runWorkflowSteps({
+    store: makeStore({}), characterId: 'c', steps: [{ id: 'a', task: '读取历史' }], stream, board: seeded,
+  });
+  assert.equal(result.ok, true);
+  assert.ok(result.results.a.includes('看到上次的发现'));
 });
 
 test('formatWorkflowResult：失败给错误对象；成功按拓扑顺序合并；空产出兜底', () => {

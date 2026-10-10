@@ -4,13 +4,16 @@
 // 交给 workflowRunner 执行（agent 档案收窄 + 共享黑板），与 run_workflow 同一条执行路径。
 
 import { readWorkspaceTeams } from '../teams.js';
+import { loadPersistentBlackboard, savePersistentBlackboard } from '../boardStore.js';
 import { runWorkflowSteps, formatWorkflowResult } from './workflowRunner.js';
 
 export const RUN_TEAM_TOOL_DEFINITION = {
   name: 'run_team',
   description: '按名字运行一个保存好的工作区团队（.easychat/teams/<name>.md 里定义的多步'
     + '子代理编排）。团队清单见系统提示的「工作区团队」段。可用 objective 给本次运行'
-    + '补充目标/主题——团队步骤可以写通用描述，运行时再用 objective 指定具体对象。',
+    + '补充目标/主题——团队步骤可以写通用描述，运行时再用 objective 指定具体对象。'
+    + '默认 remember=true：团队的共享黑板会跨会话沉淀（下次运行先读上次的结论），'
+    + '想从空白开始就传 remember=false。',
   readOnly: true,
   // 与 run_workflow 同量级：多步 × 多轮模型请求。
   timeoutMs: 600000,
@@ -19,6 +22,7 @@ export const RUN_TEAM_TOOL_DEFINITION = {
     properties: {
       team: { type: 'string', description: '团队名（见系统提示的「工作区团队」清单）。' },
       objective: { type: 'string', description: '可选：本次运行的目标/主题，追加到每一步的子任务。' },
+      remember: { type: 'boolean', description: '可选：默认 true——共享黑板跨会话沉淀；false 则本次从空白开始。' },
     },
     required: ['team'],
   },
@@ -39,13 +43,19 @@ export const RUN_TEAM_TOOL_DEFINITION = {
     const steps = objective
       ? team.steps.map(step => ({ ...step, task: `${step.task}\n\n（本次团队目标：${objective}）` }))
       : team.steps;
+    // 跨会话：默认播种此前沉淀的黑板，跑完再落盘（空黑板不覆盖已有文件）。
+    const remember = !(args && args.remember === false);
+    const board = remember ? await loadPersistentBlackboard(options.store, ctx && ctx.characterId) : undefined;
     const result = await runWorkflowSteps({
       store: options.store,
       characterId: ctx && ctx.characterId,
       signal: (ctx && ctx.signal) || null,
       confirm: (ctx && typeof ctx.confirm === 'function') ? ctx.confirm : null,
       steps,
+      ...(board ? { board } : {}),
     });
+    if (board) await savePersistentBlackboard(options.store, ctx && ctx.characterId, board).catch(() => {});
     return formatWorkflowResult(result);
   },
 };
+

@@ -20,9 +20,10 @@ const READ_TOOLS = READ_ONLY_TOOL_DEFINITIONS.filter(item => SUBAGENT_TOOL_NAMES
 const WRITE_TOOLS = WRITE_TOOL_DEFINITIONS.filter(item => SUBAGENT_WRITE_TOOL_NAMES.includes(item.name));
 
 // 跑一组步骤：共享黑板 + 逐步骤按 agent 档案收窄工具/轮次。返回 runWorkflow 的结果。
+// board 由调用方注入（跨会话时传入持久化播种的黑板；不传则新建一块内存黑板）。
 // stream 仅测试注入（生产走 runSubagent 的默认取配置路径）。
-export async function runWorkflowSteps({ store, characterId, signal, confirm, steps, onStep, stream = null } = {}) {
-  const board = createBlackboard();
+export async function runWorkflowSteps({ store, characterId, signal, confirm, steps, onStep, stream = null, board } = {}) {
+  const sharedBoard = board || createBlackboard();
   return runWorkflow({
     steps,
     signal,
@@ -54,7 +55,7 @@ export async function runWorkflowSteps({ store, characterId, signal, confirm, st
         signal,
         mode: writeMode ? 'write' : 'read',
         confirm,
-        board,
+        board: sharedBoard,
         extraTools: BOARD_TOOL_DEFINITIONS,
         agentName: step.id || profileName || 'step',
         ...(stream ? { stream } : {}),
