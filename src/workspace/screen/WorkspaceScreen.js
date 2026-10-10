@@ -94,8 +94,15 @@ export default function WorkspaceScreen({ visible, onClose }) {
     setPanel('chat');
   }, []);
 
+  // Android 返回键按**层级**退：子面板（文件/GitHub/终端/设置）先退回对话，在对话里才关掉
+  // 整个工作区。此前一律 onClose——在文件面板里按返回会直接把工作区关掉，层级被跳过一级。
+  const handleRequestClose = useCallback(() => {
+    if (panel === 'chat') onClose();
+    else backToChat();
+  }, [panel, onClose, backToChat]);
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={handleRequestClose}>
       <View style={styles.container}>
         <View style={styles.topBar}>
           <Text style={styles.title}>{t('workspace.home.title')}</Text>
@@ -137,10 +144,12 @@ export default function WorkspaceScreen({ visible, onClose }) {
           </View>
 
           <View style={styles.content}>
+            {/* 面板不接收 onClose：导航是**屏幕**的职责（左栏切领域 + 返回键按层级退），
+                面板只管自己那一屏。此前这里给三个面板传了它们签名里根本没有的 onClose，
+                读代码的人会以为面板能自己关闭——那是面板化改造留下的死 prop。 */}
             {panel === 'chat' ? (
               <ChatPanel
                 visible={visible}
-                onClose={onClose}
                 draft={draft}
                 onOpenPanel={openFiles}
               />
@@ -150,7 +159,6 @@ export default function WorkspaceScreen({ visible, onClose }) {
                 visible={visible}
                 embedded
                 initialSection={filesSection}
-                onClose={backToChat}
               />
             ) : null}
             {panel === 'github' ? (
@@ -160,7 +168,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
               <TerminalPanel characterId={characterId} />
             ) : null}
             {panel === 'settings' ? (
-              <WorkspaceSettingsPanel characterId={characterId} onClose={backToChat} />
+              <WorkspaceSettingsPanel characterId={characterId} />
             ) : null}
           </View>
         </View>
