@@ -31,6 +31,7 @@ export const workspace = {
   'workspace.screen.rail.github': 'GitHub',
   'workspace.screen.rail.history': '历史',
   'workspace.screen.rail.settings': '设置',
+  'workspace.fileHistory.gitHint': '本地版本控制已开启：更完整的历史（含命令改动的文件）在「历史」面板。',
   'workspace.git.title': '本地历史',
   'workspace.git.refresh': '刷新',
   'workspace.git.empty': '还没有提交。助手每改完一轮会自动提交一次，之后这里就有记录了。',

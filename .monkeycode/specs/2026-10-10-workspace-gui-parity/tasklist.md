@@ -278,8 +278,9 @@ agent 至今**没有任何办法把「我改了什么」变成一份可回滚的
 **退旧（第一步已做，逐步推进）**：
 - ✅ 本地 git 开着时**不再记写前快照**（`shouldRecordFileHistory`）：同一件事已由回合检查点 +
   `git_discard` 覆盖，两份历史并存只会让「哪份才算数」变模糊。**SAF 根下继续记**——那里 git 不可用。
-- ⬜ 文件面板的「文件历史」入口：git 开着时应指向「历史」面板（需要在 `FilesPanel` 与
-  `WorkspaceScreen` 之间加一条交接，且 FilesPanel 顶格零余量，要先外提）；
+- ✅ 文件面板的「文件历史」入口：git 开着时 sheet 顶部出现指路条（「更完整的历史在「历史」面板」）
+  并一键跳过去；老快照仍可看可恢复，只是不再增长（没有把它们藏起来）。交接链
+  FilesPanel → FileHistorySheet → WorkspaceScreen 有源码钉死测试，防静默断开。
 - ⬜ `fileHistory.js` 与 `FileHistorySheet.js` 的最终退场（等上面两步跑顺、真机验过再删）。
 
 **仍未验（不宣称）**：真机 Hermes 上的 git 性能与 `TextEncoder` 可用性；面板在真机上的观感

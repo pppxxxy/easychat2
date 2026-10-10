@@ -31,6 +31,7 @@ export const workspace = {
   'workspace.screen.rail.github': 'GitHub',
   'workspace.screen.rail.history': 'History',
   'workspace.screen.rail.settings': 'Settings',
+  'workspace.fileHistory.gitHint': 'Local version control is on: the fuller history (including files changed by commands) lives in the History panel.',
   'workspace.git.title': 'Local history',
   'workspace.git.refresh': 'Refresh',
   'workspace.git.empty': 'No commits yet. The assistant commits automatically at the end of each turn, so entries will appear here.',

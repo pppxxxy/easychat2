@@ -78,7 +78,7 @@ function formatTokens(value) {
   return String(tokens);
 }
 
-export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '' }) {
+export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '', onOpenHistory = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const { refreshAppData } = useApp();
@@ -1298,7 +1298,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
           onClose={() => { setHistoryOpen(false); setHistoryPath(''); }}
           store={storeRef.current}
           characterId={characterId}
-          path={historyPath}
+          path={historyPath} onOpenHistory={onOpenHistory}
           onRestored={() => {
             // 恢复改的是文件内容：刷新列表并关掉可能已过期的预览。
             setPreview(null);

@@ -159,6 +159,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
                 embedded
                 initialSection={filesSection}
                 onClose={backToChat}
+                onOpenHistory={() => setPanel('history')}
               />
             ) : null}
             {panel === 'github' ? (

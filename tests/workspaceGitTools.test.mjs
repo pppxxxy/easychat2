@@ -13,6 +13,8 @@ import { GIT_TOOL_DEFINITIONS, formatGitLog, formatGitStatus } from '../src/work
 import { createWorkspaceToolDefinitions, GIT_TOOL_NAMES } from '../src/workspace/tools.js';
 import { createWorkspaceGit } from '../src/workspace/git.js';
 import { createMemoryFileSystem } from './helpers/memoryFileSystem.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const ROOT = '/doc/workspace/';
 const CHARACTER = 'ch1';
@@ -245,4 +247,16 @@ test('gitFormat：提交时间与文件记号（纯函数，Node 直测）', asy
   assert.equal(commitFileMark('modified'), 'M');
   assert.equal(commitFileMark('deleted'), 'D');
   assert.equal(commitFileMark('???'), '?');
+});
+
+test('退旧接线：文件历史的指路条一路接到「历史」面板（源码钉死，防静默断开）', () => {
+  const read = file => fs.readFileSync(path.resolve(file), 'utf8');
+  const sheet = read('src/workspace/FileHistorySheet.js');
+  assert.match(sheet, /onOpenHistory/, 'sheet 有交接回调');
+  assert.match(sheet, /workspace\.fileHistory\.gitHint/, '指路文案走 i18n');
+  assert.match(sheet, /shouldRecordFileHistory/, '用与写工具同一个判据（git 开着才提示）');
+  const panel = read('src/workspace/screen/FilesPanel.js');
+  assert.match(panel, /onOpenHistory=\{onOpenHistory\}/, 'FilesPanel 透传');
+  const screen = read('src/workspace/screen/WorkspaceScreen.js');
+  assert.match(screen, /onOpenHistory=\{\(\) => setPanel\('history'\)\}/, 'WorkspaceScreen 接到历史面板');
 });
