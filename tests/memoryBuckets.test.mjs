@@ -14,10 +14,15 @@ import {
   filterSessionsForMemory,
   groupSessionsByAge,
   hasLocalSessions,
+  isScreenWatchFilter,
   LOCAL_FILTER,
+  mapScreenThreadsToGroupItems,
   MEMORY_BUCKETS,
   MEMORY_FILTERS,
   PINNED_GROUP_ID,
+  SCREEN_WATCH_FILTER,
+  screenThreadPreview,
+  splitScreenThreads,
 } from '../src/memory/memoryBuckets.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -190,6 +195,39 @@ test('hasLocalSessions：存在本地会话才为真', () => {
   assert.equal(hasLocalSessions([{ modelKind: 'api' }, {}]), false);
   assert.equal(hasLocalSessions(null), false);
   assert.equal(LOCAL_FILTER.id, 'local');
+});
+
+test('屏幕对话 chip：看屏幕线程按时间分档，空线程单独聚合', () => {
+  assert.equal(SCREEN_WATCH_FILTER.id, 'screenwatch');
+  assert.equal(isScreenWatchFilter('screenwatch'), true);
+  assert.equal(isScreenWatchFilter('all'), false);
+
+  const threads = [
+    { id: 't-recent', updatedAt: NOW - 0.5 * DAY_MS, entries: [{ id: 'e1', text: '刚聊过' }] },
+    { id: 't-old', updatedAt: NOW - 30 * DAY_MS, entries: [{ id: 'e2', text: '很久以前' }] },
+    { id: 't-empty', updatedAt: NOW, entries: [] },
+    null,
+  ];
+  const { active, empty } = splitScreenThreads(threads);
+  assert.deepEqual(active.map(t => t.id), ['t-recent', 't-old']);
+  assert.deepEqual(empty.map(t => t.id), ['t-empty']);
+
+  // 非空线程借会话分档：最近 7 天 / 更早；空线程不进入分组条目。
+  const groups = groupSessionsByAge(mapScreenThreadsToGroupItems(threads), NOW);
+  assert.deepEqual(groups.map(g => g.id), ['recent', 'older']);
+  assert.deepEqual(groups[0].sessions.map(item => item.id), ['t-recent']);
+  assert.equal(groups[0].sessions[0].pinned, false);
+  assert.equal(groups[0].sessions[0].thread.id, 't-recent');
+  assert.deepEqual(groups[1].sessions.map(item => item.id), ['t-old']);
+
+  // 预览取最后一条 entry 文本，空线程/无 entry 返回空串。
+  assert.equal(screenThreadPreview(threads[0]), '刚聊过');
+  assert.equal(screenThreadPreview({ entries: [{ text: 'a' }, { text: 'b' }] }), 'b');
+  assert.equal(screenThreadPreview({ entries: [] }), '');
+  assert.equal(screenThreadPreview(null), '');
+
+  assert.deepEqual(splitScreenThreads(null), { active: [], empty: [] });
+  assert.deepEqual(mapScreenThreadsToGroupItems(null), []);
 });
 
 test('筛选 chips 行不被纵向压缩：chipScroll 必须同时禁生长与禁收缩，FlatList 接管剩余空间', () => {
