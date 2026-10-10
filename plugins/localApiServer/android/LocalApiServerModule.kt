@@ -118,6 +118,20 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
                 )
             }
         }
+        // P3-8：/v1/agent —— 程序化驱动一轮 agent 工具循环（JS 侧跑，原生只转发/回包）。
+        if (session.method == Method.POST && uri == "/v1/agent") {
+            if (!checkAuth(session)) return unauthorized()
+            return try {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                handleAgent(files["postData"] ?: "{}")
+            } catch (error: Exception) {
+                jsonResponse(
+                    Response.Status.BAD_REQUEST,
+                    "{\"error\":{\"message\":\"bad request\",\"type\":\"invalid_request_error\"}}"
+                )
+            }
+        }
         return jsonResponse(
             Response.Status.NOT_FOUND,
             "{\"error\":{\"message\":\"not found\",\"type\":\"invalid_request_error\"}}"
@@ -183,6 +197,29 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
             )
         }
         return buildCompletion(responseJson, raw)
+    }
+
+    // /v1/agent：把请求体交给 JS 跑一轮 agent 工具循环，JS 回写的 JSON 原样作为响应体
+    //（非流式）。响应格式由 JS 侧 agentEndpoint 契约决定（object=agent.run）。
+    private fun handleAgent(raw: String): Response {
+        val requestId = UUID.randomUUID().toString()
+        val entry = PendingRequest()
+        val payload = JSONObject()
+            .put("requestId", requestId)
+            .put("path", "/v1/agent")
+            .put("body", raw)
+        pending[requestId] = entry
+        emitRequest(payload.toString())
+        val done = entry.latch.await(REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        pending.remove(requestId)
+        val responseJson = entry.responseJson
+        if (!done || responseJson == null) {
+            return jsonResponse(
+                Response.Status.REQUEST_TIMEOUT,
+                "{\"error\":{\"message\":\"agent timeout\",\"type\":\"server_error\"}}"
+            )
+        }
+        return jsonResponse(Response.Status.OK, responseJson)
     }
 
     private fun buildCompletion(responseJson: String, raw: String): Response {

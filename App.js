@@ -53,10 +53,12 @@ import { recordDiagnostic } from './src/storage/diagnostics.js';
 import { runLocalModel } from './src/localModel/adapter.js';
 import { hydrateDownloadQueue } from './src/localModel/downloadQueue.js';
 import {
+  attachLocalApiServerAgent,
   attachLocalApiServerInference,
   isLocalApiServerAvailable,
   stopLocalApiServer,
 } from './src/localModel/localApiServer.js';
+import { runHeadlessAgent } from './src/workspace/headlessAgent.js';
 import { tryAcquireResource } from './src/resourceMutex.js';
 import SecurityGate from './src/security/SecurityGate.js';
 import { useTabIconScale } from './src/ui/animations.js';
@@ -547,6 +549,8 @@ function LocalApiServerBridge() {
         }
       },
     });
+    // P3-8：POST /v1/agent —— 程序化驱动一轮 agent 工具循环（复用工作区组装：沙盒 + 系统提示 + 工具）。
+    const unsubscribeAgent = attachLocalApiServerAgent({ runAgent: runHeadlessAgent });
     let previous = AppState.currentState;
     const subscription = AppState.addEventListener('change', next => {
       if (previous === 'active' && next !== 'active') {
@@ -556,6 +560,7 @@ function LocalApiServerBridge() {
     });
     return () => {
       unsubscribe();
+      unsubscribeAgent();
       subscription.remove();
       stopLocalApiServer().catch(() => {});
     };

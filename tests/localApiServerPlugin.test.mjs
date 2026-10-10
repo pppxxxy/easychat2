@@ -160,6 +160,13 @@ test('Kotlin v5 Stage D：/v1/models 全量 + chunked SSE 流式 + respondStream
   assert.ok(module.includes('text/event-stream'), 'SSE 内容类型');
 });
 
+test('Kotlin P3-8：/v1/agent 路由 + handleAgent 原样回写 JS 响应', () => {
+  const module = readFileSync(path.join(KOTLIN_DIR, 'LocalApiServerModule.kt'), 'utf8');
+  assert.ok(module.includes('/v1/agent'), '缺少 agent 路由');
+  assert.match(module, /fun handleAgent\(raw: String\): Response/, '缺少 handleAgent');
+  assert.match(module, /jsonResponse\(Response\.Status\.OK, responseJson\)/, 'agent 应原样回写 JS 响应');
+});
+
 test('Kotlin 嵌套类型/静态方法正确限定（外层类不继承 NanoHTTPD）', () => {
   const module = readFileSync(path.join(KOTLIN_DIR, 'LocalApiServerModule.kt'), 'utf8');
   // 外层 LocalApiServerModule 不继承 NanoHTTPD，Response/IHTTPSession/Method 必须 import 或限定，
