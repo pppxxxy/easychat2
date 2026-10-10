@@ -23,18 +23,22 @@ test('会话守卫已外提为 useSessionGuard，ChatScreen 不再内联声明',
   assert.equal(CHAT_SCREEN_SOURCE.match(/const \[isSwitching, setIsSwitching\] = useState/g)?.length, 1, 'isSwitching 声明应恰好一处');
 });
 
-test('useSessionGuard 保有原守卫语义的关键行为', () => {
-  // beginSend：锁定唯一 token、记录 source 基准、挂载 abort
-  assert.ok(GUARD_SOURCE.includes('if (sendLockRef.current) return null;'));
+test('useSessionGuard 保有守卫语义的关键行为（L 系：按会话准入）', () => {
+  // beginSend：按**会话**准入（同一会话不重复登记）、记录 source 基准、挂载 abort。
+  // L 系改动点：准入源从「单屏幕锁」变为会话级登记表，别的会话后台跑不影响本会话发送。
+  assert.ok(GUARD_SOURCE.includes('if (sessionRuns.has(sessionId)) return null;'));
   assert.ok(GUARD_SOURCE.includes('sourceChangedRef.current = false;'));
   assert.ok(GUARD_SOURCE.includes('abortRef.current = controller;'));
-  // endSend：仅 token 匹配时释放
-  assert.ok(GUARD_SOURCE.includes("if (!token || sendLockRef.current !== token) return;"));
-  assert.ok(GUARD_SOURCE.includes('if (abortRef.current === token.controller) abortRef.current = null;'));
+  // endSend：释放登记表中对应的运行，并重新对齐活动会话的界面锁
+  assert.ok(GUARD_SOURCE.includes('if (!token) return;'));
+  assert.ok(GUARD_SOURCE.includes('sessionRuns.finish(token.sessionId);'));
+  assert.ok(GUARD_SOURCE.includes('syncActiveRun();'));
   // invalidate：版本号推进 + 中断开场白请求与配图请求
   assert.ok(GUARD_SOURCE.includes('sessionVersionRef.current += 1;'));
   assert.ok(GUARD_SOURCE.includes('openingRequestRef.current += 1;'));
   assert.ok(GUARD_SOURCE.includes('inlineImageControllerRef.current?.abort();'));
+  // L 系关键回归钉：切会话**不再中止**后台运行（改为 detach，运行继续跑完并落回自己的会话）
+  assert.equal(GUARD_SOURCE.includes('abortRef.current.abort();'), false, 'invalidate 不再中止后台运行');
   // guard 判定：三要素（会话、角色、版本）全等才视为当前
   assert.ok(GUARD_SOURCE.includes('activeSessionIdRef.current === guard.sessionId'));
   assert.ok(GUARD_SOURCE.includes('activeCharacterIdRef.current === guard.characterId'));

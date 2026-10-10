@@ -100,6 +100,7 @@ import { getLocationSettings } from '../storage/location.js';
 import {
   getSessionSummaries,
   markSessionModel,
+  saveMessagesBySession,
   updateSessionMemberProfiles,
 } from '../storage/sessions.js';
 import {
@@ -126,6 +127,21 @@ const sendError = code => {
   error.code = code;
   return error;
 };
+
+// 后台完成（用户已切走，回复不再是「当前会话」）时把这一轮结果写回**它自己的会话**。
+// 用整体覆盖写盘：该会话此刻被它自己的运行锁着，没有并发写者，保证「用户消息 + 回复」
+// 顺序与内容完整（只保留非 pending 项）。写盘失败不抛——主链路已经拿到回复，丢一次
+// 落盘不该把界面变成错误态。
+async function persistBackgroundReply({ sessionId, messages, ownerCharacterId }) {
+  const id = String(sessionId || '');
+  const finalMessages = (Array.isArray(messages) ? messages : []).filter(item => item && !item.pending);
+  if (!id || finalMessages.length === 0) return;
+  try {
+    await saveMessagesBySession(id, finalMessages, String(ownerCharacterId || ''), []);
+  } catch (error) {
+    if (__DEV__) console.warn('[runtime] background reply persist failed', error);
+  }
+}
 
 export default function useChatSend({
   // 守卫（来自 useSessionGuard）
@@ -690,11 +706,8 @@ export default function useChatSend({
        // 记账放在拿到终稿之后：生成时长含解析开销，但只是毫秒级，换来「成功请求」口径准确。
        recordStats(replyText);
        clearToolBubble();
-       setMessages(current => {
-        if (!isCurrentSession()) return current;
-        return replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
-      });
-      if (isCurrentSession()) {
+       if (isCurrentSession()) {
+        setMessages(current => replacePendingWithReply(current, pendingAssistantMessage.id, replyParts));
         // 会话模型标识落盘（记忆页「本地」badge 的数据源）。只在回复真正落入
         // 当前会话后标记；落盘失败不影响聊天主链路，静默吞掉。
         if (resolvedProvider) {
@@ -717,6 +730,22 @@ export default function useChatSend({
         autoBroadcastMessage(replyText);
         synthesizeVoiceForReply(replyParts, replyText);
         recordTurnRef.current?.(userText, replyText, senderSnapshot);
+      } else {
+        // 用户已离开这个会话：回复不再是「当前会话」的界面状态，写回它自己的会话，别丢。
+        const ownerCharacterId = String(
+          ((sessionsRef.current || []).find(item => item.id === sendSessionId) || {}).characterId
+          || character.id
+          || ''
+        );
+        await persistBackgroundReply({
+          sessionId: sendSessionId,
+          messages: replacePendingWithReply(
+            [...baseMessages, pendingAssistantMessage],
+            pendingAssistantMessage.id,
+            replyParts
+          ),
+          ownerCharacterId,
+        });
       }
      } catch (error) {
        clearToolBubble();

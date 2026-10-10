@@ -59,7 +59,7 @@ export default function useSessionMessages({
   sessionVersionRef,
   openingRequestRef,
   openingAbortControllerRef,
-  setIsSending,
+  syncActiveRun,
   chatOptions,
   chatOptionsRef,
   resetSessionUi,
@@ -188,14 +188,12 @@ export default function useSessionMessages({
       openingAbortControllerRef.current.abort();
       openingAbortControllerRef.current = null;
     }
-    sendLockRef.current = null;
     let cancelled = false;
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
+    // 切会话**不中止**正在跑的运行（L 系）：旧运行的控制器留在登记表里继续跑，结果落回
+    // 它自己的会话。这里只把界面上的发送锁对齐到新会话——切到没在跑的会话即解锁，切回
+    // 仍在后台跑的会话即重新上锁（syncActiveRun 同时维护 sendLockRef/abortRef/isSending）。
+    syncActiveRun();
     setReady(false);
-    setIsSending(false);
     errorRawRef.current = {};
     atBottomRef.current = true;
     if (!activeSessionId) {
@@ -343,7 +341,7 @@ export default function useSessionMessages({
       cancelled = true;
       sessionVersionRef.current += 1;
     };
-  }, [activeSessionId, loaded, sessionOwnerMissing, messageRefreshTick]);
+  }, [activeSessionId, loaded, sessionOwnerMissing, messageRefreshTick, syncActiveRun]);
 
   // 回填输入草稿。独立于会话加载 effect：chatOptions 是异步读出的，冷启动时
   // 往往晚于会话就绪；若挤在加载 effect 里，keepDraft 还没读出来就会回填失败。

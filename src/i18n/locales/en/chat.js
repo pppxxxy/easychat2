@@ -480,4 +480,9 @@ export const chat = {
   'chat.cardFromChat.error.empty': 'The model produced no usable card content.',
   'chat.cardFromChat.error.failed': 'Generation failed. Check your chat model configuration and retry.',
   'chat.cardFromChat.error.saveFailed': 'Could not save. Please try again later.',
+  // ---- Running-characters bar (chat/RunningRunsBar.js, L-series ③) ----
+  'chat.running.title': 'Generating in background',
+  'chat.running.stop': 'Stop generation',
+  'chat.running.a11y.open': 'Switch to {name}',
+  'chat.running.unknown': 'Unknown character',
 };
