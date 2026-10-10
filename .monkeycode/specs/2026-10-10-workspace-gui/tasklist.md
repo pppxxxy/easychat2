@@ -65,8 +65,13 @@
       （`messageSearchText` 认 content/text/多模态数组三种形态；`searchChatMessages` 返回
       `{matches,total,truncated}`，与 `fileSearch.js` **同构**，但命中带 `index`——要能定位回
       那条消息）。结果倒序、空查询不返回结果。测试 7 条。
-- [ ] P2-1（第二步）界面接线：`ChatPanel` 消息区加搜索条 + 命中跳转。
-      **前置拆件已完成**：样式表抽到 `screen/chatPanelStyles.js`，ChatPanel 1823 → 1648（余量 205）。
+- [x] **P2-1（第二步）界面接线**：顶部动作行加搜索开关，展开后是检索条 + 命中计数；
+      有查询时**就地过滤**消息列表。**为什么不是另开一页结果**：RN 的 `ScrollView` 没有
+      `scrollToIndex`，另开结果页就**没法「跳到那条」**——就地过滤把命中留在原位置，反而诚实。
+      抓到自己一个 bug：最初用 `' '` 当「已展开」哨兵，而 `searching` 按 `trim()` 判，
+      空格 trim 完是空 → **搜索条永远打不开**；已改成独立布尔，并区分「展开」与「过滤」。
+
+## P2 完成 ✅
 - [x] **P1-4 窄屏行为**：由 `tests/splitLayout.test.mjs` 覆盖——`resolveWorkspaceLayout` 的
       窄屏分支（`width < 900` → `single: true`，无论选哪个领域）就是窄屏行为的判据本身；
       界面侧「窄屏走原条件渲染」由 `workspaceHome.test.mjs` 的分发函数断言间接钉住。
