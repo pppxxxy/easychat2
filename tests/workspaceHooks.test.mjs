@@ -13,13 +13,23 @@ import {
   DEFAULT_HOOKS,
   HOOKS_FILE,
   HOOKS_MAX_PER_EVENT,
+  HOOK_EVENTS,
+  HOOK_NOTICES_MAX,
   HOOK_SHELL_EFFECTS,
+  collectCompactionHooks,
   collectPostEventNotices,
+  collectPromptHooks,
+  collectSessionStartNotices,
   collectToolResultNotices,
+  collectTurnEndNotices,
+  hookPermissionRules,
   matchBeforeShellHooks,
+  matchBeforeToolHooks,
+  matchHookText,
+  matchToolName,
   parseWorkspaceHooks,
   readWorkspaceHooks,
-  shellHookRules,
+  validateWorkspaceHooks,
   withDefaultHooks,
 } from '../src/workspace/hooks.js';
 
@@ -76,7 +86,7 @@ test('before_shell：词边界命中（不放行前缀更长的另一条命令�
   assert.equal(matchBeforeShellHooks(hooks, 'ls').length, 0);
   assert.equal(matchBeforeShellHooks(null, 'ls').length, 0);
 
-  const rules = shellHookRules(hooks);
+  const rules = hookPermissionRules(hooks);
   assert.equal(rules.length, 1);
   assert.equal(rules[0].effect, 'deny');
   assert.equal(rules[0].tool, 'run_shell');
@@ -114,7 +124,7 @@ test('before_shell 的 effect：ask 走「必须先问」链路；写 allow / �
     '缺省 deny；显式 ask 保留；allow 与拼错一律收紧成 deny（声明式钩子只能收紧不能放宽）'
   );
 
-  const rules = shellHookRules(hooks);
+  const rules = hookPermissionRules(hooks);
   assert.equal(
     evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'git push origin main' } }),
     'ask',
@@ -254,4 +264,181 @@ test('安全边界登记：模块注释明确「不执行任意脚本」（防�
   const source = fs.readFileSync(path.resolve('src/workspace/hooks.js'), 'utf8');
   assert.ok(source.includes('零代码执行'), '必须写明设计底线');
   assert.equal(/eval\(|new Function\(/.test(source), false, '钩子模块不得出现任何动态执行原语');
+});
+
+// ---------- P0-8：事件面扩展（before_tool / before_prompt / before_compact / after_turn / session_start） ----------
+
+test('P0-8 事件面：九个事件都在白名单里（新增事件必须同时进 HOOK_EVENTS 与文档）', () => {
+  assert.deepEqual([...HOOK_EVENTS], [
+    'before_shell',
+    'before_tool',
+    'before_prompt',
+    'before_compact',
+    'after_turn',
+    'session_start',
+    'after_write',
+    'after_edit',
+    'on_tool_result',
+  ]);
+});
+
+test('P0-8 matchToolName：精确 / `|` 列表 / `*` / `re:` 正则；坏正则不匹配（绝不静默放行）', () => {
+  assert.equal(matchToolName('run_shell', 'run_shell'), true);
+  assert.equal(matchToolName('run_shell', 'run_python'), false);
+  assert.equal(matchToolName('run_shell|run_python', 'run_python'), true);
+  assert.equal(matchToolName(' run_shell | run_python ', 'run_shell'), true, '两侧空白容忍');
+  assert.equal(matchToolName('*', 'anything'), true);
+  assert.equal(matchToolName('', 'anything'), true, '空 = 全部（与 `*` 同义）');
+  assert.equal(matchToolName('re:^write_', 'write_workspace_file'), true);
+  assert.equal(matchToolName('re:^write_', 'read_workspace_file'), false);
+  assert.equal(matchToolName('re:[', 'write_workspace_file'), false, '坏正则匹配不上而不是抛错');
+  assert.equal(matchToolName('run_shell', ''), false);
+});
+
+test('P0-8 matchHookText：空/`*` 全命中、子串命中、`re:` 命中、坏正则不命中', () => {
+  assert.equal(matchHookText('', '随便什么'), true);
+  assert.equal(matchHookText('*', '随便什么'), true);
+  assert.equal(matchHookText('部署', '帮我部署到线上'), true);
+  assert.equal(matchHookText('部署', '帮我上线'), false);
+  assert.equal(matchHookText('re:^(写|改)', '写一个测试'), true);
+  assert.equal(matchHookText('re:^(写|改)', '看一下测试'), false);
+  assert.equal(matchHookText('re:[', '任意文本'), false);
+});
+
+test('P0-8 before_tool：工具名 + 参数（命令前缀 / 路径 glob / 工具级），deny/ask 走同一条求值链路', () => {
+  const hooks = parseWorkspaceHooks({
+    before_tool: [
+      { tool: 'run_shell|run_python', match: 'rm -rf', message: '删除先问我', effect: 'ask' },
+      { tool: 'write_workspace_file', match: 'src/**', message: 'src 下不许写', effect: 'deny' },
+      { tool: 're:^read_', message: '读操作也要先问', effect: 'ask' },
+      { tool: 'run_shell', match: 'curl', message: '外发禁止' },
+      { message: '缺 tool 的条目' },
+      { tool: 'run_shell', match: 'npm publish', message: '写 allow 想放宽', effect: 'allow' },
+    ],
+  });
+  assert.equal(hooks.before_tool.length, 5, '缺 tool 的条目被剔除');
+  assert.deepEqual(
+    hooks.before_tool.map(item => item.effect),
+    ['ask', 'deny', 'ask', 'deny', 'deny'],
+    '缺省 deny；显式 ask 保留；写 allow 一律收紧成 deny'
+  );
+  assert.equal(matchBeforeToolHooks(hooks, 'write_workspace_file').length, 1);
+  assert.equal(matchBeforeToolHooks(hooks, 'read_workspace_file').length, 1, 're: 命中读工具');
+
+  const rules = hookPermissionRules(hooks);
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'run_python', args: { code: 'rm -rf /' } }),
+    'ask',
+    'code 参数同样按前缀语义匹配（字段驱动，不硬编码工具名）'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'write_workspace_file', args: { path: 'src/lib/a.js' } }),
+    'deny'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'write_workspace_file', args: { path: 'docs/a.md' } }),
+    null,
+    '没命中的路径照常走弹框'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'read_workspace_file', args: { path: 'a.md' } }),
+    'ask',
+    '工具级规则（无 match）= 该工具全部调用'
+  );
+  assert.equal(
+    evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'npm publish' } }),
+    'deny',
+    'hooks.json 里写 allow 不能放宽授权'
+  );
+  // before_shell 与 before_tool 一起翻译，顺序不影响求值（优先级是语义）。
+  const mixed = hookPermissionRules(parseWorkspaceHooks({
+    before_shell: [{ match: 'git push', message: '推送先问我', effect: 'ask' }],
+    before_tool: [{ tool: 'run_shell', match: 'git', message: '禁止 git', effect: 'deny' }],
+  }));
+  assert.equal(evaluatePermissionRules(mixed, { tool: 'run_shell', args: { command: 'git push' } }), 'deny',
+    'deny 仍压过 ask（安全不回退）');
+});
+
+test('P0-8 before_prompt：默认注入、显式 deny 拦下这次发送；注入有条数上限', () => {
+  const hooks = parseWorkspaceHooks({
+    before_prompt: [
+      { match: '部署', message: '本项目禁止自动部署', effect: 'deny' },
+      { match: 're:^(写|改)', message: '先读 AGENTS.md 再动手' },
+      { match: '', message: '每次都提醒：用中文回答' },
+      { match: '写', message: '第二条注入' },
+    ],
+  });
+  const blocked = collectPromptHooks(hooks, '帮我部署到线上');
+  assert.deepEqual(blocked.blocks, ['本项目禁止自动部署'], 'deny 优先返回理由');
+  assert.deepEqual(blocked.notices, ['每次都提醒：用中文回答'], '同一条输入命中的注入也一并返回（调用方按 blocks 决定是否发送）');
+
+  const injected = collectPromptHooks(hooks, '写一个测试');
+  assert.deepEqual(injected.blocks, []);
+  assert.deepEqual(injected.notices, ['先读 AGENTS.md 再动手', '每次都提醒：用中文回答', '第二条注入']);
+
+  const none = collectPromptHooks(hooks, '今天天气不错');
+  assert.deepEqual(none.notices, ['每次都提醒：用中文回答'], '空 match = 每次注入');
+  assert.deepEqual(collectPromptHooks(null, 'x'), { blocks: [], notices: [] });
+
+  // 上限：一个钩子文件不该能把上下文撑爆。
+  const many = parseWorkspaceHooks({
+    before_prompt: Array.from({ length: HOOK_NOTICES_MAX + 3 }, (unused, i) => ({ message: `n${i}` })),
+  });
+  assert.equal(collectPromptHooks(many, 'x').notices.length, HOOK_NOTICES_MAX);
+});
+
+test('P0-8 before_compact / after_turn / session_start：注入文字收集（压缩可拦）', () => {
+  const hooks = parseWorkspaceHooks({
+    before_compact: [
+      { message: '保留所有未决问题与报错原文' },
+      { match: '别压缩', message: '这次先不压缩', effect: 'deny' },
+    ],
+    after_turn: [{ message: '把结论写进工作区 AGENTS.md' }],
+    session_start: [{ message: '本次会话请用中文回答' }],
+  });
+  const compact = collectCompactionHooks(hooks, '普通压缩');
+  assert.deepEqual(compact.notices, ['保留所有未决问题与报错原文']);
+  assert.deepEqual(compact.blocks, []);
+  const refused = collectCompactionHooks(hooks, '别压缩');
+  assert.deepEqual(refused.blocks, ['这次先不压缩']);
+  assert.deepEqual(collectTurnEndNotices(hooks), ['把结论写进工作区 AGENTS.md']);
+  assert.deepEqual(collectSessionStartNotices(hooks), ['本次会话请用中文回答']);
+  assert.deepEqual(collectTurnEndNotices(null), []);
+  assert.deepEqual(collectSessionStartNotices({}), []);
+});
+
+test('P0-8 validateWorkspaceHooks：坏 JSON / 未知事件 / 非数组 / 无效条目 / 坏正则 / 超量都报出来', () => {
+  assert.deepEqual(validateWorkspaceHooks('{坏 json'), { ok: false, errors: [{ event: '', index: -1, reason: 'invalid-json' }] });
+  assert.deepEqual(validateWorkspaceHooks('[]'), { ok: false, errors: [{ event: '', index: -1, reason: 'not-object' }] });
+
+  const result = validateWorkspaceHooks({
+    before_shell: [{ match: 'git push', message: 'ok' }],
+    nonsense: [{ message: 'x' }],
+    after_write: 'oops',
+    before_tool: [{ message: '缺 tool' }, { tool: 're:[', message: '坏正则' }],
+    before_prompt: Array.from({ length: HOOKS_MAX_PER_EVENT + 2 }, (unused, i) => ({ message: `n${i}` })),
+  });
+  assert.equal(result.ok, false);
+  const reasons = result.errors.map(item => `${item.event}:${item.reason}`);
+  assert.ok(reasons.includes('nonsense:unknown-event'));
+  assert.ok(reasons.includes('after_write:not-array'));
+  assert.ok(reasons.includes('before_tool:invalid-item'));
+  assert.ok(reasons.includes('before_tool:invalid-regex'));
+  assert.ok(reasons.includes('before_prompt:too-many'));
+
+  // 通过校验 = 一定解析得出来（两边共用同一套归一）。
+  const good = {
+    before_shell: [{ match: 'git push', message: 'ok' }],
+    before_tool: [{ tool: 'run_shell', match: 'rm', message: 'ok', effect: 'ask' }],
+    before_prompt: [{ match: 're:^部署', message: 'ok', effect: 'deny' }],
+    before_compact: [{ message: 'ok' }],
+    after_turn: [{ message: 'ok' }],
+    session_start: [{ message: 'ok' }],
+    after_write: [{ glob: '**/*.md', message: 'ok' }],
+    after_edit: [{ glob: 'src/**', message: 'ok' }],
+    on_tool_result: [{ match: 'run_shell', message: 'ok' }],
+  };
+  assert.deepEqual(validateWorkspaceHooks(good), { ok: true, errors: [] });
+  const parsed = parseWorkspaceHooks(good);
+  assert.equal(Object.keys(parsed).length, 9, '九个事件全部解析出来');
 });

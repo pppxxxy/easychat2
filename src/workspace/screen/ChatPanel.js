@@ -98,7 +98,7 @@ import {
   readWorkspaceCommands,
   slashQuery,
 } from '../commands.js';
-import { collectToolResultNotices, readWorkspaceHooks, shellHookRules } from '../hooks.js';
+import { collectToolResultNotices, hookPermissionRules, readWorkspaceHooks } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import {
@@ -1040,7 +1040,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           let extraRules = [];
           try {
             const hooks = await readWorkspaceHooks(storeRef.current, characterId);
-            extraRules = shellHookRules(hooks);
+            extraRules = hookPermissionRules(hooks);
           } catch (error) {}
           return approveToolCall({
             name: call && call.name,

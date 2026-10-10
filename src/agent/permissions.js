@@ -30,10 +30,32 @@ export const PERMISSION_EFFECTS = Object.freeze(['allow', 'ask', 'deny']);
 export const PERMISSION_SCOPES = Object.freeze(['always', 'session']);
 // 单条 match 上限：同消息内容的上限量级，防一条规则把存储撑爆（命令/代码全文一般远小于它）。
 export const PERMISSION_RULE_MAX_MATCH = 4000;
+// 工具名上限：允许 `|` 列表与 `re:` 正则（P0-8），但同样要有界。
+export const PERMISSION_RULE_MAX_TOOL = 200;
+
+// 工具名匹配（P0-8 起与 hooks.json 的 before_tool 共用同一套语义）：
+// - 精确名：`run_shell`；
+// - `|` 列表：`run_shell|run_python`（两侧空白容忍，空项忽略）；
+// - `*` 或空：全部工具；
+// - `re:` 前缀：正则（**显式前缀**——普通工具名里的 `.` `+` 不该被当元字符；
+//   写错的正则返回 false：匹配不上比静默放行安全）。
+export function matchToolPattern(pattern, toolName) {
+  const source = String(pattern === undefined || pattern === null ? '' : pattern).trim();
+  const name = String(toolName === undefined || toolName === null ? '' : toolName).trim();
+  if (!source || source === '*') return true;
+  if (source.startsWith('re:')) {
+    try {
+      return new RegExp(source.slice(3)).test(name);
+    } catch (error) {
+      return false;
+    }
+  }
+  return source.split('|').map(item => item.trim()).filter(Boolean).includes(name);
+}
 
 export function normalizePermissionRule(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const tool = String(source.tool || '').trim();
+  const tool = String(source.tool || '').trim().slice(0, PERMISSION_RULE_MAX_TOOL);
   if (!tool) return null;
   const effect = PERMISSION_EFFECTS.includes(source.effect) ? source.effect : 'allow';
   const scope = PERMISSION_SCOPES.includes(source.scope) ? source.scope : 'always';
@@ -130,7 +152,7 @@ export function ruleMatches(rule, { tool, args } = {}) {
   const normalized = normalizePermissionRule(rule);
   if (!normalized) return false;
   const name = String(tool || '').trim();
-  if (normalized.tool !== '*' && normalized.tool !== name) return false;
+  if (!matchToolPattern(normalized.tool, name)) return false;
   if (!normalized.match) return true; // 工具级规则：参数不限
   const { kind, value } = permissionMatchValue(args);
   if (kind === 'command') return commandPrefixMatches(normalized.match, value);

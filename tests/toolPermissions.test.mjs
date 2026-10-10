@@ -14,12 +14,14 @@ import {
   commandPrefixMatches,
   evaluatePermissionRules,
   makePermissionRule,
+  normalizePermissionRule,
   normalizePermissionRules,
   pathMatchesGlob,
   permissionMatchValue,
+  PERMISSION_RULE_MAX_TOOL,
 } from '../src/agent/permissions.js';
 // P0-6 第二个入口：hooks.json 的 before_shell 也能产出 ask 规则（纯 ESM，直连即可）。
-import { parseWorkspaceHooks, shellHookRules } from '../src/workspace/hooks.js';
+import { hookPermissionRules, parseWorkspaceHooks } from '../src/workspace/hooks.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -373,7 +375,27 @@ test('approveToolCall：extraRules（工作区钩子禁令）deny 命中不弹�
   assert.equal(asked, 1, '没命中钩子的命令照常弹框');
 });
 
-// ---------- ④ P0-6 的 ask 规则创建入口（两个） ----------
+// ---------- ④ 工具名匹配扩展（P0-8：`|` 列表与 `re:` 正则） ----------
+
+test('工具名匹配（P0-8）：`|` 列表与 `re:` 正则都能用；坏正则不命中而不是抛错', () => {
+  const rules = [
+    { effect: 'deny', tool: 'run_shell|run_python', match: 'rm -rf', scope: 'always' },
+    { effect: 'ask', tool: 're:^write_', match: '', scope: 'always' },
+  ];
+  assert.equal(evaluatePermissionRules(rules, { tool: 'run_shell', args: { command: 'rm -rf /' } }), 'deny');
+  assert.equal(evaluatePermissionRules(rules, { tool: 'run_python', args: { code: 'rm -rf /' } }), 'deny');
+  assert.equal(evaluatePermissionRules(rules, { tool: 'write_workspace_file', args: {} }), 'ask', '正则命中');
+  assert.equal(evaluatePermissionRules(rules, { tool: 'read_workspace_file', args: {} }), null);
+  assert.equal(
+    evaluatePermissionRules([{ effect: 'deny', tool: 're:[', match: '' }], { tool: 'x', args: {} }),
+    null,
+    '坏正则：匹配不上而不是抛错（不静默放行）'
+  );
+  // 工具名也有上限（`re:` 正则同样算在内），防一条规则把存储撑爆。
+  assert.equal(normalizePermissionRule({ tool: 'x'.repeat(500) }).tool.length, PERMISSION_RULE_MAX_TOOL);
+});
+
+// ---------- ⑤ P0-6 的 ask 规则创建入口（两个） ----------
 
 test('设置面板入口：手写的 ask 规则落盘后命中，弹框只给「允许这一次」且不记规则', async () => {
   const { permissions: mod, flow } = loadStack();
@@ -428,7 +450,7 @@ test('设置面板入口：手写的 ask 规则落盘后命中，弹框只给「
 test('hooks.json 入口：before_shell 写 effect:ask，经 extraRules 走同一套「只允许这一次」', async () => {
   const { flow } = loadStack();
   const t = key => key;
-  const extraRules = shellHookRules(parseWorkspaceHooks({
+  const extraRules = hookPermissionRules(parseWorkspaceHooks({
     before_shell: [{ match: 'git push', message: '推送先问我', effect: 'ask' }],
   }));
   assert.equal(extraRules[0].effect, 'ask');

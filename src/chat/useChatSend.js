@@ -33,7 +33,7 @@ import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
-import { readWorkspaceHooks, shellHookRules } from '../workspace/hooks.js';
+import { hookPermissionRules, readWorkspaceHooks } from '../workspace/hooks.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
@@ -628,7 +628,7 @@ export default function useChatSend({
                 if (hookStore) {
                   try {
                     const hooks = await readWorkspaceHooks(hookStore, character.id);
-                    extraRules = shellHookRules(hooks);
+                    extraRules = hookPermissionRules(hooks);
                   } catch (error) {}
                 }
                 return approveToolCall({
