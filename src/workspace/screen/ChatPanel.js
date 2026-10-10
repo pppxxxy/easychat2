@@ -988,10 +988,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
 
   // I2：overrideText——计划批准链路在模式切换后的新渲染里带确认文本发起。
   const handleSend = useCallback(async overrideText => {
-    const text = String(overrideText === undefined ? input : overrideText).trim();
+    // onPress={handleSend} 会把 press 事件当第一参传入；overrideText 只认**字符串**
+    // （批准链路传字符串）——其余（含事件对象）一律当「无覆盖」，用输入框内容。
+    const hasOverride = typeof overrideText === 'string';
+    const text = String(hasOverride ? overrideText : input).trim();
     // N2：手动压缩命令 `/compact`（工作区会话）。
     if (!sending && text === '/compact') {
-      if (overrideText === undefined) {
+      if (!hasOverride) {
         setInput('');
         persistDraft(characterId, activeChatId, '');
       }
@@ -1079,7 +1082,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
     // I2：批准链路（overrideText）不碰输入框、草稿与附件——用户可能正打着别的话。
-    if (overrideText === undefined) {
+    if (!hasOverride) {
       persistDraft(ownerId, chatId, '');
       setInput('');
       setAttachments([]);
