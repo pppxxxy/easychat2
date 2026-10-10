@@ -64,7 +64,7 @@ import { saveSessionPlan } from '../storage/sessionPlan.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 // N1：reactive 回退——API 报上下文超限时压缩历史（本批接线为「压缩 + 提示重发」；
 // 自动重试需发送流程重构，见 reactiveCompact 注释）。
-import { isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
+import { REACTIVE_FAILED_MESSAGE, isContextOverflowError, runReactiveCompact } from './reactiveCompact.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
@@ -217,12 +217,9 @@ export default function useChatSend({
       if (__DEV__) console.warn('[branch] archive failed', error);
     }
   }, [bumpBranchesRefresh]);
-  // N1：本轮「上下文超限已压缩」标记（每轮一次机会，防循环）。
-  const contextRetriedRef = useRef(false);
   const requestReply = useCallback(async ({ historyMessages, userText, baseMessages, images, imageMessages, quote, expectedConfigId, expectedConfigFingerprint, sessionGuard, restoreOnFailure = false, voiceAudio = null }) => {
      if (sessionGuard && !isSessionGuardCurrent(sessionGuard)) return false;
      if (!ready || (abortRef.current && abortRef.current.signal.aborted)) return false;
-    contextRetriedRef.current = false; // 每轮重置
     const sendCharacterId = activeCharacterIdRef.current;
     const sendSessionId = activeSessionIdRef.current;
     const sendSessionVersion = sessionVersionRef.current;
@@ -454,11 +451,13 @@ export default function useChatSend({
           : null;
         // 本地多模态默认关：仅当用户开启且该模型有能力时，才把图片/音频发给本地推理。
         const localReady = canUseLocalModel(localSettings, localFileInfo, localItem);
-        const localMessages = localReady
-          ? filterRequestMedia(requestMessages, {
-              allowVision: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasVision),
-              allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
-            })
+        // P2：本地媒体裁剪能力抽出来——reactive 压缩后重试要按同一口径重算消息。
+        const localMedia = {
+          allowVision: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasVision),
+          allowAudio: Boolean(localSettings && localSettings.enableMediaInput && localItem && localItem.hasAudio),
+        };
+        let localMessages = localReady
+          ? filterRequestMedia(requestMessages, localMedia)
           : requestMessages;
         // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置
         // 单独裁剪媒体，避免把图片/音频发给不支持多模态的在线端点。
@@ -477,7 +476,7 @@ export default function useChatSend({
           onlineModelName = onlineConfig ? String(getActiveModel(onlineConfig) || '').trim() : '';
           onlineConfigLabel = onlineConfig ? String(onlineConfig.name || onlineConfig.id || '') : '';
         } catch (error) {}
-        const onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
+        let onlineMessages = filterRequestMedia(requestMessages, onlineMedia);
         // 聊天内受控工具（联网搜索）：独立开关，与工作区模式无关——聊天页默认 ask，
         // 若沿用工作区门控则永远不可用。关闭时必须**摘掉注册**（不只是不勾选），
         // 否则执行路径仍能调到它。
@@ -658,7 +657,12 @@ export default function useChatSend({
         }));
         // 路由结果由 provider 回调告知（本地成功=local，回退/未启用=api）：
         // 本地→在线是静默回退，「这次回复是谁产的」只能按真实产出链路标记。
-        const reply = await sendWithModelProvider({
+        // P2：上下文超限 → 压缩历史 → 重试一次（对齐 dsh「condense and retry on request-error」）。
+        let reply;
+        let overflowRetried = false;
+        while (true) {
+          try {
+            reply = await sendWithModelProvider({
           messages: localMessages,
           localSettings,
           localItem,
@@ -693,7 +697,39 @@ export default function useChatSend({
             });
           },
           onlineSend,
-        });
+            });
+            break;
+          } catch (error) {
+            if (!overflowRetried && isContextOverflowError(error)) {
+              overflowRetried = true;
+              let compactedOk = false;
+              try {
+                const result = await runReactiveCompact({
+                  messages: requestMessages,
+                  error,
+                  deps: {
+                    summarize: request => sendChatMessage(request, {
+                      stream: false,
+                      expectedConfigId,
+                      expectedConfigFingerprint,
+                    }),
+                  },
+                });
+                if (result.compacted) {
+                  localMessages = localReady
+                    ? filterRequestMedia(result.messages, localMedia)
+                    : result.messages;
+                  onlineMessages = filterRequestMedia(result.messages, onlineMedia);
+                  compactedOk = true;
+                }
+              } catch (compactError) {
+                compactedOk = false;
+              }
+              if (compactedOk) continue;
+            }
+            throw error;
+          }
+        }
 
        if (controller.signal.aborted) {
          recordStats('');
@@ -761,44 +797,24 @@ export default function useChatSend({
          ));
          return false;
        }
-       // N1：上下文超限 → 压缩历史（本轮一次机会）。压缩成功则替换会话并提示重发；
-       // 自动重试需发送流程重构（见 reactiveCompact 注释），本批先做安全降级。
-       if (isContextOverflowError(error) && !contextRetriedRef.current) {
-         contextRetriedRef.current = true;
-         try {
-           const { configs, activeId } = await getApiConfigs();
-           const cfg = configs.find(item => item.id === activeId) || configs[0];
-           const compacted = await runReactiveCompact({
-             messages: baseMessages,
-             error,
-             deps: {
-               summarize: request => sendChatMessage(request, {
-                 stream: false,
-                 ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}),
-               }),
-             },
-           });
-           if (compacted.compacted) {
-             recordStats('', { failed: true });
-             recordDiagnostic('storage', '上下文超限：已自动压缩历史，提示重发', 'reactive-compact');
-             if (isCurrentSession()) {
-               setMessages(compacted.messages);
-               const { message: errorMessage, rawText } = buildReplyErrorMessage(
-                 pendingAssistantMessage.id,
-                 new Error('上下文超限：已自动压缩历史，请重新发送。')
-               );
-               errorRawRef.current[errorMessage.id] = rawText;
-               setMessages(current => (
-                 isCurrentSession()
-                   ? mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage)
-                   : current
-               ));
-             }
-             return false;
-           }
-         } catch (compactError) {
-           // 压缩失败 → 落到下面的通用失败路径（如实报超限）。
+       // P2：上下文超限已在发送循环里「压缩 + 重试一次」（对齐 dsh condense-and-retry）；
+       // 走到这里说明重试仍失败 → 明确提示用户手动精简。
+       if (isContextOverflowError(error)) {
+         recordStats('', { failed: true });
+         recordDiagnostic('storage', '上下文超限：自动压缩后重试仍失败', 'reactive-compact');
+         if (isCurrentSession()) {
+           const { message: errorMessage, rawText } = buildReplyErrorMessage(
+             pendingAssistantMessage.id,
+             new Error(REACTIVE_FAILED_MESSAGE)
+           );
+           errorRawRef.current[errorMessage.id] = rawText;
+           setMessages(current => (
+             isCurrentSession()
+               ? mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage)
+               : current
+           ));
          }
+         return false;
        }
        if (classifyReplyError(error, isConfigChangedError, isCanceledError) === 'failure') {
         // 失败也记一笔（只计请求数与失败数，token 记 0）——服务商的失败率同样是性价比信号。

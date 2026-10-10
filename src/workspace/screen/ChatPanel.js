@@ -57,8 +57,9 @@ import {
   getTranscriptionSettings,
   saveThinkingSettings,
 } from '../../storage/settings.js';
-import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { AUTO_COMPACT_RATIO, computeContextUsage, resolveCompactionThreshold, resolveContextWindow } from '../../chat/contextUsage.js';
 import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
+import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
@@ -412,10 +413,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       const caps = capabilitiesForModel(current, getActiveModel(current));
       const localContextSize = Number(localItem && localItem.contextSize) || 0;
       const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize });
+      // P3：阈值对齐 dsh —— floor(min(W×0.8, W−O−headroom))，换算成 pipeline 的 ratio 口径。
+      const threshold = resolveCompactionThreshold(windowSize);
+      const autoRatio = threshold > 0 ? threshold / windowSize : AUTO_COMPACT_RATIO;
       const chatId = activeChatIdRef.current;
       const ownerId = characterIdRef.current;
       const result = await runCompactionPipeline(list, {
-        autoRatio: silent ? AUTO_COMPACT_RATIO : 0,
+        autoRatio: silent ? autoRatio : 0,
         deps: {
           estimateRatio: msgs => computeContextUsage(msgs, windowSize).ratio,
           summarize: request => sendChatMessage(request, {
@@ -1038,7 +1042,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } catch (error) {}
 
     try {
-      await runAgentTurn(request, {
+      let overflowRetried = false;
+      while (true) {
+        try {
+          await runAgentTurn(request, {
         mode,
         tools,
         // 轮次预算（A1）：可改 16 / 只读 10——写任务要跑「改-验」循环，天然更长。
@@ -1103,7 +1110,38 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           }
         },
         context: { characterId },
-      });
+          });
+          break;
+        } catch (error) {
+          // P2：上下文超限 → 压缩历史 → 重试一次（对齐 dsh condense-and-retry）。
+          if (!overflowRetried && isContextOverflowError(error)) {
+            overflowRetried = true;
+            let compactedOk = false;
+            try {
+              const { configs, activeId } = await getApiConfigs();
+              const cfg = configs.find(item => item.id === activeId) || configs[0];
+              const compacted = await runReactiveCompact({
+                messages: request,
+                error,
+                deps: {
+                  summarize: req => sendChatMessage(req, {
+                    stream: false,
+                    ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}),
+                  }),
+                },
+              });
+              if (compacted.compacted) {
+                request = compacted.messages;
+                compactedOk = true;
+              }
+            } catch (compactError) {
+              compactedOk = false;
+            }
+            if (compactedOk) continue;
+          }
+          throw error;
+        }
+      }
       if (mode !== 'ask' && mountedRef.current && !controller.signal.aborted) {
         loadUsage(characterId);
       }

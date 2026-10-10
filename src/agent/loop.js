@@ -7,6 +7,13 @@ import { createAbortError, isCanceledError, streamChatCompletion } from '../netw
 import { serializeToolResultAsync, toAssistantMessage } from './messages.js';
 import { listToolsForMode, runTool } from './tools/registry.js';
 import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';
+// P1：K1 工具结果清除（对齐 harness microcompact / dsh pruner）——每轮请求前按预算
+// 把「已消费、非工作台、超门槛」的旧工具结果落盘 + 占位，压低上下文体积。
+import {
+  RESULT_CLEARING_BUDGET_BYTES,
+  applyResultClearing,
+  planResultClearing,
+} from './resultClearing.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 export const TOOL_RESULT_LIMIT = 16 * 1024;
@@ -98,6 +105,10 @@ export async function runAgentTurn(messages, options = {}) {
   const onToolResult = typeof options.onToolResult === 'function' ? options.onToolResult : null;
   // O1：超限结果落盘钩子（宿主注入：写工作区 + 返回 { path }；不注入 = 退回头尾保留）。
   const persistToolResult = typeof options.persistToolResult === 'function' ? options.persistToolResult : null;
+  // P1：上下文字节预算（宿主可传「窗口比例」换算后的值；默认 2MB）。
+  const contextBudgetBytes = Number.isFinite(Number(options.contextBudgetBytes)) && Number(options.contextBudgetBytes) > 0
+    ? Number(options.contextBudgetBytes)
+    : RESULT_CLEARING_BUDGET_BYTES;
   // E1：usage 回调（缓存命中观测）——每轮结果里的 usage 原样上抛给宿主累计；
   // 端点不返回 usage 时该回调根本不会被调用（调用方必须容忍零次）。
   const onUsage = typeof options.onUsage === 'function' ? options.onUsage : null;
@@ -170,6 +181,17 @@ export async function runAgentTurn(messages, options = {}) {
           history.push({ role: 'system', content: `用户中途补充：${text}，请在后续决策中纳入。` });
         }
         budgetWarned = false; // 新目标 → 允许收束预警再提一次
+      }
+    }
+    // P1：K1 挂载——本轮请求前，上下文超预算时把旧工具结果落盘 + 占位。
+    // 只改 content、绝不拆散 tool_use↔tool_result；落盘失败保原文。无 persist 钩子则跳过。
+    if (persistToolResult) {
+      const plan = planResultClearing(history, { budgetBytes: contextBudgetBytes });
+      if (plan.indices.length) {
+        const cleared = await applyResultClearing(history, plan.indices, { persist: persistToolResult });
+        for (const entry of cleared.cleared) {
+          history[entry.index] = cleared.messages[entry.index];
+        }
       }
     }
     const result = await streamRound(tools);

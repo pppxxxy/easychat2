@@ -484,3 +484,56 @@ test('I1 Steering 与轮次预算：新目标重置收束预警（允许再提�
     .filter(i => i >= 0);
   assert.ok(steerAt >= 0 && warnIndexes.some(i => i > steerAt), '顺序：先看到补充指令，再看到收束提醒');
 });
+
+test('P1：每轮请求前按预算清除旧工具结果（落盘 + 占位，配对不变）', async () => {
+  fakeTools = [{ type: 'function', function: { name: 'read_file', description: '', parameters: {} } }];
+  runHandler = () => ({ content: 'X'.repeat(500), isError: false });
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: 'r3', toolCalls: [{ id: 'c3', name: 'read_file', arguments: '{}' }] },
+    { text: 'r4', toolCalls: [{ id: 'c4', name: 'read_file', arguments: '{}' }] },
+    { text: 'r5', toolCalls: [{ id: 'c5', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const persisted = [];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    contextBudgetBytes: 200,
+    persistToolResult: async (content, meta) => {
+      persisted.push({ length: String(content).length, meta });
+      return { path: `.task_outputs/${meta.toolCallId}` };
+    },
+  });
+  assert.equal(text, 'r1r2r3r4r5done');
+  assert.ok(persisted.length >= 1, '超预算时至少清了一条');
+  // 第 5 轮请求（index 4）时 c1 已被占位（最近 3 条 c2/c3/c4 受保护，c1 已消费且超门槛）
+  const round5 = streamCalls[4].messages;
+  const c1 = round5.find(item => item.role === 'tool' && item.tool_call_id === 'c1');
+  assert.match(String(c1.content), /已存至/, 'c1 内容被占位替换');
+  assert.match(String(c1.content), /c1/, '占位里带回落路径');
+  // 配对完整：tool 消息一条不少（只改 content，不拆散 tool_use↔tool_result）
+  assert.deepEqual(
+    round5.filter(item => item.role === 'tool').map(item => item.tool_call_id),
+    ['c1', 'c2', 'c3', 'c4'],
+  );
+});
+
+test('P1：无 persist 钩子时不清除（绝不写假指针）', async () => {
+  fakeTools = [{ type: 'function', function: { name: 'read_file', description: '', parameters: {} } }];
+  runHandler = () => ({ content: 'X'.repeat(500), isError: false });
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: 'r3', toolCalls: [{ id: 'c3', name: 'read_file', arguments: '{}' }] },
+    { text: 'r4', toolCalls: [{ id: 'c4', name: 'read_file', arguments: '{}' }] },
+    { text: 'r5', toolCalls: [{ id: 'c5', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', contextBudgetBytes: 200 });
+  const round5 = streamCalls[4].messages;
+  const c1 = round5.find(item => item.role === 'tool' && item.tool_call_id === 'c1');
+  assert.equal(c1.content, 'X'.repeat(500), '无 persist 钩子 → 原文保留');
+});

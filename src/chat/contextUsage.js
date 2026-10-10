@@ -46,3 +46,26 @@ export function shouldAutoCompact(contextUsage, { ratio = AUTO_COMPACT_RATIO } =
     && Number.isFinite(contextUsage.ratio)
     && contextUsage.ratio >= ratio);
 }
+
+// P3（对齐 dsh compaction-basic）：触发阈值 = floor(min(W × ratio, W − O − headroom))。
+// W=窗口；O=本轮输出预留（有效输出上限）；headroom=额外余量（默认 65536 token）。
+// 未声明窗口 → 0（调用方回退到 ratio 判据，不误压）。
+export const COMPACTION_HEADROOM_TOKENS = 65536;
+export function resolveCompactionThreshold(windowSize, {
+  ratio = AUTO_COMPACT_RATIO,
+  outputCap = 0,
+  headroomTokens = COMPACTION_HEADROOM_TOKENS,
+} = {}) {
+  const window = Number(windowSize);
+  if (!Number.isFinite(window) || window <= 0) return 0;
+  const output = Math.max(0, Number(outputCap) || 0);
+  const headroom = Math.max(0, Number(headroomTokens) || 0);
+  const byRatio = window * (Number(ratio) > 0 ? Number(ratio) : AUTO_COMPACT_RATIO);
+  return Math.max(0, Math.floor(Math.min(byRatio, window - output - headroom)));
+}
+
+// token 口径的自动压缩判据（配合 resolveCompactionThreshold）。
+export function shouldAutoCompactTokens(tokens, windowSize, options) {
+  const threshold = resolveCompactionThreshold(windowSize, options);
+  return threshold > 0 && Number(tokens) >= threshold;
+}

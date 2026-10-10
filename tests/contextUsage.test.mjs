@@ -10,11 +10,14 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 import {
   AUTO_COMPACT_RATIO,
+  COMPACTION_HEADROOM_TOKENS,
   DEFAULT_CONTEXT_WINDOW,
   computeContextUsage,
   estimateHistoryTokens,
+  resolveCompactionThreshold,
   resolveContextWindow,
   shouldAutoCompact,
+  shouldAutoCompactTokens,
 } from '../src/chat/contextUsage.js';
 
 function readSource(relativePath) {
@@ -72,6 +75,24 @@ test('shouldAutoCompact：0.8 触发、0.79 不触发、非法占用不触发', 
   assert.equal(shouldAutoCompact({ ratio: Number.NaN }), false);
   // 自定义线仍可用（面板/测试之外的扩展点）。
   assert.equal(shouldAutoCompact({ ratio: 0.5 }, { ratio: 0.5 }), true);
+});
+
+test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))（对齐 dsh）', () => {
+  assert.equal(COMPACTION_HEADROOM_TOKENS, 65536);
+  // 无输出预留、默认 headroom：W=200000 → min(160000, 200000−65536=134464) = 134464
+  assert.equal(resolveCompactionThreshold(200000), 134464);
+  // 有输出预留：W=200000, O=8192 → min(160000, 200000−8192−65536=126272) = 126272
+  assert.equal(resolveCompactionThreshold(200000, { outputCap: 8192 }), 126272);
+  // headroom 超过窗口 → 0（调用方回退到 ratio 判据，不误压）
+  assert.equal(resolveCompactionThreshold(32000), 0);
+  // 非法窗口 → 0
+  assert.equal(resolveCompactionThreshold(0), 0);
+  assert.equal(resolveCompactionThreshold(-1), 0);
+  assert.equal(resolveCompactionThreshold(Number.NaN), 0);
+  // token 口径判据
+  assert.equal(shouldAutoCompactTokens(134464, 200000), true);
+  assert.equal(shouldAutoCompactTokens(134463, 200000), false);
+  assert.equal(shouldAutoCompactTokens(999, 32000), false, '阈值 0 → 不触发');
 });
 
 test('ChatScreen：compact 指令拦截与 80% 自动压缩接线钉死在源码', () => {
