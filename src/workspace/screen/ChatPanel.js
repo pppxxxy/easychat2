@@ -21,7 +21,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -67,6 +66,8 @@ import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
 import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
 import ToolCardList from './ToolCardList.js';
+// 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
+import createStyles from './chatPanelStyles.js';
 import PlanProgressBar from './PlanProgressBar.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
@@ -1645,179 +1646,3 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     </View>
   );
 }
-
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 44 },
-  // embedded：外层由 WorkspaceScreen 提供容器与安全区，这里不再重复留白。
-  embeddedRoot: { flex: 1 },
-  containerEmbedded: { paddingTop: 0 },
-  embeddedBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  embeddedAction: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
-  embeddedActionText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingBottom: 8,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800' },
-  exitButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  mainRow: { flex: 1, flexDirection: 'row' },
-  rail: {
-    width: 76,
-    paddingTop: 10,
-    paddingHorizontal: 6,
-    borderRightWidth: tokens.border.thin,
-    borderRightColor: theme.colors.divider,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  railItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: tokens.radius.md,
-    marginBottom: 6,
-  },
-  railLabel: {
-    color: theme.colors.textMuted,
-    fontSize: fonts.scaled(10),
-    lineHeight: fonts.scaled(14),
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  // 预留位：把后续入口接在这里，保持左列重心在顶部。
-  railSpacer: { flex: 1 },
-  chatColumn: { flex: 1 },
-  filesLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  filesLinkText: {
-    flex: 1,
-    color: theme.colors.textMuted,
-    fontSize: fonts.scaled(11),
-    marginHorizontal: 6,
-  },
-  body: { paddingHorizontal: 14, paddingBottom: 16, paddingTop: 6 },
-  intro: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 8 },
-  bubbleRow: { flexDirection: 'row', marginTop: 10 },
-  // P0-3：助手气泡下方的工具轨迹回看（不占满整行，视觉上仍属于这条助手消息）。
-  traceRow: { marginTop: 2, marginRight: 40 },
-  bubbleRowUser: { justifyContent: 'flex-end' },
-  bubbleRowAssistant: { justifyContent: 'flex-start' },
-  bubble: {
-    maxWidth: '86%',
-    borderRadius: tokens.radius.md || tokens.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderWidth: tokens.border.thin,
-  },
-  bubbleUser: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  bubbleAssistant: { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceBorder },
-  bubbleError: { borderColor: theme.colors.danger || theme.colors.surfaceBorder },
-  bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
-  statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
-  statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
-  attachmentBar: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingBottom: 4 },
-  attachmentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 8,
-    marginTop: 6,
-  },
-  attachmentName: { color: theme.colors.text, fontSize: fonts.scaled(11), marginHorizontal: 5, maxWidth: 140 },
-  recordingBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  recordingText: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
-  recordingAction: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '600' },
-  // 斜杠命令建议条：输入 / 时出现在输入行上方（横向滚动，点击填入命令名）。
-  slashBar: {
-    paddingHorizontal: 12,
-    paddingBottom: 6,
-  },
-  slashChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 8,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    backgroundColor: theme.colors.surfaceAlt,
-    maxWidth: 240,
-  },
-  slashChipText: {
-    color: theme.colors.primary,
-    fontSize: fonts.scaled(12),
-    fontWeight: '600',
-  },
-  slashChipDescription: {
-    marginLeft: 6,
-    flexShrink: 1,
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(11),
-  },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    borderTopWidth: tokens.border.thin,
-    borderTopColor: theme.colors.surfaceBorder,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-  },
-  iconButton: { paddingHorizontal: 5, paddingBottom: 8 },
-  input: {
-    flex: 1,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-    maxHeight: 120,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 2,
-  },
-  sendButtonDisabled: { opacity: 0.5 },
-  stopButton: { backgroundColor: theme.colors.surfaceBorder },
-});

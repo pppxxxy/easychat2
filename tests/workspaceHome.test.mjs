@@ -40,8 +40,10 @@ test('对话面板：紧凑动作行 + 气泡主体 + 直连 agent', () => {
 
 test('底部一栏：加号 / 语音 / 输入框 / 设置 / 发送', () => {
   const start = CHAT.indexOf('styles.inputBar');
-  const end = CHAT.indexOf('\nconst createStyles =');
-  assert.ok(start > 0 && end > start, '必须能截出底部输入栏');
+  // 样式表已抽到 chatPanelStyles.js（P2-1 的前置拆件），文件里不再有 `const createStyles =`，
+  // 所以截到文件末尾即可——截出来的仍然是「输入栏及其之后」这一段。
+  const end = CHAT.length;
+  assert.ok(start > 0, '必须能截出底部输入栏');
   const bar = CHAT.slice(start, end);
   assert.ok(bar.includes('add-circle-outline'), '加号（文件添加）');
   assert.ok(bar.includes('mic-outline'), '语音');
