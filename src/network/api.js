@@ -449,9 +449,14 @@ export async function streamChatCompletion(messages, options = {}) {
       if (idleTimer) clearTimeout(idleTimer);
       const waitingFirstByte = !sawFirstByte;
       idleTimer = setTimeout(() => {
-        fail(new Error(waitingFirstByte
+        const timeoutError = new Error(waitingFirstByte
           ? '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）'
-          : '请求超时，请检查网络后重试'));
+          : '请求超时，请检查网络后重试');
+        // 结构化标记（2026-10-10，P0-7）：降级链要判断「这次失败值不值得换模型重试」，
+        // 靠文案匹配会被翻译/措辞改动带偏，所以在这里挂上可判定的字段。
+        timeoutError.timeout = true;
+        timeoutError.firstByte = waitingFirstByte;
+        fail(timeoutError);
         xhr.abort();
       }, waitingFirstByte ? FIRST_BYTE_TIMEOUT_MS : IDLE_TIMEOUT_MS);
     };
@@ -587,7 +592,10 @@ export async function streamChatCompletion(messages, options = {}) {
     xhr.onload = () => {
       if (settled) return;
       if (xhr.status < 200 || xhr.status >= 300) {
-        fail(new Error(formatApiError(xhr.responseText, xhr.status)));
+        const httpError = new Error(formatApiError(xhr.responseText, xhr.status));
+        // 结构化状态码（P0-7）：429 与 5xx 可降级重试，4xx 其余是确定性失败（换模型也一样）。
+        httpError.httpStatus = xhr.status;
+        fail(httpError);
         return;
       }
       try {
@@ -646,7 +654,12 @@ export async function streamChatCompletion(messages, options = {}) {
       }
     };
 
-    xhr.onerror = () => fail(new Error('网络请求失败，请检查网络或 API 地址。'));
+    xhr.onerror = () => {
+      const networkError = new Error('网络请求失败，请检查网络或 API 地址。');
+      // 结构化标记（P0-7）：网络不可达是可降级失败（换模型/换线路都可能成功）。
+      networkError.network = true;
+      fail(networkError);
+    };
     xhr.onabort = () => fail(canceled ? createAbortError() : new Error('请求已中断。'));
 
     if (settled) return;
