@@ -470,6 +470,11 @@ export const workspace = {
   'workspace.chat.steering.note': 'Extra instruction received — it will be taken into account next step',
   'workspace.chat.steering.attachments': 'This turn is still running: steering only supports text; send attachments after it finishes.',
   'workspace.chat.planApproval.action': 'Approve & switch to write mode',
+  'workspace.panel.search.placeholder': 'Search files (across folders)',
+  'workspace.panel.search.clear': 'Clear search',
+  'workspace.panel.search.empty': 'No matching files',
+  'workspace.panel.search.emptyHint': 'No file in the workspace has a name or path containing "{query}".',
+  'workspace.panel.search.more': '{count} more not shown — type more characters to narrow down.',
   'workspace.history.archivedTab': 'Archived ({count})',
   // P2-2: chat history search and sorting
   'workspace.history.search.placeholder': 'Search title or content',

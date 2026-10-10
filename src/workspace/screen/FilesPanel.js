@@ -15,6 +15,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -41,6 +42,7 @@ import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
+import { searchWorkspaceFiles } from '../fileSearch.js';
 import FileHistorySheet from '../FileHistorySheet.js';
 import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 
@@ -91,6 +93,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 文件区当前所在目录（'' = 根层，按项目分组）。进入项目/目录后逐层下钻，
   // 路径只在面包屑里出现，不再把「repos/x/main/src/…」整条挤在文件行里被截断（诉求④）。
   const [subdir, setSubdir] = useState('');
+  // P2-3：文件搜索（**跨目录**——逐层下钻时找已知名字的文件只能靠记忆点进去）。
+  // 空查询时照旧显示目录树，不显示「全部文件」的平铺。
+  const [fileQuery, setFileQuery] = useState('');
   // D1：把文本文件导入**当前浏览的目录**（根层沿用 imports/ 旧落点）——技能生态
   // 的关键通路：在 .easychat/skills/<名字>/ 里点「导入文件」即建技能资源文件。
   const [fileImportBusy, setFileImportBusy] = useState(false);
@@ -609,6 +614,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 路径只在面包屑里出现，不再把 repos/x/main/src/… 整条挤进文件行被截断。
   const { rootEntries, groups } = useMemo(() => groupWorkspaceFiles(files), [files]);
   const children = useMemo(() => directoryChildren(files, subdir), [files, subdir]);
+  // P2-3：命中结果与总数（界面要说「还有 N 条未显示」，所以不能只拿截断后的数组）。
+  const fileSearch = useMemo(() => searchWorkspaceFiles(files, fileQuery), [files, fileQuery]);
   const crumbs = useMemo(
     () => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')),
     [subdir, t]
@@ -700,6 +707,52 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     </TouchableOpacity>
   );
 
+  // P2-3：搜索结果（平铺、跨目录）。每行带出所在目录——搜索的意义就是「不用知道在哪」，
+  // 但看到结果得知道它在哪儿，否则点开前没有判断依据。
+  const renderSearchResults = () => {
+    if (fileSearch.matches.length === 0) {
+      return (
+        <EmptyState
+          icon="search-outline"
+          title={t('workspace.panel.search.empty')}
+          description={t('workspace.panel.search.emptyHint', { query: fileQuery.trim() })}
+        />
+      );
+    }
+    return (
+      <>
+        {fileSearch.matches.map(item => (
+          <TouchableOpacity
+            key={item.path}
+            style={styles.fileRow}
+            onPress={() => openFile(item.path)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.fileMain}>
+              <Ionicons
+                name={isDocxName(item.path) ? 'document-outline' : 'document-text-outline'}
+                size={16}
+                color={theme.colors.primaryMuted}
+              />
+              <View style={styles.searchTextBlock}>
+                <Text style={styles.fileName} numberOfLines={1}>{item.name}</Text>
+                {item.dir ? (
+                  <Text style={styles.searchDir} numberOfLines={1}>{item.dir}</Text>
+                ) : null}
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))}
+        {/* 截断了就说清楚还有多少——静默截断会让用户以为「就这些」。 */}
+        {fileSearch.truncated ? (
+          <Text style={styles.searchMore}>
+            {t('workspace.panel.search.more', { count: fileSearch.total - fileSearch.matches.length })}
+          </Text>
+        ) : null}
+      </>
+    );
+  };
+
   const renderFileBrowser = () => {
     if (loading) return <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>;
     if (error) return null;
@@ -712,6 +765,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         />
       );
     }
+    // P2-3：有搜索词就用平铺结果替代目录树（搜索的价值就在跨目录）。
+    if (fileQuery.trim()) return renderSearchResults();
     if (subdir) {
       return (
         <>
@@ -980,6 +1035,32 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             </View>
           ) : null}
 
+          {/* P2-3：文件搜索框。空查询时下方仍是目录树，输入后才切成跨目录的平铺结果。 */}
+          {files.length > 0 ? (
+            <View style={styles.searchRow}>
+              <Ionicons name="search" size={14} color={theme.colors.textFaint} />
+              <TextInput
+                style={styles.searchInput}
+                value={fileQuery}
+                onChangeText={setFileQuery}
+                placeholder={t('workspace.panel.search.placeholder')}
+                placeholderTextColor={theme.colors.textFaint}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {fileQuery ? (
+                <TouchableOpacity
+                  onPress={() => setFileQuery('')}
+                  hitSlop={8}
+                  accessibilityLabel={t('workspace.panel.search.clear')}
+                >
+                  <Ionicons name="close-circle" size={15} color={theme.colors.textFaint} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
           {renderFileBrowser()}
 
           {/* 此前的「调参」折叠卡（思考强度 + 上下文占用）已删除：这两项在对话面板的 ⚙
@@ -1240,6 +1321,22 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   fileToolGhostText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
   sandboxHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 12 },
+  // P2-3：文件搜索框与结果行
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  searchInput: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, padding: 0 },
+  searchTextBlock: { flex: 1, marginLeft: 8 },
+  searchDir: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
+  searchMore: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 10, paddingHorizontal: 4 },
   viewerTabs: {
     flexDirection: 'row',
     marginHorizontal: 20,

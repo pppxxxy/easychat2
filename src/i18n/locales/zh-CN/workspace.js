@@ -469,6 +469,11 @@ export const workspace = {
   'workspace.chat.steering.note': '已收到补充指令，将在下一步纳入',
   'workspace.chat.steering.attachments': '本轮还在进行：补充指令只支持文字；带附件的发送请等本轮结束。',
   'workspace.chat.planApproval.action': '批准并切换到可改模式执行',
+  'workspace.panel.search.placeholder': '搜索文件（跨目录）',
+  'workspace.panel.search.clear': '清除搜索',
+  'workspace.panel.search.empty': '没有匹配的文件',
+  'workspace.panel.search.emptyHint': '工作区里没有名字或路径包含「{query}」的文件。',
+  'workspace.panel.search.more': '还有 {count} 条未显示，输入更多字符缩小范围。',
   'workspace.history.archivedTab': '已归档（{count}）',
   // P2-2：会话历史检索与排序
   'workspace.history.search.placeholder': '搜索标题或内容',
