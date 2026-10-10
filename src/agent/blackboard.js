@@ -116,6 +116,21 @@ export function formatBoardMessages(topic, messages) {
     : text;
 }
 
+// 纯函数：把一块黑板归纳成展示用快照 [{ topic, messages: [{ from, text, at }] }]（按主题名排序）。
+// 供工作区设置里的「团队记忆」查看器读取——黑板本身是隐藏文件，这是它的可视化出口。
+export function boardTopics(board) {
+  if (!board || typeof board.serialize !== 'function') return [];
+  const topics = (board.serialize() || {}).topics || {};
+  return Object.keys(topics).sort().map(topic => ({
+    topic,
+    messages: (Array.isArray(topics[topic]) ? topics[topic] : []).map(item => ({
+      from: String((item && item.from) || ''),
+      text: String((item && item.text) || ''),
+      at: Number((item && item.at) || 0),
+    })),
+  }));
+}
+
 // 团队协作时追加到子代理系统提示的说明（无黑板时调用方不追加）。
 export function boardPromptSuffix() {
   return '\n【团队通信】你和其它分身共享一块黑板：用 board_post({topic, text}) 把进展/发现/'

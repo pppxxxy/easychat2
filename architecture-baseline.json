@@ -9,7 +9,7 @@
     "src/SettingsScreen.js": 2329,
     "src/workspace/screen/GithubPanel.js": 1984,
     "src/chat/useChatSend.js": 1999,
-    "src/workspace/screen/ChatPanel.js": 1915,
+    "src/workspace/screen/ChatPanel.js": 1945,
     "src/character/CharacterDetailScreen.js": 1714,
     "src/workspace/screen/FilesPanel.js": 1601,
     "src/chat/chatStyles.js": 1558,
@@ -19,7 +19,7 @@
     "src/MemoryScreen.js": 1031,
     "src/ImageGenScreen.js": 997,
     "src/character/CharacterLibraryScreen.js": 949,
-    "src/workspace/WorkspaceSettingsSheet.js": 940,
+    "src/workspace/WorkspaceSettingsSheet.js": 988,
     "src/CardForgeScreen.js": 902,
     "src/ProactivePanel.js": 894,
     "src/network/api.js": 801

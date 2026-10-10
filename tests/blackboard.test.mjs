@@ -13,6 +13,7 @@ import {
   normalizeTopic,
   formatBoardMessages,
   boardPromptSuffix,
+  boardTopics,
 } from '../src/agent/blackboard.js';
 import {
   BOARD_POST_TOOL_DEFINITION,
@@ -71,6 +72,19 @@ test('formatBoardMessages：空主题提示、正常拼接、超长截断', () =
 test('boardPromptSuffix：提到两个工具名', () => {
   const suffix = boardPromptSuffix();
   assert.ok(suffix.includes('board_post') && suffix.includes('board_read'));
+});
+
+test('boardTopics：归纳成 [{ topic, messages }]（查看器用）；空/坏输入安全', () => {
+  const board = createBlackboard();
+  board.post({ topic: '结论', from: 'task-1', text: 'A' });
+  board.post({ topic: '风险', from: 'task-2', text: 'B' });
+  const topics = boardTopics(board);
+  assert.equal(topics.length, 2);
+  const conclusion = topics.find(item => item.topic === '结论');
+  assert.equal(conclusion.messages[0].text, 'A');
+  assert.equal(conclusion.messages[0].from, 'task-1');
+  assert.deepEqual(boardTopics(null), []);
+  assert.deepEqual(boardTopics({}), []);
 });
 
 test('黑板播种与序列化：serialize → createBlackboard({ initial }) 往返、序号续接、坏数据不崩', () => {

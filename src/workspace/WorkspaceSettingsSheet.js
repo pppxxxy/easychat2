@@ -100,6 +100,9 @@ export default function WorkspaceSettingsSheet({
   // 团队清单（.easychat/teams 的多步编排）；安装示例同样转发给 ChatPanel。
   teams = [],
   onInstallSampleTeams,
+  // 团队记忆（跨会话黑板）：宿主读好的主题快照 + 清空动作。
+  boardTopics = [],
+  onClearBoard,
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
   onInstallSampleCommands,
@@ -222,6 +225,14 @@ export default function WorkspaceSettingsSheet({
       value: teams.length > 0
         ? t('workspace.settings.teams.count', { count: teams.length })
         : t('workspace.settings.teams.emptyShort'),
+    },
+    {
+      id: 'board',
+      icon: 'albums-outline',
+      label: t('workspace.settings.board'),
+      value: boardTopics.length > 0
+        ? t('workspace.settings.board.count', { count: boardTopics.length })
+        : t('workspace.settings.board.emptyShort'),
     },
     {
       id: 'commands',
@@ -444,6 +455,37 @@ export default function WorkspaceSettingsSheet({
             <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.teams.install')}</Text>
           </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'board') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.board.hint')}</Text>
+          {boardTopics.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.board.empty')}</Text>
+          ) : boardTopics.map(topic => (
+            <View key={topic.topic} style={styles.boardTopic}>
+              <Text style={styles.boardTopicTitle}>
+                {t('workspace.settings.board.topic', { topic: topic.topic, count: topic.messages.length })}
+              </Text>
+              {topic.messages.map((msg, index) => (
+                <Text key={`${msg.from}-${index}`} style={styles.bodyHint} selectable>
+                  {msg.from ? `${msg.from}：` : ''}{msg.text}
+                </Text>
+              ))}
+            </View>
+          ))}
+          {boardTopics.length > 0 ? (
+            <TouchableOpacity
+              style={styles.skillsInstall}
+              onPress={() => onClearBoard && onClearBoard()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={15} color={theme.colors.danger || theme.colors.primary} />
+              <Text style={styles.skillsInstallText}>{t('workspace.settings.board.clear')}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       );
     }
@@ -792,6 +834,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(11),
     lineHeight: fonts.scaled(16),
     marginTop: 8,
+  },
+  boardTopic: { marginTop: 10 },
+  boardTopicTitle: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(12),
+    fontWeight: '700',
   },
   // 「清除全部授权」：危险动作给危险色 + 描边，但不填满（防误点视觉权重过大）。
   permissionClear: {

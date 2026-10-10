@@ -126,6 +126,10 @@ test('接线契约：ChatPanel 每轮直读团队并传入；设置面板可安�
   const tool = fs.readFileSync(path.resolve('src/workspace/toolDefs/teamTool.js'), 'utf8');
   assert.ok(tool.includes('loadPersistentBlackboard') && tool.includes('savePersistentBlackboard'), 'run_team 跨会话黑板接线');
 
+  // 团队记忆查看器（跨会话黑板）：设置面板有行、宿主把快照与清空动作传进去。
+  assert.ok(sheet.includes("id: 'board'"), '设置面板有团队记忆行');
+  assert.ok(panel.includes('boardTopics={boardSnapshot}') && panel.includes('onClearBoard={handleClearBoard}'), '团队记忆快照与清空接线');
+
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/workspace.js'), 'utf8');
   const en = fs.readFileSync(path.resolve('src/i18n/locales/en/workspace.js'), 'utf8');
   for (const key of ["'workspace.settings.teams'", "'workspace.settings.teams.hint'", "'workspace.settings.teams.install'"]) {
