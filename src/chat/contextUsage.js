@@ -7,6 +7,11 @@
 //   保守默认 32000（未声明时按最小常见窗口保守处理，宁可早压缩不溢出）。
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
+import {
+  DEFAULT_AUTOCOMPACT_RATIO,
+  DEFAULT_HEADROOM_TOKENS,
+  resolveAutoCompactPolicy,
+} from './compactionPolicy.js';
 
 // 未声明窗口时的兜底（tokens）。取 200000：主流在线模型（DeepSeek / GPT / Claude / Gemini
 // 的新一代）上下文都在 128k~200k 这一档，32k 会让「上下文占用」显示虚高、80% 自动压缩
@@ -62,6 +67,31 @@ export function estimateTextTokens(text) {
   const value = String(text === undefined || text === null ? '' : text).trim();
   if (!value) return 0;
   return estimateMessagesTokens([{ role: 'system', content: value }]);
+}
+
+// 触发阈值 = floor(min(W × ratio, W − O − headroom))。
+// **Z/M/D 整合后：唯一来源是 chat/compactionPolicy.js**，这里只做委托，保留 M 系调用点不动
+//（M 系原值 ratio 0.8 / headroom 65536 已成为 policy 的默认余量）。
+export const COMPACTION_HEADROOM_TOKENS = DEFAULT_HEADROOM_TOKENS;
+export function resolveCompactionThreshold(windowSize, {
+  ratio = DEFAULT_AUTOCOMPACT_RATIO,
+  outputCap = 0,
+  headroomTokens = DEFAULT_HEADROOM_TOKENS,
+} = {}) {
+  // 用 outputReserveTokens（而非 maxOutputTokens）传：M 口径里 outputCap=0 表示**不预留**，
+  // 而 policy 的 maxOutputTokens=0 表示「未声明 → 用默认预留」，语义不同，不能混。
+  return resolveAutoCompactPolicy({
+    contextWindow: windowSize,
+    outputReserveTokens: Math.max(0, Number(outputCap) || 0),
+    ratio,
+    headroomTokens,
+  }).thresholdTokens;
+}
+
+// token 口径的自动压缩判据（配合 resolveCompactionThreshold）。
+export function shouldAutoCompactTokens(tokens, windowSize, options) {
+  const threshold = resolveCompactionThreshold(windowSize, options);
+  return threshold > 0 && Number(tokens) >= threshold;
 }
 
 // P2-7：上下文占用明细——把「谁在吃窗口」拆开给用户看。

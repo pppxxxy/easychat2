@@ -874,11 +874,11 @@ export default function useChatSend({
        recordStats(replyText);
        clearToolBubble();
         if (isCurrentSession()) {
-         setMessages(current => replacePendingWithReply(current, pendingAssistantMessage.id, replyParts));
-         // P5：把本轮工具轨迹补挂到刚产出的助手终稿上（展示无感；下轮展开回 agent 历史）。
-         if (turnTrace) {
-           setMessages(current => attachToolTrace(current, replyParts, turnTrace));
-         }
+          setMessages(current => {
+            const next = replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
+            // P5：把本轮工具轨迹挂到助手终稿上（展示无感；下轮组装请求时展开回 agent 历史）。
+            return turnTrace ? attachToolTrace(next, replyParts, turnTrace) : next;
+          });
         // 会话模型标识落盘（记忆页「本地」badge 的数据源）。只在回复真正落入
         // 当前会话后标记；落盘失败不影响聊天主链路，静默吞掉。
         if (resolvedProvider) {

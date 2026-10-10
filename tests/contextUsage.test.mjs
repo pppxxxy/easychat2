@@ -10,6 +10,7 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 import {
   AUTO_COMPACT_RATIO,
+  COMPACTION_HEADROOM_TOKENS,
   DEFAULT_CONTEXT_WINDOW,
   SESSION_AUTO_COMPACT_RATIO,
   SESSION_COMPACT_HINT_RATIO,
@@ -17,11 +18,14 @@ import {
   computeContextUsage,
   estimateHistoryTokens,
   estimateTextTokens,
+  resolveCompactionThreshold,
   resolveContextWindow,
   shouldAutoCompact,
+  shouldAutoCompactTokens,
 } from '../src/chat/contextUsage.js';
 
-function readSource(relativePath) {  return fs.readFileSync(path.resolve(relativePath), 'utf8');
+function readSource(relativePath) {
+  return fs.readFileSync(path.resolve(relativePath), 'utf8');
 }
 
 test('estimateHistoryTokens：按消息文本粗估，非数组输入为 0', () => {
@@ -89,6 +93,25 @@ test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / �
   // 会话压缩线仍用同一判定函数，只是阈值不同。
   assert.equal(shouldAutoCompact({ ratio: 0.85 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), true);
   assert.equal(shouldAutoCompact({ ratio: 0.84 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
+});
+
+test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))（对齐 dsh）', () => {
+  assert.equal(COMPACTION_HEADROOM_TOKENS, 65536);
+  // 无输出预留、默认 headroom：W=200000 → min(160000, 200000−65536=134464) = 134464
+  assert.equal(resolveCompactionThreshold(200000), 134464);
+  // 有输出预留：W=200000, O=8192 → min(160000, 200000−8192−65536=126272) = 126272
+  assert.equal(resolveCompactionThreshold(200000, { outputCap: 8192 }), 126272);
+  // headroom 超过窗口 → 预算非正，退回比例上限（委托 compactionPolicy 后不再返回 0，
+  // 阈值恒 > 0；W=32000 → floor(32000×0.85) = 27200）。
+  assert.equal(resolveCompactionThreshold(32000), 27200);
+  // 非法窗口 → 0
+  assert.equal(resolveCompactionThreshold(0), 0);
+  assert.equal(resolveCompactionThreshold(-1), 0);
+  assert.equal(resolveCompactionThreshold(Number.NaN), 0);
+  // token 口径判据
+  assert.equal(shouldAutoCompactTokens(134464, 200000), true);
+  assert.equal(shouldAutoCompactTokens(134463, 200000), false);
+  assert.equal(shouldAutoCompactTokens(999, 32000), false, '远低于阈值 → 不触发');
 });
 
 test('ChatScreen：compact 指令拦截（可带关注点）与记忆总结的 80% 占用接线钉死在源码', () => {

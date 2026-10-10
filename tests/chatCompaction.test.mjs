@@ -127,9 +127,13 @@ test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% �
   assert.ok(screen.includes('enabled: chatOptions.autoCompact'), '系统设置可关（缺省开）');
   const autoCompact = fs.readFileSync(path.resolve('src/chat/useAutoCompact.js'), 'utf8');
   assert.ok(autoCompact.includes('enabled === false'), '开关关时不触发');
-  assert.ok(autoCompact.includes('shouldAutoCompactByBudget(contextUsage.tokens, policy)'), 'token 预算阈值（不再是固定比例）');
+  // Z/M/D 整合：阈值唯一来源 compactionPolicy；字节规则与 token 规则取更严者；失败上限。
+  assert.ok(autoCompact.includes('shouldCompactAnyRule('), '双规则取严（字节 + token）');
+  assert.ok(autoCompact.includes('shouldStopAutoCompact(failuresRef.current)'), '连续失败达上限即停');
+  assert.ok(autoCompact.includes('maxOutputTokens: modelOutputCap'), '按模型声明的输出上限预留');
   assert.ok(autoCompact.includes('if (isSending || compactBusyRef.current) return;'), '发送中/压缩中不触发');
-  assert.ok(autoCompact.includes('microcompactMessages(messagesRef.current)'), '先试本地微压缩（零 API 调用）');
+  // 微压缩只留 loop 的 K1：Z 系 microcompact 已删除，不再有两套。
+  assert.equal(autoCompact.includes('microcompactMessages'), false, 'Z 系就地截断式微压缩已移除');
   assert.ok(autoCompact.includes('onCompact({ silent: true })'), '自动路径走 silent');
   assert.ok(
     autoCompact.includes('attemptRef.current === messages.length'),
