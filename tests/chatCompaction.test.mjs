@@ -19,23 +19,24 @@ import {
   formatBytes,
   normalizeCompactionFocus,
   parseCompactionSummary,
-  shouldCompact,
 } from '../src/chat/compaction.js';
 
 const msg = (role, text) => ({ id: `${role}-${text.length}`, role, text, at: 0 });
 
-test('estimateMessagesBytes / shouldCompact：序列化体积口径 + 阈值', () => {
+test('estimateMessagesBytes / compactionStatus：序列化体积口径 + 阈值', () => {
   assert.equal(estimateMessagesBytes([]), 2, "'[]' 长度");
   const small = [msg('user', 'hi')];
   assert.ok(estimateMessagesBytes(small) > 2);
-  assert.equal(shouldCompact(small), false, '小会话不触发');
+  assert.equal(compactionStatus(small).due, false, '小会话不触发');
   assert.equal(
-    shouldCompact([msg('user', 'x'.repeat(COMPACTION_THRESHOLD_BYTES))]),
+    compactionStatus([msg('user', 'x'.repeat(COMPACTION_THRESHOLD_BYTES))]).due,
     true,
     '超阈值触发'
   );
   assert.equal(estimateMessagesBytes(null), 2, '坏输入安全');
-  assert.equal(shouldCompact(small, 10), true, '自定义阈值');
+  assert.equal(compactionStatus(small, 10).due, true, '自定义阈值');
+  // 体积线只有一个事实源：compactionStatus.due 与传入阈值同口径。
+  assert.equal(compactionStatus(small, 10).threshold, 10);
 });
 
 test('formatBytes：B / KB / MB', () => {

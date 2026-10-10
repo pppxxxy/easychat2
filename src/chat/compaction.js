@@ -59,10 +59,6 @@ export function formatBytes(bytes) {
   return `${value}B`;
 }
 
-export function shouldCompact(messages, threshold = COMPACTION_THRESHOLD_BYTES) {
-  return estimateMessagesBytes(messages) > threshold;
-}
-
 // 消息 → 一行转写（聊天页消息用 text 字段；空内容跳过）。
 function messageLine(item) {
   const role = item && item.role === 'user' ? '用户' : '助手';
