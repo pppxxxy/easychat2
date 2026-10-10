@@ -13,6 +13,7 @@
 - **循环**：turn 状态机、steering、plan nag、重复调用 nudge、轮次预算。
 - **上下文治理**：microcompact + token 预算阈值 + 响应式回退重试 + 四档压缩 + `.transcripts/` 归档 + toolTrace。
 - **工具**：14 个沙盒工具（读/写/改/搜索/plan/exec/docx/materialize/ci/subagent）+ 聊天工具（web_search/web_fetch）+ MCP（tools/call）。
+- **多智能体**：并行只读子代理 + 可写子代理（opt-in，逐写审批，防递归）。
 - **权限**：allow/ask/deny + permission broker + 9 事件 hooks。
 - **扩展**：技能 / 斜杠命令 / 子代理档案 / hooks.json。
 - **其它**：记忆（AGENTS.md）、文件快照、会话事件流、模型降级链、Anthropic 提示缓存、后台运行。
@@ -21,7 +22,7 @@
 ## 真实差距（按优先级）
 
 1. **运行环境深度（最大）**：参考操作真实文件系统 / git / 包管理器 / LSP / 构建测试 / 任意 Bash；我们是 App 内**角色作用域沙盒** + `run_shell`/`run_python`，**无 LSP / 无本地 git（仅 GitHub API）/ 无包管理 / 无真实项目构建**，shell 也**无 OS 级隔离**。
-2. **多智能体编排**：我们只有**单个只读子代理**（`run_subagent`，防递归、串行）；参考有并行子代理扇出、workflow DAG、agent 团队。
+2. **多智能体编排**：已有**并行只读子代理**（`run_subagent` 的 task 数组，并发 2）+ **可写子代理**（m1010m7 起，opt-in `mode:'write'`，逐写审批、默认只读）；仍缺 **workflow DAG / agent 团队 / 子代理间协作**。
 3. **程序化接口 / SDK**：参考有 headless + ACP/JSON-RPC + Python/TS SDK；我们只有本地 OpenAI 兼容 API server + 定时任务，**无通用 agent SDK / 外部驱动协议**。
 4. **持久化 transcript**：参考持久化**完整 agent transcript（system + tool 消息）**；我们是**展示文本 + 嵌套 toolTrace** 的混合体，压缩靶子不是完整 transcript。
 5. **MCP 深度**：我们只有 `tools/call`（无 `resources` / `prompts` / 订阅）。
