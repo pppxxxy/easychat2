@@ -21,7 +21,7 @@
 
 ## 真实差距（按优先级）
 
-1. **运行环境深度（最大）**：参考操作真实文件系统 / git / 包管理器 / LSP / 构建测试 / 任意 Bash；我们是 App 内**角色作用域沙盒** + `run_shell`/`run_python`，**无 LSP / 无本地 git（仅 GitHub API）/ 无包管理 / 无真实项目构建**，shell 也**无 OS 级隔离**。
+1. **运行环境深度（最大）**：参考操作真实文件系统 / git / 包管理器 / LSP / 构建测试 / 任意 Bash；我们是 App 内**角色作用域沙盒** + `run_shell`/`run_python`。**已补 LSP-lite 代码大纲**（m1010m8：`list_symbols`，JS/TS/Python 顶层符号）；**真 LSP / 包管理 / 本地 git（仅 GitHub API）/ 真实项目构建 / OS 级隔离**仍需原生或依赖。
 2. **多智能体编排**：已有**并行只读子代理**（`run_subagent` task 数组，并发 2）+ **可写子代理**（opt-in `mode:'write'`，逐写审批、默认只读）+ **依赖式工作流 `run_workflow`**（DAG：无依赖并行、有依赖带前置结论）；仍缺 **agent 团队 / 跨会话协作 / 子代理间自由通信**。
 3. **程序化接口 / SDK**：参考有 headless + ACP/JSON-RPC + Python/TS SDK；我们**已落 JS 侧稳定事件协议**（m1010m8：`src/agent/protocol.js`，JSONL 事件流）；**原生 HTTP endpoint（`POST /v1/agent`）待做**——本地 API server 目前只路由本地模型，加 agent 路由需原生改动（本机无法编译验证）。
 4. **持久化 transcript**：参考持久化**完整 agent transcript（system + tool 消息）**；我们是**展示文本 + 嵌套 toolTrace** 的混合体。**压缩靶子已改为展开后的完整 transcript**（m1010m8：`buildCompactionSummaryRequest` 内部展开轨迹 + 工具转写）；仍非「以内联 tool 消息为唯一存储」。
