@@ -70,7 +70,6 @@ import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../ne
 import { resolveTranscription, transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
-import { listToolsForMode } from '../../agent/tools/registry.js';
 import { approveToolCall } from '../../chat/toolApprovalFlow.js';
 import {
   isImage,
@@ -91,7 +90,9 @@ import {
   sessionEventsPath,
 } from '../sessionEvents.js';
 import { normalizePlanSteps, shouldOfferPlanApproval } from '../toolDefs/planTool.js';
-import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
+import { createWorkspaceStore, resolveGitRunner } from '../native.js';
+import { registerWorkspaceAgentTools } from '../agentToolSetup.js';
+import { runTurnCheckpoint } from '../gitCheckpoint.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
 import { materializeRepoFile, parseRepoFilePath } from '../repoMaterialize.js';
@@ -131,7 +132,6 @@ import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
-  toolOrderSignature,
 } from '../chat.js';
 
 const MAX_ATTACHMENTS = 3;
@@ -1098,25 +1098,21 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     steeringRef.current = createSteeringQueue();
     setSteeringNote('');
 
-    // 先注册工具、再拼提示词：提示词里要不要写「可以跑 Python / 可以执行命令」，判据是
-    // **注册表里真的有**（开关开着但原生模块缺失、或根是外部文件夹时并不存在），
-    // 所以必须以后者为准——否则提示词会承诺一个调不动的能力，模型会反复尝试然后乱解释。
+    // 先注册工具、再拼提示词（顺序契约与漂移判据见 agentToolSetup.js 的注释）。
     let tools = [];
     if (mode !== 'ask') {
       try {
-        registerDefaultWorkspaceTools(wsSettingsRef.current || wsSettings, {
-          readLog: readLogRef.current,
-          materializer: materializeForAgent,
+        const setup = registerWorkspaceAgentTools({
+          settings: wsSettingsRef.current || wsSettings, mode,
+          readLog: readLogRef.current, materializer: materializeForAgent,
+          previous: toolOrderRef.current,
         });
-        tools = listToolsForMode(mode);
-        // E1：工具顺序冻结兜底——同一 mode 下 tools 序列漂移 = 前缀缓存全 miss
-        //（tools 定义计入缓存键）。开发期告警、生产静默；mode 切换不算漂移。
-        const orderSignature = toolOrderSignature(tools);
-        const prevOrder = toolOrderRef.current[mode];
-        if (prevOrder && prevOrder !== orderSignature && typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.warn('[cache] 工具顺序在会话内发生变化（会打碎前缀缓存）：', prevOrder, '→', orderSignature);
+        tools = setup.tools;
+        // E1：顺序漂移 = 前缀缓存全 miss。开发期告警、生产静默；mode 切换不算漂移。
+        if (setup.drifted && typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.warn('[cache] 工具顺序在会话内发生变化（会打碎前缀缓存）：', setup.prevSignature, '→', setup.signature);
         }
-        toolOrderRef.current[mode] = orderSignature;
+        toolOrderRef.current[mode] = setup.signature;
       } catch (error) {}
     }
     // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
@@ -1292,6 +1288,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       }
       controllerRef.current = null;
       steeringRef.current = null;
+      // W7：回合检查点——把本轮的改动落成本地提交（旁路增强，失败绝不影响回合）。
+      const gitRunner = mode === 'ask' ? null : resolveGitRunner(wsSettingsRef.current || wsSettings);
+      if (gitRunner) runTurnCheckpoint({ git: gitRunner, request: outgoingText, characterId: ownerId }).catch(() => {});
       // N2：本轮结束后按 0.8 线静默压缩（用本轮终稿拼出准确历史，避免闭包滞后）。
       if (mode !== 'ask') {
         compactWorkspaceNow({
