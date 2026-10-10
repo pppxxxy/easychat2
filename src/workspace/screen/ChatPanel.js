@@ -775,6 +775,21 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     } catch (error) {}
   }, []);
 
+  // P1-11：保留口径（快照条数 / 回滚基线份数 / 事件流上限）。落盘后**重建 store**——
+  // 生效口径是随 store 带进三个旁路模块的，不重建就会出现「设置改了但本轮还是老上限」。
+  const handleChangeRetention = useCallback(async next => {
+    try {
+      const settings = await patchWorkspaceSettings({ retention: next });
+      if (mountedRef.current) {
+        setWsSettings(settings);
+        wsSettingsRef.current = settings;
+      }
+      try {
+        storeRef.current = createWorkspaceStore(settings);
+      } catch (error) {}
+    } catch (error) {}
+  }, []);
+
   const handleImportFile = useCallback(async () => {
     if (importBusy) return;
     const store = storeRef.current;
@@ -1177,6 +1192,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                   permissionRules={permissionRules}
                   onClearPermissionRules={handleClearPermissionRules}
                   onAddPermissionRule={handleAddPermissionRule}
+                  retention={wsSettings ? wsSettings.retention : undefined}
+                  onChangeRetention={handleChangeRetention}
                   skills={workspaceSkills}
                   onInstallSampleSkills={handleInstallSampleSkills}
                   commands={workspaceCommands}

@@ -19,12 +19,16 @@
 // 安全边界：恢复入口**不做成 agent 工具**——历史改写只走 UI/宿主，防止模型自己
 // 篡改历史；快照失败不阻塞写入（尽力而为，写主流程优先）。
 
+import { HISTORY_KEEP_DEFAULT, retentionOf } from './retention.js';
+
 export const FILE_HISTORY_DIR = '.easychat/file-history';
 export const FILE_HISTORY_INDEX = `${FILE_HISTORY_DIR}/index.json`;
 export const FILE_HISTORY_ENTRIES_DIR = `${FILE_HISTORY_DIR}/entries`;
-// 上限：200 条元数据；单条旧内容超过 HISTORY_ENTRY_MAX_CHARS 只记长度（不可恢复，
-// 如实标记 restorable: false）——防超大文件把 SAF 写爆。
-export const HISTORY_MAX = 200;
+// 上限：默认 200 条元数据（**可配置**：`store.retention.historyKeep`，见 retention.js；
+// 这里保留 HISTORY_MAX 这个名字给既有调用与测试，默认值的单一来源在那边）；
+// 单条旧内容超过 HISTORY_ENTRY_MAX_CHARS 只记长度（不可恢复，如实标记 restorable: false）
+// ——防超大文件把 SAF 写爆。
+export const HISTORY_MAX = HISTORY_KEEP_DEFAULT;
 export const HISTORY_ENTRY_MAX_CHARS = 256 * 1024;
 export const FILE_HISTORY_SOURCES = Object.freeze(['tool', 'push-baseline']);
 
@@ -163,12 +167,21 @@ export async function recordFileHistory(store, characterId, { path, oldContent, 
     if (!meta) return { ok: false };
     // 轮换要基于**挤出前**的完整列表：next 已被截到上限，从它算删除会漏掉
     // 刚被挤出的那几条（它们的条目文件就永远残留了）。
+    // 上限取「生效口径」（store.retention，缺失 = 默认 200）：配置改了立即生效，
+    // 不需要迁移既有 index（下次写入自然收敛）。
+    //
+    // index 只收「轮换后仍然存在」的那些（2026-10-10 修）：原先一边用 slice(0, keep)
+    // 算 index、一边用带基线保护的 rotationDeletes 算删除，两套 survivor 会打架——
+    // index 里会留下条目文件已被删的快照（点恢复必然失败），而被保护的基线反而不在
+    // index 里（等于白保护）。现在两边共用同一份 survivor。
+    const keep = retentionOf(store).historyKeep;
     const merged = [meta, ...index];
-    const next = merged.slice(0, HISTORY_MAX);
+    const staleIds = new Set(historyRotationDeletes(merged, keep));
+    const next = merged.filter(item => !staleIds.has(item.id));
     await writeIndex(store, characterId, next);
-    for (const stale of historyRotationDeletes(merged, HISTORY_MAX)) {
+    for (const staleId of staleIds) {
       try {
-        await store.deleteFile({ characterId, path: entryPath(stale) });
+        await store.deleteFile({ characterId, path: entryPath(staleId) });
       } catch (error) {}
     }
     return { ok: true, id };

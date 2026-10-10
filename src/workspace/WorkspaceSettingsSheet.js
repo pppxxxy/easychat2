@@ -22,6 +22,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { describePermissionRule, normalizePermissionRule, PERMISSION_EFFECTS } from '../agent/permissions.js';
+import { DEFAULT_RETENTION, RETENTION_BOUNDS, normalizeRetention } from './retention.js';
 import { COMMANDS_DIR } from './commands.js';
 import { HOOKS_FILE } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
@@ -77,6 +78,10 @@ export default function WorkspaceSettingsSheet({
   onClearPermissionRules,
   // P0-6：手写规则的创建入口（存储写入仍由宿主做——本面板只收集草稿 + 转发）。
   onAddPermissionRule,
+  // P1-11：保留口径（写前快照条数 / 回滚基线份数 / 会话事件流上限）。同样是
+  // 「面板收集草稿 → 宿主落盘」，面板不自己读写存储。
+  retention = DEFAULT_RETENTION,
+  onChangeRetention,
   // 技能清单（SKILL.md 渐进披露）；安装示例同样是转发给 ChatPanel 的动作。
   skills = [],
   onInstallSampleSkills,
@@ -96,6 +101,7 @@ export default function WorkspaceSettingsSheet({
   const thinkingKey = thinking && thinking.enabled === true ? String(thinking.level || 'medium') : 'off';
   const activeCharacter = (Array.isArray(characters) ? characters : [])
     .find(item => item && item.id === characterId) || null;
+  const retentionEffective = normalizeRetention(retention);
 
   // P0-6：手写规则的草稿。只是输入态（不落盘、不进设置）——落盘由宿主的
   // onAddPermissionRule 走 addPermissionRule，与弹框「永远允许」同一条链路。
@@ -117,6 +123,29 @@ export default function WorkspaceSettingsSheet({
     setRuleTool('');
     setRuleMatch('');
   };
+
+  // P1-11：保留口径的草稿（字符串）。**不逐键归一**——用户敲「1」再敲「2」时，
+  // 逐键夹区间会把「1」立刻改成下限 10，输入框自己跟自己打架。失焦/提交时才归一。
+  const [retentionDraft, setRetentionDraft] = useState(null);
+  const retentionValue = key => (
+    retentionDraft && retentionDraft[key] !== undefined
+      ? retentionDraft[key]
+      : String(normalizeRetention(retention)[key])
+  );
+  const commitRetention = () => {
+    const next = normalizeRetention({
+      historyKeep: retentionValue('historyKeep'),
+      rollbackKeep: retentionValue('rollbackKeep'),
+      sessionEventsMaxKb: retentionValue('sessionEventsMaxKb'),
+    });
+    setRetentionDraft(null);
+    if (onChangeRetention) onChangeRetention(next);
+  };
+  const retentionRows = [
+    { key: 'historyKeep', label: t('workspace.settings.retention.historyKeep'), bounds: RETENTION_BOUNDS.historyKeep },
+    { key: 'rollbackKeep', label: t('workspace.settings.retention.rollbackKeep'), bounds: RETENTION_BOUNDS.rollbackKeep },
+    { key: 'sessionEventsMaxKb', label: t('workspace.settings.retention.sessionEventsMaxKb'), bounds: RETENTION_BOUNDS.sessionEventsMaxKb },
+  ];
 
   const rows = [
     {
@@ -148,6 +177,17 @@ export default function WorkspaceSettingsSheet({
       icon: 'analytics-outline',
       label: t('workspace.settings.usage'),
       value: usage ? `${Math.round((usage.ratio || 0) * 100)}%` : t('workspace.settings.usage.empty'),
+    },
+    {
+      // P1-11：旁路数据的保留口径（三个上限）。摘要用生效值，改完立即反映。
+      id: 'retention',
+      icon: 'archive-outline',
+      label: t('workspace.settings.retention'),
+      value: t('workspace.settings.retention.value', {
+        history: retentionEffective.historyKeep,
+        rollback: retentionEffective.rollbackKeep,
+        kb: retentionEffective.sessionEventsMaxKb,
+      }),
     },
     {
       id: 'skills',
@@ -294,6 +334,41 @@ export default function WorkspaceSettingsSheet({
         </View>
       );
     }
+    if (id === 'retention') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.retention.hint')}</Text>
+          {retentionRows.map(row => (
+            <View key={row.key} style={styles.retentionRow}>
+              <Text style={styles.retentionLabel}>
+                {row.label}
+                <Text style={styles.retentionRange}>
+                  {`  ${t('workspace.settings.retention.range', { min: row.bounds.min, max: row.bounds.max })}`}
+                </Text>
+              </Text>
+              <TextInput
+                style={styles.sheetInput}
+                value={retentionValue(row.key)}
+                onChangeText={text => setRetentionDraft({ ...(retentionDraft || {}), [row.key]: text })}
+                onBlur={commitRetention}
+                onSubmitEditing={commitRetention}
+                keyboardType="number-pad"
+                placeholder={String(retentionEffective[row.key])}
+                placeholderTextColor={theme.colors.textFaint}
+              />
+            </View>
+          ))}
+          <TouchableOpacity
+            style={styles.permissionAdd}
+            onPress={commitRetention}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="save-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.permissionAddText}>{t('workspace.settings.retention.save')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     if (id === 'skills') {
       return (
         <View>
@@ -413,7 +488,7 @@ export default function WorkspaceSettingsSheet({
             ))}
           </View>
           <TextInput
-            style={styles.permissionInput}
+            style={styles.sheetInput}
             value={ruleTool}
             onChangeText={setRuleTool}
             autoCapitalize="none"
@@ -422,7 +497,7 @@ export default function WorkspaceSettingsSheet({
             placeholderTextColor={theme.colors.textFaint}
           />
           <TextInput
-            style={styles.permissionInput}
+            style={styles.sheetInput}
             value={ruleMatch}
             onChangeText={setRuleMatch}
             autoCapitalize="none"
@@ -657,7 +732,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(13),
     fontWeight: '600',
   },
-  permissionInput: {
+  // 手写规则 / 保留口径共用的输入框（两处都是「草稿 → 宿主落盘」）。
+  sheetInput: {
     marginTop: 8,
     paddingVertical: 7,
     paddingHorizontal: 10,
@@ -666,6 +742,20 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     color: theme.colors.text,
     fontSize: fonts.scaled(12),
+  },
+  retentionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  retentionLabel: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: fonts.scaled(12),
+  },
+  retentionRange: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(10),
   },
   permissionAdd: {
     flexDirection: 'row',

@@ -11,8 +11,12 @@
 // 诚实边界：超出 repoPush 三重限额（文件数/单文件/总量）的条目 content 为 null，
 // 快照如实记 reason——回滚入口对这些条目明确「不可自动恢复」，绝不假装能回。
 
+import { ROLLBACK_KEEP_DEFAULT, retentionOf } from './retention.js';
+
 export const ROLLBACK_DIR = '.easychat/rollback';
-export const ROLLBACK_KEEP = 3;
+// 默认保留最近 3 份（**可配置**：`store.retention.rollbackKeep`，见 retention.js；
+// 每份都可能几 MB，不能无限留）。这个名字保留给既有调用与测试。
+export const ROLLBACK_KEEP = ROLLBACK_KEEP_DEFAULT;
 
 export function rollbackSnapshotPath(ts) {
   const at = Number.isFinite(Number(ts)) && Number(ts) > 0 ? Math.floor(Number(ts)) : Date.now();
@@ -109,15 +113,16 @@ export async function readLatestRollbackSnapshot(store, characterId) {
   }
 }
 
-// IO：写快照 + 轮换（保留最近 3 份）。返回写入路径或 null（写失败静默——旁路机制）。
+// IO：写快照 + 轮换（保留生效口径的最近 N 份）。返回写入路径或 null（写失败静默——旁路机制）。
 export async function writeRollbackSnapshot(store, characterId, payload) {
   if (!store || typeof store.writeWorkspaceFile !== 'function') return null;
   try {
     const path = rollbackSnapshotPath(payload && payload.at);
     await store.writeWorkspaceFile({ characterId, path, content: JSON.stringify(payload) });
-    // 轮换：写成功后删最旧的（删除失败无害——下次再删）。
+    // 轮换：写成功后删最旧的（删除失败无害——下次再删）。份数取 store.retention
+    // （缺失 = 默认 3），配置改了立即生效。
     const snapshots = await listRollbackSnapshots(store, characterId);
-    for (const stale of rollbackRotationDeletes(snapshots)) {
+    for (const stale of rollbackRotationDeletes(snapshots, retentionOf(store).rollbackKeep)) {
       try {
         await store.deleteFile({ characterId, path: stale });
       } catch (error) {}
