@@ -13,7 +13,7 @@
 // 不再出现跨面板的 Modal 叠 Modal。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
@@ -21,6 +21,7 @@ import { useTranslation } from '../../i18n/I18nContext.js';
 import { getWorkspaceSettings } from '../../storage/workspace.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore } from '../native.js';
+import { resolveWorkspaceLayout } from '../layout.js';
 import ChatPanel from './ChatPanel.js';
 import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
@@ -40,6 +41,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // P1-5：宽屏左右分栏（对话常驻 + 选中领域并排），窄屏单屏切换。
+  const { width } = useWindowDimensions();
+  const wide = resolveWorkspaceLayout({ width }) === 'split';
 
   const [panel, setPanel] = useState('chat');
   // 跨面板深链：聊天面板里的「导出/历史/环境配置」要直接落到文件面板的对应层
@@ -94,6 +98,15 @@ export default function WorkspaceScreen({ visible, onClose }) {
     setPanel('chat');
   }, []);
 
+  const renderPanel = id => {
+    if (id === 'chat') return <ChatPanel visible={visible} onClose={onClose} draft={draft} onOpenPanel={openFiles} />;
+    if (id === 'files') return <FilesPanel visible={visible} embedded initialSection={filesSection} onClose={backToChat} />;
+    if (id === 'github') return <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />;
+    if (id === 'terminal') return <TerminalPanel characterId={characterId} />;
+    if (id === 'settings') return <WorkspaceSettingsPanel characterId={characterId} onClose={backToChat} />;
+    return null;
+  };
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
@@ -136,33 +149,17 @@ export default function WorkspaceScreen({ visible, onClose }) {
             <View style={styles.railSpacer} />
           </View>
 
-          <View style={styles.content}>
-            {panel === 'chat' ? (
-              <ChatPanel
-                visible={visible}
-                onClose={onClose}
-                draft={draft}
-                onOpenPanel={openFiles}
-              />
-            ) : null}
-            {panel === 'files' ? (
-              <FilesPanel
-                visible={visible}
-                embedded
-                initialSection={filesSection}
-                onClose={backToChat}
-              />
-            ) : null}
-            {panel === 'github' ? (
-              <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
-            ) : null}
-            {panel === 'terminal' ? (
-              <TerminalPanel characterId={characterId} />
-            ) : null}
-            {panel === 'settings' ? (
-              <WorkspaceSettingsPanel characterId={characterId} onClose={backToChat} />
-            ) : null}
-          </View>
+          {wide ? (
+            <View style={styles.splitRow}>
+              {/* 宽屏：对话常驻左半；选中非对话领域时右半并排（分栏）。 */}
+              <View style={styles.splitPrimary}>{renderPanel('chat')}</View>
+              {panel !== 'chat' ? (
+                <View style={styles.splitSecondary}>{renderPanel(panel)}</View>
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.content}>{renderPanel(panel)}</View>
+          )}
         </View>
       </View>
     </Modal>
@@ -218,4 +215,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   railLabelActive: { color: theme.colors.primary, fontWeight: '700' },
   railSpacer: { flex: 1 },
   content: { flex: 1 },
+  // P1-5 宽屏分栏：对话（左）+ 选中领域（右）并排，中间一条分隔线。
+  splitRow: { flex: 1, flexDirection: 'row' },
+  splitPrimary: { flex: 1, minWidth: 0 },
+  splitSecondary: {
+    flex: 1,
+    minWidth: 0,
+    borderLeftWidth: tokens.border.thin,
+    borderLeftColor: theme.colors.divider,
+  },
 });

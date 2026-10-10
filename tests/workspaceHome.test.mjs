@@ -131,7 +131,10 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   assert.ok(SCREEN.includes('GithubPanel'), 'GitHub 面板');
   assert.ok(SCREEN.includes('TerminalPanel'), '终端面板');
   assert.ok(SCREEN.includes('WorkspaceSettingsPanel'), '设置面板');
-  assert.ok(SCREEN.includes("panel === 'chat'") && SCREEN.includes("panel === 'files'"), '面板互斥渲染');
+  assert.ok(SCREEN.includes("id === 'chat'") && SCREEN.includes("id === 'files'"), '面板互斥渲染');
+  // P1-5：宽屏左右分栏（对话常驻 + 选中领域并排），窄屏单屏切换。
+  assert.ok(SCREEN.includes('resolveWorkspaceLayout'), '按宽度决定分栏 / 单屏');
+  assert.ok(SCREEN.includes("renderPanel('chat')") && SCREEN.includes('splitSecondary'), '宽屏分栏渲染');
 
   assert.ok(PANEL.includes('initialSection = '), '文件面板接受 initialSection');
   assert.ok(PANEL.includes("if (section === 'viewer')"), 'viewer 定位');
