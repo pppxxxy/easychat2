@@ -485,4 +485,9 @@ export const chat = {
   'chat.running.stop': '停止生成',
   'chat.running.a11y.open': '切换到 {name}',
   'chat.running.unknown': '未知角色',
+  // ---- 分支回退联动工作区（chat/useWorkspaceRewind.js，Z 系采纳 #7）----
+  'chat.branch.rewindWorkspace.title': '一并回退工作区文件？',
+  'chat.branch.rewindWorkspace.body': '这条分支之后有 {count} 个工作区文件被改过。是否把文件也回退到该分支的时刻？',
+  'chat.branch.rewindWorkspace.skip': '只回退对话',
+  'chat.branch.rewindWorkspace.confirm': '一并回退文件',
 };

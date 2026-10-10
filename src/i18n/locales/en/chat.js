@@ -485,4 +485,9 @@ export const chat = {
   'chat.running.stop': 'Stop generation',
   'chat.running.a11y.open': 'Switch to {name}',
   'chat.running.unknown': 'Unknown character',
+  // ---- Branch checkout rewinds workspace files (chat/useWorkspaceRewind.js, Z-series #7) ----
+  'chat.branch.rewindWorkspace.title': 'Rewind workspace files too?',
+  'chat.branch.rewindWorkspace.body': '{count} workspace file(s) were changed after this branch point. Rewind the files to that moment as well?',
+  'chat.branch.rewindWorkspace.skip': 'Conversation only',
+  'chat.branch.rewindWorkspace.confirm': 'Rewind files too',
 };

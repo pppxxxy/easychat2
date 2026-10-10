@@ -180,6 +180,7 @@ import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
 import RunningRunsBar from './chat/RunningRunsBar.js';
+import useWorkspaceRewind from './chat/useWorkspaceRewind.js';
 import { sessionRuns } from './agent/runtime/sessionRuns.js';
 import ChatComposer from './chat/ChatComposer.js';
 import EngineStatusBar from './localModel/EngineStatusBar.js';
@@ -1200,6 +1201,8 @@ export default function ChatScreen() {
     refreshToken: branchesRefreshToken,
   });
 
+  const rewindWorkspace = useWorkspaceRewind({ messagesRef, sessionsRef }); // Z 系 #7：分支回退联动工作区
+
   // 切换到某条分支：把活动时间线替换为「分叉点及其之前 + 分支尾段」。
   // 被替换掉的当前尾段也归档成新分支，使来回切换不丢消息。
   const onCheckoutBranch = useCallback(async branch => {
@@ -1257,12 +1260,13 @@ export default function ChatScreen() {
         await removeVectorIndexForSession(vectorOwnerId, sessionId).catch(() => {});
       }
       setMessages(nextMessages);
+      rewindWorkspace({ sessionId, forkMessageId: plan.forkMessageId }).catch(() => {});
       reloadBranches();
       autoScrollToBottom();
     } catch (error) {
       Alert.alert(t('chat.branch.checkoutFailed.title'), t('chat.branch.checkoutFailed.body'));
     }
-  }, [autoScrollToBottom, character, characterId, isSending, isSwitching, ready, reloadBranches, sessionTransitionPending, t, updateCharacter]);
+  }, [autoScrollToBottom, character, characterId, isSending, isSwitching, ready, reloadBranches, rewindWorkspace, sessionTransitionPending, t, updateCharacter]);
 
   const onDeleteBranch = useCallback(async branch => {
     if (!branch || !branch.id) return;
