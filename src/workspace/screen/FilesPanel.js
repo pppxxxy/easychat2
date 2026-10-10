@@ -248,6 +248,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 两行字才知道删的是哪个文件）。这里只记下「在等哪一次确认」，真正的删除在 confirmDelete。
   const [pendingDelete, setPendingDelete] = useState(null);
   const [pendingClear, setPendingClear] = useState(false);
+  const [pendingDirDelete, setPendingDirDelete] = useState(null);
 
   const handleDelete = useCallback(name => {
     setPendingDelete({ name });
@@ -284,26 +285,23 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       return;
     }
     const label = String(path).split('/').filter(Boolean).slice(-1)[0] || String(path);
-    Alert.alert(
-      t('workspace.panel.delete.dirTitle'),
-      t('workspace.panel.delete.dirBody', { name: label }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            store.deleteWorkspaceDirectory({ characterId, path })
-              .then(() => {
-                if (!mountedRef.current) return;
-                setFiles(list => list.filter(entry => entry !== path));
-              })
-              .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
-          },
-        },
-      ]
-    );
+    // P4-4：删除确认改用面板内确认条（与删除文件、清空改动同一形状）。
+    // 上面「非空目录」那处**保持系统 Alert**——那是「用户没预期的拒绝」，属于必须打断的场景。
+    setPendingDirDelete({ path, label });
   }, [characterId, files, t]);
+
+  const confirmDirDelete = useCallback(() => {
+    const target = pendingDirDelete && pendingDirDelete.path;
+    setPendingDirDelete(null);
+    const store = storeRef.current;
+    if (!target || !store || typeof store.deleteWorkspaceDirectory !== 'function') return;
+    store.deleteWorkspaceDirectory({ characterId, path: target })
+      .then(() => {
+        if (!mountedRef.current) return;
+        setFiles(list => list.filter(entry => entry !== target));
+      })
+      .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
+  }, [characterId, pendingDirDelete, t]);
 
   // D1：导入文本文件到**当前浏览的目录**（根层沿用 imports/ 旧落点）——技能生态的
   // 关键通路：在 .easychat/skills/<名字>/ 里导入即建资源文件（scripts、templates）。
@@ -1084,6 +1082,20 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               cancelLabel={t('common.cancel')}
               onConfirm={confirmClear}
               onCancel={() => setPendingClear(false)}
+              theme={theme}
+              fonts={fonts}
+              tokens={tokens}
+            />
+          ) : null}
+
+          {pendingDirDelete ? (
+            <ConfirmBar
+              title={t('workspace.panel.delete.dirTitle')}
+              body={t('workspace.panel.delete.dirBody', { name: pendingDirDelete.label })}
+              confirmLabel={t('common.delete')}
+              cancelLabel={t('common.cancel')}
+              onConfirm={confirmDirDelete}
+              onCancel={() => setPendingDirDelete(null)}
               theme={theme}
               fonts={fonts}
               tokens={tokens}

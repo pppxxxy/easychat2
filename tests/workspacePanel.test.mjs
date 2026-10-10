@@ -172,7 +172,7 @@ test('F1/F2/F3 文件面板：子目录空状态 + 空目录可删（非空拦�
   assert.ok(source.includes("t('workspace.panel.delete.dirNonEmpty.title')"), '非空目录有明确提示');
   assert.ok(source.includes('store.deleteWorkspaceDirectory'), '删除走 store 的空目录专用方法');
   assert.ok(
-    source.includes("t('workspace.panel.delete.dirBody', { name: label })"),
+    source.includes("t('workspace.panel.delete.dirBody', { name: pendingDirDelete.label })"),
     '删除前有确认（说清影响与不可恢复）'
   );
   // F3：项目卡副标题带路径前缀（旧格式残留与真项目一眼分辨）+ 空组明确标注
