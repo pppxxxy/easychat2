@@ -129,7 +129,7 @@ import WorkspaceSettingsSheet from '../WorkspaceSettingsSheet.js';
 import { hexToRgba } from '../../theme/themes.js';
 import {
   buildWorkspaceAgentMessages,
-  buildWorkspaceAgentSystemPrompt,
+  buildWorkspaceAgentSystemPrompt, resolveSendText,
   projectWorkspaceChatHistory,
   toolOrderSignature,
 } from '../chat.js';
@@ -986,12 +986,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     if (controllerRef.current) controllerRef.current.abort();
   }, []);
 
-  // I2：overrideText——计划批准链路在模式切换后的新渲染里带确认文本发起。
+  // I2：overrideText 只认字符串——`onPress={handleSend}` 会传点击事件对象，见 resolveSendText。
   const handleSend = useCallback(async overrideText => {
-    const text = String(overrideText === undefined ? input : overrideText).trim();
+    const text = resolveSendText(overrideText, input);
     // N2：手动压缩命令 `/compact`（工作区会话）。
     if (!sending && text === '/compact') {
-      if (overrideText === undefined) {
+      if (typeof overrideText !== 'string') {
         setInput('');
         persistDraft(characterId, activeChatId, '');
       }
@@ -1079,7 +1079,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
     // I2：批准链路（overrideText）不碰输入框、草稿与附件——用户可能正打着别的话。
-    if (overrideText === undefined) {
+    if (typeof overrideText !== 'string') {
       persistDraft(ownerId, chatId, '');
       setInput('');
       setAttachments([]);

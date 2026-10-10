@@ -168,7 +168,10 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes('pendingPlanRun'), '批准走 state→effect 触发');
   assert.ok(screen.includes("handleSelectMode('write')"), '先切模式（持久化到存储）');
   assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
-  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
-  assert.ok(screen.includes('if (overrideText === undefined)'), 'overrideText 路径有草稿保护');
+  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）。
+  // 判据是「**是字符串**」而不是「非 undefined」：`onPress={handleSend}` 会把点击事件对象
+  // 当第一个实参传进来，按「非 undefined」判断会让工作区发什么都变成 "[object Object]"
+  //（见 resolveSendText 的注释与回归测试）。
+  assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
   assert.ok(screen.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
 });

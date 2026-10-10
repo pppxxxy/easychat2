@@ -6,6 +6,7 @@ import {
   buildWorkspaceAgentMessages,
   buildWorkspaceAgentSystemPrompt,
   projectWorkspaceChatHistory,
+  resolveSendText,
   toolOrderSignature,
   workspaceAgentModeHint,
   workspaceExecutionToolHints,
@@ -178,4 +179,27 @@ test('P5：projectWorkspaceChatHistory 展开 toolTrace，tool 消息透传', ()
   assert.equal(projected[3].content, '读完了');
   // 无轨迹的普通消息行为不变
   assert.deepEqual(projectWorkspaceChatHistory([{ role: 'user', content: 'x' }]), [{ role: 'user', content: 'x' }]);
+});
+
+// 回归：工作区里发什么都变成 "[object Object]"。
+// 根因是 `onPress={handleSend}`——RN 会把**点击事件对象**当第一个实参传给 handleSend，
+// 而当时的判据是「不是 undefined 就用它」，于是 `String(事件对象)` 成了 "[object Object]"。
+test('resolveSendText：事件对象不算 override（只认字符串），否则会发出 [object Object]', () => {
+  // 按钮点击：RN 传进来的是一个事件对象 → 必须回落到输入框
+  const pressEvent = { nativeEvent: { pageX: 1, pageY: 2 }, persist() {} };
+  assert.equal(resolveSendText(pressEvent, '你好'), '你好');
+  assert.notEqual(resolveSendText(pressEvent, '你好'), '[object Object]');
+  // 数字/布尔/null 同样不是文本，一并回落（只有字符串才算显式覆盖）
+  for (const bad of [0, 1, true, false, null, {}, [], () => {}]) {
+    assert.equal(resolveSendText(bad, '输入框内容'), '输入框内容', `${String(bad)} 不该被当作文本`);
+  }
+  // 计划批准链路（I2）传的是真字符串 → 照常覆盖输入框
+  assert.equal(resolveSendText('确认执行计划', '用户正打着的别的话'), '确认执行计划');
+  assert.equal(resolveSendText('', '输入框内容'), '', '空字符串是显式覆盖（清空发送）');
+  // 输入框为空时回落为空串，不抛
+  assert.equal(resolveSendText(undefined, undefined), '');
+  assert.equal(resolveSendText(pressEvent, undefined), '');
+  // 两侧都做 trim（与旧行为一致）
+  assert.equal(resolveSendText('  x  ', 'y'), 'x');
+  assert.equal(resolveSendText(undefined, '  y  '), 'y');
 });

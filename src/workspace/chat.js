@@ -188,3 +188,15 @@ export function buildWorkspaceAgentMessages({ systemPrompt, history, userText, i
   }
   return messages;
 }
+
+// 解析「这一轮到底发什么文本」。
+//
+// **只认字符串**：`onPress={handleSend}` 会把 React Native 的**点击事件对象**当第一个实参
+// 传进来（那是 RN 的约定，不是调用方写错）。若按「不是 undefined 就用它」判断，
+// `String(事件对象)` 恰好是 `"[object Object]"`——表现就是**工作区里发什么都变成
+// [object Object]**。事件对象不是文本，一律回落到输入框。
+// 计划批准链路（I2）传的是真字符串，照常生效。
+export function resolveSendText(overrideText, input) {
+  const source = typeof overrideText === 'string' ? overrideText : input;
+  return String(source == null ? '' : source).trim();
+}
