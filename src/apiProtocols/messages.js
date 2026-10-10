@@ -1,5 +1,8 @@
 // 内部消息形态 → 各协议 messages/input 的转换。纯函数。
 import { toAnthropicImagePart, toTextParts } from './multimodal.js';
+// Z/M/D 整合：system 断点位置由 prompt/systemSections 的稳定前缀决定（systemCache），
+// TTL/off 开关复用 D 系 cacheControl——两边合成一套。
+import { DEFAULT_PROMPT_CACHE_TTL, cacheControlFor } from './cacheControl.js';
 
 function safeParseJson(text) {
   try {
@@ -29,7 +32,9 @@ export function eachMessage(messages) {
 // Anthropic Messages：system 抽到顶层；assistant 的 tool_calls → tool_use；
 // tool → tool_result；连续同角色合并；首条必须是 user（否则把开头 assistant 文本
 // 并入 system，避免请求被拒）。
-export function toAnthropicRequest(messages) {
+export function toAnthropicRequest(messages, { cacheTtl = DEFAULT_PROMPT_CACHE_TTL } = {}) {
+  // off → null → 系统前缀不打标（不缓存）；'1h' → 带 ttl。与 D 系 cacheControl 同源。
+  const cacheControl = cacheControlFor(cacheTtl);
   const systemParts = [];
   // 带缓存断点的分块（仅当系统消息携带 systemCache，见 prompt/systemSections.js）。
   // Anthropic 的 system 接受 content block 数组，末块可带 cache_control。
@@ -55,7 +60,7 @@ export function toAnthropicRequest(messages) {
         systemBlocks.push({
           type: 'text',
           text: message.systemCache.prefixText,
-          cache_control: { type: 'ephemeral' },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
         });
         if (message.systemCache.restText) {
           systemBlocks.push({ type: 'text', text: message.systemCache.restText });

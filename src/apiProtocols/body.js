@@ -56,14 +56,16 @@ export function buildRequestBody({
   const level = ['low', 'medium', 'high'].includes(levelRaw) ? levelRaw : 'medium';
 
   if (protocol === 'anthropic') {
-    const { system, messages: turns } = toAnthropicRequest(messages);
-    // P1-1：显式缓存断点（system 尾 / tools 尾 / 历史稳定前缀）。关闭时逐字原样返回，
-    // 请求体与加这个特性之前完全一致。
+    // 缓存 TTL/off 只解析一次，system 断点（Z 系稳定前缀）与 tools/历史断点（D 系）共用。
+    const cacheTtl = normalizePromptCacheTtl(config && config.promptCacheTtl);
+    const { system, messages: turns } = toAnthropicRequest(messages, { cacheTtl });
+    // P1-1：显式缓存断点（tools 尾 / 历史稳定前缀）；system 断点已在上面按稳定前缀打好。
+    // 关闭（off）时逐字原样返回，请求体与加这个特性之前完全一致。
     const cached = applyAnthropicCacheControl({
       system,
       messages: turns,
       tools: toolList.length ? buildAnthropicTools(toolList) : null,
-      ttl: normalizePromptCacheTtl(config && config.promptCacheTtl),
+      ttl: cacheTtl,
     });
     const body = {
       model,
