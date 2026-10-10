@@ -158,3 +158,39 @@ P0 独立立项（E2 已覆盖）/ 时间阈值触发 / 压缩后自动重读文
 两条独立线都撞到同一架构问题。
 
 门禁：lint 无输出、guard（棘轮/循环）通过、2447/2447、行覆盖 80.12%。
+
+## Z 系并入 D 线（2026-10-10，分支 `d1010d2`）
+
+以 `m1010m7` 为基座并入 `origin/z1010z4`，形成新的 D 线。
+
+**先核对再动手**：逐条用 `git merge-base --is-ancestor` 验过——M 线（`m1010m7`）**已经吸收了 Z 线全部
+实质提交**（K1 `resultClearing` / N1 reactive / N2 四档 / O0-O2 落盘 / P1-P5 dsh 对齐 / Q 批）；
+`m1010m7..z1010z4` 只剩 2 个提交。所以本次真正带进来的只有 `f322448`「Z/M/D 三条线去重（整合第 1 阶段）」，
+**没有想象中那种大规模取长补短**。
+
+**`f322448` 带来的语义**（已核实真的落地，不是被静默丢掉）：
+- `compactionPolicy.js` 成为全仓唯一阈值来源：余量取 M 系 65536（Z 旧值 13000 在同窗口下会晚压约
+  50k token），并入 D 系三个具名比例（0.8 记忆总结 / 0.85 会话压缩 / 0.7 提示条，注明不是笔误）；
+  M 系 `resolveCompactionThreshold` 改为委托。
+- **微压缩只留一套**：删 Z 系 `microcompact.js`（就地截断、中段丢失），保留 M 系 K1。
+- 触发统一：`useAutoCompact` 走 policy，ChatScreen 传 maxOutput/字节阈值。
+
+**冲突裁决（6 文件）**：
+- `prompt/chatPipeline.js`：纯 import 顺序差异，取其一。
+- `agent/loop.js`：turn 状态机 import 与 `machine.startModelRequest()` 在两侧位置不同，各保留一处；
+  顺序取 HEAD（进入请求阶段 → K1 清理 → 发请求）。
+- `chat/contextUsage.js`：两侧各加了一个**互不冲突**的函数（HEAD 的 `estimateTextTokens` /
+  Z 的 `COMPACTION_HEADROOM_TOKENS` + `resolveCompactionThreshold` + `shouldAutoCompactTokens`）→ 取并集；
+  git 把 `shouldAutoCompactTokens` 判成「Z 侧未采纳」，已补回。
+- `chat/useChatSend.js`：同一功能两种写法，取 Z 的原子版（一次 `setMessages` 内先 replace 再 attach），
+  消掉两次状态更新之间的中间态。
+- `tests/contextUsage.test.mjs`：两块测试各测一件事（D 系三档阈值具名 / Z 系阈值公式），都保留；import 取并集。
+- `architecture-baseline.json`：按守卫口径（`wc -l`）逐个复核，18 个文件全部与 HEAD 基线持平 → 取 HEAD 块。
+
+**未并入（如实登记）**：D 线 `d1010d1` 的 **P2-8（较早轮次工具结果换占位标记）没有进本分支**。
+它与 K1 是同一块地，且**每个维度都更弱**——K1：unseen 保护 + 最近 3 条工作台 + 按大小驱逐 + **落盘可读回** +
+落盘失败保原文 + 配对自检；P2-8：不落盘、阈值 24KB、按轮保护。本项目自己的整合原则也正是「微压缩只留一套」
+（`f322448` 删 Z 系 microcompact 用的就是这条）。P2-8 的代码仍在 `d1010d1`，需要时一条
+`git cherry-pick 76ebe0e` 可取回。
+
+门禁：lint 0、`node --test` 2442/2442、guard:structure ok（棘轮/循环）、i18n 缺失键 0。
