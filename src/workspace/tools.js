@@ -25,6 +25,7 @@ import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
 import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from './toolDefs/execTools.js';
 import { GIT_TOOL_DEFINITIONS } from './toolDefs/gitTools.js';
+import { unregisterAllMcpTools } from './mcpTools.js';
 
 // 兼容导出：read 工具的格式化实现随定义搬去了 readTools.js，既有引用点（含测试）从这里取。
 export { formatWorkspaceReadResult };
@@ -152,4 +153,7 @@ export function unregisterWorkspaceTools() {
   // run_shell / run_python / git_* 不在基础清单里（它们按开关单独加），但注册过就必须能
   // 摘掉，否则关掉开关后它们仍留在注册表里——门控就漏了第一层。
   for (const name of [...WORKSPACE_TOOL_NAMES, SHELL_TOOL_NAME, PYTHON_TOOL_NAME, ...GIT_TOOL_NAMES]) unregisterTool(name);
+  // MCP（含内置 GitHub）也是这条路径注册的（见 agentToolSetup）——一并摘掉，
+  // 否则离开工作区后它们仍留在全局注册表里：注册过就必须能摘掉（门控第一层）。
+  unregisterAllMcpTools();
 }

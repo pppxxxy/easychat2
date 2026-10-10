@@ -4,7 +4,7 @@
 //（局部更新，绝不整体 save，否则切模式会把刚选好的文件夹与开关冲回默认）。
 // 面板内的二级层（选文件夹走系统选择器）不在本组件里，不产生任何 Modal 嵌套。
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -18,6 +18,8 @@ import useWorkspaceSettings from '../../settings/useWorkspaceSettings.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { isShellAvailable } from '../shell.js';
 import { isPythonBridgePresent } from '../python.js';
+import { getGithubMcpSettings } from '../../storage/githubMcp.js';
+import { filterMcpToolsForRegistration } from '../../mcp/riskGate.js';
 
 export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
   const { theme, fonts } = useTheme();
@@ -37,6 +39,29 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
     localGit,
     toggleLocalGit,
   } = useWorkspaceSettings({ characterId });
+
+  // 2026-10-11（用户裁决）：工作区 agent 也挂 MCP 工具（含内置 GitHub）——能力卡要**如实**
+  // 列出来，否则用户看到的是「工作区只有文件工具」。清单用与注册同一套 riskGate 过滤
+  //（硬禁止类不列），所以卡片不会承诺注册表里没有的东西。
+  const [mcpToolNames, setMcpToolNames] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    getGithubMcpSettings()
+      .then(mcpSettings => {
+        if (!alive) return;
+        if (!mcpSettings || mcpSettings.enabled !== true) {
+          setMcpToolNames([]);
+          return;
+        }
+        // 目录是连接时落盘的快照（[{name,description,parameters,tier}]）——这里按同一套
+        // riskGate 重查一遍（不信快照，与注册路径同纪律），只列真会被注册的那些。
+        const catalog = Array.isArray(mcpSettings.toolCatalog) ? mcpSettings.toolCatalog : [];
+        const { allowed } = filterMcpToolsForRegistration(catalog);
+        setMcpToolNames(allowed.map(item => item.name));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const isExternal = workspaceFolder.kind === WORKSPACE_ROOT_KINDS.SAF;
   // 执行类开关都需要「可改」模式 + 应用内根：外部根下 shell 碰不到 content://，
@@ -160,6 +185,7 @@ export default function WorkspaceSettingsPanel({ characterId = 'default' }) {
         }}
         shellAvailable={isShellAvailable()}
         pythonAvailable={isPythonBridgePresent()}
+        mcpToolNames={mcpToolNames}
       />
     </ScrollView>
   );

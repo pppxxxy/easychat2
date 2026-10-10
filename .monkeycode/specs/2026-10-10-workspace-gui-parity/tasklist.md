@@ -381,3 +381,29 @@ agent 至今**没有任何办法把「我改了什么」变成一份可回滚的
 
 **验证**：五门全过（2517 测试、覆盖 79.97%、export 9.35MB）。三处源码钉死测试随契约搬家
 重新指向（占用口径搬到 usage.js、侧栏面板搬到 SessionSidePanels、卡片入口新增）。
+
+## 十一、工作区 agent 开 MCP GitHub 工具（2026-10-11，用户裁决）
+
+**背景**：W3④ 只修了「文案说了做不到」这个缺陷，把是否给工作区 agent 开 GitHub 工具留给产品
+决策。用户裁决：**开**。
+
+**改了什么**：
+- `agentToolSetup.js`：注册工作区文件工具后挂 MCP（`ensureMcpToolsRegistered`），**顺序在列工具
+  之前**（否则 GitHub 工具进不了清单）；`registerMcp` 可注入（Node 可测）；MCP 抛错不影响文件
+  工具（MCP 是增强，不是依赖）。函数因此变 async，ChatPanel 的调用点跟着 await。
+- `tools.js` 的 `unregisterWorkspaceTools`：一并 `unregisterAllMcpTools()`——MCP 也是这条路径
+  注册的，离开工作区后不能留在全局注册表里（注册过就必须能摘掉）。
+- 能力卡如实列出：`activeWorkspaceTools` / `capabilityViewModel` 收 `mcpToolNames`；设置面板用
+  **同一套 riskGate** 过滤目录快照后传进去（不信快照，与注册路径同纪律）——卡片不会承诺
+  注册表里没有的工具。
+- **文案回正**：昨天（W3④）把推送指令改成「工作区助手没有 GitHub 写工具，推不了」，那是当时
+  的事实；现在接上了，改回「用 GitHub 工具逐个比对后提交（写入类每次都会请你确认）」。
+  `repoImport.js` 的注释同理回正，并记下「这条通路一度是断的」。
+
+**安全面不变**（这点最关键）：仍由 `mcp/riskGate` 决定注册哪些——只读类直接放行（read 模式
+即可用）、写入类（提交/推送/开分支/PR/评论）注册但**每次调用逐条确认**、删除/强推/管理类
+**全局硬禁止**（无开关、无弹框、用户同意也不行）。工作区 agent 拿到的能力边界与角色聊天一致。
+
+**验证**：测试 +3（MCP 注册顺序与失败隔离 / 能力卡列 MCP 工具去重与空名 / **GitHub 工具在
+read·write 两档的门控与逐条确认，且硬禁止类不在注册表**）；注入验证「不再挂 MCP」变红。
+五门全过（2520 测试、覆盖 79.63%、export 9.35MB）。

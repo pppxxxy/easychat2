@@ -142,7 +142,7 @@ export const workspace = {
   'workspace.github.push.instructionHead': '请把工作区本地副本 repos/{owner}/{repo}/{branch}/ 的改动同步到 GitHub 仓库 {owner}/{repo}（分支 {branch}）。',
   'workspace.github.push.instructionAdded': '本地新增（{count}）：\n{list}',
   'workspace.github.push.instructionRemoved': '本地已删除（{count}）：\n{list}',
-  'workspace.github.push.instructionTail': '内容有改动的文件请你逐个读出来比对（本地清单不含内容哈希，判定不了内容变化）；确认无误后，请用 GitHub 面板的「推送」按钮提交——工作区助手没有 GitHub 写工具，推不了。',
+  'workspace.github.push.instructionTail': '内容有改动的文件请用 GitHub 工具逐个比对后提交（本地清单不含内容哈希，判定不了内容变化；写入类操作每次都会请你确认）。',
   'workspace.github.pull.action': '拉取快照',
   'workspace.github.pull.busy': '下载中…',
   'workspace.github.pull.progress': '写入 {done}/{total}…',

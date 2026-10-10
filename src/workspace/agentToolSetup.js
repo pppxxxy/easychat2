@@ -10,10 +10,16 @@
 
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { registerDefaultWorkspaceTools } from './native.js';
+import { ensureMcpToolsRegistered } from './mcpTools.js';
 import { toolOrderSignature } from './chat.js';
 
-// register 可注入（测试用假注册表；生产走 registerDefaultWorkspaceTools）。
-export function registerWorkspaceAgentTools({
+// register / registerMcp 都可注入（测试用假注册表；生产走真实实现）。
+//
+// 2026-10-11（用户裁决）：**工作区 agent 也挂 MCP 工具**（含内置 GitHub）。此前只有角色聊天挂，
+// 结果是工作区的「让助手推送」让模型去用根本不存在的 GitHub 工具。安全面不变——仍由
+// riskGate 决定注册哪些（删除/强推/管理类**全局硬禁止**）、写入类逐条确认（与角色聊天同一套）。
+// 注册失败不影响文件工具（MCP 是增强，不是依赖）。
+export async function registerWorkspaceAgentTools({
   settings,
   mode,
   readLog = null,
@@ -21,6 +27,7 @@ export function registerWorkspaceAgentTools({
   onPlan = null,
   previous = {},
   register = registerDefaultWorkspaceTools,
+  registerMcp = ensureMcpToolsRegistered,
 } = {}) {
   // ask 模式没有工具：不注册、不签名（与旧行为逐字一致）。
   if (mode === 'ask') return { tools: [], signature: '', prevSignature: '', drifted: false };
@@ -30,6 +37,13 @@ export function registerWorkspaceAgentTools({
     // W3②：计划随会话落盘（宿主注入；不注入 = 不落盘，与旧行为一致）。
     onPlan: typeof onPlan === 'function' ? onPlan : null,
   });
+  if (typeof registerMcp === 'function') {
+    try {
+      await registerMcp();
+    } catch (error) {
+      // MCP 挂了也要有文件工具可用。
+    }
+  }
   const tools = listToolsForMode(mode);
   const signature = toolOrderSignature(tools);
   const prevSignature = String((previous && previous[mode]) || '');

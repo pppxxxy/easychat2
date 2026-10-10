@@ -1094,7 +1094,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     let tools = [];
     if (mode !== 'ask') {
       try {
-        const setup = registerWorkspaceAgentTools({
+        const setup = await registerWorkspaceAgentTools({
           settings: wsSettingsRef.current || wsSettings, mode,
           readLog: readLogRef.current, materializer: materializeForAgent,
           // W3②：计划随会话落盘（此前只存在内存里，切面板/切会话就丢）。

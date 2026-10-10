@@ -142,7 +142,7 @@ export const workspace = {
   'workspace.github.push.instructionHead': 'Please sync the changes in the workspace local copy repos/{owner}/{repo}/{branch}/ to the GitHub repository {owner}/{repo} (branch {branch}).',
   'workspace.github.push.instructionAdded': 'Added locally ({count}):\n{list}',
   'workspace.github.push.instructionRemoved': 'Deleted locally ({count}):\n{list}',
-  'workspace.github.push.instructionTail': 'For files whose content changed, read them one by one and compare (the local manifest carries no content hashes, so it cannot tell content changes). Once you are happy, use the Push button in the GitHub panel — the workspace assistant has no GitHub write tools.',
+  'workspace.github.push.instructionTail': 'For files whose content changed, use the GitHub tools to compare and commit them one by one (the local manifest carries no content hashes, so it cannot tell content changes; write operations ask you to confirm each time).',
   'workspace.github.pull.action': 'Pull snapshot',
   'workspace.github.pull.busy': 'Downloading…',
   'workspace.github.pull.progress': 'Writing {done}/{total}…',

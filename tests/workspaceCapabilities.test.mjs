@@ -153,3 +153,19 @@ test('W7：开了本地版本控制且应用内根时，卡片如实列出三个
   assert.equal(saf.includes('git_status'), false, '外部根下没有 git（与 gitGateReason 一致）');
   assert.equal(activeWorkspaceTools({ mode: 'read' }).includes('git_status'), false, '开关关着不列');
 });
+
+test('2026-10-11：MCP 工具（含 GitHub）如实进能力卡清单（去重、跳过空名）', () => {
+  const withMcp = activeWorkspaceTools(
+    { mode: 'read' },
+    { mcpToolNames: ['github_read_file', 'github_create_or_update_file', '', '  ', 'github_read_file'] },
+  );
+  assert.ok(withMcp.includes('github_read_file'), 'GitHub 工具在清单里');
+  assert.ok(withMcp.includes('github_create_or_update_file'));
+  assert.equal(withMcp.filter(name => name === 'github_read_file').length, 1, '不重复');
+  assert.equal(withMcp.includes(''), false, '空名不进清单');
+  // 没连 MCP 时清单不变（既有行为）
+  assert.equal(activeWorkspaceTools({ mode: 'read' }).some(name => name.startsWith('github_')), false);
+  // 与基础工具不冲突：传进来的名字若已在清单里不重复加
+  const overlap = activeWorkspaceTools({ mode: 'read' }, { mcpToolNames: ['read_workspace_file'] });
+  assert.equal(overlap.filter(name => name === 'read_workspace_file').length, 1);
+});
