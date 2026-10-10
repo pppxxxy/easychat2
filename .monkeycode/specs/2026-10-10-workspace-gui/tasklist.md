@@ -61,11 +61,21 @@
       **只存比例、不存「侧栏选了谁」**——那是「当前在干什么」而不是偏好，每次打开都该回到对话；
       把它也持久化会让用户打开工作区时莫名停在文件面板上。`normalizeStoredLayout` 因此从
       `{ratio, side}` 收紧成 `{ratio}`。
-- [ ] P1-4 窄屏行为回归测试钉死。
+- [x] **P2-1（第一步）聊天消息检索内核**：新增纯函数 `src/chat/messageSearch.js`
+      （`messageSearchText` 认 content/text/多模态数组三种形态；`searchChatMessages` 返回
+      `{matches,total,truncated}`，与 `fileSearch.js` **同构**，但命中带 `index`——要能定位回
+      那条消息）。结果倒序、空查询不返回结果。测试 7 条。
+- [ ] P2-1（第二步）界面接线：`ChatPanel` 消息区加搜索条 + 命中跳转。
+      **ChatPanel 余量只剩 30 行**，需先把消息列表渲染拆出去（`renderBody` 式的具名分发）。
+- [x] **P1-4 窄屏行为**：由 `tests/splitLayout.test.mjs` 覆盖——`resolveWorkspaceLayout` 的
+      窄屏分支（`width < 900` → `single: true`，无论选哪个领域）就是窄屏行为的判据本身；
+      界面侧「窄屏走原条件渲染」由 `workspaceHome.test.mjs` 的分发函数断言间接钉住。
+      **不新增源码断言**（仓库约定：新增测试必须是行为测试）。
 
 ## P2 检索与导航
 
-- [ ] P2-1 聊天消息搜索（面板内搜索条 + 命中跳转）。
+- [x] P2-1（第一步）聊天消息检索内核（见上）。
+- [ ] P2-1（第二步）界面接线。
 - [x] **P2-2 会话历史搜索 + 排序**：新增纯函数 `src/workspace/chatHistoryView.js`
       （`chatPreview` / `filterChats` / `sortChats` / `buildChatHistoryView`）。关键词**同时匹配
       标题与预览**（用户记得的常是「那句话」）；预览收进纯函数是为了让**过滤与渲染用同一份**
